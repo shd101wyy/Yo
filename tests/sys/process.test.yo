@@ -18,23 +18,23 @@ test("spawn and waitpid", {
   argv := *(?*(u8))(argv_uninit.as_ptr());
   cond(
     (platform == Platform.Windows) => {
-      (argv.add(usize(0))).* =.Some(*(u8)("cmd.exe"));
-      (argv.add(usize(1))).* =.Some(*(u8)("/C"));
-      (argv.add(usize(2))).* =.Some(*(u8)("echo"));
-      (argv.add(usize(3))).* =.Some(*(u8)("yo_proc_test"));
-      (argv.add(usize(4))).* =.None;
+      (argv.add(usize(0))).* = .Some(*(u8)("cmd.exe"));
+      (argv.add(usize(1))).* = .Some(*(u8)("/C"));
+      (argv.add(usize(2))).* = .Some(*(u8)("echo"));
+      (argv.add(usize(3))).* = .Some(*(u8)("yo_proc_test"));
+      (argv.add(usize(4))).* = .None;
     },
     true => {
-      (argv.add(usize(0))).* =.Some(*(u8)("echo"));
-      (argv.add(usize(1))).* =.Some(*(u8)("yo_proc_test"));
-      (argv.add(usize(2))).* =.None;
+      (argv.add(usize(0))).* = .Some(*(u8)("echo"));
+      (argv.add(usize(1))).* = .Some(*(u8)("yo_proc_test"));
+      (argv.add(usize(2))).* = .None;
     }
   );
   file_path := cond(
     (platform == Platform.Windows) => *(u8)("cmd.exe"),
     true => *(u8)("echo")
   );
-  pid := io.await(process.spawn(file_path, argv,.None, i32(-(1)), write_fd, i32(-(1))), io);
+  pid := io.await(process.spawn(file_path, argv, .None, i32(-(1)), write_fd, i32(-(1))), io);
   unsafe(printf("  pid = %d\n", pid));
   assert(pid > i32(0), "spawn failed");
   c1 := io.await(file.close(write_fd), io);

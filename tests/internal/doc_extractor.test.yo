@@ -88,7 +88,7 @@ test("extracts a single /// doc comment for a declaration", {
   );
   tokens := lex_(`/// A trait.\nFoo :: trait();\n`, exn);
   result := extract_doc_comments(tokens);
-  has_module_doc := match(result.module_doc,.Some(_) => true,.None => false);
+  has_module_doc := match(result.module_doc, .Some(_) => true, .None => false);
   assert(!(has_module_doc), "no module doc");
   assert(result.declarations.len() == usize(1), "one declaration");
   match(
@@ -264,7 +264,7 @@ test("handles empty token stream", {
   );
   tokens := lex_(``, exn);
   result := extract_doc_comments(tokens);
-  has_module_doc := match(result.module_doc,.Some(_) => true,.None => false);
+  has_module_doc := match(result.module_doc, .Some(_) => true, .None => false);
   assert(!(has_module_doc), "no module doc");
   assert(result.declarations.len() == usize(0), "no declarations");
 });
@@ -434,9 +434,9 @@ test("extracts /// docs for struct fields", {
   source := `Point :: struct(\n  /// The x coordinate.\n  x : f64,\n  /// The y coordinate.\n  y : f64\n);`;
   docs := inline_docs_from_source_(source, exn);
   assert(docs.size == usize(2), "two docs");
-  x_val := match(docs.get(`x`),.Some(v) => v,.None => ``);
+  x_val := match(docs.get(`x`), .Some(v) => v, .None => ``);
   assert(x_val == `The x coordinate.`, "x doc");
-  y_val := match(docs.get(`y`),.Some(v) => v,.None => ``);
+  y_val := match(docs.get(`y`), .Some(v) => v, .None => ``);
   assert(y_val == `The y coordinate.`, "y doc");
 });
 test("handles struct with only some fields documented", {
@@ -451,11 +451,11 @@ test("handles struct with only some fields documented", {
   source := `Config :: struct(\n  /// The hostname.\n  host : str,\n  port : u16,\n  /// Enable TLS.\n  tls : bool\n);`;
   docs := inline_docs_from_source_(source, exn);
   assert(docs.size == usize(2), "two docs");
-  host_val := match(docs.get(`host`),.Some(v) => v,.None => ``);
+  host_val := match(docs.get(`host`), .Some(v) => v, .None => ``);
   assert(host_val == `The hostname.`, "host doc");
-  tls_val := match(docs.get(`tls`),.Some(v) => v,.None => ``);
+  tls_val := match(docs.get(`tls`), .Some(v) => v, .None => ``);
   assert(tls_val == `Enable TLS.`, "tls doc");
-  has_port := match(docs.get(`port`),.Some(_) => true,.None => false);
+  has_port := match(docs.get(`port`), .Some(_) => true, .None => false);
   assert(!(has_port), "port not documented");
 });
 test("handles struct with no documented fields", {
@@ -482,7 +482,7 @@ test("merges consecutive /// lines for a struct field", {
   source := `Config :: struct(\n  /// Maximum number of connections.\n  /// Must be > 0.\n  max_conns : u32\n);`;
   docs := inline_docs_from_source_(source, exn);
   assert(docs.size == usize(1), "one doc");
-  val := match(docs.get(`max_conns`),.Some(v) => v,.None => ``);
+  val := match(docs.get(`max_conns`), .Some(v) => v, .None => ``);
   assert(val == `Maximum number of connections.\nMust be > 0.`, "merged doc");
 });
 test("extracts block doc for struct fields", {
@@ -497,9 +497,9 @@ test("extracts block doc for struct fields", {
   source := `Config :: struct(\n  /** The host address. */\n  host : str,\n  /** The port number. */\n  port : u16\n);`;
   docs := inline_docs_from_source_(source, exn);
   assert(docs.size == usize(2), "two docs");
-  host_val := match(docs.get(`host`),.Some(v) => v,.None => ``);
+  host_val := match(docs.get(`host`), .Some(v) => v, .None => ``);
   assert(host_val == `The host address.`, "host doc");
-  port_val := match(docs.get(`port`),.Some(v) => v,.None => ``);
+  port_val := match(docs.get(`port`), .Some(v) => v, .None => ``);
   assert(port_val == `The port number.`, "port doc");
 });
 test("extracts /// docs for enum variants", {
@@ -514,11 +514,11 @@ test("extracts /// docs for enum variants", {
   source := `Color :: enum(\n  /// Red color.\n  Red,\n  /// Green color.\n  Green,\n  /// Blue color.\n  Blue\n);`;
   docs := inline_docs_from_source_(source, exn);
   assert(docs.size == usize(3), "three docs");
-  red_val := match(docs.get(`Red`),.Some(v) => v,.None => ``);
+  red_val := match(docs.get(`Red`), .Some(v) => v, .None => ``);
   assert(red_val == `Red color.`, "red doc");
-  green_val := match(docs.get(`Green`),.Some(v) => v,.None => ``);
+  green_val := match(docs.get(`Green`), .Some(v) => v, .None => ``);
   assert(green_val == `Green color.`, "green doc");
-  blue_val := match(docs.get(`Blue`),.Some(v) => v,.None => ``);
+  blue_val := match(docs.get(`Blue`), .Some(v) => v, .None => ``);
   assert(blue_val == `Blue color.`, "blue doc");
 });
 test("extracts docs for enum variants with fields", {
@@ -533,9 +533,9 @@ test("extracts docs for enum variants with fields", {
   source := `Shape :: enum(\n  /// A circle with given radius.\n  Circle(radius : f64),\n  /// A rectangle.\n  Rectangle(width : f64, height : f64)\n);`;
   docs := inline_docs_from_source_(source, exn);
   assert(docs.size == usize(2), "two docs");
-  circle_val := match(docs.get(`Circle`),.Some(v) => v,.None => ``);
+  circle_val := match(docs.get(`Circle`), .Some(v) => v, .None => ``);
   assert(circle_val == `A circle with given radius.`, "circle doc");
-  rect_val := match(docs.get(`Rectangle`),.Some(v) => v,.None => ``);
+  rect_val := match(docs.get(`Rectangle`), .Some(v) => v, .None => ``);
   assert(rect_val == `A rectangle.`, "rectangle doc");
 });
 test("handles empty token range", {
@@ -563,9 +563,9 @@ test("does not pick up regular // comments", {
   source := `S :: struct(\n  // regular comment\n  x : i32,\n  /// Doc comment.\n  y : i32\n);`;
   docs := inline_docs_from_source_(source, exn);
   assert(docs.size == usize(1), "one doc");
-  has_x := match(docs.get(`x`),.Some(_) => true,.None => false);
+  has_x := match(docs.get(`x`), .Some(_) => true, .None => false);
   assert(!(has_x), "x not documented");
-  y_val := match(docs.get(`y`),.Some(v) => v,.None => ``);
+  y_val := match(docs.get(`y`), .Some(v) => v, .None => ``);
   assert(y_val == `Doc comment.`, "y doc");
 });
 test("handles mixed block and line doc comments", {
@@ -580,9 +580,9 @@ test("handles mixed block and line doc comments", {
   source := `S :: struct(\n  /** Block doc for x. */\n  x : i32,\n  /// Line doc for y.\n  y : i32\n);`;
   docs := inline_docs_from_source_(source, exn);
   assert(docs.size == usize(2), "two docs");
-  x_val := match(docs.get(`x`),.Some(v) => v,.None => ``);
+  x_val := match(docs.get(`x`), .Some(v) => v, .None => ``);
   assert(x_val == `Block doc for x.`, "x doc");
-  y_val := match(docs.get(`y`),.Some(v) => v,.None => ``);
+  y_val := match(docs.get(`y`), .Some(v) => v, .None => ``);
   assert(y_val == `Line doc for y.`, "y doc");
 });
 test("handles single-line struct with block docs", {
@@ -596,9 +596,9 @@ test("handles single-line struct with block docs", {
   );
   docs := inline_docs_from_source_(`P :: struct(/** X */ x : f64, /** Y */ y : f64);`, exn);
   assert(docs.size == usize(2), "two docs");
-  x_val := match(docs.get(`x`),.Some(v) => v,.None => ``);
+  x_val := match(docs.get(`x`), .Some(v) => v, .None => ``);
   assert(x_val == `X`, "x doc");
-  y_val := match(docs.get(`y`),.Some(v) => v,.None => ``);
+  y_val := match(docs.get(`y`), .Some(v) => v, .None => ``);
   assert(y_val == `Y`, "y doc");
 });
 test("preserves markdown formatting in inline docs", {
@@ -613,7 +613,7 @@ test("preserves markdown formatting in inline docs", {
   source := `S :: struct(\n  /// The **bold** value.\n  ///\n  /// Example: \`x = 42\`\n  x : i32\n);`;
   docs := inline_docs_from_source_(source, exn);
   assert(docs.size == usize(1), "one doc");
-  x_val := match(docs.get(`x`),.Some(v) => v,.None => ``);
+  x_val := match(docs.get(`x`), .Some(v) => v, .None => ``);
   assert(x_val == `The **bold** value.\n\nExample: \`x = 42\``, "markdown preserved");
 });
 test("handles doc comment at end of range with no following identifier", {

@@ -168,9 +168,9 @@ impl(
       },
       true => ()
     );
-    (host : Option(String)) =.None;
-    (port : Option(u16)) =.None;
-    (userinfo : Option(String)) =.None;
+    (host : Option(String)) = .None;
+    (port : Option(u16)) = .None;
+    (userinfo : Option(String)) = .None;
     path_str := String.new();
     cond(
       has_authority => {
@@ -203,7 +203,7 @@ impl(
                 ui_bytes.push(s.byte_at(n));
                 n = (n + usize(1));
               });
-              userinfo =.Some(String.from_bytes(ui_bytes));
+              userinfo = .Some(String.from_bytes(ui_bytes));
               host_start = (m + usize(1));
               break;
             },
@@ -231,24 +231,24 @@ impl(
               );
               hh = (hh + usize(1));
             });
-            host =.Some(String.from_bytes(host_bytes));
+            host = .Some(String.from_bytes(host_bytes));
             // Check for port after ']:'
             after_bracket := (bracket_end + usize(1));
             cond(
               ((after_bracket < auth_end) && (s.byte_at(after_bracket) == _COLON)) => {
-                port =.Some(_parse_port(s, after_bracket + usize(1), auth_end, exn));
+                port = .Some(_parse_port(s, after_bracket + usize(1), auth_end, exn));
               },
               true => ()
             );
           },
           true => {
             // Regular host — find ':' for port
-            (colon_pos : Option(usize)) =.None;
+            (colon_pos : Option(usize)) = .None;
             cp := host_start;
             while(runtime(cp < auth_end), {
               cond(
                 (s.byte_at(cp) == _COLON) => {
-                  colon_pos =.Some(cp);
+                  colon_pos = .Some(cp);
                   break;
                 },
                 true => ()
@@ -265,8 +265,8 @@ impl(
                   host_b.push(s.byte_at(hh2));
                   hh2 = (hh2 + usize(1));
                 });
-                host =.Some(String.from_bytes(host_b));
-                port =.Some(_parse_port(s, cp_val + usize(1), auth_end, exn));
+                host = .Some(String.from_bytes(host_b));
+                port = .Some(_parse_port(s, cp_val + usize(1), auth_end, exn));
               },
               .None => {
                 // No port, entire range is host
@@ -279,7 +279,7 @@ impl(
                 h := String.from_bytes(host_b);
                 cond(
                   (!(h.is_empty())) => {
-                    host =.Some(h);
+                    host = .Some(h);
                   },
                   true => ()
                 );
@@ -320,7 +320,7 @@ impl(
     );
     pos = path_end;
     // --- Parse query ---
-    (query : Option(String)) =.None;
+    (query : Option(String)) = .None;
     cond(
       ((pos < src_len) && (s.byte_at(pos) == _QUESTION)) => {
         pos = (pos + usize(1)); // skip '?'
@@ -343,13 +343,13 @@ impl(
           q_bytes.push(s.byte_at(qb));
           qb = (qb + usize(1));
         });
-        query =.Some(String.from_bytes(q_bytes));
+        query = .Some(String.from_bytes(q_bytes));
         pos = q_end;
       },
       true => ()
     );
     // --- Parse fragment ---
-    (fragment : Option(String)) =.None;
+    (fragment : Option(String)) = .None;
     cond(
       ((pos < src_len) && (s.byte_at(pos) == _HASH)) => {
         pos = (pos + usize(1)); // skip '#'
@@ -359,7 +359,7 @@ impl(
           f_bytes.push(s.byte_at(fb));
           fb = (fb + usize(1));
         });
-        fragment =.Some(String.from_bytes(f_bytes));
+        fragment = .Some(String.from_bytes(f_bytes));
       },
       true => ()
     );
@@ -406,12 +406,12 @@ impl(
   host_port : (fn(self : Self) -> Option(String))(
     match(
       self._host,
-      .None =>.None,
+      .None => .None,
       .Some(h) =>
         match(
           self._port,
-          .None =>.Some(h),
-          .Some(p) =>.Some(`${h}:${p}`)
+          .None => .Some(h),
+          .Some(p) => .Some(`${h}:${p}`)
         )
     )
   ),

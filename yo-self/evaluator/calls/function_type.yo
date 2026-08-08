@@ -353,8 +353,8 @@ _build_def_time_body_env :: (
                 true => false
               );
               if(keep_cv && !(cv.name == "__recur_fn"), {
-                cap_value := match(cv.value.get(usize(0)),.Some(actual) => Option(EvalValue).Some(actual),.None => Option(EvalValue).None);
-                is_ct := match(cap_value,.Some(_) => true,.None => false);
+                cap_value := match(cv.value.get(usize(0)), .Some(actual) => Option(EvalValue).Some(actual), .None => Option(EvalValue).None);
+                is_ct := match(cap_value, .Some(_) => true, .None => false);
                 // Carry `is_reassignable` — module globals (`(x : T) = v;`)
                 // ARE reassignable from fn bodies; rebinding them read-only
                 // made std/log.yo's `_global_level = level` def-eval fail
@@ -396,7 +396,7 @@ _build_def_time_body_env :: (
   {
     (sci : usize) = usize(0);
     while(sci < param_types.len(), {
-      spt := match(param_types.get(sci),.Some(t) => t,.None => t_unit());
+      spt := match(param_types.get(sci), .Some(t) => t, .None => t_unit());
       found := get_all_some_types(spt);
       (sfi : usize) = usize(0);
       while(sfi < found.len(), {
@@ -426,10 +426,10 @@ _build_def_time_body_env :: (
   };
   (pi : usize) = usize(0);
   while(pi < param_labels.len(), {
-    pn := match(param_labels.get(pi),.Some(n) => n,.None => String.from(""));
-    pt := match(param_types.get(pi),.Some(t) => t,.None => t_unit());
-    p_ref := match(param_is_ref.get(pi),.Some(b) => b,.None => false);
-    p_own := match(param_is_owning.get(pi),.Some(b) => b,.None => false);
+    pn := match(param_labels.get(pi), .Some(n) => n, .None => String.from(""));
+    pt := match(param_types.get(pi), .Some(t) => t, .None => t_unit());
+    p_ref := match(param_is_ref.get(pi), .Some(b) => b, .None => false);
+    p_own := match(param_is_owning.get(pi), .Some(b) => b, .None => false);
     // A comptime TYPE parameter (`comptime(T) : Type`) must be bound as a
     // `TypeVal(SomeT(name))` type value — NOT `create_unknown_val(Type)` (an
     // unknown VALUE) — so the body can use it as a type (e.g. a type-constructor
@@ -634,7 +634,7 @@ try_to_implement_function_by_function_type :: (
           )
         );
       });
-      body_expr_raw := match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
+      body_expr_raw := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
       // Phase 0 task #6 of plans/FORMAL_VERIFICATION.md: splice
       // `assert(P, msg)` / `comptime_assert(P, msg)` calls into the body for
       // each `requires(...)` / `ensures(...)` predicate declared in the
@@ -767,7 +767,7 @@ try_to_implement_function_by_function_type :: (
       // SomeT) was NOT detected → the method was wrongly NOT deferred → its body
       // was def-time-evaluated with `T` unbound → "expected type for element,
       // got T" (field.yo:293). Use the deep predicate so such methods defer.
-      self_has_some_ft := match(ctx.self_type,.Some(st) => type_contains_some_type_for_codegen_param(st, ArrayList(String).new()),.None => false);
+      self_has_some_ft := match(ctx.self_type, .Some(st) => type_contains_some_type_for_codegen_param(st, ArrayList(String).new()), .None => false);
       // COMPTIME VALUE-position params (`fn(comptime(n) : usize) -> Array(i32, n)`)
       // make the fn GENERIC (TS isFunctionTypeGeneric counts
       // p.isCompileTimeOnly, guards.ts:466) — its body must DEFER like a
@@ -795,7 +795,7 @@ try_to_implement_function_by_function_type :: (
           while((ct_fi < ct_flags_ft.len()) && !(ft_has_ct_param), {
             ct_is_typeuni := match(
               param_types.get(ct_fi),
-              .Some(ct_pt) => match(ct_pt,.TypeUni(_) => true, _ => false),
+              .Some(ct_pt) => match(ct_pt, .TypeUni(_) => true, _ => false),
               .None => false
             );
             match(
@@ -970,7 +970,7 @@ try_to_implement_function_by_function_type :: (
               match(
                 def_where_entries.get(fwi),
                 .Some(fwe) => {
-                  fwe_id := match(fwe.trait_ty,.TraitT(_, _, _, _, fwe_tid, _, _, _, _, _) => fwe_tid, _ => String.from(""));
+                  fwe_id := match(fwe.trait_ty, .TraitT(_, _, _, _, fwe_tid, _, _, _, _, _) => fwe_tid, _ => String.from(""));
                   if(fwe_id != "", {
                     flow_where_ids.push(fwe_id);
                   });
@@ -1015,7 +1015,7 @@ try_to_implement_function_by_function_type :: (
           if(flow_violation_pending(), {
             viol_msg := flow_violation_message();
             clear_flow_violation();
-            exn.throw(dyn(format_error_message(ast_expr_token(fb), viol_msg, false,.None)));
+            exn.throw(dyn(format_error_message(ast_expr_token(fb), viol_msg, false, .None)));
           });
           // comptime_expect_error propagation: when "propagate all def-time
           // body-eval errors" mode is active (set only around a
@@ -1178,7 +1178,7 @@ try_to_implement_function_by_function_type :: (
                 match(
                   dg_where.get(dgw_i),
                   .Some(dgw_e) => {
-                    dgw_id := match(dgw_e.trait_ty,.TraitT(_, _, _, _, dgw_tid, _, _, _, _, _) => dgw_tid, _ => String.from(""));
+                    dgw_id := match(dgw_e.trait_ty, .TraitT(_, _, _, _, dgw_tid, _, _, _, _, _) => dgw_tid, _ => String.from(""));
                     if(dgw_id != "", {
                       dg_where_ids.push(dgw_id);
                     });
@@ -1203,7 +1203,7 @@ try_to_implement_function_by_function_type :: (
                 .Some(dg_info) => {
                   // Pure-unwind bodies are control functions discarding the
                   // continuation — no return type to check.
-                  dg_skip_cf := (has_control_flow(dg_info.control_flow,.Unwind) && !(has_control_flow(dg_info.control_flow,.Return)));
+                  dg_skip_cf := (has_control_flow(dg_info.control_flow, .Unwind) && !(has_control_flow(dg_info.control_flow, .Return)));
                   dg_expected := cond(
                     result_is_ref => t_ptr(result_box),
                     true => result_box
@@ -1217,7 +1217,7 @@ try_to_implement_function_by_function_type :: (
                       (dg_found : bool) = false;
                       (dg_fi : usize) = usize(0);
                       while(dg_fi < forall_labels.len(), {
-                        if(match(forall_labels.get(dg_fi),.Some(l) => (l == dg_sname),.None => false), {
+                        if(match(forall_labels.get(dg_fi), .Some(l) => (l == dg_sname), .None => false), {
                           dg_found = true;
                         });
                         dg_fi = (dg_fi + usize(1));

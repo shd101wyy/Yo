@@ -56,7 +56,7 @@ _capture_type_c_name :: (fn(capture_type : TypeValue, context : FunctionGenerati
     found,
     .Some(name) => name,
     .None => {
-      cap_id := match(capture_type,.Struct({ id : sid }) => sid, _ => String.from(""));
+      cap_id := match(capture_type, .Struct({ id : sid }) => sid, _ => String.from(""));
       o := String.from("async_capture_");
       o.push_string(cap_id);
       o
@@ -68,11 +68,11 @@ _closure_fn_c_name :: (fn(cb_ei_value : Option(EvalValue), cb_closure_fn_val : O
   fv_opt := match(
     cb_closure_fn_val,
     .Some(fv) => Option(EvalValue).Some(fv),
-    .None => match(cb_ei_value,.Some(v) => if(is_func_val(v), Option(EvalValue).Some(v), Option(EvalValue).None),.None => Option(EvalValue).None)
+    .None => match(cb_ei_value, .Some(v) => if(is_func_val(v), Option(EvalValue).Some(v), Option(EvalValue).None), .None => Option(EvalValue).None)
   );
   match(
     fv_opt,
-    .Some(fv) => match(fv,.FuncVal(__fvd1, _) => match(context.base.get_function_entry(__fvd1.*.func_id),.Some(e) => Option(String).Some(e.c_name),.None => Option(String).None), _ => Option(String).None),
+    .Some(fv) => match(fv, .FuncVal(__fvd1, _) => match(context.base.get_function_entry(__fvd1.*.func_id), .Some(e) => Option(String).Some(e.c_name), .None => Option(String).None), _ => Option(String).None),
     .None => Option(String).None
   )
 });
@@ -81,9 +81,9 @@ _closure_fid :: (fn(cb_ei_value : Option(EvalValue), cb_closure_fn_val : Option(
   fv_opt := match(
     cb_closure_fn_val,
     .Some(fv) => Option(EvalValue).Some(fv),
-    .None => match(cb_ei_value,.Some(v) => if(is_func_val(v), Option(EvalValue).Some(v), Option(EvalValue).None),.None => Option(EvalValue).None)
+    .None => match(cb_ei_value, .Some(v) => if(is_func_val(v), Option(EvalValue).Some(v), Option(EvalValue).None), .None => Option(EvalValue).None)
   );
-  match(fv_opt,.Some(fv) => match(fv,.FuncVal(__fvd2, _) => __fvd2.*.func_id, _ => String.new()),.None => String.new())
+  match(fv_opt, .Some(fv) => match(fv, .FuncVal(__fvd2, _) => __fvd2.*.func_id, _ => String.new()), .None => String.new())
 });
 /// `, (<cType>){0}, …` — zero-inits for the closure's runtime params (e.g. the
 /// `io : Io` of a `Thread.spawn` callback). Mirrors the `runtimeParamArgs` build
@@ -155,13 +155,13 @@ _generate_spawn_wrapper :: (fn(closure_fn_c_name : String, capture_struct_c_name
 /// the heap-copy + dup + wrapper, then the spawn primitive call. `is_worker`
 /// selects the primitive + (unit) return convention.
 _generate_spawn_call :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext, is_worker : bool) -> Option(String))({
-  ei := match(context.base.get_expr_info(expr),.Some(e) => e,.None => return(Option(String).None));
+  ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(Option(String).None));
   cb := match(
     ei.runtime_arg_exprs_in_order,
-    .Some(ra) => if(ra.len() == usize(1), match(ra.get(usize(0)),.Some(c) => c,.None => return(Option(String).None)), return(Option(String).None)),
+    .Some(ra) => if(ra.len() == usize(1), match(ra.get(usize(0)), .Some(c) => c, .None => return(Option(String).None)), return(Option(String).None)),
     .None => return(Option(String).None)
   );
-  cei := match(context.base.get_expr_info(cb),.Some(e) => e,.None => return(Option(String).None));
+  cei := match(context.base.get_expr_info(cb), .Some(e) => e, .None => return(Option(String).None));
   // `cb` is either a closure literal (cei.capture_type set) OR — inside a
   // SPECIALIZED Thread.spawn body — the lowered capture-struct PARAM (cei.ty IS
   // the capture struct, registered in impl_closure_call_map by the closure
@@ -171,7 +171,7 @@ _generate_spawn_call :: (fn(expr : AstExpr, indent : String, context : FunctionG
   // the param was bound to (callable) — resolve it to the concrete capture struct
   // (via g_some_resolved_concrete) so the map key matches what the construction /
   // pre-pass registered (the capture-struct id, not the SomeT id).
-  capture_type := resolve_some_type_to_concrete(match(cei.capture_type,.Some(c) => c,.None => cei.ty));
+  capture_type := resolve_some_type_to_concrete(match(cei.capture_type, .Some(c) => c, .None => cei.ty));
   // The impl_closure_call_map is keyed by the BARE capture-struct id at every
   // set site (closures.yo — capture-struct sids are unique per closure), NOT
   // by type_key: type_key of a cfid-empty struct with field types is now
@@ -187,20 +187,20 @@ _generate_spawn_call :: (fn(expr : AstExpr, indent : String, context : FunctionG
   closure_fn := match(
     _closure_fn_c_name(cei.value, expr_info_closure_function_value(cei), context),
     .Some(n) => n,
-    .None => match(mapped_opt,.Some(m) => m.function_c_name,.None => return(Option(String).Some(String.from("/* Error: spawn cb has no closure function */"))))
+    .None => match(mapped_opt, .Some(m) => m.function_c_name, .None => return(Option(String).Some(String.from("/* Error: spawn cb has no closure function */"))))
   );
   closure_fid_direct := _closure_fid(cei.value, expr_info_closure_function_value(cei));
   closure_fid := if(
     closure_fid_direct.len() > usize(0),
     closure_fid_direct,
-    match(mapped_opt,.Some(m) => m.closure_fid,.None => String.from(""))
+    match(mapped_opt, .Some(m) => m.closure_fid, .None => String.from(""))
   );
   runtime_args := _closure_runtime_arg_zeroinits(closure_fid, context);
   module_path := String.from("");
   wrapper := _generate_spawn_wrapper(closure_fn, capture_c_name.clone(), capture_type, runtime_args, module_path, context);
   // The capture-struct VALUE (the cb arg's variable, or its generated code).
   cb_code := _call_generate_expr(cb, indent.clone(), context);
-  cb_var := match(cei.variable_name,.Some(vn) => get_variable_name_for_codegen(vn, Option(Environment).Some(cei.env)),.None => cb_code);
+  cb_var := match(cei.variable_name, .Some(vn) => get_variable_name_for_codegen(vn, Option(Environment).Some(cei.env)), .None => cb_code);
   em := context.base.emitter;
   heap_var := String.from(if(is_worker, "_worker_closure_data_", "_thread_closure_data_"));
   heap_var.push_string(random_id(module_path.clone()));
@@ -248,7 +248,7 @@ _generate_spawn_call :: (fn(expr : AstExpr, indent : String, context : FunctionG
     Option(String).Some(String.from(""))
   }, {
     // __yo_thread_t <tv> = __yo_thread_spawn(<wrapper>, <heapVar>);
-    tv := match(ei.variable_name,.Some(v) => v,.None => `_thr_${random_id(module_path)}`);
+    tv := match(ei.variable_name, .Some(v) => v, .None => `_thr_${random_id(module_path)}`);
     ts := indent.clone();
     ts.push_str("__yo_thread_t ");
     ts.push_string(tv.clone());

@@ -19,8 +19,8 @@ test("Test TryFrom/TryInto traits", {
       try_from : (
         value ->
           cond(
-            ((value % 2) == 0) =>.Ok(EvenNumber(value)),
-            true =>.Err("Only even numbers are allowed (i32)")
+            ((value % 2) == 0) => .Ok(EvenNumber(value)),
+            true => .Err("Only even numbers are allowed (i32)")
           )
       )
     )
@@ -32,8 +32,8 @@ test("Test TryFrom/TryInto traits", {
       try_from : (
         value ->
           cond(
-            ((value % 2) == 0) =>.Ok(EvenNumber(i32(value))),
-            true =>.Err("Only even numbers are allowed (i64)")
+            ((value % 2) == 0) => .Ok(EvenNumber(i32(value))),
+            true => .Err("Only even numbers are allowed (i64)")
           )
       )
     )
@@ -42,14 +42,14 @@ test("Test TryFrom/TryInto traits", {
     EvenNumber,
     TryInto(i32)(
       Error : str,
-      try_into : ((self, _) ->.Ok(self.value))
+      try_into : ((self, _) -> .Ok(self.value))
     )
   );
   impl(
     EvenNumber,
     TryInto(i64)(
       Error : str,
-      try_into : ((self, _) ->.Ok(i64(self.value)))
+      try_into : ((self, _) -> .Ok(i64(self.value)))
     )
   );
   x := EvenNumber.try_from(i32(4));
@@ -77,14 +77,14 @@ test("try_into to a type with no matching impl is a compile error", {
     EvenNumber2,
     TryInto(i32)(
       Error : str,
-      try_into : ((self, _) ->.Ok(self.value))
+      try_into : ((self, _) -> .Ok(self.value))
     )
   );
   impl(
     EvenNumber2,
     TryInto(i64)(
       Error : str,
-      try_into : ((self, _) ->.Ok(i64(self.value)))
+      try_into : ((self, _) -> .Ok(i64(self.value)))
     )
   );
   comptime_expect_error({

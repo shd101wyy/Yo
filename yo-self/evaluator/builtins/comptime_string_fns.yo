@@ -162,11 +162,11 @@ evaluate_yo_comptime_string_functions :: (
     }
   );
   is_unary := (
-    ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_LENGTH,.Some(usize(1))) ||
-      ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_TO_UPPER,.Some(usize(1))) ||
-        ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_TO_LOWER,.Some(usize(1)))
+    ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_LENGTH, .Some(usize(1))) ||
+      ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_TO_UPPER, .Some(usize(1))) ||
+        ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_TO_LOWER, .Some(usize(1)))
   );
-  is_slice := ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_SLICE,.None);
+  is_slice := ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_SLICE, .None);
   if(is_unary, {
     arg0 := match(
       args.get(usize(0)),
@@ -179,7 +179,7 @@ evaluate_yo_comptime_string_functions :: (
     (cur_env : Environment) = ai.env;
     arg_val := ai.value;
     (result_val : EvalValue) = cond(
-      ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_LENGTH,.Some(usize(1))) =>
+      ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_LENGTH, .Some(usize(1))) =>
         match(
           arg_val,
           .Some(av) => match(
@@ -192,7 +192,7 @@ evaluate_yo_comptime_string_functions :: (
           ),
           .None => create_unknown_val(t_comptime_int())
         ),
-      ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_TO_UPPER,.Some(usize(1))) =>
+      ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_TO_UPPER, .Some(usize(1))) =>
         match(
           arg_val,
           .Some(av) => match(
@@ -202,7 +202,7 @@ evaluate_yo_comptime_string_functions :: (
           ),
           .None => create_unknown_val(t_comptime_string())
         ),
-      ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_TO_LOWER,.Some(usize(1))) =>
+      ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_TO_LOWER, .Some(usize(1))) =>
         match(
           arg_val,
           .Some(av) => match(
@@ -232,7 +232,7 @@ evaluate_yo_comptime_string_functions :: (
     // (UnknownVal ≠ IntLit) wrongly typed it `comptime_str`.
     result_ty := type_of_eval_value(result_val);
     out_info := new_expr_info(cur_env, result_ty);
-    out_info.value =.Some(result_val);
+    out_info.value = .Some(result_val);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   }, if(is_slice, {
     // slice(string, start, end?)
@@ -276,7 +276,7 @@ evaluate_yo_comptime_string_functions :: (
           cur_env = ei.env;
           .Some(ei)
         },
-        .None =>.None
+        .None => .None
       ),
       .None
     );
@@ -326,7 +326,7 @@ evaluate_yo_comptime_string_functions :: (
       .None => create_unknown_val(t_comptime_string())
     );
     out_info := new_expr_info(cur_env, t_comptime_string());
-    out_info.value =.Some(result_val);
+    out_info.value = .Some(result_val);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   }, {
     // Binary operations.
@@ -352,16 +352,16 @@ evaluate_yo_comptime_string_functions :: (
     // Extract unquoted strings for comparison / concat.
     (lhs_str_opt : Option(String)) = match(
       lhs_val,
-      .Some(lv) => match(lv,.StrLit(raw) => Option(String).Some(str_lit_unquote(raw)), _ => Option(String).None),
+      .Some(lv) => match(lv, .StrLit(raw) => Option(String).Some(str_lit_unquote(raw)), _ => Option(String).None),
       .None => Option(String).None
     );
     (rhs_str_opt : Option(String)) = match(
       rhs_val,
-      .Some(rv) => match(rv,.StrLit(raw) => Option(String).Some(str_lit_unquote(raw)), _ => Option(String).None),
+      .Some(rv) => match(rv, .StrLit(raw) => Option(String).Some(str_lit_unquote(raw)), _ => Option(String).None),
       .None => Option(String).None
     );
     (result_val : EvalValue) = cond(
-      ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_CONCAT,.Some(usize(2))) =>
+      ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_CONCAT, .Some(usize(2))) =>
         match(
           lhs_str_opt,
           .Some(ls) => match(
@@ -371,7 +371,7 @@ evaluate_yo_comptime_string_functions :: (
           ),
           .None => create_unknown_val(t_comptime_string())
         ),
-      ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_EQ,.Some(usize(2))) =>
+      ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_EQ, .Some(usize(2))) =>
         match(
           lhs_str_opt,
           .Some(ls) => match(
@@ -381,7 +381,7 @@ evaluate_yo_comptime_string_functions :: (
           ),
           .None => create_unknown_val(t_bool())
         ),
-      ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_NEQ,.Some(usize(2))) =>
+      ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_NEQ, .Some(usize(2))) =>
         match(
           lhs_str_opt,
           .Some(ls) => match(
@@ -391,7 +391,7 @@ evaluate_yo_comptime_string_functions :: (
           ),
           .None => create_unknown_val(t_bool())
         ),
-      ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_LT,.Some(usize(2))) =>
+      ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_LT, .Some(usize(2))) =>
         match(
           lhs_str_opt,
           .Some(ls) => match(
@@ -401,7 +401,7 @@ evaluate_yo_comptime_string_functions :: (
           ),
           .None => create_unknown_val(t_bool())
         ),
-      ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_LTE,.Some(usize(2))) =>
+      ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_LTE, .Some(usize(2))) =>
         match(
           lhs_str_opt,
           .Some(ls) => match(
@@ -411,7 +411,7 @@ evaluate_yo_comptime_string_functions :: (
           ),
           .None => create_unknown_val(t_bool())
         ),
-      ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_GT,.Some(usize(2))) =>
+      ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_GT, .Some(usize(2))) =>
         match(
           lhs_str_opt,
           .Some(ls) => match(
@@ -421,7 +421,7 @@ evaluate_yo_comptime_string_functions :: (
           ),
           .None => create_unknown_val(t_bool())
         ),
-      ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_GTE,.Some(usize(2))) =>
+      ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_GTE, .Some(usize(2))) =>
         match(
           lhs_str_opt,
           .Some(ls) => match(
@@ -450,7 +450,7 @@ evaluate_yo_comptime_string_functions :: (
     // a tag-based match (UnknownVal ≠ BoolVal) wrongly typed it `comptime_str`.
     result_ty := type_of_eval_value(result_val);
     out_info := new_expr_info(cur_env, result_ty);
-    out_info.value =.Some(result_val);
+    out_info.value = .Some(result_val);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   }));
   expr

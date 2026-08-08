@@ -115,7 +115,7 @@ evaluate_test :: (
 )({
   (env : Environment) = env_in;
   // Validate shape: must be "test" call.
-  if(!(ast_expr_is_fn_call_of(expr, BK_TEST,.None)), {
+  if(!(ast_expr_is_fn_call_of(expr, BK_TEST, .None)), {
     exn.throw(
       dyn(
         format_error_message(
@@ -147,12 +147,12 @@ evaluate_test :: (
   });
   test_name_expr := match(
     expr,
-    .FnCall(_, _, args, _, _) => match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr()),
+    .FnCall(_, _, args, _, _) => match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
     .Atom(_, _) => make_err_expr()
   );
   test_body_expr := match(
     expr,
-    .FnCall(_, _, args, _, _) => match(args.get(usize(1)),.Some(a) => a,.None => make_err_expr()),
+    .FnCall(_, _, args, _, _) => match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr()),
     .Atom(_, _) => make_err_expr()
   );
   // Evaluate test name to ensure it's a comptime_str.
@@ -170,7 +170,7 @@ evaluate_test :: (
       )
     );
   });
-  name_info := match(name_info_opt,.Some(i) => i,.None => new_expr_info(env, t_unit()));
+  name_info := match(name_info_opt, .Some(i) => i, .None => new_expr_info(env, t_unit()));
   // Update env from the name evaluation.
   env.frames = name_info.env.frames;
   env.module_path = name_info.env.module_path;

@@ -134,17 +134,17 @@ evaluate_type_field :: (
   (field_type : Option(TypeValue)) = Option(TypeValue).None;
   // --- Check for default value: `x ?= default` ---
   if(ast_expr_is_fn_call_of(expr_, "?=", Option(usize).Some(usize(2))), {
-    args := match(expr_,.FnCall(_, _, args_, _, _) => args_, _ => ArrayList(AstExpr).new());
-    default_value_expr = Option(AstExpr).Some(match(args.get(usize(1)),.Some(a) => a,.None => make_err_expr()));
-    expr_ = match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
+    args := match(expr_, .FnCall(_, _, args_, _, _) => args_, _ => ArrayList(AstExpr).new());
+    default_value_expr = Option(AstExpr).Some(match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr()));
+    expr_ = match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
   });
   // --- Check for assigned value: `x = val` or `x :: val` ---
   if(ast_expr_is_fn_call_of(expr_, BK_ASSIGN, Option(usize).Some(usize(2))) || ast_expr_is_fn_call_of(expr_, BK_CONST, Option(usize).Some(usize(2))), {
     is_const := ast_expr_is_fn_call_of(expr_, BK_CONST, Option(usize).Some(usize(2)));
     if(is_const, {
       is_comptime = true;
-      args := match(expr_,.FnCall(_, _, args_, _, _) => args_, _ => ArrayList(AstExpr).new());
-      lhs_expr := match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
+      args := match(expr_, .FnCall(_, _, args_, _, _) => args_, _ => ArrayList(AstExpr).new());
+      lhs_expr := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
       if(!(is_valid_variable_name(lhs_expr)), {
         exn.throw(
           dyn(
@@ -160,9 +160,9 @@ evaluate_type_field :: (
       label_expr = Option(AstExpr).Some(lhs_expr);
       label = Option(String).Some(ast_expr_token(lhs_expr).value);
     });
-    args2 := match(expr_,.FnCall(_, _, args_, _, _) => args_, _ => ArrayList(AstExpr).new());
-    assigned_value_expr = Option(AstExpr).Some(match(args2.get(usize(1)),.Some(a) => a,.None => make_err_expr()));
-    expr_ = match(args2.get(usize(0)),.Some(a) => a,.None => make_err_expr());
+    args2 := match(expr_, .FnCall(_, _, args_, _, _) => args_, _ => ArrayList(AstExpr).new());
+    assigned_value_expr = Option(AstExpr).Some(match(args2.get(usize(1)), .Some(a) => a, .None => make_err_expr()));
+    expr_ = match(args2.get(usize(0)), .Some(a) => a, .None => make_err_expr());
   });
   // Cannot have both default value and assigned value
   if(default_value_expr.is_some() && assigned_value_expr.is_some(), {
@@ -179,9 +179,9 @@ evaluate_type_field :: (
   });
   // --- Parse the lhs expr: `x: T`, `comptime(x): T`, or just `comptime(x)` ---
   if(ast_expr_is_fn_call_of(expr_, ":", Option(usize).Some(usize(2))), {
-    colon_args := match(expr_,.FnCall(_, _, args_, _, _) => args_, _ => ArrayList(AstExpr).new());
-    (lhs_ : AstExpr) = match(colon_args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
-    rhs := match(colon_args.get(usize(1)),.Some(a) => a,.None => make_err_expr());
+    colon_args := match(expr_, .FnCall(_, _, args_, _, _) => args_, _ => ArrayList(AstExpr).new());
+    (lhs_ : AstExpr) = match(colon_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+    rhs := match(colon_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
     type_expr = Option(AstExpr).Some(rhs);
     // Check if it's `comptime(x): T`
     if(ast_expr_is_fn_call_of(lhs_, BK_COMPTIME, Option(usize).Some(usize(1))), {
@@ -198,8 +198,8 @@ evaluate_type_field :: (
         );
       });
       is_comptime = true;
-      ct_args := match(lhs_,.FnCall(_, _, args_, _, _) => args_, _ => ArrayList(AstExpr).new());
-      lhs_ = match(ct_args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
+      ct_args := match(lhs_, .FnCall(_, _, args_, _, _) => args_, _ => ArrayList(AstExpr).new());
+      lhs_ = match(ct_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
     });
     if(!(ast_expr_is_atom(lhs_)) || !(is_valid_variable_name(lhs_)), {
       exn.throw(
@@ -229,8 +229,8 @@ evaluate_type_field :: (
       );
     });
     is_comptime = true;
-    ct_args := match(expr_,.FnCall(_, _, args_, _, _) => args_, _ => ArrayList(AstExpr).new());
-    lhs_ := match(ct_args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
+    ct_args := match(expr_, .FnCall(_, _, args_, _, _) => args_, _ => ArrayList(AstExpr).new());
+    lhs_ := match(ct_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
     if(!(ast_expr_is_atom(lhs_)) || !(is_valid_variable_name(lhs_)), {
       exn.throw(
         dyn(
@@ -252,7 +252,7 @@ evaluate_type_field :: (
   // --- Determine expected type for this field (from context) ---
   (expected_tuple_element_type : Option(TypeValue)) = Option(TypeValue).None;
   if(ctx.expected_type.is_some(), {
-    expected_type_val := match(ctx.expected_type,.Some(e) => e.ty,.None => TypeValue.Unit);
+    expected_type_val := match(ctx.expected_type, .Some(e) => e.ty, .None => TypeValue.Unit);
     if((is_tuple_type(expected_type_val) || is_struct_type(expected_type_val)) || (is_module_type(expected_type_val) || is_trait_type(expected_type_val)), {
       maybe_field_ty := match(
         expected_type_val,
@@ -279,13 +279,13 @@ evaluate_type_field :: (
   });
   // --- Evaluate the type expression ---
   if(type_expr.is_some(), {
-    te := match(type_expr,.Some(t) => t,.None => make_err_expr());
+    te := match(type_expr, .Some(t) => t, .None => make_err_expr());
     old_expected := ctx.expected_type;
     if(expected_tuple_element_type.is_some(), {
-      elem_env := match(ctx.expected_type,.Some(e) => e.env,.None => env);
+      elem_env := match(ctx.expected_type, .Some(e) => e.env, .None => env);
       ctx.expected_type = Option(ExpectedTypeCtx).Some(
         ExpectedTypeCtx(
-          ty : match(expected_tuple_element_type,.Some(t) => t,.None => TypeValue.Unit),
+          ty : match(expected_tuple_element_type, .Some(t) => t, .None => TypeValue.Unit),
           env : elem_env
         )
       );
@@ -295,7 +295,7 @@ evaluate_type_field :: (
     evaluated_te := evaluate_expression_raw(te, env, ctx, exn);
     ctx.expected_type = old_expected;
     te_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_te));
-    te_info := match(te_info_opt,.Some(i) => i,.None => new_expr_info(env, TypeValue.Unit));
+    te_info := match(te_info_opt, .Some(i) => i, .None => new_expr_info(env, TypeValue.Unit));
     env.frames = te_info.env.frames;
     env.module_path = te_info.env.module_path;
     env.function_declaration_frame_level = te_info.env.function_declaration_frame_level;
@@ -324,7 +324,7 @@ evaluate_type_field :: (
   });
   // --- Evaluate assigned value expression ---
   if(assigned_value_expr.is_some(), {
-    av_expr := match(assigned_value_expr,.Some(e) => e,.None => make_err_expr());
+    av_expr := match(assigned_value_expr, .Some(e) => e, .None => make_err_expr());
     if(!(is_comptime), {
       exn.throw(
         dyn(
@@ -341,7 +341,7 @@ evaluate_type_field :: (
       field_type.is_some(),
       Option(ExpectedTypeCtx).Some(
         ExpectedTypeCtx(
-          ty : match(field_type,.Some(t) => t,.None => TypeValue.Unit),
+          ty : match(field_type, .Some(t) => t, .None => TypeValue.Unit),
           env : env
         )
       ),
@@ -349,7 +349,7 @@ evaluate_type_field :: (
         expected_tuple_element_type.is_some(),
         Option(ExpectedTypeCtx).Some(
           ExpectedTypeCtx(
-            ty : match(expected_tuple_element_type,.Some(t) => t,.None => TypeValue.Unit),
+            ty : match(expected_tuple_element_type, .Some(t) => t, .None => TypeValue.Unit),
             env : env
           )
         ),
@@ -401,7 +401,7 @@ evaluate_type_field :: (
     assigned_value = av_info.value;
     av_type := av_info.ty;
     if(field_expected_ctx.is_some(), {
-      ft := match(field_expected_ctx,.Some(e) => e.ty,.None => TypeValue.Unit);
+      ft := match(field_expected_ctx, .Some(e) => e.ty, .None => TypeValue.Unit);
       if(!(are_types_compatible(av_type, ft)), {
         exn.throw(
           dyn(
@@ -421,12 +421,12 @@ evaluate_type_field :: (
   });
   // --- Evaluate default value expression ---
   if(default_value_expr.is_some(), {
-    dv_expr := match(default_value_expr,.Some(e) => e,.None => make_err_expr());
+    dv_expr := match(default_value_expr, .Some(e) => e, .None => make_err_expr());
     field_expected_ctx := if(
       field_type.is_some(),
       Option(ExpectedTypeCtx).Some(
         ExpectedTypeCtx(
-          ty : match(field_type,.Some(t) => t,.None => TypeValue.Unit),
+          ty : match(field_type, .Some(t) => t, .None => TypeValue.Unit),
           env : env
         )
       ),
@@ -434,7 +434,7 @@ evaluate_type_field :: (
         expected_tuple_element_type.is_some(),
         Option(ExpectedTypeCtx).Some(
           ExpectedTypeCtx(
-            ty : match(expected_tuple_element_type,.Some(t) => t,.None => TypeValue.Unit),
+            ty : match(expected_tuple_element_type, .Some(t) => t, .None => TypeValue.Unit),
             env : env
           )
         ),
@@ -482,7 +482,7 @@ evaluate_type_field :: (
     default_value = dv_info.value;
     dv_type := dv_info.ty;
     if(field_expected_ctx.is_some(), {
-      ft := match(field_expected_ctx,.Some(e) => e.ty,.None => TypeValue.Unit);
+      ft := match(field_expected_ctx, .Some(e) => e.ty, .None => TypeValue.Unit);
       if(!(are_types_compatible(dv_type, ft)), {
         exn.throw(
           dyn(
@@ -513,7 +513,7 @@ evaluate_type_field :: (
       )
     );
   });
-  final_type := match(field_type,.Some(t) => t,.None => TypeValue.Unit);
+  final_type := match(field_type, .Some(t) => t, .None => TypeValue.Unit);
   // For non-tuple types, a label is required
   if((for_type != "tuple") && label_expr.is_none(), {
     exn.throw(
@@ -529,7 +529,7 @@ evaluate_type_field :: (
   });
   // --- Annotate label_expr in expr_info_table ---
   if(label_expr.is_some(), {
-    le := match(label_expr,.Some(e) => e,.None => make_err_expr());
+    le := match(label_expr, .Some(e) => e, .None => make_err_expr());
     doc_key := doc_comment_lookup_key_from_token(ast_expr_token(le));
     field_doc_comment := match(
       ctx.doc_comment_lookup,
@@ -568,7 +568,7 @@ evaluate_type_field :: (
   // struct; it cannot live in a fixed-size field. Use `Dyn(Fn(...))` instead.
   if(((((for_type == "struct") || (for_type == "enum")) || (for_type == "union")) && is_some_type(final_type)) && type_implements_fn(final_type), {
     if(type_expr.is_some(), {
-      te := match(type_expr,.Some(e) => e,.None => make_err_expr());
+      te := match(type_expr, .Some(e) => e, .None => make_err_expr());
       if(ast_expr_is_fn_call_of(te, BK_IMPL_UPPER, Option(usize).None), {
         exn.throw(
           dyn(

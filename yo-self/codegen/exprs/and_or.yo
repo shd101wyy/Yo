@@ -34,7 +34,7 @@ _indent_n :: (fn(base : String, n : usize) -> String)({
 _comptime_bool :: (fn(arg : AstExpr, context : FunctionGenerationContext) -> Option(bool))(
   match(
     context.base.get_expr_info(arg),
-    .Some(ei) => match(ei.value,.Some(v) => match(v,.BoolVal(b) => Option(bool).Some(b), _ => Option(bool).None),.None => Option(bool).None),
+    .Some(ei) => match(ei.value, .Some(v) => match(v, .BoolVal(b) => Option(bool).Some(b), _ => Option(bool).None), .None => Option(bool).None),
     .None => Option(bool).None
   )
 );
@@ -43,11 +43,11 @@ _comptime_bool :: (fn(arg : AstExpr, context : FunctionGenerationContext) -> Opt
 /// `exprMayHaveSideEffects`.
 _expr_may_have_side_effects :: (fn(expr : AstExpr, context : FunctionGenerationContext) -> bool)({
   ei_opt := context.base.get_expr_info(expr);
-  has_var := match(ei_opt,.Some(ei) => match(ei.variable_name,.Some(_) => true,.None => false),.None => false);
+  has_var := match(ei_opt, .Some(ei) => match(ei.variable_name, .Some(_) => true, .None => false), .None => false);
   if(has_var, {
     return(true);
   });
-  has_value := match(ei_opt,.Some(ei) => match(ei.value,.Some(_) => true,.None => false),.None => false);
+  has_value := match(ei_opt, .Some(ei) => match(ei.value, .Some(_) => true, .None => false), .None => false);
   if(has_value, {
     return(false);
   });
@@ -128,13 +128,13 @@ _collect_created_var_names_from_expr :: (fn(expr : AstExpr, result : HashSet(Str
       is_nested := (ast_expr_is_fn_call_of(expr, BK_OP_AND, Option(usize).None) || ast_expr_is_fn_call_of(expr, BK_OP_OR, Option(usize).None));
       if(is_nested, {
         if(args.len() > usize(0), {
-          match(args.get(usize(0)),.Some(a0) => recur(a0, result, context),.None => ());
+          match(args.get(usize(0)), .Some(a0) => recur(a0, result, context), .None => ());
         });
       }, {
         n := args.len();
         (i : usize) = usize(0);
         while(i < n, {
-          match(args.get(i),.Some(arg) => recur(arg, result, context),.None => ());
+          match(args.get(i), .Some(arg) => recur(arg, result, context), .None => ());
           i = (i + usize(1));
         });
         recur(func, result, context);
@@ -214,12 +214,12 @@ _emit_drops_for_conditional_branch :: (fn(var_names : HashSet(String), indent : 
 );
 /// `&&` operator with short-circuit evaluation. Mirrors `generateOpAnd`.
 generate_op_and :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
-  args := match(expr,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new());
+  args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   if(args.len() == usize(0), {
     return(String.from("true"));
   });
   if(args.len() == usize(1), {
-    return(_call_generate_expr(match(args.get(usize(0)),.Some(a) => a,.None => expr), indent.clone(), context));
+    return(_call_generate_expr(match(args.get(usize(0)), .Some(a) => a, .None => expr), indent.clone(), context));
   });
   // Fold compile-time operands: a `false` short-circuits, a `true` is dropped.
   runtime_args := ArrayList(AstExpr).new();
@@ -246,7 +246,7 @@ generate_op_and :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
   });
   rn := runtime_args.len();
   if(rn == usize(1), {
-    return(_call_generate_expr(match(runtime_args.get(usize(0)),.Some(a) => a,.None => expr), indent.clone(), context));
+    return(_call_generate_expr(match(runtime_args.get(usize(0)), .Some(a) => a, .None => expr), indent.clone(), context));
   });
   // Does any arg beyond the first need an if-chain?
   (needs : bool) = false;
@@ -319,7 +319,7 @@ generate_op_and :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
   });
   (c : usize) = depth;
   while(c > usize(0), {
-    conditional_arg := match(runtime_args.get(c),.Some(a) => a,.None => expr);
+    conditional_arg := match(runtime_args.get(c), .Some(a) => a, .None => expr);
     var_names := HashSet(String).new();
     _collect_created_var_names_from_expr(conditional_arg, var_names, context);
     drops_indent := _indent_n(indent.clone(), level);
@@ -335,12 +335,12 @@ generate_op_and :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
 });
 /// `||` operator with short-circuit evaluation. Mirrors `generateOpOr`.
 generate_op_or :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
-  args := match(expr,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new());
+  args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   if(args.len() == usize(0), {
     return(String.from("false"));
   });
   if(args.len() == usize(1), {
-    return(_call_generate_expr(match(args.get(usize(0)),.Some(a) => a,.None => expr), indent.clone(), context));
+    return(_call_generate_expr(match(args.get(usize(0)), .Some(a) => a, .None => expr), indent.clone(), context));
   });
   // Fold compile-time operands: a `true` short-circuits, a `false` is dropped.
   runtime_args := ArrayList(AstExpr).new();
@@ -367,7 +367,7 @@ generate_op_or :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
   });
   rn := runtime_args.len();
   if(rn == usize(1), {
-    return(_call_generate_expr(match(runtime_args.get(usize(0)),.Some(a) => a,.None => expr), indent.clone(), context));
+    return(_call_generate_expr(match(runtime_args.get(usize(0)), .Some(a) => a, .None => expr), indent.clone(), context));
   });
   (needs : bool) = false;
   (k : usize) = usize(1);
@@ -439,7 +439,7 @@ generate_op_or :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
   });
   (c : usize) = depth;
   while(c > usize(0), {
-    conditional_arg := match(runtime_args.get(c),.Some(a) => a,.None => expr);
+    conditional_arg := match(runtime_args.get(c), .Some(a) => a, .None => expr);
     var_names := HashSet(String).new();
     _collect_created_var_names_from_expr(conditional_arg, var_names, context);
     drops_indent := _indent_n(indent.clone(), level);

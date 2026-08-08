@@ -76,7 +76,7 @@ evaluate_recur :: (
   is_function_body := match(
     block_ctx_opt,
     .None => false,
-    .Some(bc) => match(bc.kind,.FunctionBody => true, _ => false)
+    .Some(bc) => match(bc.kind, .FunctionBody => true, _ => false)
   );
   if(!(is_function_body), {
     exn.throw(
@@ -203,7 +203,7 @@ evaluate_recur :: (
     return_type := call_result.return_type;
     recur_ret_is_comptime := match(
       func_body_ctx.func_type,
-      .Some(ft) => match(ft,.Func({ meta : __rc_fm }) => __rc_fm.*.result_is_comptime_only, _ => false),
+      .Some(ft) => match(ft, .Func({ meta : __rc_fm }) => __rc_fm.*.result_is_comptime_only, _ => false),
       .None => false
     );
     recur_unknown := if(

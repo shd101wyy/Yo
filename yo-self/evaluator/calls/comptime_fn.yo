@@ -91,29 +91,29 @@ _ctfe_types_era_equal :: (fn(aty : TypeValue, bty : TypeValue, d : usize) -> boo
   if(d > usize(6), {
     return(are_types_compatible_exact(aty, bty));
   });
-  a_sid := match(aty,.Struct({ id : x }) => x, _ => String.from(""));
-  b_sid := match(bty,.Struct({ id : x }) => x, _ => String.from(""));
+  a_sid := match(aty, .Struct({ id : x }) => x, _ => String.from(""));
+  b_sid := match(bty, .Struct({ id : x }) => x, _ => String.from(""));
   if((a_sid.len() > usize(0)) && (a_sid == b_sid), {
     return(true);
   });
-  a_eid := match(aty,.EnumT(x, _, _, _, _, _, _, _, _) => x.replace(String.from("__self_shell"), String.from("")), _ => String.from(""));
-  b_eid := match(bty,.EnumT(x, _, _, _, _, _, _, _, _) => x.replace(String.from("__self_shell"), String.from("")), _ => String.from(""));
+  a_eid := match(aty, .EnumT(x, _, _, _, _, _, _, _, _) => x.replace(String.from("__self_shell"), String.from("")), _ => String.from(""));
+  b_eid := match(bty, .EnumT(x, _, _, _, _, _, _, _, _) => x.replace(String.from("__self_shell"), String.from("")), _ => String.from(""));
   if((a_eid.len() > usize(0)) && (a_eid == b_eid), {
     return(true);
   });
   // Struct era instances: same ctor fid + era-equal type arguments.
   if((a_sid.len() > usize(0)) && (b_sid.len() > usize(0)), {
-    a_cf := match(lookup_struct_ctor_fid(a_sid),.Some(f) => f,.None => String.from(""));
-    b_cf := match(lookup_struct_ctor_fid(b_sid),.Some(f) => f,.None => String.from(""));
+    a_cf := match(lookup_struct_ctor_fid(a_sid), .Some(f) => f, .None => String.from(""));
+    b_cf := match(lookup_struct_ctor_fid(b_sid), .Some(f) => f, .None => String.from(""));
     if((a_cf.len() > usize(0)) && (a_cf == b_cf), {
-      a_ta := match(aty,.Struct({ type_arguments : t }) => t, _ => ArrayList(TypeValue).new());
-      b_ta := match(bty,.Struct({ type_arguments : t }) => t, _ => ArrayList(TypeValue).new());
+      a_ta := match(aty, .Struct({ type_arguments : t }) => t, _ => ArrayList(TypeValue).new());
+      b_ta := match(bty, .Struct({ type_arguments : t }) => t, _ => ArrayList(TypeValue).new());
       if((a_ta.len() == b_ta.len()) && (a_ta.len() > usize(0)), {
         (tai : usize) = usize(0);
         (ta_ok : bool) = true;
         while((tai < a_ta.len()) && ta_ok, {
-          at2 := match(a_ta.get(tai),.Some(t) => t,.None => t_unit());
-          bt2 := match(b_ta.get(tai),.Some(t) => t,.None => t_unit());
+          at2 := match(a_ta.get(tai), .Some(t) => t, .None => t_unit());
+          bt2 := match(b_ta.get(tai), .Some(t) => t, .None => t_unit());
           if(!(recur(at2, bt2, d + usize(1))), {
             ta_ok = false;
           });
@@ -131,21 +131,21 @@ _ctfe_types_era_equal :: (fn(aty : TypeValue, bty : TypeValue, d : usize) -> boo
     a_ecf := lookup_enum_cfid(a_eid);
     b_ecf := lookup_enum_cfid(b_eid);
     if((a_ecf.len() > usize(0)) && (a_ecf == b_ecf), {
-      a_vf := match(aty,.EnumT(_, _, _, vf, _, _, _, _, _) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
-      b_vf := match(bty,.EnumT(_, _, _, vf, _, _, _, _, _) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
+      a_vf := match(aty, .EnumT(_, _, _, vf, _, _, _, _, _) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
+      b_vf := match(bty, .EnumT(_, _, _, vf, _, _, _, _, _) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
       if(a_vf.len() == b_vf.len(), {
         (vfi : usize) = usize(0);
         (vf_ok : bool) = true;
         while((vfi < a_vf.len()) && vf_ok, {
-          a_fl := match(a_vf.get(vfi),.Some(f) => f,.None => ArrayList(TypeValue).new());
-          b_fl := match(b_vf.get(vfi),.Some(f) => f,.None => ArrayList(TypeValue).new());
+          a_fl := match(a_vf.get(vfi), .Some(f) => f, .None => ArrayList(TypeValue).new());
+          b_fl := match(b_vf.get(vfi), .Some(f) => f, .None => ArrayList(TypeValue).new());
           if(a_fl.len() != b_fl.len(), {
             vf_ok = false;
           }, {
             (ffi : usize) = usize(0);
             while((ffi < a_fl.len()) && vf_ok, {
-              af2 := match(a_fl.get(ffi),.Some(t) => t,.None => t_unit());
-              bf2 := match(b_fl.get(ffi),.Some(t) => t,.None => t_unit());
+              af2 := match(a_fl.get(ffi), .Some(t) => t, .None => t_unit());
+              bf2 := match(b_fl.get(ffi), .Some(t) => t, .None => t_unit());
               if(!(recur(af2, bf2, d + usize(1))), {
                 vf_ok = false;
               });
@@ -187,8 +187,8 @@ _ctfe_args_equal :: (
         // and the post-definition `Option(RBNode(K, V))` (arg = stamped final)
         // land in SEPARATE memo entries, splitting one TS type object into two
         // enum instances.
-        a_struct_id := match(aty,.Struct({ id : as_id }) => as_id, _ => String.from(""));
-        b_struct_id := match(bty,.Struct({ id : bs_id }) => bs_id, _ => String.from(""));
+        a_struct_id := match(aty, .Struct({ id : as_id }) => as_id, _ => String.from(""));
+        b_struct_id := match(bty, .Struct({ id : bs_id }) => bs_id, _ => String.from(""));
         // ENUM self-shells carry a `__self_shell` id SUFFIX (unlike struct
         // shells, which share the final's id exactly — see the comment
         // above). Strip it so `ArrayList(Self)` inside a recursive enum's
@@ -199,15 +199,15 @@ _ctfe_args_equal :: (
         // traverse/drop machinery cross-corrupted the heap (the
         // recursive-enum Box(Self)+ArrayList(Self) OOM/segv,
         // issues/repros/recursive-enum-box-plus-arraylist-self.yo).
-        a_enum_id := match(aty,.EnumT(ae_id, _, _, _, _, _, _, _, _) => ae_id.replace(String.from("__self_shell"), String.from("")), _ => String.from(""));
-        b_enum_id := match(bty,.EnumT(be_id, _, _, _, _, _, _, _, _) => be_id.replace(String.from("__self_shell"), String.from("")), _ => String.from(""));
+        a_enum_id := match(aty, .EnumT(ae_id, _, _, _, _, _, _, _, _) => ae_id.replace(String.from("__self_shell"), String.from("")), _ => String.from(""));
+        b_enum_id := match(bty, .EnumT(be_id, _, _, _, _, _, _, _, _) => be_id.replace(String.from("__self_shell"), String.from("")), _ => String.from(""));
         cond(
           ((a_struct_id.len() > usize(0)) && (a_struct_id == b_struct_id)) => true,
           ((a_enum_id.len() > usize(0)) && (a_enum_id == b_enum_id)) => true,
           // Both bare SomeT: must be the exact same id
           (a_is_some && b_is_some) => (
-            match(aty,.SomeT(id : aid) => aid, _ => String.from("")) ==
-              match(bty,.SomeT(id : bid) => bid, _ => String.from(""))
+            match(aty, .SomeT(id : aid) => aid, _ => String.from("")) ==
+              match(bty, .SomeT(id : bid) => bid, _ => String.from(""))
           ),
           // One bare SomeT, other not: different types
           (a_is_some || b_is_some) => false,
@@ -269,7 +269,7 @@ lookup_recursive_type_ref :: (fn(some_id : String) -> Option(RecursiveTypeRef))(
   (i : usize) = usize(0);
   n := g_recursive_type_refs.len();
   (found : Option(RecursiveTypeRef)) = Option(RecursiveTypeRef).None;
-  while((i < n) && match(found,.None => true,.Some(_) => false), {
+  while((i < n) && match(found, .None => true, .Some(_) => false), {
     match(
       g_recursive_type_refs.get(i),
       .Some(r) => if(r.some_id == some_id, {
@@ -291,7 +291,7 @@ _resolved_type_of :: (fn(v : EvalValue) -> Option(TypeValue))(
       t := tb;
       is_placeholder := match(
         t,
-        .SomeT(id : sid2) => match(lookup_recursive_type_ref(sid2),.Some(_) => true,.None => false),
+        .SomeT(id : sid2) => match(lookup_recursive_type_ref(sid2), .Some(_) => true, .None => false),
         _ => false
       );
       cond(
@@ -337,7 +337,7 @@ _arg_vals_equal :: (fn(a : ArrayList(EvalValue), b : ArrayList(EvalValue)) -> bo
 /// the same func (all instantiations share the same structure). Returns `.None`
 /// when `some_ty` is not a registered placeholder or nothing has resolved yet.
 resolve_recursive_type_ref :: (fn(some_ty : TypeValue, ctx : EvalContext) -> Option(TypeValue))({
-  sid := match(some_ty,.SomeT(id : x) => x, _ => String.from(""));
+  sid := match(some_ty, .SomeT(id : x) => x, _ => String.from(""));
   if(sid.len() == usize(0), {
     return(Option(TypeValue).None);
   });
@@ -353,7 +353,7 @@ resolve_recursive_type_ref :: (fn(some_ty : TypeValue, ctx : EvalContext) -> Opt
   {
     (ci : usize) = usize(0);
     n_c := g_comptime_fn_caches.len();
-    while((ci < n_c) && match(bucket_opt,.None => true,.Some(_) => false), {
+    while((ci < n_c) && match(bucket_opt, .None => true, .Some(_) => false), {
       match(
         g_comptime_fn_caches.get(ci),
         .Some(e) => if(e.func_id == rref.func_id, {
@@ -445,7 +445,7 @@ _recursive_placeholder :: (
   cond(
     is_type_0(return_type) => {
       placeholder := t_some_t(`recur_${func_id}`, usize(0));
-      sid := match(placeholder,.SomeT(id : x) => x, _ => String.from(""));
+      sid := match(placeholder, .SomeT(id : x) => x, _ => String.from(""));
       g_recursive_type_refs.push(
         RecursiveTypeRef(some_id : sid, func_id : func_id, arg_values : arg_vals)
       );
@@ -782,7 +782,7 @@ evaluate_comptime_fn_call :: (
   {
     (ci : usize) = usize(0);
     n_c := g_comptime_fn_caches.len();
-    while((ci < n_c) && match(entry_idx_opt,.None => true,.Some(_) => false), {
+    while((ci < n_c) && match(entry_idx_opt, .None => true, .Some(_) => false), {
       match(
         g_comptime_fn_caches.get(ci),
         .Some(e) => if(e.func_id == func_id_str, {
@@ -805,7 +805,7 @@ evaluate_comptime_fn_call :: (
     },
     .Some(_) => ()
   );
-  the_entry_idx := match(entry_idx_opt,.Some(i) => i,.None => usize(0));
+  the_entry_idx := match(entry_idx_opt, .Some(i) => i, .None => usize(0));
   // Look up an existing cache entry if caching is enabled.
   cached_result := Option(EvalValue).None;
   if(should_cache, {
@@ -814,7 +814,7 @@ evaluate_comptime_fn_call :: (
       .Some(entry) => {
         (cfi : usize) = usize(0);
         n_cc := entry.caches.len();
-        while((cfi < n_cc) && match(cached_result,.None => true,.Some(_) => false), {
+        while((cfi < n_cc) && match(cached_result, .None => true, .Some(_) => false), {
           match(
             entry.caches.get(cfi),
             .Some(cache) => {
@@ -903,8 +903,8 @@ evaluate_comptime_fn_call :: (
       eval_env : snapshot_env(callee_env)
     )
   );
-  ctx.is_evaluating_loop_body =.None;
-  ctx.captured_variables =.None;
+  ctx.is_evaluating_loop_body = .None;
+  ctx.captured_variables = .None;
   ctx.is_executing = (!(ctx.is_validating_function_definition));
   ctx.function_return_impl_concrete_type = Option(ArrayList(ImplConcreteTypeInfo)).Some(
     ArrayList(ImplConcreteTypeInfo).new()
@@ -1045,7 +1045,7 @@ evaluate_comptime_fn_call :: (
   // structurally unambiguous (single `*` field) and never unify with user
   // types, so naming ONLY them is safe. yo-self FuncVal carries no funcName, so
   // read it from the callee expr (the `Box` atom).
-  ctfe_fn_name := match(function_callee_expr,.Some(ce) => ast_expr_token(ce).value,.None => String.from(""));
+  ctfe_fn_name := match(function_callee_expr, .Some(ce) => ast_expr_token(ce).value, .None => String.from(""));
   ctfe_box_name := if(!(ctfe_fn_name == "Box"), String.from(""), {
     nm := String.from("Box(");
     (cni : usize) = usize(0);
@@ -1053,7 +1053,7 @@ evaluate_comptime_fn_call :: (
       if(cni > usize(0), {
         nm.push_str(", ");
       });
-      match(all_arg_vals.get(cni),.Some(cav) => nm.push_string(value_to_string(cav)),.None => ());
+      match(all_arg_vals.get(cni), .Some(cav) => nm.push_string(value_to_string(cav)), .None => ());
       cni = (cni + usize(1));
     });
     nm.push_str(")");

@@ -58,7 +58,7 @@ evaluate_tuple_elements_type :: (
   fields := ArrayList(TypeField).new();
   (i : usize) = usize(0);
   while(i < args.len(), {
-    arg := match(args.get(i),.Some(a) => a,.None => make_err_expr());
+    arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
     result := evaluate_type_field(arg, i, env, ctx, for_type, exn);
     field := result.field;
     // Check for duplicate labels (only when the field has an explicit label).
@@ -66,17 +66,17 @@ evaluate_tuple_elements_type :: (
       (dup_idx : usize) = usize(0);
       (has_dup : bool) = false;
       while((dup_idx < field_labels.len()) && !(has_dup), {
-        existing := match(field_labels.get(dup_idx),.Some(l) => l,.None => String.from(""));
+        existing := match(field_labels.get(dup_idx), .Some(l) => l, .None => String.from(""));
         if(existing == field.label, {
           has_dup = true;
         });
         dup_idx = (dup_idx + usize(1));
       });
       if(has_dup, {
-        arg_args := match(arg,.FnCall(_, _, a2, _, _) => a2,.Atom(_, _) => ArrayList(AstExpr).new());
+        arg_args := match(arg, .FnCall(_, _, a2, _, _) => a2, .Atom(_, _) => ArrayList(AstExpr).new());
         err_tok := if(
           ast_expr_is_fn_call(arg),
-          match(arg_args.get(usize(0)),.Some(fe) => ast_expr_token(fe),.None => ast_expr_token(arg)),
+          match(arg_args.get(usize(0)), .Some(fe) => ast_expr_token(fe), .None => ast_expr_token(arg)),
           ast_expr_token(arg)
         );
         exn.throw(
@@ -116,7 +116,7 @@ evaluate_tuple_type :: (
   ) -> AstExpr
 )({
   (env : Environment) = env_in;
-  args := match(expr,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new());
+  args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   // Empty tuple → unit type.
   if(args.len() == usize(0), {
     unit_val := create_type_value(TypeValue.Unit);
@@ -124,7 +124,7 @@ evaluate_tuple_type :: (
     out_info := new_expr_info(env, meta_ty);
     out_info.value = Option(EvalValue).Some(unit_val);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
-    callee_expr := match(expr,.FnCall(_, f_box, _, _, _) => f_box,.Atom(_, _) => expr);
+    callee_expr := match(expr, .FnCall(_, f_box, _, _, _) => f_box, .Atom(_, _) => expr);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(callee_expr), out_info);
     return(expr);
   });
@@ -151,7 +151,7 @@ evaluate_tuple_type :: (
       )
     );
     if(field.default_value.is_some(), {
-      arg := match(args.get(j),.Some(a) => a,.None => make_err_expr());
+      arg := match(args.get(j), .Some(a) => a, .None => make_err_expr());
       exn.throw(
         dyn(
           format_error_message(
@@ -172,7 +172,7 @@ evaluate_tuple_type :: (
   out_info := new_expr_info(env, meta_ty);
   out_info.value = Option(EvalValue).Some(tuple_val);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
-  callee_expr := match(expr,.FnCall(_, f_box, _, _, _) => f_box,.Atom(_, _) => expr);
+  callee_expr := match(expr, .FnCall(_, f_box, _, _, _) => f_box, .Atom(_, _) => expr);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(callee_expr), out_info);
   expr
 });

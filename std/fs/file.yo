@@ -248,7 +248,7 @@ export(File, OpenMode, FilePermission, SeekFrom);
 /// Read an entire file into a `String`.
 read_string :: (fn(path : Path, io : Io) -> Impl(Future(String, IoExn)))(
   io.async((e) => {
-    file := e.io.await(File.open(path,.Read, io), e);
+    file := e.io.await(File.open(path, .Read, io), e);
     content := e.io.await(file.read_string(io), e);
     e.io.await(file.close(io), e);
     return(content);
@@ -265,7 +265,7 @@ read_string_cstr :: (fn(path : *(u8), io : Io) -> Impl(Future(String, IoExn)))(
 /// Read an entire file into a byte list (`ArrayList(u8)`).
 read_file :: (fn(path : Path, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))(
   io.async((e) => {
-    file := e.io.await(File.open(path,.Read, io), e);
+    file := e.io.await(File.open(path, .Read, io), e);
     content := e.io.await(file.read_bytes(io), e);
     e.io.await(file.close(io), e);
     return(content);
@@ -282,7 +282,7 @@ read_file_cstr :: (fn(path : *(u8), io : Io) -> Impl(Future(ArrayList(u8), IoExn
 /// Write a `String` to a file, creating or truncating it.
 write_file :: (fn(path : Path, data : String, io : Io) -> Impl(Future(unit, IoExn)))(
   io.async((e) => {
-    file := e.io.await(File.open(path,.Write, io), e);
+    file := e.io.await(File.open(path, .Write, io), e);
     e.io.await(file.write_string(data, io), e);
     e.io.await(file.close(io), e);
   })
@@ -298,7 +298,7 @@ write_file_cstr :: (fn(path : *(u8), data : str, io : Io) -> Impl(Future(unit, I
 /// Write bytes to a file, creating or truncating it.
 write_bytes :: (fn(path : Path, data : ArrayList(u8), io : Io) -> Impl(Future(unit, IoExn)))(
   io.async((e) => {
-    file := e.io.await(File.open(path,.Write, io), e);
+    file := e.io.await(File.open(path, .Write, io), e);
     e.io.await(file.write_bytes(data, io), e);
     e.io.await(file.close(io), e);
   })
@@ -306,7 +306,7 @@ write_bytes :: (fn(path : Path, data : ArrayList(u8), io : Io) -> Impl(Future(un
 /// Append a `String` to a file, creating it if it does not exist.
 append_file :: (fn(path : Path, data : String, io : Io) -> Impl(Future(unit, IoExn)))(
   io.async((e) => {
-    file := e.io.await(File.open(path,.Append, io), e);
+    file := e.io.await(File.open(path, .Append, io), e);
     e.io.await(file.write_string(data, io), e);
     e.io.await(file.close(io), e);
   })

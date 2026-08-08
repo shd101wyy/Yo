@@ -157,7 +157,7 @@ open(import("std/string"));
 { panic, assert } :: import("std/assert");
 /// The callee name of a FnCall (empty for an Atom).
 _func_name :: (fn(expr : AstExpr) -> String)(
-  match(expr,.FnCall(_, func, _, _, _) => ast_expr_token(func).value,.Atom(_, _) => String.from(""))
+  match(expr, .FnCall(_, func, _, _, _) => ast_expr_token(func).value, .Atom(_, _) => String.from(""))
 );
 /// Map an infix operator SYMBOL (`+`, `==`, …) to the builtin-inline function
 /// name (`__yo_op_add`, `__yo_op_eq`, …) that generate_yo_inline_function_call
@@ -277,7 +277,7 @@ _is_primitive_unary_operator :: (fn(expr : AstExpr, context : FunctionGeneration
 /// deferred-dup rewrite, fed to generate_yo_inline_function_call.
 _generate_inline_call :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
   ei_opt := context.base.get_expr_info(expr);
-  arg_exprs := match(ei_opt,.Some(ei) => match(ei.runtime_arg_exprs_in_order,.Some(ra) => ra,.None => match(expr,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new())),.None => match(expr,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new()));
+  arg_exprs := match(ei_opt, .Some(ei) => match(ei.runtime_arg_exprs_in_order, .Some(ra) => ra, .None => match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new())), .None => match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new()));
   args := ArrayList(String).new();
   n := arg_exprs.len();
   (i : usize) = usize(0);
@@ -292,7 +292,7 @@ _generate_inline_call :: (fn(expr : AstExpr, indent : String, context : Function
             aei.deferred_dup_expressions,
             .Some(dups) => if(dups.len() > usize(0), {
               generate_deferred_dup_expressions(arg, indent.clone(), context);
-              match(dups.get(usize(0)),.Some(dup_expr) => if(ast_expr_is_fn_call(dup_expr), match(context.base.get_expr_info(dup_expr),.Some(dei) => match(dei.variable_name,.Some(dvn) => get_variable_name_for_codegen(dvn, Option(Environment).Some(dei.env)),.None => arg_code),.None => arg_code), arg_code),.None => arg_code)
+              match(dups.get(usize(0)), .Some(dup_expr) => if(ast_expr_is_fn_call(dup_expr), match(context.base.get_expr_info(dup_expr), .Some(dei) => match(dei.variable_name, .Some(dvn) => get_variable_name_for_codegen(dvn, Option(Environment).Some(dei.env)), .None => arg_code), .None => arg_code), arg_code), .None => arg_code)
             }, arg_code),
             .None => arg_code
           ),
@@ -306,30 +306,30 @@ _generate_inline_call :: (fn(expr : AstExpr, indent : String, context : Function
   });
   // Resolve an operator SYMBOL callee (`+`) to its inline name (`__yo_op_add`);
   // non-operator inline calls (`__yo_op_add(...)`) pass through unchanged.
-  inline_name := match(_operator_inline_name(_func_name(expr)),.Some(opn) => opn,.None => _func_name(expr));
+  inline_name := match(_operator_inline_name(_func_name(expr)), .Some(opn) => opn, .None => _func_name(expr));
   generate_yo_inline_function_call(inline_name, args, expr, context, indent)
 });
 /// Lower a transparent wrapper (`unsafe`/`old`/`ghost_fn`/`runtime`) to its
 /// inner expression's code.
 _passthrough_first_arg :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)(
-  match(expr,.FnCall(_, _, a, _, _) => match(a.get(usize(0)),.Some(inner) => _call_generate_expr(inner, indent.clone(), context),.None => String.from("")),.Atom(_, _) => String.from(""))
+  match(expr, .FnCall(_, _, a, _, _) => match(a.get(usize(0)), .Some(inner) => _call_generate_expr(inner, indent.clone(), context), .None => String.from("")), .Atom(_, _) => String.from(""))
 );
 /// The function-value of an anon-fn/closure node → its comptime C reference.
 _anon_fn_value :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext, err : str) -> String)(
-  match(context.base.get_expr_info(expr),.Some(ei) => match(ei.value,.Some(v) => if(is_func_val(v), generate_comptime_value(v, ei.ty, context.base), String.from(err)),.None => String.from(err)),.None => String.from(err))
+  match(context.base.get_expr_info(expr), .Some(ei) => match(ei.value, .Some(v) => if(is_func_val(v), generate_comptime_value(v, ei.ty, context.base), String.from(err)), .None => String.from(err)), .None => String.from(err))
 );
 /// `io.spawn(future)` — start a cold Future and return a JoinHandle (non-owning
 /// view). Faithful port of the inline io.spawn block in `generateFuncCall`
 /// (generation.ts:702).
 _generate_io_spawn :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
-  args := match(expr,.FnCall(_, _, a, _, _) => a, _ => return(String.from("// Error: spawn requires a Future argument")));
-  future_arg := match(args.get(usize(0)),.Some(a) => a,.None => return(String.from("// Error: spawn requires a Future argument")));
+  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => return(String.from("// Error: spawn requires a Future argument")));
+  future_arg := match(args.get(usize(0)), .Some(a) => a, .None => return(String.from("// Error: spawn requires a Future argument")));
   em := context.base.emitter;
   future_code := _call_generate_expr(future_arg, indent.clone(), context);
-  future_type_name := match(context.base.get_expr_info(future_arg),.Some(ei) => get_type_string(ei.ty, context.base),.None => String.from("void*"));
+  future_type_name := match(context.base.get_expr_info(future_arg), .Some(ei) => get_type_string(ei.ty, context.base), .None => String.from("void*"));
   expr_ei := context.base.get_expr_info(expr);
-  join_handle_type_name := match(expr_ei,.Some(ei) => Option(String).Some(get_type_string(ei.ty, context.base)),.None => Option(String).None);
-  name_suffix := match(expr_ei,.Some(ei) => match(ei.variable_name,.Some(n) => n,.None => String.from("")),.None => String.from(""));
+  join_handle_type_name := match(expr_ei, .Some(ei) => Option(String).Some(get_type_string(ei.ty, context.base)), .None => Option(String).None);
+  name_suffix := match(expr_ei, .Some(ei) => match(ei.variable_name, .Some(n) => n, .None => String.from("")), .None => String.from(""));
   // Statement-level spawns (no bound variable) still need UNIQUE temp names:
   // two unbound `io.spawn(...)` statements in one C scope redefine
   // `__spawn_future`. TS never hits this (its evaluator attaches a temp
@@ -348,7 +348,7 @@ _generate_io_spawn :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   em.emit_string_line(`${indent.clone()}}`);
   // Inject the bundle effect into the future's SM before cold-starting.
   emit_io_spawn_effect_injection(expr, spawn_var.clone(), indent.clone(), context);
-  is_io_future := match(context.base.get_expr_info(future_arg),.Some(ei) => is_io_future_type(ei.ty),.None => false);
+  is_io_future := match(context.base.get_expr_info(future_arg), .Some(ei) => is_io_future_type(ei.ty), .None => false);
   if(!(is_io_future), {
     em.emit_string_line(`${indent.clone()}if (${spawn_state_var.clone()} == 0 && ${spawn_var.clone()}->__yo_resume_fn) {`);
     em.emit_string_line(`${indent.clone()}  __yo_incr_rc((void*)${spawn_var.clone()});`);
@@ -367,7 +367,7 @@ _generate_io_spawn :: (fn(expr : AstExpr, indent : String, context : FunctionGen
 /// FuncVal's func_id up in the codegen function registry (populated by
 /// collection.yo's index_method_value pass).
 _index_method_call_by_name :: (fn(method_value : EvalValue, recv_arg : String, index_code : String, context : FunctionGenerationContext) -> String)({
-  fid := match(method_value,.FuncVal(__fvd1, _) => __fvd1.*.func_id, _ => return(String.from("/* Error: Index method not a FuncVal */")));
+  fid := match(method_value, .FuncVal(__fvd1, _) => __fvd1.*.func_id, _ => return(String.from("/* Error: Index method not a FuncVal */")));
   match(
     context.base.get_function_entry(fid),
     .Some(e) => `${e.c_name.clone()}(${recv_arg}, ${index_code})`,
@@ -387,7 +387,7 @@ _generate_index_trait_call :: (fn(expr : AstExpr, ei : ExprInfo, indent : String
     .None => return(String.from("/* Error: Index trait method value missing */"))
   );
   // callee = expr.func; the receiver whose address we take.
-  callee := match(expr,.FnCall(_, func, _, _, _) => func,.Atom(_, _) => return(String.from("/* Error: Index trait call on non-call */")));
+  callee := match(expr, .FnCall(_, func, _, _, _) => func, .Atom(_, _) => return(String.from("/* Error: Index trait call on non-call */")));
   (callee_code : String) = _call_generate_expr(callee, indent.clone(), context);
   // rvalue spill: if the callee is a function call returning a temporary (not an
   // atom, not a `.` property access which yields an lvalue), store it into a temp
@@ -396,7 +396,7 @@ _generate_index_trait_call :: (fn(expr : AstExpr, ei : ExprInfo, indent : String
     match(
       context.base.get_expr_info(callee),
       .Some(cei) => {
-        already_var := match(cei.variable_name,.Some(vn) => (callee_code == get_variable_name_for_codegen(vn, Option(Environment).Some(cei.env))),.None => false);
+        already_var := match(cei.variable_name, .Some(vn) => (callee_code == get_variable_name_for_codegen(vn, Option(Environment).Some(cei.env))), .None => false);
         if(!(already_var), {
           callee_type := get_type_string(cei.ty, context.base);
           temp_name := `__yo_idx_tmp_${ast_expr_id(callee).to_string()}`;
@@ -411,7 +411,7 @@ _generate_index_trait_call :: (fn(expr : AstExpr, ei : ExprInfo, indent : String
   // The single index argument.
   index_code := match(
     expr,
-    .FnCall(_, _, a, _, _) => match(a.get(usize(0)),.Some(ix) => _call_generate_expr(ix, indent.clone(), context),.None => String.from("0")),
+    .FnCall(_, _, a, _, _) => match(a.get(usize(0)), .Some(ix) => _call_generate_expr(ix, indent.clone(), context), .None => String.from("0")),
     .Atom(_, _) => String.from("0")
   );
   // The receiver argument is its address (`&callee`): the specialized index
@@ -431,7 +431,7 @@ _generate_index_trait_call :: (fn(expr : AstExpr, ei : ExprInfo, indent : String
     .None => _index_method_call_by_name(method_value, recv_arg.clone(), index_code.clone(), context)
   );
   // Auto-deref the returned pointer unless this is `&(value(i))`.
-  match(ei.is_index_trait_address_of,.Some(true) => call_code, _ => `(*${call_code})`)
+  match(ei.is_index_trait_address_of, .Some(true) => call_code, _ => `(*${call_code})`)
 });
 /// Some compile-time values ALLOCATE when they materialize in C. The clearest
 /// case is a payload-free variant of a reference-semantics enum: its comptime
@@ -462,7 +462,7 @@ _materialize_owned_rc_comptime_value :: (
     context : FunctionGenerationContext
   ) -> String
 )({
-  var_name := match(ei.variable_name,.Some(vn) => vn,.None => String.from(""));
+  var_name := match(ei.variable_name, .Some(vn) => vn, .None => String.from(""));
   if(var_name.len() == usize(0), return(comptime_code));
   // Only shapes that actually malloc need an owner (see the predicate's doc).
   if(!(comptime_value_allocates_rc_object(value, ei.ty)), return(comptime_code));
@@ -637,7 +637,7 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   if(ast_expr_is_fn_call_of(expr, BF_ARRAY_FILL, Option(usize).Some(usize(2))), return(generate_yo_array_fill(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, "::", Option(usize).Some(usize(2))), return(String.from("")));
   if(ast_expr_is_fn_call_of(expr, ":", Option(usize).Some(usize(2))), return(generate_binding(expr, indent.clone(), context)));
-  if(ast_expr_is_fn_call_of(expr, ":=", Option(usize).Some(usize(2))), match(generate_initialization_assignment(expr, indent.clone(), context),.Some(r) => return(r),.None => ()));
+  if(ast_expr_is_fn_call_of(expr, ":=", Option(usize).Some(usize(2))), match(generate_initialization_assignment(expr, indent.clone(), context), .Some(r) => return(r), .None => ()));
   if(ast_expr_is_fn_call_of(expr, "=", Option(usize).Some(usize(2))), return(generate_assignment(expr, indent.clone(), context)));
   // Already-computed comptime value (non-unit, no control flow).
   //
@@ -656,7 +656,7 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   // generate_comptime_value can't fill (emits `/* skip generating value */`).
   // Fall through to generate_other_function_call's runtime enum-construction
   // branch. Mirrors other-fn-call.ts:2500 (the isEnumType construction case).
-  ctor_has_runtime_args := match(ei.runtime_arg_exprs_in_order,.Some(ra) => (ra.len() > usize(0)),.None => false);
+  ctor_has_runtime_args := match(ei.runtime_arg_exprs_in_order, .Some(ra) => (ra.len() > usize(0)), .None => false);
   match(
     ei.value,
     .Some(v) => {
@@ -675,7 +675,7 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   if(ast_expr_is_fn_call_of(expr, BK_MATCH, Option(usize).None), return(generate_match_expression(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_ADDRESS_OF, Option(usize).Some(usize(1))), return(generate_address_of(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BK_TUPLE, Option(usize).None), return(generate_anonymous_tuple(expr, indent.clone(), context)));
-  if(ast_expr_is_fn_call_of(expr, BK_ARRAY_VAL, Option(usize).None), match(generate_anonymous_array(expr, indent.clone(), context),.Some(r) => return(r),.None => ()));
+  if(ast_expr_is_fn_call_of(expr, BK_ARRAY_VAL, Option(usize).None), match(generate_anonymous_array(expr, indent.clone(), context), .Some(r) => return(r), .None => ()));
   // `Array(T, N)(a, b)` with RUNTIME elements. The array-literal form reaches
   // the emitter above through its `array` head; the type-constructor form has
   // no such head, so route it by SHAPE: an array-typed call carrying runtime
@@ -692,16 +692,16 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
     expr,
     .FnCall(_, __ac_f, _, _, _) => match(
       context.base.get_expr_info(__ac_f),
-      .Some(__ac_fi) => match(__ac_fi.value,.Some(__ac_v) => match(__ac_v,.TypeVal(__ac_t) => is_array_type(__ac_t), _ => false),.None => false),
+      .Some(__ac_fi) => match(__ac_fi.value, .Some(__ac_v) => match(__ac_v, .TypeVal(__ac_t) => is_array_type(__ac_t), _ => false), .None => false),
       .None => false
     ),
     .Atom(_, _) => false
   );
   if(arr_ctor_callee && (is_array_type(ei.ty) && (ei.runtime_arg_exprs_in_order.is_some() && ei.value.is_none())), {
-    match(generate_anonymous_array(expr, indent.clone(), context),.Some(r) => return(r),.None => ());
+    match(generate_anonymous_array(expr, indent.clone(), context), .Some(r) => return(r), .None => ());
   });
   if(ast_expr_is_fn_call_of(expr, BF_RECUR, Option(usize).None), return(generate_recur(expr, indent.clone(), context)));
-  if(ast_expr_is_fn_call_of(expr, BF_RUNTIME, Option(usize).Some(usize(1))), return(match(expr,.FnCall(_, _, a, _, _) => match(a.get(usize(0)),.Some(inner) => _call_generate_expr(inner, indent.clone(), context),.None => String.from("")),.Atom(_, _) => String.from(""))));
+  if(ast_expr_is_fn_call_of(expr, BF_RUNTIME, Option(usize).Some(usize(1))), return(match(expr, .FnCall(_, _, a, _, _) => match(a.get(usize(0)), .Some(inner) => _call_generate_expr(inner, indent.clone(), context), .None => String.from("")), .Atom(_, _) => String.from(""))));
   if(ast_expr_is_fn_call_of(expr, BF_SIZEOF, Option(usize).Some(usize(1))), return(generate_sizeof(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_TYPEID, Option(usize).Some(usize(1))), return(generate_typeid(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_DOWNCAST, Option(usize).Some(usize(2))), return(generate_downcast(expr, indent.clone(), context)));
@@ -709,7 +709,7 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   if(ast_expr_is_fn_call_of(expr, BK_WHILE, Option(usize).None), return(generate_while_loop(expr, indent.clone(), context)));
   // Anonymous function `fn(x) -> body` → its function value.
   if(ast_expr_is_fn_call_of(expr, "->", Option(usize).Some(usize(2))), {
-    arg0_is_fn := match(expr,.FnCall(_, _, a, _, _) => match(a.get(usize(0)),.Some(a0) => ast_expr_is_fn_call_of(a0, BK_FN, Option(usize).None),.None => false),.Atom(_, _) => false);
+    arg0_is_fn := match(expr, .FnCall(_, _, a, _, _) => match(a.get(usize(0)), .Some(a0) => ast_expr_is_fn_call_of(a0, BK_FN, Option(usize).None), .None => false), .Atom(_, _) => false);
     if(arg0_is_fn, {
       return(_anon_fn_value(expr, indent.clone(), context, "// Error: Anonymous function missing function value"));
     });
@@ -717,7 +717,7 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   // Closure `x => body` / `x =>> body` → its function value (capture-struct
   // construction is Phase 3; closure-type annotations fall through).
   if(ast_expr_is_fn_call_of(expr, "=>", Option(usize).Some(usize(2))) || ast_expr_is_fn_call_of(expr, "=>>", Option(usize).Some(usize(2))), {
-    is_closure_type := match(expr,.FnCall(_, _, a, _, _) => match(a.get(usize(0)),.Some(a0) => ast_expr_is_fn_call_of(a0, BK_FN, Option(usize).None),.None => false),.Atom(_, _) => false);
+    is_closure_type := match(expr, .FnCall(_, _, a, _, _) => match(a.get(usize(0)), .Some(a0) => ast_expr_is_fn_call_of(a0, BK_FN, Option(usize).None), .None => false), .Atom(_, _) => false);
     if(!(is_closure_type), {
       return(_anon_fn_value(expr, indent.clone(), context, "// Error: Anonymous closure missing function value"));
     });
@@ -755,7 +755,7 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
 });
 /// Top-level expression dispatch. Mirrors `_generateExpr`.
 _generate_expr :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)(
-  match(expr,.FnCall(_, _, _, _, _) => generate_func_call(expr, indent, context),.Atom(_, _) => generate_atom(expr, context, indent))
+  match(expr, .FnCall(_, _, _, _, _) => generate_func_call(expr, indent, context), .Atom(_, _) => generate_atom(expr, context, indent))
 );
 /// Register `_generate_expr` as the `_call_generate_expr` indirection target.
 /// The driver calls this once before walking function bodies.

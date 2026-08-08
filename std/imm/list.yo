@@ -53,7 +53,7 @@ impl(
   List(T),
   /// Create an empty list.
   new : (fn() -> Self)(
-    Self(_head :.None, _len : usize(0))
+    Self(_head : .None, _len : usize(0))
   ),
   /// Return the number of elements.
   len : (fn(self : Self) -> usize)(
@@ -66,7 +66,7 @@ impl(
   /// Return a new list with `value` at the front. O(1).
   prepend : (fn(self : Self, value : T) -> Self)(
     Self(
-      _head :.Some(ListNode(T)(_value : value, _next : self._head)),
+      _head : .Some(ListNode(T)(_value : value, _next : self._head)),
       _len : (self._len + usize(1))
     )
   ),
@@ -74,8 +74,8 @@ impl(
   head : (fn(self : Self) -> Option(T))(
     match(
       self._head,
-      .Some(node) =>.Some(node._value),
-      .None =>.None
+      .Some(node) => .Some(node._value),
+      .None => .None
     )
   ),
   /// Return a new list without the first element. O(1).
@@ -206,7 +206,7 @@ impl(
     (i : usize) = l.len();
     while(i > usize(0), {
       i = (i - usize(1));
-      result = result.prepend(match(l.get(i),.Some(__e) => __e,.None => __yo_panic("from_list: index out of bounds")));
+      result = result.prepend(match(l.get(i), .Some(__e) => __e, .None => __yo_panic("from_list: index out of bounds")));
     });
     result
   })

@@ -24,7 +24,7 @@ open(import("std/string"));
 { expr_info_converted_runtime_type } :: import("../../expr_info.yo");
 /// The C function name for a func id (registered cName, else None).
 _c_function_name_opt :: (fn(context : FunctionGenerationContext, func_id : String) -> Option(String))(
-  match(context.base.get_function_entry(func_id),.Some(e) => Option(String).Some(e.c_name),.None => Option(String).None)
+  match(context.base.get_function_entry(func_id), .Some(e) => Option(String).Some(e.c_name), .None => Option(String).None)
 );
 /// The `&` (address-of) operator generation. Mirrors `generateAddressOf`.
 generate_address_of :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
@@ -38,8 +38,8 @@ generate_address_of :: (fn(expr : AstExpr, indent : String, context : FunctionGe
       return(s);
     }
   );
-  args := match(expr,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new());
-  arg := match(args.get(usize(0)),.Some(x) => x,.None => return(String.from("// Error: address-of requires an argument\n")));
+  args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  arg := match(args.get(usize(0)), .Some(x) => x, .None => return(String.from("// Error: address-of requires an argument\n")));
   arg_ei_opt := context.base.get_expr_info(arg);
   // Compile-time literals need a compound literal to be addressable.
   match(
@@ -77,7 +77,7 @@ generate_address_of :: (fn(expr : AstExpr, indent : String, context : FunctionGe
     .None => ()
   );
   // Index-trait address-of: Index.index() already returns a pointer.
-  is_idx := match(ei.is_index_trait_address_of,.Some(b) => b,.None => false);
+  is_idx := match(ei.is_index_trait_address_of, .Some(b) => b, .None => false);
   // Array-receiver index address-of: `&(arr(i))` where `arr` is a builtin
   // fixed-size Array (NOT a user `Index` impl). The array index is a BUILTIN
   // (BF_YO_ARRAY_INDEX), so the evaluator records NO `index_method_value`
@@ -86,13 +86,13 @@ generate_address_of :: (fn(expr : AstExpr, indent : String, context : FunctionGe
   // fallback, which copies element 0 into a 1-byte temp and addresses THAT
   // (`uint8_t t = arr.data[0]; &t`). snprintf then overflows the temp → SIGTRAP.
   // Emit the address INTO the array buffer directly: `(&((&arr)->data[i]))`.
-  if(ast_expr_is_fn_call(arg) && match(arg_ei_opt,.Some(aei) => aei.index_method_value.is_none(),.None => true), {
-    callee_expr := match(arg,.FnCall(_, func, _, _, _) => func,.Atom(_, _) => arg);
-    callee_is_array := match(context.base.get_expr_info(callee_expr),.Some(cei) => is_array_type(cei.ty),.None => false);
+  if(ast_expr_is_fn_call(arg) && match(arg_ei_opt, .Some(aei) => aei.index_method_value.is_none(), .None => true), {
+    callee_expr := match(arg, .FnCall(_, func, _, _, _) => func, .Atom(_, _) => arg);
+    callee_is_array := match(context.base.get_expr_info(callee_expr), .Some(cei) => is_array_type(cei.ty), .None => false);
     if(callee_is_array, {
       callee_code := _call_generate_expr(callee_expr, indent.clone(), context);
-      index_arg_opt := match(arg,.FnCall(_, _, a2, _, _) => a2.get(usize(0)),.Atom(_, _) => Option(AstExpr).None);
-      index_code := match(index_arg_opt,.Some(ia) => _call_generate_expr(ia, indent.clone(), context),.None => String.from("0"));
+      index_arg_opt := match(arg, .FnCall(_, _, a2, _, _) => a2.get(usize(0)), .Atom(_, _) => Option(AstExpr).None);
+      index_code := match(index_arg_opt, .Some(ia) => _call_generate_expr(ia, indent.clone(), context), .None => String.from("0"));
       out := String.from("(&((&");
       out.push_string(callee_code);
       out.push_str(")->data[");
@@ -107,14 +107,14 @@ generate_address_of :: (fn(expr : AstExpr, indent : String, context : FunctionGe
       .Some(arg_ei) => match(
         arg_ei.index_method_value,
         .Some(mv) => if(is_func_val(mv), {
-          callee_expr := match(arg,.FnCall(_, func, _, _, _) => func,.Atom(_, _) => arg);
+          callee_expr := match(arg, .FnCall(_, func, _, _, _) => func, .Atom(_, _) => arg);
           (callee_code : String) = _call_generate_expr(callee_expr, indent.clone(), context);
           // Spill an rvalue callee into a temp (can't address an rvalue).
           if(ast_expr_is_fn_call(callee_expr) && (!(ast_expr_is_atom(callee_expr)) && !(ast_expr_is_fn_call_of(callee_expr, BF_DOT, Option(usize).None))), {
             match(
               context.base.get_expr_info(callee_expr),
               .Some(cei) => {
-                is_already_var := match(cei.variable_name,.Some(vn) => (callee_code == get_variable_name_for_codegen(vn.clone(), Option(Environment).Some(cei.env))),.None => false);
+                is_already_var := match(cei.variable_name, .Some(vn) => (callee_code == get_variable_name_for_codegen(vn.clone(), Option(Environment).Some(cei.env))), .None => false);
                 if(!(is_already_var), {
                   callee_type := get_type_string(cei.ty, context.base);
                   temp_name := String.from("__yo_ptr_idx_tmp_");
@@ -134,8 +134,8 @@ generate_address_of :: (fn(expr : AstExpr, indent : String, context : FunctionGe
               .None => ()
             );
           });
-          index_arg_opt := match(arg,.FnCall(_, _, a2, _, _) => a2.get(usize(0)),.Atom(_, _) => Option(AstExpr).None);
-          index_code := match(index_arg_opt,.Some(ia) => _call_generate_expr(ia, indent.clone(), context),.None => String.from("0"));
+          index_arg_opt := match(arg, .FnCall(_, _, a2, _, _) => a2.get(usize(0)), .Atom(_, _) => Option(AstExpr).None);
+          index_code := match(index_arg_opt, .Some(ia) => _call_generate_expr(ia, indent.clone(), context), .None => String.from("0"));
           // Inline the array-index builtin body when possible.
           inline_op := is_function_value_with_only_builtin_yo_inline_function_call(mv);
           match(
@@ -151,7 +151,7 @@ generate_address_of :: (fn(expr : AstExpr, indent : String, context : FunctionGe
             .None => ()
           );
           // Fallback to a direct call of the index method.
-          fid := match(mv,.FuncVal(__fvd1, _) => __fvd1.*.func_id, _ => String.from(""));
+          fid := match(mv, .FuncVal(__fvd1, _) => __fvd1.*.func_id, _ => String.from(""));
           match(
             _c_function_name_opt(context, fid),
             .Some(c_func_name) => {
@@ -177,7 +177,7 @@ generate_address_of :: (fn(expr : AstExpr, indent : String, context : FunctionGe
     match(
       arg_ei_opt,
       .Some(arg_ei) => {
-        is_already_var := match(arg_ei.variable_name,.Some(vn) => (arg_code == get_variable_name_for_codegen(vn.clone(), Option(Environment).Some(arg_ei.env))),.None => false);
+        is_already_var := match(arg_ei.variable_name, .Some(vn) => (arg_code == get_variable_name_for_codegen(vn.clone(), Option(Environment).Some(arg_ei.env))), .None => false);
         if(!(is_already_var), {
           arg_type_str := get_type_string(arg_ei.ty, context.base);
           temp_name := match(

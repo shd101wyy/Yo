@@ -99,7 +99,7 @@ resolve_module_path :: (
   });
   // Extension resolution.
   ext_opt := Path.new(module_path_to_import.clone()).extension();
-  has_ext := match(ext_opt,.Some(_) => true,.None => false);
+  has_ext := match(ext_opt, .Some(_) => true, .None => false);
   if(has_ext, {
     return(ModuleResolveResult.Found(`file://${module_path_to_import}`));
   });
@@ -122,7 +122,7 @@ resolve_module_path :: (
 /// Returns `.None` if no project root is found.
 _find_project_root :: (fn(file_path : String) -> Option(String))({
   dir_path_opt := Path.new(file_path).parent();
-  (result : Option(String)) =.None;
+  (result : Option(String)) = .None;
   (found : bool) = false;
   while(!(found), {
     match(
@@ -135,7 +135,7 @@ _find_project_root :: (fn(file_path : String) -> Option(String))({
         yo_lock := dir_p.join(Path.new(String.from("yo.lock"))).to_string();
         build_yo := dir_p.join(Path.new(String.from("build.yo"))).to_string();
         if(_file_exists_sync(yo_lock) || _file_exists_sync(build_yo), {
-          result =.Some(dir_str);
+          result = .Some(dir_str);
           found = true;
         }, {
           // Move up one level.
@@ -150,7 +150,7 @@ _find_project_root :: (fn(file_path : String) -> Option(String))({
               if(next.to_string() == dir_str, {
                 found = true;
               }, {
-                dir_path_opt =.Some(next);
+                dir_path_opt = .Some(next);
               });
             }
           );
@@ -241,7 +241,7 @@ evaluate_import :: (
   ) -> AstExpr
 )({
   (env : Environment) = env_in;
-  if(!(ast_expr_is_fn_call_of(expr, BK_IMPORT,.Some(usize(1)))), {
+  if(!(ast_expr_is_fn_call_of(expr, BK_IMPORT, .Some(usize(1)))), {
     exn.throw(
       dyn(
         format_error_message(
@@ -425,7 +425,7 @@ evaluate_import :: (
     .None => LoadModuleResult(
       module_value : _build_module_val_from_env(env),
       module_type : TypeValue.Unit,
-      module_error :.None
+      module_error : .None
     )
   );
   // Check for a load error.
@@ -458,7 +458,7 @@ evaluate_import :: (
     _ => load_result.module_type
   );
   out_info := new_expr_info(env, mod_ty);
-  out_info.value =.Some(mod_val);
+  out_info.value = .Some(mod_val);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   expr
 });

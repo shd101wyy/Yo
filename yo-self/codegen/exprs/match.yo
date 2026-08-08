@@ -82,8 +82,8 @@ _byte_index_of :: (fn(s : String, word : String, from : usize) -> Option(usize))
     (j : usize) = usize(0);
     (hit : bool) = true;
     while((j < m) && hit, {
-      a := match(sb.get(i + j),.Some(x) => x,.None => u8(0));
-      b := match(wb.get(j),.Some(x) => x,.None => u8(1));
+      a := match(sb.get(i + j), .Some(x) => x, .None => u8(0));
+      b := match(wb.get(j), .Some(x) => x, .None => u8(1));
       if(!(a == b), {
         hit = false;
       });
@@ -130,7 +130,7 @@ _is_control_flow_code :: (fn(code : String) -> bool)(
 );
 /// Args of a FnCall (empty for an Atom).
 _args :: (fn(e : AstExpr) -> ArrayList(AstExpr))(
-  match(e,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new())
+  match(e, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new())
 );
 /// True if `expr` is an or-pattern `a | b`. Mirrors `isOrPattern`.
 _is_or_pattern :: (fn(expr : AstExpr) -> bool)(
@@ -188,7 +188,7 @@ _flatten_or_pattern :: (fn(expr : AstExpr) -> ArrayList(AstExpr))(
 );
 /// A C literal for a compile-time value (number / bool). Mirrors `getCLiteralFromValue`.
 _c_literal_from_value :: (fn(value : EvalValue) -> Option(String))(
-  match(value,.IntLit(r) => Option(String).Some(r),.FloatLit(r) => Option(String).Some(r),.BoolVal(b) => Option(String).Some(if(b, String.from("true"), String.from("false"))), _ => Option(String).None)
+  match(value, .IntLit(r) => Option(String).Some(r), .FloatLit(r) => Option(String).Some(r), .BoolVal(b) => Option(String).Some(if(b, String.from("true"), String.from("false"))), _ => Option(String).None)
 );
 /// Concatenate `current` then `prev` (both optional) into a fresh drop list.
 _concat_drops :: (fn(current : Option(ArrayList(AstExpr)), prev : Option(ArrayList(AstExpr))) -> ArrayList(AstExpr))({
@@ -244,8 +244,8 @@ _concat_drops :: (fn(current : Option(ArrayList(AstExpr)), prev : Option(ArrayLi
 /// `.None => { throw; env }` arms returned the Environment at net -1 — the
 /// round-5 stage-2 `s2 compile parser.yo` ExprInfo-env UAF).
 _arm_value_with_dups :: (fn(body_expr : AstExpr, indent : String, context : FunctionGenerationContext) -> Option(String))({
-  bei := match(context.base.get_expr_info(body_expr),.Some(b) => b,.None => return(Option(String).None));
-  bdups := match(bei.deferred_dup_expressions,.Some(d) => d,.None => return(Option(String).None));
+  bei := match(context.base.get_expr_info(body_expr), .Some(b) => b, .None => return(Option(String).None));
+  bdups := match(bei.deferred_dup_expressions, .Some(d) => d, .None => return(Option(String).None));
   if(bdups.len() == usize(0), {
     return(Option(String).None);
   });
@@ -323,8 +323,8 @@ generate_case_body :: (fn(body_expr : AstExpr, indent : String, context : Functi
     em := context.base.emitter;
     begin_args := _args(body_expr);
     vei_opt := context.base.get_expr_info(body_expr);
-    cur_drops := match(vei_opt,.Some(vei) => vei.deferred_drop_expressions,.None => Option(ArrayList(AstExpr)).None);
-    cur_consumed := match(vei_opt,.Some(vei) => expr_info_consumed_variable_drop_expressions(vei),.None => Option(ArrayList(AstExpr)).None);
+    cur_drops := match(vei_opt, .Some(vei) => vei.deferred_drop_expressions, .None => Option(ArrayList(AstExpr)).None);
+    cur_consumed := match(vei_opt, .Some(vei) => expr_info_consumed_variable_drop_expressions(vei), .None => Option(ArrayList(AstExpr)).None);
     prev_pending := context.pending_deferred_drops;
     prev_consumed := context.consumed_var_pending_drops;
     context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(cur_drops, prev_pending));
@@ -370,7 +370,7 @@ generate_case_body :: (fn(body_expr : AstExpr, indent : String, context : Functi
     });
     // Final expression — deferred-dup rewrite first (a borrowed value leaving
     // the arm needs its balancing +1; the bare emission was the round-5 UAF).
-    final_code := if(n > usize(0), match(begin_args.get(n - usize(1)),.Some(final_expr) => match(_arm_value_with_dups(final_expr, indent.clone(), context),.Some(fc) => fc,.None => _call_generate_expr(final_expr, indent.clone(), context)),.None => String.from("")), String.from(""));
+    final_code := if(n > usize(0), match(begin_args.get(n - usize(1)), .Some(final_expr) => match(_arm_value_with_dups(final_expr, indent.clone(), context), .Some(fc) => fc, .None => _call_generate_expr(final_expr, indent.clone(), context)), .None => String.from("")), String.from(""));
     generate_deferred_drop_expressions(body_expr, indent.clone(), context);
     context.pending_deferred_drops = prev_pending;
     context.consumed_var_pending_drops = prev_consumed;
@@ -450,9 +450,9 @@ generate_primitive_match_expression :: (fn(expr : AstExpr, indent : String, cont
       args.get(i),
       .Some(case_expr) => if(ast_expr_is_fn_call_of(case_expr, "=>", Option(usize).Some(usize(2))), {
         cargs := _args(case_expr);
-        case_value := match(cargs.get(usize(0)),.Some(cv) => cv,.None => case_expr);
-        case_body := match(cargs.get(usize(1)),.Some(cb) => cb,.None => case_expr);
-        executed := match(context.base.get_expr_info(case_value),.Some(cei) => match(expr_info_case_executed(cei),.Some(b) => b,.None => false),.None => false);
+        case_value := match(cargs.get(usize(0)), .Some(cv) => cv, .None => case_expr);
+        case_body := match(cargs.get(usize(1)), .Some(cb) => cb, .None => case_expr);
+        executed := match(context.base.get_expr_info(case_value), .Some(cei) => match(expr_info_case_executed(cei), .Some(b) => b, .None => false), .None => false);
         if(executed, {
           is_wildcard := (ast_expr_is_atom(case_value) && (ast_expr_token(case_value).value == "_"));
           if(is_wildcard, {
@@ -551,15 +551,15 @@ generate_primitive_match_expression :: (fn(expr : AstExpr, indent : String, cont
   close.push_str("}");
   em.emit_string_line(close);
   generate_deferred_drop_expressions(expr, indent.clone(), context, true);
-  if(is_unit, String.from(""), match(temp_var_opt,.Some(tv) => tv,.None => String.from("")))
+  if(is_unit, String.from(""), match(temp_var_opt, .Some(tv) => tv, .None => String.from("")))
 });
 /// Whether a match arm's pattern was executed (comptime branch elimination).
 _case_executed :: (fn(case_value : AstExpr, context : FunctionGenerationContext) -> bool)(
-  match(context.base.get_expr_info(case_value),.Some(cei) => match(expr_info_case_executed(cei),.Some(b) => b,.None => false),.None => false)
+  match(context.base.get_expr_info(case_value), .Some(cei) => match(expr_info_case_executed(cei), .Some(b) => b, .None => false), .None => false)
 );
 /// The variant name of a `.Variant(...)` / `.Variant` pattern (its first arg's token).
 _variant_name :: (fn(case_value : AstExpr) -> String)(
-  match(case_value,.FnCall(_, _, a, _, _) => match(a.get(usize(0)),.Some(v) => ast_expr_token(v).value,.None => String.from("")),.Atom(_, _) => String.from(""))
+  match(case_value, .FnCall(_, _, a, _, _) => match(a.get(usize(0)), .Some(v) => ast_expr_token(v).value, .None => String.from("")), .Atom(_, _) => String.from(""))
 );
 /// Nullable-pointer-optimized enum match → if/else (null vs pointer case).
 /// Mirrors the `nullablePointerType` branch of `generateMatchExpression`.
@@ -708,7 +708,7 @@ _gen_nullable_ptr_match :: (fn(expr : AstExpr, indent : String, context : Functi
   close := indent.clone();
   close.push_str("}");
   em.emit_string_line(close);
-  if(is_unit, String.from(""), match(temp_var_opt,.Some(tv) => tv,.None => String.from("")))
+  if(is_unit, String.from(""), match(temp_var_opt, .Some(tv) => tv, .None => String.from("")))
 });
 /// Simple (fieldless) enum match → C switch on the tag. Mirrors the
 /// `simpleEnumOptimizable` branch of `generateMatchExpression`.
@@ -771,7 +771,7 @@ _gen_simple_enum_match :: (fn(expr : AstExpr, indent : String, context : Functio
   close := indent.clone();
   close.push_str("}");
   em.emit_string_line(close);
-  if(is_unit, String.from(""), match(temp_var_opt,.Some(tv) => tv,.None => String.from("")))
+  if(is_unit, String.from(""), match(temp_var_opt, .Some(tv) => tv, .None => String.from("")))
 });
 /// Add a name to the function's local-shadowed-variables set (creating it if
 /// absent). A shadowed name resolves in `generate_atom` to its sanitized
@@ -806,15 +806,15 @@ _shadow_remove :: (fn(context : FunctionGenerationContext, name : String) -> uni
 _remove_arm_shadows :: (fn(params : ArrayList(AstExpr), context : FunctionGenerationContext) -> unit)({
   // Mirror the curly unwrap in _emit_destructure_binds so curly-bound vars are
   // also un-shadowed.
-  is_curly := ((params.len() == usize(1)) && (match(params.get(usize(0)),.Some(p0) => ast_expr_is_fn_call_of(p0, "_", Option(usize).None),.None => false)));
-  dparams := if(is_curly, match(params.get(usize(0)),.Some(p0) => _args(p0),.None => params.clone()), params.clone());
+  is_curly := ((params.len() == usize(1)) && (match(params.get(usize(0)), .Some(p0) => ast_expr_is_fn_call_of(p0, "_", Option(usize).None), .None => false)));
+  dparams := if(is_curly, match(params.get(usize(0)), .Some(p0) => _args(p0), .None => params.clone()), params.clone());
   np := dparams.len();
   (pi : usize) = usize(0);
   while(pi < np, {
     match(
       dparams.get(pi),
       .Some(p) => {
-        var_atom := if(ast_expr_is_fn_call_of(p, ":", Option(usize).Some(usize(2))), match(_args(p).get(usize(1)),.Some(v) => v,.None => p), p);
+        var_atom := if(ast_expr_is_fn_call_of(p, ":", Option(usize).Some(usize(2))), match(_args(p).get(usize(1)), .Some(v) => v, .None => p), p);
         if(ast_expr_is_atom(var_atom) && !(ast_expr_token(var_atom).value == "_"), {
           _shadow_remove(context, sanitize_for_c_identifier(ast_expr_token(var_atom).value, false));
         });
@@ -856,16 +856,16 @@ _emit_destructure_binds :: (fn(enum_type : TypeValue, variant_name : String, par
         vk = (vk + usize(1));
       });
       if(vi < nv, {
-        labels := match(vfls.get(vi),.Some(l) => l,.None => ArrayList(String).new());
-        types := match(vfs.get(vi),.Some(t) => t,.None => ArrayList(TypeValue).new());
+        labels := match(vfls.get(vi), .Some(l) => l, .None => ArrayList(String).new());
+        types := match(vfs.get(vi), .Some(t) => t, .None => ArrayList(TypeValue).new());
         // Curly destructuring `.Variant({a, b : alias})`: the single param is a
         // `_`(...) call (the evaluator's curly representation). Lift its inner
         // args so the labeled/positional logic below binds the fields. (`{a}`
         // atoms bind positionally to the field at that index — correct when the
         // curly fields are in declaration order; `{a : alias}` `:` pairs bind by
         // label.)
-        is_curly := ((params.len() == usize(1)) && (match(params.get(usize(0)),.Some(p0) => ast_expr_is_fn_call_of(p0, "_", Option(usize).None),.None => false)));
-        dparams := if(is_curly, match(params.get(usize(0)),.Some(p0) => _args(p0),.None => params.clone()), params.clone());
+        is_curly := ((params.len() == usize(1)) && (match(params.get(usize(0)), .Some(p0) => ast_expr_is_fn_call_of(p0, "_", Option(usize).None), .None => false)));
+        dparams := if(is_curly, match(params.get(usize(0)), .Some(p0) => _args(p0), .None => params.clone()), params.clone());
         // Labeled if any param is a `:`(2) pair.
         (has_labeled : bool) = false;
         np := dparams.len();
@@ -887,7 +887,7 @@ _emit_destructure_binds :: (fn(enum_type : TypeValue, variant_name : String, par
               dparams.get(pi),
               .Some(param) => if(ast_expr_is_fn_call_of(param, ":", Option(usize).Some(usize(2))), {
                 pargs := _args(param);
-                label := match(pargs.get(usize(0)),.Some(le) => if(ast_expr_is_atom(le), ast_expr_token(le).value, String.from("")),.None => String.from(""));
+                label := match(pargs.get(usize(0)), .Some(le) => if(ast_expr_is_atom(le), ast_expr_token(le).value, String.from("")), .None => String.from(""));
                 match(
                   pargs.get(usize(1)),
                   .Some(var_expr) => if((ast_expr_is_atom(var_expr) && !(ast_expr_token(var_expr).value == "_")) && (label.len() > usize(0)), {
@@ -906,7 +906,7 @@ _emit_destructure_binds :: (fn(enum_type : TypeValue, variant_name : String, par
                       lk = (lk + usize(1));
                     });
                     if(fi < labels.len(), {
-                      ftype := match(types.get(fi),.Some(t) => t,.None => TypeValue.Unit);
+                      ftype := match(types.get(fi), .Some(t) => t, .None => TypeValue.Unit);
                       if(!(is_unit_type(ftype)), {
                         decl := body_indent.clone();
                         decl.push_string(get_type_string(ftype, context.base));
@@ -940,8 +940,8 @@ _emit_destructure_binds :: (fn(enum_type : TypeValue, variant_name : String, par
             match(
               dparams.get(fi),
               .Some(var_expr) => if(ast_expr_is_atom(var_expr) && !(ast_expr_token(var_expr).value == "_"), {
-                field_label := match(labels.get(fi),.Some(fl) => fl,.None => String.from(""));
-                ftype := match(types.get(fi),.Some(t) => t,.None => TypeValue.Unit);
+                field_label := match(labels.get(fi), .Some(fl) => fl, .None => String.from(""));
+                ftype := match(types.get(fi), .Some(t) => t, .None => TypeValue.Unit);
                 if(!(is_unit_type(ftype)), {
                   decl := body_indent.clone();
                   decl.push_string(get_type_string(ftype, context.base));
@@ -973,7 +973,7 @@ _emit_destructure_binds :: (fn(enum_type : TypeValue, variant_name : String, par
 /// handling both parse forms (`."(Variant, p...)` and `(.Variant)(p...)`).
 /// Returns ("", empty) if the pattern is not a variant.
 _arm_variant_and_params :: (fn(case_value : AstExpr) -> Option(String))(
-  match(case_value,.FnCall(_, func, args, _, _) => match(func,.Atom(_, tok) => if((tok.value == BF_DOT) && (args.len() >= usize(1)), match(args.get(usize(0)),.Some(v) => Option(String).Some(ast_expr_token(v).value),.None => Option(String).None), Option(String).None),.FnCall(_, ffunc, fargs, _, _) => if(match(ffunc,.Atom(_, ft) => (ft.value == BF_DOT),.FnCall(_, _, _, _, _) => false) && (fargs.len() == usize(1)), match(fargs.get(usize(0)),.Some(v) => Option(String).Some(ast_expr_token(v).value),.None => Option(String).None), Option(String).None)),.Atom(_, _) => Option(String).None)
+  match(case_value, .FnCall(_, func, args, _, _) => match(func, .Atom(_, tok) => if((tok.value == BF_DOT) && (args.len() >= usize(1)), match(args.get(usize(0)), .Some(v) => Option(String).Some(ast_expr_token(v).value), .None => Option(String).None), Option(String).None), .FnCall(_, ffunc, fargs, _, _) => if(match(ffunc, .Atom(_, ft) => (ft.value == BF_DOT), .FnCall(_, _, _, _, _) => false) && (fargs.len() == usize(1)), match(fargs.get(usize(0)), .Some(v) => Option(String).Some(ast_expr_token(v).value), .None => Option(String).None), Option(String).None)), .Atom(_, _) => Option(String).None)
 );
 /// The destructuring params of a tagged-union arm: `args[1..]` for form 1
 /// (func is the `.` atom) or all `args` for form 2 (func is `.Variant`).
@@ -1078,7 +1078,7 @@ _gen_tagged_union_match :: (fn(expr : AstExpr, indent : String, context : Functi
                       },
                       .None => ()
                     );
-                    match(rargs.get(usize(1)),.Some(v) => v,.None => cb0)
+                    match(rargs.get(usize(1)), .Some(v) => v, .None => cb0)
                   }, cb0);
                   _emit_case_body_and_break(cb, indent.clone(), body_indent.clone(), temp_var_opt, is_unit, context);
                   // Remove this arm's destructuring shadows so they don't leak.
@@ -1104,11 +1104,11 @@ _gen_tagged_union_match :: (fn(expr : AstExpr, indent : String, context : Functi
   close.push_str("}");
   em.emit_string_line(close);
   generate_deferred_drop_expressions(expr, indent.clone(), context, true);
-  if(is_unit, String.from(""), match(temp_var_opt,.Some(tv) => tv,.None => String.from("")))
+  if(is_unit, String.from(""), match(temp_var_opt, .Some(tv) => tv, .None => String.from("")))
 });
 /// Generate a match expression. Mirrors `generateMatchExpression`.
 generate_match_expression :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
-  ei := match(context.base.get_expr_info(expr),.Some(e) => e,.None => return(String.from("/* \"match\" expression is not evaluated */")));
+  ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("/* \"match\" expression is not evaluated */")));
   temp_var_opt := ei.variable_name;
   value_type := ei.ty;
   is_unit := is_unit_type(value_type);
@@ -1129,8 +1129,8 @@ generate_match_expression :: (fn(expr : AstExpr, indent : String, context : Func
     )
   );
   args := _args(expr);
-  subject := match(args.get(usize(0)),.Some(s) => s,.None => return(String.from("// Error: \"match\" expression requires a subject")));
-  subject_ei := match(context.base.get_expr_info(subject),.Some(e) => e,.None => return(String.from("// Error: \"match\" expression requires a valid type")));
+  subject := match(args.get(usize(0)), .Some(s) => s, .None => return(String.from("// Error: \"match\" expression requires a subject")));
+  subject_ei := match(context.base.get_expr_info(subject), .Some(e) => e, .None => return(String.from("// Error: \"match\" expression requires a valid type")));
   match_value_type := subject_ei.ty;
   (matched_value_code : String) = _call_generate_expr(subject, indent.clone(), context);
   // Materialize the subject into its temp var when the evaluator assigned one.
@@ -1146,7 +1146,7 @@ generate_match_expression :: (fn(expr : AstExpr, indent : String, context : Func
         vs := get_variables_from_env(subject_ei.env, svn.clone());
         cond(
           (vs.len() == usize(0)) => false,
-          true => match(vs.get(vs.len() - usize(1)),.Some(v) => v.is_ref,.None => false)
+          true => match(vs.get(vs.len() - usize(1)), .Some(v) => v.is_ref, .None => false)
         )
       }, false);
       if(!(is_inout_atom) && !(matched_value_code == subject_var_name), {
@@ -1183,13 +1183,13 @@ generate_match_expression :: (fn(expr : AstExpr, indent : String, context : Func
     .None => ()
   );
   // Primitive (int/bool) match.
-  if(match(expr_info_is_primitive_match(ei),.Some(b) => b,.None => false), {
+  if(match(expr_info_is_primitive_match(ei), .Some(b) => b, .None => false), {
     return(generate_primitive_match_expression(expr, indent.clone(), context, matched_value_code, match_value_type, temp_var_opt, is_unit));
   });
   // Dereference pointer / ref-semantics one level to the enum type.
   is_ptr := is_pointer_type(match_value_type);
   is_ref_sem := (!(is_ptr) && (is_reference_struct_type(match_value_type) || is_reference_enum_type(match_value_type)));
-  enum_type0 := if(is_ptr, match(match_value_type,.Pointer(p) => p, _ => match_value_type), match_value_type);
+  enum_type0 := if(is_ptr, match(match_value_type, .Pointer(p) => p, _ => match_value_type), match_value_type);
   // Resolve a leaked recursive-enum SELF-SHELL to its finalized form. A shell
   // keeps `variant_names` (so the tag emits) but has EMPTY `variant_fields`/
   // `variant_field_labels`, so `_emit_destructure_binds`'s positional loop
@@ -1202,10 +1202,10 @@ generate_match_expression :: (fn(expr : AstExpr, indent : String, context : Func
   if(!(is_enum_type(enum_type)), {
     return(String.from("// Error: \"match\" expression requires an enum type"));
   });
-  match(context.base.get_type_c_name(type_key(enum_type)),.None => return(String.from("// Error: \"match\" expression enum type has no C name")),.Some(_) => ());
+  match(context.base.get_type_c_name(type_key(enum_type)), .None => return(String.from("// Error: \"match\" expression enum type has no C name")), .Some(_) => ());
   deref_star := if(is_ptr, String.from("*"), String.from(""));
   // Nullable-pointer optimization.
-  match(can_optimize_as_nullable_pointer(enum_type),.Some(nullable_inner) => return(_gen_nullable_ptr_match(expr, indent.clone(), context, matched_value_code, nullable_inner, is_ptr, temp_var_opt, is_unit)),.None => ());
+  match(can_optimize_as_nullable_pointer(enum_type), .Some(nullable_inner) => return(_gen_nullable_ptr_match(expr, indent.clone(), context, matched_value_code, nullable_inner, is_ptr, temp_var_opt, is_unit)), .None => ());
   // Simple (fieldless) enum.
   if(can_optimize_as_simple_enum(enum_type), {
     return(_gen_simple_enum_match(expr, indent.clone(), context, matched_value_code, enum_type, deref_star, temp_var_opt, is_unit));

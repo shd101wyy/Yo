@@ -186,7 +186,7 @@ _get_or_create_some_ty_for_trait :: (
       ast_expr_token(lhs_expr)
     );
     lhs_info := new_expr_info(env_mut, type_of_type(new_some_ty));
-    lhs_info.value =.Some(tv);
+    lhs_info.value = .Some(tv);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(lhs_expr), lhs_info);
     return(_SomeTyResolvedResult(new_some_ty, false));
   });
@@ -196,7 +196,7 @@ _get_or_create_some_ty_for_trait :: (
   // retry path swallow failures with a local handler (mirrors TS's
   // try/catch around `getOrCreateSomeTypeForTraitWhereClause`).
   old_self_type := ctx.self_type;
-  ctx.self_type =.Some(self_type);
+  ctx.self_type = .Some(self_type);
   evaluated_lhs := evaluate_expression_raw(lhs_expr, env_mut, ctx, exn);
   ctx.self_type = old_self_type;
   lhs_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_lhs));
@@ -235,7 +235,7 @@ _get_or_create_some_ty_for_trait :: (
   env_mut.input_string = lhs_info.env.input_string;
   lhs_tv := match(
     lhs_info.value,
-    .Some(v) => match(v,.TypeVal(b) => b, _ => TypeValue.Unit),
+    .Some(v) => match(v, .TypeVal(b) => b, _ => TypeValue.Unit),
     .None => TypeValue.Unit
   );
   if(!(is_some_type(lhs_tv)), {
@@ -291,7 +291,7 @@ _apply_single_constraint_for_trait :: (
   // Check if negated
   (is_negated : bool) = false;
   (unwrapped_te : AstExpr) = trait_expr;
-  if(ast_expr_is_fn_call_of(trait_expr, "!",.Some(usize(1))), {
+  if(ast_expr_is_fn_call_of(trait_expr, "!", .Some(usize(1))), {
     is_negated = true;
     unwrapped_te = match(
       _fn_call_args(trait_expr).get(usize(0)),
@@ -303,7 +303,7 @@ _apply_single_constraint_for_trait :: (
   // The given/using soft-failure pattern generates incomplete C calls.
   (resolved_opt : Option(_SomeTyResolvedResult)) = Option(_SomeTyResolvedResult).None;
   resolved := _get_or_create_some_ty_for_trait(lhs_expr, self_type, env_mut, ctx, exn);
-  resolved_opt =.Some(resolved);
+  resolved_opt = .Some(resolved);
   res := match(
     resolved_opt,
     .Some(r) => r,
@@ -314,7 +314,7 @@ _apply_single_constraint_for_trait :: (
   // Evaluate trait expression (use outer exn — hard failure).
   (trait_ty2 : TypeValue) = TypeValue.Unit;
   old_self_type := ctx.self_type;
-  ctx.self_type =.Some(self_type);
+  ctx.self_type = .Some(self_type);
   evaluated_te := evaluate_expression_raw(unwrapped_te, env_mut, ctx, exn);
   ctx.self_type = old_self_type;
   te_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_te));
@@ -334,7 +334,7 @@ _apply_single_constraint_for_trait :: (
   env_mut.input_string = te_info.env.input_string;
   trait_ty2 = match(
     te_info.value,
-    .Some(v) => match(v,.TypeVal(b) => b, _ => TypeValue.Unit),
+    .Some(v) => match(v, .TypeVal(b) => b, _ => TypeValue.Unit),
     .None => TypeValue.Unit
   );
   if(!(is_trait_type(trait_ty2)), {
@@ -392,7 +392,7 @@ _parse_trait_where_clauses :: (
       }
     );
     ci = (ci + usize(1));
-    if(!(ast_expr_is_fn_call_of(constraint_expr, "<:",.Some(usize(2)))), {
+    if(!(ast_expr_is_fn_call_of(constraint_expr, "<:", .Some(usize(2)))), {
       exn.throw(
         dyn(
           format_error_message(
@@ -405,8 +405,8 @@ _parse_trait_where_clauses :: (
       );
     });
     c_args := _fn_call_args(constraint_expr);
-    lhs_expr := match(c_args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
-    rhs_expr := match(c_args.get(usize(1)),.Some(a) => a,.None => make_err_expr());
+    lhs_expr := match(c_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+    rhs_expr := match(c_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
     // Resolve LHS — when `collect_pending` is set, route failures through a
     // local exception handler so the constraint can be retried later
     // (e.g. `Self.Output <: Comptime` references the trait's own Output
@@ -426,11 +426,11 @@ _parse_trait_where_clauses :: (
     res := resolved;
     // Collect RHS trait exprs (single or tuple)
     rhs_trait_exprs := ArrayList(AstExpr).new();
-    if(ast_expr_is_fn_call_of(rhs_expr, BK_TUPLE,.None), {
+    if(ast_expr_is_fn_call_of(rhs_expr, BK_TUPLE, .None), {
       rhs_args := _fn_call_args(rhs_expr);
       (ri : usize) = usize(0);
       while(ri < rhs_args.len(), {
-        rte := match(rhs_args.get(ri),.Some(a) => a,.None => make_err_expr());
+        rte := match(rhs_args.get(ri), .Some(a) => a, .None => make_err_expr());
         rhs_trait_exprs.push(rte);
         ri = (ri + usize(1));
       });
@@ -440,12 +440,12 @@ _parse_trait_where_clauses :: (
     // Evaluate each trait expr and apply constraint
     (ti : usize) = usize(0);
     while(ti < rhs_trait_exprs.len(), {
-      trait_expr_item := match(rhs_trait_exprs.get(ti),.Some(a) => a,.None => make_err_expr());
+      trait_expr_item := match(rhs_trait_exprs.get(ti), .Some(a) => a, .None => make_err_expr());
       ti = (ti + usize(1));
       // Check negation
       (is_neg : bool) = false;
       (unwrapped_te : AstExpr) = trait_expr_item;
-      if(ast_expr_is_fn_call_of(trait_expr_item, "!",.Some(usize(1))), {
+      if(ast_expr_is_fn_call_of(trait_expr_item, "!", .Some(usize(1))), {
         is_neg = true;
         unwrapped_te = match(
           _fn_call_args(trait_expr_item).get(usize(0)),
@@ -458,8 +458,8 @@ _parse_trait_where_clauses :: (
       (trait_ty2 : TypeValue) = TypeValue.Unit;
       old_self_type := ctx.self_type;
       old_self_trait_type := ctx.self_trait_type;
-      ctx.self_type =.Some(self_type);
-      ctx.self_trait_type =.Some(trait_ty);
+      ctx.self_type = .Some(self_type);
+      ctx.self_trait_type = .Some(trait_ty);
       evaluated_te := evaluate_expression_raw(unwrapped_te, env_mut, ctx, exn);
       ctx.self_type = old_self_type;
       ctx.self_trait_type = old_self_trait_type;
@@ -509,7 +509,7 @@ _parse_trait_where_clauses :: (
       env_mut.input_string = te_info.env.input_string;
       trait_ty2 = match(
         te_info.value,
-        .Some(v) => match(v,.TypeVal(b) => b, _ => TypeValue.Unit),
+        .Some(v) => match(v, .TypeVal(b) => b, _ => TypeValue.Unit),
         .None => TypeValue.Unit
       );
       if(!(is_trait_type(trait_ty2)), {
@@ -614,16 +614,16 @@ _evaluate_trait_field :: (
   (default_value_expr_opt : Option(AstExpr)) = Option(AstExpr).None;
   (assigned_value_expr_opt : Option(AstExpr)) = Option(AstExpr).None;
   (expr_inner : AstExpr) = expr;
-  if(ast_expr_is_fn_call_of(expr, "?=",.Some(usize(2))), {
+  if(ast_expr_is_fn_call_of(expr, "?=", .Some(usize(2))), {
     inner_args := _fn_call_args(expr);
-    default_value_expr_opt =.Some(match(inner_args.get(usize(1)),.Some(a) => a,.None => make_err_expr()));
-    expr_inner = match(inner_args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
+    default_value_expr_opt = .Some(match(inner_args.get(usize(1)), .Some(a) => a, .None => make_err_expr()));
+    expr_inner = match(inner_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
   });
   // Phase 2: detect `=` / `:=` / `::` assigned value
-  if(ast_expr_is_fn_call_of(expr_inner, BK_ASSIGN,.Some(usize(2))) ||
-    ast_expr_is_fn_call_of(expr_inner, BK_INIT_ASSIGN,.Some(usize(2))) ||
-      ast_expr_is_fn_call_of(expr_inner, BK_CONST,.Some(usize(2))), {
-    if(ast_expr_is_fn_call_of(expr_inner, BK_CONST,.Some(usize(2))), {
+  if(ast_expr_is_fn_call_of(expr_inner, BK_ASSIGN, .Some(usize(2))) ||
+    ast_expr_is_fn_call_of(expr_inner, BK_INIT_ASSIGN, .Some(usize(2))) ||
+      ast_expr_is_fn_call_of(expr_inner, BK_CONST, .Some(usize(2))), {
+    if(ast_expr_is_fn_call_of(expr_inner, BK_CONST, .Some(usize(2))), {
       exn.throw(
         dyn(
           format_error_message(
@@ -636,8 +636,8 @@ _evaluate_trait_field :: (
       );
     });
     av_args := _fn_call_args(expr_inner);
-    assigned_value_expr_opt =.Some(match(av_args.get(usize(1)),.Some(a) => a,.None => make_err_expr()));
-    expr_inner = match(av_args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
+    assigned_value_expr_opt = .Some(match(av_args.get(usize(1)), .Some(a) => a, .None => make_err_expr()));
+    expr_inner = match(av_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
   });
   // Cannot have both default and assigned
   if(default_value_expr_opt.is_some() && assigned_value_expr_opt.is_some(), {
@@ -656,13 +656,13 @@ _evaluate_trait_field :: (
   (label_str : String) = String.from("");
   (label_expr_opt : Option(AstExpr)) = Option(AstExpr).None;
   (type_expr_opt : Option(AstExpr)) = Option(AstExpr).None;
-  if(ast_expr_is_fn_call_of(expr_inner, BK_COLON,.Some(usize(2))), {
+  if(ast_expr_is_fn_call_of(expr_inner, BK_COLON, .Some(usize(2))), {
     // `label : Type` form
     colon_args := _fn_call_args(expr_inner);
-    lhs_label_expr := match(colon_args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
-    rhs_type_expr := match(colon_args.get(usize(1)),.Some(a) => a,.None => make_err_expr());
+    lhs_label_expr := match(colon_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+    rhs_type_expr := match(colon_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
     // `comptime(label) : Type` is forbidden in traits
-    if(ast_expr_is_fn_call_of(lhs_label_expr, BK_COMPTIME,.Some(usize(1))), {
+    if(ast_expr_is_fn_call_of(lhs_label_expr, BK_COMPTIME, .Some(usize(1))), {
       exn.throw(
         dyn(
           format_error_message(
@@ -687,11 +687,11 @@ _evaluate_trait_field :: (
       );
     });
     label_str = ast_expr_token(lhs_label_expr).value;
-    label_expr_opt =.Some(lhs_label_expr);
-    type_expr_opt =.Some(rhs_type_expr);
+    label_expr_opt = .Some(lhs_label_expr);
+    type_expr_opt = .Some(rhs_type_expr);
   }, {
     // No colon — check for `comptime(x)` form (forbidden)
-    if(ast_expr_is_fn_call_of(expr_inner, BK_COMPTIME,.Some(usize(1))), {
+    if(ast_expr_is_fn_call_of(expr_inner, BK_COMPTIME, .Some(usize(1))), {
       exn.throw(
         dyn(
           format_error_message(
@@ -730,7 +730,7 @@ _evaluate_trait_field :: (
       );
     });
     label_str = ast_expr_token(expr_inner).value;
-    label_expr_opt =.Some(expr_inner);
+    label_expr_opt = .Some(expr_inner);
   });
   // Determine expected field type from context
   (expected_field_ty_opt : Option(TypeValue)) = Option(TypeValue).None;
@@ -743,7 +743,7 @@ _evaluate_trait_field :: (
           match(
             fts.get(trait_field_index),
             .Some(ft) => {
-              expected_field_ty_opt =.Some(ft);
+              expected_field_ty_opt = .Some(ft);
             },
             .None => ()
           );
@@ -763,7 +763,7 @@ _evaluate_trait_field :: (
       match(
         expected_field_ty_opt,
         .Some(eft) => {
-          ctx.expected_type =.Some(ExpectedTypeCtx(eft, env_mut));
+          ctx.expected_type = .Some(ExpectedTypeCtx(eft, env_mut));
         },
         .None => {
           ctx.expected_type = Option(ExpectedTypeCtx).None;
@@ -771,8 +771,8 @@ _evaluate_trait_field :: (
       );
       old_self_type := ctx.self_type;
       old_self_trait_type := ctx.self_trait_type;
-      ctx.self_type =.Some(self_type);
-      ctx.self_trait_type =.Some(trait_ty);
+      ctx.self_type = .Some(self_type);
+      ctx.self_trait_type = .Some(trait_ty);
       // RAW (propagating) eval, like the sibling field-type paths at 313/458:
       // a trait method's function TYPE can throw a compile error (e.g. the
       // `-> inout(T)` inout-return ban in evaluate_function_type). The
@@ -783,7 +783,7 @@ _evaluate_trait_field :: (
       ctx.self_type = old_self_type;
       ctx.self_trait_type = old_self_trait_type;
       te_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_te));
-      te_info := match(te_info_opt,.Some(i) => i,.None => new_expr_info(env_mut, TypeValue.Unit));
+      te_info := match(te_info_opt, .Some(i) => i, .None => new_expr_info(env_mut, TypeValue.Unit));
       env_mut.frames = te_info.env.frames;
       env_mut.module_path = te_info.env.module_path;
       env_mut.function_declaration_frame_level = te_info.env.function_declaration_frame_level;
@@ -802,10 +802,10 @@ _evaluate_trait_field :: (
       });
       ty := match(
         te_info.value,
-        .Some(v) => match(v,.TypeVal(b) => b, _ => TypeValue.Unit),
+        .Some(v) => match(v, .TypeVal(b) => b, _ => TypeValue.Unit),
         .None => TypeValue.Unit
       );
-      field_ty_opt =.Some(ty);
+      field_ty_opt = .Some(ty);
     },
     .None => ()
   );
@@ -823,7 +823,7 @@ _evaluate_trait_field :: (
       match(
         field_expected_ty_opt,
         .Some(fet) => {
-          ctx.expected_type =.Some(ExpectedTypeCtx(fet, env_mut));
+          ctx.expected_type = .Some(ExpectedTypeCtx(fet, env_mut));
         },
         .None => {
           ctx.expected_type = Option(ExpectedTypeCtx).None;
@@ -831,8 +831,8 @@ _evaluate_trait_field :: (
       );
       old_self_type := ctx.self_type;
       old_self_trait_type := ctx.self_trait_type;
-      ctx.self_type =.Some(self_type);
-      ctx.self_trait_type =.Some(trait_ty);
+      ctx.self_type = .Some(self_type);
+      ctx.self_trait_type = .Some(trait_ty);
       evaluated_av := evaluate_expression(av_expr, env_mut, ctx);
       ctx.expected_type = old_expected_type;
       ctx.self_type = old_self_type;
@@ -893,13 +893,13 @@ _evaluate_trait_field :: (
               )
             );
           });
-          field_ty_opt =.Some(fet);
+          field_ty_opt = .Some(fet);
         },
         .None => {
-          field_ty_opt =.Some(av_ty);
+          field_ty_opt = .Some(av_ty);
         }
       );
-      assigned_val_opt =.Some(av);
+      assigned_val_opt = .Some(av);
     },
     .None => ()
   );
@@ -917,7 +917,7 @@ _evaluate_trait_field :: (
       match(
         field_expected_ty_opt,
         .Some(fet) => {
-          ctx.expected_type =.Some(ExpectedTypeCtx(fet, env_mut));
+          ctx.expected_type = .Some(ExpectedTypeCtx(fet, env_mut));
         },
         .None => {
           ctx.expected_type = Option(ExpectedTypeCtx).None;
@@ -925,8 +925,8 @@ _evaluate_trait_field :: (
       );
       old_self_type := ctx.self_type;
       old_self_trait_type := ctx.self_trait_type;
-      ctx.self_type =.Some(self_type);
-      ctx.self_trait_type =.Some(trait_ty);
+      ctx.self_type = .Some(self_type);
+      ctx.self_trait_type = .Some(trait_ty);
       evaluated_dv := evaluate_expression(dv_expr, env_mut, ctx);
       ctx.expected_type = old_expected_type;
       ctx.self_type = old_self_type;
@@ -987,13 +987,13 @@ _evaluate_trait_field :: (
               )
             );
           });
-          field_ty_opt =.Some(fet);
+          field_ty_opt = .Some(fet);
         },
         .None => {
-          field_ty_opt =.Some(dv_ty);
+          field_ty_opt = .Some(dv_ty);
         }
       );
-      default_val_opt =.Some(dv);
+      default_val_opt = .Some(dv);
     },
     .None => ()
   );
@@ -1019,20 +1019,20 @@ _evaluate_trait_field :: (
   match(
     label_expr_opt,
     .Some(le) => {
-      label_val := match(assigned_val_opt,.Some(av) => av,.None => create_unknown_val(field_ty));
+      label_val := match(assigned_val_opt, .Some(av) => av, .None => create_unknown_val(field_ty));
       le_info := new_expr_info(env_mut, field_ty);
-      le_info.value =.Some(label_val);
+      le_info.value = .Some(label_val);
       expr_info_table_set(ctx.expr_info_table, ast_expr_id(le), le_info);
     },
     .None => ()
   );
   // Set expr info on the field expr itself (unit value)
   unit_info := new_expr_info(env_mut, TypeValue.Unit);
-  unit_info.value =.Some(EvalValue.UnitVal);
+  unit_info.value = .Some(EvalValue.UnitVal);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), unit_info);
   // Phase 7: detect associated type (TypeUni(0) + !assignedValue + isForEvaluatingTraitType)
   (assoc_some_ty_opt : Option(TypeValue)) = Option(TypeValue).None;
-  is_type_uni_0 := match(field_ty,.TypeUni(lvl) => (lvl == usize(0)), _ => false);
+  is_type_uni_0 := match(field_ty, .TypeUni(lvl) => (lvl == usize(0)), _ => false);
   if((is_for_evaluating_trait_ty && assigned_val_opt.is_none()) && is_type_uni_0, {
     // Check if a SomeType for this label already exists in env
     existing_vars := get_variables_from_env(env_mut, label_str);
@@ -1048,7 +1048,7 @@ _evaluate_trait_field :: (
                 ev,
                 .TypeVal(b) => {
                   if(is_some_type(b), {
-                    assoc_some_ty_opt =.Some(b);
+                    assoc_some_ty_opt = .Some(b);
                     found_existing = true;
                   });
                 },
@@ -1065,7 +1065,7 @@ _evaluate_trait_field :: (
       top_frame := env_mut.frames.len();
       if(top_frame > usize(0), {
         new_some_ty := t_some_t(label_str, top_frame - usize(1));
-        assoc_some_ty_opt =.Some(new_some_ty);
+        assoc_some_ty_opt = .Some(new_some_ty);
       });
     });
   });
@@ -1090,7 +1090,7 @@ evaluate_trait_type :: (
     exn : Exception
   ) -> AstExpr
 )({
-  if(!(ast_expr_is_fn_call_of(expr, BK_TRAIT,.None)), {
+  if(!(ast_expr_is_fn_call_of(expr, BK_TRAIT, .None)), {
     exn.throw(
       dyn(
         format_error_message(
@@ -1129,7 +1129,7 @@ evaluate_trait_type :: (
   );
   // Push a scoped env frame for trait evaluation
   env_mut.push_frame(false);
-  args := match(expr,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new());
+  args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   // Create "Self" SomeType for the trait
   top_frame := env_mut.frames.len();
   self_frame_level := if(top_frame > usize(0), top_frame - usize(1), usize(0));
@@ -1138,8 +1138,8 @@ evaluate_trait_type :: (
   // Find where clause exprs (last arg, if it's a where(...) call)
   (where_clause_exprs_opt : Option(ArrayList(AstExpr))) = Option(ArrayList(AstExpr)).None;
   if(args.len() > usize(0), {
-    last_arg := match(args.get(args.len() - usize(1)),.Some(a) => a,.None => make_err_expr());
-    if(ast_expr_is_fn_call_of(last_arg, BK_WHERE,.None), {
+    last_arg := match(args.get(args.len() - usize(1)), .Some(a) => a, .None => make_err_expr());
+    if(ast_expr_is_fn_call_of(last_arg, BK_WHERE, .None), {
       w_args := _fn_call_args(last_arg);
       if(w_args.len() == usize(0), {
         exn.throw(
@@ -1153,7 +1153,7 @@ evaluate_trait_type :: (
           )
         );
       });
-      where_clause_exprs_opt =.Some(w_args);
+      where_clause_exprs_opt = .Some(w_args);
     });
   });
   // Pre-parse where-clause constraints (collect_pending = true)
@@ -1164,8 +1164,8 @@ evaluate_trait_type :: (
       if(wce.len() > usize(0), {
         old_self_type := ctx.self_type;
         old_self_trait_type := ctx.self_trait_type;
-        ctx.self_type =.Some(self_type);
-        ctx.self_trait_type =.Some(trait_ty);
+        ctx.self_type = .Some(self_type);
+        ctx.self_trait_type = .Some(trait_ty);
         pending_constraints = _parse_trait_where_clauses(
           wce,
           self_type,
@@ -1185,9 +1185,9 @@ evaluate_trait_type :: (
   (field_index : usize) = usize(0);
   (i : usize) = usize(0);
   while(i < args.len(), {
-    arg := match(args.get(i),.Some(a) => a,.None => make_err_expr());
+    arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
     i = (i + usize(1));
-    if(ast_expr_is_fn_call_of(arg, BK_WHERE,.None), {
+    if(ast_expr_is_fn_call_of(arg, BK_WHERE, .None), {
       if(i != args.len(), {
         exn.throw(
           dyn(
@@ -1237,7 +1237,7 @@ evaluate_trait_type :: (
     (is_duplicate : bool) = false;
     (li : usize) = usize(0);
     while(li < field_labels.len(), {
-      existing_label := match(field_labels.get(li),.Some(s) => s,.None => String.from(""));
+      existing_label := match(field_labels.get(li), .Some(s) => s, .None => String.from(""));
       li = (li + usize(1));
       if(existing_label == field_result.label, {
         is_duplicate = true;
@@ -1248,7 +1248,7 @@ evaluate_trait_type :: (
       exn.throw(
         dyn(
           format_error_message(
-            match(args.get(i - usize(1)),.Some(a) => ast_expr_token(a),.None => ast_expr_token(expr)),
+            match(args.get(i - usize(1)), .Some(a) => ast_expr_token(a), .None => ast_expr_token(expr)),
             `Duplicate label 3 "${field_result.label}" in trait`,
             false,
             .None
@@ -1335,8 +1335,8 @@ evaluate_trait_type :: (
     });
     old_self_type := ctx.self_type;
     old_self_trait_type := ctx.self_trait_type;
-    ctx.self_type =.Some(self_type);
-    ctx.self_trait_type =.Some(trait_ty);
+    ctx.self_type = .Some(self_type);
+    ctx.self_trait_type = .Some(trait_ty);
     _drop_where_constraint_failures(
       retry_list,
       self_type,
@@ -1378,7 +1378,7 @@ evaluate_trait_type :: (
             match(
               find_some_type_missing_comptime_constraint(vf_ret, env_mut),
               .Some(vf_missing) => {
-                vf_label := match(field_labels.get(vf_i),.Some(l) => l,.None => String.from("?"));
+                vf_label := match(field_labels.get(vf_i), .Some(l) => l, .None => String.from("?"));
                 vf_missing_name := match(
                   vf_missing,
                   .SomeT(id : _, name : vf_mn) => vf_mn,
@@ -1409,7 +1409,7 @@ evaluate_trait_type :: (
   // Build final trait type value and set expr info
   trait_val := create_type_value(trait_ty);
   out_info := new_expr_info(env_mut, type_of_type(trait_ty));
-  out_info.value =.Some(trait_val);
+  out_info.value = .Some(trait_val);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   // Also set info on the callee (func) expression
   match(

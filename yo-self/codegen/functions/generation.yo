@@ -46,7 +46,7 @@ open(import("std/string"));
 { generate_ref_struct_constructor_functions, generate_ref_enum_constructor_functions, generate_closure_constructor_functions } :: import("./constructors.yo");
 /// Args of a FnCall (empty for an Atom).
 _args :: (fn(e : AstExpr) -> ArrayList(AstExpr))(
-  match(e,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new())
+  match(e, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new())
 );
 /// Shallow-copy a deferred-drop/dup expr list into a FRESH ArrayList (same AstExpr
 /// refs, independent list). Mirrors TS `[...(expr.$?.deferredDropExpressions ?? [])]`
@@ -88,7 +88,7 @@ generate_function_body :: (fn(body_expr : AstExpr, function_type : TypeValue, in
   // signature while `is_unit_type(SomeT)=false` sent the body down the
   // value-returning tail path — "void function should not return a value"
   // (the async_await/worker void-closure class).
-  result_is_unit := match(function_type,.Func({ result : r }) => is_unit_type(resolve_some_type_to_concrete(r.clone())), _ => true);
+  result_is_unit := match(function_type, .Func({ result : r }) => is_unit_type(resolve_some_type_to_concrete(r.clone())), _ => true);
   if(ast_expr_is_fn_call_of(body_expr, BK_BEGIN, Option(usize).None), {
     match(
       context.base.get_expr_info(body_expr),
@@ -123,7 +123,7 @@ generate_function_body :: (fn(body_expr : AstExpr, function_type : TypeValue, in
               find_return = true;
             });
             arg_code := _call_generate_expr(arg, indent.clone(), context);
-            skip_temp := match(context.base.get_expr_info(arg),.Some(aei) => is_temp_variable_name(aei.env.module_path.clone(), arg_code.clone()),.None => false);
+            skip_temp := match(context.base.get_expr_info(arg), .Some(aei) => is_temp_variable_name(aei.env.module_path.clone(), arg_code.clone()), .None => false);
             if((arg_code.len() > usize(0)) && !(skip_temp), {
               line := indent.clone();
               line.push_string(arg_code);
@@ -158,7 +158,7 @@ generate_function_body :: (fn(body_expr : AstExpr, function_type : TypeValue, in
             // issues/yo-self-async-emission-cluster.md item 3).
             if(result_is_unit, {
               u_code := _call_generate_expr(last_expr, indent.clone(), context);
-              u_skip_temp := match(context.base.get_expr_info(last_expr),.Some(uei) => is_temp_variable_name(uei.env.module_path.clone(), u_code.clone()),.None => false);
+              u_skip_temp := match(context.base.get_expr_info(last_expr), .Some(uei) => is_temp_variable_name(uei.env.module_path.clone(), u_code.clone()), .None => false);
               if((u_code.len() > usize(0)) && !(u_skip_temp), {
                 u_line := indent.clone();
                 u_line.push_string(u_code);
@@ -177,7 +177,7 @@ generate_function_body :: (fn(body_expr : AstExpr, function_type : TypeValue, in
             // Mirrors generation.ts:1699-1754.
             last_ei_dups := match(
               context.base.get_expr_info(last_expr),
-              .Some(lei) => match(lei.deferred_dup_expressions,.Some(d) => (d.len() > usize(0)),.None => false),
+              .Some(lei) => match(lei.deferred_dup_expressions, .Some(d) => (d.len() > usize(0)), .None => false),
               .None => false
             );
             if(last_ei_dups, {
@@ -193,7 +193,7 @@ generate_function_body :: (fn(body_expr : AstExpr, function_type : TypeValue, in
                     .Some(lvn) => {
                       raw_code := _call_generate_expr(last_expr, indent.clone(), context);
                       tail_tmp := get_variable_name_for_codegen(lvn.clone(), Option(Environment).Some(lei.env));
-                      ret_ty_dup := match(function_type,.Func({ result : r0 }) => r0, _ => t_unit());
+                      ret_ty_dup := match(function_type, .Func({ result : r0 }) => r0, _ => t_unit());
                       if(!(tail_tmp == raw_code), {
                         // Declare via get_variable_type_string — the
                         // declared_c_var_names choke-point — or the
@@ -262,7 +262,7 @@ generate_function_body :: (fn(body_expr : AstExpr, function_type : TypeValue, in
             // local the result expression reads (e.g. `i32(xs.len())` after `xs`
             // is dropped → reads freed memory). Mirrors generation.ts:1587-1611.
             // Only when there are drops + a non-unit return; else `return <expr>`.
-            ret_ty_opt := match(function_type,.Func({ result : r }) => Option(TypeValue).Some(r), _ => Option(TypeValue).None);
+            ret_ty_opt := match(function_type, .Func({ result : r }) => Option(TypeValue).Some(r), _ => Option(TypeValue).None);
             // DEGRADED tail return when the tail expression itself failed to
             // transpile (its ExprInfo was dropped by an eval throw inside
             // this definition — e.g. a comptime_expect_error that did not
@@ -277,7 +277,7 @@ generate_function_body :: (fn(body_expr : AstExpr, function_type : TypeValue, in
               em.emit_string_line(ftl);
               return(());
             });
-            has_drops := match(context.base.get_expr_info(body_expr),.Some(bei) => match(bei.deferred_drop_expressions,.Some(d) => (d.len() > usize(0)),.None => false),.None => false);
+            has_drops := match(context.base.get_expr_info(body_expr), .Some(bei) => match(bei.deferred_drop_expressions, .Some(d) => (d.len() > usize(0)), .None => false), .None => false);
             mat_ty := cond(
               ((has_drops && (!(result_is_unit))) && (expr_code.len() > usize(0))) => ret_ty_opt,
               true => Option(TypeValue).None
@@ -442,7 +442,7 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
           fwd := _thunk_forward_args(function_type);
           // Same SomeT-result resolution as result_is_unit above: the wrapper
           // and its callee prototype must agree on void-ness.
-          ret_unit := match(function_type,.Func({ result : r }) => is_unit_type(resolve_some_type_to_concrete(r.clone())), _ => true);
+          ret_unit := match(function_type, .Func({ result : r }) => is_unit_type(resolve_some_type_to_concrete(r.clone())), _ => true);
           if(ret_unit, {
             em.emit_string_line(`  ${real_cname}(${fwd});`);
           }, {
@@ -480,7 +480,7 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
         match(
           get_closure_capture_info(func_id.clone()),
           .Some(ci) => {
-            cap_labels := match(ci.capture_type,.Struct({ field_labels : fl }) => fl, _ => ArrayList(String).new());
+            cap_labels := match(ci.capture_type, .Struct({ field_labels : fl }) => fl, _ => ArrayList(String).new());
             context.current_closure_captures = Option(ArrayList(String)).Some(cap_labels);
             context.current_closure_capture_frame_level = Option(usize).Some(ci.frame_level);
             context.current_closure_capture_type_c_name = Option(String).Some(get_type_string(ci.capture_type, context.base));
@@ -578,8 +578,8 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
             (mi : usize) = usize(0);
             (all_eq : bool) = true;
             while((mi < nlen) && all_eq, {
-              a := match(sb.get(si + mi),.Some(b0) => b0,.None => u8(0));
-              b := match(nb.get(mi),.Some(b1) => b1,.None => u8(1));
+              a := match(sb.get(si + mi), .Some(b0) => b0, .None => u8(0));
+              b := match(nb.get(mi), .Some(b1) => b1, .None => u8(1));
               if(a != b, {
                 all_eq = false;
               });
@@ -601,7 +601,7 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
         prefix_bytes := ArrayList(u8).new();
         (pi : usize) = usize(0);
         while(pi < stub_mark_b, {
-          prefix_bytes.push(match(pb.get(pi),.Some(b2) => b2,.None => u8(0)));
+          prefix_bytes.push(match(pb.get(pi), .Some(b2) => b2, .None => u8(0)));
           pi = (pi + usize(1));
         });
         em.code = String.from_bytes(prefix_bytes);
@@ -682,7 +682,7 @@ generate_all_functions :: (fn(context : FunctionGenerationContext) -> unit)({
 /// zero-initialized as `(<cType>){0}` (e.g. `io : Io` → `(Io){0}`). Mirrors the
 /// non-evidence branch of `generateMainWrapper`. (Evidence-param mains are Phase 5.)
 _main_call_args :: (fn(main_func_id : String, context : FunctionGenerationContext) -> String)({
-  pts := match(get_func_type(main_func_id),.Func({ param_types : pt }) => pt, _ => ArrayList(TypeValue).new());
+  pts := match(get_func_type(main_func_id), .Func({ param_types : pt }) => pt, _ => ArrayList(TypeValue).new());
   out := String.from("(");
   n := pts.len();
   (i : usize) = usize(0);
@@ -724,13 +724,13 @@ _module_init_var_atom :: (fn(init_expr : AstExpr) -> Option(AstExpr))({
   if(init_args.len() < usize(2), {
     return(Option(AstExpr).None);
   });
-  lhs := match(init_args.get(usize(0)),.Some(e) => e,.None => make_err_expr());
+  lhs := match(init_args.get(usize(0)), .Some(e) => e, .None => make_err_expr());
   if(ast_expr_is_atom(lhs), {
     return(Option(AstExpr).Some(lhs));
   });
   if(ast_expr_is_fn_call_of(lhs, ":", Option(usize).Some(usize(2))), {
     binding_args := _args(lhs);
-    binding_lhs := match(binding_args.get(usize(0)),.Some(e) => e,.None => make_err_expr());
+    binding_lhs := match(binding_args.get(usize(0)), .Some(e) => e, .None => make_err_expr());
     if(ast_expr_is_atom(binding_lhs), {
       return(Option(AstExpr).Some(binding_lhs));
     });
@@ -764,7 +764,7 @@ emit_module_level_variable_declarations :: (
           context.base.get_expr_info(var_atom),
           .None => (),
           .Some(vi) => {
-            var_name := match(vi.variable_name,.Some(vn) => vn,.None => ast_expr_token(var_atom).value);
+            var_name := match(vi.variable_name, .Some(vn) => vn, .None => ast_expr_token(var_atom).value);
             (c_var_name : String) = get_variable_name_for_codegen(var_name, Option(Environment).Some(vi.env));
             // The recorded env for a `name := rhs` module init can miss the
             // variable (resolution falls back to the bare name and the
@@ -797,7 +797,7 @@ emit_module_level_variable_declarations :: (
                   `static ${c_type_str} ${c_var_name}; // module-level mutable variable`
                 );
               });
-              rhs := match(_args(init_expr).get(usize(1)),.Some(e) => e,.None => make_err_expr());
+              rhs := match(_args(init_expr).get(usize(1)), .Some(e) => e, .None => make_err_expr());
               _p := result.push(ModuleLevelVarEntry(c_var_name : c_var_name, rhs : rhs));
             });
           }

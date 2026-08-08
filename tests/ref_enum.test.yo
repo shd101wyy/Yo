@@ -31,10 +31,10 @@ comptime_expect_error(bad_ref_named :: ref(Shape));
 comptime_expect_error(bad_atomic_prim :: atomic(i32));
 
 area :: (fn(sh : Shape) -> i32)(
-  match(sh,.Circle(r) => ((r * r) * i32(3)),.Square(s) => (s * s))
+  match(sh, .Circle(r) => ((r * r) * i32(3)), .Square(s) => (s * s))
 );
 tree_sum :: (fn(t : Tree) -> i32)(
-  match(t,.Leaf(value) => value,.Node(left, right) => (recur(left) + recur(right)))
+  match(t, .Leaf(value) => value, .Node(left, right) => (recur(left) + recur(right)))
 );
 // Reduce a Nest to the sum of its tips (recurses through `Self` + ArrayList(Self)).
 nest_sum :: (fn(t : Nest) -> i32)(
@@ -114,12 +114,12 @@ test("recursive ref(enum) builds + traverses", {
 
 test("atomic(ref(enum)) construct + match", {
   a := Atom.Cons(v : i32(42));
-  match(a,.Cons(v) => assert(v == i32(42), "atomic ref-enum field"),.Nil => ());
+  match(a, .Cons(v) => assert(v == i32(42), "atomic ref-enum field"), .Nil => ());
 });
 
 test("ref(enum) drops its variant's RC fields on free", {
   w := Wrap.Has(s : `a heap string the ref-enum must free`);
-  match(w,.Has(sv) => assert(sv.len() > usize(0), "has a string"),.Empty => ());
+  match(w, .Has(sv) => assert(sv.len() > usize(0), "has a string"), .Empty => ());
 });
 
 test("recursive ref(enum) RECONSTRUCTION (Self + ArrayList(Self) fields)", {
@@ -209,8 +209,8 @@ Flag :: ref(enum(On, Off));
 test("fieldless ref(enum) compiles, matches, and is RC-managed", {
   a := Flag.On;
   b := Flag.Off;
-  on := match(a,.On => true,.Off => false);
-  off := match(b,.On => false,.Off => true);
+  on := match(a, .On => true, .Off => false);
+  off := match(b, .On => false, .Off => true);
   assert(on && off, "fieldless ref enum variants distinguish in match");
   a2 := a;
   assert(rc(a) == 2, "fieldless ref enum is a heap RC object (rc visible)");

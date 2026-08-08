@@ -69,10 +69,10 @@ _emit_sm_while_body_drops :: (fn(context : FunctionGenerationContext, indent : S
 /// Faithful port of atom.ts:258-460.
 _generate_sm_atom :: (fn(expr : AstExpr, var_name : String, context : FunctionGenerationContext) -> Option(String))({
   // Locally-shadowed (match-arm destructure) → the local C variable.
-  if(match(context.local_shadowed_variables,.Some(s) => s.contains(var_name.clone()),.None => false), {
+  if(match(context.local_shadowed_variables, .Some(s) => s.contains(var_name.clone()), .None => false), {
     return(Option(String).Some(sanitize_for_c_identifier(var_name.clone(), false)));
   });
-  smv := match(context.state_machine_variables,.Some(m) => m,.None => return(Option(String).None));
+  smv := match(context.state_machine_variables, .Some(m) => m, .None => return(Option(String).None));
   ei_opt := context.base.get_expr_info(expr);
   // 1) Env-ID lookup (handles shadowing: same name, different ids).
   match(
@@ -283,9 +283,9 @@ _generate_sm_atom :: (fn(expr : AstExpr, var_name : String, context : FunctionGe
     .None => ()
   );
   // 4) Closure-captured (closure+effect SM): access through closure_context.
-  if(match(context.current_closure_captures,.Some(caps) => caps.contains(var_name.clone()),.None => false)
+  if(match(context.current_closure_captures, .Some(caps) => caps.contains(var_name.clone()), .None => false)
   && context.current_closure_capture_frame_level.is_some(), {
-    cn := get_variable_name_for_codegen(var_name.clone(), match(ei_opt,.Some(e4) => Option(Environment).Some(e4.env),.None => Option(Environment).None));
+    cn := get_variable_name_for_codegen(var_name.clone(), match(ei_opt, .Some(e4) => Option(Environment).Some(e4.env), .None => Option(Environment).None));
     match(
       context.current_closure_capture_type_c_name,
       .Some(ct) => return(Option(String).Some(`((${ct.clone()}*)closure_context)->${cn.clone()}`)),
@@ -307,13 +307,13 @@ _generate_sm_atom :: (fn(expr : AstExpr, var_name : String, context : FunctionGe
             n5 := vars5.len();
             cond(
               (n5 == usize(0)) => false,
-              true => match(vars5.get(n5 - usize(1)),.Some(lv) => lv.is_compile_time_only,.None => false)
+              true => match(vars5.get(n5 - usize(1)), .Some(lv) => lv.is_compile_time_only, .None => false)
             )
           }, false),
           .None => false
         );
         if(is_ct_const, {
-          return(Option(String).Some(generate_comptime_value(match(ei5.value,.Some(v2) => v2,.None => EvalValue.UnitVal), match(expr_info_converted_runtime_type(ei5),.Some(crt) => crt,.None => ei5.ty), context.base)));
+          return(Option(String).Some(generate_comptime_value(match(ei5.value, .Some(v2) => v2, .None => EvalValue.UnitVal), match(expr_info_converted_runtime_type(ei5), .Some(crt) => crt, .None => ei5.ty), context.base)));
         });
         return(Option(String).Some(get_variable_name_for_codegen(vn.clone(), Option(Environment).Some(ei5.env))));
       },
@@ -334,7 +334,7 @@ _emit_loop_body_drops_before_exit :: (fn(context : FunctionGenerationContext, in
       .Some(baseline) => {
         total := drops.len();
         emit_count := if(total > baseline, total - baseline, usize(0));
-        exit_env_opt := match(context.base.get_expr_info(exit_expr),.Some(ei) => Option(Environment).Some(ei.env),.None => Option(Environment).None);
+        exit_env_opt := match(context.base.get_expr_info(exit_expr), .Some(ei) => Option(Environment).Some(ei.env), .None => Option(Environment).None);
         (i : usize) = usize(0);
         while(i < emit_count, {
           match(
@@ -374,7 +374,7 @@ _emit_loop_body_drops_before_exit :: (fn(context : FunctionGenerationContext, in
                         cond(
                           (nv == usize(0)) => true,
                           // not in scope
-                          true => match(vars.get(nv - usize(1)),.Some(lv) => lv.initialized_at_token.is_none(),.None => true)
+                          true => match(vars.get(nv - usize(1)), .Some(lv) => lv.initialized_at_token.is_none(), .None => true)
                         )
                       },
                       .None => false
@@ -418,7 +418,7 @@ _var_read_code :: (fn(tv : String, env_opt : Option(Environment)) -> String)({
       vs := get_variables_from_env(e, tv.clone());
       cond(
         (vs.len() == usize(0)) => false,
-        true => match(vs.get(vs.len() - usize(1)),.Some(v) => v.is_ref,.None => false)
+        true => match(vs.get(vs.len() - usize(1)), .Some(v) => v.is_ref, .None => false)
       )
     },
     .None => false
@@ -535,7 +535,7 @@ generate_atom :: (fn(expr : AstExpr, context : FunctionGenerationContext, indent
         em := context.base.emitter;
         child_type := match(
           extract_future_trait_from_type(iasm.future_type),
-          .Some(ftt) => match(ftt,.FutureTraitT({ output : o }) => o, _ => t_unit()),
+          .Some(ftt) => match(ftt, .FutureTraitT({ output : o }) => o, _ => t_unit()),
           .None => t_unit()
         );
         is_unit_result := is_unit_type(child_type);
@@ -638,7 +638,7 @@ generate_atom :: (fn(expr : AstExpr, context : FunctionGenerationContext, indent
       // `localShadowedVariables` (the destructure bind declares `<T> v = ...`
       // and the body must reference `v`, not the temp). Keyed by the source
       // TOKEN; the matching declaration uses the same sanitized source name.
-      if(match(context.local_shadowed_variables,.Some(s) => s.contains(tv.clone()),.None => false), {
+      if(match(context.local_shadowed_variables, .Some(s) => s.contains(tv.clone()), .None => false), {
         return(get_variable_name_for_codegen(tv.clone(), Option(Environment).None));
       });
       // variableName path: comptime-only constant inline, else the name.
@@ -655,7 +655,7 @@ generate_atom :: (fn(expr : AstExpr, context : FunctionGenerationContext, indent
                 nv := vars.len();
                 cond(
                   (nv == usize(0)) => false,
-                  true => match(vars.get(nv - usize(1)),.Some(lv) => lv.is_compile_time_only,.None => false)
+                  true => match(vars.get(nv - usize(1)), .Some(lv) => lv.is_compile_time_only, .None => false)
                 )
               }, false),
               .None => false
@@ -663,7 +663,7 @@ generate_atom :: (fn(expr : AstExpr, context : FunctionGenerationContext, indent
             .None => false
           );
           if(is_comptime_const, {
-            return(match(ei.value,.Some(v) => generate_comptime_value(v, match(expr_info_converted_runtime_type(ei),.Some(crt) => crt,.None => ei.ty), context.base),.None => String.from("")));
+            return(match(ei.value, .Some(v) => generate_comptime_value(v, match(expr_info_converted_runtime_type(ei), .Some(crt) => crt, .None => ei.ty), context.base), .None => String.from("")));
           });
           // Closure-captured variable → access through closure_context.
           captured := match(
@@ -701,7 +701,7 @@ generate_atom :: (fn(expr : AstExpr, context : FunctionGenerationContext, indent
         context.current_closure_captures,
         .Some(caps) => match(
           context.current_closure_capture_frame_level,
-          .Some(level) => (caps.contains(cap_name.clone()) && match(env_opt,.Some(e) => check_variable_is_closure_captured(cap_name.clone(), e, level),.None => true)),
+          .Some(level) => (caps.contains(cap_name.clone()) && match(env_opt, .Some(e) => check_variable_is_closure_captured(cap_name.clone(), e, level), .None => true)),
           .None => false
         ),
         .None => false
@@ -725,9 +725,9 @@ generate_atom :: (fn(expr : AstExpr, context : FunctionGenerationContext, indent
         // Non-variable atom with a comptime value → inline it. Use the
         // coerced runtime type when present (e.g. a comptime_str arg coerced
         // to `*(char)` must emit a bare C string literal, not a `__yo_str`).
-        (match(ei.value,.Some(v) => !(is_unknown_val(v)),.None => false)) => match(
+        (match(ei.value, .Some(v) => !(is_unknown_val(v)), .None => false)) => match(
           ei.value,
-          .Some(v) => generate_comptime_value(v, match(expr_info_converted_runtime_type(ei),.Some(crt) => crt,.None => ei.ty), context.base),
+          .Some(v) => generate_comptime_value(v, match(expr_info_converted_runtime_type(ei), .Some(crt) => crt, .None => ei.ty), context.base),
           .None => _var_read_code(tv.clone(), env_opt)
         ),
         true => _var_read_code(tv.clone(), env_opt)

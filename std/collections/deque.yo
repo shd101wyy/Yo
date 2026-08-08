@@ -31,7 +31,7 @@ impl(
   Deque(T),
   // Create an empty Deque.
   new : (fn() -> Self)(
-    Self(_buf :.None, _head : usize(0), _tail : usize(0), _len : usize(0), _capacity : usize(0))
+    Self(_buf : .None, _head : usize(0), _tail : usize(0), _len : usize(0), _capacity : usize(0))
   ),
   // Number of elements currently stored.
   len : (fn(self : Self) -> usize)(
@@ -75,7 +75,7 @@ impl(
       .Some(p) => free(.Some(*(void)(p))),
       .None => ()
     );
-    self._buf =.Some(new_buf);
+    self._buf = .Some(new_buf);
     self._head = usize(0);
     self._tail = self._len;
     self._capacity = new_cap;
@@ -108,7 +108,7 @@ impl(
   // Remove and return the front element.
   pop_front : (fn(self : Self) -> ?(T))(
     cond(
-      (self._len == usize(0)) =>.None,
+      (self._len == usize(0)) => .None,
       true => {
         buf := self._buf.unwrap();
         element_ptr := buf.add(self._head);
@@ -123,7 +123,7 @@ impl(
   // Remove and return the back element.
   pop_back : (fn(self : Self) -> ?(T))(
     cond(
-      (self._len == usize(0)) =>.None,
+      (self._len == usize(0)) => .None,
       true => {
         self._tail = cond(
           (self._tail == usize(0)) => (self._capacity - usize(1)),
@@ -141,7 +141,7 @@ impl(
   // Get an element by logical index (0 = front).
   get : (fn(self : Self, index : usize) -> ?(T))(
     cond(
-      (index >= self._len) =>.None,
+      (index >= self._len) => .None,
       true => {
         buf := self._buf.unwrap();
         idx := ((self._head + index) % self._capacity);
@@ -169,7 +169,7 @@ impl(
             true => ()
           );
           free(.Some(*(void)(p)));
-          self._buf =.None;
+          self._buf = .None;
         },
         .None => ()
       );
@@ -194,7 +194,7 @@ impl(
     Item : T,
     next : (fn(inout(self) : Self) -> Option(T))(
       cond(
-        (self._remaining == usize(0)) =>.None,
+        (self._remaining == usize(0)) => .None,
         true => {
           idx := ((self._deque._head + self._pos) % self._deque._capacity);
           buf := self._deque._buf.unwrap();
@@ -233,7 +233,7 @@ impl(
     Item : *(T),
     next : (fn(inout(self) : Self) -> Option(*(T)))(
       cond(
-        (self._remaining == usize(0)) =>.None,
+        (self._remaining == usize(0)) => .None,
         true => {
           idx := ((self._deque._head + self._pos) % self._deque._capacity);
           buf := self._deque._buf.unwrap();

@@ -39,7 +39,7 @@ probe :: (fn(data_ptr : *(Bucket), i : usize) -> i32)({
 main :: (fn() -> unit)({
   kk := Krate(v : 7);
   m := unsafe(GlobalAllocator.calloc(usize(2), sizeof(Bucket)));
-  pv := match(m,.Some(p2) => p2,.None => __yo_panic("alloc failed"));
+  pv := match(m, .Some(p2) => p2, .None => __yo_panic("alloc failed"));
   data_ptr := unsafe((*(Bucket))(pv));
   (data_ptr.add(usize(0))).* = Bucket(k : kk, n : 1);
   print(rc(kk));

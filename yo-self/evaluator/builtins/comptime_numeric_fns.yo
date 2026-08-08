@@ -195,7 +195,7 @@ check_int_overflow :: (
   // as `-1 < min` — so redo the test in the UNSIGNED domain on the patterns.
   // TS needs no such split: its comptime integers are BigInt, so
   // `checkOverflow` compares exact values (comptime-numeric-fns.ts:131).
-  is_unsigned_64 := (is_unsigned_integer_type(ty) && match(get_integer_type_bits(ty),.Some(bw) => (bw == u32(64)),.None => false));
+  is_unsigned_64 := (is_unsigned_integer_type(ty) && match(get_integer_type_bits(ty), .Some(bw) => (bw == u32(64)), .None => false));
   if(is_unsigned_64, {
     ua := u64(a);
     ub := u64(b);
@@ -490,7 +490,7 @@ evaluate_yo_comptime_numeric_functions :: (
       }
     );
     out_info := new_expr_info(cur_env, result_ty);
-    out_info.value =.Some(result_val);
+    out_info.value = .Some(result_val);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   }, {
     // ---- 6. Binary operations. -------------------------------------------
@@ -821,7 +821,7 @@ evaluate_yo_comptime_numeric_functions :: (
       );
     });
     out_info := new_expr_info(cur_env, result_ty);
-    out_info.value =.Some(result_val);
+    out_info.value = .Some(result_val);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   });
   expr

@@ -646,7 +646,7 @@ test("Test mutual recursion", {
 test("Partial application on type constructors", {
   // _ on second parameter of Result
   IntResult :: Result(_, i32);
-  (a : IntResult(bool)) =.Ok(true);
+  (a : IntResult(bool)) = .Ok(true);
   ok_opt := a.ok();
   match(
     ok_opt,
@@ -655,7 +655,7 @@ test("Partial application on type constructors", {
   );
   // _ on first parameter of Result
   ErrResult :: Result(bool, _);
-  (b : ErrResult(i32)) =.Err(i32(42));
+  (b : ErrResult(i32)) = .Err(i32(42));
   err_opt := b.err();
   match(
     err_opt,
@@ -787,7 +787,7 @@ test("Chained unwrap call on Option of function type", {
     return(opt.unwrap()(s, a));
   });
   (s : MyStruct) = MyStruct(x : i32(10));
-  (opt : Option(MyFn)) =.Some(my_fn);
+  (opt : Option(MyFn)) = .Some(my_fn);
   result := chained_call(opt, &(s), i32(1));
   assert(result, "chained unwrap()() should return true");
   // Also verify two-step works

@@ -14,8 +14,8 @@ open(import("std/string"));
 /// (panic never returns). Mirrors `generatePanic`.
 generate_panic :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
   ei_opt := context.base.get_expr_info(expr);
-  return_type := match(ei_opt,.Some(ei) => ei.ty,.None => return(String.from("// Error: panic() missing type information")));
-  args := match(expr,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new());
+  return_type := match(ei_opt, .Some(ei) => ei.ty, .None => return(String.from("// Error: panic() missing type information")));
+  args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   na := args.len();
   cond(
     (na == usize(0)) => {
@@ -25,10 +25,10 @@ generate_panic :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
       em.emit_string_line(l);
     },
     (na == usize(1)) => {
-      msg_arg := match(args.get(usize(0)),.Some(a) => a,.None => return(String.from("// Error: panic missing argument")));
+      msg_arg := match(args.get(usize(0)), .Some(a) => a, .None => return(String.from("// Error: panic missing argument")));
       msg_ei := context.base.get_expr_info(msg_arg);
       // Compile-time string message → fprintf the escaped literal.
-      comptime_msg := match(msg_ei,.Some(mei) => match(mei.value,.Some(v) => match(v,.StrLit(raw) => Option(String).Some(raw), _ => Option(String).None),.None =>.None),.None =>.None);
+      comptime_msg := match(msg_ei, .Some(mei) => match(mei.value, .Some(v) => match(v, .StrLit(raw) => Option(String).Some(raw), _ => Option(String).None), .None => .None), .None => .None);
       match(
         comptime_msg,
         .Some(raw) => {
@@ -48,8 +48,8 @@ generate_panic :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
           // Runtime message — evaluate it; str uses the fat-pointer fields,
           // *(u8) is a C string pointer.
           msg_code := _call_generate_expr(msg_arg, indent.clone(), context);
-          msg_ei_ty := match(msg_ei,.Some(mei) => Option(TypeValue).Some(mei.ty),.None =>.None);
-          msg_is_str := match(msg_ei,.Some(mei) => is_str_type(mei.ty),.None => false);
+          msg_ei_ty := match(msg_ei, .Some(mei) => Option(TypeValue).Some(mei.ty), .None => .None);
+          msg_is_str := match(msg_ei, .Some(mei) => is_str_type(mei.ty), .None => false);
           msg_is_ptr_u8 := match(
             msg_ei_ty,
             .Some(t) => match(

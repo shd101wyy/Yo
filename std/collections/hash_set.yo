@@ -70,7 +70,7 @@ impl(
     ctrl_result := malloc(ctrl_size);
     match(
       ctrl_result,
-      .None =>.Err(.AllocError(error :.OutOfMemory)),
+      .None => .Err(.AllocError(error : .OutOfMemory)),
       .Some(ctrl_void_ptr) => {
         ctrl_ptr := *(u8)(ctrl_void_ptr);
         data_result := malloc(data_size);
@@ -78,7 +78,7 @@ impl(
           data_result,
           .None => {
             free(.Some(*(void)(ctrl_ptr)));
-            .Err(.AllocError(error :.OutOfMemory))
+            .Err(.AllocError(error : .OutOfMemory))
           },
           .Some(data_void_ptr) => {
             data_ptr := *(T)(data_void_ptr);
@@ -88,8 +88,8 @@ impl(
             });
             .Ok(
               Self(
-                ctrl :.Some(ctrl_ptr),
-                data :.Some(data_ptr),
+                ctrl : .Some(ctrl_ptr),
+                data : .Some(data_ptr),
                 capacity : capacity,
                 size : usize(0)
               )
@@ -220,7 +220,7 @@ impl(
     result := Self._alloc_with_capacity(new_capacity);
     match(
       result,
-      .Err(err) =>.Err(err),
+      .Err(err) => .Err(err),
       .Ok(new_set) => {
         i := usize(0);
         ctrl_ptr := Self._ctrl_ptr(self);
@@ -273,8 +273,8 @@ impl(
         self.ctrl = new_set.ctrl;
         self.data = new_set.data;
         self.capacity = new_set.capacity;
-        new_set.ctrl =.None;
-        new_set.data =.None;
+        new_set.ctrl = .None;
+        new_set.data = .None;
         .Ok(())
       }
     )
@@ -288,7 +288,7 @@ impl(
     slot_opt := Self._find_slot(self, element, hash);
     match(
       slot_opt,
-      .Some(_) =>.Ok(false),
+      .Some(_) => .Ok(false),
       .None => {
         resize_check := cond(
           (Self._needs_resize(self)) => {
@@ -299,7 +299,7 @@ impl(
         );
         match(
           resize_check,
-          .Err(err) =>.Err(err),
+          .Err(err) => .Err(err),
           .Ok(_) => {
             h2 := h2_hash(hash);
             index := Self._find_insert_slot(self, hash);
@@ -486,7 +486,7 @@ impl(
     result_set_result := Self._alloc_with_capacity(new_capacity);
     match(
       result_set_result,
-      .Err(err) =>.Err(err),
+      .Err(err) => .Err(err),
       .Ok(result_set) => {
         i := usize(0);
         ctrl_ptr := Self._ctrl_ptr(self);
@@ -528,7 +528,7 @@ impl(
     result_set_result := Self._alloc_with_capacity(DEFAULT_CAPACITY);
     match(
       result_set_result,
-      .Err(err) =>.Err(err),
+      .Err(err) => .Err(err),
       .Ok(result_set) => {
         i := usize(0);
         ctrl_ptr := Self._ctrl_ptr(smaller);
@@ -560,7 +560,7 @@ impl(
     result_set_result := Self._alloc_with_capacity(DEFAULT_CAPACITY);
     match(
       result_set_result,
-      .Err(err) =>.Err(err),
+      .Err(err) => .Err(err),
       .Ok(result_set) => {
         i := usize(0);
         ctrl_ptr := Self._ctrl_ptr(self);
@@ -593,7 +593,7 @@ impl(
     result_set_result := Self._alloc_with_capacity(DEFAULT_CAPACITY);
     match(
       result_set_result,
-      .Err(err) =>.Err(err),
+      .Err(err) => .Err(err),
       .Ok(result_set) => {
         i := usize(0);
         ctrl_ptr := Self._ctrl_ptr(self);
@@ -707,7 +707,7 @@ impl(
     Item : T,
     next : (fn(inout(self) : Self) -> Option(T))(
       cond(
-        (self._set.capacity == usize(0)) =>.None,
+        (self._set.capacity == usize(0)) => .None,
         true => {
           ctrl_ptr := self._set.ctrl.unwrap();
           data_ptr := self._set.data.unwrap();
@@ -716,7 +716,7 @@ impl(
             ctrl_byte := (ctrl_ptr.add(self._index)).*;
             cond(
               ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                result =.Some((data_ptr.add(self._index)).*);
+                result = .Some((data_ptr.add(self._index)).*);
               },
               true => ()
             );
@@ -753,7 +753,7 @@ impl(
     Item : *(T),
     next : (fn(inout(self) : Self) -> Option(*(T)))(
       cond(
-        (self._set.capacity == usize(0)) =>.None,
+        (self._set.capacity == usize(0)) => .None,
         true => {
           ctrl_ptr := self._set.ctrl.unwrap();
           data_ptr := self._set.data.unwrap();
@@ -762,7 +762,7 @@ impl(
             ctrl_byte := (ctrl_ptr.add(self._index)).*;
             cond(
               ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                result =.Some(data_ptr.add(self._index));
+                result = .Some(data_ptr.add(self._index));
               },
               true => ()
             );

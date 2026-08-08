@@ -59,7 +59,7 @@ evaluate_anonymous_struct_value :: (
     expr,
     .FnCall(_, fb, _, _, _) => fb,
     .Atom(_, _) => {
-      exn.throw(dyn(format_error_message(tok, String.from("evaluate_anonymous_struct_value: expected FnCall"), false,.None)));
+      exn.throw(dyn(format_error_message(tok, String.from("evaluate_anonymous_struct_value: expected FnCall"), false, .None)));
       make_err_expr()
     }
   );
@@ -82,7 +82,7 @@ evaluate_anonymous_struct_value :: (
       )
     );
   });
-  args := match(expr,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new());
+  args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   // Generate unique struct id
   struct_id := `struct_${random_id(cur_env.module_path)}`;
   // Preliminary struct type (empty fields) for SelfType during field evaluation.
@@ -107,21 +107,21 @@ evaluate_anonymous_struct_value :: (
   n := args.len();
   (i : usize) = usize(0);
   while(i < n, {
-    arg := match(args.get(i),.Some(a) => a,.None => make_err_expr());
+    arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
     // Check if arg is a labeled pair `field: val` (infix `:` with 2 args)
     is_labeled := (
       ast_expr_is_fn_call(arg) &&
         ast_expr_is_fn_call_of(arg, ":", Option(usize).Some(usize(2))) &&
-          match(arg,.FnCall(_, _, _, finfix, _) => finfix,.Atom(_, _) => false)
+          match(arg, .FnCall(_, _, _, finfix, _) => finfix, .Atom(_, _) => false)
     );
     (label_opt : Option(String)) = Option(String).None;
     (value_expr : AstExpr) = arg;
     (label_arg_expr : AstExpr) = make_err_expr();
     if(is_labeled, {
-      fa := match(arg,.FnCall(_, _, a2, _, _) => a2,.Atom(_, _) => ArrayList(AstExpr).new());
-      lae := match(fa.get(usize(0)),.Some(a2) => a2,.None => make_err_expr());
+      fa := match(arg, .FnCall(_, _, a2, _, _) => a2, .Atom(_, _) => ArrayList(AstExpr).new());
+      lae := match(fa.get(usize(0)), .Some(a2) => a2, .None => make_err_expr());
       label_arg_expr = lae;
-      value_expr = match(fa.get(usize(1)),.Some(a2) => a2,.None => make_err_expr());
+      value_expr = match(fa.get(usize(1)), .Some(a2) => a2, .None => make_err_expr());
       if(!(is_valid_variable_name(lae)), {
         exn.throw(
           dyn(
@@ -134,7 +134,7 @@ evaluate_anonymous_struct_value :: (
           )
         );
       });
-      lstr := match(lae,.Atom(_, ltok) => ltok.value,.FnCall(_, _, _, _, _) => String.from(""));
+      lstr := match(lae, .Atom(_, ltok) => ltok.value, .FnCall(_, _, _, _, _) => String.from(""));
       label_opt = Option(String).Some(lstr);
     });
     // Evaluate the value expression with SelfType = prelim_ty

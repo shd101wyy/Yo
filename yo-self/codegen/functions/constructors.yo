@@ -195,7 +195,7 @@ _traverse_value :: (fn(access : String, ty : TypeValue, context : FunctionGenera
     // Option(handle) to a bare pointer (type_contains_rc_type was true → managed
     // payload) → visit the pointer directly.
     is_enum_type(ty) => {
-      is_nullable := match(can_optimize_as_nullable_pointer(ty),.Some(_) => true,.None => false);
+      is_nullable := match(can_optimize_as_nullable_pointer(ty), .Some(_) => true, .None => false);
       if(is_nullable, {
         em.emit_string_line(`  if (${access}) { ((void(*)(void*))${g_traverse_visit_expr})(${access}); }`);
       }, {
@@ -207,9 +207,9 @@ _traverse_value :: (fn(access : String, ty : TypeValue, context : FunctionGenera
               nv := variant_names.len();
               (vi : usize) = usize(0);
               while(vi < nv, {
-                vname := match(variant_names.get(vi),.Some(v) => v,.None => String.from(""));
-                vfields := match(variant_fields.get(vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
-                vlabels := match(variant_field_labels.get(vi),.Some(l) => l,.None => ArrayList(String).new());
+                vname := match(variant_names.get(vi), .Some(v) => v, .None => String.from(""));
+                vfields := match(variant_fields.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
+                vlabels := match(variant_field_labels.get(vi), .Some(l) => l, .None => ArrayList(String).new());
                 nvf := vfields.len();
                 (has_rc : bool) = false;
                 (ci : usize) = usize(0);
@@ -231,7 +231,7 @@ _traverse_value :: (fn(access : String, ty : TypeValue, context : FunctionGenera
                     match(
                       vfields.get(vfi),
                       .Some(vt) => if(type_contains_rc_type(vt), {
-                        vflabel := match(vlabels.get(vfi),.Some(l) => l,.None => String.from(""));
+                        vflabel := match(vlabels.get(vfi), .Some(l) => l, .None => String.from(""));
                         vfname := sanitize_for_c_identifier(vflabel, false);
                         recur(`${access}.data.${vname}.${vfname}`, vt, context);
                       }),
@@ -256,7 +256,7 @@ _traverse_value :: (fn(access : String, ty : TypeValue, context : FunctionGenera
       if(is_newtype_type(ty), {
         // A newtype is a C-transparent typedef alias for its single underlying
         // type — the value IS the inner value, so recurse with the SAME access.
-        match(rf.get(usize(0)),.Some(sfield) => recur(access, sfield.ty, context),.None => ());
+        match(rf.get(usize(0)), .Some(sfield) => recur(access, sfield.ty, context), .None => ());
       }, {
         nrf := rf.len();
         (si : usize) = usize(0);
@@ -426,9 +426,9 @@ _generate_one_ref_enum_traversal :: (fn(type : TypeValue, c_name : String, conte
       nv := variant_names.len();
       (vi : usize) = usize(0);
       while(vi < nv, {
-        vname := match(variant_names.get(vi),.Some(v) => v,.None => String.from(""));
-        fields := match(variant_fields.get(vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
-        labels := match(variant_field_labels.get(vi),.Some(l) => l,.None => ArrayList(String).new());
+        vname := match(variant_names.get(vi), .Some(v) => v, .None => String.from(""));
+        fields := match(variant_fields.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
+        labels := match(variant_field_labels.get(vi), .Some(l) => l, .None => ArrayList(String).new());
         // Does this variant carry any reference-counted field (directly or nested)?
         nf := fields.len();
         (has_rc : bool) = false;
@@ -451,7 +451,7 @@ _generate_one_ref_enum_traversal :: (fn(type : TypeValue, c_name : String, conte
             match(
               fields.get(fi),
               .Some(ft) => if(type_contains_rc_type(ft), {
-                flabel := match(labels.get(fi),.Some(l) => l,.None => String.from(""));
+                flabel := match(labels.get(fi), .Some(l) => l, .None => String.from(""));
                 fname := sanitize_for_c_identifier(flabel, false);
                 g_traverse_visit_expr = String.from("visit");
                 _traverse_value(`obj->data.${vname}.${fname}`, ft, context);
@@ -514,9 +514,9 @@ _generate_one_ref_enum_constructor_set :: (fn(type : TypeValue, c_name : String,
       nv := variant_names.len();
       (vi : usize) = usize(0);
       while(vi < nv, {
-        vname := match(variant_names.get(vi),.Some(v) => v,.None => String.from(""));
-        fields := match(variant_fields.get(vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
-        labels := match(variant_field_labels.get(vi),.Some(l) => l,.None => ArrayList(String).new());
+        vname := match(variant_names.get(vi), .Some(v) => v, .None => String.from(""));
+        fields := match(variant_fields.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
+        labels := match(variant_field_labels.get(vi), .Some(l) => l, .None => ArrayList(String).new());
         nf := fields.len();
         // Per-VARIANT registration gate: even in a cycle-capable ref-enum, a
         // variant whose fields cannot reach back to the enum has no outgoing
@@ -550,7 +550,7 @@ _generate_one_ref_enum_constructor_set :: (fn(type : TypeValue, c_name : String,
               if(emitted > usize(0), {
                 params.push_str(", ");
               });
-              flabel := match(labels.get(pi),.Some(l) => l,.None => String.from(""));
+              flabel := match(labels.get(pi), .Some(l) => l, .None => String.from(""));
               params.push_string(get_type_string(ft, context.base));
               params.push_str(" ");
               params.push_string(sanitize_for_c_identifier(flabel, false));
@@ -598,7 +598,7 @@ _generate_one_ref_enum_constructor_set :: (fn(type : TypeValue, c_name : String,
           match(
             fields.get(fi),
             .Some(ft) => if(!(is_unit_type(ft)), {
-              flabel := match(labels.get(fi),.Some(l) => l,.None => String.from(""));
+              flabel := match(labels.get(fi), .Some(l) => l, .None => String.from(""));
               fname := sanitize_for_c_identifier(flabel, false);
               em.emit_string_line(`  obj->data.${vname}.${fname} = ${fname};`);
             }),

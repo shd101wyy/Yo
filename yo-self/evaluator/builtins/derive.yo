@@ -188,7 +188,7 @@ call_registered_derive_rule :: (
     ctx_info.value,
     .Some(v) => v,
     .None => {
-      exn.throw(dyn(format_error_message(tok, String.from("derive: failed to create DeriveContext"), false,.None)));
+      exn.throw(dyn(format_error_message(tok, String.from("derive: failed to create DeriveContext"), false, .None)));
       EvalValue.UnitVal
     }
   );
@@ -200,7 +200,7 @@ call_registered_derive_rule :: (
     (tpi : usize) = usize(0);
     while(tpi < trait_params.len(), {
       pv := `__derive_tp_${generate_variable_id(caller_env.module_path, String.from("dtp"))}`;
-      pexpr := match(trait_params.get(tpi),.Some(p) => p,.None => make_err_expr());
+      pexpr := match(trait_params.get(tpi), .Some(p) => p, .None => make_err_expr());
       add_comptime_var(caller_env, pv.clone(), t_expr_t(), EvalValue.ExprVal(pexpr.clone()));
       param_names.push(pv);
       tpi = (tpi + usize(1));
@@ -211,7 +211,7 @@ call_registered_derive_rule :: (
       if(ji > usize(0), {
         joined = (joined + String.from(", "));
       });
-      joined = (joined + match(param_names.get(ji),.Some(n) => n,.None => String.from("")));
+      joined = (joined + match(param_names.get(ji), .Some(n) => n, .None => String.from("")));
       ji = (ji + usize(1));
     });
     list_code := `comptime_list(${joined})`;
@@ -221,7 +221,7 @@ call_registered_derive_rule :: (
       .Some(i) => i,
       .None => new_expr_info(caller_env, t_unit())
     );
-    list_val := match(list_info.value,.Some(v) => v,.None => EvalValue.ComptimeListVal(ArrayList(EvalValue).new()));
+    list_val := match(list_info.value, .Some(v) => v, .None => EvalValue.ComptimeListVal(ArrayList(EvalValue).new()));
     add_comptime_var(caller_env, tps_var.clone(), list_info.ty, list_val);
   }, {
     add_comptime_var(caller_env, tps_var.clone(), t_comptime_list(t_expr_t()), EvalValue.ComptimeListVal(ArrayList(EvalValue).new()));
@@ -238,7 +238,7 @@ call_registered_derive_rule :: (
     call_info.value,
     .Some(v) => v,
     .None => {
-      exn.throw(dyn(format_error_message(tok, String.from("derive: derive rule function failed"), false,.None)));
+      exn.throw(dyn(format_error_message(tok, String.from("derive: derive rule function failed"), false, .None)));
       EvalValue.UnitVal
     }
   );
@@ -246,7 +246,7 @@ call_registered_derive_rule :: (
     call_val,
     .ExprVal(e) => e,
     _ => {
-      exn.throw(dyn(format_error_message(tok, `derive: derive rule must return(comptime(Expr)); got ${value_to_string(call_val)}`, false,.None)));
+      exn.throw(dyn(format_error_message(tok, `derive: derive rule must return(comptime(Expr)); got ${value_to_string(call_val)}`, false, .None)));
       make_err_expr()
     }
   );
@@ -320,7 +320,7 @@ process_trait_arg :: (
     }
   );
   // Look up the rule's Func type (needed to bind the rule fn callably).
-  derive_rule_ty := match(get_derive_rule_type(key.clone()),.Some(t) => t,.None => t_unit());
+  derive_rule_ty := match(get_derive_rule_type(key.clone()), .Some(t) => t, .None => t_unit());
   // Call the registered derive rule.
   call_registered_derive_rule(
     derive_rule_val,
@@ -383,15 +383,15 @@ evaluate_derive :: (
   // Check for optional generic(...).
   is_forall := match(
     args.get(arg_idx),
-    .Some(a) => ast_expr_is_fn_call_of(a, BK_GENERIC,.None),
+    .Some(a) => ast_expr_is_fn_call_of(a, BK_GENERIC, .None),
     .None => false
   );
   if(is_forall, {
-    forall_arg_opt = match(args.get(arg_idx),.Some(a) => Option(AstExpr).Some(a),.None => Option(AstExpr).None);
+    forall_arg_opt = match(args.get(arg_idx), .Some(a) => Option(AstExpr).Some(a), .None => Option(AstExpr).None);
     arg_idx = (arg_idx + usize(1));
     // Introduce generic type variables into env so that target type expressions
     // like Pair(T) can be evaluated.
-    forall_expr := match(forall_arg_opt,.Some(fa) => fa,.None => make_err_expr());
+    forall_expr := match(forall_arg_opt, .Some(fa) => fa, .None => make_err_expr());
     forall_params := match(
       forall_expr,
       .FnCall(_, _, fps, _, _) => fps,
@@ -400,7 +400,7 @@ evaluate_derive :: (
     _fr := env.push_frame(false);
     (fpi : usize) = usize(0);
     while(fpi < forall_params.len(), {
-      fp := match(forall_params.get(fpi),.Some(a) => a,.None => make_err_expr());
+      fp := match(forall_params.get(fpi), .Some(a) => a, .None => make_err_expr());
       // Handle both `T` (Atom) and `T : Type` (FnCall(":", [T, Type])) forms.
       fp_name := match(
         fp,
@@ -410,7 +410,7 @@ evaluate_derive :: (
           .Atom(_, op_tok) => cond(
             (op_tok.value == ":") => match(
               fa2.get(usize(0)),
-              .Some(na) => match(na,.Atom(_, ntok) => ntok.value,.FnCall(_, _, _, _, _) => String.from("")),
+              .Some(na) => match(na, .Atom(_, ntok) => ntok.value, .FnCall(_, _, _, _, _) => String.from("")),
               .None => String.from("")
             ),
             true => String.from("")
@@ -442,11 +442,11 @@ evaluate_derive :: (
   // Check for optional where(...) before target type.
   is_where_pre := match(
     args.get(arg_idx),
-    .Some(a) => ast_expr_is_fn_call_of(a, BK_WHERE,.None),
+    .Some(a) => ast_expr_is_fn_call_of(a, BK_WHERE, .None),
     .None => false
   );
   if(is_where_pre, {
-    where_arg_opt = match(args.get(arg_idx),.Some(a) => Option(AstExpr).Some(a),.None => Option(AstExpr).None);
+    where_arg_opt = match(args.get(arg_idx), .Some(a) => Option(AstExpr).Some(a), .None => Option(AstExpr).None);
     arg_idx = (arg_idx + usize(1));
   });
   // Evaluate the target type.
@@ -543,12 +543,12 @@ evaluate_derive :: (
   // Check for optional where(...) after target type (only when generic is present).
   is_where_post := match(
     args.get(arg_idx),
-    .Some(a) => ast_expr_is_fn_call_of(a, BK_WHERE,.None),
+    .Some(a) => ast_expr_is_fn_call_of(a, BK_WHERE, .None),
     .None => false
   );
   if(is_where_post && forall_arg_opt.is_some(), {
     if(where_arg_opt.is_none(), {
-      where_arg_opt = match(args.get(arg_idx),.Some(a) => Option(AstExpr).Some(a),.None => Option(AstExpr).None);
+      where_arg_opt = match(args.get(arg_idx), .Some(a) => Option(AstExpr).Some(a), .None => Option(AstExpr).None);
     });
     arg_idx = (arg_idx + usize(1));
   });
@@ -572,7 +572,7 @@ evaluate_derive :: (
   // Process each trait argument.
   (result_env : Environment) = env;
   while(arg_idx < n_args, {
-    trait_arg := match(args.get(arg_idx),.Some(a) => a,.None => make_err_expr());
+    trait_arg := match(args.get(arg_idx), .Some(a) => a, .None => make_err_expr());
     result_env = process_trait_arg(
       trait_arg,
       target_type,

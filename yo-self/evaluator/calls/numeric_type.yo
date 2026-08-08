@@ -75,7 +75,7 @@ is_convertible_numeric_type :: (fn(type_val : TypeValue) -> bool)(
     // `i32(unsafe(getpid()))` took the non-numeric soft fallback (UnknownVal,
     // no __yo_as rewrite) and codegen FTT'd the call — the sys/signal red
     // (issues/yo-self-sys-signal-i32-extern-cast-ftt.md).
-    (is_some_type(type_val) && match(type_val,.SomeT({ name : ecn }) => is_extern_type_name(ecn), _ => false)) => true,
+    (is_some_type(type_val) && match(type_val, .SomeT({ name : ecn }) => is_extern_type_name(ecn), _ => false)) => true,
     true => false
   )
 );
@@ -108,7 +108,7 @@ _get_enum_discriminant :: (
           match(
             discs.get(i),
             .Some(d) => {
-              result =.Some(d);
+              result = .Some(d);
             },
             .None => ()
           );
@@ -202,7 +202,7 @@ _make_comptime_info :: (
     is_float_type(target_type) => EvalValue.FloatLit(raw.clone()),
     true => EvalValue.IntLit(raw.clone())
   );
-  out.value =.Some(val);
+  out.value = .Some(val);
   out
 });
 /// Build a synthetic `__yo_as(arg, TargetType)` FnCall node.
@@ -254,7 +254,7 @@ try_to_convert_to_numeric_type :: (
   });
   // Evaluate the argument with no expectedType (let it resolve its natural type).
   saved_expected := ctx.expected_type;
-  ctx.expected_type =.None;
+  ctx.expected_type = .None;
   evaluated := evaluate_expression(arg_expr, caller_env, ctx);
   ctx.expected_type = saved_expected;
   info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
@@ -270,7 +270,7 @@ try_to_convert_to_numeric_type :: (
       )
     );
   });
-  arg_info := match(info_opt,.Some(i) => i,.None => new_expr_info(caller_env, target_type));
+  arg_info := match(info_opt, .Some(i) => i, .None => new_expr_info(caller_env, target_type));
   env := arg_info.env;
   arg_val := arg_info.value;
   arg_type := arg_info.ty;
@@ -292,7 +292,7 @@ try_to_convert_to_numeric_type :: (
                   match(
                     _get_enum_discriminant(variant, vnames, discs),
                     .Some(d) => {
-                      enum_disc_raw =.Some(d.to_string());
+                      enum_disc_raw = .Some(d.to_string());
                     },
                     .None => {
                       exn.throw(
@@ -353,12 +353,12 @@ try_to_convert_to_numeric_type :: (
   // -----------------------------------------------------------------------
   (comptime_raw : Option(String)) = match(
     enum_disc_raw,
-    .Some(r) =>.Some(r),
+    .Some(r) => .Some(r),
     .None => match(
       arg_val,
       .Some(v) => cond(
-        is_int_lit(v) => match(v,.IntLit(r) => Option(String).Some(r.clone()), _ =>.None),
-        is_float_lit(v) => match(v,.FloatLit(r) => Option(String).Some(r.clone()), _ =>.None),
+        is_int_lit(v) => match(v, .IntLit(r) => Option(String).Some(r.clone()), _ => .None),
+        is_float_lit(v) => match(v, .FloatLit(r) => Option(String).Some(r.clone()), _ => .None),
         true => Option(String).None
       ),
       .None => Option(String).None
@@ -412,7 +412,7 @@ try_to_convert_to_numeric_type :: (
       },
       .None => {
         out_info := new_expr_info(env, target_type);
-        out_info.value =.Some(create_unknown_val(target_type));
+        out_info.value = .Some(create_unknown_val(target_type));
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
         return(.Some(expr));
       }
@@ -439,7 +439,7 @@ try_to_convert_to_numeric_type :: (
     // loop); its `runtime_arg_exprs_in_order` is the value arg only (not the type).
     yo_as_node := _make_yo_as_node(alloc_global_expr_id(), ast_expr_token(expr), evaluated, type_expr);
     yo_as_info := new_expr_info(env, target_type);
-    yo_as_info.value =.None;
+    yo_as_info.value = .None;
     yo_as_rt := ArrayList(AstExpr).new();
     // `evaluated` is already owned by the __yo_as node's args (above); push an
     // independent handle here so `runtime_arg_exprs` does not share that single
@@ -450,7 +450,7 @@ try_to_convert_to_numeric_type :: (
     yo_as_info.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(yo_as_rt);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(yo_as_node), yo_as_info);
     out_info := new_expr_info(env, target_type);
-    out_info.value =.None;
+    out_info.value = .None;
     // ALSO record in the durable id-keyed side-table: a later eval pass (e.g.
     // a cond-arm re-eval or branch-merge trial) can overwrite this expr's
     // ExprInfo WITHOUT macro_expansion, losing the lowering — codegen then

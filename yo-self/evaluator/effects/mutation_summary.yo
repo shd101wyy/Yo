@@ -356,7 +356,7 @@ impl(
     // Assignment: the aliasing hole is a store that DROPS an RC-typed old
     // value. Non-RC stores free nothing; recurse both sides.
     if((head == "=") && (args.len() == usize(2)), {
-      lhs := match(args.get(usize(0)),.Some(l) => l,.None => e);
+      lhs := match(args.get(usize(0)), .Some(l) => l, .None => e);
       lhs_info := expr_info_table_get(ctx.expr_info_table, ast_expr_id(lhs));
       match(
         lhs_info,
@@ -373,7 +373,7 @@ impl(
     });
     // Declarations create a fresh local — only the initializer runs.
     if(((head == ":=") || (head == "::")) && (args.len() == usize(2)), {
-      rhs := match(args.get(usize(1)),.Some(r) => r,.None => e);
+      rhs := match(args.get(usize(1)), .Some(r) => r, .None => e);
       return(_MsW.walk(rhs, ctx, touched));
     });
     // match arms are `pattern => body`: the pattern side binds, it never

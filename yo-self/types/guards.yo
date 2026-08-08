@@ -46,7 +46,7 @@ set_lookup_some_resolved_concrete :: (fn(f : LookupSomeResolvedConcreteFn) -> un
   ()
 });
 _some_param_has_resolved_concrete :: (fn(some_id : String) -> bool)(
-  match(g_lookup_some_resolved_concrete,.Some(f) => f(some_id).is_some(),.None => false)
+  match(g_lookup_some_resolved_concrete, .Some(f) => f(some_id).is_some(), .None => false)
 );
 // ---------------------------------------------------------------------------
 // Variant-shape predicates — were in `type.yo` before Phase A.3.2; relocated
@@ -55,10 +55,10 @@ _some_param_has_resolved_concrete :: (fn(some_id : String) -> bool)(
 // boolean test rather than a tag enum comparison.
 // ---------------------------------------------------------------------------
 is_int_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.Int(_, _) => true, _ => false)
+  match(t, .Int(_, _) => true, _ => false)
 );
 is_float_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.Float(_) => true, _ => false)
+  match(t, .Float(_) => true, _ => false)
 );
 is_signed_int_type :: (fn(t : TypeValue) -> bool)(
   match(
@@ -83,16 +83,16 @@ is_numeric_type :: (fn(t : TypeValue) -> bool)(
   )
 );
 is_pointer_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.Pointer(_) => true, _ => false)
+  match(t, .Pointer(_) => true, _ => false)
 );
 is_array_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.Array(_, _, _) => true, _ => false)
+  match(t, .Array(_, _, _) => true, _ => false)
 );
 is_function_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.Func({ result : _ }) => true, _ => false)
+  match(t, .Func({ result : _ }) => true, _ => false)
 );
 is_some_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.SomeT(name : _) => true, _ => false)
+  match(t, .SomeT(name : _) => true, _ => false)
 );
 is_trait_type :: (fn(t : TypeValue) -> bool)(
   match(
@@ -107,21 +107,21 @@ is_trait_type :: (fn(t : TypeValue) -> bool)(
 /// Mirrors TS `isSourceNamespaceType` (guards.ts:191) — TS has no module
 /// type; the legacy name is kept for the existing call sites.
 is_module_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.Struct({ is_source_namespace : sns }) => sns, _ => false)
+  match(t, .Struct({ is_source_namespace : sns }) => sns, _ => false)
 );
 /// Mirrors TS `isStructType` (guards.ts:161): EXCLUDES source-namespace
 /// structs, exactly as TS does.
 is_struct_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.Struct({ is_source_namespace : sns }) => !(sns), _ => false)
+  match(t, .Struct({ is_source_namespace : sns }) => !(sns), _ => false)
 );
 is_enum_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.EnumT(_, _, _, _, _, _, _, _, _) => true, _ => false)
+  match(t, .EnumT(_, _, _, _, _, _, _, _, _) => true, _ => false)
 );
 is_unit_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.Unit => true, _ => false)
+  match(t, .Unit => true, _ => false)
 );
 is_bool_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.BoolT => true, _ => false)
+  match(t, .BoolT => true, _ => false)
 );
 // ---------------------------------------------------------------------------
 // Basic primitive guards
@@ -149,76 +149,76 @@ is_primitive_type :: (fn(t : TypeValue) -> bool)(
   )
 );
 is_comptime_int_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.ComptimeInt => true, _ => false)
+  match(t, .ComptimeInt => true, _ => false)
 );
 is_comptime_float_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.ComptimeFloat => true, _ => false)
+  match(t, .ComptimeFloat => true, _ => false)
 );
 is_comptime_string_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.ComptimeString => true, _ => false)
+  match(t, .ComptimeString => true, _ => false)
 );
 is_comptime_list_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.ComptimeListT(_) => true, _ => false)
+  match(t, .ComptimeListT(_) => true, _ => false)
 );
 is_expr_list_type :: (fn(t : TypeValue) -> bool)(
   match(
     t,
-    .ComptimeListT(child) => match(child,.ExprT => true, _ => false),
+    .ComptimeListT(child) => match(child, .ExprT => true, _ => false),
     _ => false
   )
 );
 is_usize_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.Usize => true, _ => false)
+  match(t, .Usize => true, _ => false)
 );
 is_isize_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.Isize => true, _ => false)
+  match(t, .Isize => true, _ => false)
 );
 is_u8_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.Int(bits, signed) => ((bits == u8(8)) && !(signed)), _ => false)
+  match(t, .Int(bits, signed) => ((bits == u8(8)) && !(signed)), _ => false)
 );
 is_i8_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.Int(bits, signed) => ((bits == u8(8)) && signed), _ => false)
+  match(t, .Int(bits, signed) => ((bits == u8(8)) && signed), _ => false)
 );
 is_u16_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.Int(bits, signed) => ((bits == u8(16)) && !(signed)), _ => false)
+  match(t, .Int(bits, signed) => ((bits == u8(16)) && !(signed)), _ => false)
 );
 is_i16_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.Int(bits, signed) => ((bits == u8(16)) && signed), _ => false)
+  match(t, .Int(bits, signed) => ((bits == u8(16)) && signed), _ => false)
 );
 is_u32_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.Int(bits, signed) => ((bits == u8(32)) && !(signed)), _ => false)
+  match(t, .Int(bits, signed) => ((bits == u8(32)) && !(signed)), _ => false)
 );
 is_i32_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.Int(bits, signed) => ((bits == u8(32)) && signed), _ => false)
+  match(t, .Int(bits, signed) => ((bits == u8(32)) && signed), _ => false)
 );
 is_u64_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.Int(bits, signed) => ((bits == u8(64)) && !(signed)), _ => false)
+  match(t, .Int(bits, signed) => ((bits == u8(64)) && !(signed)), _ => false)
 );
 is_i64_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.Int(bits, signed) => ((bits == u8(64)) && signed), _ => false)
+  match(t, .Int(bits, signed) => ((bits == u8(64)) && signed), _ => false)
 );
 is_f32_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.Float(bits) => (bits == u8(32)), _ => false)
+  match(t, .Float(bits) => (bits == u8(32)), _ => false)
 );
 is_f64_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.Float(bits) => (bits == u8(64)), _ => false)
+  match(t, .Float(bits) => (bits == u8(64)), _ => false)
 );
 is_expr_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.ExprT => true, _ => false)
+  match(t, .ExprT => true, _ => false)
 );
 // ---------------------------------------------------------------------------
 // Compound type guards
 // ---------------------------------------------------------------------------
 is_tuple_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.Tuple(_, _) => true, _ => false)
+  match(t, .Tuple(_, _) => true, _ => false)
 );
 is_union_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.Union(_, _, _) => true, _ => false)
+  match(t, .Union(_, _, _) => true, _ => false)
 );
 /// Reference-semantics struct: `ref(struct(...))`. Mirrors
 /// `isReferenceStructType` in `src/types/guards.ts`.
 is_reference_struct_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.Struct({ is_reference_semantics : is_ref }) => is_ref, _ => false)
+  match(t, .Struct({ is_reference_semantics : is_ref }) => is_ref, _ => false)
 );
 // Atomic reference-semantics struct: `atomic(ref(struct(...)))`.
 // Mirrors `isAtomicReferenceStructType` in `src/types/guards.ts`, which
@@ -236,7 +236,7 @@ is_atomic_reference_struct_type :: (fn(t : TypeValue) -> bool)(
 /// Reference-semantics enum: `ref(enum(...))`. Mirrors
 /// `isReferenceEnumType` in `src/types/guards.ts`.
 is_reference_enum_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.EnumT({ is_reference_semantics : is_ref }) => is_ref, _ => false)
+  match(t, .EnumT({ is_reference_semantics : is_ref }) => is_ref, _ => false)
 );
 /// Atomic reference-semantics enum: `atomic(ref(enum(...)))`. Mirrors
 /// `isAtomicReferenceEnumType` in `src/types/guards.ts`.
@@ -250,13 +250,13 @@ is_atomic_reference_enum_type :: (fn(t : TypeValue) -> bool)(
 );
 // Phase 2b : Type.Struct needs `isNewtype` flag.
 is_newtype_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.Struct({ is_newtype : is_nt }) => is_nt, _ => false)
+  match(t, .Struct({ is_newtype : is_nt }) => is_nt, _ => false)
 );
 /// True if `t` is the builtin `str` static string view (TypeValue.Str).
 /// Used by `panic` / `fprintf` codegen to choose between `%s` and `%.*s`
 /// format specifiers.
 is_str_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.Str => true, _ => false)
+  match(t, .Str => true, _ => false)
 );
 /// True if `t` is `Box(T)` — a single-field reference-semantics Struct
 /// whose name starts with `Box(` and whose only field is labeled `*`.
@@ -278,12 +278,12 @@ is_box_type :: (fn(t : TypeValue) -> bool)(
   )
 );
 is_fn_trait_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.FnTraitT(base_name : _) => true, _ => false)
+  match(t, .FnTraitT(base_name : _) => true, _ => false)
 );
 is_function_type_and_is_type_function :: (fn(t : TypeValue) -> bool)(
   match(
     t,
-    .Func({ result : r }) => match(r,.TypeUni(_) => true, _ => false),
+    .Func({ result : r }) => match(r, .TypeUni(_) => true, _ => false),
     _ => false
   )
 );
@@ -332,22 +332,22 @@ is_function_type_and_returns_comptime_value :: (fn(t : TypeValue) -> bool)(
 // ---------------------------------------------------------------------------
 /// Corresponds to `isTypeHierarchyType` — the `Type`, `Type(1)`, … universe.
 is_type_hierarchy_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.TypeUni(_) => true, _ => false)
+  match(t, .TypeUni(_) => true, _ => false)
 );
 is_type_0 :: (fn(t : TypeValue) -> bool)(
-  match(t,.TypeUni(level) => (level == usize(0)), _ => false)
+  match(t, .TypeUni(level) => (level == usize(0)), _ => false)
 );
 // ---------------------------------------------------------------------------
 // Pointer / reference / dyn guards
 // ---------------------------------------------------------------------------
 is_iso_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.IsoT(_) => true, _ => false)
+  match(t, .IsoT(_) => true, _ => false)
 );
 is_dyn_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.DynT(required_trait_types : _) => true, _ => false)
+  match(t, .DynT(required_trait_types : _) => true, _ => false)
 );
 is_type_application_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.TypeAppT(constructor : _) => true, _ => false)
+  match(t, .TypeAppT(constructor : _) => true, _ => false)
 );
 // ---------------------------------------------------------------------------
 // Numeric type guards (extended versions)
@@ -379,40 +379,40 @@ is_unsigned_integer_type :: (fn(t : TypeValue) -> bool)(
 // C-compatible type guards
 // ---------------------------------------------------------------------------
 is_char_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.CChar => true, _ => false)
+  match(t, .CChar => true, _ => false)
 );
 is_short_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.CShort => true, _ => false)
+  match(t, .CShort => true, _ => false)
 );
 is_u_short_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.CUShort => true, _ => false)
+  match(t, .CUShort => true, _ => false)
 );
 is_c_int_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.CInt => true, _ => false)
+  match(t, .CInt => true, _ => false)
 );
 is_c_uint_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.CUInt => true, _ => false)
+  match(t, .CUInt => true, _ => false)
 );
 is_long_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.CLong => true, _ => false)
+  match(t, .CLong => true, _ => false)
 );
 is_u_long_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.CULong => true, _ => false)
+  match(t, .CULong => true, _ => false)
 );
 is_long_long_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.CLongLong => true, _ => false)
+  match(t, .CLongLong => true, _ => false)
 );
 is_u_long_long_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.CULongLong => true, _ => false)
+  match(t, .CULongLong => true, _ => false)
 );
 is_long_double_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.CLongDouble => true, _ => false)
+  match(t, .CLongDouble => true, _ => false)
 );
 is_void_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.Void => true, _ => false)
+  match(t, .Void => true, _ => false)
 );
 is_future_trait_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.FutureTraitT(base_name : _) => true, _ => false)
+  match(t, .FutureTraitT(base_name : _) => true, _ => false)
 );
 /// `true` when `t` is a `Concrete(T)` trait type (its `is_concrete` marker is
 /// `.Some`). Mirrors TS `isConcreteTraitType` (`isTraitType(t) && t.isConcrete
@@ -420,7 +420,7 @@ is_future_trait_type :: (fn(t : TypeValue) -> bool)(
 /// Option(Box(Self))`; this was a `=> false` stub until the async-Future type
 /// plumbing (Phase 5) needed it (`is_io_future_type`).
 is_concrete_trait_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.TraitT({ is_concrete }) => is_concrete.is_some(), _ => false)
+  match(t, .TraitT({ is_concrete }) => is_concrete.is_some(), _ => false)
 );
 /// Return `true` if `t` itself is an RC-managed type (not recursively).
 ///
@@ -651,13 +651,13 @@ is_boxed_type :: (fn(t : TypeValue) -> bool)(
     match(
       t,
       .Struct({ name, field_labels }) =>
-        (((field_labels.len() == usize(1)) && match(field_labels.get(usize(0)),.Some(l) => (l == "*"),.None => false)) && name.starts_with("Box(")),
+        (((field_labels.len() == usize(1)) && match(field_labels.get(usize(0)), .Some(l) => (l == "*"), .None => false)) && name.starts_with("Box(")),
       _ => false
     )
   )
 );
 is_effects_row_type :: (fn(t : TypeValue) -> bool)(
-  match(t,.EffectsRowT(implicit_labels : _) => true, _ => false)
+  match(t, .EffectsRowT(implicit_labels : _) => true, _ => false)
 );
 // ---------------------------------------------------------------------------
 // Exports

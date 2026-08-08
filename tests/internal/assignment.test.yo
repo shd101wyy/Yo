@@ -90,7 +90,7 @@ stub_eval_bool :: (
   ) -> AstExpr
 )({
   info := new_expr_info(env, t_bool());
-  info.value =.Some(EvalValue.BoolVal(true));
+  info.value = .Some(EvalValue.BoolVal(true));
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
   expr
 });
@@ -103,7 +103,7 @@ stub_eval_i32 :: (
   ) -> AstExpr
 )({
   info := new_expr_info(env, t_i32());
-  info.value =.Some(EvalValue.IntLit(String.from("42")));
+  info.value = .Some(EvalValue.IntLit(String.from("42")));
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
   expr
 });
@@ -120,7 +120,7 @@ stub_eval_bool_raw :: (
 )({
   exn;
   info := new_expr_info(env, t_bool());
-  info.value =.Some(EvalValue.BoolVal(true));
+  info.value = .Some(EvalValue.BoolVal(true));
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
   expr
 });
@@ -134,7 +134,7 @@ stub_eval_i32_raw :: (
 )({
   exn;
   info := new_expr_info(env, t_i32());
-  info.value =.Some(EvalValue.IntLit(String.from("42")));
+  info.value = .Some(EvalValue.IntLit(String.from("42")));
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
   expr
 });
@@ -211,7 +211,7 @@ test("evaluate_assignment: atom LHS — ExprInfo set with unit type", {
   expr := mk_assign(usize(10), lhs, rhs);
   result := evaluate_assignment(expr, env, ctx, exn);
   info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(result));
-  assert(match(info_opt,.Some(_) => true,.None => false), "ExprInfo should be set on assignment expr");
+  assert(match(info_opt, .Some(_) => true, .None => false), "ExprInfo should be set on assignment expr");
 });
 test("evaluate_assignment: atom LHS reassignment — ExprInfo carries old value/type", {
   set_evaluate_expression_fn(stub_eval_bool);
@@ -252,11 +252,11 @@ test("evaluate_assignment: atom LHS reassignment — ExprInfo carries old value/
     info_opt,
     .Some(info) => {
       assert(
-        match(info.value,.Some(_) => false,.None => true),
+        match(info.value, .Some(_) => false, .None => true),
         "reassignment info carries the (absent) old value, not UnitVal"
       );
       assert(
-        match(info.ty,.BoolT => true, _ => false),
+        match(info.ty, .BoolT => true, _ => false),
         "reassignment info type is the variable's type"
       );
     },

@@ -78,7 +78,7 @@ test("get_line_at_position basic", {
 // ─── format_error_message ────────────────────────────────────────────────────
 test("format_error_message creates YoError", {
   tok := make_token(`test.yo`, `let x = 1;`, usize(0), usize(4), `x`);
-  err := format_error_message(tok, `undefined variable x`, false,.None);
+  err := format_error_message(tok, `undefined variable x`, false, .None);
   s := err.to_string();
   assert(s.contains(`Error:`), "has Error prefix");
   assert(s.contains(`undefined variable x`), "contains error message");
@@ -86,12 +86,12 @@ test("format_error_message creates YoError", {
 });
 test("format_error_message assertion error flag preserved", {
   tok := make_token(`t.yo`, `assert(false)`, usize(0), usize(0), `assert`);
-  err := format_error_message(tok, `assertion failed`, true,.None);
+  err := format_error_message(tok, `assertion failed`, true, .None);
   assert(err.is_assertion_error, "is_assertion_error must be true");
 });
 test("format_error_message kind preserved", {
   tok := make_token(`t.yo`, `999999`, usize(0), usize(0), `999999`);
-  err := format_error_message(tok, `integer overflow`, false,.Some(ErrorKind.Overflow));
+  err := format_error_message(tok, `integer overflow`, false, .Some(ErrorKind.Overflow));
   match(
     err.kind,
     .Some(k) => assert(k == ErrorKind.Overflow, "kind must be Overflow"),
@@ -104,7 +104,7 @@ test("format_error_messages with one entry", {
   entry := TokenAndError(token : tok, error_message : `missing semicolon`);
   entries := ArrayList(TokenAndError).new();
   entries.push(entry);
-  err := format_error_messages(entries, false,.None);
+  err := format_error_messages(entries, false, .None);
   s := err.to_string();
   assert(s.contains(`Error: missing semicolon`), "error message in output");
 });
@@ -116,7 +116,7 @@ test("format_error_messages with two entries", {
   list := ArrayList(TokenAndError).new();
   list.push(e1);
   list.push(e2);
-  err := format_error_messages(list, false,.None);
+  err := format_error_messages(list, false, .None);
   s := err.to_string();
   assert(s.contains(`first error`), "first error present");
   assert(s.contains(`second error`), "second error present");
@@ -151,7 +151,7 @@ test("format_warning_messages empty list no prefix", {
 // ─── YoError.to_string ───────────────────────────────────────────────────────
 test("YoError to_string formats errors", {
   tok := make_token(`main.yo`, `let`, usize(0), usize(0), `let`);
-  err := format_error_message(tok, `unexpected keyword`, false,.None);
+  err := format_error_message(tok, `unexpected keyword`, false, .None);
   s := err.to_string();
   assert(s.contains(`Error:`), "Error: prefix present");
   assert(s.contains(`unexpected keyword`), "message present");

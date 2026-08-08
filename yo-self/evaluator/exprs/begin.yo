@@ -115,7 +115,7 @@ _new_dup_calls_result :: (fn() -> DupCallsResult)(
 ///
 /// Mirrors `isUnitValueExpression` in `src/evaluator/exprs/begin.ts`.
 is_unit_value_expression :: (fn(expr : AstExpr) -> bool)(
-  ast_expr_is_fn_call_of(expr, BK_TUPLE,.Some(usize(0)))
+  ast_expr_is_fn_call_of(expr, BK_TUPLE, .Some(usize(0)))
 );
 _ids_list_contains :: (fn(lst : ArrayList(String), s : String) -> bool)({
   (i : usize) = usize(0);
@@ -520,7 +520,7 @@ _check_keyword_position :: (
     return(());
   });
   last_idx := (n_args - usize(1));
-  last_arg := match(begin_args.get(last_idx),.Some(a) => a,.None => make_err_expr());
+  last_arg := match(begin_args.get(last_idx), .Some(a) => a, .None => make_err_expr());
   last_is_unit := is_unit_value_expression(last_arg);
   is_last := (loop_i == last_idx);
   is_second_last := ((n_args >= usize(2)) && (loop_i == (n_args - usize(2))));
@@ -606,7 +606,7 @@ _value_contains_unknown :: (fn(v : EvalValue) -> bool)(
 );
 /// True iff `name` equals the name carried by `opt` (if any).
 _name_matches_opt :: (fn(name : String, opt : Option(String)) -> bool)(
-  match(opt,.Some(n) => (name == n),.None => false)
+  match(opt, .Some(n) => (name == n), .None => false)
 );
 /// M1 (plans/archive/YO_SELF_NAMED_LOCAL_DROPS.md): schedule scope-end `___drop` expressions
 /// for owning named-local bindings declared in `frame`, so a begin block's owning
@@ -689,7 +689,7 @@ _variable_can_need_drop_ignoring_consumed :: (fn(v : Variable) -> bool)({
 /// True iff `v` is captured by the current function/closure. Mirrors
 /// `variableIsCapturedByCurrentFunction`.
 _variable_is_captured_by_current_function :: (fn(v : Variable, ctx : EvalContext) -> bool)(
-  match(ctx.captured_variables,.Some(cv) => cv.contains_key(v.name.clone()),.None => false)
+  match(ctx.captured_variables, .Some(cv) => cv.contains_key(v.name.clone()), .None => false)
 );
 /// True iff `expr` is a nested function-definition boundary — recursion for
 /// early-return drops must stop here. Mirrors `isFunctionBoundaryForEarlyDrop`
@@ -737,10 +737,10 @@ _attach_if_cleanup_needs_drop :: (fn(expr : AstExpr, cleanup_point : Token, vari
       if(vars.len() == usize(0), {
         return(());
       });
-      latest := match(vars.get(vars.len() - usize(1)),.Some(v) => v,.None => return(()));
-      match(latest.initialized_at_token,.None => return(()),.Some(_) => ());
+      latest := match(vars.get(vars.len() - usize(1)), .Some(v) => v, .None => return(()));
+      match(latest.initialized_at_token, .None => return(()), .Some(_) => ());
       if(_m3_token_is_at_or_before(init_tok, cleanup_point) && _m3_token_is_before(cleanup_point, consumed_tok), {
-        existing := match(ei.early_return_only_deferred_drop_expressions,.Some(l) => l,.None => ArrayList(AstExpr).new());
+        existing := match(ei.early_return_only_deferred_drop_expressions, .Some(l) => l, .None => ArrayList(AstExpr).new());
         (found : bool) = false;
         (fi : usize) = usize(0);
         while(fi < existing.len(), {
@@ -765,8 +765,8 @@ _attach_if_cleanup_needs_drop :: (fn(expr : AstExpr, cleanup_point : Token, vari
 /// `expr` where the variable is live-but-not-yet-consumed. Mirrors
 /// `attachEarlyReturnOnlyDropExpressionToReturns` (begin.ts:130-238).
 _attach_early_return_only_drop_to_returns :: (fn(expr : AstExpr, variable : Variable, drop_expr : AstExpr, ctx : EvalContext) -> unit)({
-  init_tok := match(variable.initialized_at_token,.Some(t) => t,.None => return(()));
-  consumed_tok := match(variable.consumed_at_token,.Some(cb) => cb.*,.None => return(()));
+  init_tok := match(variable.initialized_at_token, .Some(t) => t, .None => return(()));
+  consumed_tok := match(variable.consumed_at_token, .Some(cb) => cb.*, .None => return(()));
   if(ast_expr_is_atom(expr), {
     if(ast_expr_is_atom_of(expr, BK_RETURN) || ast_expr_is_atom_of(expr, BF_UNWIND), {
       _attach_if_cleanup_needs_drop(expr, ast_expr_token(expr), variable, drop_expr, init_tok, consumed_tok, ctx);
@@ -782,7 +782,7 @@ _attach_early_return_only_drop_to_returns :: (fn(expr : AstExpr, variable : Vari
       });
       match(
         expr_info_table_get(ctx.expr_info_table, ast_expr_id(expr)),
-        .Some(ei) => match(ei.macro_expansion,.Some(mx) => recur(mx, variable, drop_expr, ctx),.None => ()),
+        .Some(ei) => match(ei.macro_expansion, .Some(mx) => recur(mx, variable, drop_expr, ctx), .None => ()),
         .None => ()
       );
       if(ast_expr_is_fn_call_of(expr, BK_COND, Option(usize).None) || ast_expr_is_fn_call_of(expr, BK_MATCH, Option(usize).None), {
@@ -797,7 +797,7 @@ _attach_early_return_only_drop_to_returns :: (fn(expr : AstExpr, variable : Vari
                 .FnCall(_, _, bargs, _, _) => {
                   (bj : usize) = usize(0);
                   while(bj < bargs.len(), {
-                    match(bargs.get(bj),.Some(bp) => recur(bp, variable, drop_expr, ctx),.None => ());
+                    match(bargs.get(bj), .Some(bp) => recur(bp, variable, drop_expr, ctx), .None => ());
                     bj = (bj + usize(1));
                   });
                 },
@@ -818,7 +818,7 @@ _attach_early_return_only_drop_to_returns :: (fn(expr : AstExpr, variable : Vari
       recur(func, variable, drop_expr, ctx);
       (ai : usize) = usize(0);
       while(ai < args.len(), {
-        match(args.get(ai),.Some(a) => recur(a, variable, drop_expr, ctx),.None => ());
+        match(args.get(ai), .Some(a) => recur(a, variable, drop_expr, ctx), .None => ());
         ai = (ai + usize(1));
       });
     },
@@ -1367,7 +1367,7 @@ evaluate_begin_expression :: (
   // dispatch them through `evaluate_binding`, raising a spurious
   // `Unexpected runtime variable binding in a compile-time only
   // function body.` error.
-  is_begin_call := ast_expr_is_fn_call_of(expr, BK_BEGIN,.None);
+  is_begin_call := ast_expr_is_fn_call_of(expr, BK_BEGIN, .None);
   begin_args := if(is_begin_call, match(
     expr,
     .FnCall(_, _, args, _, _) => args,
@@ -1433,7 +1433,7 @@ evaluate_begin_expression :: (
     );
     // Classify the current expression.
     is_return_atom := (ast_expr_is_atom(expr_to_eval) && ast_expr_is_atom_of(expr_to_eval, BK_RETURN));
-    is_return_call := ast_expr_is_fn_call_of(expr_to_eval, BK_RETURN,.None);
+    is_return_call := ast_expr_is_fn_call_of(expr_to_eval, BK_RETURN, .None);
     is_return_expr := (is_return_atom || is_return_call);
     // `return` (atom) AND `return()` (zero-arg call) are BOTH unit returns.
     // Mirrors TS begin.ts:1122-1124 (`exprIsAtom(e) || (exprIsFunctionCall(e)
@@ -1453,7 +1453,7 @@ evaluate_begin_expression :: (
     );
     is_break_atom := (ast_expr_is_atom(expr_to_eval) && ast_expr_is_atom_of(expr_to_eval, "break"));
     is_continue_atom := (ast_expr_is_atom(expr_to_eval) && ast_expr_is_atom_of(expr_to_eval, "continue"));
-    is_escape_call := ast_expr_is_fn_call_of(expr_to_eval, BF_UNWIND,.None);
+    is_escape_call := ast_expr_is_fn_call_of(expr_to_eval, BF_UNWIND, .None);
     cond(
       // -------------------------------------------------------------------
       // return / return(val)
@@ -1484,7 +1484,7 @@ evaluate_begin_expression :: (
           // `return(val)` — evaluate the argument.
           ret_arg := match(
             expr_to_eval,
-            .FnCall(_, _, args, _, _) => match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr()),
+            .FnCall(_, _, args, _, _) => match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
             .Atom(_, _) => make_err_expr()
           );
           // Pass the function-body's return type as the expected type for the
@@ -1535,7 +1535,7 @@ evaluate_begin_expression :: (
               )
             );
           });
-          ret_info := match(ret_info_opt,.Some(ri) => ri,.None => new_expr_info(env, TypeValue.Unit));
+          ret_info := match(ret_info_opt, .Some(ri) => ri, .None => new_expr_info(env, TypeValue.Unit));
           env.frames = ret_info.env.frames;
           env.module_path = ret_info.env.module_path;
           env.function_declaration_frame_level = ret_info.env.function_declaration_frame_level;
@@ -1646,7 +1646,7 @@ evaluate_begin_expression :: (
                             error_message : `Conflicting return has concrete type: ${type_to_string(ret_info.ty)}`
                           )
                         );
-                        exn.throw(dyn(format_error_messages(ir_entries, false,.None)));
+                        exn.throw(dyn(format_error_messages(ir_entries, false, .None)));
                       });
                     },
                     .None => ()
@@ -1793,7 +1793,7 @@ evaluate_begin_expression :: (
         }, {
           esc_arg := match(
             expr_to_eval,
-            .FnCall(_, _, args, _, _) => match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr()),
+            .FnCall(_, _, args, _, _) => match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
             .Atom(_, _) => make_err_expr()
           );
           // Propagate the enclosing function's return type as the expected type.
@@ -1816,7 +1816,7 @@ evaluate_begin_expression :: (
               )
             );
           });
-          esc_info := match(esc_info_opt,.Some(ei) => ei,.None => new_expr_info(env, TypeValue.Unit));
+          esc_info := match(esc_info_opt, .Some(ei) => ei, .None => new_expr_info(env, TypeValue.Unit));
           // Type-check unwind value against the enclosing return type.
           // Skip when the enclosing return type is an unresolved SomeType.
           esc_compat := are_types_compatible(esc_info.ty, enclosing_ret);
@@ -1880,12 +1880,12 @@ evaluate_begin_expression :: (
             .Some(ei) => ei.value.is_none(),
             .None => false
           );
-          is_assign_expr := ast_expr_is_fn_call_of(evaluated, BK_ASSIGN,.None);
-          is_init_assign_expr := ast_expr_is_fn_call_of(evaluated, BK_INIT_ASSIGN,.None);
+          is_assign_expr := ast_expr_is_fn_call_of(evaluated, BK_ASSIGN, .None);
+          is_init_assign_expr := ast_expr_is_fn_call_of(evaluated, BK_INIT_ASSIGN, .None);
           is_either_assign := (is_assign_expr || is_init_assign_expr);
           ct_only_assign := match(
             ev_info_opt,
-            .Some(ei) => match(ei.is_compile_time_only_assignment,.Some(b) => b,.None => false),
+            .Some(ei) => match(ei.is_compile_time_only_assignment, .Some(b) => b, .None => false),
             .None => false
           );
           // For NON-assignment statements, only a CONCRETELY known value
@@ -1900,7 +1900,7 @@ evaluate_begin_expression :: (
             ev_info_opt,
             .Some(ei) => match(
               ei.value,
-              .Some(v) => match(v,.UnknownVal(_, _) => true, _ => false),
+              .Some(v) => match(v, .UnknownVal(_, _) => true, _ => false),
               .None => false
             ),
             .None => false
@@ -1943,7 +1943,7 @@ evaluate_begin_expression :: (
       )
     );
   });
-  last_info := match(last_info_opt,.Some(li) => li,.None => new_expr_info(env, TypeValue.Unit));
+  last_info := match(last_info_opt, .Some(li) => li, .None => new_expr_info(env, TypeValue.Unit));
   return_type := last_info.ty;
   // -------------------------------------------------------------------------
   // Return-type compatibility check (begin.ts:1602-1680)
@@ -1955,7 +1955,7 @@ evaluate_begin_expression :: (
   // the mismatch error. NOTE: this alone does NOT fix the io.async
   // `return(<binop>)` void-result bug — there the GIVEN side is already the
   // same bare SomeT (see issues/yo-self-io-async-return-binop-void.md).
-  is_return_ctrl := has_control_flow(last_info.control_flow,.Return);
+  is_return_ctrl := has_control_flow(last_info.control_flow, .Return);
   if(is_return_ctrl, {
     match(
       ctx.is_evaluating_function_body_or_async_block,
@@ -2031,16 +2031,16 @@ evaluate_begin_expression :: (
   // -------------------------------------------------------------------------
   // Build the expression to check: the value being returned (not the `return`
   // keyword wrapper itself).
-  re_base := match(return_expr,.Some(re) => re,.None => last_expr);
+  re_base := match(return_expr, .Some(re) => re, .None => last_expr);
   is_return_with_arg := match(
     return_expr,
-    .Some(re) => ast_expr_is_fn_call_of(re, BK_RETURN,.Some(usize(1))),
+    .Some(re) => ast_expr_is_fn_call_of(re, BK_RETURN, .Some(usize(1))),
     .None => false
   );
   check_expr := cond(
     is_return_with_arg => match(
       re_base,
-      .FnCall(_, _, args, _, _) => match(args.get(usize(0)),.Some(a) => a,.None => re_base),
+      .FnCall(_, _, args, _, _) => match(args.get(usize(0)), .Some(a) => a, .None => re_base),
       .Atom(_, _) => re_base
     ),
     true => re_base
@@ -2152,8 +2152,8 @@ evaluate_begin_expression :: (
                           (own_i : usize) = usize(0);
                           n_own := own_labels.len();
                           while((own_i < n_own) && (!(own_found)), {
-                            lbl_match := match(own_labels.get(own_i),.Some(lbl) => (lbl == rv_name),.None => false);
-                            flag_match := match(own_flags.get(own_i),.Some(fl) => fl,.None => false);
+                            lbl_match := match(own_labels.get(own_i), .Some(lbl) => (lbl == rv_name), .None => false);
+                            flag_match := match(own_flags.get(own_i), .Some(fl) => fl, .None => false);
                             if(lbl_match && flag_match, {
                               own_found = true;
                             });
@@ -2258,14 +2258,14 @@ evaluate_begin_expression :: (
           .Some(ev) => {
             not_auto := !(ev.token.module_path.starts_with(String.from("auto-generated://")));
             eligible := (ev.consumed_at_token.is_some() && (ev.initialized_at_token.is_some() && (not_auto && (!(_variable_is_captured_by_current_function(ev, ctx)) && _variable_can_need_drop_ignoring_consumed(ev)))));
-            init_ok := match(ev.initialized_at_token,.Some(it) => _m3_token_is_at_or_before(begin_tok, it),.None => false);
+            init_ok := match(ev.initialized_at_token, .Some(it) => _m3_token_is_at_or_before(begin_tok, it), .None => false);
             if(eligible && init_ok, {
               drop_code := `___drop(${ev.name})`;
               drop_expr := generate_expr_from_code(drop_code, exn);
               evaluated := evaluate_expression_raw(drop_expr, env, ctx, exn);
               (dai : usize) = usize(0);
               while(dai < begin_args.len(), {
-                match(begin_args.get(dai),.Some(arg) => _attach_early_return_only_drop_to_returns(arg, ev, evaluated, ctx),.None => ());
+                match(begin_args.get(dai), .Some(arg) => _attach_early_return_only_drop_to_returns(arg, ev, evaluated, ctx), .None => ());
                 dai = (dai + usize(1));
               });
             });
@@ -2345,7 +2345,7 @@ evaluate_begin_expression :: (
   carry_runtime_args := match(
     last_info.value,
     .None => true,
-    .Some(v) => match(v,.UnitVal => true, _ => _value_contains_unknown(v))
+    .Some(v) => match(v, .UnitVal => true, _ => _value_contains_unknown(v))
   );
   if(shared_with_tail && !(carry_runtime_args), {
     out_info.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).None;

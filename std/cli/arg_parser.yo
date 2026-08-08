@@ -81,8 +81,8 @@ impl(
       _option_values : ArrayList(String).new(),
       _positionals : ArrayList(String).new(),
       _positional_names : ArrayList(String).new(),
-      _subcommand :.None,
-      _subcommand_args :.None
+      _subcommand : .None,
+      _subcommand_args : .None
     )
   ),
   /// Returns the name of the chosen subcommand, if any.
@@ -95,7 +95,7 @@ impl(
   _lookup : (fn(self : Self, names : ArrayList(String), values : ArrayList(String), name : String) -> Option(String))({
     i := usize(0);
     len := names.len();
-    (result : Option(String)) =.None;
+    (result : Option(String)) = .None;
     while(i < len, i = (i + usize(1)), {
       match(
         names.get(i),
@@ -149,14 +149,14 @@ impl(
   _find_subcommand : (fn(self : Self, name : String) -> Option(usize))({
     i := usize(0);
     len := self._subcommand_names.len();
-    (result : Option(usize)) =.None;
+    (result : Option(usize)) = .None;
     while((i < len) && result.is_none(), i = (i + usize(1)), {
       match(
         self._subcommand_names.get(i),
         .Some(n) => {
           cond(
             (n == name) => {
-              result =.Some(i);
+              result = .Some(i);
             },
             true => ()
           );
@@ -172,7 +172,7 @@ impl(
         _long_name : long_name,
         _short_name : short_name,
         _description : description,
-        _kind :.Flag,
+        _kind : .Flag,
         _default_value : ``,
         _required : false
       )
@@ -184,7 +184,7 @@ impl(
         _long_name : long_name,
         _short_name : short_name,
         _description : description,
-        _kind :.Opt,
+        _kind : .Opt,
         _default_value : default_value,
         _required : false
       )
@@ -196,7 +196,7 @@ impl(
         _long_name : name,
         _short_name : ``,
         _description : description,
-        _kind :.Positional,
+        _kind : .Positional,
         _default_value : ``,
         _required : true
       )
@@ -205,14 +205,14 @@ impl(
   _find_arg_index : (fn(self : Self, name : String) -> Option(usize))({
     i := usize(0);
     len := self._args.len();
-    (result : Option(usize)) =.None;
+    (result : Option(usize)) = .None;
     while(i < len, i = (i + usize(1)), {
       match(
         self._args.get(i),
         .Some(arg_def) => {
           cond(
             ((arg_def._long_name == name) || (arg_def._short_name == name)) => {
-              result =.Some(i);
+              result = .Some(i);
               i = len;
             },
             true => ()
@@ -358,14 +358,14 @@ impl(
     idx := usize(1);
     args_len := args.len();
     positional_idx := usize(0);
-    (err_msg : Option(String)) =.None;
+    (err_msg : Option(String)) = .None;
     while((idx < args_len) && (err_msg.is_none()), {
       match(
         args.get(idx),
         .Some(current_arg) => {
           cond(
             ((current_arg == `--help`) || (current_arg == `-h`)) => {
-              err_msg =.Some(self.help_text());
+              err_msg = .Some(self.help_text());
             },
             current_arg.starts_with(`-`) => {
               match(
@@ -390,12 +390,12 @@ impl(
                                   parsed._option_values.push(val);
                                 },
                                 .None => {
-                                  err_msg =.Some(`Missing value for option: ${def._long_name}`);
+                                  err_msg = .Some(`Missing value for option: ${def._long_name}`);
                                 }
                               );
                             },
                             true => {
-                              err_msg =.Some(`Missing value for option: ${def._long_name}`);
+                              err_msg = .Some(`Missing value for option: ${def._long_name}`);
                             }
                           );
                         },
@@ -406,7 +406,7 @@ impl(
                   );
                 },
                 .None => {
-                  err_msg =.Some(`Unknown argument: ${current_arg}`);
+                  err_msg = .Some(`Unknown argument: ${current_arg}`);
                 }
               );
             },
@@ -446,13 +446,13 @@ impl(
                           match(
                             recur(sub_parser, sub_args),
                             .Ok(sub_parsed) => {
-                              parsed._subcommand =.Some(current_arg);
-                              parsed._subcommand_args =.Some(sub_parsed);
+                              parsed._subcommand = .Some(current_arg);
+                              parsed._subcommand_args = .Some(sub_parsed);
                               idx = args_len;
                               is_subcmd = true;
                             },
                             .Err(sub_err) => {
-                              err_msg =.Some(sub_err);
+                              err_msg = .Some(sub_err);
                               is_subcmd = true;
                             }
                           );

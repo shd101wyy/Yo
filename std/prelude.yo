@@ -6115,34 +6115,34 @@ impl(TypeInfo, Comptime());
 impl(
   TypeInfo,
   is_struct : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
-    match(self,.Struct(_, _) => true, _ => false)
+    match(self, .Struct(_, _) => true, _ => false)
   ),
   is_enum : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
-    match(self,.Enum(_) => true, _ => false)
+    match(self, .Enum(_) => true, _ => false)
   ),
   is_union : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
-    match(self,.Union(_) => true, _ => false)
+    match(self, .Union(_) => true, _ => false)
   ),
   is_tuple : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
-    match(self,.Tuple(_) => true, _ => false)
+    match(self, .Tuple(_) => true, _ => false)
   ),
   is_array : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
-    match(self,.Array(_, _) => true, _ => false)
+    match(self, .Array(_, _) => true, _ => false)
   ),
   is_str : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
-    match(self,.Str => true, _ => false)
+    match(self, .Str => true, _ => false)
   ),
   is_function : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
-    match(self,.Function(_) => true, _ => false)
+    match(self, .Function(_) => true, _ => false)
   ),
   is_pointer : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
-    match(self,.Ptr(_) => true, _ => false)
+    match(self, .Ptr(_) => true, _ => false)
   ),
   is_trait : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
-    match(self,.Trait(_, _) => true, _ => false)
+    match(self, .Trait(_, _) => true, _ => false)
   ),
   is_void : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
-    match(self,.Void => true, _ => false)
+    match(self, .Void => true, _ => false)
   ),
   is_primitive : (fn(comptime(self) : TypeInfo) -> comptime(bool))(
     match(
@@ -6264,14 +6264,14 @@ impl(
   get_struct_fields : (fn(comptime(self) : Type) -> comptime(ComptimeList(TypeFieldInfo)))({
     info :: __yo_type_get_info(self);
     comptime_assert(info.is_struct(), "Type.get_struct_fields: expected a struct type");
-    match(info,.Struct(f, _) => f, _ => comptime_list(TypeFieldInfo("_", unit)))
+    match(info, .Struct(f, _) => f, _ => comptime_list(TypeFieldInfo("_", unit)))
   }),
   /// Return the list of enum variants for this type at compile-time.
   /// Asserts that the type is an enum.
   get_enum_variants : (fn(comptime(self) : Type) -> comptime(ComptimeList(VariantInfo)))({
     info :: __yo_type_get_info(self);
     comptime_assert(info.is_enum(), "Type.get_enum_variants: expected an enum type");
-    match(info,.Enum(v) => v, _ => comptime_list(VariantInfo("_", comptime_list(TypeFieldInfo("_", unit)), unit, usize(0))))
+    match(info, .Enum(v) => v, _ => comptime_list(VariantInfo("_", comptime_list(TypeFieldInfo("_", unit)), unit, usize(0))))
   })
 );
 /// `FieldInfo` — compile-time struct field metadata for derive rules (legacy alias).
@@ -7319,7 +7319,7 @@ impl(
       (lhs, rhs) ->
         match(
           lhs,
-          .None => match(rhs,.None => true,.Some(_) => false),
+          .None => match(rhs, .None => true, .Some(_) => false),
           .Some(a) => match(
             rhs,
             .None => false,
@@ -7607,7 +7607,7 @@ impl(
     Item : T,
     next : (fn(inout(self) : Self) -> Option(T))(
       cond(
-        (self._index >= N) =>.None,
+        (self._index >= N) => .None,
         true => {
           out := self._arr(self._index);
           self._index = (self._index + usize(1));
@@ -7811,8 +7811,8 @@ impl(
     next : (fn(inout(self) : Self) -> Option(B))(
       match(
         self._inner.next(),
-        .None =>.None,
-        .Some(item) =>.Some((self._f)(item))
+        .None => .None,
+        .Some(item) => .Some((self._f)(item))
       )
     )
   )
@@ -7836,7 +7836,7 @@ impl(
   Iterator(
     Item : A,
     next : (fn(inout(self) : Self) -> Option(A))({
-      (loop_result : Option(A)) =.None;
+      (loop_result : Option(A)) = .None;
       while(runtime(true), {
         candidate := self._inner.next();
         match(
@@ -7847,7 +7847,7 @@ impl(
           .Some(item) => {
             cond(
               (self._f)(&(item)) => {
-                loop_result =.Some(item);
+                loop_result = .Some(item);
                 break;
               },
               true => ()
@@ -7877,7 +7877,7 @@ impl(
     Item : A,
     next : (fn(inout(self) : Self) -> Option(A))(
       cond(
-        (self._remaining == usize(0)) =>.None,
+        (self._remaining == usize(0)) => .None,
         true => {
           self._remaining = (self._remaining - usize(1));
           self._inner.next()
@@ -7942,7 +7942,7 @@ impl(
     next : (fn(inout(self) : Self) -> Option(IterPair(usize, A)))(
       match(
         self._inner.next(),
-        .None =>.None,
+        .None => .None,
         .Some(item) => {
           idx := self._index;
           self._index = (self._index + usize(1));
@@ -7973,11 +7973,11 @@ impl(
     next : (fn(inout(self) : Self) -> Option(IterPair(A, B)))(
       match(
         self._left.next(),
-        .None =>.None,
+        .None => .None,
         .Some(a) => match(
           self._right.next(),
-          .None =>.None,
-          .Some(b) =>.Some(IterPair(A, B)(_0 : a, _1 : b))
+          .None => .None,
+          .Some(b) => .Some(IterPair(A, B)(_0 : a, _1 : b))
         )
       )
     )

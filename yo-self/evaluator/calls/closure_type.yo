@@ -141,8 +141,8 @@ try_to_implement_closure_by_fn_module_type :: (
   n_params := param_labels.len();
   (pi : usize) = usize(0);
   while(pi < n_params, {
-    p_label := match(param_labels.get(pi),.Some(l) => l,.None => String.from("_p"));
-    p_type := match(param_types.get(pi),.Some(t) => t,.None => t_unit());
+    p_label := match(param_labels.get(pi), .Some(l) => l, .None => String.from("_p"));
+    p_type := match(param_types.get(pi), .Some(t) => t, .None => t_unit());
     p_tok := synthetic_token(p_label.clone(), env.module_path);
     p_var_opt := add_variable_to_env(
       env,
@@ -164,7 +164,7 @@ try_to_implement_closure_by_fn_module_type :: (
     // reads/writes go through the C pointer — same stamping as
     // anonymous_function.yo's expected-type param loop (add_variable_to_env
     // cannot set is_ref).
-    if(match(param_is_ref_flags.get(pi),.Some(b) => b,.None => false), {
+    if(match(param_is_ref_flags.get(pi), .Some(b) => b, .None => false), {
       match(
         p_var_opt,
         .Some(p_var) => {

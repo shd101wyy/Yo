@@ -305,7 +305,7 @@ _coll_without_key :: (fn(comptime(K) : Type, comptime(V) : Type, coll : MapColli
       });
       return(.Some(MapCollision(K, V)(hash : coll.hash, _pairs_ptr : new_ptr, _pairs_len : new_len)));
     },
-    .None =>.Some(coll)
+    .None => .Some(coll)
   )
 );
 // -- Core HAMT algorithms --
@@ -385,7 +385,7 @@ _node_insert :: (
         if(leaf.key == k, {
           return(
             InsertResult(K, V)(
-              node :.Leaf(MapLeaf(K, V)(hash : hash, key : k, value : v)),
+              node : .Leaf(MapLeaf(K, V)(hash : hash, key : k, value : v)),
               added : false
             )
           );
@@ -395,7 +395,7 @@ _node_insert :: (
         consume((pairs_ptr.add(usize(1))).* = Pair(K, V)(key : k, value : v));
         return(
           InsertResult(K, V)(
-            node :.Collision(MapCollision(K, V)(hash : hash, _pairs_ptr : pairs_ptr, _pairs_len : usize(2))),
+            node : .Collision(MapCollision(K, V)(hash : hash, _pairs_ptr : pairs_ptr, _pairs_len : usize(2))),
             added : true
           )
         );
@@ -417,7 +417,7 @@ _node_insert :: (
         result := recur(K, V, child, shift + BITS, hash, k, v);
         return(
           InsertResult(K, V)(
-            node :.Branch(_branch_replace_child(K, V, branch, bit, result.node)),
+            node : .Branch(_branch_replace_child(K, V, branch, bit, result.node)),
             added : result.added
           )
         );
@@ -425,7 +425,7 @@ _node_insert :: (
       new_leaf_node := MapNode(K, V).Leaf(MapLeaf(K, V)(hash : hash, key : k, value : v));
       return(
         InsertResult(K, V)(
-          node :.Branch(_branch_with_child(K, V, branch, bit, new_leaf_node)),
+          node : .Branch(_branch_with_child(K, V, branch, bit, new_leaf_node)),
           added : true
         )
       );
@@ -435,7 +435,7 @@ _node_insert :: (
         found := _coll_find_key(K, V, coll, k);
         return(
           InsertResult(K, V)(
-            node :.Collision(_coll_with_pair(K, V, coll, k, v)),
+            node : .Collision(_coll_with_pair(K, V, coll, k, v)),
             added : found.is_none()
           )
         );
@@ -465,8 +465,8 @@ _node_get :: (
   match(
     node,
     .Leaf(leaf) => cond(
-      ((leaf.hash == hash) && (leaf.key == k)) =>.Some(leaf.value),
-      true =>.None
+      ((leaf.hash == hash) && (leaf.key == k)) => .Some(leaf.value),
+      true => .None
     ),
     .Branch(branch) => {
       frag := _fragment(hash, shift);
@@ -510,35 +510,35 @@ _node_remove :: (
     node,
     .Leaf(leaf) => cond(
       ((leaf.hash == hash) && (leaf.key == k)) =>
-        RemoveResult(K, V)(node :.None, removed : true),
+        RemoveResult(K, V)(node : .None, removed : true),
       true =>
-        RemoveResult(K, V)(node :.Some(node), removed : false)
+        RemoveResult(K, V)(node : .Some(node), removed : false)
     ),
     .Branch(branch) => {
       frag := _fragment(hash, shift);
       bit := _bit_for(frag);
       if(!(_branch_has_child(K, V, branch, bit)), {
-        return(RemoveResult(K, V)(node :.Some(node), removed : false));
+        return(RemoveResult(K, V)(node : .Some(node), removed : false));
       });
       idx := _branch_index_for(K, V, branch, bit);
       child := _branch_child_at(K, V, branch, idx);
       sub := recur(K, V, child, shift + BITS, hash, k);
       if(!(sub.removed), {
-        return(RemoveResult(K, V)(node :.Some(node), removed : false));
+        return(RemoveResult(K, V)(node : .Some(node), removed : false));
       });
       match(
         sub.node,
         .Some(new_child) => {
           return(
             RemoveResult(K, V)(
-              node :.Some(.Branch(_branch_replace_child(K, V, branch, bit, new_child))),
+              node : .Some(.Branch(_branch_replace_child(K, V, branch, bit, new_child))),
               removed : true
             )
           );
         },
         .None => {
           if(branch._children_len == u8(1), {
-            return(RemoveResult(K, V)(node :.None, removed : true));
+            return(RemoveResult(K, V)(node : .None, removed : true));
           });
           if(branch._children_len == u8(2), {
             other_idx := cond((idx == u8(0)) => u8(1), true => u8(0));
@@ -546,14 +546,14 @@ _node_remove :: (
             match(
               remaining,
               .Leaf(_) => {
-                return(RemoveResult(K, V)(node :.Some(remaining), removed : true));
+                return(RemoveResult(K, V)(node : .Some(remaining), removed : true));
               },
               _ => ()
             );
           });
           return(
             RemoveResult(K, V)(
-              node :.Some(.Branch(_branch_without_child(K, V, branch, bit))),
+              node : .Some(.Branch(_branch_without_child(K, V, branch, bit))),
               removed : true
             )
           );
@@ -562,17 +562,17 @@ _node_remove :: (
     },
     .Collision(coll) => {
       if(coll.hash != hash, {
-        return(RemoveResult(K, V)(node :.Some(node), removed : false));
+        return(RemoveResult(K, V)(node : .Some(node), removed : false));
       });
       match(
         _coll_without_key(K, V, coll, k),
         .Some(new_coll) => {
           if(new_coll._pairs_len == coll._pairs_len, {
-            return(RemoveResult(K, V)(node :.Some(node), removed : false));
+            return(RemoveResult(K, V)(node : .Some(node), removed : false));
           });
           return(
             RemoveResult(K, V)(
-              node :.Some(.Collision(new_coll)),
+              node : .Some(.Collision(new_coll)),
               removed : true
             )
           );
@@ -585,7 +585,7 @@ _node_remove :: (
           remaining_pair := (coll._pairs_ptr.add(remaining_idx)).*;
           return(
             RemoveResult(K, V)(
-              node :.Some(.Leaf(MapLeaf(K, V)(hash : coll.hash, key : remaining_pair.key, value : remaining_pair.value))),
+              node : .Some(.Leaf(MapLeaf(K, V)(hash : coll.hash, key : remaining_pair.key, value : remaining_pair.value))),
               removed : true
             )
           );
@@ -730,7 +730,7 @@ _map_values_node :: (
 )(
   match(
     node,
-    .Leaf(leaf) =>.Leaf(MapLeaf(K, U)(hash : leaf.hash, key : leaf.key, value : f(leaf.value))),
+    .Leaf(leaf) => .Leaf(MapLeaf(K, U)(hash : leaf.hash, key : leaf.key, value : f(leaf.value))),
     .Branch(branch) => {
       new_ptr := _alloc_map_children(K, U, branch._children_len);
       new_children := *(MapNode(K, U))(new_ptr);
@@ -854,7 +854,7 @@ impl(
   Map(K, V),
   /// Create an empty map.
   new : (fn() -> Self)(
-    Self(_root :.None, _len : usize(0))
+    Self(_root : .None, _len : usize(0))
   ),
   /// Number of key-value entries.
   len : (fn(self : Self) -> usize)(self._len),
@@ -865,7 +865,7 @@ impl(
     match(
       self._root,
       .Some(root) => _node_get(K, V, root, usize(0), key.hash(), key),
-      .None =>.None
+      .None => .None
     )
   ),
   /// Check if the map contains `key`.
@@ -879,10 +879,10 @@ impl(
       .Some(root) => {
         result := _node_insert(K, V, root, usize(0), key.hash(), key, value);
         new_len := cond(result.added => (self._len + usize(1)), true => self._len);
-        return(Self(_root :.Some(result.node), _len : new_len));
+        return(Self(_root : .Some(result.node), _len : new_len));
       },
       .None => Self(
-        _root :.Some(.Leaf(MapLeaf(K, V)(hash : key.hash(), key : key, value : value))),
+        _root : .Some(.Leaf(MapLeaf(K, V)(hash : key.hash(), key : key, value : value))),
         _len : usize(1)
       )
     )
@@ -938,7 +938,7 @@ impl(
   map_values : (fn(generic(U : Type), self : Self, f : Impl(Fn(a : V) -> U), where(U <: Send)) -> Map(K, U))(
     match(
       self._root,
-      .Some(root) => Map(K, U)(_root :.Some(_map_values_node(K, V, U, root, f)), _len : self._len),
+      .Some(root) => Map(K, U)(_root : .Some(_map_values_node(K, V, U, root, f)), _len : self._len),
       .None => Map(K, U).new()
     )
   ),
@@ -960,7 +960,7 @@ impl(
     i := usize(0);
     plen := pairs.len();
     while(i < plen, i = (i + usize(1)), {
-      p := match(pairs.get(i),.Some(__e) => __e,.None => __yo_panic("from_entries: index out of bounds"));
+      p := match(pairs.get(i), .Some(__e) => __e, .None => __yo_panic("from_entries: index out of bounds"));
       result = result.insert(p.key, p.value);
     });
     result

@@ -65,7 +65,7 @@ test("parse_cflags: empty string gives empty result", {
 test("parse_cflags: -I flag is added to include_paths", {
   r := parse_cflags(String.from("-I/usr/include/foo"));
   assert(r.include_paths.len() == usize(1), "one include path");
-  ip := match(r.include_paths.get(usize(0)),.None => String.new(),.Some(p) => p);
+  ip := match(r.include_paths.get(usize(0)), .None => String.new(), .Some(p) => p);
   assert(ip == "/usr/include/foo", "correct include path");
   assert(r.c_flags.len() == usize(0), "no other c_flags");
 });
@@ -78,7 +78,7 @@ test("parse_cflags: mixed flags are split correctly", {
   r := parse_cflags(String.from("-I/usr/include -pthread -DFOO_ENABLED"));
   assert(r.include_paths.len() == usize(1), "one include path");
   assert(r.c_flags.len() == usize(2), "two c_flags");
-  ip := match(r.include_paths.get(usize(0)),.None => String.new(),.Some(p) => p);
+  ip := match(r.include_paths.get(usize(0)), .None => String.new(), .Some(p) => p);
   assert(ip == "/usr/include", "correct include path");
 });
 // ---------------------------------------------------------------------------
@@ -96,9 +96,9 @@ test("parse_ldflags_into: -L and -l are split correctly", {
   r2 := parse_ldflags_into(String.from("-L/usr/lib -lz -lio"), r);
   assert(r2.library_paths.len() == usize(1), "one library path");
   assert(r2.link_libraries.len() == usize(2), "two link libraries");
-  lp := match(r2.library_paths.get(usize(0)),.None => String.new(),.Some(p) => p);
+  lp := match(r2.library_paths.get(usize(0)), .None => String.new(), .Some(p) => p);
   assert(lp == "/usr/lib", "correct library path");
-  ll0 := match(r2.link_libraries.get(usize(0)),.None => String.new(),.Some(p) => p);
+  ll0 := match(r2.link_libraries.get(usize(0)), .None => String.new(), .Some(p) => p);
   assert(ll0 == "z", "first link library is z");
 });
 test("parse_ldflags_into: non-L/l flags go to ld_flags", {
@@ -128,7 +128,7 @@ test("build_fallback: sets include, library, and link paths", {
   assert(r.include_paths.len() == usize(1), "one include path");
   assert(r.library_paths.len() == usize(1), "one library path");
   assert(r.link_libraries.len() == usize(2), "two link libraries");
-  ip := match(r.include_paths.get(usize(0)),.None => String.new(),.Some(p) => p);
+  ip := match(r.include_paths.get(usize(0)), .None => String.new(), .Some(p) => p);
   assert(ip == "/opt/mylib/include", "correct include path");
 });
 // ---------------------------------------------------------------------------
@@ -142,7 +142,7 @@ test("apply_system_library_metadata: adds defines to result", {
   r := _empty_for_test();
   r2 := apply_system_library_metadata(lib, r);
   assert(r2.defines.len() == usize(2), "two defines added");
-  d0 := match(r2.defines.get(usize(0)),.None => String.new(),.Some(p) => p);
+  d0 := match(r2.defines.get(usize(0)), .None => String.new(), .Some(p) => p);
   assert(d0 == "USE_OPENSSL", "first define");
 });
 test("apply_system_library_metadata: empty defines leaves result unchanged", {

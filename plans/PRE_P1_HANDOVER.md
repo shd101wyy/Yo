@@ -263,21 +263,53 @@ Two more scoping facts:
   done | wc -l
   ```
 
-  Two corrections that change how this should be scoped:
+  **The dominant remaining class is not spacing — it is SOURCE DESTRUCTION.**
+  `yo-self fmt` rewrites any file containing a multi-byte character plus a
+  backtick string into something that **does not parse**, and exits 0. **23 of 40**
+  sampled `std/` files with a backtick are destroyed this way; 774 of 922 captured
+  differing lines involve a backtick. Root cause is one line —
+  `formatter.yo:1460` passes `Token.character` (a CHARACTER index) into
+  `read_raw_template_string`, whose parameter is documented and used as a BYTE
+  offset. ASCII-only input hides it, which is why every existing test misses it.
+  4-line reproducer and full analysis:
+  [`issues/yo-self-formatter-corrupts-files-with-non-ascii.md`](../issues/yo-self-formatter-corrupts-files-with-non-ascii.md).
+
+  This **must be fixed before the `fmt` differential gate can be wired at all** —
+  the gate would otherwise be measuring corruption rather than style. It is also
+  the sharpest possible instance of why §6 is P1-critical: after P2 makes the
+  self-hosted formatter canonical, the first `yo fmt` silently destroys the
+  standard library.
+
+  Two further corrections that change how this should be scoped:
 
   1. **It is NOT two rule classes.** On a 250-file sample, 50 files diverge and only
      **12 (24%) become identical once dot-spacing is normalized** — so roughly
      three quarters of the diverging files carry at least one other difference.
      Budget accordingly; "fix two spacing rules" will not close the gate.
-  2. **The dot class is the TS formatter's bug, not yo-self's** — the opposite of
-     what this section used to imply. Matched pairs: TS emits `self._ptr =.Some(x)`,
-     `_ptr :.Some(y)`, `.None =>.Err(z)`; **yo-self already emits the spaced form**
-     (`= .Some(x)`, `: .Some(y)`). Root cause is the Dot case calling
-     `trimTrailingHorizontalWhitespace()` and eating the space the preceding
-     Comma/operator case established with `ensureSpace()`. So this class closes by
-     fixing `src/formatter.ts`, and yo-self may need no change at all — see
-     [`plans/PREFIX_OPERATOR_OPERAND_RULE.md`](PREFIX_OPERATOR_OPERAND_RULE.md),
-     which diagnosed it independently.
+  2. **The dot class is a bug in BOTH formatters, and they must change together.**
+     Root cause is the Dot case calling `trimTrailingHorizontalWhitespace()`
+     unconditionally, eating the space the preceding Comma/operator case just
+     established with `ensureSpace()` — so `, .Some` collapses to `,.Some`, and
+     likewise `=.Some`, `=>.Err`, `:.Some`. The fix is to trim only for MEMBER
+     ACCESS (`needsSpaceBeforeAtom(previous)`, which is exactly "the dot has a left
+     operand"). See [`plans/PREFIX_OPERATOR_OPERAND_RULE.md`](PREFIX_OPERATOR_OPERAND_RULE.md),
+     which diagnosed this independently and correctly.
+
+     > **Retraction (2026-08-09).** An earlier revision of this section claimed
+     > "yo-self already emits the spaced form; TS is the one with the accidental
+     > trim." **That was wrong**, and the error is worth recording because it is
+     > easy to repeat: it came from reading adjacent `<` / `>` lines out of a
+     > diff file that CONCATENATED many files' diffs, so the two lines were not a
+     > matched pair at all. The decisive test is per-file and per-direction — feed
+     > BOTH formatters BOTH spellings and see what each normalizes to:
+     >
+     > | input              | TS                  | yo-self  |
+     > | ------------------ | ------------------- | -------- |
+     > | `=.Some` (tight)   | `= .Some` after fix | `=.Some` |
+     > | `= .Some` (spaced) | `= .Some` after fix | `=.Some` |
+     >
+     > Both normalized to TIGHT before the fix. Never read a cross-file diff dump
+     > as if its `<`/`>` lines were paired.
 
   Still P1-critical rather than cosmetic: at P2 the self-hosted formatter becomes
   canonical and `fmt --check` becomes self-referential, so the first `yo fmt` would
@@ -331,9 +363,9 @@ Two more scoping facts:
   fix" is the expected intermediate state, not evidence the fix was wrong. Read
   WHICH arm the new last swallowed error names; a different arm means progress.
 - **`-fsanitize=function` adjudicates ABI mismatches on arm64.** Only the
-  _consequences_ of a mismatched call are x86_64-specific — the cast types live in
+  _consequences_ of a mismatched call are x86*64-specific — the cast types live in
   the emitted C, so a local run answers "is this call really mismatched, and with
   what return type?" without an x86_64 host. Pair it with
   `_Static_assert(sizeof(T) <= 16, ...)` appended to the emitted C to size the
   return decisively, and `clang --target=x86_64-... -S` on an 8-line freestanding
-  repro to _show_ the register displacement rather than argue it (§3).
+  repro to \_show* the register displacement rather than argue it (§3).

@@ -221,9 +221,9 @@ parse_target :: (fn(triple : String) -> Result(TargetInfo, String))({
   if((parts_n < usize(2)) || (parts_n > usize(3)), {
     return(Result(TargetInfo, String).Err(String.from("Invalid target triple. Expected format: <arch>-<os> or <arch>-<os>-<abi>")));
   });
-  arch_str := match(parts.get(usize(0)),.None => String.new(),.Some(p) => p);
-  os_str := match(parts.get(usize(1)),.None => String.new(),.Some(p) => p);
-  abi_str := match(parts.get(usize(2)),.None => String.new(),.Some(p) => p);
+  arch_str := match(parts.get(usize(0)), .None => String.new(), .Some(p) => p);
+  os_str := match(parts.get(usize(1)), .None => String.new(), .Some(p) => p);
+  abi_str := match(parts.get(usize(2)), .None => String.new(), .Some(p) => p);
   arch_opt := parse_arch(arch_str);
   os_opt := parse_os(os_str);
   a := match(
@@ -264,7 +264,7 @@ clang_triple :: (fn(target : TargetInfo) -> String)(
     .Linux => {
       s := String.from(arch_to_str(target.arch));
       s.push_str("-linux-");
-      s.push_str(match(target.abi,.Some(b) => abi_to_str(b),.None => "gnu"));
+      s.push_str(match(target.abi, .Some(b) => abi_to_str(b), .None => "gnu"));
       s
     },
     .Macos => {

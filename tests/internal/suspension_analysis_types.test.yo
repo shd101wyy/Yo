@@ -47,9 +47,9 @@ test("SuspensionPoint constructor sets all fields", {
     enclosing_while_expr : Option(AstExpr).None
   );
   assert(sp.index == usize(0), "index");
-  result := match(sp.target_variable_id,.Some(id) => id,.None => String.from(""));
+  result := match(sp.target_variable_id, .Some(id) => id, .None => String.from(""));
   assert(result == "v0", "target_variable_id");
-  result2 := match(sp.is_inside_while,.Some(b) => b,.None => false);
+  result2 := match(sp.is_inside_while, .Some(b) => b, .None => false);
   assert(result2, "is_inside_while");
 });
 test("SuspensionPoint optional fields default to None", {
@@ -64,9 +64,9 @@ test("SuspensionPoint optional fields default to None", {
     needs_own_cond_branch_field : Option(bool).None,
     enclosing_while_expr : Option(AstExpr).None
   );
-  has_target := match(sp.target_variable_id,.Some(_) => true,.None => false);
+  has_target := match(sp.target_variable_id, .Some(_) => true, .None => false);
   assert(!(has_target), "target_variable_id should be None");
-  has_cond := match(sp.is_inside_cond,.Some(_) => true,.None => false);
+  has_cond := match(sp.is_inside_cond, .Some(_) => true, .None => false);
   assert(!(has_cond), "is_inside_cond should be None");
 });
 test("SuspensionCapturedVariable fields accessible", {
@@ -79,7 +79,7 @@ test("SuspensionCapturedVariable fields accessible", {
   );
   assert(cv.id == "v0", "id");
   assert(cv.name == "counter", "name");
-  has_alias := match(cv.is_owning_the_same_rc_value_as,.Some(_) => true,.None => false);
+  has_alias := match(cv.is_owning_the_same_rc_value_as, .Some(_) => true, .None => false);
   assert(!(has_alias), "no alias");
 });
 test("SuspensionCapturedVariable self-referential field (Box(Self))", {
@@ -99,7 +99,7 @@ test("SuspensionCapturedVariable self-referential field (Box(Self))", {
     is_owning_the_same_rc_value_as : Option(Box(SuspensionCapturedVariable)).Some(inner),
     decl_site : String.from("")
   );
-  has_alias := match(outer.is_owning_the_same_rc_value_as,.Some(_) => true,.None => false);
+  has_alias := match(outer.is_owning_the_same_rc_value_as, .Some(_) => true, .None => false);
   assert(has_alias, "outer has alias");
 });
 test("SuspensionAnalysisResult can hold suspension points", {
@@ -122,6 +122,6 @@ test("SuspensionAnalysisResult variable_id_remapping", {
   r := suspension_analysis_result_empty();
   r.variable_id_remapping.set(String.from("old_v0"), String.from("new_v0"));
   got := r.variable_id_remapping.get(String.from("old_v0"));
-  result := match(got,.Some(v) => v,.None => String.from(""));
+  result := match(got, .Some(v) => v, .None => String.from(""));
   assert(result == "new_v0", "remapping lookup");
 });

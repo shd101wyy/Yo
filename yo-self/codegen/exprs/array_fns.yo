@@ -20,7 +20,7 @@ open(import("std/string"));
 /// when the array has a result variable name. Returns `.None` when the node is
 /// not a typed array call (fall-through). Mirrors `generateAnonymousArray`.
 generate_anonymous_array :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> Option(String))({
-  ei := match(context.base.get_expr_info(expr),.Some(e) => e,.None => return(Option(String).None));
+  ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(Option(String).None));
   array_type := ei.ty;
   match(
     ei.runtime_arg_exprs_in_order,
@@ -105,19 +105,19 @@ generate_anonymous_array :: (fn(expr : AstExpr, indent : String, context : Funct
 /// `__yo_array_fill(ArrayType, value)` builtin — declares an array and fills it
 /// with `value` via a C `for` loop. Mirrors `generateYoArrayFill`.
 generate_yo_array_fill :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
-  ei := match(context.base.get_expr_info(expr),.Some(e) => e,.None => return(String.from("/* ERROR: __yo_array_fill has no evaluation info */")));
-  array_type_arg := match(expr,.FnCall(_, _, a, _, _) => match(a.get(usize(0)),.Some(x) => x,.None => return(String.from("/* ERROR: __yo_array_fill requires 2 arguments */"))),.Atom(_, _) => return(String.from("/* ERROR: __yo_array_fill requires 2 arguments */")));
-  fill_value_arg := match(expr,.FnCall(_, _, a, _, _) => match(a.get(usize(1)),.Some(x) => x,.None => return(String.from("/* ERROR: __yo_array_fill requires 2 arguments */"))),.Atom(_, _) => return(String.from("/* ERROR: __yo_array_fill requires 2 arguments */")));
+  ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("/* ERROR: __yo_array_fill has no evaluation info */")));
+  array_type_arg := match(expr, .FnCall(_, _, a, _, _) => match(a.get(usize(0)), .Some(x) => x, .None => return(String.from("/* ERROR: __yo_array_fill requires 2 arguments */"))), .Atom(_, _) => return(String.from("/* ERROR: __yo_array_fill requires 2 arguments */")));
+  fill_value_arg := match(expr, .FnCall(_, _, a, _, _) => match(a.get(usize(1)), .Some(x) => x, .None => return(String.from("/* ERROR: __yo_array_fill requires 2 arguments */"))), .Atom(_, _) => return(String.from("/* ERROR: __yo_array_fill requires 2 arguments */")));
   // The ArrayType comes from the first argument's compile-time value.
   array_type := match(
     context.base.get_expr_info(array_type_arg),
-    .Some(aei) => match(aei.value,.Some(v) => match(v,.TypeVal(t) => t, _ => return(String.from("/* ERROR: __yo_array_fill first argument must be an ArrayType */"))),.None => return(String.from("/* ERROR: __yo_array_fill first argument must be an ArrayType */"))),
+    .Some(aei) => match(aei.value, .Some(v) => match(v, .TypeVal(t) => t, _ => return(String.from("/* ERROR: __yo_array_fill first argument must be an ArrayType */"))), .None => return(String.from("/* ERROR: __yo_array_fill first argument must be an ArrayType */"))),
     .None => return(String.from("/* ERROR: __yo_array_fill first argument must be an ArrayType */"))
   );
   if(!(is_array_type(array_type)), {
     return(String.from("/* ERROR: __yo_array_fill first argument must be an ArrayType */"));
   });
-  length := match(array_type,.Array(_, len, len_var) => if(len_var.len() > usize(0), return(String.from("/* ERROR: __yo_array_fill requires compile-time known array length */")), len), _ => return(String.from("/* ERROR: __yo_array_fill first argument must be an ArrayType */")));
+  length := match(array_type, .Array(_, len, len_var) => if(len_var.len() > usize(0), return(String.from("/* ERROR: __yo_array_fill requires compile-time known array length */")), len), _ => return(String.from("/* ERROR: __yo_array_fill first argument must be an ArrayType */")));
   array_type_name := get_type_string(array_type, context.base);
   fill_value_code := _call_generate_expr(fill_value_arg, indent.clone(), context);
   temp_var_name := match(

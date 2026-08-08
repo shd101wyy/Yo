@@ -41,7 +41,7 @@ _join_double_underscore :: (fn(parts : ArrayList(String)) -> String)({
     if(i > usize(0), {
       out.push_str("__");
     });
-    match(parts.get(i),.Some(p) => out.push_string(p),.None => ());
+    match(parts.get(i), .Some(p) => out.push_string(p), .None => ());
     i = (i + usize(1));
   });
   out
@@ -64,8 +64,8 @@ collect_evidence_from_record :: (
       n := field_labels.len();
       (i : usize) = usize(0);
       while(i < n, {
-        field_label := match(field_labels.get(i),.Some(l) => l,.None => String.from(""));
-        field_ty := match(field_types.get(i),.Some(t) => t,.None => TypeValue.Unit);
+        field_label := match(field_labels.get(i), .Some(l) => l, .None => String.from(""));
+        field_ty := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
         cond(
           is_function_type(field_ty) => {
             // Forall function fields are passed as void* and cast at each call site.
@@ -158,7 +158,7 @@ generate_function_prototype :: (
         if(i > usize(0), {
           params.push_str(", ");
         });
-        pt := match(param_types.get(i),.Some(t) => t,.None => TypeValue.Unit);
+        pt := match(param_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
         // Use the source parameter label (sanitized) so the C signature matches
         // the body's references to that parameter (the atom emitter emits the
         // source name). Mirrors TS `param.label || param${index}`. Falls back to
@@ -186,7 +186,7 @@ generate_function_prototype :: (
           },
           true => {
             pts := get_type_string(pt, context);
-            is_ref := match(param_is_ref.get(i),.Some(b) => b,.None => false);
+            is_ref := match(param_is_ref.get(i), .Some(b) => b, .None => false);
             if(is_ref, {
               pts.push_str("*");
             });
@@ -253,9 +253,9 @@ _emit_ref_enum_constructor_decls :: (fn(type : TypeValue, c_name : String, conte
       nv := variant_names.len();
       (vi : usize) = usize(0);
       while(vi < nv, {
-        vname := match(variant_names.get(vi),.Some(v) => v,.None => String.from(""));
-        fields := match(variant_fields.get(vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
-        labels := match(variant_field_labels.get(vi),.Some(l) => l,.None => ArrayList(String).new());
+        vname := match(variant_names.get(vi), .Some(v) => v, .None => String.from(""));
+        fields := match(variant_fields.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
+        labels := match(variant_field_labels.get(vi), .Some(l) => l, .None => ArrayList(String).new());
         nf := fields.len();
         params := String.from("");
         (emitted : usize) = usize(0);
@@ -267,7 +267,7 @@ _emit_ref_enum_constructor_decls :: (fn(type : TypeValue, c_name : String, conte
               if(emitted > usize(0), {
                 params.push_str(", ");
               });
-              flabel := match(labels.get(pi),.Some(l) => l,.None => String.from(""));
+              flabel := match(labels.get(pi), .Some(l) => l, .None => String.from(""));
               params.push_string(get_type_string(ft, context));
               params.push_str(" ");
               params.push_string(sanitize_for_c_identifier(flabel, false));
@@ -367,12 +367,12 @@ generate_object_constructor_declarations :: (fn(context : CodeGenContext) -> uni
 });
 /// The result (return) type of a Func TypeValue, or Unit for non-functions.
 _func_result_type :: (fn(ft : TypeValue) -> TypeValue)(
-  match(ft,.Func({ result }) => result, _ => TypeValue.Unit)
+  match(ft, .Func({ result }) => result, _ => TypeValue.Unit)
 );
 /// True when the Func's declared return is `comptime(...)` (compile-time-only
 /// function). Mirrors the `isComptimeFunction(value)` gate.
 _func_result_is_comptime_only :: (fn(ft : TypeValue) -> bool)(
-  match(ft,.Func({ meta : __fm2 }) => __fm2.*.result_is_comptime_only, _ => false)
+  match(ft, .Func({ meta : __fm2 }) => __fm2.*.result_is_comptime_only, _ => false)
 );
 /// True if any runtime parameter of the Func contains a SomeType at the codegen
 /// ABI level, or the Func has generic type parameters. Mirrors the
@@ -442,11 +442,11 @@ _func_has_generic_params :: (fn(ft : TypeValue) -> bool)(
 /// True when the return type is a plain `Impl(...)` existential (SomeType at top
 /// level with at least one required trait). Mirrors `returnsPlainImpl`.
 _returns_plain_impl :: (fn(ret : TypeValue) -> bool)(
-  if(!(is_some_type(ret)), false, match(ret,.SomeT({ required_trait_types : rts }) => (rts.len() > usize(0)), _ => false))
+  if(!(is_some_type(ret)), false, match(ret, .SomeT({ required_trait_types : rts }) => (rts.len() > usize(0)), _ => false))
 );
 /// The body expression of a FuncVal, if any.
 _func_value_body :: (fn(value : EvalValue) -> Option(AstExpr))(
-  match(value,.FuncVal(__fvd1, _) => Option(AstExpr).Some(__fvd1.*.body), _ => Option(AstExpr).None)
+  match(value, .FuncVal(__fvd1, _) => Option(AstExpr).Some(__fvd1.*.body), _ => Option(AstExpr).None)
 );
 /// True when the function body's effect analysis reports effects. Mirrors
 /// `value.body?.$?.effectAnalysis?.hasEffects`.
@@ -455,7 +455,7 @@ _body_is_effectful :: (fn(body : Option(AstExpr), context : CodeGenContext) -> b
     body,
     .Some(b) => match(
       context.get_expr_info(b),
-      .Some(ei) => match(expr_info_effect_analysis(ei),.Some(ea) => ea.has_effects,.None => false),
+      .Some(ei) => match(expr_info_effect_analysis(ei), .Some(ea) => ea.has_effects, .None => false),
       .None => false
     ),
     .None => false
@@ -671,7 +671,7 @@ _is_threading_macro_function :: (fn(name : String) -> bool)(
 );
 /// `is_extern` tag of a Func type: `.Some("c")` / `.Some("yo")` / `.None`.
 _func_extern_tag :: (fn(ft : TypeValue) -> Option(String))(
-  match(ft,.Func({ meta : __fm3 }) => __fm3.*.is_extern, _ => Option(String).None)
+  match(ft, .Func({ meta : __fm3 }) => __fm3.*.is_extern, _ => Option(String).None)
 );
 /// Generate constructor declarations for closures. No-op: Impl(Fn(...)) closures
 /// use concrete capture structs + direct calls; Dyn(Fn(...)) uses dyn
@@ -712,10 +712,10 @@ generate_function_declarations :: (fn(context : CodeGenContext) -> unit)({
         cn := entry.c_name.clone();
         tag := _func_extern_tag(entry.ty);
         cond(
-          (match(tag,.Some(s) => (s == "yo"),.None => false)) => if(!(_is_threading_macro_function(cn.clone())), {
+          (match(tag, .Some(s) => (s == "yo"), .None => false)) => if(!(_is_threading_macro_function(cn.clone())), {
             generate_function_declaration(entry.ty, cn.clone(), true, false, Option(AstExpr).None, false, context);
           }),
-          (match(tag,.Some(s) => (s == "c"),.None => false) && entry.c_include.is_some()) => (),
+          (match(tag, .Some(s) => (s == "c"), .None => false) && entry.c_include.is_some()) => (),
           (cn.starts_with("__atomic_") || cn.starts_with("__sync_")) => (),
           true => {
             generate_function_declaration(entry.ty, cn.clone(), true, false, Option(AstExpr).None, false, context);

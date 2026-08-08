@@ -114,7 +114,7 @@ split_into_state_segments :: (
   if(segments.len() > usize(0), {
     last_has_await := match(
       segments.get(segments.len() - usize(1)),
-      .Some(last) => match(last.await_point,.Some(_) => true,.None => false),
+      .Some(last) => match(last.await_point, .Some(_) => true, .None => false),
       .None => false
     );
     if(last_has_await, {
@@ -143,10 +143,10 @@ branch_has_await :: (fn(expr : AstExpr) -> bool)({
     return(true);
   });
   if(ast_expr_is_fn_call(expr), {
-    args := match(expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+    args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
     (i : usize) = usize(0);
     while(i < args.len(), {
-      arg := match(args.get(i),.Some(a) => a,.None => expr);
+      arg := match(args.get(i), .Some(a) => a, .None => expr);
       if(recur(arg), {
         return(true);
       });
@@ -166,10 +166,10 @@ expr_contains_return_statement :: (fn(expr : AstExpr) -> bool)({
     return(true);
   });
   if(ast_expr_is_fn_call(expr), {
-    args := match(expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+    args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
     (i : usize) = usize(0);
     while(i < args.len(), {
-      arg := match(args.get(i),.Some(a) => a,.None => expr);
+      arg := match(args.get(i), .Some(a) => a, .None => expr);
       if(recur(arg), {
         return(true);
       });
@@ -194,13 +194,13 @@ flatten_or_pattern_expr :: (fn(expr : AstExpr) -> ArrayList(AstExpr))({
     out.push(expr);
     return(out);
   });
-  args := match(expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
   if(args.len() < usize(2), {
     out.push(expr);
     return(out);
   });
-  left := match(args.get(usize(0)),.Some(a) => a,.None => expr);
-  right := match(args.get(usize(1)),.Some(a) => a,.None => expr);
+  left := match(args.get(usize(0)), .Some(a) => a, .None => expr);
+  right := match(args.get(usize(1)), .Some(a) => a, .None => expr);
   left_flat := recur(left);
   (li : usize) = usize(0);
   while(li < left_flat.len(), {
@@ -232,14 +232,14 @@ flatten_or_pattern_expr :: (fn(expr : AstExpr) -> ArrayList(AstExpr))({
 /// Unwraps a `begin(...)` block to its statements. Mirrors
 /// `bodyContainsWhileWithAwait` (state-code-gen.ts:2120).
 body_contains_while_with_await :: (fn(body_expr : AstExpr) -> bool)({
-  body_exprs := if(ast_expr_is_fn_call_of(body_expr, BK_BEGIN, Option(usize).None), match(body_expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new()), {
+  body_exprs := if(ast_expr_is_fn_call_of(body_expr, BK_BEGIN, Option(usize).None), match(body_expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new()), {
     single := ArrayList(AstExpr).new();
     single.push(body_expr);
     single
   });
   (i : usize) = usize(0);
   while(i < body_exprs.len(), {
-    e := match(body_exprs.get(i),.Some(x) => x,.None => body_expr);
+    e := match(body_exprs.get(i), .Some(x) => x, .None => body_expr);
     if(ast_expr_is_fn_call_of(e, BK_WHILE, Option(usize).None) && expr_contains_await(e), {
       return(true);
     });
@@ -291,7 +291,7 @@ generate_await_expression :: (
   idx_s := await_point.base.index.to_string();
   // Standalone await: io.await(futureExpr)
   if(ast_expr_is_fn_call(expr) && is_io_await_call(expr), {
-    args := match(expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+    args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
     match(
       args.get(usize(0)),
       .None => {
@@ -313,7 +313,7 @@ generate_await_expression :: (
   });
   // Assignment with await: varName := await/cond/match(...)
   if(ast_expr_is_fn_call(expr) && ast_expr_is_fn_call_of(expr, ":=", Option(usize).None), {
-    args := match(expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+    args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
     match(
       args.get(usize(0)),
       .None => {
@@ -327,7 +327,7 @@ generate_await_expression :: (
         .Some(value_expr) => {
           // varName := await(futureExpr)
           if(ast_expr_is_fn_call(value_expr) && is_io_await_call(value_expr), {
-            v_args := match(value_expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+            v_args := match(value_expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
             match(
               v_args.get(usize(0)),
               .None => {
@@ -365,7 +365,7 @@ generate_await_expression :: (
   });
   // Assignment with cond/match containing await: target = cond/match(... await ...)
   if(ast_expr_is_fn_call(expr) && ast_expr_is_fn_call_of(expr, "=", Option(usize).None), {
-    args := match(expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+    args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
     match(
       args.get(usize(0)),
       .Some(target_expr) => match(
@@ -501,7 +501,7 @@ generate_while_body_with_await :: (
   remaining_exprs := ArrayList(AstExpr).new();
   idx_s := await_point.base.index.to_string();
   wli_s := while_loop_index.to_string();
-  body_exprs := if(ast_expr_is_fn_call_of(body_expr, BK_BEGIN, Option(usize).None), match(body_expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new()), {
+  body_exprs := if(ast_expr_is_fn_call_of(body_expr, BK_BEGIN, Option(usize).None), match(body_expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new()), {
     single := ArrayList(AstExpr).new();
     single.push(body_expr);
     single
@@ -537,7 +537,7 @@ generate_while_body_with_await :: (
   );
   body_drops := match(
     context.base.get_expr_info(body_expr),
-    .Some(ei) => match(ei.deferred_drop_expressions,.Some(d) => d,.None => ArrayList(AstExpr).new()),
+    .Some(ei) => match(ei.deferred_drop_expressions, .Some(d) => d, .None => ArrayList(AstExpr).new()),
     .None => ArrayList(AstExpr).new()
   );
   context.sm_while_body_drops = Option(ArrayList(AstExpr)).Some(body_drops);
@@ -551,7 +551,7 @@ generate_while_body_with_await :: (
         skip := if(
           code.len() == usize(0),
           true,
-          match(context.base.get_expr_info(e),.Some(ei) => is_temp_variable_name(ei.env.module_path, code),.None => true)
+          match(context.base.get_expr_info(e), .Some(ei) => is_temp_variable_name(ei.env.module_path, code), .None => true)
         );
         if(!(skip), {
           em.emit_string_line(`${indent}${code};`);
@@ -565,7 +565,7 @@ generate_while_body_with_await :: (
   context.sm_while_break_info = prev_break;
   context.sm_while_continue_info = prev_continue;
   context.sm_while_body_drops = prev_body_drops;
-  await_expr := match(body_exprs.get(await_found_index),.Some(e) => e,.None => body_expr);
+  await_expr := match(body_exprs.get(await_found_index), .Some(e) => e, .None => body_expr);
   // Nested while-with-await.
   if((ast_expr_is_fn_call(await_expr) && ast_expr_is_fn_call_of(await_expr, BK_WHILE, Option(usize).None)) && expr_contains_await(await_expr), {
     _call_generate_while_with_await(await_expr, await_point, indent, context);
@@ -574,11 +574,11 @@ generate_while_body_with_await :: (
   });
   // Assignment with await: varName := await(futureExpr).
   if(ast_expr_is_fn_call(await_expr) && ast_expr_is_fn_call_of(await_expr, ":=", Option(usize).None), {
-    a_args := match(await_expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+    a_args := match(await_expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
     match(
       a_args.get(usize(1)),
       .Some(value_expr) => if(ast_expr_is_fn_call(value_expr) && is_io_await_call(value_expr), {
-        v_args := match(value_expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+        v_args := match(value_expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
         match(
           v_args.get(usize(0)),
           .Some(future_expr) => {
@@ -594,7 +594,7 @@ generate_while_body_with_await :: (
   }, {
     // Standalone await.
     if(ast_expr_is_fn_call(await_expr) && is_io_await_call(await_expr), {
-      s_args := match(await_expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+      s_args := match(await_expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
       match(
         s_args.get(usize(0)),
         .Some(future_expr) => match(
@@ -640,22 +640,22 @@ generate_while_with_await :: (
     em.emit_string_line(`${indent}// Error: Expected while expression`);
     return();
   });
-  args := match(while_expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+  args := match(while_expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
   if((args.len() < usize(2)) || (args.len() > usize(3)), {
     em.emit_string_line(`${indent}// Error: while must have 2 or 3 arguments (condition, [step,] body)`);
     return();
   });
-  condition_expr := match(args.get(usize(0)),.Some(e) => e,.None => while_expr);
-  step_expr := if(args.len() == usize(3), match(args.get(usize(1)),.Some(e) => Option(AstExpr).Some(e),.None => Option(AstExpr).None), Option(AstExpr).None);
+  condition_expr := match(args.get(usize(0)), .Some(e) => e, .None => while_expr);
+  step_expr := if(args.len() == usize(3), match(args.get(usize(1)), .Some(e) => Option(AstExpr).Some(e), .None => Option(AstExpr).None), Option(AstExpr).None);
   body_expr := if(
     args.len() == usize(3),
-    match(args.get(usize(2)),.Some(e) => e,.None => while_expr),
-    match(args.get(usize(1)),.Some(e) => e,.None => while_expr)
+    match(args.get(usize(2)), .Some(e) => e, .None => while_expr),
+    match(args.get(usize(1)), .Some(e) => e, .None => while_expr)
   );
   has_nested := body_contains_while_with_await(body_expr);
   (while_loop_index : usize) = usize(0);
   if(has_nested, {
-    wli := match(context.async_next_while_loop_index,.Some(n) => n,.None => (await_point.base.index + usize(1)));
+    wli := match(context.async_next_while_loop_index, .Some(n) => n, .None => (await_point.base.index + usize(1)));
     while_loop_index = wli;
     context.async_next_while_loop_index = Option(usize).Some(wli + usize(1));
   }, {
@@ -675,7 +675,7 @@ generate_while_with_await :: (
   if(context.async_while_loop_info.is_none(), {
     context.async_while_loop_info = Option(HashMap(usize, WhileLoopInfo)).Some(HashMap(usize, WhileLoopInfo).new());
   });
-  info_map := match(context.async_while_loop_info,.Some(m) => m,.None => HashMap(usize, WhileLoopInfo).new());
+  info_map := match(context.async_while_loop_info, .Some(m) => m, .None => HashMap(usize, WhileLoopInfo).new());
   if(has_nested, {
     // Attach this outer while to the inner while's existing entry.
     match(
@@ -725,7 +725,7 @@ generate_cond_branch_with_await :: (
     em.emit_string_line(`${indent}// Error: Expected begin block in cond branch with await`);
     return(remaining_exprs);
   });
-  expressions := match(branch_value,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+  expressions := match(branch_value, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
   (found_await : bool) = false;
   n := expressions.len();
   (i : usize) = usize(0);
@@ -740,11 +740,11 @@ generate_cond_branch_with_await :: (
           is_last := (i == (n - usize(1)));
           // varName := await(futureExpr)
           if(ast_expr_is_fn_call(expr) && ast_expr_is_fn_call_of(expr, ":=", Option(usize).None), {
-            a_args := match(expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+            a_args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
             match(
               a_args.get(usize(1)),
               .Some(value_expr) => if(ast_expr_is_fn_call(value_expr) && is_io_await_call(value_expr), {
-                v_args := match(value_expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+                v_args := match(value_expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
                 match(
                   v_args.get(usize(0)),
                   .Some(future_expr) => {
@@ -760,7 +760,7 @@ generate_cond_branch_with_await :: (
           }, {
             // Standalone await.
             if(ast_expr_is_fn_call(expr) && is_io_await_call(expr), {
-              s_args := match(expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+              s_args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
               match(
                 s_args.get(usize(0)),
                 .Some(future_expr) => match(
@@ -809,7 +809,7 @@ generate_cond_branch_with_await :: (
           skip := if(
             code.len() == usize(0),
             true,
-            match(context.base.get_expr_info(expr),.Some(ei) => is_temp_variable_name(ei.env.module_path, code),.None => true)
+            match(context.base.get_expr_info(expr), .Some(ei) => is_temp_variable_name(ei.env.module_path, code), .None => true)
           );
           if(!(skip), {
             em.emit_string_line(`${indent}${code};`);
@@ -852,9 +852,9 @@ _emit_non_await_branch_async_completion :: (
   fn(value : AstExpr, indent : String, context : FunctionGenerationContext) -> unit
 )({
   em := context.base.emitter;
-  is_unit := match(context.base.get_expr_info(value),.Some(ei) => is_unit_type(ei.ty),.None => false);
+  is_unit := match(context.base.get_expr_info(value), .Some(ei) => is_unit_type(ei.ty), .None => false);
   if(ast_expr_is_fn_call(value) && ast_expr_is_fn_call_of(value, BK_BEGIN, Option(usize).None), {
-    begin_args := match(value,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+    begin_args := match(value, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
     nba := begin_args.len();
     // All but the last statement.
     (j : usize) = usize(0);
@@ -866,7 +866,7 @@ _emit_non_await_branch_async_completion :: (
           skip := if(
             arg_code.len() == usize(0),
             true,
-            match(context.base.get_expr_info(arg),.Some(ei) => is_temp_variable_name(ei.env.module_path, arg_code),.None => true)
+            match(context.base.get_expr_info(arg), .Some(ei) => is_temp_variable_name(ei.env.module_path, arg_code), .None => true)
           );
           if(!(skip), {
             em.emit_string_line(`${indent}${arg_code};`);
@@ -954,7 +954,7 @@ _comptime_bool_value :: (fn(expr : AstExpr, context : FunctionGenerationContext)
     context.base.get_expr_info(expr),
     .Some(ei) => match(
       ei.value,
-      .Some(v) => match(v,.BoolVal(b) => Option(bool).Some(b), _ => Option(bool).None),
+      .Some(v) => match(v, .BoolVal(b) => Option(bool).Some(b), _ => Option(bool).None),
       .None => Option(bool).None
     ),
     .None => Option(bool).None
@@ -975,7 +975,7 @@ _cond_inner_has_remaining_code :: (fn(context : FunctionGenerationContext, idx :
         while((bi < entry.branches.len()) && !(found), {
           match(
             entry.branches.get(bi),
-            .Some(b) => if(b.has_await && match(b.remaining_exprs,.Some(r) => (r.len() > usize(0)),.None => false), {
+            .Some(b) => if(b.has_await && match(b.remaining_exprs, .Some(r) => (r.len() > usize(0)), .None => false), {
               found = true;
             }),
             .None => ()
@@ -999,9 +999,9 @@ _emit_branch_value_inline :: (
 )({
   em := context.base.emitter;
   idx_s := await_point.base.index.to_string();
-  in_while := match(await_point.base.is_inside_while,.Some(b) => b,.None => false);
+  in_while := match(await_point.base.is_inside_while, .Some(b) => b, .None => false);
   if(ast_expr_is_fn_call(value) && ast_expr_is_fn_call_of(value, BK_BEGIN, Option(usize).None), {
-    begin_args := match(value,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+    begin_args := match(value, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
     (j : usize) = usize(0);
     while(j < begin_args.len(), {
       match(
@@ -1019,7 +1019,7 @@ _emit_branch_value_inline :: (
               if(
                 is_cf,
                 true,
-                match(context.base.get_expr_info(arg),.Some(ei) => !(is_temp_variable_name(ei.env.module_path, arg_code)),.None => false)
+                match(context.base.get_expr_info(arg), .Some(ei) => !(is_temp_variable_name(ei.env.module_path, arg_code)), .None => false)
               )
             );
             if(emit_it, {
@@ -1068,7 +1068,7 @@ _emit_branch_value_inline :: (
         if(
           is_cf,
           true,
-          match(context.base.get_expr_info(value),.Some(ei) => !(is_temp_variable_name(ei.env.module_path, code)),.None => false)
+          match(context.base.get_expr_info(value), .Some(ei) => !(is_temp_variable_name(ei.env.module_path, code)), .None => false)
         )
       );
       if(emit_it, {
@@ -1088,7 +1088,7 @@ _attach_cond_branch_post_while :: (
     .Some(wmap) => match(
       wmap.get(idx),
       .Some(winfo) => {
-        ddx := match(context.base.get_expr_info(value),.Some(ei) => ei.deferred_drop_expressions,.None => Option(ArrayList(AstExpr)).None);
+        ddx := match(context.base.get_expr_info(value), .Some(ei) => ei.deferred_drop_expressions, .None => Option(ArrayList(AstExpr)).None);
         winfo.cond_branch_post_while_exprs = Option(CondBranchPostWhileExprs).Some(
           CondBranchPostWhileExprs(
             branch_index : branch_index,
@@ -1115,7 +1115,7 @@ _make_cond_branch :: (
     value : value,
     has_await : has_await,
     remaining_exprs : remaining,
-    deferred_drop_expressions : match(context.base.get_expr_info(value),.Some(ei) => ei.deferred_drop_expressions,.None => Option(ArrayList(AstExpr)).None)
+    deferred_drop_expressions : match(context.base.get_expr_info(value), .Some(ei) => ei.deferred_drop_expressions, .None => Option(ArrayList(AstExpr)).None)
   )
 );
 /// Store the cond/match branch info at `idx` unless a nested cond already stored
@@ -1134,7 +1134,7 @@ _store_cond_branch_info :: (
     context.async_cond_branch_info = Option(HashMap(usize, AsyncCondBranchInfo)).Some(HashMap(usize, AsyncCondBranchInfo).new());
   });
   if(!(_cond_inner_has_remaining_code(context, idx)), {
-    cmap := match(context.async_cond_branch_info,.Some(m) => m,.None => HashMap(usize, AsyncCondBranchInfo).new());
+    cmap := match(context.async_cond_branch_info, .Some(m) => m, .None => HashMap(usize, AsyncCondBranchInfo).new());
     cmap.set(
       idx,
       AsyncCondBranchInfo(
@@ -1169,7 +1169,7 @@ generate_cond_with_await :: (
     em.emit_string_line(`${indent}// Error: Expected cond expression`);
     return();
   });
-  args := match(cond_expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+  args := match(cond_expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
   if(args.len() == usize(0), {
     em.emit_string_line(`${indent}// Error: cond must have at least one branch`);
     return();
@@ -1182,11 +1182,11 @@ generate_cond_with_await :: (
     match(
       args.get(fpi),
       .Some(pair) => if(ast_expr_is_fn_call(pair) && ast_expr_is_fn_call_of(pair, "=>", Option(usize).None), {
-        cond_arg := match(pair,.FnCall(_, _, a, _, _) => a.get(usize(0)),.Atom(_, _) => Option(AstExpr).None);
+        cond_arg := match(pair, .FnCall(_, _, a, _, _) => a.get(usize(0)), .Atom(_, _) => Option(AstExpr).None);
         match(
           cond_arg,
           .Some(cnd) => {
-            is_false := match(_comptime_bool_value(cnd, context),.Some(b) => !(b),.None => false);
+            is_false := match(_comptime_bool_value(cnd, context), .Some(b) => !(b), .None => false);
             if(!(is_false), {
               first_non_false = Option(usize).Some(fpi);
             });
@@ -1203,8 +1203,8 @@ generate_cond_with_await :: (
     .Some(fi) => match(
       args.get(fi),
       .Some(fa) => if(ast_expr_is_fn_call(fa) && ast_expr_is_fn_call_of(fa, "=>", Option(usize).None), {
-        fc := match(fa,.FnCall(_, _, a, _, _) => a.get(usize(0)),.Atom(_, _) => Option(AstExpr).None);
-        match(fc,.Some(c) => match(_comptime_bool_value(c, context),.Some(b) => b,.None => false),.None => false)
+        fc := match(fa, .FnCall(_, _, a, _, _) => a.get(usize(0)), .Atom(_, _) => Option(AstExpr).None);
+        match(fc, .Some(c) => match(_comptime_bool_value(c, context), .Some(b) => b, .None => false), .None => false)
       }, false),
       .None => false
     ),
@@ -1215,13 +1215,13 @@ generate_cond_with_await :: (
     match(
       first_non_false,
       .Some(fi) => {
-        pair := match(args.get(fi),.Some(p) => p,.None => cond_expr);
+        pair := match(args.get(fi), .Some(p) => p, .None => cond_expr);
         match(
-          match(pair,.FnCall(_, _, a, _, _) => a.get(usize(1)),.Atom(_, _) => Option(AstExpr).None),
+          match(pair, .FnCall(_, _, a, _, _) => a.get(usize(1)), .Atom(_, _) => Option(AstExpr).None),
           .Some(value) => {
             if(branch_has_await(value), {
               remaining := generate_cond_branch_with_await(value, await_point, indent, context);
-              has_while := match(context.async_while_loop_info,.Some(m) => match(m.get(await_point.base.index),.Some(_) => true,.None => false),.None => false);
+              has_while := match(context.async_while_loop_info, .Some(m) => match(m.get(await_point.base.index), .Some(_) => true, .None => false), .None => false);
               if(has_while && (remaining.len() > usize(0)), {
                 _attach_cond_branch_post_while(fi, value, remaining, context, await_point.base.index);
                 branches_with_await.push(_make_cond_branch(fi, value, true, Option(ArrayList(AstExpr)).Some(ArrayList(AstExpr).new()), context));
@@ -1256,11 +1256,11 @@ generate_cond_with_await :: (
       .Some(pair) => if(!(ast_expr_is_fn_call(pair) && ast_expr_is_fn_call_of(pair, "=>", Option(usize).None)), {
         em.emit_string_line(`${current_indent}// Error: Expected => pair in cond`);
       }, {
-        p_args := match(pair,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
-        condition := match(p_args.get(usize(0)),.Some(c) => c,.None => cond_expr);
+        p_args := match(pair, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+        condition := match(p_args.get(usize(0)), .Some(c) => c, .None => cond_expr);
         value_opt := p_args.get(usize(1));
         // Skip comptime-false branches.
-        is_false := match(_comptime_bool_value(condition, context),.Some(b) => !(b),.None => false);
+        is_false := match(_comptime_bool_value(condition, context), .Some(b) => !(b), .None => false);
         match(
           value_opt,
           .None => {
@@ -1287,7 +1287,7 @@ generate_cond_with_await :: (
             if(branch_has_await(value), {
               em.emit_string_line(`${value_indent}sm->cond_branch_${idx_s} = ${ci.to_string()};`);
               remaining := generate_cond_branch_with_await(value, await_point, value_indent, context);
-              has_while := match(context.async_while_loop_info,.Some(m) => match(m.get(await_point.base.index),.Some(_) => true,.None => false),.None => false);
+              has_while := match(context.async_while_loop_info, .Some(m) => match(m.get(await_point.base.index), .Some(_) => true, .None => false), .None => false);
               if(has_while && (remaining.len() > usize(0)), {
                 _attach_cond_branch_post_while(ci, value, remaining, context, await_point.base.index);
                 branches_with_await.push(_make_cond_branch(ci, value, true, Option(ArrayList(AstExpr)).Some(ArrayList(AstExpr).new()), context));
@@ -1368,7 +1368,7 @@ _emit_match_case_value :: (
         skip := if(
           code.len() == usize(0),
           true,
-          match(context.base.get_expr_info(value),.Some(ei) => is_temp_variable_name(ei.env.module_path, code),.None => true)
+          match(context.base.get_expr_info(value), .Some(ei) => is_temp_variable_name(ei.env.module_path, code), .None => true)
         );
         if(!(skip), {
           em.emit_string_line(`${indent}${code};`);
@@ -1430,14 +1430,14 @@ generate_primitive_match_with_await :: (
     match(
       cases.get(i),
       .Some(case_expr) => if(ast_expr_is_fn_call(case_expr) && ast_expr_is_fn_call_of(case_expr, "=>", Option(usize).Some(usize(2))), {
-        c_args := match(case_expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
-        case_value := match(c_args.get(usize(0)),.Some(c) => c,.None => match_expr);
-        case_body := match(c_args.get(usize(1)),.Some(c) => c,.None => match_expr);
+        c_args := match(case_expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+        case_value := match(c_args.get(usize(0)), .Some(c) => c, .None => match_expr);
+        case_body := match(c_args.get(usize(1)), .Some(c) => c, .None => match_expr);
         // Wildcard → default; else emit a `case <literal>:` per pattern value.
         if(ast_expr_is_atom_of(case_value, "_"), {
           em.emit_string_line(`${indent}  default:`);
         }, {
-          pat_vals := match(context.base.get_expr_info(case_value),.Some(ei) => expr_info_primitive_pattern_values(ei),.None => Option(ArrayList(Option(EvalValue))).None);
+          pat_vals := match(context.base.get_expr_info(case_value), .Some(ei) => expr_info_primitive_pattern_values(ei), .None => Option(ArrayList(Option(EvalValue))).None);
           match(
             pat_vals,
             .Some(pvs) => if(pvs.len() > usize(0), {
@@ -1488,7 +1488,7 @@ generate_primitive_match_with_await :: (
   if(context.async_cond_branch_info.is_none(), {
     context.async_cond_branch_info = Option(HashMap(usize, AsyncCondBranchInfo)).Some(HashMap(usize, AsyncCondBranchInfo).new());
   });
-  pmap := match(context.async_cond_branch_info,.Some(m) => m,.None => HashMap(usize, AsyncCondBranchInfo).new());
+  pmap := match(context.async_cond_branch_info, .Some(m) => m, .None => HashMap(usize, AsyncCondBranchInfo).new());
   pmap.set(
     await_point.base.index,
     AsyncCondBranchInfo(
@@ -1509,7 +1509,7 @@ _push_cond_branch :: (fn(context : FunctionGenerationContext, idx : usize, branc
   if(context.async_cond_branch_info.is_none(), {
     context.async_cond_branch_info = Option(HashMap(usize, AsyncCondBranchInfo)).Some(HashMap(usize, AsyncCondBranchInfo).new());
   });
-  m := match(context.async_cond_branch_info,.Some(x) => x,.None => HashMap(usize, AsyncCondBranchInfo).new());
+  m := match(context.async_cond_branch_info, .Some(x) => x, .None => HashMap(usize, AsyncCondBranchInfo).new());
   entry := match(
     m.get(idx),
     .Some(e) => e,
@@ -1556,12 +1556,12 @@ _find_sm_var_id_by_name :: (fn(context : FunctionGenerationContext, name : Strin
 /// `generateMatchWithAwait`.
 _extract_variant_name :: (fn(pattern : AstExpr) -> Option(String))({
   if(ast_expr_is_fn_call_of(pattern, ".", Option(usize).Some(usize(1))), {
-    return(match(pattern,.FnCall(_, _, a, _, _) => match(a.get(usize(0)),.Some(at) => Option(String).Some(ast_expr_token(at).value),.None => Option(String).None), _ => Option(String).None));
+    return(match(pattern, .FnCall(_, _, a, _, _) => match(a.get(usize(0)), .Some(at) => Option(String).Some(ast_expr_token(at).value), .None => Option(String).None), _ => Option(String).None));
   });
   if(ast_expr_is_fn_call(pattern), {
-    pf := match(pattern,.FnCall(_, fb, _, _, _) => fb, _ => pattern);
+    pf := match(pattern, .FnCall(_, fb, _, _, _) => fb, _ => pattern);
     if(ast_expr_is_fn_call_of(pf, ".", Option(usize).Some(usize(1))), {
-      return(match(pf,.FnCall(_, _, a, _, _) => match(a.get(usize(0)),.Some(at) => Option(String).Some(ast_expr_token(at).value),.None => Option(String).None), _ => Option(String).None));
+      return(match(pf, .FnCall(_, _, a, _, _) => match(a.get(usize(0)), .Some(at) => Option(String).Some(ast_expr_token(at).value), .None => Option(String).None), _ => Option(String).None));
     });
   });
   Option(String).None
@@ -1618,7 +1618,7 @@ generate_match_with_await :: (
     em.emit_string_line(`${indent}// Error: Expected match expression`);
     return();
   });
-  args := match(match_expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+  args := match(match_expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
   matched_value_expr_opt := args.get(usize(0));
   cases := ArrayList(AstExpr).new();
   (cb : usize) = usize(1);
@@ -1641,14 +1641,14 @@ generate_match_with_await :: (
       em.emit_string_line(`${indent}// Error: match must have a value and at least one case`);
     }, {
       matched_value_code := _call_generate_expr(matched_value_expr, indent, context);
-      match_value_type_opt := match(context.base.get_expr_info(matched_value_expr),.Some(ei) => Option(TypeValue).Some(ei.ty),.None => Option(TypeValue).None);
+      match_value_type_opt := match(context.base.get_expr_info(matched_value_expr), .Some(ei) => Option(TypeValue).Some(ei.ty), .None => Option(TypeValue).None);
       match(
         match_value_type_opt,
         .None => {
           em.emit_string_line(`${indent}// Error: match value has no type`);
         },
         .Some(match_value_type) => {
-          is_prim := match(context.base.get_expr_info(match_expr),.Some(ei) => match(expr_info_is_primitive_match(ei),.Some(b) => b,.None => false),.None => false);
+          is_prim := match(context.base.get_expr_info(match_expr), .Some(ei) => match(expr_info_is_primitive_match(ei), .Some(b) => b, .None => false), .None => false);
           if(is_prim, {
             generate_primitive_match_with_await(match_expr, cases, matched_value_code, await_point, indent, context, target_variable_id, target_assignment_code);
             return();
@@ -1657,11 +1657,11 @@ generate_match_with_await :: (
             em.emit_string_line(`${indent}// Error: match requires an enum type or primitive type`);
             return();
           });
-          enum_id := match(match_value_type,.EnumT({ id }) => id, _ => String.from(""));
-          variant_names := match(match_value_type,.EnumT({ variant_names : vns }) => vns, _ => ArrayList(String).new());
-          variant_fields := match(match_value_type,.EnumT({ variant_fields : vfs }) => vfs, _ => ArrayList(ArrayList(TypeValue)).new());
-          variant_field_labels := match(match_value_type,.EnumT({ variant_field_labels : vfls }) => vfls, _ => ArrayList(ArrayList(String)).new());
-          enum_c_name := match(context.base.types.get(enum_id),.Some(e) => e.c_name,.None => String.from(""));
+          enum_id := match(match_value_type, .EnumT({ id }) => id, _ => String.from(""));
+          variant_names := match(match_value_type, .EnumT({ variant_names : vns }) => vns, _ => ArrayList(String).new());
+          variant_fields := match(match_value_type, .EnumT({ variant_fields : vfs }) => vfs, _ => ArrayList(ArrayList(TypeValue)).new());
+          variant_field_labels := match(match_value_type, .EnumT({ variant_field_labels : vfls }) => vfls, _ => ArrayList(ArrayList(String)).new());
+          enum_c_name := match(context.base.types.get(enum_id), .Some(e) => e.c_name, .None => String.from(""));
           if(enum_c_name.len() == usize(0), {
             em.emit_string_line(`${indent}// Error: enum type has no C name`);
             return();
@@ -1679,7 +1679,7 @@ generate_match_with_await :: (
                 match(
                   cases.get(ni),
                   .Some(ce) => if(ast_expr_is_fn_call(ce) && ast_expr_is_fn_call_of(ce, "=>", Option(usize).Some(usize(2))), {
-                    pat := match(ce,.FnCall(_, _, a, _, _) => a.get(usize(0)),.Atom(_, _) => Option(AstExpr).None);
+                    pat := match(ce, .FnCall(_, _, a, _, _) => a.get(usize(0)), .Atom(_, _) => Option(AstExpr).None);
                     match(
                       pat,
                       .Some(pattern) => {
@@ -1687,10 +1687,10 @@ generate_match_with_await :: (
                           null_case = Option(usize).Some(ni);
                         }, {
                           if(ast_expr_is_fn_call(pattern), {
-                            pf := match(pattern,.FnCall(_, fb, _, _, _) => fb, _ => pattern);
+                            pf := match(pattern, .FnCall(_, fb, _, _, _) => fb, _ => pattern);
                             if(ast_expr_is_fn_call(pf) && ast_expr_is_fn_call_of(pf, ".", Option(usize).None), {
                               ptr_case = Option(usize).Some(ni);
-                              pargs := match(pattern,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+                              pargs := match(pattern, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
                               match(
                                 pargs.get(usize(0)),
                                 .Some(pv) => if(ast_expr_is_atom(pv), {
@@ -1715,7 +1715,7 @@ generate_match_with_await :: (
                 .Some(pci) => match(
                   cases.get(pci),
                   .Some(ce) => {
-                    cb_body := match(ce,.FnCall(_, _, a, _, _) => a.get(usize(1)),.Atom(_, _) => Option(AstExpr).None);
+                    cb_body := match(ce, .FnCall(_, _, a, _, _) => a.get(usize(1)), .Atom(_, _) => Option(AstExpr).None);
                     match(
                       cb_body,
                       .Some(case_body) => {
@@ -1751,7 +1751,7 @@ generate_match_with_await :: (
                 .Some(nci) => match(
                   cases.get(nci),
                   .Some(ce) => {
-                    cb_body := match(ce,.FnCall(_, _, a, _, _) => a.get(usize(1)),.Atom(_, _) => Option(AstExpr).None);
+                    cb_body := match(ce, .FnCall(_, _, a, _, _) => a.get(usize(1)), .Atom(_, _) => Option(AstExpr).None);
                     match(
                       cb_body,
                       .Some(case_body) => {
@@ -1776,9 +1776,9 @@ generate_match_with_await :: (
                 match(
                   cases.get(gi),
                   .Some(ce) => if(ast_expr_is_fn_call(ce) && ast_expr_is_fn_call_of(ce, "=>", Option(usize).Some(usize(2))), {
-                    c_args := match(ce,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
-                    pattern := match(c_args.get(usize(0)),.Some(p) => p,.None => match_expr);
-                    case_body := match(c_args.get(usize(1)),.Some(b) => b,.None => match_expr);
+                    c_args := match(ce, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+                    pattern := match(c_args.get(usize(0)), .Some(p) => p, .None => match_expr);
+                    case_body := match(c_args.get(usize(1)), .Some(b) => b, .None => match_expr);
                     is_wildcard := ast_expr_is_atom_of(pattern, "_");
                     variant_name_opt := if(is_wildcard, Option(String).None, _extract_variant_name(pattern));
                     emit_case := if(is_wildcard, {
@@ -1801,23 +1801,23 @@ generate_match_with_await :: (
                       em.emit_string_line(`${indent}    sm->cond_branch_${idx_s} = ${gi.to_string()};`);
                       // Destructuring: bind variant fields.
                       if(ast_expr_is_fn_call(pattern), {
-                        pf := match(pattern,.FnCall(_, fb, _, _, _) => fb, _ => pattern);
+                        pf := match(pattern, .FnCall(_, fb, _, _, _) => fb, _ => pattern);
                         if(ast_expr_is_fn_call(pf) && ast_expr_is_fn_call_of(pf, ".", Option(usize).None), {
-                          pargs := match(pattern,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+                          pargs := match(pattern, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
                           match(
                             variant_name_opt,
                             .Some(vn) => match(
                               _find_variant_index(variant_names, vn),
                               .Some(vidx) => {
-                                vfields := match(variant_fields.get(vidx),.Some(f) => f,.None => ArrayList(TypeValue).new());
-                                vlabels := match(variant_field_labels.get(vidx),.Some(l) => l,.None => ArrayList(String).new());
+                                vfields := match(variant_fields.get(vidx), .Some(f) => f, .None => ArrayList(TypeValue).new());
+                                vlabels := match(variant_field_labels.get(vidx), .Some(l) => l, .None => ArrayList(String).new());
                                 (di : usize) = usize(0);
                                 while((di < pargs.len()) && (di < vfields.len()), {
-                                  dvar := match(pargs.get(di),.Some(d) => d,.None => match_expr);
+                                  dvar := match(pargs.get(di), .Some(d) => d, .None => match_expr);
                                   if(ast_expr_is_atom(dvar), {
                                     raw_name := ast_expr_token(dvar).value;
-                                    fld_label := match(vlabels.get(di),.Some(l) => l,.None => String.from(""));
-                                    fld_type := match(vfields.get(di),.Some(t) => t,.None => TypeValue.Unit);
+                                    fld_label := match(vlabels.get(di), .Some(l) => l, .None => String.from(""));
+                                    fld_type := match(vfields.get(di), .Some(t) => t, .None => TypeValue.Unit);
                                     access := `${matched_value_code}.data.${vn}.${sanitize_for_c_identifier(fld_label.clone(), false)}`;
                                     match(
                                       _find_sm_var_id_by_name(context, raw_name),

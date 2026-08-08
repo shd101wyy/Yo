@@ -177,22 +177,22 @@ _spawn_with_fds :: (
         .Some(cs) => match(
           cs.ptr(),
           .Some(p) => {
-            (argv_buf.add(j)).* =.Some(p);
+            (argv_buf.add(j)).* = .Some(p);
           },
           .None => {
-            (argv_buf.add(j)).* =.None;
+            (argv_buf.add(j)).* = .None;
           }
         ),
         .None => {
-          (argv_buf.add(j)).* =.None;
+          (argv_buf.add(j)).* = .None;
         }
       );
       j = (j + usize(1));
     });
-    (argv_buf.add(argc)).* =.None;
+    (argv_buf.add(argc)).* = .None;
     // Resolve program path C string (always present — _build_cstr_storage pushes program first).
     program_cstr := (argv_buf.add(usize(0))).*.unwrap();
-    pid := e.io.await(IO_process.spawn(program_cstr, argv_buf,.None, stdin_fd, stdout_fd, stderr_fd), e.io);
+    pid := e.io.await(IO_process.spawn(program_cstr, argv_buf, .None, stdin_fd, stdout_fd, stderr_fd), e.io);
     // Free argv buffer (storage is dropped naturally at scope end).
     free(.Some(argv_raw));
     IoError.check(pid, e.exn)

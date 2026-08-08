@@ -89,7 +89,7 @@ test("walk_with max_depth limits traversal", {
   root := path_join(tmp, `yo_fs_walk_depth`);
   _setup_walk_tree(root, io, exn);
   opts := WalkOptions(
-    max_depth :.Some(u32(0)),
+    max_depth : .Some(u32(0)),
     follow_symlinks : false,
     include_dirs : true
   );
@@ -121,7 +121,7 @@ test("walk_with include_dirs false excludes directories", {
   root := path_join(tmp, `yo_fs_walk_nodirs`);
   _setup_walk_tree(root, io, exn);
   opts := WalkOptions(
-    max_depth :.None,
+    max_depth : .None,
     follow_symlinks : false,
     include_dirs : false
   );
@@ -132,7 +132,7 @@ test("walk_with include_dirs false excludes directories", {
   while(runtime(i < entries.len()), {
     e := entries(i);
     unsafe(printf("  %s\n", e.name.to_cstr().ptr().unwrap()));
-    is_file := match(e.file_type,.File => true, _ => false);
+    is_file := match(e.file_type, .File => true, _ => false);
     assert(is_file, "should only have files");
     i = (i + usize(1));
   });
@@ -146,7 +146,7 @@ test("WalkOptions.defaults has expected values", {
   opts := WalkOptions.defaults();
   assert(!(opts.follow_symlinks), "follow_symlinks should be false");
   assert(opts.include_dirs, "include_dirs should be true");
-  max_is_none := match(opts.max_depth,.None => true, _ => false);
+  max_is_none := match(opts.max_depth, .None => true, _ => false);
   assert(max_is_none, "max_depth should be None");
 });
 // ============================================================================

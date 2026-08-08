@@ -42,11 +42,11 @@ _int_suffix :: (fn(ty : TypeValue) -> str)(
 );
 /// True if the type is a 32-bit float (needs the `f` suffix).
 _is_f32 :: (fn(ty : TypeValue) -> bool)(
-  match(ty,.Float(bits) => (bits == u8(32)), _ => false)
+  match(ty, .Float(bits) => (bits == u8(32)), _ => false)
 );
 /// True if `ty` is the comptime_string type.
 _is_comptime_string :: (fn(ty : TypeValue) -> bool)(
-  match(ty,.ComptimeString => true, _ => false)
+  match(ty, .ComptimeString => true, _ => false)
 );
 /// Strip the surrounding `"` delimiters that yo-self's `StrLit` convention
 /// keeps (see evaluator/values/string.yo:5 — `StrLit.raw` stores the raw token
@@ -70,7 +70,7 @@ _strip_str_delims :: (fn(raw : String) -> String)({
     inner := ArrayList(u8).new();
     (i : usize) = usize(1);
     while(i < (n - usize(1)), {
-      _p := inner.push(match(bytes.get(i),.Some(b) => b,.None => u8(0)));
+      _p := inner.push(match(bytes.get(i), .Some(b) => b, .None => u8(0)));
       i = (i + usize(1));
     });
     String.from_bytes(inner)
@@ -105,12 +105,12 @@ _enum_variant_index :: (fn(enum_ty : TypeValue, name : String) -> Option(usize))
     .EnumT({ variant_names }) => {
       n := variant_names.len();
       (i : usize) = usize(0);
-      (found : Option(usize)) =.None;
+      (found : Option(usize)) = .None;
       while(i < n, {
         match(
           variant_names.get(i),
           .Some(vn) => if(vn == name, {
-            found =.Some(i);
+            found = .Some(i);
           }),
           .None => ()
         );
@@ -250,12 +250,12 @@ generate_comptime_value :: (fn(value : EvalValue, ty : TypeValue, context : Code
         (ptr_opt.is_some() && (fields.len() == usize(0))) => String.from("NULL"),
         (ptr_opt.is_some() && (fields.len() == usize(1))) => match(
           ptr_opt,
-          .Some(pt) => recur(match(fields.get(usize(0)),.Some(v) => v,.None => EvalValue.UnitVal), pt, context),
+          .Some(pt) => recur(match(fields.get(usize(0)), .Some(v) => v, .None => EvalValue.UnitVal), pt, context),
           .None => String.from("NULL")
         ),
         can_optimize_as_simple_enum(ty) => get_enum_variant_c_name(ty, variant.clone(), context),
         true => {
-          c_name := match(context.get_type_c_name(type_key(ty)),.Some(cn) => cn,.None => String.from("__yo_unknown_enum"));
+          c_name := match(context.get_type_c_name(type_key(ty)), .Some(cn) => cn, .None => String.from("__yo_unknown_enum"));
           variant_tag := get_enum_variant_c_name(ty, variant.clone(), context);
           // Reference-semantics enums (`ref(enum(…))`) heap-allocate via a
           // per-variant constructor `__yo_new_<cName>_<variant>(positional…)`;
@@ -271,20 +271,20 @@ generate_comptime_value :: (fn(value : EvalValue, ty : TypeValue, context : Code
             .EnumT({ variant_fields, variant_field_labels }) => match(
               vidx,
               .Some(vi) => {
-                vftys := match(variant_fields.get(vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
-                vflabels := match(variant_field_labels.get(vi),.Some(l) => l,.None => ArrayList(String).new());
+                vftys := match(variant_fields.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
+                vflabels := match(variant_field_labels.get(vi), .Some(l) => l, .None => ArrayList(String).new());
                 nf := fields.len();
                 (fi : usize) = usize(0);
                 while(fi < nf, {
-                  fty := match(vftys.get(fi),.Some(t) => t,.None => TypeValue.Unit);
+                  fty := match(vftys.get(fi), .Some(t) => t, .None => TypeValue.Unit);
                   if(!(is_unit_type(fty)), {
-                    fcode := match(fields.get(fi),.Some(fv) => recur(fv, fty, context),.None => String.from(""));
+                    fcode := match(fields.get(fi), .Some(fv) => recur(fv, fty, context), .None => String.from(""));
                     if(any_field, {
                       inits.push_str(", ");
                       positional.push_str(", ");
                     });
                     any_field = true;
-                    flabel := match(vflabels.get(fi),.Some(l) => l,.None => String.from(""));
+                    flabel := match(vflabels.get(fi), .Some(l) => l, .None => String.from(""));
                     inits.push_str(".");
                     inits.push_string(sanitize_for_c_identifier(flabel, false));
                     inits.push_str(" = ");
@@ -340,11 +340,11 @@ generate_comptime_value :: (fn(value : EvalValue, ty : TypeValue, context : Code
           if(i > usize(0), {
             out.push_str(", ");
           });
-          fty := match(field_types.get(i),.Some(t) => t,.None => TypeValue.Unit);
+          fty := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
           out.push_str("._");
           out.push_string(i.to_string());
           out.push_str(" = ");
-          match(fields.get(i),.Some(fv) => out.push_string(recur(fv, fty, context)),.None => ());
+          match(fields.get(i), .Some(fv) => out.push_string(recur(fv, fty, context)), .None => ());
           i = (i + usize(1));
         });
         out.push_str(" }");
@@ -364,7 +364,7 @@ generate_comptime_value :: (fn(value : EvalValue, ty : TypeValue, context : Code
           if(i > usize(0), {
             out.push_str(", ");
           });
-          match(elements.get(i),.Some(ev) => out.push_string(recur(ev, element, context)),.None => ());
+          match(elements.get(i), .Some(ev) => out.push_string(recur(ev, element, context)), .None => ());
           i = (i + usize(1));
         });
         out.push_str(" } }");
@@ -376,7 +376,7 @@ generate_comptime_value :: (fn(value : EvalValue, ty : TypeValue, context : Code
     .StructVal(_, field_names, field_values) => match(
       ty,
       .Struct({ id, field_types, is_reference_semantics, is_newtype }) => {
-        c_name := match(context.get_type_c_name(type_key(ty)),.Some(cn) => cn,.None => String.from("__yo_unknown_struct"));
+        c_name := match(context.get_type_c_name(type_key(ty)), .Some(cn) => cn, .None => String.from("__yo_unknown_struct"));
         // Comptime-only field flags, by FULL declaration index. TS pairs
         // `type.fields[i]` with `value.fields[i]` and then FILTERS to
         // `getRuntimeStructFields` (comptime-value.ts:276-298), so comptime-only
@@ -390,8 +390,8 @@ generate_comptime_value :: (fn(value : EvalValue, ty : TypeValue, context : Code
         ct_flags := get_struct_field_comptime_flags(id.clone());
         cond(
           (is_newtype && ((field_types.len() == usize(1)) && (field_values.len() == usize(1)))) => {
-            uty := match(field_types.get(usize(0)),.Some(t) => t,.None => TypeValue.Unit);
-            uval := match(field_values.get(usize(0)),.Some(v) => v,.None => EvalValue.UnitVal);
+            uty := match(field_types.get(usize(0)), .Some(t) => t, .None => TypeValue.Unit);
+            uval := match(field_values.get(usize(0)), .Some(v) => v, .None => EvalValue.UnitVal);
             out := String.from("((");
             out.push_string(c_name);
             out.push_str(")(");
@@ -409,7 +409,7 @@ generate_comptime_value :: (fn(value : EvalValue, ty : TypeValue, context : Code
             while(i < nf, {
               field_is_ct := match(
                 ct_flags,
-                .Some(flags) => match(flags.get(i),.Some(f) => f,.None => false),
+                .Some(flags) => match(flags.get(i), .Some(f) => f, .None => false),
                 .None => false
               );
               if(!(field_is_ct), {
@@ -417,8 +417,8 @@ generate_comptime_value :: (fn(value : EvalValue, ty : TypeValue, context : Code
                   out.push_str(", ");
                 });
                 any_arg = true;
-                fty := match(field_types.get(i),.Some(t) => t,.None => TypeValue.Unit);
-                match(field_values.get(i),.Some(fv) => out.push_string(recur(fv, fty, context)),.None => ());
+                fty := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
+                match(field_values.get(i), .Some(fv) => out.push_string(recur(fv, fty, context)), .None => ());
               });
               i = (i + usize(1));
             });
@@ -433,10 +433,10 @@ generate_comptime_value :: (fn(value : EvalValue, ty : TypeValue, context : Code
             (i : usize) = usize(0);
             (any : bool) = false;
             while(i < n, {
-              fty := match(field_types.get(i),.Some(t) => t,.None => TypeValue.Unit);
+              fty := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
               field_is_ct2 := match(
                 ct_flags,
-                .Some(flags) => match(flags.get(i),.Some(f) => f,.None => false),
+                .Some(flags) => match(flags.get(i), .Some(f) => f, .None => false),
                 .None => false
               );
               if(!(is_unit_type(fty)) && !(field_is_ct2), {
@@ -444,11 +444,11 @@ generate_comptime_value :: (fn(value : EvalValue, ty : TypeValue, context : Code
                   out.push_str(", ");
                 });
                 any = true;
-                flabel := match(field_names.get(i),.Some(l) => l,.None => String.from(""));
+                flabel := match(field_names.get(i), .Some(l) => l, .None => String.from(""));
                 out.push_str(".");
                 out.push_string(sanitize_for_c_identifier(flabel, false));
                 out.push_str(" = ");
-                match(field_values.get(i),.Some(fv) => out.push_string(recur(fv, fty, context)),.None => ());
+                match(field_values.get(i), .Some(fv) => out.push_string(recur(fv, fty, context)), .None => ());
               });
               i = (i + usize(1));
             });

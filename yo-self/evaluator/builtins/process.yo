@@ -39,32 +39,32 @@ evaluate_yo_process_functions :: (
   ) -> AstExpr
 )({
   // __yo_process_platform — returns the target OS as a comptime string.
-  if(ast_expr_is_fn_call_of(expr, BF_YO_PROCESS_PLATFORM,.Some(usize(0))), {
+  if(ast_expr_is_fn_call_of(expr, BF_YO_PROCESS_PLATFORM, .Some(usize(0))), {
     host := detect_host();
     os_str := String.from(os_to_str(host.platform));
     raw := ((String.from("\"") + os_str) + String.from("\""));
     val := EvalValue.StrLit(raw);
     info := new_expr_info(env, t_comptime_string());
-    info.value =.Some(val);
+    info.value = .Some(val);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
     return(expr);
   });
-  if(ast_expr_is_fn_call_of(expr, BF_YO_PROCESS_ARCH,.Some(usize(0))), {
+  if(ast_expr_is_fn_call_of(expr, BF_YO_PROCESS_ARCH, .Some(usize(0))), {
     host := detect_host();
     arch_str := String.from(arch_to_str(host.arch));
     raw := ((String.from("\"") + arch_str) + String.from("\""));
     val := EvalValue.StrLit(raw);
     info := new_expr_info(env, t_comptime_string());
-    info.value =.Some(val);
+    info.value = .Some(val);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
     return(expr);
   });
-  if(ast_expr_is_fn_call_of(expr, BF_YO_POINTER_SIZE_BITS,.Some(usize(0))), {
+  if(ast_expr_is_fn_call_of(expr, BF_YO_POINTER_SIZE_BITS, .Some(usize(0))), {
     host := detect_host();
     bits := pointer_size_for_arch(host.arch);
     val := EvalValue.IntLit(bits.to_string());
     info := new_expr_info(env, t_comptime_int());
-    info.value =.Some(val);
+    info.value = .Some(val);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
     return(expr);
   });

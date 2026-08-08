@@ -56,7 +56,7 @@ impl(
   */
   new : (fn() -> Self)(
     Self(
-      _ptr :.None,
+      _ptr : .None,
       _length : usize(0),
       _capacity : usize(0)
     )
@@ -123,7 +123,7 @@ impl(
           ptr_result,
           .Some(_ptr) =>
             Self(
-              _ptr :.Some((*(T))(_ptr)),
+              _ptr : .Some((*(T))(_ptr)),
               _length : usize(0),
               _capacity : cap
             ),
@@ -157,7 +157,7 @@ impl(
           new_some_ptr,
           .Some(new_ptr) => {
             typed_ptr := *(T)(new_ptr);
-            self._ptr =.Some(typed_ptr);
+            self._ptr = .Some(typed_ptr);
             self._capacity = new_capacity;
             // Now add the element at position length
             target_ptr := typed_ptr.add(self._length);
@@ -165,7 +165,7 @@ impl(
             self._length = (self._length + usize(1));
             .Ok(())
           },
-          .None =>.Err(.AllocError(.OutOfMemory))
+          .None => .Err(.AllocError(.OutOfMemory))
         )
       },
       true =>
@@ -187,12 +187,12 @@ impl(
   */
   pop : (fn(self : Self) -> Option(T))(
     cond(
-      (self._length == usize(0)) =>.None,
+      (self._length == usize(0)) => .None,
       true => {
         self._length = (self._length - usize(1));
         match(
           self._ptr,
-          .None =>.None,
+          .None => .None,
           .Some(_ptr) => {
             last_element_ptr := _ptr.add(self._length);
             last_element := last_element_ptr.*;
@@ -210,12 +210,12 @@ impl(
   */
   get : (fn(self : Self, index : usize) -> Option(T))(
     cond(
-      (index >= self._length) =>.None,
+      (index >= self._length) => .None,
       true =>
         match(
           self._ptr,
-          .None =>.None,
-          .Some(_ptr) =>.Some((_ptr.add(index)).*)
+          .None => .None,
+          .Some(_ptr) => .Some((_ptr.add(index)).*)
         )
     )
   ),
@@ -226,7 +226,7 @@ impl(
   shrink_to_fit : (fn(self : Self) -> Result(unit, ArrayListError))(
     // If length equals capacity or both are zero, nothing to do
     cond(
-      ((self._length == self._capacity) || (self._capacity == usize(0))) =>.Ok(()),
+      ((self._length == self._capacity) || (self._capacity == usize(0))) => .Ok(()),
       true =>
         // If length is zero, free the buffer
         cond(
@@ -235,7 +235,7 @@ impl(
               self._ptr,
               .Some(_ptr) => {
                 GlobalAllocator.free(.Some(*(void)(_ptr)));
-                self._ptr =.None;
+                self._ptr = .None;
                 self._capacity = usize(0);
               },
               .None => ()
@@ -255,11 +255,11 @@ impl(
                 match(
                   new_some_ptr,
                   .Some(new_ptr) => {
-                    self._ptr =.Some(*(T)(new_ptr));
+                    self._ptr = .Some(*(T)(new_ptr));
                     self._capacity = self._length;
                     .Ok(())
                   },
-                  .None =>.Err(.AllocError(.OutOfMemory))
+                  .None => .Err(.AllocError(.OutOfMemory))
                 )
               }
             )
@@ -300,7 +300,7 @@ impl(
         );
         // If removing 0 elements, just return success
         cond(
-          (actual_count == usize(0)) =>.Ok(usize(0)),
+          (actual_count == usize(0)) => .Ok(usize(0)),
           true =>
             match(
               self._ptr,
@@ -403,7 +403,7 @@ impl(
                 new_list := Self.with_capacity(slice_length);
                 match(
                   new_list._ptr,
-                  .None =>.Err(.AllocError(.OutOfMemory)),
+                  .None => .Err(.AllocError(.OutOfMemory)),
                   .Some(dst_ptr) => {
                     // Copy elements
                     i := usize(0);
@@ -452,7 +452,7 @@ impl(
         match(
           new_some_ptr,
           .Some(new_ptr) => {
-            self._ptr =.Some((*(T))(new_ptr));
+            self._ptr = .Some((*(T))(new_ptr));
             self._capacity = new_capacity;
           },
           .None => __yo_panic("ArrayList.ensure_total_capacity: allocation failed")
@@ -564,7 +564,7 @@ impl(
           Self._free_elements(self);
           self._length = usize(0);
           GlobalAllocator.free(.Some(*(void)(_ptr)));
-          self._ptr =.None;
+          self._ptr = .None;
         },
         .None => ()
       );
@@ -615,7 +615,7 @@ impl(
     Item : T,
     next : (fn(inout(self) : Self) -> Option(T))(
       cond(
-        (self._index >= self._list._length) =>.None,
+        (self._index >= self._list._length) => .None,
         true => {
           value := self._list.get(self._index);
           self._index = (self._index + usize(1));
@@ -663,7 +663,7 @@ impl(
   * Returns .Some(index) if found, .None otherwise
   */
   index_of : (fn(self : Self, value : T) -> Option(usize))({
-    (result : Option(usize)) =.None;
+    (result : Option(usize)) = .None;
     found := false;
     match(
       self._ptr,
@@ -672,7 +672,7 @@ impl(
         while((i < self._length) && !(found), i = (i + usize(1)), {
           cond(
             ((_ptr.add(i)).* == value) => {
-              result =.Some(i);
+              result = .Some(i);
               found = true;
             },
             true => ()

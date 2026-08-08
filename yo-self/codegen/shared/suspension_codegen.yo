@@ -41,14 +41,14 @@ contains_suspension_expr :: (
     if(should_skip_body(expr), {
       return(false);
     });
-    func_expr := match(expr,.FnCall(_, fb, _, _, _) => fb,.Atom(_, _) => expr);
+    func_expr := match(expr, .FnCall(_, fb, _, _, _) => fb, .Atom(_, _) => expr);
     if(recur(func_expr, target_expr, should_skip_body), {
       return(true);
     });
-    args := match(expr,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new());
+    args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
     (i : usize) = usize(0);
     while(i < args.len(), {
-      arg := match(args.get(i),.Some(a) => a,.None => expr);
+      arg := match(args.get(i), .Some(a) => a, .None => expr);
       if(recur(arg, target_expr, should_skip_body), {
         return(true);
       });
@@ -68,7 +68,7 @@ find_suspension_in_expr :: (
 )({
   (i : usize) = usize(0);
   while(i < points.len(), {
-    pt_expr := match(points.get(i),.Some(p) => p.expr,.None => expr);
+    pt_expr := match(points.get(i), .Some(p) => p.expr, .None => expr);
     if(contains_suspension_expr(expr, pt_expr, should_skip_body), {
       return(Option(usize).Some(i));
     });
@@ -89,15 +89,15 @@ _split_begin_body_into :: (
   ) -> unit
 )({
   // Begin block — split at suspension-point boundaries.
-  expressions := match(body,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new());
+  expressions := match(body, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   segment_expressions := ArrayList(ArrayList(AstExpr)).new();
   (current_segment : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
   (ei : usize) = usize(0);
   (stop : bool) = false;
   while((ei < expressions.len()) && !(stop), {
-    expr := match(expressions.get(ei),.Some(e) => e,.None => body);
+    expr := match(expressions.get(ei), .Some(e) => e, .None => body);
     suspension_index := find_suspension_in_expr(expr, points, should_skip_body);
-    is_return := (handle_return_statements && (ast_expr_is_atom_of(expr, "return") || ast_expr_is_fn_call_of(expr, "return",.None)));
+    is_return := (handle_return_statements && (ast_expr_is_atom_of(expr, "return") || ast_expr_is_fn_call_of(expr, "return", .None)));
     match(
       suspension_index,
       .Some(si) => {
@@ -110,7 +110,7 @@ _split_begin_body_into :: (
           (extra : usize) = (si + usize(1));
           (go : bool) = true;
           while((extra < points.len()) && go, {
-            ex_expr := match(points.get(extra),.Some(p) => p.expr,.None => expr);
+            ex_expr := match(points.get(extra), .Some(p) => p.expr, .None => expr);
             if(contains_suspension_expr(expr, ex_expr, should_skip_body), {
               segment_expressions.push(ArrayList(AstExpr).new()); // empty segment for the extra suspension
             }, {
@@ -140,9 +140,9 @@ _split_begin_body_into :: (
   // Create the typed segments.
   (si2 : usize) = usize(0);
   while(si2 < segment_expressions.len(), {
-    exprs := match(segment_expressions.get(si2),.Some(x) => x,.None => ArrayList(AstExpr).new());
+    exprs := match(segment_expressions.get(si2), .Some(x) => x, .None => ArrayList(AstExpr).new());
     sp2 := cond(
-      (si2 < points.len()) => match(points.get(si2),.Some(p) => Option(SuspensionPoint).Some(p),.None => Option(SuspensionPoint).None),
+      (si2 < points.len()) => match(points.get(si2), .Some(p) => Option(SuspensionPoint).Some(p), .None => Option(SuspensionPoint).None),
       true => Option(SuspensionPoint).None
     );
     segments.push(SuspensionSegment(state_number : si2, expressions : exprs, suspension_point : sp2));
@@ -176,12 +176,12 @@ split_body_at_suspension_points :: (
   // cond-with-await shape — and the machine never completed (fs/file
   // flag-on hang; repro:
   // issues/repros/io-async-bare-cond-await-empty-resume.yo).
-  if(!(ast_expr_is_fn_call_of(body, "begin",.None)), {
+  if(!(ast_expr_is_fn_call_of(body, "begin", .None)), {
     single_exprs := ArrayList(AstExpr).new();
     single_exprs.push(body);
     sp := cond(
       (points.len() == usize(0)) => Option(SuspensionPoint).None,
-      true => match(points.get(usize(0)),.Some(p) => Option(SuspensionPoint).Some(p),.None => Option(SuspensionPoint).None)
+      true => match(points.get(usize(0)), .Some(p) => Option(SuspensionPoint).Some(p), .None => Option(SuspensionPoint).None)
     );
     segments.push(SuspensionSegment(state_number : usize(0), expressions : single_exprs, suspension_point : sp));
     // Sequential suspensions in the single body expression: one empty segment
@@ -200,9 +200,9 @@ split_body_at_suspension_points :: (
       (extra_nb : usize) = usize(1);
       (go_nb : bool) = true;
       while((extra_nb < points.len()) && go_nb, {
-        ex_expr_nb := match(points.get(extra_nb),.Some(p) => p.expr,.None => body);
+        ex_expr_nb := match(points.get(extra_nb), .Some(p) => p.expr, .None => body);
         if(contains_suspension_expr(body, ex_expr_nb, should_skip_body), {
-          sp_nb := match(points.get(extra_nb),.Some(p) => Option(SuspensionPoint).Some(p),.None => Option(SuspensionPoint).None);
+          sp_nb := match(points.get(extra_nb), .Some(p) => Option(SuspensionPoint).Some(p), .None => Option(SuspensionPoint).None);
           segments.push(SuspensionSegment(state_number : segments.len(), expressions : ArrayList(AstExpr).new(), suspension_point : sp_nb));
         }, {
           go_nb = false;

@@ -67,7 +67,7 @@ _subst_trait_visited :: (fn(s : Substitution, id : String) -> bool)({
   i := usize(0);
   n := s.visited_trait_ids.len();
   while(i < n, {
-    vi := match(s.visited_trait_ids.get(i),.Some(v) => v,.None => ``);
+    vi := match(s.visited_trait_ids.get(i), .Some(v) => v, .None => ``);
     if(vi == id, {
       return(true);
     });
@@ -80,8 +80,8 @@ subst_add :: (fn(s : Substitution, name : String, level : usize, ty : TypeValue)
   i := usize(0);
   n := s.names.len();
   while(i < n, {
-    ni := match(s.names.get(i),.Some(v) => v,.None => ``);
-    li := match(s.levels.get(i),.Some(v) => v,.None => usize(0));
+    ni := match(s.names.get(i), .Some(v) => v, .None => ``);
+    li := match(s.levels.get(i), .Some(v) => v, .None => usize(0));
     if((ni == name) && (li == level), {
       s.types(i) = ty;
       return(());
@@ -97,8 +97,8 @@ subst_lookup :: (fn(s : Substitution, name : String, level : usize) -> Option(Ty
   i := usize(0);
   n := s.names.len();
   while(i < n, {
-    ni := match(s.names.get(i),.Some(v) => v,.None => ``);
-    li := match(s.levels.get(i),.Some(v) => v,.None => usize(0));
+    ni := match(s.names.get(i), .Some(v) => v, .None => ``);
+    li := match(s.levels.get(i), .Some(v) => v, .None => usize(0));
     if((ni == name) && (li == level), {
       return(
         match(
@@ -127,12 +127,12 @@ _is_self_pattern :: (fn(s : Substitution, ty : TypeValue) -> bool)({
   if(s.self_from.len() == usize(0), {
     return(false);
   });
-  from := match(s.self_from.get(usize(0)),.Some(f) => f,.None => TypeValue.Unit);
-  ty_id := match(ty,.Struct({ id : sid }) => sid,.EnumT(eid, _, _, _, _, _, _, _, _) => eid, _ => String.new());
+  from := match(s.self_from.get(usize(0)), .Some(f) => f, .None => TypeValue.Unit);
+  ty_id := match(ty, .Struct({ id : sid }) => sid, .EnumT(eid, _, _, _, _, _, _, _, _) => eid, _ => String.new());
   if(ty_id.is_empty(), {
     return(false);
   });
-  from_id := match(from,.Struct({ id : fid }) => fid,.EnumT(fe, _, _, _, _, _, _, _, _) => fe, _ => String.new());
+  from_id := match(from, .Struct({ id : fid }) => fid, .EnumT(fe, _, _, _, _, _, _, _, _) => fe, _ => String.new());
   if(from_id.is_empty() || !(ty_id == from_id), {
     return(false);
   });
@@ -150,19 +150,19 @@ substitute :: (fn(s : Substitution, ty : TypeValue) -> TypeValue)(
     // (src/evaluator/exprs/identifer-and-operator.ts:453-461). Interned like
     // every other arm; the hash-consing invariant is load-bearing for codegen
     // identity.
-    intern_type(match(s.self_to.get(usize(0)),.Some(st) => st,.None => ty)),
+    intern_type(match(s.self_to.get(usize(0)), .Some(st) => st, .None => ty)),
     intern_type(
       match(
         ty,
         // Recurse into pointer / slice / array.
-        .Pointer(inner) =>.Pointer(recur(s, inner)),
-        .Array(inner, len, lvar) =>.Array(recur(s, inner), len, lvar),
+        .Pointer(inner) => .Pointer(recur(s, inner)),
+        .Array(inner, len, lvar) => .Array(recur(s, inner), len, lvar),
         // Recurse into tuple.
         .Tuple(labels, types) => {
           new_types := ArrayList(TypeValue).new();
           i := usize(0);
           while(i < types.len(), {
-            elem := match(types.get(i),.Some(t) => t,.None => TypeValue.Unit);
+            elem := match(types.get(i), .Some(t) => t, .None => TypeValue.Unit);
             new_types.push(recur(s, elem));
             i = (i + usize(1));
           });
@@ -173,35 +173,35 @@ substitute :: (fn(s : Substitution, ty : TypeValue) -> TypeValue)(
           new_fts := ArrayList(TypeValue).new();
           i := usize(0);
           while(i < fts.len(), {
-            elem := match(fts.get(i),.Some(t) => t,.None => TypeValue.Unit);
+            elem := match(fts.get(i), .Some(t) => t, .None => TypeValue.Unit);
             new_fts.push(recur(s, elem));
             i = (i + usize(1));
           });
           new_pts := ArrayList(TypeValue).new();
           i = usize(0);
           while(i < pts.len(), {
-            elem := match(pts.get(i),.Some(t) => t,.None => TypeValue.Unit);
+            elem := match(pts.get(i), .Some(t) => t, .None => TypeValue.Unit);
             new_pts.push(recur(s, elem));
             i = (i + usize(1));
           });
           new_its := ArrayList(TypeValue).new();
           i = usize(0);
           while(i < its.len(), {
-            elem := match(its.get(i),.Some(t) => t,.None => TypeValue.Unit);
+            elem := match(its.get(i), .Some(t) => t, .None => TypeValue.Unit);
             new_its.push(recur(s, elem));
             i = (i + usize(1));
           });
           new_wts := ArrayList(TypeValue).new();
           i = usize(0);
           while(i < wts.len(), {
-            elem := match(wts.get(i),.Some(t) => t,.None => TypeValue.Unit);
+            elem := match(wts.get(i), .Some(t) => t, .None => TypeValue.Unit);
             new_wts.push(recur(s, elem));
             i = (i + usize(1));
           });
           new_vts := ArrayList(TypeValue).new();
           i = usize(0);
           while(i < vts.len(), {
-            elem := match(vts.get(i),.Some(t) => t,.None => TypeValue.Unit);
+            elem := match(vts.get(i), .Some(t) => t, .None => TypeValue.Unit);
             new_vts.push(recur(s, elem));
             i = (i + usize(1));
           });
@@ -235,7 +235,7 @@ substitute :: (fn(s : Substitution, ty : TypeValue) -> TypeValue)(
               new_fts := ArrayList(TypeValue).new();
               i := usize(0);
               while(i < fts.len(), {
-                elem := match(fts.get(i),.Some(t) => t,.None => TypeValue.Unit);
+                elem := match(fts.get(i), .Some(t) => t, .None => TypeValue.Unit);
                 new_fts.push(recur(s, elem));
                 i = (i + usize(1));
               });
@@ -262,14 +262,14 @@ substitute :: (fn(s : Substitution, ty : TypeValue) -> TypeValue)(
               new_rts := ArrayList(TypeValue).new();
               i := usize(0);
               while(i < rts.len(), {
-                elem := match(rts.get(i),.Some(t) => t,.None => TypeValue.Unit);
+                elem := match(rts.get(i), .Some(t) => t, .None => TypeValue.Unit);
                 new_rts.push(recur(s, elem));
                 i = (i + usize(1));
               });
               new_nts := ArrayList(TypeValue).new();
               i = usize(0);
               while(i < nts.len(), {
-                elem := match(nts.get(i),.Some(t) => t,.None => TypeValue.Unit);
+                elem := match(nts.get(i), .Some(t) => t, .None => TypeValue.Unit);
                 new_nts.push(recur(s, elem));
                 i = (i + usize(1));
               });
@@ -282,7 +282,7 @@ substitute :: (fn(s : Substitution, ty : TypeValue) -> TypeValue)(
           new_types := ArrayList(TypeValue).new();
           i := usize(0);
           while(i < types.len(), {
-            elem := match(types.get(i),.Some(t) => t,.None => TypeValue.Unit);
+            elem := match(types.get(i), .Some(t) => t, .None => TypeValue.Unit);
             new_types.push(recur(s, elem));
             i = (i + usize(1));
           });
@@ -292,7 +292,7 @@ substitute :: (fn(s : Substitution, ty : TypeValue) -> TypeValue)(
           new_tyargs := ArrayList(TypeValue).new();
           ti := usize(0);
           while(ti < tyargs.len(), {
-            targ := match(tyargs.get(ti),.Some(t) => t,.None => TypeValue.Unit);
+            targ := match(tyargs.get(ti), .Some(t) => t, .None => TypeValue.Unit);
             new_tyargs.push(recur(s, targ));
             ti = (ti + usize(1));
           });
@@ -313,7 +313,7 @@ substitute :: (fn(s : Substitution, ty : TypeValue) -> TypeValue)(
             new_vf := ArrayList(TypeValue).new();
             j := usize(0);
             while(j < vf.len(), {
-              elem := match(vf.get(j),.Some(t) => t,.None => TypeValue.Unit);
+              elem := match(vf.get(j), .Some(t) => t, .None => TypeValue.Unit);
               new_vf.push(recur(s, elem));
               j = (j + usize(1));
             });
@@ -326,19 +326,19 @@ substitute :: (fn(s : Substitution, ty : TypeValue) -> TypeValue)(
           new_types := ArrayList(TypeValue).new();
           i := usize(0);
           while(i < types.len(), {
-            elem := match(types.get(i),.Some(t) => t,.None => TypeValue.Unit);
+            elem := match(types.get(i), .Some(t) => t, .None => TypeValue.Unit);
             new_types.push(recur(s, elem));
             i = (i + usize(1));
           });
           .Union(name, labels, new_types)
         },
         // Phase 2f variants — recurse into child types
-        .ComptimeListT(child) =>.ComptimeListT(recur(s, child)),
+        .ComptimeListT(child) => .ComptimeListT(recur(s, child)),
         .EffectsRowT(implicit_labels : labels, implicit_types : types) => {
           new_types := ArrayList(TypeValue).new();
           i := usize(0);
           while(i < types.len(), {
-            elem := match(types.get(i),.Some(t) => t,.None => TypeValue.Unit);
+            elem := match(types.get(i), .Some(t) => t, .None => TypeValue.Unit);
             new_types.push(recur(s, elem));
             i = (i + usize(1));
           });
@@ -348,13 +348,13 @@ substitute :: (fn(s : Substitution, ty : TypeValue) -> TypeValue)(
           new_args := ArrayList(TypeValue).new();
           i := usize(0);
           while(i < args.len(), {
-            elem := match(args.get(i),.Some(t) => t,.None => TypeValue.Unit);
+            elem := match(args.get(i), .Some(t) => t, .None => TypeValue.Unit);
             new_args.push(recur(s, elem));
             i = (i + usize(1));
           });
           .TypeAppT(recur(s, constructor), new_args)
         },
-        .IsoT(child) =>.IsoT(recur(s, child)),
+        .IsoT(child) => .IsoT(recur(s, child)),
         .DynT(
           required_trait_types : rtt,
           required_trait_levels : rtl,
@@ -364,14 +364,14 @@ substitute :: (fn(s : Substitution, ty : TypeValue) -> TypeValue)(
           new_rtt := ArrayList(TypeValue).new();
           i := usize(0);
           while(i < rtt.len(), {
-            elem := match(rtt.get(i),.Some(t) => t,.None => TypeValue.Unit);
+            elem := match(rtt.get(i), .Some(t) => t, .None => TypeValue.Unit);
             new_rtt.push(recur(s, elem));
             i = (i + usize(1));
           });
           new_ntt := ArrayList(TypeValue).new();
           i = usize(0);
           while(i < ntt.len(), {
-            elem := match(ntt.get(i),.Some(t) => t,.None => TypeValue.Unit);
+            elem := match(ntt.get(i), .Some(t) => t, .None => TypeValue.Unit);
             new_ntt.push(recur(s, elem));
             i = (i + usize(1));
           });
@@ -381,14 +381,14 @@ substitute :: (fn(s : Substitution, ty : TypeValue) -> TypeValue)(
           new_cpts := ArrayList(TypeValue).new();
           i := usize(0);
           while(i < cpts.len(), {
-            elem := match(cpts.get(i),.Some(t) => t,.None => TypeValue.Unit);
+            elem := match(cpts.get(i), .Some(t) => t, .None => TypeValue.Unit);
             new_cpts.push(recur(s, elem));
             i = (i + usize(1));
           });
           new_its := ArrayList(TypeValue).new();
           (iti : usize) = usize(0);
           while(iti < its.len(), {
-            elem := match(its.get(iti),.Some(t) => t,.None => TypeValue.Unit);
+            elem := match(its.get(iti), .Some(t) => t, .None => TypeValue.Unit);
             new_its.push(recur(s, elem));
             iti = (iti + usize(1));
           });
@@ -398,7 +398,7 @@ substitute :: (fn(s : Substitution, ty : TypeValue) -> TypeValue)(
           new_ets := ArrayList(TypeValue).new();
           i := usize(0);
           while(i < ets.len(), {
-            elem := match(ets.get(i),.Some(t) => t,.None => TypeValue.Unit);
+            elem := match(ets.get(i), .Some(t) => t, .None => TypeValue.Unit);
             new_ets.push(recur(s, elem));
             i = (i + usize(1));
           });
@@ -415,7 +415,7 @@ substitute_all :: (fn(s : Substitution, types : ArrayList(TypeValue)) -> ArrayLi
   result := ArrayList(TypeValue).new();
   i := usize(0);
   while(i < types.len(), {
-    elem := match(types.get(i),.Some(t) => t,.None => TypeValue.Unit);
+    elem := match(types.get(i), .Some(t) => t, .None => TypeValue.Unit);
     result.push(substitute(s, elem));
     i = (i + usize(1));
   });
