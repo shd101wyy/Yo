@@ -1,5 +1,28 @@
 # `ctl` handlers are emitted `void` but called through value-returning casts (x86_64 ABI break)
 
+> **FIXED 2026-08-09.** Both compilers now cast a generic-`ResumeType` `ctl` call to
+> the CALLEE's real return type and use the zero-init-temp protocol, so the caller and
+> callee agree and no hidden sret pointer can displace `err`. TS emits handlers `void`
+> and casts `void`; yo-self emits `void*` and casts `void*`.
+>
+> Measured after the fix: **1037/1037** `exn.throw` casts in the TS emit and
+> **1036/1036** in yo-self's self-emit are now the callee's real type (before: 140
+> non-void, 95 of them >16-byte MEMORY class).
+>
+> The two repros this doc called "not yet built" are checked in —
+> `issues/repros/ctl-large-resume-type-sret.yo` (a 32-byte ResumeType thrown in value
+> position, handler derefs `err.vtable`; `-fsanitize=function` flags it before the fix,
+> clean after) and `issues/repros/ctl-large-resume-type-sret-abi-demo.c` (the same shape
+> in freestanding C; cross-compiled to x86_64 the call site emits
+> `leaq -40(%rbp), %rdi`, demonstrating the displacement).
+>
+> Validation: TS suite 2685/2685 · `gates_fast` failures=0 · FIXPOINT_HOLDS ·
+> full-corpus sweep 188/188 GREEN.
+>
+> **The guard is NOT yet enabled.** `-fsanitize=function` on test binaries is the
+> follow-up this doc recommends, and it should now be possible — that is deliberately
+> left as its own change so any fallout is separable.
+
 **Found 2026-08-06** while root-causing
 `issues/fixed/escape-path-drops-unwound-call-result-temp.md`.
 

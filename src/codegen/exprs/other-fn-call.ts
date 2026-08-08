@@ -1687,7 +1687,7 @@ export function generateOtherFunctionCall(
           // two protocols disagreeing is the bug. Note assigning a void call's
           // "result" to a typed temp is itself UB and once crashed on WASM, hence
           // the declare-then-call shape rather than a cast at the assignment.
-          // See issues/ctl-handler-void-signature-vs-sret-cast.md.
+          // See issues/fixed/ctl-handler-void-signature-vs-sret-cast.md.
           const calleeEmittedVoid =
             isFunctionType(functionType) &&
             functionType.isControl &&

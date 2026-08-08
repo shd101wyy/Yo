@@ -142,9 +142,9 @@ Revert, if ever needed: `gh api -X PUT repos/shd101wyy/Yo/rulesets/13548862 --in
 
 ---
 
-## 3. Decide consciously — the `ctl` ABI issue
+## 3. ~~Decide consciously — the `ctl` ABI issue~~ — FIXED 2026-08-09
 
-[`issues/ctl-handler-void-signature-vs-sret-cast.md`](../issues/ctl-handler-void-signature-vs-sret-cast.md)
+[`issues/fixed/ctl-handler-void-signature-vs-sret-cast.md`](../issues/fixed/ctl-handler-void-signature-vs-sret-cast.md)
 
 Filed as _latent_ on the premise that no reachable `ctl` has a `ResumeType` over
 16 bytes. **Measurement refuted that premise**, in yo-self's own emitted C:
@@ -166,10 +166,15 @@ printer, which a throw reaches whenever no nearer handler catches it.
 Today's green suite therefore rests on an **accidental pairing**, not on anything
 the compiler enforces.
 
-**Not a P1 blocker** — P1 is CLI parity. But it needs the TS referee, and P2
-retires that. One cheap check remains: build x86_64 with `-fsanitize=function` and
-run `check` over a deliberately broken file; that flags the mismatched call
-directly, without needing a static argument about which handler wins.
+**Resolved rather than decided.** The cheap check was run (`-fsanitize=function`,
+which works on arm64 — only the consequences are x86_64-specific) and answered the
+open question: the `err`-reading top-level handler IS reached through a mismatched
+call, but every EXECUTED by-value throw cast was <= 16 bytes, so the exercised paths
+sat in the register class. That downgraded it from urgent to schedulable — and it was
+then fixed rather than scheduled, in both compilers, with the >16-byte reproducer the
+issue had called "not yet built". All `exn.throw` casts now use the callee's real
+return type. Remaining follow-up: enable `-fsanitize=function` on test binaries as the
+standing guard, deliberately left as its own change.
 
 ---
 
