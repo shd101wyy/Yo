@@ -35,6 +35,16 @@ seed. LSP (P4) rides on a stable native toolchain.
 
 ## Phase 1 — full subcommand parity in `yo-self`
 
+> **READ [`PRE_P1_HANDOVER.md`](PRE_P1_HANDOVER.md) FIRST.** It lists what must be
+> true before P1 starts, and corrects three premises of the paragraph below that
+> were verified false on 2026-08-08: `build` is **hollow** rather than unwired (its
+> registry is never populated and it shells out to a flag that does not exist in
+> `src/`), `doc` is **~3,800 lines unported**, and `module-manager.ts` (458 lines,
+> imported by build/fetch/install/doc/test-runner/codegen) has **no counterpart at
+> all**. It also notes that the `build` differential corpus cannot be "collected"
+> from `build-system.test.ts` as stated below — those are unit tests whose only
+> on-disk projects are one-line stubs, so the corpus must be written.
+
 `yo-self/main.yo` currently dispatches only `check | compile | test | fmt`.
 The machinery for the rest is ALREADY PORTED as libraries (build runner, doc
 pipeline, fetch/install/cache/lock-file, init, version discovery — see the
