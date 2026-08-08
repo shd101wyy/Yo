@@ -52,6 +52,7 @@ open(import("std/fmt"));
 // dup-on-store / move for owned fn-call args (TS helper.ts:411-451). utils.yo
 // imports nothing from calls/, so this is acyclic.
 { set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, are_values_equal, require_expr_not_consumed } :: import("../utils.yo");
+{ function_may_mutate_rc_storage } :: import("../effects/mutation_summary.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
 { Token } :: import("../../token.yo");
 { HashMap } :: import("std/collections/hash_map");
@@ -445,7 +446,12 @@ CheckParamResult :: ref(
     /// argument's projection dup — the CALLER attaches it to the call node's
     /// deferred drops (single post-call emission; scope-end machinery emits
     /// on non-exclusive exits, see the marker's note in utils.yo).
-    s0_drop : Option(AstExpr)
+    s0_drop : Option(AstExpr),
+    /// Aliasing Stage 1: the evaluated argument expr that received the
+    /// Stage-0 dup — the caller UNMARKS it (removes the deferred dup and
+    /// discards `s0_drop`) when the callee specialization proves read-only
+    /// (evaluator/effects/mutation_summary.yo).
+    s0_marked_arg : Option(AstExpr)
   )
 );
 // ---------------------------------------------------------------------------
@@ -853,8 +859,12 @@ check_if_function_parameter_matches_argument :: (
   // are place writes, and — like Step 4b — trial calls in the CHECKING PHASE
   // must not mutate the real caller env.
   (s0_drop_captured : Option(AstExpr)) = Option(AstExpr).None;
+  (s0_marked_arg_captured : Option(AstExpr)) = Option(AstExpr).None;
   if(((((!(param_is_owning)) && !(is_ct_only)) && ((!(param_is_ref)) && !(ctx.is_in_function_call_checking_phase))) && !(callee_is_extern)) && arg_is_rc_projection_place(actual_arg, caller_env_r), {
     s0_drop_captured = set_expr_as_needs_to_call_dup_for_borrowed_projection(evaled_arg, ctx, exn);
+    if(s0_drop_captured.is_some(), {
+      s0_marked_arg_captured = Option(AstExpr).Some(evaled_arg);
+    });
   });
   // Step 5: Comptime check — runtime arg cannot fill a comptime parameter.
   //
@@ -1125,7 +1135,8 @@ ${ast_expr_to_string(actual_arg)}`
     arg_value : arg_value,
     arg_type : arg_type,
     resolved_param_type : final_pt,
-    s0_drop : s0_drop_captured
+    s0_drop : s0_drop_captured,
+    s0_marked_arg : s0_marked_arg_captured
   )
 });
 // ---------------------------------------------------------------------------
@@ -5572,6 +5583,10 @@ try_to_call_function_with_arguments :: (
       // (CheckParamResult.s0_drop) — attached to the call node via
       // FuncCallResult.deferred_drop_expressions (post-call flush).
       s0_call_drops := ArrayList(AstExpr).new();
+      // Aliasing Stage 1: the marked argument exprs (parallel channel) —
+      // unmarked below when the callee specialization proves read-only.
+      s0_marked_args := ArrayList(AstExpr).new();
+      (s1_elided : bool) = false;
       while(pi < n_params, {
         plabel := match(pl.get(pi),.Some(l) => l,.None => String.from(""));
         ptype := match(pt.get(pi),.Some(t) => t,.None => t_unit());
@@ -5695,6 +5710,13 @@ try_to_call_function_with_arguments :: (
           pr.s0_drop,
           .Some(s0d) => {
             s0_call_drops.push(s0d);
+          },
+          .None => ()
+        );
+        match(
+          pr.s0_marked_arg,
+          .Some(s0ma) => {
+            s0_marked_args.push(s0ma);
           },
           .None => ()
         );
@@ -6524,6 +6546,55 @@ try_to_call_function_with_arguments :: (
           });
         });
       });
+      // Aliasing Stage 1 (mutation summaries, evaluator/effects/
+      // mutation_summary.yo): a READ-ONLY callee cannot reassign the
+      // aliased storage mid-call, so this call's Stage-0 dups are pure
+      // overhead — remove each marked argument's deferred dup and discard
+      // the balancing drops. The summary target is the specialization when
+      // one exists (its evaluated body is final); recursion forward-refs
+      // carry an unevaluated body and conservatively answer "may mutate".
+      // The consumed dup temps stay in their frames — inert (consumed, no
+      // scope-end drop; the dup that assigned them is gone).
+      if(s0_call_drops.len() > usize(0), {
+        (s1_target : Option(EvalValue)) = spec_func_val;
+        if(s1_target.is_none(), {
+          s1_target = func_val;
+        });
+        match(
+          s1_target,
+          .Some(s1_tv) => match(
+            s1_tv,
+            .FuncVal(s1_fvd, _) => {
+              s1_fid := s1_fvd.*.func_id.clone();
+              if(!(is_control_fn(s1_fid.clone())), {
+                if(!(function_may_mutate_rc_storage(s1_fid, s1_fvd.*.body, ctx)), {
+                  s1_elided = true;
+                });
+              });
+            },
+            _ => ()
+          ),
+          .None => ()
+        );
+        if(s1_elided, {
+          (s1i : usize) = usize(0);
+          while(s1i < s0_marked_args.len(), {
+            match(
+              s0_marked_args.get(s1i),
+              .Some(s1_ma) => match(
+                expr_info_table_get(ctx.expr_info_table, ast_expr_id(s1_ma)),
+                .Some(s1_mai) => {
+                  s1_mai.deferred_dup_expressions = Option(ArrayList(AstExpr)).None;
+                },
+                .None => {
+                }
+              ),
+              .None => ()
+            );
+            s1i = (s1i + usize(1));
+          });
+        });
+      });
       FuncCallResult(
         callee_env : callee_env_m,
         caller_env : caller_env_m,
@@ -6538,7 +6609,7 @@ try_to_call_function_with_arguments :: (
         ),
         runtime_arg_exprs_in_order : rt_args,
         specialized_function_value : spec_func_val,
-        deferred_drop_expressions : if(s0_call_drops.len() > usize(0), Option(ArrayList(AstExpr)).Some(s0_call_drops), Option(ArrayList(AstExpr)).None)
+        deferred_drop_expressions : if((s0_call_drops.len() > usize(0)) && !(s1_elided), Option(ArrayList(AstExpr)).Some(s0_call_drops), Option(ArrayList(AstExpr)).None)
       )
     },
     _ => {

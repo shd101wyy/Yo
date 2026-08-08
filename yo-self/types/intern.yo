@@ -45,25 +45,11 @@
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
+{ HashSet } :: import("std/collections/hash_set");
 { TypeValue, FuncMeta } :: import("./definitions.yo");
 _append_b :: (fn(sb : StringBuilder, x : bool) -> unit)(
   if(x, sb.write_str("1"), sb.write_str("0"))
 );
-_contains :: (fn(xs : ArrayList(String), s : String) -> bool)({
-  n := xs.len();
-  (i : usize) = usize(0);
-  (found : bool) = false;
-  while((i < n) && !(found), {
-    // Compare in place — no deep clone per probe (see _tk_seen; this was the
-    // 83.8 M-allocation `_contains` site in the constructor census).
-    // Compact bool-valued arm form (an r3-era self-hosted miscompile of
-    // this shape was fixed by later work — restored 2026-08-07;
-    // issues/retired/yo-self-bool-match-arm-miscompile.md).
-    found = match(xs.get(i),.Some(e) => (e == s),.None => false);
-    i = (i + usize(1));
-  });
-  found
-});
 _append_strings :: (fn(sb : StringBuilder, xs : ArrayList(String)) -> unit)({
   n := xs.len();
   (i : usize) = usize(0);
@@ -130,9 +116,14 @@ _append_meta_key :: (fn(sb : StringBuilder, m : FuncMeta) -> unit)({
 // `visited` = tag+id tokens of named types currently in the render path; a
 // re-encounter renders id-only (breaks cycles). Monotonic (never popped) → the
 // rendering is deterministic → the key is injective.
+// A HASH SET, not a list: the membership question is identical either way (so
+// the emitted bytes are unchanged — the fixpoint gate is the proof), but the
+// linear-scan `ArrayList(String)` probe made this the #1 self-compile hotspot,
+// O(visited) String comparisons per named type on every key render
+// (`sample`-profiled: `_contains` 3731 + memcmp 1562, ahead of __yo_decr_rc).
 // ---------------------------------------------------------------------------
 _intern_key_into :: (
-  fn(t : TypeValue, sb : StringBuilder, depth : usize, visited : ArrayList(String)) -> unit
+  fn(t : TypeValue, sb : StringBuilder, depth : usize, visited : HashSet(String)) -> unit
 )(
   if(
     depth > usize(600),
@@ -255,10 +246,10 @@ _intern_key_into :: (
       .Struct({ id : sid, name : snm, field_labels : sfl, field_types : sft, is_reference_semantics : irs, is_atomic_rc : iar, is_newtype : isnt, constructor_func_id : cfid, type_arguments : sta, is_source_namespace : isns }) => {
         tok := String.from("S:");
         tok.push_string(sid);
-        if(_contains(visited, tok), {
+        if(visited.contains(tok), {
           sb.write_string(tok);
         }, {
-          visited.push(tok.clone());
+          ___ := visited.add(tok.clone());
           sb.write_string(tok);
           sb.write_str("{");
           sb.write_string(snm);
@@ -293,10 +284,10 @@ _intern_key_into :: (
       .EnumT(eid, enm, evns, evfs, esvn, evfl, edis, eirs, eiar) => {
         tok := String.from("E:");
         tok.push_string(eid);
-        if(_contains(visited, tok), {
+        if(visited.contains(tok), {
           sb.write_string(tok);
         }, {
-          visited.push(tok.clone());
+          ___ := visited.add(tok.clone());
           sb.write_string(tok);
           sb.write_str("{");
           sb.write_string(enm);
@@ -338,10 +329,10 @@ _intern_key_into :: (
       .TraitT(tnm, tatn, tfl, tft, tid, tisc, tsc, tnsc, tatcl, tatct) => {
         tok := String.from("Tr:");
         tok.push_string(tid);
-        if(_contains(visited, tok), {
+        if(visited.contains(tok), {
           sb.write_string(tok);
         }, {
-          visited.push(tok.clone());
+          ___ := visited.add(tok.clone());
           sb.write_string(tok);
           sb.write_str("{");
           sb.write_string(tnm);
@@ -405,10 +396,10 @@ _intern_key_into :: (
       .SomeT(smid, smnm, smfl, smpt, smrtt, smrtl, smntt, smntl, smier, smkft, smrcp) => {
         tok := String.from("So:");
         tok.push_string(smid);
-        if(_contains(visited, tok), {
+        if(visited.contains(tok), {
           sb.write_string(tok);
         }, {
-          visited.push(tok.clone());
+          ___ := visited.add(tok.clone());
           sb.write_string(tok);
           sb.write_str("{");
           sb.write_string(smnm);
@@ -590,7 +581,7 @@ _intern_key_into :: (
 );
 /// Render the structural key of `t` as a String. Thin wrapper over
 /// `_intern_key_into` (kept for callers outside this module).
-type_intern_key :: (fn(t : TypeValue, depth : usize, visited : ArrayList(String)) -> String)({
+type_intern_key :: (fn(t : TypeValue, depth : usize, visited : HashSet(String)) -> String)({
   sb := StringBuilder.new();
   _intern_key_into(t, sb, depth, visited);
   sb.to_string()
@@ -598,7 +589,7 @@ type_intern_key :: (fn(t : TypeValue, depth : usize, visited : ArrayList(String)
 (g_type_intern : HashMap(String, TypeValue)) = HashMap(String, TypeValue).new();
 /// Return the canonical instance for a structurally-equal type. Whole-tree.
 intern_type :: (fn(t : TypeValue) -> TypeValue)({
-  key := type_intern_key(t, usize(0), ArrayList(String).new());
+  key := type_intern_key(t, usize(0), HashSet(String).new());
   match(
     g_type_intern.get(key),
     .Some(canon) => canon,

@@ -1,19 +1,17 @@
-open(import("std/fmt"));
-open(import("std/string"));
+pragma(Pragma.AllowUnsafe);
+open(import("std/libc/stdio"));
 
-Wrap :: ref(struct(b : Box(i32)));
+AliasWrap :: ref(struct(b : Box(i32)));
 
-poke_loop :: (fn(w : Wrap, borrowed : Box(i32)) -> unit)({
-  (i : i32) = i32(0);
-  while(runtime(i < i32(2)), {
-    w.b = box(i32(100) + i);
-    i = (i + i32(1));
-  });
-  println(`borrowed: ${borrowed.*}`);
+stage1_drop_owned :: (fn(own(h) : Box(i32), borrowed : Box(i32)) -> usize)({
+  ___drop(h);
+  rc(borrowed)
 });
 
 main :: (fn() -> unit)({
-  w := Wrap(b : box(i32(42)));
-  poke_loop(w, w.b);
+  w := AliasWrap(b : box(i32(42)));
+  unsafe(printf("during=%d (want 2)\n", i32(stage1_drop_owned(w.b, w.b))));
+  unsafe(printf("val=%d (want 42)\n", w.b.*));
 });
+
 export(main);

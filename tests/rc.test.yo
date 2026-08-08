@@ -625,10 +625,231 @@ test("borrowed projection argument survives aliased container mutation", {
   w := AliasWrap(b : box(i32(42)));
   b0 := w.b;
   assert(rc(b0) == 2, "w.b + b0 before the call");
-  alias_poke_loop(w, w.b);
-  // After the call: the callee's reassignment dropped w.b's handle on the
-  // 42-box; b0 plus the Stage-0 dup temp (released at THIS scope's end)
-  // remain. rc 3 = the dup leaked twice; rc 1 = it was double-dropped.
-  assert(rc(b0) == 2, "exactly one Stage-0 +1 outstanding until scope end");
+  {
+    alias_poke_loop(w, w.b);
+  };
+  // Asserted AFTER the enclosing statement scope, deliberately. The two
+  // compilers release the Stage-0 +1 at different points — yo-self drops it
+  // post-call (its dup temp is consumed at creation and balanced by an
+  // explicit call-node drop), TS at scope end (its dup temp stays owning and
+  // the normal scope-end machinery drops it). Both are sound; the difference
+  // is only WHEN, and it is only observable through `rc`. Checking here, once
+  // both release points have passed, asserts the property that actually
+  // matters and is identical in both: the +1 is released EXACTLY once.
+  //
+  // rc 2 here = the +1 leaked (which is precisely what yo-self's
+  // runtime-call path did before that drop was wired — the previous version
+  // of this test asserted rc 2 right after the call and so encoded the leak
+  // as expected behaviour). rc 0 / a crash = it was released twice.
+  assert(rc(b0) == 1, "the Stage-0 +1 is released exactly once");
   assert(b0.* == i32(42), "original box intact after the aliased mutation");
+});
+// Aliasing Stage 1 (mutation summaries): a READ-ONLY callee cannot
+// invalidate the borrowed projection, so the Stage-0 +1 is elided — during
+// the call the box's rc stays 2 (w.b + b0), not 3. The non-generic callee
+// exercises the mark-time skip; the generic one exercises the
+// post-specialization unmark.
+stage1_read_borrow :: (fn(w : AliasWrap, borrowed : Box(i32)) -> usize)(
+  rc(borrowed)
+);
+stage1_rc_of :: (fn(generic(T : Type), borrowed : T) -> usize)(
+  rc(borrowed)
+);
+test("read-only callee elides the Stage-0 borrowed-projection dup", {
+  w := AliasWrap(b : box(i32(42)));
+  b0 := w.b;
+  assert(rc(b0) == 2, "w.b + b0 before the calls");
+  assert(
+    stage1_read_borrow(w, w.b) == 2,
+    "non-generic read-only callee sees rc 2 (mark-time skip)"
+  );
+  assert(
+    stage1_rc_of(w.b) == 2,
+    "generic read-only callee sees rc 2 (post-specialization unmark)"
+  );
+  assert(rc(b0) == 2, "rc balanced after both elided calls");
+});
+// Aliasing Stage 1 SOUNDNESS: the mutation-summary walk must not be fooled by
+// a mutation hidden behind a STATEMENT. An assignment carries a compile-time
+// UNIT value simply because that is its type — not because it was folded away
+// — so a walk that treats "has a compile-time value" as "emits no runtime
+// code" skips the statement whole, never sees the mutating call on its
+// right-hand side, and wrongly reports the caller read-only. That would elide
+// the Stage-0 dup and reopen the aliasing hole this whole arc closes.
+stage1_poke :: (fn(w : AliasWrap, seed : i32) -> i32)({
+  w.b = box(i32(100) + seed);
+  w.b.*
+});
+// The mutating call sits on the RHS of a REASSIGNMENT statement.
+stage1_sneaky :: (fn(w : AliasWrap, borrowed : Box(i32), seed : i32) -> i32)({
+  (t : i32) = i32(0);
+  t = stage1_poke(w, seed);
+  borrowed.* + (t - t)
+});
+// Control: the same mutation behind a `:=` declaration.
+stage1_honest :: (fn(w : AliasWrap, borrowed : Box(i32), seed : i32) -> i32)({
+  t := stage1_poke(w, seed);
+  borrowed.* + (t - t)
+});
+// Aliasing Stage 1 SOUNDNESS — one probe per "this callee is read-only"
+// decision rule in the mutation-summary walk. Each callee below invalidates
+// the borrowed projection through a DIFFERENT mechanism; every one must be
+// classified may-mutate so the Stage-0 +1 is kept. A rule that wrongly
+// answers read-only shows up here as a use-after-free, not as a subtle
+// slowdown — which is why these are asserted on VALUE, not just rc balance.
+//
+// An explicit RC decrement releases the container-held reference directly,
+// without any assignment for the walk's assignment rule to see. Both the
+// high-level drop and the raw primitive count.
+// NOTE on shape: the decrement must target a handle the callee OWNS. An
+// explicit `___drop(w.b)` on a place the callee does not own is an
+// unbalanced program — it releases the container's reference without
+// clearing the field, so dropping the container later double-frees. (macOS's
+// allocator tolerates that; glibc aborts. It is a bug in the test, not in
+// the compiler.) Raw `__yo_decr_rc` is unbalanced in EVERY shape — it does
+// not consume its operand, so the scope-end drop decrements a second time —
+// so no valid program exercises it and it gets no test; the classification
+// rule still lists it, documented in mutation-summary.ts.
+stage1_drop_owned :: (fn(own(h) : Box(i32), borrowed : Box(i32)) -> usize)({
+  ___drop(h);
+  rc(borrowed)
+});
+// The mutation happens only on the BACK EDGE of a mutual recursion, so the
+// walk meets the cycle guard before it ever reaches the assignment.
+Stage1Rec :: struct(_d : i32);
+impl(
+  Stage1Rec,
+  even : (fn(w : AliasWrap, borrowed : Box(i32), n : i32) -> i32)(
+    cond(
+      (n == i32(0)) => borrowed.*,
+      true => Stage1Rec.odd(w, borrowed, n - i32(1))
+    )
+  ),
+  odd : (fn(w : AliasWrap, borrowed : Box(i32), n : i32) -> i32)({
+    w.b = box(i32(777));
+    Stage1Rec.even(w, borrowed, n - i32(1))
+  })
+);
+// The mutation is inside an immediately-invoked closure — the walk skips
+// function DEFINITIONS, so it must still catch the CALL.
+stage1_closure :: (fn(w : AliasWrap, borrowed : Box(i32)) -> i32)({
+  f := (fn(ww : AliasWrap) -> i32)({
+    ww.b = box(i32(888));
+    i32(0)
+  });
+  z := f(w);
+  borrowed.* + z
+});
+// The mutation sits in a runtime-selected cond arm, then a match arm — the
+// walk must not let arm-skipping (`caseExecuted`) hide a live branch.
+stage1_cond_arm :: (fn(w : AliasWrap, borrowed : Box(i32), go : bool) -> i32)({
+  cond(
+    (go == true) => {
+      w.b = box(i32(555));
+      i32(0)
+    },
+    true => i32(0)
+  );
+  borrowed.*
+});
+stage1_match_arm :: (fn(w : AliasWrap, borrowed : Box(i32), o : Option(i32)) -> i32)({
+  match(
+    o,
+    .Some(_) => {
+      w.b = box(i32(666));
+      ()
+    },
+    .None => ()
+  );
+  borrowed.*
+});
+// Transitivity: the mutation is three calls deep.
+stage1_deep3 :: (fn(w : AliasWrap) -> unit)({
+  w.b = box(i32(333));
+});
+stage1_deep2 :: (fn(w : AliasWrap) -> unit)(
+  stage1_deep3(w)
+);
+stage1_deep1 :: (fn(w : AliasWrap, borrowed : Box(i32)) -> i32)({
+  stage1_deep2(w);
+  borrowed.*
+});
+// Over-conservatism guard: a callee whose only "effect" is a benign extern
+// (printf takes no callback and is not the runtime/allocator family) must
+// STILL be read-only, so the +1 is elided. If this starts failing, the
+// extern rule has become too broad and Stage 1 is losing its benefit.
+stage1_benign_extern :: (fn(w : AliasWrap, borrowed : Box(i32)) -> usize)({
+  unsafe(printf(""));
+  rc(borrowed)
+});
+test("mutation inside a runtime cond arm keeps the borrow alive", {
+  w := AliasWrap(b : box(i32(42)));
+  assert(
+    stage1_cond_arm(w, w.b, true) == i32(42),
+    "a live cond arm's mutation must count"
+  );
+});
+test("mutation inside a match arm keeps the borrow alive", {
+  w := AliasWrap(b : box(i32(42)));
+  assert(
+    stage1_match_arm(w, w.b, Option(i32).Some(i32(1))) == i32(42),
+    "a live match arm's mutation must count"
+  );
+});
+test("mutation three calls deep keeps the borrow alive", {
+  w := AliasWrap(b : box(i32(42)));
+  assert(
+    stage1_deep1(w, w.b) == i32(42),
+    "the summary must be transitive through the call graph"
+  );
+});
+test("a benign extern does not defeat the read-only elision", {
+  w := AliasWrap(b : box(i32(42)));
+  b0 := w.b;
+  assert(rc(b0) == 2, "w.b + b0 before the call");
+  assert(
+    stage1_benign_extern(w, w.b) == 2,
+    "printf must not make a callee may-mutate (elision preserved)"
+  );
+});
+test("a callee containing an explicit ___drop keeps the borrow alive", {
+  w := AliasWrap(b : box(i32(42)));
+  // rc during the call: the container's 1, the own-param's dup, and the
+  // Stage-0 borrow dup = 3; `___drop(h)` consumes the own-param's, leaving
+  // 2. A 1 here would mean the borrow dup was elided — i.e. a callee that
+  // explicitly releases RC storage was classified read-only, which is how
+  // `___drop` sitting in the safe-recurse list used to read.
+  assert(
+    stage1_drop_owned(w.b, w.b) == 2,
+    "an explicit ___drop must not be walked through as safe"
+  );
+  assert(w.b.* == i32(42), "the container's own handle is still valid");
+});
+test("mutation on a mutual-recursion back edge keeps the borrow alive", {
+  w := AliasWrap(b : box(i32(42)));
+  assert(
+    Stage1Rec.even(w, w.b, i32(2)) == i32(42),
+    "cycle-guard optimism must not hide the back edge's mutation"
+  );
+});
+test("mutation inside an invoked closure keeps the borrow alive", {
+  w := AliasWrap(b : box(i32(42)));
+  assert(
+    stage1_closure(w, w.b) == i32(42),
+    "skipping closure DEFINITIONS must not skip the closure CALL"
+  );
+});
+test("statement-hidden mutation keeps the borrowed-projection dup", {
+  w := AliasWrap(b : box(i32(42)));
+  // The callee reassigns `w.b`, dropping the 42-box's container reference.
+  // Without the caller's Stage-0 +1 the borrow would read recycled memory.
+  assert(
+    stage1_sneaky(w, w.b, i32(0)) == i32(42),
+    "borrow survives a mutation hidden behind a reassignment statement"
+  );
+  w2 := AliasWrap(b : box(i32(42)));
+  assert(
+    stage1_honest(w2, w2.b, i32(0)) == i32(42),
+    "borrow survives a mutation behind a declaration"
+  );
 });

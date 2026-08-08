@@ -2523,6 +2523,53 @@ export function setExprAsNeedsToCallDupForBorrowedProjection(
 }
 
 /**
+ * Aliasing Stage 1 (mutation summaries): the exact inverse of
+ * `setExprAsNeedsToCallDupForBorrowedProjection`, applied when the callee
+ * specialization is proven read-only — the borrowed projection cannot be
+ * invalidated during the call, so the Stage-0 `+1` is elided. Removes the
+ * deferred dup (codegen never emits it) and flips the dup result temp back
+ * to NON-owning (the scope-end machinery emits no drop for it). The temp
+ * variable itself stays declared in the frame — inert.
+ *
+ * `env` must be the CURRENT caller env (the temp may have been re-bound by
+ * later argument processing); returns the updated env.
+ */
+export function removeBorrowedProjectionDupMark(
+  expr: Expr,
+  env: Environment
+): Environment {
+  const dups = expr.$?.deferredDupExpressions;
+  if (!dups || dups.length !== 1) {
+    return env;
+  }
+  const dupExpr = dups[0]!;
+  // Resolve the dup temp BEFORE dropping the dup. Removing the dup while
+  // leaving its result temp OWNING would hand the caller's RAII collection
+  // (which runs right after this, in `tryToCallFunctionWithArguments`) a
+  // scope-end `___drop` with no matching `___dup` — an unbalanced release.
+  // `env` here is the CURRENT caller env, re-bound several times since the
+  // argument loop, so a lookup miss is not hypothetical. Either both halves
+  // of the unmark happen or neither does.
+  const dupTempName = dupExpr.$?.variableName;
+  if (!dupTempName) {
+    return env;
+  }
+  const dupTempVars = getVariablesFromEnv(env, dupTempName);
+  if (!dupTempVars.length) {
+    return env;
+  }
+  const dupTempVar = dupTempVars[dupTempVars.length - 1]!;
+  if (dupTempVar.isOwningTheRcValue) {
+    env = updateExistingVariable(env, dupTempVar, {
+      ...dupTempVar,
+      isOwningTheRcValue: false,
+    });
+  }
+  expr.$!.deferredDupExpressions = undefined;
+  return env;
+}
+
+/**
  * @param expr
  * @param context
  * @returns

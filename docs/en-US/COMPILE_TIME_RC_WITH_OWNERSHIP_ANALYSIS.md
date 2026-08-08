@@ -213,13 +213,35 @@ printf("%d\n", x.*); // Always works: x owns a valid reference
 - ✅ Parameters borrow by default (efficient for reads)
 - ⚠️ May have RC overhead from assignments
 - ✅ Can be optimized away through Phase 2 analysis
-- ⚠️ **Known aliasing gap:** a borrowed parameter can be invalidated when the callee
-  mutates the same field through another handle **inside a loop** (straight-line code is
-  protected by old-value drop deferral; loop drops cannot defer across iterations). Swift
-  closes this with exclusivity enforcement, Lobster with borrow inference; Yo has not yet
-  picked its mechanism. See
-  `issues/borrowed-arg-invalidated-by-aliased-container-mutation.md` for the reproducer
-  and the design options.
+- ✅ **Borrowed-argument aliasing is closed** (2026-08, Lobster-style borrow
+  inference in two stages). A borrowed parameter used to be invalidated when the
+  callee mutated the same field through another handle **inside a loop**
+  (straight-line code was already protected by old-value drop deferral; loop drops
+  cannot defer across iterations).
+
+  - **Stage 0** — an RC-typed field **projection** passed to a **borrowing**
+    parameter gets a caller-owned `+1` for the call. Plain locals stay `+0` (the
+    caller's binding keeps them alive), as do owned temps, `inout` parameters, and
+    extern/builtin callees (no Yo code runs inside them).
+  - **Stage 1** — per-callee **mutation summaries** (`src/evaluator/effects/mutation-summary.ts`)
+    ask "may this call transitively mutate RC container storage?"; the read-only
+    majority get the `+0` borrow back. Stage 0 alone cost +23% self-compile time;
+    Stage 1 returns all of it and more (45.3 s → 55.2 s → 38.5 s on
+    `check ./std`), so the hole is closed at no runtime cost.
+
+    A callee counts as **may-mutate** if it (transitively) assigns to an
+    RC-typed place, performs an **explicit RC decrement** (`___drop`,
+    `__yo_decr_rc` and friends — any of which can release the container-held
+    reference a borrow depends on), calls an extern that is the
+    runtime/allocator family, a libc `free`/`realloc`, or takes a callback,
+    yields to the event loop via an io builtin, is a control function, or
+    calls anything the compiler cannot resolve. It is a MAY-analysis:
+    anything unrecognised counts as mutating. Compiler-_generated_ drops are
+    not a hazard — they only ever target variables that own their value, and
+    a borrow is non-owning by definition.
+
+  See `issues/borrowed-arg-invalidated-by-aliased-container-mutation.md` for the
+  reproducer, the staged design, and the landing logs.
 
 ## When to call `___dup` to increase the reference count?
 

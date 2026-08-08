@@ -124,6 +124,7 @@ MACRO_DISPATCH_ENABLED :: true;
 { TypeField, get_struct_fields } :: import("../types/field.yo");
 { try_to_call_function_with_arguments, resolve_param_types_from_expected, validate_where_constraints_for_call, reapply_where_clause_exprs_for_call, create_specialized_function_inline, _type_has_array_len_var, _trial_eval_ret_type_expr } :: import("./helper.yo");
 { get_func_type, register_func_type, is_control_fn } :: import("../../function_value.yo");
+{ function_may_mutate_rc_storage } :: import("../effects/mutation_summary.yo");
 { create_unknown_val, create_unknown_val_with_name, is_runtime_only_unknown_val } :: import("../../value.yo");
 /// Named call-result unknown: promotes a Type-universe result to
 /// `TypeVal(SomeT)`. TS names every result UnknownValue (variableName is
@@ -1604,7 +1605,9 @@ _evaluate_funcval_runtime_call :: (
     evaled_arg_infos : ArrayList(ExprInfo),
     n_supplied_reg : usize,
     param_vars : ArrayList(Variable),
-    exn : Exception
+    exn : Exception,
+    fv_s0_drops : ArrayList(AstExpr),
+    fv_s0_marked_args : ArrayList(AstExpr)
   ) -> AstExpr
 )({
   // ARGUMENT TYPE CHECK — the step this branch never performed.
@@ -1917,6 +1920,10 @@ _evaluate_funcval_runtime_call :: (
   // Runtime arg exprs for codegen (this is the runtime-call / no-CTFE
   // path — the body is NOT executed, so it returns before the 2341 site).
   out_rt.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(runtime_arg_exprs);
+  // Aliasing Stage 1: the summary target is decided AFTER the Gap-6
+  // specialization below (a generic callee's raw body is unevaluated —
+  // only the minted specialization's body is walkable).
+  (rt_s1_spec_fv : Option(EvalValue)) = Option(EvalValue).None;
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_rt);
   // Assign a temp variable name to the (non-unit) call result so codegen
   // can materialize it as `<cty> <tmp> = call(...)`. Mirrors TS
@@ -2174,6 +2181,7 @@ _evaluate_funcval_runtime_call :: (
       variadic_args : ArrayList(VarArgEntry).new()
     );
     spec_fv := create_specialized_function_inline(cv, spec_ct, spec_av, fresh_env, env, ctx, exn);
+    rt_s1_spec_fv = Option(EvalValue).Some(spec_fv);
     spec_fid := match(spec_fv,.FuncVal(__fvd1, _) => __fvd1.*.func_id, _ => String.from(""));
     // A resolved_ret still carrying an Array LENGTH VAR (a value-generic
     // stamped return, e.g. `-> _ArrayIter(T, N)`) is a def-era instance
@@ -2271,6 +2279,75 @@ _evaluate_funcval_runtime_call :: (
       record_fid_spec(func_id_fv.clone());
     });
     ctx.self_type = spec_self_saved;
+  });
+  // Aliasing Stage 1 (mutation summaries): the runtime-return path is where
+  // most ordinary calls land — a READ-ONLY callee cannot reassign aliased
+  // storage mid-call, so remove this call's Stage-0 projection dups (the
+  // dup never emits; its consumed temp is inert). A MAY-MUTATE callee keeps
+  // its dup; this path has never wired the balancing drop (the documented
+  // Stage-0 leak-direction gap — see the issue doc's landing log), and the
+  // drop-release-point semantics are a separate follow-up. The summary
+  // target is the Gap-6 specialization when one was minted (its evaluated
+  // body is walkable); a raw generic body conservatively answers
+  // "may mutate".
+  if(fv_s0_drops.len() > usize(0), {
+    (rt_s1_fid : String) = func_id_fv.clone();
+    (rt_s1_body : Option(AstExpr)) = match(
+      cv,
+      .FuncVal(rt_s1_cvd, _) => Option(AstExpr).Some(rt_s1_cvd.*.body),
+      _ => Option(AstExpr).None
+    );
+    match(
+      rt_s1_spec_fv,
+      .Some(rt_s1_sv) => match(
+        rt_s1_sv,
+        .FuncVal(rt_s1_sfd, _) => {
+          rt_s1_fid = rt_s1_sfd.*.func_id.clone();
+          rt_s1_body = Option(AstExpr).Some(rt_s1_sfd.*.body);
+        },
+        _ => ()
+      ),
+      .None => ()
+    );
+    (rt_s1_elided : bool) = false;
+    if(!(is_control_fn(rt_s1_fid.clone())), {
+      match(
+        rt_s1_body,
+        .Some(rt_s1_b) => {
+          if(!(function_may_mutate_rc_storage(rt_s1_fid.clone(), rt_s1_b, ctx)), {
+            rt_s1_elided = true;
+          });
+        },
+        .None => ()
+      );
+    });
+    if(rt_s1_elided, {
+      (rt_s1i : usize) = usize(0);
+      while(rt_s1i < fv_s0_marked_args.len(), {
+        match(
+          fv_s0_marked_args.get(rt_s1i),
+          .Some(rt_s1_ma) => match(
+            expr_info_table_get(ctx.expr_info_table, ast_expr_id(rt_s1_ma)),
+            .Some(rt_s1_mai) => {
+              rt_s1_mai.deferred_dup_expressions = Option(ArrayList(AstExpr)).None;
+            },
+            .None => ()
+          ),
+          .None => ()
+        );
+        rt_s1i = (rt_s1i + usize(1));
+      });
+    }, {
+      // MAY-MUTATE callee: the dup stays, so its balancing `___drop` must be
+      // attached to the CALL node for the post-call flush — the same channel
+      // helper.yo and the inline FuncVal path use. This branch had never been
+      // wired: `_evaluate_funcval_runtime_call` returns before the inline
+      // path's drop handling, so every Stage-0 dup taken on this path (which
+      // is where most ordinary calls land) leaked its +1 from the day Stage 0
+      // shipped. Leak-direction only — the borrow stayed valid — but it kept
+      // an allocation alive per call.
+      out_rt.deferred_drop_expressions = Option(ArrayList(AstExpr)).Some(fv_s0_drops);
+    });
   });
   expr
 });
@@ -3926,6 +4003,9 @@ Fix: wrap the call:
         // Aliasing Stage 0: drops synthesized for projection args in THIS
         // call's inline arg loop; merged into the call's ExprInfo below.
         fv_s0_drops := ArrayList(AstExpr).new();
+        // Aliasing Stage 1: the marked argument exprs (parallel channel) —
+        // unmarked below when the callee proves read-only.
+        fv_s0_marked_args := ArrayList(AstExpr).new();
         fv_param_is_owning := match(
           callee_info_opt,
           .Some(ci) => match(
@@ -4509,6 +4589,7 @@ Fix: wrap the call:
                 set_expr_as_needs_to_call_dup_for_borrowed_projection(evaled_arg, ctx, exn),
                 .Some(fv_s0d) => {
                   fv_s0_drops.push(fv_s0d);
+                  fv_s0_marked_args.push(evaled_arg);
                 },
                 .None => ()
               );
@@ -5432,7 +5513,9 @@ Fix: wrap the call:
               evaled_arg_infos,
               n_supplied_reg,
               param_vars,
-              exn
+              exn,
+              fv_s0_drops,
+              fv_s0_marked_args
             )
           );
         });
@@ -5490,7 +5573,37 @@ Fix: wrap the call:
         out.value = body_info.value;
         // Runtime arg exprs for codegen (the call's C-argument materialization).
         out.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(runtime_arg_exprs);
+        // Aliasing Stage 1 (mutation summaries): a READ-ONLY callee cannot
+        // reassign the aliased storage mid-call — remove this call's Stage-0
+        // dups and discard the balancing drops (twin of the
+        // try_to_call_function_with_arguments gate; the callee body was just
+        // inline-evaluated, so its ExprInfo is complete for the walk).
+        (fv_s1_elided : bool) = false;
         if(fv_s0_drops.len() > usize(0), {
+          if(!(is_control_fn(func_id_fv.clone())), {
+            if(!(function_may_mutate_rc_storage(func_id_fv.clone(), body_box, ctx)), {
+              fv_s1_elided = true;
+            });
+          });
+          if(fv_s1_elided, {
+            (fv_s1i : usize) = usize(0);
+            while(fv_s1i < fv_s0_marked_args.len(), {
+              match(
+                fv_s0_marked_args.get(fv_s1i),
+                .Some(fv_s1_ma) => match(
+                  expr_info_table_get(ctx.expr_info_table, ast_expr_id(fv_s1_ma)),
+                  .Some(fv_s1_mai) => {
+                    fv_s1_mai.deferred_dup_expressions = Option(ArrayList(AstExpr)).None;
+                  },
+                  .None => ()
+                ),
+                .None => ()
+              );
+              fv_s1i = (fv_s1i + usize(1));
+            });
+          });
+        });
+        if((fv_s0_drops.len() > usize(0)) && !(fv_s1_elided), {
           out.deferred_drop_expressions = Option(ArrayList(AstExpr)).Some(fv_s0_drops);
         });
         // control_flow is intentionally NOT propagated (Return is consumed here).

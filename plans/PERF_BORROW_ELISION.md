@@ -1,7 +1,17 @@
 # Perf: cutting RC traffic in the self-compile (the 55→15 min arc)
 
-_Status: IN PROGRESS 2026-07-25. Measurements + method:
+_Status: IN PROGRESS. Measurements + method:
 `issues/yo-self-compile-performance-rc-string-eq.md`._
+
+> **2026-08-08 — the attribution table below is STALE; re-profile before
+> picking a lever.** Lever 1 (`== String.from(x)`) has LANDED: only 29
+> sites remain, all cold (`asm.yo` inline assembly + two per-binding
+> `__yo_self` checks), and `ast_expr_is_fn_call_of` now compares
+> `tok.value == func_name` directly. A fresh `sample` profile of the
+> self-hosted `check ./std` showed the hotspot had moved entirely to
+> **type-key construction**, which the two entries under "Landed" below
+> address. Use `sample <pid>` on a running `check ./std` — it gives
+> function-level attribution with no rebuild, and it is what found both.
 
 ## Problem
 
@@ -71,16 +81,48 @@ real yo-self emit.
 (86.21 → 82.15 s min user, 3 reps) for **+140% binary size**
 (4.8 → 11.6 MB). Not worth landing on its own.
 
+### 3. Type-interning cycle guard: linear scan → hash set (2026-08-08)
+
+`_intern_key_into`'s `visited` set (`yo-self/types/intern.yo`) was an
+`ArrayList(String)` probed by linear scan, costing O(visited) full String
+comparisons per named type on every key render — and `substitute` re-keys
+the whole subtree at each recursion level. It was the **top of the
+profile**: `_contains` 3731 samples + `_platform_memcmp` 1562, ahead of
+`__yo_decr_rc` (3099).
+
+Swapped for `HashSet(String)`. The membership question is identical, so
+the rendered keys are unchanged — proven directly: **25 corpus programs
+emit BYTE-IDENTICAL C** before and after.
+
+Effect: `check ./std` 45.14 s → 37.10 s (**-17.8%**), and `__yo_decr_rc`
+itself fell 3099 → 1373 samples (the probes were the RC traffic).
+
+### 4. `StringBuilder.write_string`: per-byte push → bulk copy (2026-08-08)
+
+`write_string` appended byte-at-a-time through `ArrayList(u8).push` (each
+byte paying a bounds check, an Option match and a capacity test) while its
+sibling `write_str` already bulk-copied via `extend_from_ptr`. After
+lever 3, `ArrayList(u8).push` was the new top user-code entry (2778).
+
+Effect (interleaved A/B, 5 reps each): min 37.22 s → 35.66 s (**-4.2%**);
+4 of 5 runs beat every baseline run. Note the occasional slow outlier —
+the two paths allocate in different size sequences (an empty buffer takes
+exactly `n` via `ensure_total_capacity`, where `push` starts at 4 and
+doubles), which moves GC collection points around.
+
 ## Remaining levers, in attribution order
 
-1. **`== String.from(x)` in yo-self hot paths** (177 sites). Allocates a
-   String just to compare against a `str`, when std has a direct
-   `String == str` impl and TS compares directly (`expr.ts:554`) — so
-   this is a fidelity gap too. Covers `ast_expr_is_fn_call_of` (17.5%)
-   and `ast_expr_is_atom_of` (9.6%).
-2. **`_attach_early_return_only_drop_to_returns`** (13.9%) — a recursive
-   AST walk run per begin block; check for an algorithmic fix before an
-   RC one.
+1. ~~**`== String.from(x)` in yo-self hot paths** (177 sites)~~ — **LANDED**
+   (see the status banner). 29 cold sites remain, not worth touching.
+2. **`_attach_early_return_only_drop_to_returns`** — a recursive AST walk
+   run per begin block. Now 333 samples (~1.3%), well below its old 13.9%
+   billing, but the algorithmic fix is clear and still worth doing: the M3
+   driver (`yo-self/evaluator/exprs/begin.yo`) walks the WHOLE block tree
+   once per eligible consumed variable — O(vars x tree) — and synthesizes
+   AND evaluates a `___drop` expr per variable BEFORE knowing whether the
+   block contains any return/unwind at all. Walk once to collect the
+   return/unwind nodes, then test each variable against that small list;
+   and short-circuit blocks with no early exits before generating anything.
 3. **1.64e9 frees per `check ./std`** — allocation churn itself. String
    interning / small-string optimization is the structural answer, and
    the largest remaining item after the above.
