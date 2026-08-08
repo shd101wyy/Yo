@@ -645,7 +645,21 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   // is head-agnostic, so both forms share one emitter. A fully compile-time
   // array keeps its value and is emitted as a constant elsewhere. Mirrors the
   // same dispatch in src/codegen/exprs/generation.ts.
-  if((!(ast_expr_is_atom(expr))) && (is_array_type(ei.ty) && (ei.runtime_arg_exprs_in_order.is_some() && ei.value.is_none())), {
+  // The CALLEE must be the array TYPE itself. Matching on the result type
+  // alone was far too broad: any ordinary function RETURNING an array
+  // (`md5(data) -> Array(u8, 16)`) also has an array type and runtime args,
+  // and got emitted as an array literal of its own arguments instead of being
+  // called.
+  arr_ctor_callee := match(
+    expr,
+    .FnCall(_, __ac_f, _, _, _) => match(
+      context.base.get_expr_info(__ac_f),
+      .Some(__ac_fi) => match(__ac_fi.value,.Some(__ac_v) => match(__ac_v,.TypeVal(__ac_t) => is_array_type(__ac_t), _ => false),.None => false),
+      .None => false
+    ),
+    .Atom(_, _) => false
+  );
+  if(arr_ctor_callee && (is_array_type(ei.ty) && (ei.runtime_arg_exprs_in_order.is_some() && ei.value.is_none())), {
     match(generate_anonymous_array(expr, indent.clone(), context),.Some(r) => return(r),.None => ());
   });
   if(ast_expr_is_fn_call_of(expr, BF_RECUR, Option(usize).None), return(generate_recur(expr, indent.clone(), context)));

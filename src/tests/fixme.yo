@@ -1,25 +1,24 @@
 pragma(Pragma.AllowUnsafe);
 open(import("std/libc/stdio"));
-{ ArrayList } :: import("std/collections/array_list");
 
-H :: ref(struct(a : Array(Box(i32), 2)));
-
-mk :: (fn() -> H)(
-  H(a : Array(Box(i32), 2)(box(i32(42)), box(i32(7))))
-);
-
-poke :: (fn(h : H, borrowed : Box(i32)) -> i32)({
-  (i : i32) = i32(0);
-  while(runtime(i < i32(2)), {
-    h.a(0) = box(i32(100) + i);
-    i = (i + i32(1));
-  });
-  borrowed.*
-});
+S :: struct(x : Box(i32), y : Box(i32));
+E :: enum(None, Some(b : Box(i32)));
+BoxPair :: struct(a : Box(i32), b : Box(i32));
+RS :: ref(struct(t : BoxPair, s : S, e : E));
 
 main :: (fn() -> unit)({
-  h := mk();
-  unsafe(printf("A = %d (want 42)\n", poke(h, h.a(0))));
+  // tuple of RC
+  t := (box(i32(1)), box(i32(2)),);
+  unsafe(printf("tuple  %d %d\n", t.0.*, t.1.*));
+  // struct of RC
+  s := S(x : box(i32(3)), y : box(i32(4)));
+  unsafe(printf("struct %d %d\n", s.x.*, s.y.*));
+  // enum payload of RC
+  e := E.Some(b : box(i32(5)));
+  unsafe(printf("enum   %d\n", match(e,.Some(b) => b.*,.None => i32(0))));
+  // ref struct holding all three -> exercises the generated tracer
+  r := RS(t : BoxPair(a : box(i32(6)), b : box(i32(7))), s : S(x : box(i32(8)), y : box(i32(9))), e : E.Some(b : box(i32(10))));
+  unsafe(printf("nested %d %d %d\n", r.t.a.*, r.s.x.*, match(r.e,.Some(b) => b.*,.None => i32(0))));
 });
 
 export(main);
