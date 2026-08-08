@@ -2170,6 +2170,23 @@ format_yo_source :: (
                     );
                   },
                   (token.kind == TokenKind.Dot) => {
+                    // Mirrors formatter.ts:381-385 — `trimTrailingHorizontalWhitespace(); write(".")`.
+                    // TS routes EVERY emit through `write()`, which calls
+                    // `writeIndentIfNeeded()` first; yo-self inlines that helper at each
+                    // site and this one was missed, so a line-leading dot was pushed
+                    // BEFORE the pending indent and left `at_line_start` set. The next
+                    // token then wrote the indent after it, formatting every match arm as
+                    // `.    Some(v) =>` instead of `    .Some(v) =>`.
+                    result = _trim_trailing_h_ws(result);
+                    if(at_line_start, {
+                      (sp : usize) = usize(0);
+                      count := (indent_level * INDENT_SIZE);
+                      while(sp < count, {
+                        result.push_str(" ");
+                        sp = (sp + usize(1));
+                      });
+                      at_line_start = false;
+                    });
                     result.push_str(".");
                   },
                   (token.kind == TokenKind.Operator) => {

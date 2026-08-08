@@ -269,10 +269,13 @@ jobs:
   # function bodies — see plans/archive/YO_SELF_STAGE2_HANDOFF.md).
   #
   # Runs scripts/bootstrap/gates_fast.sh, the same tier-1 gate used locally on
-  # every change: two repro compiles, a 20-file battery via `<bin> test` WITH
+  # every change: two repro compiles, a 23-file battery via `<bin> test` WITH
   # HOLLOW DETECTION, the 155-program corpus diff-test (yo-self output vs TS
-  # output, byte-compared), and `<bin> check ./std`. The script exits non-zero if
-  # any of those fail.
+  # output, byte-compared), `<bin> check ./std`, `<bin> check ./yo-self` (GATE 4
+  # — the compiler type-checking ITSELF; ~137 s, and the only gate that covers
+  # build_runner.yo / version_cache.yo, which sit outside main.yo's import
+  # closure and were type-checked by NOTHING). The script exits non-zero if any
+  # of those fail.
   #
   # HOLLOW DETECTION is the point of the battery: a batch whose `__yo_user_main`
   # contains "Failed to transpile" reports tests as passing while running nothing
@@ -569,9 +572,14 @@ jobs:
           submodules: recursive
 
       - name: Setup Emscripten
+        # Pin the version, for the same reason wasmtime is pinned below: the
+        # "latest" alias is resolved at run time and fetches a bundled Node
+        # tarball from storage.googleapis.com, which returned HTTP 403 on run
+        # 31238532553 and left the job with no toolchain. 6.0.6 is what
+        # "latest" resolved to on the green runs.
         uses: mymindstorm/setup-emsdk@v14
         with:
-          version: "latest"
+          version: "6.0.6"
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -612,9 +620,14 @@ jobs:
           submodules: recursive
 
       - name: Setup Emscripten
+        # Pin the version, for the same reason wasmtime is pinned below: the
+        # "latest" alias is resolved at run time and fetches a bundled Node
+        # tarball from storage.googleapis.com, which returned HTTP 403 on run
+        # 31238532553 and left the job with no toolchain. 6.0.6 is what
+        # "latest" resolved to on the green runs.
         uses: mymindstorm/setup-emsdk@v14
         with:
-          version: "latest"
+          version: "6.0.6"
 
       - name: Install wasmtime
         # Pin the version: the installer's "latest release" lookup hits the
