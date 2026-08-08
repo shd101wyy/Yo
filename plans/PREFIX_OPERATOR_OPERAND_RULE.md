@@ -101,21 +101,34 @@ exactly this reason.
 - **Purely additive.** Every spaced form is a parse error today; no valid
   program changes meaning.
 - **Kills a formatter divergence class.** The handover doc (§6) counts ~310
-  "space before `.`" disagreements between the TS and self-hosted formatters
-  (e.g. `match(l.get(i),.Some(__e) => __e,...)` vs
-  `match(l.get(i), .Some(__e) => ...)`). With whitespace insignificant, the
-  canonical form is unambiguous — **tight**: `a.b`, `.Circle`, `,.Some` after
-  commas. Both formatters must emit tight dots; the `fmt --check` differential
-  becomes a clean gate.
+  "space before `.`" disagreements between the TS and self-hosted formatters.
+  **Correction (verified 2026-08-09 by probing the TS formatter):** the
+  handover doc's minimal example is wrong — TS does **not** emit `, .Some`
+  with a space; it emits `,.Some` (tight). The corpus is tight `,.Some`
+  (2934 vs 10 spaced) **because the TS formatter made it tight** — the
+  corpus is formatter output, so "corpus majority" is circular evidence.
+  Root cause: the Comma case writes `,` then `ensureSpace()` (formatter.ts:326,
+  343/347), but the Dot case immediately calls
+  `trimTrailingHorizontalWhitespace()` (formatter.ts:382), **eating the
+  comma's space**. Same for `=` (probe: `(v : Option(i32)) =.Some(i32(5));`
+  vs `= Some(i32(5))` — the identifier form keeps the space, the dot form
+  loses it). The tight form is an **implementation accident**, not a design
+  choice, and it fights the language's own convention: everywhere else,
+  comma/operator handlers establish a space and nothing eats it.
+  **Canonical form: `, .Some` (space after comma)** — the universal
+  convention (`f(a, b)` in every language) and consistent with `.Some` being
+  a prefix operator under Rule 1 (`f(x, -1)` has a space). Fix: remove the
+  Dot-case trim in both formatters — member-access tightness (`a . b` →
+  `a.b`) does not depend on it, because whitespace tokens are skipped
+  entirely (formatter.ts:441-443); the trim only ever fires on spaces that
+  comma/operator/curly handlers _intended_.
 - **Pre-P2 window.** The TS compiler is still the referee. After P2 retires
   `src/`, a syntax change can no longer be adjudicated differentially, so any
   grammar change must land now or in P1 (which owns the fmt differential).
 - **Consistency with the ecosystem.** Go, JS, Rust, Python all accept spaced
   dots; Yo's rejection is the outlier.
 
-## What about the lexer? (TokenType.Dot vs a plain operator)
-
-Three separable parts, only one of which changes:
+## What about the lexer? (TokenType.Dot vs a plain operator)Three separable parts, only one of which changes:
 
 1. **`TokenType.Dot` → drop it; lex `.` as a plain `TokenType.Operator` with
    value `"."`.** The evaluator already checks _values_ everywhere
@@ -177,12 +190,22 @@ Three separable parts, only one of which changes:
 
 ### Formatter (both)
 
-- Keep the tight-dot emission (TS already: `trimTrailingHorizontalWhitespace()`
-  then `write(".")`, formatter.ts:381-385; `isTightlyBoundOperator`'s
-  "after a dot, always tight" rule, formatter.ts:1244-1247).
-- Make TS emit **tight** in the cases it currently preserves spaced
-  (`, .Some` → `,.Some`), and port identically to yo-self — this is the
-  concrete fix for the 315-file divergence.
+- **Make the Dot-case trim conditional** (formatter.ts:381-385, mirrored at
+  yo-self/formatter.yo:2172): `trimTrailingHorizontalWhitespace()` before the
+  dot is correct for member access (`str. len()` → `str.len()`, verified)
+  but must be skipped when the previous meaningful token is a comma (or an
+  operator like `=`/`:=`/`=>`) — those handlers add a space via
+  `ensureSpace()` (formatter.ts:326, 343/347) that the trim currently eats,
+  producing the accidental `,.Some` and `=.Some` (verified: TS emits
+  `=.Some(i32(5))` but `= Some(i32(5))` for the non-dot form).
+  Rule: **the dot is tight to its left operand (member access) but keeps the
+  spacing the left context established (comma/operator → space)**.
+- Canonical forms: `a.b` (tight — member access), `, .Some` (spaced after
+  comma — prefix dot), `= .Some` (spaced after `=` — prefix dot),
+  `(.Some` (tight after `(` — no space after open paren anywhere).
+  Both formatters must agree; the `fmt --check` differential becomes a clean
+  gate. Port identically to yo-self (it currently mirrors the TS trim, so it
+  produces the same accidental tightness — verify against a built binary).
 - New: tight emission for prefix operators when they take a bare primary
   (`-1`, `!x`, `&x`), mirroring the existing `!(x)` tightness.
 
@@ -208,7 +231,9 @@ Add to `tests/` (mirror in `tests/internal/` for the self-hosted compiler):
   `.Circle(1, 2)`
 - `-1 + 2` ⇒ `(-1) + 2`; `-(1 + 2)` explicit (after Rule 1 lands for `-`)
 - `..`, `..=`, `1.5`, `x.*`, `match(x, .Some(v) => v)` unaffected
-- Formatter: emits tight dot/dash from spaced input, both compilers
+- Formatter: `a . b` → `a.b`; `match(x, .Some(v) => v, .None => 0)` keeps
+  `, .Some` (space after comma, tight dot-to-operand); `= .Some` spaced;
+  `(.Some` tight; both compilers agree
 
 ## Migration
 
@@ -226,9 +251,16 @@ when both formatters emit tight dots.
    so the second `-` is a fresh prefix atom: `-(-1)` parses naturally, matching
    C. Lexer merges `--` into one operator token; `- -1` (with space) is the
    spellable form. Edge case only.
-3. **Formatter canonical `,.Some` vs `, .Some`** — recommended: tight
-   (`,.Some`), matching the existing corpus majority; the two formatters must
-   simply agree, whichever is chosen.
+3. **Formatter canonical `,.Some` vs `, .Some`** — **decided: spaced
+   `, .Some`** (verified 2026-08-09). The corpus's tight form is an artifact
+   of the TS formatter's Dot-case trim eating the Comma-case space; the
+   universal convention is space-after-comma (`f(a, b)`), and `.Some` as a
+   prefix operator (Rule 1) should get the same space as `f(x, -1)`. This
+   also flips the handover doc's divergence direction: TS must stop
+   trimming after commas/operators, and the self-hosted formatter (which
+   mirrors the trim) must be checked against a built binary — the handover
+   doc's table claims self already emits `, .Some`, so verify which side is
+   actually wrong.
 4. **Is `TokenType.Dot` worth dropping?** — the flip side of the lexer section
    above: it touches ~15 sites for a conceptual win, and the evaluator already
    treats dot by value, so nothing breaks. Decide as part of this change (it
