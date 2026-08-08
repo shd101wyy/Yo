@@ -98,5 +98,29 @@ if [ "$std_rc" != "0" ]; then
   dump_log "/tmp/${P}_std.log"
 fi
 
+echo "=== T1 GATE 4: check ./yo-self ==="
+# The compiler type-checking ITSELF. GATE 3 only covers ./std, which left two
+# ported-but-unwired libraries (build_runner.yo, version_cache.yo — ~1600 lines)
+# type-checked by nothing at all: they are outside main.yo's import closure, so
+# the stage-2/stage-3 compiles never touch them either. This is also the
+# workload that exposed the -O0 stack-exhaustion class (AGENTS.md), hence the
+# explicit stack bump.
+YO_MAIN_STACK_MB=4096 "$S1" check ./yo-self &> "/tmp/${P}_yoself.log"
+yoself_rc=$?
+echo "YOSELF_RC=$yoself_rc  $(tail -1 "/tmp/${P}_yoself.log")"
+if [ "$yoself_rc" != "0" ]; then
+  fail "check ./yo-self rc=$yoself_rc"
+  dump_log "/tmp/${P}_yoself.log"
+fi
+
+# NOTE: a `fmt` differential is deliberately NOT a gate yet. Running
+# `<bin> fmt --check ./std ./tests ./yo-self` today reports 315 files (down from
+# 417 once the line-leading-dot bug was fixed), so wiring it in would land a
+# permanently-red gate. The remaining divergence is tracked in
+# issues/yo-self-formatter-diverges-from-ts.md, which also records why the naive
+# framing is not a clean differential: the TS formatter PRESERVES existing line
+# structure rather than canonicalizing it, so "would format" mixes real spacing
+# bugs with line-breaking differences. Add the gate with the fix, per P1.
+
 echo "=== T1_DONE (${P}) failures=${fails} ==="
 [ "$fails" = "0" ] || exit 1

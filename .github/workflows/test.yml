@@ -269,10 +269,13 @@ jobs:
   # function bodies — see plans/archive/YO_SELF_STAGE2_HANDOFF.md).
   #
   # Runs scripts/bootstrap/gates_fast.sh, the same tier-1 gate used locally on
-  # every change: two repro compiles, a 20-file battery via `<bin> test` WITH
+  # every change: two repro compiles, a 23-file battery via `<bin> test` WITH
   # HOLLOW DETECTION, the 155-program corpus diff-test (yo-self output vs TS
-  # output, byte-compared), and `<bin> check ./std`. The script exits non-zero if
-  # any of those fail.
+  # output, byte-compared), `<bin> check ./std`, `<bin> check ./yo-self` (GATE 4
+  # — the compiler type-checking ITSELF; ~137 s, and the only gate that covers
+  # build_runner.yo / version_cache.yo, which sit outside main.yo's import
+  # closure and were type-checked by NOTHING). The script exits non-zero if any
+  # of those fail.
   #
   # HOLLOW DETECTION is the point of the battery: a batch whose `__yo_user_main`
   # contains "Failed to transpile" reports tests as passing while running nothing
@@ -569,9 +572,14 @@ jobs:
           submodules: recursive
 
       - name: Setup Emscripten
+        # Pin the version, for the same reason wasmtime is pinned below: the
+        # "latest" alias is resolved at run time and fetches a bundled Node
+        # tarball from storage.googleapis.com, which returned HTTP 403 on run
+        # 31238532553 and left the job with no toolchain. 6.0.6 is what
+        # "latest" resolved to on the green runs.
         uses: mymindstorm/setup-emsdk@v14
         with:
-          version: "latest"
+          version: "6.0.6"
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -612,9 +620,14 @@ jobs:
           submodules: recursive
 
       - name: Setup Emscripten
+        # Pin the version, for the same reason wasmtime is pinned below: the
+        # "latest" alias is resolved at run time and fetches a bundled Node
+        # tarball from storage.googleapis.com, which returned HTTP 403 on run
+        # 31238532553 and left the job with no toolchain. 6.0.6 is what
+        # "latest" resolved to on the green runs.
         uses: mymindstorm/setup-emsdk@v14
         with:
-          version: "latest"
+          version: "6.0.6"
 
       - name: Install wasmtime
         # Pin the version: the installer's "latest release" lookup hits the
@@ -644,3 +657,79 @@ jobs:
       # See the WASM job: tests/internal is host-toolchain-only.
       - name: Run WASI tests
         run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs test ./tests --exclude tests/internal --parallel 2 --bail --verbose --target wasm-wasi --profile
+
+  # Full-corpus HOLLOW SWEEP under the self-hosted binary.
+  #
+  # Why this exists: bootstrap-self-test runs `<bin> test` on only the 23-file
+  # gates_fast battery, so the other 165 language .test.yo files were exercised
+  # SOLELY by the TypeScript compiler — the one plans/SELF_HOSTING_COMPLETION.md
+  # Phase 2 deletes. scripts/bootstrap/hollow_sweep69.sh was written to close
+  # that and had never been wired into any workflow.
+  #
+  # It scores each file HONESTLY: GREEN requires exit 0 AND an emitted batch
+  # `__yo_user_main` that is not a `// Failed to transpile` comment. A hollow
+  # batch runs no assertions while still reporting "N passed" — the first sweep
+  # found 3 such files, one of them claiming 49 passed
+  # (issues/yo-self-hollow-language-test-files.md).
+  #
+  # Gated as a RATCHET against scripts/bootstrap/known-failing.tsv so it blocks
+  # any NEW regression today while the known ones are worked down. It compares
+  # <path, verdict> PAIRS and fails in both directions — an un-allowlisted failure
+  # fails, a listed entry that no longer matches fails, and a missing allowlist
+  # file fails loudly rather than scoring everything as new.
+  #
+  # The first CI run of this job also found 2 RED files that PASS on macOS
+  # (tests/ref_local_binding, tests/string/string) — a Linux-only divergence in
+  # yo-self that had never been visible, since neither file is in the 23-file
+  # battery. They are allowlisted with that note.
+  hollow-sweep:
+    name: Full-corpus hollow sweep (all 188 language files, self-hosted)
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install liburing
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y liburing-dev
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install dependencies
+        run: |
+          bun install
+          bun run build
+
+      - name: "Stage 1: build the self-hosted compiler with the TS compiler"
+        run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs compile yo-self/main.yo --release -o /tmp/yo-stage1
+
+      - name: Sweep every language test file through the self-hosted binary
+        env:
+          YO_MAIN_STACK_MB: "4096"
+        run: BIN=/tmp/yo-stage1 OUT=/tmp/hsweep bash scripts/bootstrap/hollow_sweep69.sh
+
+      # results.txt alone is a scorecard, not a diagnosis — the first CI run of
+      # this job reported two RED files with no way to see WHY. Upload the
+      # per-file logs too (they are one small log per test file).
+      - name: Upload sweep results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hollow-sweep-results
+          path: |
+            /tmp/hsweep/results.txt
+            /tmp/hsweep/*.log
+          if-no-files-found: ignore

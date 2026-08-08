@@ -1,0 +1,34 @@
+# Language test files that do NOT pass cleanly under the self-hosted compiler.
+# Format: <path> <verdict>, whitespace-separated. Blank lines and `#` ignored.
+#
+# NOTE the `.tsv` extension: `.gitignore` has a blanket `*.txt` rule, which
+# silently swallowed the first version of this file so CI ran with NO allowlist
+# at all. Do not rename this to `.txt`.
+#
+# Verdicts (see scripts/bootstrap/hollow_sweep69.sh):
+#   HOLLOW  exit 0 and "N passed", but the emitted batch `__yo_user_main` is a
+#           `// Failed to transpile` comment — so no assertion actually ran.
+#   RED     non-zero exit or timeout.
+#
+# This is an ALLOWLIST OF KNOWN DEBT, not a permanent exemption. It exists so the
+# full-corpus sweep can gate CI TODAY — blocking any NEW failure — while these are
+# worked down. See issues/yo-self-hollow-language-test-files.md.
+#
+# The gate fails in BOTH directions: a failing file missing from this list fails,
+# and a listed file that now passes (or changed verdict) ALSO fails, so the list
+# cannot go stale. Fixing one means deleting its line.
+
+# --- HOLLOW: report passes while running nothing (found 2026-08-08) ---
+tests/index.test.yo	HOLLOW
+tests/safe_code_structural_gates.test.yo	HOLLOW
+tests/variadic_comptime.test.yo	HOLLOW
+
+# --- RED: fail outright under the self-hosted compiler ON LINUX ONLY ---
+# Both PASS under the self-hosted binary on macOS arm64 and pass under the TS
+# compiler everywhere, so this is a platform-specific divergence in yo-self.
+# Neither file is in the 23-file gates_fast battery, so neither had ever been
+# run under the self-hosted compiler on Linux before this sweep existed.
+#   ref_local_binding: rc=1 after reporting "1 passed" -> a later test fails
+#   string/string:     rc=1 with no summary at all     -> dies before running
+tests/ref_local_binding.test.yo	RED
+tests/string/string.test.yo	RED

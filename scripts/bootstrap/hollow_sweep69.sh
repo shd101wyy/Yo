@@ -1,5 +1,5 @@
 #!/bin/bash
-# hollow_sweep69.sh — full 183-file sweep that scores a test file HONESTLY:
+# hollow_sweep69.sh — full 188-file sweep that scores a test file HONESTLY:
 # a file counts as GREEN only if it exits 0 AND its emitted batch `main` is not
 # a `// Failed to transpile` comment. See issues/retired/yo-self-hollow-test-batch-main.md
 # (a hollow main runs no assertions, so the harness reports every test as passed).
@@ -45,3 +45,53 @@ for t in $(find tests -path tests/internal -prune -o -name '*.test.yo' -print | 
   echo "$t $verdict rc=$rc hollow=$hollow markers=$markers ${summary:-none}" >> "$RESULTS"
 done
 echo "SWEEP_DONE" >> "$RESULTS"
+
+# ---------------------------------------------------------------------------
+# Gate. Scores the sweep against a checked-in allowlist of KNOWN-hollow files so
+# this can gate CI today (blocking any NEW hollow file) while the known ones are
+# worked down. Fails in BOTH directions so the allowlist cannot go stale:
+#   * a hollow/RED file that is NOT allowlisted  -> fail (a regression)
+#   * an allowlisted file that is no longer hollow -> fail (delete its line)
+# Set ALLOWLIST=/dev/null to demand a fully-clean sweep.
+# ---------------------------------------------------------------------------
+ALLOWLIST="${ALLOWLIST:-$(dirname "$0")/known-failing.tsv}"
+
+if [ ! -f "$ALLOWLIST" ] && [ "$ALLOWLIST" != "/dev/null" ]; then
+  # Guard against the failure that shipped the first version of this gate: the
+  # allowlist lived at known-hollow.TXT and `.gitignore`'s blanket `*.txt` rule
+  # silently kept it out of the repo, so CI scored every known file as new.
+  echo "FAIL: allowlist '$ALLOWLIST' does not exist (is it gitignored?)"
+  exit 1
+fi
+
+# Compare "<path>\t<verdict>" PAIRS, not bare paths, so a file that changes from
+# HOLLOW to RED (or back) is caught rather than silently tolerated.
+known=$(grep -vE '^\s*(#|$)' "$ALLOWLIST" 2>/dev/null | awk 'NF>=2 {print $1"\t"$2}' | sort -u)
+actual=$(awk '$2 == "HOLLOW" || $2 == "RED" {print $1"\t"$2}' "$RESULTS" | sort -u)
+
+echo
+echo "=== hollow sweep scorecard ==="
+awk 'NF > 1 {print $2}' "$RESULTS" | sort | uniq -c
+echo "allowlisted known-failing: $(echo "$known" | grep -c .)"
+
+gate_fails=0
+
+regressions=$(comm -23 <(echo "$actual") <(echo "$known"))
+if [ -n "$regressions" ]; then
+  echo "FAIL: failing file(s) not in $ALLOWLIST — a NEW regression under the self-hosted compiler."
+  echo "      (HOLLOW = reports passes while running nothing; RED = non-zero exit/timeout)"
+  echo "$regressions" | sed 's/^/  /'
+  gate_fails=1
+fi
+
+stale=$(comm -13 <(echo "$actual") <(echo "$known"))
+if [ -n "$stale" ]; then
+  echo "FAIL: allowlisted entr(ies) no longer match — delete or update these lines in $ALLOWLIST:"
+  echo "$stale" | sed 's/^/  /'
+  gate_fails=1
+fi
+
+if [ "$gate_fails" = "0" ]; then
+  echo "SWEEP_GATE_OK"
+fi
+exit "$gate_fails"

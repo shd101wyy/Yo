@@ -16,13 +16,14 @@
 #   PASS       both compiled+ran and behavior matched
 #   DIFF       both compiled+ran but stdout / exit-code / test-summary differ
 #   SELF-FAIL  the self-hosted compiler failed to compile/run (TS succeeded)
-#              — this is the expected baseline state until the port progresses
+#              — fails the harness; pass --allow-self-fail for a mid-port sweep
 #   TS-FAIL    the TS reference compiler failed (flags a broken test/baseline)
 #   BOTH-FAIL  both compilers failed (e.g. the circular_error_{a,b} baseline)
 #
 # Usage:
 #   scripts/diff-test.sh <path> [--parallel N] [--cc clang|gcc|zig]
 #                               [--release] [--filter SUBSTR] [-v]
+#                               [--allow-self-fail]
 #
 # Env:
 #   YO_SELF_BIN        path to the self-hosted binary (default /tmp/yo-self-bin)
@@ -43,6 +44,7 @@ RELEASE=""
 FILTER=""
 VERBOSE=0
 TARGET=""
+ALLOW_SELF_FAIL=0   # 1 = tolerate SELF-FAIL/BOTH-FAIL (mid-port sweeps only)
 RUN_TIMEOUT=120     # seconds per compiled-program run
 
 usage() { sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
@@ -54,6 +56,7 @@ while [[ $# -gt 0 ]]; do
     --release)  RELEASE="--release"; shift ;;
     --filter)   FILTER="$2"; shift 2 ;;
     -v|--verbose) VERBOSE=1; shift ;;
+    --allow-self-fail) ALLOW_SELF_FAIL=1; shift ;;
     -h|--help)  usage 0 ;;
     -*)         echo "unknown flag: $1" >&2; usage 2 ;;
     *)          TARGET="$1"; shift ;;
@@ -199,7 +202,18 @@ echo "────────────────────────�
 printf 'PASS %d  DIFF %d  SELF-FAIL %d  TS-FAIL %d  BOTH-FAIL %d  (total %d)\n' \
   "${COUNT[PASS]}" "${COUNT[DIFF]}" "${COUNT[SELF-FAIL]}" "${COUNT[TS-FAIL]}" "${COUNT[BOTH-FAIL]}" "$total"
 
-# Exit non-zero if anything diverged in a way the port must fix (DIFF/TS-FAIL).
-# SELF-FAIL/BOTH-FAIL are expected during the port and do not fail the harness.
-if [[ ${COUNT[DIFF]} -gt 0 || ${COUNT[TS-FAIL]} -gt 0 ]]; then exit 1; fi
+# Exit non-zero on any verdict that means the self-hosted compiler is wrong or
+# broken. SELF-FAIL/BOTH-FAIL used to be tolerated here ("expected during the
+# port") — that stopped being true when the bootstrap completed, and the silent
+# exit-0 meant any caller other than gates_fast.sh (which greps the scorecard
+# line for `SELF-FAIL 0`) would go GREEN over a compiler that cannot compile the
+# corpus at all. Pass --allow-self-fail to restore the old behavior for a
+# genuine mid-port sweep.
+FAILED=$(( ${COUNT[DIFF]} + ${COUNT[TS-FAIL]} ))
+if [[ $ALLOW_SELF_FAIL -eq 0 ]]; then
+  FAILED=$(( FAILED + ${COUNT[SELF-FAIL]} + ${COUNT[BOTH-FAIL]} ))
+elif [[ ${COUNT[SELF-FAIL]} -gt 0 || ${COUNT[BOTH-FAIL]} -gt 0 ]]; then
+  echo "note: --allow-self-fail tolerated ${COUNT[SELF-FAIL]} SELF-FAIL + ${COUNT[BOTH-FAIL]} BOTH-FAIL"
+fi
+if [[ $FAILED -gt 0 ]]; then exit 1; fi
 exit 0

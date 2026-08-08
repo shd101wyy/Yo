@@ -1,9 +1,15 @@
-# `ctl` handlers are emitted `void` but called through value-returning casts (latent x86_64 ABI break)
+# `ctl` handlers are emitted `void` but called through value-returning casts (x86_64 ABI break)
 
 **Found 2026-08-06** while root-causing
-`issues/fixed/escape-path-drops-unwound-call-result-temp.md`. **Latent** — not
-reachable from the current corpus, so nothing is failing today. Filed because the
-mechanism is a real ABI violation and the next `ctl` with a wide `ResumeType` will hit it.
+`issues/fixed/escape-path-drops-unwound-call-result-temp.md`.
+
+**Severity revised 2026-08-08.** This was filed as _latent_ on the premise that no
+reachable `ctl` has a `ResumeType` over 16 bytes. Measurement refuted that premise: 95
+`exn.throw` call sites in `yo-self`'s own stage-2 C cast to one of 7 distinct structs
+that each exceed 16 bytes, and all 29 handlers bound to `.throw` are emitted `void*`.
+Nothing fails today only because most handlers **discard `err`** — an accidental
+invariant, not an enforced one, and at least one handler does dereference
+`err.vtable`. See "MEASURED 2026-08-08" below.
 
 ## What codegen does
 
@@ -51,9 +57,133 @@ is undefined behaviour in C regardless, but whether it _matters_ depends on the 
 
 ## Why nothing fails today
 
-No `ctl` in `std/` or `yo-self/` has a `ResumeType` larger than 16 bytes at a call site
+~~No `ctl` in `std/` or `yo-self/` has a `ResumeType` larger than 16 bytes at a call site
 that also unwinds. `ParseResult` at 16 bytes is the widest in the parser and sits exactly
-at the register/memory boundary — one more field would push it over.
+at the register/memory boundary — one more field would push it over.~~
+
+**REFUTED by measurement 2026-08-08 — see the next section. The premise above is false,
+and it is false inside `yo-self`'s own emitted C.**
+
+## MEASURED 2026-08-08: >16-byte ResumeTypes are everywhere in yo-self's own C
+
+The claim above was never independently checked, and it does not hold. Method — take the
+stage-2 self-emit (`fixpoint_only.sh` leaves it at `/tmp/<P>_stage2.c`) and read the
+cast that every effect-record call site builds:
+
+```bash
+# every exn.throw call site, grouped by the return type it casts to
+grep -oE '\(\([A-Za-z_][A-Za-z0-9_]* \(\*\)\([^)]*\)\)exn\.throw' /tmp/<P>_stage2.c \
+  | sed -E 's/^\(\(([A-Za-z_][A-Za-z0-9_]*) .*/\1/' | sort | uniq -c | sort -rn
+
+# then size them decisively, in one compile
+cp /tmp/<P>_stage2.c /tmp/szcheck.c
+printf '_Static_assert(sizeof(__yo_t299) <= 16, "OVER16: __yo_t299");\n' >> /tmp/szcheck.c
+clang -std=c11 -fsyntax-only -w /tmp/szcheck.c 2>&1 | grep -oE 'OVER16: __yo_t[0-9]+'
+```
+
+Result: of 1064 `exn.throw` call sites, 140 cast to a non-`void` return type, and
+**95 of those cast to one of 7 distinct structs larger than 16 bytes**:
+
+| type        | sites | identity                      |
+| ----------- | ----- | ----------------------------- |
+| `__yo_t299` | 25    | `FuncParamsResult` (8 fields) |
+| `__yo_t290` | 25    |                               |
+| `__yo_t556` | 18    |                               |
+| `__yo_t571` | 15    |                               |
+| `__yo_t526` | 6     |                               |
+| `__yo_t552` | 5     |                               |
+| `__yo_t582` | 1     |                               |
+
+A representative site — note this is `exn.throw` itself, not an ordinary fn-ptr call:
+
+```c
+__yo_t299 _file____User_temp_503617 =
+  (((__yo_t299 (*)(__yo_t852))exn.throw)((__yo_t852)(_file____User_temp_503616)));
+```
+
+The remaining 45 non-void casts are `int64_t` / `int32_t` / `uint32_t` / `bool` and
+small structs — all ≤ 16 bytes, all in the REGISTER class, all fine.
+
+### What this does and does not establish
+
+**Established:** the "no reachable >16-byte `ResumeType`" premise is false, so the
+severity assessment that rested on it ("the bug is latent") needs redoing. This is
+`yo-self` compiling ITSELF, on the same x86_64 CI architecture the SysV analysis applies
+to.
+
+**Also established (the follow-up check):** the handlers really are emitted with a
+register-class return, not the concrete one. All 29 distinct functions bound to
+`.throw` in the stage-2 C are `void*`:
+
+```c
+static inline void* fn_yo_id_306605(__yo_t852 err);
+```
+
+So at those 95 sites the caller builds a MEMORY-class call (hidden sret pointer in RDI,
+`err` displaced to RSI) into a callee that reads `err` from RDI. The mismatch is real and
+present, exactly as analyzed — the doc's own mechanism corrupts the callee **on entry**,
+before any resume/unwind decision, so the original "at a call site that also unwinds"
+qualifier never narrowed the exposure the way it was assumed to.
+
+### The actual reason nothing fails today
+
+Not the absence of large `ResumeType`s — it is that **most handlers discard `err`**:
+
+```c
+static inline void* fn_yo_id_306605(__yo_t852 err) {
+  err;                       // <- a no-op statement; the value is never read
+  __yo_effect_escaped = 1;
+  { ... memcpy(__yo_unwind_value, &_unw_val, sizeof(__yo_t206)); }
+  return (void*){0};
+}
+```
+
+A garbage `err` is harmless if nobody reads it. **But not all handlers discard it** — this
+one dereferences the dyn vtable, which is precisely the predicted crash:
+
+```c
+static inline void* fn_yo_id_820507(__yo_t852 err) {
+  ...
+  __yo_t0 _tmp = (err).vtable->to_string((err).data);   // <- bogus vtable if err is the sret ptr
+```
+
+So today's green suite rests on an **accidental invariant** — "the handlers that happen to
+be bound at >16-byte call sites happen to be the ones that ignore their argument" — not on
+any property the compiler enforces. Any `try`/`catch` that formats or inspects the error in
+value position where the surrounding type exceeds 16 bytes moves a handler from the first
+shape to the second.
+
+### Narrowing the surviving question
+
+Exactly **3 of the 29** handlers read `err` beyond the `err;` no-op —
+`fn_yo_id_818463`, `fn_yo_id_818705`, `fn_yo_id_820507`. Locating where each is bound:
+
+```c
+// stage-2 C, inside `void __yo_user_main(__yo_t119 io) {`
+__yo_t19 _file____User_temp_1065093 = (__yo_t19){ .throw = fn_yo_id_820507 };
+__yo_t19 exn = _file____User_temp_1065093;
+```
+
+So the `err.vtable->to_string(...)` handler is the compiler's **top-level error printer**
+in `__yo_user_main` — the "yo-self: error: …" path. That is the outermost handler, the
+one a throw reaches whenever no nearer handler catches it, which makes the dangerous
+pairing ordinary rather than exotic.
+
+**Still not proven**, and it needs a dynamic check rather than more grepping: whether a
+throw at one of the 95 large-`ResumeType` sites actually reaches THIS handler rather than
+a nearer one. Two facts sit in tension and should be reconciled before the ABI work is
+scheduled:
+
+- if such a throw did reach it, `err.vtable` would be the sret pointer and the
+  `to_string` dispatch would read a garbage function pointer — a hard crash, not a subtle
+  wrong answer;
+- yet yo-self reports compile errors correctly on x86_64 CI today.
+
+The likeliest reconciliation is that the error paths actually exercised route through
+nearer handlers or through ≤16-byte sites. Confirm by building the x86_64 binary with
+`-fsanitize=function` (per the section below) and running `check` over a deliberately
+broken file — that flags the mismatched call at the moment it happens, without needing to
+reason about which handler won.
 
 ## CONFIRMED by measurement (2026-08-06), and it reproduces on macOS arm64
 
@@ -128,6 +258,14 @@ these — then enable `-fsanitize=function` as the guard (only after, or the
 suite fails wholesale). The WASM history means validation needs the wasm32
 CI arms, not just native.
 
-Recommendation: implement as a dedicated PR after PR 76 merges — the bug is
+Recommendation: implement as a dedicated PR after PR 76 merges — ~~the bug is
 latent (no reachable `ctl` has a >16-byte `ResumeType` at an unwinding call
-site), and this is ABI surgery across every effects call path.
+site), and~~ this is ABI surgery across every effects call path.
+
+**Updated 2026-08-08:** the latency argument above is withdrawn — 95 `exn.throw` call
+sites in `yo-self`'s own stage-2 C cast to >16-byte return types (see the measured
+section). Before budgeting the ABI surgery, do the one remaining cheap check: confirm
+whether the handlers bound at those sites are emitted `void`. If they are, this stops
+being latent and should be sequenced ahead of `plans/SELF_HOSTING_COMPLETION.md` P1 —
+it is exactly the class of thing that gets far more expensive to adjudicate once the
+TypeScript reference compiler is retired in P2.

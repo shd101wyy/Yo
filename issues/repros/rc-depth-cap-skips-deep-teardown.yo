@@ -1,0 +1,54 @@
+{ println } :: import("std/fmt");
+
+// Reproducer for issues/yo-self-rc-depth-cap-skips-deep-teardown.md
+//
+// yo-self's `_type_contains_rc_inner` (yo-self/types/utils.yo) returns FALSE at
+// `depth > 8`. TS's `typeContainsRcType` (src/types/utils.ts) has no depth cap —
+// it guards recursion with an identity `checkedTypes` set instead.
+//
+// A ref struct with a Dispose impl makes teardown OBSERVABLE without ever
+// reading a freed value: if the enclosing struct's drop is emitted, "disposed"
+// prints; if the depth cap suppressed it, nothing prints and the object leaked.
+//
+// L0 puts Tracked at depth 10 (past the cap); L2 puts it at depth 8 (inside the
+// cap) as the control that must behave identically in both compilers.
+//
+// EXPECTED (TS):      disposed=42 and disposed=7
+// ACTUAL (yo-self):   disposed=7 only — the depth-10 object is never disposed.
+Tracked :: ref(struct(v : i32));
+impl(
+  Tracked,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      println(`disposed=${self.v}`);
+    })
+  )
+);
+
+L9 :: struct(t : Tracked);
+L8 :: struct(v : L9);
+L7 :: struct(v : L8);
+L6 :: struct(v : L7);
+L5 :: struct(v : L6);
+L4 :: struct(v : L5);
+L3 :: struct(v : L4);
+L2 :: struct(v : L3);
+L1 :: struct(v : L2);
+L0 :: struct(v : L1);
+
+main :: (fn() -> unit)({
+  println(`-- enter deep scope --`);
+  {
+    deep := L0(v : L1(v : L2(v : L3(v : L4(v : L5(v : L6(v : L7(v : L8(v : L9(t : Tracked(v : 42)))))))))));
+    println(`deep built = ${deep.v.v.v.v.v.v.v.v.v.t.v}`);
+  };
+  println(`-- left deep scope --`);
+  println(`-- enter control scope --`);
+  {
+    ctl := L2(v : L3(v : L4(v : L5(v : L6(v : L7(v : L8(v : L9(t : Tracked(v : 7)))))))));
+    println(`ctl built = ${ctl.v.v.v.v.v.v.v.t.v}`);
+  };
+  println(`-- left control scope --`);
+});
+
+export(main);

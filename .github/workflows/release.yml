@@ -29,6 +29,26 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
+      - name: Require a green test run for this commit
+        # This workflow publishes to npm and the VS Code Marketplace — both
+        # irreversible. It used to go checkout -> build -> publish with no test
+        # dependency at all, so a red develop was publishable. Gate on the
+        # Test workflow having CONCLUDED SUCCESSFULLY for the exact SHA being
+        # released, rather than re-running the ~55 min suite inline.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          SHA=$(git rev-parse HEAD)
+          echo "Releasing $SHA"
+          CONCLUSION=$(gh api \
+            "repos/${{ github.repository }}/actions/workflows/test.yml/runs?head_sha=$SHA&status=completed" \
+            --jq '[.workflow_runs[] | select(.conclusion != null)] | first | .conclusion // "none"')
+          echo "Test workflow conclusion for $SHA: $CONCLUSION"
+          if [[ "$CONCLUSION" != "success" ]]; then
+            echo "::error::Refusing to release $SHA — the Test workflow is '$CONCLUSION', not 'success'."
+            exit 1
+          fi
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
