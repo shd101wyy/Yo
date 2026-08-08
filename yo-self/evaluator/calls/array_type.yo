@@ -25,8 +25,11 @@ open(import("std/string"));
 { type_to_string } :: import("../../types/string.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
-{ EvalValue, create_unknown_val } :: import("../../value.yo");
-{ set_expr_as_needs_to_call_dup } :: import("../utils.yo");
+{ EvalValue, is_unknown_val } :: import("../../value.yo");
+{
+  set_expr_as_needs_to_call_dup,
+  attach_temp_variable_to_expr
+} :: import("../utils.yo");
 { evaluate_expression } :: import("../exprs/expr.yo");
 { format_error_message } :: import("../../error.yo");
 { Exception } :: import("std/error");
@@ -102,6 +105,8 @@ try_to_implement_array_by_array_type :: (
   });
   // Evaluate each argument and collect elements.
   elements := ArrayList(EvalValue).new();
+  runtime_arg_exprs := ArrayList(AstExpr).new();
+  (all_elements_are_comptime : bool) = true;
   (env : Environment) = caller_env;
   (expected_element_type : TypeValue) = elem_type;
   (i : usize) = usize(0);
@@ -157,14 +162,21 @@ try_to_implement_array_by_array_type :: (
         )
       );
     });
-    // Store value (compile-time) or unknown placeholder (runtime).
+    // Record the element for codegen either way; whether the ARRAY as a whole
+    // is a compile-time constant is decided after the loop.
+    runtime_arg_exprs.push(evaluated_arg);
+    // An `UnknownVal` does NOT count as a compile-time value: it means "type
+    // known, value not" — a RUNTIME element — so an array containing one is
+    // not a constant.
     match(
       arg_info.value,
-      .Some(v) => {
+      .Some(v) => if(is_unknown_val(v), {
+        all_elements_are_comptime = false;
+      }, {
         elements.push(v);
-      },
+      }),
       .None => {
-        elements.push(create_unknown_val(arg_info.ty));
+        all_elements_are_comptime = false;
       }
     );
     i = (i + usize(1));
@@ -173,8 +185,25 @@ try_to_implement_array_by_array_type :: (
   // Re-use array_type but with refined element type (may have been updated from first element).
   final_array_type := TypeValue.Array(expected_element_type, eff_len, String.from(""));
   out_info := new_expr_info(env, final_array_type);
-  out_info.value =.Some(EvalValue.ArrayVal(elements));
+  // Only a FULLY compile-time array gets a compile-time value. Stamping one
+  // with manufactured `UnknownVal` placeholders (as this used to) told codegen
+  // "emit this as a constant", and the comptime emitter has no case for an
+  // Unknown — it produced `.data = { /* skip generating value */, ... }`, an
+  // EMPTY initializer slot, so any array of RC/reference elements failed to
+  // compile with "expected expression". The array-LITERAL path
+  // (values/array.yo) already guarded exactly this way, which is why
+  // `[a, b,]` worked while `Array(T, N)(a, b)` did not. Mirrors the same fix
+  // in src/evaluator/calls/array-type.ts.
+  if(all_elements_are_comptime, {
+    out_info.value =.Some(EvalValue.ArrayVal(elements));
+  });
+  out_info.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(runtime_arg_exprs);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  if(!(all_elements_are_comptime), {
+    // Runtime construction needs a temp to materialize into, exactly as the
+    // array-literal path does.
+    attach_temp_variable_to_expr(expr, true, ctx);
+  });
   expr
 });
 export(try_to_implement_array_by_array_type);

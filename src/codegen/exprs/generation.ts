@@ -35,6 +35,7 @@ import {
 } from "../utils";
 import { generateOpAnd, generateOpOr } from "./and-or";
 import { generateAnonymousArray, generateYoArrayFill } from "./array-fns";
+import { isArrayType } from "../../types/guards";
 import { generateAssignment } from "./assignment";
 import { generateAsyncBlock, generateIoAsyncSyncCall } from "./async";
 import { emitAsyncFutureEscape } from "./async-completion";
@@ -917,6 +918,24 @@ function generateFuncCall(
   }
   // (anonymous) array value
   else if (exprIsFunctionCallOf(expr, BuiltinKeywords.array)) {
+    const result = generateAnonymousArray(expr, indent, context);
+    if (result !== undefined) {
+      return result;
+    }
+  }
+  // `Array(T, N)(a, b)` with RUNTIME elements. The array-literal form
+  // `[a, b,]` reaches the emitter above through its `array` head; the type-
+  // constructor form has no such head, so route it by SHAPE instead: an
+  // array-typed call carrying runtime argument expressions and no
+  // compile-time value. `generateAnonymousArray` is head-agnostic — it works
+  // off `runtimeArgExprsInOrder`, the array type and the temp — so both forms
+  // share one emitter. A fully compile-time array still carries a value and
+  // is emitted as a constant by the branch below.
+  else if (
+    isArrayType(expr.$?.type) &&
+    expr.$?.runtimeArgExprsInOrder &&
+    !expr.$?.value
+  ) {
     const result = generateAnonymousArray(expr, indent, context);
     if (result !== undefined) {
       return result;
