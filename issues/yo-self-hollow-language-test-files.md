@@ -102,10 +102,57 @@ Neither file is in the 23-file `gates_fast` battery, so neither had ever been ru
 under the self-hosted compiler on Linux before this sweep existed — which is exactly
 the blind spot the sweep was written to close.
 
-Diagnosis is not yet possible from macOS: the failures do not reproduce locally. The
-CI job now uploads the per-file sweep logs alongside `results.txt`, so the next run
-carries the actual error text. **Start there** rather than trying to reproduce on
-macOS.
+### Root causes (from the uploaded sweep logs — they are two different bugs)
+
+**`tests/string/string.test.yo` — clang's bracket-nesting limit.**
+
+```
+tests/string/.yo_selftest_batch_1.bin.c:44334:23:
+  fatal error: bracket nesting level exceeded maximum of 256
+yo-self: error: compile: C compiler failed (exit 256)
+```
+
+Not an RC or semantics bug — the self-hosted compiler emits **more deeply nested C
+than the reference does** for this file, and trips clang's default
+`-fbracket-depth=256`. The TS compiler builds the same test fine on the same runner,
+so the emitted nesting genuinely differs between the two. Two candidate fixes, and
+the choice matters: pass `-fbracket-depth=<N>` in the C-compiler invocation (papers
+over it, and the flag is clang/gcc-specific), or find why yo-self nests deeper and
+flatten it (addresses the divergence). Prefer diagnosing the divergence first — a
+gratuitously deeper emit is itself a signal.
+
+**`tests/ref_local_binding.test.yo` — an RC lifetime failure.**
+
+```
+✗ "binding the handle keeps an object alive"
+```
+
+The test is a handle-aliasing case:
+
+```rust
+a := Holder(s : String.from("kept"), n : i32(0));
+b := a;
+a = Holder(s : String.from("other"), n : i32(1));
+assert(b.s == "kept", "b's handle keeps the original object alive");
+```
+
+so `b` must keep the first `Holder` alive after `a` is reassigned. This is the
+premature-drop / use-after-free shape, in the RC area — treat it as the higher
+severity of the two.
+
+**Do not assume it is an allocator-masked UAF.** That is the obvious hypothesis
+("passes on macOS, fails on Linux" usually means freed memory still holds the old
+bytes on macOS), and it was tested and **did not reproduce**:
+
+```bash
+MallocScribble=1 MallocPreScribble=1 <bin> test tests/ref_local_binding.test.yo --parallel 1
+# -> 2 passed
+```
+
+So something other than allocator behaviour differs. Next candidates: platform-
+specific codegen paths, or a divergence between the macOS- and Linux-built
+self-hosted binaries themselves. Start from the CI artifact, not from local
+bisection.
 
 ## Gated as a ratchet (done)
 
