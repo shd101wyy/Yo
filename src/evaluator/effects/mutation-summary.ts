@@ -131,10 +131,16 @@ const SAFE_RECURSE_HEADS: ReadonlySet<string> = new Set<string>([
  *
  * These are user-reachable (`___drop(x)` appears in tests/basic.test.yo), and
  * a call to one on a projection (`___drop(w.b)`) is a real invalidation the
- * assignment rule does not see. Compiler-generated drops do NOT reach this
- * walk at all: they live in ExprInfo side-channels
- * (`deferredDropExpressions` and friends), not as AST children, and each is
- * balanced against a generated dup.
+ * assignment rule does not see.
+ *
+ * Compiler-generated drops are a separate question and are provably NOT a
+ * hazard, on two independent grounds: they never appear as AST children at
+ * all (they live in ExprInfo side-channels — `deferredDropExpressions` and
+ * friends — which this walk does not traverse), AND
+ * `getVariablesNeedingDrop` (env.ts) only ever selects variables with
+ * `isOwningTheRcValue` set. A borrowed parameter is non-owning by
+ * definition, so no generated drop can target the storage a borrow depends
+ * on. Only EXPLICIT decrements, listed here, can.
  */
 const RC_DECREMENT_HEADS: ReadonlySet<string> = new Set<string>([
   ...BuiltinFunctions.___drop,

@@ -2337,6 +2337,16 @@ _evaluate_funcval_runtime_call :: (
         );
         rt_s1i = (rt_s1i + usize(1));
       });
+    }, {
+      // MAY-MUTATE callee: the dup stays, so its balancing `___drop` must be
+      // attached to the CALL node for the post-call flush — the same channel
+      // helper.yo and the inline FuncVal path use. This branch had never been
+      // wired: `_evaluate_funcval_runtime_call` returns before the inline
+      // path's drop handling, so every Stage-0 dup taken on this path (which
+      // is where most ordinary calls land) leaked its +1 from the day Stage 0
+      // shipped. Leak-direction only — the borrow stayed valid — but it kept
+      // an allocation alive per call.
+      out_rt.deferred_drop_expressions = Option(ArrayList(AstExpr)).Some(fv_s0_drops);
     });
   });
   expr
