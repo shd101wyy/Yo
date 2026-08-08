@@ -1385,9 +1385,42 @@ normalize_multiline_block_comment :: (fn(raw : String) -> ArrayList(String))({
 /// Read a backtick template-string starting at byte offset `start` in `input`,
 /// returning the literal slice from `` ` `` to the matching closing `` ` ``.
 /// Mirrors `readRawTemplateString`.
-read_raw_template_string :: (fn(input : String, start : usize) -> String)({
+/// Convert a CHARACTER index into a BYTE offset within `bytes`.
+///
+/// `Token.character` is a CHARACTER index — the lexer walks `input.chars()` and
+/// stores that loop's counter (`lexer.yo:82` `char_idx := i`). Everything here
+/// slices `input.as_bytes()`. On ASCII input the two coincide exactly, which is
+/// why the mismatch survived every test: the whole test corpus is ASCII.
+///
+/// With ANY multi-byte character earlier in the file the character index is
+/// SMALLER than the byte offset, so the slice started early and swallowed the
+/// source preceding the backtick — `input.contains(\`&\`)` was rewritten to
+/// `input.contains(s(\`))`, which does not parse, with `fmt` still exiting 0.
+/// Em dashes in doc comments made this fire across std: 23 of 40 sampled files
+/// with a backtick came out non-parseable.
+/// See issues/yo-self-formatter-corrupts-files-with-non-ascii.md.
+///
+/// Counts UTF-8 LEAD bytes: a continuation byte matches `0b10xxxxxx`, i.e.
+/// `(b & 0xC0) == 0x80`, and never starts a character.
+_byte_offset_of_char_index :: (fn(bytes : ArrayList(u8), char_index : usize) -> usize)({
+  n := bytes.len();
+  (bi : usize) = usize(0);
+  (ci : usize) = usize(0);
+  while((ci < char_index) && (bi < n), {
+    bi = (bi + usize(1));
+    while((bi < n) && ((match(bytes.get(bi), .Some(x) => x, .None => u8(0)) & u8(0xC0)) == u8(0x80)), {
+      bi = (bi + usize(1));
+    });
+    ci = (ci + usize(1));
+  });
+  bi
+});
+/// `start` is a CHARACTER index (a `Token.character`); it is converted to a byte
+/// offset before any slicing — see `_byte_offset_of_char_index`.
+read_raw_template_string :: (fn(input : String, start_char : usize) -> String)({
   bytes := input.as_bytes();
   n := bytes.len();
+  start := _byte_offset_of_char_index(bytes, start_char);
   (index : usize) = (start + usize(1));
   (brace_depth : usize) = usize(0);
   (end_index : usize) = n; // default: until EOF
