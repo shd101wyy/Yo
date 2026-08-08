@@ -1,17 +1,25 @@
 pragma(Pragma.AllowUnsafe);
 open(import("std/libc/stdio"));
+{ ArrayList } :: import("std/collections/array_list");
 
-AliasWrap :: ref(struct(b : Box(i32)));
+H :: ref(struct(a : Array(Box(i32), 2)));
 
-stage1_drop_owned :: (fn(own(h) : Box(i32), borrowed : Box(i32)) -> usize)({
-  ___drop(h);
-  rc(borrowed)
+mk :: (fn() -> H)(
+  H(a : Array(Box(i32), 2)(box(i32(42)), box(i32(7))))
+);
+
+poke :: (fn(h : H, borrowed : Box(i32)) -> i32)({
+  (i : i32) = i32(0);
+  while(runtime(i < i32(2)), {
+    h.a(0) = box(i32(100) + i);
+    i = (i + i32(1));
+  });
+  borrowed.*
 });
 
 main :: (fn() -> unit)({
-  w := AliasWrap(b : box(i32(42)));
-  unsafe(printf("during=%d (want 2)\n", i32(stage1_drop_owned(w.b, w.b))));
-  unsafe(printf("val=%d (want 42)\n", w.b.*));
+  h := mk();
+  unsafe(printf("A = %d (want 42)\n", poke(h, h.a(0))));
 });
 
 export(main);
