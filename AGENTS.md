@@ -150,8 +150,9 @@ S1=/tmp/yo-s1 P=local bash scripts/bootstrap/fixpoint_only.sh
 # Full-corpus hollow sweep: every language test file through the SELF-HOSTED
 # binary, scored honestly (a batch `__yo_user_main` that is a "Failed to
 # transpile" comment reports "N passed" while running nothing). Resumable via
-# $OUT/results.txt. Gated as a ratchet against scripts/bootstrap/known-hollow.txt,
-# so it fails on any NEW hollow file AND on a stale allowlist entry.
+# $OUT/results.txt. Gated as a ratchet against scripts/bootstrap/known-failing.tsv
+# (<path> <verdict> pairs, HOLLOW and RED), so it fails on any NEW regression, on a
+# stale allowlist entry, and on a file that merely CHANGES verdict.
 BIN=/tmp/yo-s1 OUT=/tmp/hsweep bash scripts/bootstrap/hollow_sweep69.sh
 
 # Evaluator-only check (fast, no codegen — useful for type-check iteration during refactors)

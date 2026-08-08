@@ -54,36 +54,40 @@ echo "SWEEP_DONE" >> "$RESULTS"
 #   * an allowlisted file that is no longer hollow -> fail (delete its line)
 # Set ALLOWLIST=/dev/null to demand a fully-clean sweep.
 # ---------------------------------------------------------------------------
-ALLOWLIST="${ALLOWLIST:-$(dirname "$0")/known-hollow.txt}"
+ALLOWLIST="${ALLOWLIST:-$(dirname "$0")/known-failing.tsv}"
 
-known=$(grep -vE '^\s*(#|$)' "$ALLOWLIST" 2>/dev/null | sort -u)
-actual_hollow=$(awk '$2 == "HOLLOW" {print $1}' "$RESULTS" | sort -u)
-actual_red=$(awk '$2 == "RED" {print $1}' "$RESULTS" | sort -u)
+if [ ! -f "$ALLOWLIST" ] && [ "$ALLOWLIST" != "/dev/null" ]; then
+  # Guard against the failure that shipped the first version of this gate: the
+  # allowlist lived at known-hollow.TXT and `.gitignore`'s blanket `*.txt` rule
+  # silently kept it out of the repo, so CI scored every known file as new.
+  echo "FAIL: allowlist '$ALLOWLIST' does not exist (is it gitignored?)"
+  exit 1
+fi
+
+# Compare "<path>\t<verdict>" PAIRS, not bare paths, so a file that changes from
+# HOLLOW to RED (or back) is caught rather than silently tolerated.
+known=$(grep -vE '^\s*(#|$)' "$ALLOWLIST" 2>/dev/null | awk 'NF>=2 {print $1"\t"$2}' | sort -u)
+actual=$(awk '$2 == "HOLLOW" || $2 == "RED" {print $1"\t"$2}' "$RESULTS" | sort -u)
 
 echo
 echo "=== hollow sweep scorecard ==="
 awk 'NF > 1 {print $2}' "$RESULTS" | sort | uniq -c
-echo "allowlisted known-hollow: $(echo "$known" | grep -c . )"
+echo "allowlisted known-failing: $(echo "$known" | grep -c .)"
 
 gate_fails=0
 
-new_hollow=$(comm -23 <(echo "$actual_hollow") <(echo "$known"))
-if [ -n "$new_hollow" ]; then
-  echo "FAIL: hollow file(s) not in $ALLOWLIST — a test file reports passes while running nothing:"
-  echo "$new_hollow" | sed 's/^/  /'
+regressions=$(comm -23 <(echo "$actual") <(echo "$known"))
+if [ -n "$regressions" ]; then
+  echo "FAIL: failing file(s) not in $ALLOWLIST — a NEW regression under the self-hosted compiler."
+  echo "      (HOLLOW = reports passes while running nothing; RED = non-zero exit/timeout)"
+  echo "$regressions" | sed 's/^/  /'
   gate_fails=1
 fi
 
-fixed=$(comm -13 <(echo "$actual_hollow") <(echo "$known"))
-if [ -n "$fixed" ]; then
-  echo "FAIL: allowlisted file(s) are no longer hollow — delete their lines from $ALLOWLIST:"
-  echo "$fixed" | sed 's/^/  /'
-  gate_fails=1
-fi
-
-if [ -n "$actual_red" ]; then
-  echo "FAIL: RED file(s) (non-zero exit or timeout):"
-  echo "$actual_red" | sed 's/^/  /'
+stale=$(comm -13 <(echo "$actual") <(echo "$known"))
+if [ -n "$stale" ]; then
+  echo "FAIL: allowlisted entr(ies) no longer match — delete or update these lines in $ALLOWLIST:"
+  echo "$stale" | sed 's/^/  /'
   gate_fails=1
 fi
 

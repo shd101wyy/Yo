@@ -74,23 +74,57 @@ declarations interacting with batch generation. Reduce by **deleting arms from
 the real file** (keeping the `test(...)` wrapper and the module preamble) rather
 than by writing a new small file.
 
+## Plus 2 RED files — and they are LINUX-ONLY (found in CI, 2026-08-08)
+
+The census above was taken on macOS arm64. The first CI run of the sweep (Linux
+x86_64) reproduced the same 3 HOLLOW exactly, and found **two more files that fail
+outright there while passing on macOS**:
+
+```
+tests/ref_local_binding.test.yo  RED rc=1 hollow=0 markers=0  1 passed
+tests/string/string.test.yo      RED rc=1 hollow=0 markers=0  none
+```
+
+- `ref_local_binding` exits 1 _after_ reporting "1 passed" — a later test fails.
+- `string/string` exits 1 with no summary at all — it dies before running anything.
+
+Both pass under the TS compiler on Linux (the `test (ubuntu-latest)` job is green),
+so this is a **platform-specific divergence in `yo-self` itself**, not a broken test.
+Neither file is in the 23-file `gates_fast` battery, so neither had ever been run
+under the self-hosted compiler on Linux before this sweep existed — which is exactly
+the blind spot the sweep was written to close.
+
+Diagnosis is not yet possible from macOS: the failures do not reproduce locally. The
+CI job now uploads the per-file sweep logs alongside `results.txt`, so the next run
+carries the actual error text. **Start there** rather than trying to reproduce on
+macOS.
+
 ## Gated as a ratchet (done)
 
-The sweep now runs in CI as the `hollow-sweep` job, scored against
-`scripts/bootstrap/known-hollow.txt`. It fails in **both** directions: a hollow
-file that is not allowlisted fails (so no _new_ hollow file can land), and an
-allowlisted file that is no longer hollow also fails (so the list cannot go
-stale). `ALLOWLIST=/dev/null` demands a fully-clean sweep. The sweep is
-resumable via `$OUT/results.txt`.
+The sweep runs in CI as the `hollow-sweep` job, scored against
+`scripts/bootstrap/known-failing.tsv` — `<path> <verdict>` pairs covering both
+HOLLOW and RED. It compares **pairs, not bare paths**, so a file that changes
+verdict (HOLLOW → RED or back) is caught rather than silently tolerated, and it
+fails in both directions: an unlisted failure fails (no _new_ regression can
+land), and a listed entry that no longer matches also fails (the list cannot go
+stale). A missing allowlist file fails loudly too. `ALLOWLIST=/dev/null` demands a
+fully-clean sweep. The sweep is resumable via `$OUT/results.txt`.
 
-That banks the 165-file differential immediately, while these three are worked
-down. **Fixing one means deleting its line from the allowlist** — the gate will
-tell you to.
+That banks the 165-file differential immediately, while these five are worked down.
+**Fixing one means deleting its line** — the gate will tell you to.
+
+> **Do not rename the allowlist to `.txt`.** `.gitignore` carries a blanket `*.txt`
+> rule, which silently kept the first version of this file out of the repo — so the
+> gate's first CI run scored every known file as a new regression. The script now
+> fails explicitly when the allowlist is missing rather than treating it as empty.
 
 ## Remaining work
 
-Root-cause and fix the three, then empty the allowlist. Start with
-`safe_code_structural_gates.test.yo`: it is the smallest (115 lines, a single
-`test(...)`, the rest module-level `comptime_expect_error(...)`), so it has the
-fewest confounders — and per the section above, reduce it by deleting arms from
-the real file, not by writing a new one.
+Root-cause and fix the five, then empty the allowlist.
+
+- **The 3 HOLLOW**: start with `safe_code_structural_gates.test.yo` — smallest (115
+  lines, a single `test(...)`, the rest module-level `comptime_expect_error(...)`),
+  so the fewest confounders. Per the section above, reduce it by deleting arms from
+  the real file, not by writing a new one.
+- **The 2 RED**: read the per-file logs from the `hollow-sweep-results` CI artifact
+  first — they do not reproduce on macOS, so local bisection will not work.

@@ -672,10 +672,16 @@ jobs:
   # found 3 such files, one of them claiming 49 passed
   # (issues/yo-self-hollow-language-test-files.md).
   #
-  # Gated as a RATCHET against scripts/bootstrap/known-hollow.txt so it blocks
-  # any NEW hollow file today while those 3 are worked down. It fails in both
-  # directions — an un-allowlisted hollow file fails, and an allowlisted file
-  # that is no longer hollow also fails, so the list cannot go stale.
+  # Gated as a RATCHET against scripts/bootstrap/known-failing.tsv so it blocks
+  # any NEW regression today while the known ones are worked down. It compares
+  # <path, verdict> PAIRS and fails in both directions — an un-allowlisted failure
+  # fails, a listed entry that no longer matches fails, and a missing allowlist
+  # file fails loudly rather than scoring everything as new.
+  #
+  # The first CI run of this job also found 2 RED files that PASS on macOS
+  # (tests/ref_local_binding, tests/string/string) — a Linux-only divergence in
+  # yo-self that had never been visible, since neither file is in the 23-file
+  # battery. They are allowlisted with that note.
   hollow-sweep:
     name: Full-corpus hollow sweep (all 188 language files, self-hosted)
     runs-on: ubuntu-latest
@@ -715,10 +721,15 @@ jobs:
           YO_MAIN_STACK_MB: "4096"
         run: BIN=/tmp/yo-stage1 OUT=/tmp/hsweep bash scripts/bootstrap/hollow_sweep69.sh
 
+      # results.txt alone is a scorecard, not a diagnosis — the first CI run of
+      # this job reported two RED files with no way to see WHY. Upload the
+      # per-file logs too (they are one small log per test file).
       - name: Upload sweep results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: hollow-sweep-results
-          path: /tmp/hsweep/results.txt
+          path: |
+            /tmp/hsweep/results.txt
+            /tmp/hsweep/*.log
           if-no-files-found: ignore
