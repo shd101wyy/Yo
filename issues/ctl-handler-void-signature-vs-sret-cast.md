@@ -153,12 +153,37 @@ any property the compiler enforces. Any `try`/`catch` that formats or inspects t
 value position where the surrounding type exceeds 16 bytes moves a handler from the first
 shape to the second.
 
-### What is still not established
+### Narrowing the surviving question
 
-Whether `fn_yo_id_820507` (or the other `err`-reading handlers) is bound at one of those
-95 large-`ResumeType` sites specifically. Tracing which handler reaches which call site
-through the effect record is the one remaining step; if any such pairing exists, this is
-a live x86_64 miscompile rather than a fragile-but-latent one.
+Exactly **3 of the 29** handlers read `err` beyond the `err;` no-op —
+`fn_yo_id_818463`, `fn_yo_id_818705`, `fn_yo_id_820507`. Locating where each is bound:
+
+```c
+// stage-2 C, inside `void __yo_user_main(__yo_t119 io) {`
+__yo_t19 _file____User_temp_1065093 = (__yo_t19){ .throw = fn_yo_id_820507 };
+__yo_t19 exn = _file____User_temp_1065093;
+```
+
+So the `err.vtable->to_string(...)` handler is the compiler's **top-level error printer**
+in `__yo_user_main` — the "yo-self: error: …" path. That is the outermost handler, the
+one a throw reaches whenever no nearer handler catches it, which makes the dangerous
+pairing ordinary rather than exotic.
+
+**Still not proven**, and it needs a dynamic check rather than more grepping: whether a
+throw at one of the 95 large-`ResumeType` sites actually reaches THIS handler rather than
+a nearer one. Two facts sit in tension and should be reconciled before the ABI work is
+scheduled:
+
+- if such a throw did reach it, `err.vtable` would be the sret pointer and the
+  `to_string` dispatch would read a garbage function pointer — a hard crash, not a subtle
+  wrong answer;
+- yet yo-self reports compile errors correctly on x86_64 CI today.
+
+The likeliest reconciliation is that the error paths actually exercised route through
+nearer handlers or through ≤16-byte sites. Confirm by building the x86_64 binary with
+`-fsanitize=function` (per the section below) and running `check` over a deliberately
+broken file — that flags the mismatched call at the moment it happens, without needing to
+reason about which handler won.
 
 ## CONFIRMED by measurement (2026-08-06), and it reproduces on macOS arm64
 
