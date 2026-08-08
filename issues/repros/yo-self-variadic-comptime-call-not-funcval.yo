@@ -1,0 +1,38 @@
+// Reproducer for issues/yo-self-hollow-language-test-files.md — the ROOT CAUSE
+// of tests/variadic_comptime.test.yo being HOLLOW under the self-hosted compiler.
+//
+//   ./yo-cli compile issues/repros/yo-self-variadic-comptime-call-not-funcval.yo \
+//     --emit-c --skip-c-compiler -o /tmp/x        # TS: rc=0, 0 markers
+//   <yo-self-bin> compile ... same args                # yo-self: rc=1
+//
+// yo-self fails with:
+//   error: Expected bool value for "comptime_assert", got:
+//     count_types(i32) == usize(1)
+//   Type: unknown
+//
+// The reported error is a downstream effect. Run yo-self with YO_DEBUG_SWALLOW=1
+// to see the real one, which is swallowed:
+//   [swallow] Error: evaluate_comptime_fn_call: function_value is not a FuncVal
+// from yo-self/evaluator/calls/comptime_fn.yo:500 — so the call never produced a
+// value, the `==` came out with type `unknown`, and comptime_assert rejected it.
+//
+// Why that makes a whole test file hollow: the aborted body evaluation records no
+// ExprInfo, so codegen's get_expr_info lookup misses and emits
+// "// Failed to transpile ..." for the ENCLOSING expression. In a generated test
+// batch that expression is the entire `match` dispatch, so one failed
+// compile-time assertion silently erases every test in the file.
+//
+// NOTE this is module level — no `test(...)` wrapper and no batch involved, so the
+// bug is not specific to the test runner. Note also that `yo-self check` on this
+// file passes: `check` does not force the comptime evaluation a real compile does.
+count_types :: (
+  fn(...(comptime(types) : ComptimeList(Type))) -> comptime(usize)
+)(types.len());
+
+comptime_assert(count_types(i32) == usize(1), "one type");
+
+main :: (fn() -> unit)({
+  ();
+});
+
+export(main);

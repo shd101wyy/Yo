@@ -69,6 +69,158 @@ Candidate constructs per file (each file's arms are dominated by one theme):
   `test(...)`, the rest module-level `comptime_expect_error(...)` negative cases
 - `variadic_comptime.test.yo` — variadic comptime functions
 
+## ROOT CAUSE TRACED 2026-08-08 — it is the EVALUATOR, not codegen
+
+The `// Failed to transpile` marker is a **symptom**. The chain, established with
+`YO_DEBUG_SWALLOW=1` (which prints every def-time error yo-self swallows):
+
+1. A comptime call fails to evaluate — `evaluate_comptime_fn_call: function_value
+is not a FuncVal` (`yo-self/evaluator/calls/comptime_fn.yo:500`).
+2. So the enclosing comparison has type `unknown`.
+3. So `comptime_assert` rejects it — `Expected bool value for "comptime_assert"`
+   (`yo-self/evaluator/builtins/comptime_assert.yo:120-151`). **Swallowed.**
+4. So the whole `main` body's evaluation aborts and **no ExprInfo is recorded**.
+5. So codegen's `get_expr_info` lookup takes its `.None` arm and emits the marker
+   — and because the batch's body is one giant `match`, that marker replaces the
+   entire dispatch, taking every sibling test arm with it.
+
+### Minimal repro (5 lines, clean TS/yo-self differential)
+
+```rust
+count_types :: (fn(...(comptime(types) : ComptimeList(Type))) -> comptime(usize))(types.len());
+comptime_assert(count_types(i32) == usize(1), "one");
+main :: (fn() -> unit)({ (); });
+export(main);
+```
+
+- **TS**: compiles clean, 0 markers.
+- **yo-self**: `error: Expected bool value for "comptime_assert"`, exit 1.
+
+Not the round-trip: the `ast_expr_to_string` form `(types.len)()` fails
+identically to the original `types.len()`. Not batch-specific either — this is at
+module level, no `test(...)` and no dispatch. Note the original test FILE
+`check`s clean (rc=0), because `check` does not force the comptime evaluation
+that a real compile does.
+
+### This is NOT the def-time swallow surface
+
+That was my first hypothesis and it is wrong. `issues/def-time-body-eval-swallow-surface.md`
+is why the error is _invisible_, but the defect itself is one specific failure in
+comptime call evaluation. Fixing the swallow would only make it _loud_. Start from
+the repro above and `comptime_fn.yo:500` — ask what `function_value` actually is
+for a variadic comptime function, since it is evidently not a `.FuncVal`.
+
+Expect the three files to need **separate** fixes: `variadic_comptime` is variadic
+comptime calls, `index` is comptime string/`ComptimeList` slicing, and
+`safe_code_structural_gates` routes through `comptime_expect_error`.
+
+### Two concrete leads in the CTFE call path (start here)
+
+The CTFE route that reaches `evaluate_comptime_fn_call` is
+`yo-self/evaluator/calls/function.yo:5200-5250`. Two things there look wrong for a
+variadic comptime function, and both are consistent with the observed error:
+
+1. **The callee falls back to a non-function value.** At `:5218`
+
+   ```rust
+   ct_func_value := match(callee_value,.Some(v) => v,.None => EvalValue.UnitVal);
+   ```
+
+   so an unresolved callee silently becomes `UnitVal` — which is precisely what
+   `evaluate_comptime_fn_call` then rejects with "function_value is not a FuncVal"
+   (`comptime_fn.yo:483-500`). The error message names the symptom; this is where
+   the `None` originates. Worth throwing a diagnostic here rather than
+   substituting `UnitVal`.
+
+2. **The variadic arguments are dropped on the floor.** At `:5211-5215` the
+   ArgValues is built as
+
+   ```rust
+   ct_arg_values := ArgValues(
+     forall_args : ArrayList(ArgEntry).new(),
+     args : ct_arg_entries,
+     implicit_args : Option(ArrayList(ArgEntry)).None,
+     variadic_args : ArrayList(VarArgEntry).new()   // <-- always EMPTY
+   );
+   ```
+
+   `variadic_args` is never populated on this path, so even a correctly-resolved
+   variadic comptime callee would be invoked with no variadic arguments. Compare
+   the non-CTFE call path, which does collect them.
+
+Confirm with the checked-in reproducer, and check the same two lines against the
+TS equivalent before changing them — the CTFE route is shared by comptime methods
+and macros, so an over-broad change here has wide blast radius.
+
+### THE ACTUAL FAILING SITE (attempted 2026-08-08, three layers deep)
+
+Lead 2 above is real but **not sufficient**, and the true failure is earlier than
+the call. Narrowing it down:
+
+**Layer 1 — `variadic_args` is never populated (real gap, fix written and reverted).**
+yo-self already CONSUMES `arg_values.variadic_args` (`comptime_fn.yo:610-614`),
+and TS both fills it (`helper.ts:1763-1801`) and spreads it
+(`comptime-fn.ts:73-77`). But **every** construction site in yo-self passes
+`ArrayList(VarArgEntry).new()` — grep it: nothing ever pushes a `VarArgEntry`.
+`helper.yo` step 7b already evaluates the variadic args, it just files them into
+`rt_args` (for the C-extern `snprintf` case) and drops them otherwise. Threading
+those into the two in-scope `ArgValues` constructions type-checks cleanly, but
+does NOT fix the reproducer — so it is necessary-but-not-sufficient and was
+reverted rather than shipped unvalidated.
+
+**Layer 2 — the failure is at DEFINITION time, not at the call.** The error points
+at the function's own body:
+
+```
+Error: Variable "types" not found.
+  count_types :: (fn(...(comptime(types) : ComptimeList(Type))) -> comptime(usize))(types.len());
+                                                                                    ^ 1:83
+```
+
+So the def-time body evaluation cannot see the variadic parameter. That is why
+the callee ends up with no value, which is why `ct_func_value` degrades to
+`UnitVal` at `function.yo:5218`, which is why `comptime_fn.yo:500` reports "not a
+FuncVal". The call-site leads are all downstream of this.
+
+**Layer 3 — one def-time path binds the variadic parameter and the other does not.**
+`function_type.yo` calls `_trial_eval_fn_body` from two places:
+
+- `:984` (`flow_env`) — binds it, via the explicit
+  `get_func_variadic_param(...) -> add_variable_to_env(...)` block at `:918-943`,
+  with a comment noting the name/type "are not on TypeValue.Func, so they ride the
+  side table".
+- `:565` (`rp_env`, `_rerun_pending_def_evals`) — **does not**. It builds the env
+  with `_build_def_time_body_env`, which has no variadic binding of its own, and
+  never adds the block the flow path has.
+
+**Suggested fix:** give `PendingDefEval` (`:219-232`) the variadic parameter (it
+currently carries only `param_labels`/`param_types`/…), populate it where the
+pending eval is registered, and bind it in `_rerun_pending_def_evals` right after
+`_build_def_time_body_env`, mirroring `:918-943`. Better still, move the binding
+INTO `_build_def_time_body_env` so both callers get it and the two paths cannot
+drift again — that drift is the whole bug.
+
+Do Layer 1 as well; it is a genuine port gap and will be needed once the callee
+resolves. Gate the change with the full battery: this is the shared def-time body
+eval, so the blast radius is every function definition in the language.
+
+### A tempting codegen "fix" that is actively harmful — do not do it
+
+`generate_func_call` bails to the marker whenever `get_expr_info` misses, _before_
+reaching its compile-time-marker skip list. Hoisting the structural
+`begin`/`cond`/`match` dispatches above that lookup (none of them take an
+ExprInfo) makes all three files report `hollow=0`. **It is not a fix.** The bodies
+still do not run — the failure just moves into `generate_match_expression`, which
+emits `/* "match" expression is not evaluated */`, a comment the hollow detector
+does not grep for. Verified by injecting `assert(i32(1) == i32(2))` into a test
+body: it still reported "10 passed".
+
+That would convert a _detectable_ hollow into an _invisible_ one, silencing the
+gate. `yo-self/codegen/exprs/generation.yo` carries a comment at that spot saying
+so. Hoisting only the compile-time markers (which genuinely emit no C, matching
+`generation.ts:1081-1102`) IS correct and is done; it fixes the standalone case
+and leaves the batch failure detectable.
+
 ## Do not extract a minimal `main` — it false-passes
 
 Both obvious reductions were tried and **both compile cleanly** under the
