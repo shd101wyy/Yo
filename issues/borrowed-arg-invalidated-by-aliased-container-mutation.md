@@ -292,3 +292,70 @@ mutation keeps its +1); tests/rc.test.yo 23/23 both compilers (new
 fast suite 2673/0; battery 0 failures hollow=0; corpus 155 PASS / 0 DIFF;
 `check ./std` 153/153; **FIXPOINT HOLDS** (stage-2 ≡ stage-3, hollow=0);
 Guard Malloc clean.
+
+### Stage 1 REVIEW findings (2026-08-08) — a UAF every gate passed over
+
+A code review of the Stage-1 branch found a **real use-after-free** that the
+full battery (TS fast suite, 23-file battery, 155-program corpus, `check
+./std`, stage-2/stage-3 fixpoint, Guard Malloc) had all reported green.
+Recorded here because the failure mode is instructive: the gates measure
+_behavior of programs the compiler emits_, and this bug only manifests for a
+specific source shape none of the corpus programs happened to contain.
+
+**Hole 1 (HIGH, live UAF): the compile-time-value early-exit outranked the
+structural forms.** The walk short-circuited on "this expr has a concrete
+`$.value`, so codegen inlines it and nothing inside runs". That reasoning is
+right for a CTFE'd call and WRONG for a statement: an assignment stamps
+`VUnit` (assignment.ts:762,772,1218) and a declaration carries its own value,
+purely because that is their type. So the walk skipped whole statements and
+never visited the mutating call on the right-hand side:
+
+```rust
+poke   :: (fn(w : AliasWrap, seed : i32) -> i32)({ w.b = box(i32(100) + seed); w.b.* });
+honest :: (fn(w : AliasWrap, borrowed : Box(i32), seed : i32) -> i32)({
+  t := poke(w, seed);          // skipped whole — the mutation is never seen
+  borrowed.* + (t - t)
+});
+```
+
+`honest` was reported read-only → Stage 1 elided the Stage-0 dup → the
+borrowed projection read recycled memory, **returning 2 instead of 42**.
+Fixed by moving the check below the structural dispatch (`=`, `:=`/`::`,
+`match`, safe heads), where it only applies to genuinely folded calls.
+Ported to yo-self in lockstep — the port had the identical ordering.
+
+Regression test: `tests/rc.test.yo` "statement-hidden mutation keeps the
+borrowed-projection dup", covering both the reassignment and declaration
+forms. Verified RED before the fix (SIGABRT).
+
+**Hole 2 (HIGH, latent): the memo cache was keyed by a REUSABLE id.**
+`summaryByFuncId` is process-global, but `funcId`s come from `randomId()` —
+a per-module-path COUNTER (`utils.ts`) that `clearAllModuleCounters()` resets
+per test file and `resetModuleIdCounter()` resets on module drop/reload. Any
+process compiling a module path twice can hand `fn_<mod>_id_N` to a different
+function and inherit its verdict; a "read-only" verdict inherited by a
+mutating callee elides the dup silently. `utils.ts` now exposes a module-id
+generation (a plain number — an inbound import into that leaf would be a
+cycle) and the cache drops its memo when it moves.
+
+yo-self does NOT share this hazard: its `random_id` is a single monotonic
+process-global with no reset, so ids are unique for the life of the process.
+That invariant is now documented at the yo-self cache, with a note to add the
+guard if the generator ever gains a reset.
+
+**Hole 3 (MEDIUM): the unmark was fail-open.**
+`removeBorrowedProjectionDupMark` cleared the deferred dup BEFORE confirming
+it could flip the dup temp back to non-owning; on either early-return path
+(no temp name / temp not in the current env) the dup was gone but the temp
+stayed owning, and the caller's RAII collection — which deliberately runs
+right after — would emit a scope-end `___drop` with no matching `___dup`.
+`callerEnv` is re-bound several times between the arg loop and the unmark, so
+a lookup miss is not hypothetical. Now all-or-nothing. The yo-self unmark has
+no equivalent hazard: its dup temp is consumed at creation and balanced by an
+explicit call-node drop, not a scope-end drop.
+
+**Lesson for this class of work:** behavioral gates cannot find a
+mis-classification whose trigger shape is absent from the corpus. For an
+analysis that decides whether to REMOVE a safety operation, write adversarial
+probes per decision rule (here: one per early-exit) and assert the verdict
+directly, rather than relying on end-to-end suites.
