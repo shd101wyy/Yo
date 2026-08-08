@@ -110,13 +110,43 @@ const SAFE_RECURSE_HEADS: ReadonlySet<string> = new Set<string>([
   // Aggregate literals.
   "tuple",
   "array",
-  // Explicit RC ops on callee-owned handles: an increment is always safe;
-  // a decrement only frees storage nothing else references (a live borrow
-  // is backed by the container's own counted reference).
+  // An explicit RC INCREMENT can never free anything.
+  //
+  // Decrements are deliberately NOT here — see DECREMENTS below. (They were,
+  // on the reasoning that "a decrement only frees storage nothing else
+  // references, because a live borrow is backed by the container's own
+  // counted reference". That is precisely the assumption Stage 0 exists to
+  // deny: the container's reference is exactly what a callee can release.
+  // `___drop(w.b)` inside a callee freed the borrowed box and the caller
+  // read dangling memory.)
   ...BuiltinFunctions.___dup,
-  ...BuiltinFunctions.___drop,
   // The audit wrapper — the wrapped call is analyzed normally.
   ...BuiltinFunctions.unsafe,
+]);
+
+/**
+ * RC-DECREMENT primitives. Any of these can release the last reference to
+ * RC storage — including the container-held reference a borrowed projection
+ * depends on — so a callee containing one MAY invalidate the borrow.
+ *
+ * These are user-reachable (`___drop(x)` appears in tests/basic.test.yo), and
+ * a call to one on a projection (`___drop(w.b)`) is a real invalidation the
+ * assignment rule does not see. Compiler-generated drops do NOT reach this
+ * walk at all: they live in ExprInfo side-channels
+ * (`deferredDropExpressions` and friends), not as AST children, and each is
+ * balanced against a generated dup.
+ */
+const RC_DECREMENT_HEADS: ReadonlySet<string> = new Set<string>([
+  ...BuiltinFunctions.___drop,
+  ...BuiltinFunctions.___dispose,
+  ...BuiltinFunctions.dispose,
+  ...BuiltinFunctions.__yo_decr_rc,
+  ...BuiltinFunctions.__yo_decr_rc_atomic,
+  ...BuiltinFunctions.__yo_dyn_drop,
+  ...BuiltinFunctions.__yo_sometype_drop,
+  ...BuiltinFunctions.__yo_drop_array_element,
+  ...BuiltinFunctions.__yo_drop_tuple_element,
+  ...BuiltinFunctions.__yo_iso_dispose,
 ]);
 
 /**
@@ -167,15 +197,11 @@ const PURE_BUILTIN_HEADS: ReadonlySet<string> = new Set<string>([
   ...BuiltinFunctions.__yo_return_self,
   ...BuiltinFunctions.__yo_borrow_assert_unborrowed,
   ...BuiltinFunctions.__yo_incr_rc,
-  ...BuiltinFunctions.__yo_decr_rc,
   ...BuiltinFunctions.__yo_rc_own,
   ...BuiltinFunctions.__yo_dyn_dup,
-  ...BuiltinFunctions.__yo_dyn_drop,
   ...BuiltinFunctions.__yo_sometype_dup,
-  ...BuiltinFunctions.__yo_sometype_drop,
   ...BuiltinFunctions.__yo_dup_array_element,
   ...BuiltinFunctions.__yo_dup_tuple_element,
-  ...BuiltinFunctions.___dispose,
 ]);
 
 function isPureBuiltinHead(head: string): boolean {
@@ -351,6 +377,12 @@ function walkExpr(
       }
     }
     return undefined;
+  }
+  // An explicit RC decrement can release the container-held reference the
+  // borrowed projection depends on. Must be tested BEFORE the safe/pure
+  // head lists so a decrement can never be whitelisted by accident.
+  if (head !== undefined && RC_DECREMENT_HEADS.has(head)) {
+    return `rc decrement \`${head}\``;
   }
   if (head !== undefined && SAFE_RECURSE_HEADS.has(head)) {
     return walkExprs(fn.args, touched);

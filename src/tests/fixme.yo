@@ -1,33 +1,19 @@
 pragma(Pragma.AllowUnsafe);
 open(import("std/libc/stdio"));
 
-AliasWrap :: ref(struct(b : Box(i32)));
+W :: ref(struct(b : Box(i32)));
 
-stage1_poke :: (fn(w : AliasWrap, seed : i32) -> i32)({
-  w.b = box(i32(100) + seed);
-  w.b.*
-});
-
-// mutating call on the RHS of a REASSIGNMENT statement
-stage1_sneaky :: (fn(w : AliasWrap, borrowed : Box(i32), seed : i32) -> i32)({
-  (t : i32) = i32(0);
-  t = stage1_poke(w, seed);
-  borrowed.* + (t - t)
-});
-
-// mutating call on the RHS of a DECLARATION
-stage1_honest :: (fn(w : AliasWrap, borrowed : Box(i32), seed : i32) -> i32)({
-  t := stage1_poke(w, seed);
-  borrowed.* + (t - t)
+p2_decr_field :: (fn(w : W, borrowed : Box(i32)) -> i32)({
+  __yo_decr_rc(w.b);
+  borrowed.*
 });
 
 main :: (fn() -> unit)({
-  w := AliasWrap(b : box(i32(42)));
-  v := stage1_sneaky(w, w.b, i32(0));
-  unsafe(printf("sneaky=%d (want 42)\n", v));
-  w2 := AliasWrap(b : box(i32(42)));
-  v2 := stage1_honest(w2, w2.b, i32(0));
-  unsafe(printf("honest=%d (want 42)\n", v2));
+  unsafe(printf("start\n"));
+  w1 := W(b : box(i32(42)));
+  unsafe(printf("rc before=%d\n", i32(rc(w1.b))));
+  v := p2_decr_field(w1, w1.b);
+  unsafe(printf("p2=%d (want 42)\n", v));
 });
 
 export(main);

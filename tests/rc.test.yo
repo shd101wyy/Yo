@@ -679,6 +679,78 @@ stage1_honest :: (fn(w : AliasWrap, borrowed : Box(i32), seed : i32) -> i32)({
   t := stage1_poke(w, seed);
   borrowed.* + (t - t)
 });
+// Aliasing Stage 1 SOUNDNESS — one probe per "this callee is read-only"
+// decision rule in the mutation-summary walk. Each callee below invalidates
+// the borrowed projection through a DIFFERENT mechanism; every one must be
+// classified may-mutate so the Stage-0 +1 is kept. A rule that wrongly
+// answers read-only shows up here as a use-after-free, not as a subtle
+// slowdown — which is why these are asserted on VALUE, not just rc balance.
+//
+// An explicit RC decrement releases the container-held reference directly,
+// without any assignment for the walk's assignment rule to see. Both the
+// high-level drop and the raw primitive count.
+stage1_drop_field :: (fn(w : AliasWrap, borrowed : Box(i32)) -> i32)({
+  ___drop(w.b);
+  borrowed.*
+});
+stage1_decr_field :: (fn(w : AliasWrap, borrowed : Box(i32)) -> i32)({
+  __yo_decr_rc(w.b);
+  borrowed.*
+});
+// The mutation happens only on the BACK EDGE of a mutual recursion, so the
+// walk meets the cycle guard before it ever reaches the assignment.
+Stage1Rec :: struct(_d : i32);
+impl(
+  Stage1Rec,
+  even : (fn(w : AliasWrap, borrowed : Box(i32), n : i32) -> i32)(
+    cond(
+      (n == i32(0)) => borrowed.*,
+      true => Stage1Rec.odd(w, borrowed, n - i32(1))
+    )
+  ),
+  odd : (fn(w : AliasWrap, borrowed : Box(i32), n : i32) -> i32)({
+    w.b = box(i32(777));
+    Stage1Rec.even(w, borrowed, n - i32(1))
+  })
+);
+// The mutation is inside an immediately-invoked closure — the walk skips
+// function DEFINITIONS, so it must still catch the CALL.
+stage1_closure :: (fn(w : AliasWrap, borrowed : Box(i32)) -> i32)({
+  f := (fn(ww : AliasWrap) -> i32)({
+    ww.b = box(i32(888));
+    i32(0)
+  });
+  z := f(w);
+  borrowed.* + z
+});
+test("explicit ___drop of the container field keeps the borrow alive", {
+  w := AliasWrap(b : box(i32(42)));
+  assert(
+    stage1_drop_field(w, w.b) == i32(42),
+    "___drop(w.b) must count as a mutation"
+  );
+});
+test("raw __yo_decr_rc of the container field keeps the borrow alive", {
+  w := AliasWrap(b : box(i32(42)));
+  assert(
+    stage1_decr_field(w, w.b) == i32(42),
+    "__yo_decr_rc(w.b) must count as a mutation"
+  );
+});
+test("mutation on a mutual-recursion back edge keeps the borrow alive", {
+  w := AliasWrap(b : box(i32(42)));
+  assert(
+    Stage1Rec.even(w, w.b, i32(2)) == i32(42),
+    "cycle-guard optimism must not hide the back edge's mutation"
+  );
+});
+test("mutation inside an invoked closure keeps the borrow alive", {
+  w := AliasWrap(b : box(i32(42)));
+  assert(
+    stage1_closure(w, w.b) == i32(42),
+    "skipping closure DEFINITIONS must not skip the closure CALL"
+  );
+});
 test("statement-hidden mutation keeps the borrowed-projection dup", {
   w := AliasWrap(b : box(i32(42)));
   // The callee reassigns `w.b`, dropping the 42-box's container reference.
