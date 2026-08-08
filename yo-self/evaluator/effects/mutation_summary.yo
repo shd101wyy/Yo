@@ -51,6 +51,15 @@ open(import("std/string"));
   is_join_handle_await_call
 } :: import("../async/await_analysis.yo");
 /// func_id → may-mutate verdict (true = may mutate).
+///
+/// Process-global and never invalidated, which is safe HERE but is NOT safe
+/// in the TS twin: `utils.ts randomId` is a PER-MODULE counter that the test
+/// and build runners reset between compilations, so ids are reused for
+/// unrelated functions and the TS cache has to drop its memo whenever the id
+/// generation moves. yo-self's `random_id` (utils.yo) is a single
+/// process-global counter that only ever increments and has no reset — ids
+/// are unique for the life of the process, so no generation guard is needed.
+/// If that generator ever gains a reset, this cache must gain the guard.
 (g_ms_summary_by_fid : HashMap(String, bool)) = HashMap(String, bool).new();
 /// func_ids whose bodies are currently being walked (cycle guard).
 (g_ms_in_progress : HashMap(String, bool)) = HashMap(String, bool).new();

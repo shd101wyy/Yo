@@ -2543,7 +2543,13 @@ export function removeBorrowedProjectionDupMark(
     return env;
   }
   const dupExpr = dups[0]!;
-  expr.$!.deferredDupExpressions = undefined;
+  // Resolve the dup temp BEFORE dropping the dup. Removing the dup while
+  // leaving its result temp OWNING would hand the caller's RAII collection
+  // (which runs right after this, in `tryToCallFunctionWithArguments`) a
+  // scope-end `___drop` with no matching `___dup` — an unbalanced release.
+  // `env` here is the CURRENT caller env, re-bound several times since the
+  // argument loop, so a lookup miss is not hypothetical. Either both halves
+  // of the unmark happen or neither does.
   const dupTempName = dupExpr.$?.variableName;
   if (!dupTempName) {
     return env;
@@ -2559,6 +2565,7 @@ export function removeBorrowedProjectionDupMark(
       isOwningTheRcValue: false,
     });
   }
+  expr.$!.deferredDupExpressions = undefined;
   return env;
 }
 
