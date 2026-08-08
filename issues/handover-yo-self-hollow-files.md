@@ -170,14 +170,47 @@ the obvious location.
 
 ---
 
-## 6. What is NOT known
+## 6. MEASURED — the instrumentation result (start here)
 
-- **Which code path actually evaluates the body** in the failing case. Attempt 4
-  proves it is not the three `_build_def_time_body_env` sites. Find this first.
-- Whether `get_func_variadic_param` returns `Some` at that point at all. The side
-  table is keyed by the **fn-type expr id**, and `copy_func_variadic_param`
-  (`function_type.yo:854`) re-keys it to the func-val id — a key mismatch is a live
-  hypothesis, **not verified**.
+Rather than guess a fifth time, the three `_trial_eval_fn_body` call sites were
+instrumented with distinct markers and the `/tmp/ct_bind.yo` repro re-run. One
+build, and it answers both open questions:
+
+```
+64  __DBG_PATH dg_env(deferred_generic)     <- function_type.yo:1192
+71  __DBG_PATH flow_env                     <- function_type.yo:984
+ 0  __DBG_PATH rp_env(rerun_pending)        <- function_type.yo:565  NEVER RUNS
+--
+ 1  __DBG_VP hit                            <- get_func_variadic_param returned Some
+```
+
+Two things follow, and they redirect the whole hunt:
+
+1. **The `rp_env` / `_rerun_pending_def_evals` path never executes for this
+   repro.** All the `PendingDefEval` plumbing in attempt 4 was irrelevant to it.
+   The live paths are `flow_env` and `dg_env`.
+2. **The variadic side-table lookup hits ONCE across 71 flow-path body
+   evaluations.** `get_func_variadic_param` is returning `None` essentially
+   everywhere. So attempt 4's binding was correct in shape and simply never had
+   an entry to bind — which is exactly why moving it changed nothing.
+
+**This promotes the key-mismatch hypothesis to the leading candidate.** The side
+table is keyed by the **fn-type expr id**, and `copy_func_variadic_param`
+(`function_type.yo:854`) re-keys it to the **func-val id**. If the def-time body
+eval looks it up under a different id than the one it was registered against, the
+lookup misses and the parameter is never bound — producing precisely
+`Variable "types" not found`.
+
+**Next step, and it is small:** at the failing site, log both the key being looked
+up and the keys actually present in `g_func_variadic_params`. If they differ, that
+is the bug and the fix is a key fix, not an architecture change.
+
+Reproduce the instrumentation by adding an `eprintln` at each
+`_trial_eval_fn_body` call site (`:565`, `:984`, `:1192`) and inside the
+`get_func_variadic_param(...) .Some(...)` arm at `:918-943`.
+
+## 7. What is still NOT known
+
 - Whether `index.test.yo` and `safe_code_structural_gates.test.yo` share this root
   cause. Their triggers differ (comptime string/`ComptimeList` slicing, and
   `comptime_expect_error` respectively), so **assume separate bugs until proven
@@ -185,17 +218,17 @@ the obvious location.
 
 ---
 
-## 7. Suggested approach — diagnose before patching
+## 8. Suggested approach — diagnose before patching
 
 Four speculative fixes failed. Instrument first.
 
-1. **Find the real evaluation path.** Put a marker print in the `.None` arm that
-   yields `Variable "types" not found`, or at each `_trial_eval_fn_body` call site,
-   and run the `/tmp/ct_bind.yo` repro. One build (~10 min) tells you what four
-   guesses did not.
-2. **Check the side-table key.** At the failing site, log
-   `get_func_variadic_param(<key>)` and whether it is `Some`. If the key is wrong,
-   that is the bug and it is small.
+1. ~~Find the real evaluation path.~~ **DONE — see §6.** The live paths are
+   `flow_env` and `dg_env`; `rp_env` never runs.
+2. **Check the side-table key — this is now the leading candidate.** §6 shows
+   `get_func_variadic_param` returns `Some` exactly ONCE across 71 body
+   evaluations, so the binding has nothing to bind. Log both the key looked up and
+   the keys present in `g_func_variadic_params`. Registration is keyed by fn-type
+   expr id; `copy_func_variadic_param` (`:854`) re-keys to func-val id.
 3. **Compare against TS.** `src/evaluator/calls/function-type.ts:499` evaluates the
    body via `evaluateBeginExpression` against the **fn-type evaluation env**, where
    the variadic parameter is already bound. yo-self rebuilds a fresh env instead —
@@ -206,7 +239,7 @@ Four speculative fixes failed. Instrument first.
 
 ---
 
-## 8. Validation bar — non-negotiable
+## 9. Validation bar — non-negotiable
 
 **`hollow=0` is NOT proof.** Attempt 2 produced `hollow=0` while running nothing.
 Every claimed fix must pass this probe:
@@ -234,7 +267,7 @@ design, so a real fix makes CI red until the list is updated. That is intentiona
 
 ---
 
-## 9. Traps specific to this codebase
+## 10. Traps specific to this codebase
 
 - **`check` passes on all of this.** `yo-self check tests/variadic_comptime.test.yo`
   is `rc=0` with 0 errors, because `check` never forces the comptime evaluation a
@@ -255,7 +288,7 @@ design, so a real fix makes CI red until the list is updated. That is intentiona
 
 ---
 
-## 10. File map
+## 11. File map
 
 | What                              | Where                                                                                     |
 | --------------------------------- | ----------------------------------------------------------------------------------------- |
