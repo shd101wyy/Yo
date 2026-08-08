@@ -1,5 +1,28 @@
 # `ctl` handlers are emitted `void` but called through value-returning casts (x86_64 ABI break)
 
+> **FIXED 2026-08-09.** Both compilers now cast a generic-`ResumeType` `ctl` call to
+> the CALLEE's real return type and use the zero-init-temp protocol, so the caller and
+> callee agree and no hidden sret pointer can displace `err`. TS emits handlers `void`
+> and casts `void`; yo-self emits `void*` and casts `void*`.
+>
+> Measured after the fix: **1037/1037** `exn.throw` casts in the TS emit and
+> **1036/1036** in yo-self's self-emit are now the callee's real type (before: 140
+> non-void, 95 of them >16-byte MEMORY class).
+>
+> The two repros this doc called "not yet built" are checked in —
+> `issues/repros/ctl-large-resume-type-sret.yo` (a 32-byte ResumeType thrown in value
+> position, handler derefs `err.vtable`; `-fsanitize=function` flags it before the fix,
+> clean after) and `issues/repros/ctl-large-resume-type-sret-abi-demo.c` (the same shape
+> in freestanding C; cross-compiled to x86_64 the call site emits
+> `leaq -40(%rbp), %rdi`, demonstrating the displacement).
+>
+> Validation: TS suite 2685/2685 · `gates_fast` failures=0 · FIXPOINT_HOLDS ·
+> full-corpus sweep 188/188 GREEN.
+>
+> **The guard is NOT yet enabled.** `-fsanitize=function` on test binaries is the
+> follow-up this doc recommends, and it should now be possible — that is deliberately
+> left as its own change so any fallout is separable.
+
 **Found 2026-08-06** while root-causing
 `issues/fixed/escape-path-drops-unwound-call-result-temp.md`.
 
@@ -168,6 +191,45 @@ So the `err.vtable->to_string(...)` handler is the compiler's **top-level error 
 in `__yo_user_main` — the "yo-self: error: …" path. That is the outermost handler, the
 one a throw reaches whenever no nearer handler catches it, which makes the dangerous
 pairing ordinary rather than exotic.
+
+### MEASURED 2026-08-08 (round 2): the dynamic check, run
+
+The check the section below proposes has now been run, and it answers the open
+question. Method — take the stage-2 self-emit, build it with `-fsanitize=function`
+(works on macOS arm64; the CAST types it reports live in the C and so transfer to
+x86_64), and drive real error paths through it:
+
+```bash
+clang -std=c11 -fno-strict-aliasing -fwrapv -w -O1 -fsanitize=function \
+      /tmp/<P>_stage2.c -o /tmp/ubsan_s2
+YO_MAIN_STACK_MB=4096 /tmp/ubsan_s2 compile <file-with-a-real-error>.yo \
+      --emit-c --skip-c-compiler -o /tmp/x 2>&1 | grep "incorrect function type"
+```
+
+Findings across `check` and `compile` runs over several error shapes (including a
+parse error, which reaches the top-level "yo-self: error:" printer):
+
+1. **The `err`-reading handler IS reached through a mismatched call.** The parse-error
+   run flags `fn_yo_id_820940` — one of the 3 handlers that dereference `err` — called
+   through `struct __yo_t135_struct (*)(__yo_t852)`.
+2. **But every EXECUTED by-value throw cast is ≤ 16 bytes.** `__yo_t135` is the only
+   by-value struct return reached in any run, and `_Static_assert(sizeof(...) <= 16)`
+   passes for it. Every other flagged `exn.throw` cast returns a POINTER (8 bytes).
+   So all of them are REGISTER class: no hidden sret pointer, `err` is not displaced,
+   and the garbage return value is never read because the handler unwinds.
+
+**That reconciles the tension.** Today's green x86_64 suite is not luck about which
+handler wins — the `err`-reading top-level printer really is reached — it is that the
+error paths actually exercised sit at register-class sites. The 95 >16-byte sites are
+present in the emitted C but were not on any exercised error path here.
+
+**What this does NOT establish:** that no >16-byte site is reachable. The exercise
+covered a handful of error shapes, not the corpus. The pairing stays one refactor
+away — any handler that formats or inspects an error in a value position whose
+surrounding type exceeds 16 bytes moves a live site into the dangerous shape — so
+this is **still a real bug to fix, just not one that is firing today**. It is
+schedulable rather than urgent, and the TS-referee expiry at P2 remains the reason
+to do it before then.
 
 **Still not proven**, and it needs a dynamic check rather than more grepping: whether a
 throw at one of the 95 large-`ResumeType` sites actually reaches THIS handler rather than
