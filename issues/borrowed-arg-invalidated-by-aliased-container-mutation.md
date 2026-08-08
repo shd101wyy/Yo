@@ -463,7 +463,7 @@ statement-skipping bug: "has a value" ≠ "is compile-time inlined".
 **Rules probed and found SOUND:** nested projection chains (`h.inner.b`),
 and a projection whose ROOT is the caller's own parameter rather than a local.
 
-**The regression test is BLOCKED and tracked separately.** The only shape
+**The regression test WAS blocked; it is now checked in.** The only shape
 that discriminates is a fixed-size `Array` field: its element reads are
 inline, non-owning, and carry an `UnknownValue`. `ArrayList` reads go through
 the Index trait and yield an OWNING temp, so they were already safe at `+0`
@@ -471,7 +471,8 @@ and a test built on them passes with or without the fix — worthless as a
 regression guard. But `Array(Box(i32), N)(...)` emits invalid C in BOTH
 compilers (pre-existing, verified with these changes stashed), so the test
 cannot be checked in yet. Filed as
-`issues/array-of-rc-constructor-emits-invalid-c.md`, which carries the
-reproducer and an instruction to add this test when that codegen bug is
-fixed. The fixes here are verified by hand (101 → 42) and by the full gate
-battery.
+`issues/fixed/array-of-rc-constructor-emits-invalid-c.md` (fixed 2026-08-08; three defects, see that doc), which carried the
+reproducer. That bug is now fixed and the test — "an INDEXED borrowed
+argument is protected like a field projection" — is checked into
+`tests/rc.test.yo`, passing under both compilers. The fixes here are
+additionally verified by hand (101 → 42) and by the full gate battery.
