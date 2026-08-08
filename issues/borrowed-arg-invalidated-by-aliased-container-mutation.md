@@ -423,3 +423,55 @@ deliberately NOT done here: TS's call-node deferred drops are emitted
 before the call in some emitters (`recur.ts`), so moving the release there
 risks the exact use-after-free that had to be fixed in yo-self's recur.yo.
 It is worth doing as its own change, with its own gate run.
+
+### Stage-0 audit (2026-08-08) — two more holes, in the rules deciding WHAT
+
+### gets protected
+
+Stage 1's rules were probed exhaustively; Stage 0's never were. Applying the
+same method to Stage 0 — the rules deciding which arguments get a `+1` at all
+— found two defects. They matter more than Stage 1's, because Stage 1 can
+only elide a dup that Stage 0 created: a shape Stage 0 declines to mark is
+unprotected no matter what Stage 1 concludes.
+
+**Hole A — the projection predicate required a 2-arg dot, so INDEX reads were
+never protected.** `exprIsRcProjectionPlace` matched `w.b` and `a.b.c` but
+rejected `h.a(0)`, whose AST is `(h.a)(0)` — a call whose FUNC is the dot.
+An element read is a view into container storage exactly as a field read is.
+Reproducer: a callee reassigning `h.a(0)` in a loop freed the borrowed box
+and the caller read **101 instead of 42** — the same signature as the
+original Stage-0 bug, reached through indexing. Both compilers had it.
+
+Fixed by factoring the root walk into `placeRootIsRuntimeVariable` and
+accepting two forms: a dot chain with an atom rhs (field), or any other call
+whose FUNC's root is a runtime variable (index/method read). Widening is safe
+by construction — the marker no-ops when the argument's temp already OWNS its
+value, which is what an ordinary value-returning call produces, so only
+genuine borrows into live storage pick up the `+1`, and Stage 1 elides it
+again for read-only callees.
+
+**Hole B (TS only) — the marker treated a runtime `UnknownValue` as an
+inlined constant.** `setExprAsNeedsToCallDupForBorrowedProjection` skipped on
+a bare `if (expr.$.value)`. But an `UnknownValue` IS a value object: per
+AGENTS.md, `value == undefined` means runtime, whereas `UnknownValue` means
+"type known, value not". Element reads carry exactly that, so even after
+hole A was fixed the marker still skipped them. The yo-self twin already
+guarded with `is_unknown_val` — **the port had diverged and yo-self was the
+correct side**; this is TS catching up. Same class as the Stage-1
+statement-skipping bug: "has a value" ≠ "is compile-time inlined".
+
+**Rules probed and found SOUND:** nested projection chains (`h.inner.b`),
+and a projection whose ROOT is the caller's own parameter rather than a local.
+
+**The regression test is BLOCKED and tracked separately.** The only shape
+that discriminates is a fixed-size `Array` field: its element reads are
+inline, non-owning, and carry an `UnknownValue`. `ArrayList` reads go through
+the Index trait and yield an OWNING temp, so they were already safe at `+0`
+and a test built on them passes with or without the fix — worthless as a
+regression guard. But `Array(Box(i32), N)(...)` emits invalid C in BOTH
+compilers (pre-existing, verified with these changes stashed), so the test
+cannot be checked in yet. Filed as
+`issues/array-of-rc-constructor-emits-invalid-c.md`, which carries the
+reproducer and an instruction to add this test when that codegen bug is
+fixed. The fixes here are verified by hand (101 → 42) and by the full gate
+battery.

@@ -27,6 +27,7 @@ import {
   type ArrayValue,
   type ComptimeListValue,
   isTypeValue,
+  isUnknownValue,
   type StructValue,
   type TraitValue,
   type TupleValue,
@@ -2467,10 +2468,17 @@ export function setExprAsNeedsToCallDupForBorrowedProjection(
   if (!expr.$ || !expr.$.variableName) {
     return;
   }
-  if (expr.$.value) {
+  if (!typeContainsRcType(expr.$.type)) {
     return;
   }
-  if (!typeContainsRcType(expr.$.type)) {
+  // Skip only a value codegen genuinely INLINES. An `UnknownValue` is still a
+  // value OBJECT — it means "type known, value not" — so a bare
+  // `if (expr.$.value)` also skipped ordinary RUNTIME reads. Element reads
+  // (`h.a(0)`) carry exactly that, so every indexed borrow went unprotected:
+  // a callee reassigning the container in a loop freed the box and the caller
+  // read 101 instead of 42. The yo-self twin already guarded with
+  // `is_unknown_val`; this is the TS side catching up to the port.
+  if (expr.$.value && !isUnknownValue(expr.$.value)) {
     return;
   }
   const variableName = expr.$.variableName;

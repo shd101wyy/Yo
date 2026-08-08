@@ -242,32 +242,49 @@ function generateDeferredDropExpressions({
  * match.ts `exprIsPlaceExpression` minus the atom case (kept local: match.ts
  * importing from this module makes the reverse import a cycle).
  */
-function exprIsRcProjectionPlace(
+function placeRootIsRuntimeVariable(
   expr: Expr | undefined,
   env: Environment
 ): boolean {
-  if (
-    !expr ||
-    !exprIsFunctionCall(expr) ||
-    !exprIsFunctionCallOf(expr, ".", 2) ||
-    !exprIsAtom(expr.args[1]!)
-  ) {
-    return false;
-  }
-  let root: Expr = expr.args[0]!;
+  let root: Expr | undefined = expr;
   while (
+    root &&
     exprIsFunctionCall(root) &&
     exprIsFunctionCallOf(root, ".", 2) &&
     exprIsAtom(root.args[1]!)
   ) {
     root = root.args[0]!;
   }
-  if (!exprIsAtom(root)) {
+  if (!root || !exprIsAtom(root)) {
     return false;
   }
   const rootVars = getVariablesFromEnv(env, root.token.value);
   const rootVar = rootVars.length ? rootVars[rootVars.length - 1] : undefined;
   return rootVar !== undefined && !rootVar.isCompileTimeOnly;
+}
+
+function exprIsRcProjectionPlace(
+  expr: Expr | undefined,
+  env: Environment
+): boolean {
+  if (!expr || !exprIsFunctionCall(expr)) {
+    return false;
+  }
+  // Field projection: `w.b`, `a.b.c`.
+  if (exprIsFunctionCallOf(expr, ".", 2) && exprIsAtom(expr.args[1]!)) {
+    return placeRootIsRuntimeVariable(expr.args[0]!, env);
+  }
+  // INDEX projection: `arr(i)`, `w.items(i)`, and method reads like
+  // `w.get(i)`. An element read is a view into container storage exactly as a
+  // field read is, and the callee can release it the same way — a callee
+  // reassigning `h.a(0)` in a loop freed the borrowed box and the caller read
+  // 101 instead of 42. Requiring a 2-arg dot missed every one of these.
+  //
+  // Widening here is safe by construction: the marker no-ops when the
+  // argument's temp already OWNS its value, which is what an ordinary
+  // value-returning call produces, so only genuine borrows into live storage
+  // pick up the `+1` — and Stage 1 then elides it for read-only callees.
+  return placeRootIsRuntimeVariable(expr.func, env);
 }
 
 export function checkIfFunctionParameterMatchesArgument({

@@ -929,9 +929,45 @@ set_expr_as_needs_to_call_dup_for_borrowed_projection :: (
 /// +0). A method call (`x.f()`) is not a 2-arg dot call — its `func` is the
 /// dot — and produces an owned temp anyway. Mirrors TS helper.ts
 /// `exprIsRcProjectionPlace`.
-arg_is_rc_projection_place :: (fn(e : AstExpr, env : Environment) -> bool)({
-  if(!(ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2)))), {
+/// True when walking `e`'s dot chain reaches an ATOM bound to a RUNTIME
+/// variable — the root of a place expression. Shared by the field and index
+/// forms of `arg_is_rc_projection_place`.
+_place_root_is_runtime_variable :: (fn(e : AstExpr, env : Environment) -> bool)({
+  (root : AstExpr) = e;
+  while(ast_expr_is_fn_call_of(root, BF_DOT, Option(usize).Some(usize(2))), {
+    r_args := match(root,.FnCall(_, _, __prv_ra, _, _) => __prv_ra,.Atom(_, _) => ArrayList(AstExpr).new());
+    r_a1 := match(r_args.get(usize(1)),.Some(x) => x,.None => return(false));
+    if(!(ast_expr_is_atom(r_a1)), {
+      return(false);
+    });
+    root = match(r_args.get(usize(0)),.Some(x) => x,.None => return(false));
+  });
+  if(!(ast_expr_is_atom(root)), {
     return(false);
+  });
+  vars := get_variables_from_env(env, ast_expr_token(root).value);
+  if(vars.len() == usize(0), {
+    return(false);
+  });
+  match(
+    vars.get(vars.len() - usize(1)),
+    .Some(v) => !(v.is_compile_time_only),
+    .None => false
+  )
+});
+arg_is_rc_projection_place :: (fn(e : AstExpr, env : Environment) -> bool)({
+  // INDEX projection: `arr(i)`, `w.items(i)`. An element read is a view into
+  // container storage exactly as a field read is, and a callee can release it
+  // the same way — a callee replacing the container in a loop freed the
+  // borrowed box and the caller read the recycled allocation. Requiring a
+  // 2-arg dot missed every one of these. Widening is safe by construction:
+  // the marker no-ops when the argument's temp already OWNS its value.
+  if(!(ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2)))), {
+    if(ast_expr_is_atom(e), {
+      return(false);
+    });
+    e_func := match(e,.FnCall(_, __aipp_f, _, _, _) => __aipp_f,.Atom(_, _) => return(false));
+    return(_place_root_is_runtime_variable(e_func, env));
   });
   e_args := match(e,.FnCall(_, _, __aipp_a, _, _) => __aipp_a,.Atom(_, _) => ArrayList(AstExpr).new());
   e_a1 := match(e_args.get(usize(1)),.Some(x) => x,.None => return(false));
