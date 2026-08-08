@@ -1,15 +1,17 @@
-# 5 of 188 language test files fail under the self-hosted compiler (3 HOLLOW, 2 Linux-only RED)
+# 3 of 188 language test files are HOLLOW under the self-hosted compiler
 
-**Found 2026-08-08** by the first full-corpus hollow sweep. Three exit 0 and report
-passing tests while **running no assertions at all**; two more fail outright on
-Linux while passing on macOS.
+**Found 2026-08-08** by the first full-corpus hollow sweep. They exit 0 and report
+passing tests while **running no assertions at all**.
 
-| platform            | GREEN | HOLLOW | RED   |
-| ------------------- | ----- | ------ | ----- |
-| macOS arm64 (local) | 185   | 3      | 0     |
-| Linux x86_64 (CI)   | 183   | 3      | **2** |
+| platform            | GREEN | HOLLOW | RED              |
+| ------------------- | ----- | ------ | ---------------- |
+| macOS arm64 (local) | 185   | 3      | 0                |
+| Linux x86_64 (CI)   | 183   | 3      | 2 → **0, fixed** |
 
-The 3 HOLLOW are identical on both. The 2 RED are Linux-only — see that section.
+> **The 2 RED files are FIXED** (see "Plus 2 RED files" below for the diagnosis).
+> Neither was actually platform-specific — Linux merely exposed both. They are no
+> longer in `scripts/bootstrap/known-failing.tsv`. **The 3 HOLLOW remain open**
+> and are what this issue now tracks.
 
 ## The census (first ever)
 
@@ -82,7 +84,7 @@ declarations interacting with batch generation. Reduce by **deleting arms from
 the real file** (keeping the `test(...)` wrapper and the module preamble) rather
 than by writing a new small file.
 
-## Plus 2 RED files — and they are LINUX-ONLY (found in CI, 2026-08-08)
+## Plus 2 RED files — FIXED 2026-08-08 (found in CI the same day)
 
 The census above was taken on macOS arm64. The first CI run of the sweep (Linux
 x86_64) reproduced the same 3 HOLLOW exactly, and found **two more files that fail
@@ -97,10 +99,14 @@ tests/string/string.test.yo      RED rc=1 hollow=0 markers=0  none
 - `string/string` exits 1 with no summary at all — it dies before running anything.
 
 Both pass under the TS compiler on Linux (the `test (ubuntu-latest)` job is green),
-so this is a **platform-specific divergence in `yo-self` itself**, not a broken test.
-Neither file is in the 23-file `gates_fast` battery, so neither had ever been run
-under the self-hosted compiler on Linux before this sweep existed — which is exactly
-the blind spot the sweep was written to close.
+so both are divergences in `yo-self` itself, not broken tests. Neither file is in
+the 23-file `gates_fast` battery, so neither had ever been run under the
+self-hosted compiler on Linux before this sweep existed — exactly the blind spot
+the sweep was written to close.
+
+**Neither turned out to be genuinely platform-specific.** Linux merely exposed
+both: one through a stricter clang default, the other through a stricter
+allocator. Both reproduce and are fixable from macOS once you know that.
 
 ### Root causes (from the uploaded sweep logs — they are two different bugs)
 
@@ -114,12 +120,22 @@ yo-self: error: compile: C compiler failed (exit 256)
 
 Not an RC or semantics bug — the self-hosted compiler emits **more deeply nested C
 than the reference does** for this file, and trips clang's default
-`-fbracket-depth=256`. The TS compiler builds the same test fine on the same runner,
-so the emitted nesting genuinely differs between the two. Two candidate fixes, and
-the choice matters: pass `-fbracket-depth=<N>` in the C-compiler invocation (papers
-over it, and the flag is clang/gcc-specific), or find why yo-self nests deeper and
-flatten it (addresses the divergence). Prefer diagnosing the divergence first — a
-gratuitously deeper emit is itself a signal.
+`-fbracket-depth=256`.
+
+**RESOLVED — it was a missing port, and the deeper nesting was the symptom.**
+yo-self compiled every test in a file as ONE batch, and the generated `cond`
+dispatch nests one brace level per test: 252 tests → 261 levels. TS was already
+batching at `DEFAULT_TEST_BATCH_SIZE = 100` (`src/test-runner.ts:54`), so its emit
+for the same file peaks at 105 across 3 batches.
+
+It is also not platform-specific: local clang 21.1.7 just defaults to a higher
+bracket depth than CI's. `clang -fbracket-depth=256 -fsyntax-only <batch>.c`
+reproduces it exactly on macOS, which is what made it debuggable.
+
+The tempting fix — passing `-fbracket-depth=<N>` — was rejected: it papers over a
+real divergence and the flag is clang/gcc-specific. Porting the batching addresses
+the cause. After the fix: 3 batches at depth 109/109/61, 252/252 passing, every
+batch clean under an explicit `-fbracket-depth=256`.
 
 **`tests/ref_local_binding.test.yo` — an RC lifetime failure.**
 
@@ -136,23 +152,32 @@ a = Holder(s : String.from("other"), n : i32(1));
 assert(b.s == "kept", "b's handle keeps the original object alive");
 ```
 
-so `b` must keep the first `Holder` alive after `a` is reassigned. This is the
-premature-drop / use-after-free shape, in the RC area — treat it as the higher
-severity of the two.
+so `b` must keep the first `Holder` alive after `a` is reassigned. This was the
+higher-severity of the two — an RC lifetime defect rather than a build failure.
 
-**Do not assume it is an allocator-masked UAF.** That is the obvious hypothesis
-("passes on macOS, fails on Linux" usually means freed memory still holds the old
-bytes on macOS), and it was tested and **did not reproduce**:
+**RESOLVED.** It _was_ allocator-dependent, but not in the way the obvious
+hypothesis predicted, which is why `MallocScribble` came back negative:
 
 ```bash
 MallocScribble=1 MallocPreScribble=1 <bin> test tests/ref_local_binding.test.yo --parallel 1
-# -> 2 passed
+# -> 2 passed   (scribble fills FREED memory; it does not detect a DOUBLE free)
 ```
 
-So something other than allocator behaviour differs. Next candidates: platform-
-specific codegen paths, or a divergence between the macOS- and Linux-built
-self-hosted binaries themselves. Start from the CI artifact, not from local
-bisection.
+The actual defect is a **double free**, not a stale read: `b := a` left two
+`__yo_decr_rc` calls on one `rc=1` object because the dup/drop pair optimizer
+cancelled the drop of the wrong variable in the alias chain (it walked the frame
+forwards where TS walks it reversed). glibc's allocator detects the second free
+and aborts; macOS malloc tolerates it. Scribble was the wrong instrument —
+it perturbs freed _contents_, and nothing here ever read freed contents.
+
+Fixed in `yo-self/evaluator/exprs/begin.yo` (reverse the walk **and** port TS's
+`dupCalls.length = 0`; either half alone still double-drops). Regression coverage
+is in `tests/rc.test.yo` — it counts disposals via a module-level counter so it
+fails on every platform, not only where the allocator happens to notice.
+
+**Lesson worth keeping:** "passes on macOS, fails on Linux" has at least two
+distinct causes — a stale read of freed memory (scribble finds it) and a double
+free (scribble does not). A negative scribble result rules out only the first.
 
 ## Gated as a ratchet (done)
 
@@ -165,7 +190,8 @@ land), and a listed entry that no longer matches also fails (the list cannot go
 stale). A missing allowlist file fails loudly too. `ALLOWLIST=/dev/null` demands a
 fully-clean sweep. The sweep is resumable via `$OUT/results.txt`.
 
-That banks the 165-file differential immediately, while these five are worked down.
+That banks the 165-file differential immediately, while the remaining three are
+worked down.
 **Fixing one means deleting its line** — the gate will tell you to.
 
 > **Do not rename the allowlist to `.txt`.** `.gitignore` carries a blanket `*.txt`
@@ -175,11 +201,17 @@ That banks the 165-file differential immediately, while these five are worked do
 
 ## Remaining work
 
-Root-cause and fix the five, then empty the allowlist.
+The 2 RED are fixed and de-allowlisted. **Three HOLLOW files remain**; fixing them
+empties `scripts/bootstrap/known-failing.tsv` and the gate then demands a fully
+clean sweep on its own.
 
-- **The 3 HOLLOW**: start with `safe_code_structural_gates.test.yo` — smallest (115
-  lines, a single `test(...)`, the rest module-level `comptime_expect_error(...)`),
-  so the fewest confounders. Per the section above, reduce it by deleting arms from
-  the real file, not by writing a new one.
-- **The 2 RED**: read the per-file logs from the `hollow-sweep-results` CI artifact
-  first — they do not reproduce on macOS, so local bisection will not work.
+Start with `safe_code_structural_gates.test.yo` — smallest (115 lines, a single
+`test(...)`, the rest module-level `comptime_expect_error(...)`), so the fewest
+confounders. Per "Do not extract a minimal `main`" above, reduce it by deleting
+arms from the real file rather than writing a new small one: both obvious
+extractions compile cleanly and prove nothing.
+
+Method note from the RED work that applies here too: the `hollow-sweep` CI job now
+uploads the per-file sweep logs alongside `results.txt`, so a failure that does not
+reproduce locally is still diagnosable from the artifact. That is what turned both
+RED files from "Linux-only mystery" into ordinary bugs in one CI cycle.

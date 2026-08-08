@@ -1502,6 +1502,10 @@ TestDecl :: struct(name : String, body_src : String);
 /// (--parallel accepted for CLI compatibility), --bail and
 /// --test-name-pattern honored; per-test ✓/✗ lines + the Test Summary
 /// footer mirror the TS output (without durations/colors).
+///
+/// Tests are compiled in batches of `TEST_BATCH_SIZE`, mirroring TS's
+/// `DEFAULT_TEST_BATCH_SIZE` (src/test-runner.ts:54).
+TEST_BATCH_SIZE :: usize(100);
 run_test :: (
   fn(
     argv : ArrayList(String),
@@ -1586,117 +1590,142 @@ run_test :: (
     if(tests.len() == usize(0), {
       println(String.from("  (no tests)"));
     }, {
-      // Synthesize the batched program (mirror generateBatchedTestProgram).
-      prog_src := String.new();
-      (ni : usize) = usize(0);
-      while(ni < non_test.len(), {
-        match(
-          non_test.get(ni),
-          .Some(l) => {
-            prog_src.push_string(l.clone());
-            prog_src.push_str(";\n");
-          },
-          .None => ()
+      // Split the file's tests into batches of TEST_BATCH_SIZE, exactly as TS
+      // does (`DEFAULT_TEST_BATCH_SIZE = 100`, src/test-runner.ts:54, sliced at
+      // :1312-1315). This is not just parity — a single batch nests ONE BRACE
+      // LEVEL PER TEST in the emitted `cond` chain, so a file with >~250 tests
+      // exceeded clang's default `-fbracket-depth=256` and failed to compile at
+      // all: tests/string/string.test.yo (252 tests) emitted C nested 261 deep
+      // and died with "bracket nesting level exceeded maximum of 256". TS never
+      // hit it because it was already batching — its emit for the same file
+      // peaks at depth 105 across 3 batches.
+      // See issues/yo-self-hollow-language-test-files.md.
+      (batch_start : usize) = usize(0);
+      (bi : usize) = usize(0);
+      while((batch_start < tests.len()) && !(bailed), {
+        batch_end := cond(
+          ((batch_start + TEST_BATCH_SIZE) < tests.len()) => (batch_start + TEST_BATCH_SIZE),
+          true => tests.len()
         );
-        ni = (ni + usize(1));
-      });
-      prog_src.push_str("__yo_batch_env :: import(\"std/env\");\n");
-      prog_src.push_str("main :: (fn() -> unit)({\n");
-      prog_src.push_str("  io :: __yo_builtin_io;\n");
-      prog_src.push_str("  match(__yo_batch_env.env.get(`YO_TEST_INDEX`),\n");
-      prog_src.push_str("    .Some(__yo_test_idx) => cond(\n");
-      (ti : usize) = usize(0);
-      while(ti < tests.len(), {
-        t := match(tests.get(ti),.Some(x) => x,.None => TestDecl(name : String.from(""), body_src : String.from("()")));
-        prog_src.push_str("      (__yo_test_idx == `");
-        prog_src.push_string(ti.to_string());
-        prog_src.push_str("`) => { ");
-        prog_src.push_string(t.body_src.clone());
-        prog_src.push_str("; },\n");
-        ti = (ti + usize(1));
-      });
-      prog_src.push_str("      true => ()\n");
-      prog_src.push_str("    ),\n");
-      prog_src.push_str("    .None => ()\n");
-      prog_src.push_str("  );\n");
-      prog_src.push_str("});\n");
-      prog_src.push_str("export(main);\n");
-      // Write the batch program NEXT TO the test file (mirrors TS
-      // compileBatchedBinary: path.join(path.dirname(filePath), baseName)) —
-      // the batch must inherit the test file's relative-import base, so a
-      // /tmp placement breaks every `import("./...")` in non-test content.
-      batch_dir := match(
-        file.last_index_of(`/`),
-        .Some(sidx) => file.substring(usize(0), sidx),
-        .None => String.from(".")
-      );
-      tmp_yo := `${batch_dir}/.yo_selftest_batch_${fi.to_string()}.yo`;
-      tmp_bin := `${batch_dir}/.yo_selftest_batch_${fi.to_string()}.bin`;
-      io.await(write_file(Path.new(tmp_yo.clone()), prog_src.clone(), io), IoExn(io : io, exn : exn));
-      // Compile the batch in a CHILD PROCESS, not in-process.
-      //
-      // WHY: `run_compile` creates a fresh ExprInfoTable, but compiler state lives
-      // in module-level globals (func-type registry, specialization caches, impl
-      // registry, module cache, prelude env, ...) that OUTLIVE it. A second
-      // in-process compile therefore reused cached std ASTs whose ExprInfo was in
-      // the first batch's discarded table, and codegen emitted
-      // `// Failed to transpile` for std internals (ArrayList._length,
-      // String._bytes, Option.unwrap, std/env getenv). MEASURED 2026-08-05: 47
-      // markers on `test ./tests/string` — five ORDINARY language tests — and 59
-      // on tests/internal, while every one of those files passed ALONE. Batch 1
-      // and batch 2 had an IDENTICAL import list, so the trigger was purely
-      // "second compile in one process".
-      //
-      // TS gets fresh state per batch by construction: `src/test-runner.ts:503`
-      // does `moduleManager = new ModuleManager()`. yo-self has no instance to
-      // re-create, so a fresh PROCESS is the faithful equivalent — and it
-      // reproduces EXACTLY the standalone path, which is the verified-green one
-      // (all 58 tests/internal and all 187 ./tests files pass standalone).
-      //
-      // Uses argv(0), so the binary must be invoked by a usable path. CI and every
-      // gate script invoke it by explicit path (/tmp/yo-stage1,
-      // ./yo-self/yo-self-bin). See issues/fixed/yo-self-second-batch-in-process-ftt.md.
-      self_exe := argv(usize(0));
-      ccmd := Command.new(self_exe.clone());
-      ccmd.arg(String.from("compile"));
-      ccmd.arg(tmp_yo.clone());
-      ccmd.arg(String.from("-o"));
-      ccmd.arg(tmp_bin.clone());
-      bst := io.await(ccmd.status(io), IoExn(io : io, exn : exn));
-      if(bst.raw != i32(0), {
-        exn.throw(dyn(`test: batch compile failed (exit ${bst.raw.to_string()}) for ${tmp_yo}`));
-      });
-      // Run each test: YO_TEST_INDEX in the PARENT env (the spawn runtime
-      // passes environ through when envp is NULL).
-      (ri : usize) = usize(0);
-      while((ri < tests.len()) && !(bailed), {
-        t := match(tests.get(ri),.Some(x) => x,.None => TestDecl(name : String.from(""), body_src : String.from("()")));
-        idx_cstr := String.from("YO_TEST_INDEX").to_cstr().ptr().unwrap();
-        val_cstr := ri.to_string().to_cstr().ptr().unwrap();
-        _sv := unsafe(setenv(*(char)(idx_cstr), *(char)(val_cstr), int(1)));
-        tcmd := Command.new(tmp_bin.clone());
-        st := io.await(tcmd.status(io), IoExn(io : io, exn : exn));
-        if(st.success(), {
-          passed = (passed + usize(1));
-          println(`  ✓ ${t.name}`);
-        }, {
-          failed = (failed + usize(1));
-          println(`  ✗ ${t.name}`);
-          if(bail, {
-            bailed = true;
-          });
+        // Synthesize the batched program (mirror generateBatchedTestProgram).
+        prog_src := String.new();
+        (ni : usize) = usize(0);
+        while(ni < non_test.len(), {
+          match(
+            non_test.get(ni),
+            .Some(l) => {
+              prog_src.push_string(l.clone());
+              prog_src.push_str(";\n");
+            },
+            .None => ()
+          );
+          ni = (ni + usize(1));
         });
-        ri = (ri + usize(1));
-      });
-      // Clean up the batch artifacts (mirrors TS cleanup()) — they live in
-      // the test file's directory now, not /tmp. Debug affordance (yo-self
-      // only, no TS counterpart): YO_KEEP_BATCH=1 skips the cleanup so a
-      // failing batch's .yo/.c can be inspected — batch-only miscompiles
-      // (the collections residuals) are unreproducible otherwise.
-      if(proc_env.get(`YO_KEEP_BATCH`).is_none(), {
-        io.await(remove_file(Path.new(tmp_yo.clone()), io), IoExn(io : io, exn : exn));
-        io.await(remove_file(Path.new(tmp_bin.clone()), io), IoExn(io : io, exn : exn));
-        io.await(remove_file(Path.new(`${tmp_bin}.c`), io), IoExn(io : io, exn : exn));
+        prog_src.push_str("__yo_batch_env :: import(\"std/env\");\n");
+        prog_src.push_str("main :: (fn() -> unit)({\n");
+        prog_src.push_str("  io :: __yo_builtin_io;\n");
+        prog_src.push_str("  match(__yo_batch_env.env.get(`YO_TEST_INDEX`),\n");
+        prog_src.push_str("    .Some(__yo_test_idx) => cond(\n");
+        // Arms are numbered RELATIVE to the batch (0..n-1), so YO_TEST_INDEX below
+        // is the within-batch index, not the file-wide one.
+        (ti : usize) = batch_start;
+        while(ti < batch_end, {
+          t := match(tests.get(ti),.Some(x) => x,.None => TestDecl(name : String.from(""), body_src : String.from("()")));
+          prog_src.push_str("      (__yo_test_idx == `");
+          prog_src.push_string((ti - batch_start).to_string());
+          prog_src.push_str("`) => { ");
+          prog_src.push_string(t.body_src.clone());
+          prog_src.push_str("; },\n");
+          ti = (ti + usize(1));
+        });
+        prog_src.push_str("      true => ()\n");
+        prog_src.push_str("    ),\n");
+        prog_src.push_str("    .None => ()\n");
+        prog_src.push_str("  );\n");
+        prog_src.push_str("});\n");
+        prog_src.push_str("export(main);\n");
+        // Write the batch program NEXT TO the test file (mirrors TS
+        // compileBatchedBinary: path.join(path.dirname(filePath), baseName)) —
+        // the batch must inherit the test file's relative-import base, so a
+        // /tmp placement breaks every `import("./...")` in non-test content.
+        batch_dir := match(
+          file.last_index_of(`/`),
+          .Some(sidx) => file.substring(usize(0), sidx),
+          .None => String.from(".")
+        );
+        // The batch index is part of the name so a multi-batch file does not have
+        // its batches overwrite each other (and so YO_KEEP_BATCH leaves all of
+        // them behind for inspection).
+        tmp_yo := `${batch_dir}/.yo_selftest_batch_${fi.to_string()}_${bi.to_string()}.yo`;
+        tmp_bin := `${batch_dir}/.yo_selftest_batch_${fi.to_string()}_${bi.to_string()}.bin`;
+        io.await(write_file(Path.new(tmp_yo.clone()), prog_src.clone(), io), IoExn(io : io, exn : exn));
+        // Compile the batch in a CHILD PROCESS, not in-process.
+        //
+        // WHY: `run_compile` creates a fresh ExprInfoTable, but compiler state lives
+        // in module-level globals (func-type registry, specialization caches, impl
+        // registry, module cache, prelude env, ...) that OUTLIVE it. A second
+        // in-process compile therefore reused cached std ASTs whose ExprInfo was in
+        // the first batch's discarded table, and codegen emitted
+        // `// Failed to transpile` for std internals (ArrayList._length,
+        // String._bytes, Option.unwrap, std/env getenv). MEASURED 2026-08-05: 47
+        // markers on `test ./tests/string` — five ORDINARY language tests — and 59
+        // on tests/internal, while every one of those files passed ALONE. Batch 1
+        // and batch 2 had an IDENTICAL import list, so the trigger was purely
+        // "second compile in one process".
+        //
+        // TS gets fresh state per batch by construction: `src/test-runner.ts:503`
+        // does `moduleManager = new ModuleManager()`. yo-self has no instance to
+        // re-create, so a fresh PROCESS is the faithful equivalent — and it
+        // reproduces EXACTLY the standalone path, which is the verified-green one
+        // (all 58 tests/internal and all 187 ./tests files pass standalone).
+        //
+        // Uses argv(0), so the binary must be invoked by a usable path. CI and every
+        // gate script invoke it by explicit path (/tmp/yo-stage1,
+        // ./yo-self/yo-self-bin). See issues/fixed/yo-self-second-batch-in-process-ftt.md.
+        self_exe := argv(usize(0));
+        ccmd := Command.new(self_exe.clone());
+        ccmd.arg(String.from("compile"));
+        ccmd.arg(tmp_yo.clone());
+        ccmd.arg(String.from("-o"));
+        ccmd.arg(tmp_bin.clone());
+        bst := io.await(ccmd.status(io), IoExn(io : io, exn : exn));
+        if(bst.raw != i32(0), {
+          exn.throw(dyn(`test: batch compile failed (exit ${bst.raw.to_string()}) for ${tmp_yo}`));
+        });
+        // Run each test: YO_TEST_INDEX in the PARENT env (the spawn runtime
+        // passes environ through when envp is NULL).
+        (ri : usize) = batch_start;
+        while((ri < batch_end) && !(bailed), {
+          t := match(tests.get(ri),.Some(x) => x,.None => TestDecl(name : String.from(""), body_src : String.from("()")));
+          idx_cstr := String.from("YO_TEST_INDEX").to_cstr().ptr().unwrap();
+          val_cstr := (ri - batch_start).to_string().to_cstr().ptr().unwrap();
+          _sv := unsafe(setenv(*(char)(idx_cstr), *(char)(val_cstr), int(1)));
+          tcmd := Command.new(tmp_bin.clone());
+          st := io.await(tcmd.status(io), IoExn(io : io, exn : exn));
+          if(st.success(), {
+            passed = (passed + usize(1));
+            println(`  ✓ ${t.name}`);
+          }, {
+            failed = (failed + usize(1));
+            println(`  ✗ ${t.name}`);
+            if(bail, {
+              bailed = true;
+            });
+          });
+          ri = (ri + usize(1));
+        });
+        // Clean up the batch artifacts (mirrors TS cleanup()) — they live in
+        // the test file's directory now, not /tmp. Debug affordance (yo-self
+        // only, no TS counterpart): YO_KEEP_BATCH=1 skips the cleanup so a
+        // failing batch's .yo/.c can be inspected — batch-only miscompiles
+        // (the collections residuals) are unreproducible otherwise.
+        if(proc_env.get(`YO_KEEP_BATCH`).is_none(), {
+          io.await(remove_file(Path.new(tmp_yo.clone()), io), IoExn(io : io, exn : exn));
+          io.await(remove_file(Path.new(tmp_bin.clone()), io), IoExn(io : io, exn : exn));
+          io.await(remove_file(Path.new(`${tmp_bin}.c`), io), IoExn(io : io, exn : exn));
+        });
+        batch_start = batch_end;
+        bi = (bi + usize(1));
       });
     });
   });
