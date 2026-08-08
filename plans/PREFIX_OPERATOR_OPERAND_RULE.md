@@ -117,42 +117,49 @@ exactly this reason.
   comma/operator handlers establish a space and nothing eats it.
   **Canonical form: `, .Some` (space after comma)** — the universal
   convention (`f(a, b)` in every language) and consistent with `.Some` being
-  a prefix operator under Rule 1 (`f(x, -1)` has a space). Fix: remove the
-  Dot-case trim in both formatters — member-access tightness (`a . b` →
-  `a.b`) does not depend on it, because whitespace tokens are skipped
-  entirely (formatter.ts:441-443); the trim only ever fires on spaces that
-  comma/operator/curly handlers _intended_.
+  a prefix operator under Rule 1 (`f(x, -1)` has a space). Fix: make the
+  Dot-case trim **conditional** in both formatters — trim before the dot
+  only for member access (`str. len()` → `str.len()`, verified), but skip
+  the trim when the previous meaningful token is a comma or operator, so
+  their `ensureSpace()` survives (`match(x, .Some(v) => v)` stays spaced,
+  `= .Some(...)` stays spaced).
 - **Pre-P2 window.** The TS compiler is still the referee. After P2 retires
   `src/`, a syntax change can no longer be adjudicated differentially, so any
   grammar change must land now or in P1 (which owns the fmt differential).
 - **Consistency with the ecosystem.** Go, JS, Rust, Python all accept spaced
   dots; Yo's rejection is the outlier.
 
-## What about the lexer? (TokenType.Dot vs a plain operator)Three separable parts, only one of which changes:
+## What about the lexer? (TokenType.Dot vs a plain operator)
 
-1. **`TokenType.Dot` → drop it; lex `.` as a plain `TokenType.Operator` with
-   value `"."`.** The evaluator already checks _values_ everywhere
-   (`exprIsFunctionCallOf(expr, ".")`), never the type, so the special token
-   type buys nothing today. ~15 sites flip from `token.type === TokenType.Dot`
-   to `token.value === "."` (parser.ts:801/999/1006/1019/1045/1073/898/1087,
-   formatter.ts:381/1000/1005/1046/1245, expr.ts:1369/1465, flowability.ts:358,
-   lsp/signature-help.ts:146). This completes the "`.` is an operator like any
-   other" story at the token level.
+**DECIDED 2026-08-09: keep the lexer exactly as it is — both the
+dot-combining rule and the distinct `TokenType.Dot`.** Early drafts of this
+plan proposed dropping `TokenType.Dot` and lexing `.` as a plain
+`TokenType.Operator` with value `"."`. Rejected — for two reasons, one
+mechanical and one structural:
 
-2. **The lexer dot-combining rule STAYS** (lexer.ts:27-35): `.` merges only
-   with dots (`..`, `...`, `..=`, `...#`), never with `*`, `&`, `!`, etc.
-   This is load-bearing: `p.*` (deref, tests/comptime.test.yo:3082,
-   std/alg/hash.yo:17) and `x.*.*` depend on the split `.` `*` `.` `*`; a
-   generic operator-merging lexer would emit a single `.*` token and break
-   deref. The `..=`/`...#` special cases ride on the same branch — keep it.
+1. **The dot-combining rule is load-bearing** (lexer.ts:27-35): `.` merges
+   only with dots (`..`, `...`, `..=`, `...#`), never with `*`, `&`, `!`,
+   etc. This is what keeps `x.*.*` splitting into `.` `*` `.` `*`. Counted:
+   deref `a.*` appears **408× in std and 1283× in tests**; `x.*.*`
+   double-deref chains 46× more. A generic operator-merging lexer (where
+   `.` is just an operator char) would emit a single `.*` token and break
+   every one of them. The `..=`/`...#` special cases ride on the same
+   branch.
 
-3. **Reserve `.` as non-definable.** Once `.` is a plain operator token, a
-   user could write `(.) : (fn(lhs, rhs) -> …)` and it would _parse_ — but the
-   evaluator routes every 2-arg dot call to property access, so such a
-   definition would silently never be callable. Today `TokenType.Dot`
-   prevents the definition implicitly; with the type gone, add an explicit
-   rejection of operator definitions named `.` (alongside whatever currently
-   reserves `..`/`..=` — check how trait operator names are validated).
+2. **`TokenType.Dot` is the reservation mechanism.** The parser's infix
+   branch and the evaluator treat a lone `.` as structurally distinct from
+   every user-definable operator: a 2-arg dot call is always property
+   access, a 1-arg dot call is always variant construction. If `.` were a
+   plain `TokenType.Operator`, a user could write
+   `(.) : (fn(lhs, rhs) -> …)` and it would _parse_ — but the evaluator
+   routes every 2-arg dot call to property access, so the definition would
+   silently never be callable. The distinct type makes `.` non-definable by
+   construction; no explicit validation needed, and no collision possible.
+
+So the "`.` is an operator like any other" story is scoped to the **parser**
+(whitespace insensitivity, Rule 2; the prefix-operand rule, Rule 1) and the
+**formatter** (spacing canonicalization). The lexer keeps its special case;
+the inconsistency this plan fixes was never lexical.
 
 ## Preserved invariants (must NOT change)
 
@@ -240,7 +247,8 @@ Add to `tests/` (mirror in `tests/internal/` for the self-hosted compiler):
 None for the corpus: the change only _accepts_ previously-rejected input, and
 `yo fmt` canonicalizes spacing. The fmt differential gate
 (`scripts/bootstrap/gates_fast.sh`; see the handover §6 note) must be wired
-when both formatters emit tight dots.
+when both formatters agree on the canonical forms (`a.b` tight,
+`, .Some` / `= .Some` spaced).
 
 ## Open questions
 
@@ -261,11 +269,12 @@ when both formatters emit tight dots.
    mirrors the trim) must be checked against a built binary — the handover
    doc's table claims self already emits `, .Some`, so verify which side is
    actually wrong.
-4. **Is `TokenType.Dot` worth dropping?** — the flip side of the lexer section
-   above: it touches ~15 sites for a conceptual win, and the evaluator already
-   treats dot by value, so nothing breaks. Decide as part of this change (it
-   belongs in the same PR); if skipped, the parser changes in the
-   implementation sketch must keep using `TokenType.Dot` as their discriminator.
-5. **Where do operator names get validated?** — for the `.` reservation, find
-   where trait operator names (e.g. `(..)`) are accepted and reject `.` there
-   (or confirm `TokenType.Dot`-based rejection already covers it pre-change).
+4. **`TokenType.Dot`** — **decided: keep it** (2026-08-09). Dropping it was
+   rejected: the distinct type is the reservation mechanism that keeps `.`
+   non-definable and unambiguously member-access/variant in the parser's
+   infix branch. The lexer section above has the full argument; the
+   implementation sketch keeps using `TokenType.Dot` as the discriminator.
+5. **Where do operator names get validated?** — closed by decision 4: no
+   explicit `.` reservation is needed because `TokenType.Dot` cannot be a
+   user operator. (Still worth noting `..`/`..=` are user-definable trait
+   operators; `.` is the only dot form that is structurally reserved.)
