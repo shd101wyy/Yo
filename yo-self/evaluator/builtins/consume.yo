@@ -89,7 +89,7 @@ set_variable_as_consumed :: (
             error_message : String.from("value moved here")
           )
         );
-        exn.throw(dyn(format_error_messages(entries, false,.None)));
+        exn.throw(dyn(format_error_messages(entries, false, .None)));
       });
     },
     .None => {
@@ -128,7 +128,7 @@ evaluate_consume :: (
   );
   eval_arg := evaluate_expression(arg_expr, env, ctx);
   arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_arg));
-  (cur_env : Environment) = match(arg_info_opt,.Some(i) => i.env,.None => env);
+  (cur_env : Environment) = match(arg_info_opt, .Some(i) => i.env, .None => env);
   match(
     arg_info_opt,
     .Some(_) => (),
@@ -150,13 +150,13 @@ evaluate_consume :: (
     arg_info_opt,
     .Some(info) => match(
       info.value,
-      .Some(v) => match(v,.TypeVal(_) => true, _ => false),
+      .Some(v) => match(v, .TypeVal(_) => true, _ => false),
       .None => false
     ),
     .None => false
   );
   // Get variable name from ExprInfo.
-  variable_name_opt := match(arg_info_opt,.Some(i) => i.variable_name,.None => Option(String).None);
+  variable_name_opt := match(arg_info_opt, .Some(i) => i.variable_name, .None => Option(String).None);
   match(
     variable_name_opt,
     .Some(vname) => {

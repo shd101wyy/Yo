@@ -609,7 +609,7 @@ evaluate_yo_type_impls :: (
   trait_type_opt := match(
     info1.value,
     .Some(v) => if(is_type_val(v), {
-      tv := match(v,.TypeVal(b) => b, _ => t_unit());
+      tv := match(v, .TypeVal(b) => b, _ => t_unit());
       if(is_trait_type(tv), Option(TypeValue).Some(tv), Option(TypeValue).None)
     }, Option(TypeValue).None),
     .None => Option(TypeValue).None
@@ -625,9 +625,9 @@ evaluate_yo_type_impls :: (
     )
   );
   // If still not found, check if it's a generic unknown (TypeUni → return unknown bool).
-  if(match(trait_type_opt2,.None => is_type_hierarchy_type(info1.ty),.Some(_) => false), {
+  if(match(trait_type_opt2, .None => is_type_hierarchy_type(info1.ty), .Some(_) => false), {
     out := new_expr_info(cur_env, t_bool());
-    out.value =.Some(create_unknown_val(t_bool()));
+    out.value = .Some(create_unknown_val(t_bool()));
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
     return(expr);
   });
@@ -650,7 +650,7 @@ evaluate_yo_type_impls :: (
   );
   result := type_implements_trait_bool(target_type, trait_type, cur_env);
   out := new_expr_info(cur_env, t_bool());
-  out.value =.Some(EvalValue.BoolVal(result));
+  out.value = .Some(EvalValue.BoolVal(result));
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
   expr
 });
@@ -752,7 +752,7 @@ _ti_bind_comptime_list :: (
     exn : Exception
   ) -> String
 )({
-  elem_type := if(values.len() > usize(0), match(values.get(usize(0)),.Some(v) => type_of_eval_value(v),.None => t_unit()), {
+  elem_type := if(values.len() > usize(0), match(values.get(usize(0)), .Some(v) => type_of_eval_value(v), .None => t_unit()), {
     // Evaluate the type name to discover the element type.
     type_ast := generate_expr_from_code(type_name.clone(), exn);
     old_force := ctx.force_compile_time_bindings;
@@ -770,7 +770,7 @@ _ti_bind_comptime_list :: (
     env_ptr.input_string = type_info.env.input_string;
     match(
       type_info.value,
-      .Some(v) => match(v,.TypeVal(tv) => tv, _ => t_unit()),
+      .Some(v) => match(v, .TypeVal(tv) => tv, _ => t_unit()),
       .None => t_unit()
     )
   });
@@ -825,8 +825,8 @@ _ti_bind_type_field_list :: (
   (i : usize) = usize(0);
   n := labels.len();
   while(i < n, {
-    label := match(labels.get(i),.Some(l) => l,.None => String.from(""));
-    field_ty := match(types.get(i),.Some(t) => t,.None => t_unit());
+    label := match(labels.get(i), .Some(l) => l, .None => String.from(""));
+    field_ty := match(types.get(i), .Some(t) => t, .None => t_unit());
     fi_val := _ti_build_type_field_info(env_ptr, label, field_ty, ctx, exn);
     _push := fi_vals.push(fi_val);
     i = (i + usize(1));
@@ -875,9 +875,9 @@ _ti_bind_variant_info_list :: (
   (i : usize) = usize(0);
   n := variant_names.len();
   while(i < n, {
-    v_name := match(variant_names.get(i),.Some(nm) => nm,.None => String.from(""));
-    v_fields := match(variant_fields.get(i),.Some(f) => f,.None => ArrayList(TypeValue).new());
-    v_field_labels := match(variant_field_labels.get(i),.Some(l) => l,.None => ArrayList(String).new());
+    v_name := match(variant_names.get(i), .Some(nm) => nm, .None => String.from(""));
+    v_fields := match(variant_fields.get(i), .Some(f) => f, .None => ArrayList(TypeValue).new());
+    v_field_labels := match(variant_field_labels.get(i), .Some(l) => l, .None => ArrayList(String).new());
     vi_val := _ti_build_variant_info(env_ptr, v_name, v_field_labels, v_fields, enum_ty, i, ctx, exn);
     _push := vi_vals.push(vi_val);
     i = (i + usize(1));
@@ -898,7 +898,7 @@ _ti_bind_trait_info_list :: (
   values := ArrayList(EvalValue).new();
   (i : usize) = usize(0);
   while(i < trait_types.len(), {
-    tt := match(trait_types.get(i),.Some(t) => t,.None => t_unit());
+    tt := match(trait_types.get(i), .Some(t) => t, .None => t_unit());
     tt_name := _ti_bind_type(env_ptr, tt, ctx);
     code := String.from("TraitInfo(");
     code.push_string(tt_name);
@@ -941,7 +941,7 @@ _ti_build_param_info :: (
   code.push_str(", false, ");
   code.push_str(cond(is_variadic => "true", true => "false"));
   code.push_str(")");
-  match(_ti_eval_code(env_ptr, code, ctx, exn),.Some(v) => v,.None => EvalValue.UnitVal)
+  match(_ti_eval_code(env_ptr, code, ctx, exn), .Some(v) => v, .None => EvalValue.UnitVal)
 });
 /// Build a FunctionInfo temp var from a call signature (port of
 /// bindTempFunctionInfo, type-fns.ts:1064). Sources per-param data from
@@ -973,8 +973,8 @@ _ti_bind_function_info :: (
     (i : usize) = usize(0);
     n := param_types.len();
     while(i < n, {
-      lbl := match(param_labels.get(i),.Some(l) => l,.None => String.new());
-      pty := match(param_types.get(i),.Some(t) => t,.None => t_unit());
+      lbl := match(param_labels.get(i), .Some(l) => l, .None => String.new());
+      pty := match(param_types.get(i), .Some(t) => t, .None => t_unit());
       _p := param_vals.push(_ti_build_param_info(env_ptr, lbl, pty, false, false, ctx, exn));
       i = (i + usize(1));
     });
@@ -995,8 +995,8 @@ _ti_bind_function_info :: (
   {
     (i : usize) = usize(0);
     while(i < forall_types.len(), {
-      lbl := match(forall_labels.get(i),.Some(l) => l,.None => String.new());
-      fty := match(forall_types.get(i),.Some(t) => t,.None => t_unit());
+      lbl := match(forall_labels.get(i), .Some(l) => l, .None => String.new());
+      fty := match(forall_types.get(i), .Some(t) => t, .None => t_unit());
       fn_ty_name := _ti_bind_type(env_ptr, fty, ctx);
       code := String.from("ForallParamInfo(\"");
       code.push_string(_ti_escape_str(lbl));
@@ -1019,8 +1019,8 @@ _ti_bind_function_info :: (
   {
     (i : usize) = usize(0);
     while(i < implicit_types.len(), {
-      lbl := match(implicit_labels.get(i),.Some(l) => l,.None => String.new());
-      ity := match(implicit_types.get(i),.Some(t) => t,.None => t_unit());
+      lbl := match(implicit_labels.get(i), .Some(l) => l, .None => String.new());
+      ity := match(implicit_types.get(i), .Some(t) => t, .None => t_unit());
       it_name := _ti_bind_type(env_ptr, ity, ctx);
       code := String.from("ImplicitParamInfo(\"");
       code.push_string(_ti_escape_str(lbl));
@@ -1084,8 +1084,8 @@ _ti_bind_trait_field_info_list :: (
   values := ArrayList(EvalValue).new();
   (i : usize) = usize(0);
   while(i < field_labels.len(), {
-    lbl := match(field_labels.get(i),.Some(l) => l,.None => String.new());
-    fty := match(field_types.get(i),.Some(t) => t,.None => t_unit());
+    lbl := match(field_labels.get(i), .Some(l) => l, .None => String.new());
+    fty := match(field_types.get(i), .Some(t) => t, .None => t_unit());
     ft_name := _ti_bind_type(env_ptr, fty, ctx);
     (is_assoc : bool) = false;
     {
@@ -1373,7 +1373,7 @@ evaluate_yo_type_get_info :: (
         fn_its,
         fn_res,
         fn_vts,
-        match(fn_meta.*.variadic_label,.Some(vl) => vl.clone(),.None => String.from("...")),
+        match(fn_meta.*.variadic_label, .Some(vl) => vl.clone(), .None => String.from("...")),
         fn_meta.*.variadic_comptime,
         ctx,
         exn
@@ -1471,7 +1471,7 @@ evaluate_comptime_eval :: (
   );
   (local_env : Environment) = info0.env;
   // Non-StrLit value (e.g. UnknownVal for SomeType) → return unit silently.
-  is_str := match(info0.value,.Some(v) => is_str_lit(v),.None => false);
+  is_str := match(info0.value, .Some(v) => is_str_lit(v), .None => false);
   if(!(is_str), {
     out := new_expr_info(local_env, t_unit());
     out.value = Option(EvalValue).Some(EvalValue.UnitVal);
@@ -1481,7 +1481,7 @@ evaluate_comptime_eval :: (
   // Extract the code string from StrLit.raw.
   raw := match(
     info0.value,
-    .Some(v) => match(v,.StrLit(r) => r, _ => String.from("")),
+    .Some(v) => match(v, .StrLit(r) => r, _ => String.from("")),
     .None => String.from("")
   );
   n_raw := raw.len();
@@ -1495,7 +1495,7 @@ evaluate_comptime_eval :: (
   (ci : usize) = usize(0);
   n_exprs := code_exprs.len();
   while(ci < n_exprs, {
-    code_expr := match(code_exprs.get(ci),.Some(e) => e,.None => make_err_expr());
+    code_expr := match(code_exprs.get(ci), .Some(e) => e, .None => make_err_expr());
     old_force := ctx.force_compile_time_bindings;
     ctx.force_compile_time_bindings = false;
     ce_result := evaluate_expression(code_expr, local_env, ctx);
@@ -1569,7 +1569,7 @@ evaluate_comptime_string_to_expr :: (
   );
   (local_env : Environment) = info0.env;
   // If the value is not a StrLit, return UnknownVal(Expr) or throw.
-  is_str := match(info0.value,.Some(v) => is_str_lit(v),.None => false);
+  is_str := match(info0.value, .Some(v) => is_str_lit(v), .None => false);
   if(!(is_str), {
     match(
       info0.value,
@@ -1598,7 +1598,7 @@ evaluate_comptime_string_to_expr :: (
   // Extract code string from StrLit.raw.
   raw := match(
     info0.value,
-    .Some(v) => match(v,.StrLit(r) => r, _ => String.from("")),
+    .Some(v) => match(v, .StrLit(r) => r, _ => String.from("")),
     .None => String.from("")
   );
   n_raw := raw.len();
@@ -1841,21 +1841,21 @@ evaluate_type_join_fields :: (
   // `evaluate_type_map_variants` below.
   fi_declared_ty_opt := match(
     _ti_eval_code(local_env, String.from("FieldInfo"), ctx, exn),
-    .Some(fi_tv) => match(fi_tv,.TypeVal(fi_tb) => Option(TypeValue).Some(fi_tb), _ => Option(TypeValue).None),
+    .Some(fi_tv) => match(fi_tv, .TypeVal(fi_tb) => Option(TypeValue).Some(fi_tb), _ => Option(TypeValue).None),
     .None => Option(TypeValue).None
   );
   result_exprs := ArrayList(AstExpr).new();
   (si : usize) = usize(0);
   while(si < n_fields, {
-    label := match(struct_labels.get(si),.Some(l) => l,.None => String.from(""));
-    field_ty := match(struct_types.get(si),.Some(t) => t,.None => t_unit());
+    label := match(struct_labels.get(si), .Some(l) => l, .None => String.from(""));
+    field_ty := match(struct_types.get(si), .Some(t) => t, .None => t_unit());
     // Build FieldInfo("label", type_var).
     ft_name := _ti_bind_type(local_env, field_ty, ctx);
     escaped_label := _ti_escape_str(label);
     fi_code := ((((String.from("FieldInfo(\"") + escaped_label) + String.from("\", ")) + ft_name) + String.from(")"));
     fi_val_opt := _ti_eval_code(local_env, fi_code, ctx, exn);
-    fi_val := match(fi_val_opt,.Some(v) => v,.None => EvalValue.UnitVal);
-    fi_type := match(fi_declared_ty_opt,.Some(dt) => dt,.None => type_of_eval_value(fi_val));
+    fi_val := match(fi_val_opt, .Some(v) => v, .None => EvalValue.UnitVal);
+    fi_type := match(fi_declared_ty_opt, .Some(dt) => dt, .None => type_of_eval_value(fi_val));
     // Bind FieldInfo to temp var, then call mapper(fi_name).
     fi_name := `__da_${random_id(local_env.module_path)}`;
     _add_fi := add_variable_to_env(
@@ -1922,10 +1922,10 @@ evaluate_type_join_fields :: (
   });
   // Combine all Exprs left-associatively using combiner token.
   tok := ast_expr_token(combiner_expr);
-  (acc_expr : AstExpr) = match(result_exprs.get(usize(0)),.Some(e) => e,.None => make_err_expr());
+  (acc_expr : AstExpr) = match(result_exprs.get(usize(0)), .Some(e) => e, .None => make_err_expr());
   (ri : usize) = usize(1);
   while(ri < result_exprs.len(), {
-    rhs := match(result_exprs.get(ri),.Some(e) => e,.None => make_err_expr());
+    rhs := match(result_exprs.get(ri), .Some(e) => e, .None => make_err_expr());
     combine_args := ArrayList(AstExpr).new();
     _p1 := combine_args.push(acc_expr);
     _p2 := combine_args.push(rhs);
@@ -2075,9 +2075,9 @@ evaluate_type_map_variants :: (
     synthetic_token(mapper_name.clone(), local_env.module_path)
   );
   // Extract enum variant data.
-  variant_names := match(target_type,.EnumT(_, _, vn, _, _, _, _, _, _) => vn, _ => ArrayList(String).new());
-  variant_fields := match(target_type,.EnumT(_, _, _, vf, _, _, _, _, _) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
-  variant_field_labels := match(target_type,.EnumT(_, _, _, _, _, vfl, _, _, _) => vfl, _ => ArrayList(ArrayList(String)).new());
+  variant_names := match(target_type, .EnumT(_, _, vn, _, _, _, _, _, _) => vn, _ => ArrayList(String).new());
+  variant_fields := match(target_type, .EnumT(_, _, _, vf, _, _, _, _, _) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
+  variant_field_labels := match(target_type, .EnumT(_, _, _, _, _, vfl, _, _, _) => vfl, _ => ArrayList(ArrayList(String)).new());
   // Resolve the DECLARED `VariantInfo` struct type from the env once — the
   // type each per-variant temp var is bound with. Mirrors TS `argType:
   // variantInfoValue.type` (type-fns.ts callMapperWithArg): TS values carry
@@ -2090,19 +2090,19 @@ evaluate_type_map_variants :: (
   // if the name is not resolvable here.
   vi_declared_ty_opt := match(
     _ti_eval_code(local_env, String.from("VariantInfo"), ctx, exn),
-    .Some(vi_tv) => match(vi_tv,.TypeVal(vi_tb) => Option(TypeValue).Some(vi_tb), _ => Option(TypeValue).None),
+    .Some(vi_tv) => match(vi_tv, .TypeVal(vi_tb) => Option(TypeValue).Some(vi_tb), _ => Option(TypeValue).None),
     .None => Option(TypeValue).None
   );
   result_vals := ArrayList(EvalValue).new();
   (vi : usize) = usize(0);
   n_variants := variant_names.len();
   while(vi < n_variants, {
-    v_name := match(variant_names.get(vi),.Some(nm) => nm,.None => String.from(""));
-    v_fields := match(variant_fields.get(vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
-    v_field_labels := match(variant_field_labels.get(vi),.Some(l) => l,.None => ArrayList(String).new());
+    v_name := match(variant_names.get(vi), .Some(nm) => nm, .None => String.from(""));
+    v_fields := match(variant_fields.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
+    v_field_labels := match(variant_field_labels.get(vi), .Some(l) => l, .None => ArrayList(String).new());
     // Build VariantInfo value.
     vi_val := _ti_build_variant_info(local_env, v_name, v_field_labels, v_fields, target_type, vi, ctx, exn);
-    vi_type := match(vi_declared_ty_opt,.Some(dt) => dt,.None => type_of_eval_value(vi_val));
+    vi_type := match(vi_declared_ty_opt, .Some(dt) => dt, .None => type_of_eval_value(vi_val));
     // Bind VariantInfo to temp var, then call mapper(vi_var_name).
     vi_name := `__dvi_${random_id(local_env.module_path)}`;
     _add_vi := add_variable_to_env(

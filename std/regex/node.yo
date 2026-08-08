@@ -64,7 +64,7 @@ impl(
   // Create a literal node matching a single codepoint
   literal : (fn(cp : u32) -> Self)(
     Self(
-      kind :.Literal,
+      kind : .Literal,
       children : ArrayList(RegexNode).new(),
       codepoint : cp,
       ranges : ArrayList(CharRange).new(),
@@ -73,13 +73,13 @@ impl(
       q_max : usize(0),
       q_greedy : true,
       group_index : usize(0),
-      anchor :.Start
+      anchor : .Start
     )
   ),
   // Create a dot (any char) node
   dot : (fn() -> Self)(
     Self(
-      kind :.Dot,
+      kind : .Dot,
       children : ArrayList(RegexNode).new(),
       codepoint : u32(0),
       ranges : ArrayList(CharRange).new(),
@@ -88,13 +88,13 @@ impl(
       q_max : usize(0),
       q_greedy : true,
       group_index : usize(0),
-      anchor :.Start
+      anchor : .Start
     )
   ),
   // Create a character class node
   char_class : (fn(ranges : ArrayList(CharRange), negated : bool) -> Self)(
     Self(
-      kind :.CharClass,
+      kind : .CharClass,
       children : ArrayList(RegexNode).new(),
       codepoint : u32(0),
       ranges : ranges,
@@ -103,13 +103,13 @@ impl(
       q_max : usize(0),
       q_greedy : true,
       group_index : usize(0),
-      anchor :.Start
+      anchor : .Start
     )
   ),
   // Create an anchor node (^, $, \b, \B)
   anchor_node : (fn(kind : AnchorKind) -> Self)(
     Self(
-      kind :.Anchor,
+      kind : .Anchor,
       children : ArrayList(RegexNode).new(),
       codepoint : u32(0),
       ranges : ArrayList(CharRange).new(),
@@ -124,7 +124,7 @@ impl(
   // Create a sequence node (concatenation of children)
   sequence : (fn(nodes : ArrayList(RegexNode)) -> Self)(
     Self(
-      kind :.Sequence,
+      kind : .Sequence,
       children : nodes,
       codepoint : u32(0),
       ranges : ArrayList(CharRange).new(),
@@ -133,7 +133,7 @@ impl(
       q_max : usize(0),
       q_greedy : true,
       group_index : usize(0),
-      anchor :.Start
+      anchor : .Start
     )
   ),
   // Create an alternation node (left | right)
@@ -142,7 +142,7 @@ impl(
     kids.push(left);
     kids.push(right);
     Self(
-      kind :.Alternation,
+      kind : .Alternation,
       children : kids,
       codepoint : u32(0),
       ranges : ArrayList(CharRange).new(),
@@ -151,7 +151,7 @@ impl(
       q_max : usize(0),
       q_greedy : true,
       group_index : usize(0),
-      anchor :.Start
+      anchor : .Start
     )
   }),
   // Create a quantifier node (wrapping a child)
@@ -160,7 +160,7 @@ impl(
     kids := ArrayList(RegexNode).new();
     kids.push(child);
     Self(
-      kind :.Quantifier,
+      kind : .Quantifier,
       children : kids,
       codepoint : u32(0),
       ranges : ArrayList(CharRange).new(),
@@ -169,7 +169,7 @@ impl(
       q_max : max_val,
       q_greedy : greedy,
       group_index : usize(0),
-      anchor :.Start
+      anchor : .Start
     )
   }),
   // Create a capturing group node
@@ -177,7 +177,7 @@ impl(
     kids := ArrayList(RegexNode).new();
     kids.push(child);
     Self(
-      kind :.Group,
+      kind : .Group,
       children : kids,
       codepoint : u32(0),
       ranges : ArrayList(CharRange).new(),
@@ -186,7 +186,7 @@ impl(
       q_max : usize(0),
       q_greedy : true,
       group_index : index,
-      anchor :.Start
+      anchor : .Start
     )
   }),
   // Create a non-capturing group node
@@ -194,7 +194,7 @@ impl(
     kids := ArrayList(RegexNode).new();
     kids.push(child);
     Self(
-      kind :.NonCapturingGroup,
+      kind : .NonCapturingGroup,
       children : kids,
       codepoint : u32(0),
       ranges : ArrayList(CharRange).new(),
@@ -203,13 +203,13 @@ impl(
       q_max : usize(0),
       q_greedy : true,
       group_index : usize(0),
-      anchor :.Start
+      anchor : .Start
     )
   }),
   // Create a backreference node (\1, \k<name>)
   backreference : (fn(group_idx : usize) -> Self)(
     Self(
-      kind :.Backreference,
+      kind : .Backreference,
       children : ArrayList(RegexNode).new(),
       codepoint : u32(0),
       ranges : ArrayList(CharRange).new(),
@@ -218,7 +218,7 @@ impl(
       q_max : usize(0),
       q_greedy : true,
       group_index : group_idx,
-      anchor :.Start
+      anchor : .Start
     )
   ),
   // Create a lookahead node (?=...) or (?!...)
@@ -227,7 +227,7 @@ impl(
     kids := ArrayList(RegexNode).new();
     kids.push(child);
     Self(
-      kind :.Lookahead,
+      kind : .Lookahead,
       children : kids,
       codepoint : u32(0),
       ranges : ArrayList(CharRange).new(),
@@ -236,7 +236,7 @@ impl(
       q_max : usize(0),
       q_greedy : true,
       group_index : usize(0),
-      anchor :.Start
+      anchor : .Start
     )
   }),
   // Create a lookbehind node (?<=...) or (?<!...)
@@ -245,7 +245,7 @@ impl(
     kids := ArrayList(RegexNode).new();
     kids.push(child);
     Self(
-      kind :.Lookbehind,
+      kind : .Lookbehind,
       children : kids,
       codepoint : u32(0),
       ranges : ArrayList(CharRange).new(),
@@ -254,7 +254,7 @@ impl(
       q_max : usize(0),
       q_greedy : true,
       group_index : usize(0),
-      anchor :.Start
+      anchor : .Start
     )
   })
 );

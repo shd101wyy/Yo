@@ -89,15 +89,15 @@ _concrete_c_name :: (fn(concrete_type : TypeValue, context : FunctionGenerationC
 );
 /// Generate C code for a `dyn()` constructor call. Mirrors `generateDynCall`.
 generate_dyn_call :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
-  ei := match(context.base.get_expr_info(expr),.Some(e) => e,.None => return(String.from("/* Error: dyn() not evaluated */")));
-  trait_values := match(expr_info_dyn_call_trait_values(ei),.Some(tv) => if(tv.len() == usize(0), return(String.from("/* Error: dyn() call missing trait values */")), tv),.None => return(String.from("/* Error: dyn() call missing trait values */")));
-  args0 := match(expr,.FnCall(_, _, a, _, _) => a.get(usize(0)),.Atom(_, _) => Option(AstExpr).None);
-  value_expr := match(ei.runtime_arg_exprs_in_order,.Some(rargs) => match(rargs.get(usize(0)),.Some(v) => v,.None => match(args0,.Some(a) => a,.None => return(String.from("/* Error: dyn() requires a value argument */")))),.None => match(args0,.Some(a) => a,.None => return(String.from("/* Error: dyn() requires a value argument */"))));
+  ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("/* Error: dyn() not evaluated */")));
+  trait_values := match(expr_info_dyn_call_trait_values(ei), .Some(tv) => if(tv.len() == usize(0), return(String.from("/* Error: dyn() call missing trait values */")), tv), .None => return(String.from("/* Error: dyn() call missing trait values */")));
+  args0 := match(expr, .FnCall(_, _, a, _, _) => a.get(usize(0)), .Atom(_, _) => Option(AstExpr).None);
+  value_expr := match(ei.runtime_arg_exprs_in_order, .Some(rargs) => match(rargs.get(usize(0)), .Some(v) => v, .None => match(args0, .Some(a) => a, .None => return(String.from("/* Error: dyn() requires a value argument */")))), .None => match(args0, .Some(a) => a, .None => return(String.from("/* Error: dyn() requires a value argument */"))));
   dyn_type := ei.ty;
   if(!(is_dyn_type(dyn_type)), {
     return(String.from("/* Error: dyn() result type is not DynType */"));
   });
-  value_ei := match(context.base.get_expr_info(value_expr),.Some(e) => e,.None => return(String.from("/* Error: dyn() value has no type */")));
+  value_ei := match(context.base.get_expr_info(value_expr), .Some(e) => e, .None => return(String.from("/* Error: dyn() value has no type */")));
   value_type := value_ei.ty;
   // dyn() requires an object type (value types must use box()). Box is not
   // modeled in yo-self (is_boxed_type ≡ false), so the Box branch is dead.
@@ -178,11 +178,11 @@ generate_dyn_call :: (fn(expr : AstExpr, indent : String, context : FunctionGene
     }),
     .None => ()
   );
-  temp_var_name := match(ei.variable_name,.Some(tv) => tv,.None => return(String.from("/* Error: dyn() expression missing temp variable name */")));
+  temp_var_name := match(ei.variable_name, .Some(tv) => tv, .None => return(String.from("/* Error: dyn() expression missing temp variable name */")));
   vtable_name := String.from("__yo_vtable_");
   vtable_name.push_string(impl_key);
   // Track the temp var (SM-field routing is Phase 5, gated dead here).
-  already := match(context.declared_temp_vars,.Some(s) => s.contains(temp_var_name.clone()),.None => false);
+  already := match(context.declared_temp_vars, .Some(s) => s.contains(temp_var_name.clone()), .None => false);
   if(
     !(already),
     match(

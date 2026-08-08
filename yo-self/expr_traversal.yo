@@ -48,8 +48,8 @@ evaluated_body_contains_unwind :: (fn(e : AstExpr) -> bool)(
     e,
     .Atom(_, tok) => (tok.value == BF_UNWIND),
     .FnCall(_, func_box, args, _, _) => {
-      is_cond := ast_expr_is_fn_call_of(e, BK_COND,.None);
-      is_match := ast_expr_is_fn_call_of(e, BK_MATCH,.None);
+      is_cond := ast_expr_is_fn_call_of(e, BK_COND, .None);
+      is_match := ast_expr_is_fn_call_of(e, BK_MATCH, .None);
       if(is_cond || is_match, {
         // Inline traverseCondMatchBranches: recurse into each arg.
         // Branch arrows `condition => body` are NOT function boundaries:
@@ -61,8 +61,8 @@ evaluated_body_contains_unwind :: (fn(e : AstExpr) -> bool)(
         (ia : usize) = usize(0);
         (found_a : bool) = false;
         while((ia < na) && (!(found_a)), {
-          arg_a := match(args.get(ia),.Some(a) => a,.None => make_err_expr());
-          is_branch_arrow := ast_expr_is_fn_call_of(arg_a, "=>",.None);
+          arg_a := match(args.get(ia), .Some(a) => a, .None => make_err_expr());
+          is_branch_arrow := ast_expr_is_fn_call_of(arg_a, "=>", .None);
           if(is_branch_arrow, {
             inner_args := match(
               arg_a,
@@ -72,7 +72,7 @@ evaluated_body_contains_unwind :: (fn(e : AstExpr) -> bool)(
             ni := inner_args.len();
             (ji : usize) = usize(0);
             while((ji < ni) && (!(found_a)), {
-              bp := match(inner_args.get(ji),.Some(a) => a,.None => make_err_expr());
+              bp := match(inner_args.get(ji), .Some(a) => a, .None => make_err_expr());
               if(recur(bp), {
                 found_a = true;
               });
@@ -97,7 +97,7 @@ evaluated_body_contains_unwind :: (fn(e : AstExpr) -> bool)(
       (i : usize) = usize(0);
       (found : bool) = false;
       while((i < n) && (!(found)), {
-        arg := match(args.get(i),.Some(a) => a,.None => make_err_expr());
+        arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
         if(recur(arg), {
           found = true;
         });
@@ -124,14 +124,14 @@ expr_tree_contains_return :: (fn(e : AstExpr) -> bool)(
       (v == BK_RETURN) || (v == BF_UNWIND)
     },
     .FnCall(_, func_box, args, _, _) => {
-      if(ast_expr_is_fn_call_of(e, BK_RETURN,.None), {
+      if(ast_expr_is_fn_call_of(e, BK_RETURN, .None), {
         return(true);
       });
-      if(ast_expr_is_fn_call_of(e, BF_UNWIND,.None), {
+      if(ast_expr_is_fn_call_of(e, BF_UNWIND, .None), {
         return(true);
       });
-      is_cond := ast_expr_is_fn_call_of(e, BK_COND,.None);
-      is_match := ast_expr_is_fn_call_of(e, BK_MATCH,.None);
+      is_cond := ast_expr_is_fn_call_of(e, BK_COND, .None);
+      is_match := ast_expr_is_fn_call_of(e, BK_MATCH, .None);
       if(is_cond || is_match, {
         if(recur(func_box), {
           return(true);
@@ -140,8 +140,8 @@ expr_tree_contains_return :: (fn(e : AstExpr) -> bool)(
         (ia : usize) = usize(0);
         (found_a : bool) = false;
         while((ia < na) && (!(found_a)), {
-          arg_a := match(args.get(ia),.Some(a) => a,.None => make_err_expr());
-          is_branch_arrow := ast_expr_is_fn_call_of(arg_a, "=>",.None);
+          arg_a := match(args.get(ia), .Some(a) => a, .None => make_err_expr());
+          is_branch_arrow := ast_expr_is_fn_call_of(arg_a, "=>", .None);
           if(is_branch_arrow, {
             inner_args := match(
               arg_a,
@@ -151,7 +151,7 @@ expr_tree_contains_return :: (fn(e : AstExpr) -> bool)(
             ni := inner_args.len();
             (ji : usize) = usize(0);
             while((ji < ni) && (!(found_a)), {
-              bp := match(inner_args.get(ji),.Some(a) => a,.None => make_err_expr());
+              bp := match(inner_args.get(ji), .Some(a) => a, .None => make_err_expr());
               if(recur(bp), {
                 found_a = true;
               });
@@ -176,7 +176,7 @@ expr_tree_contains_return :: (fn(e : AstExpr) -> bool)(
       (i : usize) = usize(0);
       (found : bool) = false;
       while((i < n) && (!(found)), {
-        arg := match(args.get(i),.Some(a) => a,.None => make_err_expr());
+        arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
         if(recur(arg), {
           found = true;
         });
@@ -203,20 +203,20 @@ expr_contains_loop_terminator :: (fn(expr : AstExpr) -> bool)(
     },
     .FnCall(_, fn_box, args, _, _) => {
       // return / unwind as a direct function call
-      if(ast_expr_is_fn_call_of(expr, BK_RETURN,.None), {
+      if(ast_expr_is_fn_call_of(expr, BK_RETURN, .None), {
         return(true);
       });
-      if(ast_expr_is_fn_call_of(expr, BF_UNWIND,.None), {
+      if(ast_expr_is_fn_call_of(expr, BF_UNWIND, .None), {
         return(true);
       });
       // => is a function boundary: do not recurse into it
-      if(ast_expr_is_fn_call_of(expr, "=>",.None), {
+      if(ast_expr_is_fn_call_of(expr, "=>", .None), {
         return(false);
       });
       // cond/match: recurse into branch parts directly (bypassing => at arg level)
       (is_cond_or_match : bool) = (
-        ast_expr_is_fn_call_of(expr, BK_COND,.None) ||
-          ast_expr_is_fn_call_of(expr, BK_MATCH,.None)
+        ast_expr_is_fn_call_of(expr, BK_COND, .None) ||
+          ast_expr_is_fn_call_of(expr, BK_MATCH, .None)
       );
       if(is_cond_or_match, {
         if(recur(fn_box), {
@@ -225,8 +225,8 @@ expr_contains_loop_terminator :: (fn(expr : AstExpr) -> bool)(
         (n_cm : usize) = args.len();
         (i_cm : usize) = usize(0);
         while(i_cm < n_cm, {
-          arg := match(args.get(i_cm),.Some(a) => a,.None => make_err_expr());
-          if(ast_expr_is_fn_call_of(arg, "=>",.None), {
+          arg := match(args.get(i_cm), .Some(a) => a, .None => make_err_expr());
+          if(ast_expr_is_fn_call_of(arg, "=>", .None), {
             // Branch arrow: recurse into each child (condition and body)
             match(
               arg,
@@ -235,7 +235,7 @@ expr_contains_loop_terminator :: (fn(expr : AstExpr) -> bool)(
                 (n_ba : usize) = branch_args.len();
                 (j : usize) = usize(0);
                 while(j < n_ba, {
-                  ba := match(branch_args.get(j),.Some(a) => a,.None => make_err_expr());
+                  ba := match(branch_args.get(j), .Some(a) => a, .None => make_err_expr());
                   if(recur(ba), {
                     return(true);
                   });
@@ -259,7 +259,7 @@ expr_contains_loop_terminator :: (fn(expr : AstExpr) -> bool)(
       (n : usize) = args.len();
       (i : usize) = usize(0);
       while(i < n, {
-        arg := match(args.get(i),.Some(a) => a,.None => make_err_expr());
+        arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
         if(recur(arg), {
           return(true);
         });
@@ -291,8 +291,8 @@ expr_contains_await :: (fn(expr : AstExpr) -> bool)(
       });
       // cond/match: recurse into branch parts directly (bypassing => at arg level).
       (is_cond_or_match : bool) = (
-        ast_expr_is_fn_call_of(expr, BK_COND,.None) ||
-          ast_expr_is_fn_call_of(expr, BK_MATCH,.None)
+        ast_expr_is_fn_call_of(expr, BK_COND, .None) ||
+          ast_expr_is_fn_call_of(expr, BK_MATCH, .None)
       );
       if(is_cond_or_match, {
         if(recur(fn_box), {
@@ -301,8 +301,8 @@ expr_contains_await :: (fn(expr : AstExpr) -> bool)(
         (n_cm : usize) = args.len();
         (i_cm : usize) = usize(0);
         while(i_cm < n_cm, {
-          arg := match(args.get(i_cm),.Some(a) => a,.None => make_err_expr());
-          if(ast_expr_is_fn_call_of(arg, "=>",.None), {
+          arg := match(args.get(i_cm), .Some(a) => a, .None => make_err_expr());
+          if(ast_expr_is_fn_call_of(arg, "=>", .None), {
             match(
               arg,
               .Atom(_, _) => (),
@@ -310,7 +310,7 @@ expr_contains_await :: (fn(expr : AstExpr) -> bool)(
                 (n_ba : usize) = branch_args.len();
                 (j : usize) = usize(0);
                 while(j < n_ba, {
-                  ba := match(branch_args.get(j),.Some(a) => a,.None => make_err_expr());
+                  ba := match(branch_args.get(j), .Some(a) => a, .None => make_err_expr());
                   if(recur(ba), {
                     return(true);
                   });
@@ -338,7 +338,7 @@ expr_contains_await :: (fn(expr : AstExpr) -> bool)(
       (n : usize) = args.len();
       (i : usize) = usize(0);
       while(i < n, {
-        arg := match(args.get(i),.Some(a) => a,.None => make_err_expr());
+        arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
         if(recur(arg), {
           return(true);
         });
@@ -365,10 +365,10 @@ all_paths_unwind :: (fn(e : AstExpr) -> bool)(
     e,
     .Atom(_, _) => false,
     .FnCall(_, apw_func, apw_args, _, _) => {
-      if(ast_expr_is_fn_call_of(e, BF_UNWIND,.None), {
+      if(ast_expr_is_fn_call_of(e, BF_UNWIND, .None), {
         return(true);
       });
-      if(ast_expr_is_fn_call_of(e, BK_RETURN,.None), {
+      if(ast_expr_is_fn_call_of(e, BK_RETURN, .None), {
         return(false);
       });
       match(
@@ -383,7 +383,7 @@ all_paths_unwind :: (fn(e : AstExpr) -> bool)(
       if(is_function_boundary_arrow(e), {
         return(false);
       });
-      if(ast_expr_is_fn_call_of(e, BK_BEGIN,.None), {
+      if(ast_expr_is_fn_call_of(e, BK_BEGIN, .None), {
         (apw_i : usize) = usize(0);
         while(apw_i < apw_args.len(), {
           match(
@@ -397,16 +397,16 @@ all_paths_unwind :: (fn(e : AstExpr) -> bool)(
         });
         return(false);
       });
-      apw_is_match := ast_expr_is_fn_call_of(e, BK_MATCH,.None);
-      if(ast_expr_is_fn_call_of(e, BK_COND,.None) || apw_is_match, {
+      apw_is_match := ast_expr_is_fn_call_of(e, BK_MATCH, .None);
+      if(ast_expr_is_fn_call_of(e, BK_COND, .None) || apw_is_match, {
         (apw_has_default : bool) = false;
         (apw_all_unwind : bool) = true;
         (apw_has_arm : bool) = false;
         (apw_j : usize) = if(apw_is_match, usize(1), usize(0));
         while(apw_j < apw_args.len(), {
-          apw_arm := match(apw_args.get(apw_j),.Some(a) => a,.None => make_err_expr());
-          if(ast_expr_is_fn_call_of(apw_arm, "=>",.None), {
-            apw_arm_args := match(apw_arm,.FnCall(_, _, aa, _, _) => aa,.Atom(_, _) => ArrayList(AstExpr).new());
+          apw_arm := match(apw_args.get(apw_j), .Some(a) => a, .None => make_err_expr());
+          if(ast_expr_is_fn_call_of(apw_arm, "=>", .None), {
+            apw_arm_args := match(apw_arm, .FnCall(_, _, aa, _, _) => aa, .Atom(_, _) => ArrayList(AstExpr).new());
             if(apw_arm_args.len() >= usize(2), {
               apw_has_arm = true;
               match(
@@ -433,9 +433,9 @@ all_paths_unwind :: (fn(e : AstExpr) -> bool)(
         });
         return((apw_has_arm && apw_has_default) && apw_all_unwind);
       });
-      if(ast_expr_is_fn_call_of(e, "if",.None) && (apw_args.len() >= usize(3)), {
-        apw_then := match(apw_args.get(usize(1)),.Some(a) => a,.None => make_err_expr());
-        apw_else := match(apw_args.get(usize(2)),.Some(a) => a,.None => make_err_expr());
+      if(ast_expr_is_fn_call_of(e, "if", .None) && (apw_args.len() >= usize(3)), {
+        apw_then := match(apw_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
+        apw_else := match(apw_args.get(usize(2)), .Some(a) => a, .None => make_err_expr());
         return(recur(apw_then) && recur(apw_else));
       });
       false

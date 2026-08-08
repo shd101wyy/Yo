@@ -45,7 +45,7 @@ _register_class_to_gcc :: (fn(class_name : String, arch : Arch) -> String)(
     (class_name == "reg") => String.from("r"),
     (class_name == "reg_byte") => String.from("q"),
     (class_name == "reg_abcd") => String.from("Q"),
-    (class_name == "xmm_reg") => match(arch,.Aarch64 => String.from("w"), _ => String.from("x")),
+    (class_name == "xmm_reg") => match(arch, .Aarch64 => String.from("w"), _ => String.from("x")),
     (class_name == "ymm_reg") => String.from("x"),
     (class_name == "imm") => String.from("i"),
     (class_name == "mem") => String.from("m"),
@@ -108,9 +108,9 @@ _transform_template :: (fn(template : String) -> String)({
   n := b.len();
   (i : usize) = usize(0);
   while(i < n, {
-    c := match(b.get(i),.Some(x) => x,.None => u8(0));
+    c := match(b.get(i), .Some(x) => x, .None => u8(0));
     cond(
-      ((c == u8(123)) && match(b.get(i + usize(1)),.Some(x) => (x == u8(123)),.None => false)) => {
+      ((c == u8(123)) && match(b.get(i + usize(1)), .Some(x) => (x == u8(123)), .None => false)) => {
         result.push_str("{");
         i = (i + usize(2));
       },
@@ -121,7 +121,7 @@ _transform_template :: (fn(template : String) -> String)({
         {
           (j : usize) = (i + usize(1));
           while((j < n) && !(found_close), {
-            if(match(b.get(j),.Some(x) => (x == u8(125)),.None => false), {
+            if(match(b.get(j), .Some(x) => (x == u8(125)), .None => false), {
               close_idx = j;
               found_close = true;
             });
@@ -139,7 +139,7 @@ _transform_template :: (fn(template : String) -> String)({
           {
             (k : usize) = (i + usize(1));
             while(k < close_idx, {
-              ck := match(b.get(k),.Some(x) => x,.None => u8(0));
+              ck := match(b.get(k), .Some(x) => x, .None => u8(0));
               cond(
                 ((ck == u8(58)) && !(seen_colon)) => {
                   seen_colon = true;
@@ -160,7 +160,7 @@ _transform_template :: (fn(template : String) -> String)({
             rb := ref_str.as_bytes();
             (di : usize) = usize(0);
             while(di < rb.len(), {
-              db := match(rb.get(di),.Some(x) => x,.None => u8(0));
+              db := match(rb.get(di), .Some(x) => x, .None => u8(0));
               if((db < u8(48)) || (db > u8(57)), {
                 all_digits = false;
               });
@@ -179,7 +179,7 @@ _transform_template :: (fn(template : String) -> String)({
           i = (close_idx + usize(1));
         });
       },
-      ((c == u8(125)) && match(b.get(i + usize(1)),.Some(x) => (x == u8(125)),.None => false)) => {
+      ((c == u8(125)) && match(b.get(i + usize(1)), .Some(x) => (x == u8(125)), .None => false)) => {
         result.push_str("}");
         i = (i + usize(2));
       },
@@ -206,10 +206,10 @@ ParsedOperand :: ref(
   )
 );
 _atom_value_cg :: (fn(e : AstExpr) -> String)(
-  match(e,.Atom(_, tok) => tok.value.clone(), _ => String.from(""))
+  match(e, .Atom(_, tok) => tok.value.clone(), _ => String.from(""))
 );
 _fn_call_args_cg :: (fn(e : AstExpr) -> ArrayList(AstExpr))(
-  match(e,.FnCall(_, _, args, _, _) => args,.Atom(_, _) => ArrayList(AstExpr).new())
+  match(e, .FnCall(_, _, args, _, _) => args, .Atom(_, _) => ArrayList(AstExpr).new())
 );
 /// Read an expr's comptime-string VALUE (decoded, delimiters stripped).
 _cg_comptime_str :: (fn(e : AstExpr, context : FunctionGenerationContext) -> Option(String))(
@@ -255,7 +255,7 @@ _extract_constraint_string :: (fn(e : AstExpr, context : FunctionGenerationConte
     .None => ()
   );
   if(ast_expr_is_fn_call_of(e, "raw", Option(usize).Some(usize(1))), {
-    raw_arg := match(_fn_call_args_cg(e).get(usize(0)),.Some(a) => a,.None => make_err_expr());
+    raw_arg := match(_fn_call_args_cg(e).get(usize(0)), .Some(a) => a, .None => make_err_expr());
     match(
       _cg_comptime_str(raw_arg, context),
       .Some(rs) => {
@@ -279,7 +279,7 @@ _parse_operand_for_codegen :: (
     (name : Option(String)) = Option(String).None;
     (value_idx : usize) = usize(0);
     if(args.len() == usize(2), {
-      first := match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
+      first := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
       match(
         _cg_comptime_str(first, context),
         .Some(s) => {
@@ -289,7 +289,7 @@ _parse_operand_for_codegen :: (
         .None => ()
       );
     });
-    value_e := match(args.get(value_idx),.Some(a) => a,.None => make_err_expr());
+    value_e := match(args.get(value_idx), .Some(a) => a, .None => make_err_expr());
     value_code := _call_generate_expr(value_e, indent.clone(), context);
     return(
       ParsedOperand(
@@ -307,7 +307,7 @@ _parse_operand_for_codegen :: (
   (name : Option(String)) = Option(String).None;
   (constraint_idx : usize) = usize(0);
   if(args.len() >= usize(2), {
-    first := match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
+    first := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
     is_reg_class_atom := (ast_expr_is_atom(first) && _is_register_class(_atom_value_cg(first)));
     if(!(is_reg_class_atom), {
       match(
@@ -324,7 +324,7 @@ _parse_operand_for_codegen :: (
   (constraint_raw : Option(String)) = Option(String).None;
   (value_type_idx : usize) = usize(0);
   if(has_constraint_arg, {
-    c_e := match(args.get(constraint_idx),.Some(a) => a,.None => make_err_expr());
+    c_e := match(args.get(constraint_idx), .Some(a) => a, .None => make_err_expr());
     constraint_raw = Option(String).Some(_extract_constraint_string(c_e, context));
     value_type_idx = (constraint_idx + usize(1));
   }, {
@@ -338,7 +338,7 @@ _parse_operand_for_codegen :: (
     value_type_idx = constraint_idx;
   });
   constraint := _resolve_constraint(constraint_raw, arch);
-  value_or_type := match(args.get(value_type_idx),.Some(a) => a,.None => make_err_expr());
+  value_or_type := match(args.get(value_type_idx), .Some(a) => a, .None => make_err_expr());
   // Discard `_`
   if(ast_expr_is_atom(value_or_type) && (_atom_value_cg(value_or_type) == String.from("_")), {
     return(
@@ -393,7 +393,7 @@ _parse_operand_for_codegen :: (
 /// Clobber list from clobber()/clobber_abi() (asm.ts:358-419).
 _parse_clobbers :: (fn(clobber_expr : AstExpr, context : FunctionGenerationContext) -> ArrayList(String))({
   clobbers := ArrayList(String).new();
-  kind := match(clobber_expr,.FnCall(_, f, _, _, _) => _atom_value_cg(f), _ => String.from("clobber"));
+  kind := match(clobber_expr, .FnCall(_, f, _, _, _) => _atom_value_cg(f), _ => String.from("clobber"));
   if(kind == String.from("clobber_abi"), {
     arch := context.base.target_info.arch;
     match(
@@ -438,7 +438,7 @@ _parse_clobbers :: (fn(clobber_expr : AstExpr, context : FunctionGenerationConte
   args := _fn_call_args_cg(clobber_expr);
   (i : usize) = usize(0);
   while(i < args.len(), {
-    arg := match(args.get(i),.Some(a) => a,.None => make_err_expr());
+    arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
     match(
       _cg_comptime_str(arg, context),
       .Some(s) => {
@@ -463,7 +463,7 @@ _parse_asm_options_for_codegen :: (fn(opt_expr : AstExpr) -> AsmCodegenOptions)(
   args := _fn_call_args_cg(opt_expr);
   (i : usize) = usize(0);
   while(i < args.len(), {
-    arg := match(args.get(i),.Some(a) => a,.None => make_err_expr());
+    arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
     if(ast_expr_is_atom(arg), {
       flag := _atom_value_cg(arg);
       cond(
@@ -538,7 +538,7 @@ generate_asm :: (fn(expr : AstExpr, indent : String, context : FunctionGeneratio
   (arg_idx : usize) = usize(0);
   (scanning : bool) = true;
   while((arg_idx < args.len()) && scanning, {
-    arg := match(args.get(arg_idx),.Some(a) => a,.None => make_err_expr());
+    arg := match(args.get(arg_idx), .Some(a) => a, .None => make_err_expr());
     if(ast_expr_is_fn_call(arg), {
       scanning = false;
     }, {
@@ -576,9 +576,9 @@ generate_asm :: (fn(expr : AstExpr, indent : String, context : FunctionGeneratio
   all_clobbers := ArrayList(String).new();
   (opts : AsmCodegenOptions) = AsmCodegenOptions(is_volatile : true, intel_syntax : false, noreturn : false);
   while(arg_idx < args.len(), {
-    arg := match(args.get(arg_idx),.Some(a) => a,.None => make_err_expr());
+    arg := match(args.get(arg_idx), .Some(a) => a, .None => make_err_expr());
     if(ast_expr_is_fn_call(arg), {
-      call_name := match(arg,.FnCall(_, f, _, _, _) => _atom_value_cg(f), _ => String.new());
+      call_name := match(arg, .FnCall(_, f, _, _, _) => _atom_value_cg(f), _ => String.new());
       is_operand := (
         (
           (((call_name == "in") || (call_name == "out")) || ((call_name == "inout") || (call_name == "lateout"))) ||
@@ -627,16 +627,16 @@ generate_asm :: (fn(expr : AstExpr, indent : String, context : FunctionGeneratio
           n := b.len();
           (i : usize) = usize(0);
           while(i < n, {
-            c := match(b.get(i),.Some(x) => x,.None => u8(0));
+            c := match(b.get(i), .Some(x) => x, .None => u8(0));
             (replaced : bool) = false;
-            if((c == u8(123)) && !(match(b.get(i + usize(1)),.Some(x) => (x == u8(123)),.None => false)), {
+            if((c == u8(123)) && !(match(b.get(i + usize(1)), .Some(x) => (x == u8(123)), .None => false)), {
               // find close and split ref
               (close_idx : usize) = i;
               (found_close : bool) = false;
               {
                 (j : usize) = (i + usize(1));
                 while((j < n) && !(found_close), {
-                  if(match(b.get(j),.Some(x) => (x == u8(125)),.None => false), {
+                  if(match(b.get(j), .Some(x) => (x == u8(125)), .None => false), {
                     close_idx = j;
                     found_close = true;
                   });
@@ -649,7 +649,7 @@ generate_asm :: (fn(expr : AstExpr, indent : String, context : FunctionGeneratio
                   (k : usize) = (i + usize(1));
                   (stop : bool) = false;
                   while((k < close_idx) && !(stop), {
-                    ck := match(b.get(k),.Some(x) => x,.None => u8(0));
+                    ck := match(b.get(k), .Some(x) => x, .None => u8(0));
                     if(ck == u8(58), {
                       stop = true;
                     }, {
@@ -658,7 +658,7 @@ generate_asm :: (fn(expr : AstExpr, indent : String, context : FunctionGeneratio
                     k = (k + usize(1));
                   });
                 };
-                name_match := match(op.name,.Some(nm) => (ref_str == nm),.None => false);
+                name_match := match(op.name, .Some(nm) => (ref_str == nm), .None => false);
                 idx_match := (ref_str == oi.to_string());
                 if(name_match || idx_match, {
                   rebuilt.push_string(op.c_expr.clone());
@@ -761,9 +761,9 @@ generate_asm :: (fn(expr : AstExpr, indent : String, context : FunctionGeneratio
               true => String.from("+")
             );
             target_var := cond(
-              op.is_discarded => match(temp_names.get(oi),.Some(t) => t,.None => String.new()),
+              op.is_discarded => match(temp_names.get(oi), .Some(t) => t, .None => String.new()),
               op.is_variable_target => op.c_expr.clone(),
-              true => match(temp_names.get(oi),.Some(t) => t,.None => String.new())
+              true => match(temp_names.get(oi), .Some(t) => t, .None => String.new())
             );
             part := String.new();
             match(
@@ -889,7 +889,7 @@ generate_asm :: (fn(expr : AstExpr, indent : String, context : FunctionGeneratio
               (((op.kind == String.from("in")) || (op.kind == String.from("const_val"))) || (op.kind == String.from("sym")))
           );
           if(!(skip), {
-            tv := match(temp_names.get(oi),.Some(t) => t,.None => String.new());
+            tv := match(temp_names.get(oi), .Some(t) => t, .None => String.new());
             if(tv.len() > usize(0), {
               return_exprs.push(tv);
             });
@@ -901,7 +901,7 @@ generate_asm :: (fn(expr : AstExpr, indent : String, context : FunctionGeneratio
     });
   };
   if(return_exprs.len() == usize(1), {
-    return(match(return_exprs.get(usize(0)),.Some(r) => r,.None => String.new()));
+    return(match(return_exprs.get(usize(0)), .Some(r) => r, .None => String.new()));
   });
   if(return_exprs.len() > usize(1), {
     out_t := String.from("((");
@@ -915,7 +915,7 @@ generate_asm :: (fn(expr : AstExpr, indent : String, context : FunctionGeneratio
       out_t.push_str("._");
       out_t.push_string(ri.to_string());
       out_t.push_str(" = ");
-      out_t.push_string(match(return_exprs.get(ri),.Some(r) => r,.None => String.new()));
+      out_t.push_string(match(return_exprs.get(ri), .Some(r) => r, .None => String.new()));
       ri = (ri + usize(1));
     });
     out_t.push_str(" })");
@@ -930,7 +930,7 @@ generate_global_asm :: (fn(expr : AstExpr, indent : String, context : FunctionGe
     return(String.from("/* global_asm skipped: not supported on this target */"));
   });
   args := _fn_call_args_cg(expr);
-  template_e := match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
+  template_e := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
   match(
     _cg_comptime_str(template_e, context),
     .Some(template) => {

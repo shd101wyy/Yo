@@ -38,7 +38,7 @@ _method_c_name :: (fn(type : TypeValue, method_name : str, context : FunctionGen
     return(Option(String).None);
   });
   methods := get_type_trait_methods_by_name(type_id_or_empty(type), String.from(method_name));
-  match(methods.get(usize(0)),.Some(entry) => match(entry.value,.Some(v) => match(v,.FuncVal(__fvd1, _) => match(context.base.get_function_entry(__fvd1.*.func_id),.Some(e) => Option(String).Some(e.c_name),.None => Option(String).None), _ => Option(String).None),.None => Option(String).None),.None => Option(String).None)
+  match(methods.get(usize(0)), .Some(entry) => match(entry.value, .Some(v) => match(v, .FuncVal(__fvd1, _) => match(context.base.get_function_entry(__fvd1.*.func_id), .Some(e) => Option(String).Some(e.c_name), .None => Option(String).None), _ => Option(String).None), .None => Option(String).None), .None => Option(String).None)
 });
 /// The C name of `type`'s `___drop` function, if any. Mirrors
 /// `getDropFunctionForType`.
@@ -125,7 +125,7 @@ resolve_some_type_param_type :: (fn(value_arg : AstExpr, value_type : TypeValue,
   if(!(ast_expr_is_atom(value_arg)), {
     return(value_type);
   });
-  ft := match(context.current_function_type,.Some(t) => t,.None => return(value_type));
+  ft := match(context.current_function_type, .Some(t) => t, .None => return(value_type));
   var_name := ast_expr_token(value_arg).value;
   match(
     ft,
@@ -291,9 +291,9 @@ generate_drop_code_for_value :: (fn(value_code : String, value_type : TypeValue,
           nv := variant_names.len();
           (vi : usize) = usize(0);
           while(vi < nv, {
-            vname := match(variant_names.get(vi),.Some(v) => v,.None => String.from(""));
-            fields := match(variant_fields.get(vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
-            labels := match(variant_field_labels.get(vi),.Some(l) => l,.None => ArrayList(String).new());
+            vname := match(variant_names.get(vi), .Some(v) => v, .None => String.from(""));
+            fields := match(variant_fields.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
+            labels := match(variant_field_labels.get(vi), .Some(l) => l, .None => ArrayList(String).new());
             nf := fields.len();
             (has_rc : bool) = false;
             (ci : usize) = usize(0);
@@ -315,7 +315,7 @@ generate_drop_code_for_value :: (fn(value_code : String, value_type : TypeValue,
                 match(
                   fields.get(fi),
                   .Some(ft) => if(type_contains_rc_type(ft), {
-                    flabel := match(labels.get(fi),.Some(l) => l,.None => String.from(""));
+                    flabel := match(labels.get(fi), .Some(l) => l, .None => String.from(""));
                     fname := sanitize_for_c_identifier(flabel, false);
                     access := `(${value_code.clone()}).data.${vname.clone()}.${fname}`;
                     fd := recur(access, ft, context);
@@ -673,9 +673,9 @@ generate_dup_code_for_value :: (fn(value_code : String, value_type : TypeValue, 
             ed_nv := ed_vns.len();
             (ed_vi : usize) = usize(0);
             while(ed_vi < ed_nv, {
-              ed_vname := match(ed_vns.get(ed_vi),.Some(v) => v,.None => String.from(""));
-              ed_fields := match(ed_vfs.get(ed_vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
-              ed_labels := match(ed_vls.get(ed_vi),.Some(l) => l,.None => ArrayList(String).new());
+              ed_vname := match(ed_vns.get(ed_vi), .Some(v) => v, .None => String.from(""));
+              ed_fields := match(ed_vfs.get(ed_vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
+              ed_labels := match(ed_vls.get(ed_vi), .Some(l) => l, .None => ArrayList(String).new());
               ed_nf := ed_fields.len();
               (ed_has_rc : bool) = false;
               (ed_ci : usize) = usize(0);
@@ -697,7 +697,7 @@ generate_dup_code_for_value :: (fn(value_code : String, value_type : TypeValue, 
                   match(
                     ed_fields.get(ed_fi),
                     .Some(ed_ft) => if(type_contains_rc_type(ed_ft), {
-                      ed_flabel := match(ed_labels.get(ed_fi),.Some(l) => l,.None => String.from(""));
+                      ed_flabel := match(ed_labels.get(ed_fi), .Some(l) => l, .None => String.from(""));
                       ed_fname := sanitize_for_c_identifier(ed_flabel, false);
                       ed_access := `(${ed_temp.clone()}).data.${ed_vname.clone()}.${ed_fname}`;
                       ed_fd := recur(ed_access.clone(), ed_ft, context);
@@ -741,12 +741,12 @@ _dd_drop_target_atom :: (fn(drop_expr : AstExpr) -> Option(AstExpr))(
       match(
         func,
         .FnCall(_, _, fargs, _, _) => if(ast_expr_is_fn_call_of(func, BF_DOT, Option(usize).Some(usize(2))), {
-          a1_is_drop := match(fargs.get(usize(1)),.Some(a1) => if(ast_expr_is_atom(a1), ast_expr_token(a1).value == BF_DROP, false),.None => false);
-          if(a1_is_drop, match(fargs.get(usize(0)),.Some(a0) => if(ast_expr_is_atom(a0), Option(AstExpr).Some(a0), Option(AstExpr).None),.None => Option(AstExpr).None), Option(AstExpr).None)
+          a1_is_drop := match(fargs.get(usize(1)), .Some(a1) => if(ast_expr_is_atom(a1), ast_expr_token(a1).value == BF_DROP, false), .None => false);
+          if(a1_is_drop, match(fargs.get(usize(0)), .Some(a0) => if(ast_expr_is_atom(a0), Option(AstExpr).Some(a0), Option(AstExpr).None), .None => Option(AstExpr).None), Option(AstExpr).None)
         }, Option(AstExpr).None),
         .Atom(_, _) => Option(AstExpr).None
       ),
-      if(ast_expr_is_fn_call_of(drop_expr, BF_DROP, Option(usize).None), match(args.get(usize(0)),.Some(a0) => if(ast_expr_is_atom(a0), Option(AstExpr).Some(a0), Option(AstExpr).None),.None => Option(AstExpr).None), Option(AstExpr).None)
+      if(ast_expr_is_fn_call_of(drop_expr, BF_DROP, Option(usize).None), match(args.get(usize(0)), .Some(a0) => if(ast_expr_is_atom(a0), Option(AstExpr).Some(a0), Option(AstExpr).None), .None => Option(AstExpr).None), Option(AstExpr).None)
     ),
     .Atom(_, _) => Option(AstExpr).None
   )
@@ -769,7 +769,7 @@ _drop_target_is_parameter :: (fn(drop_expr : AstExpr, context : FunctionGenerati
       context.base.get_expr_info(atom),
       .Some(aei) => {
         vars := get_variables_from_env(aei.env, ast_expr_token(atom).value);
-        if(vars.len() == usize(0), false, match(vars.get(vars.len() - usize(1)),.Some(v) => v.is_parameter,.None => false))
+        if(vars.len() == usize(0), false, match(vars.get(vars.len() - usize(1)), .Some(v) => v.is_parameter, .None => false))
       },
       .None => false
     ),
@@ -957,7 +957,7 @@ emit_deferred_dup_or_code :: (fn(expr : AstExpr, fallback_code : String, indent 
         // TS's rhsIsClosureConstruction guard).
         src_is_closure_ctor := (
           expr_info_closure_function_value(ei).is_some() ||
-            (match(ei.is_anonymous_function_definition,.Some(b) => b,.None => false) && ei.capture_type.is_some())
+            (match(ei.is_anonymous_function_definition, .Some(b) => b, .None => false) && ei.capture_type.is_some())
         );
         (fallback_code_2 : String) = fallback_code.clone();
         if(!(src_is_closure_ctor), {
@@ -966,7 +966,7 @@ emit_deferred_dup_or_code :: (fn(expr : AstExpr, fallback_code : String, indent 
             .Some(src_vn) => {
               src_c_name := get_variable_name_for_codegen(src_vn, Option(Environment).Some(ei.env));
               if(src_c_name != fallback_code.trim(), {
-                eff_ty := match(expr_info_converted_runtime_type(ei),.Some(crt) => crt,.None => ei.ty);
+                eff_ty := match(expr_info_converted_runtime_type(ei), .Some(crt) => crt, .None => ei.ty);
                 decl0 := indent.clone();
                 decl0.push_string(get_variable_type_string(eff_ty, src_c_name.clone(), context.base));
                 decl0.push_str(" = ");
@@ -1006,8 +1006,8 @@ emit_deferred_dup_or_code :: (fn(expr : AstExpr, fallback_code : String, indent 
         // `Some(bucket.value)`. Materialize the field value once into that temp (exactly
         // TS's materialize-then-dup), so the dup references a real local and the temp is
         // the dup'd value the caller uses. Safe: the field access is evaluated once.
-        dup_target := match(dups.get(usize(0)),.Some(de) => get_deferred_dup_target_atom_name(de),.None => Option(String).None);
-        t_name := sanitize_for_c_identifier(match(dup_target,.Some(s) => s,.None => String.from("")), false);
+        dup_target := match(dups.get(usize(0)), .Some(de) => get_deferred_dup_target_atom_name(de), .None => Option(String).None);
+        t_name := sanitize_for_c_identifier(match(dup_target, .Some(s) => s, .None => String.from("")), false);
         // Only materialize when the source is NOT already materialized into the dup
         // target temp: if the caller's fallback code already IS that temp (some paths
         // declare it before this call — e.g. `set`'s old-value extraction), declaring it
@@ -1035,7 +1035,7 @@ emit_deferred_dup_or_code :: (fn(expr : AstExpr, fallback_code : String, indent 
           },
           true => {
             generate_deferred_dup_expressions(expr, indent.clone(), context);
-            match(dup_result_name,.Some(n) => n,.None => fallback_code_2)
+            match(dup_result_name, .Some(n) => n, .None => fallback_code_2)
           }
         )
       }, fallback_code),

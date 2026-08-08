@@ -89,7 +89,7 @@ extract_bare_import_path :: (fn(e : AstExpr) -> Option(String))(
             n := raw.len();
             cond(
               (n < usize(2)) => Option(String).None,
-              true =>.Some(raw.substring(usize(1), n - usize(1)))
+              true => .Some(raw.substring(usize(1), n - usize(1)))
             )
           }
         )
@@ -277,8 +277,8 @@ extract_test_name :: (fn(expr : AstExpr) -> Option(String))(
               // Strip them with substring(1, len-1).
               n := ntok.value.len();
               cond(
-                (n >= usize(2)) =>.Some(ntok.value.substring(usize(1), n - usize(1))),
-                true =>.Some(ntok.value)
+                (n >= usize(2)) => .Some(ntok.value.substring(usize(1), n - usize(1))),
+                true => .Some(ntok.value)
               )
             },
             true => Option(String).None
@@ -538,14 +538,14 @@ _load_module_at_abs :: (fn(abs : String) -> Option(String))({
   if(module_cache_has(abs.clone()), {
     return(Option(String).None);
   });
-  io := match(g_loader_io,.Some(i) => i,.None => return(Option(String).None));
-  std_path := match(g_loader_std_path,.Some(s) => s,.None => String.from(""));
-  exn := match(g_loader_exn,.Some(e) => e,.None => return(Option(String).None));
+  io := match(g_loader_io, .Some(i) => i, .None => return(Option(String).None));
+  std_path := match(g_loader_std_path, .Some(s) => s, .None => String.from(""));
+  exn := match(g_loader_exn, .Some(e) => e, .None => return(Option(String).None));
   fs_path := abs.replace(String.from("file://"), String.from(""));
   src_bytes := io.await(read_file(Path.new(fs_path.clone()), io), IoExn(io : io, exn : exn));
   src := String.from_bytes(src_bytes);
   mod_exprs := parse(src, abs.clone(), exn);
-  env := clone_env(match(g_cached_prelude_env,.Some(pe) => pe,.None => Environment.new(abs.clone())));
+  env := clone_env(match(g_cached_prelude_env, .Some(pe) => pe, .None => Environment.new(abs.clone())));
   env.module_path = abs.clone();
   ctx := eval_context_new(std_path.clone(), abs.clone());
   ctx.is_executing = true;
@@ -572,7 +572,7 @@ _load_module_at_abs :: (fn(abs : String) -> Option(String))({
   match(
     out_vals.get(usize(0)),
     .Some(mv) => {
-      reg_ty := match(out_tys.get(usize(0)),.Some(t) => t,.None => TypeValue.Unit);
+      reg_ty := match(out_tys.get(usize(0)), .Some(t) => t, .None => TypeValue.Unit);
       register_module(abs.clone(), mv, reg_ty);
       Option(String).None
     },
@@ -714,11 +714,11 @@ collect_check_files :: (
   out := ArrayList(String).new();
   (ri : usize) = usize(0);
   while(ri < raw.len(), {
-    fp := match(raw.get(ri),.Some(p) => p,.None => String.from(""));
+    fp := match(raw.get(ri), .Some(p) => p, .None => String.from(""));
     (skip : bool) = false;
     (ei : usize) = usize(0);
     while((ei < excludes.len()) && !(skip), {
-      ex := match(excludes.get(ei),.Some(e) => e,.None => String.from(""));
+      ex := match(excludes.get(ei), .Some(e) => e, .None => String.from(""));
       if(!(ex.is_empty()) && fp.contains(ex), {
         skip = true;
       });
@@ -833,7 +833,7 @@ check_single_file :: (
     .NotFound(_) => input_path.clone(),
     .Ambiguous(_) => input_path.clone()
   );
-  env := clone_env(match(g_cached_prelude_env,.Some(pe) => pe,.None => Environment.new(entry_abs.clone())));
+  env := clone_env(match(g_cached_prelude_env, .Some(pe) => pe, .None => Environment.new(entry_abs.clone())));
   env.module_path = entry_abs.clone();
   ctx := eval_context_new(std_path.clone(), entry_abs.clone());
   ctx.is_executing = true;
@@ -911,7 +911,7 @@ run_check :: (
     _pre := check_single_file(prelude_path, std_path.clone(), io, exn);
     // Build the O(1) prelude variable cache (called here, not inside
     // check_single_file, to avoid interference with the compile path).
-    match(g_cached_prelude_env,.Some(pe) => build_prelude_var_cache(pe),.None => ());
+    match(g_cached_prelude_env, .Some(pe) => build_prelude_var_cache(pe), .None => ());
   });
   (failed : usize) = usize(0);
   (fi : usize) = usize(0);
@@ -1222,7 +1222,7 @@ run_compile :: (
   // Ensure the prelude env is cached (provides std types to the evaluator).
   if(g_cached_prelude_env.is_none(), {
     _pre := check_single_file(`${std_path}/prelude.yo`, std_path.clone(), io, exn);
-    match(g_cached_prelude_env,.Some(pe) => build_prelude_var_cache(pe),.None => ());
+    match(g_cached_prelude_env, .Some(pe) => build_prelude_var_cache(pe), .None => ());
   });
   // Read + parse the input module.
   src_bytes := io.await(read_file(Path.new(input_path.clone()), io), IoExn(io : io, exn : exn));
@@ -1238,7 +1238,7 @@ run_compile :: (
     .NotFound(_) => input_path.clone(),
     .Ambiguous(_) => input_path.clone()
   );
-  env := clone_env(match(g_cached_prelude_env,.Some(pe) => pe,.None => Environment.new(entry_abs.clone())));
+  env := clone_env(match(g_cached_prelude_env, .Some(pe) => pe, .None => Environment.new(entry_abs.clone())));
   env.module_path = entry_abs.clone();
   ctx := eval_context_new(std_path.clone(), entry_abs.clone());
   ctx.is_executing = true;
@@ -1362,17 +1362,17 @@ run_compile :: (
   // -I include paths, -D defines, -L library search paths.
   (ii : usize) = usize(0);
   while(ii < include_paths.len(), {
-    match(include_paths.get(ii),.Some(p) => cmd.arg(`-I${p}`),.None => ());
+    match(include_paths.get(ii), .Some(p) => cmd.arg(`-I${p}`), .None => ());
     ii = (ii + usize(1));
   });
   (di : usize) = usize(0);
   while(di < defines.len(), {
-    match(defines.get(di),.Some(d) => cmd.arg(`-D${d}`),.None => ());
+    match(defines.get(di), .Some(d) => cmd.arg(`-D${d}`), .None => ());
     di = (di + usize(1));
   });
   (li : usize) = usize(0);
   while(li < library_paths.len(), {
-    match(library_paths.get(li),.Some(p) => cmd.arg(`-L${p}`),.None => ());
+    match(library_paths.get(li), .Some(p) => cmd.arg(`-L${p}`), .None => ());
     li = (li + usize(1));
   });
   // Arbitrary custom flags (--cflags "a b c").
@@ -1380,7 +1380,7 @@ run_compile :: (
     parts := cflags.split(" ");
     (ci : usize) = usize(0);
     while(ci < parts.len(), {
-      match(parts.get(ci),.Some(f) => if(f.len() > usize(0), cmd.arg(f.clone())),.None => ());
+      match(parts.get(ci), .Some(f) => if(f.len() > usize(0), cmd.arg(f.clone())), .None => ());
       ci = (ci + usize(1));
     });
   });
@@ -1427,7 +1427,7 @@ run_compile :: (
   cmd.arg(c_path.clone());
   (ei : usize) = usize(0);
   while(ei < externs.len(), {
-    match(externs.get(ei),.Some(f) => cmd.arg(f.clone()),.None => ());
+    match(externs.get(ei), .Some(f) => cmd.arg(f.clone()), .None => ());
     ei = (ei + usize(1));
   });
   cmd.arg(String.from("-o"));
@@ -1439,13 +1439,13 @@ run_compile :: (
   if(is_target_linux(target), {
     ur := ArrayList(bool).new();
     _probe_liburing(io, ur);
-    if(match(ur.get(usize(0)),.Some(b) => b,.None => false), {
+    if(match(ur.get(usize(0)), .Some(b) => b, .None => false), {
       cmd.arg(String.from("-luring"));
     });
   });
   (xi : usize) = usize(0);
   while(xi < libraries.len(), {
-    match(libraries.get(xi),.Some(lib) => cmd.arg(`-l${lib}`),.None => ());
+    match(libraries.get(xi), .Some(lib) => cmd.arg(`-l${lib}`), .None => ());
     xi = (xi + usize(1));
   });
   if(is_target_windows(target), {
@@ -1560,7 +1560,7 @@ run_test :: (
   (bailed : bool) = false;
   (fi : usize) = usize(0);
   while((fi < files.len()) && !(bailed), {
-    file := match(files.get(fi),.Some(f) => f,.None => String.from(""));
+    file := match(files.get(fi), .Some(f) => f, .None => String.from(""));
     fi = (fi + usize(1));
     println(``);
     println(`${file}`);
@@ -1571,13 +1571,13 @@ run_test :: (
     non_test := ArrayList(String).new();
     (pi : usize) = usize(0);
     while(pi < prog.len(), {
-      e := match(prog.get(pi),.Some(x) => x,.None => make_err_expr());
+      e := match(prog.get(pi), .Some(x) => x, .None => make_err_expr());
       pi = (pi + usize(1));
-      if(ast_expr_is_fn_call_of(e, BK_TEST,.None), {
-        targs := match(e,.FnCall(_, _, a2, _, _) => a2, _ => ArrayList(AstExpr).new());
+      if(ast_expr_is_fn_call_of(e, BK_TEST, .None), {
+        targs := match(e, .FnCall(_, _, a2, _, _) => a2, _ => ArrayList(AstExpr).new());
         if(targs.len() >= usize(2), {
-          tname := match(targs.get(usize(0)),.Some(ne) => match(ne,.Atom(_, ntok) => ntok.value, _ => String.from("unnamed_test")),.None => String.from("unnamed_test"));
-          tbody := match(targs.get(usize(1)),.Some(b) => b,.None => make_err_expr());
+          tname := match(targs.get(usize(0)), .Some(ne) => match(ne, .Atom(_, ntok) => ntok.value, _ => String.from("unnamed_test")), .None => String.from("unnamed_test"));
+          tbody := match(targs.get(usize(1)), .Some(b) => b, .None => make_err_expr());
           keep := if(name_pattern.len() > usize(0), tname.contains(name_pattern.clone()), true);
           if(keep, {
             tests.push(TestDecl(name : tname, body_src : ast_expr_to_string(tbody)));
@@ -1630,7 +1630,7 @@ run_test :: (
         // is the within-batch index, not the file-wide one.
         (ti : usize) = batch_start;
         while(ti < batch_end, {
-          t := match(tests.get(ti),.Some(x) => x,.None => TestDecl(name : String.from(""), body_src : String.from("()")));
+          t := match(tests.get(ti), .Some(x) => x, .None => TestDecl(name : String.from(""), body_src : String.from("()")));
           prog_src.push_str("      (__yo_test_idx == `");
           prog_src.push_string((ti - batch_start).to_string());
           prog_src.push_str("`) => { ");
@@ -1696,7 +1696,7 @@ run_test :: (
         // passes environ through when envp is NULL).
         (ri : usize) = batch_start;
         while((ri < batch_end) && !(bailed), {
-          t := match(tests.get(ri),.Some(x) => x,.None => TestDecl(name : String.from(""), body_src : String.from("()")));
+          t := match(tests.get(ri), .Some(x) => x, .None => TestDecl(name : String.from(""), body_src : String.from("()")));
           idx_cstr := String.from("YO_TEST_INDEX").to_cstr().ptr().unwrap();
           val_cstr := (ri - batch_start).to_string().to_cstr().ptr().unwrap();
           _sv := unsafe(setenv(*(char)(idx_cstr), *(char)(val_cstr), int(1)));

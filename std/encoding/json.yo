@@ -100,7 +100,7 @@ impl(
         });
         .None
       },
-      _ =>.None
+      _ => .None
     )
   ),
   /// Get an element from an Array value by index.
@@ -108,39 +108,39 @@ impl(
     match(
       self,
       .Array(items) => items.get(index),
-      _ =>.None
+      _ => .None
     )
   ),
   /// Extract the boolean value, or `.None` if not a `Bool`.
   as_bool : (fn(self : Self) -> Option(bool))(
     match(
       self,
-      .Bool(b) =>.Some(b),
-      _ =>.None
+      .Bool(b) => .Some(b),
+      _ => .None
     )
   ),
   /// Extract the numeric value, or `.None` if not a `Number`.
   as_number : (fn(self : Self) -> Option(f64))(
     match(
       self,
-      .Number(n) =>.Some(n),
-      _ =>.None
+      .Number(n) => .Some(n),
+      _ => .None
     )
   ),
   /// Extract the string value, or `.None` if not a `Str`.
   as_string : (fn(self : Self) -> Option(String))(
     match(
       self,
-      .Str(s) =>.Some(s),
-      _ =>.None
+      .Str(s) => .Some(s),
+      _ => .None
     )
   ),
   /// Extract the array items, or `.None` if not an `Array`.
   as_array : (fn(self : Self) -> Option(ArrayList(JsonValue)))(
     match(
       self,
-      .Array(items) =>.Some(items),
-      _ =>.None
+      .Array(items) => .Some(items),
+      _ => .None
     )
   ),
   /// Extract object entries as `ArrayList(JsonKV)`, or `.None` if not an `Object`.
@@ -155,7 +155,7 @@ impl(
         });
         .Some(result)
       },
-      _ =>.None
+      _ => .None
     )
   )
 );
@@ -225,8 +225,8 @@ impl(
   ),
   peek : (fn(self : Self) -> Option(u8))(
     cond(
-      (self.pos < self.src.len()) =>.Some(self.src.bytes(self.pos)),
-      true =>.None
+      (self.pos < self.src.len()) => .Some(self.src.bytes(self.pos)),
+      true => .None
     )
   ),
   advance : (fn(self : Self) -> unit)({
@@ -252,14 +252,14 @@ impl(
     self.skip_ws();
     match(
       self.peek(),
-      .None =>.Err(.UnexpectedEnd),
+      .None => .Err(.UnexpectedEnd),
       .Some(c) =>
         cond(
           (c == ch) => {
             self.advance();
             .Ok(())
           },
-          true =>.Err(.UnexpectedChar(c, self.pos))
+          true => .Err(.UnexpectedChar(c, self.pos))
         )
     )
   }),
@@ -451,11 +451,11 @@ _parse_value :: (fn(p : _Parser) -> Result(JsonValue, JsonError))({
   p.skip_ws();
   match(
     p.peek(),
-    .None =>.Err(.UnexpectedEnd),
+    .None => .Err(.UnexpectedEnd),
     .Some(c) =>
       cond(
         (c == u8(34)) =>
-          match(p.parse_string(),.Err(e) =>.Err(e),.Ok(s) =>.Ok(.Str(s))),
+          match(p.parse_string(), .Err(e) => .Err(e), .Ok(s) => .Ok(.Str(s))),
         (c == u8(123)) => {
           // '{' — parse object
           p.advance();
@@ -598,7 +598,7 @@ _parse_value :: (fn(p : _Parser) -> Result(JsonValue, JsonError))({
         (c == u8(102)) => _parse_false_lit(p),
         (c == u8(110)) => _parse_null_lit(p),
         true =>
-          match(p.parse_number(),.Err(e) =>.Err(e),.Ok(n) =>.Ok(.Number(n)))
+          match(p.parse_number(), .Err(e) => .Err(e), .Ok(n) => .Ok(.Number(n)))
       )
   )
 });

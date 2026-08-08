@@ -52,28 +52,28 @@ impl(
   String,
   /// Create a new empty string (zero allocation).
   new : (fn() -> Self)(
-    Self(_ptr :.None, _len : usize(0), _capacity : usize(0))
+    Self(_ptr : .None, _len : usize(0), _capacity : usize(0))
   ),
   /// Create a string from a `str` slice (copies the bytes).
   from : (fn(s : str) -> Self)({
     slen := s.len();
     if(slen == usize(0), {
-      return(Self(_ptr :.None, _len : usize(0), _capacity : usize(0)));
+      return(Self(_ptr : .None, _len : usize(0), _capacity : usize(0)));
     });
     ptr := _alloc_bytes(slen);
     unsafe(memcpy(*(void)(ptr), *(void)(s.ptr()), slen));
-    return(Self(_ptr :.Some(ptr), _len : slen, _capacity : slen));
+    return(Self(_ptr : .Some(ptr), _len : slen, _capacity : slen));
   }),
   /// Create a string from a standard (mutable) String by copying its bytes.
   from_string : (fn(s : std_string.String) -> Self)({
     slen := s.bytes_len();
     if(slen == usize(0), {
-      return(Self(_ptr :.None, _len : usize(0), _capacity : usize(0)));
+      return(Self(_ptr : .None, _len : usize(0), _capacity : usize(0)));
     });
     ptr := _alloc_bytes(slen);
     rb := s.raw_bytes();
     unsafe(memcpy(*(void)(ptr), *(void)(rb.ptr), slen));
-    return(Self(_ptr :.Some(ptr), _len : slen, _capacity : slen));
+    return(Self(_ptr : .Some(ptr), _len : slen, _capacity : slen));
   }),
   /// Byte length of the string.
   bytes_len : (fn(self : Self) -> usize)(
@@ -115,11 +115,11 @@ impl(
   /// Get the byte at a given index, or `.None` if out of bounds.
   byte_at : (fn(self : Self, index : usize) -> Option(u8))(
     cond(
-      (index >= self._len) =>.None,
+      (index >= self._len) => .None,
       true => match(
         self._ptr,
-        .Some(p) =>.Some((p.add(index)).*),
-        .None =>.None
+        .Some(p) => .Some((p.add(index)).*),
+        .None => .None
       )
     )
   ),
@@ -171,7 +171,7 @@ impl(
         },
         .None => ()
       );
-      self._ptr =.Some(ptr);
+      self._ptr = .Some(ptr);
       self._len = new_len;
       self._capacity = new_cap;
       return(self);
@@ -192,7 +192,7 @@ impl(
       .None => ()
     );
     unsafe.drop(self);
-    return(Self(_ptr :.Some(ptr), _len : new_len, _capacity : new_len));
+    return(Self(_ptr : .Some(ptr), _len : new_len, _capacity : new_len));
   }),
   /// Extract a byte-range substring [start, end). Returns a new string.
   /// If indices are out of bounds, clamps to valid range.
@@ -211,7 +211,7 @@ impl(
       },
       .None => ()
     );
-    return(Self(_ptr :.Some(ptr), _len : new_len, _capacity : new_len));
+    return(Self(_ptr : .Some(ptr), _len : new_len, _capacity : new_len));
   }),
   /// Check if the string starts with a given prefix.
   starts_with : (fn(self : Self, prefix : Self) -> bool)({
@@ -424,7 +424,7 @@ impl(
         });
         saved_len := self._len;
         unsafe.drop(self);
-        return(Self(_ptr :.Some(ptr), _len : saved_len, _capacity : saved_len));
+        return(Self(_ptr : .Some(ptr), _len : saved_len, _capacity : saved_len));
       }
     )
   }),
@@ -461,7 +461,7 @@ impl(
         });
         saved_len := self._len;
         unsafe.drop(self);
-        return(Self(_ptr :.Some(ptr), _len : saved_len, _capacity : saved_len));
+        return(Self(_ptr : .Some(ptr), _len : saved_len, _capacity : saved_len));
       }
     )
   }),
@@ -525,7 +525,7 @@ impl(
       },
       .None => ()
     );
-    return(Self(_ptr :.Some(ptr), _len : new_len, _capacity : new_len));
+    return(Self(_ptr : .Some(ptr), _len : new_len, _capacity : new_len));
   }),
   /// Decode a single UTF-8 rune starting at byte index.
   _decode_rune_at : (fn(self : Self, byte_index : usize) -> Option(rune))({

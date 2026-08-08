@@ -379,7 +379,28 @@ export function formatYoSource(input: string, modulePath = "<input>"): string {
         break;
       }
       case TokenType.Dot: {
-        trimTrailingHorizontalWhitespace();
+        // Trim only for MEMBER ACCESS. A dot WITH a left operand binds tight to
+        // it (`str. len()` → `str.len()`), which is what the trim is for.
+        //
+        // A PREFIX dot (`.Some`, `.None`) has no left operand: it follows a
+        // comma or an operator whose handler just established a space via
+        // `ensureSpace()` (Comma :347, `=`/`=>` :423, struct-literal `:` :394).
+        // Trimming unconditionally ATE that space, emitting `,.Some`, `=.Some`,
+        // `=>.Err` and `:.Some`. That was an implementation accident, not a
+        // style choice — the identifier form keeps its space (`= Some(x)` vs
+        // `=.Some(x)`), and no other operator handler eats the space the
+        // previous one set. It is also the whole reason `yo fmt` disagreed with
+        // the self-hosted formatter, which never had the trim (measured: TS
+        // emitted `_ptr =.Some(x)`, yo-self `_ptr = .Some(x)`).
+        //
+        // `needsSpaceBeforeAtom` is exactly the "has a left operand" predicate:
+        // true for atom-like tokens and `)`/`]`/`}`, false after a comma, an
+        // operator, or `(` — so `(.Some` stays tight (nothing writes a space
+        // after an open paren) while `, .Some` keeps its comma space.
+        // See plans/PREFIX_OPERATOR_OPERAND_RULE.md.
+        if (needsSpaceBeforeAtom(previous)) {
+          trimTrailingHorizontalWhitespace();
+        }
         write(".");
         break;
       }

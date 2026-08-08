@@ -73,14 +73,14 @@ test("TypeInfo for str and comptime_str", {
   comptime_assert(k_str.is_str(), "str should be Str");
   comptime_assert(!(k_str.is_comptime()), "str is not comptime-only");
   comptime_assert(
-    match(k_str,.Str => true, _ => false),
+    match(k_str, .Str => true, _ => false),
     "str tag should match .Str"
   );
   k_cstr :: Type.get_info(comptime_str);
   comptime_assert(!(k_cstr.is_str()), "comptime_str is not Str");
   comptime_assert(k_cstr.is_comptime(), "comptime_str is comptime-only");
   comptime_assert(
-    match(k_cstr,.ComptimeStr => true, _ => false),
+    match(k_cstr, .ComptimeStr => true, _ => false),
     "comptime_str tag should match .ComptimeStr"
   );
 });
@@ -160,30 +160,30 @@ test("TypeInfo compound: Array element and length", {
   ArrT :: [i32 ; 3];
   arr_info :: Type.get_info(ArrT);
   comptime_assert(arr_info.is_array(), "should be array");
-  elem_is_i32 :: match(arr_info,.Array(elem, len) => __yo_are_types_compatible(elem, i32), _ => false);
+  elem_is_i32 :: match(arr_info, .Array(elem, len) => __yo_are_types_compatible(elem, i32), _ => false);
   comptime_assert(elem_is_i32, "array element should be i32");
-  len_is_3 :: match(arr_info,.Array(elem, len) => (len == 3), _ => false);
+  len_is_3 :: match(arr_info, .Array(elem, len) => (len == 3), _ => false);
   comptime_assert(len_is_3, "array length should be 3");
 });
 test("TypeInfo compound : Type.Struct fields and kind", {
   info :: Type.get_info(TIPoint);
   comptime_assert(info.is_struct(), "should be struct");
-  field_count :: match(info,.Struct(f, _) => f.len(), _ => usize(0));
+  field_count :: match(info, .Struct(f, _) => f.len(), _ => usize(0));
   comptime_assert(field_count == usize(2), "Point should have 2 fields");
-  is_struct_kind :: match(info,.Struct(_, k) => match(k,.Struct => true, _ => false), _ => false);
+  is_struct_kind :: match(info, .Struct(_, k) => match(k, .Struct => true, _ => false), _ => false);
   comptime_assert(is_struct_kind, "should be Struct kind");
 });
 test("TypeInfo compound: Enum variants", {
   info :: Type.get_info(TIColor);
   comptime_assert(info.is_enum(), "should be enum");
-  variant_count :: match(info,.Enum(v) => v.len(), _ => usize(0));
+  variant_count :: match(info, .Enum(v) => v.len(), _ => usize(0));
   comptime_assert(variant_count == usize(3), "Color should have 3 variants");
 });
 test("TypeInfo compound: Pointer pointee", {
   PtrT :: *(i32);
   ptr_info :: Type.get_info(PtrT);
   comptime_assert(ptr_info.is_pointer(), "should be pointer");
-  pointee_is_i32 :: match(ptr_info,.Ptr(p) => __yo_are_types_compatible(p, i32), _ => false);
+  pointee_is_i32 :: match(ptr_info, .Ptr(p) => __yo_are_types_compatible(p, i32), _ => false);
   comptime_assert(pointee_is_i32, "pointer pointee should be i32");
 });
 test("TypeInfo compound: Arc is AtomicObject struct", {
@@ -191,7 +191,7 @@ test("TypeInfo compound: Arc is AtomicObject struct", {
   is_atomic_kind :: match(
     arc_info,
     .Struct(fields, kind) => (
-      match(kind,.AtomicObject => true, _ => false) &&
+      match(kind, .AtomicObject => true, _ => false) &&
         (fields.len() == usize(1)) &&
           __yo_are_types_compatible(fields.get(usize(0)).field_type, i32)
     ),
@@ -203,54 +203,54 @@ test("TypeInfo compound: Function info", {
   FnType :: (fn(x : i32, y : i32) -> bool);
   fn_info :: Type.get_info(FnType);
   comptime_assert(fn_info.is_function(), "should be function");
-  param_count :: match(fn_info,.Function(fi) => fi.params.len(), _ => usize(0));
+  param_count :: match(fn_info, .Function(fi) => fi.params.len(), _ => usize(0));
   comptime_assert(param_count == usize(2), "function should have 2 params");
-  ret_is_bool :: match(fn_info,.Function(fi) => __yo_are_types_compatible(fi.return_type, bool), _ => false);
+  ret_is_bool :: match(fn_info, .Function(fi) => __yo_are_types_compatible(fi.return_type, bool), _ => false);
   comptime_assert(ret_is_bool, "return type should be bool");
 });
 test("TypeInfo compound: Function info includes variadic params", {
   VariadicFn :: (fn(comptime(x) : i32, ...(comptime(rest) : ComptimeList(Type))) -> comptime(usize));
   fn_info :: Type.get_info(VariadicFn);
   comptime_assert(fn_info.is_function(), "should be function");
-  param_count :: match(fn_info,.Function(fi) => fi.params.len(), _ => usize(0));
+  param_count :: match(fn_info, .Function(fi) => fi.params.len(), _ => usize(0));
   comptime_assert(param_count == usize(2), "function should include the variadic param");
-  variadic_name :: match(fn_info,.Function(fi) => fi.params.get(usize(1)).name, _ => "");
+  variadic_name :: match(fn_info, .Function(fi) => fi.params.get(usize(1)).name, _ => "");
   comptime_assert(variadic_name == "rest", "variadic param name should be rest");
-  is_variadic :: match(fn_info,.Function(fi) => fi.params.get(usize(1)).is_variadic, _ => false);
+  is_variadic :: match(fn_info, .Function(fi) => fi.params.get(usize(1)).is_variadic, _ => false);
   comptime_assert(is_variadic, "variadic flag should be true");
-  is_comptime :: match(fn_info,.Function(fi) => fi.params.get(usize(1)).is_comptime, _ => false);
+  is_comptime :: match(fn_info, .Function(fi) => fi.params.get(usize(1)).is_comptime, _ => false);
   comptime_assert(is_comptime, "variadic comptime flag should be true");
-  type_is_list :: match(fn_info,.Function(fi) => Type.eq(fi.params.get(usize(1)).param_type, ComptimeList(Type)), _ => false);
+  type_is_list :: match(fn_info, .Function(fi) => Type.eq(fi.params.get(usize(1)).param_type, ComptimeList(Type)), _ => false);
   comptime_assert(type_is_list, "variadic param type should be ComptimeList(Type)");
 });
 test("TypeInfo compound : Type.Struct kind - NewType", {
   MyNewType :: newtype(value : i32);
   info :: Type.get_info(MyNewType);
   comptime_assert(info.is_struct(), "newtype should be struct");
-  is_newtype_kind :: match(info,.Struct(_, k) => match(k,.NewType => true, _ => false), _ => false);
+  is_newtype_kind :: match(info, .Struct(_, k) => match(k, .NewType => true, _ => false), _ => false);
   comptime_assert(is_newtype_kind, "should be NewType kind");
-  field_count :: match(info,.Struct(f, _) => f.len(), _ => usize(0));
+  field_count :: match(info, .Struct(f, _) => f.len(), _ => usize(0));
   comptime_assert(field_count == usize(1), "newtype should have 1 field");
 });
 test("TypeInfo compound : Type.Struct kind - Object", {
   MyObj :: ref(struct(x : i32, y : i32));
   info :: Type.get_info(MyObj);
   comptime_assert(info.is_struct(), "object should be struct");
-  is_object_kind :: match(info,.Struct(_, k) => match(k,.Object => true, _ => false), _ => false);
+  is_object_kind :: match(info, .Struct(_, k) => match(k, .Object => true, _ => false), _ => false);
   comptime_assert(is_object_kind, "should be Object kind");
 });
 test("TypeInfo compound : Type.Struct kind - AtomicObject", {
   MyAtomicObj :: atomic(ref(struct(x : i32, y : i32)));
   info :: Type.get_info(MyAtomicObj);
   comptime_assert(info.is_struct(), "atomic object should be struct");
-  is_atomic_kind :: match(info,.Struct(_, k) => match(k,.AtomicObject => true, _ => false), _ => false);
+  is_atomic_kind :: match(info, .Struct(_, k) => match(k, .AtomicObject => true, _ => false), _ => false);
   comptime_assert(is_atomic_kind, "should be AtomicObject kind");
 });
 test("TypeInfo compound: ComptimeList element type", {
   CLType :: ComptimeList(i32);
   info :: Type.get_info(CLType);
   comptime_assert(info.is_comptime(), "ComptimeList should be comptime");
-  elem_is_i32 :: match(info,.ComptimeList(e) => __yo_are_types_compatible(e, i32), _ => false);
+  elem_is_i32 :: match(info, .ComptimeList(e) => __yo_are_types_compatible(e, i32), _ => false);
   comptime_assert(elem_is_i32, "ComptimeList element should be i32");
 });
 // ============================================================

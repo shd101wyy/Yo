@@ -48,13 +48,13 @@ _all_digits :: (fn(s : String) -> bool)({
 _last_is_compile_time_only :: (fn(env : Environment, name : String) -> bool)({
   vars := get_variables_from_env(env, name);
   m := vars.len();
-  if(m == usize(0), false, match(vars.get(m - usize(1)),.Some(v) => v.is_compile_time_only,.None => false))
+  if(m == usize(0), false, match(vars.get(m - usize(1)), .Some(v) => v.is_compile_time_only, .None => false))
 });
 /// The last binding for `name` is a module-level global.
 _last_is_module_level :: (fn(env : Environment, name : String) -> bool)({
   vars := get_variables_from_env(env, name);
   m := vars.len();
-  if(m == usize(0), false, match(vars.get(m - usize(1)),.Some(v) => v.is_module_level,.None => false))
+  if(m == usize(0), false, match(vars.get(m - usize(1)), .Some(v) => v.is_module_level, .None => false))
 });
 /// Tuple positional index for a label, or -1-sentinel (== len) if not found.
 _tuple_index_of :: (fn(rhs_type : TypeValue, label : String) -> Option(usize))(
@@ -80,7 +80,7 @@ _tuple_index_of :: (fn(rhs_type : TypeValue, label : String) -> Option(usize))(
 );
 /// Newtype single-field label, if `rhs_type` is a 1-field newtype.
 _newtype_single_label :: (fn(rhs_type : TypeValue) -> Option(String))(
-  if(is_newtype_type(rhs_type), match(rhs_type,.Struct({ field_labels : fls }) => if(fls.len() == usize(1), fls.get(usize(0)), Option(String).None), _ => Option(String).None), Option(String).None)
+  if(is_newtype_type(rhs_type), match(rhs_type, .Struct({ field_labels : fls }) => if(fls.len() == usize(1), fls.get(usize(0)), Option(String).None), _ => Option(String).None), Option(String).None)
 );
 /// Emit destructuring binds for `{x, y} := rhs`. Mirrors the runtimeDestructurings branch.
 _emit_destructurings :: (fn(destructurings : ArrayList(RuntimeDestructuring), rhs : AstExpr, rhs_type : TypeValue, indent : String, context : FunctionGenerationContext) -> unit)({
@@ -149,10 +149,10 @@ _emit_destructurings :: (fn(destructurings : ArrayList(RuntimeDestructuring), rh
 });
 /// Initialization assignment. Mirrors `generateInitializationAssignment`.
 generate_initialization_assignment :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> Option(String))({
-  ei := match(context.base.get_expr_info(expr),.Some(e) => e,.None => return(Option(String).None));
-  args := match(expr,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new());
-  lhs := match(args.get(usize(0)),.Some(x) => x,.None => return(Option(String).None));
-  rhs := match(args.get(usize(1)),.Some(x) => x,.None => return(Option(String).None));
+  ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(Option(String).None));
+  args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  lhs := match(args.get(usize(0)), .Some(x) => x, .None => return(Option(String).None));
+  rhs := match(args.get(usize(1)), .Some(x) => x, .None => return(Option(String).None));
   // Compile-time variable → no runtime code.
   if(ast_expr_is_fn_call_of(lhs, BK_COMPTIME, Option(usize).Some(usize(1))), {
     return(Option(String).Some(String.from("")));
@@ -161,7 +161,7 @@ generate_initialization_assignment :: (fn(expr : AstExpr, indent : String, conte
   match(
     expr_info_runtime_destructurings(ei),
     .Some(destructurings) => {
-      rhs_type := match(context.base.get_expr_info(rhs),.Some(rei) => rei.ty,.None => TypeValue.Unit);
+      rhs_type := match(context.base.get_expr_info(rhs), .Some(rei) => rei.ty, .None => TypeValue.Unit);
       _emit_destructurings(destructurings, rhs, rhs_type, indent.clone(), context);
       return(Option(String).Some(String.from("")));
     },
@@ -180,7 +180,7 @@ generate_initialization_assignment :: (fn(expr : AstExpr, indent : String, conte
         })
       )
     );
-    var_name := match(lhs_ei.variable_name,.Some(vn) => vn,.None => ast_expr_token(lhs).value);
+    var_name := match(lhs_ei.variable_name, .Some(vn) => vn, .None => ast_expr_token(lhs).value);
     // Resolve a SomeT binding type through its concrete resolution BEFORE the
     // unit guards below — a binding typed as an unresolved SomeT that resolves
     // to unit rendered `void x = <rhs>;` (invalid C: the worker batch's
@@ -300,7 +300,7 @@ generate_initialization_assignment :: (fn(expr : AstExpr, indent : String, conte
             if((temp_var_name == sanitized_var_name) || rhs_is_same_atom, emit_deferred_dup_or_code(rhs, _call_generate_expr(rhs, indent.clone(), context), indent.clone(), context), {
               rhs_expr_code := _call_generate_expr(rhs, indent.clone(), context);
               if(!(rhs_expr_code == temp_var_name), {
-                effective_type := match(expr_info_converted_runtime_type(rei),.Some(crt) => crt,.None => rei.ty);
+                effective_type := match(expr_info_converted_runtime_type(rei), .Some(crt) => crt, .None => rei.ty);
                 tv := get_variable_type_string(effective_type, temp_var_name.clone(), context.base);
                 line := indent.clone();
                 line.push_string(tv);
@@ -325,8 +325,8 @@ generate_initialization_assignment :: (fn(expr : AstExpr, indent : String, conte
       // fresh copy after the declaration below (HashMap._find_bucket stole
       // the map's own key+value on every probe hit — the round-6
       // `s2 compile main.yo` UAF; see issues/fixed/yo-self-dyn-throw-double-drop.md).
-      rhs_is_deref := (ast_expr_is_fn_call_of(rhs, BF_DOT, Option(usize).Some(usize(2))) && match(rhs,.FnCall(_, _, dargs, _, _) => match(dargs.get(usize(1)),.Some(pe) => ast_expr_is_atom_of(pe, "*"),.None => false),.Atom(_, _) => false));
-      rhs_has_dup := match(context.base.get_expr_info(rhs),.Some(r2) => match(r2.deferred_dup_expressions,.Some(d2) => (d2.len() > usize(0)),.None => false),.None => false);
+      rhs_is_deref := (ast_expr_is_fn_call_of(rhs, BF_DOT, Option(usize).Some(usize(2))) && match(rhs, .FnCall(_, _, dargs, _, _) => match(dargs.get(usize(1)), .Some(pe) => ast_expr_is_atom_of(pe, "*"), .None => false), .Atom(_, _) => false));
+      rhs_has_dup := match(context.base.get_expr_info(rhs), .Some(r2) => match(r2.deferred_dup_expressions, .Some(d2) => (d2.len() > usize(0)), .None => false), .None => false);
       if(!(is_unit_type(lhs_type)), {
         // get_variable_type_string (not get_type_string + manual name append)
         // so the scalar binding's C name is REGISTERED in declared_c_var_names

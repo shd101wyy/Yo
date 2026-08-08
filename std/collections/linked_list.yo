@@ -36,8 +36,8 @@ impl(
   */
   new : (fn() -> Self)(
     Self(
-      head :.None,
-      tail :.None,
+      head : .None,
+      tail : .None,
       length : usize(0)
     )
   ),
@@ -61,18 +61,18 @@ impl(
     new_node := Node(T)(
       value : value,
       next : self.head,
-      prev :.None
+      prev : .None
     );
     match(
       self.head,
       .None => {
-        self.tail =.Some(new_node);
+        self.tail = .Some(new_node);
       },
       .Some(old_head) => {
-        old_head.prev =.Some(new_node);
+        old_head.prev = .Some(new_node);
       }
     );
-    self.head =.Some(new_node);
+    self.head = .Some(new_node);
     self.length = (self.length + usize(1));
   }),
   /**
@@ -82,19 +82,19 @@ impl(
   push_back : (fn(self : Self, value : T) -> unit)({
     new_node := Node(T)(
       value : value,
-      next :.None,
+      next : .None,
       prev : self.tail
     );
     match(
       self.tail,
       .None => {
-        self.head =.Some(new_node);
+        self.head = .Some(new_node);
       },
       .Some(old_tail) => {
-        old_tail.next =.Some(new_node);
+        old_tail.next = .Some(new_node);
       }
     );
-    self.tail =.Some(new_node);
+    self.tail = .Some(new_node);
     self.length = (self.length + usize(1));
   }),
   /**
@@ -104,19 +104,19 @@ impl(
   pop_front : (fn(self : Self) -> Option(T))(
     match(
       self.head,
-      .None =>.None,
+      .None => .None,
       .Some(old_head) => {
         value := old_head.value;
         new_head_opt := old_head.next;
         match(
           new_head_opt,
           .None => {
-            self.head =.None;
-            self.tail =.None;
+            self.head = .None;
+            self.tail = .None;
           },
           .Some(new_head) => {
-            new_head.prev =.None;
-            self.head =.Some(new_head);
+            new_head.prev = .None;
+            self.head = .Some(new_head);
           }
         );
         self.length = (self.length - usize(1));
@@ -131,19 +131,19 @@ impl(
   pop_back : (fn(self : Self) -> Option(T))(
     match(
       self.tail,
-      .None =>.None,
+      .None => .None,
       .Some(old_tail) => {
         value := old_tail.value;
         new_tail_opt := old_tail.prev;
         match(
           new_tail_opt,
           .None => {
-            self.head =.None;
-            self.tail =.None;
+            self.head = .None;
+            self.tail = .None;
           },
           .Some(new_tail) => {
-            new_tail.next =.None;
-            self.tail =.Some(new_tail);
+            new_tail.next = .None;
+            self.tail = .Some(new_tail);
           }
         );
         self.length = (self.length - usize(1));
@@ -157,8 +157,8 @@ impl(
   front : (fn(self : Self) -> Option(T))(
     match(
       self.head,
-      .None =>.None,
-      .Some(head_node) =>.Some(head_node.value)
+      .None => .None,
+      .Some(head_node) => .Some(head_node.value)
     )
   ),
   /**
@@ -167,8 +167,8 @@ impl(
   back : (fn(self : Self) -> Option(T))(
     match(
       self.tail,
-      .None =>.None,
-      .Some(tail_node) =>.Some(tail_node.value)
+      .None => .None,
+      .Some(tail_node) => .Some(tail_node.value)
     )
   ),
   /**
@@ -177,7 +177,7 @@ impl(
   */
   get : (fn(self : Self, index : usize) -> Option(T))(
     cond(
-      (index >= self.length) =>.None,
+      (index >= self.length) => .None,
       true => {
         current_opt := self.head;
         i := usize(0);
@@ -195,8 +195,8 @@ impl(
         });
         match(
           current_opt,
-          .None =>.None,
-          .Some(node) =>.Some(node.value)
+          .None => .None,
+          .Some(node) => .Some(node.value)
         )
       }
     )
@@ -207,7 +207,7 @@ impl(
   */
   insert : (fn(self : Self, index : usize, value : T) -> Result(unit, LinkedListError))(
     cond(
-      (index > self.length) =>.Err(.IndexOutOfBounds(index : index, length : self.length)),
+      (index > self.length) => .Err(.IndexOutOfBounds(index : index, length : self.length)),
       (index == usize(0)) => {
         self.push_front(value);
         .Ok(())
@@ -232,22 +232,22 @@ impl(
         });
         match(
           current_opt,
-          .None =>.Err(.IndexOutOfBounds(index : index, length : self.length)),
+          .None => .Err(.IndexOutOfBounds(index : index, length : self.length)),
           .Some(current) => {
             prev_opt := current.prev;
             new_node := Node(T)(
               value : value,
-              next :.Some(current),
+              next : .Some(current),
               prev : prev_opt
             );
-            current.prev =.Some(new_node);
+            current.prev = .Some(new_node);
             match(
               prev_opt,
               .None => {
-                self.head =.Some(new_node);
+                self.head = .Some(new_node);
               },
               .Some(prev_node) => {
-                prev_node.next =.Some(new_node);
+                prev_node.next = .Some(new_node);
               }
             );
             self.length = (self.length + usize(1));
@@ -263,18 +263,18 @@ impl(
   */
   remove : (fn(self : Self, index : usize) -> Result(T, LinkedListError))(
     cond(
-      (index >= self.length) =>.Err(.IndexOutOfBounds(index : index, length : self.length)),
+      (index >= self.length) => .Err(.IndexOutOfBounds(index : index, length : self.length)),
       (index == usize(0)) =>
         match(
           self.pop_front(),
-          .Some(value) =>.Ok(value),
-          .None =>.Err(.EmptyList)
+          .Some(value) => .Ok(value),
+          .None => .Err(.EmptyList)
         ),
       (index == (self.length - usize(1))) =>
         match(
           self.pop_back(),
-          .Some(value) =>.Ok(value),
-          .None =>.Err(.EmptyList)
+          .Some(value) => .Ok(value),
+          .None => .Err(.EmptyList)
         ),
       true => {
         current_opt := self.head;
@@ -292,7 +292,7 @@ impl(
         });
         match(
           current_opt,
-          .None =>.Err(.IndexOutOfBounds(index : index, length : self.length)),
+          .None => .Err(.IndexOutOfBounds(index : index, length : self.length)),
           .Some(node_to_remove) => {
             value := node_to_remove.value;
             prev_opt := node_to_remove.prev;
@@ -418,7 +418,7 @@ impl(
     next : (fn(inout(self) : Self) -> Option(T))(
       match(
         self._current,
-        .None =>.None,
+        .None => .None,
         .Some(node) => {
           self._current = node.next;
           .Some(node.value)
@@ -452,7 +452,7 @@ impl(
     next : (fn(inout(self) : Self) -> Option(*(T)))(
       match(
         self._current,
-        .None =>.None,
+        .None => .None,
         .Some(node) => {
           self._current = node.next;
           .Some(&(node.value))

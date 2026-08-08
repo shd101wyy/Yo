@@ -90,8 +90,8 @@ evaluate_yo_comptime_boolean_functions :: (
   ) -> AstExpr
 )({
   is_unary := (
-    ast_expr_is_fn_call_of(expr, BF_COMPTIME_BOOL_NOT,.Some(usize(1))) ||
-      ast_expr_is_fn_call_of(expr, BF_COMPTIME_BOOL_TO_COMPTIME_STRING,.Some(usize(1)))
+    ast_expr_is_fn_call_of(expr, BF_COMPTIME_BOOL_NOT, .Some(usize(1))) ||
+      ast_expr_is_fn_call_of(expr, BF_COMPTIME_BOOL_TO_COMPTIME_STRING, .Some(usize(1)))
   );
   args := match(
     expr,
@@ -112,13 +112,13 @@ evaluate_yo_comptime_boolean_functions :: (
     (cur_env : Environment) = ai.env;
     arg_val := ai.value;
     (result_val : EvalValue) = cond(
-      ast_expr_is_fn_call_of(expr, BF_COMPTIME_BOOL_NOT,.Some(usize(1))) =>
+      ast_expr_is_fn_call_of(expr, BF_COMPTIME_BOOL_NOT, .Some(usize(1))) =>
         match(
           arg_val,
-          .Some(av) => match(av,.BoolVal(b) => EvalValue.BoolVal(!(b)), _ => create_unknown_val(t_bool())),
+          .Some(av) => match(av, .BoolVal(b) => EvalValue.BoolVal(!(b)), _ => create_unknown_val(t_bool())),
           .None => create_unknown_val(t_bool())
         ),
-      ast_expr_is_fn_call_of(expr, BF_COMPTIME_BOOL_TO_COMPTIME_STRING,.Some(usize(1))) =>
+      ast_expr_is_fn_call_of(expr, BF_COMPTIME_BOOL_TO_COMPTIME_STRING, .Some(usize(1))) =>
         match(
           arg_val,
           .Some(av) => match(
@@ -148,7 +148,7 @@ evaluate_yo_comptime_boolean_functions :: (
     // (UnknownVal ≠ StrLit) wrongly typed `bool`.
     result_ty := type_of_eval_value(result_val);
     out_info := new_expr_info(cur_env, result_ty);
-    out_info.value =.Some(result_val);
+    out_info.value = .Some(result_val);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   }, {
     // Binary operations: lhs and rhs.
@@ -172,7 +172,7 @@ evaluate_yo_comptime_boolean_functions :: (
     lhs_val := lhs_info.value;
     rhs_val := rhs_info.value;
     (result_val : EvalValue) = cond(
-      ast_expr_is_fn_call_of(expr, BF_COMPTIME_BOOL_AND,.Some(usize(2))) =>
+      ast_expr_is_fn_call_of(expr, BF_COMPTIME_BOOL_AND, .Some(usize(2))) =>
         match(
           lhs_val,
           .Some(lv) => match(
@@ -190,7 +190,7 @@ evaluate_yo_comptime_boolean_functions :: (
           ),
           .None => create_unknown_val(t_bool())
         ),
-      ast_expr_is_fn_call_of(expr, BF_COMPTIME_BOOL_OR,.Some(usize(2))) =>
+      ast_expr_is_fn_call_of(expr, BF_COMPTIME_BOOL_OR, .Some(usize(2))) =>
         match(
           lhs_val,
           .Some(lv) => match(
@@ -208,7 +208,7 @@ evaluate_yo_comptime_boolean_functions :: (
           ),
           .None => create_unknown_val(t_bool())
         ),
-      ast_expr_is_fn_call_of(expr, BF_COMPTIME_BOOL_EQ,.Some(usize(2))) =>
+      ast_expr_is_fn_call_of(expr, BF_COMPTIME_BOOL_EQ, .Some(usize(2))) =>
         match(
           lhs_val,
           .Some(lv) => match(
@@ -226,7 +226,7 @@ evaluate_yo_comptime_boolean_functions :: (
           ),
           .None => create_unknown_val(t_bool())
         ),
-      ast_expr_is_fn_call_of(expr, BF_COMPTIME_BOOL_NEQ,.Some(usize(2))) =>
+      ast_expr_is_fn_call_of(expr, BF_COMPTIME_BOOL_NEQ, .Some(usize(2))) =>
         match(
           lhs_val,
           .Some(lv) => match(
@@ -259,7 +259,7 @@ evaluate_yo_comptime_boolean_functions :: (
       }
     );
     out_info := new_expr_info(cur_env, t_bool());
-    out_info.value =.Some(result_val);
+    out_info.value = .Some(result_val);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   });
   expr

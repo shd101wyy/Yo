@@ -58,11 +58,11 @@ _stars :: (fn(n : usize) -> String)({
 });
 /// The C function name for a func id (registered cName, else the id itself).
 _c_function_name :: (fn(context : FunctionGenerationContext, func_id : String) -> String)(
-  match(context.base.get_function_entry(func_id.clone()),.Some(e) => e.c_name,.None => func_id)
+  match(context.base.get_function_entry(func_id.clone()), .Some(e) => e.c_name, .None => func_id)
 );
 /// Whether `object_value` is a TypeValue wrapping an enum type.
 _is_typevalue_enum :: (fn(object_value : Option(EvalValue)) -> bool)(
-  match(object_value,.Some(v) => match(v,.TypeVal(t) => is_enum_type(t), _ => false),.None => false)
+  match(object_value, .Some(v) => match(v, .TypeVal(t) => is_enum_type(t), _ => false), .None => false)
 );
 /// Enum field access: nullable-pointer optimization returns the pointer; else
 /// resolve `object.data.<Variant>.<field>` by locating the variant declaring it.
@@ -85,7 +85,7 @@ _enum_field_access :: (fn(object_type : TypeValue, object_code : String, field_n
                 match(
                   lbls.get(li),
                   .Some(lbl) => if(lbl == field_name, {
-                    vname := match(vnames.get(vi),.Some(v) => v,.None => String.from(""));
+                    vname := match(vnames.get(vi), .Some(v) => v, .None => String.from(""));
                     out := object_code.clone();
                     // A reference-semantics enum (`ref(enum(…))`) value is a pointer,
                     // so its variant data is reached with `->`, not `.` (mirrors match).
@@ -136,7 +136,7 @@ _typevalue_enum_access :: (fn(object_value : Option(EvalValue), field_name : Str
               match(
                 vnames.get(vi),
                 .Some(vn) => if(vn == field_name, {
-                  fields_empty := match(vfields.get(vi),.Some(fs) => (fs.len() == usize(0)),.None => true);
+                  fields_empty := match(vfields.get(vi), .Some(fs) => (fs.len() == usize(0)), .None => true);
                   if(
                     fields_empty,
                     match(
@@ -181,16 +181,16 @@ _ptr_field_access :: (fn(object_type : TypeValue, object_code : String, field_na
     (deref_level : usize) = usize(0);
     (current_type : TypeValue) = object_type;
     while(is_pointer_type(current_type), {
-      current_type = match(current_type,.Pointer(p) => p, _ => current_type);
+      current_type = match(current_type, .Pointer(p) => p, _ => current_type);
       deref_level = (deref_level + usize(1));
     });
     // Reference-semantics structs are already pointers in C — one more deref.
-    ref_sem := match(current_type,.Struct({ is_reference_semantics : rs }) => rs, _ => false);
+    ref_sem := match(current_type, .Struct({ is_reference_semantics : rs }) => rs, _ => false);
     if((deref_level > usize(0)) && ref_sem, {
       deref_level = (deref_level + usize(1));
     });
     // Newtype field through a pointer is just the dereference.
-    nt_match := if(is_newtype_type(current_type), match(current_type,.Struct({ field_labels : fls }) => if(fls.len() == usize(1), match(fls.get(usize(0)),.Some(lbl) => (lbl == field_name),.None => false), false), _ => false), false);
+    nt_match := if(is_newtype_type(current_type), match(current_type, .Struct({ field_labels : fls }) => if(fls.len() == usize(1), match(fls.get(usize(0)), .Some(lbl) => (lbl == field_name), .None => false), false), _ => false), false);
     if(nt_match, {
       res := if(deref_level == usize(1), {
         out := String.from("(*");
@@ -267,21 +267,21 @@ _tuple_field_access :: (fn(object_type : TypeValue, object_code : String, field_
 /// Generate field access for structs, objects, enums, pointers, tuples, dyn,
 /// newtypes, and module namespaces. Mirrors `generateFieldAccess`.
 generate_field_access :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
-  ei := match(context.base.get_expr_info(expr),.Some(e) => e,.None => return(String.from("/* ERROR: field access not evaluated */")));
-  args := match(expr,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new());
+  ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("/* ERROR: field access not evaluated */")));
+  args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   if(args.len() != usize(2), {
     return(String.from("/* ERROR: field access requires exactly 2 arguments */"));
   });
-  object_expr := match(args.get(usize(0)),.Some(x) => x,.None => return(String.from("/* ERROR: invalid field access arguments */")));
-  field_expr := match(args.get(usize(1)),.Some(x) => x,.None => return(String.from("/* ERROR: invalid field access arguments */")));
+  object_expr := match(args.get(usize(0)), .Some(x) => x, .None => return(String.from("/* ERROR: invalid field access arguments */")));
+  field_expr := match(args.get(usize(1)), .Some(x) => x, .None => return(String.from("/* ERROR: invalid field access arguments */")));
   if(!(ast_expr_is_atom(field_expr)), {
     return(String.from("/* ERROR: field name must be an identifier */"));
   });
   field_name := ast_expr_token(field_expr).value;
   object_code := _call_generate_expr(object_expr, indent.clone(), context);
   obj_ei_opt := context.base.get_expr_info(object_expr);
-  object_type := match(obj_ei_opt,.Some(oei) => oei.ty,.None => TypeValue.Unit);
-  object_value := match(obj_ei_opt,.Some(oei) => oei.value,.None => Option(EvalValue).None);
+  object_type := match(obj_ei_opt, .Some(oei) => oei.ty, .None => TypeValue.Unit);
+  object_value := match(obj_ei_opt, .Some(oei) => oei.value, .None => Option(EvalValue).None);
   // Dyn method access takes PRIORITY over static method resolution: even when
   // the evaluator resolved `obj.method` to a concrete impl FuncVal, a dyn
   // receiver must dispatch through the vtable (`obj.vtable->method`), not call
@@ -298,13 +298,13 @@ generate_field_access :: (fn(expr : AstExpr, indent : String, context : Function
   match(
     ei.value,
     .Some(v) => if(is_func_val(v), {
-      fid := match(v,.FuncVal(__fvd1, _) => __fvd1.*.func_id, _ => String.from(""));
+      fid := match(v, .FuncVal(__fvd1, _) => __fvd1.*.func_id, _ => String.from(""));
       return(_c_function_name(context, fid));
     }),
     .None => ()
   );
   // Module namespace / struct-value field access (compile-time field value).
-  if(is_module_type(object_type) || match(object_value,.Some(v) => is_struct_val(v),.None => false), {
+  if(is_module_type(object_type) || match(object_value, .Some(v) => is_struct_val(v), .None => false), {
     match(
       ei.value,
       .Some(fv) => if(

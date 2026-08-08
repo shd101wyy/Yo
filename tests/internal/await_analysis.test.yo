@@ -141,30 +141,30 @@ test("extract_future_trait_from_type: FutureTraitT returns Some itself", {
 });
 test("extract_future_trait_from_type: unit type returns None", {
   result := extract_future_trait_from_type(t_unit());
-  is_none := match(result,.None => true,.Some(_) => false);
+  is_none := match(result, .None => true, .Some(_) => false);
   assert(is_none, "unit type should return(None)");
 });
 test("extract_future_trait_from_type: bool returns None", {
   result := extract_future_trait_from_type(t_bool());
-  is_none := match(result,.None => true,.Some(_) => false);
+  is_none := match(result, .None => true, .Some(_) => false);
   assert(is_none, "bool type should return(None)");
 });
 test("extract_future_trait_from_type: SomeT with FutureTraitT returns Some", {
   future_ty := make_future_some_type();
   result := extract_future_trait_from_type(future_ty);
-  is_some := match(result,.Some(_) => true,.None => false);
+  is_some := match(result, .Some(_) => true, .None => false);
   assert(is_some, "SomeT with FutureTraitT should return(Some)");
 });
 test("extract_future_trait_from_type: DynT with FutureTraitT returns Some", {
   dyn_ty := make_future_dyn_type();
   result := extract_future_trait_from_type(dyn_ty);
-  is_some := match(result,.Some(_) => true,.None => false);
+  is_some := match(result, .Some(_) => true, .None => false);
   assert(is_some, "DynT with FutureTraitT should return(Some)");
 });
 test("extract_future_trait_from_type: SomeT without FutureTraitT returns None", {
   some_ty := t_some_t(String.from("SomeType"), usize(0));
   result := extract_future_trait_from_type(some_ty);
-  is_none := match(result,.None => true,.Some(_) => false);
+  is_none := match(result, .None => true, .Some(_) => false);
   assert(is_none, "SomeT without FutureTraitT should return(None)");
 });
 // ---------------------------------------------------------------------------

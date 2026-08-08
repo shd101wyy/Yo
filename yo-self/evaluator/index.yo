@@ -60,7 +60,7 @@ open(import("std/error"));
 // signature, so the user-supplied `(path) -> Option(EvalValue)` loader is
 // stashed here and adapted by `_evaluator_ctx_load_module` (same pattern as
 // main.yo's `g_demand_loader`).
-(g_evaluator_load_fn : Option((fn(path : String) -> Option(EvalValue)))) =.None;
+(g_evaluator_load_fn : Option((fn(path : String) -> Option(EvalValue)))) = .None;
 _evaluator_ctx_load_module :: (fn(path : String) -> LoadModuleResult)(
   match(
     g_evaluator_load_fn,
@@ -85,7 +85,7 @@ _evaluator_ctx_load_module :: (fn(path : String) -> LoadModuleResult)(
     )
   )
 );
-(g_evaluator_ctx_loader : Option((fn(path : String) -> LoadModuleResult))) =.None;
+(g_evaluator_ctx_loader : Option((fn(path : String) -> LoadModuleResult))) = .None;
 // Wire the slot (mirrors main.yo's `_demand_loader_init`).
 _evaluator_loader_init := (fn() -> bool)({
   g_evaluator_ctx_loader = Option((fn(path : String) -> LoadModuleResult)).Some(
@@ -194,7 +194,7 @@ impl(
     // src/evaluator/builtins/pragma.ts) and validates the pragma
     // argument shape semantically rather than as text.
     skip_prelude := pre_scan_for_skip_prelude(program.clone());
-    (module_error : Option(String)) =.None;
+    (module_error : Option(String)) = .None;
     if(!(skip_prelude), {
       prelude_path := `file://${std_path}/prelude.yo`;
       match(
@@ -214,7 +214,7 @@ impl(
                     match(
                       pvalues.get(pi),
                       .Some(pval_item) => {
-                        env.define_val(pname, TypeValue.Unit, true,.Some(pval_item));
+                        env.define_val(pname, TypeValue.Unit, true, .Some(pval_item));
                         ()
                       },
                       .None => ()
@@ -226,11 +226,11 @@ impl(
               });
             },
             _ => {
-              module_error =.Some(String.from("Prelude is not a module value"));
+              module_error = .Some(String.from("Prelude is not a module value"));
             }
           ),
         .None => {
-          module_error =.Some(String.from("Failed to load prelude"));
+          module_error = .Some(String.from("Failed to load prelude"));
         }
       );
     });
@@ -246,10 +246,10 @@ impl(
     // the legacy `evaluate_module_body` flat walker, whose non-executing walk
     // diverges from TS (e.g. macro bodies evaluated without `is_executing`
     // lose comptime values; issues/yo-self-expr-eq-macro-body-false.md).
-    (module_value : Option(EvalValue)) =.None;
-    (final_env : Option(Environment)) =.Some(env);
+    (module_value : Option(EvalValue)) = .None;
+    (final_env : Option(Environment)) = .Some(env);
     if(module_error.is_none(), {
-      g_evaluator_load_fn =.Some(load_module_fn);
+      g_evaluator_load_fn = .Some(load_module_fn);
       ctx := eval_context_new(std_path.clone(), module_path.clone());
       ctx.is_executing = true;
       ctx.load_module = g_evaluator_ctx_loader;

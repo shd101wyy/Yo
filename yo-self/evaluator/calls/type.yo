@@ -124,7 +124,7 @@ try_to_call_type_with_arguments :: (
     if(arg_expr_opt.is_none(), {
       i = (i + usize(1));
     });
-    arg_expr := match(arg_expr_opt,.Some(a) => a,.None => function_callee_expr);
+    arg_expr := match(arg_expr_opt, .Some(a) => a, .None => function_callee_expr);
     field_opt := type_fields.get(i);
     member_element := match(
       field_opt,
@@ -146,16 +146,16 @@ try_to_call_type_with_arguments :: (
     (member_element_position_index : usize) = i;
     // Check if the arg uses a label `field: value`.
     (actual_arg_expr : AstExpr) = arg_expr;
-    label_match := ast_expr_is_fn_call_of(arg_expr, ":",.Some(usize(2)));
+    label_match := ast_expr_is_fn_call_of(arg_expr, ":", .Some(usize(2)));
     if(label_match, {
       // Extract the label and value sub-exprs.
-      label_sub_opt := match(arg_expr,.FnCall(_, _, args, _, _) => args.get(usize(0)), _ => Option(AstExpr).None);
-      value_sub_opt := match(arg_expr,.FnCall(_, _, args, _, _) => args.get(usize(1)), _ => Option(AstExpr).None);
+      label_sub_opt := match(arg_expr, .FnCall(_, _, args, _, _) => args.get(usize(0)), _ => Option(AstExpr).None);
+      value_sub_opt := match(arg_expr, .FnCall(_, _, args, _, _) => args.get(usize(1)), _ => Option(AstExpr).None);
       label_sub := match(
         label_sub_opt,
         .Some(s) => s,
         .None => {
-          exn.throw(dyn(format_error_message(ast_expr_token(arg_expr), `Label arg missing label sub-expr.`, false,.None)));
+          exn.throw(dyn(format_error_message(ast_expr_token(arg_expr), `Label arg missing label sub-expr.`, false, .None)));
           arg_expr
         }
       );
@@ -163,7 +163,7 @@ try_to_call_type_with_arguments :: (
         value_sub_opt,
         .Some(s) => s,
         .None => {
-          exn.throw(dyn(format_error_message(ast_expr_token(arg_expr), `Label arg missing value sub-expr.`, false,.None)));
+          exn.throw(dyn(format_error_message(ast_expr_token(arg_expr), `Label arg missing value sub-expr.`, false, .None)));
           arg_expr
         }
       );
@@ -180,7 +180,7 @@ try_to_call_type_with_arguments :: (
         );
       });
       // Look up the label in type_fields.
-      label_tok := match(label_sub,.Atom(_, tok) => tok.value, _ => String.from(""));
+      label_tok := match(label_sub, .Atom(_, tok) => tok.value, _ => String.from(""));
       (found_idx : Option(usize)) = Option(usize).None;
       (search_i : usize) = usize(0);
       while(search_i < n_fields, {
@@ -188,7 +188,7 @@ try_to_call_type_with_arguments :: (
           type_fields.get(search_i),
           .Some(f) => {
             if(f.label == label_tok, {
-              found_idx =.Some(search_i);
+              found_idx = .Some(search_i);
             });
           },
           .None => ()
@@ -198,7 +198,7 @@ try_to_call_type_with_arguments :: (
       match(
         found_idx,
         .Some(idx) => {
-          found_field := match(type_fields.get(idx),.Some(f) => f,.None => member_element);
+          found_field := match(type_fields.get(idx), .Some(f) => f, .None => member_element);
           // Cannot label an already-assigned field.
           if(found_field.assigned_value.is_some(), {
             exn.throw(
@@ -231,7 +231,7 @@ try_to_call_type_with_arguments :: (
       );
     });
     // Check for duplicate labels.
-    if(match(checked_indices.get(member_element_position_index),.Some(_) => true,.None => false), {
+    if(match(checked_indices.get(member_element_position_index), .Some(_) => true, .None => false), {
       exn.throw(
         dyn(
           format_error_message(
@@ -245,7 +245,7 @@ try_to_call_type_with_arguments :: (
     });
     // Evaluate the argument expression.
     saved_expected := ctx.expected_type;
-    ctx.expected_type =.Some(ExpectedTypeCtx(ty : member_element.ty, env : env));
+    ctx.expected_type = .Some(ExpectedTypeCtx(ty : member_element.ty, env : env));
     evaluated_arg := evaluate_expression(actual_arg_expr, env, ctx);
     ctx.expected_type = saved_expected;
     arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_arg));
@@ -261,7 +261,7 @@ try_to_call_type_with_arguments :: (
         )
       );
     });
-    arg_info := match(arg_info_opt,.Some(it) => it,.None => new_expr_info(env, member_element.ty));
+    arg_info := match(arg_info_opt, .Some(it) => it, .None => new_expr_info(env, member_element.ty));
     // Closure arg into an `Impl(Fn(...))`-SomeT FIELD: register the capture
     // struct as the FIELD SomeT id's resolved concrete. TS needs no code here
     // — the arg's expected type IS the field type object, so the lambda's
@@ -341,7 +341,7 @@ try_to_call_type_with_arguments :: (
   if(!(is_union_type), {
     (ci : usize) = usize(0);
     while(ci < n_fields, {
-      already_checked := match(checked_indices.get(ci),.Some(_) => true,.None => false);
+      already_checked := match(checked_indices.get(ci), .Some(_) => true, .None => false);
       if(!(already_checked), {
         field_opt2 := type_fields.get(ci);
         match(

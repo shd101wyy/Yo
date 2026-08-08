@@ -97,7 +97,7 @@ _struct_some_type_is_only_in_function_fields :: (
       n := field_types.len();
       (i : usize) = usize(0);
       while((i < n) && ok, {
-        ft := match(field_types.get(i),.Some(t) => t,.None => TypeValue.Unit);
+        ft := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
         cond(
           is_function_type(ft) => (),
           // fn-ptr field — fine
@@ -131,11 +131,11 @@ _enum_some_type_is_only_in_function_fields :: (
       nv := variant_fields.len();
       (vi : usize) = usize(0);
       while((vi < nv) && ok, {
-        fields := match(variant_fields.get(vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
+        fields := match(variant_fields.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
         nf := fields.len();
         (fi : usize) = usize(0);
         while((fi < nf) && ok, {
-          ft := match(fields.get(fi),.Some(t) => t,.None => TypeValue.Unit);
+          ft := match(fields.get(fi), .Some(t) => t, .None => TypeValue.Unit);
           cond(
             is_function_type(ft) => (),
             (is_struct_type(ft) && _struct_some_type_is_only_in_function_fields(ft, visited)) => (),
@@ -204,7 +204,7 @@ collect_type :: (fn(type_in : TypeValue, context : CodeGenContext) -> unit)({
   // collection, so the typedef is emitted before any reference; also collect
   // the element type. (Mirrors the Iso side-effect registration below.)
   if(is_array_type(type), {
-    match(type,.Array({ element }) => recur(element, context), _ => ());
+    match(type, .Array({ element }) => recur(element, context), _ => ());
     _gs := get_type_string(type, context);
     return(());
   });
@@ -289,7 +289,7 @@ collect_type :: (fn(type_in : TypeValue, context : CodeGenContext) -> unit)({
         nv := variant_fields.len();
         (vi : usize) = usize(0);
         while(vi < nv, {
-          fields := match(variant_fields.get(vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
+          fields := match(variant_fields.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
           nf := fields.len();
           (fi : usize) = usize(0);
           while(fi < nf, {
@@ -314,7 +314,7 @@ collect_type :: (fn(type_in : TypeValue, context : CodeGenContext) -> unit)({
         n := field_types.len();
         (i : usize) = usize(0);
         while(i < n, {
-          match(field_types.get(i),.Some(ft) => recur(ft, context),.None => ());
+          match(field_types.get(i), .Some(ft) => recur(ft, context), .None => ());
           i = (i + usize(1));
         });
       },
@@ -327,7 +327,7 @@ collect_type :: (fn(type_in : TypeValue, context : CodeGenContext) -> unit)({
         n := required_trait_types.len();
         (i : usize) = usize(0);
         while(i < n, {
-          match(required_trait_types.get(i),.Some(tt) => recur(tt, context),.None => ());
+          match(required_trait_types.get(i), .Some(tt) => recur(tt, context), .None => ());
           i = (i + usize(1));
         });
       },
@@ -366,7 +366,7 @@ collect_type :: (fn(type_in : TypeValue, context : CodeGenContext) -> unit)({
               .Func({ param_types : __mpt, result : __mres }) => {
                 (__mpi : usize) = usize(0);
                 while(__mpi < __mpt.len(), {
-                  match(__mpt.get(__mpi),.Some(__pt) => recur(__pt, context),.None => ());
+                  match(__mpt.get(__mpi), .Some(__pt) => recur(__pt, context), .None => ());
                   __mpi = (__mpi + usize(1));
                 });
                 recur(__mres, context);
@@ -396,13 +396,13 @@ _collect_field_pointees :: (fn(ft : TypeValue, context : CodeGenContext) -> unit
       nv := variant_fields.len();
       (vi : usize) = usize(0);
       while(vi < nv, {
-        fields := match(variant_fields.get(vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
+        fields := match(variant_fields.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
         nfi := fields.len();
         (fj : usize) = usize(0);
         while(fj < nfi, {
           match(
             fields.get(fj),
-            .Some(vf) => match(vf,.Pointer(p) => collect_type(p, context), _ => ()),
+            .Some(vf) => match(vf, .Pointer(p) => collect_type(p, context), _ => ()),
             .None => ()
           );
           fj = (fj + usize(1));
@@ -461,7 +461,7 @@ collect_pointer_pointees :: (fn(context : CodeGenContext) -> unit)({
           nf := rfs.len();
           (fi : usize) = usize(0);
           while(fi < nf, {
-            match(rfs.get(fi),.Some(rf) => _collect_field_pointees(rf.ty, context),.None => ());
+            match(rfs.get(fi), .Some(rf) => _collect_field_pointees(rf.ty, context), .None => ());
             fi = (fi + usize(1));
           });
         },
@@ -484,13 +484,13 @@ collect_types_from_function_type :: (fn(function_type : TypeValue, context : Cod
       np := param_types.len();
       (pi : usize) = usize(0);
       while(pi < np, {
-        match(param_types.get(pi),.Some(pt) => collect_type(pt, context),.None => ());
+        match(param_types.get(pi), .Some(pt) => collect_type(pt, context), .None => ());
         pi = (pi + usize(1));
       });
       nf := forall_types.len();
       (fi : usize) = usize(0);
       while(fi < nf, {
-        match(forall_types.get(fi),.Some(ft) => collect_type(ft, context),.None => ());
+        match(forall_types.get(fi), .Some(ft) => collect_type(ft, context), .None => ());
         fi = (fi + usize(1));
       });
       collect_type(result, context);
@@ -500,11 +500,11 @@ collect_types_from_function_type :: (fn(function_type : TypeValue, context : Cod
 );
 /// func_id of a FuncVal EvalValue, or "".
 _fv_id :: (fn(v : EvalValue) -> String)(
-  match(v,.FuncVal(__fvd1, _) => __fvd1.*.func_id, _ => String.from(""))
+  match(v, .FuncVal(__fvd1, _) => __fvd1.*.func_id, _ => String.from(""))
 );
 /// body AstExpr of a FuncVal EvalValue, or an error placeholder.
 _fv_body :: (fn(v : EvalValue) -> AstExpr)(
-  match(v,.FuncVal(__fvd2, _) => __fvd2.*.body, _ => make_err_expr())
+  match(v, .FuncVal(__fvd2, _) => __fvd2.*.body, _ => make_err_expr())
 );
 /// Collect types referenced by an expression (its evaluated type, any function
 /// value it resolves to, deferred drops, macro expansion, runtime
@@ -548,7 +548,7 @@ collect_types_from_expr :: (fn(expr : AstExpr, context : CodeGenContext, info : 
           nd := drops.len();
           (di : usize) = usize(0);
           while(di < nd, {
-            match(drops.get(di),.Some(de) => recur(de, context, info),.None => ());
+            match(drops.get(di), .Some(de) => recur(de, context, info), .None => ());
             di = (di + usize(1));
           });
         },
@@ -576,7 +576,7 @@ collect_types_from_expr :: (fn(expr : AstExpr, context : CodeGenContext, info : 
           nr := rds.len();
           (ri : usize) = usize(0);
           while(ri < nr, {
-            match(rds.get(ri),.Some(rd) => collect_type(rd.ty, context),.None => ());
+            match(rds.get(ri), .Some(rd) => collect_type(rd.ty, context), .None => ());
             ri = (ri + usize(1));
           });
         },
@@ -584,7 +584,7 @@ collect_types_from_expr :: (fn(expr : AstExpr, context : CodeGenContext, info : 
       );
       // Capture struct type for closures / async blocks (registers + recurses
       // into field types via collect_type).
-      match(ei.capture_type,.Some(ct) => collect_type(ct, context),.None => ());
+      match(ei.capture_type, .Some(ct) => collect_type(ct, context), .None => ());
     },
     .None => ()
   );
@@ -592,21 +592,21 @@ collect_types_from_expr :: (fn(expr : AstExpr, context : CodeGenContext, info : 
     expr,
     .FnCall(_, func_box, args, _, _) => {
       // Skip test blocks — they should not generate code.
-      if(ast_expr_is_fn_call_of(expr, BK_TEST,.None), {
+      if(ast_expr_is_fn_call_of(expr, BK_TEST, .None), {
         return(());
       });
       recur(func_box, context, info);
       n := args.len();
       (i : usize) = usize(0);
       while(i < n, {
-        match(args.get(i),.Some(a) => recur(a, context, info),.None => ());
+        match(args.get(i), .Some(a) => recur(a, context, info), .None => ());
         i = (i + usize(1));
       });
     },
     .Atom(_, _) => match(
       ei_opt,
       .Some(ei) => if(is_type_value(ei.value), {
-        match(ei.value,.Some(v) => match(v,.TypeVal(t) => collect_type(t, context), _ => ()),.None => ());
+        match(ei.value, .Some(v) => match(v, .TypeVal(t) => collect_type(t, context), _ => ()), .None => ());
       }),
       .None => ()
     )
@@ -687,7 +687,7 @@ collect_required_types :: (fn(module_value : EvalValue, context : CodeGenContext
     nk := keys.len();
     (ki : usize) = usize(0);
     while(ki < nk, {
-      key := match(keys.get(ki),.Some(k) => k,.None => String.from(""));
+      key := match(keys.get(ki), .Some(k) => k, .None => String.from(""));
       if(!(processed.contains(key.clone())), {
         _p := processed.add(key.clone());
         found_new = true;

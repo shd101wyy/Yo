@@ -105,14 +105,14 @@ _on_demand_collect_and_declare :: (fn(t : TypeValue, context : CodeGenContext) -
     .Some(od_e) => {
       od_cn := od_e.c_name.clone();
       od_ty := od_e.ty;
-      od_is_struct := match(od_ty,.Struct({ is_source_namespace : od_ns }) => !(od_ns), _ => false);
-      od_is_enum := match(od_ty,.EnumT(_, _, _, _, _, _, _, _, _) => true, _ => false);
-      od_is_tuple := match(od_ty,.Tuple(_, _) => true, _ => false);
-      od_is_union := match(od_ty,.Union(_, _, _) => true, _ => false);
-      od_is_future := match(od_ty,.FutureTraitT(_, _, _, _, _) => true, _ => false);
+      od_is_struct := match(od_ty, .Struct({ is_source_namespace : od_ns }) => !(od_ns), _ => false);
+      od_is_enum := match(od_ty, .EnumT(_, _, _, _, _, _, _, _, _) => true, _ => false);
+      od_is_tuple := match(od_ty, .Tuple(_, _) => true, _ => false);
+      od_is_union := match(od_ty, .Union(_, _, _) => true, _ => false);
+      od_is_future := match(od_ty, .FutureTraitT(_, _, _, _, _) => true, _ => false);
       od_need_fwd := cond(
         od_is_struct => !(
-          is_newtype_type(od_ty) && match(od_ty,.Struct({ field_types : od_fts }) => (od_fts.len() == usize(1)), _ => false)
+          is_newtype_type(od_ty) && match(od_ty, .Struct({ field_types : od_fts }) => (od_fts.len() == usize(1)), _ => false)
         ),
         od_is_enum => !(can_optimize_as_nullable_pointer(od_ty).is_some() || can_optimize_as_simple_enum(od_ty)),
         // Future trait interface uses the same `<cn>_struct` typedef pattern

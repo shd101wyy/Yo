@@ -40,7 +40,7 @@ evaluate_subtype_of :: (
 )({
   (env : Environment) = env_in;
   // Validate: `<:` with exactly 2 arguments.
-  if(!(ast_expr_is_fn_call_of(expr, BK_SUBTYPE_OF,.Some(usize(2)))), {
+  if(!(ast_expr_is_fn_call_of(expr, BK_SUBTYPE_OF, .Some(usize(2)))), {
     exn.throw(
       dyn(
         format_error_message(
@@ -149,7 +149,7 @@ evaluate_subtype_of :: (
   // are not supported in yo-self.
   trait_exprs_arr := ArrayList(AstExpr).new();
   is_neg_arr := ArrayList(bool).new();
-  rhs_is_tuple := ast_expr_is_fn_call_of(rhs_expr, BK_TUPLE,.None);
+  rhs_is_tuple := ast_expr_is_fn_call_of(rhs_expr, BK_TUPLE, .None);
   if(rhs_is_tuple, {
     // Tuple form: (Trait1, Trait2, ...).
     rhs_args := match(
@@ -164,7 +164,7 @@ evaluate_subtype_of :: (
         .Some(a) => a,
         .None => make_err_expr()
       );
-      is_neg := ast_expr_is_fn_call_of(trait_expr, "!",.Some(usize(1)));
+      is_neg := ast_expr_is_fn_call_of(trait_expr, "!", .Some(usize(1)));
       actual_trait_expr := if(
         is_neg,
         match(
@@ -184,7 +184,7 @@ evaluate_subtype_of :: (
     });
   }, {
     // Single trait form.
-    rhs_is_neg := ast_expr_is_fn_call_of(rhs_expr, "!",.Some(usize(1)));
+    rhs_is_neg := ast_expr_is_fn_call_of(rhs_expr, "!", .Some(usize(1)));
     actual_rhs := if(
       rhs_is_neg,
       match(
@@ -211,7 +211,7 @@ evaluate_subtype_of :: (
       .Some(e) => e,
       .None => make_err_expr()
     );
-    is_neg := match(is_neg_arr.get(ti),.Some(b) => b,.None => false);
+    is_neg := match(is_neg_arr.get(ti), .Some(b) => b, .None => false);
     evaluated_te := evaluate_expression(te, env, ctx);
     te_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_te));
     te_info := match(
@@ -315,8 +315,8 @@ evaluate_subtype_of :: (
     // Record constraints on the SomeType (in-place mutation on required/negative lists).
     (wi : usize) = usize(0);
     while(wi < trait_type_vals.len(), {
-      wt := match(trait_type_vals.get(wi),.Some(t) => t,.None => t_unit());
-      wn := match(trait_neg_flags.get(wi),.Some(b) => b,.None => false);
+      wt := match(trait_type_vals.get(wi), .Some(t) => t, .None => t_unit());
+      wn := match(trait_neg_flags.get(wi), .Some(b) => b, .None => false);
       _add_where_clause_constraint(lhs_ty, wt, wn);
       wi = (wi + usize(1));
     });
@@ -326,7 +326,7 @@ evaluate_subtype_of :: (
     // (which also only clones it) — else the flow-checker reports "consumed in
     // some cases but not in other cases".
     out_info := new_expr_info(env, lhs_ty.clone());
-    out_info.value =.Some(lhs_type_val);
+    out_info.value = .Some(lhs_type_val);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
     expr
   }, {
@@ -391,7 +391,7 @@ evaluate_subtype_of :: (
     trait_with_receiver_clone := trait_with_receiver.clone();
     trait_type_val := EvalValue.TypeVal(trait_with_receiver);
     out_info := new_expr_info(env, trait_with_receiver_clone);
-    out_info.value =.Some(trait_type_val);
+    out_info.value = .Some(trait_type_val);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
     expr
   })

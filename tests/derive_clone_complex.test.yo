@@ -38,21 +38,21 @@ test("derive Clone for struct with ArrayList field", {
   assert(c.tag == i32(99), "tag cloned");
   assert(c.items.len() == usize(3), "list length cloned");
   first := c.items.get(usize(0));
-  match(first,.Some(v) => assert(v == i32(10), "first item"),.None => assert(false, "missing item"));
+  match(first, .Some(v) => assert(v == i32(10), "first item"), .None => assert(false, "missing item"));
 });
 // ===== 4. Struct with Option(T) field =====
 WithOption :: struct(maybe : Option(i32), required : bool);
 derive(WithOption, Clone);
 test("derive Clone for struct with Option field (Some)", {
-  orig := WithOption(maybe :.Some(i32(42)), required : true);
+  orig := WithOption(maybe : .Some(i32(42)), required : true);
   c := orig.clone();
-  match(c.maybe,.Some(v) => assert(v == i32(42), "Some cloned"),.None => assert(false, "None"));
+  match(c.maybe, .Some(v) => assert(v == i32(42), "Some cloned"), .None => assert(false, "None"));
   assert(c.required, "bool cloned");
 });
 test("derive Clone for struct with Option field (None)", {
-  orig := WithOption(maybe :.None, required : false);
+  orig := WithOption(maybe : .None, required : false);
   c := orig.clone();
-  match(c.maybe,.Some(_) => assert(false, "should be None"),.None => ());
+  match(c.maybe, .Some(_) => assert(false, "should be None"), .None => ());
   assert(!(c.required), "bool cloned");
 });
 // ===== 5. Struct with Box(T) field =====
@@ -73,7 +73,7 @@ test("derive Clone for struct with HashMap field", {
   orig := WithMap(data : m);
   c := orig.clone();
   got := c.data.get(`key`);
-  match(got,.Some(v) => assert(v == i32(100), "map entry cloned"),.None => assert(false, "missing"));
+  match(got, .Some(v) => assert(v == i32(100), "map entry cloned"), .None => assert(false, "missing"));
 });
 // ===== 7. Enum with data variants =====
 MaybeInt :: enum(Nothing, Just(n : i32));
@@ -81,12 +81,12 @@ derive(MaybeInt, Clone);
 test("derive Clone for enum with data variants (Just)", {
   orig := MaybeInt.Just(i32(77));
   c := orig.clone();
-  match(c,.Just(n) => assert(n == i32(77), "Just cloned"),.Nothing => assert(false, "wrong variant"));
+  match(c, .Just(n) => assert(n == i32(77), "Just cloned"), .Nothing => assert(false, "wrong variant"));
 });
 test("derive Clone for enum with data variants (Nothing)", {
   orig := MaybeInt.Nothing;
   c := orig.clone();
-  match(c,.Nothing => (),.Just(_) => assert(false, "wrong variant"));
+  match(c, .Nothing => (), .Just(_) => assert(false, "wrong variant"));
 });
 // ===== 8. Enum with Box/String/ArrayList variant fields =====
 RichVariant :: enum(
@@ -125,7 +125,7 @@ test("derive Clone for enum with ArrayList variant", {
     .WithList(items) => {
       assert(items.len() == usize(2), "list len");
       first := items.get(usize(0));
-      match(first,.Some(v) => assert(v == `x`, "first"),.None => assert(false, "missing"));
+      match(first, .Some(v) => assert(v == `x`, "first"), .None => assert(false, "missing"));
     },
     _ => assert(false, "wrong variant")
   );
@@ -188,13 +188,13 @@ derive(BigEnum, Clone);
 test("derive Clone for large enum (23 variants)", {
   orig_mid := BigEnum.V10(i32(100));
   c1 := orig_mid.clone();
-  match(c1,.V10(a) => assert(a == i32(100), "V10"), _ => assert(false, "V10 wrong"));
+  match(c1, .V10(a) => assert(a == i32(100), "V10"), _ => assert(false, "V10 wrong"));
   orig_str := BigEnum.V21(`big enum str`);
   c2 := orig_str.clone();
-  match(c2,.V21(a) => assert(a == `big enum str`, "V21"), _ => assert(false, "V21 wrong"));
+  match(c2, .V21(a) => assert(a == `big enum str`, "V21"), _ => assert(false, "V21 wrong"));
   orig_bool := BigEnum.V22(true);
   c3 := orig_bool.clone();
-  match(c3,.V22(b) => assert(b, "V22"), _ => assert(false, "V22 wrong"));
+  match(c3, .V22(b) => assert(b, "V22"), _ => assert(false, "V22 wrong"));
 });
 // ===== 11. Struct with multiple RC fields (String + ArrayList) =====
 CompoundRC :: struct(name : String, tags : ArrayList(String), count : usize);
@@ -209,5 +209,5 @@ test("derive Clone for struct with multiple RC fields", {
   assert(c.count == usize(2), "count");
   assert(c.tags.len() == usize(2), "tags len");
   t0 := c.tags.get(usize(0));
-  match(t0,.Some(v) => assert(v == `alpha`, "first tag"),.None => assert(false, "missing tag"));
+  match(t0, .Some(v) => assert(v == `alpha`, "first tag"), .None => assert(false, "missing tag"));
 });

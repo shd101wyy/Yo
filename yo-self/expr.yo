@@ -443,8 +443,8 @@ ast_expr_to_string :: (fn(e : AstExpr) -> String)(
           );
           cond(
             (n == usize(1)) => {
-              arg0_str := recur(match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr()));
-              is_fc := ast_expr_is_fn_call(match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr()));
+              arg0_str := recur(match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr()));
+              is_fc := ast_expr_is_fn_call(match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr()));
               cond(
                 (func_tok_val == ".") => cond(
                   is_fc => `${func_tok_val}(${arg0_str})`,
@@ -454,20 +454,20 @@ ast_expr_to_string :: (fn(e : AstExpr) -> String)(
               )
             },
             ((n == usize(2)) && is_infix) => {
-              lhs0 := recur(match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr()));
-              rhs0 := recur(match(args.get(usize(1)),.Some(a) => a,.None => make_err_expr()));
+              lhs0 := recur(match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr()));
+              rhs0 := recur(match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr()));
               lhs := cond(
-                (ast_expr_is_infix_op_fn_call(match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr())) || ast_expr_is_atom_and_operator(match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr()))) => `(${lhs0})`,
+                (ast_expr_is_infix_op_fn_call(match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr())) || ast_expr_is_atom_and_operator(match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr()))) => `(${lhs0})`,
                 true => lhs0
               );
               rhs := cond(
-                (ast_expr_is_infix_op_fn_call(match(args.get(usize(1)),.Some(a) => a,.None => make_err_expr())) || ast_expr_is_atom_and_operator(match(args.get(usize(1)),.Some(a) => a,.None => make_err_expr()))) => `(${rhs0})`,
+                (ast_expr_is_infix_op_fn_call(match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr())) || ast_expr_is_atom_and_operator(match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr()))) => `(${rhs0})`,
                 true => rhs0
               );
               cond(
                 (func_tok_val == ".") => {
                   rhs_final := cond(
-                    ast_expr_is_fn_call(match(args.get(usize(1)),.Some(a) => a,.None => make_err_expr())) => `(${rhs})`,
+                    ast_expr_is_fn_call(match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr())) => `(${rhs})`,
                     true => rhs
                   );
                   `(${lhs}.${rhs_final})`
@@ -483,7 +483,7 @@ ast_expr_to_string :: (fn(e : AstExpr) -> String)(
                 if(i > usize(0), {
                   sb.write_str(", ");
                 });
-                arg := match(args.get(i),.Some(a) => a,.None => make_err_expr());
+                arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
                 sb.write_string(recur(arg));
                 i = (i + usize(1));
               });
@@ -498,7 +498,7 @@ ast_expr_to_string :: (fn(e : AstExpr) -> String)(
             if(i > usize(0), {
               sb.write_str(", ");
             });
-            arg := match(args.get(i),.Some(a) => a,.None => make_err_expr());
+            arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
             sb.write_string(recur(arg));
             i = (i + usize(1));
           });
@@ -521,7 +521,7 @@ ast_expr_to_string :: (fn(e : AstExpr) -> String)(
             if(i > usize(0), {
               sb.write_str(", ");
             });
-            arg := match(args.get(i),.Some(a) => a,.None => make_err_expr());
+            arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
             sb.write_string(recur(arg));
             i = (i + usize(1));
           });
@@ -558,7 +558,7 @@ ast_expr_is_atom_of_any :: (fn(e : AstExpr, values : ArrayList(str)) -> bool)(
       n := values.len();
       i := usize(0);
       while(i < n, {
-        v := match(values.get(i),.Some(s) => s,.None => "~unreachable~");
+        v := match(values.get(i), .Some(s) => s, .None => "~unreachable~");
         if(tok.value == v, {
           return(true);
         });
@@ -609,7 +609,7 @@ ast_expr_is_fn_call_of_any :: (fn(e : AstExpr, func_names : ArrayList(str), arg_
           i := usize(0);
           found := false;
           while(i < n, {
-            v := match(func_names.get(i),.Some(s) => s,.None => "~unreachable~");
+            v := match(func_names.get(i), .Some(s) => s, .None => "~unreachable~");
             if(tok.value == v, {
               found = true;
               return(found);
@@ -659,8 +659,8 @@ exprs_are_equal :: (fn(e1 : AstExpr, e2 : AstExpr) -> bool)(
         });
         i := usize(0);
         while(i < n1, {
-          a1 := match(args1.get(i),.Some(a) => a,.None => make_err_expr());
-          a2 := match(args2.get(i),.Some(a) => a,.None => make_err_expr());
+          a1 := match(args1.get(i), .Some(a) => a, .None => make_err_expr());
+          a2 := match(args2.get(i), .Some(a) => a, .None => make_err_expr());
           if(!(recur(a1, a2)), {
             return(false);
           });
@@ -782,7 +782,7 @@ expect_expr_to_be_fn_call_of :: (
       )
     );
   });
-  if(!(ast_expr_is_fn_call_of(expr, func_name,.None)), {
+  if(!(ast_expr_is_fn_call_of(expr, func_name, .None)), {
     exn.throw(
       dyn(
         format_error_message(
@@ -840,7 +840,7 @@ expect_expr_to_be_fn_call_of_any :: (
       )
     );
   });
-  if(!(ast_expr_is_fn_call_of_any(expr, func_names,.None)), {
+  if(!(ast_expr_is_fn_call_of_any(expr, func_names, .None)), {
     exn.throw(
       dyn(
         format_error_message(

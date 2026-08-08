@@ -81,11 +81,11 @@ clear_flow_violation :: (fn() -> unit)({
 });
 /// True iff a flow-soundness rejection was flagged since the last reset.
 flow_violation_pending :: (fn() -> bool)(
-  match(g_flow_violation_box.get(usize(0)),.Some(v) => v,.None => false)
+  match(g_flow_violation_box.get(usize(0)), .Some(v) => v, .None => false)
 );
 /// The flagged rejection's message (empty if none).
 flow_violation_message :: (fn() -> String)(
-  match(g_flow_violation_msg.get(usize(0)),.Some(m) => m,.None => String.from(""))
+  match(g_flow_violation_msg.get(usize(0)), .Some(m) => m, .None => String.from(""))
 );
 /// "Propagate all def-time body-eval errors" mode. Normally `_trial_eval_fn_body`
 /// SWALLOWS any error thrown while evaluating a function body at definition time
@@ -128,10 +128,10 @@ clear_cee_observed_error :: (fn() -> unit)({
   g_cee_observed_error_box.clear();
 });
 cee_observed_error :: (fn() -> bool)(
-  match(g_cee_observed_error_box.get(usize(0)),.Some(b) => b,.None => false)
+  match(g_cee_observed_error_box.get(usize(0)), .Some(b) => b, .None => false)
 );
 propagate_def_time_errors :: (fn() -> bool)(
-  match(g_propagate_def_time_errors_box.get(usize(0)),.Some(v) => v,.None => false)
+  match(g_propagate_def_time_errors_box.get(usize(0)), .Some(v) => v, .None => false)
 );
 /// Options refining the base R1–R4 rule. Mirrors the TS options bag.
 FlowOptions :: ref(
@@ -164,11 +164,11 @@ _unwrap_begin_blocks :: (fn(expr : AstExpr) -> AstExpr)({
   (go : bool) = true;
   while(go, {
     if(ast_expr_is_fn_call(current) && ast_expr_is_fn_call_of(current, BK_BEGIN, Option(usize).None), {
-      args := match(current,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+      args := match(current, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
       if(args.len() == usize(0), {
         go = false;
       }, {
-        current = match(args.get(args.len() - usize(1)),.Some(a) => a,.None => current);
+        current = match(args.get(args.len() - usize(1)), .Some(a) => a, .None => current);
       });
     }, {
       go = false;
@@ -188,8 +188,8 @@ is_flowable_expr :: (fn(expr_in : AstExpr, ctx : EvalContext, opts : FlowOptions
   // Strip a `label : value` wrapper — labeled arguments (constructor fields
   // `Identifier(name : "x")`, named call args) are transparent for flow
   // purposes; the VALUE side is what flows. Mirrors flowability.ts.
-  if(ast_expr_is_fn_call(expr) && ast_expr_is_fn_call_of(expr, ":",.Some(usize(2))), {
-    labeled_args := match(expr,.FnCall(_, _, la, _, _) => la, _ => ArrayList(AstExpr).new());
+  if(ast_expr_is_fn_call(expr) && ast_expr_is_fn_call_of(expr, ":", .Some(usize(2))), {
+    labeled_args := match(expr, .FnCall(_, _, la, _, _) => la, _ => ArrayList(AstExpr).new());
     match(
       labeled_args.get(usize(1)),
       .Some(lv) => {
@@ -200,7 +200,7 @@ is_flowable_expr :: (fn(expr_in : AstExpr, ctx : EvalContext, opts : FlowOptions
   });
   // Divergent expressions never yield a value here — accept vacuously.
   info_opt := _info(ctx, expr);
-  has_cf := match(info_opt,.Some(i) => has_any_control_flow(i.control_flow),.None => false);
+  has_cf := match(info_opt, .Some(i) => has_any_control_flow(i.control_flow), .None => false);
   if(has_cf, {
     return(true);
   });
@@ -280,8 +280,8 @@ is_flowable_expr :: (fn(expr_in : AstExpr, ctx : EvalContext, opts : FlowOptions
   if(!(ast_expr_is_fn_call(expr)), {
     return(false);
   });
-  call_func := match(expr,.FnCall(_, f, _, _, _) => f, _ => expr);
-  call_args := match(expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+  call_func := match(expr, .FnCall(_, f, _, _, _) => f, _ => expr);
+  call_args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
   // R2: `expr.field` — a 2-arg `.` call. Flowable iff the base is flowable.
   if(ast_expr_is_fn_call_of(expr, BF_DOT, Option(usize).Some(usize(2))), {
     base := match(
@@ -296,7 +296,7 @@ is_flowable_expr :: (fn(expr_in : AstExpr, ctx : EvalContext, opts : FlowOptions
     // carries no smuggled pointer, so it is flowable. Mirrors flowability.ts.
     base_is_type := match(
       _info(ctx, base),
-      .Some(bi) => match(bi.value,.Some(bv) => is_type_val(bv),.None => false),
+      .Some(bi) => match(bi.value, .Some(bv) => is_type_val(bv), .None => false),
       .None => false
     );
     if(base_is_type, {
@@ -308,10 +308,10 @@ is_flowable_expr :: (fn(expr_in : AstExpr, ctx : EvalContext, opts : FlowOptions
   if(ast_expr_is_fn_call_of(expr, "cond", Option(usize).None), {
     (i : usize) = usize(0);
     while(i < call_args.len(), {
-      arm := match(call_args.get(i),.Some(a) => a,.None => make_err_expr());
+      arm := match(call_args.get(i), .Some(a) => a, .None => make_err_expr());
       if(ast_expr_is_fn_call(arm) && ast_expr_is_fn_call_of(arm, "=>", Option(usize).Some(usize(2))), {
-        arm_args := match(arm,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
-        arm_body := match(arm_args.get(usize(1)),.Some(a) => a,.None => make_err_expr());
+        arm_args := match(arm, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+        arm_body := match(arm_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
         if(!(recur(arm_body, ctx, opts)), {
           return(false);
         });
@@ -326,10 +326,10 @@ is_flowable_expr :: (fn(expr_in : AstExpr, ctx : EvalContext, opts : FlowOptions
   if(ast_expr_is_fn_call_of(expr, "match", Option(usize).None), {
     (i : usize) = usize(1);
     while(i < call_args.len(), {
-      arm := match(call_args.get(i),.Some(a) => a,.None => make_err_expr());
+      arm := match(call_args.get(i), .Some(a) => a, .None => make_err_expr());
       if(ast_expr_is_fn_call(arm) && ast_expr_is_fn_call_of(arm, "=>", Option(usize).Some(usize(2))), {
-        arm_args := match(arm,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
-        arm_body := match(arm_args.get(usize(1)),.Some(a) => a,.None => make_err_expr());
+        arm_args := match(arm, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+        arm_body := match(arm_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
         if(!(recur(arm_body, ctx, opts)), {
           return(false);
         });
@@ -358,12 +358,12 @@ is_flowable_expr :: (fn(expr_in : AstExpr, ctx : EvalContext, opts : FlowOptions
     return(recur(base, ctx, opts));
   });
   {
-    fa_callee := match(expr,.FnCall(_, fa_f, _, _, _) => Option(AstExpr).Some(fa_f), _ => Option(AstExpr).None);
+    fa_callee := match(expr, .FnCall(_, fa_f, _, _, _) => Option(AstExpr).Some(fa_f), _ => Option(AstExpr).None);
     match(
       fa_callee,
       .Some(fa_fn) => if(ast_expr_is_fn_call_of(fa_fn, ".", Option(usize).Some(usize(2))) && (call_args.len() == usize(1)), {
-        fa_recv := match(fa_fn,.FnCall(_, _, fa_fargs, _, _) => fa_fargs.get(usize(0)), _ => Option(AstExpr).None);
-        fa_member := match(fa_fn,.FnCall(_, _, fa_fargs2, _, _) => fa_fargs2.get(usize(1)), _ => Option(AstExpr).None);
+        fa_recv := match(fa_fn, .FnCall(_, _, fa_fargs, _, _) => fa_fargs.get(usize(0)), _ => Option(AstExpr).None);
+        fa_member := match(fa_fn, .FnCall(_, _, fa_fargs2, _, _) => fa_fargs2.get(usize(1)), _ => Option(AstExpr).None);
         fa_name := match(
           fa_member,
           .Some(fa_m) => if(ast_expr_is_atom(fa_m), ast_expr_token(fa_m).value, String.new()),
@@ -397,12 +397,12 @@ is_flowable_expr :: (fn(expr_in : AstExpr, ctx : EvalContext, opts : FlowOptions
     (ast_expr_is_fn_call(call_func) && ast_expr_is_fn_call_of(call_func, BF_DOT, Option(usize).Some(usize(2)))) => {
       qrecv := match(
         call_func,
-        .FnCall(_, _, cf_args, _, _) => match(cf_args.get(usize(0)),.Some(r) => r,.None => make_err_expr()),
+        .FnCall(_, _, cf_args, _, _) => match(cf_args.get(usize(0)), .Some(r) => r, .None => make_err_expr()),
         _ => make_err_expr()
       );
       match(
         _info(ctx, qrecv),
-        .Some(qi) => match(qi.value,.Some(qv) => is_type_val(qv),.None => false),
+        .Some(qi) => match(qi.value, .Some(qv) => is_type_val(qv), .None => false),
         .None => false
       )
     },
@@ -415,32 +415,32 @@ is_flowable_expr :: (fn(expr_in : AstExpr, ctx : EvalContext, opts : FlowOptions
   // `isTypeCtorCall`.
   is_type_ctor_call := match(
     _info(ctx, call_func),
-    .Some(cfi) => match(cfi.value,.Some(cfv) => is_type_val(cfv),.None => false),
+    .Some(cfi) => match(cfi.value, .Some(cfv) => is_type_val(cfv), .None => false),
     .None => false
   );
   is_variant_ctor := (
     (ast_expr_is_fn_call(call_func) && ast_expr_is_fn_call_of(call_func, BF_DOT, Option(usize).Some(usize(1)))) ||
-      (ast_expr_is_atom(call_func) && match(ast_expr_token(call_func).kind,.Dot => true, _ => false))
+      (ast_expr_is_atom(call_func) && match(ast_expr_token(call_func).kind, .Dot => true, _ => false))
       || (is_qualified_variant_ctor || is_type_ctor_call)
   );
   if(is_variant_ctor, {
     (i : usize) = usize(0);
     while(i < call_args.len(), {
-      (a : AstExpr) = match(call_args.get(i),.Some(x) => x,.None => make_err_expr());
+      (a : AstExpr) = match(call_args.get(i), .Some(x) => x, .None => make_err_expr());
       // Look THROUGH a `label : value` wrapper: the labeled pair node may
       // carry no ExprInfo type of its own, which would silently SKIP the
       // check and accept a constructor smuggling a local-backed slice
       // (`SliceWrapper(s : local_slice)`). The VALUE side is what flows.
       // Mirrors flowability.ts.
-      if(ast_expr_is_fn_call(a) && ast_expr_is_fn_call_of(a, ":",.Some(usize(2))), {
+      if(ast_expr_is_fn_call(a) && ast_expr_is_fn_call_of(a, ":", .Some(usize(2))), {
         a = match(
           a,
-          .FnCall(_, _, la2, _, _) => match(la2.get(usize(1)),.Some(v) => v,.None => a),
+          .FnCall(_, _, la2, _, _) => match(la2.get(usize(1)), .Some(v) => v, .None => a),
           _ => a
         );
       });
-      a_ty_opt := match(_info(ctx, a),.Some(inf) => Option(TypeValue).Some(inf.ty),.None => Option(TypeValue).None);
-      needs := match(a_ty_opt,.Some(t) => type_representation_contains_raw_ptr(t),.None => false);
+      a_ty_opt := match(_info(ctx, a), .Some(inf) => Option(TypeValue).Some(inf.ty), .None => Option(TypeValue).None);
+      needs := match(a_ty_opt, .Some(t) => type_representation_contains_raw_ptr(t), .None => false);
       if(needs && !(recur(a, ctx, opts)), {
         return(false);
       });
@@ -454,16 +454,16 @@ is_flowable_expr :: (fn(expr_in : AstExpr, ctx : EvalContext, opts : FlowOptions
   if(ast_expr_is_fn_call(expr) && ast_expr_is_fn_call_of(expr, BK_TUPLE, Option(usize).None), {
     (ti : usize) = usize(0);
     while(ti < call_args.len(), {
-      (te : AstExpr) = match(call_args.get(ti),.Some(x) => x,.None => make_err_expr());
-      if(ast_expr_is_fn_call(te) && ast_expr_is_fn_call_of(te, ":",.Some(usize(2))), {
+      (te : AstExpr) = match(call_args.get(ti), .Some(x) => x, .None => make_err_expr());
+      if(ast_expr_is_fn_call(te) && ast_expr_is_fn_call_of(te, ":", .Some(usize(2))), {
         te = match(
           te,
-          .FnCall(_, _, tla, _, _) => match(tla.get(usize(1)),.Some(v) => v,.None => te),
+          .FnCall(_, _, tla, _, _) => match(tla.get(usize(1)), .Some(v) => v, .None => te),
           _ => te
         );
       });
-      te_ty_opt := match(_info(ctx, te),.Some(inf) => Option(TypeValue).Some(inf.ty),.None => Option(TypeValue).None);
-      te_needs := match(te_ty_opt,.Some(t) => type_representation_contains_raw_ptr(t),.None => false);
+      te_ty_opt := match(_info(ctx, te), .Some(inf) => Option(TypeValue).Some(inf.ty), .None => Option(TypeValue).None);
+      te_needs := match(te_ty_opt, .Some(t) => type_representation_contains_raw_ptr(t), .None => false);
       if(te_needs && !(recur(te, ctx, opts)), {
         return(false);
       });
@@ -496,19 +496,19 @@ is_flowable_expr :: (fn(expr_in : AstExpr, ctx : EvalContext, opts : FlowOptions
     return(false);
   });
   // Extract the Func's return/ref/param info.
-  is_ref_return := match(callee_ty,.Func({ meta : __fm1 }) => __fm1.*.result_is_ref, _ => false);
-  ret_ty := match(callee_ty,.Func({ result : rb }) => rb, _ => TypeValue.Unit);
+  is_ref_return := match(callee_ty, .Func({ meta : __fm1 }) => __fm1.*.result_is_ref, _ => false);
+  ret_ty := match(callee_ty, .Func({ result : rb }) => rb, _ => TypeValue.Unit);
   _slice_pre := (opts.allow_parameter_source && !(is_ref_return));
   is_slice_return := (_slice_pre && type_representation_contains_raw_ptr(ret_ty));
   if(!(is_ref_return) && !(is_slice_return), {
     return(false);
   });
-  param_types := match(callee_ty,.Func({ param_types : pts }) => pts, _ => ArrayList(TypeValue).new());
-  param_is_ref := match(callee_ty,.Func({ meta : __fm2 }) => __fm2.*.param_is_ref, _ => ArrayList(bool).new());
+  param_types := match(callee_ty, .Func({ param_types : pts }) => pts, _ => ArrayList(TypeValue).new());
+  param_is_ref := match(callee_ty, .Func({ meta : __fm2 }) => __fm2.*.param_is_ref, _ => ArrayList(bool).new());
   // Build the effective argument list (receiver as implicit arg 0 for methods).
   eff_args := ArrayList(AstExpr).new();
   if(is_method_call, {
-    cf_args := match(call_func,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+    cf_args := match(call_func, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
     match(
       cf_args.get(usize(0)),
       .Some(recv) => {
@@ -533,8 +533,8 @@ is_flowable_expr :: (fn(expr_in : AstExpr, ctx : EvalContext, opts : FlowOptions
   (pi : usize) = usize(0);
   (all_ok : bool) = true;
   while((pi < param_types.len()) && all_ok, {
-    p_is_ref := match(param_is_ref.get(pi),.Some(b) => b,.None => false);
-    p_ty := match(param_types.get(pi),.Some(t) => t,.None => TypeValue.Unit);
+    p_is_ref := match(param_is_ref.get(pi), .Some(b) => b, .None => false);
+    p_ty := match(param_types.get(pi), .Some(t) => t, .None => TypeValue.Unit);
     _slice_src := (is_slice_return && type_may_provide_slice_source(p_ty));
     needs_check := (p_is_ref || _slice_src);
     if(needs_check, {
@@ -593,10 +593,10 @@ _place_root_atom :: (fn(expr_in : AstExpr) -> Option(AstExpr))({
   (cur : AstExpr) = expr_in;
   (walking : bool) = true;
   while(walking, {
-    if(ast_expr_is_fn_call(cur) && ast_expr_is_fn_call_of(cur, BF_DOT,.Some(usize(2))), {
+    if(ast_expr_is_fn_call(cur) && ast_expr_is_fn_call_of(cur, BF_DOT, .Some(usize(2))), {
       cur = match(
         cur,
-        .FnCall(_, _, pr_args, _, _) => match(pr_args.get(usize(0)),.Some(b) => b,.None => make_err_expr()),
+        .FnCall(_, _, pr_args, _, _) => match(pr_args.get(usize(0)), .Some(b) => b, .None => make_err_expr()),
         .Atom(_, _) => make_err_expr()
       );
     }, {
@@ -636,19 +636,19 @@ require_ref_own_argument_exclusivity :: (
   (limit : usize) = args.len();
   (pi : usize) = usize(0);
   while(pi < limit, {
-    is_ref := cond((pi < param_is_ref.len()) => match(param_is_ref.get(pi),.Some(r) => r,.None => false), true => false);
-    is_owning := cond((pi < param_is_owning.len()) => match(param_is_owning.get(pi),.Some(o) => o,.None => false), true => false);
+    is_ref := cond((pi < param_is_ref.len()) => match(param_is_ref.get(pi), .Some(r) => r, .None => false), true => false);
+    is_owning := cond((pi < param_is_owning.len()) => match(param_is_owning.get(pi), .Some(o) => o, .None => false), true => false);
     if(!(is_ref) && !(is_owning), {
       pi = (pi + usize(1));
     }, {
-      lbl := cond((pi < param_labels.len()) => match(param_labels.get(pi),.Some(l) => l,.None => String.from("")), true => String.from(""));
+      lbl := cond((pi < param_labels.len()) => match(param_labels.get(pi), .Some(l) => l, .None => String.from("")), true => String.from(""));
       match(
         args.get(pi),
         .Some(arg) => {
           root_atom_opt := match(
             _info(ctx, arg),
             .Some(inf) => {
-              is_idx := match(inf.index_trait_ptr_type,.Some(_) => true,.None => false);
+              is_idx := match(inf.index_trait_ptr_type, .Some(_) => true, .None => false);
               cond(
                 (is_idx && ast_expr_is_fn_call(arg)) => match(
                   arg,
@@ -663,7 +663,7 @@ require_ref_own_argument_exclusivity :: (
           match(
             root_atom_opt,
             .Some(root_atom) => {
-              root_env := match(_info(ctx, root_atom),.Some(ri) => ri.env,.None => env);
+              root_env := match(_info(ctx, root_atom), .Some(ri) => ri.env, .None => env);
               vars := get_variables_from_env(root_env, ast_expr_token(root_atom).value);
               if(vars.len() > usize(0), {
                 match(
@@ -711,8 +711,8 @@ require_ref_own_argument_exclusivity :: (
                       ref_root_vars.get(ri),
                       .Some(ref_var) =>
                         if(alias_group_root(ref_var) == alias_group_root(own_var), {
-                          own_lbl := match(own_root_lbls.get(oi),.Some(l) => l,.None => String.from(""));
-                          ref_lbl := match(ref_root_lbls.get(ri),.Some(l) => l,.None => String.from(""));
+                          own_lbl := match(own_root_lbls.get(oi), .Some(l) => l, .None => String.from(""));
+                          ref_lbl := match(ref_root_lbls.get(ri), .Some(l) => l, .None => String.from(""));
                           match(
                             args.get(own_idx),
                             .Some(own_arg) =>
@@ -770,7 +770,7 @@ _reject_if_container_reachable :: (
   if(cvars.len() == usize(0), {
     return(());
   });
-  cvar := match(cvars.get(cvars.len() - usize(1)),.Some(v) => v,.None => return(()));
+  cvar := match(cvars.get(cvars.len() - usize(1)), .Some(v) => v, .None => return(()));
   cname := ast_expr_token(container_atom).value;
   fix := cond(
     (kind == "index") => String.from("Copy the element out with \".get(i)\" first, or split the calls."),
@@ -822,7 +822,7 @@ _reject_if_container_reachable :: (
   (j : usize) = usize(0);
   while(j < n, {
     if(!(j == ref_arg_index), {
-      other := match(args.get(j),.Some(a) => a,.None => make_err_expr());
+      other := match(args.get(j), .Some(a) => a, .None => make_err_expr());
       could_reach := match(
         expr_info_table_get(ctx.expr_info_table, ast_expr_id(other)),
         .Some(oi) => {
@@ -836,7 +836,7 @@ _reject_if_container_reachable :: (
             expr_info_closure_function_value(oi),
             .Some(_) => true,
             .None => (
-              match(oi.is_anonymous_function_definition,.Some(b) => b,.None => false) &&
+              match(oi.is_anonymous_function_definition, .Some(b) => b, .None => false) &&
                 oi.capture_type.is_some()
             )
           );
@@ -875,16 +875,16 @@ require_valid_ref_argument_places :: (
   });
   (i : usize) = usize(0);
   while(i < n, {
-    p_ref := match(param_is_ref.get(i),.Some(b) => b,.None => false);
+    p_ref := match(param_is_ref.get(i), .Some(b) => b, .None => false);
     if(p_ref, {
-      arg := match(args.get(i),.Some(a) => a,.None => make_err_expr());
+      arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
       arg_tok := ast_expr_token(arg);
       if(!(arg_tok.module_path.starts_with(String.from("auto-generated://"))), {
         // `xs(i)` (Index trait) yields a raw `*(T)` into the container's
         // heap buffer; reject when the container is reachable.
         arg_is_index_place := match(
           expr_info_table_get(ctx.expr_info_table, ast_expr_id(arg)),
-          .Some(ai_info) => match(ai_info.index_trait_ptr_type,.Some(_) => true,.None => false),
+          .Some(ai_info) => match(ai_info.index_trait_ptr_type, .Some(_) => true, .None => false),
           .None => false
         );
         if(arg_is_index_place && ast_expr_is_fn_call(arg), {
@@ -899,17 +899,17 @@ require_valid_ref_argument_places :: (
             .None => ()
           );
         }, {
-          if(ast_expr_is_fn_call(arg) && ast_expr_is_fn_call_of(arg, BF_DOT,.Some(usize(2))), {
+          if(ast_expr_is_fn_call(arg) && ast_expr_is_fn_call_of(arg, BF_DOT, .Some(usize(2))), {
             // Walk the field chain; collect hops; find the root atom.
             hops := ArrayList(AstExpr).new();
             (cur : AstExpr) = arg;
             (walking : bool) = true;
             while(walking, {
-              if(ast_expr_is_fn_call(cur) && ast_expr_is_fn_call_of(cur, BF_DOT,.Some(usize(2))), {
+              if(ast_expr_is_fn_call(cur) && ast_expr_is_fn_call_of(cur, BF_DOT, .Some(usize(2))), {
                 hops.push(cur);
                 cur = match(
                   cur,
-                  .FnCall(_, _, dargs, _, _) => match(dargs.get(usize(0)),.Some(b) => b,.None => make_err_expr()),
+                  .FnCall(_, _, dargs, _, _) => match(dargs.get(usize(0)), .Some(b) => b, .None => make_err_expr()),
                   .Atom(_, _) => make_err_expr()
                 );
               }, {
@@ -919,7 +919,7 @@ require_valid_ref_argument_places :: (
             // Namespace-style access (Type.member) is not a borrow.
             root_is_type := match(
               expr_info_table_get(ctx.expr_info_table, ast_expr_id(cur)),
-              .Some(ri) => match(ri.value,.Some(v) => is_type_val(v),.None => false),
+              .Some(ri) => match(ri.value, .Some(v) => is_type_val(v), .None => false),
               .None => false
             );
             if(!(root_is_type), {
@@ -931,7 +931,7 @@ require_valid_ref_argument_places :: (
               (has_object_hop : bool) = false;
               (h : usize) = usize(1);
               while(h < hops.len(), {
-                hop := match(hops.get(h),.Some(x) => x,.None => make_err_expr());
+                hop := match(hops.get(h), .Some(x) => x, .None => make_err_expr());
                 match(
                   expr_info_table_get(ctx.expr_info_table, ast_expr_id(hop)),
                   .Some(hri) => {

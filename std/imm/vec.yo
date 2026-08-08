@@ -173,13 +173,13 @@ impl(
   /// Return a new vector without the last element, and the removed element.
   pop : (fn(own(self) : Self) -> PopResult(T))({
     if(self.is_empty(), {
-      return(PopResult(T)(vec : self, value :.None));
+      return(PopResult(T)(vec : self, value : .None));
     });
     val := (self._ptr.add(self._len - usize(1))).*;
     new_len := (self._len - usize(1));
     if(rc(self) == usize(1), {
       self._len = new_len;
-      return(PopResult(T)(vec : self, value :.Some(val)));
+      return(PopResult(T)(vec : self, value : .Some(val)));
     });
     new_ptr := Self._raw_alloc(self._cap);
     if(new_len > usize(0), {
@@ -187,7 +187,7 @@ impl(
     });
     new_vec := Self(_ptr : new_ptr, _len : new_len, _cap : self._cap);
     unsafe.drop(self);
-    PopResult(T)(vec : new_vec, value :.Some(val))
+    PopResult(T)(vec : new_vec, value : .Some(val))
   }),
   /// Return a new vector containing only elements in range [start, end).
   slice : (fn(self : Self, start : usize, end : usize) -> Self)({
@@ -330,11 +330,11 @@ impl(
   /// Find the first element satisfying the predicate.
   find : (fn(self : Self, f : Impl(Fn(a : T) -> bool)) -> Option(T))({
     i := usize(0);
-    (result : Option(T)) =.None;
+    (result : Option(T)) = .None;
     while((i < self._len) && result.is_none(), i = (i + usize(1)), {
       elem := (self._ptr.add(i)).*;
       if(f(elem), {
-        result =.Some(elem);
+        result = .Some(elem);
       });
     });
     result
@@ -342,10 +342,10 @@ impl(
   /// Return the index of the first element equal to `val`, or `.None`.
   index_of : (fn(self : Self, val : T, where(T <: Eq(T))) -> Option(usize))({
     i := usize(0);
-    (result : Option(usize)) =.None;
+    (result : Option(usize)) = .None;
     while((i < self._len) && result.is_none(), i = (i + usize(1)), {
       if((self._ptr.add(i)).* == val, {
-        result =.Some(i);
+        result = .Some(i);
       });
     });
     result

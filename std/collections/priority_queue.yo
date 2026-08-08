@@ -40,7 +40,7 @@ impl(
   // Inspect the smallest element without removing it.
   peek : (fn(self : Self) -> Option(T))(
     cond(
-      (self._data.len() == usize(0)) =>.None,
+      (self._data.len() == usize(0)) => .None,
       true => self._data.get(usize(0))
     )
   ),
@@ -69,7 +69,7 @@ impl(
   pop : (fn(self : Self, where(T <: Ord(T))) -> Option(T))({
     n := self._data.len();
     cond(
-      (n == usize(0)) =>.None,
+      (n == usize(0)) => .None,
       true => {
         top := self._data(usize(0));
         last := self._data(n - usize(1));
@@ -129,7 +129,7 @@ impl(
     Item : T,
     next : (fn(inout(self) : Self) -> Option(T))(
       cond(
-        (self._index >= self._data.len()) =>.None,
+        (self._index >= self._data.len()) => .None,
         true => {
           value := self._data(self._index);
           self._index = (self._index + usize(1));
@@ -162,7 +162,7 @@ impl(
     Item : *(T),
     next : (fn(inout(self) : Self) -> Option(*(T)))(
       cond(
-        (self._index >= self._data.len()) =>.None,
+        (self._index >= self._data.len()) => .None,
         true =>
           match(
             self._data._ptr,
@@ -171,7 +171,7 @@ impl(
               self._index = (self._index + usize(1));
               .Some(element_ptr)
             },
-            .None =>.None
+            .None => .None
           )
       )
     )

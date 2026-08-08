@@ -60,7 +60,7 @@ impl(
   _flush_inner : (fn(self : Self, io : Io) -> Impl(Future(Result(unit, IoError), Io)))({
     the_fd := self._fd;
     io.async((io) => {
-      (write_err : Option(IoError)) =.None;
+      (write_err : Option(IoError)) = .None;
       cond(
         (self._buf.len() > usize(0)) => {
           written := usize(0);
@@ -71,7 +71,7 @@ impl(
             n := io.await(IO_file.write(the_fd, buf_ptr.add(written), remaining, self._offset), io);
             cond(
               (n < i32(0)) => {
-                write_err =.Some(IoError.from_errno(i32(0) - n));
+                write_err = .Some(IoError.from_errno(i32(0) - n));
               },
               true => {
                 written = (written + usize(n));
@@ -85,8 +85,8 @@ impl(
       );
       match(
         write_err,
-        .Some(e) =>.Err(e),
-        .None =>.Ok(())
+        .Some(e) => .Err(e),
+        .None => .Ok(())
       )
     })
   }),
@@ -98,7 +98,7 @@ impl(
     io.async((io) => {
       remaining := usize(size);
       src_pos := usize(0);
-      (write_err : Option(IoError)) =.None;
+      (write_err : Option(IoError)) = .None;
       while(runtime((remaining > usize(0)) && write_err.is_none()), {
         space := (self._capacity - self._buf.len());
         cond(
@@ -108,7 +108,7 @@ impl(
             match(
               flush_result,
               .Err(e) => {
-                write_err =.Some(e);
+                write_err = .Some(e);
               },
               .Ok(_) => ()
             );
@@ -130,8 +130,8 @@ impl(
       });
       match(
         write_err,
-        .Some(e) =>.Err(e),
-        .None =>.Ok(i32(size))
+        .Some(e) => .Err(e),
+        .None => .Ok(i32(size))
       )
     })
   }),

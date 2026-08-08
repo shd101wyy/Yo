@@ -109,7 +109,7 @@ ci_child_of_comptime_list_ty :: (fn(ty : TypeValue) -> TypeValue)(
   match(
     ty,
     .ComptimeListT(cb) => cb,
-    .Pointer(pb) => match(pb,.ComptimeListT(cb) => cb, _ => ty),
+    .Pointer(pb) => match(pb, .ComptimeListT(cb) => cb, _ => ty),
     _ => ty
   )
 );
@@ -118,7 +118,7 @@ ci_child_of_array_ty :: (fn(ty : TypeValue) -> TypeValue)(
   match(
     ty,
     .Array(cb, _, _) => cb,
-    .Pointer(pb) => match(pb,.Array(cb, _, _) => cb, _ => ty),
+    .Pointer(pb) => match(pb, .Array(cb, _, _) => cb, _ => ty),
     _ => ty
   )
 );
@@ -130,8 +130,8 @@ ci_elem_return_ty :: (fn(ty : TypeValue) -> TypeValue)(
     .Pointer(pb) => {
       inner := pb;
       cond(
-        is_array_type(inner) => t_ptr(match(inner,.Array(cb, _, _) => cb, _ => inner)),
-        is_comptime_list_type(inner) => t_ptr(match(inner,.ComptimeListT(cb) => cb, _ => inner)),
+        is_array_type(inner) => t_ptr(match(inner, .Array(cb, _, _) => cb, _ => inner)),
+        is_comptime_list_type(inner) => t_ptr(match(inner, .ComptimeListT(cb) => cb, _ => inner)),
         true => ty
       )
     },
@@ -162,7 +162,7 @@ ci_resolve_comptime_list :: (fn(val_opt : Option(EvalValue)) -> Option(EvalValue
       if(is_ptr_val(sv), {
         inner := match(
           sv,
-          .PtrVal(tgt_cell, _) => match(tgt_cell.get(usize(0)),.Some(t0) => t0,.None => EvalValue.UnitVal),
+          .PtrVal(tgt_cell, _) => match(tgt_cell.get(usize(0)), .Some(t0) => t0, .None => EvalValue.UnitVal),
           _ => EvalValue.UnitVal
         );
         if(is_comptime_list_val(inner), Option(EvalValue).Some(inner), Option(EvalValue).None)
@@ -295,7 +295,7 @@ ci_eval_list_index :: (
         idx_info.value,
         .Some(iv) => {
           if(is_int_lit(iv), {
-            idx_raw := match(iv,.IntLit(r) => r, _ => String.from("0"));
+            idx_raw := match(iv, .IntLit(r) => r, _ => String.from("0"));
             idx_i64 := match(
               idx_raw.parse_i64(),
               .Some(n) => n,
@@ -582,7 +582,7 @@ ci_eval_array_index :: (
             idx_info.value,
             .Some(iv) => {
               if(is_int_lit(iv), {
-                idx_raw := match(iv,.IntLit(r) => r, _ => String.from("0"));
+                idx_raw := match(iv, .IntLit(r) => r, _ => String.from("0"));
                 idx_i64 := match(
                   idx_raw.parse_i64(),
                   .Some(n) => n,
@@ -716,7 +716,7 @@ ci_eval_string_index :: (
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
     return(expr);
   });
-  raw := match(self_info.value,.Some(sv) => match(sv,.StrLit(r) => r, _ => String.new()),.None => String.new());
+  raw := match(self_info.value, .Some(sv) => match(sv, .StrLit(r) => r, _ => String.new()), .None => String.new());
   unquoted := ci_str_unquote(raw);
   if(!(is_range), {
     // ----- Single character index -----
@@ -732,7 +732,7 @@ ci_eval_string_index :: (
     });
     idx_raw := match(
       idx_info.value,
-      .Some(iv) => match(iv,.IntLit(r) => r, _ => String.from("0")),
+      .Some(iv) => match(iv, .IntLit(r) => r, _ => String.from("0")),
       .None => String.from("0")
     );
     idx_i64 := match(
@@ -876,25 +876,25 @@ evaluate_yo_comptime_index_functions :: (
     exn : Exception
   ) -> AstExpr
 )({
-  if(ast_expr_is_fn_call_of(expr, BF_YO_COMPTIME_LIST_INDEX,.None), {
+  if(ast_expr_is_fn_call_of(expr, BF_YO_COMPTIME_LIST_INDEX, .None), {
     return(ci_eval_list_index(expr, env, ctx, exn));
   });
-  if(ast_expr_is_fn_call_of(expr, BF_YO_COMPTIME_LIST_INDEX_RANGE,.None), {
+  if(ast_expr_is_fn_call_of(expr, BF_YO_COMPTIME_LIST_INDEX_RANGE, .None), {
     return(ci_eval_list_range_index(expr, env, ctx, false, exn));
   });
-  if(ast_expr_is_fn_call_of(expr, BF_YO_COMPTIME_LIST_INDEX_RANGE_INCLUSIVE,.None), {
+  if(ast_expr_is_fn_call_of(expr, BF_YO_COMPTIME_LIST_INDEX_RANGE_INCLUSIVE, .None), {
     return(ci_eval_list_range_index(expr, env, ctx, true, exn));
   });
-  if(ast_expr_is_fn_call_of(expr, BF_COMPTIME_ARRAY_INDEX,.None), {
+  if(ast_expr_is_fn_call_of(expr, BF_COMPTIME_ARRAY_INDEX, .None), {
     return(ci_eval_array_index(expr, env, ctx, exn));
   });
-  if(ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_INDEX,.None), {
+  if(ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_INDEX, .None), {
     return(ci_eval_string_index(expr, env, ctx, false, false, exn));
   });
-  if(ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_INDEX_RANGE,.None), {
+  if(ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_INDEX_RANGE, .None), {
     return(ci_eval_string_index(expr, env, ctx, true, false, exn));
   });
-  if(ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_INDEX_RANGE_INCLUSIVE,.None), {
+  if(ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_INDEX_RANGE_INCLUSIVE, .None), {
     return(ci_eval_string_index(expr, env, ctx, true, true, exn));
   });
   exn.throw(

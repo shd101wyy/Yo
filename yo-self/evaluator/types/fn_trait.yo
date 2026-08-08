@@ -58,7 +58,7 @@ evaluate_fn_trait_type :: (
   ) -> AstExpr
 )({
   // expr is the `->` expression with Fn(...) on the left and return type on the right
-  if(!(ast_expr_is_fn_call_of(expr, "->",.Some(usize(2)))), {
+  if(!(ast_expr_is_fn_call_of(expr, "->", .Some(usize(2)))), {
     exn.throw(
       dyn(
         format_error_message(
@@ -71,8 +71,8 @@ evaluate_fn_trait_type :: (
     );
   });
   expr_args := _fn_trait_call_args(expr);
-  fn_call_expr := match(expr_args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
-  return_type_expr := match(expr_args.get(usize(1)),.Some(a) => a,.None => make_err_expr());
+  fn_call_expr := match(expr_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+  return_type_expr := match(expr_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
   if((!(ast_expr_is_fn_call(fn_call_expr))) ||
     !(ast_expr_is_fn_call_of(fn_call_expr, BK_FN_TRAIT, Option(usize).None)), {
     exn.throw(
@@ -118,7 +118,7 @@ evaluate_fn_trait_type :: (
       });
       match(
         info.value,
-        .Some(v) => match(v,.TypeVal(b) => b, _ => TypeValue.Unit),
+        .Some(v) => match(v, .TypeVal(b) => b, _ => TypeValue.Unit),
         .None => TypeValue.Unit
       )
     },
@@ -178,7 +178,7 @@ evaluate_fn_trait_type :: (
   fn_trait_type := t_fn_trait(String.from(BK_FN_TRAIT), call_param_labels, call_param_types, return_type, implicit_labels, implicit_types, implicit_spreads, call_param_is_ref);
   // Set expr info
   out_info := new_expr_info(env_mut, type_of_type(fn_trait_type));
-  out_info.value =.Some(create_type_value(fn_trait_type));
+  out_info.value = .Some(create_type_value(fn_trait_type));
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   expr
 });

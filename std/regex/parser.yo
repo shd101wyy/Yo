@@ -39,7 +39,7 @@ impl(
   _peek : (fn(self : Self) -> Option(u8))(
     cond(
       (self._pos < self._bytes.len()) => self._bytes.get(self._pos),
-      true =>.None
+      true => .None
     )
   ),
   _advance : (fn(self : Self) -> Option(u8))({
@@ -210,14 +210,14 @@ impl(
       b,
       .Some(ch) =>
         cond(
-          (ch == u8(100)) =>.Ok(self._make_digit_ranges()),
+          (ch == u8(100)) => .Ok(self._make_digit_ranges()),
           (ch == u8(68)) => {
             r := ArrayList(CharRange).new();
             r.push(CharRange(low : u32(0), high : u32(47)));
             r.push(CharRange(low : u32(58), high : u32(0x10FFFF)));
             .Ok(r)
           },
-          (ch == u8(119)) =>.Ok(self._make_word_ranges()),
+          (ch == u8(119)) => .Ok(self._make_word_ranges()),
           (ch == u8(87)) => {
             r := ArrayList(CharRange).new();
             r.push(CharRange(low : u32(0), high : u32(47)));
@@ -227,7 +227,7 @@ impl(
             r.push(CharRange(low : u32(123), high : u32(0x10FFFF)));
             .Ok(r)
           },
-          (ch == u8(115)) =>.Ok(self._make_space_ranges()),
+          (ch == u8(115)) => .Ok(self._make_space_ranges()),
           (ch == u8(83)) => {
             r := ArrayList(CharRange).new();
             r.push(CharRange(low : u32(0), high : u32(8)));
@@ -251,7 +251,7 @@ impl(
             .Ok(r)
           }
         ),
-      .None =>.Err(`Unexpected end of pattern after backslash`)
+      .None => .Err(`Unexpected end of pattern after backslash`)
     )
   }),
   _try_parse_char_range : (fn(self : Self, ranges : ArrayList(CharRange), low : u32) -> unit)({
@@ -440,8 +440,8 @@ impl(
           return(
             match(
               lookup,
-              .Some(ranges) =>.Ok(RegexNode.char_class(ranges, negated)),
-              .None =>.Err(`Unknown Unicode property: \\p{${name_str}}`)
+              .Some(ranges) => .Ok(RegexNode.char_class(ranges, negated)),
+              .None => .Err(`Unknown Unicode property: \\p{${name_str}}`)
             )
           );
         },
@@ -459,21 +459,21 @@ impl(
       b,
       .Some(ch) =>
         cond(
-          (ch == u8(100)) =>.Ok(RegexNode.char_class(self._make_digit_ranges(), false)),
-          (ch == u8(68)) =>.Ok(RegexNode.char_class(self._make_digit_ranges(), true)),
-          (ch == u8(119)) =>.Ok(RegexNode.char_class(self._make_word_ranges(), false)),
-          (ch == u8(87)) =>.Ok(RegexNode.char_class(self._make_word_ranges(), true)),
-          (ch == u8(115)) =>.Ok(RegexNode.char_class(self._make_space_ranges(), false)),
-          (ch == u8(83)) =>.Ok(RegexNode.char_class(self._make_space_ranges(), true)),
-          (ch == u8(98)) =>.Ok(RegexNode.anchor_node(.WordBoundary)),
-          (ch == u8(66)) =>.Ok(RegexNode.anchor_node(.NonWordBoundary)),
+          (ch == u8(100)) => .Ok(RegexNode.char_class(self._make_digit_ranges(), false)),
+          (ch == u8(68)) => .Ok(RegexNode.char_class(self._make_digit_ranges(), true)),
+          (ch == u8(119)) => .Ok(RegexNode.char_class(self._make_word_ranges(), false)),
+          (ch == u8(87)) => .Ok(RegexNode.char_class(self._make_word_ranges(), true)),
+          (ch == u8(115)) => .Ok(RegexNode.char_class(self._make_space_ranges(), false)),
+          (ch == u8(83)) => .Ok(RegexNode.char_class(self._make_space_ranges(), true)),
+          (ch == u8(98)) => .Ok(RegexNode.anchor_node(.WordBoundary)),
+          (ch == u8(66)) => .Ok(RegexNode.anchor_node(.NonWordBoundary)),
           // Numeric backreference \1 through \9
           ((ch >= u8(49)) && (ch <= u8(57))) => {
             group_idx := usize(ch - u8(48));
             cond(
               (group_idx > self._group_count) =>
                 .Err(`Backreference \\${group_idx} exceeds number of groups`),
-              true =>.Ok(RegexNode.backreference(group_idx))
+              true => .Ok(RegexNode.backreference(group_idx))
             )
           },
           // Named backreference \k<name>
@@ -509,8 +509,8 @@ impl(
                   return(
                     match(
                       lookup,
-                      .Some(idx) =>.Ok(RegexNode.backreference(idx)),
-                      .None =>.Err(`Unknown named group in backreference`)
+                      .Some(idx) => .Ok(RegexNode.backreference(idx)),
+                      .None => .Err(`Unknown named group in backreference`)
                     )
                   );
                 },
@@ -529,12 +529,12 @@ impl(
           // Hex unwind \xHH
           (ch == u8(120)) => match(
             self._parse_hex_byte(),
-            .Some(v) =>.Ok(RegexNode.literal(v)),
-            .None =>.Ok(RegexNode.literal(u32(ch)))
+            .Some(v) => .Ok(RegexNode.literal(v)),
+            .None => .Ok(RegexNode.literal(u32(ch)))
           ),
-          true =>.Ok(RegexNode.literal(self._escape_char_codepoint(ch)))
+          true => .Ok(RegexNode.literal(self._escape_char_codepoint(ch)))
         ),
-      .None =>.Err(`Unexpected end of pattern after backslash`)
+      .None => .Err(`Unexpected end of pattern after backslash`)
     )
   }),
   _parse_counted_quantifier : (fn(self : Self, atom : RegexNode) -> Result(RegexNode, String))({
@@ -625,14 +625,14 @@ impl(
       b,
       .Some(ch) =>
         cond(
-          (ch == u8(46)) =>.Ok(RegexNode.dot()),
-          (ch == u8(94)) =>.Ok(RegexNode.anchor_node(.Start)),
-          (ch == u8(36)) =>.Ok(RegexNode.anchor_node(.End)),
+          (ch == u8(46)) => .Ok(RegexNode.dot()),
+          (ch == u8(94)) => .Ok(RegexNode.anchor_node(.Start)),
+          (ch == u8(36)) => .Ok(RegexNode.anchor_node(.End)),
           (ch == u8(91)) => self._parse_char_class(),
           (ch == u8(92)) => self._parse_unwind(),
-          true =>.Ok(RegexNode.literal(self._read_codepoint(ch)))
+          true => .Ok(RegexNode.literal(self._read_codepoint(ch)))
         ),
-      .None =>.Err(`Unexpected end of pattern`)
+      .None => .Err(`Unexpected end of pattern`)
     )
   }),
   _maybe_quantify : (fn(self : Self, a : RegexNode) -> Result(RegexNode, String))({
@@ -661,7 +661,7 @@ impl(
         .Ok(RegexNode.quantifier(a, usize(0), usize(1), greedy))
       },
       (b == u8(123)) => self._parse_counted_quantifier(a),
-      true =>.Ok(a)
+      true => .Ok(a)
     )
   }),
   _parse_quantified : (fn(self : Self) -> Result(RegexNode, String))({
@@ -669,7 +669,7 @@ impl(
     match(
       atom,
       .Ok(a) => self._maybe_quantify(a),
-      .Err(e) =>.Err(e)
+      .Err(e) => .Err(e)
     )
   })
 );

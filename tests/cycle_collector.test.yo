@@ -18,10 +18,10 @@ impl(
   )
 );
 form_cycle :: (fn() -> unit)({
-  a := List(3,.None);
-  b := List(5,.None);
-  a.next =.Some(b);
-  b.next =.Some(a); // Create a cycle
+  a := List(3, .None);
+  b := List(5, .None);
+  a.next = .Some(b);
+  b.next = .Some(a); // Create a cycle
 });
 test("Gc initial state", {
   assert(Gc.tracked_count() == 0, "Expected 0 tracked objects at start");
@@ -29,7 +29,7 @@ test("Gc initial state", {
 test("Test cycle collection", {
   test_list :: (fn() -> unit)({
     form_cycle(); // create cycle
-    c := List(7,.None);
+    c := List(7, .None);
     assert(Gc.tracked_count() == 3, "Expected 3 tracked objects before GC");
     Gc.collect(); // manually trigger the GC collection
     assert(Gc.tracked_count() == 1, "Expected 1 tracked object after GC");
@@ -38,9 +38,9 @@ test("Test cycle collection", {
 });
 test("Test freeing many objects", {
   test_leak :: (fn() -> unit)({
-    z := List(3,.None);
-    y := List(2,.Some(z));
-    x := List(1,.Some(y));
+    z := List(3, .None);
+    y := List(2, .Some(z));
+    x := List(1, .Some(y));
   });
   // Run 100 times to accumulate leaks
   i := 0;
@@ -70,10 +70,10 @@ test("Live root reaching into cycle - reachable objects preserved", {
   // Bug 1 test: root → b ↔ c cycle. root is live (on stack).
   // After GC, b and c must NOT be freed (reachable from root).
   create_chain_with_cycle :: (fn() -> Node)({
-    b := Node(2,.None);
-    c := Node(3,.Some(b));
-    b.child =.Some(c);
-    return(Node(1,.Some(b)));
+    b := Node(2, .None);
+    c := Node(3, .Some(b));
+    b.child = .Some(c);
+    return(Node(1, .Some(b)));
   });
   do_test :: (fn() -> unit)({
     root := create_chain_with_cycle();
@@ -112,11 +112,11 @@ test("Live root reaching into cycle - reachable objects preserved", {
 test("Longer chain into cycle - all reachable objects preserved", {
   // root → a → b → c → b (cycle between b and c)
   create_long_chain :: (fn() -> Node)({
-    b := Node(20,.None);
-    c := Node(30,.Some(b));
-    b.child =.Some(c);
-    a := Node(10,.Some(b));
-    return(Node(1,.Some(a)));
+    b := Node(20, .None);
+    c := Node(30, .Some(b));
+    b.child = .Some(c);
+    a := Node(10, .Some(b));
+    return(Node(1, .Some(a)));
   });
   do_test :: (fn() -> unit)({
     root := create_long_chain();
@@ -135,15 +135,15 @@ test("Mixed live and garbage - only garbage collected", {
   // 1. live_root → live_child (live, on stack)
   // 2. cycle: a ↔ b (garbage after leaving scope)
   create_garbage_cycle :: (fn() -> unit)({
-    a := Node(100,.None);
-    b := Node(200,.Some(a));
-    a.child =.Some(b);
+    a := Node(100, .None);
+    b := Node(200, .Some(a));
+    a.child = .Some(b);
     // a and b become garbage when this function returns
   });
   do_test :: (fn() -> unit)({
-    live_root := Node(1,.None);
-    live_child := Node(2,.None);
-    live_root.child =.Some(live_child);
+    live_root := Node(1, .None);
+    live_child := Node(2, .None);
+    live_root.child = .Some(live_child);
     create_garbage_cycle();
     // 4 tracked: live_root, live_child, a(100), b(200)
     assert(Gc.tracked_count() == u64(4), "Expected 4 tracked objects");
@@ -173,10 +173,10 @@ test("Garbage cycle collected while live objects survive", {
   // that owns live's reference. The garbage cycle (a ↔ b) has only internal references
   // and is correctly collected. live survives because the temp variable owns its RC.
   do_test :: (fn() -> unit)({
-    live := Node(1,.None);
-    garbage_a := Node(2,.Some(live));
-    garbage_b := Node(3,.Some(garbage_a));
-    garbage_a.child =.Some(garbage_b);
+    live := Node(1, .None);
+    garbage_a := Node(2, .Some(live));
+    garbage_b := Node(3, .Some(garbage_a));
+    garbage_a.child = .Some(garbage_b);
     // garbage_a ↔ garbage_b cycle (only internal refs → garbage)
     // live's RC=1 is owned by the saved temp from field assignment (not part of cycle)
     assert(Gc.tracked_count() == u64(3), "Expected 3 tracked");
@@ -192,13 +192,13 @@ test("Garbage cycle collected while live objects survive", {
 });
 test("Multiple GC passes don't corrupt state", {
   do_test :: (fn() -> unit)({
-    root := Node(1,.None);
+    root := Node(1, .None);
     // Create and abandon multiple cycles
     i := 0;
     while(i < 10, {
-      a := Node((i * 2) + 100,.None);
-      b := Node((i * 2) + 101,.Some(a));
-      a.child =.Some(b);
+      a := Node((i * 2) + 100, .None);
+      b := Node((i * 2) + 101, .Some(a));
+      a.child = .Some(b);
       i = (i + 1);
     });
     // Multiple GC passes
@@ -217,8 +217,8 @@ test("Multiple GC passes don't corrupt state", {
 });
 test("Self-referential object collected correctly", {
   do_test :: (fn() -> unit)({
-    a := Node(42,.None);
-    a.child =.Some(a);
+    a := Node(42, .None);
+    a.child = .Some(a);
     // a points to itself — simplest possible cycle
     assert(Gc.tracked_count() == u64(1), "Expected 1 tracked");
   });
@@ -232,12 +232,12 @@ test("Self-referential object collected correctly", {
 });
 test("Three-node cycle all garbage", {
   do_test :: (fn() -> unit)({
-    a := Node(1,.None);
-    b := Node(2,.None);
-    c := Node(3,.None);
-    a.child =.Some(b);
-    b.child =.Some(c);
-    c.child =.Some(a);
+    a := Node(1, .None);
+    b := Node(2, .None);
+    c := Node(3, .None);
+    a.child = .Some(b);
+    b.child = .Some(c);
+    c.child = .Some(a);
   });
   do_test();
   Gc.collect();
@@ -246,10 +246,10 @@ test("Three-node cycle all garbage", {
 test("Diamond reference pattern - all reachable", {
   // root → a, root → b, a → shared, b → shared, shared → a (cycle)
   do_test :: (fn() -> unit)({
-    shared := Node(4,.None);
-    a := Node(2,.Some(shared));
-    b := Node(3,.Some(shared));
-    shared.child =.Some(a);
+    shared := Node(4, .None);
+    a := Node(2, .Some(shared));
+    b := Node(3, .Some(shared));
+    shared.child = .Some(a);
     // root has two children: a and b. We'll use List for this since Node only has one child.
     // Instead, just keep a, b, shared on stack and verify GC doesn't collect them.
     assert(Gc.tracked_count() == u64(3), "Expected 3 tracked (a, b, shared)");
@@ -307,8 +307,8 @@ ONode :: ref(
 );
 test("ref-enum Option(Self) self cycle collected", {
   do_test :: (fn() -> unit)({
-    a := ONode.OCons(42,.None);
-    a.next =.Some(a); // a -> Some(a): cycle through the value-enum edge
+    a := ONode.OCons(42, .None);
+    a.next = .Some(a); // a -> Some(a): cycle through the value-enum edge
   });
   do_test();
   Gc.collect();
@@ -316,10 +316,10 @@ test("ref-enum Option(Self) self cycle collected", {
 });
 test("ref-enum Option(Self) two-node cycle all garbage", {
   do_test :: (fn() -> unit)({
-    a := ONode.OCons(1,.None);
-    b := ONode.OCons(2,.None);
-    a.next =.Some(b);
-    b.next =.Some(a); // a <-> b through Option(Self), unreachable after return
+    a := ONode.OCons(1, .None);
+    b := ONode.OCons(2, .None);
+    a.next = .Some(b);
+    b.next = .Some(a); // a <-> b through Option(Self), unreachable after return
   });
   do_test();
   Gc.collect();

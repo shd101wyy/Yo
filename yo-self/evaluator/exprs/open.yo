@@ -48,7 +48,7 @@ walk_to_root :: (fn(e : AstExpr) -> AstExpr)({
   done := false;
   while(!(done), {
     cond(
-      ast_expr_is_fn_call_of(cur, BF_DOT,.None) => {
+      ast_expr_is_fn_call_of(cur, BF_DOT, .None) => {
         match(
           cur,
           .FnCall(_, _, args, _, _) =>
@@ -93,7 +93,7 @@ evaluate_open :: (
   ) -> AstExpr
 )({
   // Validate shape: `open` with exactly 1 argument.
-  if(!(ast_expr_is_fn_call_of(expr, BK_OPEN,.Some(usize(1)))), {
+  if(!(ast_expr_is_fn_call_of(expr, BK_OPEN, .Some(usize(1)))), {
     exn.throw(
       dyn(
         format_error_message(
@@ -187,7 +187,7 @@ evaluate_open :: (
   );
   is_struct_v := match(
     arg_value,
-    .Some(v) => match(v,.StructVal(_, _, _) => true, _ => false),
+    .Some(v) => match(v, .StructVal(_, _, _) => true, _ => false),
     .None => false
   );
   is_struct_t := is_struct_type(arg_ty);
@@ -199,8 +199,8 @@ evaluate_open :: (
   // reconstructing it from the value; these two arrays are how yo-self gets at
   // the same data. Empty on the cycle / no-loader path, where
   // `LoadModuleResult.module_type` is `.Unit`.
-  ty_labels := match(arg_ty,.Struct({ field_labels : tls }) => tls, _ => ArrayList(String).new());
-  ty_types := match(arg_ty,.Struct({ field_types : tts }) => tts, _ => ArrayList(TypeValue).new());
+  ty_labels := match(arg_ty, .Struct({ field_labels : tls }) => tls, _ => ArrayList(String).new());
+  ty_types := match(arg_ty, .Struct({ field_types : tts }) => tts, _ => ArrayList(TypeValue).new());
   cond(
     is_module => {
       // Iterate module fields (parallel `names` / `values`).
@@ -211,8 +211,8 @@ evaluate_open :: (
           .StructVal(_, mnames, mvals) => {
             i := usize(0);
             while(i < mnames.len(), {
-              field_name := match(mnames.get(i),.Some(n) => n,.None => String.from(""));
-              field_val := match(mvals.get(i),.Some(x) => x,.None => EvalValue.UnitVal);
+              field_name := match(mnames.get(i), .Some(n) => n, .None => String.from(""));
+              field_val := match(mvals.get(i), .Some(x) => x, .None => EvalValue.UnitVal);
               // A FuncVal field's type must be its registered Func type (with
               // generic labels), NOT type_of_eval_value — which has no FuncVal arm
               // and returns `unit`. Binding a function under type `unit` made the
@@ -237,7 +237,7 @@ evaluate_open :: (
               // Only consulted when the label at the same index matches, so a
               // desynced namespace type can never mis-type a member.
               declared_ty_opt := cond(
-                match(ty_labels.get(i),.Some(tl) => (tl == field_name),.None => false) => ty_types.get(i),
+                match(ty_labels.get(i), .Some(tl) => (tl == field_name), .None => false) => ty_types.get(i),
                 true => Option(TypeValue).None
               );
               field_ty := match(
@@ -277,8 +277,8 @@ evaluate_open :: (
         .Struct({ field_labels, field_types }) => {
           i := usize(0);
           while(i < field_labels.len(), {
-            label := match(field_labels.get(i),.Some(l) => l,.None => String.from(""));
-            fty := match(field_types.get(i),.Some(t) => t,.None => t_unit());
+            label := match(field_labels.get(i), .Some(l) => l, .None => String.from(""));
+            fty := match(field_types.get(i), .Some(t) => t, .None => t_unit());
             // Pull the corresponding value from the StructVal, if any.
             fval_opt := match(
               arg_value,
@@ -289,7 +289,7 @@ evaluate_open :: (
               ),
               .None => Option(EvalValue).None
             );
-            is_comptime := match(fval_opt,.Some(_) => true,.None => false);
+            is_comptime := match(fval_opt, .Some(_) => true, .None => false);
             _added := add_variable_to_env(
               next_env,
               label,
@@ -313,7 +313,7 @@ evaluate_open :: (
         },
         _ => ()
       );
-      runtime_destructurings_opt =.Some(rds);
+      runtime_destructurings_opt = .Some(rds);
     },
     true => {
       exn.throw(
@@ -330,7 +330,7 @@ evaluate_open :: (
   );
   // Build out_info: env mutated, type `()`, value `UnitVal`.
   out_info := new_expr_info(next_env, t_unit());
-  out_info.value =.Some(EvalValue.UnitVal);
+  out_info.value = .Some(EvalValue.UnitVal);
   expr_info_set_runtime_destructurings(out_info, runtime_destructurings_opt);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   expr

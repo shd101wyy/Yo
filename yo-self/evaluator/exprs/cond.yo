@@ -95,7 +95,7 @@ evaluate_cond :: (
 )({
   (env : Environment) = env_in;
   // Validate that the expression is a cond() call.
-  if(!(ast_expr_is_fn_call_of(expr, BK_COND,.None)), {
+  if(!(ast_expr_is_fn_call_of(expr, BK_COND, .None)), {
     exn.throw(
       dyn(
         format_error_message(
@@ -132,8 +132,8 @@ evaluate_cond :: (
   parsed_stmts := ArrayList(ParsedStmt).new();
   (pi : usize) = usize(0);
   while(pi < statement_count, {
-    statement := match(statements.get(pi),.Some(s) => s,.None => make_err_expr());
-    is_arrow_call := (ast_expr_is_fn_call(statement) && ast_expr_is_fn_call_of(statement, "=>",.Some(usize(2))));
+    statement := match(statements.get(pi), .Some(s) => s, .None => make_err_expr());
+    is_arrow_call := (ast_expr_is_fn_call(statement) && ast_expr_is_fn_call_of(statement, "=>", .Some(usize(2))));
     if(!(is_arrow_call), {
       exn.throw(
         dyn(
@@ -148,12 +148,12 @@ evaluate_cond :: (
     });
     cond_expr := match(
       statement,
-      .FnCall(_, _, sargs, _, _) => match(sargs.get(usize(0)),.Some(a) => a,.None => make_err_expr()),
+      .FnCall(_, _, sargs, _, _) => match(sargs.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
       .Atom(_, _) => make_err_expr()
     );
     case_body_expr := match(
       statement,
-      .FnCall(_, _, sargs, _, _) => match(sargs.get(usize(1)),.Some(a) => a,.None => make_err_expr()),
+      .FnCall(_, _, sargs, _, _) => match(sargs.get(usize(1)), .Some(a) => a, .None => make_err_expr()),
       .Atom(_, _) => make_err_expr()
     );
     parsed_stmts.push(
@@ -219,7 +219,7 @@ evaluate_cond :: (
     // lookup that the bootstrap can't yet resolve). Treat the
     // condition as non-comptime-true and let the rest of the
     // case-selection logic fall through naturally.
-    is_unit_fallback := match(cond_info.ty,.Unit => true, _ => false);
+    is_unit_fallback := match(cond_info.ty, .Unit => true, _ => false);
     if((!(is_bool_type(cond_info.ty))) && !(is_unit_fallback), {
       exn.throw(
         dyn(
@@ -236,7 +236,7 @@ evaluate_cond :: (
     updated_case_env := cond_info.env;
     // Last condition must be compile-time known `true`.
     is_last := (ec_i == (parsed_stmts.len() - usize(1)));
-    is_comptime_true := match(cond_val,.Some(v) => match(v,.BoolVal(b) => b, _ => false),.None => false);
+    is_comptime_true := match(cond_val, .Some(v) => match(v, .BoolVal(b) => b, _ => false), .None => false);
     if(is_last && !(is_comptime_true), {
       exn.throw(
         dyn(
@@ -278,7 +278,7 @@ evaluate_cond :: (
         return(expr);
       }
     );
-    is_comptime_true_here := match(ec_here.cond_value,.Some(v) => match(v,.BoolVal(b) => b, _ => false),.None => false);
+    is_comptime_true_here := match(ec_here.cond_value, .Some(v) => match(v, .BoolVal(b) => b, _ => false), .None => false);
     if(is_comptime_true_here, {
       // Ensure all previous conditions were compile-time false.
       (all_prev_false : bool) = true;
@@ -287,7 +287,7 @@ evaluate_cond :: (
         match(
           evaluated_conds.get(j),
           .Some(prev) => {
-            prev_is_false := match(prev.cond_value,.Some(v) => match(v,.BoolVal(b) => !(b), _ => false),.None => false);
+            prev_is_false := match(prev.cond_value, .Some(v) => match(v, .BoolVal(b) => !(b), _ => false), .None => false);
             if(!(prev_is_false), {
               all_prev_false = false;
             });
@@ -341,7 +341,7 @@ evaluate_cond :: (
       evaluated_body := evaluate_begin_expression(case_body_true, case_env_true, ctx, ArrayList(Variable).new(), false, exn);
       register_arm_init_range(ast_expr_id(evaluated_body), bir_start_t, branch_init_log_len());
       body_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_body));
-      body_cf := match(body_info_opt,.Some(bi) => bi.control_flow,.None => Option(ControlFlowFlags).None);
+      body_cf := match(body_info_opt, .Some(bi) => bi.control_flow, .None => Option(ControlFlowFlags).None);
       if(has_any_control_flow(body_cf), {
         // Body has control flow — propagate without a value.
         body_info := match(
@@ -352,8 +352,8 @@ evaluate_cond :: (
           }
         );
         result_ty := cond(
-          match(ctx.expected_type,.Some(et) => !(type_contains_some_type_deep(et.ty)),.None => false) =>
-            match(ctx.expected_type,.Some(et) => et.ty,.None => body_info.ty),
+          match(ctx.expected_type, .Some(et) => !(type_contains_some_type_deep(et.ty)), .None => false) =>
+            match(ctx.expected_type, .Some(et) => et.ty, .None => body_info.ty),
           true => body_info.ty
         );
         out_info := new_expr_info(body_info.env, result_ty);
@@ -388,8 +388,8 @@ evaluate_cond :: (
         env.function_declaration_frame_level = body_info.env.function_declaration_frame_level;
         env.input_string = body_info.env.input_string;
         result_ty := cond(
-          match(ctx.expected_type,.Some(et) => !(type_contains_some_type_deep(et.ty)),.None => false) =>
-            match(ctx.expected_type,.Some(et) => et.ty,.None => body_info.ty),
+          match(ctx.expected_type, .Some(et) => !(type_contains_some_type_deep(et.ty)), .None => false) =>
+            match(ctx.expected_type, .Some(et) => et.ty, .None => body_info.ty),
           true => body_info.ty
         );
         out_info := new_expr_info(env, result_ty);
@@ -424,7 +424,7 @@ evaluate_cond :: (
           .Some(ec_item) => {
             nb_i = (nb_i + usize(1));
             // Skip compile-time false conditions.
-            is_comptime_false := match(ec_item.cond_value,.Some(v) => match(v,.BoolVal(b) => !(b), _ => false),.None => false);
+            is_comptime_false := match(ec_item.cond_value, .Some(v) => match(v, .BoolVal(b) => !(b), _ => false), .None => false);
             if(!(is_comptime_false), {
               // Mark condition as executed.
               match(
@@ -457,7 +457,7 @@ evaluate_cond :: (
               );
               consume_case_body_temp_var(evaluated_case_body, body_env_for_consume, ctx);
               body_einfo_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_case_body));
-              body_cf2 := match(body_einfo_opt,.Some(bi) => bi.control_flow,.None => Option(ControlFlowFlags).None);
+              body_cf2 := match(body_einfo_opt, .Some(bi) => bi.control_flow, .None => Option(ControlFlowFlags).None);
               if(has_any_control_flow(body_cf2), {
                 cf_flags := match(
                   body_cf2,
@@ -465,7 +465,7 @@ evaluate_cond :: (
                   .None => ControlFlowFlags(return_flag : false, unwind_flag : false, break_flag : false, continue_flag : false)
                 );
                 control_flows.push(cf_flags);
-                if(has_control_flow(body_cf2,.Return), {
+                if(has_control_flow(body_cf2, .Return), {
                   return_bodies.push(evaluated_case_body);
                 });
                 // Skip remaining processing for this arm.
@@ -594,18 +594,18 @@ evaluate_cond :: (
         if(value_type.is_none(), {
           value_type = Option(ValueTypeState).Some(ValueTypeState(ty : t_unit(), env : env));
         });
-        vts := match(value_type,.Some(vt) => vt,.None => ValueTypeState(ty : t_unit(), env : env));
+        vts := match(value_type, .Some(vt) => vt, .None => ValueTypeState(ty : t_unit(), env : env));
         // Merge environments from arms that don't return/unwind.
         filtered_bodies := ArrayList(AstExpr).new();
         (fb_i : usize) = usize(0);
         while(fb_i < bodies.len(), {
-          body := match(bodies.get(fb_i),.Some(b) => b,.None => make_err_expr());
+          body := match(bodies.get(fb_i), .Some(b) => b, .None => make_err_expr());
           body_info_filt_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(body));
           match(
             body_info_filt_opt,
             .None => (),
             .Some(bi) => {
-              if(!(has_control_flow(bi.control_flow,.Return)) && !(has_control_flow(bi.control_flow,.Unwind)), {
+              if(!(has_control_flow(bi.control_flow, .Return)) && !(has_control_flow(bi.control_flow, .Unwind)), {
                 filtered_bodies.push(body);
               });
             }
@@ -620,7 +620,7 @@ evaluate_cond :: (
           (ir_first_cap : Option(TypeValue)) = Option(TypeValue).None;
           (ir_i : usize) = usize(0);
           while(ir_i < filtered_bodies.len(), {
-            ir_body := match(filtered_bodies.get(ir_i),.Some(b) => b,.None => make_err_expr());
+            ir_body := match(filtered_bodies.get(ir_i), .Some(b) => b, .None => make_err_expr());
             match(
               expr_info_table_get(ctx.expr_info_table, ast_expr_id(ir_body)),
               .Some(ir_bi) => match(
@@ -670,8 +670,8 @@ evaluate_cond :: (
           true => Option(EvalValue).Some(create_unknown_val(vts.ty))
         );
         result_ty := cond(
-          match(ctx.expected_type,.Some(et) => !(type_contains_some_type_deep(et.ty)),.None => false) =>
-            match(ctx.expected_type,.Some(et) => et.ty,.None => vts.ty),
+          match(ctx.expected_type, .Some(et) => !(type_contains_some_type_deep(et.ty)), .None => false) =>
+            match(ctx.expected_type, .Some(et) => et.ty, .None => vts.ty),
           true => vts.ty
         );
         out_info := new_expr_info(env, result_ty);
@@ -694,7 +694,7 @@ evaluate_cond :: (
           );
         });
         cond(
-          has_control_flow(final_cf,.Return) => {
+          has_control_flow(final_cf, .Return) => {
             // At least one arm returns from a function.
             if(ctx.is_evaluating_function_body_or_async_block.is_none(), {
               exn.throw(
@@ -712,7 +712,7 @@ evaluate_cond :: (
             // or the expected type (in that priority order).
             (return_type : Option(TypeValue)) = Option(TypeValue).None;
             if(return_bodies.len() > usize(0), {
-              first_rb := match(return_bodies.get(usize(0)),.Some(b) => b,.None => make_err_expr());
+              first_rb := match(return_bodies.get(usize(0)), .Some(b) => b, .None => make_err_expr());
               first_rb_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(first_rb));
               match(
                 first_rb_info_opt,
@@ -776,7 +776,7 @@ evaluate_cond :: (
                 is_fn_body := match(
                   ctx.is_evaluating_function_body_or_async_block,
                   .None => false,
-                  .Some(fctx) => match(fctx.kind,.FunctionBody => true, _ => false)
+                  .Some(fctx) => match(fctx.kind, .FunctionBody => true, _ => false)
                 );
                 is_comptime_return := cond(
                   is_fn_body => match(
@@ -801,7 +801,7 @@ evaluate_cond :: (
               }
             );
           },
-          has_control_flow(final_cf,.Unwind) => {
+          has_control_flow(final_cf, .Unwind) => {
             // All arms unwind from the enclosing function.
             if(ctx.enclosing_function_return_type.is_none(), {
               exn.throw(
@@ -815,12 +815,12 @@ evaluate_cond :: (
                 )
               );
             });
-            unwind_ty := match(ctx.enclosing_function_return_type,.Some(t) => t,.None => t_unit());
+            unwind_ty := match(ctx.enclosing_function_return_type, .Some(t) => t, .None => t_unit());
             out_esc_info := new_expr_info(env, unwind_ty);
             out_esc_info.control_flow = final_cf;
             expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_esc_info);
           },
-          has_control_flow(final_cf,.Break) => {
+          has_control_flow(final_cf, .Break) => {
             // All arms break from a loop.
             if(ctx.is_evaluating_loop_body.is_none(), {
               exn.throw(
@@ -839,7 +839,7 @@ evaluate_cond :: (
             out_brk_info.control_flow = final_cf;
             expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_brk_info);
           },
-          has_control_flow(final_cf,.Continue) => {
+          has_control_flow(final_cf, .Continue) => {
             // All arms continue a loop.
             if(ctx.is_evaluating_loop_body.is_none(), {
               exn.throw(

@@ -8,15 +8,15 @@ open(import("std/string"));
 /// `static const char <var> = 0;` whose ADDRESS is the id (unique per type,
 /// matching vtable typeid naming). Mirrors `generateTypeId`.
 generate_typeid :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
-  arg_opt := match(expr,.FnCall(_, _, args, _, _) => args.get(usize(0)),.Atom(_, _) =>.None);
-  arg := match(arg_opt,.Some(a) => a,.None => return(String.from("// Error: typeid requires 1 argument")));
+  arg_opt := match(expr, .FnCall(_, _, args, _, _) => args.get(usize(0)), .Atom(_, _) => .None);
+  arg := match(arg_opt, .Some(a) => a, .None => return(String.from("// Error: typeid requires 1 argument")));
   ty := match(
     context.base.get_expr_info(arg),
-    .Some(ei) => match(ei.value,.Some(v) => match(v,.TypeVal(t) => t, _ => return(String.from("// Error: typeid expected a TypeValue argument"))),.None => return(String.from("// Error: typeid expected a TypeValue argument"))),
+    .Some(ei) => match(ei.value, .Some(v) => match(v, .TypeVal(t) => t, _ => return(String.from("// Error: typeid expected a TypeValue argument"))), .None => return(String.from("// Error: typeid expected a TypeValue argument"))),
     .None => return(String.from("// Error: typeid argument has no evaluation info"))
   );
   type_id := type_key(ty);
-  type_c_name := match(context.base.get_type_c_name(type_id.clone()),.Some(cn) => cn,.None => get_type_string(ty, context.base));
+  type_c_name := match(context.base.get_type_c_name(type_id.clone()), .Some(cn) => cn, .None => get_type_string(ty, context.base));
   static_var_name := String.from("__yo_typeid_");
   static_var_name.push_string(sanitize_for_c_identifier(type_c_name, false));
   if(!(context.base.type_id_static_names.contains(static_var_name.clone())), {

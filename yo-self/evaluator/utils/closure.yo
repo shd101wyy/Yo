@@ -240,7 +240,7 @@ create_capture_type_and_value :: (
         .Some(cvwv) => (cvwv.len() > usize(0))
       );
       if(has_any_caps, {
-        cvwv := match(captured_vars_with_values,.Some(m) => m,.None => HashMap(String, FuncCapturedVarInfo).new());
+        cvwv := match(captured_vars_with_values, .Some(m) => m, .None => HashMap(String, FuncCapturedVarInfo).new());
         key_iter := cvwv.keys();
         (more_keys : bool) = true;
         while(more_keys, {
@@ -287,9 +287,9 @@ create_capture_type_and_value :: (
       cap_key.push_str("|");
       (csi : usize) = usize(0);
       while(csi < field_labels.len(), {
-        cap_key.push_string(match(field_labels.get(csi),.Some(l) => l,.None => String.from("")));
+        cap_key.push_string(match(field_labels.get(csi), .Some(l) => l, .None => String.from("")));
         cap_key.push_str(":");
-        cap_key.push_string(match(field_types.get(csi),.Some(t) => type_to_string(t),.None => String.from("")));
+        cap_key.push_string(match(field_types.get(csi), .Some(t) => type_to_string(t), .None => String.from("")));
         // RESOLUTION-aware key suffix: a SomeT field type renders the SAME
         // `type_to_string` whether abstract (def-era eval — the captured
         // closure param is unbound, field lowers to void*) or resolved

@@ -79,7 +79,7 @@ impl(
     ctrl_result := malloc(ctrl_size);
     match(
       ctrl_result,
-      .None =>.Err(.AllocError(error :.OutOfMemory)),
+      .None => .Err(.AllocError(error : .OutOfMemory)),
       .Some(ctrl_void_ptr) => {
         ctrl_ptr := *(u8)(ctrl_void_ptr);
         data_result := malloc(data_size);
@@ -87,7 +87,7 @@ impl(
           data_result,
           .None => {
             free(.Some(*(void)(ctrl_ptr)));
-            .Err(.AllocError(error :.OutOfMemory))
+            .Err(.AllocError(error : .OutOfMemory))
           },
           .Some(data_void_ptr) => {
             data_ptr := *(Bucket(K, V))(data_void_ptr);
@@ -97,8 +97,8 @@ impl(
             });
             .Ok(
               Self(
-                ctrl :.Some(ctrl_ptr),
-                data :.Some(data_ptr),
+                ctrl : .Some(ctrl_ptr),
+                data : .Some(data_ptr),
                 capacity : capacity,
                 size : usize(0)
               )
@@ -229,7 +229,7 @@ impl(
     result := Self._alloc_with_capacity(new_capacity);
     match(
       result,
-      .Err(err) =>.Err(err),
+      .Err(err) => .Err(err),
       .Ok(new_map) => {
         i := usize(0);
         ctrl_ptr := Self._ctrl_ptr(self);
@@ -289,8 +289,8 @@ impl(
         self.ctrl = new_map.ctrl;
         self.data = new_map.data;
         self.capacity = new_map.capacity;
-        new_map.ctrl =.None;
-        new_map.data =.None;
+        new_map.ctrl = .None;
+        new_map.data = .None;
         .Ok(())
       }
     )
@@ -327,7 +327,7 @@ impl(
         );
         match(
           resize_check,
-          .Err(err) =>.Err(err),
+          .Err(err) => .Err(err),
           .Ok(_) => {
             h2 := h2_hash(hash);
             index := Self._find_insert_bucket(self, hash);
@@ -357,7 +357,7 @@ impl(
         bucket := (data_ptr.add(index)).*;
         .Some(bucket.value)
       },
-      .None =>.None
+      .None => .None
     )
   }),
   /**
@@ -395,7 +395,7 @@ impl(
         self.size = (self.size - usize(1));
         .Some(value)
       },
-      .None =>.None
+      .None => .None
     )
   }),
   /**
@@ -511,7 +511,7 @@ impl(
     Item : Bucket(K, V),
     next : (fn(inout(self) : Self) -> Option(Bucket(K, V)))(
       cond(
-        (self._map.capacity == usize(0)) =>.None,
+        (self._map.capacity == usize(0)) => .None,
         true => {
           ctrl_ptr := self._map.ctrl.unwrap();
           data_ptr := self._map.data.unwrap();
@@ -520,7 +520,7 @@ impl(
             ctrl_byte := (ctrl_ptr.add(self._index)).*;
             cond(
               ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                result =.Some((data_ptr.add(self._index)).*);
+                result = .Some((data_ptr.add(self._index)).*);
               },
               true => ()
             );
@@ -557,7 +557,7 @@ impl(
     Item : *(Bucket(K, V)),
     next : (fn(inout(self) : Self) -> Option(*(Bucket(K, V))))(
       cond(
-        (self._map.capacity == usize(0)) =>.None,
+        (self._map.capacity == usize(0)) => .None,
         true => {
           ctrl_ptr := self._map.ctrl.unwrap();
           data_ptr := self._map.data.unwrap();
@@ -566,7 +566,7 @@ impl(
             ctrl_byte := (ctrl_ptr.add(self._index)).*;
             cond(
               ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                result =.Some(data_ptr.add(self._index));
+                result = .Some(data_ptr.add(self._index));
               },
               true => ()
             );
@@ -611,7 +611,7 @@ impl(
     Item : K,
     next : (fn(inout(self) : Self) -> Option(K))(
       cond(
-        (self._map.capacity == usize(0)) =>.None,
+        (self._map.capacity == usize(0)) => .None,
         true => {
           ctrl_ptr := self._map.ctrl.unwrap();
           data_ptr := self._map.data.unwrap();
@@ -620,7 +620,7 @@ impl(
             ctrl_byte := (ctrl_ptr.add(self._index)).*;
             cond(
               ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                result =.Some((data_ptr.add(self._index)).*.key);
+                result = .Some((data_ptr.add(self._index)).*.key);
               },
               true => ()
             );
@@ -659,7 +659,7 @@ impl(
     Item : V,
     next : (fn(inout(self) : Self) -> Option(V))(
       cond(
-        (self._map.capacity == usize(0)) =>.None,
+        (self._map.capacity == usize(0)) => .None,
         true => {
           ctrl_ptr := self._map.ctrl.unwrap();
           data_ptr := self._map.data.unwrap();
@@ -668,7 +668,7 @@ impl(
             ctrl_byte := (ctrl_ptr.add(self._index)).*;
             cond(
               ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                result =.Some((data_ptr.add(self._index)).*.value);
+                result = .Some((data_ptr.add(self._index)).*.value);
               },
               true => ()
             );

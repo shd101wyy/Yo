@@ -23,11 +23,11 @@ open(import("std/string"));
 { generate_drop_code_for_value, generate_dup_code_for_value, get_drop_function_for_type, get_dup_function_for_type, resolve_some_type_param_type } :: import("./drop_dup.yo");
 /// The `i`-th argument of a FnCall (or `.None`).
 _arg :: (fn(expr : AstExpr, i : usize) -> Option(AstExpr))(
-  match(expr,.FnCall(_, _, args, _, _) => args.get(i),.Atom(_, _) => Option(AstExpr).None)
+  match(expr, .FnCall(_, _, args, _, _) => args.get(i), .Atom(_, _) => Option(AstExpr).None)
 );
 /// The result type of an expression (Unit when it has no ExprInfo).
 _ty :: (fn(expr : AstExpr, context : FunctionGenerationContext) -> TypeValue)(
-  match(context.base.get_expr_info(expr),.Some(ei) => ei.ty,.None => TypeValue.Unit)
+  match(context.base.get_expr_info(expr), .Some(ei) => ei.ty, .None => TypeValue.Unit)
 );
 /// `<wrapper>(<self>)` for a single-arg RC builtin. `err` when the arg is missing.
 _one_arg_call :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext, wrapper : str, err : str) -> String)(
@@ -62,7 +62,7 @@ generate_yo_incr_rc_atomic :: (fn(expr : AstExpr, indent : String, context : Fun
 /// `__yo_rc_own(<self>)` — ownership transfer; emits the argument as-is.
 /// Mirrors `generateYoRcOwn`.
 generate_yo_rc_own :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)(
-  match(_arg(expr, usize(0)),.Some(self_arg) => _call_generate_expr(self_arg, indent, context),.None => String.from("// Error: __yo_rc_own requires exactly 1 argument"))
+  match(_arg(expr, usize(0)), .Some(self_arg) => _call_generate_expr(self_arg, indent, context), .None => String.from("// Error: __yo_rc_own requires exactly 1 argument"))
 );
 /// `__yo_dyn_drop(<self>)` → decr the Dyn's `.data` pointer. Mirrors `generateYoDynDrop`.
 generate_yo_dyn_drop :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)(
@@ -116,15 +116,15 @@ generate_dup :: (fn(expr : AstExpr, indent : String, context : FunctionGeneratio
 );
 /// `__yo_drop_array_element(<array>, <index>)`. Mirrors `generateYoDropArrayElement`.
 generate_yo_drop_array_element :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
-  array_arg := match(_arg(expr, usize(0)),.Some(a) => a,.None => return(String.from("// Error: __yo_drop_array_element requires exactly 2 arguments")));
-  index_arg := match(_arg(expr, usize(1)),.Some(a) => a,.None => return(String.from("// Error: __yo_drop_array_element requires exactly 2 arguments")));
+  array_arg := match(_arg(expr, usize(0)), .Some(a) => a, .None => return(String.from("// Error: __yo_drop_array_element requires exactly 2 arguments")));
+  index_arg := match(_arg(expr, usize(1)), .Some(a) => a, .None => return(String.from("// Error: __yo_drop_array_element requires exactly 2 arguments")));
   array_code := _call_generate_expr(array_arg, indent.clone(), context);
   index_code := _call_generate_expr(index_arg, indent.clone(), context);
   array_type := _ty(array_arg, context);
   if(!(is_array_type(array_type)), {
     return(String.from("// Error: __yo_drop_array_element requires an array type"));
   });
-  element_type := match(array_type,.Array(el, _, _) => el, _ => return(String.from("// Error: __yo_drop_array_element requires an array type")));
+  element_type := match(array_type, .Array(el, _, _) => el, _ => return(String.from("// Error: __yo_drop_array_element requires an array type")));
   // Nested array element → recursive inline drop.
   match(
     element_type,
@@ -182,15 +182,15 @@ generate_yo_drop_array_element :: (fn(expr : AstExpr, indent : String, context :
 });
 /// `__yo_dup_array_element(<array>, <index>)`. Mirrors `generateYoDupArrayElement`.
 generate_yo_dup_array_element :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
-  array_arg := match(_arg(expr, usize(0)),.Some(a) => a,.None => return(String.from("// Error: __yo_dup_array_element requires exactly 2 arguments")));
-  index_arg := match(_arg(expr, usize(1)),.Some(a) => a,.None => return(String.from("// Error: __yo_dup_array_element requires exactly 2 arguments")));
+  array_arg := match(_arg(expr, usize(0)), .Some(a) => a, .None => return(String.from("// Error: __yo_dup_array_element requires exactly 2 arguments")));
+  index_arg := match(_arg(expr, usize(1)), .Some(a) => a, .None => return(String.from("// Error: __yo_dup_array_element requires exactly 2 arguments")));
   array_code := _call_generate_expr(array_arg, indent.clone(), context);
   index_code := _call_generate_expr(index_arg, indent.clone(), context);
   array_type := _ty(array_arg, context);
   if(!(is_array_type(array_type)), {
     return(String.from("// Error: __yo_dup_array_element requires an array type"));
   });
-  element_type := match(array_type,.Array(el, _, _) => el, _ => return(String.from("// Error: __yo_dup_array_element requires an array type")));
+  element_type := match(array_type, .Array(el, _, _) => el, _ => return(String.from("// Error: __yo_dup_array_element requires an array type")));
   match(
     element_type,
     .Array(child, nlen, nlvar) => {
@@ -266,21 +266,21 @@ generate_yo_dup_array_element :: (fn(expr : AstExpr, indent : String, context : 
 });
 /// `__yo_drop_tuple_element(<tuple>, <index>)`. Mirrors `generateYoDropTupleElement`.
 generate_yo_drop_tuple_element :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
-  tuple_arg := match(_arg(expr, usize(0)),.Some(a) => a,.None => return(String.from("// Error: __yo_drop_tuple_element requires exactly 2 arguments")));
-  index_arg := match(_arg(expr, usize(1)),.Some(a) => a,.None => return(String.from("// Error: __yo_drop_tuple_element requires exactly 2 arguments")));
+  tuple_arg := match(_arg(expr, usize(0)), .Some(a) => a, .None => return(String.from("// Error: __yo_drop_tuple_element requires exactly 2 arguments")));
+  index_arg := match(_arg(expr, usize(1)), .Some(a) => a, .None => return(String.from("// Error: __yo_drop_tuple_element requires exactly 2 arguments")));
   tuple_code := _call_generate_expr(tuple_arg, indent.clone(), context);
   _idx := _call_generate_expr(index_arg, indent.clone(), context);
   tuple_type := _ty(tuple_arg, context);
   if(!(is_tuple_type(tuple_type)), {
     return(String.from("// Error: __yo_drop_tuple_element requires a tuple type"));
   });
-  raw := match(context.base.get_expr_info(index_arg),.Some(iei) => match(iei.value,.Some(v) => match(v,.IntLit(r) => r, _ => return(String.from("// Error: __yo_drop_tuple_element requires a constant index"))),.None => return(String.from("// Error: __yo_drop_tuple_element requires a constant index"))),.None => return(String.from("// Error: __yo_drop_tuple_element requires a constant index")));
-  index_i64 := match(parse_raw_int(raw.clone()),.Some(n) => n,.None => return(String.from("// Error: __yo_drop_tuple_element requires a constant index")));
-  field_types := match(tuple_type,.Tuple({ field_types : fts }) => fts, _ => return(String.from("// Error: __yo_drop_tuple_element requires a tuple type")));
+  raw := match(context.base.get_expr_info(index_arg), .Some(iei) => match(iei.value, .Some(v) => match(v, .IntLit(r) => r, _ => return(String.from("// Error: __yo_drop_tuple_element requires a constant index"))), .None => return(String.from("// Error: __yo_drop_tuple_element requires a constant index"))), .None => return(String.from("// Error: __yo_drop_tuple_element requires a constant index")));
+  index_i64 := match(parse_raw_int(raw.clone()), .Some(n) => n, .None => return(String.from("// Error: __yo_drop_tuple_element requires a constant index")));
+  field_types := match(tuple_type, .Tuple({ field_types : fts }) => fts, _ => return(String.from("// Error: __yo_drop_tuple_element requires a tuple type")));
   if(index_i64 < i64(0), {
     return(String.from("// Error: __yo_drop_tuple_element index out of bounds"));
   });
-  element_type := match(field_types.get(usize(index_i64)),.Some(et) => et,.None => return(String.from("// Error: __yo_drop_tuple_element index out of bounds")));
+  element_type := match(field_types.get(usize(index_i64)), .Some(et) => et, .None => return(String.from("// Error: __yo_drop_tuple_element index out of bounds")));
   access := String.from("(");
   access.push_string(tuple_code);
   access.push_str(")._");
@@ -303,21 +303,21 @@ generate_yo_drop_tuple_element :: (fn(expr : AstExpr, indent : String, context :
 });
 /// `__yo_dup_tuple_element(<tuple>, <index>)`. Mirrors `generateYoDupTupleElement`.
 generate_yo_dup_tuple_element :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
-  tuple_arg := match(_arg(expr, usize(0)),.Some(a) => a,.None => return(String.from("// Error: __yo_dup_tuple_element requires exactly 2 arguments")));
-  index_arg := match(_arg(expr, usize(1)),.Some(a) => a,.None => return(String.from("// Error: __yo_dup_tuple_element requires exactly 2 arguments")));
+  tuple_arg := match(_arg(expr, usize(0)), .Some(a) => a, .None => return(String.from("// Error: __yo_dup_tuple_element requires exactly 2 arguments")));
+  index_arg := match(_arg(expr, usize(1)), .Some(a) => a, .None => return(String.from("// Error: __yo_dup_tuple_element requires exactly 2 arguments")));
   tuple_code := _call_generate_expr(tuple_arg, indent.clone(), context);
   _idx := _call_generate_expr(index_arg, indent.clone(), context);
   tuple_type := _ty(tuple_arg, context);
   if(!(is_tuple_type(tuple_type)), {
     return(String.from("// Error: __yo_dup_tuple_element requires a tuple type"));
   });
-  raw := match(context.base.get_expr_info(index_arg),.Some(iei) => match(iei.value,.Some(v) => match(v,.IntLit(r) => r, _ => return(String.from("// Error: __yo_dup_tuple_element requires a constant index"))),.None => return(String.from("// Error: __yo_dup_tuple_element requires a constant index"))),.None => return(String.from("// Error: __yo_dup_tuple_element requires a constant index")));
-  index_i64 := match(parse_raw_int(raw.clone()),.Some(n) => n,.None => return(String.from("// Error: __yo_dup_tuple_element requires a constant index")));
-  field_types := match(tuple_type,.Tuple({ field_types : fts }) => fts, _ => return(String.from("// Error: __yo_dup_tuple_element requires a tuple type")));
+  raw := match(context.base.get_expr_info(index_arg), .Some(iei) => match(iei.value, .Some(v) => match(v, .IntLit(r) => r, _ => return(String.from("// Error: __yo_dup_tuple_element requires a constant index"))), .None => return(String.from("// Error: __yo_dup_tuple_element requires a constant index"))), .None => return(String.from("// Error: __yo_dup_tuple_element requires a constant index")));
+  index_i64 := match(parse_raw_int(raw.clone()), .Some(n) => n, .None => return(String.from("// Error: __yo_dup_tuple_element requires a constant index")));
+  field_types := match(tuple_type, .Tuple({ field_types : fts }) => fts, _ => return(String.from("// Error: __yo_dup_tuple_element requires a tuple type")));
   if(index_i64 < i64(0), {
     return(String.from("// Error: __yo_dup_tuple_element index out of bounds"));
   });
-  element_type := match(field_types.get(usize(index_i64)),.Some(et) => et,.None => return(String.from("// Error: __yo_dup_tuple_element index out of bounds")));
+  element_type := match(field_types.get(usize(index_i64)), .Some(et) => et, .None => return(String.from("// Error: __yo_dup_tuple_element index out of bounds")));
   access := String.from("(");
   access.push_string(tuple_code);
   access.push_str(")._");
@@ -384,7 +384,7 @@ generate_yo_sometype_dup :: (fn(expr : AstExpr, indent : String, context : Funct
 );
 /// `rc(<value>)` → the value's reference count (or 1 for value types). Mirrors `generateRcCall`.
 generate_rc_call :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
-  arg_expr := match(_arg(expr, usize(0)),.Some(a) => a,.None => return(String.from("// Error: rc requires exactly 1 argument")));
+  arg_expr := match(_arg(expr, usize(0)), .Some(a) => a, .None => return(String.from("// Error: rc requires exactly 1 argument")));
   arg_type := _ty(arg_expr, context);
   arg_code := _call_generate_expr(arg_expr, indent.clone(), context);
   if(

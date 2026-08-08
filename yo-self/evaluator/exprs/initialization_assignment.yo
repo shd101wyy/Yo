@@ -94,8 +94,8 @@ evaluate_initialization_assignment :: (
 )({
   (env : Environment) = env_in;
   // Validate shape.
-  is_const := ast_expr_is_fn_call_of(expr, BK_CONST,.Some(usize(2)));
-  is_init_assign := ast_expr_is_fn_call_of(expr, BK_INIT_ASSIGN,.Some(usize(2)));
+  is_const := ast_expr_is_fn_call_of(expr, BK_CONST, .Some(usize(2)));
+  is_init_assign := ast_expr_is_fn_call_of(expr, BK_INIT_ASSIGN, .Some(usize(2)));
   if(!(is_const || is_init_assign), {
     exn.throw(
       dyn(
@@ -119,7 +119,7 @@ evaluate_initialization_assignment :: (
     is_ctfe_body := match(
       ctx.is_evaluating_function_body_or_async_block,
       .Some(fctx) => (
-        match(fctx.kind,.FunctionBody => true, _ => false) &&
+        match(fctx.kind, .FunctionBody => true, _ => false) &&
           match(
             fctx.func_type,
             .Some(ft) => is_function_type_and_returns_comptime_value(ft),
@@ -144,12 +144,12 @@ evaluate_initialization_assignment :: (
   // Extract lhs and rhs from args.
   (lhs : AstExpr) = match(
     expr,
-    .FnCall(_, _, args, _, _) => match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr()),
+    .FnCall(_, _, args, _, _) => match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
     .Atom(_, _) => make_err_expr()
   );
   (rhs : AstExpr) = match(
     expr,
-    .FnCall(_, _, args, _, _) => match(args.get(usize(1)),.Some(a) => a,.None => make_err_expr()),
+    .FnCall(_, _, args, _, _) => match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr()),
     .Atom(_, _) => make_err_expr()
   );
   // Detect given(name) wrapper on LHS for implicit parameter declaration.
@@ -158,7 +158,7 @@ evaluate_initialization_assignment :: (
   // v4.1 (plans/archive/BORROW_EXCLUSIVITY.md): local `inout(name) := …` bindings
   // were REMOVED — `ref` exists only in parameter position. Mirrors the
   // TS rejection in initialization-assignment.ts.
-  if(ast_expr_is_fn_call(lhs) && ast_expr_is_fn_call_of(lhs, BK_INOUT,.None), {
+  if(ast_expr_is_fn_call(lhs) && ast_expr_is_fn_call_of(lhs, BK_INOUT, .None), {
     exn.throw(
       dyn(
         format_error_message(
@@ -170,7 +170,7 @@ evaluate_initialization_assignment :: (
       )
     );
   });
-  if(ast_expr_is_fn_call(lhs) && ast_expr_is_fn_call_of(lhs, BK_GIVEN,.None), {
+  if(ast_expr_is_fn_call(lhs) && ast_expr_is_fn_call_of(lhs, BK_GIVEN, .None), {
     n_given_args := match(
       lhs,
       .FnCall(_, _, gargs, _, _) => gargs.len(),
@@ -191,12 +191,12 @@ evaluate_initialization_assignment :: (
     is_implicit = true;
     actual_lhs = match(
       lhs,
-      .FnCall(_, _, gargs, _, _) => match(gargs.get(usize(0)),.Some(a) => a,.None => make_err_expr()),
+      .FnCall(_, _, gargs, _, _) => match(gargs.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
       .Atom(_, _) => make_err_expr()
     );
   });
   // Prevent declaring variable type using :: or :=.
-  if(ast_expr_is_fn_call(actual_lhs) && ast_expr_is_fn_call_of(actual_lhs, BK_COLON,.None), {
+  if(ast_expr_is_fn_call(actual_lhs) && ast_expr_is_fn_call_of(actual_lhs, BK_COLON, .None), {
     op_str := ast_expr_token(expr).value.clone();
     exn.throw(
       dyn(
@@ -343,7 +343,7 @@ Bound type: ${type_to_string(rhs_info.ty)}`,
     // Check if the user pre-annotated the LHS with a type (via `(x : T) := rhs`).
     has_predefined_type := match(
       actual_lhs_info_opt,
-      .Some(ali) => (match(ali.value,.Some(_) => true,.None => false) || (type_value_tag(ali.ty) != TypeTag.TUnit)),
+      .Some(ali) => (match(ali.value, .Some(_) => true, .None => false) || (type_value_tag(ali.ty) != TypeTag.TUnit)),
       .None => false
     );
     // More precise: check if actualLhs.$.type was set (ExprInfo was created with a type annotation).
@@ -626,7 +626,7 @@ Use \`::\` for compile-time definitions inside impl.`,
       .None => Option(String).None,
       .Some(lookup) => {
         key := doc_comment_lookup_key_from_token(actual_lhs_tok);
-        match(lookup.get(key),.Some(v) => Option(String).Some(v),.None => Option(String).None)
+        match(lookup.get(key), .Some(v) => Option(String).Some(v), .None => Option(String).None)
       }
     );
     // No-shadowing rule (TS env.ts:644-658, enforced inside addVariableToEnv):
@@ -655,7 +655,7 @@ Use \`::\` for compile-time definitions inside impl.`,
                 error_message : `Variable "${var_name}" is already defined here (variable shadowing is not allowed):`
               )
             );
-            exn.throw(dyn(format_error_messages(sh_entries, false,.None)));
+            exn.throw(dyn(format_error_messages(sh_entries, false, .None)));
           },
           .None => ()
         );

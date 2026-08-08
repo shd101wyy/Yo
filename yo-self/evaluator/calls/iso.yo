@@ -118,7 +118,7 @@ evaluate_iso_type_call :: (
       )
     );
   });
-  arg_info := match(arg_info_opt,.Some(it) => it,.None => new_expr_info(env, TypeValue.Unit));
+  arg_info := match(arg_info_opt, .Some(it) => it, .None => new_expr_info(env, TypeValue.Unit));
   env.frames = arg_info.env.frames;
   env.module_path = arg_info.env.module_path;
   env.function_declaration_frame_level = arg_info.env.function_declaration_frame_level;
@@ -169,7 +169,7 @@ evaluate_iso_type_call :: (
   // Store result.
   type_val := create_type_value(iso_type);
   out_info := new_expr_info(env, t_type());
-  out_info.value =.Some(type_val);
+  out_info.value = .Some(type_val);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   expr
 });
@@ -277,7 +277,7 @@ evaluate_iso_value_call :: (
   );
   // Evaluate with expected type = iso_child_type.
   saved_expected := ctx.expected_type;
-  ctx.expected_type =.Some(ExpectedTypeCtx(ty : iso_child_type, env : env));
+  ctx.expected_type = .Some(ExpectedTypeCtx(ty : iso_child_type, env : env));
   evaluated_arg := evaluate_expression(arg_expr, env, ctx);
   ctx.expected_type = saved_expected;
   arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_arg));
@@ -293,7 +293,7 @@ evaluate_iso_value_call :: (
       )
     );
   });
-  arg_info := match(arg_info_opt,.Some(it) => it,.None => new_expr_info(env, TypeValue.Unit));
+  arg_info := match(arg_info_opt, .Some(it) => it, .None => new_expr_info(env, TypeValue.Unit));
   env.frames = arg_info.env.frames;
   env.module_path = arg_info.env.module_path;
   env.function_declaration_frame_level = arg_info.env.function_declaration_frame_level;
@@ -392,7 +392,7 @@ evaluate_iso_value_call :: (
   );
   // Wrap result in iso_type — value is runtime only (no comptime value).
   out_info := new_expr_info(env, iso_type);
-  out_info.value =.None;
+  out_info.value = .None;
   out_info.path_collection = arg_info.path_collection;
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   attach_temp_variable_to_expr(expr, true, ctx);

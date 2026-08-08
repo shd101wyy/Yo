@@ -49,7 +49,7 @@ evaluate_unwind :: (
   ) -> AstExpr
 )({
   // Validate shape: an `unwind` call (0 or 1 argument).
-  if(!(ast_expr_is_fn_call_of(expr, BF_UNWIND,.None)), {
+  if(!(ast_expr_is_fn_call_of(expr, BF_UNWIND, .None)), {
     exn.throw(
       dyn(
         format_error_message(
@@ -84,7 +84,7 @@ evaluate_unwind :: (
     .None => t_i32()
   );
   // `unwind` accepts at most one argument (mirrors unwind.ts:34-39).
-  n_args := match(expr,.FnCall(_, _, args, _, _) => args.len(),.Atom(_, _) => usize(0));
+  n_args := match(expr, .FnCall(_, _, args, _, _) => args.len(), .Atom(_, _) => usize(0));
   if(n_args > usize(1), {
     exn.throw(
       dyn(
@@ -121,7 +121,7 @@ evaluate_unwind :: (
       );
     });
     unit_info := new_expr_info(env, t_unit());
-    unit_info.control_flow =.Some(control_flow_of(.Unwind));
+    unit_info.control_flow = .Some(control_flow_of(.Unwind));
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), unit_info);
     return(expr);
   });
@@ -138,7 +138,7 @@ evaluate_unwind :: (
   // Recursively evaluate the argument with the enclosing return type as the
   // expected type (mirrors unwind.ts:70-80).
   saved_expected := ctx.expected_type;
-  ctx.expected_type =.Some(ExpectedTypeCtx(ty : enclosing_ret, env : env));
+  ctx.expected_type = .Some(ExpectedTypeCtx(ty : enclosing_ret, env : env));
   evaluated := evaluate_expression(arg_expr, env, ctx);
   ctx.expected_type = saved_expected;
   info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
@@ -178,7 +178,7 @@ evaluate_unwind :: (
   });
   // Emit ExprInfo: type = arg type, value = .None, control_flow = unwind.
   out_info := new_expr_info(env, arg_info.ty);
-  out_info.control_flow =.Some(control_flow_of(.Unwind));
+  out_info.control_flow = .Some(control_flow_of(.Unwind));
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   expr
 });

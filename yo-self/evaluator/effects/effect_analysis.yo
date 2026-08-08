@@ -386,8 +386,8 @@ has_effect_in_spread_ :: (
         i := usize(0);
         found := false;
         while(i < n, {
-          label := match(implicit_labels.get(i),.Some(l) => l,.None => String.from(""));
-          ty := match(implicit_types.get(i),.Some(t) => t,.None => TypeValue.Unit);
+          label := match(implicit_labels.get(i), .Some(l) => l, .None => String.from(""));
+          ty := match(implicit_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
           if((label == effect_param_name) && ((is_function_type(ty.clone()) || is_module_type(ty.clone())) || is_struct_type(ty)), {
             found = true;
             break;
@@ -448,9 +448,9 @@ is_transitive_effect_call_ :: (
         i := usize(0);
         found := Option(bool).None;
         while(i < n, {
-          label := match(implicit_labels.get(i),.Some(l) => l,.None => String.from(""));
-          ty := match(implicit_types.get(i),.Some(t) => t,.None => TypeValue.Unit);
-          is_spread := match(implicit_spreads.get(i),.Some(s) => s,.None => false);
+          label := match(implicit_labels.get(i), .Some(l) => l, .None => String.from(""));
+          ty := match(implicit_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
+          is_spread := match(implicit_spreads.get(i), .Some(s) => s, .None => false);
           // Direct match: label matches and type is Func or effect record
           if((label == effect_param_name) && ((is_function_type(ty.clone()) || is_module_type(ty.clone())) || is_struct_type(ty.clone())), {
             found = Option(bool).Some(false);
@@ -480,7 +480,7 @@ is_transitive_effect_call_ :: (
       },
       _ => Option(bool).None
     );
-    if(match(result.clone(),.Some(_) => true,.None => false), {
+    if(match(result.clone(), .Some(_) => true, .None => false), {
       return(result);
     });
   });
@@ -497,9 +497,9 @@ is_transitive_effect_call_ :: (
           n2 := implicit_labels.len();
           (i2 : usize) = usize(0);
           while(i2 < n2, {
-            label := match(implicit_labels.get(i2),.Some(l) => l,.None => String.from(""));
-            ty := match(implicit_types.get(i2),.Some(t) => t,.None => TypeValue.Unit);
-            is_spread := match(implicit_spreads.get(i2),.Some(s) => s,.None => false);
+            label := match(implicit_labels.get(i2), .Some(l) => l, .None => String.from(""));
+            ty := match(implicit_types.get(i2), .Some(t) => t, .None => TypeValue.Unit);
+            is_spread := match(implicit_spreads.get(i2), .Some(s) => s, .None => false);
             if((label == effect_param_name) && ((is_function_type(ty.clone()) || is_module_type(ty.clone())) || is_struct_type(ty.clone())), {
               return(Option(bool).Some(true));
             });
@@ -622,7 +622,7 @@ detect_effect_expr_ :: (
       .Some(info) => Option(TypeValue).Some(info.ty),
       .None => Option(TypeValue).None
     );
-    if(match(result_type_opt.clone(),.None => true,.Some(_) => false), {
+    if(match(result_type_opt.clone(), .None => true, .Some(_) => false), {
       result_type_opt = match(
         effect_param_fn_type.clone(),
         .None => Option(TypeValue).None,

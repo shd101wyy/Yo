@@ -712,7 +712,7 @@ track_variable_usage :: (
           // drop filter skip the drop of any `own` parameter the body
           // referenced (issues/fixed/own-param-discard-leak.md). Mirrors
           // src/evaluator/context.ts trackVariableUsage.
-          is_fn_body := match(sub_ctx.kind,.FunctionBody => true, _ => false);
+          is_fn_body := match(sub_ctx.kind, .FunctionBody => true, _ => false);
           if(is_fn_body && (actual_frame_level == (eval_env.frame_count() - usize(1))), {
             return(());
           });
@@ -740,7 +740,7 @@ track_variable_usage :: (
               .Some(existing) => match(
                 existing.usage,
                 .Own => CaptureUsage.Own,
-                .Write => match(usage,.Read => CaptureUsage.Write, _ => usage),
+                .Write => match(usage, .Read => CaptureUsage.Write, _ => usage),
                 .Read => usage
               )
             )

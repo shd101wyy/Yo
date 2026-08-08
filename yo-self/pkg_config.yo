@@ -91,7 +91,7 @@ parse_cflags :: (fn(raw : String) -> PkgConfigResult)({
   k := usize(0);
   while(k < n, {
     flag_opt := tokens.get(k);
-    flag := match(flag_opt,.None => String.new(),.Some(p) => p);
+    flag := match(flag_opt, .None => String.new(), .Some(p) => p);
     cond(
       flag.starts_with(String.from("-I")) => {
         result.include_paths.push(flag.substring(usize(2), flag.len()));
@@ -116,7 +116,7 @@ parse_ldflags_into :: (fn(raw : String, result : PkgConfigResult) -> PkgConfigRe
   k := usize(0);
   while(k < n, {
     flag_opt := tokens.get(k);
-    flag := match(flag_opt,.None => String.new(),.Some(p) => p);
+    flag := match(flag_opt, .None => String.new(), .Some(p) => p);
     cond(
       flag.starts_with(String.from("-L")) => {
         result.library_paths.push(flag.substring(usize(2), flag.len()));
@@ -149,7 +149,7 @@ build_fallback :: (fn(lib : BuildSystemLibrary) -> PkgConfigResult)({
     lt_k := usize(0);
     while(lt_k < lt_n, {
       tok_opt := link_tokens.get(lt_k);
-      tok := match(tok_opt,.None => String.new(),.Some(p) => p);
+      tok := match(tok_opt, .None => String.new(), .Some(p) => p);
       if(!(tok.is_empty()), {
         result.link_libraries.push(tok);
       });
@@ -164,7 +164,7 @@ apply_system_library_metadata :: (fn(lib : BuildSystemLibrary, result : PkgConfi
   n := lib.defines.len();
   while(k < n, {
     def_opt := lib.defines.get(k);
-    def := match(def_opt,.None => String.new(),.Some(p) => p);
+    def := match(def_opt, .None => String.new(), .Some(p) => p);
     if(!(def.is_empty()), {
       result.defines.push(def);
     });
@@ -178,7 +178,7 @@ _append_all :: (fn(dst : ArrayList(String), src : ArrayList(String)) -> unit)({
   n := src.len();
   while(k < n, {
     elem_opt := src.get(k);
-    elem := match(elem_opt,.None => String.new(),.Some(p) => p);
+    elem := match(elem_opt, .None => String.new(), .Some(p) => p);
     dst.push(elem);
     k = (k + usize(1));
   });
@@ -189,7 +189,7 @@ _append_all_unique :: (fn(dst : ArrayList(String), src : ArrayList(String)) -> u
   s_n := src.len();
   while(s_k < s_n, {
     elem_opt := src.get(s_k);
-    elem := match(elem_opt,.None => String.new(),.Some(p) => p);
+    elem := match(elem_opt, .None => String.new(), .Some(p) => p);
     if(!(elem.is_empty()), {
       // Check if already present
       d_k := usize(0);
@@ -197,7 +197,7 @@ _append_all_unique :: (fn(dst : ArrayList(String), src : ArrayList(String)) -> u
       found := false;
       while(d_k < d_n, {
         d_opt := dst.get(d_k);
-        d := match(d_opt,.None => String.new(),.Some(p) => p);
+        d := match(d_opt, .None => String.new(), .Some(p) => p);
         if(d == elem, {
           found = true;
           break;

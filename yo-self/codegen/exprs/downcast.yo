@@ -24,22 +24,22 @@ open(import("std/string"));
 { TypeValue } :: import("../../types/definitions.yo");
 /// Generate code for `downcast(dyn_value, T)`. Mirrors `generateDowncast`.
 generate_downcast :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
-  ei := match(context.base.get_expr_info(expr),.Some(e) => e,.None => return(String.from("/* ERROR: downcast not evaluated */")));
-  args := match(expr,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new());
-  dyn_arg := match(args.get(usize(0)),.Some(x) => x,.None => return(String.from("/* ERROR: downcast requires 2 arguments */")));
-  type_arg := match(args.get(usize(1)),.Some(x) => x,.None => return(String.from("/* ERROR: downcast requires 2 arguments */")));
+  ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("/* ERROR: downcast not evaluated */")));
+  args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  dyn_arg := match(args.get(usize(0)), .Some(x) => x, .None => return(String.from("/* ERROR: downcast requires 2 arguments */")));
+  type_arg := match(args.get(usize(1)), .Some(x) => x, .None => return(String.from("/* ERROR: downcast requires 2 arguments */")));
   // First argument: the dyn value (runtime).
-  dyn_ei := match(context.base.get_expr_info(dyn_arg),.Some(e) => e,.None => return(String.from("/* ERROR: downcast dyn arg not evaluated */")));
+  dyn_ei := match(context.base.get_expr_info(dyn_arg), .Some(e) => e, .None => return(String.from("/* ERROR: downcast dyn arg not evaluated */")));
   if(!(is_dyn_type(dyn_ei.ty)), {
     return(String.from("/* ERROR: downcast expected Dyn type as first argument */"));
   });
   dyn_code := _call_generate_expr(dyn_arg, indent.clone(), context);
   // Second argument: the target type T (comptime).
-  target_type := match(context.base.get_expr_info(type_arg),.Some(tei) => match(tei.value,.Some(v) => match(v,.TypeVal(t) => t, _ => return(String.from("/* ERROR: downcast expected TypeValue as second argument */"))),.None => return(String.from("/* ERROR: downcast expected TypeValue as second argument */"))),.None => return(String.from("/* ERROR: downcast type arg not evaluated */")));
+  target_type := match(context.base.get_expr_info(type_arg), .Some(tei) => match(tei.value, .Some(v) => match(v, .TypeVal(t) => t, _ => return(String.from("/* ERROR: downcast expected TypeValue as second argument */"))), .None => return(String.from("/* ERROR: downcast expected TypeValue as second argument */"))), .None => return(String.from("/* ERROR: downcast type arg not evaluated */")));
   target_type_c_name := get_type_string(target_type, context.base);
   // Register the typeid static for the target type (address = canonical id).
   type_id := type_key(target_type);
-  type_id_c_name := match(context.base.get_type_c_name(type_id.clone()),.Some(cn) => cn,.None => target_type_c_name.clone());
+  type_id_c_name := match(context.base.get_type_c_name(type_id.clone()), .Some(cn) => cn, .None => target_type_c_name.clone());
   static_var_name := String.from("__yo_typeid_");
   static_var_name.push_string(sanitize_for_c_identifier(type_id_c_name, false));
   if(!(context.base.type_id_static_names.contains(static_var_name.clone())), {
@@ -103,7 +103,7 @@ generate_downcast :: (fn(expr : AstExpr, indent : String, context : FunctionGene
       .Some(box_ty) => {
         box_cname := get_type_string(box_ty, context.base);
         box_fields := get_runtime_struct_fields(box_ty);
-        field_c := match(box_fields.get(usize(0)),.Some(f) => sanitize_for_c_identifier(f.label, false),.None => String.from("_u42_"));
+        field_c := match(box_fields.get(usize(0)), .Some(f) => sanitize_for_c_identifier(f.label, false), .None => String.from("_u42_"));
         extract := String.from("((");
         extract.push_string(box_cname);
         extract.push_str(")");

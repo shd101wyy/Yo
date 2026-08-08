@@ -6,7 +6,7 @@
 test("Circular type reference between two modules", {
   { NodeKind } :: import("./circular_deps/circular_a.yo");
   { Tree } :: import("./circular_deps/circular_b.yo");
-  (t : Tree) = Tree(kind :.Leaf, value : i32(42));
+  (t : Tree) = Tree(kind : .Leaf, value : i32(42));
   assert(t.value == i32(42), "Tree value should be 42");
 });
 // Test 2: Three-way circular import (A -> B -> C -> A)
@@ -14,9 +14,9 @@ test("Three-way circular import", {
   { Color } :: import("./circular_deps/circular_three_a.yo");
   { Shape } :: import("./circular_deps/circular_three_b.yo");
   { Palette } :: import("./circular_deps/circular_three_c.yo");
-  (s : Shape) = Shape(color :.Red, sides : i32(4));
+  (s : Shape) = Shape(color : .Red, sides : i32(4));
   assert(s.sides == i32(4), "Shape sides should be 4");
-  (p : Palette) = Palette(primary :.Green, secondary :.Blue);
+  (p : Palette) = Palette(primary : .Green, secondary : .Blue);
 });
 // Test 3: Access a field that hasn't been exported yet (error case).
 // A imports B's LateField, but LateField is exported AFTER B imports A.
@@ -36,7 +36,7 @@ test("Non-circular import regression", {
 test("Open import with circular modules", {
   { ColoredShape, Color } :: import("./circular_deps/circular_open_a.yo");
   { Shape } :: import("./circular_deps/circular_open_b.yo");
-  (cs : ColoredShape) = ColoredShape(color :.Red, shape :.Circle);
+  (cs : ColoredShape) = ColoredShape(color : .Red, shape : .Circle);
 });
 // Test 6: Spread export with circular modules
 test("Spread export with circular modules", {

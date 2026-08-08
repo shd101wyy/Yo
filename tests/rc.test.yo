@@ -191,9 +191,9 @@ test("Test match returning RC object - no phantom drop", {
 // undeclared temp variable.
 test("Test inline enum construction as match subject - no phantom drop", {
   Kind :: enum(Func, Arr, Obj(s : String));
-  match(Kind.Func,.Func => (), _ => ());
-  match(Kind.Arr,.Arr => (), _ => ());
-  match(Kind.Obj(`payload`),.Obj(s) => assert(s == `payload`, "Obj payload"), _ => ());
+  match(Kind.Func, .Func => (), _ => ());
+  match(Kind.Arr, .Arr => (), _ => ());
+  match(Kind.Obj(`payload`), .Obj(s) => assert(s == `payload`, "Obj payload"), _ => ());
 });
 // --- Array index access with RC types ---
 // Regression tests for the inline incr_rc leak (array-index-rc-leak.md).
@@ -488,7 +488,7 @@ test("Inline ref-enum unit-variant in non-argument positions does not leak", {
   // Discarded statement expression.
   Val.UnitVal;
   // Match subject.
-  match(Val.UnitVal,.UnitVal => (),.IntVal(v) => ());
+  match(Val.UnitVal, .UnitVal => (), .IntVal(v) => ());
   // Condition and short-circuit operand positions, inside a loop so a
   // per-iteration leak accumulates instead of costing one object.
   (i : usize) = usize(0);
@@ -532,8 +532,8 @@ cond_move_work :: (fn(flag : bool) -> unit)({
 test("Conditional move into a struct field balances both paths", {
   cond_move_work(true);
   cond_move_work(false);
-  taken := match(g_cond_move_seen.get(usize(0)),.Some(l) => l,.None => ArrayList(i32).new());
-  skipped := match(g_cond_move_seen.get(usize(1)),.Some(l) => l,.None => ArrayList(i32).new());
+  taken := match(g_cond_move_seen.get(usize(0)), .Some(l) => l, .None => ArrayList(i32).new());
+  skipped := match(g_cond_move_seen.get(usize(1)), .Some(l) => l, .None => ArrayList(i32).new());
   assert(
     rc(taken) == rc(skipped),
     "skipped-branch call must not retain an extra reference"
@@ -596,7 +596,7 @@ discard_make_tracked :: (fn() -> ArrayList(i32))({
 discard_stmt_body :: (fn() -> unit)(___ := discard_make_tracked());
 test("Bare discard-statement fn body compiles and drops the discarded value", {
   discard_stmt_body();
-  survivor := match(g_discard_seen.get(usize(0)),.Some(l) => l,.None => ArrayList(i32).new());
+  survivor := match(g_discard_seen.get(usize(0)), .Some(l) => l, .None => ArrayList(i32).new());
   // rc = 3: the g_discard_seen element, the match-arm extraction, and
   // `survivor` itself. Before the fix the discarded value kept a 4th ref
   // (and, under the self-hosted compiler, this file did not even compile —

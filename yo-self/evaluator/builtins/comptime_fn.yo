@@ -52,7 +52,7 @@ evaluate_comptime_fn :: (
   ) -> AstExpr
 )({
   tok := ast_expr_token(expr);
-  args := match(expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
   arg_expr := match(
     args.get(usize(0)),
     .Some(a) => a,
@@ -133,9 +133,9 @@ evaluate_comptime_fn :: (
   // these SPECIFIC messages: they say WHY comptime_fn is impossible, where the
   // shared analysis can only say "not possible". TS has no equivalents, so these
   // are a yo-self improvement worth preserving rather than a divergence to undo.
-  forall_labels := match(func_type,.Func({ meta : __fm1 }) => __fm1.*.forall_labels, _ => ArrayList(String).new());
-  param_types := match(func_type,.Func({ param_types : pt }) => pt, _ => ArrayList(TypeValue).new());
-  result_box := match(func_type,.Func({ result : rb }) => rb, _ => t_unit());
+  forall_labels := match(func_type, .Func({ meta : __fm1 }) => __fm1.*.forall_labels, _ => ArrayList(String).new());
+  param_types := match(func_type, .Func({ param_types : pt }) => pt, _ => ArrayList(TypeValue).new());
+  result_box := match(func_type, .Func({ result : rb }) => rb, _ => t_unit());
   // Skip functions with generic parameters — they need specialisation first.
   if(forall_labels.len() > usize(0), {
     exn.throw(
@@ -153,7 +153,7 @@ evaluate_comptime_fn :: (
   n_pt := param_types.len();
   (pti : usize) = usize(0);
   while(pti < n_pt, {
-    pt := match(param_types.get(pti),.Some(t) => t,.None => t_unit());
+    pt := match(param_types.get(pti), .Some(t) => t, .None => t_unit());
     if(type_prohibits_comptime_modifier(pt), {
       exn.throw(
         dyn(
@@ -180,7 +180,7 @@ evaluate_comptime_fn :: (
       )
     );
   });
-  if(match(create_comptime_function_type(func_type),.Some(_) => false,.None => true), {
+  if(match(create_comptime_function_type(func_type), .Some(_) => false, .None => true), {
     exn.throw(
       dyn(
         format_error_message(

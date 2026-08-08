@@ -75,14 +75,14 @@ generate_array_struct_declarations :: (fn(context : CodeGenContext) -> unit)({
     (min_i : usize) = usize(0);
     (ci : usize) = usize(1);
     while(ci < keys.len(), {
-      cand := match(keys.get(ci),.Some(s) => s,.None => String.new());
-      cur_min := match(keys.get(min_i),.Some(s) => s,.None => String.new());
+      cand := match(keys.get(ci), .Some(s) => s, .None => String.new());
+      cur_min := match(keys.get(min_i), .Some(s) => s, .None => String.new());
       if(_array_wrapper_name_lt(cand, cur_min), {
         min_i = ci;
       });
       ci = (ci + usize(1));
     });
-    picked := match(keys.get(min_i),.Some(s) => s,.None => String.new());
+    picked := match(keys.get(min_i), .Some(s) => s, .None => String.new());
     sorted_keys.push(picked);
     keys.remove(min_i, usize(1));
   });
@@ -90,7 +90,7 @@ generate_array_struct_declarations :: (fn(context : CodeGenContext) -> unit)({
   n := keys.len();
   (i : usize) = usize(0);
   while(i < n, {
-    name := match(keys.get(i),.Some(k) => k,.None => String.from(""));
+    name := match(keys.get(i), .Some(k) => k, .None => String.from(""));
     match(
       context.array_struct_types.get(name.clone()),
       .Some(info) => {
@@ -138,7 +138,7 @@ generate_struct_declaration :: (fn(struct_type : TypeValue, c_name : String, con
     .Struct({ name, field_types, is_reference_semantics, is_atomic_rc, is_newtype }) => {
       // Newtype: zero-cost typedef over the single underlying type.
       if(is_newtype && (field_types.len() == usize(1)), {
-        underlying := match(field_types.get(usize(0)),.Some(t) => t,.None => TypeValue.Unit);
+        underlying := match(field_types.get(usize(0)), .Some(t) => t, .None => TypeValue.Unit);
         uts := get_type_string(underlying, context);
         context.emitter.emit_declaration_string_line(`typedef ${uts} ${c_name}; // ${name} : ${type_to_string(struct_type)} (newtype - zero-cost abstraction)`);
         context.emitter.emit_declaration_line("");
@@ -207,7 +207,7 @@ generate_union_declaration :: (fn(union_type : TypeValue, c_name : String, conte
       n := field_types.len();
       (i : usize) = usize(0);
       while(i < n, {
-        label := match(field_labels.get(i),.Some(l) => l,.None => String.from(""));
+        label := match(field_labels.get(i), .Some(l) => l, .None => String.from(""));
         match(
           field_types.get(i),
           .Some(ft) => {
@@ -237,13 +237,13 @@ _emit_enum_tags :: (fn(c_name : String, variant_names : ArrayList(String), varia
   n := variant_names.len();
   (i : usize) = usize(0);
   while(i < n, {
-    vname := match(variant_names.get(i),.Some(v) => v,.None => String.from(""));
+    vname := match(variant_names.get(i), .Some(v) => v, .None => String.from(""));
     clean := if(vname.starts_with("."), vname.substring(usize(1), vname.len()), vname.clone());
     tag := c_name.to_uppercase();
     tag.push_str("_");
     tag.push_string(clean.to_uppercase());
     comma := if(i < (n - usize(1)), ",", "");
-    disc := match(variant_discriminants.get(i),.Some(d) => d,.None => i64(i));
+    disc := match(variant_discriminants.get(i), .Some(d) => d, .None => i64(i));
     context.emitter.emit_declaration_string_line(`  ${tag} = ${disc.to_string()}${comma}`);
     i = (i + usize(1));
   });
@@ -289,8 +289,8 @@ generate_enum_declaration :: (fn(enum_type : TypeValue, c_name : String, context
       nv := variant_names.len();
       (vi : usize) = usize(0);
       while(vi < nv, {
-        fields := match(variant_fields.get(vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
-        labels := match(variant_field_labels.get(vi),.Some(l) => l,.None => ArrayList(String).new());
+        fields := match(variant_fields.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
+        labels := match(variant_field_labels.get(vi), .Some(l) => l, .None => ArrayList(String).new());
         // Count non-unit fields.
         (non_unit : usize) = usize(0);
         nf := fields.len();
@@ -306,14 +306,14 @@ generate_enum_declaration :: (fn(enum_type : TypeValue, c_name : String, context
           cfi = (cfi + usize(1));
         });
         if(non_unit > usize(0), {
-          vname := match(variant_names.get(vi),.Some(v) => v,.None => String.from(""));
+          vname := match(variant_names.get(vi), .Some(v) => v, .None => String.from(""));
           context.emitter.emit_declaration_line("  struct {");
           (fi : usize) = usize(0);
           while(fi < nf, {
             match(
               fields.get(fi),
               .Some(ft) => if(!(is_unit_type(ft)), {
-                label := match(labels.get(fi),.Some(l) => l,.None => String.from(""));
+                label := match(labels.get(fi), .Some(l) => l, .None => String.from(""));
                 fts := get_type_string(ft, context);
                 fname := sanitize_for_c_identifier(label, false);
                 context.emitter.emit_declaration_string_line(`    ${fts} ${fname};`);
@@ -743,7 +743,7 @@ _walk_struct_some_only :: (fn(type : TypeValue, visited : HashSet(String)) -> bo
       n := field_types.len();
       (i : usize) = usize(0);
       while((i < n) && ok, {
-        ft := match(field_types.get(i),.Some(t) => t,.None => TypeValue.Unit);
+        ft := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
         cond(
           is_function_type(ft) => (),
           (is_struct_type(ft) && recur(ft, visited)) => (),
@@ -773,11 +773,11 @@ _walk_enum_some_only :: (fn(type : TypeValue, visited : HashSet(String)) -> bool
       nv := variant_fields.len();
       (vi : usize) = usize(0);
       while((vi < nv) && ok, {
-        fields := match(variant_fields.get(vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
+        fields := match(variant_fields.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
         nf := fields.len();
         (fi : usize) = usize(0);
         while((fi < nf) && ok, {
-          ft := match(fields.get(fi),.Some(t) => t,.None => TypeValue.Unit);
+          ft := match(fields.get(fi), .Some(t) => t, .None => TypeValue.Unit);
           cond(
             is_function_type(ft) => (),
             (is_struct_type(ft) && _walk_struct_some_only(ft, visited)) => (),
@@ -929,7 +929,7 @@ generate_dyn_forward_declarations :: (fn(context : CodeGenContext) -> unit)({
   n := keys.len();
   (i : usize) = usize(0);
   while(i < n, {
-    key := match(keys.get(i),.Some(k) => k,.None => String.from(""));
+    key := match(keys.get(i), .Some(k) => k, .None => String.from(""));
     match(
       context.types.get(key.clone()),
       .Some(entry) => if(is_dyn_type(entry.ty), {
@@ -970,7 +970,7 @@ _emit_dyn_vtable_method :: (fn(label : String, field_ty : TypeValue, processed :
       .Func({ param_types, result, meta : __fm1 }) => {
         param_labels := __fm1.*.param_labels;
         // Only methods whose first param is `self` go in the vtable.
-        if((param_labels.len() > usize(0)) && match(param_labels.get(usize(0)),.Some(l) => (l == "self"),.None => false), {
+        if((param_labels.len() > usize(0)) && match(param_labels.get(usize(0)), .Some(l) => (l == "self"), .None => false), {
           ret_str := get_type_string(result, context);
           plist := String.new();
           np := param_labels.len();
@@ -982,8 +982,8 @@ _emit_dyn_vtable_method :: (fn(label : String, field_ty : TypeValue, processed :
             if(pi == usize(0), {
               plist.push_str("void* self");
             }, {
-              pty := match(param_types.get(pi),.Some(t) => get_type_string(t, context),.None => String.from("void*"));
-              pn := match(param_labels.get(pi),.Some(l) => sanitize_for_c_identifier(l, false),.None => String.from("arg"));
+              pty := match(param_types.get(pi), .Some(t) => get_type_string(t, context), .None => String.from("void*"));
+              pn := match(param_labels.get(pi), .Some(l) => sanitize_for_c_identifier(l, false), .None => String.from("arg"));
               plist.push_string(pty);
               plist.push_str(" ");
               plist.push_string(pn);
@@ -1014,7 +1014,7 @@ generate_dyn_declaration :: (fn(type : TypeValue, c_name : String, context : Cod
       nt := required_trait_types.len();
       (ti : usize) = usize(0);
       while(ti < nt, {
-        tt := match(required_trait_types.get(ti),.Some(x) => x,.None => TypeValue.Unit);
+        tt := match(required_trait_types.get(ti), .Some(x) => x, .None => TypeValue.Unit);
         cond(
           is_fn_trait_type(tt) => match(
             tt,
@@ -1027,8 +1027,8 @@ generate_dyn_declaration :: (fn(type : TypeValue, c_name : String, context : Cod
                 if(pi > usize(0), {
                   plist.push_str(", ");
                 });
-                pty := match(call_param_types.get(pi),.Some(t) => get_type_string(t, context),.None => String.from("void*"));
-                pn := match(call_param_labels.get(pi),.Some(l) => sanitize_for_c_identifier(l, false),.None => String.from("arg"));
+                pty := match(call_param_types.get(pi), .Some(t) => get_type_string(t, context), .None => String.from("void*"));
+                pn := match(call_param_labels.get(pi), .Some(l) => sanitize_for_c_identifier(l, false), .None => String.from("arg"));
                 plist.push_string(pty);
                 plist.push_str(" ");
                 plist.push_string(pn);
@@ -1046,8 +1046,8 @@ generate_dyn_declaration :: (fn(type : TypeValue, c_name : String, context : Cod
               nf := field_labels.len();
               (fi : usize) = usize(0);
               while(fi < nf, {
-                flabel := match(field_labels.get(fi),.Some(l) => l,.None => String.from(""));
-                fty := match(field_types.get(fi),.Some(t) => t,.None => TypeValue.Unit);
+                flabel := match(field_labels.get(fi), .Some(l) => l, .None => String.from(""));
+                fty := match(field_types.get(fi), .Some(t) => t, .None => TypeValue.Unit);
                 _emit_dyn_vtable_method(flabel, fty, processed, context);
                 fi = (fi + usize(1));
               });
@@ -1093,7 +1093,7 @@ generate_dyn_box_types :: (fn(context : CodeGenContext) -> unit)({
   n := keys.len();
   (i : usize) = usize(0);
   while(i < n, {
-    key := match(keys.get(i),.Some(k) => k,.None => String.from(""));
+    key := match(keys.get(i), .Some(k) => k, .None => String.from(""));
     match(
       context.dyn_impls.get(key.clone()),
       .Some(impl_entry) => {
@@ -1108,7 +1108,7 @@ generate_dyn_box_types :: (fn(context : CodeGenContext) -> unit)({
         // resolvedConcreteType (the stale "yo-self has no resolvedConcreteType"
         // note predates the expr_info side-table).
         concrete := resolve_some_type_to_concrete(impl_entry.concrete_type);
-        concrete_c_name := match(context.get_type_c_name(type_key(concrete)),.Some(cn) => cn,.None => `unknown_${type_key(concrete)}`);
+        concrete_c_name := match(context.get_type_c_name(type_key(concrete)), .Some(cn) => cn, .None => `unknown_${type_key(concrete)}`);
         box_name := `__yo_dyn_box_${concrete_c_name}`;
         if(!(generated.contains(box_name.clone())), {
           _g := generated.add(box_name.clone());
@@ -1140,7 +1140,7 @@ generate_dyn_box_types :: (fn(context : CodeGenContext) -> unit)({
 /// FUTURE-typed function parameter (`task : Impl(Future(T, E))`).
 generate_future_trait_declaration :: (fn(type : TypeValue, c_name : String, context : CodeGenContext) -> unit)({
   em := context.emitter;
-  result_type := match(type,.FutureTraitT({ output : ftd_o }) => ftd_o.clone(), _ => return(()));
+  result_type := match(type, .FutureTraitT({ output : ftd_o }) => ftd_o.clone(), _ => return(()));
   em.emit_declaration_string_line(`struct ${c_name.clone()}_struct { // Generic Future interface for ${type_to_string(type)}`);
   em.emit_declaration_string_line(String.from("  __yo_ref_header_t header;"));
   em.emit_declaration_string_line(String.from("  int state;  // 0 = cold, -1 = completed, -2 = aborted"));
@@ -1356,7 +1356,7 @@ generate_type_declarations :: (fn(context : CodeGenContext) -> unit)({
               is_struct_type(ty) => {
                 // Newtypes are plain typedefs — no forward struct declaration.
                 is_nt_single := (
-                  is_newtype_type(ty) && match(ty,.Struct({ field_types }) => (field_types.len() == usize(1)), _ => false)
+                  is_newtype_type(ty) && match(ty, .Struct({ field_types }) => (field_types.len() == usize(1)), _ => false)
                 );
                 if(!(is_nt_single), {
                   l := String.from("typedef struct ");
@@ -1484,7 +1484,7 @@ generate_type_declarations :: (fn(context : CodeGenContext) -> unit)({
                 rfs.get(fi),
                 .Some(field) => {
                   ft := field.ty;
-                  match(_walk_pointee_newtype(ft),.Some(p) => _walk_add_dep(dset, p, e.type_id.clone(), cname_to_typeid, context),.None => ());
+                  match(_walk_pointee_newtype(ft), .Some(p) => _walk_add_dep(dset, p, e.type_id.clone(), cname_to_typeid, context), .None => ());
                   _walk_by_value_dep(dset, ft, e.type_id.clone(), true, cname_to_typeid, context);
                 },
                 .None => ()
@@ -1498,11 +1498,11 @@ generate_type_declarations :: (fn(context : CodeGenContext) -> unit)({
               nv := variant_fields.len();
               (vi : usize) = usize(0);
               while(vi < nv, {
-                vfs := match(variant_fields.get(vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
+                vfs := match(variant_fields.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
                 nvf := vfs.len();
                 (vfi : usize) = usize(0);
                 while(vfi < nvf, {
-                  match(vfs.get(vfi),.Some(ft) => _walk_by_value_dep(dset, ft, e.type_id.clone(), false, cname_to_typeid, context),.None => ());
+                  match(vfs.get(vfi), .Some(ft) => _walk_by_value_dep(dset, ft, e.type_id.clone(), false, cname_to_typeid, context), .None => ());
                   vfi = (vfi + usize(1));
                 });
                 vi = (vi + usize(1));
@@ -1516,7 +1516,7 @@ generate_type_declarations :: (fn(context : CodeGenContext) -> unit)({
               nft := field_types.len();
               (ti : usize) = usize(0);
               while(ti < nft, {
-                match(field_types.get(ti),.Some(ft) => _walk_by_value_dep(dset, ft, e.type_id.clone(), false, cname_to_typeid, context),.None => ());
+                match(field_types.get(ti), .Some(ft) => _walk_by_value_dep(dset, ft, e.type_id.clone(), false, cname_to_typeid, context), .None => ());
                 ti = (ti + usize(1));
               });
             },
@@ -1568,7 +1568,7 @@ generate_type_declarations :: (fn(context : CodeGenContext) -> unit)({
   sorted_ids := ArrayList(String).new();
   (head : usize) = usize(0);
   while(head < queue.len(), {
-    tid := match(queue.get(head),.Some(t) => t,.None => String.from(""));
+    tid := match(queue.get(head), .Some(t) => t, .None => String.from(""));
     head = (head + usize(1));
     _s := sorted_ids.push(tid.clone());
     // Decrement in-degree of every node that depends on tid.
@@ -1579,7 +1579,7 @@ generate_type_declarations :: (fn(context : CodeGenContext) -> unit)({
         .Some(other) => match(
           deps.get(other.type_id.clone()),
           .Some(odeps) => if(odeps.contains(tid.clone()), {
-            cur := match(in_degree.get(other.type_id.clone()),.Some(d) => d,.None => usize(1));
+            cur := match(in_degree.get(other.type_id.clone()), .Some(d) => d, .None => usize(1));
             nd := if(cur > usize(0), cur - usize(1), usize(0));
             _u := in_degree.set(other.type_id.clone(), nd);
             if(nd == usize(0), {
@@ -1628,7 +1628,7 @@ generate_type_declarations :: (fn(context : CodeGenContext) -> unit)({
   (xi : usize) = usize(0);
   nx := sorted_ids.len();
   while(xi < nx, {
-    sid := match(sorted_ids.get(xi),.Some(s) => s,.None => String.from(""));
+    sid := match(sorted_ids.get(xi), .Some(s) => s, .None => String.from(""));
     // Find the matching entry (small N).
     (yi : usize) = usize(0);
     (found : bool) = false;

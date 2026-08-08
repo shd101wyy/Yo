@@ -117,7 +117,7 @@ _rotate_left :: (
     .None => h // unreachable
   );
   new_h := _new_node(K, V, h._key, h._value, x._color, h._left, x._left);
-  _new_node(K, V, x._key, x._value, h._color,.Some(new_h), x._right)
+  _new_node(K, V, x._key, x._value, h._color, .Some(new_h), x._right)
 });
 /// Rotate right: h.left becomes the new root.
 _rotate_right :: (
@@ -134,7 +134,7 @@ _rotate_right :: (
     .None => h // unreachable
   );
   new_h := _new_node(K, V, h._key, h._value, x._color, x._right, h._right);
-  _new_node(K, V, x._key, x._value, h._color, x._left,.Some(new_h))
+  _new_node(K, V, x._key, x._value, h._color, x._left, .Some(new_h))
 });
 /// Flip colors of a node and its children.
 _flip_colors :: (
@@ -219,7 +219,7 @@ _node_insert :: (
 )(
   match(
     node,
-    .None => _new_node(K, V, key, value,.Red,.None,.None),
+    .None => _new_node(K, V, key, value, .Red, .None, .None),
     .Some(h) => {
       (n : RBNode(K, V)) = cond(
         (key < h._key) =>
@@ -261,10 +261,10 @@ _node_get :: (
 )(
   match(
     node,
-    .None =>.None,
+    .None => .None,
     .Some(h) => cond(
       (key < h._key) => recur(K, V, h._left, key),
-      (key == h._key) =>.Some(h._value),
+      (key == h._key) => .Some(h._value),
       true => recur(K, V, h._right, key)
     )
   )
@@ -366,10 +366,10 @@ _delete_min :: (
 )(
   match(
     h._left,
-    .None =>.None,
+    .None => .None,
     .Some(l) => {
       (node : RBNode(K, V)) = h;
-      if(!(_is_red(K, V,.Some(l))) && !(_is_red(K, V, l._left)), {
+      if(!(_is_red(K, V, .Some(l))) && !(_is_red(K, V, l._left)), {
         node = _move_red_left(K, V, node);
       });
       new_left := match(
@@ -528,7 +528,7 @@ impl(
   SortedMap(K, V),
   /// Create an empty sorted map.
   new : (fn() -> Self)(
-    Self(_root :.None, _len : usize(0))
+    Self(_root : .None, _len : usize(0))
   ),
   /// Number of entries.
   len : (fn(self : Self) -> usize)(self._len),
@@ -547,12 +547,12 @@ impl(
     existed := _node_contains(K, V, self._root, key);
     new_root := _node_insert(K, V, self._root, key, value);
     // Root is always black
-    black_root := _new_node(K, V, new_root._key, new_root._value,.Black, new_root._left, new_root._right);
+    black_root := _new_node(K, V, new_root._key, new_root._value, .Black, new_root._left, new_root._right);
     new_len := cond(
       existed => self._len,
       true => (self._len + usize(1))
     );
-    Self(_root :.Some(black_root), _len : new_len)
+    Self(_root : .Some(black_root), _len : new_len)
   }),
   /// Return a new map with the key removed.
   remove : (fn(self : Self, key : K) -> Self)(
@@ -560,14 +560,14 @@ impl(
       self._root,
       .None => self,
       .Some(root) => {
-        existed := _node_contains(K, V,.Some(root), key);
+        existed := _node_contains(K, V, .Some(root), key);
         if(!(existed), {
           return(self);
         });
         result := _node_remove(K, V, root, key);
         (new_root : Option(RBNode(K, V))) = match(
           result,
-          .Some(n) => Option(RBNode(K, V)).Some(_new_node(K, V, n._key, n._value,.Black, n._left, n._right)),
+          .Some(n) => Option(RBNode(K, V)).Some(_new_node(K, V, n._key, n._value, .Black, n._left, n._right)),
           .None => Option(RBNode(K, V)).None
         );
         Self(_root : new_root, _len : (self._len - usize(1)))
@@ -578,7 +578,7 @@ impl(
   min_key : (fn(self : Self) -> Option(K))(
     match(
       self._root,
-      .None =>.None,
+      .None => .None,
       .Some(root) => {
         m := _node_min(K, V, root);
         .Some(m._key)
@@ -589,7 +589,7 @@ impl(
   max_key : (fn(self : Self) -> Option(K))(
     match(
       self._root,
-      .None =>.None,
+      .None => .None,
       .Some(root) => {
         (cur : RBNode(K, V)) = root;
         (done : bool) = false;
@@ -622,7 +622,7 @@ impl(
     i := usize(0);
     plen := pairs.len();
     while(i < plen, i = (i + usize(1)), {
-      p := match(pairs.get(i),.Some(__e) => __e,.None => __yo_panic("from_entries: index out of bounds"));
+      p := match(pairs.get(i), .Some(__e) => __e, .None => __yo_panic("from_entries: index out of bounds"));
       result = result.insert(p.key, p.value);
     });
     result

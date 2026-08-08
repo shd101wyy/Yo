@@ -69,7 +69,7 @@ _resolve_effect_row_spread :: (
 )({
   // effect_expr is `E : Type.Struct` — extract the row var name
   spread_args := _future_args(effect_expr);
-  row_arg := match(spread_args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
+  row_arg := match(spread_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
   row_var_name_str := ast_expr_token(row_arg).value;
   row_var_name := row_var_name_str;
   // Look up E in the environment
@@ -264,8 +264,8 @@ _resolve_effect_arg :: (
   // Check if this is a spread expression E : Type.Struct with one atom arg
   is_spread := (
     ast_expr_is_fn_call(effect_expr) &&
-      ast_expr_is_fn_call_of(effect_expr, "...",.Some(usize(1))) &&
-        match(_future_args(effect_expr).get(usize(0)),.Some(a) => ast_expr_is_atom(a),.None => false)
+      ast_expr_is_fn_call_of(effect_expr, "...", .Some(usize(1))) &&
+        match(_future_args(effect_expr).get(usize(0)), .Some(a) => ast_expr_is_atom(a), .None => false)
   );
   cond(
     is_spread => {
@@ -293,7 +293,7 @@ _resolve_effect_arg :: (
           });
           effect_type := match(
             info.value,
-            .Some(v) => match(v,.TypeVal(b) => b, _ => TypeValue.Unit),
+            .Some(v) => match(v, .TypeVal(b) => b, _ => TypeValue.Unit),
             .None => TypeValue.Unit
           );
           label := _effect_label_for(effect_type, effect_expr);
@@ -348,7 +348,7 @@ evaluate_future_type :: (
     );
   });
   // Evaluate output type (first arg)
-  element_type_expr := match(expr_args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
+  element_type_expr := match(expr_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
   evaluated_elem_expr := evaluate_expression(element_type_expr, env, ctx);
   elem_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_elem_expr));
   elem_info := match(
@@ -383,7 +383,7 @@ evaluate_future_type :: (
   });
   output_type := match(
     elem_info.value,
-    .Some(v) => match(v,.TypeVal(b) => b, _ => TypeValue.Unit),
+    .Some(v) => match(v, .TypeVal(b) => b, _ => TypeValue.Unit),
     .None => TypeValue.Unit
   );
   // Process effect arguments (args 1..N)
@@ -407,7 +407,7 @@ evaluate_future_type :: (
   future_type := t_future_trait(String.from(BK_FUTURE), output_type, effect_labels, effect_types, effect_spreads);
   // Set expr info
   out_info := new_expr_info(env_mut, type_of_type(future_type));
-  out_info.value =.Some(create_type_value(future_type));
+  out_info.value = .Some(create_type_value(future_type));
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   expr
 });

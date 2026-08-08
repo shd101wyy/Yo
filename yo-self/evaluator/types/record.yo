@@ -123,9 +123,9 @@ evaluate_module_field :: (
       )
     );
   });
-  args := match(expr,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new());
-  label_expr := match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
-  type_expr := match(args.get(usize(1)),.Some(a) => a,.None => make_err_expr());
+  args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  label_expr := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+  type_expr := match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
   // Validate label identifier
   if(!(is_valid_variable_name(label_expr)), {
     exn.throw(
@@ -144,7 +144,7 @@ evaluate_module_field :: (
   // Evaluate type expression
   evaluated_te := evaluate_expression_raw(type_expr, env_mut, ctx, exn);
   te_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_te));
-  te_info := match(te_info_opt,.Some(i) => i,.None => new_expr_info(env_mut, TypeValue.Unit));
+  te_info := match(te_info_opt, .Some(i) => i, .None => new_expr_info(env_mut, TypeValue.Unit));
   env_mut.frames = te_info.env.frames;
   env_mut.module_path = te_info.env.module_path;
   env_mut.function_declaration_frame_level = te_info.env.function_declaration_frame_level;

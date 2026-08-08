@@ -120,7 +120,7 @@ try_to_implement_array_by_array_type :: (
     );
     // Evaluate with expected element type set in context.
     saved_expected := ctx.expected_type;
-    ctx.expected_type =.Some(ExpectedTypeCtx(ty : expected_element_type, env : env));
+    ctx.expected_type = .Some(ExpectedTypeCtx(ty : expected_element_type, env : env));
     evaluated_arg := evaluate_expression(arg_expr, env, ctx);
     ctx.expected_type = saved_expected;
     arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_arg));
@@ -136,7 +136,7 @@ try_to_implement_array_by_array_type :: (
         )
       );
     });
-    arg_info := match(arg_info_opt,.Some(it) => it,.None => new_expr_info(env, expected_element_type));
+    arg_info := match(arg_info_opt, .Some(it) => it, .None => new_expr_info(env, expected_element_type));
     set_expr_as_needs_to_call_dup(evaluated_arg, ctx, exn);
     env.frames = arg_info.env.frames;
     env.module_path = arg_info.env.module_path;
@@ -195,7 +195,7 @@ try_to_implement_array_by_array_type :: (
   // `[a, b,]` worked while `Array(T, N)(a, b)` did not. Mirrors the same fix
   // in src/evaluator/calls/array-type.ts.
   if(all_elements_are_comptime, {
-    out_info.value =.Some(EvalValue.ArrayVal(elements));
+    out_info.value = .Some(EvalValue.ArrayVal(elements));
   });
   out_info.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(runtime_arg_exprs);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);

@@ -74,8 +74,8 @@ _create_boxed_type :: (fn(inner_type : TypeValue, env : Environment, ctx : EvalC
     box_fv,
     .None => Option(TypeValue).None,
     .Some(bfv) => {
-      param0_ty := match(box_ft,.Func({ param_types : pts }) => match(pts.get(usize(0)),.Some(p) => p,.None => t_type()), _ => t_type());
-      param0_label := match(box_ft,.Func({ meta : bm }) => match(bm.*.param_labels.get(usize(0)),.Some(l) => l,.None => String.from("V")), _ => String.from("V"));
+      param0_ty := match(box_ft, .Func({ param_types : pts }) => match(pts.get(usize(0)), .Some(p) => p, .None => t_type()), _ => t_type());
+      param0_label := match(box_ft, .Func({ meta : bm }) => match(bm.*.param_labels.get(usize(0)), .Some(l) => l, .None => String.from("V")), _ => String.from("V"));
       (cenv : Environment) = env;
       _cfr := cenv.push_frame(false);
       vtok := synthetic_token(param0_label.clone(), cenv.module_path);
@@ -90,7 +90,7 @@ _create_boxed_type :: (fn(inner_type : TypeValue, env : Environment, ctx : EvalC
       );
       bres := evaluate_comptime_fn_call(Option(AstExpr).None, box_ft, bfv, bav, env, cenv, ctx, exn);
       cenv.pop_frame();
-      match(bres.value,.TypeVal(bt) => if(is_reference_struct_type(bt), Option(TypeValue).Some(bt), Option(TypeValue).None), _ => Option(TypeValue).None)
+      match(bres.value, .TypeVal(bt) => if(is_reference_struct_type(bt), Option(TypeValue).Some(bt), Option(TypeValue).None), _ => Option(TypeValue).None)
     }
   )
 });
@@ -129,7 +129,7 @@ _monomorphize_default_fv :: (
   cond(
     !(is_func_val(fv)) => fv,
     (default_fid == String.new()) => fv,
-    match(fv,.FuncVal(__mfv, _) => (__mfv.*.func_id == default_fid), _ => false) => {
+    match(fv, .FuncVal(__mfv, _) => (__mfv.*.func_id == default_fid), _ => false) => {
       default_ft := get_func_type(default_fid.clone());
       self_args := ArrayList(ArgEntry).new();
       _sa := self_args.push(ArgEntry(value : Option(EvalValue).None, parameter_type : value_type.clone(), arg_type : value_type.clone()));
@@ -169,7 +169,7 @@ _resolve_dyn_trait_values :: (fn(dyn_type : TypeValue, value_type : TypeValue, c
               field_vals := ArrayList(Option(EvalValue)).new();
               (j : usize) = usize(0);
               while(j < n_fields, {
-                fname := match(fl.get(j),.Some(s) => s,.None => String.from(""));
+                fname := match(fl.get(j), .Some(s) => s, .None => String.from(""));
                 field_names.push(fname.clone());
                 // Prefer an entry matching BOTH label and trait id; fall back to
                 // a label-only match (the Dyn(Trait) annotation's trait id can
@@ -217,7 +217,7 @@ _resolve_dyn_trait_values :: (fn(dyn_type : TypeValue, value_type : TypeValue, c
                 // there) or via the get_trait_default fall-through.
                 default_fid_for_field := match(
                   get_trait_default(trait_id.clone(), fname.clone()),
-                  .Some(dfv) => if(is_func_val(dfv), match(dfv,.FuncVal(__dfvd, _) => __dfvd.*.func_id.clone(), _ => String.new()), String.new()),
+                  .Some(dfv) => if(is_func_val(dfv), match(dfv, .FuncVal(__dfvd, _) => __dfvd.*.func_id.clone(), _ => String.new()), String.new()),
                   .None => String.new()
                 );
                 resolved_field := match(
@@ -410,7 +410,7 @@ evaluate_dyn_value :: (
     // C codegen (which reads body ExprInfo produced in THIS mode — yo-self
     // evaluates fn bodies in validating mode) has the vtable FuncVals. The
     // resolution is structural (registry lookup), not execution-dependent.
-    ne_value_type := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(inner_ne)),.Some(ii) => ii.ty,.None => t_unit());
+    ne_value_type := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(inner_ne)), .Some(ii) => ii.ty, .None => t_unit());
     // Auto-box a non-object, non-dyn payload (mirrors TS evaluateDynValue, which
     // always boxes), evaluating the synthetic `box(value)` with the EXPECTED
     // `Box(value_type)` so the box's `generic(V)` binds. The synthetic atom/call
@@ -508,7 +508,7 @@ evaluate_dyn_value :: (
     set_expr_as_needs_to_call_dup(ne_final_expr, ctx, exn);
     rt_args_ne := ArrayList(AstExpr).new();
     rt_args_ne.push(ne_final_expr);
-    out_info.runtime_arg_exprs_in_order =.Some(rt_args_ne);
+    out_info.runtime_arg_exprs_in_order = .Some(rt_args_ne);
     if(is_dyn_type(ret_type.clone()), {
       expr_info_set_dyn_call_trait_values(out_info, Option(ArrayList(EvalValue)).Some(_resolve_dyn_trait_values(ret_type, ne_value_type, ctx, env, exn)));
     });
