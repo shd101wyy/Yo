@@ -290,13 +290,18 @@ _traverse_value :: (fn(access : String, ty : TypeValue, context : FunctionGenera
       },
       _ => ()
     ),
-    // Fixed inline array Array(T, N) — emitted as a C array, so the element count
-    // is sizeof(arr)/sizeof(arr[0]). Visit each element.
+    // Fixed inline array Array(T, N) — emitted NOT as a bare C array but as a
+    // STRUCT WRAPPER (`Array_..._N { T data[N]; }`), so both the element count
+    // and the element access must go through `.data`. Subscripting the wrapper
+    // directly produced "subscripted value is not an array, pointer, or
+    // vector" for any ref struct with an `Array(Box(T), N)` field — the first
+    // shape that ever needed a generated tracer. Mirrors the same fix in
+    // src/codegen/functions/generation.ts.
     is_array_type(ty) => match(
       ty,
       .Array({ element }) => {
-        em.emit_string_line(`  for (size_t __yo_ti = 0; __yo_ti < (sizeof(${access}) / sizeof(${access}[0])); __yo_ti++) {`);
-        recur(`${access}[__yo_ti]`, element, context);
+        em.emit_string_line(`  for (size_t __yo_ti = 0; __yo_ti < (sizeof(${access}.data) / sizeof(${access}.data[0])); __yo_ti++) {`);
+        recur(`${access}.data[__yo_ti]`, element, context);
         em.emit_string_line(`  }`);
       },
       _ => ()

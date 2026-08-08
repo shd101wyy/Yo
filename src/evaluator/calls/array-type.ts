@@ -1,6 +1,7 @@
 import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
+  attachTempVariableToExpr,
   type Expr,
   type FnCallExpr,
   setExprAsNeedsToCallDup,
@@ -13,7 +14,6 @@ import { typeToString } from "../../types/utils";
 import {
   createArrayValue,
   createComptimeIntValue,
-  createUnknownValue,
   isNumberValue,
   isUnknownValue,
   type Value,
@@ -72,6 +72,8 @@ export function tryToImplementArrayByArrayType({
 
   // Evaluate each argument and check type compatibility
   const elements: Value[] = [];
+  const runtimeArgExprsInOrder: Expr[] = [];
+  let allElementsAreComptime = true;
   let env = callerEnv;
 
   // Keep track of the expected element type, which may need updating for nested arrays
@@ -133,17 +135,40 @@ export function tryToImplementArrayByArrayType({
       });
     }
 
-    // Store the value if available (for compile-time arrays)
-    if (evaluatedArg.$.value !== undefined) {
+    // Record the element for codegen either way; whether the ARRAY as a whole
+    // is a compile-time constant is decided below.
+    runtimeArgExprsInOrder.push(evaluatedArg);
+
+    // Store the value if available (for compile-time arrays). An
+    // `UnknownValue` does NOT count: it means "type known, value not" — a
+    // RUNTIME element — so an array containing one is not a constant.
+    if (
+      evaluatedArg.$.value !== undefined &&
+      !isUnknownValue(evaluatedArg.$.value)
+    ) {
       elements.push(evaluatedArg.$.value);
     } else {
-      // For runtime arrays, we'll create unknown values as placeholders
-      elements.push(createUnknownValue(expectedElementType, { env, context }));
+      allElementsAreComptime = false;
     }
   }
 
-  // Create the array value
-  const arrayValue = createArrayValue(finalArrayType, elements);
+  // Only a fully compile-time array gets a compile-time value. Stamping one
+  // with manufactured `UnknownValue` placeholders (as this used to) told
+  // codegen "emit this as a constant", and its comptime emitter has no case
+  // for an Unknown — it produced
+  //   .data = { /* skip generating: <comptime Box(i32)> */, ... }
+  // i.e. an EMPTY initializer slot, so any array of RC/reference elements
+  // failed to compile with "expected expression". The array-LITERAL path
+  // (values/array.ts) already guarded this way, which is why `[a, b,]` worked
+  // while `Array(T, N)(a, b)` did not.
+  //
+  // Leaving the value undefined routes the expression to the same runtime
+  // emitter the literal form uses (`generateAnonymousArray`), which builds
+  // the struct from `runtimeArgExprsInOrder` and honours the per-element
+  // deferred dups already attached above.
+  const arrayValue = allElementsAreComptime
+    ? createArrayValue(finalArrayType, elements)
+    : undefined;
 
   // Set the result
   expr.$ = {
@@ -151,7 +176,14 @@ export function tryToImplementArrayByArrayType({
     value: arrayValue,
     type: finalArrayType,
     pathCollection: [],
+    runtimeArgExprsInOrder,
   };
+
+  if (!arrayValue) {
+    // Runtime construction needs a temp to materialize into, exactly as the
+    // array-literal path does.
+    attachTempVariableToExpr(expr, true);
+  }
 
   return expr;
 }

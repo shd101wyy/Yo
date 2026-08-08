@@ -35,6 +35,8 @@ import {
 } from "../utils";
 import { generateOpAnd, generateOpOr } from "./and-or";
 import { generateAnonymousArray, generateYoArrayFill } from "./array-fns";
+import { isArrayType } from "../../types/guards";
+import { isTypeValue } from "../../value";
 import { generateAssignment } from "./assignment";
 import { generateAsyncBlock, generateIoAsyncSyncCall } from "./async";
 import { emitAsyncFutureEscape } from "./async-completion";
@@ -106,6 +108,18 @@ import { generateSizeOf } from "./sizeof";
 import { generateAnonymousTuple } from "./tuple-fn";
 import { generateTypeId } from "./typeid";
 import { generateWhileLoop } from "./while";
+
+/**
+ * True when this call's CALLEE is an array TYPE (`Array(T, N)(...)`), as
+ * opposed to an ordinary function that merely RETURNS an array.
+ */
+function exprFuncIsArrayTypeValue(expr: FnCallExpr): boolean {
+  const funcValue = expr.func.$?.value;
+  if (!funcValue || !isTypeValue(funcValue)) {
+    return false;
+  }
+  return isArrayType(funcValue.value);
+}
 
 let indexTraitTempCounter = 0;
 
@@ -917,6 +931,30 @@ function generateFuncCall(
   }
   // (anonymous) array value
   else if (exprIsFunctionCallOf(expr, BuiltinKeywords.array)) {
+    const result = generateAnonymousArray(expr, indent, context);
+    if (result !== undefined) {
+      return result;
+    }
+  }
+  // `Array(T, N)(a, b)` with RUNTIME elements. The array-literal form
+  // `[a, b,]` reaches the emitter above through its `array` head; the type-
+  // constructor form has no such head, so route it by SHAPE instead: an
+  // array-typed call carrying runtime argument expressions and no
+  // compile-time value. `generateAnonymousArray` is head-agnostic — it works
+  // off `runtimeArgExprsInOrder`, the array type and the temp — so both forms
+  // share one emitter. A fully compile-time array still carries a value and
+  // is emitted as a constant by the branch below.
+  else if (
+    isArrayType(expr.$?.type) &&
+    expr.$?.runtimeArgExprsInOrder &&
+    !expr.$?.value &&
+    // The CALLEE must be the array TYPE itself. Matching on the result type
+    // alone was far too broad: any ordinary function returning an array
+    // (`md5(data) -> Array(u8, 16)`) also has an array type and runtime args,
+    // and got emitted as an array literal of its own arguments instead of
+    // being called.
+    exprFuncIsArrayTypeValue(expr)
+  ) {
     const result = generateAnonymousArray(expr, indent, context);
     if (result !== undefined) {
       return result;

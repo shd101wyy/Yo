@@ -101,7 +101,7 @@ open(import("std/string"));
 } :: import("../../expr.yo");
 { has_any_control_flow, ExprInfo, lookup_macro_expansion } :: import("../../expr_info.yo");
 { is_func_val, is_unknown_val, is_struct_val, is_enum_val, EvalValue } :: import("../../value.yo");
-{ is_unit_type, is_primitive_type, is_pointer_type } :: import("../../types/guards.yo");
+{ is_unit_type, is_primitive_type, is_pointer_type, is_array_type } :: import("../../types/guards.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { set_generate_expr_fn, _call_generate_expr } :: import("./_expr.yo");
 { is_builtin_yo_inline_function } :: import("../constants.yo");
@@ -638,6 +638,30 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   if(ast_expr_is_fn_call_of(expr, BF_ADDRESS_OF, Option(usize).Some(usize(1))), return(generate_address_of(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BK_TUPLE, Option(usize).None), return(generate_anonymous_tuple(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BK_ARRAY_VAL, Option(usize).None), match(generate_anonymous_array(expr, indent.clone(), context),.Some(r) => return(r),.None => ()));
+  // `Array(T, N)(a, b)` with RUNTIME elements. The array-literal form reaches
+  // the emitter above through its `array` head; the type-constructor form has
+  // no such head, so route it by SHAPE: an array-typed call carrying runtime
+  // argument expressions and no compile-time value. `generate_anonymous_array`
+  // is head-agnostic, so both forms share one emitter. A fully compile-time
+  // array keeps its value and is emitted as a constant elsewhere. Mirrors the
+  // same dispatch in src/codegen/exprs/generation.ts.
+  // The CALLEE must be the array TYPE itself. Matching on the result type
+  // alone was far too broad: any ordinary function RETURNING an array
+  // (`md5(data) -> Array(u8, 16)`) also has an array type and runtime args,
+  // and got emitted as an array literal of its own arguments instead of being
+  // called.
+  arr_ctor_callee := match(
+    expr,
+    .FnCall(_, __ac_f, _, _, _) => match(
+      context.base.get_expr_info(__ac_f),
+      .Some(__ac_fi) => match(__ac_fi.value,.Some(__ac_v) => match(__ac_v,.TypeVal(__ac_t) => is_array_type(__ac_t), _ => false),.None => false),
+      .None => false
+    ),
+    .Atom(_, _) => false
+  );
+  if(arr_ctor_callee && (is_array_type(ei.ty) && (ei.runtime_arg_exprs_in_order.is_some() && ei.value.is_none())), {
+    match(generate_anonymous_array(expr, indent.clone(), context),.Some(r) => return(r),.None => ());
+  });
   if(ast_expr_is_fn_call_of(expr, BF_RECUR, Option(usize).None), return(generate_recur(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_RUNTIME, Option(usize).Some(usize(1))), return(match(expr,.FnCall(_, _, a, _, _) => match(a.get(usize(0)),.Some(inner) => _call_generate_expr(inner, indent.clone(), context),.None => String.from("")),.Atom(_, _) => String.from(""))));
   if(ast_expr_is_fn_call_of(expr, BF_SIZEOF, Option(usize).Some(usize(1))), return(generate_sizeof(expr, indent.clone(), context)));

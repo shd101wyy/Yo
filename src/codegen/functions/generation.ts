@@ -2875,14 +2875,19 @@ export function emitTraverseValue(
     }
 
     if (isArrayType(type)) {
-      // Fixed-size inline array `Array(T, N)` — emitted as a C array, so the
-      // element count is `sizeof(arr)/sizeof(arr[0])`. Visit each element.
-      const elemCount = `(sizeof(${access}) / sizeof(${access}[0]))`;
+      // Fixed-size inline array `Array(T, N)` — emitted NOT as a bare C array
+      // but as a STRUCT WRAPPER (`Array_..._N { T data[N]; }`), so both the
+      // element count and the element access must go through `.data`.
+      // Subscripting the wrapper directly produced "subscripted value is not
+      // an array, pointer, or vector" for any ref struct with an
+      // `Array(Box(T), N)` field — i.e. the first time such a field needed a
+      // generated tracer.
+      const elemCount = `(sizeof(${access}.data) / sizeof(${access}.data[0]))`;
       emitter.emitLine(
         `  for (size_t __yo_ti = 0; __yo_ti < ${elemCount}; __yo_ti++) {`
       );
       emitTraverseValue(
-        `${access}[__yo_ti]`,
+        `${access}.data[__yo_ti]`,
         type.childType,
         context,
         visited,
