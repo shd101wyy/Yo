@@ -1,5 +1,5 @@
 #!/bin/bash
-# hollow_sweep69.sh — full 183-file sweep that scores a test file HONESTLY:
+# hollow_sweep69.sh — full 188-file sweep that scores a test file HONESTLY:
 # a file counts as GREEN only if it exits 0 AND its emitted batch `main` is not
 # a `// Failed to transpile` comment. See issues/retired/yo-self-hollow-test-batch-main.md
 # (a hollow main runs no assertions, so the harness reports every test as passed).
@@ -45,3 +45,49 @@ for t in $(find tests -path tests/internal -prune -o -name '*.test.yo' -print | 
   echo "$t $verdict rc=$rc hollow=$hollow markers=$markers ${summary:-none}" >> "$RESULTS"
 done
 echo "SWEEP_DONE" >> "$RESULTS"
+
+# ---------------------------------------------------------------------------
+# Gate. Scores the sweep against a checked-in allowlist of KNOWN-hollow files so
+# this can gate CI today (blocking any NEW hollow file) while the known ones are
+# worked down. Fails in BOTH directions so the allowlist cannot go stale:
+#   * a hollow/RED file that is NOT allowlisted  -> fail (a regression)
+#   * an allowlisted file that is no longer hollow -> fail (delete its line)
+# Set ALLOWLIST=/dev/null to demand a fully-clean sweep.
+# ---------------------------------------------------------------------------
+ALLOWLIST="${ALLOWLIST:-$(dirname "$0")/known-hollow.txt}"
+
+known=$(grep -vE '^\s*(#|$)' "$ALLOWLIST" 2>/dev/null | sort -u)
+actual_hollow=$(awk '$2 == "HOLLOW" {print $1}' "$RESULTS" | sort -u)
+actual_red=$(awk '$2 == "RED" {print $1}' "$RESULTS" | sort -u)
+
+echo
+echo "=== hollow sweep scorecard ==="
+awk 'NF > 1 {print $2}' "$RESULTS" | sort | uniq -c
+echo "allowlisted known-hollow: $(echo "$known" | grep -c . )"
+
+gate_fails=0
+
+new_hollow=$(comm -23 <(echo "$actual_hollow") <(echo "$known"))
+if [ -n "$new_hollow" ]; then
+  echo "FAIL: hollow file(s) not in $ALLOWLIST — a test file reports passes while running nothing:"
+  echo "$new_hollow" | sed 's/^/  /'
+  gate_fails=1
+fi
+
+fixed=$(comm -13 <(echo "$actual_hollow") <(echo "$known"))
+if [ -n "$fixed" ]; then
+  echo "FAIL: allowlisted file(s) are no longer hollow — delete their lines from $ALLOWLIST:"
+  echo "$fixed" | sed 's/^/  /'
+  gate_fails=1
+fi
+
+if [ -n "$actual_red" ]; then
+  echo "FAIL: RED file(s) (non-zero exit or timeout):"
+  echo "$actual_red" | sed 's/^/  /'
+  gate_fails=1
+fi
+
+if [ "$gate_fails" = "0" ]; then
+  echo "SWEEP_GATE_OK"
+fi
+exit "$gate_fails"

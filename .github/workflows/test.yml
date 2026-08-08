@@ -657,3 +657,68 @@ jobs:
       # See the WASM job: tests/internal is host-toolchain-only.
       - name: Run WASI tests
         run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs test ./tests --exclude tests/internal --parallel 2 --bail --verbose --target wasm-wasi --profile
+
+  # Full-corpus HOLLOW SWEEP under the self-hosted binary.
+  #
+  # Why this exists: bootstrap-self-test runs `<bin> test` on only the 23-file
+  # gates_fast battery, so the other 165 language .test.yo files were exercised
+  # SOLELY by the TypeScript compiler — the one plans/SELF_HOSTING_COMPLETION.md
+  # Phase 2 deletes. scripts/bootstrap/hollow_sweep69.sh was written to close
+  # that and had never been wired into any workflow.
+  #
+  # It scores each file HONESTLY: GREEN requires exit 0 AND an emitted batch
+  # `__yo_user_main` that is not a `// Failed to transpile` comment. A hollow
+  # batch runs no assertions while still reporting "N passed" — the first sweep
+  # found 3 such files, one of them claiming 49 passed
+  # (issues/yo-self-hollow-language-test-files.md).
+  #
+  # Gated as a RATCHET against scripts/bootstrap/known-hollow.txt so it blocks
+  # any NEW hollow file today while those 3 are worked down. It fails in both
+  # directions — an un-allowlisted hollow file fails, and an allowlisted file
+  # that is no longer hollow also fails, so the list cannot go stale.
+  hollow-sweep:
+    name: Full-corpus hollow sweep (all 188 language files, self-hosted)
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install liburing
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y liburing-dev
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install dependencies
+        run: |
+          bun install
+          bun run build
+
+      - name: "Stage 1: build the self-hosted compiler with the TS compiler"
+        run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs compile yo-self/main.yo --release -o /tmp/yo-stage1
+
+      - name: Sweep every language test file through the self-hosted binary
+        env:
+          YO_MAIN_STACK_MB: "4096"
+        run: BIN=/tmp/yo-stage1 OUT=/tmp/hsweep bash scripts/bootstrap/hollow_sweep69.sh
+
+      - name: Upload sweep results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hollow-sweep-results
+          path: /tmp/hsweep/results.txt
+          if-no-files-found: ignore

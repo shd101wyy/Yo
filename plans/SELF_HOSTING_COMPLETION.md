@@ -58,6 +58,25 @@ Also in scope:
   `--test-name-pattern`, `--keep-generated-files`, `--exclude`, …). The
   self-hosted test runner currently ignores `--parallel` ("v1 runs
   sequentially") — implement it or document it as accepted divergence.
+- **`fmt` parity + its differential gate.** The self-hosted formatter disagrees
+  with the reference on ~315 files
+  ([`issues/yo-self-formatter-diverges-from-ts.md`](../issues/yo-self-formatter-diverges-from-ts.md)),
+  down from 417 after one bug fix. Two rule classes remain (a space before `)`,
+  a space before `.`). This is P1-critical rather than cosmetic: at P2 the
+  self-hosted formatter becomes canonical and `fmt --check` becomes
+  self-referential, so the first `yo fmt` would silently restyle hundreds of
+  files with no gate able to notice. The gate must land WITH the fix —
+  `scripts/bootstrap/gates_fast.sh` carries a note where it goes. Mind the
+  caveat recorded there: the TS formatter preserves existing line structure
+  rather than canonicalizing it, so a raw "would format" count conflates real
+  spacing bugs with line-breaking differences.
+- **The 3 hollow language test files**
+  ([`issues/yo-self-hollow-language-test-files.md`](../issues/yo-self-hollow-language-test-files.md)).
+  The first full-corpus sweep scored 185 GREEN / 3 HOLLOW — files that report
+  passes (one claims 49) while running no assertions. CI now runs the sweep as a
+  ratchet against `scripts/bootstrap/known-hollow.txt`, so no NEW hollow file can
+  land; these three still need root-causing. Reduce by deleting arms from the
+  real file — both obvious minimal extractions compile cleanly and prove nothing.
 - Leftover from the port: activate `types/flowability.yo` (setter/caller
   wiring — list in `REMAINING_EVALUATOR_PORTS.md`).
 
