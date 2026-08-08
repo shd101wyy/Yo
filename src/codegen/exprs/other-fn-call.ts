@@ -1664,7 +1664,35 @@ export function generateOtherFunctionCall(
           }
           // Dead code removed: using() call-site evidence resolution
           // Effects are now explicit regular params
-          const fnPtrCast = `((${returnTypeStr} (*)(${ptrParamTypeStrs.join(", ")}))${funcCode})`;
+          // ABI: a `ctl` whose ResumeType is GENERIC (`Exception.throw`'s
+          // `ctl(generic(ResumeType : Type), ...) -> ResumeType`) is emitted as a
+          // SINGLE `void`-returning C function — one handler serves every
+          // instantiation, so it cannot return a ResumeType it does not know, and
+          // `generation.ts` deliberately keeps SomeType → void for effect record
+          // members. But `expr.$.type` here is the INSTANTIATED type at this call
+          // site, so the cast said e.g. `Big (*)(dyn)` while the callee really is
+          // `void f(dyn)`.
+          //
+          // That is UB in C at any size, and on x86_64 SysV it CORRUPTS THE
+          // CALLEE'S ARGUMENT when the instantiated type is >16 bytes (MEMORY
+          // class): the caller passes a hidden sret pointer, which consumes RDI,
+          // displacing `err` to RSI/RDX — so a handler that reads `err.vtable`
+          // dispatches through the caller's stack slot. Demonstrated in
+          // issues/repros/ctl-large-resume-type-sret{.yo,-abi-demo.c}: the
+          // cross-compiled call site emits `leaq -40(%rbp), %rdi`.
+          //
+          // Cast to the callee's REAL return type and use the zero-init-temp
+          // protocol below. That is exactly what the evidence-parameter call path
+          // already does (`handlerReturnsVoid`, generateEvidenceCallSite) — the
+          // two protocols disagreeing is the bug. Note assigning a void call's
+          // "result" to a typed temp is itself UB and once crashed on WASM, hence
+          // the declare-then-call shape rather than a cast at the assignment.
+          // See issues/ctl-handler-void-signature-vs-sret-cast.md.
+          const calleeEmittedVoid =
+            isFunctionType(functionType) &&
+            functionType.isControl &&
+            isSomeType(functionType.return.type);
+          const fnPtrCast = `((${calleeEmittedVoid ? "void" : returnTypeStr} (*)(${ptrParamTypeStrs.join(", ")}))${funcCode})`;
 
           // Cast each runtime arg to its corresponding parameter type. This
           // avoids -Wincompatible-pointer-types errors from strict C compilers
@@ -1819,9 +1847,22 @@ export function generateOtherFunctionCall(
                 ) {
                   context.emitter.emitLine(`${indent}__yo_effect_escaped = 0;`);
                 }
-                context.emitter.emitLine(
-                  `${indent}${getTypeString(typeToUse, context)} ${tempVar} = ${fnPtrCast}(${castedArgsList});`
-                );
+                if (calleeEmittedVoid) {
+                  // Declare the temp BEFORE the call (escape-path drops may
+                  // reference it) and call as void. A generic-ResumeType handler
+                  // cannot resume with a value, so the zero-init IS the result.
+                  const voidTempType = getTypeString(typeToUse, context);
+                  context.emitter.emitLine(
+                    `${indent}${voidTempType} ${tempVar} = (${voidTempType}){0};`
+                  );
+                  context.emitter.emitLine(
+                    `${indent}${fnPtrCast}(${castedArgsList});`
+                  );
+                } else {
+                  context.emitter.emitLine(
+                    `${indent}${getTypeString(typeToUse, context)} ${tempVar} = ${fnPtrCast}(${castedArgsList});`
+                  );
+                }
                 context.declaredCVarNames?.add(tempVar);
               }
               storeTempVarToStateMachineIfNeeded(tempVar, indent, context);

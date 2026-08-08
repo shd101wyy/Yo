@@ -1,0 +1,27 @@
+// Repro: a `ctl` whose ResumeType is a >16-byte struct (MEMORY class on
+// x86_64 SysV), thrown in VALUE position, with a handler that READS `err`.
+// See issues/ctl-handler-void-signature-vs-sret-cast.md.
+{ Exception } :: import("std/error");
+open(import("std/fmt"));
+Big :: struct(a : i64, b : i64, c : i64, d : i64);
+make_big :: (fn(flag : bool, exn : Exception) -> Big)(
+  cond(
+    flag => exn.throw(dyn(`boom`)),
+    true => Big(a : i64(1), b : i64(2), c : i64(3), d : i64(4))
+  )
+);
+main :: (fn() -> unit)({
+  exn := Exception(
+    throw : (
+      (err) -> {
+        println(`Error: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  ok := make_big(false, exn);
+  println(`ok.a=${ok.a}`);
+  bad := make_big(true, exn);
+  println(`unreachable ${bad.a}`);
+});
+export(main);
