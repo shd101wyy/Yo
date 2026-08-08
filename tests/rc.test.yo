@@ -625,11 +625,23 @@ test("borrowed projection argument survives aliased container mutation", {
   w := AliasWrap(b : box(i32(42)));
   b0 := w.b;
   assert(rc(b0) == 2, "w.b + b0 before the call");
-  alias_poke_loop(w, w.b);
-  // After the call: the callee's reassignment dropped w.b's handle on the
-  // 42-box; b0 plus the Stage-0 dup temp (released at THIS scope's end)
-  // remain. rc 3 = the dup leaked twice; rc 1 = it was double-dropped.
-  assert(rc(b0) == 2, "exactly one Stage-0 +1 outstanding until scope end");
+  {
+    alias_poke_loop(w, w.b);
+  };
+  // Asserted AFTER the enclosing statement scope, deliberately. The two
+  // compilers release the Stage-0 +1 at different points — yo-self drops it
+  // post-call (its dup temp is consumed at creation and balanced by an
+  // explicit call-node drop), TS at scope end (its dup temp stays owning and
+  // the normal scope-end machinery drops it). Both are sound; the difference
+  // is only WHEN, and it is only observable through `rc`. Checking here, once
+  // both release points have passed, asserts the property that actually
+  // matters and is identical in both: the +1 is released EXACTLY once.
+  //
+  // rc 2 here = the +1 leaked (which is precisely what yo-self's
+  // runtime-call path did before that drop was wired — the previous version
+  // of this test asserted rc 2 right after the call and so encoded the leak
+  // as expected behaviour). rc 0 / a crash = it was released twice.
+  assert(rc(b0) == 1, "the Stage-0 +1 is released exactly once");
   assert(b0.* == i32(42), "original box intact after the aliased mutation");
 });
 // Aliasing Stage 1 (mutation summaries): a READ-ONLY callee cannot

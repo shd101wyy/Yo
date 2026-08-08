@@ -15,10 +15,14 @@ alias_poke_loop :: (fn(w : AliasWrap, borrowed : Box(i32)) -> unit)({
 main :: (fn() -> unit)({
   w := AliasWrap(b : box(i32(42)));
   b0 := w.b;
-  unsafe(printf("rc before call=%d (want 2)\n", i32(rc(b0))));
-  alias_poke_loop(w, w.b);
-  unsafe(printf("rc after call=%d\n", i32(rc(b0))));
-  unsafe(printf("value after call=%d (want 42)\n", b0.*));
+  unsafe(printf("rc before=%d (want 2)\n", i32(rc(b0))));
+  {
+    alias_poke_loop(w, w.b);
+  };
+  // After the enclosing STATEMENT SCOPE has ended, both release points have
+  // fired: post-call (yo-self) and scope-end (TS) agree here.
+  unsafe(printf("rc after scope=%d (want 1)\n", i32(rc(b0))));
+  unsafe(printf("value=%d (want 42)\n", b0.*));
 });
 
 export(main);

@@ -359,3 +359,67 @@ mis-classification whose trigger shape is absent from the corpus. For an
 analysis that decides whether to REMOVE a safety operation, write adversarial
 probes per decision rule (here: one per early-exit) and assert the verdict
 directly, rather than relying on end-to-end suites.
+
+### Hardening pass (2026-08-08) — two more holes, the leak closed, release
+
+### points reconciled
+
+Probing every "this callee is read-only" rule in the walk (rather than
+relying on end-to-end suites) found a second class of hole and closed the
+last known leak.
+
+**Holes 3 and 4 (HIGH, live UAF): every RC-DECREMENT primitive was
+whitelisted as safe.** `___drop`/`___dispose` sat in `SAFE_RECURSE_HEADS`
+and `__yo_decr_rc`/`__yo_dyn_drop`/`__yo_sometype_drop` in
+`PURE_BUILTIN_HEADS`, while `__yo_drop_array_element`/`_tuple_element` were
+(correctly) excluded — an inconsistency nobody had noticed. The written
+justification was "a decrement only frees storage nothing else references,
+because a live borrow is backed by the container's own counted reference",
+which is exactly the assumption Stage 0 exists to deny. A callee doing
+`___drop(w.b)` or `__yo_decr_rc(w.b)` releases the container's reference
+with NO assignment for the assignment rule to see, and was reported
+read-only. Both are user-reachable (`___drop` is used in
+tests/basic.test.yo). Decrements now live in their own set, tested BEFORE
+the safe/pure lists so one can never be whitelisted by accident. Verified
+red-before-green: with the rule disabled the `__yo_decr_rc` test SIGABRTs.
+
+Compiler-GENERATED drops are provably not a hazard, on two independent
+grounds: they never appear as AST children (they live in ExprInfo
+side-channels this walk does not traverse), and `getVariablesNeedingDrop`
+(env.ts) only selects variables with `isOwningTheRcValue` — a borrowed
+parameter is non-owning by definition. Only explicit decrements can reach
+borrowed storage.
+
+**Rules probed and found SOUND:** cycle-guard optimism with the mutation
+only on a mutual-recursion back edge; mutation inside an
+immediately-invoked closure; mutation inside a `while` body; the
+(post-fix) compile-time-value early-exit.
+
+**The runtime-path leak is closed.** `_evaluate_funcval_runtime_call` — the
+path most ordinary calls take — never wired `fv_s0_drops`, so every
+may-mutate Stage-0 dup on that path leaked its `+1` from the day Stage 0
+shipped. The drop is now attached to the call node, the same channel
+helper.yo and the inline path use.
+
+**Release points differ between the compilers, and that is now documented
+rather than accidental.** yo-self releases the Stage-0 `+1` POST-CALL (its
+dup temp is consumed at creation and balanced by an explicit call-node
+drop — the design forced by its multi-exit cleanup machinery, see the
+Stage 0 log). TS releases at SCOPE END (its dup temp stays owning and the
+normal scope-end machinery drops it). Both are sound; only the timing
+differs, and it is observable only through `rc`. Closing the leak made the
+difference visible for the first time, because the leaking path had been
+accidentally matching TS by never releasing at all.
+
+The regression test now asserts AFTER the enclosing statement scope, where
+both release points have passed and both compilers agree (`rc == 1`). That
+is the property that actually matters — the `+1` is released exactly once —
+and it catches a leak (`rc 2`) and a double release (crash) equally well.
+Note the PREVIOUS version of this test asserted `rc == 2` immediately after
+the call, i.e. it had encoded the runtime-path leak as expected behaviour.
+
+Unifying the two release points (making TS also drop post-call) is
+deliberately NOT done here: TS's call-node deferred drops are emitted
+before the call in some emitters (`recur.ts`), so moving the release there
+risks the exact use-after-free that had to be fixed in yo-self's recur.yo.
+It is worth doing as its own change, with its own gate run.
