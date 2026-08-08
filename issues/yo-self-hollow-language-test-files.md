@@ -152,6 +152,58 @@ Confirm with the checked-in reproducer, and check the same two lines against the
 TS equivalent before changing them — the CTFE route is shared by comptime methods
 and macros, so an over-broad change here has wide blast radius.
 
+### THE ACTUAL FAILING SITE (attempted 2026-08-08, three layers deep)
+
+Lead 2 above is real but **not sufficient**, and the true failure is earlier than
+the call. Narrowing it down:
+
+**Layer 1 — `variadic_args` is never populated (real gap, fix written and reverted).**
+yo-self already CONSUMES `arg_values.variadic_args` (`comptime_fn.yo:610-614`),
+and TS both fills it (`helper.ts:1763-1801`) and spreads it
+(`comptime-fn.ts:73-77`). But **every** construction site in yo-self passes
+`ArrayList(VarArgEntry).new()` — grep it: nothing ever pushes a `VarArgEntry`.
+`helper.yo` step 7b already evaluates the variadic args, it just files them into
+`rt_args` (for the C-extern `snprintf` case) and drops them otherwise. Threading
+those into the two in-scope `ArgValues` constructions type-checks cleanly, but
+does NOT fix the reproducer — so it is necessary-but-not-sufficient and was
+reverted rather than shipped unvalidated.
+
+**Layer 2 — the failure is at DEFINITION time, not at the call.** The error points
+at the function's own body:
+
+```
+Error: Variable "types" not found.
+  count_types :: (fn(...(comptime(types) : ComptimeList(Type))) -> comptime(usize))(types.len());
+                                                                                    ^ 1:83
+```
+
+So the def-time body evaluation cannot see the variadic parameter. That is why
+the callee ends up with no value, which is why `ct_func_value` degrades to
+`UnitVal` at `function.yo:5218`, which is why `comptime_fn.yo:500` reports "not a
+FuncVal". The call-site leads are all downstream of this.
+
+**Layer 3 — one def-time path binds the variadic parameter and the other does not.**
+`function_type.yo` calls `_trial_eval_fn_body` from two places:
+
+- `:984` (`flow_env`) — binds it, via the explicit
+  `get_func_variadic_param(...) -> add_variable_to_env(...)` block at `:918-943`,
+  with a comment noting the name/type "are not on TypeValue.Func, so they ride the
+  side table".
+- `:565` (`rp_env`, `_rerun_pending_def_evals`) — **does not**. It builds the env
+  with `_build_def_time_body_env`, which has no variadic binding of its own, and
+  never adds the block the flow path has.
+
+**Suggested fix:** give `PendingDefEval` (`:219-232`) the variadic parameter (it
+currently carries only `param_labels`/`param_types`/…), populate it where the
+pending eval is registered, and bind it in `_rerun_pending_def_evals` right after
+`_build_def_time_body_env`, mirroring `:918-943`. Better still, move the binding
+INTO `_build_def_time_body_env` so both callers get it and the two paths cannot
+drift again — that drift is the whole bug.
+
+Do Layer 1 as well; it is a genuine port gap and will be needed once the callee
+resolves. Gate the change with the full battery: this is the shared def-time body
+eval, so the blast radius is every function definition in the language.
+
 ### A tempting codegen "fix" that is actively harmful — do not do it
 
 `generate_func_call` bails to the marker whenever `get_expr_info` misses, _before_
