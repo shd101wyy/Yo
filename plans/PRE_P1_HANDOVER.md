@@ -24,9 +24,12 @@ three; see [`issues/fixed/handover-yo-self-hollow-files.md`](../issues/fixed/han
 ruleset naming 4 (one of them a `test` context that no longer existed). Every gate
 below is now binding rather than advisory.
 
-**One thing to decide consciously, not by default**: the `ctl` ABI issue. It is
-no longer latent, and adjudicating it gets permanently harder once P2 retires the
-TypeScript reference compiler.
+~~3. One thing to decide consciously: the `ctl` ABI issue~~ — **DONE 2026-08-09.**
+Resolved rather than decided: the check §3 proposed was run, it downgraded the bug
+from urgent to schedulable, and it was then fixed in BOTH compilers with the
+
+> 16-byte reproducer the issue had called "not yet built". Follow-up left open on
+> purpose: enable `-fsanitize=function` as the standing guard.
 
 **Three corrections to P1's plan** — `build` is hollow rather than unwired, `doc`
 is ~3,800 lines short, and `module-manager.ts` has no counterpart at all.
@@ -42,6 +45,10 @@ is ~3,800 lines short, and `module-manager.ts` has no counterpart at all.
 | #82 | Both Linux-only RED files: test batching, and a dup/drop double free          |
 | #83 | Comptime markers checked before the ExprInfo lookup; HOLLOW root cause traced |
 | #84 | Handover brief for the HOLLOW files (docs)                                    |
+| #85 | This document                                                                 |
+| #86 | Recorded the repository-admin bypass on the `develop` ruleset                 |
+| #87 | **All 3 HOLLOW files fixed** — five bugs; allowlist now empty                 |
+| #88 | **`ctl` ABI fixed** in both compilers, with the >16-byte reproducer built     |
 
 Gates that now exist and pass:
 
@@ -116,13 +123,26 @@ Two notes for whoever maintains it:
 
   ```bash
   gh api repos/shd101wyy/Yo/rulesets/13548862 \
-    --jq '[.rules[]|select(.type=="required_status_checks")|.parameters.required_status_checks[].context]' \
-    | diff - <(gh api repos/shd101wyy/Yo/actions/runs/<recent-run-id>/jobs --paginate --jq '[.jobs[].name]|sort')
+    --jq '[.rules[]|select(.type=="required_status_checks")|.parameters.required_status_checks[].context]|sort|.[]' \
+    | diff - <(gh api repos/shd101wyy/Yo/actions/runs/<recent-run-id>/jobs --paginate --jq '[.jobs[].name]|sort|.[]')
   ```
+
+  **Re-run 2026-08-09 against PR #87's run: 15 required, 15 jobs, IN SYNC.**
+  (Note the `|.[]` — without it `diff` compares two single JSON blobs and reports
+  a difference for any ordering change, which reads as a false alarm.)
 
 - `strict_required_status_checks_policy` is `true`, so a PR must be up to date
   with `develop` to merge. With ~55 min CI that means re-running when someone
   lands ahead of you; flip it to `false` if that becomes a tax.
+
+- **Stacked PRs get NO CI** (learned 2026-08-09 on #88). `test.yml` triggers on
+  `pull_request: branches: [develop]`, so a PR based on another feature branch
+  runs nothing — and the green checkmark you are not seeing is not a failure, it
+  is an absence. When the parent merges, GitHub retargets the child to `develop`
+  but that fires `edited`, **not** `synchronize`, so still no run: you must push
+  the branch (a rebase onto `develop` does both — it triggers CI and clears the
+  `BEHIND` state that `strict` requires). Widening the trigger to `branches: ['**']`
+  would fix it at the cost of the full ~55 min matrix on every stacked PR.
 
 - **Repository admins can bypass** (`bypass_actors: [{RepositoryRole 5, always}]`),
   added deliberately the same day. It was `[]` at first, which meant _nobody_ —
@@ -185,11 +205,11 @@ PORTED as libraries … the work is CLI wiring + flag parity + differential
 validation."_ That is true for `init`, `fetch`, `install`, `cache`, `version`,
 `lock_file`, `pkg_config`. It is **false** in three places:
 
-| Subcommand              | Reality                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **`build`**             | **Hollow, not unwired.** `_parse_registry_from_json` (`build_runner.yo:810-814`) returns an empty `BuildRegistry` regardless of input, and `evaluate_build_file` shells out to `yo-cli build --serialize-registry` — **a flag that does not exist in `src/`** (zero grep hits). `yo build` would build an empty DAG and exit 0. Upstream cause: yo-self's build builtins deliberately never populate the registry ("Registry population is deferred"), and there is no `get_build_registry`/`swap_build_registry` at all. |
-| **`doc`**               | **~3,800 lines unported.** `src/doc/builder.ts` (1564), `render-html.ts` (1883), `render-json.ts` (25) and `doc-command.ts` (352) have no yo-self counterpart, so the default `--format html` path cannot work.                                                                                                                                                                                                                                                                                                           |
-| **`module-manager.ts`** | **458 lines, no counterpart.** It is the shared "evaluate a `.yo` file and read its exports/registry" service that `build`, `fetch`, `install`, `doc`, `test-runner` and `codegen` all import. This is a prerequisite, not a subcommand.                                                                                                                                                                                                                                                                                  |
+| Subcommand              | Reality                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`build`**             | **Hollow, not unwired.** `_parse_registry_from_json` (`build_runner.yo:810-814`) returns an empty `BuildRegistry` regardless of input, and `evaluate_build_file` shells out to `yo-cli build --serialize-registry` — **a flag that does not exist in `src/`** (zero grep hits). `yo build` would build an empty DAG and exit 0. Upstream cause: yo-self's build builtins deliberately never populate the registry ("Registry population is deferred"), and there is no `get_build_registry`/`swap_build_registry` at all.                                                                                                                                                        |
+| **`doc`**               | **~3,800 lines unported — but the extraction half IS ported** (re-verified 2026-08-09; the original wording read as if `doc` were untouched). `yo-self/doc/` exists with 1,773 lines: `extractor.yo` (587), `render_markdown.yo` (800), `model.yo` (201), `sections.yo` (185). What is missing is the RENDER/DRIVE half — `src/doc/builder.ts` (1564), `render-html.ts` (1883), `render-json.ts` (25) and `doc-command.ts` (352) = 3,824 lines, none with a counterpart — so the default `--format html` path cannot work and the CLI is unwired (`doc` appears once in `main.yo`). Scope it as "port builder + html/json renderers + wire the CLI", not as a from-scratch port. |
+| **`module-manager.ts`** | **458 lines, no counterpart.** It is the shared "evaluate a `.yo` file and read its exports/registry" service that `build`, `fetch`, `install`, `doc`, `test-runner` and `codegen` all import. This is a prerequisite, not a subcommand.                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 
 Two more scoping facts:
 
@@ -230,15 +250,44 @@ Two more scoping facts:
 
 ## 6. Known debt — tracked, not blocking
 
-- **`fmt` parity** — the self-hosted formatter disagrees with the reference on
-  **315 files** (down from 417 after one bug fix). Two rule classes remain: a space
-  before `)` and a space before `.`. This is P1-critical rather than cosmetic: at
-  P2 the self-hosted formatter becomes canonical and `fmt --check` becomes
-  self-referential, so the first `yo fmt` would silently restyle hundreds of files
-  with nothing able to notice. **Caveat that shapes the fix**: the TS formatter
-  _preserves_ existing line structure rather than canonicalizing, so a raw "would
-  format" count conflates real spacing bugs with benign line-breaking differences.
+- **`fmt` parity** — **re-measured 2026-08-09: 339 of 808 files diverge** (the
+  earlier "315, two rule classes remain" was both stale and too optimistic).
+  Method, reproducible in ~25 min — format a copy of every `std`/`tests`/`yo-self`
+  file with BOTH formatters and `cmp` the outputs:
+
+  ```bash
+  for f in $(find std tests yo-self -name '*.yo'); do
+    cp "$f" /tmp/a.yo; cp "$f" /tmp/b.yo
+    ./yo-cli fmt /tmp/a.yo >/dev/null; "$S1" fmt /tmp/b.yo >/dev/null
+    cmp -s /tmp/a.yo /tmp/b.yo || echo "$f"
+  done | wc -l
+  ```
+
+  Two corrections that change how this should be scoped:
+
+  1. **It is NOT two rule classes.** On a 250-file sample, 50 files diverge and only
+     **12 (24%) become identical once dot-spacing is normalized** — so roughly
+     three quarters of the diverging files carry at least one other difference.
+     Budget accordingly; "fix two spacing rules" will not close the gate.
+  2. **The dot class is the TS formatter's bug, not yo-self's** — the opposite of
+     what this section used to imply. Matched pairs: TS emits `self._ptr =.Some(x)`,
+     `_ptr :.Some(y)`, `.None =>.Err(z)`; **yo-self already emits the spaced form**
+     (`= .Some(x)`, `: .Some(y)`). Root cause is the Dot case calling
+     `trimTrailingHorizontalWhitespace()` and eating the space the preceding
+     Comma/operator case established with `ensureSpace()`. So this class closes by
+     fixing `src/formatter.ts`, and yo-self may need no change at all — see
+     [`plans/PREFIX_OPERATOR_OPERAND_RULE.md`](PREFIX_OPERATOR_OPERAND_RULE.md),
+     which diagnosed it independently.
+
+  Still P1-critical rather than cosmetic: at P2 the self-hosted formatter becomes
+  canonical and `fmt --check` becomes self-referential, so the first `yo fmt` would
+  silently restyle hundreds of files with nothing able to notice. **Caveat that
+  shapes the fix**: the TS formatter _preserves_ existing line structure rather than
+  canonicalizing, so a raw "would format" count conflates real spacing bugs with
+  benign line-breaking differences — which is why the measurement above compares
+  BOTH formatters' output on the same input instead of counting `--check` hits.
   [`issues/yo-self-formatter-diverges-from-ts.md`](../issues/yo-self-formatter-diverges-from-ts.md)
+
 - **Depth-8 RC cap** — `_type_contains_rc_inner` returns `false` past 8 levels
   where TS uses an unbounded visited set, so an object nested >8 aggregate levels
   deep is never torn down. **Blast radius on today's code is nil** (the marker fired
@@ -270,3 +319,21 @@ Two more scoping facts:
   at least these two distinct explanations.
 - Never run two heavy jobs at once on a 16 GB box; they swap and manufacture
   failures that do not reproduce in isolation.
+- **An error token inside a function body says nothing about WHO evaluated that
+  body.** It points there because that is where the body is; a CALL that executes
+  it reports the identical location. Split the reproducer — definition ALONE vs
+  definition + one call — before instrumenting. One compile each, and it decides
+  def-time vs call-time outright. This is what four failed attempts on the HOLLOW
+  files missed (§2.1).
+- **One swallowed error hides a STACK of bugs.** A hollow file's failing arm
+  erases the whole batch dispatch, so the next bug only surfaces once the previous
+  one is fixed — `index.test.yo` took three rounds. "Still fails after a correct
+  fix" is the expected intermediate state, not evidence the fix was wrong. Read
+  WHICH arm the new last swallowed error names; a different arm means progress.
+- **`-fsanitize=function` adjudicates ABI mismatches on arm64.** Only the
+  _consequences_ of a mismatched call are x86_64-specific — the cast types live in
+  the emitted C, so a local run answers "is this call really mismatched, and with
+  what return type?" without an x86_64 host. Pair it with
+  `_Static_assert(sizeof(T) <= 16, ...)` appended to the emitted C to size the
+  return decisively, and `clang --target=x86_64-... -S` on an 8-line freestanding
+  repro to _show_ the register displacement rather than argue it (§3).
