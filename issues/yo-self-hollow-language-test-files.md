@@ -1,7 +1,15 @@
-# 3 of 188 language test files are HOLLOW under the self-hosted compiler
+# 5 of 188 language test files fail under the self-hosted compiler (3 HOLLOW, 2 Linux-only RED)
 
-**Found 2026-08-08** by the first full-corpus hollow sweep. These files exit 0
-and report passing tests while **running no assertions at all**.
+**Found 2026-08-08** by the first full-corpus hollow sweep. Three exit 0 and report
+passing tests while **running no assertions at all**; two more fail outright on
+Linux while passing on macOS.
+
+| platform            | GREEN | HOLLOW | RED   |
+| ------------------- | ----- | ------ | ----- |
+| macOS arm64 (local) | 185   | 3      | 0     |
+| Linux x86_64 (CI)   | 183   | 3      | **2** |
+
+The 3 HOLLOW are identical on both. The 2 RED are Linux-only — see that section.
 
 ## The census (first ever)
 
