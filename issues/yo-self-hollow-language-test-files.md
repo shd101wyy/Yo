@@ -114,6 +114,44 @@ Expect the three files to need **separate** fixes: `variadic_comptime` is variad
 comptime calls, `index` is comptime string/`ComptimeList` slicing, and
 `safe_code_structural_gates` routes through `comptime_expect_error`.
 
+### Two concrete leads in the CTFE call path (start here)
+
+The CTFE route that reaches `evaluate_comptime_fn_call` is
+`yo-self/evaluator/calls/function.yo:5200-5250`. Two things there look wrong for a
+variadic comptime function, and both are consistent with the observed error:
+
+1. **The callee falls back to a non-function value.** At `:5218`
+
+   ```rust
+   ct_func_value := match(callee_value,.Some(v) => v,.None => EvalValue.UnitVal);
+   ```
+
+   so an unresolved callee silently becomes `UnitVal` — which is precisely what
+   `evaluate_comptime_fn_call` then rejects with "function_value is not a FuncVal"
+   (`comptime_fn.yo:483-500`). The error message names the symptom; this is where
+   the `None` originates. Worth throwing a diagnostic here rather than
+   substituting `UnitVal`.
+
+2. **The variadic arguments are dropped on the floor.** At `:5211-5215` the
+   ArgValues is built as
+
+   ```rust
+   ct_arg_values := ArgValues(
+     forall_args : ArrayList(ArgEntry).new(),
+     args : ct_arg_entries,
+     implicit_args : Option(ArrayList(ArgEntry)).None,
+     variadic_args : ArrayList(VarArgEntry).new()   // <-- always EMPTY
+   );
+   ```
+
+   `variadic_args` is never populated on this path, so even a correctly-resolved
+   variadic comptime callee would be invoked with no variadic arguments. Compare
+   the non-CTFE call path, which does collect them.
+
+Confirm with the checked-in reproducer, and check the same two lines against the
+TS equivalent before changing them — the CTFE route is shared by comptime methods
+and macros, so an over-broad change here has wide blast radius.
+
 ### A tempting codegen "fix" that is actively harmful — do not do it
 
 `generate_func_call` bails to the marker whenever `get_expr_info` misses, _before_
