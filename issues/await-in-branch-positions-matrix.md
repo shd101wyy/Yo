@@ -1,8 +1,6 @@
-# `io.await` in branch positions: what works, what is rejected, where the two compilers disagree
+# `io.await` in branch positions: what works, what is rejected
 
-**Measured 2026-08-09**, both compilers, after fixing the `if`-body case
-(`issues/fixed/yo-self-init-segfaults-on-first-run.md`). Every row below was run,
-not inferred — the repro harness is described at the bottom.
+**Measured 2026-08-09**, both compilers. Every row below was run, not inferred.
 
 "TS" = the reference compiler (`src/`). "SELF" = the self-hosted binary built
 from `yo-self/`. All rows are inside an `io.async((e) => { ... })` block; outside
@@ -10,16 +8,28 @@ one, `io.await` is a synchronous drive loop and none of this applies (which is
 why `tests/fs/dir.test.yo` has used `cond(io.await(...) => ...)` at top level for
 ages without trouble).
 
-| shape                                           | TS                                      | SELF                          |
-| ----------------------------------------------- | --------------------------------------- | ----------------------------- |
-| `cond(c => { await f })` — branch VALUE         | ✅ works                                | ✅ works                      |
-| `if(c, { await f })` — body                     | ✅ works _(fixed)_                      | ✅ works                      |
-| `if(c, { await f }, { await g })` — both bodies | ✅ works _(fixed)_                      | ✅ works                      |
-| `x := await f; if(x, ...)` — hoisted            | ✅ works                                | ✅ works                      |
-| `cond(await f => ...)` — CONDITION              | ⛔ rejected _(was: invalid C)_          | ⛔ rejected                   |
-| `if(await f, ...)` — CONDITION                  | ⛔ rejected _(was: **rc=0 + SIGSEGV**)_ | ⚠️ **works**                  |
-| `match(m, .Some(x) => { await f })` — ARM       | ✅ works                                | ❌ **silently drops the arm** |
-| `match(await f, ...)` — SCRUTINEE               | ❌ invalid C                            | ❌ invalid C                  |
+| shape                                                 | supported                       |
+| ----------------------------------------------------- | ------------------------------- |
+| `cond(c => { await f })` — branch VALUE               | ✅ both                         |
+| `if(c, { await f })` / `if`+`else` bodies             | ✅ both                         |
+| `x := await f; if(x, ...)` — hoisted                  | ✅ both                         |
+| `if(await f, ...)` — CONDITION                        | ✅ both                         |
+| `cond(await f => ...)` — FIRST condition              | ✅ both                         |
+| `match(await f, ...)` — SCRUTINEE                     | ✅ both                         |
+| `while(await f, ...)` — CONDITION                     | ✅ both                         |
+| `while(c, { ...await f... }, body)` — STEP            | ✅ both                         |
+| `if(!(await f), ...)` — await NESTED in a condition   | ⛔ rejected, both               |
+| `cond(c1 => .., await f => .., ..)` — LATER condition | ⛔ rejected, both               |
+| `match(m, .Some(x) => { await f })` — ARM             | ⚠️ TS works, SELF drops the arm |
+
+The two rejections are deliberate and carry a diagnostic naming the fix:
+
+- **Nested** — the await must BE the condition. Substituting the extracted
+  result into a larger expression asks codegen for helper specialisations the
+  collection pass never saw, so the C calls undeclared functions. A general
+  limit on nested awaits: plain `b := !(io.await(f, io))` fails identically.
+- **Later `cond` branch** — `cond` is lazy, so hoisting would await even when an
+  earlier branch matches. That is a change of meaning, not just of timing.
 
 Three of these need follow-up. None blocks the `if`/`init` fix, and none is a
 regression from it — the last two rows were verified against a self-hosted
@@ -65,22 +75,19 @@ Nothing in the corpus uses this shape (`grep -rn --include='*.yo' 'match(.*\.awa
 over `std yo-self tests src/tests` returns nothing), so adding the rejection is
 safe.
 
-## 3. `if(await f, ...)`: TS rejects, SELF accepts
+## 3. Two yo-self-only gaps found while testing this
 
-SELF compiles and runs this correctly. TS rejects it, because splitting an
-await in condition position needs a state per condition and the reference
-state machine does not model that — TS's `if` expands to a plain
-`cond(c => ..., true => ...)` with the await left in the condition.
+Neither is a regression from the await-position work; both reproduce with **no
+await at all**, and the tests in `tests/async_await.test.yo` are shaped around
+them rather than depending on them.
 
-SELF evidently arrives at a shape where the await is already a statement. The
-divergence is therefore in the `if` macro expansion, not in the state machine.
-
-This is the safe direction of the two (the reference is stricter, and its old
-behaviour here was a segfaulting binary), and it is invisible to every gate
-because no corpus file uses the shape. But it does mean a program can compile
-self-hosted and be rejected by the reference compiler. Unify by either
-teaching TS the hoisting expansion SELF uses, or rejecting in both — deciding
-which requires reading yo-self's `if` expansion against `src/`'s.
+- **`return(expr)` as a closure's FINAL expression** emits
+  `int32_t __yo_scope_ret = return X;` — invalid C. Use a plain trailing
+  expression instead.
+- **An `io.async` closure capturing a mutable local, re-created every
+  iteration**, omits the capture `___dup` that TS emits, so the captured Box is
+  freed under the loop (rc=139). This is why the while-condition tests use a
+  top-level `future_lt` helper rather than an inline closure.
 
 ## Reproducing
 

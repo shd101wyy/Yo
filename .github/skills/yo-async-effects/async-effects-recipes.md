@@ -193,41 +193,40 @@ process_dir :: (fn(root: Path, ctx : WalkCtx) -> Impl(Future(unit, WalkCtx)))(
 - Closures cannot be `ctl`, and they cannot capture a `ctl`-typed value. Handlers are bare (non-capturing) anonymous functions. If you need to use a `ctl` handler from inside a closure body, pass it in as an explicit parameter instead of capturing it.
 - Pointers and references to `ctl` types (or structs containing them) are rejected.
 - **`recur` inside `io.async` calls the lambda, not the outer function** — use an iterative worklist for async recursion.
-- **`io.await` cannot appear in a CONDITION inside `io.async`.** Splitting there
-  would need one state machine state per condition, which the state machine does
-  not model. Bind it first — the compiler now rejects the inline form with a
-  located error rather than miscompiling it:
+- **`io.await` in a branch condition must BE the condition, not nested in it.**
+  Supported directly inside `io.async`:
 
   ```rust
-  // ✗ rejected: `io.await` is not supported in the condition of `if`/`cond`
-  if(io.await(exists(p, io), io), { ... });
-  cond(io.await(ready(io), io) => { ... }, true => ());
+  if(io.await(exists(p, io), io), { ... });                 // ✓
+  cond(io.await(ready(io), io) => ..., true => ...);        // ✓ (first branch)
+  match(io.await(num(io), io), 42 => ..., _ => ...);        // ✓ scrutinee
+  while(io.await(more(io), io), { ... });                   // ✓ condition
+  while(c, { ... io.await(f, io) ... }, { ... });           // ✓ step (arg 2)
+  ```
 
-  // ✓ hoist into a local, then branch
+  Codegen hoists these across the state boundary. They are real suspensions —
+  a task spawned first still interleaves — not blocking waits.
+
+  Three cases are rejected, each with a diagnostic naming the fix:
+
+  ```rust
+  // ✗ nested inside a larger expression — bind it first
+  if(!(io.await(exists(p, io), io)), { ... });
   found := io.await(exists(p, io), io);
-  cond(found => { ... }, true => ());
+  if(!(found), { ... });                                    // ✓
+
+  // ✗ a LATER cond branch: `cond` is lazy, so hoisting would await even when
+  //   an earlier branch matches. Bind it first (evaluates unconditionally).
+  cond(c1 => ..., io.await(f, io) => ..., true => ...);
   ```
 
-  This only applies **inside `io.async`**. At the top level of a plain `fn`,
-  `io.await` is a synchronous drive loop and `cond(io.await(...) => ...)` is
-  fine — which is why `tests/fs/dir.test.yo` has always used it.
+  This whole area only applies **inside `io.async`**. At the top level of a
+  plain `fn`, `io.await` drives the loop synchronously and may appear anywhere.
 
-  Awaiting inside a branch _body_ is fully supported (`cond(c => { io.await(f, io); })`,
-  and `if` bodies too). Historically this shape was a **silent** miscompile:
-  `rc=0` and a segfaulting binary, with the branch body dropped. See
-  `issues/fixed/yo-self-init-segfaults-on-first-run.md`, and
-  `issues/await-in-branch-positions-matrix.md` for the measured
-  works/rejected/diverges table across both compilers (`match` arms and
-  scrutinees still have open gaps).
-
-- **Closure params bound to a generic `E : Type.Struct` need an explicit annotation.** When a generic function takes `callback : Impl(Fn(v : V, e : E) -> R)` and you pass a closure, the closure's `e` parameter type cannot be inferred from the call's bundle argument — `E` is still unbound at the closure body's evaluation site. Define a concrete struct first and annotate the closure parameter:
-  ```rust
-  // ✗ fails with "Cannot infer the type of anonymous closure parameter `e`"
-  traverse(arr, (v, e) => { e.log(v); ... }, { yield, log });
-  // ✓ annotate via a named bundle struct
-  Eff :: struct(yield : Yield, log : Log);
-  traverse(arr, (v : i32, e : Eff) => { e.log(v); ... }, Eff(yield, log));
-  ```
+  Historically the unsupported shapes were a **silent** miscompile: `rc=0` and
+  a segfaulting binary with the branch body dropped. See
+  `issues/fixed/yo-self-init-segfaults-on-first-run.md` and
+  `issues/await-in-branch-positions-matrix.md`.
 
 ## Exception (non-resumable)
 

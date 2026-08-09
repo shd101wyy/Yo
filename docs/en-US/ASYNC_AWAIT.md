@@ -454,29 +454,38 @@ task := io.async((io : Io)=> {
 
 ### Where `await` may appear inside `io.async`
 
-Because each `await` is a state transition, it has to sit somewhere the body can
-be _split_. Branch **bodies** can be split; branch **conditions** cannot, since
-that would need one state per condition.
+Each `await` is a state transition, so it has to sit somewhere the body can be
+_split_. Branch bodies split naturally. Conditions and `match` scrutinees are
+evaluated before any branch is chosen, so they are **hoisted** across the state
+boundary instead; a `while` condition, which re-runs every iteration, makes the
+whole loop cycle through one state.
 
 ```rust
-// ✓ supported — await in a branch body
-cond(
-  needs_write => { io.await(write_file(p, data, io), io); },
-  true => ()
-);
-
-// ✓ supported — bind first, then branch
-found := io.await(exists(p, io), io);
-cond(found => { ... }, true => ());
-
-// ✗ rejected — await in the condition
-cond(io.await(exists(p, io), io) => { ... }, true => ());
+// ✓ supported
+cond(needs_write => { io.await(write_file(p, data, io), io); }, true => ());
 if(io.await(exists(p, io), io), { ... });
+cond(io.await(ready(io), io) => ..., true => ...);
+match(io.await(num(io), io), 42 => ..., _ => ...);
+while(io.await(more(io), io), { ... });
+while(c, { ... io.await(f, io) ... }, { ... });   // step, arg 2 of the 3-arg form
+
+// ✗ rejected: the await is NESTED inside a larger condition
+if(!(io.await(exists(p, io), io)), { ... });
+// ✓ bind it first
+found := io.await(exists(p, io), io);
+if(!(found), { ... });
+
+// ✗ rejected: a LATER cond branch. `cond` is lazy, so hoisting it would await
+//   even when an earlier branch matches — a change of meaning, not of timing.
+cond(c1 => ..., io.await(f, io) => ..., true => ...);
 ```
 
-The rejected forms produce a compile error naming the fix. This restriction
-applies **only inside `io.async`**. In a plain `fn` body, `io.await` drives the
-event loop synchronously and may appear anywhere an expression may.
+These are real suspensions: a task spawned before an awaited condition runs
+while the awaiting task is suspended.
+
+The restriction applies **only inside `io.async`**. In a plain `fn` body,
+`io.await` drives the event loop synchronously and may appear anywhere an
+expression may.
 
 ## Event Loop
 
