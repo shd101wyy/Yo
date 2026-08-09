@@ -59,6 +59,21 @@ export interface StateSegment {
    * The await point at the end of this segment (null for final segment)
    */
   awaitPoint: AwaitPoint | null;
+
+  /**
+   * Set when this segment's await sits in a position the body cannot be SPLIT
+   * at — a `cond`/`if` condition, or a `match` scrutinee. The enclosing
+   * expression has been moved to the NEXT segment; this segment only stores the
+   * future.
+   */
+  storeFutureForAwait?: AwaitPoint;
+
+  /**
+   * Set on the segment that RECEIVED such an expression. While generating this
+   * segment, the await stands for `sm->await_result_<index>`, which the state
+   * prologue has already filled in.
+   */
+  hoistedAwaitPoint?: AwaitPoint;
 }
 
 /**
@@ -99,7 +114,89 @@ export function splitIntoStateSegments(
     });
   }
 
+  hoistNonSplittableAwaits(segments);
+
   return segments;
+}
+
+/**
+ * Moves expressions whose await sits in a non-splittable position into the next
+ * segment.
+ *
+ * A branch-body await can end a state: everything before it runs, the state
+ * suspends, the rest of the branch resumes in the next state. An await in a
+ * `cond`/`if` CONDITION or a `match` SCRUTINEE cannot, because it is evaluated
+ * before any branch is chosen — there is no "before" and "after" to split into.
+ *
+ * The equivalent is to hoist it across the state boundary, which is exactly what
+ * the hand-written form does:
+ *
+ *     ready := io.await(f, io);      // state N ends here
+ *     cond(ready => ..., true => ...) // state N+1
+ *
+ * So: leave the await point on segment N (its future store and state transition
+ * are unchanged), and move the enclosing expression to the front of segment N+1,
+ * where `sm->await_result_N` is live and stands in for the await.
+ */
+function hoistNonSplittableAwaits(segments: StateSegment[]): void {
+  for (let i = 0; i < segments.length; i++) {
+    const segment = segments[i]!;
+    const awaitPoint = segment.awaitPoint;
+    if (!awaitPoint || segment.expressions.length === 0) {
+      continue;
+    }
+
+    const lastIndex = segment.expressions.length - 1;
+    const enclosing = segment.expressions[lastIndex]!;
+    if (!awaitIsInNonSplittablePosition(enclosing, awaitPoint)) {
+      continue;
+    }
+
+    const next = segments[i + 1];
+    if (!next) {
+      continue;
+    }
+
+    segment.expressions.splice(lastIndex, 1);
+    segment.storeFutureForAwait = awaitPoint;
+    next.expressions.unshift(enclosing);
+    next.hoistedAwaitPoint = awaitPoint;
+  }
+}
+
+/**
+ * True when `awaitPoint`'s await sits somewhere in `expr` that the state
+ * machine cannot split at: a `cond`/`if` branch condition, or a `match`
+ * scrutinee.
+ */
+function awaitIsInNonSplittablePosition(
+  expr: Expr,
+  awaitPoint: AwaitPoint
+): boolean {
+  if (expr.tag !== ExprTag.FnCall) {
+    return false;
+  }
+
+  if (exprIsFunctionCallOf(expr, BuiltinKeywords.cond)) {
+    return awaitIsInFirstCondPosition(expr, awaitPoint);
+  }
+
+  // `if` is a macro over `cond` — its condition only becomes visible there.
+  // An `if` condition is always the first branch, so it always hoists.
+  if (
+    exprIsFunctionCallOf(expr, BuiltinKeywords.if) &&
+    expr.$?.macroExpansion
+  ) {
+    return awaitIsInFirstCondPosition(expr.$.macroExpansion, awaitPoint);
+  }
+
+  if (exprIsFunctionCallOf(expr, BuiltinKeywords.match)) {
+    // The scrutinee is evaluated exactly once, before any arm, so hoisting it
+    // is always exact — subject to the same "must BE the await" limit above.
+    return exprIsBareAwait(expr.args[0], awaitPoint);
+  }
+
+  return false;
 }
 
 /**
@@ -123,6 +220,58 @@ export function generateStateSegmentCode(
   indent: string,
   context: FunctionGenerationContext,
   captureLastExprResult: boolean = false
+): void {
+  // This segment received an expression whose await was hoisted out of a
+  // non-splittable position. `sm->await_result_N` is live here, so the await
+  // node stands for that value — see generateAwait (codegen/exprs/await.ts),
+  // which without this emits "" and produces `sm->var_N = ;`.
+  const hoisted = segment.hoistedAwaitPoint;
+  let previousSubstitution: string | undefined;
+  let hadSubstitution = false;
+  if (hoisted) {
+    if (!context.awaitResultSubstitutions) {
+      context.awaitResultSubstitutions = new Map();
+    }
+    const awaitExpr = hoisted.expr as Expr;
+    hadSubstitution = context.awaitResultSubstitutions.has(awaitExpr);
+    previousSubstitution = context.awaitResultSubstitutions.get(awaitExpr);
+    context.awaitResultSubstitutions.set(
+      awaitExpr,
+      `sm->await_result_${hoisted.index}`
+    );
+  }
+
+  try {
+    generateStateSegmentExpressions(
+      segment,
+      indent,
+      context,
+      captureLastExprResult
+    );
+  } finally {
+    if (hoisted) {
+      const awaitExpr = hoisted.expr as Expr;
+      if (hadSubstitution) {
+        context.awaitResultSubstitutions!.set(awaitExpr, previousSubstitution!);
+      } else {
+        context.awaitResultSubstitutions!.delete(awaitExpr);
+      }
+    }
+  }
+
+  // This segment's await was hoisted: the enclosing expression moved to the
+  // next segment, so nothing above emitted the future store. Emit it here —
+  // the state transition the caller appends still needs `await_future_N`.
+  if (segment.storeFutureForAwait) {
+    emitHoistedAwaitFutureStore(segment.storeFutureForAwait, indent, context);
+  }
+}
+
+function generateStateSegmentExpressions(
+  segment: StateSegment,
+  indent: string,
+  context: FunctionGenerationContext,
+  captureLastExprResult: boolean
 ): void {
   const emitter = context.emitter;
 
@@ -399,15 +548,15 @@ export function generateAwaitExpression(
   // `if` is a macro over `cond`; the branch structure only becomes visible in
   // its expansion, so retry there before giving up. Without this an `await`
   // under an `if` gets no state transition at all, even though `cond` — which
-  // is all an `if` is — is fully supported. (yo-self already handles this; the
-  // reference compiler was the one that did not.)
-  if (expr.$?.macroExpansion) {
-    // An await in the CONDITION cannot be split no matter which spelling it
-    // arrives in, so reject it here — and report against the `if` the user
-    // actually wrote, not the `cond` it expands to.
-    if (awaitIsInCondPosition(expr.$.macroExpansion, awaitPoint)) {
-      throw new Error(unsupportedAwaitMessage(expr, awaitPoint));
-    }
+  // is all an `if` is — is fully supported.
+  //
+  // Only recurse when the await is in a branch VALUE. In CONDITION position the
+  // `cond` handler cannot split it either, so fall through to the hoist below
+  // and keep reporting against the `if` the user actually wrote.
+  if (
+    expr.$?.macroExpansion &&
+    !awaitIsInCondPosition(expr.$.macroExpansion, awaitPoint)
+  ) {
     generateAwaitExpression(
       expr.$.macroExpansion,
       awaitPoint,
@@ -424,6 +573,123 @@ export function generateAwaitExpression(
   // so returning quietly produces a NULL dereference at runtime. Fail loudly
   // instead: a compile error is always better than a segfaulting binary.
   throw new Error(unsupportedAwaitMessage(expr, awaitPoint));
+}
+
+/**
+ * Emits the future store for an await hoisted out of a non-splittable position.
+ *
+ * The enclosing expression now lives in the next segment, so this segment ends
+ * with just the store — the state transition the caller appends reads
+ * `sm->await_future_N` exactly as it would for any other await.
+ */
+function emitHoistedAwaitFutureStore(
+  awaitPoint: AwaitPoint,
+  indent: string,
+  context: FunctionGenerationContext
+): void {
+  const emitter = context.emitter;
+
+  emitter.emitLine(
+    `${indent}// Await in non-splittable position (cond/if condition, or match`
+  );
+  emitter.emitLine(
+    `${indent}// scrutinee) — store the future; the enclosing expression runs in`
+  );
+  emitter.emitLine(
+    `${indent}// the next state, reading await_result_${awaitPoint.index}.`
+  );
+
+  if (awaitPoint.futureVariableId !== undefined) {
+    // Already held by a state machine variable field.
+    return;
+  }
+
+  const awaitExpr = awaitPoint.expr as Expr;
+  if (awaitExpr.tag !== ExprTag.FnCall) {
+    return;
+  }
+  const futureExpr = awaitExpr.args[0];
+  if (!futureExpr) {
+    return;
+  }
+
+  const futureCode = generateExpr(futureExpr, indent, context);
+  emitter.emitLine(
+    `${indent}sm->await_future_${awaitPoint.index} = ${futureCode};`
+  );
+}
+
+/**
+ * True when the await sits in the condition of the FIRST branch of `condExpr`.
+ *
+ * Only the first condition can be hoisted into the previous state. `cond`
+ * evaluates its conditions lazily, in order, so hoisting a LATER condition
+ * would evaluate its await even when an earlier branch matches — a silent
+ * change of meaning (and of side effects), not just of timing. The first
+ * condition is always evaluated, so hoisting it is exact.
+ *
+ * `condExpr` must be a `cond` — for an `if`, pass its `$.macroExpansion`.
+ */
+function awaitIsInFirstCondPosition(
+  condExpr: Expr,
+  awaitPoint: AwaitPoint
+): boolean {
+  if (
+    condExpr.tag !== ExprTag.FnCall ||
+    !exprIsFunctionCallOf(condExpr, BuiltinKeywords.cond)
+  ) {
+    return false;
+  }
+
+  const firstPair = condExpr.args[0];
+  if (
+    !firstPair ||
+    firstPair.tag !== ExprTag.FnCall ||
+    !exprIsFunctionCallOf(firstPair, "=>")
+  ) {
+    return false;
+  }
+
+  // The await must BE the condition, not merely appear inside it. Substituting
+  // the extracted result into a larger expression (`!(io.await(f, io))`) makes
+  // codegen ask for helper specialisations the collection pass never saw, so
+  // the C references undeclared functions. Awaits nested inside a larger
+  // expression are unsupported everywhere — `b := !(io.await(f, io))` fails the
+  // same way — so this is a general limit, not one this hoist introduces.
+  const condition = firstPair.args[0];
+  return exprIsBareAwait(condition, awaitPoint);
+}
+
+/**
+ * True when `expr` IS this await point's `io.await(...)` call, ignoring the
+ * single-expression `begin` wrappers the evaluator puts around `cond`
+ * conditions and `match` scrutinees.
+ *
+ * "Is", not "contains": substituting the extracted result into a LARGER
+ * expression (`!(io.await(f, io))`) asks codegen for helper specialisations the
+ * collection pass never saw, and the C then calls undeclared functions. Awaits
+ * nested inside a bigger expression are unsupported everywhere — plain
+ * `b := !(io.await(f, io))` fails the same way — so this is a pre-existing
+ * limit, not one the hoist introduces.
+ */
+function exprIsBareAwait(
+  expr: Expr | undefined,
+  awaitPoint: AwaitPoint
+): boolean {
+  let current = expr;
+  while (
+    current &&
+    current.tag === ExprTag.FnCall &&
+    exprIsFunctionCallOf(current, BuiltinKeywords.begin) &&
+    current.args.length === 1
+  ) {
+    current = current.args[0];
+  }
+  return (
+    current !== undefined &&
+    isIoAwaitCall(current) &&
+    containsAwaitExpr(current, awaitPoint.expr as Expr)
+  );
 }
 
 /**
@@ -497,17 +763,20 @@ function unsupportedAwaitMessage(expr: Expr, awaitPoint: AwaitPoint): string {
       exprIsFunctionCallOf(expr, BuiltinKeywords.match);
 
   if (inConditionalPosition) {
-    const branchForm = isIf
-      ? "if(ready, { ... })"
-      : funcName === "match"
-        ? "match(ready, ...)"
-        : "cond(ready => ..., true => ...)";
+    // An await that IS the first condition (or a `match` scrutinee) is hoisted
+    // into the previous state and never reaches here. What is left is an await
+    // that is nested inside a condition, or one in a later `cond` branch.
     return (
-      `${where}\`io.await\` is not supported in the condition of \`${funcName}\` ` +
-      `inside an \`io.async\` block.\n` +
-      `Hoist it into a local first:\n` +
+      `${where}\`io.await\` in a \`${funcName}\` condition inside an ` +
+      `\`io.async\` block must BE the first condition — it cannot be nested ` +
+      `inside a larger expression, and it cannot be in a later branch.\n` +
+      `A later branch's condition is only evaluated if the earlier ones fail, ` +
+      `so hoisting it would await even when an earlier branch matches.\n` +
+      `Bind it to a local first:\n` +
       `    ready := io.await(f, io);\n` +
-      `    ${branchForm}`
+      `    ${isIf ? "if(!(ready), { ... })" : "cond(c1 => ..., !(ready) => ..., true => ...)"}\n` +
+      `(note this evaluates the await unconditionally, which is why the ` +
+      `compiler will not do it for you).`
     );
   }
 
@@ -567,11 +836,15 @@ function generateCondWithAwait(
     return;
   }
 
-  // This function splits at awaits in branch VALUES. An await in a branch
-  // CONDITION would need a state per condition, which the state machine does
-  // not model — the condition's C code comes back empty and we would emit
-  // `tmp = ;`. Reject it here with the source-level fix instead.
-  if (awaitIsInCondPosition(condExpr, awaitPoint)) {
+  // An await in a branch CONDITION is not split here — it is hoisted into the
+  // previous state by `hoistNonSplittableAwaits`, so by the time this runs the
+  // condition reads `sm->await_result_N` and looks like any other condition.
+  // Reaching here with one still in place means the hoist did not fire, and
+  // generating on would emit an empty operand (`tmp = ;`).
+  if (
+    awaitIsInCondPosition(condExpr, awaitPoint) &&
+    !context.awaitResultSubstitutions?.has(awaitPoint.expr as Expr)
+  ) {
     throw new Error(unsupportedAwaitMessage(condExpr, awaitPoint));
   }
 

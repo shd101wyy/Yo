@@ -176,6 +176,23 @@ export interface FunctionGenerationContext extends CodeGenContext {
   // emit async Future completion (store result, drop locals, return). This
   // indicates the cond IS the async block body's implicit return value.
   asyncBodyReturnExpr?: Expr;
+  // `io.await` in a position the body cannot be SPLIT at — a `cond`/`if`
+  // condition, or a `match` scrutinee. These are evaluated before any branch is
+  // chosen, so the await cannot end a state the way a branch-body await does.
+  //
+  // They are handled by hoisting across the state boundary: the state that
+  // reaches the expression stores only the future, and the NEXT state (where
+  // `sm->await_result_N` is live) re-emits the whole expression with the await
+  // substituted for that result.
+  //
+  // awaitResultSubstitutions: the `io.await(...)` node -> the C lvalue holding
+  // its extracted result. Consulted by generateAwait (codegen/exprs/await.ts),
+  // which otherwise emits "" inside a state machine — the empty operand that
+  // used to produce `sm->var_N = ;`.
+  awaitResultSubstitutions?: Map<Expr, string>;
+  // hoistedAwaitExprs: await point index -> the enclosing expression whose
+  // emission was deferred to the next state.
+  hoistedAwaitExprs?: Map<number, Expr>;
   // Variables that are locally shadowed (e.g., in match destructuring patterns)
   // When a variable name is in this set, use the local C variable instead of sm->var_...
   localShadowedVariables?: Set<string>;
