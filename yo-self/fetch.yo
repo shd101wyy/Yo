@@ -34,18 +34,15 @@ open(import("std/string"));
   get_global_deps_cache_dir,
   ensure_global_deps_cache_dir
 } :: import("./cache.yo");
+// `BuildGitDependency` is DECLARED BY THE BUILD REGISTRY, not here — `yo fetch`
+// reads the very list `build.yo` evaluation populated. `src/fetch.ts` imports
+// the type from `./evaluator/builtins/build` for exactly that reason; this file
+// used to re-declare a structurally similar one, which made
+// `fetch_all_deps(registry.dependencies)` fail to unify two same-named types.
+{ BuildGitDependency } :: import("./evaluator/builtins/build.yo");
 // ---------------------------------------------------------------------------
 // Data types
 // ---------------------------------------------------------------------------
-/// A git dependency declared in `build.yo`.
-BuildGitDependency :: ref(
-  struct(
-    name : String,
-    url : String,
-    ref : String,
-    path : Option(String)
-  )
-);
 /// Status of a cached dependency.
 CachedDepStatus :: enum(Ok, MissingPath, MissingHash, HashMismatch);
 /// Result of inspecting a cached dependency.
@@ -646,10 +643,9 @@ fetch_dep :: (
         .None => String.new(),
         .Some(s) => s.cached_path
       );
-      sub_path := match(
-        dep.path,
-        .None => cached_path,
-        .Some(p) => Path.new(cached_path).join(Path.new(p)).to_string()
+      sub_path := cond(
+        (dep.path.is_empty()) => cached_path,
+        true => Path.new(cached_path).join(Path.new(dep.path)).to_string()
       );
       return(FetchDepResult(lock_file : lock_file, dep_path : sub_path));
     });
@@ -692,10 +688,9 @@ fetch_dep :: (
           ),
           lock_file
         );
-        sub_path := match(
-          dep.path,
-          .None => state.cached_path,
-          .Some(p) => Path.new(state.cached_path).join(Path.new(p)).to_string()
+        sub_path := cond(
+          (dep.path.is_empty()) => state.cached_path,
+          true => Path.new(state.cached_path).join(Path.new(dep.path)).to_string()
         );
         return(FetchDepResult(lock_file : updated_lock, dep_path : sub_path));
       });
@@ -719,10 +714,9 @@ fetch_dep :: (
       hash : content_hash
     );
     updated_lock := upsert_lock_entry(lock_file, new_entry);
-    sub_path := match(
-      dep.path,
-      .None => cloned_path,
-      .Some(p) => Path.new(cloned_path).join(Path.new(p)).to_string()
+    sub_path := cond(
+      (dep.path.is_empty()) => cloned_path,
+      true => Path.new(cloned_path).join(Path.new(dep.path)).to_string()
     );
     FetchDepResult(lock_file : updated_lock, dep_path : sub_path)
   })
@@ -908,6 +902,7 @@ resolve_dep_path :: (
 // ---------------------------------------------------------------------------
 export(
   BuildGitDependency,
+  remove_dir_all,
   CachedDepStatus,
   CachedDepState,
   FetchDepResult,

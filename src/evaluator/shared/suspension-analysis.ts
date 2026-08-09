@@ -128,6 +128,34 @@ export function analyzeSuspensionPoints<P extends SuspensionPoint>(
 }
 
 /**
+ * Where a variable was DECLARED, as a stable string.
+ *
+ * Part of the SSA-remapping key. `name:frameLevel` alone conflates two
+ * different things:
+ *
+ *   1. A reassignment — `offset = offset + 1` — which re-stamps the SAME
+ *      declaration with a fresh id (assignment.ts spreads the existing
+ *      variable, so the declaration token is preserved). Both ids must map to
+ *      one state-machine field, which is what the remapping is for.
+ *   2. Two DISTINCT variables that merely share a name at the same frame level
+ *      — `label := …` in one match/cond arm and `label := …` in a sibling arm.
+ *      Arm bodies push and pop a frame, so both land on the same level.
+ *
+ * Case 2 must NOT be remapped: it made the second arm's reads resolve to the
+ * first arm's field, which that path never writes, so the second arm silently
+ * read a zero-initialised value. Including the declaration site separates them
+ * — a re-stamp keeps its declaration token, a redeclaration has its own.
+ * yo-self solves the same class with its `decl_site` field on the captured
+ * variable (yo-self/evaluator/shared/suspension_analysis.yo).
+ * See issues/fixed/async-sibling-arm-same-named-locals.md.
+ */
+function declarationSiteOf(variable: {
+  token: { modulePath: string; position: { row: number; column: number } };
+}): string {
+  return `${variable.token.modulePath}:${variable.token.position.row}:${variable.token.position.column}`;
+}
+
+/**
  * Recursively walks an expression tree to find suspension points and capture variables.
  */
 function walkExpr<P extends SuspensionPoint>(
@@ -152,7 +180,7 @@ function walkExpr<P extends SuspensionPoint>(
             !capturedVariables.has(variable.id) &&
             !variable.isCompileTimeOnly
           ) {
-            const nameFrameKey = `${variable.name}:${variable.frameLevel}`;
+            const nameFrameKey = `${variable.name}:${variable.frameLevel}:${declarationSiteOf(variable)}`;
             const existingOriginalId = nameFrameToOriginalId.get(nameFrameKey);
 
             if (existingOriginalId && existingOriginalId !== variable.id) {
@@ -167,7 +195,7 @@ function walkExpr<P extends SuspensionPoint>(
                   isOwningTheSameRcValueAs: undefined,
                 };
                 capturedVariables.set(ownerVar.id, ownerCaptured);
-                const ownerNameFrameKey = `${ownerVar.name}:${ownerVar.frameLevel}`;
+                const ownerNameFrameKey = `${ownerVar.name}:${ownerVar.frameLevel}:${declarationSiteOf(ownerVar)}`;
                 if (!nameFrameToOriginalId.has(ownerNameFrameKey)) {
                   nameFrameToOriginalId.set(ownerNameFrameKey, ownerVar.id);
                 }

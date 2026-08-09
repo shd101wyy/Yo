@@ -1,0 +1,40 @@
+open(import("std/string"));
+open(import("std/fmt"));
+{ Exception, IoExn, AnyError } :: import("std/error");
+{ yield } :: import("std/async");
+
+Pair :: ref(
+  struct(
+    a : String,
+    b : String
+  )
+);
+// Two locals of the SAME NAME in different branches of an async body (the
+// evaluator SSA-renames the second to `sub_1`), the second used as a
+// struct-literal argument.
+probe :: (fn(n : i32, io : Io, exn : Exception) -> Impl(Future(Pair, IoExn)))(
+  io.async((e : IoExn) => {
+    base := String.from("base");
+    if(n > i32(0), {
+      sub := String.from("one");
+      return(Pair(a : base, b : sub));
+    });
+    e.io.await(yield(e.io), e.io);
+    sub := String.from("two");
+    return(Pair(a : base, b : sub));
+  })
+);
+
+main :: (fn(io : Io) -> unit)({
+  exn := Exception(
+    throw : (
+      (err) -> {
+        eprintln(err.to_string());
+        unwind();
+      }
+    )
+  );
+  p := io.await(probe(i32(1), io, exn), IoExn(io : io, exn : exn));
+  println(`${p.a}/${p.b}`);
+});
+export(main);

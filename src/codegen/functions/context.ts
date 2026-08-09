@@ -115,6 +115,14 @@ export interface FunctionGenerationContext extends CodeGenContext {
         hasAwait: boolean;
         remainingExprs?: Expr[]; // Expressions after the await in this branch
         deferredDropExpressions?: Expr[]; // Drop expressions for the branch's begin block
+        // The variable THIS branch binds its own await result to, e.g. the `a`
+        // in `.Ok(_) => { a := io.await(f, io); … }`. Several arms collapse onto
+        // ONE await point (only one arm runs, so one suspension state suffices),
+        // so the await point's single `targetVariableId` can only name one of
+        // them — every other arm's binding was left unassigned, reading a
+        // zero-initialised field. Recorded per branch and assigned inside that
+        // branch's `case`. See issues/fixed/async-await-in-nested-match-arms.md.
+        awaitTargetVariableId?: string;
       }>;
       targetVariableId?: string; // Variable that receives the cond result (if any)
       targetAssignmentCode?: string; // C code for the assignment target (for `= (target, cond/match(...))`)
@@ -213,6 +221,11 @@ export interface FunctionGenerationContext extends CodeGenContext {
   // hoistedAwaitExprs: await point index -> the enclosing expression whose
   // emission was deferred to the next state.
   hoistedAwaitExprs?: Map<number, Expr>;
+  // Monotonic counter handing out DISTINCT `sm->cond_branch_N` dispatch codes
+  // to each awaiting arm of each cond/match in this function. Arm indices alone
+  // collide when two matches share one await point's resume switch, which C
+  // rejects as a duplicate case value. See allocCondBranchCodes.
+  condBranchCaseSeq?: number;
   // Variables that are locally shadowed (e.g., in match destructuring patterns)
   // When a variable name is in this set, use the local C variable instead of sm->var_...
   localShadowedVariables?: Set<string>;

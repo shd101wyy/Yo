@@ -1,0 +1,52 @@
+open(import("std/string"));
+open(import("std/fmt"));
+{ Exception, IoExn, AnyError } :: import("std/error");
+{ yield } :: import("std/async");
+
+Cfg :: ref(struct(name : String));
+Kind :: enum(Run, Doc);
+// A reassignment inside an AWAITLESS nested match arm, in an async body whose
+// OTHER arm awaits. `execute_node` in yo-self/build_runner.yo is this shape:
+// the `.Doc` arm only reassigns `description`, while `.Run` awaits.
+probe :: (fn(k : Kind, io : Io, exn : Exception) -> Impl(Future(String, IoExn)))(
+  io.async((e : IoExn) => {
+    description := String.from("start");
+    match(
+      k,
+      .Run => {
+        match(
+          Option(Cfg).Some(Cfg(name : String.from("exe"))),
+          .None => (),
+          .Some(run_cfg) => {
+            description = `run ${run_cfg.name}`;
+            e.io.await(yield(e.io), e.io);
+          }
+        );
+      },
+      .Doc => {
+        match(
+          Option(Cfg).Some(Cfg(name : String.from("book"))),
+          .None => (),
+          .Some(doc_cfg) => {
+            description = `doc ${doc_cfg.name}`;
+          }
+        );
+      }
+    );
+    return(description);
+  })
+);
+
+main :: (fn(io : Io) -> unit)({
+  exn := Exception(
+    throw : (
+      (err) -> {
+        eprintln(err.to_string());
+        unwind();
+      }
+    )
+  );
+  println(io.await(probe(Kind.Run, io, exn), IoExn(io : io, exn : exn)));
+  println(io.await(probe(Kind.Doc, io, exn), IoExn(io : io, exn : exn)));
+});
+export(main);

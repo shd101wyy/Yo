@@ -1,30 +1,43 @@
 open(import("std/string"));
 open(import("std/fmt"));
-{ Exception, IoExn } :: import("std/error");
+{ Exception, IoExn, AnyError } :: import("std/error");
 { yield } :: import("std/async");
 
-ready :: (fn(io : Io) -> Impl(Future(bool, Io)))(
-  io.async((io : Io) => {
-    io.await(yield(io), io);
-    return(true);
-  })
-);
-num :: (fn(io : Io) -> Impl(Future(i32, Io)))(
-  io.async((io : Io) => {
-    io.await(yield(io), io);
-    return(i32(7));
+Kind :: enum(Exe, Lib);
+// A mutable local REASSIGNED from a template string inside a match arm that
+// also awaits, in an async body — the shape `execute_node` uses for
+// `description = `compile ${kind_label} ${artifact.name}``.
+probe :: (fn(k : Kind, io : Io, exn : Exception) -> Impl(Future(String, IoExn)))(
+  io.async((e : IoExn) => {
+    description := String.from("start");
+    name := String.from("thing");
+    match(
+      k,
+      .Exe => {
+        label := String.from("exe");
+        description = `compile ${label} ${name}`;
+        e.io.await(yield(e.io), e.io);
+      },
+      .Lib => {
+        label_b := String.from("lib");
+        description = `compile ${label_b} ${name}`;
+        e.io.await(yield(e.io), e.io);
+      }
+    );
+    return(description);
   })
 );
 
-do_it :: (fn(io : Io, exn : Exception) -> Impl(Future(unit, IoExn)))(
-  io.async((e) => {
-    cond(e.io.await(ready(e.io), e.io) => { println(String.from("y")); }, true => ());
-  })
-);
-
-main :: (fn(io : Io, exn : Exception) -> unit)({
-  io.await(do_it(io, exn), IoExn(io : io, exn : exn));
-  println(String.from("END"));
+main :: (fn(io : Io) -> unit)({
+  exn := Exception(
+    throw : (
+      (err) -> {
+        eprintln(err.to_string());
+        unwind();
+      }
+    )
+  );
+  println(io.await(probe(Kind.Exe, io, exn), IoExn(io : io, exn : exn)));
+  println(io.await(probe(Kind.Lib, io, exn), IoExn(io : io, exn : exn)));
 });
-
 export(main);

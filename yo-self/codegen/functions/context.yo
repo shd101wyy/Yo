@@ -19,6 +19,7 @@ open(import("std/string"));
 { TypeValue } :: import("../../types/definitions.yo");
 { CapturedVariable, AwaitAnalysisResult } :: import("../../evaluator/async/await_analysis_types.yo");
 { CodeGenContext } :: import("../utils/index.yo");
+{ get_state_machine_field_name } :: import("../async/state_machine_naming.yo");
 /// One closure parameter slot — a bundle value supplied at io.await/io.spawn time
 /// via `set_effect("__bundle", &value)`, stored in a dedicated `__yo_param_<i>`
 /// slot on the SM struct. Mirrors the inline `closureParamSlots` records
@@ -117,7 +118,15 @@ CondBranch :: ref(
     /// Expressions after the await in this branch (resume-state code).
     remaining_exprs : Option(ArrayList(AstExpr)),
     /// Drop expressions for the branch's begin block.
-    deferred_drop_expressions : Option(ArrayList(AstExpr))
+    deferred_drop_expressions : Option(ArrayList(AstExpr)),
+    /// The variable THIS branch binds its own await result to, e.g. the `a` in
+    /// `.Ok(_) => { a := io.await(f, io); … }`. Several arms collapse onto ONE
+    /// await point (only one arm runs, so one suspension state suffices), so
+    /// the await point's single `target_variable_id` can only name one of them
+    /// — every other arm's binding was left unassigned and read a
+    /// zero-initialised field. Recorded per branch and assigned inside that
+    /// branch's `case`. See issues/fixed/async-await-in-nested-match-arms.md.
+    await_target_variable_id : Option(String)
   )
 );
 /// A chained cond/match continuation: an outer cond's remaining code that shares
@@ -252,6 +261,12 @@ FunctionGenerationContext :: ref(
     /// `generate_cond_with_await` / `generate_match_with_await`, read by the resume
     /// generator. Mirrors `asyncCondBranchInfo`.
     async_cond_branch_info : Option(HashMap(usize, AsyncCondBranchInfo)),
+    /// Monotonic counter handing out DISTINCT `sm->cond_branch_N` dispatch codes
+    /// to each awaiting arm of each cond/match in this function. Arm indices
+    /// alone collide when two matches share one await point's resume switch,
+    /// which C rejects as a duplicate case value. Mirrors TS
+    /// `FunctionGenerationContext.condBranchCaseSeq`.
+    cond_branch_case_seq : usize,
     /// When set, the cond/match expression that IS the async block body's implicit
     /// return value — its non-await branches must emit Future completion. Mirrors
     /// `asyncBodyReturnExpr`.
@@ -306,6 +321,7 @@ impl(
       await_result_substitutions : Option(HashMap(usize, String)).None,
       async_next_while_loop_index : Option(usize).None,
       async_cond_branch_info : Option(HashMap(usize, AsyncCondBranchInfo)).None,
+      cond_branch_case_seq : usize(0),
       async_body_return_expr : Option(AstExpr).None,
       current_evidence_params : Option(HashMap(String, EvidenceParameter)).None,
       deferred_async_blocks : Option(ArrayList(DeferredAsyncBlock)).None,
@@ -313,6 +329,50 @@ impl(
     )
   )
 );
+/// Resolve a variable name to its state-machine field reference when inside an
+/// async or effect state machine: `sm->__capture.X` for an outer capture,
+/// `sm->var_X` for a hoisted local. Returns the name unchanged outside a state
+/// machine, or when it is a real C temp rather than a hoisted local.
+///
+/// Lives here rather than in `exprs/other_fn_call.yo` (its TS home) because
+/// `return.yo` needs it too and `other_fn_call.yo` already imports `return.yo`
+/// — yo-self's loader rejects the destructuring import cycle. Same structural
+/// necessity as `state_machine_naming.yo`. Mirrors `resolveVarNameInContext`.
+resolve_var_name_in_context :: (
+  fn(var_name : String, context : FunctionGenerationContext) -> String
+)({
+  if(context.in_async_state_machine.is_none(), {
+    return(var_name);
+  });
+  match(
+    context.state_machine_variables,
+    .None => var_name,
+    .Some(vars) => {
+      (result : String) = var_name.clone();
+      (found : bool) = false;
+      key_iter := vars.keys();
+      (more : bool) = true;
+      while(more && !(found), {
+        match(
+          key_iter.next(),
+          .None => {
+            more = false;
+          },
+          .Some(k) => match(
+            vars.get(k.clone()),
+            .None => (),
+            .Some(cv) => if(cv.base.name == var_name, {
+              found = true;
+              result = `sm->${get_state_machine_field_name(k.clone(), Option(String).Some(match(cv.kind, .Outer => String.from("outer"), .Local => String.from("local"))), context.state_machine_field_aliases)}`;
+            })
+          )
+        );
+      });
+      result
+    }
+  )
+});
+export(resolve_var_name_in_context);
 export(
   FunctionGenerationContext,
   SmWhileBreakInfo,

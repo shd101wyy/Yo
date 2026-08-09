@@ -501,7 +501,55 @@ impl(
   /// Check if the path is relative (not absolute).
   is_relative : (fn(self : Self) -> bool)(
     !(self._is_absolute)
-  )
+  ),
+  /// Return `self` expressed relative to `base`: drop the segments the two
+  /// share, emit one `..` per remaining `base` segment, then the rest of
+  /// `self`. Equivalent to node's `path.relative(base, self)`.
+  ///
+  /// Returns an empty relative path when the two are equal. When `base` and
+  /// `self` differ in absoluteness there is no common root to walk from, so
+  /// `self` is returned unchanged (node resolves both against the cwd first;
+  /// this has no cwd to resolve against).
+  relative_from : (fn(self : Self, base : Self) -> Self)({
+    cond(
+      (self._is_absolute != base._is_absolute) => {
+        return(self);
+      },
+      true => ()
+    );
+    (common : usize) = usize(0);
+    (matching : bool) = true;
+    while(matching && ((common < base._segments.len()) && (common < self._segments.len())), {
+      b := match(base._segments.get(common), .Some(x) => x, .None => String.new());
+      t := match(self._segments.get(common), .Some(x) => x, .None => String.new());
+      cond(
+        (b == t) => {
+          common = (common + usize(1));
+        },
+        true => {
+          matching = false;
+        }
+      );
+    });
+    segments := ArrayList(String).new();
+    (i : usize) = common;
+    while(i < base._segments.len(), {
+      segments.push(String.from(".."));
+      i = (i + usize(1));
+    });
+    (j : usize) = common;
+    while(j < self._segments.len(), {
+      match(
+        self._segments.get(j),
+        .Some(seg) => {
+          segments.push(seg);
+        },
+        .None => ()
+      );
+      j = (j + usize(1));
+    });
+    Self(_segments : segments, _is_absolute : false)
+  })
 );
 impl(
   Path,

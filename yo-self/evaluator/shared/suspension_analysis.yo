@@ -215,7 +215,17 @@ _capture_env_variable :: (
       .Some(v) => v
     );
     if(!(variable.is_compile_time_only) && !(captured_variables.contains_key(variable.id.to_string())), {
-      name_frame_key := `${variable.name}:${variable.frame_level}`;
+      // The SSA-remapping key includes the DECLARATION SITE, not just
+      // `name:frame_level`. Those two alone conflate a reassignment (`x = …`,
+      // which re-stamps the same declaration with a fresh id and so must share
+      // one state-machine field) with two DISTINCT variables that merely share
+      // a name at the same frame level (`label := …` in sibling match/cond
+      // arms — arm bodies push and pop a frame, so both land on one level).
+      // Remapping the latter made the second arm read a field its own path
+      // never writes, silently. Mirrors `declarationSiteOf`
+      // (src/evaluator/shared/suspension-analysis.ts).
+      // See issues/fixed/async-sibling-arm-same-named-locals.md.
+      name_frame_key := `${variable.name}:${variable.frame_level}:${variable.token.module_path}:${variable.token.row.to_string()}:${variable.token.column.to_string()}`;
       // Check if there is a different existing original ID for this name:frame key
       has_different_orig := match(
         name_frame_to_original_id.get(name_frame_key.clone()),

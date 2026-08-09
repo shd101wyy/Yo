@@ -838,6 +838,52 @@ export function generateAsyncBlockResumeFunction(
                 `          ASYNC_DEBUG("${asyncBlockId}: Executing remaining code from branch ${branch.index}\\n");`
               );
 
+              // Bind THIS branch's own await result. Several arms share one
+              // await point (only one arm runs, so one suspension state
+              // suffices), so the single pre-switch copy driven by
+              // `prevAwait.targetVariableId` can only name one arm's binding —
+              // every other arm read a zero-initialised field and the program
+              // silently produced `false`/`0`. Skip the arm that the pre-switch
+              // copy already covers, so it is not written twice.
+              if (
+                branch.awaitTargetVariableId &&
+                branch.awaitTargetVariableId !== prevAwait.targetVariableId
+              ) {
+                // Only when the binding really is THIS await point's result. An
+                // arm may contain a second await that suspends into a LATER
+                // state; its binding is that state's business and has a
+                // different type, so copying `await_result_N` into it emits an
+                // invalid C assignment. Types agreeing is the check that tells
+                // the two apart.
+                const branchTargetVar = context.stateMachineVariables?.get(
+                  branch.awaitTargetVariableId
+                );
+                const sameResultType =
+                  branchTargetVar?.type !== undefined &&
+                  getTypeString(branchTargetVar.type, context) ===
+                    getTypeString(prevAwait.resultType, context);
+                // …and the binding must really live in the state struct. A
+                // segment-local that the SM optimization kept out of it has no
+                // field to write ("no member named 'var_N' in struct").
+                if (
+                  sameResultType &&
+                  awaitTargetHasStructField(
+                    branch.awaitTargetVariableId,
+                    crossBoundaryIds,
+                    context
+                  )
+                ) {
+                  const branchTargetField = getStateMachineFieldName(
+                    branch.awaitTargetVariableId,
+                    "local",
+                    context.stateMachineFieldAliases
+                  );
+                  emitter.emitLine(
+                    `          sm->${branchTargetField} = sm->await_result_${prevAwait.index};`
+                  );
+                }
+              }
+
               // If there are remaining expressions, generate them
               if (branch.remainingExprs && branch.remainingExprs.length > 0) {
                 // Set up state machine context for code generation

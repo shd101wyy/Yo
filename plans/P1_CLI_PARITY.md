@@ -9,96 +9,188 @@ P1 is defined in [`SELF_HOSTING_COMPLETION.md`](SELF_HOSTING_COMPLETION.md).
 This document is the working state: what is done, what its own plan gets wrong,
 what order to do the rest in, and the traps that have already cost time.
 
-**Every number here was measured on 2026-08-09, not quoted.** Where this
-contradicts `SELF_HOSTING_COMPLETION.md`, this document is the later
-measurement — several of its figures are stale and are called out below.
+**Every number here was measured, not quoted.** Where this contradicts
+`SELF_HOSTING_COMPLETION.md`, this document is the later measurement — several
+of its figures are stale and are called out below.
 
 ---
 
 ## 0. Where P1 stands
 
-|                   |                                                             |
-| ----------------- | ----------------------------------------------------------- |
-| Hard blockers     | none                                                        |
-| Subcommands wired | `check`, `compile`, `test`, `fmt`, **`init`**               |
-| Subcommands left  | `build`, `doc`, `fetch`, `install`, `cache`, `version`      |
-| `fmt` divergence  | **17** of 808 files (was 339) — one rule class left         |
-| Bootstrap         | FIXPOINT_HOLDS, stage-3 byte-identical                      |
-| Gates             | `gates_fast.sh` failures=0, 15 required checks on `develop` |
-
-`init` was the first P1 step and it earned its keep on day one — see §4.
-
----
-
-## 1. Do this first: `scripts/cli-diff-test.sh`
-
-It does not exist, and it is the highest-value thing left.
-
-`init_project` was 239 complete, type-checking lines wired to **no
-subcommand**. It had never been executed once. `check ./yo-self` passed it
-every time. Wiring it up produced `rc=139` against the reference compiler's
-`rc=0` on the very first run.
-
-**In this codebase "ported" can mean "type-checks and is unreachable", and
-`check` cannot tell those apart.** Every remaining subcommand is in exactly
-that position right now. Build the harness before wiring more of them.
-
-`scripts/diff-test.sh` supplies the verdict vocabulary and exit contract, but
-compares only stdout+rc — useless for subcommands whose real output is a
-directory tree, a cache mutation, or an artifact set. The new one must diff
-trees.
-
-The interim guard already in place is `gates_fast.sh` **GATE 5**: it runs
-`init` and asserts the seven scaffolded files. Note it asserts _artifacts_, not
-`rc=0` — the original bug created the directories and _then_ died, so an
-exit-code check would have passed it.
+|                      |                                                                                                 |
+| -------------------- | ----------------------------------------------------------------------------------------------- |
+| Hard blockers        | **none** — §2's eight codegen bugs are all fixed, each with a regression test                   |
+| Subcommands wired    | `check`, `compile`, `test`, `fmt`, `init`, **`cache`**, **`build`**, **`fetch`**, **`install`** |
+| Subcommands left     | `doc` (not started), `version` (deferred to P3 by §6.5)                                         |
+| `fmt` divergence     | **0** of 808 files (was 339, then 17)                                                           |
+| Differential harness | `scripts/cli-diff-test.sh` + `tests/cli-cases/` — **exists**, 5/5 PASS                          |
+| Gates                | `gates_fast.sh` GATE 6 (`fmt` differential) and GATE 7 (CLI differential) are new               |
+| Bootstrap            | FIXPOINT_HOLDS, stage-3 byte-identical                                                          |
 
 ---
 
-## 2. Then `module_manager` — a prerequisite, not a subcommand
+## 1. The harness exists now: `scripts/cli-diff-test.sh`
 
-`src/module-manager.ts` is 458 lines with **no counterpart** in `yo-self/`
-(verified: `yo-self/module_manager.yo` does not exist). It is the shared
-"evaluate a `.yo` file and read its exports/registry" service that `build`,
-`fetch`, `install`, `doc`, the test runner and codegen all import.
+This was the top item and it is done. It runs a subcommand under both compilers
+in two isolated sandboxes — **each with its own `HOME`**, so `~/.cache/yo`
+mutations are part of the differential — and compares exit code, normalized
+stdout, the project tree AND the `HOME` tree. `scripts/diff-test.sh` supplies
+the verdict vocabulary and exit contract; the trees are what it adds.
 
-Most of the remaining subcommands need it. Doing it first stops each of them
-from growing its own half-version.
+Cases live in [`../tests/cli-cases/`](../tests/cli-cases/) — one directory per
+case, with `cmd` / `fixture/` / `ignore` / `opts`. See its README.
 
----
-
-## 3. Three premises in P1's own plan are false
-
-`SELF_HOSTING_COMPLETION.md` says the machinery is "ALREADY PORTED as
-libraries … the work is CLI wiring + flag parity + differential validation."
-True for `init`, `fetch`, `install`, `cache`, `version`, `lock_file`,
-`pkg_config`. Not true here:
-
-### `build` is hollow, not unwired
-
-```rust
-_parse_registry_from_json :: (fn(json : String) -> BuildRegistry)(
-  BuildRegistry.new()          // ignores its input entirely
-);
+```bash
+YO_SELF_BIN=/tmp/yo-s1 scripts/cli-diff-test.sh          # whole corpus
+YO_SELF_BIN=/tmp/yo-s1 scripts/cli-diff-test.sh init -v  # one case, verbose
 ```
 
-…and `evaluate_build_file` shells out to `yo-cli build --serialize-registry`,
-**a flag that does not exist in `src/`** (zero grep hits). `yo build` would
-build an empty DAG and exit 0. Upstream cause: yo-self's build builtins never
-populate the registry ("Registry population is deferred"), and there is no
-`get_build_registry`/`swap_build_registry` at all.
+**It earned its keep on the first run**, twice over:
 
-**The `build` differential corpus must be WRITTEN, not collected.**
-`SELF_HOSTING_COMPLETION.md` says to gather `tests/build-projects/` from
-`build-system.test.ts` fixtures. That file is 2,075 lines of pure _unit_ tests
-whose only on-disk "projects" are one-line stubs; no test invokes `yo build`
-end to end.
+- It reproduced §7's predicted "yo-self is right, TS is stale" divergence as a
+  tree diff instead of an assertion — `src/init.ts` scaffolded `test "it works",
+{…}` (pre-call syntax) and a `deps.yo` comment using `import "./deps.yo"`.
+  Both TS templates now match the self-hosted ones, and the `cd <dir>` hint is
+  computed the same way on both sides.
+- It exposed a harness-vs-tool confusion worth remembering: on macOS `mktemp -d`
+  returns `/var/…` while a child's `process.cwd()` reports `/private/var/…`, so
+  every path a tool printed relative to its cwd grew a spurious `../../..`.
+  Sandbox roots are resolved with `pwd -P`.
 
-### `doc` is missing its render half
+The interim guard `gates_fast.sh` **GATE 5** (run `init`, assert the seven
+scaffolded files) still stands. Note it asserts _artifacts_, not `rc=0` — the
+original `init` bug created the directories and _then_ died.
 
-The extraction half IS ported — `yo-self/doc/` is 1,773 lines (`extractor.yo`
-587, `render_markdown.yo` 800, `model.yo` 201, `sections.yo` 185). What is
-missing, verified file by file:
+---
+
+## 2. THE BLOCKER: codegen bugs that only appear once a subcommand is dispatched
+
+**Read this before wiring another subcommand.**
+
+`build_runner.yo`, `fetch.yo` and `install_command.yo` (~2,600 lines) had been
+type-checking cleanly while reachable from no subcommand, so **codegen had never
+run on them**. Dispatching them from `main.yo` put them in front of the code
+generator for the first time and it emitted **17 C errors**. `check ./yo-self`
+was green before and after — exactly the trap §1 exists to catch.
+
+**All eight are fixed**, each with a regression test in
+`tests/async_await.test.yo`. The first five were one family
+([write-up](../issues/fixed/async-await-in-nested-match-arms.md)):
+
+| bug                                                          | symptom                |
+| ------------------------------------------------------------ | ---------------------- |
+| `return(<hoisted local>)` in an async body that awaits later | invalid C              |
+| sibling/nested matches with awaits → duplicate `case` values | invalid C              |
+| `match` on a payload-free enum inside an async body          | invalid C              |
+| an awaited result BOUND in two match arms                    | **rc=0, wrong answer** |
+| a match-arm binding re-declared by the state-machine load    | invalid C              |
+
+The fourth was the dangerous one: it compiled and ran, and every arm but the
+first read a zero-initialised field. Measured on a 45-line reproducer, `A=true
+B=false C=true` where all three must be `true`; `execute_node` in
+`build_runner.yo` is exactly that shape. The fifth is a case of **yo-self being
+more faithful than the reference** — it already had the mechanism (`_shadow_add`
+/ `_remove_arm_shadows`), and only `src/` was missing it.
+
+That left 4 errors, which reduced to **three** further root causes — all now
+fixed, each with a minimal reproducer in `issues/repros/`:
+
+6. **[Same-named locals in sibling branches of an async body are
+   conflated](../issues/fixed/async-sibling-arm-same-named-locals.md)** — **the
+   worst bug of the batch, because one of its three variants is SILENT.** A
+   34-line reproducer compiled clean, exited 0, and printed `compile  thing`:
+   the second arm's `label` was empty. Two name-keyed mechanisms were at fault
+   — the SSA-remapping key (`name:frameLevel`, which cannot tell a reassignment
+   from a redeclaration; it now includes the declaration site) and a by-name
+   fallback in atom codegen that handed back another variable's state-machine
+   field. It also accounted for the `redefinition of 'sub_path'` and
+   undeclared-temp errors. **yo-self was already right here** — its fallback
+   carried `decl_site` from the bufio slot-alias fix — so only the remapping key
+   needed porting.
+7. **[A dropped call result on an async early-completion
+   path](../issues/fixed/async-match-arm-early-return-drops-call-result.md)** —
+   a `match` used as a definition's RHS with an arm that early-`return`s a
+   freshly-constructed value, inside a body that awaits later. Codegen emitted a
+   comment where a value belonged. It now emits the call inline, which is what
+   the enclosing declaration needs.
+8. **A bare-temp statement in a match arm** (variant C of #6's write-up) —
+   `generateCaseBody` was the ONE statement emitter without a bare-temp-name
+   gate, so a temp the state machine holds as a field was emitted under its
+   source name. **yo-self already had the gate**; only `src/` lacked it.
+
+17 C errors → **0**. `build`, `fetch` and `install` are dispatched, and
+`tests/cli-cases/pending/` has moved up into the live corpus.
+
+Three of the eight (#5, #6's fallback half, #8) were cases of **yo-self being
+more faithful than the reference** — it already carried the mechanism and `src/`
+did not. Check yo-self before assuming a divergence means yo-self is wrong.
+
+**The lesson worth keeping is §1's:** all eight bugs sat behind green
+`check ./yo-self` runs for as long as the code was reachable from no subcommand.
+Type-checking a file proves nothing about the C it generates. Dispatch is the
+test.
+
+---
+
+## 3. `module_manager` — done
+
+`src/module-manager.ts` (458 lines) had **no counterpart**; the demand loader,
+the cached prelude env, the shared codegen `ExprInfoTable` and std-path
+resolution were inline globals in `main.yo`, so every other subcommand needing
+to evaluate a `.yo` file would have grown its own copy.
+
+They now live in [`../yo-self/module_manager.yo`](../yo-self/module_manager.yo)
+and `main.yo` imports them. `check` and `compile` delegate; `fetch`, `build` and
+`doc` call `mm_load_yo_file` — the counterpart of TS's three-line
+`new ModuleManager(); loadModule(path); resetAllState()`.
+
+A literal port of the TS class would have been wrong (§7): TS keeps a map of
+live `Evaluator`s because it stores annotations ON the AST node, whereas
+yo-self keys a side table by expr id and holds the module cache in
+`evaluator/module_loader.yo`. Same service, different storage.
+
+---
+
+## 4. `build` is no longer hollow
+
+Two of §5's three false premises are now retired.
+
+**Registry population.** `yo-self/evaluator/builtins/build.yo`'s
+`evaluate_yo_build_functions` validated arguments and returned the right
+comptime types but populated nothing ("Registry population is deferred"), and
+there was no `get_build_registry`/`clear_build_registry`/`swap_build_registry`
+at all. All 20 registry-mutating builtins now mutate a module-level global
+registry exactly as `src/evaluator/builtins/build.ts` does, including
+`declared_options` (so `-Dname=value` overrides a `build.option(...)` default),
+`register_module_link` and `register_imported_module`.
+
+**The phantom flag is gone.** `evaluate_build_file` shelled out to
+`yo-cli build --serialize-registry` — a flag that does not exist in `src/` — and
+parsed the JSON with `_parse_registry_from_json`, which was
+`BuildRegistry.new()` and ignored its input. It now clears the registry,
+evaluates the build file through the module manager (the builtins populate the
+registry as a side effect of evaluation), and reads it back — mirroring
+`src/build-runner.ts`, errors deliberately swallowed for the same reason.
+
+**A port infidelity fell out of this.** `fetch.yo` re-declared its own
+`BuildGitDependency` while `src/fetch.ts` IMPORTS the type from the build
+builtins, so `fetch_all_deps(registry.dependencies)` could not unify two
+same-named types. `fetch.yo` now imports it, and `dep.path` is a plain `String`
+("" = no subpath) matching TS's `dep.path ? … : …`.
+
+**The corpus is written, not collected** — §5 was right about that.
+`tests/cli-cases/pending/` holds `build-list-steps`, `build-run` and
+`fetch-no-deps` with a real fixture project. (`build-system.test.ts` is 2,075
+lines of pure unit tests whose only on-disk "projects" are one-line stubs; no
+test invokes `yo build` end to end.)
+
+---
+
+## 5. `doc` is missing its render half — NOT STARTED
+
+Unchanged and still true. The extraction half IS ported — `yo-self/doc/` is
+1,773 lines (`extractor.yo` 587, `render_markdown.yo` 800, `model.yo` 201,
+`sections.yo` 185). What is missing, verified file by file:
 
 | `src/doc/`       | lines | `yo-self/doc/` |
 | ---------------- | ----- | -------------- |
@@ -110,99 +202,73 @@ missing, verified file by file:
 3,824 lines. The default `--format html` path cannot work. Scope it as "port
 builder + html/json renderers + wire the CLI", not as a from-scratch port.
 
-### `module-manager.ts` has no counterpart
+Two prerequisites are already in place: `std/encoding/json.yo`'s
+`json_stringify_pretty` was a stub that ignored its `indent` and returned the
+compact form — it now pretty-prints like `JSON.stringify(v, null, 2)`, which
+`--format json` needs for parity; and `std/path.yo` gained `relative_from`
+(node's `path.relative`), which both `doc` and `fetch` print paths with.
 
-See §2.
-
----
-
-## 4. What `init` taught, and the gate that came out of it
-
-Wiring `init` produced a SIGSEGV whose root cause was not in `init.yo` at all:
-the async state machine silently miscompiled `await` under an `if`, emitting a
-C **comment** where a state transition belonged and then dereferencing a NULL
-future. Compile returned rc=0 and produced a segfaulting binary.
-
-That opened a seam. Six async-codegen bugs were found and fixed across
-2026-08-09, two of them silent:
-
-| bug                                        | symptom                 | compilers   |
-| ------------------------------------------ | ----------------------- | ----------- |
-| `await` under `if` had no state transition | **rc=0, SIGSEGV**       | reference   |
-| `match` arm containing an await            | **rc=0, arm never ran** | self-hosted |
-| `io.async` capture never RC-retained       | rc=139 in a loop        | self-hosted |
-| `return(<compound>)` in tail position      | invalid C               | self-hosted |
-| unread await result → missing SM field     | invalid C               | both        |
-| capture/future alias matched on name alone | invalid C               | both        |
-
-All six are fixed, each with a regression test;
-`tests/async_await.test.yo` is 144/144 under both compilers. Full write-up:
-[`../issues/await-in-branch-positions-matrix.md`](../issues/await-in-branch-positions-matrix.md)
-and
-[`../issues/fixed/yo-self-init-segfaults-on-first-run.md`](../issues/fixed/yo-self-init-segfaults-on-first-run.md).
-
-**`io.await` now works in every conditional position** — `if`/`cond`
-conditions, `match` scrutinees, `while` conditions and the 3-arg `while`'s
-step. Two shapes are deliberately rejected with a diagnostic naming the fix: an
-await _nested_ inside a larger condition, and an await in a _later_ `cond`
-branch (hoisting it would break `cond`'s laziness).
+`builder.ts` is the crux — every format goes through it, and
+`render_markdown.yo` is already ported and waiting on it.
 
 ---
 
-## 5. Suggested order
+## 6. Suggested order
 
-1. **`scripts/cli-diff-test.sh`** (§1) — before wiring anything else.
-2. **`module_manager`** (§2) — unblocks most of what follows.
-3. **`cache` → `fetch` → `install`** — these libraries really are ported, so
-   this is wiring + flag parity + differentials.
-4. **Finish `fmt` (17 files) and land its gate with the fix** (§6). Not
-   cosmetic: at P2 the self-hosted formatter becomes canonical and
-   `fmt --check` becomes self-referential, so an un-gated divergence would
-   silently restyle hundreds of files with nothing able to notice.
-5. **`build`** (§3) — populate the registry, drop the phantom
-   `--serialize-registry`, write the corpus.
-6. **`doc`** (§3) — the largest single chunk.
-7. **`version` — defer to P3.** Today's version cache downloads from **npm**,
-   and that channel dies with P2/P3; re-point it at GitHub Releases then, not
-   now.
-
-Alongside: **flag parity for the four existing subcommands**. `yo-self` honours
-only `--bail`, `--test-name-pattern`, `--exclude`; the arg loop's catch-all
-assigns any unrecognized token to `target_path`, so `yo test ./tests --profile`
-runs against a path literally named `--profile`. It exits **1** with "file or
-directory not found" — loud, not a silent pass (an earlier draft of this
-document claimed exit 0; that was a misread `$?` through a pipe).
-`--parallel N` _is_ parsed correctly, which matters because the sweep and
-measure scripts pass it. `std/cli/arg_parser.yo` (546 lines, tested) already
-exists and `main.yo` does not use it — adopting it fixes the catch-all and
-gets `--help`/`--version` for free.
-
-The self-hosted test runner also ignores `--parallel` ("v1 runs sequentially") —
-implement it or document it as an accepted divergence.
+1. ~~Fix §2's codegen bugs, dispatch `build`/`fetch`/`install`, move
+   `tests/cli-cases/pending/` up one directory.~~ **DONE** — all eight bugs
+   fixed in both compilers, the three subcommands are dispatched, the corpus is
+   live, and `compile yo-self/main.yo` is clean.
+2. **`doc`** (§5) — **now the largest remaining chunk, and the next thing to
+   do.** 3,824 lines; both of its prerequisites are already landed.
+3. **Flag parity for the pre-existing subcommands.** `run_init`, `run_cache`
+   and the three undispatched wrappers reject unknown options; `test`, `check`,
+   `fmt` and `compile` still have the catch-all that assigns any unrecognized
+   token to a path, so `yo test ./tests --profile` runs against a path literally
+   named `--profile`. It exits **1** with "file or directory not found" — loud,
+   not a silent pass. `std/cli/arg_parser.yo` (546 lines, tested) already exists
+   and `main.yo` does not use it; adopting it fixes the catch-all and gets
+   `--help`/`--version` for free. Deliberately NOT done in this pass: rewriting
+   `compile`'s ~30-flag parser is the highest-regression-risk edit in the CLI
+   and every bootstrap gate depends on it.
+4. **`--parallel` in the self-hosted test runner.** Still ignored ("v1 runs
+   sequentially"). `std/process/command.yo` has no `spawn`/`Child` API — only
+   blocking `output()`/`status()` — so implementing it means adding one to
+   `std` first. Document it as an accepted divergence until then; the
+   self-hosted runner is already ~2× faster than TS sequentially.
+5. **`version` — defer to P3.** Today's version cache downloads from **npm**,
+   and that channel dies with P2/P3; re-point it at GitHub Releases then.
 
 ---
 
-## 6. `fmt` — 17 files from done
+## 7. `fmt` — done, 0 divergent files
 
-**`SELF_HOSTING_COMPLETION.md` says ~315 files. That is stale: it is 17.**
+**`SELF_HOSTING_COMPLETION.md` says ~315 files. That is stale: it is 0.**
 
-Two root causes were fixed, both in _both_ formatters:
+Three root causes, all fixed:
 
 1. The `Dot` case ate the space the Comma/operator handler had just set
    (339 → 253).
 2. The self-hosted formatter **destroyed** any file mixing a multi-byte
-   character with a backtick string (253 → 17). A character index used as a
-   byte offset in `read_raw_template_string`; ASCII hid it from every test, and
-   `fmt` exited 0 with output that no longer parsed. 23 of 40 sampled `std/`
-   files were being corrupted.
-   [`../issues/fixed/yo-self-formatter-corrupts-files-with-non-ascii.md`](../issues/fixed/yo-self-formatter-corrupts-files-with-non-ascii.md)
+   character with a backtick string (253 → 17) — a character index used as a
+   byte offset in `read_raw_template_string`.
+   [write-up](../issues/fixed/yo-self-formatter-corrupts-files-with-non-ascii.md)
+3. **The same class again, in `_trim_trailing_h_ws` (17 → 4).** It walked a
+   byte index down from `bytes.len()` and handed it to `String.substring`,
+   which is CHAR-indexed — so for any buffer already containing a multi-byte
+   character the cut point landed past the last character, `substring` clamped
+   to the whole string, and the trim became a silent **no-op**. That is the
+   entire "stray space before `)`" class: `(== )`, `(.. )`, `(..= )`,
+   `quote(&& )`, C-variadic `... )`. It looked like a "multiline paren frame"
+   rule and never reproduced in an ASCII repro _because the repro was ASCII_ —
+   the trigger is a non-ASCII character EARLIER in the output, typically an em
+   dash in a doc comment.
+4. The last 4 were a missing indent: `codegen`-style `write()` in TS indents
+   whenever it is at line start, and yo-self's closer/comma/semicolon handlers
+   pushed their token directly, so a `,` landing after a trailing line comment
+   came out at column 0.
 
-**What remains is ONE class, 17 files**: a stray space before `)` when an
-operator token ends a MULTILINE paren frame — `(==)`, `(..)`, `(..=)`,
-`quote(=>)`, C-variadic `...`. It does not reproduce single-line, so the
-multiline frame is part of the trigger.
-
-Reproduce the count in ~25 min:
+**Reproduce the count** (~25 min):
 
 ```bash
 for f in $(find std tests yo-self -name '*.yo'); do
@@ -212,65 +278,78 @@ for f in $(find std tests yo-self -name '*.yo'); do
 done | wc -l
 ```
 
-`scripts/bootstrap/gates_fast.sh` carries a note where the gate goes. Mind the
-caveat recorded there: the TS formatter PRESERVES existing line structure
-rather than canonicalizing it, so a naive "would format" count mixes real
-spacing bugs with line-breaking differences.
+**The gate is landed** as `gates_fast.sh` GATE 6. It does NOT run the 25-minute
+`cmp` loop: the repo is kept TS-`fmt`-clean, so any file the SELF-HOSTED
+formatter reports under `fmt --check` is a divergence, and that runs in under a
+minute. The gate asserts the TS side is clean FIRST — otherwise "self-hosted
+reports 0" would stop meaning "the two agree" the moment the repo drifted. The
+`cmp` loop above stays as the slow confirmation.
 
 ---
 
-## 7. Method notes that saved real time
+## 8. Method notes that saved real time
 
-Carried forward from the pre-P1 handover, plus what P1's first week added.
+Carried forward, plus what this pass added.
 
-- **`YO_DEBUG_SWALLOW=1`** prints every def-time error yo-self swallows. It is
-  what turned the HOLLOW files from a weeks-scale mystery into a named line.
+- **A green `check` says nothing about codegen.** §2 is the second time this
+  has cost a day. `check ./yo-self` passed over 2,600 lines that the code
+  generator had never seen. Only running the thing tells them apart.
+- **A compile that "succeeded" in a `cmd1 && cmd2 || cmd3` chain may not have.**
+  A background build reported exit 0 while its C compile had failed, because the
+  `||` branch ran and succeeded. Grep the log for `error:`, do not trust `$?`
+  through a chain.
+- **`YO_DEBUG_SWALLOW=1`** prints every def-time error yo-self swallows.
 - **A green count can be hollow.** Probe with an injected `assert(false)` before
-  believing any "N passed" from the self-hosted runner. A test file can report
-  "N passed" with an empty `__yo_user_main`.
-- **Check the exit code without a pipe.** `cmd | tail; echo $?` reports
-  _tail's_ status. This produced a false "exits 0, silent pass" reading about
-  `yo test --profile` in this very document.
+  believing any "N passed" from the self-hosted runner.
+- **Check the exit code without a pipe.** `cmd | tail; echo $?` reports _tail's_
+  status.
 - **A faithful port of a TS _registry lookup_ is often wrong.** TS reads values
-  off the type/expr (`type.trait.fields`, `context.types[t.id].cName`);
-  yo-self resolves through a global table keyed by `type_key(t)`. The literal
-  port compiles and silently returns nothing — that is exactly how the `match`
-  arm came to be dropped. Grep `yo-self/codegen/` for `// Error:` emissions:
-  each is a candidate silent-drop site.
-- **RC changes need an emit diff, not a green suite.** Diff per-function
-  incr/decr counts old vs new and confirm only the intended sites moved. A
-  `type_key`-keyed `___dup` fallback for async captures removed a segfault and
-  returned `n=4640` instead of `n=3` — a loud crash traded for a silent wrong
-  answer.
-- **Before calling CI red "infra"**, read the job log. A `test-wasm32_wasi` red
-  on 2026-08-09 was `curl: (35) Recv failure` downloading wasmtime _before any
-  test ran_; CI's exact command run locally passed 2355/2355. But an earlier
-  "emsdk 403" was a real regression — check whether another job failed the
-  _same test name_.
+  off the type/expr; yo-self resolves through a global table keyed by
+  `type_key(t)`. The literal port compiles and silently returns nothing.
+- **Two same-named types unify with nobody.** "Cannot unify incompatible struct
+  types: `BuildGitDependency` and `BuildGitDependency`" means a file re-declared
+  a type its TS counterpart IMPORTS. Check the TS import list before believing a
+  local declaration is intentional.
+- **A char index used as a byte offset is a SILENT no-op, not a crash.** Twice
+  now in the formatter (§7). `String.len()` and `substring` are CHARACTERS;
+  `as_bytes()`/`bytes_len()`/`byte_at` are BYTES. An ASCII test corpus hides
+  every instance.
+- **RC changes need an emit diff, not a green suite.**
+- **Before calling CI red "infra"**, read the job log.
 - **An error token inside a function body says nothing about WHO evaluated it.**
-  Split the reproducer — definition ALONE vs definition + one call — before
-  instrumenting. One compile each, and it decides def-time vs call-time
-  outright.
+  Split the reproducer — definition ALONE vs definition + one call.
 - **One swallowed error hides a STACK of bugs.** "Still fails after a correct
-  fix" is the expected intermediate state. Read WHICH arm the new last
-  swallowed error names; a different arm means progress.
-- **`-fsanitize=function` adjudicates ABI mismatches on arm64.** Only the
-  _consequences_ are x86_64-specific; the cast types live in the emitted C.
-- **Scripted `.yo` edits can silently match nothing** after `yo-cli fmt`
-  reflows the file. Assert the replacement count, then grep for a token unique
-  to the OLD text to prove it went.
-- Never run two heavy jobs at once on a 16 GB box; they swap and manufacture
-  failures that do not reproduce in isolation.
+  fix" is the expected intermediate state.
+- **`-fsanitize=function` adjudicates ABI mismatches on arm64.**
+- **Scripted `.yo` edits can silently match nothing** after `yo-cli fmt` reflows
+  the file. Assert the replacement count.
+- **A test body is batched into a file that already binds `io`.** A helper
+  parameter named `io` inside a test fails with "variable shadowing is not
+  allowed" — name it `rio`/`aio`.
+- Never run two heavy jobs at once on a 16 GB box.
 
 ---
 
-## 8. Known debt — tracked, not blocking
+## 9. Known debt — tracked, not blocking
 
-- **`src/init.ts`'s templates are stale.** It scaffolds `test "it works", {…}`
-  and `import "./deps.yo"` — pre-call syntax the language moved away from. The
-  self-hosted templates are the _more current_ ones. Never caught because CI
-  runs `yo build run` and never `yo build test`. This is the predicted
-  "yo-self is right and TS is stale" divergence, confirmed.
 - **`-fsanitize=function` as a standing guard** — proposed after the `ctl` ABI
   fix, not yet enabled.
+- **`std/process/command.yo` has no `spawn`** — see §6.4.
+- **`tests/internal/` has no tests for `module_manager.yo` or `fetch_command.yo`.**
+  Every other CLI module (cache, fetch, init, install_command, lock_file,
+  pkg_config, version) has one; these two are new and covered only indirectly, by
+  `check ./yo-self` and by `compile`/`check` exercising the loader on every run.
+- **`yo build` forwards only a subset of an artifact's compile options.**
+  `yo-self/build_runner.yo` shells out to the compiler with `--target`, `--cc`,
+  `--sysroot`, `--extern` and `--include`. `src/build-runner.ts` compiles
+  in-process and passes far more: `optimize`, `allocator`, `defines`,
+  `libraryPaths`, `libraries`, `sanitize`, `strip`, `static`, `shared`,
+  `staticLibrary` and `cflags`. A `build.executable(...)` that sets any of those
+  is silently built without them. `tests/cli-cases/build-run`'s fixture sets
+  none, which is why the case passes — extend the fixture when closing this.
+- **`build-run` cannot compare stdout line-for-line**, because the two compilers
+  emit different (equivalent) C and clang's diagnostics carry different line
+  numbers. The case uses the harness's `stdout_keep` filter to assert the lines
+  that ARE comparable (the built program's own output, the build's step lines,
+  any error) rather than `stdout=ignore`, which would assert nothing.
 - Open compiler issues live in [`../issues/`](../issues/); none block P1.

@@ -31,6 +31,7 @@ import {
   generateDeferredDupExpressions,
 } from "./drop-dup";
 import { generateExpr } from "./expr";
+import { resolveVarNameInContext } from "./other-fn-call";
 
 /**
  * Helper: Handle deferred dup expressions for an atom and return the final code
@@ -580,7 +581,6 @@ export function generateReturn(
     // Special handling for async functions: we need to get the raw value code
     // without temp variable indirection to properly declare the temp variable
     let argCode: string;
-    let needsTempVarDeclaration = false;
 
     if (functionContext.inAsyncStateMachine && arg.$?.variableName) {
       // In async context: generate raw value code by temporarily clearing variableName
@@ -588,7 +588,6 @@ export function generateReturn(
       arg.$.variableName = undefined;
       argCode = generateExpr(arg, indent, context);
       arg.$.variableName = savedVariableName;
-      needsTempVarDeclaration = true;
     } else {
       // Check if arg has both a variableName and deferredDupExpressions
       // This happens when we need to store the arg value in a temp var before duping it
@@ -715,13 +714,22 @@ export function generateReturn(
         `${indent}// Final state - complete the result Future`
       );
 
-      // Compute the result value if not unit
+      // Compute the result value if not unit.
+      //
+      // `expr.$.variableName` is the SOURCE-level name. Inside a state machine a
+      // local of that name does not exist as a C local — it was hoisted into
+      // the state struct as `sm->var_<id>` — so emitting the bare name produced
+      // `sm->result = results;` with `results` undeclared, for any
+      // `return(<local>)` in an async body that also awaits later (without a
+      // later await there is only one state and nothing is hoisted, which is
+      // why this never showed up before `build`/`fetch`/`install` were wired).
+      // `resolveVarNameInContext` returns the name unchanged when it is a real
+      // C temp rather than a hoisted local, so this is safe for both.
       let resultCode: string | undefined;
       if (!isUnitResult) {
-        const resultValue =
-          expr.$.variableName && needsTempVarDeclaration
-            ? expr.$.variableName
-            : expr.$.variableName || argCode;
+        const resultValue = expr.$.variableName
+          ? resolveVarNameInContext(expr.$.variableName, context)
+          : argCode;
         resultCode = resultValue;
       }
 

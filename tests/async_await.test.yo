@@ -4,6 +4,7 @@ open(import("std/libc/stdio"));
 open(import("std/string"));
 open(import("std/fmt"));
 { yield } :: import("std/async");
+{ ArrayList } :: import("std/collections/array_list");
 /// A `bool` future for `while` conditions: true while `v` is under `limit`.
 /// Taken as a top-level helper rather than an inline `io.async` closure — a
 /// closure capturing a mutable local, re-created every iteration, hits a
@@ -3311,4 +3312,267 @@ test("Test two io.async closures capturing the same local", {
   });
   r := io.await(task, io);
   assert(r == i32(15), "5 + 10 — the capture is still live for the second");
+});
+// ---------------------------------------------------------------------------
+// `return(<local>)` from an async body that ALSO awaits later.
+//
+// The later await forces a multi-state machine, so the local is hoisted into
+// the state struct. The return's completion path emitted the SOURCE name
+// (`sm->result = results;`) instead of the hoisted field, and `results` is not
+// a C identifier in that scope — invalid C. Without a later await there is a
+// single state and nothing is hoisted, which is why it stayed hidden until
+// `build`/`fetch`/`install` were wired to a subcommand.
+// ---------------------------------------------------------------------------
+test("Test return of a hoisted local from an async body that awaits later", {
+  task := io.async((io : Io) => {
+    total := Box(i32)(7);
+    if(total.* == i32(7), {
+      return(total.*);
+    });
+    io.await(yield(io), io);
+    return(i32(0));
+  });
+  r := io.await(task, io);
+  assert(r == i32(7), "the early return must read the hoisted local");
+});
+// ---------------------------------------------------------------------------
+// An OUTER `match` whose arms each contain an INNER `match` with an await.
+//
+// Every cond/match that awaits under one await point shares ONE resume
+// `switch`, and each numbered its own arms from 0 — so sibling and nested
+// matches emitted `case 0:`/`case 1:` several times over and C rejected the
+// function ("duplicate case value"). Dispatch codes are now unique per arm
+// per function.
+//
+// The scrutinee here is also a PAYLOAD-FREE enum, which lowers to a plain C
+// enum with no `tag` member; the async match generator emitted `x.tag` on it
+// unconditionally while `codegen/exprs/match.ts` had always special-cased it.
+// ---------------------------------------------------------------------------
+Pick :: enum(First, Second, Neither);
+test("Test await inside nested match arms under a payload-free scrutinee", {
+  // The parameter is `rio`, not `io`: the test runner batches every test body
+  // into one file that binds `io :: __yo_builtin_io` at top level, and Yo
+  // forbids shadowing it.
+  run := (fn(p : Pick, rio : Io) -> Impl(Future(i32, Io)))(
+    rio.async((aio : Io) => {
+      out := Box(i32)(0);
+      match(
+        p,
+        .First => {
+          match(
+            Option(i32).Some(i32(10)),
+            .None => (),
+            .Some(v) => {
+              aio.await(yield(aio), aio);
+              out.* = (out.* + v);
+            }
+          );
+        },
+        .Second => {
+          match(
+            Option(i32).Some(i32(20)),
+            .None => (),
+            .Some(v) => {
+              aio.await(yield(aio), aio);
+              out.* = (out.* + v);
+            }
+          );
+        },
+        .Neither => ()
+      );
+      return(out.*);
+    })
+  );
+  assert(io.await(run(Pick.First, io), io) == i32(10), "first arm resumes its own continuation");
+  assert(io.await(run(Pick.Second, io), io) == i32(20), "second arm resumes its own continuation");
+  assert(io.await(run(Pick.Neither, io), io) == i32(0), "the awaitless arm runs nothing");
+});
+// ---------------------------------------------------------------------------
+// An await whose RESULT IS BOUND, in more than one arm of the same match.
+//
+// Several arms collapse onto ONE await point — only one arm can run, so one
+// suspension state suffices — and the await point carries a single
+// `targetVariableId`. That named the arm the analysis visited first; every
+// other arm's binding was never assigned from `sm->await_result_N` and read a
+// zero-initialised struct field. Unlike the rest of this cluster the C
+// COMPILED and the program RAN, it just answered `false`/`0`.
+//
+// `execute_node` in yo-self/build_runner.yo is exactly this shape, which is
+// what kept `build`/`fetch`/`install` from being dispatched.
+// See issues/fixed/async-await-in-nested-match-arms.md.
+// ---------------------------------------------------------------------------
+test("Test an await result bound in two different match arms", {
+  pick := (fn(k : i32, rio : Io) -> Impl(Future(i32, Io)))(
+    rio.async((aio : Io) => {
+      out := Box(i32)(0);
+      match(
+        Option(i32).Some(k),
+        .None => (),
+        .Some(v) => cond(
+          (v == i32(1)) => {
+            a := aio.await(future_with_returned_state(i32(10), aio), aio);
+            out.* = a;
+          },
+          (v == i32(2)) => {
+            b := aio.await(future_with_returned_state(i32(20), aio), aio);
+            out.* = b;
+          },
+          true => ()
+        )
+      );
+      return(out.*);
+    })
+  );
+  // future_with_returned_state returns value + 1.
+  assert(io.await(pick(i32(1), io), io) == i32(11), "first arm binds its own await result");
+  assert(io.await(pick(i32(2), io), io) == i32(21), "second arm must bind ITS OWN await result, not read a zeroed field");
+  assert(io.await(pick(i32(3), io), io) == i32(0), "the awaitless arm runs nothing");
+});
+// ---------------------------------------------------------------------------
+// Two DIFFERENT locals that share a NAME, in sibling branches of one async body.
+//
+// The suspension analysis keyed SSA renaming on `name:frameLevel` alone. Arm
+// bodies push and pop a frame, so both arms' `label` landed on the same level
+// and the second was remapped onto the first's state-machine field — a field
+// its own path never writes. The C COMPILED and the program RAN; the second arm
+// just read an empty String. Keying on the declaration site as well separates a
+// redeclaration (two `:=`, two sites) from a reassignment (`x = …`, which
+// re-stamps the id but keeps its declaration token).
+// See issues/fixed/async-sibling-arm-same-named-locals.md.
+// ---------------------------------------------------------------------------
+Shape :: enum(Exe, Lib);
+test("Test same-named locals in sibling match arms of an async body", {
+  describe := (fn(k : Shape, rio : Io) -> Impl(Future(String, Io)))(
+    rio.async((aio : Io) => {
+      description := String.from("start");
+      name := String.from("thing");
+      match(
+        k,
+        .Exe => {
+          label := String.from("exe");
+          description = `compile ${label} ${name}`;
+          aio.await(yield(aio), aio);
+        },
+        .Lib => {
+          label := String.from("lib");
+          description = `compile ${label} ${name}`;
+          aio.await(yield(aio), aio);
+        }
+      );
+      return(description);
+    })
+  );
+  assert(io.await(describe(Shape.Exe, io), io) == `compile exe thing`, "first arm reads its own local");
+  assert(
+    io.await(describe(Shape.Lib, io), io) == `compile lib thing`,
+    "second arm must read ITS OWN local, not the first arm's zeroed field"
+  );
+});
+// ---------------------------------------------------------------------------
+// The same conflation, but where the second same-named local is a struct-literal
+// ARGUMENT. The argument materialization declares a C local named after the
+// variable; resolving the name to the other branch's state-machine field made it
+// emit that declaration a second time — `error: redefinition of 'sub'`.
+// ---------------------------------------------------------------------------
+Duo :: ref(
+  struct(
+    a : String,
+    b : String
+  )
+);
+test("Test same-named locals in sibling branches used as struct-literal arguments", {
+  build_duo := (fn(n : i32, rio : Io) -> Impl(Future(Duo, Io)))(
+    rio.async((aio : Io) => {
+      base := String.from("base");
+      if(n > i32(0), {
+        sub := String.from("one");
+        return(Duo(a : base, b : sub));
+      });
+      aio.await(yield(aio), aio);
+      sub := String.from("two");
+      return(Duo(a : base, b : sub));
+    })
+  );
+  early := io.await(build_duo(i32(1), io), io);
+  assert(early.b == `one`, "the early-return branch uses its own local");
+  late := io.await(build_duo(i32(0), io), io);
+  assert(late.b == `two`, "the post-await branch uses its own local");
+});
+// ---------------------------------------------------------------------------
+// A `match` as a definition's RHS with an arm that early-`return`s a FRESHLY
+// CONSTRUCTED value, inside a body that awaits later.
+//
+// The evaluator attaches no temp variable to a call whose result flows straight
+// out of a `return` — a plain function emits `return fn_String_new();`. In a
+// state machine that `return` is lowered to "declare a result temp, assign
+// sm->result", so the call must still appear as an expression; codegen emitted
+// an error comment where the value belonged.
+// See issues/fixed/async-match-arm-early-return-drops-call-result.md.
+// ---------------------------------------------------------------------------
+test("Test a match arm early-returning a freshly built value before an await", {
+  probe := (fn(seed : i32, rio : Io) -> Impl(Future(String, Io)))(
+    rio.async((aio : Io) => {
+      stack := ArrayList(i32).new();
+      if(seed > i32(0), {
+        stack.push(seed);
+      });
+      item := match(
+        stack.pop(),
+        .None => {
+          return(String.new());
+        },
+        .Some(it) => it
+      );
+      aio.await(yield(aio), aio);
+      return(`got ${item}`);
+    })
+  );
+  assert(io.await(probe(i32(0), io), io) == ``, "the early return yields the freshly built value");
+  assert(io.await(probe(i32(7), io), io) == `got 7`, "the awaiting path still returns its own value");
+});
+// ---------------------------------------------------------------------------
+// A reassignment inside an AWAITLESS nested match arm, in an async body whose
+// OTHER arm awaits (variant C of the sibling-arm cluster).
+//
+// The match-arm statement emitter was the one statement emitter with no
+// bare-temp-name gate, so the "old value saved for deferred drop" temp was
+// emitted under its source name — not a declared C identifier in the resume
+// function, where that temp lives as `sm->var_<id>`. `execute_node` in
+// yo-self/build_runner.yo is this shape (`.Doc` only reassigns; `.Run` awaits).
+// yo-self's `codegen/exprs/match.yo` already had the gate; only `src/` lacked it.
+// See issues/fixed/async-sibling-arm-same-named-locals.md.
+// ---------------------------------------------------------------------------
+Task :: ref(struct(name : String));
+Job :: enum(Run, Doc);
+test("Test a reassignment in an awaitless nested arm beside an awaiting arm", {
+  describe_job := (fn(k : Job, rio : Io) -> Impl(Future(String, Io)))(
+    rio.async((aio : Io) => {
+      description := String.from("start");
+      match(
+        k,
+        .Run => {
+          match(
+            Option(Task).Some(Task(name : String.from("exe"))),
+            .None => (),
+            .Some(run_cfg) => {
+              description = `run ${run_cfg.name}`;
+              aio.await(yield(aio), aio);
+            }
+          );
+        },
+        .Doc => {
+          match(
+            Option(Task).Some(Task(name : String.from("book"))),
+            .None => (),
+            .Some(doc_cfg) => {
+              description = `doc ${doc_cfg.name}`;
+            }
+          );
+        }
+      );
+      return(description);
+    })
+  );
+  assert(io.await(describe_job(Job.Run, io), io) == `run exe`, "the awaiting arm reassigns");
+  assert(io.await(describe_job(Job.Doc, io), io) == `doc book`, "the awaitless arm reassigns");
 });

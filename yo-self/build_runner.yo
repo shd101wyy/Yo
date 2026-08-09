@@ -14,8 +14,12 @@ open(import("std/fmt"));
 { Exception, IoExn } :: import("std/error");
 { Path } :: import("std/path");
 { cwd } :: import("std/env");
+// Imported under an alias: `args` collides with the `args` parameter/field used
+// throughout this file (`run_step.args`). Same rename form main.yo uses for `env`.
+_(args : proc_args) :: import("std/env");
 { exists } :: import("std/fs/file");
-{ Command, ExitStatus, Output } :: import("std/process/command");
+{ Command } :: import("std/process/command");
+{ mm_load_yo_file, mm_reset } :: import("./module_manager.yo");
 {
   ArtifactKind,
   BuildArtifact,
@@ -25,7 +29,9 @@ open(import("std/fmt"));
   BuildDocConfig,
   BuildModuleEntry,
   BuildRegistry,
-  ResolvedDep
+  ResolvedDep,
+  get_build_registry,
+  clear_build_registry
 } :: import("./evaluator/builtins/build.yo");
 { TargetInfo, parse_target, is_target_windows, is_target_wasm } :: import("./target.yo");
 // ---------------------------------------------------------------------------
@@ -77,6 +83,51 @@ ExecutionContext :: ref(
     summary : bool
   )
 );
+/// `git describe --tags --always` in the project dir, or `.None` when that fails
+/// for any reason (not a repo, no git, non-zero exit, empty output). Mirrors
+/// `getGitVersion` (src/build-runner.ts:1417-1429), whose entire body is a
+/// try/catch returning undefined — the version is decoration on the "Building …"
+/// line, never a reason to fail a build.
+_git_version :: (
+  fn(
+    project_dir : String,
+    io : Io,
+    exn : Exception
+  ) -> Option(String)
+)({
+  // `git -C <dir>` rather than a cwd on the Command — `std/process/command.yo`
+  // has no `current_dir`, and this is git's own equivalent of TS's
+  // `execSync(..., { cwd: projectDir })`.
+  cmd := Command.new(String.from("git"));
+  cmd.arg(String.from("-C"));
+  cmd.arg(project_dir);
+  cmd.arg(String.from("describe"));
+  cmd.arg(String.from("--tags"));
+  cmd.arg(String.from("--always"));
+  out := io.await(cmd.output(io), IoExn(io : io, exn : exn));
+  if(!(out.status.success()), return(Option(String).None));
+  v := String.from_bytes(out.stdout).trim();
+  if(v.len() == usize(0), Option(String).None, Option(String).Some(v))
+});
+/// The compiler binary to invoke for sub-steps (artifact compiles, test runs).
+///
+/// `src/build-runner.ts` compiles IN PROCESS (`codeGenerator.compileModule`) —
+/// it never shells out — so the reference implementation cannot pick up a
+/// stranger's binary. yo-self shells out instead, and used the literal name
+/// `yo-cli`, resolved through `PATH`. In a clean sandbox that resolved to an
+/// unrelated globally-installed `yo` package, so every `build run` failed with
+/// a yargs stack trace (caught by `tests/cli-cases/build-run`).
+///
+/// `argv[0]` is this binary, which is the only correct answer for a self-hosted
+/// compiler: `yo build` must invoke the compiler the user actually ran, not
+/// whatever `PATH` happens to offer. Falls back to the old name only if
+/// `argv[0]` is somehow empty.
+_self_exe :: (fn() -> String)({
+  argv := proc_args();
+  if(argv.len() == usize(0), return(String.from("yo-cli")));
+  a0 := argv(usize(0));
+  if(a0.len() == usize(0), String.from("yo-cli"), a0)
+});
 // ---------------------------------------------------------------------------
 // Artifact output file name
 // ---------------------------------------------------------------------------
@@ -340,8 +391,26 @@ compile_artifact :: (
     );
     output_path := Path.new(output_dir).join(Path.new(output_name));
     source_path := Path.new(ctx.project_dir).join(Path.new(artifact.root));
-    if(ctx.verbose, println(`Building ${artifact.name} -> ${output_path}`));
-    cmd := Command.new(String.from("yo-cli"));
+    // Byte-for-byte `src/build-runner.ts:948-956`: UNCONDITIONAL (not behind
+    // --verbose), the PROJECT name (first registered module) rather than the
+    // artifact's, a `git describe` suffix when the project dir is a repo, a
+    // U+2192 arrow, the output path RELATIVE to the project dir, and a `.a`
+    // suffix for static libraries. `tests/cli-cases/build-run` compares this
+    // line.
+    project_name := if(
+      ctx.registry.modules.len() > usize(0),
+      ctx.registry.modules(usize(0)).name,
+      artifact.name.clone()
+    );
+    version_suffix := match(
+      _git_version(ctx.project_dir.clone(), e.io, e.exn),
+      .Some(v) => ` ${v}`,
+      .None => String.new()
+    );
+    rel_output := Path.new(output_path.to_string()).relative_from(Path.new(ctx.project_dir.clone()));
+    lib_suffix := match(artifact.kind, .StaticLibrary => ".a", _ => "");
+    println(`Building ${project_name}${version_suffix} → ${rel_output}${lib_suffix}`);
+    cmd := Command.new(_self_exe());
     cmd.arg(String.from("compile"));
     cmd.arg(source_path.to_string());
     cmd.arg(String.from("-o"));
@@ -376,10 +445,15 @@ compile_artifact :: (
       cmd.arg(artifact.include_paths(i));
       i = (i + usize(1));
     });
-    out := e.io.await(cmd.output(e.io), e);
-    if(out.status.success(), Result(unit, String).Ok(()), {
-      stderr_str := String.from_bytes(out.stderr).trim();
-      Result(unit, String).Err(`Compilation failed: ${stderr_str}`)
+    // STREAM the child's output rather than capturing it. `src/build-runner.ts`
+    // compiles in-process, so its "Generated C code written to …" / "Compiling
+    // with: …" lines and every clang diagnostic land on the build's own stdout.
+    // Capturing them hid compile errors from the user entirely unless the whole
+    // step failed.
+    st := e.io.await(cmd.status(e.io), e);
+    if(st.success(), Result(unit, String).Ok(()), {
+      code := st.code();
+      Result(unit, String).Err(`Compilation failed (exit ${code})`)
     })
   })
 );
@@ -417,9 +491,12 @@ run_executable :: (
       cmd.arg(args(i));
       i = (i + usize(1));
     });
-    out := e.io.await(cmd.output(e.io), e);
-    if(out.status.success(), Result(unit, String).Ok(()), {
-      code := out.status.code();
+    // Streamed, not captured: `runExecutable` in src/build-runner.ts spawns with
+    // `stdio: "inherit"`, so the program the user asked to run writes to the
+    // user's terminal. Capturing swallowed its output entirely.
+    st := e.io.await(cmd.status(e.io), e);
+    if(st.success(), Result(unit, String).Ok(()), {
+      code := st.code();
       Result(unit, String).Err(`Executable exited with code ${code}`)
     })
   })
@@ -437,7 +514,7 @@ run_test_suite :: (
 )(
   io.async((e : IoExn) => {
     test_path := Path.new(ctx.project_dir).join(Path.new(suite.root));
-    cmd := Command.new(String.from("yo-cli"));
+    cmd := Command.new(_self_exe());
     cmd.arg(String.from("test"));
     cmd.arg(test_path.to_string());
     if(suite.verbose, cmd.arg(String.from("--verbose")));
@@ -447,9 +524,11 @@ run_test_suite :: (
       cmd.arg(suite.parallel.to_string());
     });
     if(ctx.verbose, cmd.arg(String.from("--verbose")));
-    out := e.io.await(cmd.output(e.io), e);
-    if(out.status.success(), Result(unit, String).Ok(()), {
-      code := out.status.code();
+    // Streamed, not captured — `runTestSuite` in src/build-runner.ts inherits
+    // stdio, so the test runner's own report is the point of running it.
+    st := e.io.await(cmd.status(e.io), e);
+    if(st.success(), Result(unit, String).Ok(()), {
+      code := st.code();
       Result(unit, String).Err(`Tests failed (exit ${code})`)
     })
   })
@@ -788,37 +867,45 @@ execute_step :: (
   })
 );
 // ---------------------------------------------------------------------------
+/// Byte-for-byte `printSteps` (src/build-runner.ts:342-354): the header wording,
+/// the empty-registry line, and the TAB between name and description are all
+/// load-bearing — `tests/cli-cases/build-list-steps` diffs this stdout against
+/// the reference compiler's.
 print_steps :: (fn(registry : BuildRegistry) -> unit)({
   steps := registry.steps;
-  println("Available build steps:");
-  println("");
-  i := usize(0);
   n := steps.len();
+  if(n == usize(0), {
+    println("No build steps defined.");
+    return(());
+  });
+  println("Available steps:");
+  i := usize(0);
   while(i < n, {
     step := steps(i);
     is_default := if(step.name == "install", " (default)", "");
-    println(`  ${step.name}${is_default}`);
-    if(step.description != "", {
-      println(`    ${step.description}`);
-    });
+    println(`  ${step.name}${is_default}\t${step.description}`);
     i = (i + usize(1));
   });
 });
 // ---------------------------------------------------------------------------
-// Build file evaluation (calls yo-cli --serialize-registry)
+// Build file evaluation
 // ---------------------------------------------------------------------------
-/// Parse a BuildRegistry from JSON produced by `yo-cli --serialize-registry`.
-/// TODO(phase-7): Implement using std/json once a Reader interface exists.
-_parse_registry_from_json :: (fn(json : String) -> BuildRegistry)(
-  BuildRegistry.new()
-);
-/// Evaluate a build.yo file to obtain a BuildRegistry.
+/// Evaluate a `build.yo` file and return the `BuildRegistry` its
+/// `build.executable(...)` / `build.step(...)` / … calls populated.
 ///
-/// Current implementation calls `yo-cli build --serialize-registry` and
-/// parses the JSON registry from stdout.
+/// This used to shell out to `yo-cli build --serialize-registry` and parse JSON
+/// from stdout. That flag DOES NOT EXIST in `src/` (zero grep hits), and the
+/// JSON parser was `BuildRegistry.new()` — it ignored its input entirely — so
+/// `yo build` built an empty DAG and exited 0. See plans/P1_CLI_PARITY.md §3.
 ///
-/// TODO(phase-7): Replace with direct call to self-hosted module manager
-/// once `yo-self/module-manager/module_manager.yo` is ported.
+/// The real thing, mirroring `src/build-runner.ts`: clear the global registry,
+/// evaluate the file through the module manager (the builtins mutate the
+/// registry as a side effect of evaluation), then read the registry back.
+///
+/// Evaluation errors are SWALLOWED, exactly as in TS: "the evaluator populates
+/// the registry during compile-time evaluation; some errors are expected if the
+/// build file has runtime components." A partially-populated registry is the
+/// intended outcome there, not a failure.
 evaluate_build_file :: (
   fn(
     build_file : String,
@@ -828,40 +915,15 @@ evaluate_build_file :: (
   ) -> Impl(Future(BuildRegistry, IoExn))
 )(
   io.async((e : IoExn) => {
-    cmd := Command.new(String.from("yo-cli"));
-    cmd.arg(String.from("build"));
-    cmd.arg(String.from("--build-file"));
-    cmd.arg(build_file);
-    cmd.arg(String.from("--serialize-registry"));
-    define_keys := ArrayList(String).new();
-    key_iter := defines.keys();
-    more := true;
-    while(more, {
-      match(
-        key_iter.next(),
-        .None => {
-          more = false;
-        },
-        .Some(k) => {
-          define_keys.push(k);
-        }
-      );
-    });
-    i := usize(0);
-    n := define_keys.len();
-    while(i < n, {
-      k := define_keys(i);
-      v := defines.get(k).unwrap_or(String.from(""));
-      cmd.arg(`-D${k}=${v}`);
-      i = (i + usize(1));
-    });
-    out := e.io.await(cmd.output(e.io), e);
-    if(!(out.status.success()), {
-      stderr_str := String.from_bytes(out.stderr).trim();
-      e.exn.throw(dyn(`Error evaluating build file: ${stderr_str}`));
-    });
-    stdout_str := String.from_bytes(out.stdout);
-    _parse_registry_from_json(stdout_str.clone())
+    clear_build_registry();
+    // Seed `-Dname=value` overrides BEFORE evaluating: `build.option(...)`
+    // reads `cli_options` at evaluation time and returns the override in place
+    // of its declared default.
+    reg := get_build_registry();
+    reg.cli_options = defines;
+    _outcome := mm_load_yo_file(build_file, e.io, e.exn);
+    mm_reset();
+    get_build_registry()
   })
 );
 // ---------------------------------------------------------------------------
@@ -884,11 +946,6 @@ run_build :: (
       .Some(p) => p.to_string(),
       .None => String.from(".")
     );
-    if(options.list_steps, {
-      // We still need to evaluate the build file to list steps.
-      // TODO(phase-7): Replace with direct evaluator call.
-      return(());
-    });
     c_compiler := match(
       options.c_compiler,
       .Some(cc) => cc,

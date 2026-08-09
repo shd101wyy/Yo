@@ -181,7 +181,7 @@ function isAddressableCExpr(code: string): boolean {
  * async or effect state machine context. Returns `sm->__capture.X` for outer
  * variables or `sm->var_X` for locals; otherwise returns the name unchanged.
  */
-function resolveVarNameInContext(
+export function resolveVarNameInContext(
   varName: string,
   context: CodeGenContext
 ): string {
@@ -1554,8 +1554,18 @@ export function generateOtherFunctionCall(
 
               return tempVar; // Return the temp variable name
             } else {
-              // Error: regular function call returns non-unit type but no temp variable assigned
-              return `// Error: Regular function call returns ${getTypeString(functionValue.specializedType?.return.type ?? functionValueType.return.type, context)} but no temp variable assigned`;
+              // No temp variable was attached to this call. The evaluator skips
+              // one where the result flows straight out — `return(String.new())`
+              // in a plain function compiles to `return fn_String_new();`, no
+              // holding variable needed. Inside an async state machine that same
+              // `return` is lowered to "declare a result temp, assign
+              // sm->result", so the call still has to appear as an EXPRESSION.
+              // Emitting a comment here produced `T temp = // Error: …;` — C
+              // that never compiles. Emit the call itself: it is used exactly
+              // once, by the declaration the caller is building, and ownership
+              // transfers to that declaration just as it would have to the temp.
+              // See issues/fixed/async-match-arm-early-return-drops-call-result.md.
+              return `${cFuncName}(${namedCastedArgsList})`;
             }
           }
         }

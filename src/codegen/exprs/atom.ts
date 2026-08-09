@@ -271,6 +271,18 @@ export function generateAtom(
     // IMPORTANT: Look up by variable ID from environment, not by name!
     // This handles variable shadowing correctly - shadowed variables have the same name but different IDs
     let foundInStateMachine = false;
+    /**
+     * The env DID resolve this name, and that variable's ID is NOT a
+     * state-machine field. It is a segment-local: defined and consumed without
+     * crossing a state boundary, so the SM optimizer deliberately left it out
+     * of the struct and its definition emitted a plain C local. The by-name
+     * fallback below must not then hand back some OTHER same-named variable's
+     * field — two locals called `sub` in different branches get distinct IDs
+     * (`…_sub`, `…_sub_1`) but share the name, and redirecting one to the
+     * other's field reads a value that path never wrote. See
+     * issues/fixed/async-sibling-arm-same-named-locals.md.
+     */
+    let idResolvedButNotInStateMachine = false;
     if (expr.$?.env) {
       const variables = getVariablesFromEnv(expr.$.env, varName);
       if (variables.length > 0) {
@@ -329,6 +341,7 @@ export function generateAtom(
           foundInStateMachine = true;
           return `sm->${fieldName}`;
         }
+        idResolvedButNotInStateMachine = true;
       }
     }
 
@@ -356,7 +369,11 @@ export function generateAtom(
             functionContext.stateMachineFieldAliases.get(varId)!;
           return `sm->${aliasedField}`;
         }
-        if (capturedVar.name === varName && !nameMatchFallback) {
+        if (
+          capturedVar.name === varName &&
+          !nameMatchFallback &&
+          !idResolvedButNotInStateMachine
+        ) {
           nameMatchFallback = [varId, capturedVar];
         }
       }
@@ -380,6 +397,10 @@ export function generateAtom(
           if (aliasedField) {
             foundInStateMachine = true;
             return `sm->${aliasedField}`;
+          }
+          if (idResolvedButNotInStateMachine) {
+            // A segment-local of this SM that merely shares a name — see above.
+            continue;
           }
           const fieldName =
             capturedVar.kind === "outer"

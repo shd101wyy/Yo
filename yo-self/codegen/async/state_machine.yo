@@ -1676,6 +1676,24 @@ _emit_last_segment_completion :: (
 /// Aliased ids still have storage (an `await_future_N` or an overlapping slot),
 /// so they count as present. Mirrors `awaitTargetHasStructField`
 /// (state-machine.ts).
+/// True when the state-machine variable `target_variable_id` has the same C type
+/// as `result_type`. Distinguishes an arm's binding for THIS await point from a
+/// binding for a SECOND await inside the same arm, which suspends into a later
+/// state and has a different type. Mirrors the `sameResultType` check in
+/// `src/codegen/async/state-machine.ts`.
+_branch_target_matches_await_type :: (
+  fn(target_variable_id : String, result_type : TypeValue, context : FunctionGenerationContext) -> bool
+)(
+  match(
+    context.state_machine_variables,
+    .None => false,
+    .Some(vars) => match(
+      vars.get(target_variable_id),
+      .None => false,
+      .Some(cv) => (get_type_string(cv.base.ty, context.base) == get_type_string(result_type, context.base))
+    )
+  )
+);
 _await_target_has_struct_field :: (
   fn(target_variable_id : String, cross_boundary_ids : Option(HashSet(String)), context : FunctionGenerationContext) -> bool
 )({
@@ -1823,7 +1841,10 @@ _chain_additional_remaining :: (
     value : branch_value,
     has_await : has_await,
     remaining_exprs : Option(ArrayList(AstExpr)).Some(additional_remaining),
-    deferred_drop_expressions : deferred_drops
+    deferred_drop_expressions : deferred_drops,
+    // A chained OUTER-cond continuation, not an arm with its own `x := await`
+    // binding — its await result (if any) belongs to the inner cond's branch.
+    await_target_variable_id : Option(String).None
   );
   if(context.async_cond_branch_info.is_none(), {
     context.async_cond_branch_info = Option(HashMap(usize, AsyncCondBranchInfo)).Some(HashMap(usize, AsyncCondBranchInfo).new());
@@ -1992,7 +2013,8 @@ _emit_cond_branch_continuation :: (
     future_type : TypeValue,
     capture_type : Option(TypeValue),
     analysis : AwaitAnalysisResult,
-    context : FunctionGenerationContext
+    context : FunctionGenerationContext,
+    cross_boundary_ids : Option(HashSet(String))
   ) -> unit
 )({
   em := context.base.emitter;
@@ -2029,6 +2051,31 @@ _emit_cond_branch_continuation :: (
                   em.emit_string_line(`        case ${branch.index.to_string()}: {`);
                 });
                 em.emit_string_line(`          ASYNC_DEBUG("${async_block_id}: Executing remaining code from branch ${branch.index.to_string()}\\n");`);
+                // Bind THIS branch's own await result. Several arms share one
+                // await point (only one arm runs, so one suspension state
+                // suffices), so the single pre-switch copy driven by
+                // `prev_await.target_variable_id` can only name one arm's
+                // binding — every other arm read a zero-initialised field and
+                // the program silently produced `false`/`0`. Skip the arm the
+                // pre-switch copy already covers, so it is not written twice.
+                match(
+                  branch.await_target_variable_id,
+                  // Emit only when this is NOT the arm the pre-switch copy
+                  // already covers, AND the binding really lives in the state
+                  // struct (a segment-local optimized out of it has no field to
+                  // write), AND it has THIS await point's result type — an arm
+                  // may hold a SECOND await that suspends into a later state,
+                  // and its binding is that state's business.
+                  .Some(btvid) => if((
+                    match(prev_await.base.target_variable_id, .Some(ptv) => !(ptv == btvid), .None => true)
+                    && _await_target_has_struct_field(btvid.clone(), cross_boundary_ids, context)
+                  )
+                  && _branch_target_matches_await_type(btvid.clone(), prev_await.result_type, context), {
+                    bfield := get_state_machine_field_name(btvid, Option(String).Some(String.from("local")), context.state_machine_field_aliases);
+                    em.emit_string_line(`          sm->${bfield} = sm->await_result_${prev_await.base.index.to_string()};`);
+                  }),
+                  .None => ()
+                );
                 _emit_cond_branch_remaining(branch, prev_await, segment, body_expr, future_type, capture_type, analysis, cond_field, cbd.target_assignment_code, `          `, context);
                 if(!(skip_switch), {
                   em.emit_string_line(`          break;`);
@@ -2729,7 +2776,7 @@ generate_async_block_resume_function :: (
                 em.emit_string_line(`      if (sm->${pffn} != NULL) {`);
               });
               _emit_prev_await_result_extraction(async_block_id, segment.state_number, prev_await, analysis, context, cross_boundary_ids);
-              _emit_cond_branch_continuation(async_block_id, prev_await, segment, body_expr, future_type, capture_type, analysis, context);
+              _emit_cond_branch_continuation(async_block_id, prev_await, segment, body_expr, future_type, capture_type, analysis, context, cross_boundary_ids);
               if(in_cond, {
                 em.emit_string_line(`      }`);
               });

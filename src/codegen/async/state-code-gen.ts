@@ -11,6 +11,7 @@ import {
   isIoAsyncCall,
   isIoAwaitCall,
 } from "../../evaluator/async/await-analysis";
+import { extractTargetVariableId } from "../../evaluator/shared/suspension-analysis";
 import {
   BuiltinKeywords,
   ExprTag,
@@ -37,6 +38,7 @@ import {
 import { getStateMachineFieldName } from "./state-machine";
 import {
   canOptimizeAsNullablePointer,
+  canOptimizeAsSimpleEnum,
   getTypeString,
   sanitizeForCIdentifier,
 } from "../utils";
@@ -802,6 +804,69 @@ function unsupportedAwaitMessage(expr: Expr, awaitPoint: AwaitPoint): string {
 }
 
 /**
+ * The variable a cond/match ARM binds its own `io.await` result to — the `a` in
+ * `.Ok(_) => { a := io.await(f, io); … }`.
+ *
+ * Several arms collapse onto ONE await point (only one arm can run, so one
+ * suspension state suffices), and the await point carries a single
+ * `targetVariableId`. That is fine for the arm the analysis happened to visit
+ * first and WRONG for every other one: their bindings were never assigned from
+ * `sm->await_result_N` and read a zero-initialised struct field. The C compiled
+ * and the program ran — it simply produced `false`/`0`.
+ *
+ * Mirrors `extractTargetVariableId`'s contract: the target only exists when the
+ * await call is the direct RHS of a `:=`. Does not descend into a nested
+ * `io.async` body — those awaits belong to that block's own state machine.
+ */
+function findBranchAwaitTargetVariableId(expr: Expr): string | undefined {
+  let found: string | undefined;
+  const visit = (e: Expr): void => {
+    if (found !== undefined || e.tag !== ExprTag.FnCall) return;
+    if (isIoAsyncCall(e)) return;
+    if (exprIsFunctionCallOf(e, ":=")) {
+      const rhs = e.args[1];
+      if (rhs && rhs.tag === ExprTag.FnCall && isIoAwaitCall(rhs)) {
+        const id = extractTargetVariableId(e);
+        if (id !== undefined) {
+          found = id;
+          return;
+        }
+      }
+    }
+    if (e.func) visit(e.func);
+    for (const arg of e.args) visit(arg);
+  };
+  visit(expr);
+  return found;
+}
+
+/**
+ * Allocate `count` DISTINCT `sm->cond_branch_N` dispatch codes for one
+ * `cond`/`match` that contains an await.
+ *
+ * The code used to be the arm's own index (`0`, `1`, …). Every `cond`/`match`
+ * that awaits under the same await point shares ONE
+ * `asyncCondBranchInfo` entry and therefore one resume `switch`, so two sibling
+ * or nested matches both numbering their arms from 0 emitted `case 0:` twice
+ * and `case 1:` three times — C rejects the function outright ("duplicate case
+ * value"). It takes an OUTER match whose arms each contain an inner match with
+ * an await to trigger, which is why it stayed invisible until `build`/`fetch`/
+ * `install` were wired to a subcommand (plans/P1_CLI_PARITY.md §1).
+ *
+ * Handing every arm a code unique within the function makes the writer
+ * (`sm->cond_branch_N = <code>`) and the reader (`case <code>:`) agree while
+ * keeping distinct matches distinguishable at runtime.
+ */
+function allocCondBranchCodes(
+  context: FunctionGenerationContext,
+  count: number
+): number {
+  const base = context.condBranchCaseSeq ?? 0;
+  context.condBranchCaseSeq = base + Math.max(count, 1);
+  return base;
+}
+
+/**
  * Generates async-aware code for a cond expression containing await in branches.
  * Strategy:
  * 1. Evaluate conditions and determine which branch to take
@@ -818,6 +883,11 @@ function generateCondWithAwait(
   targetAssignmentCode?: string // C code for assignment target (for `= (target, cond(...))`)
 ): void {
   const emitter = context.emitter;
+  // Dispatch codes unique within this function — see allocCondBranchCodes.
+  const condBranchBase = allocCondBranchCodes(
+    context,
+    condExpr.tag === ExprTag.FnCall ? condExpr.args.length : 1
+  );
 
   // Type guard - condExpr should be a FnCall
   if (
@@ -855,6 +925,7 @@ function generateCondWithAwait(
     hasAwait: boolean;
     remainingExprs?: Expr[]; // Expressions after the await in this branch
     deferredDropExpressions?: Expr[]; // Drop expressions for the branch's begin block
+    awaitTargetVariableId?: string; // This branch's own `x := io.await(…)` binding
   }> = [];
 
   // First pass: check for compile-time constant conditions to optimize dead branches.
@@ -1106,7 +1177,7 @@ function generateCondWithAwait(
     if (branchContainsAwait) {
       // Store which branch was taken
       emitter.emitLine(
-        `${valueIndent}sm->cond_branch_${awaitPoint.index} = ${i};`
+        `${valueIndent}sm->cond_branch_${awaitPoint.index} = ${condBranchBase + i};`
       );
       // This branch contains an await - generate code to spawn and store Future
       const remainingExprs = generateCondBranchWithAwait(
@@ -1129,27 +1200,29 @@ function generateCondWithAwait(
             (b) => b.hasAwait && b.remainingExprs && b.remainingExprs.length > 0
           ) ?? false;
         whileInfo.condBranchPostWhileExprs = {
-          branchIndex: i,
+          branchIndex: condBranchBase + i,
           condBranchFieldIndex: awaitPoint.index,
           exprs: remainingExprs,
           deferredDropExpressions: value.$?.deferredDropExpressions,
           skipCondBranchCheck: hasNestedCondConflict,
         };
         branchesWithAwait.push({
-          index: i,
+          index: condBranchBase + i,
           value,
           hasAwait: true,
           remainingExprs: [], // Post-while-loop exprs are in while loop info
           deferredDropExpressions: value.$?.deferredDropExpressions,
+          awaitTargetVariableId: findBranchAwaitTargetVariableId(value),
         });
       } else {
         // Store branch info with remaining expressions and deferred drops from the branch's begin block
         branchesWithAwait.push({
-          index: i,
+          index: condBranchBase + i,
           value,
           hasAwait: true,
           remainingExprs,
           deferredDropExpressions: value.$?.deferredDropExpressions,
+          awaitTargetVariableId: findBranchAwaitTargetVariableId(value),
         });
       }
     } else {
@@ -1241,7 +1314,7 @@ function generateCondWithAwait(
       }
       // Store branch info without remaining expressions
       branchesWithAwait.push({
-        index: i,
+        index: condBranchBase + i,
         value,
         hasAwait: false,
       });
@@ -1449,6 +1522,8 @@ function generateMatchWithAwait(
   // match is: match(value, .Pattern1(x) => body1, .Pattern2 => body2, ...)
   const matchedValueExpr = matchExpr.args[0];
   const cases = matchExpr.args.slice(1);
+  // Dispatch codes unique within this function — see allocCondBranchCodes.
+  const condBranchBase = allocCondBranchCodes(context, cases.length);
 
   if (!matchedValueExpr || cases.length === 0) {
     emitter.emitLine(
@@ -1585,7 +1660,7 @@ function generateMatchWithAwait(
         }
 
         emitter.emitLine(
-          `${indent}  sm->cond_branch_${awaitPoint.index} = ${pointerCaseIndex};`
+          `${indent}  sm->cond_branch_${awaitPoint.index} = ${condBranchBase + pointerCaseIndex};`
         );
 
         if (branchHasAwait(caseBody)) {
@@ -1612,11 +1687,12 @@ function generateMatchWithAwait(
             };
 
             branchData.branches.push({
-              index: pointerCaseIndex,
+              index: condBranchBase + pointerCaseIndex,
               value: caseBody,
               hasAwait: true,
               remainingExprs,
               deferredDropExpressions: caseBody.$?.deferredDropExpressions,
+              awaitTargetVariableId: findBranchAwaitTargetVariableId(caseBody),
             });
 
             functionContext.asyncCondBranchInfo.set(
@@ -1674,7 +1750,7 @@ function generateMatchWithAwait(
         const caseBody = caseExpr.args[1]!;
 
         emitter.emitLine(
-          `${indent}  sm->cond_branch_${awaitPoint.index} = ${nullCaseIndex};`
+          `${indent}  sm->cond_branch_${awaitPoint.index} = ${condBranchBase + nullCaseIndex};`
         );
 
         // Check if null case also has await
@@ -1699,11 +1775,12 @@ function generateMatchWithAwait(
             };
 
             branchData.branches.push({
-              index: nullCaseIndex,
+              index: condBranchBase + nullCaseIndex,
               value: caseBody,
               hasAwait: true,
               remainingExprs,
               deferredDropExpressions: caseBody.$?.deferredDropExpressions,
+              awaitTargetVariableId: findBranchAwaitTargetVariableId(caseBody),
             });
 
             functionContext.asyncCondBranchInfo.set(
@@ -1753,8 +1830,18 @@ function generateMatchWithAwait(
 
     emitter.emitLine(`${indent}}`);
   } else {
-    // Regular enum with switch/case
-    emitter.emitLine(`${indent}switch (${matchedValueCode}.tag) {`);
+    // Regular enum with switch/case.
+    //
+    // A payload-free enum is lowered to a PLAIN C enum ("optimized as simple
+    // enum" in codegen/types/generation.ts) with no `tag` member, so `.tag` on
+    // it does not compile. `codegen/exprs/match.ts` has always branched on
+    // `canOptimizeAsSimpleEnum`; this generator did not, so any `match` on such
+    // an enum inside an async body emitted `switch (x.tag)` — "member reference
+    // base type ... is not a structure or union".
+    const scrutineeCode = canOptimizeAsSimpleEnum(enumType)
+      ? matchedValueCode
+      : `${matchedValueCode}.tag`;
+    emitter.emitLine(`${indent}switch (${scrutineeCode}) {`);
 
     let hasWildcardDefault = false;
     for (let i = 0; i < cases.length; i++) {
@@ -1807,7 +1894,7 @@ function generateMatchWithAwait(
         emitter.emitLine(`${indent}  case ${variantTag}: {`);
       }
       emitter.emitLine(
-        `${indent}    sm->cond_branch_${awaitPoint.index} = ${i};`
+        `${indent}    sm->cond_branch_${awaitPoint.index} = ${condBranchBase + i};`
       );
 
       // Handle destructuring patterns like .Some(task)
@@ -1903,11 +1990,12 @@ function generateMatchWithAwait(
           };
 
           branchData.branches.push({
-            index: i,
+            index: condBranchBase + i,
             value: caseBody,
             hasAwait: true,
             remainingExprs,
             deferredDropExpressions: caseBody.$?.deferredDropExpressions,
+            awaitTargetVariableId: findBranchAwaitTargetVariableId(caseBody),
           });
 
           functionContext.asyncCondBranchInfo.set(awaitPoint.index, branchData);
@@ -1998,6 +2086,8 @@ function generatePrimitiveMatchWithAwait(
   targetAssignmentCode?: string
 ): void {
   const emitter = context.emitter;
+  // Dispatch codes unique within this function — see allocCondBranchCodes.
+  const condBranchBase = allocCondBranchCodes(context, cases.length);
 
   // Store branch info for later generation
   const branchesWithAwait: Array<{
@@ -2006,6 +2096,7 @@ function generatePrimitiveMatchWithAwait(
     hasAwait: boolean;
     remainingExprs?: Expr[];
     deferredDropExpressions?: Expr[];
+    awaitTargetVariableId?: string; // This branch's own `x := io.await(…)` binding
   }> = [];
 
   emitter.emitLine(`${indent}switch (${matchedValueCode}) {`);
@@ -2049,7 +2140,7 @@ function generatePrimitiveMatchWithAwait(
     }
 
     emitter.emitLine(
-      `${indent}    sm->cond_branch_${awaitPoint.index} = ${i};`
+      `${indent}    sm->cond_branch_${awaitPoint.index} = ${condBranchBase + i};`
     );
 
     if (branchHasAwait(caseBody)) {
@@ -2061,11 +2152,12 @@ function generatePrimitiveMatchWithAwait(
       );
 
       branchesWithAwait.push({
-        index: i,
+        index: condBranchBase + i,
         value: caseBody,
         hasAwait: true,
         remainingExprs,
         deferredDropExpressions: caseBody.$?.deferredDropExpressions,
+        awaitTargetVariableId: findBranchAwaitTargetVariableId(caseBody),
       });
     } else {
       if (
@@ -2098,7 +2190,7 @@ function generatePrimitiveMatchWithAwait(
         }
       }
       branchesWithAwait.push({
-        index: i,
+        index: condBranchBase + i,
         value: caseBody,
         hasAwait: false,
       });
