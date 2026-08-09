@@ -1458,10 +1458,17 @@ build_doc_function :: (
     doc : Option(String),
     is_method : bool,
     self_type : Option(String),
-    doc_lookup : Option(HashMap(String, String))
+    doc_lookup : Option(HashMap(String, String)),
+    /// TS's typeToString prints `(Receiver) fn(...)` when the FunctionType
+    /// carries a `SelfType` (types/utils.ts:1202-1204). yo-self's Func has no
+    /// such field, so the registry-method path passes the receiver name here;
+    /// "" = no prefix (trait/module/token/generic-impl methods, which TS also
+    /// prints unprefixed).
+    signature_prefix : String
   ) -> DocFunction
 )({
-  signature := type_to_string(func_type);
+  base_signature := type_to_string(func_type);
+  signature := if(signature_prefix.len() > usize(0), `(${signature_prefix}) ${base_signature}`, base_signature.clone());
   (returns : Option(String)) = Option(String).None;
   (errors : Option(String)) = Option(String).None;
   (deprecated : Option(String)) = Option(String).None;
@@ -1505,6 +1512,17 @@ build_doc_function :: (
     examples : examples
   )
 });
+/// The nominal name of a named type, "" otherwise.
+_doc_type_name :: (fn(t : TypeValue) -> String)(
+  match(
+    t,
+    .Struct({ name }) => name.clone(),
+    .EnumT({ name }) => name.clone(),
+    .Union({ name }) => name.clone(),
+    .TraitT({ name }) => name.clone(),
+    _ => String.new()
+  )
+);
 /// Extract a type's methods. Mirrors `extractMethods` (builder.ts:186) —
 /// TS walks `structType.trait.fields`; yo-self attaches nothing to the type,
 /// so the same members live in the type_trait_methods registry keyed by the
@@ -1528,6 +1546,17 @@ _extract_methods :: (
       }
     );
     if(is_function_type(entry.ty) && !(entry.label.starts_with(String.from("___"))), {
+      (receiver_name : String) = type_name.clone();
+      match(
+        entry.self_type,
+        .Some(st) => {
+          st_name := _doc_type_name(st);
+          if(st_name.len() > usize(0), {
+            receiver_name = st_name;
+          });
+        },
+        .None => ()
+      );
       methods.push(
         build_doc_function(
           entry.label.clone(),
@@ -1535,7 +1564,8 @@ _extract_methods :: (
           doc_lookup.get(entry.label.clone()),
           true,
           Option(String).Some(type_name.clone()),
-          Option(HashMap(String, String)).Some(doc_lookup)
+          Option(HashMap(String, String)).Some(doc_lookup),
+          receiver_name
         )
       );
     });
@@ -1597,7 +1627,8 @@ _extract_generic_impl_info :: (
             doc_lookup.get(m_name.clone()),
             true,
             Option(String).Some(type_name.clone()),
-            Option(HashMap(String, String)).Some(doc_lookup)
+            Option(HashMap(String, String)).Some(doc_lookup),
+            String.new()
           )
         );
       });
@@ -2076,7 +2107,8 @@ build_doc_module :: (
                           doc_lookup.get(t_label.clone()),
                           true,
                           Option(String).Some(field_name.clone()),
-                          Option(HashMap(String, String)).Some(doc_lookup)
+                          Option(HashMap(String, String)).Some(doc_lookup),
+                          String.new()
                         )
                       );
                     });
@@ -2129,7 +2161,8 @@ build_doc_module :: (
                         doc_lookup.get(m_label.clone()),
                         true,
                         Option(String).Some(field_name.clone()),
-                        Option(HashMap(String, String)).Some(doc_lookup)
+                        Option(HashMap(String, String)).Some(doc_lookup),
+                        String.new()
                       )
                     );
                   });
@@ -2353,7 +2386,8 @@ build_doc_module :: (
                           doc_lookup.get(t_label.clone()),
                           true,
                           Option(String).Some(field_name.clone()),
-                          Option(HashMap(String, String)).Some(doc_lookup)
+                          Option(HashMap(String, String)).Some(doc_lookup),
+                          String.new()
                         )
                       );
                     });
@@ -2406,7 +2440,8 @@ build_doc_module :: (
                         doc_lookup.get(m_label.clone()),
                         true,
                         Option(String).Some(field_name.clone()),
-                        Option(HashMap(String, String)).Some(doc_lookup)
+                        Option(HashMap(String, String)).Some(doc_lookup),
+                        String.new()
                       )
                     );
                   });
@@ -2529,7 +2564,8 @@ build_doc_module :: (
           doc,
           false,
           Option(String).None,
-          Option(HashMap(String, String)).Some(doc_lookup)
+          Option(HashMap(String, String)).Some(doc_lookup),
+          String.new()
         )
       );
       i = (i + usize(1));
