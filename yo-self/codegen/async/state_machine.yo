@@ -15,7 +15,7 @@ open(import("std/string"));
 { lookup_some_resolved_concrete } :: import("../../expr_info.yo");
 { AwaitAnalysisResult, AwaitPoint, CapturedVariable, CapturedVariableKind } :: import("../../evaluator/async/await_analysis_types.yo");
 { SuspensionCapturedVariable } :: import("../../evaluator/shared/suspension_analysis_types.yo");
-{ StateSegment, split_into_state_segments, generate_await_expression, generate_state_segment_code } :: import("./state_code_gen.yo");
+{ StateSegment, split_into_state_segments, generate_await_expression, generate_state_segment_code, hoist_non_splittable_awaits, await_is_while_condition } :: import("./state_code_gen.yo");
 { is_io_async_call, is_io_await_call } :: import("../../evaluator/async/await_analysis.yo");
 { AstExpr, ast_expr_id, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, BK_COND, BK_MATCH, BK_WHILE, BK_BEGIN } :: import("../../expr.yo");
 { _call_generate_expr } :: import("../exprs/_expr.yo");
@@ -423,6 +423,7 @@ compute_cross_boundary_variables :: (
     );
   });
   segments := split_into_state_segments(body_expr, await_points);
+  hoist_non_splittable_awaits(segments);
   // Segment indices whose await point branches (cond/while): a variable found
   // ONLY in such a segment must stay in the struct (continuation runs elsewhere).
   branching_await_segment_indices := HashSet(usize).new();
@@ -1684,7 +1685,10 @@ _emit_prev_await_result_extraction :: (
     em.emit_string_line(`      // Extract result from await ${prev_idx_s}`);
     em.emit_string_line(`      int state_before_read = sm->${pffn}->state;`);
     em.emit_string_line(`      ASYNC_DEBUG("${async_block_id}: Reading result from await ${prev_idx_s}, state=%d\\n", state_before_read);`);
-    use_await_result_field := match(prev_await.base.is_inside_cond, .Some(b) => b, .None => false);
+    // A `while` whose CONDITION awaits reads `sm->await_result_N` to decide
+    // whether to run another iteration, so it needs the field too — it has no
+    // target variable to write the result into.
+    use_await_result_field := (match(prev_await.base.is_inside_cond, .Some(b) => b, .None => false) || await_is_while_condition(prev_await));
     (result_target : Option(String)) = Option(String).None;
     if(use_await_result_field, {
       rt := String.from("sm->await_result_");
@@ -2300,6 +2304,103 @@ _emit_outer_while_continuation :: (
     .None => ()
   );
 });
+/// Emit each expression of a `while` body/step inside the condition-await
+/// resume state. Split out because Yo has no local closures over `context`.
+_emit_while_cond_await_exprs :: (
+  fn(expr : AstExpr, context : FunctionGenerationContext) -> unit
+)({
+  em := context.base.emitter;
+  exprs := if(ast_expr_is_fn_call(expr) && ast_expr_is_fn_call_of(expr, BK_BEGIN, Option(usize).None), match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new()), {
+    one := ArrayList(AstExpr).new();
+    _r := one.push(expr);
+    one
+  });
+  (i : usize) = usize(0);
+  while(i < exprs.len(), {
+    match(
+      exprs.get(i),
+      .Some(sub) => {
+        code := _call_generate_expr(sub, String.from("          "), context);
+        skip := if(
+          code.len() == usize(0),
+          true,
+          match(
+            context.base.get_expr_info(sub),
+            .Some(ei) => is_temp_variable_name(ei.env.module_path, code),
+            .None => true
+          )
+        );
+        if(!(skip), {
+          em.emit_string_line(`          ${code};`);
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+});
+/// Emit the resume state for a `while` whose suspension point is its CONDITION
+/// (`while(io.await(f, io), body)` / `while(io.await(f, io), step, body)`).
+///
+/// A body await splits the loop into "before" and "after" halves. A condition
+/// await cannot be split that way: the condition is re-evaluated every
+/// iteration, so it is the whole loop that cycles through the state.
+/// Mirrors `emitWhileConditionAwaitResume` (state-machine.ts).
+_emit_while_condition_await_resume :: (
+  fn(
+    prev_await : AwaitPoint,
+    while_data : WhileLoopInfo,
+    future_type : TypeValue,
+    capture_type : Option(TypeValue),
+    analysis : AwaitAnalysisResult,
+    async_block_id : String,
+    context : FunctionGenerationContext
+  ) -> unit
+)({
+  em := context.base.emitter;
+  li := prev_await.base.index;
+  li_s := li.to_string();
+  em.emit_string_line(`      // While loop whose condition awaits — result is this iteration's test`);
+  em.emit_string_line(`      if (sm->while_loop_${li_s}_active) {`);
+  em.emit_string_line(`        if (!(sm->await_result_${li_s})) {`);
+  em.emit_string_line(`          sm->while_loop_${li_s}_active = false;`);
+  em.emit_string_line(`          ASYNC_DEBUG("${async_block_id}: While condition false, exiting loop\\n");`);
+  em.emit_string_line(`        } else {`);
+  p_in := context.in_async_state_machine;
+  p_smv := context.state_machine_variables;
+  p_vr := context.variable_id_remapping;
+  p_pdd := context.pending_deferred_drops;
+  p_brk := context.sm_while_break_info;
+  p_cont := context.sm_while_continue_info;
+  context.in_async_state_machine = Option(InAsyncStateMachine).Some(InAsyncStateMachine(future_type : future_type));
+  context.variable_id_remapping = Option(HashMap(String, String)).Some(analysis.variable_id_remapping);
+  context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(ArrayList(AstExpr).new());
+  context.state_machine_variables = Option(HashMap(String, CapturedVariable)).Some(_build_combined_sm_variables(analysis, capture_type));
+  // `break` leaves the loop; `continue` jumps back to the condition store,
+  // which is also where a normal iteration ends — so both are plain gotos.
+  context.sm_while_break_info = Option(SmWhileBreakInfo).Some(
+    SmWhileBreakInfo(label : `after_while_loop_${li_s}`, active_index : Option(usize).Some(li))
+  );
+  context.sm_while_continue_info = Option(SmWhileContinueInfo).Some(
+    SmWhileContinueInfo(label : `while_loop_${li_s}_start`, emit_drops_before_goto : true, step_expr : Option(AstExpr).None)
+  );
+  _emit_while_cond_await_exprs(while_data.body_expr, context);
+  match(while_data.step_expr, .Some(st) => _emit_while_cond_await_exprs(st, context), .None => ());
+  context.in_async_state_machine = p_in;
+  context.state_machine_variables = p_smv;
+  context.variable_id_remapping = p_vr;
+  context.pending_deferred_drops = p_pdd;
+  context.sm_while_break_info = p_brk;
+  context.sm_while_continue_info = p_cont;
+  em.emit_string_line(`          // Loop back: re-store the condition's future for the next iteration`);
+  em.emit_string_line(`          sm->state = ${li_s};`);
+  em.emit_string_line(`          goto while_loop_${li_s}_start;`);
+  em.emit_string_line(`        }`);
+  em.emit_string_line(`      }`);
+  em.emit_string_line(String.from(""));
+  em.emit_string_line(`      after_while_loop_${li_s}:`);
+  em.emit_string_line(String.from(""));
+});
 /// Emit the while-loop continuation at the top of a resume state: run the loop
 /// body's after-await expressions (chaining to the next state + re-registering
 /// the loop info if they contain another await), else emit the continue label +
@@ -2324,6 +2425,17 @@ _emit_while_continuation :: (
     .Some(wm) => match(
       wm.get(prev_await.base.index),
       .Some(while_data) => {
+        // The loop's suspension point is its CONDITION. `sm->await_result_N`
+        // holds THIS iteration's answer, so the layout is:
+        //   if (!result) leave the loop
+        //   else { body; step; jump back to the state that stores the future }
+        // Jumping back re-stores the future, which is what re-evaluates the
+        // condition each iteration.
+        // Mirrors `emitWhileConditionAwaitResume` (state-machine.ts).
+        if(match(while_data.condition_await, .Some(b) => b, .None => false), {
+          _emit_while_condition_await_resume(prev_await, while_data, future_type, capture_type, analysis, async_block_id, context);
+          return();
+        });
         wai := match(while_data.while_loop_origin_index, .Some(o) => o, .None => prev_await.base.index);
         wai_s := wai.to_string();
         em.emit_string_line(`      // Execute remaining code from while loop body and continue loop`);
@@ -2380,6 +2492,8 @@ _emit_while_continuation :: (
                       body_exprs_after_await : Option(ArrayList(AstExpr)).Some(further),
                       while_loop_origin_index : Option(usize).Some(wai),
                       is_chained_await : Option(bool).Some(true),
+                      condition_await : while_data.condition_await,
+                      step_await : while_data.step_await,
                       cond_branch_post_while_exprs : while_data.cond_branch_post_while_exprs,
                       outer_while_loop : while_data.outer_while_loop
                     );
@@ -2450,8 +2564,9 @@ _emit_while_continuation :: (
           em.emit_string_line(`        ASYNC_DEBUG("${async_block_id}: Re-evaluating while loop condition\\n");`);
           r_dtv := context.declared_temp_vars;
           context.declared_temp_vars = Option(HashSet(String)).None;
+          step_already_ran := match(while_data.step_await, .Some(b) => b, .None => false);
           match(
-            while_data.step_expr,
+            if(step_already_ran, Option(AstExpr).None, while_data.step_expr),
             .Some(step) => {
               s_in := context.in_async_state_machine;
               s_smv := context.state_machine_variables;
@@ -2539,6 +2654,7 @@ generate_async_block_resume_function :: (
   context.async_while_loop_info = Option(HashMap(usize, WhileLoopInfo)).Some(HashMap(usize, WhileLoopInfo).new());
   context.async_next_while_loop_index = Option(usize).Some(analysis.await_points.len());
   segments := split_into_state_segments(body_expr, analysis.await_points);
+  hoist_non_splittable_awaits(segments);
   body_exprs := if(ast_expr_is_fn_call_of(body_expr, BK_BEGIN, Option(usize).None), match(body_expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new()), {
     single := ArrayList(AstExpr).new();
     single.push(body_expr);

@@ -155,6 +155,19 @@ WhileLoopInfo :: ref(
     while_loop_origin_index : Option(usize),
     /// True when created by chaining from a previous await in the same loop body.
     is_chained_await : Option(bool),
+    /// Set when the loop's suspension point is the CONDITION itself
+    /// (`while(io.await(f, io), body)`). The condition is re-evaluated every
+    /// iteration, so it cannot be hoisted once before the loop — the whole loop
+    /// cycles through one state instead: the state stores the condition's
+    /// future and suspends; the next state tests the result, runs the body and
+    /// step, then jumps back to re-store it. The body is emitted in that resume
+    /// state, which is why generate_while_with_await skips it here.
+    condition_await : Option(bool),
+    /// Set when the suspension point is in the STEP (arg 2 of the 3-arg
+    /// `while(cond, step, body)`). The step runs after the body each iteration,
+    /// so its await splits the loop where a trailing body await would; the
+    /// resume state must NOT re-emit the step, it already ran.
+    step_await : Option(bool),
     cond_branch_post_while_exprs : Option(CondBranchPostWhileExprs),
     outer_while_loop : Option(OuterWhileLoop)
   )
@@ -225,6 +238,12 @@ FunctionGenerationContext :: ref(
     /// `generate_while_with_await`, read by the resume generator. Mirrors
     /// `asyncWhileLoopInfo`.
     async_while_loop_info : Option(HashMap(usize, WhileLoopInfo)),
+    /// `io.await` in a position the body cannot be SPLIT at — a `cond`/`if`
+    /// condition, or a `match` scrutinee. Maps the await call's `ExprId` to the
+    /// C lvalue holding its already-extracted result. Consulted by
+    /// `generate_await` (codegen/exprs/await.yo), which otherwise emits "" inside
+    /// a state machine — the empty operand that produced `sm->var_N = ;`.
+    await_result_substitutions : Option(HashMap(usize, String)),
     /// Next free while-loop index for nested while-with-await (so outer-while
     /// labels don't collide with await-point indices). Mirrors
     /// `asyncNextWhileLoopIndex`.
@@ -284,6 +303,7 @@ impl(
       state_machine_variables : Option(HashMap(String, CapturedVariable)).None,
       state_machine_field_aliases : Option(HashMap(String, String)).None,
       async_while_loop_info : Option(HashMap(usize, WhileLoopInfo)).None,
+      await_result_substitutions : Option(HashMap(usize, String)).None,
       async_next_while_loop_index : Option(usize).None,
       async_cond_branch_info : Option(HashMap(usize, AsyncCondBranchInfo)).None,
       async_body_return_expr : Option(AstExpr).None,

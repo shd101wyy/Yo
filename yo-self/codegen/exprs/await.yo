@@ -395,7 +395,23 @@ generate_await :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
   });
   future_trait_type := match(extract_future_trait_from_type(future_type), .Some(t) => t, .None => return(String.from("// Error: could not extract Future trait from type")));
   // Inside a state machine, await emits no code — the FSM handles the suspension.
-  match(context.in_async_state_machine, .Some(_) => return(String.from("")), .None => ());
+  // An await in a non-splittable position (a `cond`/`if` condition, a `match`
+  // scrutinee, a `while` condition) was hoisted across the state boundary: its
+  // result is already extracted and live in this state, so the await stands for
+  // that value. Without this the empty string below becomes an empty operand —
+  // the `sm->var_N = ;` that used to reach the C compiler.
+  match(
+    context.in_async_state_machine,
+    .Some(_) => {
+      sub := match(
+        context.await_result_substitutions,
+        .Some(subs) => subs.get(ast_expr_id(expr)),
+        .None => Option(String).None
+      );
+      match(sub, .Some(v) => return(v), .None => return(String.from("")));
+    },
+    .None => ()
+  );
   if(!(is_io_await_call(expr)), {
     return(String.from("// Error: await should only be used inside async blocks"));
   });

@@ -42,7 +42,16 @@ StateSegment :: ref(
     /// Expressions to execute in this state (before the await/return).
     expressions : ArrayList(AstExpr),
     /// The await point at the end of this segment (`.None` for the final segment).
-    await_point : Option(AwaitPoint)
+    await_point : Option(AwaitPoint),
+    /// Set when this segment's await sits in a position the body cannot be
+    /// SPLIT at — a `cond`/`if` condition, or a `match` scrutinee. The
+    /// enclosing expression has moved to the NEXT segment; this segment only
+    /// stores the future.
+    store_future_for_await : Option(AwaitPoint),
+    /// Set on the segment that RECEIVED such an expression. While generating
+    /// it, the await stands for `sm->await_result_<index>`, which the state
+    /// prologue has already filled in.
+    hoisted_await_point : Option(AwaitPoint)
   )
 );
 /// Find the `AwaitPoint` whose `base.index` equals `idx`. Used to recover the
@@ -101,7 +110,9 @@ split_into_state_segments :: (
           StateSegment(
             state_number : seg.state_number,
             expressions : seg.expressions,
-            await_point : ap_opt
+            await_point : ap_opt,
+            store_future_for_await : Option(AwaitPoint).None,
+            hoisted_await_point : Option(AwaitPoint).None
           )
         );
       },
@@ -123,7 +134,9 @@ split_into_state_segments :: (
         StateSegment(
           state_number : segments.len(),
           expressions : ArrayList(AstExpr).new(),
-          await_point : Option(AwaitPoint).None
+          await_point : Option(AwaitPoint).None,
+          store_future_for_await : Option(AwaitPoint).None,
+          hoisted_await_point : Option(AwaitPoint).None
         )
       );
     });
@@ -137,6 +150,220 @@ split_into_state_segments :: (
 contains_await_expr :: (fn(expr : AstExpr, await_expr : AstExpr) -> bool)(
   contains_suspension_expr(expr, await_expr, is_io_async_call)
 );
+/// Emit C for an expression that contains an await: a standalone `io.await`, an
+/// assignment whose value awaits (or is a cond/match with await), or a bare
+/// cond/match/while with await. The actual suspend/resume happens at the state
+/// transition; this stores the awaited Future into its field (or delegates to the
+/// branch emitters). Mirrors `generateAwaitExpression` (state-code-gen.ts:184).
+/// The macro expansion of a macro call (`if` -> `cond`). Read from the durable
+/// side-table rather than this call's per-pass ExprInfo, which can lose
+/// `macro_expansion` (see codegen/types/collection.yo:557).
+_await_macro_expansion :: (fn(expr : AstExpr) -> Option(AstExpr))(
+  lookup_macro_expansion(ast_expr_id(expr))
+);
+/// True when `expr` IS this await point's `io.await(...)` call, ignoring the
+/// single-expression `begin` wrappers the evaluator puts around `cond`
+/// conditions and `match` scrutinees.
+///
+/// "Is", not "contains": substituting the extracted result into a LARGER
+/// expression (`!(io.await(f, io))`) asks codegen for helper specialisations the
+/// collection pass never saw, and the C then calls undeclared functions. Awaits
+/// nested inside a bigger expression are unsupported everywhere.
+/// Mirrors `exprIsBareAwait` (state-code-gen.ts).
+expr_is_bare_await :: (fn(expr_opt : Option(AstExpr), await_point : AwaitPoint) -> bool)({
+  cur := match(expr_opt, .Some(e) => e, .None => return(false));
+  (current : AstExpr) = cur;
+  (peeling : bool) = true;
+  while(peeling, {
+    is_single_begin := if(
+      ast_expr_is_fn_call(current) && ast_expr_is_fn_call_of(current, BK_BEGIN, Option(usize).None),
+      match(current, .FnCall(_, _, a, _, _) => (a.len() == usize(1)), _ => false),
+      false
+    );
+    if(is_single_begin, {
+      match(
+        current,
+        .FnCall(_, _, a, _, _) => match(
+          a.get(usize(0)),
+          .Some(inner) => {
+            current = inner;
+          },
+          .None => {
+            peeling = false;
+          }
+        ),
+        _ => {
+          peeling = false;
+        }
+      );
+    }, {
+      peeling = false;
+    });
+  });
+  is_io_await_call(current) && contains_await_expr(current, await_point.base.expr)
+});
+/// True when the await sits in the condition of the FIRST branch of `cond_expr`.
+///
+/// Only the first condition can be hoisted into the previous state. `cond`
+/// evaluates conditions lazily, in order, so hoisting a LATER condition would
+/// evaluate its await even when an earlier branch matches — a silent change of
+/// meaning, not just of timing. The first condition is always evaluated.
+/// Mirrors `awaitIsInFirstCondPosition` (state-code-gen.ts).
+await_is_in_first_cond_position :: (fn(cond_expr : AstExpr, await_point : AwaitPoint) -> bool)({
+  if(!(ast_expr_is_fn_call(cond_expr) && ast_expr_is_fn_call_of(cond_expr, BK_COND, Option(usize).None)), {
+    return(false);
+  });
+  args := match(cond_expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+  first_pair := match(args.get(usize(0)), .Some(p) => p, .None => return(false));
+  if(!(ast_expr_is_fn_call(first_pair) && ast_expr_is_fn_call_of(first_pair, "=>", Option(usize).None)), {
+    return(false);
+  });
+  cond_arg := match(first_pair, .FnCall(_, _, a, _, _) => a.get(usize(0)), .Atom(_, _) => Option(AstExpr).None);
+  expr_is_bare_await(cond_arg, await_point)
+});
+/// True when this await sits somewhere in `expr` that the state machine cannot
+/// split at: a `cond`/`if` branch condition, or a `match` scrutinee.
+/// Mirrors `awaitIsInNonSplittablePosition` (state-code-gen.ts).
+await_is_in_non_splittable_position :: (fn(expr : AstExpr, await_point : AwaitPoint) -> bool)({
+  if(!(ast_expr_is_fn_call(expr)), {
+    return(false);
+  });
+  if(ast_expr_is_fn_call_of(expr, BK_COND, Option(usize).None), {
+    return(await_is_in_first_cond_position(expr, await_point));
+  });
+  // `if` is a macro over `cond` — its condition only becomes visible there, and
+  // an `if` condition is always the first branch, so it always hoists.
+  if(ast_expr_is_fn_call_of(expr, "if", Option(usize).None), {
+    return(
+      match(
+        _await_macro_expansion(expr),
+        .Some(me) => await_is_in_first_cond_position(me, await_point),
+        .None => false
+      )
+    );
+  });
+  if(ast_expr_is_fn_call_of(expr, BK_MATCH, Option(usize).None), {
+    // The scrutinee is evaluated exactly once, before any arm, so hoisting it
+    // is always exact — subject to the same "must BE the await" limit.
+    args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+    return(expr_is_bare_await(args.get(usize(0)), await_point));
+  });
+  false
+});
+/// True when this await point IS the condition of the `while` that encloses it.
+///
+/// Used both by codegen (to pick the condition-await loop layout) and by the
+/// state-struct emitter, which must allocate `await_result_N` for it — that
+/// field is otherwise reserved for cond awaits, and the layout reads it to test
+/// the loop condition. Mirrors `awaitIsWhileCondition` (state-code-gen.ts).
+await_is_while_condition :: (fn(await_point : AwaitPoint) -> bool)({
+  we := match(await_point.base.enclosing_while_expr, .Some(w) => w, .None => return(false));
+  if(!(ast_expr_is_fn_call(we) && ast_expr_is_fn_call_of(we, BK_WHILE, Option(usize).None)), {
+    return(false);
+  });
+  args := match(we, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+  expr_is_bare_await(args.get(usize(0)), await_point)
+});
+/// Move expressions whose await sits in a non-splittable position into the next
+/// segment.
+///
+/// A branch-body await can end a state: everything before it runs, the state
+/// suspends, the rest of the branch resumes in the next state. An await in a
+/// `cond`/`if` CONDITION or a `match` SCRUTINEE cannot, because it is evaluated
+/// before any branch is chosen. Hoisting it across the state boundary is what
+/// the hand-written form does:
+///
+///     ready := io.await(f, io);        // state N ends here
+///     cond(ready => ..., true => ...)  // state N+1
+///
+/// So the await point stays on segment N (its future store and state transition
+/// are unchanged) and the enclosing expression moves to the front of segment
+/// N+1, where `sm->await_result_N` is live.
+/// Mirrors `hoistNonSplittableAwaits` (state-code-gen.ts).
+hoist_non_splittable_awaits :: (fn(segments : ArrayList(StateSegment)) -> unit)({
+  (i : usize) = usize(0);
+  n := segments.len();
+  while(i < n, {
+    match(
+      segments.get(i),
+      .Some(segment) => match(
+        segment.await_point,
+        .Some(ap) => if(segment.expressions.len() > usize(0), {
+          last_index := (segment.expressions.len() - usize(1));
+          match(
+            segment.expressions.get(last_index),
+            .Some(enclosing) => if(await_is_in_non_splittable_position(enclosing, ap), {
+              if((i + usize(1)) < n, {
+                match(
+                  segments.get(i + usize(1)),
+                  .Some(next) => {
+                    _r := segment.expressions.remove(last_index);
+                    segment.store_future_for_await = Option(AwaitPoint).Some(ap);
+                    // ArrayList has no `insert`; rebuild with the hoisted
+                    // expression first.
+                    rebuilt := ArrayList(AstExpr).new();
+                    _r2 := rebuilt.push(enclosing);
+                    (ni : usize) = usize(0);
+                    while(ni < next.expressions.len(), {
+                      match(
+                        next.expressions.get(ni),
+                        .Some(ex) => {
+                          _r3 := rebuilt.push(ex);
+                        },
+                        .None => ()
+                      );
+                      ni = (ni + usize(1));
+                    });
+                    next.expressions = rebuilt;
+                    next.hoisted_await_point = Option(AwaitPoint).Some(ap);
+                  },
+                  .None => ()
+                );
+              });
+            }),
+            .None => ()
+          );
+        }),
+        .None => ()
+      ),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+});
+/// Emit the future store for an await hoisted out of a non-splittable position.
+///
+/// The enclosing expression now lives in the next segment, so this segment ends
+/// with just the store — the state transition the caller appends reads
+/// `sm->await_future_N` exactly as it would for any other await.
+/// Mirrors `emitHoistedAwaitFutureStore` (state-code-gen.ts).
+emit_hoisted_await_future_store :: (
+  fn(await_point : AwaitPoint, indent : String, context : FunctionGenerationContext) -> unit
+)({
+  em := context.base.emitter;
+  idx_s := await_point.base.index.to_string();
+  em.emit_string_line(`${indent}// Await in non-splittable position (cond/if condition, or match`);
+  em.emit_string_line(`${indent}// scrutinee) — store the future; the enclosing expression runs in`);
+  em.emit_string_line(`${indent}// the next state, reading await_result_${idx_s}.`);
+  if(await_point.future_variable_id.is_some(), {
+    // Already held by a state machine variable field.
+    return();
+  });
+  aw := await_point.base.expr;
+  if(!(ast_expr_is_fn_call(aw)), {
+    return();
+  });
+  args := match(aw, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+  match(
+    args.get(usize(0)),
+    .Some(future_expr) => {
+      future_code := _call_generate_expr(future_expr, indent, context);
+      em.emit_string_line(`${indent}sm->await_future_${idx_s} = ${future_code};`);
+    },
+    .None => ()
+  );
+});
+
 /// True when a cond/match branch expression contains an `io.await` call (recurses
 /// through FnCall args). Mirrors `branchHasAwait` (state-code-gen.ts:975).
 branch_has_await :: (fn(expr : AstExpr) -> bool)({
@@ -274,17 +501,6 @@ _extract_target_var_id :: (
   });
   Option(String).None
 });
-/// Emit C for an expression that contains an await: a standalone `io.await`, an
-/// assignment whose value awaits (or is a cond/match with await), or a bare
-/// cond/match/while with await. The actual suspend/resume happens at the state
-/// transition; this stores the awaited Future into its field (or delegates to the
-/// branch emitters). Mirrors `generateAwaitExpression` (state-code-gen.ts:184).
-/// The macro expansion of a macro call (`if` -> `cond`). Read from the durable
-/// side-table rather than this call's per-pass ExprInfo, which can lose
-/// `macro_expansion` (see codegen/types/collection.yo:557).
-_await_macro_expansion :: (fn(expr : AstExpr) -> Option(AstExpr))(
-  lookup_macro_expansion(ast_expr_id(expr))
-);
 /// True when this await sits in a branch CONDITION of `cond_expr` (rather than
 /// in a branch value, which is what the splitter supports). `cond_expr` must be
 /// a `cond` — for an `if`, pass its macro expansion.
@@ -498,6 +714,43 @@ generate_await_expression :: (
   eprintln(_unsupported_await_message(expr, is_if, in_cond_pos));
   __yo_panic("io.await is not supported in this position inside io.async (see stderr)")
 });
+/// Register `value` for every `io.await` node inside `expr` whose subtree holds
+/// this await point's call. One await can appear under more than one ExprId —
+/// an `if` is generated through its macro expansion, which carries its own copy
+/// — and `generate_await` looks the substitution up by the node it is
+/// generating, not by the await point.
+_register_await_substitutions :: (
+  fn(expr : AstExpr, await_point : AwaitPoint, value : String, subs : HashMap(usize, String)) -> unit
+)({
+  if(is_io_await_call(expr) && contains_await_expr(expr, await_point.base.expr), {
+    subs.set(ast_expr_id(expr), value.clone());
+  });
+  match(
+    expr,
+    .FnCall(_, func_box, args, _, _) => {
+      recur(func_box, await_point, value.clone(), subs);
+      (i : usize) = usize(0);
+      while(i < args.len(), {
+        match(
+          args.get(i),
+          .Some(a) => {
+            recur(a, await_point, value.clone(), subs);
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    },
+    .Atom(_, _) => ()
+  );
+  match(
+    lookup_macro_expansion(ast_expr_id(expr)),
+    .Some(me) => {
+      recur(me, await_point, value.clone(), subs);
+    },
+    .None => ()
+  );
+});
 /// Emit C for a single FSM state segment: each expression runs normally, except
 /// the one containing this segment's await (handled by `generate_await_expression`)
 /// and, in the final segment when `capture_last_expr_result`, the last expression
@@ -507,6 +760,47 @@ generate_state_segment_code :: (
   fn(segment : StateSegment, indent : String, context : FunctionGenerationContext, capture_last_expr_result : bool) -> unit
 )({
   em := context.base.emitter;
+  // This segment received an expression whose await was hoisted out of a
+  // non-splittable position. `sm->await_result_N` is live here, so the await
+  // node stands for that value — see `generate_await` (codegen/exprs/await.yo),
+  // which without this emits "" and produces `sm->var_N = ;`.
+  (had_substitution : bool) = false;
+  (previous_substitution : String) = String.new();
+  (substitution_key : usize) = usize(0);
+  match(
+    segment.hoisted_await_point,
+    .Some(hp) => {
+      if(context.await_result_substitutions.is_none(), {
+        context.await_result_substitutions = Option(HashMap(usize, String)).Some(HashMap(usize, String).new());
+      });
+      subs := match(context.await_result_substitutions, .Some(m) => m, .None => HashMap(usize, String).new());
+      substitution_key = ast_expr_id(hp.base.expr);
+      match(
+        subs.get(substitution_key),
+        .Some(v) => {
+          had_substitution = true;
+          previous_substitution = v;
+        },
+        .None => ()
+      );
+      hp_idx_s := hp.base.index.to_string();
+      sub_value := `sm->await_result_${hp_idx_s}`;
+      subs.set(substitution_key, sub_value);
+      // The hoisted expression may hold a DIFFERENT node for the same await —
+      // an `if` is generated through its macro expansion, whose `io.await` node
+      // has its own ExprId. Register every matching await node in the
+      // expression, or the lookup misses and we emit `if () {`.
+      match(
+        segment.expressions.get(usize(0)),
+        .Some(first) => {
+          _register_await_substitutions(first, hp, sub_value, subs);
+        },
+        .None => ()
+      );
+      context.await_result_substitutions = Option(HashMap(usize, String)).Some(subs);
+    },
+    .None => ()
+  );
   n := segment.expressions.len();
   (i : usize) = usize(0);
   while(i < n, {
@@ -556,6 +850,31 @@ generate_state_segment_code :: (
     );
     i = (i + usize(1));
   });
+  // Restore the substitution — segments are generated in sequence and the map
+  // is shared across the whole async block.
+  match(
+    segment.hoisted_await_point,
+    .Some(_) => match(
+      context.await_result_substitutions,
+      .Some(subs) => if(had_substitution, {
+        subs.set(substitution_key, previous_substitution);
+      }, {
+        _r := subs.remove(substitution_key);
+      }),
+      .None => ()
+    ),
+    .None => ()
+  );
+  // This segment's await was hoisted: the enclosing expression moved to the
+  // next segment, so nothing above emitted the future store. Emit it here —
+  // the state transition the caller appends still needs `await_future_N`.
+  match(
+    segment.store_future_for_await,
+    .Some(ap) => {
+      emit_hoisted_await_future_store(ap, indent, context);
+    },
+    .None => ()
+  );
 });
 /// Push `exprs[start..]` onto `out`. Helper for collecting the while-body
 /// expressions that run after the await (in the resume state).
@@ -718,6 +1037,54 @@ generate_while_body_with_await :: (
   _collect_exprs_from(remaining_exprs, body_exprs, await_found_index + usize(1));
   remaining_exprs
 });
+/// Emit a `while` body that contains no await, in the label/goto form state 0
+/// uses. Only needed when the loop's await is in the STEP: the body still has
+/// to run before it, but there is nothing to split.
+/// Mirrors `generateWholeWhileBody` (state-code-gen.ts).
+generate_whole_while_body :: (
+  fn(body_expr : AstExpr, indent : String, context : FunctionGenerationContext, while_loop_index : usize) -> unit
+)({
+  em := context.base.emitter;
+  wli_s := while_loop_index.to_string();
+  prev_break := context.sm_while_break_info;
+  prev_continue := context.sm_while_continue_info;
+  context.sm_while_break_info = Option(SmWhileBreakInfo).Some(
+    SmWhileBreakInfo(label : `while_loop_${wli_s}_end`, active_index : Option(usize).Some(while_loop_index))
+  );
+  context.sm_while_continue_info = Option(SmWhileContinueInfo).Some(
+    SmWhileContinueInfo(label : `while_loop_${wli_s}_start`, emit_drops_before_goto : true, step_expr : Option(AstExpr).None)
+  );
+  exprs := if(ast_expr_is_fn_call(body_expr) && ast_expr_is_fn_call_of(body_expr, BK_BEGIN, Option(usize).None), match(body_expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new()), {
+    one := ArrayList(AstExpr).new();
+    _r := one.push(body_expr);
+    one
+  });
+  (i : usize) = usize(0);
+  while(i < exprs.len(), {
+    match(
+      exprs.get(i),
+      .Some(sub) => {
+        code := _call_generate_expr(sub, indent, context);
+        skip := if(
+          code.len() == usize(0),
+          true,
+          match(
+            context.base.get_expr_info(sub),
+            .Some(ei) => is_temp_variable_name(ei.env.module_path, code),
+            .None => true
+          )
+        );
+        if(!(skip), {
+          em.emit_string_line(`${indent}${code};`);
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  context.sm_while_break_info = prev_break;
+  context.sm_while_continue_info = prev_continue;
+});
 /// Emit a while loop whose body contains an await: an active flag + start/end
 /// labels, the condition guard, the pre-await body, and (for an outer while
 /// wrapping a nested while-with-await) a fresh loop index. Records per-loop info
@@ -755,12 +1122,59 @@ generate_while_with_await :: (
   wli_s := while_loop_index.to_string();
   em.emit_string_line(`${indent}sm->while_loop_${wli_s}_active = true;`);
   em.emit_string_line(`${indent}while_loop_${wli_s}_start:`);
+  // The loop's suspension point is the CONDITION itself. Store its future and
+  // suspend — the test, the body and the step all run in the next state, where
+  // the result is live. Jumping back here re-stores the future, which is what
+  // makes the condition re-evaluate per iteration.
+  // Mirrors state-code-gen.ts.
+  if(expr_is_bare_await(Option(AstExpr).Some(condition_expr), await_point), {
+    emit_hoisted_await_future_store(await_point, indent, context);
+    em.emit_string_line(`${indent}while_loop_${wli_s}_end:`);
+    if(context.async_while_loop_info.is_none(), {
+      context.async_while_loop_info = Option(HashMap(usize, WhileLoopInfo)).Some(HashMap(usize, WhileLoopInfo).new());
+    });
+    cmap := match(context.async_while_loop_info, .Some(m) => m, .None => HashMap(usize, WhileLoopInfo).new());
+    cmap.set(
+      await_point.base.index,
+      WhileLoopInfo(
+        condition_expr : condition_expr,
+        step_expr : step_expr,
+        body_expr : body_expr,
+        body_exprs_after_await : Option(ArrayList(AstExpr)).Some(ArrayList(AstExpr).new()),
+        while_loop_origin_index : Option(usize).None,
+        is_chained_await : Option(bool).None,
+        condition_await : Option(bool).Some(true),
+        step_await : Option(bool).None,
+        cond_branch_post_while_exprs : Option(CondBranchPostWhileExprs).None,
+        outer_while_loop : Option(OuterWhileLoop).None
+      )
+    );
+    context.async_while_loop_info = Option(HashMap(usize, WhileLoopInfo)).Some(cmap);
+    return();
+  });
   cond_code := _call_generate_expr(condition_expr, indent, context);
   em.emit_string_line(`${indent}if (!(${cond_code})) {`);
   em.emit_string_line(`${indent}  sm->while_loop_${wli_s}_active = false;`);
   em.emit_string_line(`${indent}  goto while_loop_${wli_s}_end;`);
   em.emit_string_line(`${indent}}`);
-  body_exprs_after_await := generate_while_body_with_await(body_expr, await_point, indent, context, while_loop_index);
+  // The suspension point is in the STEP. The step runs after the body each
+  // iteration, so it splits the loop exactly where a trailing body await would:
+  // emit the body in full, then the step up to its await. What follows becomes
+  // `body_exprs_after_await`, and the resume state skips the step.
+  step_is_awaiting := match(step_expr, .Some(se) => expr_contains_await(se), .None => false);
+  (body_exprs_after_await : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
+  if(step_is_awaiting, {
+    generate_whole_while_body(body_expr, indent, context, while_loop_index);
+    match(
+      step_expr,
+      .Some(se) => {
+        body_exprs_after_await = generate_while_body_with_await(se, await_point, indent, context, while_loop_index);
+      },
+      .None => ()
+    );
+  }, {
+    body_exprs_after_await = generate_while_body_with_await(body_expr, await_point, indent, context, while_loop_index);
+  });
   em.emit_string_line(`${indent}while_loop_${wli_s}_end:`);
   // Store loop info for the resume generator.
   if(context.async_while_loop_info.is_none(), {
@@ -795,6 +1209,8 @@ generate_while_with_await :: (
         body_exprs_after_await : Option(ArrayList(AstExpr)).Some(body_exprs_after_await),
         while_loop_origin_index : Option(usize).None,
         is_chained_await : Option(bool).None,
+        condition_await : Option(bool).None,
+        step_await : Option(bool).Some(step_is_awaiting),
         cond_branch_post_while_exprs : Option(CondBranchPostWhileExprs).None,
         outer_while_loop : Option(OuterWhileLoop).None
       )
@@ -1269,7 +1685,17 @@ generate_cond_with_await :: (
   // CONDITION would need a state per condition, which the state machine does
   // not model — the condition's C code comes back empty and we would emit
   // `tmp = ;`. Reject it here with the source-level fix instead.
-  if(_await_is_in_cond_position(cond_expr, await_point), {
+  // An await in a branch CONDITION is not split here — it is hoisted into the
+  // previous state by `hoist_non_splittable_awaits`, so by the time this runs
+  // the condition reads `sm->await_result_N` and looks like any other
+  // condition. Reaching here with one still in place means the hoist did not
+  // fire, and generating on would emit an empty operand (`tmp = ;`).
+  has_substitution := match(
+    context.await_result_substitutions,
+    .Some(subs) => subs.get(ast_expr_id(await_point.base.expr)).is_some(),
+    .None => false
+  );
+  if(_await_is_in_cond_position(cond_expr, await_point) && !(has_substitution), {
     eprintln(_unsupported_await_message(cond_expr, false, true));
     __yo_panic("io.await in the condition of `cond` inside io.async is not supported (see stderr)");
   });
@@ -1965,6 +2391,9 @@ register_fsm_emitters_impl :: (fn() -> unit)({
   register_fsm_emitters(generate_cond_with_await, generate_match_with_await, generate_while_with_await);
 });
 export(
+  hoist_non_splittable_awaits,
+  await_is_while_condition,
+  expr_is_bare_await,
   StateSegment,
   split_into_state_segments,
   contains_await_expr,

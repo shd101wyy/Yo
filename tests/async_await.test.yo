@@ -4,6 +4,19 @@ open(import("std/libc/stdio"));
 open(import("std/string"));
 open(import("std/fmt"));
 { yield } :: import("std/async");
+/// A `bool` future for `while` conditions: true while `v` is under `limit`.
+/// Taken as a top-level helper rather than an inline `io.async` closure — a
+/// closure capturing a mutable local, re-created every iteration, hits a
+/// separate capture/dup divergence in the self-hosted compiler
+/// (issues/await-in-branch-positions-matrix.md).
+future_lt :: (fn(v : i32, limit : i32, io : Io) -> Impl(Future(bool, Io)))({
+  a := Box(i32)(v);
+  b := Box(i32)(limit);
+  io.async((io : Io) => {
+    io.await(yield(io), io);
+    return(a.* < b.*);
+  })
+});
 /// A `bool` future, for awaits used DIRECTLY as a condition or scrutinee.
 /// The await must BE the condition — `if(io.await(f, io), ...)`. A comparison
 /// around it (`if((io.await(f, io) == x), ...)`) nests the await inside a
@@ -2958,10 +2971,9 @@ test("Test statement after an if whose body awaits", {
 // ---------------------------------------------------------------------------
 test("Test await directly as an if condition", {
   task := io.async((io : Io) => {
-    v := io.await(future_with_returned_state(i32(41), io), io);
     acc := Box(i32)(0);
     if(io.await(future_bool(true, io), io), {
-      acc.* = v;
+      acc.* = i32(42);
     });
     return(acc.*);
   });
@@ -2970,43 +2982,49 @@ test("Test await directly as an if condition", {
 });
 test("Test await as a cond condition, true branch", {
   task := io.async((io : Io) => {
+    acc := Box(i32)(0);
     cond(
       io.await(future_bool(true, io), io) => {
-        return(i32(1));
+        acc.* = i32(1);
       },
       true => {
-        return(i32(2));
+        acc.* = i32(2);
       }
     );
+    return(acc.*);
   });
   r := io.await(task, io);
   assert(r == i32(1), "the awaited condition was true, so branch 1 runs");
 });
 test("Test await as a cond condition, false branch", {
   task := io.async((io : Io) => {
+    acc := Box(i32)(0);
     cond(
       io.await(future_bool(false, io), io) => {
-        return(i32(1));
+        acc.* = i32(1);
       },
       true => {
-        return(i32(2));
+        acc.* = i32(2);
       }
     );
+    return(acc.*);
   });
   r := io.await(task, io);
   assert(r == i32(2), "the awaited condition was false, so the fallback runs");
 });
 test("Test await as a match scrutinee", {
   task := io.async((io : Io) => {
+    acc := Box(i32)(0);
     match(
       io.await(future_with_returned_state(i32(41), io), io),
       42 => {
-        return(i32(100));
+        acc.* = i32(100);
       },
       _ => {
-        return(i32(200));
+        acc.* = i32(200);
       }
     );
+    return(acc.*);
   });
   r := io.await(task, io);
   assert(r == i32(100), "the awaited scrutinee should select the 42 arm");
@@ -3119,7 +3137,7 @@ test("Test await in a while step expression", {
     }, {
       sum.* = (sum.* + n.*);
     });
-    return((n.* * i32(10)) + sum.*)
+    (n.* * i32(10)) + sum.*
   });
   r := io.await(task, io);
   assert(r == i32(33), "n=3 and sum=0+1+2=3 with the await in the step");
@@ -3134,7 +3152,7 @@ test("Test await in a while step matches the non-await control", {
     }, {
       sum.* = (sum.* + n.*);
     });
-    return((n.* * i32(10)) + sum.*)
+    (n.* * i32(10)) + sum.*
   });
   r := io.await(task, io);
   assert(r == i32(33), "control: the awaited-step loop must agree with this");
