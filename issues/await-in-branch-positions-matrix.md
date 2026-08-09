@@ -163,6 +163,35 @@ incr/decr counts against the TS emit before believing any green.
 inputs by value (`future_lt` in `tests/async_await.test.yo`) rather than an
 inline closure capturing a mutable local.
 
+### Two `io.async` closures capturing the same local — TS emits invalid C
+
+**Reference compiler only; the self-hosted one is correct here.**
+
+```rust
+task := io.async((io : Io) => {
+  n := Box(i32)(5);
+  a := io.await(io.async((io2 : Io) => { io2.await(yield(io2), io2); return(n.*); }), io);
+  b := io.await(io.async((io2 : Io) => { io2.await(yield(io2), io2); return(n.* * i32(2)); }), io);
+  return(a + b);
+});
+```
+
+SELF: `r=15`. TS:
+
+```
+error: used type '__yo_struct_..._id_28' where arithmetic or pointer type is required
+  fn_..._id_40___drop((__yo_struct_..._id_28)(sm->await_future_1));
+```
+
+The scope-end drops try to drop each inline closure's CAPTURE STRUCT, but apply
+it to `sm->await_future_N` — a state machine POINTER — cast to the capture
+struct by value. Casting a pointer to a struct-by-value is not legal C.
+
+Looks like the `awaitFutureTempVarAliases` path: the temp holding the future is
+aliased to `await_future_N`, and a deferred drop on that temp resolves to the
+wrong type. Found 2026-08-09 while adding capture regression tests; loud, so not
+dangerous.
+
 ---
 
 ## Reproducing

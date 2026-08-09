@@ -3255,3 +3255,32 @@ test("Test await whose result IS read (control)", {
   r := io.await(task, io);
   assert(r == i32(32), "control: reading the result keeps the field");
 });
+// ---------------------------------------------------------------------------
+// An `io.async` closure that captures a mutable local, re-created every
+// iteration of a loop.
+//
+// The state machine's dispose drops the capture's RC-bearing fields, but
+// nothing retained them: TS balances that by dupping the whole capture struct
+// through its synthesized `___dup`, and yo-self synthesizes no such helper (it
+// emits ZERO per-type `___dup` where TS emits 124) while its deferred-dup path
+// is deliberately skipped inside a state machine. So each iteration dropped a
+// reference nobody took, and the captured Box was freed under the loop —
+// rc=139 in the self-hosted compiler, correct output in the reference one.
+// ---------------------------------------------------------------------------
+test("Test io.async closure capturing a local, re-created each iteration", {
+  task := io.async((io : Io) => {
+    n := Box(i32)(0);
+    while(io.await(
+      io.async((io2 : Io) => {
+        io2.await(yield(io2), io2);
+        return(n.* < i32(3));
+      }),
+      io
+    ), {
+      n.* = (n.* + i32(1));
+    });
+    return(n.*);
+  });
+  r := io.await(task, io);
+  assert(r == i32(3), "the captured Box must survive every iteration");
+});

@@ -1046,6 +1046,36 @@ emit_deferred_async_block_struct_definitions :: (fn(context : FunctionGeneration
     ei = (ei + usize(1));
   });
 });
+/// The RETAIN line for an RC-bearing capture field at `field_ref`, or `None` if
+/// the type needs none. The exact mirror of `_rc_field_drop_line` below — every
+/// branch there has its counterpart here, so a field that gets dropped on
+/// dispose is the one that gets retained on construction.
+///
+/// Needed because the state machine's dispose DOES drop these fields, but
+/// nothing retained them. TS closes that by dupping the whole capture struct
+/// through its synthesized `___dup`; yo-self synthesizes no such helper (it
+/// emits ZERO per-type `___dup` functions where TS emits 124 — measured), and
+/// its deferred-dup path is deliberately skipped inside a state machine. The
+/// result was an unbalanced drop: a future re-created each iteration of a loop
+/// freed the captured value under the loop (rc=139).
+/// See issues/await-in-branch-positions-matrix.md.
+_rc_field_retain_line :: (fn(field_ref : String, field_type : TypeValue, indent : String, context : FunctionGenerationContext) -> Option(String))(
+  cond(
+    is_dyn_type(field_type) => Option(String).Some(`${indent.clone()}if ((${field_ref.clone()}).data != NULL) { __yo_incr_rc((void*)(${field_ref.clone()}).data); }`),
+    (is_iso_type(field_type) || is_atomic_reference_struct_type(field_type)) => Option(String).Some(`${indent.clone()}if (${field_ref.clone()} != NULL) { __yo_incr_rc_atomic((void*)${field_ref.clone()}); }`),
+    (is_reference_struct_type(field_type) || (is_some_type(field_type) && is_rc_type(field_type))) => match(
+      get_dup_function_for_type(field_type, context),
+      .Some(dup_fn) => Option(String).Some(`${indent.clone()}if (${field_ref.clone()} != NULL) { ${dup_fn}(${field_ref.clone()}); }`),
+      .None => Option(String).Some(`${indent.clone()}if (${field_ref.clone()} != NULL) { __yo_incr_rc((void*)${field_ref.clone()}); }`)
+    ),
+    type_contains_rc_type(field_type) => match(
+      get_dup_function_for_type(field_type, context),
+      .Some(dup_fn) => Option(String).Some(`${indent.clone()}${field_ref.clone()} = ${dup_fn}(${field_ref.clone()});`),
+      .None => Option(String).None
+    ),
+    true => Option(String).None
+  )
+);
 /// The drop line for an RC-bearing field/local at `field_ref`, or `None` if the
 /// type needs no drop. Mirrors the per-field drop branches shared by the capture
 /// struct + local-variable cleanup in `generateAsyncBlockStateDisposeFunction`.
@@ -1423,7 +1453,52 @@ _build_async_capture_struct_literal :: (
     match(
       get_dup_function_for_type(capture_type, context),
       .Some(dup_fn) => return(`${dup_fn}(${literal})`),
-      .None => ()
+      // No per-type `___dup` helper — yo-self does not synthesize them for
+      // capture structs. Retain each RC-bearing field individually instead, so
+      // the state machine's dispose (which DOES drop them) is balanced. Without
+      // this, a future re-created every loop iteration frees its captured value
+      // under the loop. Materialize into a temp first: the fields have to be
+      // reachable as lvalues to retain them.
+      .None => {
+        // Name the temp FIRST so each retain line is built against it — the
+        // lines have to be lvalue references into the materialized struct.
+        tmp := String.from("__yo_cap_");
+        tmp.push_string(random_id(String.from("")));
+        retain_lines := ArrayList(String).new();
+        (ri : usize) = usize(0);
+        while(ri < fields.len(), {
+          match(
+            fields.get(ri),
+            .Some(f) => if(!(f.is_effect_param), {
+              match(
+                _rc_field_retain_line(`${tmp.clone()}.${f.label.clone()}`, f.ty, indent.clone(), context),
+                .Some(line) => {
+                  _r := retain_lines.push(line);
+                },
+                .None => ()
+              );
+            }),
+            .None => ()
+          );
+          ri = (ri + usize(1));
+        });
+        if(retain_lines.len() > usize(0), {
+          em := context.base.emitter;
+          em.emit_string_line(`${indent.clone()}${capture_struct_name.clone()} ${tmp.clone()} = ${literal.clone()};`);
+          (li : usize) = usize(0);
+          while(li < retain_lines.len(), {
+            match(
+              retain_lines.get(li),
+              .Some(line) => {
+                em.emit_string_line(line);
+              },
+              .None => ()
+            );
+            li = (li + usize(1));
+          });
+          return(tmp);
+        });
+      }
     );
   });
   literal
