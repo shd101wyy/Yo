@@ -20,7 +20,7 @@ was `--release` (-O2), so the giant-frame `-O0` failure mode (`AGENTS.md`
 
 ## Why this was invisible
 
-`plans/PRE_P1_HANDOVER.md` §5 recommended starting P1 with `init` because it is
+`plans/archive/PRE_P1_HANDOVER.md` §5 recommended starting P1 with `init` because it is
 "genuinely ready (239 lines, complete `init_project`)". It type-checks — it is
 inside `check ./yo-self`'s 238 files — but **`init_project` was wired to no CLI
 subcommand**, so it had never been RUN, not once. `grep '"init"' yo-self/main.yo`

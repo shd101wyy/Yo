@@ -1,3 +1,16 @@
+> **CLOSED 2026-08-09 — superseded by [`../P1_CLI_PARITY.md`](../P1_CLI_PARITY.md).**
+>
+> This document asked "what should be true before we start writing P1 code?"
+> That question is answered: nothing is blocking, and P1 has started. Its three
+> pre-P1 items (the HOLLOW files, branch protection, the `ctl` ABI decision) are
+> all done, and its live content — the corrections to P1's plan, the suggested
+> order, the `fmt` status, the method notes — has moved to the successor with
+> **2026-08-09 measurements**. Several figures below are stale on purpose; they
+> are kept as the record of what was believed when.
+>
+> Read `P1_CLI_PARITY.md` instead. Come here only for the history of how the
+> pre-P1 items were closed.
+
 # Pre-P1 handover — what to fix and do before implementing P1
 
 **Written 2026-08-08.** Companion to

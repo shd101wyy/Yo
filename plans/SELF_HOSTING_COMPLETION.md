@@ -35,7 +35,7 @@ seed. LSP (P4) rides on a stable native toolchain.
 
 ## Phase 1 — full subcommand parity in `yo-self`
 
-> **READ [`PRE_P1_HANDOVER.md`](PRE_P1_HANDOVER.md) FIRST.** It lists what must be
+> **READ [`P1_CLI_PARITY.md`](P1_CLI_PARITY.md) FIRST.** It is the P1 handover: it lists what must be
 > true before P1 starts, and corrects three premises of the paragraph below that
 > were verified false on 2026-08-08: `build` is **hollow** rather than unwired (its
 > registry is never populated and it shells out to a flag that does not exist in
@@ -68,11 +68,12 @@ Also in scope:
   `--test-name-pattern`, `--keep-generated-files`, `--exclude`, …). The
   self-hosted test runner currently ignores `--parallel` ("v1 runs
   sequentially") — implement it or document it as accepted divergence.
-- **`fmt` parity + its differential gate.** The self-hosted formatter disagrees
-  with the reference on ~315 files
-  ([`issues/yo-self-formatter-diverges-from-ts.md`](../issues/yo-self-formatter-diverges-from-ts.md)),
-  down from 417 after one bug fix. Two rule classes remain (a space before `)`,
-  a space before `.`). This is P1-critical rather than cosmetic: at P2 the
+- **`fmt` parity + its differential gate.** **Re-measured 2026-08-09: 17 files,
+  not ~315** — see [`P1_CLI_PARITY.md`](P1_CLI_PARITY.md) §6. Two root causes
+  were fixed in both formatters (the `Dot` case eating a preceding space; and a
+  character index used as a byte offset that DESTROYED any file mixing
+  non-ASCII text with a backtick string, at rc=0). One rule class remains: a
+  stray space before `)` when an operator token ends a multiline paren frame. This is P1-critical rather than cosmetic: at P2 the
   self-hosted formatter becomes canonical and `fmt --check` becomes
   self-referential, so the first `yo fmt` would silently restyle hundreds of
   files with no gate able to notice. The gate must land WITH the fix —
