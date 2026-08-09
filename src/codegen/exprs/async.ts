@@ -1539,7 +1539,8 @@ export function generateDeferredAsyncBlocks(
       filteredAnalysis,
       futureType,
       captureType,
-      context
+      context,
+      crossBoundaryIds
     );
 
     // Emit the set_effect impl before restoring context, so the SM-var
