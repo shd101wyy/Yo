@@ -3076,13 +3076,7 @@ test("Test awaited condition really suspends (spawned task interleaves)", {
 test("Test await as a while condition", {
   task := io.async((io : Io) => {
     n := Box(i32)(0);
-    while(io.await(
-      io.async((io2 : Io) => {
-        io2.await(yield(io2), io2);
-        return(n.* < i32(3));
-      }),
-      io
-    ), {
+    while(io.await(future_lt(n.*, i32(3), io), io), {
       n.* = (n.* + i32(1));
     });
     return(n.*);
@@ -3093,13 +3087,7 @@ test("Test await as a while condition", {
 test("Test await as a while condition that is false immediately", {
   task := io.async((io : Io) => {
     n := Box(i32)(0);
-    while(io.await(
-      io.async((io2 : Io) => {
-        io2.await(yield(io2), io2);
-        return(false);
-      }),
-      io
-    ), {
+    while(io.await(future_lt(i32(9), i32(3), io), io), {
       n.* = (n.* + i32(1));
     });
     return(n.*);
@@ -3111,13 +3099,7 @@ test("Test await as a while condition with a step expression", {
   task := io.async((io : Io) => {
     n := Box(i32)(0);
     sum := Box(i32)(0);
-    while(io.await(
-      io.async((io2 : Io) => {
-        io2.await(yield(io2), io2);
-        return(n.* < i32(3));
-      }),
-      io
-    ), {
+    while(io.await(future_lt(n.*, i32(3), io), io), {
       n.* = (n.* + i32(1));
     }, {
       sum.* = (sum.* + n.*);
