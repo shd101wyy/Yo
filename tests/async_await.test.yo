@@ -3043,3 +3043,99 @@ test("Test awaited condition really suspends (spawned task interleaves)", {
   r := io.await(task, io);
   assert(r == i32(11), "spawned task must run during the awaited condition");
 });
+// ---------------------------------------------------------------------------
+// `io.await` in a `while` CONDITION and in the 3-arg form's STEP.
+//
+// A body await splits the loop into "before" and "after" halves. A condition
+// await cannot be split that way — the condition is re-evaluated every
+// iteration — so the whole loop cycles through one state: the state stores the
+// condition's future and suspends; the next state tests the result, runs the
+// body and step, and jumps back to re-store it.
+//
+// A step await needs no new layout: the step runs after the body each
+// iteration, so it splits the loop exactly where a trailing body await would.
+// ---------------------------------------------------------------------------
+test("Test await as a while condition", {
+  task := io.async((io : Io) => {
+    n := Box(i32)(0);
+    while(io.await(
+      io.async((io2 : Io) => {
+        io2.await(yield(io2), io2);
+        return(n.* < i32(3));
+      }),
+      io
+    ), {
+      n.* = (n.* + i32(1));
+    });
+    return(n.*);
+  });
+  r := io.await(task, io);
+  assert(r == i32(3), "awaited while condition should drive 3 iterations");
+});
+test("Test await as a while condition that is false immediately", {
+  task := io.async((io : Io) => {
+    n := Box(i32)(0);
+    while(io.await(
+      io.async((io2 : Io) => {
+        io2.await(yield(io2), io2);
+        return(false);
+      }),
+      io
+    ), {
+      n.* = (n.* + i32(1));
+    });
+    return(n.*);
+  });
+  r := io.await(task, io);
+  assert(r == i32(0), "a false awaited condition must not run the body");
+});
+test("Test await as a while condition with a step expression", {
+  task := io.async((io : Io) => {
+    n := Box(i32)(0);
+    sum := Box(i32)(0);
+    while(io.await(
+      io.async((io2 : Io) => {
+        io2.await(yield(io2), io2);
+        return(n.* < i32(3));
+      }),
+      io
+    ), {
+      n.* = (n.* + i32(1));
+    }, {
+      sum.* = (sum.* + n.*);
+    });
+    return(sum.*);
+  });
+  r := io.await(task, io);
+  assert(r == i32(3), "body 0,1,2 summed after each step: 0+1+2 = 3");
+});
+test("Test await in a while step expression", {
+  task := io.async((io : Io) => {
+    n := Box(i32)(0);
+    sum := Box(i32)(0);
+    while(n.* < i32(3), {
+      _x := io.await(future_with_returned_state(i32(1), io), io);
+      n.* = (n.* + i32(1));
+    }, {
+      sum.* = (sum.* + n.*);
+    });
+    return((n.* * i32(10)) + sum.*)
+  });
+  r := io.await(task, io);
+  assert(r == i32(33), "n=3 and sum=0+1+2=3 with the await in the step");
+});
+test("Test await in a while step matches the non-await control", {
+  // Same loop without the await — the await must not change the result.
+  task := io.async((io : Io) => {
+    n := Box(i32)(0);
+    sum := Box(i32)(0);
+    while(n.* < i32(3), {
+      n.* = (n.* + i32(1));
+    }, {
+      sum.* = (sum.* + n.*);
+    });
+    return((n.* * i32(10)) + sum.*)
+  });
+  r := io.await(task, io);
+  assert(r == i32(33), "control: the awaited-step loop must agree with this");
+});

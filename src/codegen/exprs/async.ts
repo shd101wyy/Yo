@@ -4,6 +4,7 @@ import {
   isIoSpawnCall,
 } from "../../evaluator/async/await-analysis";
 import type { AwaitAnalysisResult } from "../../evaluator/async/await-analysis-types";
+import { awaitIsWhileCondition } from "../async/state-code-gen";
 import {
   extractFutureTraitFromType,
   typeImplementsFuture,
@@ -795,9 +796,12 @@ function emitAsyncBlockStructDefinition(
         (isSomeType(awaitPoint.resultType) &&
           !awaitPoint.resultType.resolvedConcreteType);
 
-      // Skip await_result for linear awaits (non-cond)
+      // Skip await_result for linear awaits (non-cond). A `while` whose
+      // CONDITION awaits also needs the field: its loop layout tests
+      // `sm->await_result_N` to decide whether to run another iteration.
       const needsAwaitResultField =
-        !isEffectivelyUnit && awaitPoint.isInsideCond;
+        !isEffectivelyUnit &&
+        (awaitPoint.isInsideCond || awaitIsWhileCondition(awaitPoint));
 
       if (needsAwaitResultField) {
         // Determine the correct type for await_result_X:

@@ -148,6 +148,26 @@ export interface FunctionGenerationContext extends CodeGenContext {
       // while loop body. The transition code should use whileLoopOriginIndex for the
       // while_loop_N_active guard instead of segment.awaitPoint.index.
       isChainedAwait?: boolean;
+      // Set when the loop's suspension point is the CONDITION itself
+      // (`while(io.await(f, io), body)`). Unlike a body await, the condition is
+      // re-evaluated every iteration, so it cannot be hoisted once before the
+      // loop — the state cycle becomes:
+      //
+      //   state N   : while_start: store the condition's future, suspend
+      //   state N+1 : result is live -> if false, leave the loop; otherwise run
+      //               body, then step, then jump back to state N, which stores
+      //               the future for the NEXT iteration.
+      //
+      // The body is emitted in state N+1 rather than state N, which is why
+      // generateWhileWithAwait skips it when this is set.
+      conditionAwait?: boolean;
+      // Set when the loop's suspension point is in the STEP (arg 2 of the
+      // 3-arg `while(cond, step, body)`). The step runs after the body each
+      // iteration, so its await splits the loop in the same place a trailing
+      // body await would: everything up to it runs in this state, the rest is
+      // `bodyExprsAfterAwait`. The resume state must NOT re-emit the step —
+      // it already ran.
+      stepAwait?: boolean;
       // Expressions from an enclosing cond branch that come after this while loop.
       // These should only be executed after the while loop exits, not on every resume.
       condBranchPostWhileExprs?: {

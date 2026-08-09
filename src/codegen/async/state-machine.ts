@@ -60,6 +60,7 @@ import type { FunctionGenerationContext } from "../functions/context";
 import { sanitizeForCIdentifier } from "../utils";
 import { getTypeString } from "../utils/index";
 import {
+  awaitIsWhileCondition,
   generateAwaitExpression,
   generateStateSegmentCode,
   splitIntoStateSegments,
@@ -687,7 +688,11 @@ export function generateAsyncBlockResumeFunction(
         // Phase 3 optimization: for linear (non-cond) awaits, skip the
         // intermediate await_result_N field and assign directly to the
         // target variable or skip entirely if result is unused.
-        const useAwaitResultField = !!prevAwait.isInsideCond;
+        // A `while` whose CONDITION awaits reads `sm->await_result_N` to decide
+        // whether to run another iteration, so it needs the field too — it has
+        // no target variable to write the result into.
+        const useAwaitResultField =
+          !!prevAwait.isInsideCond || awaitIsWhileCondition(prevAwait);
 
         // Determine the assignment target:
         // - Linear await with target variable: write directly to sm->var_X
@@ -1198,7 +1203,24 @@ export function generateAsyncBlockResumeFunction(
         const whileLoopData = functionContext.asyncWhileLoopInfo?.get(
           prevAwait.index
         );
-        if (whileLoopData) {
+        if (whileLoopData?.conditionAwait) {
+          // The loop's suspension point is its condition. `sm->await_result_N`
+          // holds THIS iteration's answer, so the layout is:
+          //   if (!result) leave the loop
+          //   else { body; step; jump back to the state that stores the future }
+          // Jumping back re-stores the future, which is what re-evaluates the
+          // condition each iteration.
+          emitWhileConditionAwaitResume(
+            whileLoopData,
+            prevAwait,
+            analysis,
+            captureType,
+            futureType,
+            asyncBlockId,
+            context as FunctionGenerationContext,
+            emitter
+          );
+        } else if (whileLoopData) {
           // For chained awaits, use the original while loop's index for all
           // while_loop_N references (active flag, labels, loop-back state).
           const whileLoopActiveIndex =
@@ -1408,8 +1430,11 @@ export function generateAsyncBlockResumeFunction(
             ).declaredTempVars;
             (context as FunctionGenerationContext).declaredTempVars = undefined;
 
-            // Generate step expression (3-arg while form) before condition re-evaluation
-            if (whileLoopData.stepExpr) {
+            // Generate step expression (3-arg while form) before condition
+            // re-evaluation. Skip it when the step is where the await was: it
+            // already ran in the previous state, and its remainder came through
+            // as bodyExprsAfterAwait above.
+            if (whileLoopData.stepExpr && !whileLoopData.stepAwait) {
               const previousInStateMachineForStep = context.inAsyncStateMachine;
               const previousStateMachineVariablesForStep =
                 context.stateMachineVariables;
@@ -2602,4 +2627,124 @@ function resolveEffectFieldFromSMScope(
     }
   }
   return undefined;
+}
+
+/**
+ * Emits the resume state for a `while` whose suspension point is its CONDITION
+ * (`while(io.await(f, io), body)` / `while(io.await(f, io), step, body)`).
+ *
+ * A body await splits the loop into "before" and "after" halves. A condition
+ * await cannot be split that way: the condition is re-evaluated every
+ * iteration, so it is the whole loop that has to cycle through the state.
+ *
+ * `sm->await_result_N` holds THIS iteration's answer when this state runs, so:
+ *
+ *     if (!result) { leave the loop }
+ *     else { body; step; goto while_start }
+ *
+ * and `while_start` (back in the state that set up the loop) stores the future
+ * again — which is exactly what re-evaluates the condition for the next
+ * iteration.
+ */
+function emitWhileConditionAwaitResume(
+  whileLoopData: NonNullable<
+    ReturnType<
+      NonNullable<FunctionGenerationContext["asyncWhileLoopInfo"]>["get"]
+    >
+  >,
+  prevAwait: AwaitPoint,
+  analysis: AwaitAnalysisResult,
+  captureType: StructType | undefined,
+  futureType: SomeType | DynType,
+  asyncBlockId: string,
+  context: FunctionGenerationContext,
+  emitter: FunctionGenerationContext["emitter"]
+): void {
+  const loopIndex = prevAwait.index;
+
+  emitter.emitLine(
+    `      // While loop whose condition awaits — result is this iteration's test`
+  );
+  emitter.emitLine(`      if (sm->while_loop_${loopIndex}_active) {`);
+  emitter.emitLine(`        if (!(sm->await_result_${loopIndex})) {`);
+  emitter.emitLine(`          sm->while_loop_${loopIndex}_active = false;`);
+  emitter.emitLine(
+    `          ASYNC_DEBUG("${asyncBlockId}: While condition false, exiting loop\\n");`
+  );
+  emitter.emitLine(`        } else {`);
+
+  // Body and step run here, in the state where the condition result is known.
+  const previousInStateMachine = context.inAsyncStateMachine;
+  const previousStateMachineVariables = context.stateMachineVariables;
+  const previousVariableIdRemapping = context.variableIdRemapping;
+  const previousPendingDeferredDrops = context.pendingDeferredDrops;
+  const previousBreakInfo = context.smWhileBreakInfo;
+  const previousContinueInfo = context.smWhileContinueInfo;
+
+  context.inAsyncStateMachine = { futureType };
+  context.variableIdRemapping = analysis.variableIdRemapping;
+  context.pendingDeferredDrops = [];
+  // `break` leaves the loop; `continue` jumps back to the condition store,
+  // which is also where a normal iteration ends — so both are plain gotos.
+  context.smWhileBreakInfo = {
+    label: `after_while_loop_${loopIndex}`,
+    activeIndex: loopIndex,
+  };
+  context.smWhileContinueInfo = {
+    label: `while_loop_${loopIndex}_start`,
+    emitDropsBeforeGoto: true,
+  };
+
+  const combinedVariables = new Map<string, CapturedVariable>();
+  for (const v of analysis.capturedVariables) {
+    combinedVariables.set(v.id, v);
+  }
+  if (captureType) {
+    for (const field of captureType.fields) {
+      combinedVariables.set(field.label, {
+        id: field.label,
+        name: field.label,
+        type: field.type,
+        kind: "outer",
+        isOwningTheSameRcValueAs: undefined,
+      });
+    }
+  }
+  context.stateMachineVariables = combinedVariables;
+
+  const emitExprList = (expr: Expr | undefined): void => {
+    if (!expr) return;
+    const list =
+      expr.tag === ExprTag.FnCall && exprIsFunctionCallOf(expr, "begin")
+        ? expr.args
+        : [expr];
+    for (const sub of list) {
+      const code = generateExpr(sub, "          ", context);
+      if (!code || !sub.$ || isTempVariableName(sub.$.env.modulePath, code)) {
+        continue;
+      }
+      emitter.emitLine(`          ${code};`);
+    }
+  };
+
+  emitExprList(whileLoopData.bodyExpr);
+  emitExprList(whileLoopData.stepExpr);
+
+  context.inAsyncStateMachine = previousInStateMachine;
+  context.stateMachineVariables = previousStateMachineVariables;
+  context.variableIdRemapping = previousVariableIdRemapping;
+  context.pendingDeferredDrops = previousPendingDeferredDrops;
+  context.smWhileBreakInfo = previousBreakInfo;
+  context.smWhileContinueInfo = previousContinueInfo;
+
+  emitter.emitLine(
+    `          // Loop back: re-store the condition's future for the next iteration`
+  );
+  emitter.emitLine(`          sm->state = ${loopIndex};`);
+  emitter.emitLine(`          goto while_loop_${loopIndex}_start;`);
+  emitter.emitLine(`        }`);
+  emitter.emitLine(`      }`);
+  emitter.emitLine(``);
+  emitter.emitLine(`      after_while_loop_${loopIndex}:`);
+  emitter.emitLine(``);
 }

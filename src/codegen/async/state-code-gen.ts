@@ -672,7 +672,7 @@ function awaitIsInFirstCondPosition(
  * `b := !(io.await(f, io))` fails the same way — so this is a pre-existing
  * limit, not one the hoist introduces.
  */
-function exprIsBareAwait(
+export function exprIsBareAwait(
   expr: Expr | undefined,
   awaitPoint: AwaitPoint
 ): boolean {
@@ -2311,6 +2311,28 @@ function generateWhileWithAwait(
   // Generate label for loop start (so we can jump back after await)
   emitter.emitLine(`${indent}while_loop_${whileLoopIndex}_start:`);
 
+  // The loop's suspension point is the CONDITION itself. Store its future and
+  // suspend — the test, the body and the step all run in the next state, where
+  // the result is live. Jumping back here re-stores the future for the next
+  // iteration, which is what makes the condition re-evaluate per iteration.
+  const conditionIsAwait = exprIsBareAwait(conditionExpr, awaitPoint);
+  if (conditionIsAwait) {
+    emitHoistedAwaitFutureStore(awaitPoint, indent, context);
+    emitter.emitLine(`${indent}while_loop_${whileLoopIndex}_end:`);
+
+    if (!context.asyncWhileLoopInfo) {
+      context.asyncWhileLoopInfo = new Map();
+    }
+    context.asyncWhileLoopInfo.set(awaitPoint.index, {
+      conditionExpr,
+      stepExpr,
+      bodyExpr,
+      bodyExprsAfterAwait: [],
+      conditionAwait: true,
+    });
+    return;
+  }
+
   // Evaluate condition
   const condCode = generateExpr(conditionExpr, indent, context);
   emitter.emitLine(`${indent}if (!(${condCode})) {`);
@@ -2320,14 +2342,28 @@ function generateWhileWithAwait(
   emitter.emitLine(`${indent}  goto while_loop_${whileLoopIndex}_end;`);
   emitter.emitLine(`${indent}}`);
 
-  // Generate body up to await
-  const bodyExprsAfterAwait = generateWhileBodyWithAwait(
-    bodyExpr,
-    awaitPoint,
-    indent,
-    context,
-    whileLoopIndex
-  );
+  // The suspension point is in the STEP. The step runs after the body each
+  // iteration, so it splits the loop exactly where a trailing body await would:
+  // emit the body in full, then the step up to its await. What follows the
+  // await becomes `bodyExprsAfterAwait`, and the resume state skips the step.
+  const stepIsAwaiting = stepExpr !== undefined && exprContainsAwait(stepExpr);
+
+  const bodyExprsAfterAwait = stepIsAwaiting
+    ? (generateWholeWhileBody(bodyExpr, indent, context, whileLoopIndex),
+      generateWhileBodyWithAwait(
+        stepExpr!,
+        awaitPoint,
+        indent,
+        context,
+        whileLoopIndex
+      ))
+    : generateWhileBodyWithAwait(
+        bodyExpr,
+        awaitPoint,
+        indent,
+        context,
+        whileLoopIndex
+      );
 
   // Generate label for loop end
   emitter.emitLine(`${indent}while_loop_${whileLoopIndex}_end:`);
@@ -2358,6 +2394,7 @@ function generateWhileWithAwait(
       stepExpr,
       bodyExpr,
       bodyExprsAfterAwait,
+      stepAwait: stepIsAwaiting,
     });
   }
 }
@@ -2541,4 +2578,63 @@ function bodyContainsWhileWithAwait(bodyExpr: Expr): boolean {
     }
   }
   return false;
+}
+
+/**
+ * True when this await point IS the condition of the `while` that encloses it.
+ *
+ * Used both by codegen (to pick the condition-await loop layout) and by the
+ * state-struct emitter, which must allocate `await_result_N` for it — that
+ * field is otherwise reserved for cond awaits, and the layout reads it to test
+ * the loop condition.
+ */
+export function awaitIsWhileCondition(awaitPoint: AwaitPoint): boolean {
+  const whileExpr = awaitPoint.enclosingWhileExpr as Expr | undefined;
+  if (
+    !whileExpr ||
+    whileExpr.tag !== ExprTag.FnCall ||
+    !exprIsFunctionCallOf(whileExpr, "while")
+  ) {
+    return false;
+  }
+  return exprIsBareAwait(whileExpr.args[0], awaitPoint);
+}
+
+/**
+ * Emits a `while` body that contains no await, in the label/goto form state 0
+ * uses. Only needed when the loop's await is in the STEP: the body still has to
+ * run before it, but there is nothing to split.
+ */
+function generateWholeWhileBody(
+  bodyExpr: Expr,
+  indent: string,
+  context: FunctionGenerationContext,
+  whileLoopIndex: number
+): void {
+  const emitter = context.emitter;
+  const previousBreakInfo = context.smWhileBreakInfo;
+  const previousContinueInfo = context.smWhileContinueInfo;
+  context.smWhileBreakInfo = {
+    label: `while_loop_${whileLoopIndex}_end`,
+    activeIndex: whileLoopIndex,
+  };
+  context.smWhileContinueInfo = {
+    label: `while_loop_${whileLoopIndex}_start`,
+    emitDropsBeforeGoto: true,
+  };
+
+  const exprs =
+    bodyExpr.tag === ExprTag.FnCall && exprIsFunctionCallOf(bodyExpr, "begin")
+      ? bodyExpr.args
+      : [bodyExpr];
+  for (const sub of exprs) {
+    const code = generateExpr(sub, indent, context);
+    if (!code || !sub.$ || isTempVariableName(sub.$.env.modulePath, code)) {
+      continue;
+    }
+    emitter.emitLine(`${indent}${code};`);
+  }
+
+  context.smWhileBreakInfo = previousBreakInfo;
+  context.smWhileContinueInfo = previousContinueInfo;
 }
