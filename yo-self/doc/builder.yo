@@ -1,0 +1,1297 @@
+//! Doc model builder — combines doc comment extraction with evaluator type
+//! info to produce structured documentation.
+//!
+//! Mirrors `src/doc/builder.ts` — 1:1 port.
+//!
+//! This file currently holds the TOKEN-SCANNING half (everything reachable
+//! from tokens alone: trait-impl extraction, impl-info extraction, the
+//! token-only fallback builder, and cross-references). The evaluator half
+//! (`buildDocModule`) follows in the same file as the port proceeds — see
+//! plans/P1_CLI_PARITY.md §5's worksheet.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
+{ Token, TokenKind } :: import("../token.yo");
+{
+  DocParam,
+  DocField,
+  DocVariant,
+  DocAssociatedType,
+  DocImplAssocType,
+  DocImpl,
+  DocFunction,
+  DocType,
+  DocTrait,
+  DocConstant,
+  DocModule,
+  DocItemKind
+} :: import("./model.yo");
+{ DocExtractionResult } :: import("./extractor.yo");
+{ parse_doc_comment } :: import("./sections.yo");
+// ---------------------------------------------------------------------------
+// Shared small types
+// ---------------------------------------------------------------------------
+/// Parsed section fields shared by DocType, DocTrait, and DocConstant.
+/// Mirrors `DocSections` (builder.ts:91).
+DocSections :: struct(
+  deprecated : Option(String),
+  examples : Option(String)
+);
+/// Per-type info extracted from `impl(...)` token scanning.
+/// Mirrors the `extractImplInfoFromTokens` map value (builder.ts:763).
+TokenImplInfo :: struct(
+  trait_impls : ArrayList(String),
+  impls : ArrayList(DocImpl),
+  methods : ArrayList(DocFunction)
+);
+/// Mirrors `TraitBodyExtraction` (builder.ts:581).
+TraitBodyExtraction :: struct(
+  method_names : ArrayList(String),
+  associated_types : ArrayList(DocImplAssocType),
+  methods : ArrayList(DocFunction)
+);
+// ---------------------------------------------------------------------------
+// Doc-comment helpers
+// ---------------------------------------------------------------------------
+/// Extract deprecated/examples sections from a doc comment string.
+/// Mirrors `extractDocSections` (builder.ts:97). `.None` doc → both `.None`.
+extract_doc_sections :: (fn(doc : Option(String)) -> DocSections)(
+  match(
+    doc,
+    .None => DocSections(deprecated : Option(String).None, examples : Option(String).None),
+    .Some(text) => {
+      parsed := parse_doc_comment(text);
+      DocSections(
+        deprecated : parsed.sections.get(String.from("deprecated")),
+        examples : parsed.sections.get(String.from("examples"))
+      )
+    }
+  )
+);
+/// Build a lookup map from declaration name → doc comment content.
+/// Mirrors `buildDocLookup` (builder.ts:110).
+build_doc_lookup :: (fn(extraction : DocExtractionResult) -> HashMap(String, String))({
+  lookup := HashMap(String, String).new();
+  (i : usize) = usize(0);
+  n := extraction.declarations.len();
+  while(i < n, {
+    match(
+      extraction.declarations.get(i),
+      .Some(assoc) => if(assoc.declaration_name.len() > usize(0), {
+        lookup.set(assoc.declaration_name.clone(), assoc.comment.content.clone());
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  lookup
+});
+// ---------------------------------------------------------------------------
+// Method / trait-name merging
+// ---------------------------------------------------------------------------
+/// Mirrors `mergeMethods` (builder.ts:215): secondary entries whose name a
+/// primary entry already has are dropped.
+merge_methods :: (
+  fn(primary : ArrayList(DocFunction), secondary : ArrayList(DocFunction)) -> ArrayList(DocFunction)
+)({
+  seen := ArrayList(String).new();
+  merged := ArrayList(DocFunction).new();
+  (i : usize) = usize(0);
+  while(i < primary.len(), {
+    match(
+      primary.get(i),
+      .Some(m) => {
+        seen.push(m.name.clone());
+        merged.push(m);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  (j : usize) = usize(0);
+  while(j < secondary.len(), {
+    match(
+      secondary.get(j),
+      .Some(m) => if(!(seen.contains(m.name)), {
+        seen.push(m.name.clone());
+        merged.push(m);
+      }),
+      .None => ()
+    );
+    j = (j + usize(1));
+  });
+  merged
+});
+/// Mirrors `mergeTraitImplNames` (builder.ts:231): `[...new Set([...a, ...b])]`
+/// — dedup preserving first-occurrence order.
+merge_trait_impl_names :: (
+  fn(primary : ArrayList(String), secondary : ArrayList(String)) -> ArrayList(String)
+)({
+  merged := ArrayList(String).new();
+  (i : usize) = usize(0);
+  while(i < primary.len(), {
+    match(
+      primary.get(i),
+      .Some(n) => if(!(merged.contains(n)), {
+        merged.push(n.clone());
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  (j : usize) = usize(0);
+  while(j < secondary.len(), {
+    match(
+      secondary.get(j),
+      .Some(n) => if(!(merged.contains(n)), {
+        merged.push(n.clone());
+      }),
+      .None => ()
+    );
+    j = (j + usize(1));
+  });
+  merged
+});
+// ---------------------------------------------------------------------------
+// Token-scanning primitives
+// ---------------------------------------------------------------------------
+/// Mirrors `isTriviaToken` (builder.ts:477).
+_is_trivia_token :: (fn(token : Token) -> bool)(
+  (token.kind == TokenKind.Whitespace) || (token.kind == TokenKind.SingleLineComment) || (token.kind == TokenKind.MultiLineComment) || (token.kind == TokenKind.DocLineComment) || (token.kind == TokenKind.InnerDocLineComment) || (token.kind == TokenKind.DocBlockComment) || (token.kind == TokenKind.InnerDocBlockComment)
+);
+/// Skip past balanced parentheses starting at `(`. Returns index after `)`.
+/// Mirrors `skipBalancedParens` (builder.ts:464).
+_skip_balanced_parens :: (fn(toks : ArrayList(Token), start : usize) -> usize)({
+  at_lparen := match(
+    toks.get(start),
+    .Some(t) => (t.kind == TokenKind.LParen),
+    .None => false
+  );
+  if(!(at_lparen), {
+    return(start);
+  });
+  (depth : usize) = usize(1);
+  (j : usize) = (start + usize(1));
+  while((j < toks.len()) && (depth > usize(0)), {
+    match(
+      toks.get(j),
+      .Some(t) => {
+        if(t.kind == TokenKind.LParen, {
+          depth = (depth + usize(1));
+        }, {
+          if(t.kind == TokenKind.RParen, {
+            depth = (depth - usize(1));
+          });
+        });
+      },
+      .None => ()
+    );
+    j = (j + usize(1));
+  });
+  j
+});
+/// The source text spanned by tokens [start_index, end_index], trimmed.
+/// Mirrors `sliceTokenText` (builder.ts:489).
+_slice_token_text :: (
+  fn(toks : ArrayList(Token), start_index : usize, end_index : usize) -> String
+)({
+  if((start_index > end_index) || (end_index >= toks.len()), {
+    return(String.new());
+  });
+  start_tok := match(
+    toks.get(start_index),
+    .Some(t) => t,
+    .None => {
+      return(String.new());
+    }
+  );
+  end_tok := match(
+    toks.get(end_index),
+    .Some(t) => t,
+    .None => {
+      return(String.new());
+    }
+  );
+  start := start_tok.character;
+  end := (end_tok.character + end_tok.value.len());
+  end_tok.input.substring(start, end).trim()
+});
+/// Skip one comma-delimited argument at any nesting depth. Returns the index
+/// of the delimiter that ended it. Mirrors `skipDelimitedArgument`
+/// (builder.ts:503).
+_skip_delimited_argument :: (fn(toks : ArrayList(Token), start : usize) -> usize)({
+  (paren_depth : usize) = usize(0);
+  (bracket_depth : usize) = usize(0);
+  (brace_depth : usize) = usize(0);
+  (index : usize) = start;
+  (done : bool) = false;
+  while((index < toks.len()) && !(done), {
+    token := match(
+      toks.get(index),
+      .Some(t) => t,
+      .None => {
+        done = true;
+        continue;
+      }
+    );
+    cond(
+      (token.kind == TokenKind.LParen) => {
+        paren_depth = (paren_depth + usize(1));
+      },
+      (token.kind == TokenKind.RParen) => {
+        if((paren_depth == usize(0)) && (bracket_depth == usize(0)) && (brace_depth == usize(0)), {
+          done = true;
+        }, {
+          paren_depth = (paren_depth - usize(1));
+        });
+      },
+      (token.kind == TokenKind.LBracket) => {
+        bracket_depth = (bracket_depth + usize(1));
+      },
+      (token.kind == TokenKind.RBracket) => {
+        bracket_depth = (bracket_depth - usize(1));
+      },
+      (token.kind == TokenKind.LCurlyBracket) => {
+        brace_depth = (brace_depth + usize(1));
+      },
+      (token.kind == TokenKind.RCurlyBracket) => {
+        brace_depth = (brace_depth - usize(1));
+      },
+      ((token.kind == TokenKind.Comma) && (paren_depth == usize(0)) && (bracket_depth == usize(0)) && (brace_depth == usize(0))) => {
+        done = true;
+      },
+      true => ()
+    );
+    if(!(done), {
+      index = (index + usize(1));
+    });
+  });
+  index
+});
+/// First identifier token's text in [start, end], or "". Mirrors
+/// `extractReceiverTypeName` (builder.ts:533).
+_extract_receiver_type_name :: (
+  fn(toks : ArrayList(Token), start : usize, end : usize) -> String
+)({
+  (i : usize) = start;
+  while(i <= end, {
+    match(
+      toks.get(i),
+      .Some(t) => if(t.kind == TokenKind.Identifier, {
+        return(t.value.clone());
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  String.new()
+});
+/// The return-type text after the LAST `->` of a signature, with unbalanced
+/// trailing `)` stripped. Mirrors `extractReturnTypeFromSignature`
+/// (builder.ts:546).
+_extract_return_type_from_signature :: (fn(signature : String) -> String)({
+  arrow_index := match(
+    signature.last_index_of(`->`),
+    .Some(i) => i,
+    .None => {
+      return(String.from("unknown"));
+    }
+  );
+  (return_type : String) = signature.substring(arrow_index + usize(2), signature.len()).trim();
+  // Only strip unbalanced trailing closing parens (from the outer fn(...)
+  // wrapper). Balanced parens like Option(Slice(T)) must be preserved.
+  // '(' / ')' are ASCII, so a byte walk cannot split a multibyte char.
+  (balance : isize) = isize(0);
+  bytes := return_type.as_bytes();
+  (bi : usize) = usize(0);
+  while(bi < bytes.len(), {
+    b := bytes(bi);
+    if(b == u8(40), {
+      balance = (balance + isize(1));
+    }, {
+      if(b == u8(41), {
+        balance = (balance - isize(1));
+      });
+    });
+    bi = (bi + usize(1));
+  });
+  while((balance < isize(0)) && return_type.ends_with(`)`), {
+    return_type = return_type.substring(usize(0), return_type.len() - usize(1));
+    balance = (balance + isize(1));
+  });
+  return_type.trim()
+});
+/// True when the parenthesized region starting at `l_paren_index` contains a
+/// top-or-nested `name :` pair — i.e. it is an impl BODY, not a type-args
+/// list. Mirrors `parenContainsTraitBody` (builder.ts:566).
+_paren_contains_trait_body :: (fn(toks : ArrayList(Token), l_paren_index : usize) -> bool)({
+  end := _skip_balanced_parens(toks, l_paren_index);
+  (i : usize) = (l_paren_index + usize(1));
+  while((i + usize(1)) < (end - usize(1)), {
+    is_pair := match(
+      toks.get(i),
+      .Some(t) => if(
+        t.kind == TokenKind.Identifier,
+        match(
+          toks.get(i + usize(1)),
+          .Some(t2) => ((t2.kind == TokenKind.Operator) && (t2.value == `:`)),
+          .None => false
+        ),
+        false
+      ),
+      .None => false
+    );
+    if(is_pair, {
+      return(true);
+    });
+    i = (i + usize(1));
+  });
+  false
+});
+/// Strip a doc-line comment's `/// ` (or `///`) prefix.
+_strip_doc_line_prefix :: (fn(text : String) -> String)(
+  cond(
+    text.starts_with(`/// `) => text.substring(usize(4), text.len()),
+    text.starts_with(String.from("///")) => {
+      rest := text.substring(usize(3), text.len());
+      // `\s?` — at most ONE whitespace after ///.
+      cond(
+        rest.starts_with(String.from("\t")) => rest.substring(usize(1), rest.len()),
+        rest.starts_with(` `) => rest.substring(usize(1), rest.len()),
+        true => rest
+      )
+    },
+    true => text.clone()
+  )
+);
+/// Strip a `/** ... */` block comment to its content, removing per-line
+/// leading ` * ` gutters. Mirrors the block branch of
+/// `collectDocCommentBefore` (builder.ts:621).
+_strip_doc_block_comment :: (fn(text : String) -> String)({
+  (t : String) = text.clone();
+  if(t.starts_with(String.from("/**")), {
+    t = t.substring(usize(3), t.len()).trim_start();
+  });
+  if(t.ends_with(String.from("*/")), {
+    t = t.substring(usize(0), t.len() - usize(2)).trim_end();
+  });
+  lines := t.split(String.from("\n"));
+  out_lines := ArrayList(String).new();
+  (i : usize) = usize(0);
+  while(i < lines.len(), {
+    line := match(lines.get(i), .Some(l) => l, .None => String.new());
+    // `^\s*\*\s?` — only rewrite lines that HAVE a `*` gutter.
+    stripped := line.trim_start();
+    if(stripped.starts_with(`*`), {
+      rest := stripped.substring(usize(1), stripped.len());
+      cond(
+        rest.starts_with(` `) => {
+          out_lines.push(rest.substring(usize(1), rest.len()));
+        },
+        rest.starts_with(String.from("\t")) => {
+          out_lines.push(rest.substring(usize(1), rest.len()));
+        },
+        true => {
+          out_lines.push(rest);
+        }
+      );
+    }, {
+      out_lines.push(line.clone());
+    });
+    i = (i + usize(1));
+  });
+  String.from("\n").join(out_lines).trim()
+});
+/// Collect `///` / `/** */` doc comment lines immediately preceding the token
+/// at (row, character) in the FULL (trivia-included) token array.
+/// Mirrors `collectDocCommentBefore` (builder.ts:589).
+_collect_doc_comment_before :: (
+  fn(full_tokens : ArrayList(Token), row : usize, character : usize) -> Option(String)
+)({
+  (idx : isize) = (isize(0) - isize(1));
+  (i : usize) = usize(0);
+  (found : bool) = false;
+  while((i < full_tokens.len()) && !(found), {
+    match(
+      full_tokens.get(i),
+      .Some(t) => if((t.row > row) || ((t.row == row) && (t.character >= character)), {
+        idx = isize(i);
+        found = true;
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  if(idx <= isize(0), {
+    return(Option(String).None);
+  });
+  // Walk backwards from idx-1 collecting doc comments (skipping whitespace),
+  // then reverse — TS `unshift`s into the front.
+  collected_rev := ArrayList(String).new();
+  (bi : isize) = (idx - isize(1));
+  (stop : bool) = false;
+  while((bi >= isize(0)) && !(stop), {
+    match(
+      full_tokens.get(usize(bi)),
+      .Some(t) => cond(
+        (t.kind == TokenKind.Whitespace) => (),
+        (t.kind == TokenKind.DocLineComment) => {
+          collected_rev.push(_strip_doc_line_prefix(t.value));
+        },
+        (t.kind == TokenKind.DocBlockComment) => {
+          collected_rev.push(_strip_doc_block_comment(t.value));
+        },
+        true => {
+          stop = true;
+        }
+      ),
+      .None => {
+        stop = true;
+      }
+    );
+    bi = (bi - isize(1));
+  });
+  if(collected_rev.len() == usize(0), {
+    return(Option(String).None);
+  });
+  collected_rev.reverse();
+  Option(String).Some(String.from("\n").join(collected_rev).trim())
+});
+// ---------------------------------------------------------------------------
+// impl(...) token scanning
+// ---------------------------------------------------------------------------
+/// Extract trait implementation names per type from the token stream.
+/// Mirrors `extractTraitImplsFromTokens` (builder.ts:377).
+extract_trait_impls_from_tokens :: (
+  fn(tokens : ArrayList(Token)) -> HashMap(String, ArrayList(String))
+)({
+  result := HashMap(String, ArrayList(String)).new();
+  // Filter to non-trivia tokens for easier scanning.
+  toks := ArrayList(Token).new();
+  (fi : usize) = usize(0);
+  while(fi < tokens.len(), {
+    match(
+      tokens.get(fi),
+      .Some(t) => if(!(_is_trivia_token(t)), {
+        toks.push(t);
+      }),
+      .None => ()
+    );
+    fi = (fi + usize(1));
+  });
+  (i : usize) = usize(0);
+  while(i < toks.len(), {
+    tok := match(
+      toks.get(i),
+      .Some(t) => t,
+      .None => {
+        i = (i + usize(1));
+        continue;
+      }
+    );
+    is_impl := ((tok.kind == TokenKind.Identifier) && (tok.value == `impl`));
+    has_lparen := match(
+      toks.get(i + usize(1)),
+      .Some(t) => (t.kind == TokenKind.LParen),
+      .None => false
+    );
+    if(!(is_impl && has_lparen), {
+      i = (i + usize(1));
+      continue;
+    });
+    // Skip past `impl(`.
+    (j : usize) = (i + usize(2));
+    // Skip `generic(...)` if present.
+    is_generic := match(
+      toks.get(j),
+      .Some(t) => ((t.kind == TokenKind.Identifier) && (t.value == `generic`)),
+      .None => false
+    );
+    if(is_generic, {
+      j = _skip_balanced_parens(toks, j + usize(1));
+      match(
+        toks.get(j),
+        .Some(t) => if(t.kind == TokenKind.Comma, {
+          j = (j + usize(1));
+        }),
+        .None => ()
+      );
+    });
+    // Skip `where(...)` if present.
+    is_where := match(
+      toks.get(j),
+      .Some(t) => ((t.kind == TokenKind.Identifier) && (t.value == `where`)),
+      .None => false
+    );
+    if(is_where, {
+      j = _skip_balanced_parens(toks, j + usize(1));
+      match(
+        toks.get(j),
+        .Some(t) => if(t.kind == TokenKind.Comma, {
+          j = (j + usize(1));
+        }),
+        .None => ()
+      );
+    });
+    // The receiver type name.
+    type_name := match(
+      toks.get(j),
+      .Some(t) => if(t.kind == TokenKind.Identifier, t.value.clone(), String.new()),
+      .None => String.new()
+    );
+    if(type_name.len() == usize(0), {
+      i = (i + usize(1));
+      continue;
+    });
+    j = (j + usize(1));
+    // Skip type parameters like `(T)` after the type name.
+    is_lp := match(
+      toks.get(j),
+      .Some(t) => (t.kind == TokenKind.LParen),
+      .None => false
+    );
+    if(is_lp, {
+      j = _skip_balanced_parens(toks, j);
+    });
+    // If next is comma, the item after is the trait name.
+    is_comma := match(
+      toks.get(j),
+      .Some(t) => (t.kind == TokenKind.Comma),
+      .None => false
+    );
+    if(!(is_comma), {
+      i = (i + usize(1));
+      continue;
+    });
+    j = (j + usize(1));
+    trait_name := match(
+      toks.get(j),
+      .Some(t) => if(t.kind == TokenKind.Identifier, t.value.clone(), String.new()),
+      .None => String.new()
+    );
+    if(trait_name.len() == usize(0), {
+      i = (i + usize(1));
+      continue;
+    });
+    // Verify it's followed by `(` to confirm it's a trait (not another arg).
+    trait_lp := match(
+      toks.get(j + usize(1)),
+      .Some(t) => (t.kind == TokenKind.LParen),
+      .None => false
+    );
+    if(!(trait_lp), {
+      i = (i + usize(1));
+      continue;
+    });
+    existing := match(
+      result.get(type_name.clone()),
+      .Some(l) => l,
+      .None => ArrayList(String).new()
+    );
+    if(!(existing.contains(trait_name)), {
+      existing.push(trait_name.clone());
+    });
+    result.set(type_name.clone(), existing);
+    i = (i + usize(1));
+  });
+  result
+});
+/// Extract method names, associated types, and full method info from a trait
+/// impl body. Mirrors `extractTraitBodyMembers` (builder.ts:639).
+/// `full_tokens` is the trivia-INCLUDED array for doc-comment recovery; pass
+/// an empty list to skip doc extraction (TS `fullTokens === undefined`).
+_extract_trait_body_members :: (
+  fn(
+    toks : ArrayList(Token),
+    l_paren_index : usize,
+    full_tokens : ArrayList(Token)
+  ) -> TraitBodyExtraction
+)({
+  end := _skip_balanced_parens(toks, l_paren_index);
+  method_names := ArrayList(String).new();
+  associated_types := ArrayList(DocImplAssocType).new();
+  methods := ArrayList(DocFunction).new();
+  (i : usize) = (l_paren_index + usize(1));
+  while(i < (end - usize(1)), {
+    is_pair := match(
+      toks.get(i),
+      .Some(t) => if(
+        t.kind == TokenKind.Identifier,
+        if(
+          (i + usize(1)) < (end - usize(1)),
+          match(
+            toks.get(i + usize(1)),
+            .Some(t2) => ((t2.kind == TokenKind.Operator) && (t2.value == `:`)),
+            .None => false
+          ),
+          false
+        ),
+        false
+      ),
+      .None => false
+    );
+    if(is_pair, {
+      name_tok := match(
+        toks.get(i),
+        .Some(t) => t,
+        .None => {
+          i = (i + usize(1));
+          continue;
+        }
+      );
+      name := name_tok.value.clone();
+      doc := if(
+        full_tokens.len() > usize(0),
+        _collect_doc_comment_before(full_tokens, name_tok.row, name_tok.character),
+        Option(String).None
+      );
+      // Is the type after ":" a function type (method) or a plain type
+      // (associated type)?
+      type_start := (i + usize(2));
+      if(type_start < (end - usize(1)), {
+        type_tok_is_lparen := match(
+          toks.get(type_start),
+          .Some(t) => (t.kind == TokenKind.LParen),
+          .None => false
+        );
+        is_fn_type := (
+          (type_tok_is_lparen && ((type_start + usize(1)) < (end - usize(1)))) && match(
+            toks.get(type_start + usize(1)),
+            .Some(t) => ((t.kind == TokenKind.Identifier) && (t.value == `fn`)),
+            .None => false
+          )
+        );
+        if(is_fn_type, {
+          method_names.push(name.clone());
+          // The fn type signature: (fn(...) -> ReturnType).
+          fn_paren_end := _skip_balanced_parens(toks, type_start);
+          fn_signature := _slice_token_text(toks, type_start, fn_paren_end - usize(1));
+          return_type := _extract_return_type_from_signature(fn_signature);
+          // Parameters — between the inner parens after `fn`.
+          params := ArrayList(DocParam).new();
+          param_start := (type_start + usize(2));
+          param_start_is_lp := match(
+            toks.get(param_start),
+            .Some(t) => (t.kind == TokenKind.LParen),
+            .None => false
+          );
+          if((param_start < fn_paren_end) && param_start_is_lp, {
+            param_end := _skip_balanced_parens(toks, param_start);
+            (p : usize) = (param_start + usize(1));
+            while(p < (param_end - usize(1)), {
+              param_name := match(
+                toks.get(p),
+                .Some(t) => if(t.kind == TokenKind.Identifier, t.value.clone(), String.new()),
+                .None => String.new()
+              );
+              (advanced : bool) = false;
+              if(param_name.len() > usize(0), {
+                // TS: `if (paramName !== "self" || params.length === 0)` —
+                // a later `self` is treated as an ordinary name.
+                if((param_name != `self`) || (params.len() == usize(0)), {
+                  has_colon := (
+                    ((p + usize(1)) < (param_end - usize(1))) && match(
+                      toks.get(p + usize(1)),
+                      .Some(t) => ((t.kind == TokenKind.Operator) && (t.value == `:`)),
+                      .None => false
+                    )
+                  );
+                  if(has_colon, {
+                    type_arg_start := (p + usize(2));
+                    type_arg_end := _skip_delimited_argument(toks, type_arg_start);
+                    param_type := _slice_token_text(toks, type_arg_start, type_arg_end - usize(1));
+                    if(param_name != `self`, {
+                      params.push(
+                        DocParam(
+                          name : param_name.clone(),
+                          type_ : param_type,
+                          is_comptime : false,
+                          is_implicit : false,
+                          default_value : Option(String).None,
+                          doc : Option(String).None
+                        )
+                      );
+                    });
+                    p = type_arg_end;
+                    comma_next := (
+                      (p < (param_end - usize(1))) && match(
+                        toks.get(p),
+                        .Some(t) => (t.kind == TokenKind.Comma),
+                        .None => false
+                      )
+                    );
+                    if(comma_next, {
+                      p = (p + usize(1));
+                    });
+                    advanced = true;
+                  });
+                });
+              });
+              if(!(advanced), {
+                p = (p + usize(1));
+              });
+            });
+          });
+          methods.push(
+            DocFunction(
+              name : name.clone(),
+              doc : doc,
+              signature : fn_signature,
+              parameters : params,
+              return_type : return_type,
+              type_params : Option(ArrayList(DocParam)).None,
+              effects : Option(ArrayList(DocParam)).None,
+              is_method : true,
+              self_type : Option(String).None,
+              returns : Option(String).None,
+              errors : Option(String).None,
+              deprecated : Option(String).None,
+              examples : Option(String).None
+            )
+          );
+        }, {
+          // Associated type — collect the type expression text.
+          type_end := if(
+            type_tok_is_lparen,
+            _skip_balanced_parens(toks, type_start),
+            _skip_delimited_argument(toks, type_start)
+          );
+          associated_types.push(
+            DocImplAssocType(
+              name : name.clone(),
+              type_ : _slice_token_text(toks, type_start, type_end - usize(1)),
+              doc : doc
+            )
+          );
+        });
+      });
+    });
+    // Skip balanced nested parens to avoid false matches inside type exprs.
+    at_lp := match(
+      toks.get(i),
+      .Some(t) => (t.kind == TokenKind.LParen),
+      .None => false
+    );
+    if(at_lp, {
+      i = _skip_balanced_parens(toks, i);
+    }, {
+      i = (i + usize(1));
+    });
+  });
+  TraitBodyExtraction(
+    method_names : method_names,
+    associated_types : associated_types,
+    methods : methods
+  )
+});
+/// Extract per-type impl info (trait names, impl signatures, methods) from the
+/// token stream. Mirrors `extractImplInfoFromTokens` (builder.ts:758).
+extract_impl_info_from_tokens :: (
+  fn(
+    tokens : ArrayList(Token),
+    doc_lookup : HashMap(String, String)
+  ) -> HashMap(String, TokenImplInfo)
+)({
+  result := HashMap(String, TokenImplInfo).new();
+  toks := ArrayList(Token).new();
+  (fi : usize) = usize(0);
+  while(fi < tokens.len(), {
+    match(
+      tokens.get(fi),
+      .Some(t) => if(!(_is_trivia_token(t)), {
+        toks.push(t);
+      }),
+      .None => ()
+    );
+    fi = (fi + usize(1));
+  });
+  (i : usize) = usize(0);
+  while(i < toks.len(), {
+    tok := match(
+      toks.get(i),
+      .Some(t) => t,
+      .None => {
+        i = (i + usize(1));
+        continue;
+      }
+    );
+    is_impl := ((tok.kind == TokenKind.Identifier) && (tok.value == `impl`));
+    has_lparen := match(
+      toks.get(i + usize(1)),
+      .Some(t) => (t.kind == TokenKind.LParen),
+      .None => false
+    );
+    if(!(is_impl && has_lparen), {
+      i = (i + usize(1));
+      continue;
+    });
+    impl_end := _skip_balanced_parens(toks, i + usize(1));
+    (current : usize) = (i + usize(2));
+    signature_parts := ArrayList(String).new();
+    // `generic(...)` prefix.
+    is_generic := match(
+      toks.get(current),
+      .Some(t) => ((t.kind == TokenKind.Identifier) && (t.value == `generic`)),
+      .None => false
+    );
+    if(is_generic, {
+      forall_end := _skip_balanced_parens(toks, current + usize(1));
+      signature_parts.push(_slice_token_text(toks, current, forall_end - usize(1)));
+      current = forall_end;
+      match(
+        toks.get(current),
+        .Some(t) => if(t.kind == TokenKind.Comma, {
+          current = (current + usize(1));
+        }),
+        .None => ()
+      );
+    });
+    // `where(...)` before the receiver.
+    is_where := match(
+      toks.get(current),
+      .Some(t) => ((t.kind == TokenKind.Identifier) && (t.value == `where`)),
+      .None => false
+    );
+    if(is_where, {
+      where_end := _skip_balanced_parens(toks, current + usize(1));
+      signature_parts.push(_slice_token_text(toks, current, where_end - usize(1)));
+      current = where_end;
+      match(
+        toks.get(current),
+        .Some(t) => if(t.kind == TokenKind.Comma, {
+          current = (current + usize(1));
+        }),
+        .None => ()
+      );
+    });
+    // Receiver.
+    receiver_start := current;
+    receiver_end := _skip_delimited_argument(toks, receiver_start);
+    receiver_type_name := _extract_receiver_type_name(toks, receiver_start, receiver_end - usize(1));
+    if(receiver_type_name.len() == usize(0), {
+      i = impl_end;
+      continue;
+    });
+    signature_parts.push(_slice_token_text(toks, receiver_start, receiver_end - usize(1)));
+    current = receiver_end;
+    match(
+      toks.get(current),
+      .Some(t) => if(t.kind == TokenKind.Comma, {
+        current = (current + usize(1));
+      }),
+      .None => ()
+    );
+    // `where(...)` AFTER the receiver — inserted before it in the signature
+    // (TS splices before the last element).
+    is_where2 := match(
+      toks.get(current),
+      .Some(t) => ((t.kind == TokenKind.Identifier) && (t.value == `where`)),
+      .None => false
+    );
+    if(is_where2, {
+      where_end := _skip_balanced_parens(toks, current + usize(1));
+      receiver_part := match(signature_parts.pop(), .Some(p) => p, .None => String.new());
+      signature_parts.push(_slice_token_text(toks, current, where_end - usize(1)));
+      signature_parts.push(receiver_part);
+      current = where_end;
+      match(
+        toks.get(current),
+        .Some(t) => if(t.kind == TokenKind.Comma, {
+          current = (current + usize(1));
+        }),
+        .None => ()
+      );
+    });
+    entry := match(
+      result.get(receiver_type_name.clone()),
+      .Some(e) => e,
+      .None => TokenImplInfo(
+        trait_impls : ArrayList(String).new(),
+        impls : ArrayList(DocImpl).new(),
+        methods : ArrayList(DocFunction).new()
+      )
+    );
+    anonymous_method_names := ArrayList(String).new();
+    while(current < (impl_end - usize(1)), {
+      arg_start := current;
+      arg_end := _skip_delimited_argument(toks, arg_start);
+      first := match(
+        toks.get(arg_start),
+        .Some(t) => t,
+        .None => {
+          current = (arg_end + usize(1));
+          continue;
+        }
+      );
+      second_is_colon := match(
+        toks.get(arg_start + usize(1)),
+        .Some(t) => ((t.kind == TokenKind.Operator) && (t.value == `:`)),
+        .None => false
+      );
+      if((first.kind == TokenKind.Identifier) && second_is_colon, {
+        // Anonymous member: `name : (fn ...)`.
+        method_name := first.value.clone();
+        anonymous_method_names.push(method_name.clone());
+        type_start := (arg_start + usize(2));
+        type_start_is_lp := match(
+          toks.get(type_start),
+          .Some(t) => (t.kind == TokenKind.LParen),
+          .None => false
+        );
+        type_end := if(type_start_is_lp, _skip_balanced_parens(toks, type_start), type_start + usize(1));
+        signature := _slice_token_text(toks, type_start, type_end - usize(1));
+        entry.methods.push(
+          DocFunction(
+            name : method_name.clone(),
+            doc : doc_lookup.get(method_name.clone()),
+            signature : signature.clone(),
+            parameters : ArrayList(DocParam).new(),
+            return_type : _extract_return_type_from_signature(signature),
+            type_params : Option(ArrayList(DocParam)).None,
+            effects : Option(ArrayList(DocParam)).None,
+            is_method : true,
+            self_type : Option(String).Some(receiver_type_name.clone()),
+            returns : Option(String).None,
+            errors : Option(String).None,
+            deprecated : Option(String).None,
+            examples : Option(String).None
+          )
+        );
+      }, {
+        if(first.kind == TokenKind.Identifier, {
+          // Trait entry: `TraitName(...)` / `TraitName(args)(body)`.
+          (trait_signature : String) = first.value.clone();
+          (trait_method_names : ArrayList(String)) = ArrayList(String).new();
+          (trait_assoc_types : ArrayList(DocImplAssocType)) = ArrayList(DocImplAssocType).new();
+          (trait_methods : ArrayList(DocFunction)) = ArrayList(DocFunction).new();
+          next_is_lp := match(
+            toks.get(arg_start + usize(1)),
+            .Some(t) => (t.kind == TokenKind.LParen),
+            .None => false
+          );
+          if(next_is_lp, {
+            first_paren_end := _skip_balanced_parens(toks, arg_start + usize(1));
+            first_has_body := _paren_contains_trait_body(toks, arg_start + usize(1));
+            second_is_lp := match(
+              toks.get(first_paren_end),
+              .Some(t) => (t.kind == TokenKind.LParen),
+              .None => false
+            );
+            cond(
+              (!(first_has_body) && (first_paren_end <= arg_end) && second_is_lp) => {
+                // e.g. Index(usize)(body...) — type args first, body second.
+                trait_signature = _slice_token_text(toks, arg_start, first_paren_end - usize(1));
+                if(_paren_contains_trait_body(toks, first_paren_end), {
+                  extracted := _extract_trait_body_members(toks, first_paren_end, tokens);
+                  trait_method_names = extracted.method_names;
+                  trait_assoc_types = extracted.associated_types;
+                  trait_methods = extracted.methods;
+                  trait_signature = `${trait_signature}(...)`;
+                });
+              },
+              !(first_has_body) => {
+                trait_signature = _slice_token_text(toks, arg_start, first_paren_end - usize(1));
+              },
+              true => {
+                extracted := _extract_trait_body_members(toks, arg_start + usize(1), tokens);
+                trait_method_names = extracted.method_names;
+                trait_assoc_types = extracted.associated_types;
+                trait_methods = extracted.methods;
+                trait_signature = `${first.value}(...)`;
+              }
+            );
+          });
+          // Add extracted trait methods to the entry's method list, stamped
+          // with the receiver type (TS mutates `m.selfType`).
+          (tmi : usize) = usize(0);
+          while(tmi < trait_methods.len(), {
+            match(
+              trait_methods.get(tmi),
+              .Some(m) => {
+                entry.methods.push(
+                  DocFunction(
+                    name : m.name,
+                    doc : m.doc,
+                    signature : m.signature,
+                    parameters : m.parameters,
+                    return_type : m.return_type,
+                    type_params : m.type_params,
+                    effects : m.effects,
+                    is_method : m.is_method,
+                    self_type : Option(String).Some(receiver_type_name.clone()),
+                    returns : m.returns,
+                    errors : m.errors,
+                    deprecated : m.deprecated,
+                    examples : m.examples
+                  )
+                );
+              },
+              .None => ()
+            );
+            tmi = (tmi + usize(1));
+          });
+          entry.trait_impls.push(first.value.clone());
+          full_parts := ArrayList(String).new();
+          (spi : usize) = usize(0);
+          while(spi < signature_parts.len(), {
+            match(
+              signature_parts.get(spi),
+              .Some(p) => {
+                full_parts.push(p.clone());
+              },
+              .None => ()
+            );
+            spi = (spi + usize(1));
+          });
+          full_parts.push(trait_signature.clone());
+          (assoc_opt : Option(ArrayList(DocImplAssocType))) = Option(ArrayList(DocImplAssocType)).None;
+          if(trait_assoc_types.len() > usize(0), {
+            assoc_opt = Option(ArrayList(DocImplAssocType)).Some(trait_assoc_types);
+          });
+          entry.impls.push(
+            DocImpl(
+              signature : `impl(${String.from(", ").join(full_parts)})`,
+              trait_name : Option(String).Some(first.value.clone()),
+              method_names : trait_method_names,
+              associated_types : assoc_opt
+            )
+          );
+        });
+      });
+      current = arg_end;
+      match(
+        toks.get(current),
+        .Some(t) => if(t.kind == TokenKind.Comma, {
+          current = (current + usize(1));
+        }),
+        .None => ()
+      );
+    });
+    if(anonymous_method_names.len() > usize(0), {
+      entry.impls.push(
+        DocImpl(
+          signature : `impl(${String.from(", ").join(signature_parts)}, ...)`,
+          trait_name : Option(String).None,
+          method_names : anonymous_method_names,
+          associated_types : Option(ArrayList(DocImplAssocType)).None
+        )
+      );
+    });
+    result.set(receiver_type_name.clone(), entry);
+    i = impl_end;
+  });
+  result
+});
+// ---------------------------------------------------------------------------
+// Token-only fallback builder + cross references
+// ---------------------------------------------------------------------------
+/// Build a minimal DocModule from token extraction only (no evaluator).
+/// Mirrors `buildDocModuleFromTokens` (builder.ts:1481).
+build_doc_module_from_tokens :: (
+  fn(
+    name : String,
+    path : String,
+    extraction : DocExtractionResult,
+    tokens : ArrayList(Token)
+  ) -> DocModule
+)({
+  trait_impl_map := extract_trait_impls_from_tokens(tokens);
+  (module_doc : Option(String)) = Option(String).None;
+  match(
+    extraction.module_doc,
+    .Some(md) => {
+      module_doc = Option(String).Some(md.content.clone());
+    },
+    .None => ()
+  );
+  types := ArrayList(DocType).new();
+  constants := ArrayList(DocConstant).new();
+  (i : usize) = usize(0);
+  while(i < extraction.declarations.len(), {
+    assoc := match(
+      extraction.declarations.get(i),
+      .Some(a) => a,
+      .None => {
+        i = (i + usize(1));
+        continue;
+      }
+    );
+    if(assoc.declaration_name.len() == usize(0), {
+      i = (i + usize(1));
+      continue;
+    });
+    decl_name := assoc.declaration_name.clone();
+    sections := extract_doc_sections(Option(String).Some(assoc.comment.content.clone()));
+    match(
+      trait_impl_map.get(decl_name.clone()),
+      .Some(trait_impls) => {
+        // Likely a type — add as a type with trait impls. NOTE: TS omits the
+        // doc field here (builder.ts:1509 literal has no `doc`).
+        types.push(
+          DocType(
+            name : decl_name.clone(),
+            doc : Option(String).None,
+            kind : DocItemKind.Struct,
+            signature : decl_name.clone(),
+            type_params : Option(ArrayList(DocParam)).None,
+            fields : Option(ArrayList(DocField)).None,
+            variants : Option(ArrayList(DocVariant)).None,
+            methods : ArrayList(DocFunction).new(),
+            trait_impls : trait_impls,
+            impls : Option(ArrayList(DocImpl)).None,
+            deprecated : sections.deprecated,
+            examples : sections.examples
+          )
+        );
+      },
+      .None => {
+        // Generic fallback: a constant. NOTE: TS omits `doc` here too.
+        constants.push(
+          DocConstant(
+            name : decl_name.clone(),
+            doc : Option(String).None,
+            type_ : String.from("(unknown)"),
+            value : Option(String).None,
+            deprecated : sections.deprecated
+          )
+        );
+      }
+    );
+    i = (i + usize(1));
+  });
+  DocModule(
+    name : name,
+    path : path,
+    doc : module_doc,
+    functions : ArrayList(DocFunction).new(),
+    types : types,
+    traits : ArrayList(DocTrait).new(),
+    constants : constants,
+    submodules : ArrayList(Box(DocModule)).new()
+  )
+});
+/// Fill in `trait.implementors` across all modules from `type.trait_impls`.
+/// Mirrors `buildCrossReferences` (builder.ts:1538) — mutates in place.
+build_cross_references :: (fn(modules : ArrayList(DocModule)) -> unit)({
+  // Collect all trait → implementor relationships (insertion-ordered,
+  // deduplicated — TS uses a Set).
+  trait_names := ArrayList(String).new();
+  trait_implementors := ArrayList(ArrayList(String)).new();
+  (mi : usize) = usize(0);
+  while(mi < modules.len(), {
+    m := match(
+      modules.get(mi),
+      .Some(x) => x,
+      .None => {
+        mi = (mi + usize(1));
+        continue;
+      }
+    );
+    (ti : usize) = usize(0);
+    while(ti < m.types.len(), {
+      t := match(
+        m.types.get(ti),
+        .Some(x) => x,
+        .None => {
+          ti = (ti + usize(1));
+          continue;
+        }
+      );
+      (tri : usize) = usize(0);
+      while(tri < t.trait_impls.len(), {
+        trait_name := match(t.trait_impls.get(tri), .Some(n) => n, .None => String.new());
+        if(trait_name.len() > usize(0), {
+          idx := trait_names.index_of(trait_name);
+          match(
+            idx,
+            .Some(existing_idx) => {
+              lst := match(trait_implementors.get(existing_idx), .Some(l) => l, .None => ArrayList(String).new());
+              if(!(lst.contains(t.name)), {
+                lst.push(t.name.clone());
+              });
+            },
+            .None => {
+              lst := ArrayList(String).new();
+              lst.push(t.name.clone());
+              trait_names.push(trait_name.clone());
+              trait_implementors.push(lst);
+            }
+          );
+        });
+        tri = (tri + usize(1));
+      });
+      ti = (ti + usize(1));
+    });
+    mi = (mi + usize(1));
+  });
+  // Fill in implementors on traits (sorted — TS `Array.from(set).sort()`).
+  (mj : usize) = usize(0);
+  while(mj < modules.len(), {
+    m := match(
+      modules.get(mj),
+      .Some(x) => x,
+      .None => {
+        mj = (mj + usize(1));
+        continue;
+      }
+    );
+    (tj : usize) = usize(0);
+    while(tj < m.traits.len(), {
+      tr := match(
+        m.traits.get(tj),
+        .Some(x) => x,
+        .None => {
+          tj = (tj + usize(1));
+          continue;
+        }
+      );
+      match(
+        trait_names.index_of(tr.name),
+        .Some(found_idx) => {
+          impls := match(trait_implementors.get(found_idx), .Some(l) => l, .None => ArrayList(String).new());
+          sorted := ArrayList(String).new();
+          (si : usize) = usize(0);
+          while(si < impls.len(), {
+            match(
+              impls.get(si),
+              .Some(s) => {
+                sorted.push(s.clone());
+              },
+              .None => ()
+            );
+            si = (si + usize(1));
+          });
+          sorted.sort();
+          m.traits(tj) = DocTrait(
+            name : tr.name,
+            doc : tr.doc,
+            kind : tr.kind,
+            signature : tr.signature,
+            type_params : tr.type_params,
+            associated_types : tr.associated_types,
+            methods : tr.methods,
+            implementors : sorted,
+            deprecated : tr.deprecated,
+            examples : tr.examples
+          );
+        },
+        .None => ()
+      );
+      tj = (tj + usize(1));
+    });
+    mj = (mj + usize(1));
+  });
+});
+export(
+  DocSections,
+  TokenImplInfo,
+  TraitBodyExtraction,
+  extract_doc_sections,
+  build_doc_lookup,
+  merge_methods,
+  merge_trait_impl_names,
+  extract_trait_impls_from_tokens,
+  extract_impl_info_from_tokens,
+  build_doc_module_from_tokens,
+  build_cross_references
+);
