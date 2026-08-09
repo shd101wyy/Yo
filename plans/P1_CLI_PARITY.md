@@ -19,11 +19,11 @@ of its figures are stale and are called out below.
 
 |                      |                                                                                                 |
 | -------------------- | ----------------------------------------------------------------------------------------------- |
-| Hard blockers        | **none** — §2's eight codegen bugs are all fixed, each with a regression test                   |
+| Hard blockers        | **none** — nine codegen bugs fixed (§2, §4), each with a regression test                        |
 | Subcommands wired    | `check`, `compile`, `test`, `fmt`, `init`, **`cache`**, **`build`**, **`fetch`**, **`install`** |
 | Subcommands left     | `doc` (not started), `version` (deferred to P3 by §6.5)                                         |
 | `fmt` divergence     | **0** of 808 files (was 339, then 17)                                                           |
-| Differential harness | `scripts/cli-diff-test.sh` + `tests/cli-cases/` — **exists**, 5/5 PASS                          |
+| Differential harness | `scripts/cli-diff-test.sh` + `tests/cli-cases/` — 8 cases, and it found 6 `build` bugs (§4)     |
 | Gates                | `gates_fast.sh` GATE 6 (`fmt` differential) and GATE 7 (CLI differential) are new               |
 | Bootstrap            | FIXPOINT_HOLDS, stage-3 byte-identical                                                          |
 
@@ -178,11 +178,30 @@ builtins, so `fetch_all_deps(registry.dependencies)` could not unify two
 same-named types. `fetch.yo` now imports it, and `dep.path` is a plain `String`
 ("" = no subpath) matching TS's `dep.path ? … : …`.
 
-**The corpus is written, not collected** — §5 was right about that.
-`tests/cli-cases/pending/` holds `build-list-steps`, `build-run` and
-`fetch-no-deps` with a real fixture project. (`build-system.test.ts` is 2,075
-lines of pure unit tests whose only on-disk "projects" are one-line stubs; no
-test invokes `yo build` end to end.)
+**The corpus now runs, and it found six more `build` bugs.** `build-list-steps`,
+`build-run` and `fetch-no-deps` are live cases (they were written before the
+subcommands were dispatched; `build-system.test.ts` is 2,075 lines of pure unit
+tests whose only on-disk "projects" are one-line stubs, and no test invoked
+`yo build` end to end). Every one of these was invisible to `check` and to the
+unit tests:
+
+| bug                                                             | how it failed                                      |
+| --------------------------------------------------------------- | -------------------------------------------------- |
+| shelled out to `yo-cli` resolved through `PATH`                 | picked up an unrelated global package              |
+| never created the artifact output directory                     | bare ENOENT                                        |
+| `project_dir` empty — `Path.parent()` is Rust-, not node-shaped | wrote to `/yo-out`, EROFS                          |
+| the `run:` dependency prefix never applied                      | **built the program, said "run ok", never ran it** |
+| `--dry-run` accepted and ignored                                | did a full build                                   |
+| `--list-steps` output reformatted                               | stdout divergence                                  |
+
+Two of those are silent — the run step that reports success without running, and
+`--dry-run` building for real. Fixing the dry-run branch then exposed a NINTH
+compiler bug ([an `if` whose branch awaits, as a `while` body, emitted
+nothing](../issues/fixed/async-if-with-await-in-while-body-emits-nothing.md)),
+which is the same lesson §2 ends on: the code had never reached the code
+generator.
+
+`build-run` cannot compare stdout line-for-line — see §9.
 
 ---
 

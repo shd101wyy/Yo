@@ -1,0 +1,50 @@
+open(import("std/string"));
+open(import("std/fmt"));
+{ yield } :: import("std/async");
+
+Item :: ref(
+  struct(
+    name : String,
+    size : i32
+  )
+);
+lookup :: (fn(want : bool) -> Option(Item))(
+  if(want, Option(Item).Some(Item(name : String.from("thing"), size : i32(7))), Option(Item).None)
+);
+// A callee whose body is an `io.async` block CAPTURING its parameter — the shape
+// of `run_executable` in yo-self/build_runner.yo.
+describe :: (fn(item : Item, io : Io) -> Impl(Future(String, Io)))({
+  the_size := item.size;
+  io.async((io : Io) => {
+    io.await(yield(io), io);
+    return(`${item.name}:${the_size}`)
+  })
+});
+// The caller: an async body whose nested match arm binds the item and hands it
+// straight to that callee, then awaits the result.
+drive :: (fn(want : bool, io : Io) -> Impl(Future(String, Io)))(
+  io.async((io : Io) => {
+    out := String.from("none");
+    match(
+      Option(i32).Some(i32(1)),
+      .None => (),
+      .Some(_) => {
+        match(
+          lookup(want),
+          .None => (),
+          .Some(item) => {
+            d := io.await(describe(item, io), io);
+            out = d;
+          }
+        );
+      }
+    );
+    return(out)
+  })
+);
+
+main :: (fn(io : Io) -> unit)({
+  println(io.await(drive(true, io), io));
+  println(io.await(drive(false, io), io));
+});
+export(main);

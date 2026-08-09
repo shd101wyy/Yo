@@ -813,12 +813,30 @@ _build_extract_bool :: (
 );
 /// The variant name of arg `idx` when it is an enum value, else `.None`.
 /// Used for `build.step.depend_on`'s `dep_kind`.
+/// The variant NAME of an enum-valued argument, without the leading dot.
+///
+/// yo-self stores enum variants dot-prefixed — `EvalValue.EnumVal(".Run", …)`,
+/// built as `` `.${variant_name}` `` in `evaluator/calls/function.yo` — while
+/// TS's `isEnumValue(v).variantName` is bare (`"Run"`). Callers here are ports of
+/// TS comparisons against the bare name, so strip the dot at this boundary
+/// rather than dot-prefixing every comparison.
+///
+/// Without the strip, `__yo_build_step_depend_on` never recognised a `Run`
+/// dependency, so `step.depend_on(build.run(exe))` recorded the ARTIFACT name
+/// instead of `run:<artifact>`. The run node then vanished from the DAG and
+/// `yo build run` built the program, reported "run ok", and never executed it.
 _build_extract_variant :: (
   fn(args : ArrayList(AstExpr), idx : usize, ctx : EvalContext) -> Option(String)
 )(
   match(
     _build_arg_value(args, idx, ctx),
-    .Some(v) => match(v, .EnumVal(variant, _) => Option(String).Some(variant), _ => Option(String).None),
+    .Some(v) => match(
+      v,
+      .EnumVal(variant, _) => Option(String).Some(
+        if(variant.starts_with(String.from(".")), variant.substring(usize(1), variant.len()), variant.clone())
+      ),
+      _ => Option(String).None
+    ),
     .None => Option(String).None
   )
 );

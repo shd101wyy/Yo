@@ -2330,6 +2330,34 @@ function generateCondBranchWithAwait(
       ) {
         // While loop with await in the body
         generateWhileWithAwait(expr, awaitPoint, indent, context);
+      } else if (
+        expr.$?.macroExpansion &&
+        exprIsFunctionCall(expr.$.macroExpansion) &&
+        exprIsFunctionCallOf(expr.$.macroExpansion, BuiltinKeywords.cond)
+      ) {
+        // An `if` inside a cond/match branch. `if` is a `cond` wearing a macro
+        // head, and only the expansion carries the branch structure — the same
+        // recursion `generateAwaitExpression` does at the top level of an async
+        // body, which is why `if` works there and used to be rejected here.
+        generateCondWithAwait(
+          expr.$.macroExpansion,
+          awaitPoint,
+          indent,
+          context
+        );
+      } else {
+        // An await in a shape none of the above can split. At the TOP level of an
+        // async body this same situation throws `unsupportedAwaitMessage` — see
+        // `generateAwaitExpression`, whose comment is "a compile error is always
+        // better than a segfaulting binary". Inside a cond/match branch it used to
+        // fall out of the chain silently: no `sm->await_future_N` store, so the
+        // await machinery emitted right after read a NULL future.
+        //
+        // `out = io.await(f, io)` (assignment, as opposed to `out := …`) is the
+        // shape that exposed this. It is a loud error at the top level and was a
+        // silent no-op — or a SIGSEGV once the state machine ran on — in a branch.
+        // See issues/fixed/async-unsupported-await-shape-in-branch-silently-dropped.md.
+        throw new Error(unsupportedAwaitMessage(expr, awaitPoint));
       }
     } else {
       // Expression doesn't contain await - generate normally
@@ -2636,6 +2664,30 @@ function generateWhileBodyWithAwait(
     generateMatchWithAwait(awaitExpr, awaitPoint, indent, context);
     // The match branch remainingExprs are already stored in context.asyncCondBranchInfo
     // but we still need to collect expressions AFTER the match in the while loop body
+    for (let i = awaitFoundIndex + 1; i < bodyExprs.length; i++) {
+      remainingExprs.push(bodyExprs[i]!);
+    }
+    return remainingExprs;
+  } else if (
+    awaitExpr.$?.macroExpansion &&
+    exprIsFunctionCall(awaitExpr.$.macroExpansion) &&
+    exprIsFunctionCallOf(awaitExpr.$.macroExpansion, BuiltinKeywords.cond)
+  ) {
+    // An `if` — which is a `cond` wearing a macro head. The AST node stays an
+    // `if`; the branch structure only exists in its expansion, so neither check
+    // above matched and the loop body emitted NOTHING AT ALL: no branch code, no
+    // `sm->cond_branch_N` assignment. The loop ran, did nothing, and the program
+    // exited 0 — a silent no-op, not a crash. Dispatch on the expansion exactly
+    // as the `cond` case above does, and keep collecting the ORIGINAL body's
+    // trailing expressions (the loop counter increment lives there).
+    // See issues/fixed/async-if-with-await-in-while-body-emits-nothing.md.
+    generateCondWithAwait(
+      awaitExpr.$.macroExpansion,
+      awaitPoint,
+      indent,
+      context,
+      undefined
+    );
     for (let i = awaitFoundIndex + 1; i < bodyExprs.length; i++) {
       remainingExprs.push(bodyExprs[i]!);
     }

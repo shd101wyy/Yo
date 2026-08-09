@@ -18,6 +18,7 @@ open(import("std/fmt"));
 // throughout this file (`run_step.args`). Same rename form main.yo uses for `env`.
 _(args : proc_args) :: import("std/env");
 { exists } :: import("std/fs/file");
+{ create_dir_all } :: import("std/fs/dir");
 { Command } :: import("std/process/command");
 { mm_load_yo_file, mm_reset } :: import("./module_manager.yo");
 {
@@ -382,6 +383,11 @@ compile_artifact :: (
     );
     kind_dir := if(is_lib, "lib", "bin");
     output_dir := _get_target_output_dir(ctx.project_dir.clone(), effective_target.clone(), kind_dir);
+    // Create the output directory before compiling into it (src/build-runner.ts:937-939).
+    // Without this the compiler is handed `-o <missing dir>/<name>` and dies with
+    // a bare ENOENT — "file or directory not found" — with nothing to say which
+    // path was missing. `yo build` could not build ANYTHING in a fresh project.
+    e.io.await(create_dir_all(Path.new(output_dir.clone()), e.io), e);
     output_name := get_artifact_output_file_name(
       artifact.kind,
       artifact.name.clone(),
@@ -941,9 +947,18 @@ run_build :: (
     if(!(build_file_exists), {
       e.exn.throw(dyn(`Error: Build file not found: ${build_file_path.to_string()}`));
     });
+    // `path.dirname` semantics, which is what src/build-runner.ts uses. Yo's
+    // `Path.parent()` follows Rust — `Path::new("foo").parent()` is `Some("")` —
+    // so the default `./build.yo` yielded an EMPTY project dir, and every derived
+    // path became absolute: the output dir was `/yo-out/<target>/bin`, and
+    // `yo build` died with a bare "read-only filesystem" (macOS's root volume).
+    // `yo build` could not build anything from a relative build file.
     project_dir := match(
       build_file_path.parent(),
-      .Some(p) => p.to_string(),
+      .Some(p) => {
+        ps := p.to_string();
+        if(ps.len() == usize(0), String.from("."), ps)
+      },
       .None => String.from(".")
     );
     c_compiler := match(
@@ -983,7 +998,14 @@ run_build :: (
     i := usize(0);
     n := requested.len();
     while(i < n, {
-      e.io.await(execute_step(requested(i).clone(), ctx, e.io, e.exn), e);
+      step_name := requested(i).clone();
+      // `--dry-run` names the steps and executes NOTHING (src/build-runner.ts:293-297).
+      // It was accepted and ignored here, so `yo build --dry-run` did a full build.
+      if(options.dry_run, {
+        println(`[dry-run] Would execute step: ${step_name}`);
+      }, {
+        e.io.await(execute_step(step_name, ctx, e.io, e.exn), e);
+      });
       i = (i + usize(1));
     });
   })

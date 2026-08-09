@@ -1032,6 +1032,21 @@ generate_while_body_with_await :: (
         _collect_exprs_from(remaining_exprs, body_exprs, await_found_index + usize(1));
         return(remaining_exprs);
       });
+      // `if` with await in a branch — a `cond` wearing a macro head. The AST node
+      // stays an `if`, so neither check above matches it and the loop body emitted
+      // NOTHING: no branch code, no `sm->cond_branch_N`. The loop ran, did nothing,
+      // and the program exited 0. Dispatch on the expansion, and keep collecting the
+      // ORIGINAL body's trailing expressions (the loop counter lives there).
+      // See issues/fixed/async-if-with-await-in-while-body-emits-nothing.md.
+      match(
+        _await_macro_expansion(await_expr),
+        .Some(mx) => if(ast_expr_is_fn_call(mx) && ast_expr_is_fn_call_of(mx, BK_COND, Option(usize).None), {
+          _call_generate_cond_with_await(mx, await_point, indent, context, Option(String).None, Option(String).None);
+          _collect_exprs_from(remaining_exprs, body_exprs, await_found_index + usize(1));
+          return(remaining_exprs);
+        }),
+        .None => ()
+      );
     });
   });
   // Default: collect remaining expressions after the await.
@@ -1920,7 +1935,13 @@ generate_cond_with_await :: (
               remaining := generate_cond_branch_with_await(value, await_point, value_indent, context);
               has_while := match(context.async_while_loop_info, .Some(m) => match(m.get(await_point.base.index), .Some(_) => true, .None => false), .None => false);
               if(has_while && (remaining.len() > usize(0)), {
-                _attach_cond_branch_post_while(ci, value, remaining, context, await_point.base.index);
+                // `cond_branch_base + ci`, NOT the raw `ci` — the guard emitted
+                // for this post-while block compares against `sm->cond_branch_N`,
+                // which the line above sets to the BASED index. Passing the raw
+                // index made `_flush_inner` in std/sys/bufio/buf_writer.yo test
+                // `== 0` against a field holding `2`, so the buffer was never
+                // emptied and `BufWriter` reflushed the same bytes forever.
+                _attach_cond_branch_post_while(cond_branch_base + ci, value, remaining, context, await_point.base.index);
                 branches_with_await.push(_make_cond_branch(cond_branch_base + ci, value, true, Option(ArrayList(AstExpr)).Some(ArrayList(AstExpr).new()), context));
               }, {
                 branches_with_await.push(_make_cond_branch(cond_branch_base + ci, value, true, Option(ArrayList(AstExpr)).Some(remaining), context));

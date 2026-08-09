@@ -616,15 +616,22 @@ fetch_dep :: (
       .Some(ent) => (!(ent.ref == dep.ref))
     );
     // Check if already up-to-date
+    // The await is BOUND first and wrapped after. Written as
+    // `Option(CachedDepState).Some(e.io.await(…))` it sat nested inside a larger
+    // expression, which the state machine cannot split — and inside a cond/match
+    // branch that used to be dropped SILENTLY (no `sm->await_future_N` store), so
+    // `fetch` never inspected the cache and always re-fetched. It is a loud
+    // compile error now; this is the shape that actually works.
     cached_state_opt := match(
       existing_entry,
       .None => Option(CachedDepState).None,
-      .Some(ent) =>
-        if(
-          (!(update)) && (ent.commit.len() > usize(0)),
-          Option(CachedDepState).Some(e.io.await(inspect_cached_dep(cache_dir, dep.name, ent.commit, ent.hash, e.io, e.exn), e)),
-          Option(CachedDepState).None
-        )
+      .Some(ent) => cond(
+        ((!(update)) && (ent.commit.len() > usize(0))) => {
+          inspected := e.io.await(inspect_cached_dep(cache_dir, dep.name, ent.commit, ent.hash, e.io, e.exn), e);
+          Option(CachedDepState).Some(inspected)
+        },
+        true => Option(CachedDepState).None
+      )
     );
     entry_has_commit := match(
       existing_entry,

@@ -3576,3 +3576,36 @@ test("Test a reassignment in an awaitless nested arm beside an awaiting arm", {
   assert(io.await(describe_job(Job.Run, io), io) == `run exe`, "the awaiting arm reassigns");
   assert(io.await(describe_job(Job.Doc, io), io) == `doc book`, "the awaitless arm reassigns");
 });
+// ---------------------------------------------------------------------------
+// An `if` whose branch awaits, as the body of a `while`, in an async body.
+//
+// `if` is a `cond` wearing a macro head: the AST node stays an `if` and the
+// branch structure only exists in its `$.macroExpansion`. The while-body
+// dispatcher matched `cond` and `match` but not `if`, so the loop body emitted
+// NOTHING AT ALL — no branch code, no `sm->cond_branch_N`. The loop ran, did
+// nothing, and the program exited 0. `run_build`'s `--dry-run` loop in
+// yo-self/build_runner.yo is this shape.
+// See issues/fixed/async-if-with-await-in-while-body-emits-nothing.md.
+// ---------------------------------------------------------------------------
+test("Test an if whose branch awaits as a while loop body", {
+  drive := (fn(dry : bool, rio : Io) -> Impl(Future(i32, Io)))(
+    rio.async((aio : Io) => {
+      total := Box(i32)(0);
+      i := usize(0);
+      while(runtime(i < usize(3)), {
+        if(dry, {
+          total.* = (total.* + i32(1));
+        }, {
+          v := aio.await(future_with_returned_state(i32(10), aio), aio);
+          total.* = (total.* + v);
+        });
+        i = (i + usize(1));
+      });
+      return(total.*);
+    })
+  );
+  // future_with_returned_state returns value + 1, so the awaiting path adds 11
+  // three times; the non-awaiting path adds 1 three times.
+  assert(io.await(drive(true, io), io) == i32(3), "the non-awaiting branch runs every iteration");
+  assert(io.await(drive(false, io), io) == i32(33), "the awaiting branch runs every iteration");
+});
