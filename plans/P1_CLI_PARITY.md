@@ -248,6 +248,63 @@ compact form — it now pretty-prints like `JSON.stringify(v, null, 2)`, which
 `builder.ts` is the crux — every format goes through it, and
 `render_markdown.yo` is already ported and waiting on it.
 
+### Porting worksheet (surveyed 2026-08-09 — start here when picking this up)
+
+**Evaluator-API correspondence for `builder.yo`:**
+
+| TS (`builder.ts` imports)                                       | yo-self                                                                                                   |
+| --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `typeToString`                                                  | `types/string.yo` `type_to_string` ✓                                                                      |
+| `valueToString`                                                 | `value.yo` `value_to_string` ✓                                                                            |
+| `isStructType` / `isSourceNamespaceType`                        | `.Struct(...)` with `is_source_namespace` false / true (yo-self has NO separate module type — TS-aligned) |
+| `isEnumType` / `isUnionType` / `isTraitType` / `isFunctionType` | `.EnumT` / `.Union` / `.TraitT` / `.Func` (guards in `types/guards.yo`)                                   |
+| `StructType.fields`                                             | parallel `field_labels` / `field_types` on the `Struct` variant                                           |
+| `TypeField.defaultValue`                                        | **GAP** — yo-self `Struct` carries no field defaults; defaults live in a side-table keyed per function    |
+|                                                                 | (`evaluator/types/field.yo` `default_value_expr`); DocField.defaultValue needs that or stays `.None`      |
+| `getGenericImplDocEntries` (impl.ts:1830)                       | **NOT PORTED** — the registry exists (`impl.yo` `GenericImplEntry`, `g_impl_registry_keys` /              |
+|                                                                 | `g_impl_registry_entry_lists`, `try_match_generic_impl` returning `Option(ArrayList(TypeValue))`);        |
+|                                                                 | port `formatGenericImplSignature` + the entry walk on top of it (~100 lines)                              |
+| `getReceiverBaseTypeId`                                         | TS = `functionValue.funcId ?? type.id`; yo-self `Struct.constructor_func_id` / variant `id` fields        |
+| `moduleValue: StructValue`                                      | the module's `EvalValue.StructVal` from `module_manager.yo` (same value `check`/`compile` use)            |
+
+**JSON parity trap for `render_json.yo`:** TS `JSON.stringify(model)` emits keys
+in OBJECT-LITERAL INSERTION ORDER and DROPS `undefined`-valued keys. The Yo port
+must build `JsonValue.Object` with exactly builder.ts's literal key order
+(e.g. DocFunction: name, doc, signature, parameters, returnType, typeParams,
+effects, isMethod, selfType, returns, errors, deprecated, examples — `effects`
+is ALWAYS undefined in TS today, so it never appears) and omit `.None` fields.
+`json_stringify_pretty(v, 2)` is already parity-verified.
+
+**Token-scanning half of builder.ts** (`extractTraitImplsFromTokens`,
+`extractImplInfoFromTokens`, `extractTraitBodyMembers`, `sliceTokenText`, …)
+needs only `token.yo` — no evaluator. It is ~700 lines of the 1,564 and can be
+ported and unit-checked first.
+
+**Per-parameter metadata for `buildDocFunction`:** yo-self's `TypeValue.Func`
+carries labels in `meta` (`FuncMeta.param_labels` / `forall_labels`) but NO
+per-param comptime bit or default value — those ride func-id-keyed side tables
+in `evaluator/types/function.yo`: `get_func_param_comptime(func_id)` and
+`get_func_param_defaults(func_id)`, keyed by `meta.origin_id`. Token struct is
+`{kind, value, row, column, character, module_path, input}` — `sliceTokenText`
+maps to `input.substring(start.character, end.character + end.value.len())`.
+
+**Struct methods (TS `structType.trait`):** yo-self attaches nothing to the
+Struct TypeValue; inherent/trait methods live in the `type_trait_methods.yo`
+registry keyed by type id (`MethodEntry`). `extractMethods` must query that
+registry instead of walking a `trait` field.
+
+**Escape trap:** `"\0"` in a DOUBLE-QUOTED Yo string is a lex error (JSON
+unescaping); `` `\0` `` in a backtick template string works.
+
+**Order:** ① `get_generic_impl_doc_entries` into `evaluator/values/impl.yo` —
+**DONE 2026-08-09** (`GenericImplDocEntry` with parallel
+`method_names`/`method_types`, `_format_generic_impl_signature`,
+`_receiver_base_type_id_for_doc`, `_type_name_for_doc`; exported, type-checks);
+② `doc/builder.yo` (token half, then evaluator half); ③ `doc/render_json.yo`
+(model→JsonValue mirroring the literal orders); ④ `doc/render_html.yo`;
+⑤ `doc_command.yo` + `main.yo` dispatch + a `tests/cli-cases/doc-*` case
+(compare `doc.json` + html tree in the differential).
+
 ---
 
 ## 6. Suggested order
