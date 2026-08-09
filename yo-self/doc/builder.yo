@@ -24,10 +24,28 @@ open(import("std/string"));
   DocTrait,
   DocConstant,
   DocModule,
-  DocItemKind
+  DocItemKind,
+  DocTraitKind
 } :: import("./model.yo");
 { DocExtractionResult } :: import("./extractor.yo");
 { parse_doc_comment } :: import("./sections.yo");
+{ TypeValue } :: import("../types/definitions.yo");
+{
+  is_struct_type,
+  is_enum_type,
+  is_union_type,
+  is_trait_type,
+  is_module_type,
+  is_function_type,
+  is_function_type_and_is_type_function
+} :: import("../types/guards.yo");
+{ type_to_string } :: import("../types/string.yo");
+{ EvalValue, value_to_string } :: import("../value.yo");
+{ Environment } :: import("../env.yo");
+{ MethodEntry, get_type_trait_methods_for_type } :: import("../evaluator/values/type_trait_methods.yo");
+{ GenericImplDocEntry, get_generic_impl_doc_entries } :: import("../evaluator/values/impl.yo");
+{ get_func_param_comptime, get_func_param_defaults } :: import("../evaluator/types/function.yo");
+{ get_func_type } :: import("../function_value.yo");
 // ---------------------------------------------------------------------------
 // Shared small types
 // ---------------------------------------------------------------------------
@@ -1282,6 +1300,1255 @@ build_cross_references :: (fn(modules : ArrayList(DocModule)) -> unit)({
     mj = (mj + usize(1));
   });
 });
+// ---------------------------------------------------------------------------
+// Evaluator half — buildDocModule and its helpers
+// ---------------------------------------------------------------------------
+/// Mirrors `extractGenericImplInfo`'s return shape (builder.ts:245).
+GenericImplInfo :: struct(
+  methods : ArrayList(DocFunction),
+  impls : ArrayList(DocImpl),
+  trait_impls : ArrayList(String)
+);
+/// Resolve the "inner" type behind a type-constructor function.
+/// Mirrors `resolveInnerType` (builder.ts:63): when the field is a
+/// type-constructor Func and its VALUE is a FuncVal whose registered type has
+/// a non-Type return, that return IS the inner struct/enum/trait; a generic
+/// constructor (return still Type) keeps the wrapper Func type.
+_resolve_inner_type :: (fn(field_type : TypeValue, value : EvalValue) -> TypeValue)({
+  if(is_function_type(field_type) && is_function_type_and_is_type_function(field_type), {
+    match(
+      value,
+      .FuncVal(data, _) => {
+        registered := get_func_type(data.*.func_id);
+        match(
+          registered,
+          .Func({ result }) => {
+            is_type_uni_result := match(result, .TypeUni(_) => true, _ => false);
+            if(!(is_type_uni_result), {
+              return(result);
+            });
+          },
+          _ => ()
+        );
+      },
+      _ => ()
+    );
+    return(field_type);
+  });
+  field_type
+});
+/// Convert a Func type's value parameters to DocParams. Mirrors
+/// `functionParamsToDocParams` (builder.ts:122). Per-param comptime flags and
+/// defaults ride the func-id side tables (evaluator/types/function.yo) keyed
+/// by `meta.origin_id`; TS stores the default EXPR (`String(defaultValueExpr)`)
+/// while yo-self side-tables the default VALUE, so `value_to_string` stands in.
+_function_params_to_doc_params :: (
+  fn(func_type : TypeValue, doc_lookup : Option(HashMap(String, String))) -> ArrayList(DocParam)
+)({
+  out := ArrayList(DocParam).new();
+  match(
+    func_type,
+    .Func({ param_types, meta }) => {
+      labels := meta.*.param_labels;
+      origin := match(meta.*.origin_id, .Some(oid) => oid, .None => String.new());
+      comptime_flags := get_func_param_comptime(origin);
+      defaults := get_func_param_defaults(origin);
+      (i : usize) = usize(0);
+      while((i < labels.len()) && (i < param_types.len()), {
+        label := match(labels.get(i), .Some(l) => l, .None => String.new());
+        ty := match(
+          param_types.get(i),
+          .Some(t) => t,
+          .None => {
+            i = (i + usize(1));
+            continue;
+          }
+        );
+        is_ct := match(comptime_flags.get(i), .Some(b) => b, .None => false);
+        (default_str : Option(String)) = Option(String).None;
+        match(
+          defaults.get(i),
+          .Some(od) => match(
+            od,
+            .Some(v) => {
+              default_str = Option(String).Some(value_to_string(v));
+            },
+            .None => ()
+          ),
+          .None => ()
+        );
+        (doc : Option(String)) = Option(String).None;
+        match(
+          doc_lookup,
+          .Some(dl) => {
+            doc = dl.get(label.clone());
+          },
+          .None => ()
+        );
+        out.push(
+          DocParam(
+            name : label.clone(),
+            type_ : type_to_string(ty),
+            is_comptime : is_ct,
+            is_implicit : false,
+            default_value : default_str,
+            doc : doc
+          )
+        );
+        i = (i + usize(1));
+      });
+    },
+    _ => ()
+  );
+  out
+});
+/// Convert a Func type's generic (forall) parameters to DocParams. Mirrors
+/// `forallParamsToDocParams` (builder.ts:137) — always comptime, no defaults.
+_forall_params_to_doc_params :: (
+  fn(func_type : TypeValue, doc_lookup : Option(HashMap(String, String))) -> ArrayList(DocParam)
+)({
+  out := ArrayList(DocParam).new();
+  match(
+    func_type,
+    .Func({ forall_types, meta }) => {
+      labels := meta.*.forall_labels;
+      (i : usize) = usize(0);
+      while((i < labels.len()) && (i < forall_types.len()), {
+        label := match(labels.get(i), .Some(l) => l, .None => String.new());
+        ty := match(
+          forall_types.get(i),
+          .Some(t) => t,
+          .None => {
+            i = (i + usize(1));
+            continue;
+          }
+        );
+        (doc : Option(String)) = Option(String).None;
+        match(
+          doc_lookup,
+          .Some(dl) => {
+            doc = dl.get(label.clone());
+          },
+          .None => ()
+        );
+        out.push(
+          DocParam(
+            name : label.clone(),
+            type_ : type_to_string(ty),
+            is_comptime : true,
+            is_implicit : false,
+            default_value : Option(String).None,
+            doc : doc
+          )
+        );
+        i = (i + usize(1));
+      });
+    },
+    _ => ()
+  );
+  out
+});
+/// Build a DocFunction from a Func TypeValue. Mirrors `buildDocFunction`
+/// (builder.ts:151).
+build_doc_function :: (
+  fn(
+    name : String,
+    func_type : TypeValue,
+    doc : Option(String),
+    is_method : bool,
+    self_type : Option(String),
+    doc_lookup : Option(HashMap(String, String))
+  ) -> DocFunction
+)({
+  signature := type_to_string(func_type);
+  (returns : Option(String)) = Option(String).None;
+  (errors : Option(String)) = Option(String).None;
+  (deprecated : Option(String)) = Option(String).None;
+  (examples : Option(String)) = Option(String).None;
+  match(
+    doc,
+    .Some(text) => {
+      parsed := parse_doc_comment(text);
+      returns = parsed.sections.get(String.from("returns"));
+      errors = parsed.sections.get(String.from("errors"));
+      deprecated = parsed.sections.get(String.from("deprecated"));
+      examples = parsed.sections.get(String.from("examples"));
+    },
+    .None => ()
+  );
+  (return_type : String) = String.from("unknown");
+  (type_params : Option(ArrayList(DocParam))) = Option(ArrayList(DocParam)).None;
+  match(
+    func_type,
+    .Func({ result, meta }) => {
+      return_type = type_to_string(result);
+      if(meta.*.forall_labels.len() > usize(0), {
+        type_params = Option(ArrayList(DocParam)).Some(_forall_params_to_doc_params(func_type, doc_lookup));
+      });
+    },
+    _ => ()
+  );
+  DocFunction(
+    name : name,
+    doc : doc,
+    signature : signature,
+    parameters : _function_params_to_doc_params(func_type, doc_lookup),
+    return_type : return_type,
+    type_params : type_params,
+    effects : Option(ArrayList(DocParam)).None,
+    is_method : is_method,
+    self_type : self_type,
+    returns : returns,
+    errors : errors,
+    deprecated : deprecated,
+    examples : examples
+  )
+});
+/// Extract a type's methods. Mirrors `extractMethods` (builder.ts:186) —
+/// TS walks `structType.trait.fields`; yo-self attaches nothing to the type,
+/// so the same members live in the type_trait_methods registry keyed by the
+/// type's id. `___`-prefixed (compiler-generated) members are skipped.
+_extract_methods :: (
+  fn(type_id : String, type_name : String, doc_lookup : HashMap(String, String)) -> ArrayList(DocFunction)
+)({
+  methods := ArrayList(DocFunction).new();
+  if(type_id.len() == usize(0), {
+    return(methods);
+  });
+  entries := get_type_trait_methods_for_type(type_id);
+  (i : usize) = usize(0);
+  while(i < entries.len(), {
+    entry := match(
+      entries.get(i),
+      .Some(e) => e,
+      .None => {
+        i = (i + usize(1));
+        continue;
+      }
+    );
+    if(is_function_type(entry.ty) && !(entry.label.starts_with(String.from("___"))), {
+      methods.push(
+        build_doc_function(
+          entry.label.clone(),
+          entry.ty,
+          doc_lookup.get(entry.label.clone()),
+          true,
+          Option(String).Some(type_name.clone()),
+          Option(HashMap(String, String)).Some(doc_lookup)
+        )
+      );
+    });
+    i = (i + usize(1));
+  });
+  methods
+});
+/// Mirrors `extractGenericImplInfo` (builder.ts:235): the registry's matched
+/// entries as DocFunctions + DocImpls + trait names. TS's DocImpl entries keep
+/// an extra `methods` array of raw FunctionTypes; the declared DocImpl model
+/// has no such field, so yo-self emits the declared shape.
+_extract_generic_impl_info :: (
+  fn(
+    concrete_type : TypeValue,
+    type_name : String,
+    doc_lookup : HashMap(String, String),
+    env : Environment
+  ) -> GenericImplInfo
+)({
+  entries := get_generic_impl_doc_entries(concrete_type, env, type_name.clone());
+  methods := ArrayList(DocFunction).new();
+  impls := ArrayList(DocImpl).new();
+  trait_impls := ArrayList(String).new();
+  seen_method_names := ArrayList(String).new();
+  (i : usize) = usize(0);
+  while(i < entries.len(), {
+    entry := match(
+      entries.get(i),
+      .Some(e) => e,
+      .None => {
+        i = (i + usize(1));
+        continue;
+      }
+    );
+    match(
+      entry.trait_name,
+      .Some(tn) => if(!(trait_impls.contains(tn)), {
+        trait_impls.push(tn.clone());
+      }),
+      .None => ()
+    );
+    (mi : usize) = usize(0);
+    while((mi < entry.method_names.len()) && (mi < entry.method_types.len()), {
+      m_name := match(entry.method_names.get(mi), .Some(n) => n, .None => String.new());
+      m_type := match(
+        entry.method_types.get(mi),
+        .Some(t) => t,
+        .None => {
+          mi = (mi + usize(1));
+          continue;
+        }
+      );
+      if(!(seen_method_names.contains(m_name)), {
+        seen_method_names.push(m_name.clone());
+        methods.push(
+          build_doc_function(
+            m_name.clone(),
+            m_type,
+            doc_lookup.get(m_name.clone()),
+            true,
+            Option(String).Some(type_name.clone()),
+            Option(HashMap(String, String)).Some(doc_lookup)
+          )
+        );
+      });
+      mi = (mi + usize(1));
+    });
+    impls.push(
+      DocImpl(
+        signature : entry.signature.clone(),
+        trait_name : entry.trait_name,
+        method_names : entry.method_names,
+        associated_types : Option(ArrayList(DocImplAssocType)).None
+      )
+    );
+    i = (i + usize(1));
+  });
+  GenericImplInfo(methods : methods, impls : impls, trait_impls : trait_impls)
+});
+/// Mirrors `getTypeKind` (builder.ts:291).
+_get_type_kind :: (fn(t : TypeValue) -> DocItemKind)({
+  if(is_struct_type(t), {
+    return(
+      match(
+        t,
+        .Struct({ is_reference_semantics, is_atomic_rc, is_newtype }) => cond(
+          is_newtype => DocItemKind.Newtype,
+          is_atomic_rc => DocItemKind.AtomicObject,
+          is_reference_semantics => DocItemKind.Object,
+          true => DocItemKind.Struct
+        ),
+        _ => DocItemKind.Struct
+      )
+    );
+  });
+  cond(
+    is_enum_type(t) => DocItemKind.Enum,
+    is_union_type(t) => DocItemKind.Union,
+    is_trait_type(t) => DocItemKind.Trait,
+    is_module_type(t) => DocItemKind.Module,
+    true => DocItemKind.TypeAlias
+  )
+});
+/// Mirrors `typeFieldsToDocFields` (builder.ts:307). yo-self's Struct/Union
+/// TypeValues carry no per-field default values (they live in func-id side
+/// tables that do not apply to type fields), so `default_value` is `.None`.
+_type_fields_to_doc_fields :: (
+  fn(
+    field_labels : ArrayList(String),
+    field_types : ArrayList(TypeValue),
+    doc_lookup : HashMap(String, String)
+  ) -> ArrayList(DocField)
+)({
+  out := ArrayList(DocField).new();
+  (i : usize) = usize(0);
+  while((i < field_labels.len()) && (i < field_types.len()), {
+    label := match(field_labels.get(i), .Some(l) => l, .None => String.new());
+    ty := match(
+      field_types.get(i),
+      .Some(t) => t,
+      .None => {
+        i = (i + usize(1));
+        continue;
+      }
+    );
+    out.push(
+      DocField(
+        name : label.clone(),
+        type_ : type_to_string(ty),
+        doc : doc_lookup.get(label.clone()),
+        default_value : Option(String).None
+      )
+    );
+    i = (i + usize(1));
+  });
+  out
+});
+/// Mirrors `enumVariantsToDocVariants` (builder.ts:321). TS assigns a
+/// discriminant to EVERY variant (auto-numbered when not explicit), so the
+/// always-populated `variant_discriminants` matches. A payload-free variant
+/// (empty field list) gets `.None` fields, matching TS's `undefined`.
+_enum_variants_to_doc_variants :: (
+  fn(enum_type : TypeValue, doc_lookup : HashMap(String, String)) -> ArrayList(DocVariant)
+)({
+  out := ArrayList(DocVariant).new();
+  match(
+    enum_type,
+    .EnumT({ variant_names, variant_fields, variant_field_labels, variant_discriminants }) => {
+      (i : usize) = usize(0);
+      while(i < variant_names.len(), {
+        v_name := match(variant_names.get(i), .Some(n) => n, .None => String.new());
+        v_field_types := match(variant_fields.get(i), .Some(f) => f, .None => ArrayList(TypeValue).new());
+        v_field_labels := match(variant_field_labels.get(i), .Some(l) => l, .None => ArrayList(String).new());
+        (fields_opt : Option(ArrayList(DocField))) = Option(ArrayList(DocField)).None;
+        if(v_field_types.len() > usize(0), {
+          fields_opt = Option(ArrayList(DocField)).Some(_type_fields_to_doc_fields(v_field_labels, v_field_types, doc_lookup));
+        });
+        (disc : Option(String)) = Option(String).None;
+        match(
+          variant_discriminants.get(i),
+          .Some(d) => {
+            disc = Option(String).Some(d.to_string());
+          },
+          .None => ()
+        );
+        out.push(
+          DocVariant(
+            name : v_name.clone(),
+            fields : fields_opt,
+            doc : doc_lookup.get(v_name.clone()),
+            discriminant : disc
+          )
+        );
+        i = (i + usize(1));
+      });
+    },
+    _ => ()
+  );
+  out
+});
+/// Mirrors `getTypeConstructorParams` (builder.ts:345): the generic params of
+/// a type-constructor field, from forall params or comptime value params.
+_get_type_constructor_params :: (fn(field_type : TypeValue) -> Option(ArrayList(DocParam)))({
+  if(!(is_function_type(field_type) && is_function_type_and_is_type_function(field_type)), {
+    return(Option(ArrayList(DocParam)).None);
+  });
+  has_forall := match(
+    field_type,
+    .Func({ meta }) => (meta.*.forall_labels.len() > usize(0)),
+    _ => false
+  );
+  if(has_forall, {
+    return(Option(ArrayList(DocParam)).Some(_forall_params_to_doc_params(field_type, Option(HashMap(String, String)).None)));
+  });
+  // Regular comptime params used as type params.
+  all_params := _function_params_to_doc_params(field_type, Option(HashMap(String, String)).None);
+  comptime_params := ArrayList(DocParam).new();
+  (i : usize) = usize(0);
+  while(i < all_params.len(), {
+    match(
+      all_params.get(i),
+      .Some(p) => if(p.is_comptime, {
+        comptime_params.push(p);
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  if(comptime_params.len() > usize(0), {
+    return(Option(ArrayList(DocParam)).Some(comptime_params));
+  });
+  Option(ArrayList(DocParam)).None
+});
+/// The nominal id of a named type, "" otherwise (for the method registry).
+_doc_type_id :: (fn(t : TypeValue) -> String)(
+  match(
+    t,
+    .Struct({ id }) => id.clone(),
+    .EnumT({ id }) => id.clone(),
+    .TraitT({ id }) => id.clone(),
+    _ => String.new()
+  )
+);
+/// Build a DocModule from evaluator output and extracted doc comments.
+/// Mirrors `buildDocModule` (builder.ts:990). `module_value`/`module_type`
+/// come from module_manager's load outcome (TS: `moduleValue: StructValue`,
+/// whose `.type` yo-self carries separately since FuncVals are untyped).
+build_doc_module :: (
+  fn(
+    name : String,
+    path : String,
+    module_value : EvalValue,
+    module_type : TypeValue,
+    extraction : DocExtractionResult,
+    tokens : ArrayList(Token),
+    env : Environment
+  ) -> DocModule
+)({
+  doc_lookup := build_doc_lookup(extraction);
+  trait_impl_map := extract_trait_impls_from_tokens(tokens);
+  token_impl_info_map := extract_impl_info_from_tokens(tokens, doc_lookup);
+  (module_doc : Option(String)) = Option(String).None;
+  match(
+    extraction.module_doc,
+    .Some(md) => {
+      module_doc = Option(String).Some(md.content.clone());
+    },
+    .None => ()
+  );
+  functions := ArrayList(DocFunction).new();
+  types := ArrayList(DocType).new();
+  traits := ArrayList(DocTrait).new();
+  constants := ArrayList(DocConstant).new();
+  result := DocModule(
+    name : name.clone(),
+    path : path.clone(),
+    doc : module_doc,
+    functions : functions,
+    types : types,
+    traits : traits,
+    constants : constants,
+    submodules : ArrayList(Box(DocModule)).new()
+  );
+  if(!(is_module_type(module_type)), {
+    return(result);
+  });
+  (ns_field_labels : ArrayList(String)) = ArrayList(String).new();
+  (ns_field_types : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
+  match(
+    module_type,
+    .Struct({ field_labels, field_types }) => {
+      ns_field_labels = field_labels;
+      ns_field_types = field_types;
+    },
+    _ => ()
+  );
+  (value_list : ArrayList(EvalValue)) = ArrayList(EvalValue).new();
+  match(
+    module_value,
+    .StructVal(_, _, field_values) => {
+      value_list = field_values;
+    },
+    _ => ()
+  );
+  (i : usize) = usize(0);
+  while(i < ns_field_labels.len(), {
+    field_name := match(ns_field_labels.get(i), .Some(l) => l, .None => String.new());
+    field_type := match(
+      ns_field_types.get(i),
+      .Some(t) => t,
+      .None => {
+        i = (i + usize(1));
+        continue;
+      }
+    );
+    value := match(value_list.get(i), .Some(v) => v, .None => EvalValue.UnitVal);
+    doc := doc_lookup.get(field_name.clone());
+    // Skip empty-label fields (anonymous impl blocks) and compiler-internal
+    // names.
+    if((field_name.len() == usize(0)) || field_name.starts_with(String.from("___")) || field_name.starts_with(String.from("__yo_")), {
+      i = (i + usize(1));
+      continue;
+    });
+    // -- Type declarations (value holds the actual type) --
+    (handled : bool) = false;
+    match(
+      value,
+      .TypeVal(actual_type) => {
+        handled = true;
+        sections := extract_doc_sections(doc);
+        cond(
+          is_struct_type(actual_type) => {
+            direct_methods := _extract_methods(_doc_type_id(actual_type), field_name.clone(), doc_lookup);
+            generic_impl_info := _extract_generic_impl_info(actual_type, field_name.clone(), doc_lookup, env);
+            (token_methods : ArrayList(DocFunction)) = ArrayList(DocFunction).new();
+            (token_trait_impls : ArrayList(String)) = ArrayList(String).new();
+            (token_impls : ArrayList(DocImpl)) = ArrayList(DocImpl).new();
+            match(
+              token_impl_info_map.get(field_name.clone()),
+              .Some(tii) => {
+                token_methods = tii.methods;
+                token_trait_impls = tii.trait_impls;
+                token_impls = tii.impls;
+              },
+              .None => ()
+            );
+            all_impls := ArrayList(DocImpl).new();
+            (gi : usize) = usize(0);
+            while(gi < generic_impl_info.impls.len(), {
+              match(
+                generic_impl_info.impls.get(gi),
+                .Some(im) => {
+                  all_impls.push(im);
+                },
+                .None => ()
+              );
+              gi = (gi + usize(1));
+            });
+            (ti2 : usize) = usize(0);
+            while(ti2 < token_impls.len(), {
+              match(
+                token_impls.get(ti2),
+                .Some(im) => {
+                  all_impls.push(im);
+                },
+                .None => ()
+              );
+              ti2 = (ti2 + usize(1));
+            });
+            (st_fields : ArrayList(DocField)) = ArrayList(DocField).new();
+            match(
+              actual_type,
+              .Struct({ field_labels : sfl, field_types : sft }) => {
+                st_fields = _type_fields_to_doc_fields(sfl, sft, doc_lookup);
+              },
+              _ => ()
+            );
+            base_trait_impls := match(
+              trait_impl_map.get(field_name.clone()),
+              .Some(l) => l,
+              .None => ArrayList(String).new()
+            );
+            types.push(
+              DocType(
+                name : field_name.clone(),
+                doc : doc,
+                kind : _get_type_kind(actual_type),
+                signature : type_to_string(actual_type),
+                type_params : _get_type_constructor_params(field_type),
+                fields : Option(ArrayList(DocField)).Some(st_fields),
+                variants : Option(ArrayList(DocVariant)).None,
+                methods : merge_methods(merge_methods(direct_methods, generic_impl_info.methods), token_methods),
+                trait_impls : merge_trait_impl_names(merge_trait_impl_names(base_trait_impls, generic_impl_info.trait_impls), token_trait_impls),
+                impls : Option(ArrayList(DocImpl)).Some(all_impls),
+                deprecated : sections.deprecated,
+                examples : sections.examples
+              )
+            );
+          },
+          is_enum_type(actual_type) => {
+            direct_methods := _extract_methods(_doc_type_id(actual_type), field_name.clone(), doc_lookup);
+            generic_impl_info := _extract_generic_impl_info(actual_type, field_name.clone(), doc_lookup, env);
+            (token_methods : ArrayList(DocFunction)) = ArrayList(DocFunction).new();
+            (token_trait_impls : ArrayList(String)) = ArrayList(String).new();
+            (token_impls : ArrayList(DocImpl)) = ArrayList(DocImpl).new();
+            match(
+              token_impl_info_map.get(field_name.clone()),
+              .Some(tii) => {
+                token_methods = tii.methods;
+                token_trait_impls = tii.trait_impls;
+                token_impls = tii.impls;
+              },
+              .None => ()
+            );
+            all_impls := ArrayList(DocImpl).new();
+            (gi : usize) = usize(0);
+            while(gi < generic_impl_info.impls.len(), {
+              match(
+                generic_impl_info.impls.get(gi),
+                .Some(im) => {
+                  all_impls.push(im);
+                },
+                .None => ()
+              );
+              gi = (gi + usize(1));
+            });
+            (ti2 : usize) = usize(0);
+            while(ti2 < token_impls.len(), {
+              match(
+                token_impls.get(ti2),
+                .Some(im) => {
+                  all_impls.push(im);
+                },
+                .None => ()
+              );
+              ti2 = (ti2 + usize(1));
+            });
+            base_trait_impls := match(
+              trait_impl_map.get(field_name.clone()),
+              .Some(l) => l,
+              .None => ArrayList(String).new()
+            );
+            types.push(
+              DocType(
+                name : field_name.clone(),
+                doc : doc,
+                kind : DocItemKind.Enum,
+                signature : type_to_string(actual_type),
+                type_params : _get_type_constructor_params(field_type),
+                fields : Option(ArrayList(DocField)).None,
+                variants : Option(ArrayList(DocVariant)).Some(_enum_variants_to_doc_variants(actual_type, doc_lookup)),
+                methods : merge_methods(merge_methods(direct_methods, generic_impl_info.methods), token_methods),
+                trait_impls : merge_trait_impl_names(merge_trait_impl_names(base_trait_impls, generic_impl_info.trait_impls), token_trait_impls),
+                impls : Option(ArrayList(DocImpl)).Some(all_impls),
+                deprecated : sections.deprecated,
+                examples : sections.examples
+              )
+            );
+          },
+          is_union_type(actual_type) => {
+            generic_impl_info := _extract_generic_impl_info(actual_type, field_name.clone(), doc_lookup, env);
+            (token_methods : ArrayList(DocFunction)) = ArrayList(DocFunction).new();
+            (token_trait_impls : ArrayList(String)) = ArrayList(String).new();
+            (token_impls : ArrayList(DocImpl)) = ArrayList(DocImpl).new();
+            match(
+              token_impl_info_map.get(field_name.clone()),
+              .Some(tii) => {
+                token_methods = tii.methods;
+                token_trait_impls = tii.trait_impls;
+                token_impls = tii.impls;
+              },
+              .None => ()
+            );
+            all_impls := ArrayList(DocImpl).new();
+            (gi : usize) = usize(0);
+            while(gi < generic_impl_info.impls.len(), {
+              match(
+                generic_impl_info.impls.get(gi),
+                .Some(im) => {
+                  all_impls.push(im);
+                },
+                .None => ()
+              );
+              gi = (gi + usize(1));
+            });
+            (ti2 : usize) = usize(0);
+            while(ti2 < token_impls.len(), {
+              match(
+                token_impls.get(ti2),
+                .Some(im) => {
+                  all_impls.push(im);
+                },
+                .None => ()
+              );
+              ti2 = (ti2 + usize(1));
+            });
+            (un_fields : ArrayList(DocField)) = ArrayList(DocField).new();
+            match(
+              actual_type,
+              .Union(_, ufl, uft) => {
+                un_fields = _type_fields_to_doc_fields(ufl, uft, doc_lookup);
+              },
+              _ => ()
+            );
+            base_trait_impls := match(
+              trait_impl_map.get(field_name.clone()),
+              .Some(l) => l,
+              .None => ArrayList(String).new()
+            );
+            types.push(
+              DocType(
+                name : field_name.clone(),
+                doc : doc,
+                kind : DocItemKind.Union,
+                signature : type_to_string(actual_type),
+                type_params : _get_type_constructor_params(field_type),
+                fields : Option(ArrayList(DocField)).Some(un_fields),
+                variants : Option(ArrayList(DocVariant)).None,
+                methods : merge_methods(generic_impl_info.methods, token_methods),
+                trait_impls : merge_trait_impl_names(merge_trait_impl_names(base_trait_impls, generic_impl_info.trait_impls), token_trait_impls),
+                impls : Option(ArrayList(DocImpl)).Some(all_impls),
+                deprecated : sections.deprecated,
+                examples : sections.examples
+              )
+            );
+          },
+          is_trait_type(actual_type) => {
+            trait_methods := ArrayList(DocFunction).new();
+            associated_types := ArrayList(DocAssociatedType).new();
+            match(
+              actual_type,
+              .TraitT({ assoc_type_names, field_labels : tfl, field_types : tft }) => {
+                (fi : usize) = usize(0);
+                while((fi < tfl.len()) && (fi < tft.len()), {
+                  t_label := match(tfl.get(fi), .Some(l) => l, .None => String.new());
+                  t_type := match(
+                    tft.get(fi),
+                    .Some(t) => t,
+                    .None => {
+                      fi = (fi + usize(1));
+                      continue;
+                    }
+                  );
+                  if(assoc_type_names.contains(t_label), {
+                    associated_types.push(
+                      DocAssociatedType(
+                        name : t_label.clone(),
+                        doc : doc_lookup.get(t_label.clone()),
+                        constraint : Option(String).Some(type_to_string(t_type))
+                      )
+                    );
+                  }, {
+                    if(is_function_type(t_type) && !(t_label.starts_with(String.from("___"))), {
+                      trait_methods.push(
+                        build_doc_function(
+                          t_label.clone(),
+                          t_type,
+                          doc_lookup.get(t_label.clone()),
+                          true,
+                          Option(String).Some(field_name.clone()),
+                          Option(HashMap(String, String)).Some(doc_lookup)
+                        )
+                      );
+                    });
+                  });
+                  fi = (fi + usize(1));
+                });
+              },
+              _ => ()
+            );
+            (assoc_opt : Option(ArrayList(DocAssociatedType))) = Option(ArrayList(DocAssociatedType)).None;
+            if(associated_types.len() > usize(0), {
+              assoc_opt = Option(ArrayList(DocAssociatedType)).Some(associated_types);
+            });
+            traits.push(
+              DocTrait(
+                name : field_name.clone(),
+                doc : doc,
+                kind : DocTraitKind.Trait,
+                signature : type_to_string(actual_type),
+                type_params : _get_type_constructor_params(field_type),
+                associated_types : assoc_opt,
+                methods : trait_methods,
+                implementors : ArrayList(String).new(),
+                deprecated : sections.deprecated,
+                examples : sections.examples
+              )
+            );
+          },
+          is_module_type(actual_type) => {
+            module_methods := ArrayList(DocFunction).new();
+            match(
+              actual_type,
+              .Struct({ field_labels : mfl, field_types : mft }) => {
+                (fi : usize) = usize(0);
+                while((fi < mfl.len()) && (fi < mft.len()), {
+                  m_label := match(mfl.get(fi), .Some(l) => l, .None => String.new());
+                  m_type := match(
+                    mft.get(fi),
+                    .Some(t) => t,
+                    .None => {
+                      fi = (fi + usize(1));
+                      continue;
+                    }
+                  );
+                  if(is_function_type(m_type) && !(m_label.starts_with(String.from("___"))) && (m_label.len() > usize(0)), {
+                    module_methods.push(
+                      build_doc_function(
+                        m_label.clone(),
+                        m_type,
+                        doc_lookup.get(m_label.clone()),
+                        true,
+                        Option(String).Some(field_name.clone()),
+                        Option(HashMap(String, String)).Some(doc_lookup)
+                      )
+                    );
+                  });
+                  fi = (fi + usize(1));
+                });
+              },
+              _ => ()
+            );
+            traits.push(
+              DocTrait(
+                name : field_name.clone(),
+                doc : doc,
+                kind : DocTraitKind.Module,
+                signature : type_to_string(actual_type),
+                type_params : _get_type_constructor_params(field_type),
+                associated_types : Option(ArrayList(DocAssociatedType)).None,
+                methods : module_methods,
+                implementors : ArrayList(String).new(),
+                deprecated : sections.deprecated,
+                examples : sections.examples
+              )
+            );
+          },
+          true => {
+            // Other TypeValue — document as a type alias.
+            base_trait_impls := match(
+              trait_impl_map.get(field_name.clone()),
+              .Some(l) => l,
+              .None => ArrayList(String).new()
+            );
+            types.push(
+              DocType(
+                name : field_name.clone(),
+                doc : doc,
+                kind : DocItemKind.TypeAlias,
+                signature : type_to_string(actual_type),
+                type_params : Option(ArrayList(DocParam)).None,
+                fields : Option(ArrayList(DocField)).None,
+                variants : Option(ArrayList(DocVariant)).None,
+                methods : ArrayList(DocFunction).new(),
+                trait_impls : base_trait_impls,
+                impls : Option(ArrayList(DocImpl)).None,
+                deprecated : sections.deprecated,
+                examples : sections.examples
+              )
+            );
+          }
+        );
+      },
+      _ => ()
+    );
+    if(handled, {
+      i = (i + usize(1));
+      continue;
+    });
+    // -- Function declarations --
+    if(is_function_type(field_type), {
+      if(is_function_type_and_is_type_function(field_type), {
+        inner_type := _resolve_inner_type(field_type, value);
+        sections := extract_doc_sections(doc);
+        cond(
+          is_struct_type(inner_type) => {
+            direct_methods := _extract_methods(_doc_type_id(inner_type), field_name.clone(), doc_lookup);
+            generic_impl_info := _extract_generic_impl_info(inner_type, field_name.clone(), doc_lookup, env);
+            (token_methods : ArrayList(DocFunction)) = ArrayList(DocFunction).new();
+            (token_trait_impls : ArrayList(String)) = ArrayList(String).new();
+            (token_impls : ArrayList(DocImpl)) = ArrayList(DocImpl).new();
+            match(
+              token_impl_info_map.get(field_name.clone()),
+              .Some(tii) => {
+                token_methods = tii.methods;
+                token_trait_impls = tii.trait_impls;
+                token_impls = tii.impls;
+              },
+              .None => ()
+            );
+            all_impls := ArrayList(DocImpl).new();
+            (gi : usize) = usize(0);
+            while(gi < generic_impl_info.impls.len(), {
+              match(
+                generic_impl_info.impls.get(gi),
+                .Some(im) => {
+                  all_impls.push(im);
+                },
+                .None => ()
+              );
+              gi = (gi + usize(1));
+            });
+            (ti2 : usize) = usize(0);
+            while(ti2 < token_impls.len(), {
+              match(
+                token_impls.get(ti2),
+                .Some(im) => {
+                  all_impls.push(im);
+                },
+                .None => ()
+              );
+              ti2 = (ti2 + usize(1));
+            });
+            (st_fields : ArrayList(DocField)) = ArrayList(DocField).new();
+            match(
+              inner_type,
+              .Struct({ field_labels : sfl, field_types : sft }) => {
+                st_fields = _type_fields_to_doc_fields(sfl, sft, doc_lookup);
+              },
+              _ => ()
+            );
+            base_trait_impls := match(
+              trait_impl_map.get(field_name.clone()),
+              .Some(l) => l,
+              .None => ArrayList(String).new()
+            );
+            types.push(
+              DocType(
+                name : field_name.clone(),
+                doc : doc,
+                kind : _get_type_kind(inner_type),
+                signature : type_to_string(field_type),
+                type_params : _get_type_constructor_params(field_type),
+                fields : Option(ArrayList(DocField)).Some(st_fields),
+                variants : Option(ArrayList(DocVariant)).None,
+                methods : merge_methods(merge_methods(direct_methods, generic_impl_info.methods), token_methods),
+                trait_impls : merge_trait_impl_names(merge_trait_impl_names(base_trait_impls, generic_impl_info.trait_impls), token_trait_impls),
+                impls : Option(ArrayList(DocImpl)).Some(all_impls),
+                deprecated : sections.deprecated,
+                examples : sections.examples
+              )
+            );
+          },
+          is_enum_type(inner_type) => {
+            direct_methods := _extract_methods(_doc_type_id(inner_type), field_name.clone(), doc_lookup);
+            generic_impl_info := _extract_generic_impl_info(inner_type, field_name.clone(), doc_lookup, env);
+            (token_methods : ArrayList(DocFunction)) = ArrayList(DocFunction).new();
+            (token_trait_impls : ArrayList(String)) = ArrayList(String).new();
+            (token_impls : ArrayList(DocImpl)) = ArrayList(DocImpl).new();
+            match(
+              token_impl_info_map.get(field_name.clone()),
+              .Some(tii) => {
+                token_methods = tii.methods;
+                token_trait_impls = tii.trait_impls;
+                token_impls = tii.impls;
+              },
+              .None => ()
+            );
+            all_impls := ArrayList(DocImpl).new();
+            (gi : usize) = usize(0);
+            while(gi < generic_impl_info.impls.len(), {
+              match(
+                generic_impl_info.impls.get(gi),
+                .Some(im) => {
+                  all_impls.push(im);
+                },
+                .None => ()
+              );
+              gi = (gi + usize(1));
+            });
+            (ti2 : usize) = usize(0);
+            while(ti2 < token_impls.len(), {
+              match(
+                token_impls.get(ti2),
+                .Some(im) => {
+                  all_impls.push(im);
+                },
+                .None => ()
+              );
+              ti2 = (ti2 + usize(1));
+            });
+            base_trait_impls := match(
+              trait_impl_map.get(field_name.clone()),
+              .Some(l) => l,
+              .None => ArrayList(String).new()
+            );
+            types.push(
+              DocType(
+                name : field_name.clone(),
+                doc : doc,
+                kind : DocItemKind.Enum,
+                signature : type_to_string(field_type),
+                type_params : _get_type_constructor_params(field_type),
+                fields : Option(ArrayList(DocField)).None,
+                variants : Option(ArrayList(DocVariant)).Some(_enum_variants_to_doc_variants(inner_type, doc_lookup)),
+                methods : merge_methods(merge_methods(direct_methods, generic_impl_info.methods), token_methods),
+                trait_impls : merge_trait_impl_names(merge_trait_impl_names(base_trait_impls, generic_impl_info.trait_impls), token_trait_impls),
+                impls : Option(ArrayList(DocImpl)).Some(all_impls),
+                deprecated : sections.deprecated,
+                examples : sections.examples
+              )
+            );
+          },
+          is_trait_type(inner_type) => {
+            trait_methods := ArrayList(DocFunction).new();
+            associated_types := ArrayList(DocAssociatedType).new();
+            match(
+              inner_type,
+              .TraitT({ assoc_type_names, field_labels : tfl, field_types : tft }) => {
+                (fi : usize) = usize(0);
+                while((fi < tfl.len()) && (fi < tft.len()), {
+                  t_label := match(tfl.get(fi), .Some(l) => l, .None => String.new());
+                  t_type := match(
+                    tft.get(fi),
+                    .Some(t) => t,
+                    .None => {
+                      fi = (fi + usize(1));
+                      continue;
+                    }
+                  );
+                  if(assoc_type_names.contains(t_label), {
+                    associated_types.push(
+                      DocAssociatedType(
+                        name : t_label.clone(),
+                        doc : doc_lookup.get(t_label.clone()),
+                        constraint : Option(String).Some(type_to_string(t_type))
+                      )
+                    );
+                  }, {
+                    if(is_function_type(t_type) && !(t_label.starts_with(String.from("___"))), {
+                      trait_methods.push(
+                        build_doc_function(
+                          t_label.clone(),
+                          t_type,
+                          doc_lookup.get(t_label.clone()),
+                          true,
+                          Option(String).Some(field_name.clone()),
+                          Option(HashMap(String, String)).Some(doc_lookup)
+                        )
+                      );
+                    });
+                  });
+                  fi = (fi + usize(1));
+                });
+              },
+              _ => ()
+            );
+            (assoc_opt : Option(ArrayList(DocAssociatedType))) = Option(ArrayList(DocAssociatedType)).None;
+            if(associated_types.len() > usize(0), {
+              assoc_opt = Option(ArrayList(DocAssociatedType)).Some(associated_types);
+            });
+            traits.push(
+              DocTrait(
+                name : field_name.clone(),
+                doc : doc,
+                kind : DocTraitKind.TraitFunction,
+                signature : type_to_string(field_type),
+                type_params : _get_type_constructor_params(field_type),
+                associated_types : assoc_opt,
+                methods : trait_methods,
+                implementors : ArrayList(String).new(),
+                deprecated : sections.deprecated,
+                examples : sections.examples
+              )
+            );
+          },
+          is_module_type(inner_type) => {
+            module_methods := ArrayList(DocFunction).new();
+            match(
+              inner_type,
+              .Struct({ field_labels : mfl, field_types : mft }) => {
+                (fi : usize) = usize(0);
+                while((fi < mfl.len()) && (fi < mft.len()), {
+                  m_label := match(mfl.get(fi), .Some(l) => l, .None => String.new());
+                  m_type := match(
+                    mft.get(fi),
+                    .Some(t) => t,
+                    .None => {
+                      fi = (fi + usize(1));
+                      continue;
+                    }
+                  );
+                  if(is_function_type(m_type) && !(m_label.starts_with(String.from("___"))) && (m_label.len() > usize(0)), {
+                    module_methods.push(
+                      build_doc_function(
+                        m_label.clone(),
+                        m_type,
+                        doc_lookup.get(m_label.clone()),
+                        true,
+                        Option(String).Some(field_name.clone()),
+                        Option(HashMap(String, String)).Some(doc_lookup)
+                      )
+                    );
+                  });
+                  fi = (fi + usize(1));
+                });
+              },
+              _ => ()
+            );
+            traits.push(
+              DocTrait(
+                name : field_name.clone(),
+                doc : doc,
+                kind : DocTraitKind.ModuleFunction,
+                signature : type_to_string(field_type),
+                type_params : _get_type_constructor_params(field_type),
+                associated_types : Option(ArrayList(DocAssociatedType)).None,
+                methods : module_methods,
+                implementors : ArrayList(String).new(),
+                deprecated : sections.deprecated,
+                examples : sections.examples
+              )
+            );
+          },
+          true => {
+            // TS distinguishes `comptime(Trait)` / `comptime(Module)` returns
+            // via TypeHierarchyType.baseType; yo-self's TypeUni carries no
+            // baseType, so a level >= 1 return classifies as trait-function
+            // (TS's `!retType.baseType` case) and anything else falls through
+            // to the unresolvable generic type constructor.
+            is_hierarchy := match(
+              field_type,
+              .Func({ result : fn_result }) => match(fn_result, .TypeUni(lvl) => (lvl >= usize(1)), _ => false),
+              _ => false
+            );
+            if(is_hierarchy, {
+              traits.push(
+                DocTrait(
+                  name : field_name.clone(),
+                  doc : doc,
+                  kind : DocTraitKind.TraitFunction,
+                  signature : type_to_string(field_type),
+                  type_params : _get_type_constructor_params(field_type),
+                  associated_types : Option(ArrayList(DocAssociatedType)).None,
+                  methods : ArrayList(DocFunction).new(),
+                  implementors : ArrayList(String).new(),
+                  deprecated : sections.deprecated,
+                  examples : sections.examples
+                )
+              );
+            }, {
+              // Generic type constructor that we can't resolve.
+              generic_impl_info := _extract_generic_impl_info(field_type, field_name.clone(), doc_lookup, env);
+              (token_methods : ArrayList(DocFunction)) = ArrayList(DocFunction).new();
+              (token_trait_impls : ArrayList(String)) = ArrayList(String).new();
+              (token_impls : ArrayList(DocImpl)) = ArrayList(DocImpl).new();
+              match(
+                token_impl_info_map.get(field_name.clone()),
+                .Some(tii) => {
+                  token_methods = tii.methods;
+                  token_trait_impls = tii.trait_impls;
+                  token_impls = tii.impls;
+                },
+                .None => ()
+              );
+              all_impls := ArrayList(DocImpl).new();
+              (gi : usize) = usize(0);
+              while(gi < generic_impl_info.impls.len(), {
+                match(
+                  generic_impl_info.impls.get(gi),
+                  .Some(im) => {
+                    all_impls.push(im);
+                  },
+                  .None => ()
+                );
+                gi = (gi + usize(1));
+              });
+              (ti2 : usize) = usize(0);
+              while(ti2 < token_impls.len(), {
+                match(
+                  token_impls.get(ti2),
+                  .Some(im) => {
+                    all_impls.push(im);
+                  },
+                  .None => ()
+                );
+                ti2 = (ti2 + usize(1));
+              });
+              base_trait_impls := match(
+                trait_impl_map.get(field_name.clone()),
+                .Some(l) => l,
+                .None => ArrayList(String).new()
+              );
+              types.push(
+                DocType(
+                  name : field_name.clone(),
+                  doc : doc,
+                  kind : DocItemKind.TypeFunction,
+                  signature : type_to_string(field_type),
+                  type_params : _get_type_constructor_params(field_type),
+                  fields : Option(ArrayList(DocField)).None,
+                  variants : Option(ArrayList(DocVariant)).None,
+                  methods : merge_methods(generic_impl_info.methods, token_methods),
+                  trait_impls : merge_trait_impl_names(merge_trait_impl_names(base_trait_impls, generic_impl_info.trait_impls), token_trait_impls),
+                  impls : Option(ArrayList(DocImpl)).Some(all_impls),
+                  deprecated : sections.deprecated,
+                  examples : sections.examples
+                )
+              );
+            });
+          }
+        );
+        i = (i + usize(1));
+        continue;
+      });
+      // Regular function or comptime function.
+      functions.push(
+        build_doc_function(
+          field_name.clone(),
+          field_type,
+          doc,
+          false,
+          Option(String).None,
+          Option(HashMap(String, String)).Some(doc_lookup)
+        )
+      );
+      i = (i + usize(1));
+      continue;
+    });
+    // -- Constant --
+    const_sections := extract_doc_sections(doc);
+    constants.push(
+      DocConstant(
+        name : field_name.clone(),
+        doc : doc,
+        type_ : type_to_string(field_type),
+        value : Option(String).Some(value_to_string(value)),
+        deprecated : const_sections.deprecated
+      )
+    );
+    i = (i + usize(1));
+  });
+  result
+});
 export(
   DocSections,
   TokenImplInfo,
@@ -1293,5 +2560,8 @@ export(
   extract_trait_impls_from_tokens,
   extract_impl_info_from_tokens,
   build_doc_module_from_tokens,
-  build_cross_references
+  build_cross_references,
+  GenericImplInfo,
+  build_doc_function,
+  build_doc_module
 );
