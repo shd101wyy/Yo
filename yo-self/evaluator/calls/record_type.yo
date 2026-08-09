@@ -112,15 +112,15 @@ try_to_implement_module_with_arguments_by_module_type :: (
   while(i < n_fields, {
     field_label_opt := field_labels.get(i);
     field_type_opt := field_types.get(i);
-    field_label := match(field_label_opt,.Some(s) => s,.None => String.from(""));
-    field_type := match(field_type_opt,.Some(t) => t,.None => TypeValue.Unit);
+    field_label := match(field_label_opt, .Some(s) => s, .None => String.from(""));
+    field_type := match(field_type_opt, .Some(t) => t, .None => TypeValue.Unit);
     (found_arg : bool) = false;
     (j : usize) = usize(0);
     while(j < n_args, {
       arg_expr_opt := arg_exprs.get(j);
-      arg_expr := match(arg_expr_opt,.Some(a) => a,.None => module_expr);
+      arg_expr := match(arg_expr_opt, .Some(a) => a, .None => module_expr);
       // Each arg must be a `label: value` colon call.
-      if(!(ast_expr_is_fn_call_of(arg_expr, ":",.Some(usize(2)))), {
+      if(!(ast_expr_is_fn_call_of(arg_expr, ":", .Some(usize(2)))), {
         exn.throw(
           dyn(
             format_error_message(
@@ -133,13 +133,13 @@ try_to_implement_module_with_arguments_by_module_type :: (
         );
       });
       // Extract label_sub and value_sub from the `:` call.
-      label_sub_opt := match(arg_expr,.FnCall(_, _, args, _, _) => args.get(usize(0)), _ => Option(AstExpr).None);
-      value_sub_opt := match(arg_expr,.FnCall(_, _, args, _, _) => args.get(usize(1)), _ => Option(AstExpr).None);
+      label_sub_opt := match(arg_expr, .FnCall(_, _, args, _, _) => args.get(usize(0)), _ => Option(AstExpr).None);
+      value_sub_opt := match(arg_expr, .FnCall(_, _, args, _, _) => args.get(usize(1)), _ => Option(AstExpr).None);
       label_sub := match(
         label_sub_opt,
         .Some(s) => s,
         .None => {
-          exn.throw(dyn(format_error_message(ast_expr_token(arg_expr), String.from("Label arg missing label sub-expr."), false,.None)));
+          exn.throw(dyn(format_error_message(ast_expr_token(arg_expr), String.from("Label arg missing label sub-expr."), false, .None)));
           arg_expr
         }
       );
@@ -147,7 +147,7 @@ try_to_implement_module_with_arguments_by_module_type :: (
         value_sub_opt,
         .Some(s) => s,
         .None => {
-          exn.throw(dyn(format_error_message(ast_expr_token(arg_expr), String.from("Label arg missing value sub-expr."), false,.None)));
+          exn.throw(dyn(format_error_message(ast_expr_token(arg_expr), String.from("Label arg missing value sub-expr."), false, .None)));
           arg_expr
         }
       );
@@ -164,7 +164,7 @@ try_to_implement_module_with_arguments_by_module_type :: (
         );
       });
       // Parse the label token value.
-      label_tok := match(label_sub,.Atom(_, tok) => tok.value.clone(), _ => String.from(""));
+      label_tok := match(label_sub, .Atom(_, tok) => tok.value.clone(), _ => String.from(""));
       // Validate the label exists in the module type.
       (label_exists_in_type : bool) = false;
       (li : usize) = usize(0);
@@ -197,7 +197,7 @@ try_to_implement_module_with_arguments_by_module_type :: (
         found_arg = true;
         // Evaluate the value sub-expression with expected type = field_type.
         saved_expected := ctx.expected_type;
-        ctx.expected_type =.Some(ExpectedTypeCtx(ty : field_type, env : caller_env));
+        ctx.expected_type = .Some(ExpectedTypeCtx(ty : field_type, env : caller_env));
         evaluated_arg := evaluate_expression(value_sub, caller_env, ctx);
         ctx.expected_type = saved_expected;
         arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_arg));
@@ -213,7 +213,7 @@ try_to_implement_module_with_arguments_by_module_type :: (
             )
           );
         });
-        arg_info := match(arg_info_opt,.Some(it) => it,.None => new_expr_info(caller_env, field_type));
+        arg_info := match(arg_info_opt, .Some(it) => it, .None => new_expr_info(caller_env, field_type));
         set_expr_as_needs_to_call_dup(evaluated_arg, ctx, exn);
         caller_env = arg_info.env;
         arg_type := arg_info.ty;
@@ -264,7 +264,7 @@ try_to_implement_module_with_arguments_by_module_type :: (
       },
       .None => ()
     );
-    val_opt := match(values.get(k),.Some(v) => v,.None => Option(EvalValue).None);
+    val_opt := match(values.get(k), .Some(v) => v, .None => Option(EvalValue).None);
     match(
       val_opt,
       .Some(v) => {

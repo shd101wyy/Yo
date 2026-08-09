@@ -34,11 +34,11 @@ open(import("std/string"));
 // ---------------------------------------------------------------------------
 /// True if `val` is a `TypeVal` variant (i.e. a first-class type value).
 _is_type_eval_value :: (fn(val : EvalValue) -> bool)(
-  match(val,.TypeVal(_) => true, _ => false)
+  match(val, .TypeVal(_) => true, _ => false)
 );
 /// Extract the `TypeValue` from a `TypeVal`; returns Unit type on mismatch.
 _unwrap_type_eval_value :: (fn(val : EvalValue) -> TypeValue)(
-  match(val,.TypeVal(boxed_ty) => boxed_ty, _ => TypeValue.Unit)
+  match(val, .TypeVal(boxed_ty) => boxed_ty, _ => TypeValue.Unit)
 );
 /// True if `ty` is a `SomeT` whose `id` equals `id_to_compare`.
 _same_some_id :: (fn(ty : TypeValue, id_to_compare : String) -> bool)(
@@ -139,7 +139,7 @@ _lookup_by_frame :: (fn(env : Environment, fl : usize, name : String) -> Option(
         .Some(frame) => {
           vars := frame.variables;
           m := vars.len();
-          (result : Option(TypeValue)) =.None;
+          (result : Option(TypeValue)) = .None;
           (i : usize) = usize(0);
           while(i < m, {
             match(
@@ -152,7 +152,7 @@ _lookup_by_frame :: (fn(env : Environment, fl : usize, name : String) -> Option(
                       .Some(val) =>
                         cond(
                           _is_type_eval_value(val) => {
-                            result =.Some(_unwrap_type_eval_value(val));
+                            result = .Some(_unwrap_type_eval_value(val));
                             i = m;
                           },
                           true => ()

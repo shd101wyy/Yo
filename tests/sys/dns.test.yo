@@ -12,7 +12,7 @@ tcp :: import("std/sys/tcp");
 { AF_INET, AF_INET6, SOCK_STREAM, SOCK_DGRAM, NI_NUMERICHOST } :: import("std/sys/socket");
 test("DNS resolve localhost", {
   result_ptr := dns.alloc_result();
-  ret := io.await(dns.getaddrinfo(*(u8)("localhost"),.None,.None, result_ptr), io);
+  ret := io.await(dns.getaddrinfo(*(u8)("localhost"), .None, .None, result_ptr), io);
   assert(ret == i32(0));
   first_ai := dns.get_result(result_ptr);
   match(
@@ -48,7 +48,7 @@ test("DNS resolve localhost", {
 });
 test("DNS resolve numeric IP 127.0.0.1", {
   result_ptr := dns.alloc_result();
-  ret := io.await(dns.getaddrinfo(*(u8)("127.0.0.1"),.None,.None, result_ptr), io);
+  ret := io.await(dns.getaddrinfo(*(u8)("127.0.0.1"), .None, .None, result_ptr), io);
   assert(ret == i32(0));
   match(
     dns.get_result(result_ptr),
@@ -68,7 +68,7 @@ test("DNS resolve numeric IP 127.0.0.1", {
 });
 test("DNS resolve with service port", {
   result_ptr := dns.alloc_result();
-  ret := io.await(dns.getaddrinfo(*(u8)("127.0.0.1"),.Some(*(u8)("80")),.None, result_ptr), io);
+  ret := io.await(dns.getaddrinfo(*(u8)("127.0.0.1"), .Some(*(u8)("80")), .None, result_ptr), io);
   assert(ret == i32(0));
   match(
     dns.get_result(result_ptr),
@@ -97,7 +97,7 @@ test("DNS getnameinfo reverse lookup", {
 });
 test("DNS failed resolution for nonexistent host", {
   result_ptr := dns.alloc_result();
-  ret := io.await(dns.getaddrinfo(*(u8)("this.host.definitely.does.not.exist.invalid"),.None,.None, result_ptr), io);
+  ret := io.await(dns.getaddrinfo(*(u8)("this.host.definitely.does.not.exist.invalid"), .None, .None, result_ptr), io);
   // Normally returns non-zero EAI_* error, but some networks have DNS interceptors
   // that resolve all hostnames (e.g., captive portals, corporate proxies).
   // Accept both outcomes: error (ret != 0) or intercepted success (ret == 0).

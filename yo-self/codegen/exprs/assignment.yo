@@ -30,27 +30,27 @@ open(import("std/string"));
 _last_is_module_level :: (fn(env : Environment, name : String) -> bool)({
   vars := get_variables_from_env(env, name);
   m := vars.len();
-  if(m == usize(0), false, match(vars.get(m - usize(1)),.Some(v) => v.is_module_level,.None => false))
+  if(m == usize(0), false, match(vars.get(m - usize(1)), .Some(v) => v.is_module_level, .None => false))
 });
 /// The last binding for `name` is a compile-time-only variable.
 _last_is_compile_time_only :: (fn(env : Environment, name : String) -> bool)({
   vars := get_variables_from_env(env, name);
   m := vars.len();
-  if(m == usize(0), false, match(vars.get(m - usize(1)),.Some(v) => v.is_compile_time_only,.None => false))
+  if(m == usize(0), false, match(vars.get(m - usize(1)), .Some(v) => v.is_compile_time_only, .None => false))
 });
 /// Generate an assignment / initialization. Mirrors `generateAssignment`.
 generate_assignment :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
-  ei := match(context.base.get_expr_info(expr),.Some(e) => e,.None => return(String.from("")));
+  ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("")));
   // Compile-time-only assignment (e.g. `p.* = v` where `p` is comptime).
-  if(match(ei.is_compile_time_only_assignment,.Some(b) => b,.None => false), {
+  if(match(ei.is_compile_time_only_assignment, .Some(b) => b, .None => false), {
     return(String.from(""));
   });
-  args := match(expr,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new());
-  lhs0 := match(args.get(usize(0)),.Some(x) => x,.None => return(String.from("// Error: assignment missing lhs\n")));
-  rhs := match(args.get(usize(1)),.Some(x) => x,.None => return(String.from("// Error: assignment missing rhs\n")));
+  args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  lhs0 := match(args.get(usize(0)), .Some(x) => x, .None => return(String.from("// Error: assignment missing lhs\n")));
+  rhs := match(args.get(usize(1)), .Some(x) => x, .None => return(String.from("// Error: assignment missing rhs\n")));
   // `(lhs : T) = rhs` is an initialization; unwrap to the real lhs variable.
   is_init := ast_expr_is_fn_call_of(lhs0, BK_COLON, Option(usize).Some(usize(2)));
-  lhs := if(is_init, match(lhs0,.FnCall(_, _, la, _, _) => match(la.get(usize(0)),.Some(x) => x,.None => lhs0),.Atom(_, _) => lhs0), lhs0);
+  lhs := if(is_init, match(lhs0, .FnCall(_, _, la, _, _) => match(la.get(usize(0)), .Some(x) => x, .None => lhs0), .Atom(_, _) => lhs0), lhs0);
   lhs_ei := match(
     context.base.get_expr_info(lhs),
     .Some(e) => e,
@@ -101,7 +101,7 @@ generate_assignment :: (fn(expr : AstExpr, indent : String, context : FunctionGe
   match(
     ei.variable_name,
     .Some(temp_var_name) => {
-      in_sm := match(context.in_async_state_machine,.Some(_) => lhs_code.starts_with("sm->"),.None => false);
+      in_sm := match(context.in_async_state_machine, .Some(_) => lhs_code.starts_with("sm->"), .None => false);
       if(
         !(in_sm),
         if(!(is_unit_type(lhs_type)), {
@@ -139,7 +139,7 @@ generate_assignment :: (fn(expr : AstExpr, indent : String, context : FunctionGe
       ftl.push_string(rhs_code);
       em.emit_string_line(ftl);
       context.current_assignment_save_temp = prev_save_temp;
-      return(match(ei.variable_name,.Some(v) => v,.None => String.from("")));
+      return(match(ei.variable_name, .Some(v) => v, .None => String.from("")));
     });
     if(is_init, {
       vt := get_variable_type_string(lhs_type, _call_generate_expr(lhs, indent.clone(), context), context.base);
@@ -169,11 +169,11 @@ generate_assignment :: (fn(expr : AstExpr, indent : String, context : FunctionGe
       ftl.push_string(rhs_code);
       em.emit_string_line(ftl);
       context.current_assignment_save_temp = prev_save_temp;
-      return(match(ei.variable_name,.Some(v) => v,.None => String.from("")));
+      return(match(ei.variable_name, .Some(v) => v, .None => String.from("")));
     });
     if(!(is_unit_type(lhs_type)), {
       c_type_string := get_type_string(lhs_type, context.base);
-      is_sm_var := match(context.in_async_state_machine,.Some(_) => lhs_code.starts_with("sm->"),.None => false);
+      is_sm_var := match(context.in_async_state_machine, .Some(_) => lhs_code.starts_with("sm->"), .None => false);
       line := indent.clone();
       if(is_init && !(is_sm_var), {
         line.push_string(c_type_string);
@@ -187,6 +187,6 @@ generate_assignment :: (fn(expr : AstExpr, indent : String, context : FunctionGe
     });
   });
   context.current_assignment_save_temp = prev_save_temp;
-  match(ei.variable_name,.Some(v) => v,.None => String.from(""))
+  match(ei.variable_name, .Some(v) => v, .None => String.from(""))
 });
 export(generate_assignment);

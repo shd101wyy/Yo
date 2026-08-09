@@ -113,7 +113,7 @@ find_str_in_list :: (fn(list : ArrayList(String), s : String) -> Option(usize))(
 });
 /// True when `expr` is an or-pattern `|(a, b)`.
 is_or_pattern :: (fn(expr : AstExpr) -> bool)(
-  ast_expr_is_fn_call(expr) && ast_expr_is_fn_call_of(expr, "|",.Some(usize(2)))
+  ast_expr_is_fn_call(expr) && ast_expr_is_fn_call_of(expr, "|", .Some(usize(2)))
 );
 /// True for a *place* expression: a plain variable (Atom) or a bare
 /// field-access chain rooted at one (`self._bytes`, `a.b.c`).
@@ -136,16 +136,16 @@ is_place_expression :: (fn(e : AstExpr, env : Environment) -> bool)({
   outer_field_is_atom := match(
     e,
     .FnCall(_, _, eargs, _, _) =>
-      match(eargs.get(usize(1)),.Some(a1) => ast_expr_is_atom(a1),.None => false),
+      match(eargs.get(usize(1)), .Some(a1) => ast_expr_is_atom(a1), .None => false),
     .Atom(_, _) => false
   );
-  if(!(ast_expr_is_fn_call_of(e, ".",.Some(usize(2))) && outer_field_is_atom), {
+  if(!(ast_expr_is_fn_call_of(e, ".", .Some(usize(2))) && outer_field_is_atom), {
     return(false);
   });
   // Walk to the root of the `a.b.c` chain.
   (root : AstExpr) = match(
     e,
-    .FnCall(_, _, eargs0, _, _) => match(eargs0.get(usize(0)),.Some(a0) => a0,.None => e),
+    .FnCall(_, _, eargs0, _, _) => match(eargs0.get(usize(0)), .Some(a0) => a0, .None => e),
     .Atom(_, _) => e
   );
   walking := true;
@@ -154,8 +154,8 @@ is_place_expression :: (fn(e : AstExpr, env : Environment) -> bool)({
       root,
       .FnCall(_, _, rargs, _, _) =>
         if(
-          ast_expr_is_fn_call_of(root, ".",.Some(usize(2)))
-          && match(rargs.get(usize(1)),.Some(a1) => ast_expr_is_atom(a1),.None => false),
+          ast_expr_is_fn_call_of(root, ".", .Some(usize(2)))
+          && match(rargs.get(usize(1)), .Some(a1) => ast_expr_is_atom(a1), .None => false),
           rargs.get(usize(0)),
           Option(AstExpr).None
         ),
@@ -200,12 +200,12 @@ flatten_or_pattern :: (fn(expr : AstExpr) -> ArrayList(AstExpr))({
   });
   left := match(
     expr,
-    .FnCall(_, _, args, _, _) => match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr()),
+    .FnCall(_, _, args, _, _) => match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
     .Atom(_, _) => make_err_expr()
   );
   right := match(
     expr,
-    .FnCall(_, _, args, _, _) => match(args.get(usize(1)),.Some(a) => a,.None => make_err_expr()),
+    .FnCall(_, _, args, _, _) => match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr()),
     .Atom(_, _) => make_err_expr()
   );
   left_flat := recur(left);
@@ -285,7 +285,7 @@ evaluate_primitive_match :: (
     );
     pat_i = (pat_i + usize(1));
     (case_env : Environment) = env;
-    if(!(ast_expr_is_fn_call_of(pattern, "=>",.Some(usize(2)))), {
+    if(!(ast_expr_is_fn_call_of(pattern, "=>", .Some(usize(2)))), {
       exn.throw(
         dyn(
           format_error_message(
@@ -300,12 +300,12 @@ evaluate_primitive_match :: (
     });
     match_arm_expr := match(
       pattern,
-      .FnCall(_, _, pargs, _, _) => match(pargs.get(usize(0)),.Some(a) => a,.None => make_err_expr()),
+      .FnCall(_, _, pargs, _, _) => match(pargs.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
       .Atom(_, _) => make_err_expr()
     );
     rhs_expr := match(
       pattern,
-      .FnCall(_, _, pargs, _, _) => match(pargs.get(usize(1)),.Some(a) => a,.None => make_err_expr()),
+      .FnCall(_, _, pargs, _, _) => match(pargs.get(usize(1)), .Some(a) => a, .None => make_err_expr()),
       .Atom(_, _) => make_err_expr()
     );
     if(ast_expr_is_atom_of(match_arm_expr, "_"), {
@@ -367,7 +367,7 @@ evaluate_primitive_match :: (
         );
         return(expr);
       });
-      body_info_wc := match(body_info_wc_opt,.Some(bi) => bi,.None => new_expr_info(env, t_unit()));
+      body_info_wc := match(body_info_wc_opt, .Some(bi) => bi, .None => new_expr_info(env, t_unit()));
       pop_env_frame(body_info_wc.env);
       consume_case_body_temp_var(evaluated_body_wc, body_info_wc.env, ctx);
       // Do NOT null the shared arm-body ExprInfo for an unknown scrutinee — it
@@ -380,7 +380,7 @@ evaluate_primitive_match :: (
           .None => ControlFlowFlags(return_flag : false, unwind_flag : false, break_flag : false, continue_flag : false)
         );
         control_flows.push(cf_wc);
-        if(has_control_flow(body_info_wc.control_flow,.Return), {
+        if(has_control_flow(body_info_wc.control_flow, .Return), {
           return_bodies.push(evaluated_body_wc);
         });
         // Concrete CT match with CF → set info and return
@@ -391,8 +391,8 @@ evaluate_primitive_match :: (
         );
         if(should_set_cf_wc, {
           result_ty_wc := cond(
-            match(ctx.expected_type,.Some(et) => !(type_contains_some_type(et.ty)),.None => false) =>
-              match(ctx.expected_type,.Some(et) => et.ty,.None => body_info_wc.ty),
+            match(ctx.expected_type, .Some(et) => !(type_contains_some_type(et.ty)), .None => false) =>
+              match(ctx.expected_type, .Some(et) => et.ty, .None => body_info_wc.ty),
             true => body_info_wc.ty
           );
           out_wc_cf := new_expr_info(body_info_wc.env, result_ty_wc);
@@ -403,8 +403,8 @@ evaluate_primitive_match :: (
         }, {
           if(scrutinee_val_opt.is_none(), {
             result_ty_wc2 := cond(
-              match(ctx.expected_type,.Some(et) => !(type_contains_some_type(et.ty)),.None => false) =>
-                match(ctx.expected_type,.Some(et) => et.ty,.None => body_info_wc.ty),
+              match(ctx.expected_type, .Some(et) => !(type_contains_some_type(et.ty)), .None => false) =>
+                match(ctx.expected_type, .Some(et) => et.ty, .None => body_info_wc.ty),
               true => body_info_wc.ty
             );
             out_wc_cf2 := new_expr_info(body_info_wc.env, result_ty_wc2);
@@ -444,12 +444,12 @@ evaluate_primitive_match :: (
           filtered_wc := ArrayList(AstExpr).new();
           (fwc_i : usize) = usize(0);
           while(fwc_i < bodies.len(), {
-            b_wc := match(bodies.get(fwc_i),.Some(b2) => b2,.None => make_err_expr());
+            b_wc := match(bodies.get(fwc_i), .Some(b2) => b2, .None => make_err_expr());
             match(
               expr_info_table_get(ctx.expr_info_table, ast_expr_id(b_wc)),
               .None => (),
               .Some(bi) => {
-                if(!(has_control_flow(bi.control_flow,.Return)) && !(has_control_flow(bi.control_flow,.Unwind)), {
+                if(!(has_control_flow(bi.control_flow, .Return)) && !(has_control_flow(bi.control_flow, .Unwind)), {
                   filtered_wc.push(b_wc);
                 });
               }
@@ -458,8 +458,8 @@ evaluate_primitive_match :: (
           });
           env = merge_and_check_envs(env, filtered_wc, ctx, exn);
           result_ty_wc3 := cond(
-            match(ctx.expected_type,.Some(et) => !(type_contains_some_type(et.ty)),.None => false) =>
-              match(ctx.expected_type,.Some(et) => et.ty,.None => body_info_wc.ty),
+            match(ctx.expected_type, .Some(et) => !(type_contains_some_type(et.ty)), .None => false) =>
+              match(ctx.expected_type, .Some(et) => et.ty, .None => body_info_wc.ty),
             true => body_info_wc.ty
           );
           out_wc_early := new_expr_info(env, result_ty_wc3);
@@ -509,7 +509,7 @@ evaluate_primitive_match :: (
       pat_exprs_eval := ArrayList(AstExpr).new();
       (fp_i : usize) = usize(0);
       while(fp_i < flattened.len(), {
-        fp_expr := match(flattened.get(fp_i),.Some(e) => e,.None => make_err_expr());
+        fp_expr := match(flattened.get(fp_i), .Some(e) => e, .None => make_err_expr());
         fp_i = (fp_i + usize(1));
         old_expected_fp := ctx.expected_type;
         ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : scrutinee_type, env : case_env));
@@ -529,7 +529,7 @@ evaluate_primitive_match :: (
           );
           return(expr);
         });
-        fp_info := match(fp_info_opt,.Some(fi) => fi,.None => new_expr_info(case_env, scrutinee_type));
+        fp_info := match(fp_info_opt, .Some(fi) => fi, .None => new_expr_info(case_env, scrutinee_type));
         // Argument ROLES: yo-self's are_types_compatible is (actual, expected)
         // — the PATTERN's type is the actual/given and the SCRUTINEE type is
         // the expected (TS match.ts:1650-1656 passes expected=scrutineeType,
@@ -565,7 +565,7 @@ evaluate_primitive_match :: (
           );
           return(expr);
         });
-        pv := match(fp_info.value,.Some(v) => v,.None => EvalValue.UnitVal);
+        pv := match(fp_info.value, .Some(v) => v, .None => EvalValue.UnitVal);
         lit_key := value_to_string(pv);
         if(lit_key.len() > usize(0), {
           if(contains_str_in_list(checked_literal_values, lit_key.clone()), {
@@ -600,8 +600,8 @@ evaluate_primitive_match :: (
             );
             (pv_check_i : usize) = usize(0);
             while((pv_check_i < pat_vals.len()) && !(matches_at_ct), {
-              pv_item := match(pat_vals.get(pv_check_i),.Some(v) => v,.None => EvalValue.UnitVal);
-              pe_item := match(pat_exprs_eval.get(pv_check_i),.Some(e) => e,.None => make_err_expr());
+              pv_item := match(pat_vals.get(pv_check_i), .Some(v) => v, .None => EvalValue.UnitVal);
+              pe_item := match(pat_exprs_eval.get(pv_check_i), .Some(e) => e, .None => make_err_expr());
               pe_info := match(
                 expr_info_table_get(ctx.expr_info_table, ast_expr_id(pe_item)),
                 .Some(i) => i,
@@ -619,7 +619,7 @@ evaluate_primitive_match :: (
       pattern_value_opts := ArrayList(Option(EvalValue)).new();
       (pvs_i : usize) = usize(0);
       while(pvs_i < pat_vals.len(), {
-        pvi := match(pat_vals.get(pvs_i),.Some(v) => v,.None => EvalValue.UnitVal);
+        pvi := match(pat_vals.get(pvs_i), .Some(v) => v, .None => EvalValue.UnitVal);
         pattern_value_opts.push(Option(EvalValue).Some(pvi));
         pvs_i = (pvs_i + usize(1));
       });
@@ -658,7 +658,7 @@ evaluate_primitive_match :: (
         );
         return(expr);
       });
-      body_info_lit := match(body_info_lit_opt,.Some(bi) => bi,.None => new_expr_info(env, t_unit()));
+      body_info_lit := match(body_info_lit_opt, .Some(bi) => bi, .None => new_expr_info(env, t_unit()));
       pop_env_frame(body_info_lit.env);
       consume_case_body_temp_var(evaluated_body_lit, body_info_lit.env, ctx);
       // Do NOT null the shared arm-body ExprInfo for an unknown scrutinee — it
@@ -671,14 +671,14 @@ evaluate_primitive_match :: (
           .None => ControlFlowFlags(return_flag : false, unwind_flag : false, break_flag : false, continue_flag : false)
         );
         control_flows.push(cf_lit);
-        if(has_control_flow(body_info_lit.control_flow,.Return), {
+        if(has_control_flow(body_info_lit.control_flow, .Return), {
           return_bodies.push(evaluated_body_lit);
         });
         // CT match + CF → early return
         if(scrutinee_val_opt.is_some() && matches_at_ct, {
           result_ty_lit_cf := cond(
-            match(ctx.expected_type,.Some(et) => !(type_contains_some_type(et.ty)),.None => false) =>
-              match(ctx.expected_type,.Some(et) => et.ty,.None => body_info_lit.ty),
+            match(ctx.expected_type, .Some(et) => !(type_contains_some_type(et.ty)), .None => false) =>
+              match(ctx.expected_type, .Some(et) => et.ty, .None => body_info_lit.ty),
             true => body_info_lit.ty
           );
           out_lit_cf := new_expr_info(body_info_lit.env, result_ty_lit_cf);
@@ -689,8 +689,8 @@ evaluate_primitive_match :: (
         }, {
           if(scrutinee_val_opt.is_none(), {
             result_ty_lit_cf2 := cond(
-              match(ctx.expected_type,.Some(et) => !(type_contains_some_type(et.ty)),.None => false) =>
-                match(ctx.expected_type,.Some(et) => et.ty,.None => body_info_lit.ty),
+              match(ctx.expected_type, .Some(et) => !(type_contains_some_type(et.ty)), .None => false) =>
+                match(ctx.expected_type, .Some(et) => et.ty, .None => body_info_lit.ty),
               true => body_info_lit.ty
             );
             out_lit_cf2 := new_expr_info(body_info_lit.env, result_ty_lit_cf2);
@@ -723,14 +723,14 @@ evaluate_primitive_match :: (
         // CT match without CF → early return
         (should_early_return_lit : bool) = (
           scrutinee_val_opt.is_some() && (
-            !(is_unknown_val(match(scrutinee_val_opt,.Some(v2) => v2,.None => EvalValue.UnitVal))) &&
+            !(is_unknown_val(match(scrutinee_val_opt, .Some(v2) => v2, .None => EvalValue.UnitVal))) &&
               matches_at_ct
           )
         );
         if(should_early_return_lit, {
           result_ty_lit_early := cond(
-            match(ctx.expected_type,.Some(et) => !(type_contains_some_type(et.ty)),.None => false) =>
-              match(ctx.expected_type,.Some(et) => et.ty,.None => body_info_lit.ty),
+            match(ctx.expected_type, .Some(et) => !(type_contains_some_type(et.ty)), .None => false) =>
+              match(ctx.expected_type, .Some(et) => et.ty, .None => body_info_lit.ty),
             true => body_info_lit.ty
           );
           out_lit_early := new_expr_info(body_info_lit.env, result_ty_lit_early);
@@ -833,16 +833,16 @@ evaluate_primitive_match :: (
         result_type_pm = Option(TypeValue).Some(t_unit());
       });
     });
-    rt_pm := match(result_type_pm,.Some(t) => t,.None => t_unit());
+    rt_pm := match(result_type_pm, .Some(t) => t, .None => t_unit());
     non_return_pm := ArrayList(AstExpr).new();
     (nrpm_i : usize) = usize(0);
     while(nrpm_i < bodies.len(), {
-      b_pm := match(bodies.get(nrpm_i),.Some(b2) => b2,.None => make_err_expr());
+      b_pm := match(bodies.get(nrpm_i), .Some(b2) => b2, .None => make_err_expr());
       match(
         expr_info_table_get(ctx.expr_info_table, ast_expr_id(b_pm)),
         .None => (),
         .Some(bi) => {
-          if(!(has_control_flow(bi.control_flow,.Return)) && !(has_control_flow(bi.control_flow,.Unwind)), {
+          if(!(has_control_flow(bi.control_flow, .Return)) && !(has_control_flow(bi.control_flow, .Unwind)), {
             non_return_pm.push(b_pm);
           });
         }
@@ -859,7 +859,7 @@ evaluate_primitive_match :: (
       )
     );
     if(should_direct_pm, {
-      first_nrpm := match(non_return_pm.get(usize(0)),.Some(b) => b,.None => make_err_expr());
+      first_nrpm := match(non_return_pm.get(usize(0)), .Some(b) => b, .None => make_err_expr());
       match(
         expr_info_table_get(ctx.expr_info_table, ast_expr_id(first_nrpm)),
         .None => (),
@@ -882,13 +882,13 @@ evaluate_primitive_match :: (
       // Step-5 check — `!(match(param_ct_flags.get(i), ...))` then stamped
       // comptime_not and the stage2 self-compile called an unemitted C fn,
       // the FIXPOINT_BROKEN shape from the comptime-overload gate removal).
-      match(scrutinee_val_opt,.Some(sv_ro) => is_runtime_only_unknown_val(sv_ro),.None => false) =>
+      match(scrutinee_val_opt, .Some(sv_ro) => is_runtime_only_unknown_val(sv_ro), .None => false) =>
         Option(EvalValue).Some(EvalValue.UnknownVal(rt_pm.clone(), true)),
       true => Option(EvalValue).Some(create_unknown_val(rt_pm))
     );
     result_ty_final_pm := cond(
-      match(ctx.expected_type,.Some(et) => !(type_contains_some_type(et.ty)),.None => false) =>
-        match(ctx.expected_type,.Some(et) => et.ty,.None => rt_pm),
+      match(ctx.expected_type, .Some(et) => !(type_contains_some_type(et.ty)), .None => false) =>
+        match(ctx.expected_type, .Some(et) => et.ty, .None => rt_pm),
       true => rt_pm
     );
     out_pm := new_expr_info(env, result_ty_final_pm);
@@ -912,7 +912,7 @@ evaluate_primitive_match :: (
       return(expr);
     });
     cond(
-      has_control_flow(final_cf_pm,.Return) => {
+      has_control_flow(final_cf_pm, .Return) => {
         if(ctx.is_evaluating_function_body_or_async_block.is_none(), {
           exn.throw(
             dyn(
@@ -928,7 +928,7 @@ evaluate_primitive_match :: (
         });
         (ret_type_pm : Option(TypeValue)) = Option(TypeValue).None;
         if(return_bodies.len() > usize(0), {
-          first_rb_pm := match(return_bodies.get(usize(0)),.Some(b) => b,.None => make_err_expr());
+          first_rb_pm := match(return_bodies.get(usize(0)), .Some(b) => b, .None => make_err_expr());
           match(
             expr_info_table_get(ctx.expr_info_table, ast_expr_id(first_rb_pm)),
             .Some(bi) => {
@@ -992,7 +992,7 @@ evaluate_primitive_match :: (
             is_fn_body_pm := match(
               ctx.is_evaluating_function_body_or_async_block,
               .None => false,
-              .Some(fctx) => match(fctx.kind,.FunctionBody => true, _ => false)
+              .Some(fctx) => match(fctx.kind, .FunctionBody => true, _ => false)
             );
             is_comptime_ret_pm := cond(
               is_fn_body_pm => match(
@@ -1018,7 +1018,7 @@ evaluate_primitive_match :: (
           }
         );
       },
-      has_control_flow(final_cf_pm,.Unwind) => {
+      has_control_flow(final_cf_pm, .Unwind) => {
         if(ctx.enclosing_function_return_type.is_none(), {
           exn.throw(
             dyn(
@@ -1032,13 +1032,13 @@ evaluate_primitive_match :: (
           );
           return(expr);
         });
-        esc_ty_pm := match(ctx.enclosing_function_return_type,.Some(t) => t,.None => t_unit());
+        esc_ty_pm := match(ctx.enclosing_function_return_type, .Some(t) => t, .None => t_unit());
         out_esc_pm := new_expr_info(env, esc_ty_pm);
         out_esc_pm.control_flow = final_cf_pm;
         expr_info_set_is_primitive_match(out_esc_pm, Option(bool).Some(true));
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_esc_pm);
       },
-      has_control_flow(final_cf_pm,.Break) => {
+      has_control_flow(final_cf_pm, .Break) => {
         if(ctx.is_evaluating_loop_body.is_none(), {
           exn.throw(
             dyn(
@@ -1058,7 +1058,7 @@ evaluate_primitive_match :: (
         expr_info_set_is_primitive_match(out_brk_pm, Option(bool).Some(true));
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_brk_pm);
       },
-      has_control_flow(final_cf_pm,.Continue) => {
+      has_control_flow(final_cf_pm, .Continue) => {
         if(ctx.is_evaluating_loop_body.is_none(), {
           exn.throw(
             dyn(
@@ -1127,15 +1127,15 @@ _gadt_resolve_tca_entry :: (fn(t : TypeValue) -> TypeValue)(
 _gadt_refined_expected :: (
   fn(expected : TypeValue, tca : ArrayList(TypeValue), gra : ArrayList(TypeValue)) -> TypeValue
 )({
-  exp_id := match(expected,.SomeT({ id : sid }) => sid, _ => String.new());
+  exp_id := match(expected, .SomeT({ id : sid }) => sid, _ => String.new());
   if(exp_id.len() == usize(0), {
     return(expected);
   });
   (refined : Option(TypeValue)) = Option(TypeValue).None;
   (k : usize) = usize(0);
   while((k < tca.len()) && refined.is_none(), {
-    tk := match(tca.get(k),.Some(t) => t,.None => TypeValue.Unit);
-    tk_id := match(tk,.SomeT({ id : tid }) => tid, _ => String.new());
+    tk := match(tca.get(k), .Some(t) => t, .None => TypeValue.Unit);
+    tk_id := match(tk, .SomeT({ id : tid }) => tid, _ => String.new());
     if((tk_id.len() > usize(0)) && (tk_id == exp_id), {
       match(
         gra.get(k),
@@ -1147,7 +1147,7 @@ _gadt_refined_expected :: (
     });
     k = (k + usize(1));
   });
-  match(refined,.Some(r) => r,.None => expected)
+  match(refined, .Some(r) => r, .None => expected)
 });
 _is_gadt_branch_reachable :: (
   fn(enum_id : String, variant_idx : usize) -> bool
@@ -1161,7 +1161,7 @@ _is_gadt_branch_reachable :: (
       tca_opt,
       .None => true,
       .Some(tca) => {
-        gra := match(all_vargs.get(variant_idx),.Some(g) => g,.None => ArrayList(TypeValue).new());
+        gra := match(all_vargs.get(variant_idx), .Some(g) => g, .None => ArrayList(TypeValue).new());
         // Empty return-args list = non-GADT variant → always reachable.
         if(gra.len() == usize(0), {
           return(true);
@@ -1169,8 +1169,8 @@ _is_gadt_branch_reachable :: (
         (reachable : bool) = true;
         (k : usize) = usize(0);
         while((k < tca.len()) && reachable, {
-          tk := _gadt_resolve_tca_entry(match(tca.get(k),.Some(t) => t,.None => TypeValue.Unit));
-          gk := match(gra.get(k),.Some(g) => g,.None => TypeValue.Unit);
+          tk := _gadt_resolve_tca_entry(match(tca.get(k), .Some(t) => t, .None => TypeValue.Unit));
+          gk := match(gra.get(k), .Some(g) => g, .None => TypeValue.Unit);
           // Skip unrefined (SomeT) instantiation args — TS `!isSomeType(tca)`.
           if(!(is_some_type(tk)), {
             if(!(are_types_compatible(tk, gk)), {
@@ -1211,7 +1211,7 @@ evaluate_match :: (
   ) -> AstExpr
 )({
   (env : Environment) = env_in;
-  if(!(ast_expr_is_fn_call_of(expr, BK_MATCH,.None)), {
+  if(!(ast_expr_is_fn_call_of(expr, BK_MATCH, .None)), {
     exn.throw(
       dyn(
         format_error_message(
@@ -1242,7 +1242,7 @@ evaluate_match :: (
     );
     return(expr);
   });
-  scrutinee_expr := match(all_args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
+  scrutinee_expr := match(all_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
   // Evaluate scrutinee with cleared expectedType
   old_expected_scr := ctx.expected_type;
   ctx.expected_type = Option(ExpectedTypeCtx).None;
@@ -1300,7 +1300,7 @@ evaluate_match :: (
   (matched_type : TypeValue) = scrutinee_type;
   (is_ptr_match : bool) = false;
   if(is_pointer_type(scrutinee_type), {
-    matched_type = match(scrutinee_type,.Pointer(inner) => inner, _ => scrutinee_type);
+    matched_type = match(scrutinee_type, .Pointer(inner) => inner, _ => scrutinee_type);
     is_ptr_match = true;
   });
   // Resolve a leaked recursive-enum SELF-SHELL (an empty-variant EnumT whose id
@@ -1332,11 +1332,11 @@ evaluate_match :: (
     return(expr);
   });
   // Extract enum type fields
-  en_id := match(matched_type,.EnumT(eid, _, _, _, _, _, _, _, _) => eid, _ => String.new());
-  en_name := match(matched_type,.EnumT(_, n, _, _, _, _, _, _, _) => n, _ => String.new());
-  en_vnames := match(matched_type,.EnumT(_, _, vn, _, _, _, _, _, _) => vn, _ => ArrayList(String).new());
-  en_vfields := match(matched_type,.EnumT(_, _, _, vf, _, _, _, _, _) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
-  en_vflabels := match(matched_type,.EnumT(_, _, _, _, _, vfl, _, _, _) => vfl, _ => ArrayList(ArrayList(String)).new());
+  en_id := match(matched_type, .EnumT(eid, _, _, _, _, _, _, _, _) => eid, _ => String.new());
+  en_name := match(matched_type, .EnumT(_, n, _, _, _, _, _, _, _) => n, _ => String.new());
+  en_vnames := match(matched_type, .EnumT(_, _, vn, _, _, _, _, _, _) => vn, _ => ArrayList(String).new());
+  en_vfields := match(matched_type, .EnumT(_, _, _, vf, _, _, _, _, _) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
+  en_vflabels := match(matched_type, .EnumT(_, _, _, _, _, vfl, _, _, _) => vfl, _ => ArrayList(ArrayList(String)).new());
   // GADT match detection (match.ts:354-360): the enum is a GADT, an expected
   // type exists to refine against, and this instantiation recorded its
   // type-constructor args. The entry expected type is CAPTURED here — the arm
@@ -1386,7 +1386,7 @@ evaluate_match :: (
       }
     );
     arm_i = (arm_i + usize(1));
-    if(!(ast_expr_is_fn_call_of(pattern_em, "=>",.Some(usize(2)))), {
+    if(!(ast_expr_is_fn_call_of(pattern_em, "=>", .Some(usize(2)))), {
       exn.throw(
         dyn(
           format_error_message(
@@ -1401,17 +1401,17 @@ evaluate_match :: (
     });
     match_arm_expr := match(
       pattern_em,
-      .FnCall(_, _, pargs, _, _) => match(pargs.get(usize(0)),.Some(a) => a,.None => make_err_expr()),
+      .FnCall(_, _, pargs, _, _) => match(pargs.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
       .Atom(_, _) => make_err_expr()
     );
     rhs_expr_em := match(
       pattern_em,
-      .FnCall(_, _, pargs, _, _) => match(pargs.get(usize(1)),.Some(a) => a,.None => make_err_expr()),
+      .FnCall(_, _, pargs, _, _) => match(pargs.get(usize(1)), .Some(a) => a, .None => make_err_expr()),
       .Atom(_, _) => make_err_expr()
     );
     // Detect arm kind
     is_fieldless := (
-      ast_expr_is_fn_call_of(match_arm_expr, ".",.Some(usize(1))) ||
+      ast_expr_is_fn_call_of(match_arm_expr, ".", .Some(usize(1))) ||
         ast_expr_is_atom_of(match_arm_expr, "_")
     );
     func_of_mae := match(
@@ -1423,7 +1423,7 @@ evaluate_match :: (
       !(ast_expr_is_fn_call(match_arm_expr)) => false,
       true => match(
         func_of_mae,
-        .Some(f) => ast_expr_is_fn_call_of(f, ".",.Some(usize(1))),
+        .Some(f) => ast_expr_is_fn_call_of(f, ".", .Some(usize(1))),
         .None => false
       )
     );
@@ -1450,7 +1450,7 @@ evaluate_match :: (
         is_wildcard_fl => match_arm_expr,
         true => match(
           match_arm_expr,
-          .FnCall(_, _, mae_args, _, _) => match(mae_args.get(usize(0)),.Some(a) => a,.None => make_err_expr()),
+          .FnCall(_, _, mae_args, _, _) => match(mae_args.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
           .Atom(_, _) => make_err_expr()
         )
       );
@@ -1590,7 +1590,7 @@ evaluate_match :: (
           );
           return(expr);
         });
-        body_info_fl := match(body_info_fl_opt,.Some(bi) => bi,.None => new_expr_info(env, t_unit()));
+        body_info_fl := match(body_info_fl_opt, .Some(bi) => bi, .None => new_expr_info(env, t_unit()));
         while(body_info_fl.env.frames.len() > base_frame_count_fl, {
           pop_env_frame(body_info_fl.env);
         });
@@ -1612,7 +1612,7 @@ evaluate_match :: (
             .None => ControlFlowFlags(return_flag : false, unwind_flag : false, break_flag : false, continue_flag : false)
           );
           control_flows_em.push(cf_fl);
-          if(has_control_flow(body_info_fl.control_flow,.Return), {
+          if(has_control_flow(body_info_fl.control_flow, .Return), {
             return_bodies_em.push(evaluated_body_fl);
           });
           // Concrete CT match with CF → set info early
@@ -1623,8 +1623,8 @@ evaluate_match :: (
           );
           if(is_concrete_sv_fl, {
             result_ty_fl_cf := cond(
-              match(ctx.expected_type,.Some(et) => !(type_contains_some_type(et.ty)),.None => false) =>
-                match(ctx.expected_type,.Some(et) => et.ty,.None => body_info_fl.ty),
+              match(ctx.expected_type, .Some(et) => !(type_contains_some_type(et.ty)), .None => false) =>
+                match(ctx.expected_type, .Some(et) => et.ty, .None => body_info_fl.ty),
               true => body_info_fl.ty
             );
             out_fl_cf := new_expr_info(body_info_fl.env, result_ty_fl_cf);
@@ -1634,8 +1634,8 @@ evaluate_match :: (
           }, {
             if(scrutinee_val_opt.is_none(), {
               result_ty_fl_cf2 := cond(
-                match(ctx.expected_type,.Some(et) => !(type_contains_some_type(et.ty)),.None => false) =>
-                  match(ctx.expected_type,.Some(et) => et.ty,.None => body_info_fl.ty),
+                match(ctx.expected_type, .Some(et) => !(type_contains_some_type(et.ty)), .None => false) =>
+                  match(ctx.expected_type, .Some(et) => et.ty, .None => body_info_fl.ty),
                 true => body_info_fl.ty
               );
               out_fl_cf2 := new_expr_info(body_info_fl.env, result_ty_fl_cf2);
@@ -1697,7 +1697,7 @@ evaluate_match :: (
               gadt_va_em,
               .Some(av_fl) => match(
                 variant_idx_fl_opt,
-                .Some(vidx2_fl) => match(av_fl.get(vidx2_fl),.Some(g) => g,.None => ArrayList(TypeValue).new()),
+                .Some(vidx2_fl) => match(av_fl.get(vidx2_fl), .Some(g) => g, .None => ArrayList(TypeValue).new()),
                 .None => ArrayList(TypeValue).new()
               ),
               .None => ArrayList(TypeValue).new()
@@ -1776,10 +1776,10 @@ evaluate_match :: (
           return(expr);
         });
         // func is `.Variant` (the "." call); extract variantNameExpr from it
-        fb_vne := match(func_of_mae,.Some(f) => f,.None => make_err_expr());
+        fb_vne := match(func_of_mae, .Some(f) => f, .None => make_err_expr());
         variant_name_expr_wf := match(
           fb_vne,
-          .FnCall(_, _, fargs, _, _) => match(fargs.get(usize(0)),.Some(a) => a,.None => make_err_expr()),
+          .FnCall(_, _, fargs, _, _) => match(fargs.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
           .Atom(_, _) => make_err_expr()
         );
         if(!(ast_expr_is_atom(variant_name_expr_wf)), {
@@ -1815,9 +1815,9 @@ evaluate_match :: (
           );
           return(expr);
         });
-        variant_idx_wf := match(variant_idx_wf_opt,.Some(idx) => idx,.None => usize(0));
-        variant_fields_wf := match(en_vfields.get(variant_idx_wf),.Some(vf) => vf,.None => ArrayList(TypeValue).new());
-        variant_labels_wf := match(en_vflabels.get(variant_idx_wf),.Some(vl) => vl,.None => ArrayList(String).new());
+        variant_idx_wf := match(variant_idx_wf_opt, .Some(idx) => idx, .None => usize(0));
+        variant_fields_wf := match(en_vfields.get(variant_idx_wf), .Some(vf) => vf, .None => ArrayList(TypeValue).new());
+        variant_labels_wf := match(en_vflabels.get(variant_idx_wf), .Some(vl) => vl, .None => ArrayList(String).new());
         // Record checked variant (BEFORE skip check)
         checked_variant_names.push(variant_name_wf.clone());
         // Skip unreachable GADT branches (match.ts:747: e.g. BoolVal when
@@ -1850,12 +1850,12 @@ evaluate_match :: (
             (mae_args_wf.len() == usize(1)) &&
               match(
                 mae_args_wf.get(usize(0)),
-                .Some(first_arg) => ast_expr_is_fn_call_of(first_arg, "_",.None),
+                .Some(first_arg) => ast_expr_is_fn_call_of(first_arg, "_", .None),
                 .None => false
               )
           );
           if(is_curly_wf, {
-            curly_arg := match(mae_args_wf.get(usize(0)),.Some(a) => a,.None => make_err_expr());
+            curly_arg := match(mae_args_wf.get(usize(0)), .Some(a) => a, .None => make_err_expr());
             curly_inner := match(
               curly_arg,
               .FnCall(_, _, cargs, _, _) => cargs,
@@ -1867,8 +1867,8 @@ evaluate_match :: (
             // Validate: no nested curly, no bare "_"
             (cvi : usize) = usize(0);
             while(cvi < curly_inner.len(), {
-              cv_elem := match(curly_inner.get(cvi),.Some(e) => e,.None => make_err_expr());
-              if(ast_expr_is_fn_call_of(cv_elem, "_",.None), {
+              cv_elem := match(curly_inner.get(cvi), .Some(e) => e, .None => make_err_expr());
+              if(ast_expr_is_fn_call_of(cv_elem, "_", .None), {
                 exn.throw(
                   dyn(
                     format_error_message(
@@ -1916,8 +1916,8 @@ evaluate_match :: (
           if(!(has_labeled_wf), {
             (lbl_check_i : usize) = usize(0);
             while((lbl_check_i < destr_params.len()) && !(has_labeled_wf), {
-              lbl_p := match(destr_params.get(lbl_check_i),.Some(p) => p,.None => make_err_expr());
-              if(ast_expr_is_fn_call_of(lbl_p, ":",.Some(usize(2))), {
+              lbl_p := match(destr_params.get(lbl_check_i), .Some(p) => p, .None => make_err_expr());
+              if(ast_expr_is_fn_call_of(lbl_p, ":", .Some(usize(2))), {
                 has_labeled_wf = true;
               });
               lbl_check_i = (lbl_check_i + usize(1));
@@ -1995,11 +1995,11 @@ evaluate_match :: (
             destructured_labels := ArrayList(String).new();
             (dp_i : usize) = usize(0);
             while(dp_i < destr_params.len(), {
-              param := match(destr_params.get(dp_i),.Some(p) => p,.None => make_err_expr());
-              if(ast_expr_is_fn_call_of(param, ":",.Some(usize(2))), {
+              param := match(destr_params.get(dp_i), .Some(p) => p, .None => make_err_expr());
+              if(ast_expr_is_fn_call_of(param, ":", .Some(usize(2))), {
                 // Labeled destructuring: (label: variable) or (label: _)
-                label_expr := match(param,.FnCall(_, _, pargs, _, _) => match(pargs.get(usize(0)),.Some(a) => a,.None => make_err_expr()),.Atom(_, _) => make_err_expr());
-                variable_expr := match(param,.FnCall(_, _, pargs, _, _) => match(pargs.get(usize(1)),.Some(a) => a,.None => make_err_expr()),.Atom(_, _) => make_err_expr());
+                label_expr := match(param, .FnCall(_, _, pargs, _, _) => match(pargs.get(usize(0)), .Some(a) => a, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
+                variable_expr := match(param, .FnCall(_, _, pargs, _, _) => match(pargs.get(usize(1)), .Some(a) => a, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
                 if(!(ast_expr_is_atom(label_expr)), {
                   exn.throw(
                     dyn(
@@ -2063,8 +2063,8 @@ evaluate_match :: (
                   return(expr);
                 });
                 destructured_labels.push(lbl_str.clone());
-                field_idx_lbl := match(field_idx_lbl_opt,.Some(idx) => idx,.None => usize(0));
-                field_type_lbl := match(variant_fields_wf.get(field_idx_lbl),.Some(ft) => ft,.None => t_unit());
+                field_idx_lbl := match(field_idx_lbl_opt, .Some(idx) => idx, .None => usize(0));
+                field_type_lbl := match(variant_fields_wf.get(field_idx_lbl), .Some(ft) => ft, .None => t_unit());
                 // Get compile-time field value if scrutinee is concrete
                 field_val_lbl := cond(
                   is_comptime_scr_wf => match(
@@ -2116,7 +2116,7 @@ evaluate_match :: (
               }, {
                 if(ast_expr_is_atom(param), {
                   // Positional destructuring: param at index dp_i
-                  field_type_pos := match(variant_fields_wf.get(dp_i),.Some(ft) => ft,.None => t_unit());
+                  field_type_pos := match(variant_fields_wf.get(dp_i), .Some(ft) => ft, .None => t_unit());
                   field_val_pos := cond(
                     is_comptime_scr_wf => match(
                       scrutinee_val_opt,
@@ -2220,7 +2220,7 @@ evaluate_match :: (
             );
             return(expr);
           });
-          body_info_wf := match(body_info_wf_opt,.Some(bi) => bi,.None => new_expr_info(env, t_unit()));
+          body_info_wf := match(body_info_wf_opt, .Some(bi) => bi, .None => new_expr_info(env, t_unit()));
           while(body_info_wf.env.frames.len() > base_frame_count_wf, {
             pop_env_frame(body_info_wf.env);
           });
@@ -2235,7 +2235,7 @@ evaluate_match :: (
               .None => ControlFlowFlags(return_flag : false, unwind_flag : false, break_flag : false, continue_flag : false)
             );
             control_flows_em.push(cf_wf);
-            if(has_control_flow(body_info_wf.control_flow,.Return), {
+            if(has_control_flow(body_info_wf.control_flow, .Return), {
               return_bodies_em.push(evaluated_body_wf);
             });
             (is_concrete_sv_wf : bool) = match(
@@ -2245,8 +2245,8 @@ evaluate_match :: (
             );
             if(is_concrete_sv_wf, {
               result_ty_wf_cf := cond(
-                match(ctx.expected_type,.Some(et) => !(type_contains_some_type(et.ty)),.None => false) =>
-                  match(ctx.expected_type,.Some(et) => et.ty,.None => body_info_wf.ty),
+                match(ctx.expected_type, .Some(et) => !(type_contains_some_type(et.ty)), .None => false) =>
+                  match(ctx.expected_type, .Some(et) => et.ty, .None => body_info_wf.ty),
                 true => body_info_wf.ty
               );
               out_wf_cf := new_expr_info(body_info_wf.env, result_ty_wf_cf);
@@ -2256,8 +2256,8 @@ evaluate_match :: (
             }, {
               if(scrutinee_val_opt.is_none(), {
                 result_ty_wf_cf2 := cond(
-                  match(ctx.expected_type,.Some(et) => !(type_contains_some_type(et.ty)),.None => false) =>
-                    match(ctx.expected_type,.Some(et) => et.ty,.None => body_info_wf.ty),
+                  match(ctx.expected_type, .Some(et) => !(type_contains_some_type(et.ty)), .None => false) =>
+                    match(ctx.expected_type, .Some(et) => et.ty, .None => body_info_wf.ty),
                   true => body_info_wf.ty
                 );
                 out_wf_cf2 := new_expr_info(body_info_wf.env, result_ty_wf_cf2);
@@ -2299,7 +2299,7 @@ evaluate_match :: (
               // unrefined expected type.
               gadt_gra_wf := match(
                 gadt_va_em,
-                .Some(av_wf) => match(av_wf.get(variant_idx_wf),.Some(g) => g,.None => ArrayList(TypeValue).new()),
+                .Some(av_wf) => match(av_wf.get(variant_idx_wf), .Some(g) => g, .None => ArrayList(TypeValue).new()),
                 .None => ArrayList(TypeValue).new()
               );
               match(
@@ -2404,7 +2404,7 @@ Supported patterns:
         result_type_em = Option(TypeValue).Some(t_unit());
       });
     });
-    rt_em := match(result_type_em,.Some(t) => t,.None => t_unit());
+    rt_em := match(result_type_em, .Some(t) => t, .None => t_unit());
     // Exhaustiveness check
     if(!(contains_str_in_list(checked_variant_names, String.from("_"))), {
       missing_em := ArrayList(String).new();
@@ -2458,12 +2458,12 @@ Supported patterns:
     non_return_em := ArrayList(AstExpr).new();
     (nrem_i : usize) = usize(0);
     while(nrem_i < bodies.len(), {
-      b_em := match(bodies.get(nrem_i),.Some(b2) => b2,.None => make_err_expr());
+      b_em := match(bodies.get(nrem_i), .Some(b2) => b2, .None => make_err_expr());
       match(
         expr_info_table_get(ctx.expr_info_table, ast_expr_id(b_em)),
         .None => (),
         .Some(bi) => {
-          if(!(has_control_flow(bi.control_flow,.Return)) && !(has_control_flow(bi.control_flow,.Unwind)), {
+          if(!(has_control_flow(bi.control_flow, .Return)) && !(has_control_flow(bi.control_flow, .Unwind)), {
             non_return_em.push(b_em);
           });
         }
@@ -2479,9 +2479,9 @@ Supported patterns:
         .None => (),
         .Some(sv) => {
           if(is_enum_val(sv) && !(is_unknown_val(sv)), {
-            idx_em := match(matched_body_idx,.Some(i) => i,.None => usize(0));
+            idx_em := match(matched_body_idx, .Some(i) => i, .None => usize(0));
             if(idx_em < bodies.len(), {
-              mb := match(bodies.get(idx_em),.Some(b) => b,.None => make_err_expr());
+              mb := match(bodies.get(idx_em), .Some(b) => b, .None => make_err_expr());
               match(
                 expr_info_table_get(ctx.expr_info_table, ast_expr_id(mb)),
                 .None => (),
@@ -2507,7 +2507,7 @@ Supported patterns:
         .None => (),
         .Some(sv) => {
           if((is_enum_val(sv) && !(is_unknown_val(sv))) && (non_return_em.len() == usize(1)), {
-            first_nrem := match(non_return_em.get(usize(0)),.Some(b) => b,.None => make_err_expr());
+            first_nrem := match(non_return_em.get(usize(0)), .Some(b) => b, .None => make_err_expr());
             match(
               expr_info_table_get(ctx.expr_info_table, ast_expr_id(first_nrem)),
               .None => (),
@@ -2523,7 +2523,7 @@ Supported patterns:
           });
           // Case 3: unknown enum + single non-return body → use env only (no value)
           if((!(did_use_single) && is_unknown_val(sv)) && (non_return_em.len() == usize(1)), {
-            first_nrem2 := match(non_return_em.get(usize(0)),.Some(b) => b,.None => make_err_expr());
+            first_nrem2 := match(non_return_em.get(usize(0)), .Some(b) => b, .None => make_err_expr());
             match(
               expr_info_table_get(ctx.expr_info_table, ast_expr_id(first_nrem2)),
               .None => (),
@@ -2549,16 +2549,16 @@ Supported patterns:
       matched_body_val.is_some() => matched_body_val,
       // Runtime-only scrutinee → runtime-only result (see the pattern-match
       // twin above).
-      match(scrutinee_val_opt,.Some(sv_ro2) => is_runtime_only_unknown_val(sv_ro2),.None => false) =>
+      match(scrutinee_val_opt, .Some(sv_ro2) => is_runtime_only_unknown_val(sv_ro2), .None => false) =>
         Option(EvalValue).Some(EvalValue.UnknownVal(rt_em.clone(), true)),
       true => Option(EvalValue).Some(create_unknown_val(rt_em))
     );
     result_ty_final_em := cond(
       // GADT match: the result IS the (unrefined) expected type even though
       // it contains SomeT (match.ts:1275-1279).
-      is_gadt_match_em => match(gadt_exp_em,.Some(ge_fin) => ge_fin.ty,.None => rt_em),
-      match(ctx.expected_type,.Some(et) => !(type_contains_some_type(et.ty)),.None => false) =>
-        match(ctx.expected_type,.Some(et) => et.ty,.None => rt_em),
+      is_gadt_match_em => match(gadt_exp_em, .Some(ge_fin) => ge_fin.ty, .None => rt_em),
+      match(ctx.expected_type, .Some(et) => !(type_contains_some_type(et.ty)), .None => false) =>
+        match(ctx.expected_type, .Some(et) => et.ty, .None => rt_em),
       true => rt_em
     );
     out_em := new_expr_info(env, result_ty_final_em);
@@ -2581,7 +2581,7 @@ Supported patterns:
       return(expr);
     });
     cond(
-      has_control_flow(final_cf_em,.Return) => {
+      has_control_flow(final_cf_em, .Return) => {
         if(ctx.is_evaluating_function_body_or_async_block.is_none(), {
           exn.throw(
             dyn(
@@ -2597,7 +2597,7 @@ Supported patterns:
         });
         (ret_type_em : Option(TypeValue)) = Option(TypeValue).None;
         if(return_bodies_em.len() > usize(0), {
-          first_rb_em := match(return_bodies_em.get(usize(0)),.Some(b) => b,.None => make_err_expr());
+          first_rb_em := match(return_bodies_em.get(usize(0)), .Some(b) => b, .None => make_err_expr());
           match(
             expr_info_table_get(ctx.expr_info_table, ast_expr_id(first_rb_em)),
             .Some(bi) => {
@@ -2661,7 +2661,7 @@ Supported patterns:
             is_fn_body_em := match(
               ctx.is_evaluating_function_body_or_async_block,
               .None => false,
-              .Some(fctx) => match(fctx.kind,.FunctionBody => true, _ => false)
+              .Some(fctx) => match(fctx.kind, .FunctionBody => true, _ => false)
             );
             is_comptime_ret_em := cond(
               is_fn_body_em => match(
@@ -2686,7 +2686,7 @@ Supported patterns:
           }
         );
       },
-      has_control_flow(final_cf_em,.Unwind) => {
+      has_control_flow(final_cf_em, .Unwind) => {
         if(ctx.enclosing_function_return_type.is_none(), {
           exn.throw(
             dyn(
@@ -2700,12 +2700,12 @@ Supported patterns:
           );
           return(expr);
         });
-        esc_ty_em := match(ctx.enclosing_function_return_type,.Some(t) => t,.None => t_unit());
+        esc_ty_em := match(ctx.enclosing_function_return_type, .Some(t) => t, .None => t_unit());
         out_esc_em := new_expr_info(env, esc_ty_em);
         out_esc_em.control_flow = final_cf_em;
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_esc_em);
       },
-      has_control_flow(final_cf_em,.Break) => {
+      has_control_flow(final_cf_em, .Break) => {
         if(ctx.is_evaluating_loop_body.is_none(), {
           exn.throw(
             dyn(
@@ -2724,7 +2724,7 @@ Supported patterns:
         out_brk_em.control_flow = final_cf_em;
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_brk_em);
       },
-      has_control_flow(final_cf_em,.Continue) => {
+      has_control_flow(final_cf_em, .Continue) => {
         if(ctx.is_evaluating_loop_body.is_none(), {
           exn.throw(
             dyn(

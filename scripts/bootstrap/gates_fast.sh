@@ -125,14 +125,41 @@ if [ "$yoself_rc" != "0" ]; then
   dump_log "/tmp/${P}_yoself.log"
 fi
 
-# NOTE: a `fmt` differential is deliberately NOT a gate yet. Running
-# `<bin> fmt --check ./std ./tests ./yo-self` today reports 315 files (down from
-# 417 once the line-leading-dot bug was fixed), so wiring it in would land a
-# permanently-red gate. The remaining divergence is tracked in
-# issues/yo-self-formatter-diverges-from-ts.md, which also records why the naive
-# framing is not a clean differential: the TS formatter PRESERVES existing line
-# structure rather than canonicalizing it, so "would format" mixes real spacing
-# bugs with line-breaking differences. Add the gate with the fix, per P1.
+echo "=== T1 GATE 5: CLI subcommands actually RUN (execution differential) ==="
+# `check` proves a subcommand type-checks. It does NOT prove anything ever calls
+# it. `init` shipped as 239 complete, type-checking lines wired to no subcommand
+# — so it had never been executed once, and the first run SIGSEGV'd on an
+# `io.await` in an `if` condition that codegen miscompiled silently
+# (issues/fixed/yo-self-init-segfaults-on-first-run.md).
+#
+# That is the class this gate exists for: "ported" here can mean "type-checks
+# and is unreachable", and only running the thing tells them apart. Assert the
+# artifacts, not just rc=0 — the original bug created the directories and then
+# died, so a directory-only check would have passed it.
+init_dir="/tmp/${P}_init"
+rm -rf "$init_dir" && mkdir -p "$init_dir"
+(cd "$init_dir" && timeout 300 "$S1" init probe --name probe) &> "/tmp/${P}_init.log"
+init_rc=$?
+missing=""
+for f in build.yo deps.yo src/main.yo src/lib.yo tests/main.test.yo .gitignore README.md; do
+  [ -f "$init_dir/probe/$f" ] || missing="$missing $f"
+done
+echo "INIT_RC=$init_rc  missing=[${missing:-none}]"
+if [ "$init_rc" != "0" ] || [ -n "$missing" ]; then
+  fail "init execution differential rc=$init_rc missing=[${missing:-none}]"
+  dump_log "/tmp/${P}_init.log"
+fi
+
+# NOTE: a `fmt` differential is deliberately NOT a gate yet. Both root causes
+# behind the bulk of the divergence are now fixed (the Dot case eating a
+# preceding space, and a char-index used as a byte offset that DESTROYED any
+# file mixing non-ASCII text with a backtick string), taking
+# `<bin> fmt --check ./std ./tests ./yo-self` from 339 files to 17. The
+# remaining 17 are one class: a stray space before `)` when an operator token
+# ends a MULTILINE paren frame — `(==)`, `(..)`, `(..=)`, `quote(=>)`, C-variadic
+# `...`. It does not reproduce single-line. Tracked in
+# issues/yo-self-formatter-diverges-from-ts.md. Wire the gate in when that
+# class is fixed; until then it would land permanently red.
 
 echo "=== T1_DONE (${P}) failures=${fails} ==="
 [ "$fails" = "0" ] || exit 1

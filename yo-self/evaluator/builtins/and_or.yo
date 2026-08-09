@@ -46,7 +46,7 @@ evaluate_and_or :: (
     exn : Exception
   ) -> AstExpr
 )({
-  is_and := ast_expr_is_fn_call_of(expr, BK_OP_AND,.None);
+  is_and := ast_expr_is_fn_call_of(expr, BK_OP_AND, .None);
   // "and" for &&, "or" for ||
   args := match(
     expr,
@@ -59,13 +59,13 @@ evaluate_and_or :: (
   if(args.len() == usize(0), {
     bool_result := is_and;
     out_info := new_expr_info(env, t_bool());
-    out_info.value =.Some(EvalValue.BoolVal(bool_result));
+    out_info.value = .Some(EvalValue.BoolVal(bool_result));
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
     return(expr);
   });
   // Short-circuiting evaluation.
   (cur_env : Environment) = env;
-  (result_val : Option(EvalValue)) =.None;
+  (result_val : Option(EvalValue)) = .None;
   (has_unknown : bool) = false;
   (has_runtime : bool) = false;
   (i : usize) = usize(0);
@@ -131,25 +131,25 @@ evaluate_and_or :: (
               });
             }, {
               if(is_bool_val(av), {
-                bv := match(av,.BoolVal(b) => b, _ => false);
+                bv := match(av, .BoolVal(b) => b, _ => false);
                 if(is_and, {
                   if(!(bv), {
                     // Short-circuit: false && anything = false.
-                    result_val =.Some(EvalValue.BoolVal(false));
+                    result_val = .Some(EvalValue.BoolVal(false));
                     i = args.len();
                   }, {
                     if(!(has_unknown) && !(has_runtime), {
-                      result_val =.Some(EvalValue.BoolVal(true));
+                      result_val = .Some(EvalValue.BoolVal(true));
                     });
                   });
                 }, {
                   if(bv, {
                     // Short-circuit: true || anything = true.
-                    result_val =.Some(EvalValue.BoolVal(true));
+                    result_val = .Some(EvalValue.BoolVal(true));
                     i = args.len();
                   }, {
                     if(!(has_unknown) && !(has_runtime), {
-                      result_val =.Some(EvalValue.BoolVal(false));
+                      result_val = .Some(EvalValue.BoolVal(false));
                     });
                   });
                 });
@@ -168,14 +168,14 @@ evaluate_and_or :: (
     result_val,
     .Some(rv) => cond(
       // Short-circuited with definitive answer — keep it.
-      (is_bool_val(rv)) =>.Some(rv),
-      has_runtime =>.None,
-      has_unknown =>.Some(create_unknown_val(t_bool())),
+      (is_bool_val(rv)) => .Some(rv),
+      has_runtime => .None,
+      has_unknown => .Some(create_unknown_val(t_bool())),
       true => result_val
     ),
     .None => cond(
-      has_runtime =>.None,
-      has_unknown =>.Some(create_unknown_val(t_bool())),
+      has_runtime => .None,
+      has_unknown => .Some(create_unknown_val(t_bool())),
       true => result_val
     )
   );

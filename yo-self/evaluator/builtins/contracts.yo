@@ -64,7 +64,7 @@ _evaluate_contract_marker :: (
   (cur_env : Environment) = env;
   (i : usize) = usize(0);
   while(i < args.len(), {
-    arg := match(args.get(i),.Some(a) => a,.None => make_err_expr());
+    arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
     evaluated := evaluate_expression_raw(arg, cur_env, ctx, exn);
     match(
       expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated)),
@@ -103,7 +103,7 @@ _reject_zero_arg_marker :: (fn(expr : AstExpr, message : String, exn : Exception
     .Atom(_, _) => usize(0)
   );
   if(n == usize(0), {
-    exn.throw(dyn(format_error_message(ast_expr_token(expr), message, false,.None)));
+    exn.throw(dyn(format_error_message(ast_expr_token(expr), message, false, .None)));
   });
 });
 evaluate_requires :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)({
@@ -152,7 +152,7 @@ _evaluate_transparent_unary :: (
 )({
   arg := match(
     expr,
-    .FnCall(_, _, a, _, _) => match(a.get(usize(0)),.Some(x) => x,.None => make_err_expr()),
+    .FnCall(_, _, a, _, _) => match(a.get(usize(0)), .Some(x) => x, .None => make_err_expr()),
     .Atom(_, _) => make_err_expr()
   );
   evaluated := evaluate_expression_raw(arg, env, ctx, exn);
@@ -179,7 +179,7 @@ _evaluate_transparent_unary :: (
 /// `ghost_fn(f)` — marks a function value ghost-only. Phase 0: transparent
 /// pass-through. Mirrors `evaluateGhostFn`.
 evaluate_ghost_fn :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)({
-  if(!(ast_expr_is_fn_call_of(expr, BF_GHOST_FN,.Some(usize(1)))), {
+  if(!(ast_expr_is_fn_call_of(expr, BF_GHOST_FN, .Some(usize(1)))), {
     exn.throw(
       dyn(
         format_error_message(
@@ -196,7 +196,7 @@ evaluate_ghost_fn :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, e
 /// `old(expr)` — entry-snapshot reference (handled specially inside `ensures`
 /// by the wrapper; transparent pass-through elsewhere). Mirrors `evaluateOld`.
 evaluate_old :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)({
-  if(!(ast_expr_is_fn_call_of(expr, BF_OLD,.Some(usize(1)))), {
+  if(!(ast_expr_is_fn_call_of(expr, BF_OLD, .Some(usize(1)))), {
     exn.throw(
       dyn(
         format_error_message(
@@ -252,7 +252,7 @@ _synth_string_token_value :: (fn(s : String) -> String)({
   {
     it := s.chars();
     while(true, {
-      r := match(it.next(),.Some(x) => x,.None => break);
+      r := match(it.next(), .Some(x) => x, .None => break);
       cond(
         (r.char == u32(0x5C)) => {
           sb.write_byte(u8(0x5C));
@@ -397,9 +397,9 @@ _hoist_old_in :: (
     e,
     .Atom(_, _) => e,
     .FnCall(_, f_box, f_args, f_infix, f_tok) => cond(
-      ast_expr_is_fn_call_of(e, BF_OLD,.Some(usize(1))) => {
+      ast_expr_is_fn_call_of(e, BF_OLD, .Some(usize(1))) => {
         inner := recur(
-          match(f_args.get(usize(0)),.Some(x) => x,.None => make_err_expr()),
+          match(f_args.get(usize(0)), .Some(x) => x, .None => make_err_expr()),
           snapshots,
           bind_op.clone()
         );

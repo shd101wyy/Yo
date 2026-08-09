@@ -37,7 +37,7 @@ evaluate_size_of :: (
     exn : Exception
   ) -> AstExpr
 )({
-  if(!(ast_expr_is_fn_call_of(expr, BF_SIZEOF,.Some(usize(1)))), {
+  if(!(ast_expr_is_fn_call_of(expr, BF_SIZEOF, .Some(usize(1)))), {
     exn.throw(
       dyn(
         format_error_message(
@@ -99,7 +99,7 @@ evaluate_size_of :: (
     size_bits_opt,
     .Some(bits) => {
       bytes := (bits / usize(8));
-      out_info.value =.Some(EvalValue.IntLit(bytes.to_string()));
+      out_info.value = .Some(EvalValue.IntLit(bytes.to_string()));
     },
     .None => {
       // Unknown size (e.g. `sizeof(T)` with T a SomeT at def-eval): TS
@@ -108,7 +108,7 @@ evaluate_size_of :: (
       // result. Leaving `.None` here made `type_size :: sizeof(T)` reject
       // with "Expected compile-time value" and cascaded 64 std files
       // through the failing allocator.yo import.
-      out_info.value =.Some(create_unknown_val(t_usize()));
+      out_info.value = .Some(create_unknown_val(t_usize()));
     }
   );
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);

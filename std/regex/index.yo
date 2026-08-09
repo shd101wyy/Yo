@@ -23,13 +23,13 @@ impl(
     flags_result := RegexFlags.parse(flags_str);
     match(
       flags_result,
-      .Err(e) =>.Err(e),
+      .Err(e) => .Err(e),
       .Ok(flags) => {
         parser := RegexParser.new(pattern);
         ast_result := parser.parse();
         match(
           ast_result,
-          .Err(e) =>.Err(e),
+          .Err(e) => .Err(e),
           .Ok(ast) => {
             n_groups := parser.group_count();
             gnames := parser.group_names();
@@ -181,8 +181,8 @@ impl(
       self._flags.sticky => {
         result := vm.exec_at(usize(0));
         cond(
-          result.matched =>.Some(self._build_match(result.slots, input)),
-          true =>.None
+          result.matched => .Some(self._build_match(result.slots, input)),
+          true => .None
         )
       },
       true => {
@@ -354,8 +354,8 @@ impl(
     result := self.exec(input);
     match(
       result,
-      .Some(m) =>.Some(m.index()),
-      .None =>.None
+      .Some(m) => .Some(m.index()),
+      .None => .None
     )
   })
 );

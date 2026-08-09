@@ -227,17 +227,17 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
   match(
     a,
     .UnitVal =>
-      match(b,.UnitVal => true, _ => false),
+      match(b, .UnitVal => true, _ => false),
     .BoolVal(ab) =>
-      match(b,.BoolVal(bb) => (ab == bb), _ => false),
+      match(b, .BoolVal(bb) => (ab == bb), _ => false),
     .IntLit(ar) =>
-      match(b,.IntLit(br) => (ar == br), _ => false),
+      match(b, .IntLit(br) => (ar == br), _ => false),
     .FloatLit(ar) =>
-      match(b,.FloatLit(br) => (ar == br), _ => false),
+      match(b, .FloatLit(br) => (ar == br), _ => false),
     .StrLit(ar) =>
-      match(b,.StrLit(br) => (ar == br), _ => false),
+      match(b, .StrLit(br) => (ar == br), _ => false),
     .VarRef(an) =>
-      match(b,.VarRef(bn) => (an == bn), _ => false),
+      match(b, .VarRef(bn) => (an == bn), _ => false),
     .EnumVal(av, afs) =>
       match(
         b,
@@ -275,8 +275,8 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
       ),
     .FuncVal(_, _) => false,
     .ReturnVal(_, _) => false,
-    .BreakVal => match(b,.BreakVal => true, _ => false),
-    .ContinueVal => match(b,.ContinueVal => true, _ => false),
+    .BreakVal => match(b, .BreakVal => true, _ => false),
+    .ContinueVal => match(b, .ContinueVal => true, _ => false),
     .TypeVal(at) =>
       // EXACT type identity (not lenient compatibility): mirrors TS `areValuesEqual`
       // (value.ts:699-704) passing `requireExactMatch = true`. `eval_value_eq` keys the
@@ -287,7 +287,7 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
       // but NOT identical — a lenient key let `Self._alloc_with_capacity`'s specialization
       // for one V be reused for the other, so the callee's `Result<Self>` return type
       // disagreed with the call site (stage-2 Family-C incompatible-type cluster).
-      match(b,.TypeVal(bt) => are_types_compatible_exact(at, bt), _ => false),
+      match(b, .TypeVal(bt) => are_types_compatible_exact(at, bt), _ => false),
     .StructVal(atn, anames, avals) =>
       match(
         b,
@@ -535,7 +535,7 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
     // UnknownVal: two unknowns are equal if they represent the same type.
     // The `is_runtime_only` flag is provenance, not identity — TS's
     // `areValuesEqual` compares the TYPES only, so it is excluded here too.
-    .UnknownVal(aty, _) => match(b,.UnknownVal(bty, _) => are_types_compatible(aty, bty), _ => false)
+    .UnknownVal(aty, _) => match(b, .UnknownVal(bty, _) => are_types_compatible(aty, bty), _ => false)
   )
 );
 impl(
@@ -795,57 +795,57 @@ value_to_string :: (fn(v : EvalValue) -> String)(
 // ---------------------------------------------------------------------------
 // Type predicate functions — mirrors is* functions from src/value.ts
 // ---------------------------------------------------------------------------
-is_unit_val :: (fn(v : EvalValue) -> bool)(match(v,.UnitVal => true, _ => false));
-is_bool_val :: (fn(v : EvalValue) -> bool)(match(v,.BoolVal(_) => true, _ => false));
-is_int_lit :: (fn(v : EvalValue) -> bool)(match(v,.IntLit(_) => true, _ => false));
-is_float_lit :: (fn(v : EvalValue) -> bool)(match(v,.FloatLit(_) => true, _ => false));
-is_str_lit :: (fn(v : EvalValue) -> bool)(match(v,.StrLit(_) => true, _ => false));
-is_var_ref :: (fn(v : EvalValue) -> bool)(match(v,.VarRef(_) => true, _ => false));
-is_enum_val :: (fn(v : EvalValue) -> bool)(match(v,.EnumVal(_, _) => true, _ => false));
-is_func_val :: (fn(v : EvalValue) -> bool)(match(v,.FuncVal(_, _) => true, _ => false));
-is_return_val :: (fn(v : EvalValue) -> bool)(match(v,.ReturnVal(_, _) => true, _ => false));
-is_break_val :: (fn(v : EvalValue) -> bool)(match(v,.BreakVal => true, _ => false));
-is_continue_val :: (fn(v : EvalValue) -> bool)(match(v,.ContinueVal => true, _ => false));
-is_type_val :: (fn(v : EvalValue) -> bool)(match(v,.TypeVal(_) => true, _ => false));
-is_struct_val :: (fn(v : EvalValue) -> bool)(match(v,.StructVal(_, _, _) => true, _ => false));
+is_unit_val :: (fn(v : EvalValue) -> bool)(match(v, .UnitVal => true, _ => false));
+is_bool_val :: (fn(v : EvalValue) -> bool)(match(v, .BoolVal(_) => true, _ => false));
+is_int_lit :: (fn(v : EvalValue) -> bool)(match(v, .IntLit(_) => true, _ => false));
+is_float_lit :: (fn(v : EvalValue) -> bool)(match(v, .FloatLit(_) => true, _ => false));
+is_str_lit :: (fn(v : EvalValue) -> bool)(match(v, .StrLit(_) => true, _ => false));
+is_var_ref :: (fn(v : EvalValue) -> bool)(match(v, .VarRef(_) => true, _ => false));
+is_enum_val :: (fn(v : EvalValue) -> bool)(match(v, .EnumVal(_, _) => true, _ => false));
+is_func_val :: (fn(v : EvalValue) -> bool)(match(v, .FuncVal(_, _) => true, _ => false));
+is_return_val :: (fn(v : EvalValue) -> bool)(match(v, .ReturnVal(_, _) => true, _ => false));
+is_break_val :: (fn(v : EvalValue) -> bool)(match(v, .BreakVal => true, _ => false));
+is_continue_val :: (fn(v : EvalValue) -> bool)(match(v, .ContinueVal => true, _ => false));
+is_type_val :: (fn(v : EvalValue) -> bool)(match(v, .TypeVal(_) => true, _ => false));
+is_struct_val :: (fn(v : EvalValue) -> bool)(match(v, .StructVal(_, _, _) => true, _ => false));
 /// True for source-namespace struct values (anonymous modules / imports).
 /// TS has no module value kind — modules are StructValues with a
 /// source-namespace type (plans/archive/MODULE_AS_STRUCT_ALIGNMENT.md); the
 /// generated `source_namespace_` ty_name prefix is the value-side marker.
-is_module_val :: (fn(v : EvalValue) -> bool)(match(v,.StructVal(n, _, _) => n.starts_with(`source_namespace_`), _ => false));
-is_tuple_val :: (fn(v : EvalValue) -> bool)(match(v,.TupleVal(_) => true, _ => false));
-is_array_val :: (fn(v : EvalValue) -> bool)(match(v,.ArrayVal(_) => true, _ => false));
-is_ptr_val :: (fn(v : EvalValue) -> bool)(match(v,.PtrVal(_, _) => true, _ => false));
-is_trait_val :: (fn(v : EvalValue) -> bool)(match(v,.TraitVal(_, _, _) => true, _ => false));
-is_comptime_list_val :: (fn(v : EvalValue) -> bool)(match(v,.ComptimeListVal(_) => true, _ => false));
-is_expr_val :: (fn(v : EvalValue) -> bool)(match(v,.ExprVal(_) => true, _ => false));
-is_unknown_val :: (fn(v : EvalValue) -> bool)(match(v,.UnknownVal(_, _) => true, _ => false));
+is_module_val :: (fn(v : EvalValue) -> bool)(match(v, .StructVal(n, _, _) => n.starts_with(`source_namespace_`), _ => false));
+is_tuple_val :: (fn(v : EvalValue) -> bool)(match(v, .TupleVal(_) => true, _ => false));
+is_array_val :: (fn(v : EvalValue) -> bool)(match(v, .ArrayVal(_) => true, _ => false));
+is_ptr_val :: (fn(v : EvalValue) -> bool)(match(v, .PtrVal(_, _) => true, _ => false));
+is_trait_val :: (fn(v : EvalValue) -> bool)(match(v, .TraitVal(_, _, _) => true, _ => false));
+is_comptime_list_val :: (fn(v : EvalValue) -> bool)(match(v, .ComptimeListVal(_) => true, _ => false));
+is_expr_val :: (fn(v : EvalValue) -> bool)(match(v, .ExprVal(_) => true, _ => false));
+is_unknown_val :: (fn(v : EvalValue) -> bool)(match(v, .UnknownVal(_, _) => true, _ => false));
 /// Is `v` a RUNTIME-ONLY unknown (`UnknownValue.isRuntimeOnly` in TS)?
 /// Mirrors the `isUnknownValue(v) && v.isRuntimeOnly` test TS spells out at
 /// helper.ts:471, function.ts:1706/2441/2504 and assignment.ts:1207.
 is_runtime_only_unknown_val :: (fn(v : EvalValue) -> bool)(
-  match(v,.UnknownVal(_, ro) => ro, _ => false)
+  match(v, .UnknownVal(_, ro) => ro, _ => false)
 );
 /// Check if `v` is a numeric literal (int or float). Mirrors TS
 /// `isNumberValue` in `src/value.ts`, which covers all numeric
 /// variants. yo-self stores numerics as `IntLit` / `FloatLit` raw
 /// text; this helper is the disjunction of those two checks.
 is_number_val :: (fn(v : EvalValue) -> bool)(
-  match(v,.IntLit(_) => true,.FloatLit(_) => true, _ => false)
+  match(v, .IntLit(_) => true, .FloatLit(_) => true, _ => false)
 );
 /// Check if `v` is a compile-time integer literal (`IntLit`).
 /// Mirrors TS `isComptimeIntValue` in `src/value.ts`. yo-self stores
 /// integer literals as raw text in `IntLit(raw)`; this helper is the
 /// canonical-named alias of `is_int_lit`.
 is_comptime_int_value :: (fn(v : EvalValue) -> bool)(
-  match(v,.IntLit(_) => true, _ => false)
+  match(v, .IntLit(_) => true, _ => false)
 );
 /// Check if `v` is a compile-time float literal (`FloatLit`).
 /// Mirrors TS `isComptimeFloatValue` in `src/value.ts`. yo-self
 /// stores float literals as raw text in `FloatLit(raw)`; this helper
 /// is the canonical-named alias of `is_float_lit`.
 is_comptime_float_value :: (fn(v : EvalValue) -> bool)(
-  match(v,.FloatLit(_) => true, _ => false)
+  match(v, .FloatLit(_) => true, _ => false)
 );
 /// Check if `v` is a compile-time string literal (`StrLit`). Mirrors
 /// TS `isComptimeStringValue` in `src/value.ts`. yo-self does not
@@ -854,14 +854,14 @@ is_comptime_float_value :: (fn(v : EvalValue) -> bool)(
 /// representation; runtime `str` values are constructed via
 /// `convert_comptime_type_to_runtime_type`.
 is_comptime_string_value :: (fn(v : EvalValue) -> bool)(
-  match(v,.StrLit(_) => true, _ => false)
+  match(v, .StrLit(_) => true, _ => false)
 );
 /// Check if an `Option(EvalValue)` contains a `TypeVal`.
 /// Mirrors `isTypeValue(value)` from `src/value.ts`.
 is_type_value :: (fn(opt : Option(EvalValue)) -> bool)(
   match(
     opt,
-    .Some(v) => match(v,.TypeVal(_) => true, _ => false),
+    .Some(v) => match(v, .TypeVal(_) => true, _ => false),
     .None => false
   )
 );
@@ -965,8 +965,8 @@ type_of_eval_value :: (fn(v : EvalValue) -> TypeValue)(
         i = (i + usize(1));
       });
       cond(
-        is_sns =>.Struct(name, String.from(""), labels, tys, false, false, false, String.from(""), ArrayList(TypeValue).new(), true),
-        true =>.Struct(String.from(""), name, labels, tys, false, false, false, String.from(""), ArrayList(TypeValue).new(), false)
+        is_sns => .Struct(name, String.from(""), labels, tys, false, false, false, String.from(""), ArrayList(TypeValue).new(), true),
+        true => .Struct(String.from(""), name, labels, tys, false, false, false, String.from(""), ArrayList(TypeValue).new(), false)
       )
     },
     .UnknownVal(ty, _) => ty,

@@ -194,7 +194,7 @@ _synthesize_default_func_type :: (
   (i : usize) = usize(0);
   n := names.len();
   while(i < n, {
-    name := match(names.get(i),.Some(s) => s,.None => String.from("_p"));
+    name := match(names.get(i), .Some(s) => s, .None => String.from("_p"));
     param_types.push(t_some_t(name, frame_level));
     i = (i + usize(1));
   });
@@ -351,15 +351,15 @@ _subst_some_types_from_env :: (fn(ty : TypeValue, env2 : Environment, allow : Ar
           .None => ()
         );
       });
-      match(ss_bound,.Some(bt) => recur(bt, env2, allow.clone()),.None => ty)
+      match(ss_bound, .Some(bt) => recur(bt, env2, allow.clone()), .None => ty)
     },
-    .Pointer(ss_in) =>.Pointer(recur(ss_in, env2, allow.clone())),
-    .Array(ss_ain, ss_alen, ss_alv) =>.Array(recur(ss_ain, env2, allow.clone()), ss_alen, ss_alv),
+    .Pointer(ss_in) => .Pointer(recur(ss_in, env2, allow.clone())),
+    .Array(ss_ain, ss_alen, ss_alv) => .Array(recur(ss_ain, env2, allow.clone()), ss_alen, ss_alv),
     .Func({ forall_types : ss_fts, param_types : ss_pts, implicit_types : ss_its, where_types : ss_wts, result : ss_ret, meta : ss_fm }) => {
       ss_new_pts := ArrayList(TypeValue).new();
       (ss_pi : usize) = usize(0);
       while(ss_pi < ss_pts.len(), {
-        ss_elem := match(ss_pts.get(ss_pi),.Some(t) => t,.None => TypeValue.Unit);
+        ss_elem := match(ss_pts.get(ss_pi), .Some(t) => t, .None => TypeValue.Unit);
         ss_new_pts.push(recur(ss_elem, env2, allow.clone()));
         ss_pi = (ss_pi + usize(1));
       });
@@ -784,24 +784,24 @@ evaluate_anonymous_function_implementation :: (
   (sep_i : usize) = usize(0);
   n_raw := raw_param_exprs.len();
   while(sep_i < n_raw, {
-    pe := match(raw_param_exprs.get(sep_i),.Some(a) => a,.None => make_err_expr());
-    is_forall_call := ast_expr_is_fn_call_of(pe, "generic",.None);
-    is_using_call := ast_expr_is_fn_call_of(pe, "using",.None);
+    pe := match(raw_param_exprs.get(sep_i), .Some(a) => a, .None => make_err_expr());
+    is_forall_call := ast_expr_is_fn_call_of(pe, "generic", .None);
+    is_using_call := ast_expr_is_fn_call_of(pe, "using", .None);
     cond(
       is_forall_call => {
-        fa := match(pe,.FnCall(_, _, fa_args, _, _) => fa_args,.Atom(_, _) => ArrayList(AstExpr).new());
+        fa := match(pe, .FnCall(_, _, fa_args, _, _) => fa_args, .Atom(_, _) => ArrayList(AstExpr).new());
         (fi : usize) = usize(0);
         while(fi < fa.len(), {
-          fpe := match(fa.get(fi),.Some(a) => a,.None => make_err_expr());
+          fpe := match(fa.get(fi), .Some(a) => a, .None => make_err_expr());
           forall_param_exprs.push(fpe);
           fi = (fi + usize(1));
         });
       },
       is_using_call => {
-        ua := match(pe,.FnCall(_, _, ua_args, _, _) => ua_args,.Atom(_, _) => ArrayList(AstExpr).new());
+        ua := match(pe, .FnCall(_, _, ua_args, _, _) => ua_args, .Atom(_, _) => ArrayList(AstExpr).new());
         (ui : usize) = usize(0);
         while(ui < ua.len(), {
-          upe := match(ua.get(ui),.Some(a) => a,.None => make_err_expr());
+          upe := match(ua.get(ui), .Some(a) => a, .None => make_err_expr());
           using_param_exprs.push(upe);
           ui = (ui + usize(1));
         });
@@ -848,8 +848,8 @@ evaluate_anonymous_function_implementation :: (
     ann_bound_names := ArrayList(String).new();
     (ann_i : usize) = usize(0);
     while(ann_i < n_regular, {
-      ann_pe := match(regular_param_exprs.get(ann_i),.Some(a) => a,.None => make_err_expr());
-      ann_exp_ty := match(param_types.get(ann_i),.Some(t) => t,.None => TypeValue.Unit);
+      ann_pe := match(regular_param_exprs.get(ann_i), .Some(a) => a, .None => make_err_expr());
+      ann_exp_ty := match(param_types.get(ann_i), .Some(t) => t, .None => TypeValue.Unit);
       ann_is_colon := ast_expr_is_fn_call_of(ann_pe, ":", Option(usize).Some(usize(2)));
       // The expected param must be a SomeT with no resolution yet — mirrors
       // `isSomeType(expectedParam.type) && !expectedParam.type.resolvedConcreteType`.
@@ -865,8 +865,8 @@ evaluate_anonymous_function_implementation :: (
       match(
         ann_some_name,
         .Some(ann_nm) => {
-          ann_targs := match(ann_pe,.FnCall(_, _, ata, _, _) => ata,.Atom(_, _) => ArrayList(AstExpr).new());
-          ann_tex := match(ann_targs.get(usize(1)),.Some(a) => a,.None => make_err_expr());
+          ann_targs := match(ann_pe, .FnCall(_, _, ata, _, _) => ata, .Atom(_, _) => ArrayList(AstExpr).new());
+          ann_tex := match(ann_targs.get(usize(1)), .Some(a) => a, .None => make_err_expr());
           ann_out := ArrayList(TypeValue).new();
           ann_prev_flag := ctx.is_evaluating_function_type;
           _trial_eval_annotation_type(ann_tex, env, ctx, ann_out);
@@ -992,7 +992,7 @@ evaluate_anonymous_function_implementation :: (
   // -------------------------------------------------------------------------
   (fa_env_i : usize) = usize(0);
   while(fa_env_i < forall_labels.len(), {
-    fl_name := match(forall_labels.get(fa_env_i),.Some(n) => n,.None => String.from(""));
+    fl_name := match(forall_labels.get(fa_env_i), .Some(n) => n, .None => String.from(""));
     fl_ty := TypeValue.SomeT(
       fl_name.clone(),
       fl_name.clone(),
@@ -1025,8 +1025,8 @@ evaluate_anonymous_function_implementation :: (
   // -------------------------------------------------------------------------
   (il_env_i : usize) = usize(0);
   while(il_env_i < implicit_labels.len(), {
-    il_name := match(implicit_labels.get(il_env_i),.Some(n) => n,.None => String.from(""));
-    il_ty := match(implicit_types.get(il_env_i),.Some(t) => t,.None => TypeValue.Unit);
+    il_name := match(implicit_labels.get(il_env_i), .Some(n) => n, .None => String.from(""));
+    il_ty := match(implicit_types.get(il_env_i), .Some(t) => t, .None => TypeValue.Unit);
     il_tok := synthetic_token(il_name.clone(), env.module_path);
     il_val := create_unknown_val(il_ty.clone());
     _il_v := add_variable_to_env(
@@ -1051,9 +1051,9 @@ evaluate_anonymous_function_implementation :: (
   actual_param_labels := ArrayList(String).new();
   (rp_i : usize) = usize(0);
   while(rp_i < n_regular, {
-    rpe := match(regular_param_exprs.get(rp_i),.Some(a) => a,.None => make_err_expr());
-    exp_label := match(param_labels.get(rp_i),.Some(n) => n,.None => String.from(""));
-    rp_ty_raw := match(param_types.get(rp_i),.Some(t) => t,.None => TypeValue.Unit);
+    rpe := match(regular_param_exprs.get(rp_i), .Some(a) => a, .None => make_err_expr());
+    exp_label := match(param_labels.get(rp_i), .Some(n) => n, .None => String.from(""));
+    rp_ty_raw := match(param_types.get(rp_i), .Some(t) => t, .None => TypeValue.Unit);
     // Substitute generic SomeTypes (e.g. `E`) in the param type with their
     // concrete bindings from the callee env. Mirrors TS
     // substituteSomeTypesFromEnv at anonymous-function.ts:249.
@@ -1082,7 +1082,7 @@ evaluate_anonymous_function_implementation :: (
             .None => ()
           );
         });
-        match(_st_bound,.Some(t) => t,.None => rp_ty_raw)
+        match(_st_bound, .Some(t) => t, .None => rp_ty_raw)
       },
       _ => rp_ty_raw
     );
@@ -1110,7 +1110,7 @@ evaluate_anonymous_function_implementation :: (
     );
     // Stamp is_ref from the expected type so a `inout(...)` param's body reads
     // dereference the C pointer (see param_is_ref note above).
-    if(match(param_is_ref.get(rp_i),.Some(b) => b,.None => false), {
+    if(match(param_is_ref.get(rp_i), .Some(b) => b, .None => false), {
       match(
         rp_v_opt,
         .Some(rp_v) => {
@@ -1141,7 +1141,7 @@ evaluate_anonymous_function_implementation :: (
     rp_resolved_names := ArrayList(String).new();
     (rpr_i : usize) = usize(0);
     while(rpr_i < n_regular, {
-      rpr_raw := match(param_types.get(rpr_i),.Some(t) => t,.None => TypeValue.Unit);
+      rpr_raw := match(param_types.get(rpr_i), .Some(t) => t, .None => TypeValue.Unit);
       match(
         rpr_raw,
         .SomeT({ name : rpr_nm }) => if((rpr_nm.len() > usize(0)) && !(rpr_nm == "Impl"), {
@@ -1247,7 +1247,7 @@ evaluate_anonymous_function_implementation :: (
   // both ride along. `origin_id` is yo-self's channel for the same thing and
   // travels with the meta through the `.clone()` just above.
   match(
-    match(corrected_func_type,.Func({ meta : _oid_m }) => _oid_m.*.origin_id, _ => Option(String).None),
+    match(corrected_func_type, .Func({ meta : _oid_m }) => _oid_m.*.origin_id, _ => Option(String).None),
     .Some(_oid) => {
       copy_func_param_defaults(_oid.clone(), func_id.clone());
       copy_func_param_default_exprs(_oid.clone(), func_id.clone());
@@ -1352,7 +1352,7 @@ evaluate_anonymous_function_implementation :: (
   if(!(should_defer_body), {
     (sd_i : usize) = usize(0);
     while((sd_i < param_types.len()) && !(should_defer_body), {
-      sd_pt := match(param_types.get(sd_i),.Some(t) => t,.None => t_unit());
+      sd_pt := match(param_types.get(sd_i), .Some(t) => t, .None => t_unit());
       if(get_all_some_types(sd_pt).len() > usize(0), {
         should_defer_body = true;
       });
@@ -1435,7 +1435,7 @@ evaluate_anonymous_function_implementation :: (
     // body types as SomeT and the concrete result-refine is skipped (closure return
     // + future result then lower to void*). Clear the expected type so the body
     // types naturally (the closure's result is inferred from the body anyway).
-    ret_ty_for_body := match(function_type,.Func({ result : brt }) => brt, _ => t_unit());
+    ret_ty_for_body := match(function_type, .Func({ result : brt }) => brt, _ => t_unit());
     // (`mark_closure_for_codegen` is every `=>` closure — this clear is what
     // makes the def-time body type CONCRETELY instead of being coerced to
     // the SomeT, which feeds the closure-body-type registration below.)
@@ -1450,7 +1450,7 @@ evaluate_anonymous_function_implementation :: (
     if(flow_violation_pending(), {
       anon_viol_msg := flow_violation_message();
       clear_flow_violation();
-      exn.throw(dyn(format_error_message(tok, anon_viol_msg, false,.None)));
+      exn.throw(dyn(format_error_message(tok, anon_viol_msg, false, .None)));
     });
     // Channel 2: comptime_expect_error observation — when the body eval
     // THREW (empty `out`) and propagate mode is on, re-raise so the
@@ -1514,7 +1514,7 @@ evaluate_anonymous_function_implementation :: (
           expr_info_table_get(ctx.expr_info_table, ast_expr_id(anon_eb)),
           .Some(nrs_info) => {
             nrs_body_ty := nrs_info.ty;
-            nrs_ret_ty := match(function_type,.Func({ result : nrs_r }) => nrs_r, _ => t_unit());
+            nrs_ret_ty := match(function_type, .Func({ result : nrs_r }) => nrs_r, _ => t_unit());
             nrs_ret_nested := ((!(is_some_type(nrs_ret_ty))) && (get_all_some_types(nrs_ret_ty).len() > usize(0)));
             // BARE-SomeT declared return (`-> B`, map's output forall): TS
             // binds it through object identity at the plain body/declared
@@ -1693,7 +1693,7 @@ evaluate_anonymous_function_implementation :: (
   // degenerating to unit cannot convict, and an expected bare SomeT that is
   // not this fn's own forall is bound by the call site.
   if(should_defer_body, {
-    dgc_ret := match(function_type,.Func({ result : dgc_r }) => dgc_r, _ => t_unit());
+    dgc_ret := match(function_type, .Func({ result : dgc_r }) => dgc_r, _ => t_unit());
     if(get_all_some_types(dgc_ret).len() > usize(0), {
       dgc_fv := EvalValue.FuncVal(
         box(
@@ -1725,8 +1725,8 @@ evaluate_anonymous_function_implementation :: (
         .Some(dgc_body) => match(
           expr_info_table_get(ctx.expr_info_table, ast_expr_id(dgc_body)),
           .Some(dgc_info) => {
-            dgc_skip_cf := (has_control_flow(dgc_info.control_flow,.Unwind) && !(has_control_flow(dgc_info.control_flow,.Return)));
-            dgc_is_ref := match(function_type,.Func({ meta : __fmd1 }) => __fmd1.*.result_is_ref, _ => false);
+            dgc_skip_cf := (has_control_flow(dgc_info.control_flow, .Unwind) && !(has_control_flow(dgc_info.control_flow, .Return)));
+            dgc_is_ref := match(function_type, .Func({ meta : __fmd1 }) => __fmd1.*.result_is_ref, _ => false);
             dgc_expected := cond(
               dgc_is_ref => t_ptr(dgc_ret),
               true => dgc_ret
@@ -1737,7 +1737,7 @@ evaluate_anonymous_function_implementation :: (
                 (dgc_found : bool) = false;
                 (dgc_fi : usize) = usize(0);
                 while(dgc_fi < forall_labels.len(), {
-                  if(match(forall_labels.get(dgc_fi),.Some(l) => (l == dgc_sname),.None => false), {
+                  if(match(forall_labels.get(dgc_fi), .Some(l) => (l == dgc_sname), .None => false), {
                     dgc_found = true;
                   });
                   dgc_fi = (dgc_fi + usize(1));
@@ -1821,10 +1821,10 @@ evaluate_anonymous_function_implementation :: (
     match(
       get_closure_capture_info(func_id.clone()),
       .Some(prev_cci2) => {
-        prev_nf2 := match(prev_cci2.capture_type,.Struct({ field_labels : pfl2 }) => pfl2.len(), _ => usize(0));
+        prev_nf2 := match(prev_cci2.capture_type, .Struct({ field_labels : pfl2 }) => pfl2.len(), _ => usize(0));
         cur_nf2 := match(
           closure_capture_type,
-          .Some(cur_ct2) => match(cur_ct2,.Struct({ field_labels : cfl2 }) => cfl2.len(), _ => usize(0)),
+          .Some(cur_ct2) => match(cur_ct2, .Struct({ field_labels : cfl2 }) => cfl2.len(), _ => usize(0)),
           .None => usize(0)
         );
         if(prev_nf2 > cur_nf2, {

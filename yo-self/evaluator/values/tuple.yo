@@ -93,8 +93,8 @@ evaluate_tuple_element_value :: (
   (env : Environment) = env_in;
   // Reject labelled fields: `x: rhs`.
   if(ast_expr_is_fn_call_of(expr, ":", Option(usize).Some(usize(2))), {
-    args := match(expr,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new());
-    lhs_expr := match(args.get(usize(0)),.Some(a) => a,.None => expr);
+    args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+    lhs_expr := match(args.get(usize(0)), .Some(a) => a, .None => expr);
     exn.throw(
       dyn(
         format_error_message(
@@ -241,7 +241,7 @@ evaluate_tuple_elements_value :: (
   runtime_arg_exprs_in_order := ArrayList(AstExpr).new();
   (i : usize) = usize(0);
   while(i < args.len(), {
-    arg := match(args.get(i),.Some(a) => a,.None => make_err_expr());
+    arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
     result := evaluate_tuple_element_value(
       arg,
       i,
@@ -290,7 +290,7 @@ evaluate_tuple_value :: (
       )
     );
   });
-  args := match(expr,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new());
+  args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   // Empty tuple → unit value.
   if(args.len() == usize(0), {
     info := new_expr_info(env, TypeValue.Unit);

@@ -32,19 +32,19 @@ fixup_dyn_impl_keys :: (fn(context : CodeGenContext) -> unit)({
   n := keys.len();
   (i : usize) = usize(0);
   while(i < n, {
-    key := match(keys.get(i),.Some(k) => k,.None => String.from(""));
+    key := match(keys.get(i), .Some(k) => k, .None => String.from(""));
     match(
       context.dyn_impls.get(key.clone()),
       .Some(impl_entry) => {
         dyn_key := type_key(impl_entry.dyn_type.clone());
-        dyn_c := match(context.get_type_c_name(dyn_key.clone()),.Some(cn) => cn,.None => `__yo_dyn_${dyn_key}`);
+        dyn_c := match(context.get_type_c_name(dyn_key.clone()), .Some(cn) => cn, .None => `__yo_dyn_${dyn_key}`);
         concrete_key := type_key(impl_entry.concrete_type.clone());
         concrete_c := match(
           context.get_type_c_name(concrete_key.clone()),
           .Some(cn) => cn,
           .None => match(
             extract_fn_trait_from_type(impl_entry.concrete_type.clone()),
-            .Some(ft) => match(context.get_type_c_name(type_key(ft)),.Some(c) => c,.None => `unknown_${concrete_key}`),
+            .Some(ft) => match(context.get_type_c_name(type_key(ft)), .Some(c) => c, .None => `unknown_${concrete_key}`),
             .None => `unknown_${concrete_key}`
           )
         );

@@ -49,7 +49,7 @@ _remove_dir_all :: (
   ) -> Impl(Future(unit, IoExn))
 )(
   io.async((e : IoExn) => {
-    opts := WalkOptions(max_depth :.None, follow_symlinks : false, include_dirs : true);
+    opts := WalkOptions(max_depth : .None, follow_symlinks : false, include_dirs : true);
     entries := e.io.await(walk_with(path, opts, e.io), e);
     n := entries.len();
     while(n > usize(0), {
@@ -96,7 +96,7 @@ _json_string_for_key :: (fn(json : String, key : String) -> Option(String))({
       match(
         rest.index_of(String.from("\"")),
         .None => Option(String).None,
-        .Some(end) =>.Some(rest.substring(usize(0), end))
+        .Some(end) => .Some(rest.substring(usize(0), end))
       )
     }
   )
@@ -204,12 +204,12 @@ _json_extract_version_keys :: (fn(json : String) -> ArrayList(String))({
 compare_semver :: (fn(a : String, b : String) -> i64)({
   pa := a.split(String.from("."));
   pb := b.split(String.from("."));
-  na0 := match(pa.get(usize(0)),.None => i64(0),.Some(s) => match(s.parse_i64(),.None => i64(0),.Some(n) => n));
-  nb0 := match(pb.get(usize(0)),.None => i64(0),.Some(s) => match(s.parse_i64(),.None => i64(0),.Some(n) => n));
-  na1 := match(pa.get(usize(1)),.None => i64(0),.Some(s) => match(s.parse_i64(),.None => i64(0),.Some(n) => n));
-  nb1 := match(pb.get(usize(1)),.None => i64(0),.Some(s) => match(s.parse_i64(),.None => i64(0),.Some(n) => n));
-  na2 := match(pa.get(usize(2)),.None => i64(0),.Some(s) => match(s.parse_i64(),.None => i64(0),.Some(n) => n));
-  nb2 := match(pb.get(usize(2)),.None => i64(0),.Some(s) => match(s.parse_i64(),.None => i64(0),.Some(n) => n));
+  na0 := match(pa.get(usize(0)), .None => i64(0), .Some(s) => match(s.parse_i64(), .None => i64(0), .Some(n) => n));
+  nb0 := match(pb.get(usize(0)), .None => i64(0), .Some(s) => match(s.parse_i64(), .None => i64(0), .Some(n) => n));
+  na1 := match(pa.get(usize(1)), .None => i64(0), .Some(s) => match(s.parse_i64(), .None => i64(0), .Some(n) => n));
+  nb1 := match(pb.get(usize(1)), .None => i64(0), .Some(s) => match(s.parse_i64(), .None => i64(0), .Some(n) => n));
+  na2 := match(pa.get(usize(2)), .None => i64(0), .Some(s) => match(s.parse_i64(), .None => i64(0), .Some(n) => n));
+  nb2 := match(pb.get(usize(2)), .None => i64(0), .Some(s) => match(s.parse_i64(), .None => i64(0), .Some(n) => n));
   diff0 := (na0 - nb0);
   diff1 := (na1 - nb1);
   diff2 := (na2 - nb2);
@@ -236,14 +236,14 @@ _sort_by_semver :: (fn(versions : ArrayList(String)) -> ArrayList(String))({
     found := false;
     j := usize(0);
     while(j < n, {
-      flag := match(added.get(j),.None => true,.Some(f) => f);
+      flag := match(added.get(j), .None => true, .Some(f) => f);
       if(!(flag), {
         if(!(found), {
           min_idx = j;
           found = true;
         }, {
-          j_ver := match(versions.get(j),.None => String.new(),.Some(v) => v);
-          min_ver := match(versions.get(min_idx),.None => String.new(),.Some(v) => v);
+          j_ver := match(versions.get(j), .None => String.new(), .Some(v) => v);
+          min_ver := match(versions.get(min_idx), .None => String.new(), .Some(v) => v);
           if(compare_semver(j_ver, min_ver) < i64(0), {
             min_idx = j;
           });
@@ -333,7 +333,7 @@ list_cached_versions :: (
         entries.get(i),
         .None => (),
         .Some(entry) => {
-          if(match(entry.file_type,.Directory => true, _ => false), {
+          if(match(entry.file_type, .Directory => true, _ => false), {
             pkg_path := versions_dir.concat(String.from("/")).concat(entry.name).concat(String.from("/package.json"));
             pkg_exists := e.io.await(exists(Path.new(pkg_path), e.io), e.io);
             if(pkg_exists, {

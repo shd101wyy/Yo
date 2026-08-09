@@ -27,7 +27,7 @@ _strip_leading_underscores :: (fn(name : String) -> String)({
   n := bytes.len();
   (i : usize) = usize(0);
   while(i < n, {
-    b := match(bytes.get(i),.Some(x) => x,.None => u8(0));
+    b := match(bytes.get(i), .Some(x) => x, .None => u8(0));
     if(b != u8(95), {
       break;
     });
@@ -61,7 +61,7 @@ _strip_trailing_underscores :: (fn(name : String) -> String)({
   });
   (end : usize) = n;
   while(end > usize(0), {
-    b := match(bytes.get(end - usize(1)),.Some(x) => x,.None => u8(0));
+    b := match(bytes.get(end - usize(1)), .Some(x) => x, .None => u8(0));
     if(b != u8(95), {
       break;
     });
@@ -111,7 +111,7 @@ is_upper_camel_case :: (fn(name : String, exn : Exception) -> bool)({
   if(trimmed.len() == usize(0), {
     return(false);
   });
-  first := match(trimmed.as_bytes().get(usize(0)),.Some(b) => b,.None => u8(0));
+  first := match(trimmed.as_bytes().get(usize(0)), .Some(b) => b, .None => u8(0));
   (_is_upper_byte(first)) && (!(trimmed.contains(String.from("_"))))
 });
 /// Check if the name is in `lowerCamelCase`.
@@ -126,7 +126,7 @@ is_lower_camel_case :: (fn(name : String, exn : Exception) -> bool)({
   if(trimmed.len() == usize(0), {
     return(false);
   });
-  first := match(trimmed.as_bytes().get(usize(0)),.Some(b) => b,.None => u8(0));
+  first := match(trimmed.as_bytes().get(usize(0)), .Some(b) => b, .None => u8(0));
   (_is_lower_byte(first)) && (!(trimmed.contains(String.from("_"))))
 });
 /// Check if the name is in `snake_case` (contains no uppercase letters).
@@ -140,7 +140,7 @@ is_snake_case :: (fn(name : String) -> bool)({
   (i : usize) = usize(0);
   (found_upper : bool) = false;
   while((i < n) && (!(found_upper)), {
-    b := match(bytes.get(i),.Some(x) => x,.None => u8(0));
+    b := match(bytes.get(i), .Some(x) => x, .None => u8(0));
     if(_is_upper_byte(b), {
       found_upper = true;
     });

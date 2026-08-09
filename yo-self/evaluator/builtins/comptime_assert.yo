@@ -47,12 +47,12 @@ evaluate_comptime_assert :: (
   (arg_expr_opt : Option(AstExpr)) = match(
     expr,
     .FnCall(_, _, args, _, _) => args.get(usize(0)),
-    _ =>.None
+    _ => .None
   );
   (msg_expr_opt : Option(AstExpr)) = match(
     expr,
     .FnCall(_, _, args, _, _) => args.get(usize(1)),
-    _ =>.None
+    _ => .None
   );
   // When not executing, still type-check the condition so malformed expressions
   // are caught during function-definition validation.
@@ -65,7 +65,7 @@ evaluate_comptime_assert :: (
         match(
           arg_info_opt,
           .Some(ai) => {
-            if(!(is_bool_type(ai.ty)) && !(is_unknown_val(match(ai.value,.Some(v) => v,.None => EvalValue.UnitVal))), {
+            if(!(is_bool_type(ai.ty)) && !(is_unknown_val(match(ai.value, .Some(v) => v, .None => EvalValue.UnitVal))), {
               exn.throw(
                 dyn(
                   format_error_message(
@@ -155,11 +155,11 @@ evaluate_comptime_assert :: (
       )
     );
   });
-  bool_val := match(arg_val,.BoolVal(b) => b, _ => false);
+  bool_val := match(arg_val, .BoolVal(b) => b, _ => false);
   if(bool_val, {
     // Assertion passed — return unit.
     out_info := new_expr_info(env, t_unit());
-    out_info.value =.Some(EvalValue.UnitVal);
+    out_info.value = .Some(EvalValue.UnitVal);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   }, {
     // Assertion failed — check for message argument.
@@ -188,7 +188,7 @@ evaluate_comptime_assert :: (
       .None => String.from("")
     );
     if(err_msg.len() > usize(0), {
-      exn.throw(dyn(format_error_message(ast_expr_token(expr), err_msg, true,.None)));
+      exn.throw(dyn(format_error_message(ast_expr_token(expr), err_msg, true, .None)));
     }, {
       exn.throw(
         dyn(

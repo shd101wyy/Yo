@@ -49,7 +49,7 @@ decode_str_lit_escapes :: (fn(raw : String) -> String)({
   {
     it := raw.chars();
     while(true, {
-      match(it.next(),.None => break,.Some(r) => chars.push(r));
+      match(it.next(), .None => break, .Some(r) => chars.push(r));
     });
   };
   nn := chars.len();
@@ -184,7 +184,7 @@ evaluate_string_literal :: (
   });
   val := EvalValue.StrLit(decode_str_lit_escapes(tok.value));
   info := new_expr_info(env, t_comptime_string());
-  info.value =.Some(val);
+  info.value = .Some(val);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
   expr
 });

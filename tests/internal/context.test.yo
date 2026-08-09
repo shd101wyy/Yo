@@ -54,14 +54,14 @@ test("eval_context_new: default fields", {
 });
 test("eval_context_new: all optional fields are None", {
   ctx := eval_context_new(String.from("/usr/yo"), String.from("main.yo"));
-  match(ctx.load_module,.Some(_) => assert(false, "should be None"),.None => ());
-  match(ctx.is_evaluating_function_body_or_async_block,.Some(_) => assert(false, "should be None"),.None => ());
-  match(ctx.is_evaluating_loop_body,.Some(_) => assert(false, "should be None"),.None => ());
-  match(ctx.expected_type,.Some(_) => assert(false, "should be None"),.None => ());
-  match(ctx.captured_variables,.Some(_) => assert(false, "should be None"),.None => ());
-  match(ctx.function_return_impl_concrete_type,.Some(_) => assert(false, "should be None"),.None => ());
-  match(ctx.currently_specializing_function,.Some(_) => assert(false, "should be None"),.None => ());
-  match(ctx.doc_comment_lookup,.Some(_) => assert(false, "should be None"),.None => ());
+  match(ctx.load_module, .Some(_) => assert(false, "should be None"), .None => ());
+  match(ctx.is_evaluating_function_body_or_async_block, .Some(_) => assert(false, "should be None"), .None => ());
+  match(ctx.is_evaluating_loop_body, .Some(_) => assert(false, "should be None"), .None => ());
+  match(ctx.expected_type, .Some(_) => assert(false, "should be None"), .None => ());
+  match(ctx.captured_variables, .Some(_) => assert(false, "should be None"), .None => ());
+  match(ctx.function_return_impl_concrete_type, .Some(_) => assert(false, "should be None"), .None => ());
+  match(ctx.currently_specializing_function, .Some(_) => assert(false, "should be None"), .None => ());
+  match(ctx.doc_comment_lookup, .Some(_) => assert(false, "should be None"), .None => ());
 });
 test("eval_context_new: boolean flags default to false", {
   ctx := eval_context_new(String.from("/std"), String.from("x.yo"));
@@ -79,23 +79,23 @@ test("FuncOrAsyncBlockKind variants exist", {
   k1 := FuncOrAsyncBlockKind.FunctionBody;
   k2 := FuncOrAsyncBlockKind.AsyncBlock;
   k3 := FuncOrAsyncBlockKind.TestBlock;
-  match(k1,.FunctionBody => (), _ => assert(false, "expected FunctionBody"));
-  match(k2,.AsyncBlock => (), _ => assert(false, "expected AsyncBlock"));
-  match(k3,.TestBlock => (), _ => assert(false, "expected TestBlock"));
+  match(k1, .FunctionBody => (), _ => assert(false, "expected FunctionBody"));
+  match(k2, .AsyncBlock => (), _ => assert(false, "expected AsyncBlock"));
+  match(k3, .TestBlock => (), _ => assert(false, "expected TestBlock"));
 });
 test("LoopKind variants exist", {
   k1 := LoopKind.While;
   k2 := LoopKind.For;
-  match(k1,.While => (), _ => assert(false, "expected While"));
-  match(k2,.For => (), _ => assert(false, "expected For"));
+  match(k1, .While => (), _ => assert(false, "expected While"));
+  match(k2, .For => (), _ => assert(false, "expected For"));
 });
 test("CaptureUsage variants", {
   r := CaptureUsage.Read;
   w := CaptureUsage.Write;
   o := CaptureUsage.Own;
-  match(r,.Read => (), _ => assert(false, "expected Read"));
-  match(w,.Write => (), _ => assert(false, "expected Write"));
-  match(o,.Own => (), _ => assert(false, "expected Own"));
+  match(r, .Read => (), _ => assert(false, "expected Read"));
+  match(w, .Write => (), _ => assert(false, "expected Write"));
+  match(o, .Own => (), _ => assert(false, "expected Own"));
 });
 test("track_variable_usage: no function body context → no-op", {
   ctx := eval_context_new(String.from("/std"), String.from("a.yo"));
@@ -111,7 +111,7 @@ test("track_variable_usage: no function body context → no-op", {
 });
 test("track_variable_usage: with function body context but var not in env → no-op", {
   ctx := eval_context_new(String.from("/std"), String.from("a.yo"));
-  ctx.captured_variables =.Some(HashMap(String, CapturedVarInfo).new());
+  ctx.captured_variables = .Some(HashMap(String, CapturedVarInfo).new());
   // Create a minimal Environment with no frames
   env := Environment(frames : ArrayList(Frame).new(), module_path : String.from("test.yo"), function_declaration_frame_level : Option(usize).None, input_string : String.from(""));
   sub_ctx := FuncOrAsyncBlockCtx(
@@ -141,9 +141,9 @@ test("CallResultKind variants can be constructed", {
   k1 := CallResultKind.FunctionTypeResult;
   k2 := CallResultKind.ArrayTypeResult;
   k3 := CallResultKind.ClosureTypeResult;
-  match(k1,.FunctionTypeResult => (), _ => assert(false, "FunctionTypeResult"));
-  match(k2,.ArrayTypeResult => (), _ => assert(false, "ArrayTypeResult"));
-  match(k3,.ClosureTypeResult => (), _ => assert(false, "ClosureTypeResult"));
+  match(k1, .FunctionTypeResult => (), _ => assert(false, "FunctionTypeResult"));
+  match(k2, .ArrayTypeResult => (), _ => assert(false, "ArrayTypeResult"));
+  match(k3, .ClosureTypeResult => (), _ => assert(false, "ClosureTypeResult"));
 });
 test("get_function_call_result: returns None for TypeResult", {
   ty := t_unit();

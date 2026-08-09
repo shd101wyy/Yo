@@ -85,7 +85,7 @@ evaluate_raw_pointer_call :: (
     is_type_value(arg_info.value) => {
       inner_ty := match(
         arg_info.value,
-        .Some(v) => match(v,.TypeVal(inner) => inner, _ => t_i32()),
+        .Some(v) => match(v, .TypeVal(inner) => inner, _ => t_i32()),
         .None => t_i32() // unreachable
       );
       // Phase C structural gate (plans/MEMORY_SAFETY.md): `*(T)` produces a raw
@@ -132,7 +132,7 @@ If you need to thread a handler through code, pass it by value (handlers are fn-
       meta_ty := type_of_type(ptr_ty);
       next_env := arg_info.env;
       out_info := new_expr_info(next_env, meta_ty);
-      out_info.value =.Some(ptr_val);
+      out_info.value = .Some(ptr_val);
       expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
       expr
     },

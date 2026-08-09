@@ -351,7 +351,7 @@ ast_expr_get_arg0 :: (fn(e : AstExpr) -> AstExpr)(
   match(
     e,
     .Atom(_, _) => make_err_expr(),
-    .FnCall(_, _, args, _, _) => match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr())
+    .FnCall(_, _, args, _, _) => match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr())
   )
 );
 /// True if `e` is a FnCall whose function name starts with a comptime numeric prefix.
@@ -443,32 +443,32 @@ _evaluate_expression :: (
         _ => ()
       );
       cond(
-        ((__dk_len == usize(1)) && ast_expr_is_fn_call_of(expr, BK_COLON,.Some(usize(2)))) => {
+        ((__dk_len == usize(1)) && ast_expr_is_fn_call_of(expr, BK_COLON, .Some(usize(2)))) => {
           result := evaluate_binding(expr, env, ctx, exn);
           result.expr
         },
         (
-          ((__dk_len == usize(2)) && ast_expr_is_fn_call_of(expr, BK_INIT_ASSIGN,.Some(usize(2)))) ||
-            ((__dk_len == usize(2)) && ast_expr_is_fn_call_of(expr, BK_CONST,.Some(usize(2))))
+          ((__dk_len == usize(2)) && ast_expr_is_fn_call_of(expr, BK_INIT_ASSIGN, .Some(usize(2)))) ||
+            ((__dk_len == usize(2)) && ast_expr_is_fn_call_of(expr, BK_CONST, .Some(usize(2))))
         ) =>
           evaluate_initialization_assignment(expr, env, ctx, exn),
-        ((__dk_len == usize(1)) && ast_expr_is_fn_call_of(expr, BK_ASSIGN,.Some(usize(2)))) =>
+        ((__dk_len == usize(1)) && ast_expr_is_fn_call_of(expr, BK_ASSIGN, .Some(usize(2)))) =>
           evaluate_assignment(expr, env, ctx, exn),
-        ((__dk_len == usize(2)) && ast_expr_is_fn_call_of(expr, "->",.Some(usize(2)))) => {
+        ((__dk_len == usize(2)) && ast_expr_is_fn_call_of(expr, "->", .Some(usize(2)))) => {
           arg0 := ast_expr_get_arg0(expr);
           cond(
             (
               ast_expr_is_fn_call(arg0) &&
                 (
-                  ast_expr_is_fn_call_of(arg0, BK_FN,.None) ||
+                  ast_expr_is_fn_call_of(arg0, BK_FN, .None) ||
                     (
-                      ast_expr_is_fn_call_of(arg0, BK_UNSAFE_FN,.None) ||
-                        ast_expr_is_fn_call_of(arg0, BK_CTL,.None)
+                      ast_expr_is_fn_call_of(arg0, BK_UNSAFE_FN, .None) ||
+                        ast_expr_is_fn_call_of(arg0, BK_CTL, .None)
                     )
                 )
             ) => {
-              is_unsafe := ast_expr_is_fn_call_of(arg0, BK_UNSAFE_FN,.None);
-              is_control := ast_expr_is_fn_call_of(arg0, BK_CTL,.None);
+              is_unsafe := ast_expr_is_fn_call_of(arg0, BK_UNSAFE_FN, .None);
+              is_control := ast_expr_is_fn_call_of(arg0, BK_CTL, .None);
               old_is_unsafe := ctx.is_unsafe_function_type;
               old_is_control := ctx.is_control_function_type;
               ctx.is_unsafe_function_type = is_unsafe;
@@ -480,42 +480,42 @@ _evaluate_expression :: (
             },
             (
               ast_expr_is_fn_call(arg0) &&
-                ast_expr_is_fn_call_of(arg0, BK_FN_TRAIT,.None)
+                ast_expr_is_fn_call_of(arg0, BK_FN_TRAIT, .None)
             ) =>
               evaluate_fn_trait_type(expr, env, ctx, exn),
             true =>
               evaluate_anonymous_function_implementation(expr, env, ctx, exn)
           )
         },
-        ((__dk_len == usize(2)) && ast_expr_is_fn_call_of(expr, "=>",.Some(usize(2)))) => {
+        ((__dk_len == usize(2)) && ast_expr_is_fn_call_of(expr, "=>", .Some(usize(2)))) => {
           arg0 := ast_expr_get_arg0(expr);
           cond(
             (
               ast_expr_is_fn_call(arg0) &&
-                ast_expr_is_fn_call_of(arg0, BK_FN,.None)
+                ast_expr_is_fn_call_of(arg0, BK_FN, .None)
             ) =>
               evaluate_closure_type(expr, env, ctx, exn),
             true =>
               evaluate_anonymous_function_implementation(expr, env, ctx, exn)
           )
         },
-        ((__dk_len == usize(3)) && ast_expr_is_fn_call_of(expr, "=>>",.Some(usize(2)))) =>
+        ((__dk_len == usize(3)) && ast_expr_is_fn_call_of(expr, "=>>", .Some(usize(2)))) =>
           evaluate_anonymous_function_implementation(expr, env, ctx, exn),
-        ((__dk_len == usize(5)) && ast_expr_is_fn_call_of(expr, BF_RECUR,.None)) =>
+        ((__dk_len == usize(5)) && ast_expr_is_fn_call_of(expr, BF_RECUR, .None)) =>
           evaluate_recur(expr, env, ctx, exn),
-        ((__dk_len == usize(7)) && ast_expr_is_fn_call_of(expr, BF_RUNTIME,.None)) =>
+        ((__dk_len == usize(7)) && ast_expr_is_fn_call_of(expr, BF_RUNTIME, .None)) =>
           evaluate_runtime(expr, env, ctx, exn),
-        ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BK_EXTERN,.None)) =>
+        ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BK_EXTERN, .None)) =>
           evaluate_extern(expr, env, ctx, exn),
-        ((__dk_len == usize(9)) && ast_expr_is_fn_call_of(expr, BK_C_INCLUDE,.None)) =>
+        ((__dk_len == usize(9)) && ast_expr_is_fn_call_of(expr, BK_C_INCLUDE, .None)) =>
           evaluate_c_include(expr, env, ctx, exn),
-        ((__dk_len == usize(4)) && ast_expr_is_fn_call_of(expr, BK_TEST,.None)) =>
+        ((__dk_len == usize(4)) && ast_expr_is_fn_call_of(expr, BK_TEST, .None)) =>
           evaluate_test(expr, env, ctx, exn),
-        ((__dk_len == usize(4)) && ast_expr_is_fn_call_of(expr, BK_COND,.None)) =>
+        ((__dk_len == usize(4)) && ast_expr_is_fn_call_of(expr, BK_COND, .None)) =>
           evaluate_cond(expr, env, ctx, exn),
-        ((__dk_len == usize(5)) && ast_expr_is_fn_call_of(expr, BK_MATCH,.None)) =>
+        ((__dk_len == usize(5)) && ast_expr_is_fn_call_of(expr, BK_MATCH, .None)) =>
           evaluate_match(expr, env, ctx, exn),
-        ((__dk_len == usize(5)) && ast_expr_is_fn_call_of(expr, BK_TUPLE,.None)) =>
+        ((__dk_len == usize(5)) && ast_expr_is_fn_call_of(expr, BK_TUPLE, .None)) =>
           evaluate_tuple_value(expr, env, ctx, exn),
         // `_(...)` literal with an expected ANONYMOUS struct type is a
         // constructor call OF THAT TYPE — no fresh anonymous struct id is
@@ -538,7 +538,7 @@ _evaluate_expression :: (
         // issues/fixed/yo-self-anon-struct-literal-expected-type-ctor.md). Named
         // expecteds keep the anonymous-struct path until that downstream gap
         // is fixed.
-        ((__dk_len == usize(1)) && ast_expr_is_fn_call_of(expr, BK_ANON_STRUCT,.None)) => match(
+        ((__dk_len == usize(1)) && ast_expr_is_fn_call_of(expr, BK_ANON_STRUCT, .None)) => match(
           ctx.expected_type,
           .Some(et) => {
             et_ty := et.ty;
@@ -586,13 +586,13 @@ _evaluate_expression :: (
           },
           .None => evaluate_anonymous_struct_value(expr, env, ctx, exn)
         ),
-        ((__dk_len == usize(5)) && ast_expr_is_fn_call_of(expr, BK_ARRAY_VAL,.None)) =>
+        ((__dk_len == usize(5)) && ast_expr_is_fn_call_of(expr, BK_ARRAY_VAL, .None)) =>
           evaluate_array_value(expr, env, ctx, exn),
-        ((__dk_len == usize(13)) && ast_expr_is_fn_call_of(expr, BK_COMPTIME_LIST_VAL,.None)) =>
+        ((__dk_len == usize(13)) && ast_expr_is_fn_call_of(expr, BK_COMPTIME_LIST_VAL, .None)) =>
           evaluate_comptime_list_value(expr, env, ctx, exn),
-        ((__dk_len == usize(3)) && ast_expr_is_fn_call_of(expr, BK_DYN_LOWER,.None)) =>
+        ((__dk_len == usize(3)) && ast_expr_is_fn_call_of(expr, BK_DYN_LOWER, .None)) =>
           evaluate_dyn_value(expr, env, ctx, exn),
-        ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BK_ATOMIC,.None)) => {
+        ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BK_ATOMIC, .None)) => {
           n_args := match(
             expr,
             .Atom(_, _) => usize(0),
@@ -617,21 +617,21 @@ _evaluate_expression :: (
                 expr,
                 .Atom(_, _) => make_err_expr(),
                 .FnCall(_, _, args, _, _) =>
-                  match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr())
+                  match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr())
               );
               cond(
-                ast_expr_is_fn_call_of(inner_expr, BK_REF,.None) => {
+                ast_expr_is_fn_call_of(inner_expr, BK_REF, .None) => {
                   // atomic(ref(struct(...))) — canonical reference-semantics form.
                   ref_inner := match(
                     inner_expr,
                     .Atom(_, _) => make_err_expr(),
                     .FnCall(_, _, rargs, _, _) =>
-                      match(rargs.get(usize(0)),.Some(a) => a,.None => make_err_expr())
+                      match(rargs.get(usize(0)), .Some(a) => a, .None => make_err_expr())
                   );
                   cond(
-                    ast_expr_is_fn_call_of(ref_inner, BK_STRUCT,.None) =>
+                    ast_expr_is_fn_call_of(ref_inner, BK_STRUCT, .None) =>
                       evaluate_struct_type(ref_inner, env, ctx, true, true, exn),
-                    ast_expr_is_fn_call_of(ref_inner, BK_ENUM,.None) =>
+                    ast_expr_is_fn_call_of(ref_inner, BK_ENUM, .None) =>
                       evaluate_enum_type(ref_inner, env, ctx, true, true, exn),
                     true => {
                       exn.throw(
@@ -665,7 +665,7 @@ _evaluate_expression :: (
             }
           )
         },
-        ((__dk_len == usize(3)) && ast_expr_is_fn_call_of(expr, BK_REF,.None)) => {
+        ((__dk_len == usize(3)) && ast_expr_is_fn_call_of(expr, BK_REF, .None)) => {
           // ref(struct(...)) / ref(enum(...)) — reference-semantics type
           // constructor. Wraps an inline struct/enum literal only.
           n_ref_args := match(
@@ -692,12 +692,12 @@ _evaluate_expression :: (
                 expr,
                 .Atom(_, _) => make_err_expr(),
                 .FnCall(_, _, args, _, _) =>
-                  match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr())
+                  match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr())
               );
               cond(
-                ast_expr_is_fn_call_of(ref_inner, BK_STRUCT,.None) =>
+                ast_expr_is_fn_call_of(ref_inner, BK_STRUCT, .None) =>
                   evaluate_struct_type(ref_inner, env, ctx, false, true, exn),
-                ast_expr_is_fn_call_of(ref_inner, BK_ENUM,.None) =>
+                ast_expr_is_fn_call_of(ref_inner, BK_ENUM, .None) =>
                   evaluate_enum_type(ref_inner, env, ctx, false, true, exn),
                 true => {
                   exn.throw(
@@ -716,267 +716,267 @@ _evaluate_expression :: (
             }
           )
         },
-        ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BK_STRUCT,.None)) =>
+        ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BK_STRUCT, .None)) =>
           evaluate_struct_type(expr, env, ctx, false, false, exn),
-        ((__dk_len == usize(7)) && ast_expr_is_fn_call_of(expr, BK_NEWTYPE,.None)) =>
+        ((__dk_len == usize(7)) && ast_expr_is_fn_call_of(expr, BK_NEWTYPE, .None)) =>
           evaluate_newtype_type(expr, env, ctx, exn),
-        ((__dk_len == usize(4)) && ast_expr_is_fn_call_of(expr, BK_ENUM,.None)) =>
+        ((__dk_len == usize(4)) && ast_expr_is_fn_call_of(expr, BK_ENUM, .None)) =>
           evaluate_enum_type(expr, env, ctx, false, false, exn),
-        ((__dk_len == usize(5)) && ast_expr_is_fn_call_of(expr, BK_UNION,.None)) =>
+        ((__dk_len == usize(5)) && ast_expr_is_fn_call_of(expr, BK_UNION, .None)) =>
           evaluate_union_type(expr, env, ctx, exn),
-        ((__dk_len == usize(1)) && ast_expr_is_fn_call_of(expr, BF_DOT,.None)) =>
+        ((__dk_len == usize(1)) && ast_expr_is_fn_call_of(expr, BF_DOT, .None)) =>
           evaluate_property_access(expr, env, ctx, exn),
-        ((__dk_len == usize(5)) && ast_expr_is_fn_call_of(expr, BK_BEGIN,.None)) =>
+        ((__dk_len == usize(5)) && ast_expr_is_fn_call_of(expr, BK_BEGIN, .None)) =>
           evaluate_begin_expression(expr, env, ctx, ArrayList(Variable).new(), false, exn),
-        ((__dk_len == usize(5)) && ast_expr_is_fn_call_of(expr, BK_TRAIT,.None)) =>
+        ((__dk_len == usize(5)) && ast_expr_is_fn_call_of(expr, BK_TRAIT, .None)) =>
           evaluate_trait_type(expr, env, ctx, exn),
-        ((__dk_len == usize(4)) && ast_expr_is_fn_call_of(expr, BK_IMPL_UPPER,.None)) =>
+        ((__dk_len == usize(4)) && ast_expr_is_fn_call_of(expr, BK_IMPL_UPPER, .None)) =>
           evaluate_impl_constraint(expr, env, ctx, exn),
-        ((__dk_len == usize(4)) && ast_expr_is_fn_call_of(expr, BK_IMPL_LOWER,.None)) =>
+        ((__dk_len == usize(4)) && ast_expr_is_fn_call_of(expr, BK_IMPL_LOWER, .None)) =>
           evaluate_module_value(expr, env, ctx, exn),
-        ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BF_TYPEOF,.None)) =>
+        ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BF_TYPEOF, .None)) =>
           evaluate_typeof(expr, env, ctx, exn),
-        ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BF_SIZEOF,.None)) =>
+        ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BF_SIZEOF, .None)) =>
           evaluate_size_of(expr, env, ctx, exn),
-        ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BF_UNSAFE,.None)) =>
+        ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BF_UNSAFE, .None)) =>
           evaluate_unsafe(expr, env, ctx, exn),
-        ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BF_PRAGMA,.None)) =>
+        ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BF_PRAGMA, .None)) =>
           evaluate_pragma(expr, env, ctx, exn),
-        ((__dk_len == usize(8)) && ast_expr_is_fn_call_of(expr, BF_REQUIRES,.None)) =>
+        ((__dk_len == usize(8)) && ast_expr_is_fn_call_of(expr, BF_REQUIRES, .None)) =>
           evaluate_requires(expr, env, ctx, exn),
-        ((__dk_len == usize(7)) && ast_expr_is_fn_call_of(expr, BF_ENSURES,.None)) =>
+        ((__dk_len == usize(7)) && ast_expr_is_fn_call_of(expr, BF_ENSURES, .None)) =>
           evaluate_ensures(expr, env, ctx, exn),
-        ((__dk_len == usize(9)) && ast_expr_is_fn_call_of(expr, BF_INVARIANT,.None)) =>
+        ((__dk_len == usize(9)) && ast_expr_is_fn_call_of(expr, BF_INVARIANT, .None)) =>
           evaluate_invariant(expr, env, ctx, exn),
-        ((__dk_len == usize(5)) && ast_expr_is_fn_call_of(expr, BF_GHOST,.None)) =>
+        ((__dk_len == usize(5)) && ast_expr_is_fn_call_of(expr, BF_GHOST, .None)) =>
           evaluate_ghost(expr, env, ctx, exn),
-        ((__dk_len == usize(8)) && ast_expr_is_fn_call_of(expr, BF_GHOST_FN,.None)) =>
+        ((__dk_len == usize(8)) && ast_expr_is_fn_call_of(expr, BF_GHOST_FN, .None)) =>
           evaluate_ghost_fn(expr, env, ctx, exn),
-        ((__dk_len == usize(3)) && ast_expr_is_fn_call_of(expr, BF_OLD,.None)) =>
+        ((__dk_len == usize(3)) && ast_expr_is_fn_call_of(expr, BF_OLD, .None)) =>
           evaluate_old(expr, env, ctx, exn),
-        ((__dk_len == usize(7)) && ast_expr_is_fn_call_of(expr, BF_ALIGNOF,.None)) =>
+        ((__dk_len == usize(7)) && ast_expr_is_fn_call_of(expr, BF_ALIGNOF, .None)) =>
           evaluate_align_of(expr, env, ctx, exn),
-        ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BF_TYPEID,.None)) =>
+        ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BF_TYPEID, .None)) =>
           evaluate_type_id(expr, env, ctx, exn),
-        ((__dk_len == usize(8)) && ast_expr_is_fn_call_of(expr, BF_DOWNCAST,.None)) =>
+        ((__dk_len == usize(8)) && ast_expr_is_fn_call_of(expr, BF_DOWNCAST, .None)) =>
           evaluate_downcast(expr, env, ctx, exn),
-        ((__dk_len == usize(2)) && ast_expr_is_fn_call_of(expr, BF_RC,.None)) =>
+        ((__dk_len == usize(2)) && ast_expr_is_fn_call_of(expr, BF_RC, .None)) =>
           evaluate_rc(expr, env, ctx, exn),
-        ((__dk_len == usize(2)) && ast_expr_is_fn_call_of(expr, BK_SUBTYPE_OF,.None)) =>
+        ((__dk_len == usize(2)) && ast_expr_is_fn_call_of(expr, BK_SUBTYPE_OF, .None)) =>
           evaluate_subtype_of(expr, env, ctx, exn),
-        ((__dk_len == usize(3)) && ast_expr_is_fn_call_of(expr, BF_THE,.None)) =>
+        ((__dk_len == usize(3)) && ast_expr_is_fn_call_of(expr, BF_THE, .None)) =>
           evaluate_the(expr, env, ctx, exn),
-        ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BK_IMPORT,.None)) =>
+        ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BK_IMPORT, .None)) =>
           evaluate_import(expr, env, ctx, exn),
-        ((__dk_len == usize(4)) && ast_expr_is_fn_call_of(expr, BK_OPEN,.None)) =>
+        ((__dk_len == usize(4)) && ast_expr_is_fn_call_of(expr, BK_OPEN, .None)) =>
           evaluate_open(expr, env, ctx, exn),
-        ((__dk_len == usize(1)) && ast_expr_is_fn_call_of(expr, BK_PTR,.Some(usize(1)))) =>
+        ((__dk_len == usize(1)) && ast_expr_is_fn_call_of(expr, BK_PTR, .Some(usize(1)))) =>
           evaluate_raw_pointer_call(expr, env, ctx, exn),
-        ((__dk_len == usize(3)) && ast_expr_is_fn_call_of(expr, BK_ISO,.Some(usize(1)))) =>
+        ((__dk_len == usize(3)) && ast_expr_is_fn_call_of(expr, BK_ISO, .Some(usize(1)))) =>
           evaluate_iso_type_call(expr, env, ctx, exn),
-        ((__dk_len == usize(1)) && ast_expr_is_fn_call_of(expr, BF_ADDRESS_OF,.Some(usize(1)))) =>
+        ((__dk_len == usize(1)) && ast_expr_is_fn_call_of(expr, BF_ADDRESS_OF, .Some(usize(1)))) =>
           evaluate_address_call(expr, env, ctx, exn),
-        ((__dk_len == usize(5)) && ast_expr_is_fn_call_of(expr, BK_TUPLE_TYPE,.None)) =>
+        ((__dk_len == usize(5)) && ast_expr_is_fn_call_of(expr, BK_TUPLE_TYPE, .None)) =>
           evaluate_tuple_type(expr, env, ctx, exn),
-        ((__dk_len == usize(5)) && ast_expr_is_fn_call_of(expr, BK_ARRAY,.None)) =>
+        ((__dk_len == usize(5)) && ast_expr_is_fn_call_of(expr, BK_ARRAY, .None)) =>
           evaluate_array_type(expr, env, ctx, exn),
-        ((__dk_len == usize(15)) && ast_expr_is_fn_call_of(expr, BF_ARRAY_FILL,.Some(usize(2)))) =>
+        ((__dk_len == usize(15)) && ast_expr_is_fn_call_of(expr, BF_ARRAY_FILL, .Some(usize(2)))) =>
           evaluate_yo_array_fill(expr, env, ctx, exn),
-        ((__dk_len == usize(12)) && ast_expr_is_fn_call_of(expr, BK_COMPTIME_LIST_TYPE,.None)) =>
+        ((__dk_len == usize(12)) && ast_expr_is_fn_call_of(expr, BK_COMPTIME_LIST_TYPE, .None)) =>
           evaluate_comptime_list_type(expr, env, ctx, exn),
-        ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BK_FUTURE,.None)) =>
+        ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BK_FUTURE, .None)) =>
           evaluate_future_type(expr, env, ctx, exn),
-        ((__dk_len == usize(8)) && ast_expr_is_fn_call_of(expr, BK_CONCRETE,.None)) =>
+        ((__dk_len == usize(8)) && ast_expr_is_fn_call_of(expr, BK_CONCRETE, .None)) =>
           evaluate_concrete_type(expr, env, ctx, exn),
-        ((__dk_len == usize(3)) && ast_expr_is_fn_call_of(expr, BK_DYN_UPPER,.None)) =>
+        ((__dk_len == usize(3)) && ast_expr_is_fn_call_of(expr, BK_DYN_UPPER, .None)) =>
           evaluate_dyn_type(expr, env, ctx, exn),
-        ((__dk_len == usize(21)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_EXPECT_ERROR,.None)) =>
+        ((__dk_len == usize(21)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_EXPECT_ERROR, .None)) =>
           evaluate_comptime_expect_error(expr, env, ctx, exn),
-        ((__dk_len == usize(15)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_ASSERT,.None)) =>
+        ((__dk_len == usize(15)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_ASSERT, .None)) =>
           evaluate_comptime_assert(expr, env, ctx, exn),
-        ((__dk_len == usize(11)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_FN,.None)) =>
+        ((__dk_len == usize(11)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_FN, .None)) =>
           evaluate_comptime_fn(expr, env, ctx, exn),
-        ((__dk_len == usize(14)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_PRINT,.None)) =>
+        ((__dk_len == usize(14)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_PRINT, .None)) =>
           evaluate_comptime_print(expr, env, ctx, exn),
-        ((__dk_len == usize(10)) && ast_expr_is_fn_call_of(expr, BF_PANIC,.None)) =>
+        ((__dk_len == usize(10)) && ast_expr_is_fn_call_of(expr, BF_PANIC, .None)) =>
           evaluate_panic(expr, env, ctx, exn),
-        ((__dk_len == usize(3)) && ast_expr_is_fn_call_of(expr, BF_ASM,.None)) =>
+        ((__dk_len == usize(3)) && ast_expr_is_fn_call_of(expr, BF_ASM, .None)) =>
           evaluate_asm(expr, env, ctx, exn),
-        ((__dk_len == usize(10)) && ast_expr_is_fn_call_of(expr, BF_GLOBAL_ASM,.None)) =>
+        ((__dk_len == usize(10)) && ast_expr_is_fn_call_of(expr, BF_GLOBAL_ASM, .None)) =>
           evaluate_global_asm(expr, env, ctx, exn),
-        ((__dk_len == usize(12)) && ast_expr_is_fn_call_of(expr, BF_MACRO_EXPAND,.None)) =>
+        ((__dk_len == usize(12)) && ast_expr_is_fn_call_of(expr, BF_MACRO_EXPAND, .None)) =>
           evaluate_macro_expand(expr, env, ctx, exn),
         (
-          ((__dk_len == usize(2)) && ast_expr_is_fn_call_of(expr, BK_OP_AND,.None)) ||
-            ((__dk_len == usize(2)) && ast_expr_is_fn_call_of(expr, BK_OP_OR,.None))
+          ((__dk_len == usize(2)) && ast_expr_is_fn_call_of(expr, BK_OP_AND, .None)) ||
+            ((__dk_len == usize(2)) && ast_expr_is_fn_call_of(expr, BK_OP_OR, .None))
         ) =>
           evaluate_and_or(expr, env, ctx, exn),
-        ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BF_UNWIND,.None)) =>
+        ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BF_UNWIND, .None)) =>
           evaluate_unwind(expr, env, ctx, exn),
-        ((__dk_len == usize(7)) && ast_expr_is_fn_call_of(expr, BF_CONSUME,.None)) =>
+        ((__dk_len == usize(7)) && ast_expr_is_fn_call_of(expr, BF_CONSUME, .None)) =>
           evaluate_consume(expr, env, ctx, exn),
-        ((__dk_len == usize(7)) && ast_expr_is_fn_call_of(expr, BF_DROP,.None)) =>
+        ((__dk_len == usize(7)) && ast_expr_is_fn_call_of(expr, BF_DROP, .None)) =>
           evaluate_drop(expr, env, ctx, exn),
-        ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BF_DUP,.None)) =>
+        ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BF_DUP, .None)) =>
           evaluate_dup(expr, env, ctx, exn),
-        ((__dk_len == usize(12)) && ast_expr_is_fn_call_of(expr, BF_YO_DECR_RC,.None)) =>
+        ((__dk_len == usize(12)) && ast_expr_is_fn_call_of(expr, BF_YO_DECR_RC, .None)) =>
           evaluate_yo_decr_rc(expr, env, ctx, exn),
-        ((__dk_len == usize(12)) && ast_expr_is_fn_call_of(expr, BF_YO_INCR_RC,.None)) =>
+        ((__dk_len == usize(12)) && ast_expr_is_fn_call_of(expr, BF_YO_INCR_RC, .None)) =>
           evaluate_yo_incr_rc(expr, env, ctx, exn),
-        ((__dk_len == usize(19)) && ast_expr_is_fn_call_of(expr, BF_YO_DECR_RC_ATOMIC,.None)) =>
+        ((__dk_len == usize(19)) && ast_expr_is_fn_call_of(expr, BF_YO_DECR_RC_ATOMIC, .None)) =>
           evaluate_yo_decr_rc_atomic(expr, env, ctx, exn),
-        ((__dk_len == usize(19)) && ast_expr_is_fn_call_of(expr, BF_YO_INCR_RC_ATOMIC,.None)) =>
+        ((__dk_len == usize(19)) && ast_expr_is_fn_call_of(expr, BF_YO_INCR_RC_ATOMIC, .None)) =>
           evaluate_yo_incr_rc_atomic(expr, env, ctx, exn),
-        ((__dk_len == usize(16)) && ast_expr_is_fn_call_of(expr, BF_YO_ISO_EXTRACT,.None)) =>
+        ((__dk_len == usize(16)) && ast_expr_is_fn_call_of(expr, BF_YO_ISO_EXTRACT, .None)) =>
           evaluate_yo_iso_extract(expr, env, ctx, exn),
-        ((__dk_len == usize(16)) && ast_expr_is_fn_call_of(expr, BF_YO_ISO_DISPOSE,.None)) =>
+        ((__dk_len == usize(16)) && ast_expr_is_fn_call_of(expr, BF_YO_ISO_DISPOSE, .None)) =>
           evaluate_yo_iso_dispose(expr, env, ctx, exn),
-        ((__dk_len == usize(23)) && ast_expr_is_fn_call_of(expr, BF_YO_DROP_ARRAY_ELEMENT,.None)) =>
+        ((__dk_len == usize(23)) && ast_expr_is_fn_call_of(expr, BF_YO_DROP_ARRAY_ELEMENT, .None)) =>
           evaluate_yo_drop_array_element(expr, env, ctx, exn),
-        ((__dk_len == usize(22)) && ast_expr_is_fn_call_of(expr, BF_YO_DUP_ARRAY_ELEMENT,.None)) =>
+        ((__dk_len == usize(22)) && ast_expr_is_fn_call_of(expr, BF_YO_DUP_ARRAY_ELEMENT, .None)) =>
           evaluate_yo_dup_array_element(expr, env, ctx, exn),
-        ((__dk_len == usize(23)) && ast_expr_is_fn_call_of(expr, BF_YO_DROP_TUPLE_ELEMENT,.None)) =>
+        ((__dk_len == usize(23)) && ast_expr_is_fn_call_of(expr, BF_YO_DROP_TUPLE_ELEMENT, .None)) =>
           evaluate_yo_drop_tuple_element(expr, env, ctx, exn),
-        ((__dk_len == usize(22)) && ast_expr_is_fn_call_of(expr, BF_YO_DUP_TUPLE_ELEMENT,.None)) =>
+        ((__dk_len == usize(22)) && ast_expr_is_fn_call_of(expr, BF_YO_DUP_TUPLE_ELEMENT, .None)) =>
           evaluate_yo_dup_tuple_element(expr, env, ctx, exn),
-        ((__dk_len == usize(11)) && ast_expr_is_fn_call_of(expr, BF_YO_RC_OWN,.None)) =>
+        ((__dk_len == usize(11)) && ast_expr_is_fn_call_of(expr, BF_YO_RC_OWN, .None)) =>
           evaluate_yo_rc_own(expr, env, ctx, exn),
-        ((__dk_len == usize(13)) && ast_expr_is_fn_call_of(expr, BF_YO_DYN_DROP,.None)) =>
+        ((__dk_len == usize(13)) && ast_expr_is_fn_call_of(expr, BF_YO_DYN_DROP, .None)) =>
           evaluate_yo_dyn_vtable_drop(expr, env, ctx, exn),
-        ((__dk_len == usize(12)) && ast_expr_is_fn_call_of(expr, BF_YO_DYN_DUP,.None)) =>
+        ((__dk_len == usize(12)) && ast_expr_is_fn_call_of(expr, BF_YO_DYN_DUP, .None)) =>
           evaluate_yo_dyn_vtable_dup(expr, env, ctx, exn),
-        ((__dk_len == usize(18)) && ast_expr_is_fn_call_of(expr, BF_YO_SOMETYPE_DROP,.None)) =>
+        ((__dk_len == usize(18)) && ast_expr_is_fn_call_of(expr, BF_YO_SOMETYPE_DROP, .None)) =>
           evaluate_yo_some_type_drop(expr, env, ctx, exn),
-        ((__dk_len == usize(17)) && ast_expr_is_fn_call_of(expr, BF_YO_SOMETYPE_DUP,.None)) =>
+        ((__dk_len == usize(17)) && ast_expr_is_fn_call_of(expr, BF_YO_SOMETYPE_DUP, .None)) =>
           evaluate_yo_some_type_dup(expr, env, ctx, exn),
-        ((__dk_len == usize(15)) && ast_expr_is_fn_call_of(expr, BF_YO_GC_COLLECT,.None)) =>
+        ((__dk_len == usize(15)) && ast_expr_is_fn_call_of(expr, BF_YO_GC_COLLECT, .None)) =>
           evaluate_yo_gc_collect(expr, env, ctx, exn),
-        ((__dk_len == usize(5)) && ast_expr_is_fn_call_of(expr, BK_QUOTE,.None)) =>
+        ((__dk_len == usize(5)) && ast_expr_is_fn_call_of(expr, BK_QUOTE, .None)) =>
           evaluate_quote(expr, env, ctx, exn),
-        ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BK_GENSYM,.None)) =>
+        ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BK_GENSYM, .None)) =>
           evaluate_gensym(expr, env, ctx, exn),
-        ((__dk_len == usize(17)) && ast_expr_is_fn_call_of(expr, BF_YO_EXPR_IS_ATOM,.None)) =>
+        ((__dk_len == usize(17)) && ast_expr_is_fn_call_of(expr, BF_YO_EXPR_IS_ATOM, .None)) =>
           evaluate_yo_expr_is_atom(expr, env, ctx, exn),
-        ((__dk_len == usize(20)) && ast_expr_is_fn_call_of(expr, BF_YO_EXPR_IS_FN_CALL,.None)) =>
+        ((__dk_len == usize(20)) && ast_expr_is_fn_call_of(expr, BF_YO_EXPR_IS_FN_CALL, .None)) =>
           evaluate_yo_expr_is_fn_call(expr, env, ctx, exn),
-        ((__dk_len == usize(20)) && ast_expr_is_fn_call_of(expr, BF_YO_EXPR_GET_CALLEE,.None)) =>
+        ((__dk_len == usize(20)) && ast_expr_is_fn_call_of(expr, BF_YO_EXPR_GET_CALLEE, .None)) =>
           evaluate_yo_expr_get_callee(expr, env, ctx, exn),
-        ((__dk_len == usize(18)) && ast_expr_is_fn_call_of(expr, BF_YO_EXPR_GET_ARGS,.None)) =>
+        ((__dk_len == usize(18)) && ast_expr_is_fn_call_of(expr, BF_YO_EXPR_GET_ARGS, .None)) =>
           evaluate_yo_expr_get_args(expr, env, ctx, exn),
-        ((__dk_len == usize(19)) && ast_expr_is_fn_call_of(expr, BF_YO_EXPR_TO_STRING,.None)) =>
+        ((__dk_len == usize(19)) && ast_expr_is_fn_call_of(expr, BF_YO_EXPR_TO_STRING, .None)) =>
           evaluate_yo_expr_to_string(expr, env, ctx, exn),
-        ((__dk_len == usize(12)) && ast_expr_is_fn_call_of(expr, BF_YO_EXPR_EQ,.None)) =>
+        ((__dk_len == usize(12)) && ast_expr_is_fn_call_of(expr, BF_YO_EXPR_EQ, .None)) =>
           evaluate_yo_expr_eq(expr, env, ctx, exn),
-        ((__dk_len == usize(22)) && ast_expr_is_fn_call_of(expr, BF_YO_COMPTIME_LIST_CAR,.None)) =>
+        ((__dk_len == usize(22)) && ast_expr_is_fn_call_of(expr, BF_YO_COMPTIME_LIST_CAR, .None)) =>
           evaluate_yo_comptime_list_car(expr, env, ctx, exn),
-        ((__dk_len == usize(22)) && ast_expr_is_fn_call_of(expr, BF_YO_COMPTIME_LIST_CDR,.None)) =>
+        ((__dk_len == usize(22)) && ast_expr_is_fn_call_of(expr, BF_YO_COMPTIME_LIST_CDR, .None)) =>
           evaluate_yo_comptime_list_cdr(expr, env, ctx, exn),
-        ((__dk_len == usize(23)) && ast_expr_is_fn_call_of(expr, BF_YO_COMPTIME_LIST_CONS,.None)) =>
+        ((__dk_len == usize(23)) && ast_expr_is_fn_call_of(expr, BF_YO_COMPTIME_LIST_CONS, .None)) =>
           evaluate_yo_comptime_list_cons(expr, env, ctx, exn),
-        ((__dk_len == usize(25)) && ast_expr_is_fn_call_of(expr, BF_YO_COMPTIME_LIST_APPEND,.None)) =>
+        ((__dk_len == usize(25)) && ast_expr_is_fn_call_of(expr, BF_YO_COMPTIME_LIST_APPEND, .None)) =>
           evaluate_yo_comptime_list_append(expr, env, ctx, exn),
-        ((__dk_len == usize(25)) && ast_expr_is_fn_call_of(expr, BF_YO_COMPTIME_LIST_LENGTH,.None)) =>
+        ((__dk_len == usize(25)) && ast_expr_is_fn_call_of(expr, BF_YO_COMPTIME_LIST_LENGTH, .None)) =>
           evaluate_yo_comptime_list_length(expr, env, ctx, exn),
-        ((__dk_len == usize(31)) && ast_expr_is_fn_call_of(expr, BF_YO_COMPTIME_LIST_ELEMENT_TYPE,.None)) =>
+        ((__dk_len == usize(31)) && ast_expr_is_fn_call_of(expr, BF_YO_COMPTIME_LIST_ELEMENT_TYPE, .None)) =>
           evaluate_yo_comptime_list_element_type(expr, env, ctx, exn),
-        ((__dk_len == usize(22)) && ast_expr_is_fn_call_of(expr, BF_YO_COMPTIME_LIST_GET,.None)) =>
+        ((__dk_len == usize(22)) && ast_expr_is_fn_call_of(expr, BF_YO_COMPTIME_LIST_GET, .None)) =>
           evaluate_yo_comptime_list_get(expr, env, ctx, exn),
         is_comptime_numeric_fn_call(expr) =>
           evaluate_yo_comptime_numeric_functions(expr, env, ctx, exn),
         (
-          ((__dk_len == usize(22)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_BOOL_AND,.Some(usize(2)))) ||
-            ((__dk_len == usize(21)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_BOOL_OR,.Some(usize(2)))) ||
-              ((__dk_len == usize(21)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_BOOL_EQ,.Some(usize(2)))) ||
-                ((__dk_len == usize(22)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_BOOL_NEQ,.Some(usize(2)))) ||
-                  ((__dk_len == usize(22)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_BOOL_NOT,.Some(usize(1)))) ||
-                    ((__dk_len == usize(37)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_BOOL_TO_COMPTIME_STRING,.Some(usize(1))))
+          ((__dk_len == usize(22)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_BOOL_AND, .Some(usize(2)))) ||
+            ((__dk_len == usize(21)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_BOOL_OR, .Some(usize(2)))) ||
+              ((__dk_len == usize(21)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_BOOL_EQ, .Some(usize(2)))) ||
+                ((__dk_len == usize(22)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_BOOL_NEQ, .Some(usize(2)))) ||
+                  ((__dk_len == usize(22)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_BOOL_NOT, .Some(usize(1)))) ||
+                    ((__dk_len == usize(37)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_BOOL_TO_COMPTIME_STRING, .Some(usize(1))))
         ) =>
           evaluate_yo_comptime_boolean_functions(expr, env, ctx, exn),
         (
-          ((__dk_len == usize(27)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_CONCAT,.Some(usize(2)))) ||
-            ((__dk_len == usize(23)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_EQ,.Some(usize(2)))) ||
-              ((__dk_len == usize(24)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_NEQ,.Some(usize(2)))) ||
-                ((__dk_len == usize(23)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_LT,.Some(usize(2)))) ||
-                  ((__dk_len == usize(24)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_LTE,.Some(usize(2)))) ||
-                    ((__dk_len == usize(23)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_GT,.Some(usize(2)))) ||
-                      ((__dk_len == usize(24)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_GTE,.Some(usize(2)))) ||
-                        ((__dk_len == usize(27)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_LENGTH,.Some(usize(1)))) ||
-                          ((__dk_len == usize(29)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_TO_UPPER,.Some(usize(1)))) ||
-                            ((__dk_len == usize(29)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_TO_LOWER,.Some(usize(1)))) ||
-                              ((__dk_len == usize(26)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_SLICE,.None))
+          ((__dk_len == usize(27)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_CONCAT, .Some(usize(2)))) ||
+            ((__dk_len == usize(23)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_EQ, .Some(usize(2)))) ||
+              ((__dk_len == usize(24)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_NEQ, .Some(usize(2)))) ||
+                ((__dk_len == usize(23)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_LT, .Some(usize(2)))) ||
+                  ((__dk_len == usize(24)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_LTE, .Some(usize(2)))) ||
+                    ((__dk_len == usize(23)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_GT, .Some(usize(2)))) ||
+                      ((__dk_len == usize(24)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_GTE, .Some(usize(2)))) ||
+                        ((__dk_len == usize(27)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_LENGTH, .Some(usize(1)))) ||
+                          ((__dk_len == usize(29)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_TO_UPPER, .Some(usize(1)))) ||
+                            ((__dk_len == usize(29)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_TO_LOWER, .Some(usize(1)))) ||
+                              ((__dk_len == usize(26)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_SLICE, .None))
         ) =>
           evaluate_yo_comptime_string_functions(expr, env, ctx, exn),
         (
-          ((__dk_len == usize(25)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_ARRAY_INDEX,.None)) ||
-            ((__dk_len == usize(26)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_INDEX,.None)) ||
-              ((__dk_len == usize(32)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_INDEX_RANGE,.None)) ||
-                ((__dk_len == usize(42)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_INDEX_RANGE_INCLUSIVE,.None)) ||
-                  ((__dk_len == usize(24)) && ast_expr_is_fn_call_of(expr, BF_YO_COMPTIME_LIST_INDEX,.None)) ||
-                    ((__dk_len == usize(30)) && ast_expr_is_fn_call_of(expr, BF_YO_COMPTIME_LIST_INDEX_RANGE,.None)) ||
-                      ((__dk_len == usize(40)) && ast_expr_is_fn_call_of(expr, BF_YO_COMPTIME_LIST_INDEX_RANGE_INCLUSIVE,.None))
+          ((__dk_len == usize(25)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_ARRAY_INDEX, .None)) ||
+            ((__dk_len == usize(26)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_INDEX, .None)) ||
+              ((__dk_len == usize(32)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_INDEX_RANGE, .None)) ||
+                ((__dk_len == usize(42)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_INDEX_RANGE_INCLUSIVE, .None)) ||
+                  ((__dk_len == usize(24)) && ast_expr_is_fn_call_of(expr, BF_YO_COMPTIME_LIST_INDEX, .None)) ||
+                    ((__dk_len == usize(30)) && ast_expr_is_fn_call_of(expr, BF_YO_COMPTIME_LIST_INDEX_RANGE, .None)) ||
+                      ((__dk_len == usize(40)) && ast_expr_is_fn_call_of(expr, BF_YO_COMPTIME_LIST_INDEX_RANGE_INCLUSIVE, .None))
         ) =>
           evaluate_yo_comptime_index_functions(expr, env, ctx, exn),
-        ((__dk_len == usize(28)) && ast_expr_is_fn_call_of(expr, BF_YO_TYPE_TO_COMPTIME_STRING,.Some(usize(1)))) =>
+        ((__dk_len == usize(28)) && ast_expr_is_fn_call_of(expr, BF_YO_TYPE_TO_COMPTIME_STRING, .Some(usize(1)))) =>
           evaluate_yo_type_to_string(expr, env, ctx, exn),
-        ((__dk_len == usize(25)) && ast_expr_is_fn_call_of(expr, BF_YO_ARE_TYPES_COMPATIBLE,.Some(usize(2)))) =>
+        ((__dk_len == usize(25)) && ast_expr_is_fn_call_of(expr, BF_YO_ARE_TYPES_COMPATIBLE, .Some(usize(2)))) =>
           evaluate_yo_are_types_compatible(expr, env, ctx, exn),
-        ((__dk_len == usize(20)) && ast_expr_is_fn_call_of(expr, BF_YO_ARE_TYPES_EQUAL,.Some(usize(2)))) =>
+        ((__dk_len == usize(20)) && ast_expr_is_fn_call_of(expr, BF_YO_ARE_TYPES_EQUAL, .Some(usize(2)))) =>
           evaluate_yo_are_types_equal(expr, env, ctx, exn),
-        ((__dk_len == usize(26)) && ast_expr_is_fn_call_of(expr, BF_YO_TYPE_CONTAINS_RC_TYPE,.Some(usize(1)))) =>
+        ((__dk_len == usize(26)) && ast_expr_is_fn_call_of(expr, BF_YO_TYPE_CONTAINS_RC_TYPE, .Some(usize(1)))) =>
           evaluate_yo_type_contains_rc_type(expr, env, ctx, exn),
-        ((__dk_len == usize(27)) && ast_expr_is_fn_call_of(expr, BF_YO_TYPE_CAN_FORM_RC_CYCLE,.Some(usize(1)))) =>
+        ((__dk_len == usize(27)) && ast_expr_is_fn_call_of(expr, BF_YO_TYPE_CAN_FORM_RC_CYCLE, .Some(usize(1)))) =>
           evaluate_yo_type_can_form_rc_cycle(expr, env, ctx, exn),
-        ((__dk_len == usize(15)) && ast_expr_is_fn_call_of(expr, BF_YO_TYPE_IMPLS,.Some(usize(2)))) =>
+        ((__dk_len == usize(15)) && ast_expr_is_fn_call_of(expr, BF_YO_TYPE_IMPLS, .Some(usize(2)))) =>
           evaluate_yo_type_impls(expr, env, ctx, exn),
-        ((__dk_len == usize(18)) && ast_expr_is_fn_call_of(expr, BF_YO_TYPE_GET_INFO,.Some(usize(1)))) =>
+        ((__dk_len == usize(18)) && ast_expr_is_fn_call_of(expr, BF_YO_TYPE_GET_INFO, .Some(usize(1)))) =>
           evaluate_yo_type_get_info(expr, env, ctx, exn),
-        ((__dk_len == usize(13)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_EVAL,.Some(usize(1)))) =>
+        ((__dk_len == usize(13)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_EVAL, .Some(usize(1)))) =>
           evaluate_comptime_eval(expr, env, ctx, exn),
-        ((__dk_len == usize(28)) && ast_expr_is_fn_call_of(expr, BF_YO_COMPTIME_STRING_TO_EXPR,.Some(usize(1)))) =>
+        ((__dk_len == usize(28)) && ast_expr_is_fn_call_of(expr, BF_YO_COMPTIME_STRING_TO_EXPR, .Some(usize(1)))) =>
           evaluate_comptime_string_to_expr(expr, env, ctx, exn),
-        ((__dk_len == usize(21)) && ast_expr_is_fn_call_of(expr, BF_YO_TYPE_JOIN_FIELDS,.Some(usize(3)))) =>
+        ((__dk_len == usize(21)) && ast_expr_is_fn_call_of(expr, BF_YO_TYPE_JOIN_FIELDS, .Some(usize(3)))) =>
           evaluate_type_join_fields(expr, env, ctx, exn),
-        ((__dk_len == usize(22)) && ast_expr_is_fn_call_of(expr, BF_YO_TYPE_MAP_VARIANTS,.Some(usize(2)))) =>
+        ((__dk_len == usize(22)) && ast_expr_is_fn_call_of(expr, BF_YO_TYPE_MAP_VARIANTS, .Some(usize(2)))) =>
           evaluate_type_map_variants(expr, env, ctx, exn),
-        ((__dk_len == usize(11)) && ast_expr_is_fn_call_of(expr, BF_DERIVE_RULE,.Some(usize(2)))) =>
+        ((__dk_len == usize(11)) && ast_expr_is_fn_call_of(expr, BF_DERIVE_RULE, .Some(usize(2)))) =>
           evaluate_derive_rule(expr, env, ctx, exn),
-        ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BF_DERIVE,.None)) =>
+        ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BF_DERIVE, .None)) =>
           evaluate_derive(expr, env, ctx, exn),
-        ((__dk_len == usize(19)) && ast_expr_is_fn_call_of(expr, BF_YO_VAR_PRINT_INFO,.Some(usize(1)))) =>
+        ((__dk_len == usize(19)) && ast_expr_is_fn_call_of(expr, BF_YO_VAR_PRINT_INFO, .Some(usize(1)))) =>
           evaluate_yo_var_print_info(expr, env, ctx, exn),
-        ((__dk_len == usize(31)) && ast_expr_is_fn_call_of(expr, BF_YO_VAR_IS_OWNING_RC,.None)) =>
+        ((__dk_len == usize(31)) && ast_expr_is_fn_call_of(expr, BF_YO_VAR_IS_OWNING_RC, .None)) =>
           evaluate_yo_var_is_owning_the_rc_value(expr, env, ctx, exn),
-        ((__dk_len == usize(26)) && ast_expr_is_fn_call_of(expr, BF_YO_VAR_HAS_OTHER_ALIASES,.None)) =>
+        ((__dk_len == usize(26)) && ast_expr_is_fn_call_of(expr, BF_YO_VAR_HAS_OTHER_ALIASES, .None)) =>
           evaluate_yo_var_has_other_aliases(expr, env, ctx, exn),
         (
-          ((__dk_len == usize(21)) && ast_expr_is_fn_call_of(expr, BF_YO_PROCESS_PLATFORM,.None)) ||
-            ((__dk_len == usize(17)) && ast_expr_is_fn_call_of(expr, BF_YO_PROCESS_ARCH,.None)) ||
-              ((__dk_len == usize(22)) && ast_expr_is_fn_call_of(expr, BF_YO_POINTER_SIZE_BITS,.None))
+          ((__dk_len == usize(21)) && ast_expr_is_fn_call_of(expr, BF_YO_PROCESS_PLATFORM, .None)) ||
+            ((__dk_len == usize(17)) && ast_expr_is_fn_call_of(expr, BF_YO_PROCESS_ARCH, .None)) ||
+              ((__dk_len == usize(22)) && ast_expr_is_fn_call_of(expr, BF_YO_POINTER_SIZE_BITS, .None))
         ) =>
           evaluate_yo_process_functions(expr, env, ctx, exn),
         (
-          ((__dk_len == usize(21)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_EXECUTABLE,.None)) ||
-            ((__dk_len == usize(25)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_STATIC_LIBRARY,.None)) ||
-              ((__dk_len == usize(25)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_SHARED_LIBRARY,.None)) ||
-                ((__dk_len == usize(15)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_TEST,.None)) ||
-                  ((__dk_len == usize(14)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_RUN,.None)) ||
-                    ((__dk_len == usize(15)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_STEP,.None)) ||
-                      ((__dk_len == usize(25)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_STEP_DEPEND_ON,.None)) ||
-                        ((__dk_len == usize(22)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_TARGET_HOST,.None)) ||
-                          ((__dk_len == usize(23)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_TARGET_PARSE,.None)) ||
-                            ((__dk_len == usize(21)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_DEPENDENCY,.None)) ||
-                              ((__dk_len == usize(26)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_PATH_DEPENDENCY,.None)) ||
-                                ((__dk_len == usize(25)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_SYSTEM_LIBRARY,.None)) ||
-                                  ((__dk_len == usize(15)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_LINK,.None)) ||
-                                    ((__dk_len == usize(30)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_LINK_SYSTEM_LIBRARY,.None)) ||
-                                      ((__dk_len == usize(17)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_OPTION,.None)) ||
-                                        ((__dk_len == usize(23)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_DEP_ARTIFACT,.None)) ||
-                                          ((__dk_len == usize(17)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_MODULE,.None)) ||
-                                            ((__dk_len == usize(22)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_MODULE_LINK,.None)) ||
-                                              ((__dk_len == usize(21)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_ADD_IMPORT,.None)) ||
-                                                ((__dk_len == usize(21)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_ADD_CFLAGS,.None)) ||
-                                                  ((__dk_len == usize(21)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_DEP_MODULE,.None)) ||
-                                                    ((__dk_len == usize(14)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_DOC,.None))
+          ((__dk_len == usize(21)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_EXECUTABLE, .None)) ||
+            ((__dk_len == usize(25)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_STATIC_LIBRARY, .None)) ||
+              ((__dk_len == usize(25)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_SHARED_LIBRARY, .None)) ||
+                ((__dk_len == usize(15)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_TEST, .None)) ||
+                  ((__dk_len == usize(14)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_RUN, .None)) ||
+                    ((__dk_len == usize(15)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_STEP, .None)) ||
+                      ((__dk_len == usize(25)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_STEP_DEPEND_ON, .None)) ||
+                        ((__dk_len == usize(22)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_TARGET_HOST, .None)) ||
+                          ((__dk_len == usize(23)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_TARGET_PARSE, .None)) ||
+                            ((__dk_len == usize(21)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_DEPENDENCY, .None)) ||
+                              ((__dk_len == usize(26)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_PATH_DEPENDENCY, .None)) ||
+                                ((__dk_len == usize(25)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_SYSTEM_LIBRARY, .None)) ||
+                                  ((__dk_len == usize(15)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_LINK, .None)) ||
+                                    ((__dk_len == usize(30)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_LINK_SYSTEM_LIBRARY, .None)) ||
+                                      ((__dk_len == usize(17)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_OPTION, .None)) ||
+                                        ((__dk_len == usize(23)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_DEP_ARTIFACT, .None)) ||
+                                          ((__dk_len == usize(17)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_MODULE, .None)) ||
+                                            ((__dk_len == usize(22)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_MODULE_LINK, .None)) ||
+                                              ((__dk_len == usize(21)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_ADD_IMPORT, .None)) ||
+                                                ((__dk_len == usize(21)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_ADD_CFLAGS, .None)) ||
+                                                  ((__dk_len == usize(21)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_DEP_MODULE, .None)) ||
+                                                    ((__dk_len == usize(14)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_DOC, .None))
         ) => {
           // Pre-evaluate args before dispatching — the build builtins read
           // each arg's resolved comptime value from the expr-info table.
@@ -1001,9 +1001,9 @@ _evaluate_expression :: (
           });
           evaluate_yo_build_functions(expr, env, ctx, exn)
         },
-        ((__dk_len == usize(5)) && ast_expr_is_fn_call_of(expr, BK_WHILE,.None)) =>
+        ((__dk_len == usize(5)) && ast_expr_is_fn_call_of(expr, BK_WHILE, .None)) =>
           evaluate_while(expr, env, ctx, usize(0), exn),
-        ((__dk_len == usize(8)) && ast_expr_is_fn_call_of(expr, BF_VA_START,.None)) =>
+        ((__dk_len == usize(8)) && ast_expr_is_fn_call_of(expr, BF_VA_START, .None)) =>
           evaluate_va_start(expr, env, ctx, exn),
         true =>
           evaluate_function_call(expr, env, t_unit(), Option(EvalValue).None, ctx, exn)

@@ -148,6 +148,26 @@ export interface FunctionGenerationContext extends CodeGenContext {
       // while loop body. The transition code should use whileLoopOriginIndex for the
       // while_loop_N_active guard instead of segment.awaitPoint.index.
       isChainedAwait?: boolean;
+      // Set when the loop's suspension point is the CONDITION itself
+      // (`while(io.await(f, io), body)`). Unlike a body await, the condition is
+      // re-evaluated every iteration, so it cannot be hoisted once before the
+      // loop — the state cycle becomes:
+      //
+      //   state N   : while_start: store the condition's future, suspend
+      //   state N+1 : result is live -> if false, leave the loop; otherwise run
+      //               body, then step, then jump back to state N, which stores
+      //               the future for the NEXT iteration.
+      //
+      // The body is emitted in state N+1 rather than state N, which is why
+      // generateWhileWithAwait skips it when this is set.
+      conditionAwait?: boolean;
+      // Set when the loop's suspension point is in the STEP (arg 2 of the
+      // 3-arg `while(cond, step, body)`). The step runs after the body each
+      // iteration, so its await splits the loop in the same place a trailing
+      // body await would: everything up to it runs in this state, the rest is
+      // `bodyExprsAfterAwait`. The resume state must NOT re-emit the step —
+      // it already ran.
+      stepAwait?: boolean;
       // Expressions from an enclosing cond branch that come after this while loop.
       // These should only be executed after the while loop exits, not on every resume.
       condBranchPostWhileExprs?: {
@@ -176,6 +196,23 @@ export interface FunctionGenerationContext extends CodeGenContext {
   // emit async Future completion (store result, drop locals, return). This
   // indicates the cond IS the async block body's implicit return value.
   asyncBodyReturnExpr?: Expr;
+  // `io.await` in a position the body cannot be SPLIT at — a `cond`/`if`
+  // condition, or a `match` scrutinee. These are evaluated before any branch is
+  // chosen, so the await cannot end a state the way a branch-body await does.
+  //
+  // They are handled by hoisting across the state boundary: the state that
+  // reaches the expression stores only the future, and the NEXT state (where
+  // `sm->await_result_N` is live) re-emits the whole expression with the await
+  // substituted for that result.
+  //
+  // awaitResultSubstitutions: the `io.await(...)` node -> the C lvalue holding
+  // its extracted result. Consulted by generateAwait (codegen/exprs/await.ts),
+  // which otherwise emits "" inside a state machine — the empty operand that
+  // used to produce `sm->var_N = ;`.
+  awaitResultSubstitutions?: Map<Expr, string>;
+  // hoistedAwaitExprs: await point index -> the enclosing expression whose
+  // emission was deferred to the next state.
+  hoistedAwaitExprs?: Map<number, Expr>;
   // Variables that are locally shadowed (e.g., in match destructuring patterns)
   // When a variable name is in this set, use the local C variable instead of sm->var_...
   localShadowedVariables?: Set<string>;

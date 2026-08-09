@@ -42,7 +42,7 @@ evaluate_extern :: (
     exn : Exception
   ) -> AstExpr
 )({
-  if(!(ast_expr_is_fn_call_of(expr, BK_EXTERN,.None)), {
+  if(!(ast_expr_is_fn_call_of(expr, BK_EXTERN, .None)), {
     exn.throw(
       dyn(
         format_error_message(
@@ -79,18 +79,18 @@ User code should normally call stdlib wrappers (e.g. functions in
     );
   });
   (env : Environment) = env_in;
-  all_args := match(expr,.FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+  all_args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
   // If the first arg is an atom (string literal), treat it as the language tag.
   // Otherwise default to "yo".
   (language : String) = String.from("yo");
   (field_start : usize) = usize(0);
   first_arg_opt := all_args.get(usize(0));
-  (has_lang_arg : bool) = match(first_arg_opt,.Some(a) => ast_expr_is_atom(a),.None => false);
+  (has_lang_arg : bool) = match(first_arg_opt, .Some(a) => ast_expr_is_atom(a), .None => false);
   if(has_lang_arg, {
-    lang_arg := match(first_arg_opt,.Some(a) => a,.None => expr);
+    lang_arg := match(first_arg_opt, .Some(a) => a, .None => expr);
     evaluated_lang := evaluate_expression(lang_arg, env, ctx);
     lang_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_lang));
-    lang_info := match(lang_info_opt,.Some(i) => i,.None => new_expr_info(env, t_unit()));
+    lang_info := match(lang_info_opt, .Some(i) => i, .None => new_expr_info(env, t_unit()));
     env.frames = lang_info.env.frames;
     env.module_path = lang_info.env.module_path;
     env.function_declaration_frame_level = lang_info.env.function_declaration_frame_level;
@@ -165,13 +165,13 @@ User code should normally call stdlib wrappers (e.g. functions in
   (args_idx : usize) = field_start;
   (field_idx : usize) = usize(0);
   while(args_idx < all_args.len(), {
-    arg := match(all_args.get(args_idx),.Some(a) => a,.None => expr);
+    arg := match(all_args.get(args_idx), .Some(a) => a, .None => expr);
     result := evaluate_module_field(arg, field_idx, env, ctx, false, exn);
     // Check for duplicate labels.
     (dup_idx : usize) = usize(0);
     (has_dup : bool) = false;
     while((dup_idx < field_labels.len()) && !(has_dup), {
-      existing := match(field_labels.get(dup_idx),.Some(l) => l,.None => String.from(""));
+      existing := match(field_labels.get(dup_idx), .Some(l) => l, .None => String.from(""));
       if(existing == result.label, {
         has_dup = true;
       });
@@ -181,7 +181,7 @@ User code should normally call stdlib wrappers (e.g. functions in
       err_tok := if(
         ast_expr_is_fn_call(arg),
         match(
-          match(arg,.FnCall(_, _, a2, _, _) => a2, _ => ArrayList(AstExpr).new()).get(usize(0)),
+          match(arg, .FnCall(_, _, a2, _, _) => a2, _ => ArrayList(AstExpr).new()).get(usize(0)),
           .Some(fe) => ast_expr_token(fe),
           .None => ast_expr_token(arg)
         ),
@@ -276,10 +276,10 @@ User code should normally call stdlib wrappers (e.g. functions in
   });
   // Store UnitVal result on the extern expression.
   unit_info := new_expr_info(env, t_unit());
-  unit_info.value =.Some(EvalValue.UnitVal);
+  unit_info.value = .Some(EvalValue.UnitVal);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), unit_info);
   // Annotate callee (the "extern" func node) with same info.
-  callee_expr := match(expr,.FnCall(_, fb, _, _, _) => fb,.Atom(_, _) => expr);
+  callee_expr := match(expr, .FnCall(_, fb, _, _, _) => fb, .Atom(_, _) => expr);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(callee_expr), unit_info);
   expr
 });

@@ -37,7 +37,7 @@ lookup_host :: (fn(host : String, io : Io) -> Impl(Future(ArrayList(IpAddr), IoE
     host_cstr_bytes := host.to_cstr();
     host_cstr := host_cstr_bytes.ptr().unwrap();
     result_ptr := IO_dns.alloc_result();
-    ret := e.io.await(IO_dns.getaddrinfo(host_cstr,.None,.None, result_ptr), e.io);
+    ret := e.io.await(IO_dns.getaddrinfo(host_cstr, .None, .None, result_ptr), e.io);
     cond(
       (ret != i32(0)) => {
         IO_dns.free_result(result_ptr);

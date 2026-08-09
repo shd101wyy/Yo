@@ -71,8 +71,8 @@ impl(
   get : (fn(self : Self, k : K, where(K <: Ord(K))) -> ?(V))({
     r := self._find(k);
     cond(
-      r.found =>.Some(self._entries(r.idx).value),
-      true =>.None
+      r.found => .Some(self._entries(r.idx).value),
+      true => .None
     )
   }),
   // Insert or update the value for key `k`.
@@ -106,21 +106,21 @@ impl(
         self._entries.remove(r.idx);
         .Some(v)
       },
-      true =>.None
+      true => .None
     )
   }),
   // Return the entry with the smallest key, or .None.
   min : (fn(self : Self) -> ?(BTreeEntry(K, V)))(
     cond(
-      (self._entries.len() == usize(0)) =>.None,
-      true =>.Some(self._entries(usize(0)))
+      (self._entries.len() == usize(0)) => .None,
+      true => .Some(self._entries(usize(0)))
     )
   ),
   // Return the entry with the largest key, or .None.
   max : (fn(self : Self) -> ?(BTreeEntry(K, V)))(
     cond(
-      (self._entries.len() == usize(0)) =>.None,
-      true =>.Some(self._entries(self._entries.len() - usize(1)))
+      (self._entries.len() == usize(0)) => .None,
+      true => .Some(self._entries(self._entries.len() - usize(1)))
     )
   )
 );
@@ -140,7 +140,7 @@ impl(
     Item : BTreeEntry(K, V),
     next : (fn(inout(self) : Self) -> Option(BTreeEntry(K, V)))(
       cond(
-        (self._index >= self._entries.len()) =>.None,
+        (self._index >= self._entries.len()) => .None,
         true => {
           entry := self._entries(self._index);
           self._index = (self._index + usize(1));
@@ -173,7 +173,7 @@ impl(
     Item : *(BTreeEntry(K, V)),
     next : (fn(inout(self) : Self) -> Option(*(BTreeEntry(K, V))))(
       cond(
-        (self._index >= self._entries.len()) =>.None,
+        (self._index >= self._entries.len()) => .None,
         true =>
           match(
             self._entries._ptr,
@@ -182,7 +182,7 @@ impl(
               self._index = (self._index + usize(1));
               .Some(element_ptr)
             },
-            .None =>.None
+            .None => .None
           )
       )
     )
@@ -211,8 +211,8 @@ impl(
     next : (fn(inout(self) : Self) -> Option(K))(
       match(
         self._inner.next(),
-        .None =>.None,
-        .Some(entry) =>.Some(entry.key)
+        .None => .None,
+        .Some(entry) => .Some(entry.key)
       )
     )
   )
@@ -240,8 +240,8 @@ impl(
     next : (fn(inout(self) : Self) -> Option(V))(
       match(
         self._inner.next(),
-        .None =>.None,
-        .Some(entry) =>.Some(entry.value)
+        .None => .None,
+        .Some(entry) => .Some(entry.value)
       )
     )
   )

@@ -162,12 +162,12 @@ _emit_deferred_drops :: (fn(ei : ExprInfo, indent : String, context : FunctionGe
 );
 /// The `begin` block generation. Mirrors `generateBegin`.
 generate_begin :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
-  ei := match(context.base.get_expr_info(expr),.Some(e) => e,.None => return(String.from("")));
+  ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("")));
   value_type := ei.ty;
   em := context.base.emitter;
   indent2 := indent.clone();
   indent2.push_str("  ");
-  args := match(expr,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new());
+  args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   match(
     ei.variable_name,
     .Some(temp_var) => {

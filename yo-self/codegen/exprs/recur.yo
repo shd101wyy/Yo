@@ -16,7 +16,7 @@ open(import("std/string"));
 /// has a result variable name, emit it into a named temp first (so enclosing
 /// scope drops don't run before the call). Mirrors `generateRecur`.
 generate_recur :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
-  ei := match(context.base.get_expr_info(expr),.Some(e) => e,.None => return(String.from("// Error: No arguments for recur call")));
+  ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("// Error: No arguments for recur call")));
   match(
     ei.runtime_arg_exprs_in_order,
     .Some(arg_exprs) => {
@@ -74,7 +74,7 @@ generate_recur :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
                     .Some(avn) => {
                       sanitized_arg_temp := get_variable_name_for_codegen(avn.clone(), Option(Environment).Some(aei2.env));
                       if(!(arg_code == sanitized_arg_temp), {
-                        already_arg := match(context.declared_temp_vars,.Some(s) => s.contains(sanitized_arg_temp.clone()),.None => false);
+                        already_arg := match(context.declared_temp_vars, .Some(s) => s.contains(sanitized_arg_temp.clone()), .None => false);
                         if(!(already_arg), {
                           match(
                             context.declared_temp_vars,
@@ -87,7 +87,7 @@ generate_recur :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
                               context.declared_temp_vars = Option(HashSet(String)).Some(ns0);
                             }
                           );
-                          eff_ty := match(expr_info_converted_runtime_type(aei2),.Some(ct) => ct,.None => aei2.ty);
+                          eff_ty := match(expr_info_converted_runtime_type(aei2), .Some(ct) => ct, .None => aei2.ty);
                           dline := indent.clone();
                           dline.push_string(get_variable_type_string(eff_ty, avn.clone(), context.base));
                           dline.push_str(" = ");
@@ -142,7 +142,7 @@ generate_recur :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
         .Some(temp_var) => if(!(is_unit_type(ei.ty)), {
           c_type := get_type_string(ei.ty, context.base);
           temp_var_name := get_variable_name_for_codegen(temp_var.clone(), Option(Environment).Some(ei.env));
-          already := match(context.declared_temp_vars,.Some(s) => s.contains(temp_var_name.clone()),.None => false);
+          already := match(context.declared_temp_vars, .Some(s) => s.contains(temp_var_name.clone()), .None => false);
           if(!(already), {
             match(
               context.declared_temp_vars,

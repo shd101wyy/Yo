@@ -50,7 +50,7 @@ test("effect_analysis_result_empty has no effects", {
   assert(r.effect_call_points.len() == usize(0), "no call points");
   assert(r.captured_variables.len() == usize(0), "no captured vars");
   assert(r.effect_parameter_name == "raise", "param name");
-  has_infos := match(r.effect_handler_infos,.Some(_) => true,.None => false);
+  has_infos := match(r.effect_handler_infos, .Some(_) => true, .None => false);
   assert(!(has_infos), "no handler infos");
 });
 test("EffectCallPoint base fields accessible", {
@@ -63,7 +63,7 @@ test("EffectCallPoint base fields accessible", {
     effect_index : Option(usize).None
   );
   assert(ecp.base.index == usize(2), "base index");
-  has_transitive := match(ecp.is_transitive_effect_call,.Some(_) => true,.None => false);
+  has_transitive := match(ecp.is_transitive_effect_call, .Some(_) => true, .None => false);
   assert(!(has_transitive), "no transitive flag");
 });
 test("EffectCallPoint transitive flags can be set", {
@@ -75,9 +75,9 @@ test("EffectCallPoint transitive flags can be set", {
     is_transitive_closure_call : Option(bool).Some(false),
     effect_index : Option(usize).Some(usize(1))
   );
-  is_trans := match(ecp.is_transitive_effect_call,.Some(b) => b,.None => false);
+  is_trans := match(ecp.is_transitive_effect_call, .Some(b) => b, .None => false);
   assert(is_trans, "is transitive");
-  eff_idx := match(ecp.effect_index,.Some(i) => i,.None => usize(999));
+  eff_idx := match(ecp.effect_index, .Some(i) => i, .None => usize(999));
   assert(eff_idx == usize(1), "effect_index");
 });
 test("EffectCallPoint operation_arg_types can be populated", {
@@ -106,7 +106,7 @@ test("EffectCapturedVariable base fields accessible", {
   );
   assert(cv.base.id == "v0", "id");
   assert(cv.base.name == "counter", "name");
-  has_alias := match(cv.is_owning_the_same_rc_value_as,.Some(_) => true,.None => false);
+  has_alias := match(cv.is_owning_the_same_rc_value_as, .Some(_) => true, .None => false);
   assert(!(has_alias), "no alias");
 });
 test("EffectCapturedVariable self-referential field (Box(Self))", {
@@ -132,7 +132,7 @@ test("EffectCapturedVariable self-referential field (Box(Self))", {
     ),
     is_owning_the_same_rc_value_as : Option(Box(EffectCapturedVariable)).Some(inner)
   );
-  has_alias := match(outer.is_owning_the_same_rc_value_as,.Some(_) => true,.None => false);
+  has_alias := match(outer.is_owning_the_same_rc_value_as, .Some(_) => true, .None => false);
   assert(has_alias, "outer has alias");
 });
 test("EffectHandlerInfo fields accessible", {
@@ -145,7 +145,7 @@ test("EffectHandlerInfo fields accessible", {
     operation_result_type : t_unit()
   );
   assert(info.effect_parameter_name == "raise", "param name");
-  has_field_path := match(info.effect_field_path,.Some(_) => true,.None => false);
+  has_field_path := match(info.effect_field_path, .Some(_) => true, .None => false);
   assert(!(has_field_path), "no field path");
 });
 test("EffectHandlerInfo with field path", {
@@ -160,7 +160,7 @@ test("EffectHandlerInfo with field path", {
     operation_arg_types : ArrayList(TypeValue).new(),
     operation_result_type : t_unit()
   );
-  path_got := match(info.effect_field_path,.Some(p) => p.len(),.None => usize(0));
+  path_got := match(info.effect_field_path, .Some(p) => p.len(), .None => usize(0));
   assert(path_got == usize(2), "field path length");
 });
 test("EffectAnalysisResult can hold effect_call_points", {
@@ -180,7 +180,7 @@ test("EffectAnalysisResult variable_id_remapping", {
   r := effect_analysis_result_empty(String.from("exn"), t_unit());
   r.variable_id_remapping.set(String.from("old_v0"), String.from("new_v0"));
   got := r.variable_id_remapping.get(String.from("old_v0"));
-  result := match(got,.Some(v) => v,.None => String.from(""));
+  result := match(got, .Some(v) => v, .None => String.from(""));
   assert(result == "new_v0", "remapping lookup");
 });
 test("EffectAnalysisResult effect_handler_infos can be set", {
@@ -197,6 +197,6 @@ test("EffectAnalysisResult effect_handler_infos can be set", {
     )
   );
   r.effect_handler_infos = Option(ArrayList(EffectHandlerInfo)).Some(infos);
-  count := match(r.effect_handler_infos,.Some(is) => is.len(),.None => usize(0));
+  count := match(r.effect_handler_infos, .Some(is) => is.len(), .None => usize(0));
   assert(count == usize(1), "one handler info");
 });

@@ -138,7 +138,7 @@ _tk_seen :: (fn(id : String) -> bool)({
     // Compact bool-valued arm form (an r3-era self-hosted miscompile of
     // this shape was fixed by later work — restored 2026-08-07 with the
     // fixpoint as judge; issues/retired/yo-self-bool-match-arm-miscompile.md).
-    found = match(g_tk_visited.get(i),.Some(e) => (e == id),.None => false);
+    found = match(g_tk_visited.get(i), .Some(e) => (e == id), .None => false);
     i = (i + usize(1));
   });
   found
@@ -323,12 +323,12 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
       // Passthrough for any non-shell enum. See
       // issues/.../recursive-enum-self-shell.md.
       rs := resolve_enum_shell(t);
-      eid := match(rs,.EnumT({ id : rid }) => rid, _ => id.clone());
-      evfs := match(rs,.EnumT({ variant_fields : rvfs }) => rvfs, _ => vfs);
-      evns := match(rs,.EnumT({ variant_names : rvns }) => rvns, _ => ArrayList(String).new());
-      evds := match(rs,.EnumT({ variant_discriminants : rvds }) => rvds, _ => ArrayList(i64).new());
-      e_is_ref := match(rs,.EnumT({ is_reference_semantics : rirs }) => rirs, _ => false);
-      evfls := match(rs,.EnumT({ variant_field_labels : rvfls }) => rvfls, _ => ArrayList(ArrayList(String)).new());
+      eid := match(rs, .EnumT({ id : rid }) => rid, _ => id.clone());
+      evfs := match(rs, .EnumT({ variant_fields : rvfs }) => rvfs, _ => vfs);
+      evns := match(rs, .EnumT({ variant_names : rvns }) => rvns, _ => ArrayList(String).new());
+      evds := match(rs, .EnumT({ variant_discriminants : rvds }) => rvds, _ => ArrayList(i64).new());
+      e_is_ref := match(rs, .EnumT({ is_reference_semantics : rirs }) => rirs, _ => false);
+      evfls := match(rs, .EnumT({ variant_field_labels : rvfls }) => rvfls, _ => ArrayList(ArrayList(String)).new());
       // Cycle guard (see g_tk_visited): an enum id already on the expansion
       // path renders id-only rather than re-expanding its variant fields.
       if((eid.len() > usize(0)) && _tk_seen(eid), {
@@ -428,7 +428,7 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
           (si : usize) = usize(0);
           while(si < evns.len(), {
             sig.push_str("_");
-            match(evns.get(si),.Some(vn) => sig.push_string(vn),.None => ());
+            match(evns.get(si), .Some(vn) => sig.push_string(vn), .None => ());
             match(
               evds.get(si),
               .Some(d) => {
@@ -619,8 +619,8 @@ _stable_identity_at :: (fn(t : TypeValue, depth : usize) -> String)({
       out.push_string(sid);
       (i : usize) = usize(0);
       while(i < sfts.len(), {
-        ft := match(sfts.get(i),.Some(x) => x,.None => TypeValue.Unit);
-        fl := match(sfls.get(i),.Some(x) => x,.None => String.from(""));
+        ft := match(sfts.get(i), .Some(x) => x, .None => TypeValue.Unit);
+        fl := match(sfls.get(i), .Some(x) => x, .None => String.from(""));
         out.push_str("_");
         out.push_string(fl);
         out.push_str(":");
@@ -631,10 +631,10 @@ _stable_identity_at :: (fn(t : TypeValue, depth : usize) -> String)({
     },
     .EnumT({ id, variant_names : vns0, variant_fields : vfs0, is_reference_semantics : e_is_ref0 }) => {
       rs := resolve_enum_shell(t);
-      eid := match(rs,.EnumT({ id : rid }) => rid, _ => id.clone());
-      evns := match(rs,.EnumT({ variant_names : rvns }) => rvns, _ => vns0);
-      evfs := match(rs,.EnumT({ variant_fields : rvfs }) => rvfs, _ => vfs0);
-      e_is_ref := match(rs,.EnumT({ is_reference_semantics : rirs }) => rirs, _ => e_is_ref0);
+      eid := match(rs, .EnumT({ id : rid }) => rid, _ => id.clone());
+      evns := match(rs, .EnumT({ variant_names : rvns }) => rvns, _ => vns0);
+      evfs := match(rs, .EnumT({ variant_fields : rvfs }) => rvfs, _ => vfs0);
+      e_is_ref := match(rs, .EnumT({ is_reference_semantics : rirs }) => rirs, _ => e_is_ref0);
       pfx := if(e_is_ref, String.from("R#"), String.from(""));
       if((eid.len() > usize(0)) && _sti_seen(eid), {
         out_cyc := pfx.clone();
@@ -648,7 +648,7 @@ _stable_identity_at :: (fn(t : TypeValue, depth : usize) -> String)({
       out.push_string(eid);
       (vi : usize) = usize(0);
       while(vi < evfs.len(), {
-        vn := match(evns.get(vi),.Some(x) => x,.None => String.from(""));
+        vn := match(evns.get(vi), .Some(x) => x, .None => String.from(""));
         out.push_str("_");
         out.push_string(vn);
         match(
@@ -656,7 +656,7 @@ _stable_identity_at :: (fn(t : TypeValue, depth : usize) -> String)({
           .Some(fields) => {
             (fi : usize) = usize(0);
             while(fi < fields.len(), {
-              ft := match(fields.get(fi),.Some(x) => x,.None => TypeValue.Unit);
+              ft := match(fields.get(fi), .Some(x) => x, .None => TypeValue.Unit);
               out.push_str(":");
               out.push_string(recur(ft, depth + usize(1)));
               fi = (fi + usize(1));

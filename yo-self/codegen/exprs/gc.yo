@@ -30,8 +30,8 @@ generate_yo_gc_trace_child :: (fn(expr : AstExpr, indent : String, context : Fun
   match(
     expr,
     .FnCall(_, _, args, _, _) => if(args.len() == usize(2), {
-      tracer_arg := match(args.get(usize(0)),.Some(a) => a,.None => expr);
-      slot_arg := match(args.get(usize(1)),.Some(a) => a,.None => expr);
+      tracer_arg := match(args.get(usize(0)), .Some(a) => a, .None => expr);
+      slot_arg := match(args.get(usize(1)), .Some(a) => a, .None => expr);
       match(
         context.base.get_expr_info(slot_arg),
         .Some(ei) => {
@@ -39,7 +39,7 @@ generate_yo_gc_trace_child :: (fn(expr : AstExpr, indent : String, context : Fun
           if(!(is_pointer_type(slot_ty)), {
             return(String.from("// Error: __yo_gc_trace_child slot must be a pointer"));
           });
-          pointee := match(slot_ty,.Pointer(p) => p, _ => TypeValue.Unit);
+          pointee := match(slot_ty, .Pointer(p) => p, _ => TypeValue.Unit);
           // DIVERGENCE (deliberate): traverse the type the enclosing
           // function's C SIGNATURE resolves to — NOT the slot expr's own
           // ExprInfo type. The two are different TypeValue COPIES of the same
@@ -69,7 +69,7 @@ generate_yo_gc_trace_child :: (fn(expr : AstExpr, indent : String, context : Fun
                 pts.len() > usize(0),
                 match(
                   pts.get(pts.len() - usize(1)),
-                  .Some(pt) => match(pt,.Pointer(p2) => p2, _ => pointee),
+                  .Some(pt) => match(pt, .Pointer(p2) => p2, _ => pointee),
                   .None => pointee
                 ),
                 pointee

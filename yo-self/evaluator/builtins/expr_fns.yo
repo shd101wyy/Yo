@@ -100,7 +100,7 @@ evaluate_yo_expr_is_atom :: (
     arg_info.value,
     .Some(v) => if(
       is_expr_val(v),
-      match(v,.ExprVal(e_box) => EvalValue.BoolVal(ast_expr_is_atom(e_box)), _ => create_unknown_val(t_bool())),
+      match(v, .ExprVal(e_box) => EvalValue.BoolVal(ast_expr_is_atom(e_box)), _ => create_unknown_val(t_bool())),
       create_unknown_val(t_bool())
     ),
     .None => {
@@ -182,7 +182,7 @@ evaluate_yo_expr_is_fn_call :: (
     arg_info.value,
     .Some(v) => if(
       is_expr_val(v),
-      match(v,.ExprVal(e_box) => EvalValue.BoolVal(ast_expr_is_fn_call(e_box)), _ => create_unknown_val(t_bool())),
+      match(v, .ExprVal(e_box) => EvalValue.BoolVal(ast_expr_is_fn_call(e_box)), _ => create_unknown_val(t_bool())),
       create_unknown_val(t_bool())
     ),
     .None => {
@@ -379,7 +379,7 @@ evaluate_yo_expr_get_args :: (
             elems := ArrayList(EvalValue).new();
             (i : usize) = usize(0);
             while(i < fn_args.len(), {
-              fn_arg := match(fn_args.get(i),.Some(a) => a,.None => make_err_expr());
+              fn_arg := match(fn_args.get(i), .Some(a) => a, .None => make_err_expr());
               elems.push(EvalValue.ExprVal(fn_arg));
               i = (i + usize(1));
             });

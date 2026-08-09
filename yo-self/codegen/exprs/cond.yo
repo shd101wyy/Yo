@@ -74,8 +74,8 @@ _byte_index_of :: (fn(s : String, word : String, from : usize) -> Option(usize))
     (j : usize) = usize(0);
     (hit : bool) = true;
     while((j < m) && hit, {
-      a := match(sb.get(i + j),.Some(x) => x,.None => u8(0));
-      b := match(wb.get(j),.Some(x) => x,.None => u8(1));
+      a := match(sb.get(i + j), .Some(x) => x, .None => u8(0));
+      b := match(wb.get(j), .Some(x) => x, .None => u8(1));
       if(!(a == b), {
         hit = false;
       });
@@ -118,13 +118,13 @@ _contains_word_return :: (fn(s : String) -> bool)({
 });
 /// Args of a FnCall (empty for an Atom).
 _arg_args :: (fn(e : AstExpr) -> ArrayList(AstExpr))(
-  match(e,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new())
+  match(e, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new())
 );
 /// The compile-time boolean value of `e`, if it has one.
 _cond_bool :: (fn(e : AstExpr, context : FunctionGenerationContext) -> Option(bool))(
   match(
     context.base.get_expr_info(e),
-    .Some(ei) => match(ei.value,.Some(v) => match(v,.BoolVal(b) => Option(bool).Some(b), _ => Option(bool).None),.None => Option(bool).None),
+    .Some(ei) => match(ei.value, .Some(v) => match(v, .BoolVal(b) => Option(bool).Some(b), _ => Option(bool).None), .None => Option(bool).None),
     .None => Option(bool).None
   )
 );
@@ -132,7 +132,7 @@ _cond_bool :: (fn(e : AstExpr, context : FunctionGenerationContext) -> Option(bo
 /// this arm value is not already a pointer. Mirrors the `maybeAddressOf` helper.
 _maybe_address_of :: (fn(value_expr : AstExpr, code : String, cond_outer_is_ptr : bool, context : FunctionGenerationContext) -> String)(
   if(!(cond_outer_is_ptr), code, {
-    arm_is_ptr := match(context.base.get_expr_info(value_expr),.Some(ei) => is_pointer_type(ei.ty),.None => true);
+    arm_is_ptr := match(context.base.get_expr_info(value_expr), .Some(ei) => is_pointer_type(ei.ty), .None => true);
     if(arm_is_ptr, code, {
       out := String.from("&(");
       out.push_string(code);
@@ -261,7 +261,7 @@ _emit_value_arm :: (fn(value : AstExpr, value_indent : String, temp_var_opt : Op
       // Apply the dup: named dup temp when available (cond.ts:451-458), else
       // the drift-safe escape hatch — dup the generated value directly.
       (dup_named : bool) = false;
-      arm_dup_list := match(vei.deferred_dup_expressions,.Some(d) => d,.None => ArrayList(AstExpr).new());
+      arm_dup_list := match(vei.deferred_dup_expressions, .Some(d) => d, .None => ArrayList(AstExpr).new());
       match(
         arm_dup_list.get(usize(0)),
         .Some(vdup0) => match(
@@ -346,8 +346,8 @@ _emit_begin_arm :: (fn(value : AstExpr, value_indent : String, temp_var_opt : Op
   em := context.base.emitter;
   begin_args := _arg_args(value);
   vei_opt := context.base.get_expr_info(value);
-  cur_drops := match(vei_opt,.Some(vei) => vei.deferred_drop_expressions,.None => Option(ArrayList(AstExpr)).None);
-  cur_consumed := match(vei_opt,.Some(vei) => expr_info_consumed_variable_drop_expressions(vei),.None => Option(ArrayList(AstExpr)).None);
+  cur_drops := match(vei_opt, .Some(vei) => vei.deferred_drop_expressions, .None => Option(ArrayList(AstExpr)).None);
+  cur_consumed := match(vei_opt, .Some(vei) => expr_info_consumed_variable_drop_expressions(vei), .None => Option(ArrayList(AstExpr)).None);
   prev_pending := context.pending_deferred_drops;
   prev_consumed := context.consumed_var_pending_drops;
   context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(cur_drops, prev_pending));
@@ -392,7 +392,7 @@ _emit_begin_arm :: (fn(value : AstExpr, value_indent : String, temp_var_opt : Op
           // result to the cond temp. Port of cond.ts:293-365. Without this the
           // arm result aliased the borrowed value while the caller's scope end
           // dropped its own handle — the round-2 stage-2 `*(T)` param-type UAF.
-          has_final_dups := match(fei.deferred_dup_expressions,.Some(d) => (d.len() > usize(0)),.None => false);
+          has_final_dups := match(fei.deferred_dup_expressions, .Some(d) => (d.len() > usize(0)), .None => false);
           if(has_final_dups, {
             match(
               fei.variable_name,
@@ -435,7 +435,7 @@ _emit_begin_arm :: (fn(value : AstExpr, value_indent : String, temp_var_opt : Op
             // Use the dup result temp when the dup call carries one
             // (cond.ts:341-353); else assign the generated final expr.
             (dup_result_used : bool) = false;
-            f_dup_list := match(fei.deferred_dup_expressions,.Some(d) => d,.None => ArrayList(AstExpr).new());
+            f_dup_list := match(fei.deferred_dup_expressions, .Some(d) => d, .None => ArrayList(AstExpr).new());
             match(
               f_dup_list.get(usize(0)),
               .Some(fdup0) => if(
@@ -529,14 +529,14 @@ _emit_begin_arm :: (fn(value : AstExpr, value_indent : String, temp_var_opt : Op
 });
 /// Generate a conditional (`cond`) expression. Mirrors `generateCondExpression`.
 generate_cond_expression :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
-  ei := match(context.base.get_expr_info(expr),.Some(e) => e,.None => return(String.from("/* \"cond\" expression is not evaluated */")));
+  ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("/* \"cond\" expression is not evaluated */")));
   value_type := ei.ty;
   is_unit := is_unit_type(value_type);
   temp_var_opt := ei.variable_name;
-  ret_is_ref := match(context.current_function_type,.Some(t) => match(t,.Func({ meta : __fm1 }) => __fm1.*.result_is_ref, _ => false),.None => false);
+  ret_is_ref := match(context.current_function_type, .Some(t) => match(t, .Func({ meta : __fm1 }) => __fm1.*.result_is_ref, _ => false), .None => false);
   cond_outer_is_ptr := (ret_is_ref && is_pointer_type(value_type));
   em := context.base.emitter;
-  args := match(expr,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new());
+  args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   nargs := args.len();
   // First pass: index of the first non-(compile-time-false) arm.
   (first_nf : usize) = nargs;
@@ -550,7 +550,7 @@ generate_cond_expression :: (fn(expr : AstExpr, indent : String, context : Funct
         match(
           cargs.get(usize(0)),
           .Some(condition) => {
-            is_false := match(_cond_bool(condition, context),.Some(b) => !(b),.None => false);
+            is_false := match(_cond_bool(condition, context), .Some(b) => !(b), .None => false);
             if(!(is_false), {
               first_nf = i;
               found_nf = true;
@@ -659,7 +659,7 @@ generate_cond_expression :: (fn(expr : AstExpr, indent : String, context : Funct
       }),
       .None => ()
     );
-    return(if(is_unit, String.from(""), match(temp_var_opt,.Some(tv) => tv,.None => String.from(""))));
+    return(if(is_unit, String.from(""), match(temp_var_opt, .Some(tv) => tv, .None => String.from(""))));
   });
   // Full if/else chain.
   (current_indent : String) = indent.clone();
@@ -677,9 +677,9 @@ generate_cond_expression :: (fn(expr : AstExpr, indent : String, context : Funct
             pargs.get(usize(1)),
             .Some(value) => {
               cbool := _cond_bool(condition, context);
-              is_false := match(cbool,.Some(b) => !(b),.None => false);
+              is_false := match(cbool, .Some(b) => !(b), .None => false);
               if(!(is_false), {
-                is_ct_true := match(cbool,.Some(b) => b,.None => false);
+                is_ct_true := match(cbool, .Some(b) => b, .None => false);
                 if(!(has_emitted), {
                   if(is_ct_true, {
                     h := current_indent.clone();
@@ -695,7 +695,7 @@ generate_cond_expression :: (fn(expr : AstExpr, indent : String, context : Funct
                     // drop IN-branch (emitDropsForConditionalBranch) instead
                     // of the call-site flush emitting it after the branch's
                     // C scope closed ("use of undeclared identifier").
-                    cnd_drops := match(context.base.get_expr_info(condition),.Some(cnd_ei) => cnd_ei.deferred_drop_expressions,.None => Option(ArrayList(AstExpr)).None);
+                    cnd_drops := match(context.base.get_expr_info(condition), .Some(cnd_ei) => cnd_ei.deferred_drop_expressions, .None => Option(ArrayList(AstExpr)).None);
                     cnd_prev := context.pending_deferred_drops;
                     context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(cnd_drops, cnd_prev));
                     cc := _call_generate_expr(condition, current_indent.clone(), context);
@@ -715,7 +715,7 @@ generate_cond_expression :: (fn(expr : AstExpr, indent : String, context : Funct
                   current_indent.push_str("  ");
                   if(!(is_ct_true), {
                     // Same pending window as the first-condition site above.
-                    cnd_drops2 := match(context.base.get_expr_info(condition),.Some(cnd_ei2) => cnd_ei2.deferred_drop_expressions,.None => Option(ArrayList(AstExpr)).None);
+                    cnd_drops2 := match(context.base.get_expr_info(condition), .Some(cnd_ei2) => cnd_ei2.deferred_drop_expressions, .None => Option(ArrayList(AstExpr)).None);
                     cnd_prev2 := context.pending_deferred_drops;
                     context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(cnd_drops2, cnd_prev2));
                     cc := _call_generate_expr(condition, current_indent.clone(), context);
@@ -762,6 +762,6 @@ generate_cond_expression :: (fn(expr : AstExpr, indent : String, context : Funct
     em.emit_string_line(cl);
     c = (c + usize(1));
   });
-  if(is_unit, String.from(""), match(temp_var_opt,.Some(tv) => tv,.None => String.from("")))
+  if(is_unit, String.from(""), match(temp_var_opt, .Some(tv) => tv, .None => String.from("")))
 });
 export(generate_cond_expression);

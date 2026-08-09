@@ -22,7 +22,7 @@ open(import("std/string"));
 // Forward reference slot for type_of_type_with_visited
 // (needed by _determine_type_universe which is defined before the function)
 // ---------------------------------------------------------------------------
-(g_type_of_type_visited_fn : Option((fn(ty : TypeValue, visited : ArrayList(String)) -> TypeValue))) =.None;
+(g_type_of_type_visited_fn : Option((fn(ty : TypeValue, visited : ArrayList(String)) -> TypeValue))) = .None;
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
@@ -31,7 +31,7 @@ _name_in_visited :: (fn(visited : ArrayList(String), name : String) -> bool)({
   result := false;
   i := usize(0);
   while(i < visited.len(), {
-    elem := match(visited.get(i),.Some(s) => s,.None => String.from(""));
+    elem := match(visited.get(i), .Some(s) => s, .None => String.from(""));
     cond(
       (elem == name) => {
         result = true;
@@ -64,7 +64,7 @@ _determine_type_universe :: (
   max_level := usize(0);
   i := usize(0);
   while(i < field_types.len(), {
-    field := match(field_types.get(i),.Some(t) => t,.None => TypeValue.Unit);
+    field := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
     subtype := match(
       g_type_of_type_visited_fn,
       .Some(f) => f(field, visited_names),
@@ -147,10 +147,10 @@ type_of_type_with_visited :: (fn(ty : TypeValue, visited : ArrayList(String)) ->
           all_fields := ArrayList(TypeValue).new();
           vi := usize(0);
           while(vi < variant_fields.len(), {
-            vfields := match(variant_fields.get(vi),.Some(vf) => vf,.None => ArrayList(TypeValue).new());
+            vfields := match(variant_fields.get(vi), .Some(vf) => vf, .None => ArrayList(TypeValue).new());
             fi := usize(0);
             while(fi < vfields.len(), {
-              ft := match(vfields.get(fi),.Some(t) => t,.None => TypeValue.Unit);
+              ft := match(vfields.get(fi), .Some(t) => t, .None => TypeValue.Unit);
               all_fields.push(ft);
               fi = (fi + usize(1));
             });

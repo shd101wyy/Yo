@@ -114,7 +114,7 @@ _enforce_loop_invariant_placement :: (fn(body_expr : AstExpr) -> Option(Invarian
   );
   (si : usize) = usize(0);
   while(si < stmts.len(), {
-    stmt := match(stmts.get(si),.Some(s) => s,.None => make_err_expr());
+    stmt := match(stmts.get(si), .Some(s) => s, .None => make_err_expr());
     idx := si;
     si = (si + usize(1));
     is_inv := ast_expr_is_fn_call_of(stmt, BF_INVARIANT, Option(usize).None);
@@ -148,10 +148,10 @@ _body_has_any_terminator_guaranteed :: (
     body_info_cf : Option(ControlFlowFlags)
   ) -> bool
 )(
-  has_control_flow(body_info_cf,.Break) ||
+  has_control_flow(body_info_cf, .Break) ||
     (
-      has_control_flow(body_info_cf,.Return) ||
-        has_control_flow(body_info_cf,.Unwind)
+      has_control_flow(body_info_cf, .Return) ||
+        has_control_flow(body_info_cf, .Unwind)
     )
 );
 /// True when the body MIGHT terminate (either guaranteed or the AST contains
@@ -191,7 +191,7 @@ _throw_max_iterations_error :: (
     true =>
       `Infinite compile-time while loop detected. The condition is compile-time \`true\` but the loop body has no \`break\`, \`return\`, or \`unwind\` to terminate it.\nIf you need an infinite runtime loop, use \`while true, { ... }\` without the comptime modifier.\nTo increase the limit, set the YO_MAX_COMPTIME_LOOP_ITERATIONS environment variable.`
   );
-  exn.throw(dyn(format_error_message(ast_expr_token(expr), err_msg, false,.None)));
+  exn.throw(dyn(format_error_message(ast_expr_token(expr), err_msg, false, .None)));
   make_err_expr()
 });
 // ---------------------------------------------------------------------------
@@ -242,10 +242,10 @@ evaluate_while :: (
   });
   // Extract body and optional step expressions.
   body_idx := cond((n_args == usize(3)) => usize(2), true => usize(1));
-  body_expr := match(all_args.get(body_idx),.Some(e) => e,.None => make_err_expr());
+  body_expr := match(all_args.get(body_idx), .Some(e) => e, .None => make_err_expr());
   (step_expr_opt : Option(AstExpr)) = Option(AstExpr).None;
   if(n_args == usize(3), {
-    step_opt_inner := match(all_args.get(usize(1)),.Some(e) => e,.None => make_err_expr());
+    step_opt_inner := match(all_args.get(usize(1)), .Some(e) => e, .None => make_err_expr());
     step_expr_opt = Option(AstExpr).Some(step_opt_inner);
   });
   // Phase 0 invariant-placement rule: inside a `while(...)` body,
@@ -259,18 +259,18 @@ evaluate_while :: (
         inv_viol.non_first_stmt => String.from("'invariant(...)' must be the first statement of a 'while(...)' loop body. Move this invariant to the top of the loop body, before any other statements."),
         true => String.from("'invariant(...)' must be the first statement of the enclosing 'while(...)' loop body. It cannot appear inside cond/match branches, nested blocks, or as a non-first statement.")
       );
-      exn.throw(dyn(format_error_message(ast_expr_token(inv_viol.node), inv_msg, false,.None)));
+      exn.throw(dyn(format_error_message(ast_expr_token(inv_viol.node), inv_msg, false, .None)));
     },
     .None => ()
   );
   // Detect comptime() modifier on the condition.
   // Re-detected on each recursive call so the AST stays clean across evaluations.
-  raw_cond_expr := match(all_args.get(usize(0)),.Some(e) => e,.None => make_err_expr());
-  is_comptime_modifier := ast_expr_is_fn_call_of(raw_cond_expr, BK_COMPTIME,.Some(usize(1)));
+  raw_cond_expr := match(all_args.get(usize(0)), .Some(e) => e, .None => make_err_expr());
+  is_comptime_modifier := ast_expr_is_fn_call_of(raw_cond_expr, BK_COMPTIME, .Some(usize(1)));
   inner_cond_expr := cond(
     is_comptime_modifier => match(
       raw_cond_expr,
-      .FnCall(_, _, cargs, _, _) => match(cargs.get(usize(0)),.Some(e) => e,.None => make_err_expr()),
+      .FnCall(_, _, cargs, _, _) => match(cargs.get(usize(0)), .Some(e) => e, .None => make_err_expr()),
       .Atom(_, _) => make_err_expr()
     ),
     true => raw_cond_expr
@@ -328,7 +328,7 @@ evaluate_while :: (
   // `condition_value.is_some()` would wrongly treat such a runtime-unknown
   // condition (e.g. `i < lhs.len()` on an unknown param, evaluated at
   // definition time) as comptime-known and mis-fire the modifier gate below.
-  cond_is_comptime_known := match(condition_value,.Some(cv) => !(is_unknown_val(cv)),.None => false);
+  cond_is_comptime_known := match(condition_value, .Some(cv) => !(is_unknown_val(cv)), .None => false);
   // Enforce comptime() modifier semantics:
   // With comptime(): condition MUST be compile-time known; error if runtime.
   if(is_comptime_modifier && condition_value.is_none(), {
@@ -352,14 +352,14 @@ evaluate_while :: (
       is_literal_bool = true;
     }, {
       // begin-wrapped literal: begin(true) / begin(false)
-      if(ast_expr_is_fn_call_of(inner_cond_expr, "begin",.None), {
+      if(ast_expr_is_fn_call_of(inner_cond_expr, "begin", .None), {
         inner_args_lb := match(
           inner_cond_expr,
           .FnCall(_, _, a, _, _) => a,
           .Atom(_, _) => ArrayList(AstExpr).new()
         );
         if(inner_args_lb.len() == usize(1), {
-          first_lb := match(inner_args_lb.get(usize(0)),.Some(a) => a,.None => make_err_expr());
+          first_lb := match(inner_args_lb.get(usize(0)), .Some(a) => a, .None => make_err_expr());
           if(ast_expr_is_atom_of(first_lb, "true") || ast_expr_is_atom_of(first_lb, "false"), {
             is_literal_bool = true;
           });
@@ -394,7 +394,7 @@ evaluate_while :: (
   eff_cond_is_false := match(
     effective_condition_value,
     .None => false,
-    .Some(v) => match(v,.BoolVal(b) => !(b), _ => false)
+    .Some(v) => match(v, .BoolVal(b) => !(b), _ => false)
   );
   if(eff_cond_is_false, {
     out_info := new_expr_info(env, t_unit());
@@ -442,16 +442,16 @@ evaluate_while :: (
   // Handle control flow produced by the body.
   if(has_any_control_flow(body_info.control_flow), {
     // --- return / unwind ---
-    if(has_control_flow(body_info.control_flow,.Return) || has_control_flow(body_info.control_flow,.Unwind), {
+    if(has_control_flow(body_info.control_flow, .Return) || has_control_flow(body_info.control_flow, .Unwind), {
       eff_cond_is_true_re := match(
         effective_condition_value,
         .None => false,
-        .Some(v) => match(v,.BoolVal(b) => b, _ => false)
+        .Some(v) => match(v, .BoolVal(b) => b, _ => false)
       );
       if(eff_cond_is_true_re, {
         // Condition is compile-time true: propagate return/unwind, clear break/continue.
-        cf_ret := has_control_flow(body_info.control_flow,.Return);
-        cf_esc := has_control_flow(body_info.control_flow,.Unwind);
+        cf_ret := has_control_flow(body_info.control_flow, .Return);
+        cf_esc := has_control_flow(body_info.control_flow, .Unwind);
         prop_cf := ControlFlowFlags(return_flag : cf_ret, unwind_flag : cf_esc, break_flag : false, continue_flag : false);
         out_info := new_expr_info(body_info.env, body_info.ty);
         out_info.value = body_info.value;
@@ -470,7 +470,7 @@ evaluate_while :: (
       return(expr);
     });
     // --- break ---
-    if(has_control_flow(body_info.control_flow,.Break), {
+    if(has_control_flow(body_info.control_flow, .Break), {
       // Break exits the loop — result is unit.
       out_info := new_expr_info(body_info.env, t_unit());
       out_info.value = cond(
@@ -481,7 +481,7 @@ evaluate_while :: (
       return(expr);
     });
     // --- continue ---
-    if(has_control_flow(body_info.control_flow,.Continue), {
+    if(has_control_flow(body_info.control_flow, .Continue), {
       // Execute the step expression (if any) before re-evaluating the loop.
       (updated_env_cont : Environment) = body_info.env;
       match(
@@ -502,14 +502,14 @@ evaluate_while :: (
               )
             );
           });
-          updated_env_cont = match(step_info_cont_opt,.Some(si) => si.env,.None => updated_env_cont);
+          updated_env_cont = match(step_info_cont_opt, .Some(si) => si.env, .None => updated_env_cont);
         }
       );
       // If the condition is compile-time known, re-evaluate the loop.
       eff_is_bool_cont := match(
         effective_condition_value,
         .None => false,
-        .Some(v) => match(v,.BoolVal(_) => true, _ => false)
+        .Some(v) => match(v, .BoolVal(_) => true, _ => false)
       );
       if(eff_is_bool_cont, {
         return(recur(expr, updated_env_cont, ctx, comptime_iteration_count + usize(1), exn));
@@ -543,7 +543,7 @@ evaluate_while :: (
     eff_cond_is_true_lt := match(
       effective_condition_value,
       .None => false,
-      .Some(v) => match(v,.BoolVal(b) => b, _ => false)
+      .Some(v) => match(v, .BoolVal(b) => b, _ => false)
     );
     if(eff_cond_is_true_lt, {
       // Direct atom: `true`
@@ -551,14 +551,14 @@ evaluate_while :: (
         is_cond_literal_true = true;
       }, {
         // Wrapped in begin: `begin(true)` — check first arg.
-        if(ast_expr_is_fn_call_of(inner_cond_expr, "begin",.None), {
+        if(ast_expr_is_fn_call_of(inner_cond_expr, "begin", .None), {
           inner_args_lt := match(
             inner_cond_expr,
             .FnCall(_, _, a, _, _) => a,
             .Atom(_, _) => ArrayList(AstExpr).new()
           );
           if(inner_args_lt.len() == usize(1), {
-            first_lt := match(inner_args_lt.get(usize(0)),.Some(a) => a,.None => make_err_expr());
+            first_lt := match(inner_args_lt.get(usize(0)), .Some(a) => a, .None => make_err_expr());
             if(ast_expr_is_atom_of(first_lt, "true"), {
               is_cond_literal_true = true;
             });
@@ -619,7 +619,7 @@ evaluate_while :: (
           )
         );
       });
-      env = match(step_info_s_opt,.Some(si) => si.env,.None => env);
+      env = match(step_info_s_opt, .Some(si) => si.env, .None => env);
     }
   );
   // Comptime while loop unrolling with a RUNTIME body — port of TS
@@ -634,7 +634,7 @@ evaluate_while :: (
   eff_cond_is_true_main := match(
     effective_condition_value,
     .None => false,
-    .Some(v) => match(v,.BoolVal(b) => b, _ => false)
+    .Some(v) => match(v, .BoolVal(b) => b, _ => false)
   );
   body_has_runtime_value := body_info.value.is_none();
   if(eff_cond_is_true_main && body_has_runtime_value, {
@@ -645,12 +645,12 @@ evaluate_while :: (
       .Some(ci) => ci.value,
       .None => Option(EvalValue).None
     );
-    next_is_bool := match(next_cond_val,.Some(v) => match(v,.BoolVal(_) => true, _ => false),.None => false);
+    next_is_bool := match(next_cond_val, .Some(v) => match(v, .BoolVal(_) => true, _ => false), .None => false);
     if(next_is_bool, {
       unrolled_bodies := ArrayList(AstExpr).new();
       unrolled_bodies.push(body_expr);
       (current_env : Environment) = env;
-      (cond_still_true : bool) = match(next_cond_val,.Some(v) => match(v,.BoolVal(b) => b, _ => false),.None => false);
+      (cond_still_true : bool) = match(next_cond_val, .Some(v) => match(v, .BoolVal(b) => b, _ => false), .None => false);
       (unroll_iter : usize) = usize(1);
       (unroll_abort : bool) = false;
       while((cond_still_true && (unroll_iter < MAX_COMPTIME_LOOP_ITERATIONS)) && !(unroll_abort), {

@@ -86,7 +86,7 @@ evaluate_yo_comptime_list_car :: (
       )
     );
   });
-  child_ty := match(info.ty,.ComptimeListT(cb) => cb, _ => TypeValue.Unit);
+  child_ty := match(info.ty, .ComptimeListT(cb) => cb, _ => TypeValue.Unit);
   list_val := match(
     info.value,
     .Some(v) => v,
@@ -113,7 +113,7 @@ evaluate_yo_comptime_list_car :: (
   // `__yo_are_types_compatible` rejects (tests/variadic_comptime).
   car_unk_name := String.from("__comptime_list_car_");
   car_unk_name.push_string(random_id(env.module_path));
-  out_info.value =.Some(create_unknown_val_with_name(child_ty, car_unk_name));
+  out_info.value = .Some(create_unknown_val_with_name(child_ty, car_unk_name));
   match(
     list_val,
     .ComptimeListVal(elements) => {
@@ -121,7 +121,7 @@ evaluate_yo_comptime_list_car :: (
         match(
           elements.get(usize(0)),
           .Some(first) => {
-            out_info.value =.Some(first);
+            out_info.value = .Some(first);
           },
           .None => ()
         );
@@ -215,7 +215,7 @@ evaluate_yo_comptime_list_cdr :: (
     }
   );
   out_info := new_expr_info(cur_env, list_ty);
-  out_info.value =.Some(create_unknown_val(list_ty));
+  out_info.value = .Some(create_unknown_val(list_ty));
   match(
     list_val,
     .ComptimeListVal(elements) => {
@@ -233,7 +233,7 @@ evaluate_yo_comptime_list_cdr :: (
           );
           i = (i + usize(1));
         });
-        out_info.value =.Some(EvalValue.ComptimeListVal(new_elems));
+        out_info.value = .Some(EvalValue.ComptimeListVal(new_elems));
       }, {
         exn.throw(
           dyn(
@@ -365,7 +365,7 @@ evaluate_yo_comptime_list_cons :: (
       EvalValue.UnitVal
     }
   );
-  child_ty := match(cdr_info.ty,.ComptimeListT(cb) => cb, _ => TypeValue.Unit);
+  child_ty := match(cdr_info.ty, .ComptimeListT(cb) => cb, _ => TypeValue.Unit);
   list_ty := cdr_info.ty;
   if(!(are_types_compatible(car_info.ty, child_ty)), {
     exn.throw(
@@ -380,7 +380,7 @@ evaluate_yo_comptime_list_cons :: (
     );
   });
   out_info := new_expr_info(cur_env, list_ty);
-  out_info.value =.Some(create_unknown_val(list_ty));
+  out_info.value = .Some(create_unknown_val(list_ty));
   match(
     cdr_val,
     .ComptimeListVal(elements) => {
@@ -398,7 +398,7 @@ evaluate_yo_comptime_list_cons :: (
         );
         i = (i + usize(1));
       });
-      out_info.value =.Some(EvalValue.ComptimeListVal(new_elems));
+      out_info.value = .Some(EvalValue.ComptimeListVal(new_elems));
     },
     _ => ()
   );
@@ -544,7 +544,7 @@ evaluate_yo_comptime_list_append :: (
   });
   first_ty := first_info.ty;
   out_info := new_expr_info(cur_env, first_ty);
-  out_info.value =.Some(create_unknown_val(first_ty));
+  out_info.value = .Some(create_unknown_val(first_ty));
   match(
     first_val,
     .ComptimeListVal(first_elems) => match(
@@ -575,7 +575,7 @@ evaluate_yo_comptime_list_append :: (
           );
           i2 = (i2 + usize(1));
         });
-        out_info.value =.Some(EvalValue.ComptimeListVal(new_elems));
+        out_info.value = .Some(EvalValue.ComptimeListVal(new_elems));
       },
       _ => ()
     ),
@@ -654,11 +654,11 @@ evaluate_yo_comptime_list_length :: (
     }
   );
   out_info := new_expr_info(info.env, t_usize());
-  out_info.value =.Some(create_unknown_val(t_usize()));
+  out_info.value = .Some(create_unknown_val(t_usize()));
   match(
     list_val,
     .ComptimeListVal(elements) => {
-      out_info.value =.Some(EvalValue.IntLit(elements.len().to_string()));
+      out_info.value = .Some(EvalValue.IntLit(elements.len().to_string()));
     },
     _ => ()
   );
@@ -751,9 +751,9 @@ evaluate_yo_comptime_list_element_type :: (
       )
     );
   });
-  child_ty := match(inner_ty,.ComptimeListT(cb) => cb, _ => TypeValue.Unit);
+  child_ty := match(inner_ty, .ComptimeListT(cb) => cb, _ => TypeValue.Unit);
   out_info := new_expr_info(info.env, t_type());
-  out_info.value =.Some(EvalValue.TypeVal(child_ty));
+  out_info.value = .Some(EvalValue.TypeVal(child_ty));
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   expr
 });
@@ -809,13 +809,13 @@ evaluate_yo_comptime_list_get :: (
       )
     );
   });
-  child_ty := match(list_info.ty,.ComptimeListT(cb) => cb, _ => TypeValue.Unit);
+  child_ty := match(list_info.ty, .ComptimeListT(cb) => cb, _ => TypeValue.Unit);
   (cur_env : Environment) = list_info.env;
   // Same named promotion as the car builtin above (TS
   // comptime-list-fns.ts:606).
   get_unk_name := String.from("__comptime_list_get_");
   get_unk_name.push_string(random_id(env.module_path));
-  (out_val : Option(EvalValue)) =.Some(create_unknown_val_with_name(child_ty, get_unk_name));
+  (out_val : Option(EvalValue)) = .Some(create_unknown_val_with_name(child_ty, get_unk_name));
   match(
     list_info.value,
     .Some(list_v) => match(
@@ -846,7 +846,7 @@ evaluate_yo_comptime_list_get :: (
                         match(
                           elements.get(idx),
                           .Some(elem) => {
-                            out_val =.Some(elem);
+                            out_val = .Some(elem);
                             cur_env = idx_info.env;
                           },
                           .None => {

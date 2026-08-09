@@ -27,7 +27,7 @@ comptime_expect_error(
 test("get handle survives container growth", {
   xs := ArrayList(String).new();
   xs.push(String.from("element-zero"));
-  e := match(xs.get(usize(0)),.Some(s) => s,.None => String.new());
+  e := match(xs.get(usize(0)), .Some(s) => s, .None => String.new());
   i := usize(0);
   while(i < usize(64), {
     xs.push(String.from("filler"));
@@ -44,7 +44,7 @@ test("get handle survives container growth", {
 test("container freely reassignable while holding an element handle", {
   xs := ArrayList(String).new();
   xs.push(String.from("element-zero"));
-  e := match(xs.get(usize(0)),.Some(s) => s,.None => String.new());
+  e := match(xs.get(usize(0)), .Some(s) => s, .None => String.new());
   xs = ArrayList(String).new();
   assert(e == "element-zero", "element handle survives the reassign");
   assert(xs.len() == usize(0), "container replaced");
@@ -55,7 +55,7 @@ test("container freely reassignable while holding an element handle", {
 test("object element mutates in place through a get handle", {
   xs := ArrayList(String).new();
   xs.push(String.from("hello"));
-  e := match(xs.get(usize(0)),.Some(s) => s,.None => String.new());
+  e := match(xs.get(usize(0)), .Some(s) => s, .None => String.new());
   e.push_str(" world");
-  assert(match(xs.get(usize(0)),.Some(s) => (s == "hello world"),.None => false), "mutated in place");
+  assert(match(xs.get(usize(0)), .Some(s) => (s == "hello world"), .None => false), "mutated in place");
 });

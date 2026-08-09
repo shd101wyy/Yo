@@ -166,7 +166,7 @@ attach_temp_variable_to_expr :: (
           // Update the existing variable (if found in env).
           existing_vars := get_variables_from_env(info.env, existing_name);
           if(existing_vars.len() > usize(0), {
-            existing_var := match(existing_vars.get(existing_vars.len() - usize(1)),.Some(v) => v,.None => make_err_variable(info.env));
+            existing_var := match(existing_vars.get(existing_vars.len() - usize(1)), .Some(v) => v, .None => make_err_variable(info.env));
             // Preserve borrowing: if variable was not owning, keep it not-owning.
             preserved_rc := cond(
               (!(existing_var.is_owning_the_rc_value)) => false,
@@ -274,7 +274,7 @@ find_rc_value_owner_relationship :: (
         return(Option(Variable).None);
       });
       (candidate_opt : Option(Variable)) = Option(Variable).Some(
-        match(vars.get(vars.len() - usize(1)),.Some(v) => v,.None => make_err_variable(env))
+        match(vars.get(vars.len() - usize(1)), .Some(v) => v, .None => make_err_variable(env))
       );
       visited := HashSet(usize).new();
       // Follow the chain until we find an owning variable or it breaks.
@@ -339,7 +339,7 @@ throw_expr_is_implicit_variable_error :: (
       n := rhs_info.path_collection.len();
       (i : usize) = usize(0);
       while(i < n, {
-        path := match(rhs_info.path_collection.get(i),.Some(p) => p,.None => ArrayList(String).new());
+        path := match(rhs_info.path_collection.get(i), .Some(p) => p, .None => ArrayList(String).new());
         if(path.len() > usize(0), {
           match(
             path.get(usize(0)),
@@ -418,9 +418,9 @@ require_expr_not_consumed :: (
             error_message : `Variable "${var_name}" is not defined.`
           )
         );
-        exn.throw(dyn(format_error_messages(entries, false,.None)));
+        exn.throw(dyn(format_error_messages(entries, false, .None)));
       });
-      v := match(vars.get(vars.len() - usize(1)),.Some(v) => v,.None => make_err_variable(env));
+      v := match(vars.get(vars.len() - usize(1)), .Some(v) => v, .None => make_err_variable(env));
       match(
         v.consumed_at_token,
         .None => (),
@@ -459,7 +459,7 @@ require_expr_not_consumed :: (
               error_message : String.from("value moved here")
             )
           );
-          exn.throw(dyn(format_error_messages(entries, false,.None)));
+          exn.throw(dyn(format_error_messages(entries, false, .None)));
         }
       );
     }
@@ -502,7 +502,7 @@ expect_expr_to_have_been_evaluated :: (
       entries.push(
         TokenAndError(token : ast_expr_token(expr), error_message : msg)
       );
-      exn.throw(dyn(format_error_messages(entries, false,.None)));
+      exn.throw(dyn(format_error_messages(entries, false, .None)));
       // Unreachable. Provide a placeholder so the type checker is
       // satisfied.
       new_expr_info_placeholder_for_unreachable_(expr)
@@ -558,9 +558,9 @@ set_expr_as_consumed :: (
                 error_message : `Variable "${name}" is not defined.`
               )
             );
-            exn.throw(dyn(format_error_messages(entries, false,.None)));
+            exn.throw(dyn(format_error_messages(entries, false, .None)));
           });
-          v := match(vars.get(vars.len() - usize(1)),.Some(x) => x,.None => make_err_variable(env));
+          v := match(vars.get(vars.len() - usize(1)), .Some(x) => x, .None => make_err_variable(env));
           match(
             v.consumed_at_token,
             // Step 5: not yet consumed → mark now. `v` IS the env's Variable
@@ -591,7 +591,7 @@ set_expr_as_consumed :: (
                     error_message : String.from("value moved here")
                   )
                 );
-                exn.throw(dyn(format_error_messages(entries, false,.None)));
+                exn.throw(dyn(format_error_messages(entries, false, .None)));
               }
             )
           );
@@ -727,7 +727,7 @@ set_expr_as_needs_to_call_dup :: (
       // --- Copy semantics: build + evaluate `___dup(variableName)`. ---
       dup_expr := generate_expr_from_code(`${BF_DUP}(${variable_name})`, exn);
       saved_expected := ctx.expected_type;
-      ctx.expected_type =.None;
+      ctx.expected_type = .None;
       evaluated_dup := evaluate_expression_raw(dup_expr, ei.env, ctx, exn);
       ctx.expected_type = saved_expected;
       // Consume the dup-result temp so it is not dropped separately later. The
@@ -743,7 +743,7 @@ set_expr_as_needs_to_call_dup :: (
         .Some(dvn) => {
           dvars := get_variables_from_env(ei.env, dvn);
           if(dvars.len() > usize(0), {
-            dv := match(dvars.get(dvars.len() - usize(1)),.Some(x) => x,.None => make_err_variable(ei.env));
+            dv := match(dvars.get(dvars.len() - usize(1)), .Some(x) => x, .None => make_err_variable(ei.env));
             if(dv.consumed_at_token.is_none(), {
               dv.consumed_at_token = Option(Box(Token)).Some(box(ast_expr_token(evaluated_dup)));
             });
@@ -935,12 +935,12 @@ set_expr_as_needs_to_call_dup_for_borrowed_projection :: (
 _place_root_is_runtime_variable :: (fn(e : AstExpr, env : Environment) -> bool)({
   (root : AstExpr) = e;
   while(ast_expr_is_fn_call_of(root, BF_DOT, Option(usize).Some(usize(2))), {
-    r_args := match(root,.FnCall(_, _, __prv_ra, _, _) => __prv_ra,.Atom(_, _) => ArrayList(AstExpr).new());
-    r_a1 := match(r_args.get(usize(1)),.Some(x) => x,.None => return(false));
+    r_args := match(root, .FnCall(_, _, __prv_ra, _, _) => __prv_ra, .Atom(_, _) => ArrayList(AstExpr).new());
+    r_a1 := match(r_args.get(usize(1)), .Some(x) => x, .None => return(false));
     if(!(ast_expr_is_atom(r_a1)), {
       return(false);
     });
-    root = match(r_args.get(usize(0)),.Some(x) => x,.None => return(false));
+    root = match(r_args.get(usize(0)), .Some(x) => x, .None => return(false));
   });
   if(!(ast_expr_is_atom(root)), {
     return(false);
@@ -966,22 +966,22 @@ arg_is_rc_projection_place :: (fn(e : AstExpr, env : Environment) -> bool)({
     if(ast_expr_is_atom(e), {
       return(false);
     });
-    e_func := match(e,.FnCall(_, __aipp_f, _, _, _) => __aipp_f,.Atom(_, _) => return(false));
+    e_func := match(e, .FnCall(_, __aipp_f, _, _, _) => __aipp_f, .Atom(_, _) => return(false));
     return(_place_root_is_runtime_variable(e_func, env));
   });
-  e_args := match(e,.FnCall(_, _, __aipp_a, _, _) => __aipp_a,.Atom(_, _) => ArrayList(AstExpr).new());
-  e_a1 := match(e_args.get(usize(1)),.Some(x) => x,.None => return(false));
+  e_args := match(e, .FnCall(_, _, __aipp_a, _, _) => __aipp_a, .Atom(_, _) => ArrayList(AstExpr).new());
+  e_a1 := match(e_args.get(usize(1)), .Some(x) => x, .None => return(false));
   if(!(ast_expr_is_atom(e_a1)), {
     return(false);
   });
-  (root : AstExpr) = match(e_args.get(usize(0)),.Some(x) => x,.None => return(false));
+  (root : AstExpr) = match(e_args.get(usize(0)), .Some(x) => x, .None => return(false));
   while(ast_expr_is_fn_call_of(root, BF_DOT, Option(usize).Some(usize(2))), {
-    r_args := match(root,.FnCall(_, _, __aipp_ra, _, _) => __aipp_ra,.Atom(_, _) => ArrayList(AstExpr).new());
-    r_a1 := match(r_args.get(usize(1)),.Some(x) => x,.None => return(false));
+    r_args := match(root, .FnCall(_, _, __aipp_ra, _, _) => __aipp_ra, .Atom(_, _) => ArrayList(AstExpr).new());
+    r_a1 := match(r_args.get(usize(1)), .Some(x) => x, .None => return(false));
     if(!(ast_expr_is_atom(r_a1)), {
       return(false);
     });
-    root = match(r_args.get(usize(0)),.Some(x) => x,.None => return(false));
+    root = match(r_args.get(usize(0)), .Some(x) => x, .None => return(false));
   });
   if(!(ast_expr_is_atom(root)), {
     return(false);
@@ -990,7 +990,7 @@ arg_is_rc_projection_place :: (fn(e : AstExpr, env : Environment) -> bool)({
   if(vars.len() == usize(0), {
     return(false);
   });
-  v := match(vars.get(vars.len() - usize(1)),.Some(x) => x,.None => return(false));
+  v := match(vars.get(vars.len() - usize(1)), .Some(x) => x, .None => return(false));
   !(v.is_compile_time_only)
 });
 // ---------------------------------------------------------------------------
@@ -1037,7 +1037,7 @@ consume_case_body_temp_var :: (
       if(vars.len() == usize(0), {
         return(());
       });
-      v := match(vars.get(vars.len() - usize(1)),.Some(x) => x,.None => make_err_variable(env));
+      v := match(vars.get(vars.len() - usize(1)), .Some(x) => x, .None => make_err_variable(env));
       if(v.consumed_at_token.is_none(), {
         // Variable is an RC object; mutation is in-place and visible through env.
         v.consumed_at_token = Option(Box(Token)).Some(box(ast_expr_token(evaluated_body)));
@@ -1088,7 +1088,7 @@ merge_and_check_envs :: (
   case_envs := ArrayList(Environment).new();
   (bi : usize) = usize(0);
   while(bi < bodies.len(), {
-    body := match(bodies.get(bi),.Some(b) => b,.None => make_err_expr());
+    body := match(bodies.get(bi), .Some(b) => b, .None => make_err_expr());
     info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(body));
     match(
       info_opt,
@@ -1154,12 +1154,12 @@ merge_and_check_envs :: (
   required_depth := (max_frame_level + usize(1));
   (ci : usize) = usize(0);
   while(ci < case_envs.len(), {
-    case_env := match(case_envs.get(ci),.Some(e) => e,.None => env);
+    case_env := match(case_envs.get(ci), .Some(e) => e, .None => env);
     if(case_env.frames.len() == usize(0), {
       exn.throw(
         dyn(
           format_error_message(
-            ast_expr_token(match(bodies.get(ci),.Some(b) => b,.None => make_err_expr())),
+            ast_expr_token(match(bodies.get(ci), .Some(b) => b, .None => make_err_expr())),
             `Case env is missing outer frames (has ${case_env.frames.len().to_string()}, need ${required_depth.to_string()}).`,
             false,
             .None
@@ -1183,8 +1183,8 @@ merge_and_check_envs :: (
         // ---------------------------------------------------------------
         (cj : usize) = usize(0);
         while(cj < case_envs.len(), {
-          case_env := match(case_envs.get(cj),.Some(e) => e,.None => env);
-          case_frame := match(case_env.frames.get(frame_i),.Some(f) => f,.None => new_frame(false));
+          case_env := match(case_envs.get(cj), .Some(e) => e, .None => env);
+          case_frame := match(case_env.frames.get(frame_i), .Some(f) => f, .None => new_frame(false));
           case_vars_len := case_frame.variables.len();
           base_vars_len := frame.variables.len();
           if((frame_i != max_frame_level) && (case_vars_len != base_vars_len), {
@@ -1205,7 +1205,7 @@ merge_and_check_envs :: (
                 // see [[yo-self-branch-merge-trivial-arm]] for the first two.
                 (ek2 : usize) = base_vars_len;
                 while(ek2 < case_vars_len, {
-                  extra_var2 := match(case_frame.variables.get(ek2),.Some(v) => v,.None => make_err_variable(env));
+                  extra_var2 := match(case_frame.variables.get(ek2), .Some(v) => v, .None => make_err_variable(env));
                   if(is_temp_variable_name(env.module_path, extra_var2.name), {
                     extra_var2.is_owning_the_rc_value = false;
                     {
@@ -1241,7 +1241,7 @@ merge_and_check_envs :: (
           // Check variable name consistency.
           (kk : usize) = usize(0);
           while(kk < frame.variables.len(), {
-            base_var := match(frame.variables.get(kk),.Some(v) => v,.None => make_err_variable(env));
+            base_var := match(frame.variables.get(kk), .Some(v) => v, .None => make_err_variable(env));
             // A case env may be SHORTER than the base at this frame: a trivial
             // match arm (e.g. `.None => .None`) records no copy of an enclosing
             // binding (`self_al`) that the base and destructuring sibling arms
@@ -1251,12 +1251,12 @@ merge_and_check_envs :: (
             // state" — treat a missing case var as the base var rather than a
             // mismatch. (Mirrored in the per-column merge below.) See
             // issues/yo-self-p1-transpile-tail.md Candidate 3.
-            case_var_k := match(case_frame.variables.get(kk),.Some(v) => v,.None => base_var);
+            case_var_k := match(case_frame.variables.get(kk), .Some(v) => v, .None => base_var);
             if(((base_var.name != case_var_k.name) && !(is_temp_variable_name(env.module_path, base_var.name))) && !(is_temp_variable_name(env.module_path, case_var_k.name)), {
               exn.throw(
                 dyn(
                   format_error_message(
-                    ast_expr_token(match(bodies.get(cj),.Some(b) => b,.None => make_err_expr())),
+                    ast_expr_token(match(bodies.get(cj), .Some(b) => b, .None => make_err_expr())),
                     `Frame level ${frame_i} has different variable names for different cases.`,
                     false,
                     .None
@@ -1273,7 +1273,7 @@ merge_and_check_envs :: (
         // ---------------------------------------------------------------
         (var_j : usize) = usize(0);
         while(var_j < frame.variables.len(), {
-          base_var := match(frame.variables.get(var_j),.Some(v) => v,.None => make_err_variable(env));
+          base_var := match(frame.variables.get(var_j), .Some(v) => v, .None => make_err_variable(env));
           var_name := base_var.name;
           // Collect per-case values for this variable.
           initialized_at_tokens := ArrayList(Option(Token)).new();
@@ -1283,19 +1283,19 @@ merge_and_check_envs :: (
           case_types := ArrayList(TypeValue).new();
           (ck : usize) = usize(0);
           while(ck < case_envs.len(), {
-            case_env := match(case_envs.get(ck),.Some(e) => e,.None => env);
-            case_frame_k := match(case_env.frames.get(frame_i),.Some(f) => f,.None => new_frame(false));
+            case_env := match(case_envs.get(ck), .Some(e) => e, .None => env);
+            case_frame_k := match(case_env.frames.get(frame_i), .Some(f) => f, .None => new_frame(false));
             // Missing case var → retains the base (pre-match) state: a trivial
             // arm that doesn't re-bind an enclosing binding leaves it untouched
             // (init'd before the match). Using base_var (vs make_err_variable)
             // keeps the consume/init merge consistent. See the names-check note
             // above + issues/yo-self-p1-transpile-tail.md Candidate 3.
-            case_var := match(case_frame_k.variables.get(var_j),.Some(v) => v,.None => base_var);
+            case_var := match(case_frame_k.variables.get(var_j), .Some(v) => v, .None => base_var);
             {
               initialized_at_tokens.push(case_var.initialized_at_token);
             };
             {
-              consumed_at_tokens.push(match(case_var.consumed_at_token,.Some(b) => Option(Token).Some(b.*),.None => Option(Token).None));
+              consumed_at_tokens.push(match(case_var.consumed_at_token, .Some(b) => Option(Token).Some(b.*), .None => Option(Token).None));
             };
             owning_token := cond(
               case_var.is_owning_the_rc_value => Option(Token).Some(case_var.token),
@@ -1325,12 +1325,12 @@ merge_and_check_envs :: (
             cb_body_idx := ArrayList(usize).new();
             (cb_i : usize) = usize(0);
             while(cb_i < bodies.len(), {
-              cb_body := match(bodies.get(cb_i),.Some(b) => b,.None => make_err_expr());
+              cb_body := match(bodies.get(cb_i), .Some(b) => b, .None => make_err_expr());
               match(
                 get_arm_init_range(ast_expr_id(cb_body)),
                 .Some(cb_rng) => {
-                  cb_s := match(cb_rng.get(usize(0)),.Some(x) => x,.None => usize(0));
-                  cb_e := match(cb_rng.get(usize(1)),.Some(x) => x,.None => usize(0));
+                  cb_s := match(cb_rng.get(usize(0)), .Some(x) => x, .None => usize(0));
+                  cb_e := match(cb_rng.get(usize(1)), .Some(x) => x, .None => usize(0));
                   // LAST record per arm wins (an arm may assign repeatedly).
                   (cb_found : bool) = false;
                   (cb_ri : usize) = cb_s;
@@ -1358,14 +1358,14 @@ merge_and_check_envs :: (
               cb_i = (cb_i + usize(1));
             });
             if(cb_tys.len() > usize(1), {
-              cb_first_ty := match(cb_tys.get(usize(0)),.Some(t) => t,.None => TypeValue.Unit);
-              cb_first_cap := match(cb_caps.get(usize(0)),.Some(c) => c,.None => Option(TypeValue).None);
+              cb_first_ty := match(cb_tys.get(usize(0)), .Some(t) => t, .None => TypeValue.Unit);
+              cb_first_cap := match(cb_caps.get(usize(0)), .Some(c) => c, .None => Option(TypeValue).None);
               (cb_k : usize) = usize(1);
               while(cb_k < cb_tys.len(), {
-                cb_cur_ty := match(cb_tys.get(cb_k),.Some(t) => t,.None => TypeValue.Unit);
-                cb_cur_cap := match(cb_caps.get(cb_k),.Some(c) => c,.None => Option(TypeValue).None);
+                cb_cur_ty := match(cb_tys.get(cb_k), .Some(t) => t, .None => TypeValue.Unit);
+                cb_cur_cap := match(cb_caps.get(cb_k), .Some(c) => c, .None => Option(TypeValue).None);
                 cb_tok := match(
-                  bodies.get(match(cb_body_idx.get(usize(0)),.Some(x) => x,.None => usize(0))),
+                  bodies.get(match(cb_body_idx.get(usize(0)), .Some(x) => x, .None => usize(0))),
                   .Some(cb_b0) => ast_expr_token(cb_b0),
                   .None => base_var.token
                 );
@@ -1403,7 +1403,7 @@ Impl(...) uses static dispatch and requires the same concrete type in all branch
 Consider using Dyn(...) for dynamic dispatch if different concrete types are needed.`
                           )
                         );
-                        exn.throw(dyn(format_error_messages(cb_entries, false,.None)));
+                        exn.throw(dyn(format_error_messages(cb_entries, false, .None)));
                       });
                     },
                     .None => ()
@@ -1422,7 +1422,7 @@ First initialization: ${type_to_string(cb_first_ty)}
 Conflicting initialization: ${type_to_string(cb_cur_ty)}`
                     )
                   );
-                  exn.throw(dyn(format_error_messages(cb_entries2, false,.None)));
+                  exn.throw(dyn(format_error_messages(cb_entries2, false, .None)));
                 });
                 cb_k = (cb_k + usize(1));
               });
@@ -1431,7 +1431,7 @@ Conflicting initialization: ${type_to_string(cb_cur_ty)}`
           // ---- Check initialized_at_token ----
           // Case 1: single branch, initialized there but not before → error
           if(n_cases == usize(1), {
-            first_init := match(initialized_at_tokens.get(usize(0)),.Some(v) => v,.None => Option(Token).None);
+            first_init := match(initialized_at_tokens.get(usize(0)), .Some(v) => v, .None => Option(Token).None);
             match(
               first_init,
               .Some(_) => {
@@ -1461,7 +1461,7 @@ Conflicting initialization: ${type_to_string(cb_cur_ty)}`
             (any_init : bool) = false;
             (init_i : usize) = usize(0);
             while(init_i < n_cases, {
-              tok_opt := match(initialized_at_tokens.get(init_i),.Some(v) => v,.None => Option(Token).None);
+              tok_opt := match(initialized_at_tokens.get(init_i), .Some(v) => v, .None => Option(Token).None);
               match(
                 tok_opt,
                 .Some(_) => {
@@ -1473,8 +1473,8 @@ Conflicting initialization: ${type_to_string(cb_cur_ty)}`
               );
               init_i = (init_i + usize(1));
             });
-            if(all_init && !(match(base_var.initialized_at_token,.Some(_) => true,.None => false)), {
-              first_tok := match(initialized_at_tokens.get(usize(0)),.Some(v) => v,.None => Option(Token).None);
+            if(all_init && !(match(base_var.initialized_at_token, .Some(_) => true, .None => false)), {
+              first_tok := match(initialized_at_tokens.get(usize(0)), .Some(v) => v, .None => Option(Token).None);
               match(
                 first_tok,
                 .Some(t) => {
@@ -1488,26 +1488,26 @@ Conflicting initialization: ${type_to_string(cb_cur_ty)}`
               err_list := ArrayList(TokenAndError).new();
               (ei : usize) = usize(0);
               while(ei < n_cases, {
-                tok_opt := match(initialized_at_tokens.get(ei),.Some(v) => v,.None => Option(Token).None);
-                body_tok := ast_expr_token(match(bodies.get(ei),.Some(b) => b,.None => make_err_expr()));
+                tok_opt := match(initialized_at_tokens.get(ei), .Some(v) => v, .None => Option(Token).None);
+                body_tok := ast_expr_token(match(bodies.get(ei), .Some(b) => b, .None => make_err_expr()));
                 msg := cond(
                   (ei == usize(0)) => `Variable "${var_name}" might be initialized in some cases but not initialized in other cases:`,
-                  match(tok_opt,.Some(_) => true,.None => false) => `Might be initialized here:`,
+                  match(tok_opt, .Some(_) => true, .None => false) => `Might be initialized here:`,
                   true => `Not initialized here:`
                 );
-                err_tok := match(tok_opt,.Some(t) => t,.None => body_tok);
+                err_tok := match(tok_opt, .Some(t) => t, .None => body_tok);
                 {
                   err_list.push(TokenAndError(token : err_tok, error_message : msg));
                 };
                 ei = (ei + usize(1));
               });
-              exn.throw(dyn(format_error_messages(err_list, false,.None)));
+              exn.throw(dyn(format_error_messages(err_list, false, .None)));
             });
           });
           // ---- Check consumed_at_token ----
           // Case 1: single branch consumed → propagate
           if(n_cases == usize(1), {
-            first_consumed := match(consumed_at_tokens.get(usize(0)),.Some(v) => v,.None => Option(Token).None);
+            first_consumed := match(consumed_at_tokens.get(usize(0)), .Some(v) => v, .None => Option(Token).None);
             match(
               first_consumed,
               .Some(ct) => {
@@ -1528,7 +1528,7 @@ Conflicting initialization: ${type_to_string(cb_cur_ty)}`
             (any_consumed : bool) = false;
             (cons_i : usize) = usize(0);
             while(cons_i < n_cases, {
-              tok_opt := match(consumed_at_tokens.get(cons_i),.Some(v) => v,.None => Option(Token).None);
+              tok_opt := match(consumed_at_tokens.get(cons_i), .Some(v) => v, .None => Option(Token).None);
               match(
                 tok_opt,
                 .Some(_) => {
@@ -1540,8 +1540,8 @@ Conflicting initialization: ${type_to_string(cb_cur_ty)}`
               );
               cons_i = (cons_i + usize(1));
             });
-            if(all_consumed && !(match(base_var.consumed_at_token,.Some(_) => true,.None => false)), {
-              first_tok := match(consumed_at_tokens.get(usize(0)),.Some(v) => v,.None => Option(Token).None);
+            if(all_consumed && !(match(base_var.consumed_at_token, .Some(_) => true, .None => false)), {
+              first_tok := match(consumed_at_tokens.get(usize(0)), .Some(v) => v, .None => Option(Token).None);
               match(
                 first_tok,
                 .Some(t) => {
@@ -1555,20 +1555,20 @@ Conflicting initialization: ${type_to_string(cb_cur_ty)}`
               err_list := ArrayList(TokenAndError).new();
               (eci : usize) = usize(0);
               while(eci < n_cases, {
-                tok_opt := match(consumed_at_tokens.get(eci),.Some(v) => v,.None => Option(Token).None);
-                body_tok := ast_expr_token(match(bodies.get(eci),.Some(b) => b,.None => make_err_expr()));
+                tok_opt := match(consumed_at_tokens.get(eci), .Some(v) => v, .None => Option(Token).None);
+                body_tok := ast_expr_token(match(bodies.get(eci), .Some(b) => b, .None => make_err_expr()));
                 msg := cond(
                   (eci == usize(0)) => `Variable "${var_name}" is consumed in some cases but not in other cases:`,
-                  match(tok_opt,.Some(_) => true,.None => false) => `Consumed here:`,
+                  match(tok_opt, .Some(_) => true, .None => false) => `Consumed here:`,
                   true => `Not consumed here:`
                 );
-                err_tok := match(tok_opt,.Some(t) => t,.None => body_tok);
+                err_tok := match(tok_opt, .Some(t) => t, .None => body_tok);
                 {
                   err_list.push(TokenAndError(token : err_tok, error_message : msg));
                 };
                 eci = (eci + usize(1));
               });
-              exn.throw(dyn(format_error_messages(err_list, false,.None)));
+              exn.throw(dyn(format_error_messages(err_list, false, .None)));
             });
           });
           // ---- Check is_owning_the_rc_value ----
@@ -1577,7 +1577,7 @@ Conflicting initialization: ${type_to_string(cb_cur_ty)}`
           (any_owning : bool) = false;
           (ow_i : usize) = usize(0);
           while(ow_i < n_cases, {
-            tok_opt := match(owning_at_tokens.get(ow_i),.Some(v) => v,.None => Option(Token).None);
+            tok_opt := match(owning_at_tokens.get(ow_i), .Some(v) => v, .None => Option(Token).None);
             match(
               tok_opt,
               .Some(_) => {
@@ -1598,20 +1598,20 @@ Conflicting initialization: ${type_to_string(cb_cur_ty)}`
             err_list := ArrayList(TokenAndError).new();
             (oei : usize) = usize(0);
             while(oei < n_cases, {
-              tok_opt := match(owning_at_tokens.get(oei),.Some(v) => v,.None => Option(Token).None);
-              body_tok := ast_expr_token(match(bodies.get(oei),.Some(b) => b,.None => make_err_expr()));
+              tok_opt := match(owning_at_tokens.get(oei), .Some(v) => v, .None => Option(Token).None);
+              body_tok := ast_expr_token(match(bodies.get(oei), .Some(b) => b, .None => make_err_expr()));
               msg := cond(
                 (oei == usize(0)) => `Variable "${var_name}" might be holding the Rc value in some cases but not holding the Rc value in other cases:`,
-                match(tok_opt,.Some(_) => true,.None => false) => `Might be owning the Rc value here:`,
+                match(tok_opt, .Some(_) => true, .None => false) => `Might be owning the Rc value here:`,
                 true => `Might be not owning the Rc value here:`
               );
-              err_tok := match(tok_opt,.Some(t) => t,.None => body_tok);
+              err_tok := match(tok_opt, .Some(t) => t, .None => body_tok);
               {
                 err_list.push(TokenAndError(token : err_tok, error_message : msg));
               };
               oei = (oei + usize(1));
             });
-            exn.throw(dyn(format_error_messages(err_list, false,.None)));
+            exn.throw(dyn(format_error_messages(err_list, false, .None)));
           });
           // ---- Handle variable ID reassignment across branches ----
           // If any branch has a different variable ID, generate a new one.
@@ -1619,7 +1619,7 @@ Conflicting initialization: ${type_to_string(cb_cur_ty)}`
           (has_reassignment : bool) = false;
           (rid_i : usize) = usize(0);
           while(rid_i < n_cases, {
-            case_id := match(var_ids.get(rid_i),.Some(s) => s,.None => usize(0));
+            case_id := match(var_ids.get(rid_i), .Some(s) => s, .None => usize(0));
             if(case_id != original_id, {
               has_reassignment = true;
             });
@@ -1736,7 +1736,7 @@ are_values_equal :: (
           )
         },
         // val2 is concrete: resolve val1 and compare.
-        _ => match(resolved1,.Some(r1) => recur(r1, env1, val2, env2),.None => false)
+        _ => match(resolved1, .Some(r1) => recur(r1, env1, val2, env2), .None => false)
       )
     },
     // val1 is UnknownVal: compare types with are_types_compatible.
@@ -1752,7 +1752,7 @@ are_values_equal :: (
       .VarRef(name2) => {
         vars2 := get_variables_from_env(env2, name2.clone());
         resolved2 := _try_resolve_last_var(vars2);
-        match(resolved2,.Some(r2) => recur(val1, env1, r2, env2),.None => false)
+        match(resolved2, .Some(r2) => recur(val1, env1, r2, env2), .None => false)
       },
       // val2 is UnknownVal: not equal to a concrete value.
       .UnknownVal(_, _) => false,
@@ -1784,19 +1784,19 @@ _digit_value :: (fn(b : u8, base : i64) -> Option(i64))(
     ((b >= u8(48)) && (b <= u8(57))) => {
       // '0'-'9'
       d := (i64(b) - i64(48));
-      cond((d < base) =>.Some(d), true =>.None)
+      cond((d < base) => .Some(d), true => .None)
     },
     ((b >= u8(97)) && (b <= u8(102))) => {
       // 'a'-'f'
       d := ((i64(b) - i64(97)) + i64(10));
-      cond((d < base) =>.Some(d), true =>.None)
+      cond((d < base) => .Some(d), true => .None)
     },
     ((b >= u8(65)) && (b <= u8(70))) => {
       // 'A'-'F'
       d := ((i64(b) - i64(65)) + i64(10));
-      cond((d < base) =>.Some(d), true =>.None)
+      cond((d < base) => .Some(d), true => .None)
     },
-    true =>.None
+    true => .None
   )
 );
 // Parse `bytes[start..]` as a non-negative integer in the given base.
@@ -1804,7 +1804,7 @@ _digit_value :: (fn(b : u8, base : i64) -> Option(i64))(
 _parse_prefixed_int :: (fn(bytes : ArrayList(u8), start : usize, base : i64) -> Option(i64))({
   n := bytes.len();
   cond(
-    (start >= n) =>.None,
+    (start >= n) => .None,
     true => {
       (result : i64) = i64(0);
       (i : usize) = start;
@@ -1828,7 +1828,7 @@ _parse_prefixed_int :: (fn(bytes : ArrayList(u8), start : usize, base : i64) -> 
         );
         i = (i + usize(1));
       });
-      cond(ok =>.Some(result), true =>.None)
+      cond(ok => .Some(result), true => .None)
     }
   )
 });
@@ -1861,8 +1861,8 @@ parse_raw_float :: (fn(raw : String) -> Option(f64))({
   cs := raw.to_cstr();
   match(
     cs.ptr(),
-    .Some(ptr) =>.Some(unsafe(atof(*(char)(ptr)))),
-    .None =>.None
+    .Some(ptr) => .Some(unsafe(atof(*(char)(ptr)))),
+    .None => .None
   )
 });
 export(

@@ -106,14 +106,14 @@ evaluate_dup :: (
   // lowered directly in codegen, see evaluator/types/struct.yo) — structs
   // keep the simple path below.
   if(type_contains_rc_type(concrete_type), {
-    dup_var_name := match(arg_info.variable_name,.Some(n) => n,.None => String.new());
+    dup_var_name := match(arg_info.variable_name, .Some(n) => n, .None => String.new());
     if(dup_var_name.len() > usize(0), {
       (dup_calls : ArrayList(String)) = ArrayList(String).new();
       if(is_tuple_type(concrete_type), {
-        tup_fts := match(concrete_type,.Tuple(_, fts) => fts, _ => ArrayList(TypeValue).new());
+        tup_fts := match(concrete_type, .Tuple(_, fts) => fts, _ => ArrayList(TypeValue).new());
         (dti : usize) = usize(0);
         while(dti < tup_fts.len(), {
-          ft := match(tup_fts.get(dti),.Some(t) => t,.None => TypeValue.Unit);
+          ft := match(tup_fts.get(dti), .Some(t) => t, .None => TypeValue.Unit);
           if(type_contains_rc_type(ft), {
             dup_calls.push(`${BF_YO_DUP_TUPLE_ELEMENT}(${dup_var_name}, ${dti.to_string()})`);
           });

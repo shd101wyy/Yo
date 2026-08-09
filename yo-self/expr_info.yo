@@ -97,8 +97,8 @@ path_contains_path :: (fn(path1 : ArrayList(String), path2 : ArrayList(String)) 
   });
   i := usize(0);
   while(i < n2, {
-    s1 := match(path1.get(i),.Some(s) => s,.None => String.from(""));
-    s2 := match(path2.get(i),.Some(s) => s,.None => String.from("~"));
+    s1 := match(path1.get(i), .Some(s) => s, .None => String.from(""));
+    s2 := match(path2.get(i), .Some(s) => s, .None => String.from("~"));
     if(s1 != s2, {
       return(false);
     });
@@ -125,10 +125,10 @@ path_collection_conflicts_with_path_collection :: (
   n2 := c2.len();
   i := usize(0);
   while(i < n1, {
-    p1 := match(c1.get(i),.Some(p) => p,.None => ArrayList(String).new());
+    p1 := match(c1.get(i), .Some(p) => p, .None => ArrayList(String).new());
     j := usize(0);
     while(j < n2, {
-      p2 := match(c2.get(j),.Some(p) => p,.None => ArrayList(String).new());
+      p2 := match(c2.get(j), .Some(p) => p, .None => ArrayList(String).new());
       if(path_conflicts_with_path(p1, p2), {
         return(true);
       });
@@ -575,7 +575,7 @@ _expr_info_rare_for_write :: (fn(info : ExprInfo) -> ExprInfoRare)(
   )
 );
 expr_info_converted_runtime_type :: (fn(info : ExprInfo) -> Option(TypeValue))(
-  match(info.rare,.Some(r) => r.converted_runtime_type,.None => Option(TypeValue).None)
+  match(info.rare, .Some(r) => r.converted_runtime_type, .None => Option(TypeValue).None)
 );
 expr_info_set_converted_runtime_type :: (
   fn(info : ExprInfo, v : Option(TypeValue)) -> unit
@@ -618,14 +618,14 @@ expr_info_set_dyn_call_trait_values :: (
   r.dyn_call_trait_values = v;
 });
 expr_info_case_executed :: (fn(info : ExprInfo) -> Option(bool))(
-  match(info.rare,.Some(r) => r.case_executed,.None => Option(bool).None)
+  match(info.rare, .Some(r) => r.case_executed, .None => Option(bool).None)
 );
 expr_info_set_case_executed :: (fn(info : ExprInfo, v : Option(bool)) -> unit)({
   r := _expr_info_rare_for_write(info);
   r.case_executed = v;
 });
 expr_info_is_primitive_match :: (fn(info : ExprInfo) -> Option(bool))(
-  match(info.rare,.Some(r) => r.is_primitive_match,.None => Option(bool).None)
+  match(info.rare, .Some(r) => r.is_primitive_match, .None => Option(bool).None)
 );
 expr_info_set_is_primitive_match :: (fn(info : ExprInfo, v : Option(bool)) -> unit)({
   r := _expr_info_rare_for_write(info);
@@ -662,7 +662,7 @@ expr_info_set_consumed_variable_drop_expressions :: (
   r.consumed_variable_drop_expressions = v;
 });
 expr_info_async_stack_size :: (fn(info : ExprInfo) -> Option(AstExpr))(
-  match(info.rare,.Some(r) => r.async_stack_size,.None => Option(AstExpr).None)
+  match(info.rare, .Some(r) => r.async_stack_size, .None => Option(AstExpr).None)
 );
 expr_info_set_async_stack_size :: (fn(info : ExprInfo, v : Option(AstExpr)) -> unit)({
   r := _expr_info_rare_for_write(info);
@@ -880,7 +880,7 @@ is_extern_c_global :: (fn(name : String) -> bool)(
 _mg_canon :: (fn(module_path : String) -> String)({
   (p : String) = module_path.replace(String.from("file://"), String.from(""));
   if(!(p.starts_with(String.from("/"))), {
-    base := match(cwd(),.Ok(c) => c.to_string(),.Err(_) => String.from("."));
+    base := match(cwd(), .Ok(c) => c.to_string(), .Err(_) => String.from("."));
     p = `${base}/${p}`;
   });
   // Collapse `/./` segments (the CLI-arg spelling `./tests/x.yo` after the
@@ -1086,7 +1086,7 @@ begin_branch_group_arm :: (fn() -> unit)({
     g_branch_group_stack.pop(),
     .Some(old_entry) => {
       entry := ArrayList(usize).new();
-      entry.push(match(old_entry.get(usize(0)),.Some(x) => x,.None => usize(0)));
+      entry.push(match(old_entry.get(usize(0)), .Some(x) => x, .None => usize(0)));
       entry.push(g_branch_init_log.len());
       g_branch_group_stack.push(entry);
     },
@@ -1140,15 +1140,15 @@ has_dominating_branch_init :: (fn(var_id : usize) -> bool)({
     .Some(idxs) => {
       (ii : usize) = usize(0);
       while(ii < idxs.len(), {
-        i := match(idxs.get(ii),.Some(x) => x,.None => usize(0));
+        i := match(idxs.get(ii), .Some(x) => x, .None => usize(0));
         (excluded : bool) = false;
         (gi : usize) = usize(0);
         while(gi < g_branch_group_stack.len(), {
           match(
             g_branch_group_stack.get(gi),
             .Some(g) => {
-              gs := match(g.get(usize(0)),.Some(x) => x,.None => usize(0));
-              ga := match(g.get(usize(1)),.Some(x) => x,.None => usize(0));
+              gs := match(g.get(usize(0)), .Some(x) => x, .None => usize(0));
+              ga := match(g.get(usize(1)), .Some(x) => x, .None => usize(0));
               if((gs <= i) && (i < ga), {
                 excluded = true;
               });
@@ -1207,7 +1207,7 @@ struct_effective_ctor_fid :: (fn(ty : TypeValue) -> String)(
     ty,
     .Struct({ id : ec_sid, constructor_func_id : ec_cfid }) => cond(
       (ec_cfid.len() > usize(0)) => ec_cfid,
-      true => match(lookup_struct_ctor_fid(ec_sid),.Some(rec) => rec,.None => String.new())
+      true => match(lookup_struct_ctor_fid(ec_sid), .Some(rec) => rec, .None => String.new())
     ),
     _ => String.new()
   )
@@ -1225,7 +1225,7 @@ struct_fully_concrete_instance :: (fn(ty : TypeValue) -> bool)({
     .Struct({ type_arguments : fc_tas }) => {
       (fci : usize) = usize(0);
       while(fci < fc_tas.len(), {
-        ta := match(fc_tas.get(fci),.Some(t) => t,.None => TypeValue.Unit);
+        ta := match(fc_tas.get(fci), .Some(t) => t, .None => TypeValue.Unit);
         if(is_some_type(ta) || (get_all_some_types(ta).len() > usize(0)), {
           return(false);
         });
@@ -1252,8 +1252,8 @@ adopt_receiver_struct_instance :: (
   if(!(ret_cfid == recv_cfid), {
     return(Option(TypeValue).None);
   });
-  ret_id := match(ret,.Struct({ id : ai_rid }) => ai_rid, _ => String.new());
-  recv_id := match(recv,.Struct({ id : ai_vid }) => ai_vid, _ => String.new());
+  ret_id := match(ret, .Struct({ id : ai_rid }) => ai_rid, _ => String.new());
+  recv_id := match(recv, .Struct({ id : ai_vid }) => ai_vid, _ => String.new());
   if((ret_id.len() == usize(0)) || ((ret_id == recv_id) || !(struct_fully_concrete_instance(recv))), {
     return(Option(TypeValue).None);
   });
@@ -1264,16 +1264,16 @@ adopt_receiver_struct_instance :: (
   // positionally (compared by rendered type). Without this a stale
   // ctx.self_type of the SAME ctor but a DIFFERENT instantiation
   // (List(u8) vs List(i32)) would mis-adopt.
-  ret_tas := match(ret,.Struct({ type_arguments : ai_rtas }) => ai_rtas, _ => ArrayList(TypeValue).new());
-  recv_tas := match(recv,.Struct({ type_arguments : ai_vtas }) => ai_vtas, _ => ArrayList(TypeValue).new());
+  ret_tas := match(ret, .Struct({ type_arguments : ai_rtas }) => ai_rtas, _ => ArrayList(TypeValue).new());
+  recv_tas := match(recv, .Struct({ type_arguments : ai_vtas }) => ai_vtas, _ => ArrayList(TypeValue).new());
   if((ret_tas.len() > usize(0)) && (recv_tas.len() > usize(0)), {
     if(ret_tas.len() != recv_tas.len(), {
       return(Option(TypeValue).None);
     });
     (ai_ti : usize) = usize(0);
     while(ai_ti < ret_tas.len(), {
-      (rta : TypeValue) = match(ret_tas.get(ai_ti),.Some(t) => t,.None => TypeValue.Unit);
-      vta := match(recv_tas.get(ai_ti),.Some(t) => t,.None => TypeValue.Unit);
+      (rta : TypeValue) = match(ret_tas.get(ai_ti), .Some(t) => t, .None => TypeValue.Unit);
+      vta := match(recv_tas.get(ai_ti), .Some(t) => t, .None => TypeValue.Unit);
       if(is_some_type(rta), {
         match(
           rta,
@@ -1312,21 +1312,21 @@ adopt_receiver_struct_instance :: (
 (g_fid_specs : HashMap(String, usize)) = HashMap(String, usize).new();
 /// Count a runtime call dispatch for `fid`.
 record_fid_rtcall :: (fn(fid : String) -> unit)({
-  n := match(g_fid_rtcalls.get(fid.clone()),.Some(v) => v,.None => usize(0));
+  n := match(g_fid_rtcalls.get(fid.clone()), .Some(v) => v, .None => usize(0));
   g_fid_rtcalls.set(fid, n + usize(1));
   ()
 });
 /// Count a successful call-site specialization of `fid`.
 record_fid_spec :: (fn(fid : String) -> unit)({
-  n := match(g_fid_specs.get(fid.clone()),.Some(v) => v,.None => usize(0));
+  n := match(g_fid_specs.get(fid.clone()), .Some(v) => v, .None => usize(0));
   g_fid_specs.set(fid, n + usize(1));
   ()
 });
 /// True when every counted runtime call of `fid` was specialized (and at
 /// least one was) — the original body is dead and must not be emitted.
 fid_fully_specialized :: (fn(fid : String) -> bool)({
-  specs := match(g_fid_specs.get(fid.clone()),.Some(v) => v,.None => usize(0));
-  calls := match(g_fid_rtcalls.get(fid.clone()),.Some(v) => v,.None => usize(0));
+  specs := match(g_fid_specs.get(fid.clone()), .Some(v) => v, .None => usize(0));
+  calls := match(g_fid_rtcalls.get(fid.clone()), .Some(v) => v, .None => usize(0));
   (specs > usize(0)) && (specs >= calls)
 });
 // Macro-expansion side-table: a macro CALL's expanded form (e.g. `if(c, t, e)` →
@@ -1368,7 +1368,7 @@ lookup_macro_expansion :: (fn(call_id : ExprId) -> Option(AstExpr))(
 /// Record a module-level `:=` / `(x : T) = v` init expression for codegen.
 record_module_level_init_expr :: (fn(e : AstExpr) -> unit)({
   eid := ast_expr_id(e);
-  already := match(g_module_level_init_seen.get(eid),.Some(_) => true,.None => false);
+  already := match(g_module_level_init_seen.get(eid), .Some(_) => true, .None => false);
   if(!(already), {
     g_module_level_init_seen.set(eid, true);
     g_module_level_init_exprs.push(e);

@@ -34,10 +34,10 @@ test("Test single-hop forwarded closure param", {
   });
   tbl := ArrayList(i32).new();
   tbl.push(i32(100));
-  r := analyze1(i32(2), (k : i32) => (match(tbl.get(usize(0)),.Some(v) => v,.None => i32(0)) + k));
+  r := analyze1(i32(2), (k : i32) => (match(tbl.get(usize(0)), .Some(v) => v, .None => i32(0)) + k));
   assert(r.len() == usize(2), "walk should push once per depth level");
-  assert(match(r.get(usize(0)),.Some(v) => v,.None => i32(0)) == i32(102), "first push is get_info(2) = 100 + 2");
-  assert(match(r.get(usize(1)),.Some(v) => v,.None => i32(0)) == i32(101), "second push is get_info(1) = 100 + 1");
+  assert(match(r.get(usize(0)), .Some(v) => v, .None => i32(0)) == i32(102), "first push is get_info(2) = 100 + 2");
+  assert(match(r.get(usize(1)), .Some(v) => v, .None => i32(0)) == i32(101), "second push is get_info(1) = 100 + 1");
 });
 test("Test two-hop forwarded closure param with dyn-capturing detector", {
   Detector :: ref(struct(detect : Dyn(Fn(k : i32) -> i32)));
@@ -61,7 +61,7 @@ test("Test two-hop forwarded closure param with dyn-capturing detector", {
     // the shape suspension-analysis uses (get_info captured by the detect
     // callback while ALSO being forwarded onward).
     det := Detector(
-      detect : dyn((k : i32) => (get_info(k) + match(extras.get(usize(0)),.Some(v) => v,.None => i32(0))))
+      detect : dyn((k : i32) => (get_info(k) + match(extras.get(usize(0)), .Some(v) => v, .None => i32(0))))
     );
     walk2(depth, get_info, det, out);
     out
@@ -73,12 +73,12 @@ test("Test two-hop forwarded closure param with dyn-capturing detector", {
   );
   tbl := ArrayList(i32).new();
   tbl.push(i32(100));
-  r := outer2(i32(2), (k : i32) => (match(tbl.get(usize(0)),.Some(v) => v,.None => i32(0)) + k));
+  r := outer2(i32(2), (k : i32) => (match(tbl.get(usize(0)), .Some(v) => v, .None => i32(0)) + k));
   assert(r.len() == usize(4), "two pushes per depth level over two levels");
-  assert(match(r.get(usize(0)),.Some(v) => v,.None => i32(0)) == i32(102), "get_info(2) = 102");
-  assert(match(r.get(usize(1)),.Some(v) => v,.None => i32(0)) == i32(109), "detect(2) = 102 + 7");
-  assert(match(r.get(usize(2)),.Some(v) => v,.None => i32(0)) == i32(101), "get_info(1) = 101");
-  assert(match(r.get(usize(3)),.Some(v) => v,.None => i32(0)) == i32(108), "detect(1) = 101 + 7");
+  assert(match(r.get(usize(0)), .Some(v) => v, .None => i32(0)) == i32(102), "get_info(2) = 102");
+  assert(match(r.get(usize(1)), .Some(v) => v, .None => i32(0)) == i32(109), "detect(2) = 102 + 7");
+  assert(match(r.get(usize(2)), .Some(v) => v, .None => i32(0)) == i32(101), "get_info(1) = 101");
+  assert(match(r.get(usize(3)), .Some(v) => v, .None => i32(0)) == i32(108), "detect(1) = 101 + 7");
 });
 test("Test two distinct closures through the same forwarding chain", {
   apply3 :: (

@@ -67,6 +67,16 @@ export function generateAwait(
     functionContext.inAsyncStateMachine ||
     functionContext.inEffectStateMachine
   ) {
+    // An await in a non-splittable position (a `cond`/`if` condition, a `match`
+    // scrutinee) was hoisted across the state boundary: its result is already
+    // extracted and live in this state, so the await stands for that value.
+    // Without this the empty string below becomes an empty operand — the
+    // `sm->var_N = ;` that used to reach the C compiler.
+    const substitution = functionContext.awaitResultSubstitutions?.get(expr);
+    if (substitution !== undefined) {
+      return substitution;
+    }
+
     // Return empty string - the actual await logic is handled by state machine generator
     // The result will be available in the target variable in the next state
     return ``;

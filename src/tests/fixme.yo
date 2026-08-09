@@ -1,24 +1,30 @@
-pragma(Pragma.AllowUnsafe);
-open(import("std/libc/stdio"));
+open(import("std/string"));
+open(import("std/fmt"));
+{ Exception, IoExn } :: import("std/error");
+{ yield } :: import("std/async");
 
-S :: struct(x : Box(i32), y : Box(i32));
-E :: enum(None, Some(b : Box(i32)));
-BoxPair :: struct(a : Box(i32), b : Box(i32));
-RS :: ref(struct(t : BoxPair, s : S, e : E));
+ready :: (fn(io : Io) -> Impl(Future(bool, Io)))(
+  io.async((io : Io) => {
+    io.await(yield(io), io);
+    return(true);
+  })
+);
+num :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    io.await(yield(io), io);
+    return(i32(7));
+  })
+);
 
-main :: (fn() -> unit)({
-  // tuple of RC
-  t := (box(i32(1)), box(i32(2)),);
-  unsafe(printf("tuple  %d %d\n", t.0.*, t.1.*));
-  // struct of RC
-  s := S(x : box(i32(3)), y : box(i32(4)));
-  unsafe(printf("struct %d %d\n", s.x.*, s.y.*));
-  // enum payload of RC
-  e := E.Some(b : box(i32(5)));
-  unsafe(printf("enum   %d\n", match(e,.Some(b) => b.*,.None => i32(0))));
-  // ref struct holding all three -> exercises the generated tracer
-  r := RS(t : BoxPair(a : box(i32(6)), b : box(i32(7))), s : S(x : box(i32(8)), y : box(i32(9))), e : E.Some(b : box(i32(10))));
-  unsafe(printf("nested %d %d %d\n", r.t.a.*, r.s.x.*, match(r.e,.Some(b) => b.*,.None => i32(0))));
+do_it :: (fn(io : Io, exn : Exception) -> Impl(Future(unit, IoExn)))(
+  io.async((e) => {
+    cond(e.io.await(ready(e.io), e.io) => { println(String.from("y")); }, true => ());
+  })
+);
+
+main :: (fn(io : Io, exn : Exception) -> unit)({
+  io.await(do_it(io, exn), IoExn(io : io, exn : exn));
+  println(String.from("END"));
 });
 
 export(main);

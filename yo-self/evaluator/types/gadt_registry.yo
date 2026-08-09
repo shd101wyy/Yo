@@ -49,7 +49,7 @@ get_gadt_variant_args :: (
   (i : usize) = usize(0);
   n := g_gadt_entries.len();
   (found : Option(ArrayList(ArrayList(TypeValue)))) = Option(ArrayList(ArrayList(TypeValue))).None;
-  while((i < n) && match(found,.None => true,.Some(_) => false), {
+  while((i < n) && match(found, .None => true, .Some(_) => false), {
     match(
       g_gadt_entries.get(i),
       .Some(e) => if(e.enum_id == enum_id, {
@@ -63,7 +63,7 @@ get_gadt_variant_args :: (
 });
 /// True if the enum id is registered as a GADT (mirrors `EnumType.isGadt`).
 is_gadt_enum :: (fn(enum_id : String) -> bool)(
-  match(get_gadt_variant_args(enum_id),.Some(_) => true,.None => false)
+  match(get_gadt_variant_args(enum_id), .Some(_) => true, .None => false)
 );
 // ---------------------------------------------------------------------------
 // Per-instantiation type-constructor args  (mirrors EnumType.typeConstructorArgs)
@@ -88,7 +88,7 @@ get_gadt_type_constructor_args :: (
   (i : usize) = usize(0);
   n := g_gadt_tca_entries.len();
   (found : Option(ArrayList(TypeValue))) = Option(ArrayList(TypeValue)).None;
-  while((i < n) && match(found,.None => true,.Some(_) => false), {
+  while((i < n) && match(found, .None => true, .Some(_) => false), {
     match(
       g_gadt_tca_entries.get(i),
       .Some(e) => if(e.enum_id == enum_id, {

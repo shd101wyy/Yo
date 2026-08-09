@@ -64,7 +64,7 @@ open(import("std/string"));
 { get_type_string, can_optimize_as_simple_enum } :: import("../utils/index.yo");
 /// Argument code at index `i` (empty if absent).
 _a :: (fn(args : ArrayList(String), i : usize) -> String)(
-  match(args.get(i),.Some(s) => s,.None => String.from(""))
+  match(args.get(i), .Some(s) => s, .None => String.from(""))
 );
 /// `((a) <op> (b))`.
 _binop :: (fn(args : ArrayList(String), op : str) -> String)({
@@ -110,11 +110,11 @@ _ptr_binop :: (fn(args : ArrayList(String), op : str) -> String)({
 /// The expr's result type (Unit if it has no ExprInfo — mirrors TS guarding on
 /// `expr.$?.type` for the metadata-aware builtins).
 ei_ty :: (fn(expr : AstExpr, context : FunctionGenerationContext) -> TypeValue)(
-  match(context.base.get_expr_info(expr),.Some(ei) => ei.ty,.None => TypeValue.Unit)
+  match(context.base.get_expr_info(expr), .Some(ei) => ei.ty, .None => TypeValue.Unit)
 );
 /// Whether `__yo_as`'s source operand is a tagged (non-simple) enum.
 _as_source_is_tagged_enum :: (fn(expr : AstExpr, context : FunctionGenerationContext) -> bool)(
-  match(expr,.FnCall(_, _, a, _, _) => match(a.get(usize(0)),.Some(a0) => match(context.base.get_expr_info(a0),.Some(aei) => (is_enum_type(aei.ty) && !(can_optimize_as_simple_enum(aei.ty))),.None => false),.None => false),.Atom(_, _) => false)
+  match(expr, .FnCall(_, _, a, _, _) => match(a.get(usize(0)), .Some(a0) => match(context.base.get_expr_info(a0), .Some(aei) => (is_enum_type(aei.ty) && !(can_optimize_as_simple_enum(aei.ty))), .None => false), .None => false), .Atom(_, _) => false)
 );
 /// Generate a Yo operator / inline-builtin function call. Mirrors
 /// `generateYoInlineFunctionCall`.

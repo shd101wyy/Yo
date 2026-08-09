@@ -108,8 +108,8 @@ render_fields_ :: (fn(fields : ArrayList(DocField)) -> String)({
         break;
       }
     );
-    dflt := match(f.default_value,.None => ``,.Some(d) => ` = \`${d}\``);
-    doc := match(f.doc,.None => ``,.Some(d) => ` — ${d}`);
+    dflt := match(f.default_value, .None => ``, .Some(d) => ` = \`${d}\``);
+    doc := match(f.doc, .None => ``, .Some(d) => ` — ${d}`);
     lines.push(`- \`${f.name}\` : \`${f.type_}\`${dflt}${doc}`);
     i = (i + usize(1));
   });
@@ -131,9 +131,9 @@ render_variants_ :: (fn(variants : ArrayList(DocVariant)) -> String)({
         break;
       }
     );
-    disc := match(v.discriminant,.None => ``,.Some(d) => ` = ${d}`);
-    doc := match(v.doc,.None => ``,.Some(d) => ` — ${d}`);
-    has_fields := match(v.fields,.None => false,.Some(fs) => (fs.len() > usize(0)));
+    disc := match(v.discriminant, .None => ``, .Some(d) => ` = ${d}`);
+    doc := match(v.doc, .None => ``, .Some(d) => ` — ${d}`);
+    has_fields := match(v.fields, .None => false, .Some(fs) => (fs.len() > usize(0)));
     if(has_fields, {
       field_parts := match(
         v.fields,
@@ -180,8 +180,8 @@ render_associated_types_ :: (fn(types : ArrayList(DocAssociatedType)) -> String)
         break;
       }
     );
-    constraint := match(t.constraint,.None => ``,.Some(c) => ` : ${c}`);
-    doc := match(t.doc,.None => ``,.Some(d) => ` — ${d}`);
+    constraint := match(t.constraint, .None => ``, .Some(c) => ` : ${c}`);
+    doc := match(t.doc, .None => ``, .Some(d) => ` — ${d}`);
     lines.push(`- \`${t.name}\`${constraint}${doc}`);
     i = (i + usize(1));
   });
@@ -192,7 +192,7 @@ render_associated_types_ :: (fn(types : ArrayList(DocAssociatedType)) -> String)
 /// Render a single DocFunction as Markdown (### heading + signature + docs).
 render_function_md :: (fn(fn_ : DocFunction) -> String)({
   lines := ArrayList(String).new();
-  self_type_str := match(fn_.self_type,.Some(s) => s,.None => ``);
+  self_type_str := match(fn_.self_type, .Some(s) => s, .None => ``);
   anchor := cond(fn_.is_method => `${self_type_str}.${fn_.name}`, true => fn_.name);
   lines.push(`### \`${anchor}\``);
   lines.push(``);
@@ -231,8 +231,8 @@ render_function_md :: (fn(fn_ : DocFunction) -> String)({
       );
       comptime := cond(p.is_comptime => ` *(comptime)*`, true => ``);
       implicit := cond(p.is_implicit => ` *(implicit)*`, true => ``);
-      dflt := match(p.default_value,.None => ``,.Some(d) => ` = \`${d}\``);
-      doc := match(p.doc,.None => ``,.Some(d) => ` — ${d}`);
+      dflt := match(p.default_value, .None => ``, .Some(d) => ` = \`${d}\``);
+      doc := match(p.doc, .None => ``, .Some(d) => ` — ${d}`);
       lines.push(`- \`${p.name}\` : \`${p.type_}\`${comptime}${implicit}${dflt}${doc}`);
       i = (i + usize(1));
     });
@@ -335,7 +335,7 @@ render_type_md :: (fn(t : DocType) -> String)({
     lines.push(`**Implements:** ${sep.join(impl_names)}`);
     lines.push(``);
   });
-  has_impls := match(t.impls,.None => false,.Some(impls) => (impls.len() > usize(0)));
+  has_impls := match(t.impls, .None => false, .Some(impls) => (impls.len() > usize(0)));
   has_methods := (t.methods.len() > usize(0));
   if((has_impls) || (has_methods), {
     claimed := ArrayList(String).new();
@@ -569,7 +569,7 @@ render_trait_md :: (fn(t : DocTrait) -> String)({
 /// Render a single DocConstant as Markdown.
 render_constant_md :: (fn(c : DocConstant) -> String)({
   lines := ArrayList(String).new();
-  val := match(c.value,.None => ``,.Some(v) => ` = ${v}`);
+  val := match(c.value, .None => ``, .Some(v) => ` = ${v}`);
   lines.push(`### \`${c.name}\``);
   lines.push(``);
   match(
@@ -780,7 +780,7 @@ render_index_md :: (fn(model : DocModel) -> String)({
       mod.doc,
       .None => ``,
       .Some(d) => {
-        first_line := match(d.split(`\n`).get(usize(0)),.Some(l) => l,.None => d);
+        first_line := match(d.split(`\n`).get(usize(0)), .Some(l) => l, .None => d);
         ` — ${first_line}`
       }
     );

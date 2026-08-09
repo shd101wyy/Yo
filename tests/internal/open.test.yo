@@ -61,7 +61,7 @@ stub_evaluate_module :: (
   // Modules are StructVals whose type name carries the source-namespace marker.
   module_val := EvalValue.StructVal(String.from("source_namespace_test"), names, vals);
   info := new_expr_info(env, t_i32());
-  info.value =.Some(module_val);
+  info.value = .Some(module_val);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
   expr
 });
@@ -93,7 +93,7 @@ test("evaluate_open: module — adds each field as a comptime variable", {
   result := evaluate_open(call, env, ctx, exn);
   // Side-effect: ExprInfo for the open call is set with type unit + UnitVal.
   info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(result));
-  assert(match(info_opt,.Some(_) => true,.None => false), "open did not record an ExprInfo");
+  assert(match(info_opt, .Some(_) => true, .None => false), "open did not record an ExprInfo");
   info := match(
     info_opt,
     .Some(i) => i,

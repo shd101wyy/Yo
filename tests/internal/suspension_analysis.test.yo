@@ -91,13 +91,13 @@ make_detect_all_detector :: (fn() -> SuspensionPointDetector)(
 // ---------------------------------------------------------------------------
 test("extract_target_variable_id: None parent => None", {
   result := extract_target_variable_id(Option(AstExpr).None, get_info_none);
-  is_none := match(result,.None => true,.Some(_) => false);
+  is_none := match(result, .None => true, .Some(_) => false);
   assert(is_none, "should return(None for None parent)");
 });
 test("extract_target_variable_id: non-assign parent => None", {
   parent := make_fncall_expr("io.await");
   result := extract_target_variable_id(Option(AstExpr).Some(parent), get_info_none);
-  is_none := match(result,.None => true,.Some(_) => false);
+  is_none := match(result, .None => true, .Some(_) => false);
   assert(is_none, "non-:= parent should return(None)");
 });
 test("extract_target_variable_id: := parent but get_info returns None => None", {
@@ -106,7 +106,7 @@ test("extract_target_variable_id: := parent but get_info returns None => None", 
   parent := make_assign_expr("x", rhs);
   result := extract_target_variable_id(Option(AstExpr).Some(parent), get_info_none);
   // get_info_none returns None, so no variable info → result is None
-  is_none := match(result,.None => true,.Some(_) => false);
+  is_none := match(result, .None => true, .Some(_) => false);
   assert(is_none, "no env info means no variable ID found");
 });
 // ---------------------------------------------------------------------------

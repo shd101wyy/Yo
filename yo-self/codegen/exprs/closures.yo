@@ -54,7 +54,7 @@ check_variable_is_closure_captured :: (
   cond(
     (n == usize(0)) => false,
     true => {
-      latest := match(variables.get(n - usize(1)),.Some(v) => v,.None => return(false));
+      latest := match(variables.get(n - usize(1)), .Some(v) => v, .None => return(false));
       latest.frame_level <= closure_capture_frame_level
     }
   )
@@ -74,7 +74,7 @@ resolve_some_type_to_concrete :: (fn(t : TypeValue) -> TypeValue)({
   // fn-pointer-cast miss).
   (rsc_seen : ArrayList(String)) = ArrayList(String).new();
   while(go && is_some_type(cur), {
-    sid := match(cur,.SomeT({ id : i }) => i, _ => String.from(""));
+    sid := match(cur, .SomeT({ id : i }) => i, _ => String.from(""));
     (rsc_revisit : bool) = false;
     (rsc_i : usize) = usize(0);
     while(rsc_i < rsc_seen.len(), {
@@ -93,9 +93,9 @@ resolve_some_type_to_concrete :: (fn(t : TypeValue) -> TypeValue)({
       rsc_seen.push(sid.clone());
       // Per-object resolved concrete first (survives clone/substitute/intern);
       // global table as fallback.
-      own_rc := match(cur,.SomeT({ resolved_concrete : orc }) => orc.get(usize(0)), _ => Option(TypeValue).None);
+      own_rc := match(cur, .SomeT({ resolved_concrete : orc }) => orc.get(usize(0)), _ => Option(TypeValue).None);
       match(
-        match(own_rc,.Some(o1) => Option(TypeValue).Some(o1),.None => lookup_some_resolved_concrete(sid)),
+        match(own_rc, .Some(o1) => Option(TypeValue).Some(o1), .None => lookup_some_resolved_concrete(sid)),
         .Some(rct) => {
           cur = rct;
         },
@@ -123,7 +123,7 @@ is_closure_construction :: (fn(expr : AstExpr, context : FunctionGenerationConte
     .Some(ei) => (
       (
         expr_info_closure_function_value(ei).is_some()
-        || match(ei.value,.Some(v) => is_func_val(v),.None => false)
+        || match(ei.value, .Some(v) => is_func_val(v), .None => false)
       ) && ((type_implements_fn(ei.ty) || is_function_type(ei.ty)) && ei.capture_type.is_some())
     ),
     .None => false
@@ -143,36 +143,36 @@ is_closure_construction :: (fn(expr : AstExpr, context : FunctionGenerationConte
 /// ARC dup-expr capture-field path (Rc captures) — the corpus/repro paths are
 /// value-type Impl closures with plain captures.
 generate_closure_construction :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
-  ei := match(context.base.get_expr_info(expr),.Some(e) => e,.None => return(String.from("// Error: Missing closure metadata")));
+  ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("// Error: Missing closure metadata")));
   closure_fv := match(
     expr_info_closure_function_value(ei),
     .Some(v) => v,
     // Fallback: anonymous_function.yo records the closure FuncVal on info.value.
-    .None => match(ei.value,.Some(v) => v,.None => return(String.from("// Error: Missing closure_function_value")))
+    .None => match(ei.value, .Some(v) => v, .None => return(String.from("// Error: Missing closure_function_value")))
   );
   // The Fn call signature (for evidence params) — yo-self records the closure
   // type as a bare Func/FnTraitT, so the FnTrait may be absent; fall back to the
   // recorded type itself. Only the evidence path needs the precise call type.
   call_type_opt := extract_fn_trait_from_type(ei.ty);
-  fid := match(closure_fv,.FuncVal(__fvd1, _) => __fvd1.*.func_id, _ => String.from(""));
-  function_c_name := match(context.base.functions.get(fid),.Some(fe) => fe.c_name,.None => return(String.from("// Error: Closure implementation function not found in context")));
+  fid := match(closure_fv, .FuncVal(__fvd1, _) => __fvd1.*.func_id, _ => String.from(""));
+  function_c_name := match(context.base.functions.get(fid), .Some(fe) => fe.c_name, .None => return(String.from("// Error: Closure implementation function not found in context")));
   if(is_dyn_type(ei.ty), {
     return(String.from("// Error: Dyn(Fn(...)) closure construction not yet ported"));
   });
   // Resolve the capture struct + its fields.
-  capture_ty := match(ei.capture_type,.Some(ct) => ct,.None => TypeValue.Unit);
-  field_labels := match(capture_ty,.Struct({ field_labels : fl }) => fl, _ => ArrayList(String).new());
+  capture_ty := match(ei.capture_type, .Some(ct) => ct, .None => TypeValue.Unit);
+  field_labels := match(capture_ty, .Struct({ field_labels : fl }) => fl, _ => ArrayList(String).new());
   call_type_id := type_key(ei.ty);
   if(field_labels.len() > usize(0), {
     // Impl closure WITH captures — stack-allocate the capture struct.
-    struct_id := match(capture_ty,.Struct({ id : sid }) => sid, _ => String.from(""));
+    struct_id := match(capture_ty, .Struct({ id : sid }) => sid, _ => String.from(""));
     // Look up by the FULL type_key, not the bare struct id: the registry is
     // keyed by type_key(t), and for a cfid-empty struct with field types the
     // key is now STRUCTURAL (sid + field keys) — bare-sid lookup only worked
     // while type_key collapsed such structs to their sid (the Bucket visit-fn
     // collision). TS looks up by struct id because TS ids are per-instantiation
     // AND are the registry key; type_key is yo-self's equivalent identity.
-    capture_c_name := match(context.base.get_type_c_name(type_key(capture_ty)),.Some(n) => n,.None => return(String.from("// Error: Capture type not found for closure")));
+    capture_c_name := match(context.base.get_type_c_name(type_key(capture_ty)), .Some(n) => n, .None => return(String.from("// Error: Capture type not found for closure")));
     // Build `(captureCName){ .label = <value>, ... }`. An RC-typed capture
     // field uses the evaluator's deferred `___dup(name)` expr as its
     // initializer (matched by dup TARGET name), so the capture struct holds
@@ -185,7 +185,7 @@ generate_closure_construction :: (fn(expr : AstExpr, indent : String, context : 
     data.push_str("){ ");
     (fi : usize) = usize(0);
     while(fi < field_labels.len(), {
-      label := match(field_labels.get(fi),.Some(l) => l,.None => String.from(""));
+      label := match(field_labels.get(fi), .Some(l) => l, .None => String.from(""));
       if(fi > usize(0), {
         data.push_str(", ");
       });
@@ -251,7 +251,7 @@ generate_closure_construction :: (fn(expr : AstExpr, indent : String, context : 
     em := context.base.emitter;
     em.emit_string_line(decl);
     // Register the impl-closure-call mapping (key = concrete capture struct id).
-    key := match(resolve_some_type_to_concrete(capture_ty),.Struct({ id : kid }) => kid, _ => struct_id.clone());
+    key := match(resolve_some_type_to_concrete(capture_ty), .Struct({ id : kid }) => kid, _ => struct_id.clone());
     _r := context.base.impl_closure_call_map.set(
       key,
       ImplClosureCallInfo(
@@ -267,7 +267,7 @@ generate_closure_construction :: (fn(expr : AstExpr, indent : String, context : 
     // Impl closure WITHOUT captures — empty capture struct value; still static
     // dispatch (register by the resolved concrete capture/SomeT id).
     concrete := resolve_some_type_to_concrete(ei.ty);
-    concrete_id := match(concrete,.Struct({ id : kid }) => kid,.SomeT({ id : sid }) => sid, _ => type_key(ei.ty));
+    concrete_id := match(concrete, .Struct({ id : kid }) => kid, .SomeT({ id : sid }) => sid, _ => type_key(ei.ty));
     // The compound literal's type must be the CAPTURE STRUCT — take it from
     // the closure's registered capture info (keyed by fid; always present,
     // an empty struct for capture-free closures). The ExprInfo ty here can be

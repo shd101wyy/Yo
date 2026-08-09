@@ -92,7 +92,7 @@ evaluate_binding :: (
   // Mutable env that we update from rhs ExprInfo.
   (env : Environment) = env_in;
   // Validate shape: ":" with exactly 2 args.
-  if(!(ast_expr_is_fn_call_of(expr, BK_COLON,.Some(usize(2)))), {
+  if(!(ast_expr_is_fn_call_of(expr, BK_COLON, .Some(usize(2)))), {
     exn.throw(
       dyn(
         format_error_message(
@@ -107,12 +107,12 @@ evaluate_binding :: (
   // Pull lhs and rhs from the FnCall args.
   (lhs_arg : AstExpr) = match(
     expr,
-    .FnCall(_, _, args, _, _) => match(args.get(usize(0)),.Some(a) => a,.None => make_err_expr()),
+    .FnCall(_, _, args, _, _) => match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
     .Atom(_, _) => make_err_expr()
   );
   rhs := match(
     expr,
-    .FnCall(_, _, args, _, _) => match(args.get(usize(1)),.Some(a) => a,.None => make_err_expr()),
+    .FnCall(_, _, args, _, _) => match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr()),
     .Atom(_, _) => make_err_expr()
   );
   // Evaluate the rhs to obtain the declared type.
@@ -130,7 +130,7 @@ evaluate_binding :: (
       )
     );
   });
-  rhs_info := match(rhs_info_opt,.Some(i) => i,.None => new_expr_info(env, t_unit()));
+  rhs_info := match(rhs_info_opt, .Some(i) => i, .None => new_expr_info(env, t_unit()));
   // Update env from rhs evaluation.
   env.frames = rhs_info.env.frames;
   env.module_path = rhs_info.env.module_path;
@@ -187,7 +187,7 @@ evaluate_binding :: (
   // Strip optional `comptime(...)` wrapper from lhs.
   (is_compile_time_only : bool) = false;
   (lhs : AstExpr) = lhs_arg;
-  if(ast_expr_is_fn_call_of(lhs, BK_COMPTIME,.None), {
+  if(ast_expr_is_fn_call_of(lhs, BK_COMPTIME, .None), {
     is_compile_time_only = true;
     n_comptime_args := match(
       lhs,
@@ -208,13 +208,13 @@ evaluate_binding :: (
     });
     lhs = match(
       lhs,
-      .FnCall(_, _, cargs, _, _) => match(cargs.get(usize(0)),.Some(a) => a,.None => make_err_expr()),
+      .FnCall(_, _, cargs, _, _) => match(cargs.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
       .Atom(_, _) => make_err_expr()
     );
   });
   // Strip optional `given(...)` wrapper (implies implicit + comptime).
   (is_implicit : bool) = false;
-  if(ast_expr_is_fn_call_of(lhs, BK_GIVEN,.None), {
+  if(ast_expr_is_fn_call_of(lhs, BK_GIVEN, .None), {
     n_given_args := match(
       lhs,
       .FnCall(_, _, gargs, _, _) => gargs.len(),
@@ -236,7 +236,7 @@ evaluate_binding :: (
     is_compile_time_only = true;
     lhs = match(
       lhs,
-      .FnCall(_, _, gargs, _, _) => match(gargs.get(usize(0)),.Some(a) => a,.None => make_err_expr()),
+      .FnCall(_, _, gargs, _, _) => match(gargs.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
       .Atom(_, _) => make_err_expr()
     );
   });
@@ -251,7 +251,7 @@ evaluate_binding :: (
     is_ctfe_body := match(
       ctx.is_evaluating_function_body_or_async_block,
       .Some(fctx) => (
-        match(fctx.kind,.FunctionBody => true, _ => false) &&
+        match(fctx.kind, .FunctionBody => true, _ => false) &&
           match(
             fctx.func_type,
             .Some(ft) => is_function_type_and_returns_comptime_value(ft),
@@ -384,7 +384,7 @@ evaluate_binding :: (
               error_message : `Variable "${variable_name}" is already defined here (variable shadowing is not allowed):`
             )
           );
-          exn.throw(dyn(format_error_messages(sh_entries, false,.None)));
+          exn.throw(dyn(format_error_messages(sh_entries, false, .None)));
         },
         .None => ()
       );
@@ -415,7 +415,7 @@ evaluate_binding :: (
   match(
     _var_opt,
     .Some(new_binding_var) => {
-      new_binding_var.initialized_at_token =.None;
+      new_binding_var.initialized_at_token = .None;
       // Stamp module-level-ness — computed above but previously never
       // patched onto the variable for the `(name : T) = ...` binding form
       // (add_variable_to_env has no is_module_level parameter). Also record
@@ -434,11 +434,11 @@ evaluate_binding :: (
   lhs_path.push(variable_name);
   lhs_info := new_expr_info(env, user_defined_type);
   expr_info_paths_for_write(lhs_info).push(lhs_path);
-  lhs_info.variable_name =.Some(variable_name);
+  lhs_info.variable_name = .Some(variable_name);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(lhs), lhs_info);
   // Write ExprInfo for the whole ":" expression.
   expr_info := new_expr_info(env, t_unit());
-  expr_info.value =.Some(EvalValue.UnitVal);
+  expr_info.value = .Some(EvalValue.UnitVal);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), expr_info);
   BindingResult(
     expr : expr,

@@ -24,7 +24,7 @@ open(import("std/string"));
 { get_drop_function_for_type } :: import("../exprs/drop_dup.yo");
 /// func_id of a FuncVal EvalValue (mirrors collection.yo:_func_val_id).
 _func_val_id :: (fn(v : EvalValue) -> String)(
-  match(v,.FuncVal(__fvd1, _) => __fvd1.*.func_id, _ => String.from(""))
+  match(v, .FuncVal(__fvd1, _) => __fvd1.*.func_id, _ => String.from(""))
 );
 /// True for the reserved dyn-method labels (___dup/___drop/___dispose/dispose).
 _is_reserved_dyn_label :: (fn(label : String) -> bool)(
@@ -34,7 +34,7 @@ _is_reserved_dyn_label :: (fn(label : String) -> bool)(
 _box_field_name :: (fn(data_type : TypeValue) -> String)(
   match(
     data_type,
-    .Struct({ field_labels }) => match(field_labels.get(usize(0)),.Some(l) => sanitize_for_c_identifier(l, false),.None => String.from("__0")),
+    .Struct({ field_labels }) => match(field_labels.get(usize(0)), .Some(l) => sanitize_for_c_identifier(l, false), .None => String.from("__0")),
     _ => String.from("__0")
   )
 );
@@ -65,12 +65,12 @@ generate_dyn_dup_drop :: (fn(context : FunctionGenerationContext) -> unit)({
   n := keys.len();
   (i : usize) = usize(0);
   while(i < n, {
-    key := match(keys.get(i),.Some(k) => k,.None => String.from(""));
+    key := match(keys.get(i), .Some(k) => k, .None => String.from(""));
     match(
       context.base.dyn_impls.get(key.clone()),
       .Some(impl_entry) => {
         dyn_key := type_key(impl_entry.dyn_type.clone());
-        dyn_c := match(context.base.get_type_c_name(dyn_key.clone()),.Some(cn) => cn,.None => `__yo_dyn_${dyn_key}`);
+        dyn_c := match(context.base.get_type_c_name(dyn_key.clone()), .Some(cn) => cn, .None => `__yo_dyn_${dyn_key}`);
         if(!(generated.contains(dyn_c.clone())), {
           _g := generated.add(dyn_c.clone());
           em.emit_string_line(`${dyn_c} __yo_dup_${dyn_c}(${dyn_c} dyn) {`);
@@ -111,7 +111,7 @@ generate_dyn_box_functions :: (fn(context : FunctionGenerationContext) -> unit)(
   n := keys.len();
   (i : usize) = usize(0);
   while(i < n, {
-    key := match(keys.get(i),.Some(k) => k,.None => String.from(""));
+    key := match(keys.get(i), .Some(k) => k, .None => String.from(""));
     match(
       context.base.dyn_impls.get(key.clone()),
       .Some(impl_entry) => {
@@ -120,7 +120,7 @@ generate_dyn_box_functions :: (fn(context : FunctionGenerationContext) -> unit)(
         // `__yo_dyn_box_unknown_<id>` ctor).
         dyn_concrete_res := resolve_some_type_to_concrete(impl_entry.concrete_type.clone());
         concrete_key := type_key(dyn_concrete_res.clone());
-        concrete_c := match(context.base.get_type_c_name(concrete_key.clone()),.Some(cn) => cn,.None => `unknown_${concrete_key}`);
+        concrete_c := match(context.base.get_type_c_name(concrete_key.clone()), .Some(cn) => cn, .None => `unknown_${concrete_key}`);
         box_name := `__yo_dyn_box_${concrete_c}`;
         if(!(generated.contains(box_name.clone())), {
           _g := generated.add(box_name.clone());
@@ -225,7 +225,7 @@ _resolve_box_payload :: (fn(t : TypeValue) -> TypeValue)(
       rbp_new_ft := ArrayList(TypeValue).new();
       (rbp_i : usize) = usize(0);
       while(rbp_i < rbp_ft.len(), {
-        rbp_e := match(rbp_ft.get(rbp_i),.Some(x) => x,.None => TypeValue.Unit);
+        rbp_e := match(rbp_ft.get(rbp_i), .Some(x) => x, .None => TypeValue.Unit);
         (rbp_r : TypeValue) = rbp_e;
         if(is_some_type(rbp_e), {
           rbp_r = resolve_some_type_to_concrete(rbp_e);
@@ -236,7 +236,7 @@ _resolve_box_payload :: (fn(t : TypeValue) -> TypeValue)(
       rbp_new_ta := ArrayList(TypeValue).new();
       (rbp_j : usize) = usize(0);
       while(rbp_j < rbp_ta.len(), {
-        rbp_e2 := match(rbp_ta.get(rbp_j),.Some(x) => x,.None => TypeValue.Unit);
+        rbp_e2 := match(rbp_ta.get(rbp_j), .Some(x) => x, .None => TypeValue.Unit);
         (rbp_r2 : TypeValue) = rbp_e2;
         if(is_some_type(rbp_e2), {
           rbp_r2 = resolve_some_type_to_concrete(rbp_e2);
@@ -308,13 +308,13 @@ generate_dyn_wrapper_functions :: (fn(context : FunctionGenerationContext) -> un
   nk := keys.len();
   (ki : usize) = usize(0);
   while(ki < nk, {
-    impl_key := match(keys.get(ki),.Some(k) => k,.None => String.from(""));
+    impl_key := match(keys.get(ki), .Some(k) => k, .None => String.from(""));
     match(
       context.base.dyn_impls.get(impl_key.clone()),
       .Some(impl_entry) => {
         data_type := impl_entry.data_type.clone();
         is_boxed := is_boxed_type(data_type.clone());
-        req_traits := match(impl_entry.dyn_type.clone(),.DynT({ required_trait_types }) => required_trait_types, _ => ArrayList(TypeValue).new());
+        req_traits := match(impl_entry.dyn_type.clone(), .DynT({ required_trait_types }) => required_trait_types, _ => ArrayList(TypeValue).new());
         nt := req_traits.len();
         // Pass 1: Fn synthetic `call` slot.
         (ti : usize) = usize(0);
@@ -343,17 +343,17 @@ generate_dyn_wrapper_functions :: (fn(context : FunctionGenerationContext) -> un
                     // struct rides on resolved_concrete — key the map with it.
                     .SomeT({ resolved_concrete : ccrc }) => match(
                       ccrc.get(usize(0)),
-                      .Some(ccrct) => match(ccrct,.Struct({ id : csid2 }) => csid2, _ => String.from("")),
+                      .Some(ccrct) => match(ccrct, .Struct({ id : csid2 }) => csid2, _ => String.from("")),
                       .None => String.from("")
                     ),
                     _ => String.from("")
                   );
                   cc_info := if(cc_struct_id.len() > usize(0), context.base.impl_closure_call_map.get(cc_struct_id), Option(ImplClosureCallInfo).None);
-                  if(is_boxed && match(cc_info,.Some(_) => true,.None => false), {
+                  if(is_boxed && match(cc_info, .Some(_) => true, .None => false), {
                     boxed_cname := _boxed_c_name(data_type.clone(), context);
                     field_name := _box_field_name(data_type.clone());
                     em.emit_declaration_string_line(`  ${boxed_cname}* box = (${boxed_cname}*)self_ptr;`);
-                    cc_fn := match(cc_info,.Some(mp) => mp.function_c_name.clone(),.None => String.from(""));
+                    cc_fn := match(cc_info, .Some(mp) => mp.function_c_name.clone(), .None => String.from(""));
                     call := String.from("  ");
                     if(!(is_void), {
                       call.push_str("return ");
@@ -425,7 +425,7 @@ generate_dyn_wrapper_functions :: (fn(context : FunctionGenerationContext) -> un
         // Pass 2: regular trait methods (from the TraitVal evidence records).
         (mi : usize) = usize(0);
         while(mi < nt, {
-          skip := match(req_traits.get(mi),.Some(rt) => is_fn_trait_type(rt.clone()),.None => true);
+          skip := match(req_traits.get(mi), .Some(rt) => is_fn_trait_type(rt.clone()), .None => true);
           if(!(skip), {
             match(
               impl_entry.trait_values.get(mi),
@@ -435,7 +435,7 @@ generate_dyn_wrapper_functions :: (fn(context : FunctionGenerationContext) -> un
                   nf := field_names.len();
                   (fi : usize) = usize(0);
                   while(fi < nf, {
-                    label := match(field_names.get(fi),.Some(l) => l,.None => String.from(""));
+                    label := match(field_names.get(fi), .Some(l) => l, .None => String.from(""));
                     // Pre-bind the owned-clone subexpression so it is declared
                     // unconditionally (a `label.clone()` inside a short-circuit
                     // `||` mis-scopes its drop — TS-compiler bug).
@@ -459,7 +459,7 @@ generate_dyn_wrapper_functions :: (fn(context : FunctionGenerationContext) -> un
                                   return_str := get_type_string(result, context.base);
                                   params := _wrapper_params(param_types.clone(), usize(1), context);
                                   em.emit_declaration_string_line(`static ${return_str} ${wrapper}(${params}) {`);
-                                  pbp := (match(param_types.get(usize(0)),.Some(p0) => is_pointer_type(p0),.None => false) || match(param_is_ref.get(usize(0)),.Some(r) => r,.None => false));
+                                  pbp := (match(param_types.get(usize(0)), .Some(p0) => is_pointer_type(p0), .None => false) || match(param_is_ref.get(usize(0)), .Some(r) => r, .None => false));
                                   (first_arg : String) = String.from("");
                                   if(is_boxed, {
                                     boxed_cname := _boxed_c_name(data_type.clone(), context);
@@ -532,11 +532,11 @@ generate_dyn_vtables :: (fn(context : FunctionGenerationContext) -> unit)({
   generated := HashSet(String).new();
   (ti : usize) = usize(0);
   while(ti < nk, {
-    impl_key := match(keys.get(ti),.Some(k) => k,.None => String.from(""));
+    impl_key := match(keys.get(ti), .Some(k) => k, .None => String.from(""));
     match(
       context.base.dyn_impls.get(impl_key.clone()),
       .Some(impl_entry) => {
-        concrete_cname := match(context.base.get_type_c_name(type_key(impl_entry.concrete_type.clone())),.Some(cn) => cn,.None => `unknown_${type_key(impl_entry.concrete_type.clone())}`);
+        concrete_cname := match(context.base.get_type_c_name(type_key(impl_entry.concrete_type.clone())), .Some(cn) => cn, .None => `unknown_${type_key(impl_entry.concrete_type.clone())}`);
         typeid_name := `__yo_typeid_${concrete_cname}`;
         if(!(generated.contains(typeid_name.clone())) && !(context.base.type_id_static_names.contains(typeid_name.clone())), {
           _g := generated.add(typeid_name.clone());
@@ -560,19 +560,19 @@ generate_dyn_vtables :: (fn(context : FunctionGenerationContext) -> unit)({
   // Pass 2: emit the vtable instances.
   (vi : usize) = usize(0);
   while(vi < nk, {
-    impl_key := match(keys.get(vi),.Some(k) => k,.None => String.from(""));
+    impl_key := match(keys.get(vi), .Some(k) => k, .None => String.from(""));
     match(
       context.base.dyn_impls.get(impl_key.clone()),
       .Some(impl_entry) => {
-        dyn_cname := match(context.base.get_type_c_name(type_key(impl_entry.dyn_type.clone())),.Some(cn) => cn,.None => `__yo_dyn_${type_key(impl_entry.dyn_type.clone())}`);
-        concrete_cname := match(context.base.get_type_c_name(type_key(impl_entry.concrete_type.clone())),.Some(cn) => cn,.None => `unknown_${type_key(impl_entry.concrete_type.clone())}`);
+        dyn_cname := match(context.base.get_type_c_name(type_key(impl_entry.dyn_type.clone())), .Some(cn) => cn, .None => `__yo_dyn_${type_key(impl_entry.dyn_type.clone())}`);
+        concrete_cname := match(context.base.get_type_c_name(type_key(impl_entry.concrete_type.clone())), .Some(cn) => cn, .None => `unknown_${type_key(impl_entry.concrete_type.clone())}`);
         vtable_name := `__yo_vtable_${impl_key}`;
         vtable_type := `${dyn_cname}_vtable`;
         typeid_name := `__yo_typeid_${concrete_cname}`;
         em.emit_declaration_string_line(`// Vtable for impl(${concrete_cname}, ${dyn_cname})`);
         em.emit_declaration_string_line(`static const ${vtable_type} ${vtable_name} = {`);
         em.emit_declaration_string_line(`  .__yo_type_id = (uintptr_t)&${typeid_name},`);
-        req_traits := match(impl_entry.dyn_type.clone(),.DynT({ required_trait_types }) => required_trait_types, _ => ArrayList(TypeValue).new());
+        req_traits := match(impl_entry.dyn_type.clone(), .DynT({ required_trait_types }) => required_trait_types, _ => ArrayList(TypeValue).new());
         nt := req_traits.len();
         processed := HashSet(String).new();
         (mi : usize) = usize(0);
@@ -589,7 +589,7 @@ generate_dyn_vtables :: (fn(context : FunctionGenerationContext) -> unit)({
                   nfl := field_labels.len();
                   (fi : usize) = usize(0);
                   while(fi < nfl, {
-                    label := match(field_labels.get(fi),.Some(l) => l,.None => String.from(""));
+                    label := match(field_labels.get(fi), .Some(l) => l, .None => String.from(""));
                     // Pre-bind owned-clone subexpressions (short-circuit `||`
                     // mis-scopes their drops — TS-compiler bug).
                     label_reserved := _is_reserved_dyn_label(label.clone());
@@ -600,7 +600,7 @@ generate_dyn_vtables :: (fn(context : FunctionGenerationContext) -> unit)({
                       // Only emit a slot for a method whose first param is `self`.
                       has_self := match(
                         field_types.get(fi),
-                        .Some(ft) => if(is_function_type(ft.clone()), match(ft,.Func({ meta : __fm2 }) => match(__fm2.*.param_labels.get(usize(0)),.Some(pl) => (pl == "self"),.None => false), _ => false), false),
+                        .Some(ft) => if(is_function_type(ft.clone()), match(ft, .Func({ meta : __fm2 }) => match(__fm2.*.param_labels.get(usize(0)), .Some(pl) => (pl == "self"), .None => false), _ => false), false),
                         .None => false
                       );
                       if(has_self, {

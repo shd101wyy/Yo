@@ -22,18 +22,18 @@ _emit_line :: (fn(em : Emitter, indent : String, text : String) -> unit)({
 });
 /// Args of a FnCall (empty for an Atom).
 _args :: (fn(e : AstExpr) -> ArrayList(AstExpr))(
-  match(e,.FnCall(_, _, a, _, _) => a,.Atom(_, _) => ArrayList(AstExpr).new())
+  match(e, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new())
 );
 /// Strip a `comptime(x)` wrapper (evaluator-only) down to `x`.
 _strip_comptime :: (fn(e : AstExpr) -> AstExpr)(
-  if(ast_expr_is_fn_call_of(e, BK_COMPTIME,.Some(usize(1))), match(_args(e).get(usize(0)),.Some(inner) => inner,.None => e), e)
+  if(ast_expr_is_fn_call_of(e, BK_COMPTIME, .Some(usize(1))), match(_args(e).get(usize(0)), .Some(inner) => inner, .None => e), e)
 );
 /// Generate the step expression of a 3-arg while: `lhs = rhs` (single), comma-
 /// joined assignments (begin block), or a plain expression. Mirrors
 /// `generateStepExpression`.
 generate_step_expression :: (fn(step_expr : AstExpr, context : FunctionGenerationContext) -> String)(
   cond(
-    ast_expr_is_fn_call_of(step_expr, BK_BEGIN,.None) => {
+    ast_expr_is_fn_call_of(step_expr, BK_BEGIN, .None) => {
       out := String.from("");
       args := _args(step_expr);
       n := args.len();
@@ -42,10 +42,10 @@ generate_step_expression :: (fn(step_expr : AstExpr, context : FunctionGeneratio
       while(i < n, {
         match(
           args.get(i),
-          .Some(arg) => if(ast_expr_is_fn_call_of(arg, BK_ASSIGN,.Some(usize(2))), {
+          .Some(arg) => if(ast_expr_is_fn_call_of(arg, BK_ASSIGN, .Some(usize(2))), {
             aargs := _args(arg);
-            lhs := match(aargs.get(usize(0)),.Some(l) => l,.None => arg);
-            rhs := match(aargs.get(usize(1)),.Some(r) => r,.None => arg);
+            lhs := match(aargs.get(usize(0)), .Some(l) => l, .None => arg);
+            rhs := match(aargs.get(usize(1)), .Some(r) => r, .None => arg);
             if(any, {
               out.push_str(", ");
             });
@@ -60,10 +60,10 @@ generate_step_expression :: (fn(step_expr : AstExpr, context : FunctionGeneratio
       });
       out
     },
-    ast_expr_is_fn_call_of(step_expr, BK_ASSIGN,.Some(usize(2))) => {
+    ast_expr_is_fn_call_of(step_expr, BK_ASSIGN, .Some(usize(2))) => {
       aargs := _args(step_expr);
-      lhs := match(aargs.get(usize(0)),.Some(l) => l,.None => step_expr);
-      rhs := match(aargs.get(usize(1)),.Some(r) => r,.None => step_expr);
+      lhs := match(aargs.get(usize(0)), .Some(l) => l, .None => step_expr);
+      rhs := match(aargs.get(usize(1)), .Some(r) => r, .None => step_expr);
       out := _call_generate_expr(lhs, String.from(""), context);
       out.push_str(" = ");
       out.push_string(_call_generate_expr(rhs, String.from(""), context));
@@ -118,10 +118,10 @@ _concat_drops :: (fn(current : Option(ArrayList(AstExpr)), prev : Option(ArrayLi
 /// normally. Mirrors `generateLoopBody`.
 generate_loop_body :: (fn(body_expr : AstExpr, indent : String, context : FunctionGenerationContext) -> unit)(
   cond(
-    ast_expr_is_fn_call_of(body_expr, BK_BEGIN,.None) => {
+    ast_expr_is_fn_call_of(body_expr, BK_BEGIN, .None) => {
       ei_opt := context.base.get_expr_info(body_expr);
-      current_drops := match(ei_opt,.Some(ei) => ei.deferred_drop_expressions,.None =>.None);
-      current_consumed := match(ei_opt,.Some(ei) => expr_info_consumed_variable_drop_expressions(ei),.None => Option(ArrayList(AstExpr)).None);
+      current_drops := match(ei_opt, .Some(ei) => ei.deferred_drop_expressions, .None => .None);
+      current_consumed := match(ei_opt, .Some(ei) => expr_info_consumed_variable_drop_expressions(ei), .None => Option(ArrayList(AstExpr)).None);
       prev_pending := context.pending_deferred_drops;
       prev_consumed := context.consumed_var_pending_drops;
       context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(current_drops, prev_pending));
@@ -187,7 +187,7 @@ generate_loop_body :: (fn(body_expr : AstExpr, indent : String, context : Functi
                   get_deferred_drop_target_atom_name(de),
                   .Some(nm) => {
                     cn := sanitize_for_c_identifier(nm, false);
-                    (is_temp_variable_name(match(ei_opt,.Some(e2) => e2.env.module_path.clone(),.None => String.from("")), cn.clone()) || _looks_like_minted_temp(cn.clone())) && !(context.base.declared_c_var_names.contains(cn))
+                    (is_temp_variable_name(match(ei_opt, .Some(e2) => e2.env.module_path.clone(), .None => String.from("")), cn.clone()) || _looks_like_minted_temp(cn.clone())) && !(context.base.declared_c_var_names.contains(cn))
                   },
                   .None => false
                 );
@@ -258,7 +258,7 @@ generate_while_loop :: (fn(expr : AstExpr, indent : String, context : FunctionGe
         n := bodies.len();
         (i : usize) = usize(0);
         while(i < n, {
-          match(bodies.get(i),.Some(b) => generate_loop_body(b, indent.clone(), context),.None => ());
+          match(bodies.get(i), .Some(b) => generate_loop_body(b, indent.clone(), context), .None => ());
           i = (i + usize(1));
         });
         return(String.from(""));
@@ -273,14 +273,14 @@ generate_while_loop :: (fn(expr : AstExpr, indent : String, context : FunctionGe
   body_indent.push_string(inner.clone());
   cond(
     (args.len() == usize(2)) => {
-      cond_expr := _strip_comptime(match(args.get(usize(0)),.Some(c) => c,.None => expr));
-      body_expr := match(args.get(usize(1)),.Some(b) => b,.None => expr);
+      cond_expr := _strip_comptime(match(args.get(usize(0)), .Some(c) => c, .None => expr));
+      body_expr := match(args.get(usize(1)), .Some(b) => b, .None => expr);
       saved_loop := context.base.current_loop_label;
       loop_label := String.from("loop_");
       loop_label.push_string(random_id(String.from("")));
       context.base.current_loop_label = Option(String).Some(loop_label.clone());
       saved_baseline := context.loop_body_drops_baseline_count;
-      context.loop_body_drops_baseline_count = Option(usize).Some(match(context.pending_deferred_drops,.Some(p) => p.len(),.None => usize(0)));
+      context.loop_body_drops_baseline_count = Option(usize).Some(match(context.pending_deferred_drops, .Some(p) => p.len(), .None => usize(0)));
       em := context.base.emitter;
       _emit_line(em, indent.clone(), String.from("while (true) {"));
       cond_code := _call_generate_expr(cond_expr, body_indent.clone(), context);
@@ -304,9 +304,9 @@ generate_while_loop :: (fn(expr : AstExpr, indent : String, context : FunctionGe
       String.from("")
     },
     (args.len() == usize(3)) => {
-      cond_expr := _strip_comptime(match(args.get(usize(0)),.Some(c) => c,.None => expr));
-      step_expr := match(args.get(usize(1)),.Some(s) => s,.None => expr);
-      body_expr := match(args.get(usize(2)),.Some(b) => b,.None => expr);
+      cond_expr := _strip_comptime(match(args.get(usize(0)), .Some(c) => c, .None => expr));
+      step_expr := match(args.get(usize(1)), .Some(s) => s, .None => expr);
+      body_expr := match(args.get(usize(2)), .Some(b) => b, .None => expr);
       saved_loop := context.base.current_loop_label;
       saved_continue := context.base.current_continue_label;
       loop_label := String.from("loop_");
@@ -316,7 +316,7 @@ generate_while_loop :: (fn(expr : AstExpr, indent : String, context : FunctionGe
       context.base.current_loop_label = Option(String).Some(loop_label.clone());
       context.base.current_continue_label = Option(String).Some(continue_label.clone());
       saved_baseline := context.loop_body_drops_baseline_count;
-      context.loop_body_drops_baseline_count = Option(usize).Some(match(context.pending_deferred_drops,.Some(p) => p.len(),.None => usize(0)));
+      context.loop_body_drops_baseline_count = Option(usize).Some(match(context.pending_deferred_drops, .Some(p) => p.len(), .None => usize(0)));
       em := context.base.emitter;
       _emit_line(em, indent.clone(), String.from("while (true) {"));
       cond_code := _call_generate_expr(cond_expr, body_indent.clone(), context);

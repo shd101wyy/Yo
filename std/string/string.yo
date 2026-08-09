@@ -36,7 +36,7 @@ impl(
   * Create a new empty string (zero allocation)
   */
   new : (fn() -> Self)(
-    Self(_bytes :.None)
+    Self(_bytes : .None)
   ),
   /**
   * Create a new empty string with pre-allocated capacity for the given number of bytes.
@@ -44,8 +44,8 @@ impl(
   */
   with_capacity : (fn(capacity : usize) -> Self)(
     cond(
-      (capacity == usize(0)) => Self(_bytes :.None),
-      true => Self(_bytes :.Some(ArrayList(u8).with_capacity(capacity)))
+      (capacity == usize(0)) => Self(_bytes : .None),
+      true => Self(_bytes : .Some(ArrayList(u8).with_capacity(capacity)))
     )
   ),
   /**
@@ -54,8 +54,8 @@ impl(
   */
   from_bytes : (fn(bytes : ArrayList(u8)) -> Self)(
     cond(
-      (bytes.len() == usize(0)) => Self(_bytes :.None),
-      true => Self(_bytes :.Some(bytes))
+      (bytes.len() == usize(0)) => Self(_bytes : .None),
+      true => Self(_bytes : .Some(bytes))
     )
   ),
   /**
@@ -66,11 +66,11 @@ impl(
   from : (fn(slice : str) -> Self)({
     slen := slice.len();
     if(slen == usize(0), {
-      return(Self(_bytes :.None));
+      return(Self(_bytes : .None));
     });
     bytes := ArrayList(u8).with_capacity(slen);
     bytes.extend_from_ptr(slice.ptr(), slen);
-    return(Self(_bytes :.Some(bytes)));
+    return(Self(_bytes : .Some(bytes)));
   }),
   /**
   * Create a string from a C null-terminated string *(u8)
@@ -87,11 +87,11 @@ impl(
     // this is the same trust boundary as `<string.h>`'s `strlen`.
     len := unsafe(strlen((*(char))(cstr)));
     if(len == usize(0), {
-      return(.Ok(Self(_bytes :.None)));
+      return(.Ok(Self(_bytes : .None)));
     });
     bytes := ArrayList(u8).with_capacity(len);
     bytes.extend_from_ptr(cstr, len);
-    return(.Ok(Self(_bytes :.Some(bytes))));
+    return(.Ok(Self(_bytes : .Some(bytes))));
   }),
   /// Convert the string to a null-terminated C string.
   /// Returns an `ArrayList(u8)` with the string bytes followed by a `\0`.
@@ -246,7 +246,7 @@ impl(
                     codepoint := (((u32(first_byte) & u32(0x1F)) << u32(6)) | (u32(second) & u32(0x3F)));
                     rune.from_u32(codepoint)
                   },
-                  .None =>.None
+                  .None => .None
                 )
               },
               ((first_byte >= u8(0xE0)) && (first_byte < u8(0xF0))) => {
@@ -261,9 +261,9 @@ impl(
                         codepoint := ((((u32(first_byte) & u32(0x0F)) << u32(12)) | ((u32(second) & u32(0x3F)) << u32(6))) | (u32(third) & u32(0x3F)));
                         rune.from_u32(codepoint)
                       },
-                      .None =>.None
+                      .None => .None
                     ),
-                  .None =>.None
+                  .None => .None
                 )
               },
               ((first_byte >= u8(0xF0)) && (first_byte < u8(0xF8))) => {
@@ -282,18 +282,18 @@ impl(
                             codepoint := (((((u32(first_byte) & u32(0x07)) << u32(18)) | ((u32(second) & u32(0x3F)) << u32(12))) | ((u32(third) & u32(0x3F)) << u32(6))) | (u32(fourth) & u32(0x3F)));
                             rune.from_u32(codepoint)
                           },
-                          .None =>.None
+                          .None => .None
                         ),
-                      .None =>.None
+                      .None => .None
                     ),
-                  .None =>.None
+                  .None => .None
                 )
               },
-              true =>.None
+              true => .None
             );
             return(res);
           },
-          .None =>.None
+          .None => .None
         )
       }
     )
@@ -344,10 +344,10 @@ impl(
   * Concatenate two strings (like JavaScript +)
   */
   concat : (fn(self : Self, other : Self) -> Self)({
-    (self_len : usize) = match(self._bytes,.Some(b) => b.len(),.None => usize(0));
-    (other_len : usize) = match(other._bytes,.Some(b) => b.len(),.None => usize(0));
+    (self_len : usize) = match(self._bytes, .Some(b) => b.len(), .None => usize(0));
+    (other_len : usize) = match(other._bytes, .Some(b) => b.len(), .None => usize(0));
     if((self_len == usize(0)) && (other_len == usize(0)), {
-      return(Self(_bytes :.None));
+      return(Self(_bytes : .None));
     });
     new_bytes := ArrayList(u8).with_capacity(self_len + other_len);
     match(
@@ -368,11 +368,11 @@ impl(
       ),
       .None => ()
     );
-    return(Self(_bytes :.Some(new_bytes)));
+    return(Self(_bytes : .Some(new_bytes)));
   }),
   /// Append another `String` to this string in-place (mutates `self`).
   push_string : (fn(inout(self) : Self, other : Self) -> unit)({
-    (olen : usize) = match(other._bytes,.Some(b) => b.len(),.None => usize(0));
+    (olen : usize) = match(other._bytes, .Some(b) => b.len(), .None => usize(0));
     if(olen > usize(0), {
       match(
         other._bytes,
@@ -384,7 +384,7 @@ impl(
               .None => {
                 (new_al : ArrayList(u8)) = ArrayList(u8).with_capacity(olen);
                 new_al.extend_from_ptr(p, olen);
-                self._bytes =.Some(new_al);
+                self._bytes = .Some(new_al);
               },
               .Some(al) => {
                 al.extend_from_ptr(p, olen);
@@ -406,7 +406,7 @@ impl(
         .None => {
           (new_al : ArrayList(u8)) = ArrayList(u8).with_capacity(slen);
           new_al.extend_from_ptr(s.ptr(), slen);
-          self._bytes =.Some(new_al);
+          self._bytes = .Some(new_al);
         },
         .Some(al) => {
           al.extend_from_ptr(s.ptr(), slen);
@@ -422,7 +422,7 @@ impl(
       .None => {
         (new_al : ArrayList(u8)) = ArrayList(u8).with_capacity(usize(8));
         new_al.push(b);
-        self._bytes =.Some(new_al);
+        self._bytes = .Some(new_al);
       },
       .Some(al) => {
         al.push(b);
@@ -435,7 +435,7 @@ impl(
     match(
       self._bytes,
       .None => {
-        self._bytes =.Some(ArrayList(u8).with_capacity(additional));
+        self._bytes = .Some(ArrayList(u8).with_capacity(additional));
       },
       .Some(al) => {
         (current_len : usize) = al.len();
@@ -457,7 +457,7 @@ impl(
   /// Get the number of bytes in the string (not Unicode characters).
   /// Use `len()` for Unicode character count.
   bytes_len : (fn(self : Self) -> usize)(
-    match(self._bytes,.Some(b) => b.len(),.None => usize(0))
+    match(self._bytes, .Some(b) => b.len(), .None => usize(0))
   ),
   /// Get the byte at the given index. Panics if the index is out of
   /// bounds (mirrors `str`'s byte indexing). Use `bytes_len()` for the
@@ -493,12 +493,12 @@ impl(
     match(
       self._bytes,
       .None => {
-        return(Self(_bytes :.None));
+        return(Self(_bytes : .None));
       },
       .Some(al) => {
         total_bytes := al.len();
         if(start >= end, {
-          return(Self(_bytes :.None));
+          return(Self(_bytes : .None));
         });
         (char_index : usize) = usize(0);
         (byte_index : usize) = usize(0);
@@ -529,7 +529,7 @@ impl(
           end_byte = byte_index;
         });
         if(start_byte >= end_byte, {
-          return(Self(_bytes :.None));
+          return(Self(_bytes : .None));
         });
         (count : usize) = (end_byte - start_byte);
         new_bytes := ArrayList(u8).with_capacity(count);
@@ -538,7 +538,7 @@ impl(
           .Some(src_p) => new_bytes.extend_from_ptr(src_p.add(start_byte), count),
           .None => ()
         );
-        Self(_bytes :.Some(new_bytes))
+        Self(_bytes : .Some(new_bytes))
       }
     )
   ),
@@ -549,18 +549,18 @@ impl(
   */
   _index_of_impl : (fn(self : Self, substr : Self, (from_index : usize) ?= 0) -> Option(usize))(
     cond(
-      substr.is_empty() =>.Some(from_index),
+      substr.is_empty() => .Some(from_index),
       true => {
-        (self_bytes : usize) = match(self._bytes,.Some(b) => b.len(),.None => usize(0));
-        (sub_bytes : usize) = match(substr._bytes,.Some(b) => b.len(),.None => usize(0));
+        (self_bytes : usize) = match(self._bytes, .Some(b) => b.len(), .None => usize(0));
+        (sub_bytes : usize) = match(substr._bytes, .Some(b) => b.len(), .None => usize(0));
         cond(
-          (sub_bytes > self_bytes) =>.None,
+          (sub_bytes > self_bytes) => .None,
           true => match(
             self._bytes,
-            .None =>.None,
+            .None => .None,
             .Some(self_al) => match(
               substr._bytes,
-              .None =>.None,
+              .None => .None,
               .Some(sub_al) => {
                 char_index := usize(0);
                 byte_index := usize(0);
@@ -728,8 +728,8 @@ impl(
               cond(
                 matches => {
                   cond(
-                    (current_bytes.len() == usize(0)) => result.push(Self(_bytes :.None)),
-                    true => result.push(Self(_bytes :.Some(current_bytes)))
+                    (current_bytes.len() == usize(0)) => result.push(Self(_bytes : .None)),
+                    true => result.push(Self(_bytes : .Some(current_bytes)))
                   );
                   current_bytes = ArrayList(u8).new();
                   byte_index = ((byte_index + sep_bytes) - usize(1));
@@ -747,8 +747,8 @@ impl(
               );
             });
             cond(
-              (current_bytes.len() == usize(0)) => result.push(Self(_bytes :.None)),
-              true => result.push(Self(_bytes :.Some(current_bytes)))
+              (current_bytes.len() == usize(0)) => result.push(Self(_bytes : .None)),
+              true => result.push(Self(_bytes : .Some(current_bytes)))
             );
             return(result);
           }
@@ -763,18 +763,18 @@ impl(
   */
   _last_index_of_impl : (fn(self : Self, substr : Self, (from_index : usize) ?= usize.MAX) -> Option(usize))(
     cond(
-      substr.is_empty() =>.Some(self.len()),
+      substr.is_empty() => .Some(self.len()),
       true => match(
         self._bytes,
-        .None =>.None,
+        .None => .None,
         .Some(self_al) => match(
           substr._bytes,
-          .None =>.None,
+          .None => .None,
           .Some(sub_al) => {
             self_bytes := self_al.len();
             sub_bytes := sub_al.len();
             cond(
-              (sub_bytes > self_bytes) =>.None,
+              (sub_bytes > self_bytes) => .None,
               true => {
                 char_positions := ArrayList(usize).new();
                 byte_positions := ArrayList(usize).new();
@@ -802,7 +802,7 @@ impl(
                   (from_index >= char_idx) => char_idx,
                   true => (from_index + usize(1))
                 );
-                (last_match : Option(usize)) =.None;
+                (last_match : Option(usize)) = .None;
                 i := usize(0);
                 while(i < char_positions.len(), i = (i + usize(1)), {
                   char_pos_opt := char_positions.get(i);
@@ -848,7 +848,7 @@ impl(
                               });
                               cond(
                                 matches => {
-                                  last_match =.Some(char_pos);
+                                  last_match = .Some(char_pos);
                                 },
                                 true => ()
                               );
@@ -876,8 +876,8 @@ impl(
   * directly — go through `starts_with`.
   */
   _has_prefix : (fn(self : Self, prefix : Self, (position : usize) ?= 0) -> bool)({
-    (prefix_bytes : usize) = match(prefix._bytes,.Some(b) => b.len(),.None => usize(0));
-    (self_bytes : usize) = match(self._bytes,.Some(b) => b.len(),.None => usize(0));
+    (prefix_bytes : usize) = match(prefix._bytes, .Some(b) => b.len(), .None => usize(0));
+    (self_bytes : usize) = match(self._bytes, .Some(b) => b.len(), .None => usize(0));
     cond(
       (prefix_bytes == usize(0)) => true,
       true => match(
@@ -959,8 +959,8 @@ impl(
   * end_position: The character length to consider (default is string length)
   */
   _ends_with_impl : (fn(self : Self, suffix : Self, (end_position : usize) ?= usize.MAX) -> bool)({
-    (suffix_bytes : usize) = match(suffix._bytes,.Some(b) => b.len(),.None => usize(0));
-    (self_bytes : usize) = match(self._bytes,.Some(b) => b.len(),.None => usize(0));
+    (suffix_bytes : usize) = match(suffix._bytes, .Some(b) => b.len(), .None => usize(0));
+    (self_bytes : usize) = match(self._bytes, .Some(b) => b.len(), .None => usize(0));
     cond(
       (suffix_bytes == usize(0)) => true,
       true => match(
@@ -1071,7 +1071,7 @@ impl(
               return(self);
             });
             byte_index := usize(0);
-            (found_at : Option(usize)) =.None;
+            (found_at : Option(usize)) = .None;
             while(byte_index <= (self_bytes - search_bytes), byte_index = (byte_index + usize(1)), {
               matches := true;
               j := usize(0);
@@ -1105,7 +1105,7 @@ impl(
               });
               cond(
                 matches => {
-                  found_at =.Some(byte_index);
+                  found_at = .Some(byte_index);
                   break;
                 },
                 true => ()
@@ -1114,7 +1114,7 @@ impl(
             match(
               found_at,
               .Some(pos) => {
-                (nv_bytes : usize) = match(new_value._bytes,.Some(b) => b.len(),.None => usize(0));
+                (nv_bytes : usize) = match(new_value._bytes, .Some(b) => b.len(), .None => usize(0));
                 new_bytes := ArrayList(u8).with_capacity((self_bytes - search_bytes) + nv_bytes);
                 match(
                   self_al.ptr(),
@@ -1142,7 +1142,7 @@ impl(
                     .None => ()
                   );
                 });
-                return(Self(_bytes :.Some(new_bytes)));
+                return(Self(_bytes : .Some(new_bytes)));
               },
               .None => self
             )
@@ -1232,8 +1232,8 @@ impl(
               );
             });
             cond(
-              (new_bytes.len() == usize(0)) => Self(_bytes :.None),
-              true => Self(_bytes :.Some(new_bytes))
+              (new_bytes.len() == usize(0)) => Self(_bytes : .None),
+              true => Self(_bytes : .Some(new_bytes))
             )
           }
         )
@@ -1247,7 +1247,7 @@ impl(
   to_uppercase : (fn(self : Self) -> Self)(
     match(
       self._bytes,
-      .None => Self(_bytes :.None),
+      .None => Self(_bytes : .None),
       .Some(al) => {
         (total : usize) = al.len();
         new_bytes := ArrayList(u8).with_capacity(total);
@@ -1266,7 +1266,7 @@ impl(
             .None => ()
           );
         });
-        Self(_bytes :.Some(new_bytes))
+        Self(_bytes : .Some(new_bytes))
       }
     )
   ),
@@ -1277,7 +1277,7 @@ impl(
   to_lowercase : (fn(self : Self) -> Self)(
     match(
       self._bytes,
-      .None => Self(_bytes :.None),
+      .None => Self(_bytes : .None),
       .Some(al) => {
         (total : usize) = al.len();
         new_bytes := ArrayList(u8).with_capacity(total);
@@ -1296,7 +1296,7 @@ impl(
             .None => ()
           );
         });
-        Self(_bytes :.Some(new_bytes))
+        Self(_bytes : .Some(new_bytes))
       }
     )
   ),
@@ -1313,11 +1313,11 @@ impl(
   trim : (fn(self : Self) -> Self)(
     match(
       self._bytes,
-      .None => Self(_bytes :.None),
+      .None => Self(_bytes : .None),
       .Some(al) => {
         total_bytes := al.len();
         if(total_bytes == usize(0), {
-          return(Self(_bytes :.None));
+          return(Self(_bytes : .None));
         });
         (start_idx : usize) = usize(0);
         while(start_idx < total_bytes, {
@@ -1336,7 +1336,7 @@ impl(
           end_idx = (end_idx - usize(1));
         });
         if(start_idx >= end_idx, {
-          return(Self(_bytes :.None));
+          return(Self(_bytes : .None));
         });
         (count : usize) = (end_idx - start_idx);
         new_bytes := ArrayList(u8).with_capacity(count);
@@ -1345,7 +1345,7 @@ impl(
           .Some(p) => new_bytes.extend_from_ptr(p.add(start_idx), count),
           .None => ()
         );
-        Self(_bytes :.Some(new_bytes))
+        Self(_bytes : .Some(new_bytes))
       }
     )
   ),
@@ -1355,11 +1355,11 @@ impl(
   trim_start : (fn(self : Self) -> Self)(
     match(
       self._bytes,
-      .None => Self(_bytes :.None),
+      .None => Self(_bytes : .None),
       .Some(al) => {
         total_bytes := al.len();
         cond(
-          (total_bytes == usize(0)) => Self(_bytes :.None),
+          (total_bytes == usize(0)) => Self(_bytes : .None),
           true => {
             start_idx := usize(0);
             while(start_idx < total_bytes, start_idx = (start_idx + usize(1)), {
@@ -1377,7 +1377,7 @@ impl(
               );
             });
             cond(
-              (start_idx >= total_bytes) => Self(_bytes :.None),
+              (start_idx >= total_bytes) => Self(_bytes : .None),
               true => {
                 (count : usize) = (total_bytes - start_idx);
                 new_bytes := ArrayList(u8).with_capacity(count);
@@ -1386,7 +1386,7 @@ impl(
                   .Some(p) => new_bytes.extend_from_ptr(p.add(start_idx), count),
                   .None => ()
                 );
-                Self(_bytes :.Some(new_bytes))
+                Self(_bytes : .Some(new_bytes))
               }
             )
           }
@@ -1400,11 +1400,11 @@ impl(
   trim_end : (fn(self : Self) -> Self)(
     match(
       self._bytes,
-      .None => Self(_bytes :.None),
+      .None => Self(_bytes : .None),
       .Some(al) => {
         total_bytes := al.len();
         cond(
-          (total_bytes == usize(0)) => Self(_bytes :.None),
+          (total_bytes == usize(0)) => Self(_bytes : .None),
           true => {
             end_idx := total_bytes;
             while(end_idx > usize(0), end_idx = (end_idx - usize(1)), {
@@ -1422,7 +1422,7 @@ impl(
               );
             });
             cond(
-              (end_idx == usize(0)) => Self(_bytes :.None),
+              (end_idx == usize(0)) => Self(_bytes : .None),
               true => {
                 new_bytes := ArrayList(u8).with_capacity(end_idx);
                 match(
@@ -1430,7 +1430,7 @@ impl(
                   .Some(p) => new_bytes.extend_from_ptr(p, end_idx),
                   .None => ()
                 );
-                Self(_bytes :.Some(new_bytes))
+                Self(_bytes : .Some(new_bytes))
               }
             )
           }
@@ -1460,8 +1460,8 @@ impl(
       // calls before the memcmp (issues/
       // yo-self-compile-performance-rc-string-eq.md, lever 1). Same
       // semantics — `len()` returns `_length`, `ptr()` returns `_ptr`.
-      (self_len : usize) = match(self._bytes,.Some(b) => b._length,.None => usize(0));
-      (other_len : usize) = match(other._bytes,.Some(b) => b._length,.None => usize(0));
+      (self_len : usize) = match(self._bytes, .Some(b) => b._length, .None => usize(0));
+      (other_len : usize) = match(other._bytes, .Some(b) => b._length, .None => usize(0));
       cond(
         (self_len != other_len) => false,
         (self_len == usize(0)) => true,
@@ -1512,7 +1512,7 @@ impl(
   String,
   Eq(str)(
     (==) : (fn(self : Self, other : str) -> bool)({
-      (self_len : usize) = match(self._bytes,.Some(b) => b.len(),.None => usize(0));
+      (self_len : usize) = match(self._bytes, .Some(b) => b.len(), .None => usize(0));
       other_len := other.len();
       cond(
         (self_len != other_len) => false,
@@ -1548,7 +1548,7 @@ impl(
   Eq(String)(
     (==) : (fn(self : Self, other : String) -> bool)({
       self_len := self.len();
-      (other_len : usize) = match(other._bytes,.Some(b) => b.len(),.None => usize(0));
+      (other_len : usize) = match(other._bytes, .Some(b) => b.len(), .None => usize(0));
       cond(
         (self_len != other_len) => false,
         (self_len == usize(0)) => true,
@@ -1744,9 +1744,9 @@ impl(
     next : (fn(inout(self) : Self) -> Option(rune))(
       match(
         self._string._bytes,
-        .None =>.None,
+        .None => .None,
         .Some(al) => cond(
-          (self._byte_index >= al.len()) =>.None,
+          (self._byte_index >= al.len()) => .None,
           true => {
             first_byte_opt := al.get(self._byte_index);
             match(
@@ -1763,7 +1763,7 @@ impl(
                 self._byte_index = (self._byte_index + byte_len);
                 r
               },
-              .None =>.None
+              .None => .None
             )
           }
         )
@@ -1786,9 +1786,9 @@ impl(
     next : (fn(inout(self) : Self) -> Option(u8))(
       match(
         self._string._bytes,
-        .None =>.None,
+        .None => .None,
         .Some(al) => cond(
-          (self._index >= al.len()) =>.None,
+          (self._index >= al.len()) => .None,
           true => {
             byte_opt := al.get(self._index);
             self._index = (self._index + usize(1));
@@ -1837,11 +1837,11 @@ impl(
     next : (fn(inout(self) : Self) -> Option(String))(
       match(
         self._string._bytes,
-        .None =>.None,
+        .None => .None,
         .Some(al) => {
           total := al.len();
           cond(
-            (self._byte_index >= total) =>.None,
+            (self._byte_index >= total) => .None,
             true => {
               start := self._byte_index;
               i := start;
@@ -1877,8 +1877,8 @@ impl(
                 true => total
               );
               cond(
-                (line_buf.len() == usize(0)) =>.Some(String(_bytes :.None)),
-                true =>.Some(String(_bytes :.Some(line_buf)))
+                (line_buf.len() == usize(0)) => .Some(String(_bytes : .None)),
+                true => .Some(String(_bytes : .Some(line_buf)))
               )
             }
           )
@@ -1917,8 +1917,8 @@ impl(
   */
   repeat : (fn(self : Self, n : usize) -> Self)(
     cond(
-      (n == usize(0)) => Self(_bytes :.None),
-      self.is_empty() => Self(_bytes :.None),
+      (n == usize(0)) => Self(_bytes : .None),
+      self.is_empty() => Self(_bytes : .None),
       true => {
         self_byte_len := self.bytes_len();
         total := (self_byte_len * n);
@@ -1943,7 +1943,7 @@ impl(
             .None => ()
           );
         });
-        Self(_bytes :.Some(buf))
+        Self(_bytes : .Some(buf))
       }
     )
   ),
@@ -1964,7 +1964,7 @@ impl(
   join : (fn(self : Self, items : ArrayList(Self)) -> Self)({
     count := items.len();
     cond(
-      (count == usize(0)) => Self(_bytes :.None),
+      (count == usize(0)) => Self(_bytes : .None),
       true => {
         sep_byte_len := self.bytes_len();
         total_bytes := usize(0);
@@ -2036,8 +2036,8 @@ impl(
           );
         });
         cond(
-          (buf.len() == usize(0)) => Self(_bytes :.None),
-          true => Self(_bytes :.Some(buf))
+          (buf.len() == usize(0)) => Self(_bytes : .None),
+          true => Self(_bytes : .Some(buf))
         )
       }
     )
@@ -2059,11 +2059,11 @@ impl(
   parse_i32 : (fn(self : Self) -> Option(i32))(
     match(
       self._bytes,
-      .None =>.None,
+      .None => .None,
       .Some(al) => {
         total_bytes := al.len();
         cond(
-          (total_bytes == usize(0)) =>.None,
+          (total_bytes == usize(0)) => .None,
           true => {
             idx := usize(0);
             is_negative := false;
@@ -2087,7 +2087,7 @@ impl(
               }
             );
             cond(
-              (idx >= total_bytes) =>.None,
+              (idx >= total_bytes) => .None,
               true => {
                 result := i64(0);
                 has_digit := false;
@@ -2113,15 +2113,15 @@ impl(
                   );
                 });
                 cond(
-                  (!(has_digit)) =>.None,
+                  (!(has_digit)) => .None,
                   true => {
                     final_val := cond(
                       is_negative => (i64(0) - result),
                       true => result
                     );
                     cond(
-                      ((final_val < i64(-(2147483648))) || (final_val > i64(2147483647))) =>.None,
-                      true =>.Some(i32(final_val))
+                      ((final_val < i64(-(2147483648))) || (final_val > i64(2147483647))) => .None,
+                      true => .Some(i32(final_val))
                     )
                   }
                 )
@@ -2140,11 +2140,11 @@ impl(
   parse_i64 : (fn(self : Self) -> Option(i64))(
     match(
       self._bytes,
-      .None =>.None,
+      .None => .None,
       .Some(al) => {
         total_bytes := al.len();
         cond(
-          (total_bytes == usize(0)) =>.None,
+          (total_bytes == usize(0)) => .None,
           true => {
             idx := usize(0);
             is_negative := false;
@@ -2168,7 +2168,7 @@ impl(
               }
             );
             cond(
-              (idx >= total_bytes) =>.None,
+              (idx >= total_bytes) => .None,
               true => {
                 result := i64(0);
                 has_digit := false;
@@ -2194,7 +2194,7 @@ impl(
                   );
                 });
                 cond(
-                  (!(has_digit)) =>.None,
+                  (!(has_digit)) => .None,
                   true => {
                     final_val := cond(
                       is_negative => (i64(0) - result),
@@ -2217,11 +2217,11 @@ impl(
   parse_u32 : (fn(self : Self) -> Option(u32))(
     match(
       self._bytes,
-      .None =>.None,
+      .None => .None,
       .Some(al) => {
         total_bytes := al.len();
         cond(
-          (total_bytes == usize(0)) =>.None,
+          (total_bytes == usize(0)) => .None,
           true => {
             idx := usize(0);
             first_byte_opt := al.get(usize(0));
@@ -2243,7 +2243,7 @@ impl(
               }
             );
             cond(
-              (idx >= total_bytes) =>.None,
+              (idx >= total_bytes) => .None,
               true => {
                 result := u64(0);
                 has_digit := false;
@@ -2269,10 +2269,10 @@ impl(
                   );
                 });
                 cond(
-                  (!(has_digit)) =>.None,
+                  (!(has_digit)) => .None,
                   true => cond(
-                    (result > u64(4294967295)) =>.None,
-                    true =>.Some(u32(result))
+                    (result > u64(4294967295)) => .None,
+                    true => .Some(u32(result))
                   )
                 )
               }
@@ -2290,11 +2290,11 @@ impl(
   parse_u64 : (fn(self : Self) -> Option(u64))(
     match(
       self._bytes,
-      .None =>.None,
+      .None => .None,
       .Some(al) => {
         total_bytes := al.len();
         cond(
-          (total_bytes == usize(0)) =>.None,
+          (total_bytes == usize(0)) => .None,
           true => {
             idx := usize(0);
             first_byte_opt := al.get(usize(0));
@@ -2316,7 +2316,7 @@ impl(
               }
             );
             cond(
-              (idx >= total_bytes) =>.None,
+              (idx >= total_bytes) => .None,
               true => {
                 result := u64(0);
                 has_digit := false;
@@ -2342,8 +2342,8 @@ impl(
                   );
                 });
                 cond(
-                  (!(has_digit)) =>.None,
-                  true =>.Some(result)
+                  (!(has_digit)) => .None,
+                  true => .Some(result)
                 )
               }
             )
@@ -2359,7 +2359,7 @@ impl(
   parse_bool : (fn(self : Self) -> Option(bool))(
     match(
       self._bytes,
-      .None =>.None,
+      .None => .None,
       .Some(al) => {
         total_bytes := al.len();
         cond(
@@ -2371,7 +2371,7 @@ impl(
             cond(
               ((b0 == u8(116)) && ((b1 == u8(114)) && ((b2 == u8(117)) && (b3 == u8(101))))) =>
                 .Some(true),
-              true =>.None
+              true => .None
             )
           },
           (total_bytes == usize(5)) => {
@@ -2383,10 +2383,10 @@ impl(
             cond(
               ((b0 == u8(102)) && ((b1 == u8(97)) && ((b2 == u8(108)) && ((b3 == u8(115)) && (b4 == u8(101)))))) =>
                 .Some(false),
-              true =>.None
+              true => .None
             )
           },
-          true =>.None
+          true => .None
         )
       }
     )
@@ -2414,11 +2414,11 @@ impl(
     clone : (fn(inout(self) : Self) -> Self)(
       match(
         self._bytes,
-        .None => Self(_bytes :.None),
+        .None => Self(_bytes : .None),
         .Some(al) => {
           n := al.len();
           cond(
-            (n == usize(0)) => Self(_bytes :.None),
+            (n == usize(0)) => Self(_bytes : .None),
             true => {
               buf := ArrayList(u8).with_capacity(n);
               match(
@@ -2426,7 +2426,7 @@ impl(
                 .Some(ptr) => buf.extend_from_ptr(ptr, n),
                 .None => ()
               );
-              Self(_bytes :.Some(buf))
+              Self(_bytes : .Some(buf))
             }
           )
         }

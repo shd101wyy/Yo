@@ -202,7 +202,7 @@ _module_type_contains_ctl_field :: (
         (fi : usize) = usize(0);
         (found : bool) = false;
         while((fi < n) && (!(found)), {
-          field_ty := match(field_types.get(fi),.Some(t) => t,.None => TypeValue.Unit);
+          field_ty := match(field_types.get(fi), .Some(t) => t, .None => TypeValue.Unit);
           (field_val_opt : Option(EvalValue)) = match(
             module_val,
             .None => Option(EvalValue).None,
@@ -217,7 +217,7 @@ _module_type_contains_ctl_field :: (
             )
           );
           // Check if field is a Func type and value is a control function
-          is_func_field := match(field_ty,.Func({ result : _ }) => true, _ => false);
+          is_func_field := match(field_ty, .Func({ result : _ }) => true, _ => false);
           if(is_func_field, {
             match(
               field_val_opt,
@@ -234,7 +234,7 @@ _module_type_contains_ctl_field :: (
             );
           });
           // Recurse into nested module fields
-          is_module_field := match(field_ty,.Struct({ is_source_namespace : f_sns }) => f_sns, _ => false);
+          is_module_field := match(field_ty, .Struct({ is_source_namespace : f_sns }) => f_sns, _ => false);
           if(is_module_field && (!(found)), {
             (inner_module_val_opt : Option(EvalValue)) = match(
               field_val_opt,
@@ -499,7 +499,7 @@ _type_has_array_len_var_d :: (fn(t : TypeValue, d : usize) -> bool)(
         (alv_found2 : bool) = false;
         (alv_vi : usize) = usize(0);
         while((alv_vi < alv_vfs.len()) && !(alv_found2), {
-          alv_vf := match(alv_vfs.get(alv_vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
+          alv_vf := match(alv_vfs.get(alv_vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
           (alv_vj : usize) = usize(0);
           while((alv_vj < alv_vf.len()) && !(alv_found2), {
             match(
@@ -651,9 +651,9 @@ check_if_function_parameter_matches_argument :: (
   // readability-only and must match the declared parameter label; a bare
   // strip silently accepted wrong/reordered labels TS rejects).
   (actual_arg : AstExpr) = arg_expr_raw;
-  if(ast_expr_is_fn_call_of(arg_expr_raw, ":",.Some(usize(2))), {
+  if(ast_expr_is_fn_call_of(arg_expr_raw, ":", .Some(usize(2))), {
     colon_args := _h_get_fn_call_args(arg_expr_raw);
-    cl_label_expr := match(colon_args.get(usize(0)),.Some(a) => a,.None => arg_expr_raw);
+    cl_label_expr := match(colon_args.get(usize(0)), .Some(a) => a, .None => arg_expr_raw);
     if(!(ast_expr_is_atom(cl_label_expr)), {
       exn.throw(
         dyn(
@@ -728,7 +728,7 @@ check_if_function_parameter_matches_argument :: (
   if(skip_expected_type, {
     ctx.expected_type = Option(ExpectedTypeCtx).None;
   }, {
-    ctx.expected_type =.Some(ExpectedTypeCtx(ty : resolved_pt, env : callee_env_r));
+    ctx.expected_type = .Some(ExpectedTypeCtx(ty : resolved_pt, env : callee_env_r));
   });
   evaled_arg := evaluate_expression_raw(actual_arg, caller_env, ctx, exn);
   ctx.expected_type = saved_exp;
@@ -837,7 +837,7 @@ check_if_function_parameter_matches_argument :: (
       .Some(arg_var_name) => {
         arg_vars := get_variables_from_env(caller_env_r, arg_var_name);
         if(arg_vars.len() > usize(0), {
-          arg_var := match(arg_vars.get(arg_vars.len() - usize(1)),.Some(v) => v,.None => make_err_variable(caller_env_r));
+          arg_var := match(arg_vars.get(arg_vars.len() - usize(1)), .Some(v) => v, .None => make_err_variable(caller_env_r));
           if(arg_var.is_owning_the_rc_value, {
             set_expr_as_consumed(evaled_arg, caller_env_r, true, ctx, exn);
           }, {
@@ -1154,7 +1154,7 @@ sanitize_for_sig :: (fn(s : String) -> String)({
   result := String.new();
   (i : usize) = usize(0);
   while(i < n, {
-    b := match(bytes.get(i),.Some(x) => x,.None => u8(0));
+    b := match(bytes.get(i), .Some(x) => x, .None => u8(0));
     is_alnum := (
       ((b >= u8(97)) && (b <= u8(122))) || // a-z
       ((b >= u8(65)) && (b <= u8(90))) || // A-Z
@@ -1256,7 +1256,7 @@ compute_compile_time_signature :: (
           .Some(v) => sanitize_for_sig(value_to_signature_string(v)),
           .None => {
             // Look up the generic label in callee_env
-            label := match(fl.get(fpi),.Some(s) => s,.None => String.new());
+            label := match(fl.get(fpi), .Some(s) => s, .None => String.new());
             vars := get_variables_from_env(callee_env, label);
             n_v := vars.len();
             cond(
@@ -1323,7 +1323,7 @@ compute_compile_time_signature :: (
   n_ar := arg_values.args.len();
   (pci : usize) = usize(0);
   while(pci < n_pc, {
-    is_ct := match(param_comptime.get(pci),.Some(b) => b,.None => false);
+    is_ct := match(param_comptime.get(pci), .Some(b) => b, .None => false);
     if(is_ct && (pci < n_ar), {
       ct_sig := match(
         arg_values.args.get(pci),
@@ -1352,7 +1352,7 @@ compute_compile_time_signature :: (
   n_rt := runtime_param_tys.len();
   (rti : usize) = usize(0);
   while(rti < n_rt, {
-    ptype := match(runtime_param_tys.get(rti),.Some(t) => t,.None => t_unit());
+    ptype := match(runtime_param_tys.get(rti), .Some(t) => t, .None => t_unit());
     if(!(is_unit_type(ptype)), {
       seg := `rtparam${rti.to_string()}_${sanitize_for_sig(type_key(ptype))}`;
       parts.push(seg);
@@ -1426,8 +1426,8 @@ _find_specialization_cache :: (
                 if(ct_match, {
                   (cti : usize) = usize(0);
                   while((cti < n_ct) && ct_match, {
-                    cached_v := match(cache.compile_time_arg_values.get(cti),.Some(v) => v,.None => EvalValue.UnitVal);
-                    current_v := match(compile_time_arg_values.get(cti),.Some(v) => v,.None => EvalValue.UnitVal);
+                    cached_v := match(cache.compile_time_arg_values.get(cti), .Some(v) => v, .None => EvalValue.UnitVal);
+                    current_v := match(compile_time_arg_values.get(cti), .Some(v) => v, .None => EvalValue.UnitVal);
                     if(!(eval_value_eq(cached_v, current_v)), {
                       ct_match = false;
                     });
@@ -1443,8 +1443,8 @@ _find_specialization_cache :: (
                     caller_env;
                     (rti : usize) = usize(0);
                     while((rti < n_rt) && rt_match, {
-                      cached_ty := match(cache.runtime_parameter_types.get(rti),.Some(t) => t,.None => t_unit());
-                      current_ty := match(runtime_parameter_types.get(rti),.Some(t) => t,.None => t_unit());
+                      cached_ty := match(cache.runtime_parameter_types.get(rti), .Some(t) => t, .None => t_unit());
+                      current_ty := match(runtime_parameter_types.get(rti), .Some(t) => t, .None => t_unit());
                       // ABSTRACT-vs-CONCRETE never matches: the compat check
                       // accepts an existential SomeT against a concrete type
                       // (trait subsumption), which returned the def-era
@@ -1559,7 +1559,7 @@ _impl_type_captures_sig :: (fn(fv : EvalValue) -> String)({
           .Some(cv) => match(
             cv,
             .TypeVal(tv) => {
-              out.push_string(match(cns.get(i),.Some(nm) => nm,.None => String.from("_")));
+              out.push_string(match(cns.get(i), .Some(nm) => nm, .None => String.from("_")));
               out.push_str("=");
               out.push_string(sanitize_for_sig(value_to_signature_string(EvalValue.TypeVal(tv))));
               out.push_str(";");
@@ -1678,7 +1678,7 @@ _spec_resolve_slot_cell :: (fn(t_in : TypeValue) -> TypeValue)({
         (revisit : bool) = false;
         (bri : usize) = usize(0);
         while(bri < seen.len(), {
-          if(match(seen.get(bri),.Some(s) => (s == brs_id),.None => false), {
+          if(match(seen.get(bri), .Some(s) => (s == brs_id), .None => false), {
             revisit = true;
           });
           bri = (bri + usize(1));
@@ -1739,7 +1739,7 @@ _bake_record_slots :: (fn(ty : TypeValue) -> TypeValue)(
       bk_new_tas := ArrayList(TypeValue).new();
       (bk_i : usize) = usize(0);
       while(bk_i < bk_tas.len(), {
-        bk_t := match(bk_tas.get(bk_i),.Some(t) => t,.None => TypeValue.Unit);
+        bk_t := match(bk_tas.get(bk_i), .Some(t) => t, .None => TypeValue.Unit);
         (bk_r : TypeValue) = bk_t;
         if(is_some_type(bk_t), {
           bk_r = _spec_resolve_slot_cell(bk_t);
@@ -1758,7 +1758,7 @@ _bake_record_slots :: (fn(ty : TypeValue) -> TypeValue)(
       bk_new_ft := ArrayList(TypeValue).new();
       (bk_j : usize) = usize(0);
       while(bk_j < bk_ft.len(), {
-        bk_f := match(bk_ft.get(bk_j),.Some(t) => t,.None => TypeValue.Unit);
+        bk_f := match(bk_ft.get(bk_j), .Some(t) => t, .None => TypeValue.Unit);
         (bk_fr : TypeValue) = bk_f;
         if(is_some_type(bk_f), {
           bk_fr = _spec_resolve_slot_cell(bk_f);
@@ -1958,7 +1958,7 @@ create_specialized_function_inline :: (
         match(
           arg_values.args.get(ai),
           .Some(ae) => {
-            sp_ai_ct := match(spec_param_ct_flags.get(ai),.Some(f) => f,.None => false);
+            sp_ai_ct := match(spec_param_ct_flags.get(ai), .Some(f) => f, .None => false);
             if(sp_ai_ct, {
               match(
                 ae.value,
@@ -1995,8 +1995,8 @@ create_specialized_function_inline :: (
           .Func({ param_types : dg_pt }) => {
             (dgi : usize) = usize(0);
             while((dgi < runtime_param_tys.len()) && !(degenerate_unit_arg), {
-              rpt_d := match(runtime_param_tys.get(dgi),.Some(t) => t,.None => t_unit());
-              decl_d := match(dg_pt.get(dgi),.Some(t) => t,.None => t_unit());
+              rpt_d := match(runtime_param_tys.get(dgi), .Some(t) => t, .None => t_unit());
+              decl_d := match(dg_pt.get(dgi), .Some(t) => t, .None => t_unit());
               if((is_unit_type(rpt_d) && !(is_unit_type(decl_d))) && !(type_contains_some_type(decl_d)), {
                 degenerate_unit_arg = true;
               });
@@ -2020,15 +2020,15 @@ create_specialized_function_inline :: (
       {
         (ectp_i : usize) = usize(0);
         while(ectp_i < params.len(), {
-          ectp_ct := match(spec_param_ct_flags.get(ectp_i),.Some(f) => f,.None => false);
+          ectp_ct := match(spec_param_ct_flags.get(ectp_i), .Some(f) => f, .None => false);
           if(ectp_ct, {
-            ectp_label := match(params.get(ectp_i),.Some(l) => l,.None => String.from(""));
+            ectp_label := match(params.get(ectp_i), .Some(l) => l, .None => String.from(""));
             match(
               arg_values.args.get(ectp_i),
               .Some(ectp_ae) => match(
                 ectp_ae.value,
                 .Some(ectp_v) => {
-                  ectp_ty := match(ectp_v,.TypeVal(_) => TypeValue.TypeUni(usize(0)), _ => ectp_ae.arg_type);
+                  ectp_ty := match(ectp_v, .TypeVal(_) => TypeValue.TypeUni(usize(0)), _ => ectp_ae.arg_type);
                   _ectp := add_variable_to_env(
                     callee_env,
                     ectp_label,
@@ -2080,7 +2080,7 @@ create_specialized_function_inline :: (
       // the probe stays the same SomeT for every caller (no split).
       (ret_sig_ty : Option(TypeValue)) = Option(TypeValue).None;
       {
-        declared_ret := match(func_type,.Func({ result : dr }) => dr, _ => t_unit());
+        declared_ret := match(func_type, .Func({ result : dr }) => dr, _ => t_unit());
         ret_probe := cond(
           (get_all_some_types(declared_ret).len() > usize(0)) =>
             evaluate_function_return_type_again(declared_ret, callee_env, ctx),
@@ -2184,9 +2184,9 @@ create_specialized_function_inline :: (
           {
             (zb_i : usize) = usize(0);
             n_zb := forall_names.len();
-            zb_ft := match(func_type,.Func({ forall_types : zft }) => zft, _ => ArrayList(TypeValue).new());
+            zb_ft := match(func_type, .Func({ forall_types : zft }) => zft, _ => ArrayList(TypeValue).new());
             while((zb_i < n_zb) && (zb_i < arg_values.forall_args.len()), {
-              zb_name := match(forall_names.get(zb_i),.Some(n) => n,.None => String.from(""));
+              zb_name := match(forall_names.get(zb_i), .Some(n) => n, .None => String.from(""));
               // VALUE-generic binders (`generic(N : usize)` — declared kind is
               // NOT `Type`) must never be rebound to a TypeVal: on the
               // method-dispatch route (function.yo spec_forall_args) the
@@ -2197,7 +2197,7 @@ create_specialized_function_inline :: (
               // unswallowed spec path (the imm_list/imm_vec hollow batch
               // main). TS never rebinds here at all — its calleeEnv already
               // carries the (kind-correct) bindings.
-              zb_kind := match(zb_ft.get(zb_i),.Some(t) => t,.None => t_unit());
+              zb_kind := match(zb_ft.get(zb_i), .Some(t) => t, .None => t_unit());
               match(
                 arg_values.forall_args.get(zb_i),
                 .Some(zb_ae) => match(
@@ -2234,7 +2234,7 @@ create_specialized_function_inline :: (
                       // resolvedConcreteType is set once and seen everywhere,
                       // body eval included.
                       if(is_some_type(zb_tb) && is_type_0(zb_kind), {
-                        zb_pt := match(func_type,.Func({ param_types : zpt }) => zpt, _ => ArrayList(TypeValue).new());
+                        zb_pt := match(func_type, .Func({ param_types : zpt }) => zpt, _ => ArrayList(TypeValue).new());
                         (zbp : usize) = usize(0);
                         (zb_done : bool) = false;
                         while((zbp < zb_pt.len()) && !(zb_done), {
@@ -2312,7 +2312,7 @@ create_specialized_function_inline :: (
             });
           };
           (spec_ret_ty : TypeValue) = evaluate_function_return_type_again(
-            match(func_type,.Func({ result : r }) => r, _ => t_unit()),
+            match(func_type, .Func({ result : r }) => r, _ => t_unit()),
             callee_env,
             ctx
           );
@@ -2324,20 +2324,20 @@ create_specialized_function_inline :: (
           // to a forall name and substitute the inferred forall_args value at
           // the occurrence's own recorded level.
           if((get_all_some_types(spec_ret_ty).len() > usize(0)) || _type_has_array_len_var(spec_ret_ty), {
-            zdecl_ret := match(func_type,.Func({ result : zr }) => zr, _ => t_unit());
+            zdecl_ret := match(func_type, .Func({ result : zr }) => zr, _ => t_unit());
             zret_somes := get_all_some_types(zdecl_ret);
             if(zret_somes.len() > usize(0), {
               zs_ret := subst_new();
               (zs_any : bool) = false;
               (zrsi : usize) = usize(0);
               while(zrsi < zret_somes.len(), {
-                zrst := match(zret_somes.get(zrsi),.Some(t) => t,.None => t_unit());
+                zrst := match(zret_somes.get(zrsi), .Some(t) => t, .None => t_unit());
                 match(
                   zrst,
                   .SomeT(_, zrst_name, zrst_lvl, _, _, _, _, _, _, _, _) => {
                     (zbni : usize) = usize(0);
                     while(zbni < forall_names.len(), {
-                      zbn := match(forall_names.get(zbni),.Some(n) => n,.None => String.from(""));
+                      zbn := match(forall_names.get(zbni), .Some(n) => n, .None => String.from(""));
                       if((zbn == zrst_name) && (zbni < arg_values.forall_args.len()), {
                         match(
                           arg_values.forall_args.get(zbni),
@@ -2429,7 +2429,7 @@ create_specialized_function_inline :: (
               ctx.is_evaluating_function_type = true;
               pte_prev_self := ctx.self_type;
               {
-                pte_p0_is_self := match(params.get(usize(0)),.Some(l) => (l == "self"),.None => false);
+                pte_p0_is_self := match(params.get(usize(0)), .Some(l) => (l == "self"), .None => false);
                 if(pte_p0_is_self, {
                   match(
                     arg_values.args.get(usize(0)),
@@ -2440,10 +2440,10 @@ create_specialized_function_inline :: (
                   );
                 });
               };
-              pte_decl_pts := match(func_type,.Func({ param_types : pdp }) => pdp, _ => ArrayList(TypeValue).new());
+              pte_decl_pts := match(func_type, .Func({ param_types : pdp }) => pdp, _ => ArrayList(TypeValue).new());
               (pte_i : usize) = usize(0);
               while(pte_i < runtime_param_tys.len(), {
-                pte_ct := match(spec_param_ct_flags.get(pte_i),.Some(f) => f,.None => false);
+                pte_ct := match(spec_param_ct_flags.get(pte_i), .Some(f) => f, .None => false);
                 pte_is_fn_carrier := match(
                   pte_decl_pts.get(pte_i),
                   .Some(pte_dpt) => extract_fn_trait_from_type(pte_dpt).is_some(),
@@ -2494,7 +2494,7 @@ create_specialized_function_inline :: (
                 // *(Pair(i32,i32)).
                 rte_prev_self := ctx.self_type;
                 {
-                  rte_p0_is_self := match(params.get(usize(0)),.Some(l) => (l == "self"),.None => false);
+                  rte_p0_is_self := match(params.get(usize(0)), .Some(l) => (l == "self"), .None => false);
                   if(rte_p0_is_self, {
                     match(
                       arg_values.args.get(usize(0)),
@@ -2660,15 +2660,15 @@ create_specialized_function_inline :: (
           // placeholders for value params.
           // Declared param types (the SomeT `Impl(Fn(...))` for a closure param),
           // used below to keep a closure param CALLABLE during body eval.
-          decl_param_types := match(func_type,.Func({ param_types : dpt }) => dpt, _ => ArrayList(TypeValue).new());
+          decl_param_types := match(func_type, .Func({ param_types : dpt }) => dpt, _ => ArrayList(TypeValue).new());
           (rbp_i : usize) = usize(0);
           n_rbp := params.len();
           while(rbp_i < n_rbp, {
-            p_label := match(params.get(rbp_i),.Some(l) => l,.None => String.from(""));
+            p_label := match(params.get(rbp_i), .Some(l) => l, .None => String.from(""));
             // Explicit `comptime(K) : Type` param: already bound COMPILE-TIME
             // to the arg's value by the early-binding loop above (before the
             // return-type re-eval) — skip the runtime-placeholder machinery.
-            sp_rbp_ct := match(spec_param_ct_flags.get(rbp_i),.Some(f) => f,.None => false);
+            sp_rbp_ct := match(spec_param_ct_flags.get(rbp_i), .Some(f) => f, .None => false);
             if(sp_rbp_ct, {
               rbp_i = (rbp_i + usize(1));
               continue;
@@ -2680,7 +2680,7 @@ create_specialized_function_inline :: (
                 (npv == usize(0)) => false,
                 true => match(
                   pvars.get(npv - usize(1)),
-                  .Some(pv) => match(pv.value.get(usize(0)),.Some(vv) => !(is_unknown_val(vv)),.None => false),
+                  .Some(pv) => match(pv.value.get(usize(0)), .Some(vv) => !(is_unknown_val(vv)), .None => false),
                   .None => false
                 )
               )
@@ -2695,7 +2695,7 @@ create_specialized_function_inline :: (
             // below would otherwise skip them). Register the capture struct as the
             // SomeT's resolved concrete so get_type_string(SomeT) lowers to it
             // (utils/index.yo:760).
-            decl_pt := match(decl_param_types.get(rbp_i),.Some(t) => t,.None => TypeValue.Unit);
+            decl_pt := match(decl_param_types.get(rbp_i), .Some(t) => t, .None => TypeValue.Unit);
             // Prefer the CALL's resolved parameter type over the pristine
             // declared one. TS's parameter object is mutated in place by the
             // closure's return rewrite (anonymous-function.ts:1010-1012), so by
@@ -2709,14 +2709,14 @@ create_specialized_function_inline :: (
             // capture-struct rebuild below is unaffected.
             match(
               arg_values.args.get(rbp_i),
-              .Some(rp_ae) => if(match(rp_ae.parameter_type,.SomeT({ id : _ }) => extract_fn_trait_from_type(rp_ae.parameter_type).is_some(), _ => false), {
+              .Some(rp_ae) => if(match(rp_ae.parameter_type, .SomeT({ id : _ }) => extract_fn_trait_from_type(rp_ae.parameter_type).is_some(), _ => false), {
                 decl_pt = rp_ae.parameter_type;
               }),
               .None => ()
             );
             closure_some_id := match(
               decl_pt,
-              .SomeT({ id : sid }) => match(extract_fn_trait_from_type(decl_pt),.Some(_) => sid,.None => String.from("")),
+              .SomeT({ id : sid }) => match(extract_fn_trait_from_type(decl_pt), .Some(_) => sid, .None => String.from("")),
               _ => String.from("")
             );
             is_closure_param := (closure_some_id.len() > usize(0));
@@ -2735,7 +2735,7 @@ create_specialized_function_inline :: (
                   match(
                     runtime_param_tys.get(rbp_i),
                     .Some(fw_arg) => if(is_some_type(fw_arg) && (
-                      match(fw_arg,.SomeT({ id : fw_aid }) => (fw_aid != fw_id), _ => false)
+                      match(fw_arg, .SomeT({ id : fw_aid }) => (fw_aid != fw_id), _ => false)
                     ), {
                       register_some_resolved_concrete(fw_id.clone(), fw_arg);
                     }),
@@ -2773,7 +2773,7 @@ create_specialized_function_inline :: (
               match(
                 cap_ty_fixed,
                 .Some(ct_probe) => if(!(
-                  match(ct_probe,.Struct({ id : _ }) => true, _ => false)
+                  match(ct_probe, .Struct({ id : _ }) => true, _ => false)
                 ), {
                   match(
                     arg_values.args.get(rbp_i),
@@ -2929,7 +2929,7 @@ create_specialized_function_inline :: (
           // see issues/yo-self-p1-transpile-tail.md. The call argument carries the
           // real, complete receiver struct, so resolve `Self` to it.
           if(params.len() > usize(0), {
-            is_self_first := match(params.get(usize(0)),.Some(l) => (l == "self"),.None => false);
+            is_self_first := match(params.get(usize(0)), .Some(l) => (l == "self"), .None => false);
             if(is_self_first, {
               match(
                 arg_values.args.get(usize(0)),
@@ -2968,7 +2968,7 @@ create_specialized_function_inline :: (
               match(
                 spec_wes.get(swi),
                 .Some(swe) => {
-                  swe_id := match(swe.trait_ty,.TraitT(_, _, _, _, swe_tid, _, _, _, _, _) => swe_tid, _ => String.from(""));
+                  swe_id := match(swe.trait_ty, .TraitT(_, _, _, _, swe_tid, _, _, _, _, _) => swe_tid, _ => String.from(""));
                   if(swe_id != "", {
                     spec_where_ids.push(swe_id);
                   });
@@ -2993,7 +2993,7 @@ create_specialized_function_inline :: (
                       match(
                         sws_rtt.get(sws_ri),
                         .Some(sws_tr) => {
-                          sws_tid := match(sws_tr,.TraitT(_, _, _, _, sws_tid0, _, _, _, _, _) => sws_tid0, _ => String.from(""));
+                          sws_tid := match(sws_tr, .TraitT(_, _, _, _, sws_tid0, _, _, _, _, _) => sws_tid0, _ => String.from(""));
                           if(sws_tid != "", {
                             spec_where_ids.push(sws_tid);
                           });
@@ -3076,9 +3076,9 @@ create_specialized_function_inline :: (
           (oci : usize) = usize(0);
           n_oc := cap_names.len();
           while(oci < n_oc, {
-            cn := match(cap_names.get(oci),.Some(s) => s,.None => String.new());
-            ct := match(cap_tys.get(oci),.Some(t) => t,.None => t_unit());
-            cv := match(cap_vals.get(oci),.Some(v) => v,.None => EvalValue.UnitVal);
+            cn := match(cap_names.get(oci), .Some(s) => s, .None => String.new());
+            ct := match(cap_tys.get(oci), .Some(t) => t, .None => t_unit());
+            cv := match(cap_vals.get(oci), .Some(v) => v, .None => EvalValue.UnitVal);
             new_cap_names.push(cn);
             new_cap_tys.push(ct);
             new_cap_vals.push(cv);
@@ -3086,13 +3086,13 @@ create_specialized_function_inline :: (
           });
           // Add compile-time args as additional captures (generic type bindings)
           (fai2 : usize) = usize(0);
-          n_fl := match(func_type,.Func({ meta : __fm3 }) => __fm3.*.forall_labels.len(), _ => usize(0));
+          n_fl := match(func_type, .Func({ meta : __fm3 }) => __fm3.*.forall_labels.len(), _ => usize(0));
           while(fai2 < n_fl, {
             label := match(
               func_type,
               .Func({ meta : __fm4 }) => {
                 fl := __fm4.*.forall_labels;
-                r := match(fl.get(fai2),.Some(s) => s,.None => String.new());
+                r := match(fl.get(fai2), .Some(s) => s, .None => String.new());
                 r
               },
               _ => String.new()
@@ -3185,12 +3185,12 @@ create_specialized_function_inline :: (
                 // spec type's C signature carries runtime params only. The
                 // call site drops the matching args (function.yo's
                 // runtime_arg_exprs gate), keeping arity in agreement.
-                sp_spi_ct := match(spec_param_ct_flags.get(spi),.Some(f) => f,.None => false);
+                sp_spi_ct := match(spec_param_ct_flags.get(spi), .Some(f) => f, .None => false);
                 if(sp_spi_ct, {
                   spi = (spi + usize(1));
                   continue;
                 });
-                rpt := match(runtime_param_tys.get(spi),.Some(t) => t,.None => t_unit());
+                rpt := match(runtime_param_tys.get(spi), .Some(t) => t, .None => t_unit());
                 // Prefer the RESOLVED DECLARED param type when it is concrete
                 // and the ARG type degenerated to unit: TS's specializedType
                 // params come from the declared parameters (+ substitutions),
@@ -3203,7 +3203,7 @@ create_specialized_function_inline :: (
                 // unit-typed arg against a concrete non-unit declared param
                 // (`assert(flag : bool, ...)` emitted `void flag`;
                 // issues/repros/void-param-assert-open-env.yo).
-                declared_pt := match(sp_pt.get(spi),.Some(t) => t,.None => t_unit());
+                declared_pt := match(sp_pt.get(spi), .Some(t) => t, .None => t_unit());
                 // CLOSURE param: type the spec's param as the closure's
                 // CAPTURE STRUCT (the TS convention — the wrapper SomeType's
                 // resolvedConcreteType is the capture struct; yo-self's
@@ -3282,7 +3282,7 @@ create_specialized_function_inline :: (
                                 cw_s := subst_new();
                                 (cw_oi : usize) = usize(0);
                                 while(cw_oi < cw_cpt.len(), {
-                                  cw_ot := match(cw_cpt.get(cw_oi),.Some(x) => x,.None => t_unit());
+                                  cw_ot := match(cw_cpt.get(cw_oi), .Some(x) => x, .None => t_unit());
                                   cw_occ := get_all_some_types(cw_ot);
                                   (cw_oj : usize) = usize(0);
                                   while(cw_oj < cw_occ.len(), {
@@ -3293,7 +3293,7 @@ create_specialized_function_inline :: (
                                         .SomeT(_, cw_st_nm, cw_st_lvl, _, _, _, _, _, _, _, _) => {
                                           (cw_bi : usize) = usize(0);
                                           while(cw_bi < forall_names.len(), {
-                                            cw_bn := match(forall_names.get(cw_bi),.Some(n) => n,.None => String.new());
+                                            cw_bn := match(forall_names.get(cw_bi), .Some(n) => n, .None => String.new());
                                             if((cw_bn == cw_st_nm) && (cw_bi < arg_values.forall_args.len()), {
                                               match(
                                                 arg_values.forall_args.get(cw_bi),
@@ -3326,7 +3326,7 @@ create_specialized_function_inline :: (
                                 (cw_all_conc : bool) = true;
                                 (cw_pi : usize) = usize(0);
                                 while(cw_pi < cw_cpt.len(), {
-                                  cw_pt0 := match(cw_cpt.get(cw_pi),.Some(x) => x,.None => t_unit());
+                                  cw_pt0 := match(cw_cpt.get(cw_pi), .Some(x) => x, .None => t_unit());
                                   cw_pt_res := substitute(cw_s, cw_pt0);
                                   if(get_all_some_types(cw_pt_res).len() > usize(0), {
                                     cw_all_conc = false;
@@ -3369,8 +3369,8 @@ create_specialized_function_inline :: (
                                   cw_benv := Environment.new(callee_env.module_path);
                                   (cw_cvi : usize) = usize(0);
                                   while(cw_cvi < cc_fvd.*.cap_names.len(), {
-                                    cw_cn := match(cc_fvd.*.cap_names.get(cw_cvi),.Some(x) => x,.None => String.new());
-                                    cw_ct := match(cc_fvd.*.cap_tys.get(cw_cvi),.Some(x) => x,.None => t_unit());
+                                    cw_cn := match(cc_fvd.*.cap_names.get(cw_cvi), .Some(x) => x, .None => String.new());
+                                    cw_ct := match(cc_fvd.*.cap_tys.get(cw_cvi), .Some(x) => x, .None => t_unit());
                                     // TYPE captures (generic bindings) stay
                                     // comptime; VALUE captures bind as RUNTIME
                                     // UnknownVals — binding their comptime
@@ -3408,8 +3408,8 @@ create_specialized_function_inline :: (
                                   _cwf := cw_benv.push_frame(false);
                                   (cw_pvi : usize) = usize(0);
                                   while(cw_pvi < cc_fvd.*.params.len(), {
-                                    cw_pn := match(cc_fvd.*.params.get(cw_pvi),.Some(x) => x,.None => String.new());
-                                    cw_pt2 := match(cw_new_pts.get(cw_pvi),.Some(x) => x,.None => t_unit());
+                                    cw_pn := match(cc_fvd.*.params.get(cw_pvi), .Some(x) => x, .None => String.new());
+                                    cw_pt2 := match(cw_new_pts.get(cw_pvi), .Some(x) => x, .None => t_unit());
                                     _cwp := add_variable_to_env(
                                       cw_benv,
                                       cw_pn,
@@ -3519,13 +3519,13 @@ create_specialized_function_inline :: (
                 ys_added_names := ArrayList(String).new();
                 (yrsi : usize) = usize(0);
                 while(yrsi < y_somes.len(), {
-                  yrst := match(y_somes.get(yrsi),.Some(t) => t,.None => t_unit());
+                  yrst := match(y_somes.get(yrsi), .Some(t) => t, .None => t_unit());
                   match(
                     yrst,
                     .SomeT(_, yrst_name, yrst_lvl, _, _, _, _, _, _, _, _) => {
                       (ybni : usize) = usize(0);
                       while(ybni < forall_names.len(), {
-                        ybn := match(forall_names.get(ybni),.Some(n) => n,.None => String.from(""));
+                        ybn := match(forall_names.get(ybni), .Some(n) => n, .None => String.from(""));
                         if((ybn == yrst_name) && (ybni < arg_values.forall_args.len()), {
                           match(
                             arg_values.forall_args.get(ybni),
@@ -3653,7 +3653,7 @@ create_specialized_function_inline :: (
               // matches (TS: SelfType = dereferencedReceiverType makes the
               // signature receiver-canonical natively).
               (sr_recv_ty : Option(TypeValue)) = Option(TypeValue).None;
-              sr_is_self_first := match(params.get(usize(0)),.Some(l) => (l == "self"),.None => false);
+              sr_is_self_first := match(params.get(usize(0)), .Some(l) => (l == "self"), .None => false);
               if(sr_is_self_first, {
                 match(
                   arg_values.args.get(usize(0)),
@@ -3695,11 +3695,11 @@ create_specialized_function_inline :: (
               {
                 (sp_mi : usize) = usize(0);
                 while(sp_mi < sp_pl.len(), {
-                  sp_mi_ct := match(spec_param_ct_flags.get(sp_mi),.Some(f) => f,.None => false);
+                  sp_mi_ct := match(spec_param_ct_flags.get(sp_mi), .Some(f) => f, .None => false);
                   if(!(sp_mi_ct), {
-                    sp_pl_f.push(match(sp_pl.get(sp_mi),.Some(l) => l,.None => String.new()));
-                    sp_pir_f.push(match(sp_pir.get(sp_mi),.Some(b) => b,.None => false));
-                    sp_pio_f.push(match(sp_pio.get(sp_mi),.Some(b) => b,.None => false));
+                    sp_pl_f.push(match(sp_pl.get(sp_mi), .Some(l) => l, .None => String.new()));
+                    sp_pir_f.push(match(sp_pir.get(sp_mi), .Some(b) => b, .None => false));
+                    sp_pio_f.push(match(sp_pio.get(sp_mi), .Some(b) => b, .None => false));
                   });
                   sp_mi = (sp_mi + usize(1));
                 });
@@ -3784,15 +3784,15 @@ evaluate_ctl_function_body_inline :: (
   ) -> EvalValue
 )({
   // Extract FuncVal fields individually to avoid tuple destructuring.
-  orig_forall_labels := match(original_func_val,.FuncVal(__fvd3, _) => __fvd3.*.forall_names, _ => ArrayList(String).new());
-  orig_params := match(original_func_val,.FuncVal(__fvd4, _) => __fvd4.*.params, _ => ArrayList(String).new());
-  orig_param_type_names := match(original_func_val,.FuncVal(__fvd5, _) => __fvd5.*.param_type_names, _ => ArrayList(String).new());
-  orig_evidence_params := match(original_func_val,.FuncVal(__fvd6, _) => __fvd6.*.evidence_params, _ => ArrayList(String).new());
-  orig_body := match(original_func_val,.FuncVal(__fvd7, _) => __fvd7.*.body, _ => make_err_expr());
-  orig_cap_names := match(original_func_val,.FuncVal(__fvd8, _) => __fvd8.*.cap_names, _ => ArrayList(String).new());
-  orig_cap_tys := match(original_func_val,.FuncVal(__fvd9, _) => __fvd9.*.cap_tys, _ => ArrayList(TypeValue).new());
-  orig_cap_vals := match(original_func_val,.FuncVal(_, cv) => cv, _ => ArrayList(EvalValue).new());
-  orig_func_id := match(original_func_val,.FuncVal(__fvd10, _) => __fvd10.*.func_id, _ => String.from("__err_ctl"));
+  orig_forall_labels := match(original_func_val, .FuncVal(__fvd3, _) => __fvd3.*.forall_names, _ => ArrayList(String).new());
+  orig_params := match(original_func_val, .FuncVal(__fvd4, _) => __fvd4.*.params, _ => ArrayList(String).new());
+  orig_param_type_names := match(original_func_val, .FuncVal(__fvd5, _) => __fvd5.*.param_type_names, _ => ArrayList(String).new());
+  orig_evidence_params := match(original_func_val, .FuncVal(__fvd6, _) => __fvd6.*.evidence_params, _ => ArrayList(String).new());
+  orig_body := match(original_func_val, .FuncVal(__fvd7, _) => __fvd7.*.body, _ => make_err_expr());
+  orig_cap_names := match(original_func_val, .FuncVal(__fvd8, _) => __fvd8.*.cap_names, _ => ArrayList(String).new());
+  orig_cap_tys := match(original_func_val, .FuncVal(__fvd9, _) => __fvd9.*.cap_tys, _ => ArrayList(TypeValue).new());
+  orig_cap_vals := match(original_func_val, .FuncVal(_, cv) => cv, _ => ArrayList(EvalValue).new());
+  orig_func_id := match(original_func_val, .FuncVal(__fvd10, _) => __fvd10.*.func_id, _ => String.from("__err_ctl"));
   // -------------------------------------------------------------------------
   // Determine concreteTypeForForall from context.
   // For function-body contexts, it's the enclosing function's return type.
@@ -3810,13 +3810,13 @@ evaluate_ctl_function_body_inline :: (
         .Some(enclosing_ty) => match(
           enclosing_ty,
           .Func({ result : rb }) => rb,
-          _ => match(func_type,.Func({ result : rb }) => rb, _ => TypeValue.Unit)
+          _ => match(func_type, .Func({ result : rb }) => rb, _ => TypeValue.Unit)
         ),
-        .None => match(func_type,.Func({ result : rb }) => rb, _ => TypeValue.Unit)
+        .None => match(func_type, .Func({ result : rb }) => rb, _ => TypeValue.Unit)
       ),
-      _ => match(func_type,.Func({ result : rb }) => rb, _ => TypeValue.Unit)
+      _ => match(func_type, .Func({ result : rb }) => rb, _ => TypeValue.Unit)
     ),
-    .None => match(func_type,.Func({ result : rb }) => rb, _ => TypeValue.Unit)
+    .None => match(func_type, .Func({ result : rb }) => rb, _ => TypeValue.Unit)
   );
   // -------------------------------------------------------------------------
   // Determine enclosing return type from definition-site registry.
@@ -3892,7 +3892,7 @@ evaluate_ctl_function_body_inline :: (
                 // Skip plain function values (only types, modules, traits need to cross).
                 is_fn_val := match(
                   caller_var.value.get(usize(0)),
-                  .Some(cv3) => match(cv3,.FuncVal(_, _) => true, _ => false),
+                  .Some(cv3) => match(cv3, .FuncVal(_, _) => true, _ => false),
                   .None => false
                 );
                 if(!(is_fn_val), {
@@ -3939,8 +3939,8 @@ evaluate_ctl_function_body_inline :: (
   n_forall := forall_labels.len();
   (fi2 : usize) = usize(0);
   while(fi2 < n_forall, {
-    fl_label := match(forall_labels.get(fi2),.Some(s) => s,.None => String.from(""));
-    fl_ty := match(forall_types_list.get(fi2),.Some(t) => t,.None => TypeValue.Unit);
+    fl_label := match(forall_labels.get(fi2), .Some(s) => s, .None => String.from(""));
+    fl_ty := match(forall_types_list.get(fi2), .Some(t) => t, .None => TypeValue.Unit);
     ctl_tok := synthetic_token(fl_label.clone(), specialized_env.module_path);
     _add_forall_var_res := add_variable_to_env(
       specialized_env,
@@ -4013,16 +4013,16 @@ evaluate_ctl_function_body_inline :: (
   (oci : usize) = usize(0);
   n_oc := orig_cap_names.len();
   while(oci < n_oc, {
-    ctl_cap_names.push(match(orig_cap_names.get(oci),.Some(s) => s,.None => String.new()));
-    ctl_cap_tys.push(match(orig_cap_tys.get(oci),.Some(t) => t,.None => TypeValue.Unit));
-    ctl_cap_vals.push(match(orig_cap_vals.get(oci),.Some(v) => v,.None => EvalValue.UnitVal));
+    ctl_cap_names.push(match(orig_cap_names.get(oci), .Some(s) => s, .None => String.new()));
+    ctl_cap_tys.push(match(orig_cap_tys.get(oci), .Some(t) => t, .None => TypeValue.Unit));
+    ctl_cap_vals.push(match(orig_cap_vals.get(oci), .Some(v) => v, .None => EvalValue.UnitVal));
     oci = (oci + usize(1));
   });
   // Add generic type bindings as extra captures.
   (fi3 : usize) = usize(0);
   while(fi3 < n_forall, {
-    fl3 := match(forall_labels.get(fi3),.Some(s) => s,.None => String.new());
-    ft3 := match(forall_types_list.get(fi3),.Some(t) => t,.None => TypeValue.Unit);
+    fl3 := match(forall_labels.get(fi3), .Some(s) => s, .None => String.new());
+    ft3 := match(forall_types_list.get(fi3), .Some(t) => t, .None => TypeValue.Unit);
     ctl_cap_names.push(fl3.clone());
     ctl_cap_tys.push(ft3);
     ctl_cap_vals.push(create_type_value(concrete_type_for_forall));
@@ -4230,7 +4230,7 @@ reapply_where_clause_exprs_for_call :: (
       match(
         wce_exprs.get(wcg_i),
         .Some(wge) => {
-          if(ast_expr_is_fn_call_of(wge, "<:",.Some(usize(2))), {
+          if(ast_expr_is_fn_call_of(wge, "<:", .Some(usize(2))), {
             wge_args := _h_get_fn_call_args(wge);
             match(
               wge_args.get(usize(0)),
@@ -4308,9 +4308,9 @@ resolve_param_types_from_expected :: (
     out : ArrayList(TypeValue)
   ) -> unit
 )({
-  default_pts := match(func_type,.Func({ param_types : pt }) => pt, _ => ArrayList(TypeValue).new());
-  forall_lbls := match(func_type,.Func({ meta : __fm7 }) => __fm7.*.forall_labels, _ => ArrayList(String).new());
-  ret_b := match(func_type,.Func({ result : rb }) => rb, _ => t_unit());
+  default_pts := match(func_type, .Func({ param_types : pt }) => pt, _ => ArrayList(TypeValue).new());
+  forall_lbls := match(func_type, .Func({ meta : __fm7 }) => __fm7.*.forall_labels, _ => ArrayList(String).new());
+  ret_b := match(func_type, .Func({ result : rb }) => rb, _ => t_unit());
   if(forall_lbls.len() == usize(0), {
     return(());
   });
@@ -4325,8 +4325,8 @@ resolve_param_types_from_expected :: (
   sig_somes := get_all_some_types(func_type);
   (si : usize) = usize(0);
   while(si < sig_somes.len(), {
-    sst := match(sig_somes.get(si),.Some(t) => t,.None => t_unit());
-    snm := match(sst,.SomeT(_, n, _, _, _, _, _, _, _, _, _) => n, _ => String.from(""));
+    sst := match(sig_somes.get(si), .Some(t) => t, .None => t_unit());
+    snm := match(sst, .SomeT(_, n, _, _, _, _, _, _, _, _, _) => n, _ => String.from(""));
     if(snm.len() > usize(0), {
       add_variable_to_env(
         synth_env,
@@ -4349,7 +4349,7 @@ resolve_param_types_from_expected :: (
   resolved_env := rps_synth.expected_env;
   (pj : usize) = usize(0);
   while(pj < default_pts.len(), {
-    p_orig := match(default_pts.get(pj),.Some(t) => t,.None => t_unit());
+    p_orig := match(default_pts.get(pj), .Some(t) => t, .None => t_unit());
     out.push(evaluate_function_return_type_again(p_orig, resolved_env, ctx));
     pj = (pj + usize(1));
   });
@@ -4553,8 +4553,8 @@ try_to_call_function_with_arguments :: (
         .None => false
       );
       if(has_f0, {
-        fa0 := match(arg_exprs.get(usize(0)),.Some(a) => a,.None => make_err_expr());
-        forall_args_opt =.Some(_h_get_fn_call_args(fa0));
+        fa0 := match(arg_exprs.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+        forall_args_opt = .Some(_h_get_fn_call_args(fa0));
         regular_start = usize(1);
       });
       // For method calls, generic may appear at index 1 (self is at 0).
@@ -4566,8 +4566,8 @@ try_to_call_function_with_arguments :: (
           .None => false
         );
         if(has_f1, {
-          fa1 := match(arg_exprs.get(usize(1)),.Some(a) => a,.None => make_err_expr());
-          forall_args_opt =.Some(_h_get_fn_call_args(fa1));
+          fa1 := match(arg_exprs.get(usize(1)), .Some(a) => a, .None => make_err_expr());
+          forall_args_opt = .Some(_h_get_fn_call_args(fa1));
           // The `generic(...)` node must be REMOVED from the middle of the
           // regular-arg list, keeping the receiver at index 0 — TS does
           // `argExprs = [argExprs[0]!, ...argExprs.slice(2)]`
@@ -4586,11 +4586,11 @@ try_to_call_function_with_arguments :: (
       n_total := arg_exprs.len();
       (ai : usize) = regular_start;
       while(ai < n_total, {
-        a := match(arg_exprs.get(ai),.Some(x) => x,.None => make_err_expr());
-        is_skipped_forall := match(skip_arg_idx,.Some(si) => (si == ai),.None => false);
+        a := match(arg_exprs.get(ai), .Some(x) => x, .None => make_err_expr());
+        is_skipped_forall := match(skip_arg_idx, .Some(si) => (si == ai), .None => false);
         if(!(is_skipped_forall), {
           if(ast_expr_is_fn_call_of(a, "using", Option(usize).None), {
-            using_args_opt =.Some(_h_get_fn_call_args(a));
+            using_args_opt = .Some(_h_get_fn_call_args(a));
           }, {
             adjusted_args.push(a);
           });
@@ -4831,8 +4831,8 @@ try_to_call_function_with_arguments :: (
           sx_all := get_all_some_types(ty);
           (sx_i : usize) = usize(0);
           while(sx_i < sx_all.len(), {
-            sx_st := match(sx_all.get(sx_i),.Some(t) => t,.None => t_unit());
-            sx_id := match(sx_st,.SomeT(id, _, _, _, _, _, _, _, _, _, _) => id, _ => String.from(""));
+            sx_st := match(sx_all.get(sx_i), .Some(t) => t, .None => t_unit());
+            sx_id := match(sx_st, .SomeT(id, _, _, _, _, _, _, _, _, _, _) => id, _ => String.from(""));
             if(sx_id.len() > usize(0), {
               out_ids.push(sx_id);
             });
@@ -4841,7 +4841,7 @@ try_to_call_function_with_arguments :: (
             while(sx_j < sx_nested.len(), {
               sxn_id := match(
                 sx_nested.get(sx_j),
-                .Some(t) => match(t,.SomeT(id2, _, _, _, _, _, _, _, _, _, _) => id2, _ => String.from("")),
+                .Some(t) => match(t, .SomeT(id2, _, _, _, _, _, _, _, _, _, _) => id2, _ => String.from("")),
                 .None => String.from("")
               );
               if(sxn_id.len() > usize(0), {
@@ -4855,23 +4855,23 @@ try_to_call_function_with_arguments :: (
         (sx_rest_ids : ArrayList(String)) = ArrayList(String).new();
         (sx_pi : usize) = usize(1);
         while(sx_pi < pt.len(), {
-          _sx_push_ids(match(pt.get(sx_pi),.Some(t) => t,.None => t_unit()), sx_rest_ids);
+          _sx_push_ids(match(pt.get(sx_pi), .Some(t) => t, .None => t_unit()), sx_rest_ids);
           sx_pi = (sx_pi + usize(1));
         });
         (sx_fi : usize) = usize(0);
         while(sx_fi < ft.len(), {
-          _sx_push_ids(match(ft.get(sx_fi),.Some(t) => t,.None => t_unit()), sx_rest_ids);
+          _sx_push_ids(match(ft.get(sx_fi), .Some(t) => t, .None => t_unit()), sx_rest_ids);
           sx_fi = (sx_fi + usize(1));
         });
         (sx_self_ids : ArrayList(String)) = ArrayList(String).new();
-        _sx_push_ids(match(pt.get(usize(0)),.Some(t) => t,.None => t_unit()), sx_self_ids);
+        _sx_push_ids(match(pt.get(usize(0)), .Some(t) => t, .None => t_unit()), sx_self_ids);
         (sx_si : usize) = usize(0);
         while(sx_si < sx_self_ids.len(), {
-          sx_sid := match(sx_self_ids.get(sx_si),.Some(s) => s,.None => String.from(""));
+          sx_sid := match(sx_self_ids.get(sx_si), .Some(s) => s, .None => String.from(""));
           (sx_in_rest : bool) = false;
           (sx_ri : usize) = usize(0);
           while((sx_ri < sx_rest_ids.len()) && !(sx_in_rest), {
-            if(match(sx_rest_ids.get(sx_ri),.Some(r) => (r == sx_sid),.None => false), {
+            if(match(sx_rest_ids.get(sx_ri), .Some(r) => (r == sx_sid), .None => false), {
               sx_in_rest = true;
             });
             sx_ri = (sx_ri + usize(1));
@@ -4886,13 +4886,13 @@ try_to_call_function_with_arguments :: (
         (seen_st_ids : ArrayList(String)) = ArrayList(String).new();
         (sg_i : usize) = usize(0);
         while(sg_i < sig_some_types.len(), {
-          sg_st := match(sig_some_types.get(sg_i),.Some(t) => t,.None => t_unit());
-          sg_id := match(sg_st,.SomeT(id, _, _, _, _, _, _, _, _, _, _) => id, _ => String.from(""));
-          sg_nm := match(sg_st,.SomeT(_, n, _, _, _, _, _, _, _, _, _) => n, _ => String.from(""));
+          sg_st := match(sig_some_types.get(sg_i), .Some(t) => t, .None => t_unit());
+          sg_id := match(sg_st, .SomeT(id, _, _, _, _, _, _, _, _, _, _) => id, _ => String.from(""));
+          sg_nm := match(sg_st, .SomeT(_, n, _, _, _, _, _, _, _, _, _) => n, _ => String.from(""));
           (sg_dup : bool) = false;
           (sd_i : usize) = usize(0);
           while((sd_i < seen_st_ids.len()) && !(sg_dup), {
-            if(match(seen_st_ids.get(sd_i),.Some(s) => (s == sg_id),.None => false), {
+            if(match(seen_st_ids.get(sd_i), .Some(s) => (s == sg_id), .None => false), {
               sg_dup = true;
             });
             sd_i = (sd_i + usize(1));
@@ -4901,7 +4901,7 @@ try_to_call_function_with_arguments :: (
           if(sg_nm != "Self", {
             (so_i : usize) = usize(0);
             while((so_i < self_only_ids.len()) && !(sg_self_only), {
-              if(match(self_only_ids.get(so_i),.Some(s) => (s == sg_id),.None => false), {
+              if(match(self_only_ids.get(so_i), .Some(s) => (s == sg_id), .None => false), {
                 sg_self_only = true;
               });
               so_i = (so_i + usize(1));
@@ -4912,7 +4912,7 @@ try_to_call_function_with_arguments :: (
             (sg_is_forall : bool) = false;
             (sf_i : usize) = usize(0);
             while((sf_i < n_forall) && !(sg_is_forall), {
-              if(match(fl.get(sf_i),.Some(l) => (l == sg_nm),.None => false), {
+              if(match(fl.get(sf_i), .Some(l) => (l == sg_nm), .None => false), {
                 sg_is_forall = true;
               });
               sf_i = (sf_i + usize(1));
@@ -4951,9 +4951,9 @@ try_to_call_function_with_arguments :: (
       };
       (fpi : usize) = usize(0);
       while(fpi < n_forall, {
-        flabel := match(fl.get(fpi),.Some(l) => l,.None => String.from(""));
-        ftype := match(ft.get(fpi),.Some(t) => t,.None => t_unit());
-        ftype_inner := match(ft.get(fpi),.Some(t) => t,.None => t_unit());
+        flabel := match(fl.get(fpi), .Some(l) => l, .None => String.from(""));
+        ftype := match(ft.get(fpi), .Some(t) => t, .None => t_unit());
+        ftype_inner := match(ft.get(fpi), .Some(t) => t, .None => t_unit());
         (forall_val : EvalValue) = EvalValue.UnknownVal(ftype_inner, false);
         // A Type-kinded forall whose SomeT occurs in the SIGNATURE binds as
         // `TypeVal(that SomeT)` — the state TS's calleeEnv is ALWAYS in
@@ -4969,14 +4969,14 @@ try_to_call_function_with_arguments :: (
         // MARKER instance so synthesis keeps one SomeT identity; labels
         // with no signature occurrence keep the UnknownVal placeholder
         // (conservative — their machinery predates this).
-        if(match(ftype_inner,.TypeUni(fv_lv) => (fv_lv == usize(0)), _ => false), {
+        if(match(ftype_inner, .TypeUni(fv_lv) => (fv_lv == usize(0)), _ => false), {
           (fv_marker : Option(TypeValue)) = Option(TypeValue).None;
           (fv_mi : usize) = usize(0);
           while((fv_mi < sig_some_types.len()) && fv_marker.is_none(), {
             match(
               sig_some_types.get(fv_mi),
               .Some(fv_mst) => {
-                fv_mn := match(fv_mst,.SomeT(_, n, _, _, _, _, _, _, _, _, _) => n, _ => String.from(""));
+                fv_mn := match(fv_mst, .SomeT(_, n, _, _, _, _, _, _, _, _, _) => n, _ => String.from(""));
                 // A receiver-embedded SomeT (self-slot-only) merely SHARES the
                 // forall's name — e.g. `.filter(p).fold(init, f)`: fold's
                 // sig_some_types lists filter's F (inside the substituted
@@ -4985,11 +4985,11 @@ try_to_call_function_with_arguments :: (
                 // predicate. TS binds `forallParameter.type` directly — the
                 // name search is yo-self's reconstruction, so it must skip
                 // foreign ids.
-                fv_mid := match(fv_mst,.SomeT(id, _, _, _, _, _, _, _, _, _, _) => id, _ => String.from(""));
+                fv_mid := match(fv_mst, .SomeT(id, _, _, _, _, _, _, _, _, _, _) => id, _ => String.from(""));
                 (fv_foreign : bool) = false;
                 (fv_si : usize) = usize(0);
                 while((fv_si < self_only_ids.len()) && !(fv_foreign), {
-                  if(match(self_only_ids.get(fv_si),.Some(s) => (s == fv_mid),.None => false), {
+                  if(match(self_only_ids.get(fv_si), .Some(s) => (s == fv_mid), .None => false), {
                     fv_foreign = true;
                   });
                   fv_si = (fv_si + usize(1));
@@ -5157,7 +5157,7 @@ try_to_call_function_with_arguments :: (
                 if(!(is_some_type(io_t_out)), {
                   (tb_i : usize) = usize(0);
                   while(tb_i < n_forall, {
-                    tb_label := match(fl.get(tb_i),.Some(l) => l,.None => String.from(""));
+                    tb_label := match(fl.get(tb_i), .Some(l) => l, .None => String.from(""));
                     if(tb_label == "T", {
                       tb_existing := get_variables_from_env(callee_env, tb_label.clone());
                       (tb_already : bool) = false;
@@ -5202,7 +5202,7 @@ try_to_call_function_with_arguments :: (
                   .Some(io_e_conc) => if(!(is_some_type(io_e_conc)), {
                     (eb_i : usize) = usize(0);
                     while(eb_i < n_forall, {
-                      eb_label := match(fl.get(eb_i),.Some(l) => l,.None => String.from(""));
+                      eb_label := match(fl.get(eb_i), .Some(l) => l, .None => String.from(""));
                       if(eb_label == "E", {
                         // Skip when already bound to a concrete (non-SomeType) value.
                         eb_existing := get_variables_from_env(callee_env, eb_label.clone());
@@ -5289,7 +5289,7 @@ try_to_call_function_with_arguments :: (
                 match(
                   ew_exprs.get(ew_i),
                   .Some(ew_e) => {
-                    if(ast_expr_is_fn_call_of(ew_e, "<:",.Some(usize(2))), {
+                    if(ast_expr_is_fn_call_of(ew_e, "<:", .Some(usize(2))), {
                       ew_args := _h_get_fn_call_args(ew_e);
                       match(
                         ew_args.get(usize(0)),
@@ -5347,7 +5347,7 @@ try_to_call_function_with_arguments :: (
                 });
                 (ew_fi : usize) = usize(0);
                 while(ew_fi < fl.len(), {
-                  ew_fl := match(fl.get(ew_fi),.Some(l) => l,.None => String.from(""));
+                  ew_fl := match(fl.get(ew_fi), .Some(l) => l, .None => String.from(""));
                   (ew_named : bool) = false;
                   (ew_nj : usize) = usize(0);
                   while((ew_nj < ew_names.len()) && !(ew_named), {
@@ -5385,7 +5385,7 @@ try_to_call_function_with_arguments :: (
                         match(
                           sig_some_types.get(ew_mi),
                           .Some(ew_mst) => {
-                            ew_mn := match(ew_mst,.SomeT(_, n, _, _, _, _, _, _, _, _, _) => n, _ => String.from(""));
+                            ew_mn := match(ew_mst, .SomeT(_, n, _, _, _, _, _, _, _, _, _) => n, _ => String.from(""));
                             if(ew_mn == ew_fl, {
                               add_variable_to_env(
                                 callee_env,
@@ -5427,11 +5427,11 @@ try_to_call_function_with_arguments :: (
                 // and emits `void*`; iterator_combinators arm 18).
                 (ewa_i : usize) = usize(0);
                 while(ewa_i < ew_apply.len(), {
-                  ewa_e := match(ew_apply.get(ewa_i),.Some(e) => e,.None => make_err_expr());
-                  if(ast_expr_is_fn_call_of(ewa_e, "<:",.Some(usize(2))), {
+                  ewa_e := match(ew_apply.get(ewa_i), .Some(e) => e, .None => make_err_expr());
+                  if(ast_expr_is_fn_call_of(ewa_e, "<:", .Some(usize(2))), {
                     ewa_args := _h_get_fn_call_args(ewa_e);
-                    ewa_lhs := match(ewa_args.get(usize(0)),.Some(a) => a,.None => make_err_expr());
-                    ewa_rhs := match(ewa_args.get(usize(1)),.Some(a) => a,.None => make_err_expr());
+                    ewa_lhs := match(ewa_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+                    ewa_rhs := match(ewa_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
                     if(ast_expr_is_atom(ewa_lhs) && ast_expr_is_fn_call(ewa_rhs), {
                       // Resolve the LHS variable to a concrete TypeVal target.
                       (ewa_target : Option(TypeValue)) = Option(TypeValue).None;
@@ -5461,18 +5461,18 @@ try_to_call_function_with_arguments :: (
                           ewa_rargs := _h_get_fn_call_args(ewa_rhs);
                           (ewa_ri : usize) = usize(0);
                           while(ewa_ri < ewa_rargs.len(), {
-                            ewa_ra := match(ewa_rargs.get(ewa_ri),.Some(a) => a,.None => make_err_expr());
-                            if(ast_expr_is_fn_call_of(ewa_ra, ":=",.Some(usize(2))), {
+                            ewa_ra := match(ewa_rargs.get(ewa_ri), .Some(a) => a, .None => make_err_expr());
+                            if(ast_expr_is_fn_call_of(ewa_ra, ":=", .Some(usize(2))), {
                               ewa_pair := _h_get_fn_call_args(ewa_ra);
-                              ewa_al := match(ewa_pair.get(usize(0)),.Some(a) => a,.None => make_err_expr());
-                              ewa_av := match(ewa_pair.get(usize(1)),.Some(a) => a,.None => make_err_expr());
+                              ewa_al := match(ewa_pair.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+                              ewa_av := match(ewa_pair.get(usize(1)), .Some(a) => a, .None => make_err_expr());
                               if(ast_expr_is_atom(ewa_al) && ast_expr_is_atom(ewa_av), {
                                 ewa_xn := ast_expr_token(ewa_av).value;
                                 // Only forall labels of THIS call, still unbound.
                                 (ewa_is_fl : bool) = false;
                                 (ewa_fi : usize) = usize(0);
                                 while((ewa_fi < fl.len()) && !(ewa_is_fl), {
-                                  if(match(fl.get(ewa_fi),.Some(l) => (l == ewa_xn),.None => false), {
+                                  if(match(fl.get(ewa_fi), .Some(l) => (l == ewa_xn), .None => false), {
                                     ewa_is_fl = true;
                                   });
                                   ewa_fi = (ewa_fi + usize(1));
@@ -5588,9 +5588,9 @@ try_to_call_function_with_arguments :: (
       s0_marked_args := ArrayList(AstExpr).new();
       (s1_elided : bool) = false;
       while(pi < n_params, {
-        plabel := match(pl.get(pi),.Some(l) => l,.None => String.from(""));
-        ptype := match(pt.get(pi),.Some(t) => t,.None => t_unit());
-        p_owning := match(pio.get(pi),.Some(o) => o,.None => false);
+        plabel := match(pl.get(pi), .Some(l) => l, .None => String.from(""));
+        ptype := match(pt.get(pi), .Some(t) => t, .None => t_unit());
+        p_owning := match(pio.get(pi), .Some(o) => o, .None => false);
         // Omitted optional parameter (no corresponding argument): clone the
         // recorded default VALUE EXPRESSION and route it through the SAME
         // matching flow as an explicit argument. In TS the omitted branch
@@ -5623,10 +5623,10 @@ try_to_call_function_with_arguments :: (
                 ptype,
                 // is_ct_only: honour the param's comptime modifier here too, so
                 // a comptime param's default keeps its raw comptime type.
-                match(call_param_comptime.get(pi),.Some(f) => f,.None => false),
+                match(call_param_comptime.get(pi), .Some(f) => f, .None => false),
                 // param_is_owning: TS never runs move-ownership for defaults
                 false,
-                match(pref.get(pi),.Some(b) => b,.None => false),
+                match(pref.get(pi), .Some(b) => b, .None => false),
                 false,
                 io_async_param_direct,
                 cloned_de,
@@ -5684,7 +5684,7 @@ try_to_call_function_with_arguments :: (
           pi = (pi + usize(1));
           continue;
         });
-        parg := match(adjusted_args.get(pi),.Some(a) => a,.None => make_err_expr());
+        parg := match(adjusted_args.get(pi), .Some(a) => a, .None => make_err_expr());
         pr := check_if_function_parameter_matches_argument(
           plabel,
           ptype,
@@ -5692,9 +5692,9 @@ try_to_call_function_with_arguments :: (
           // per-param comptime side-table). A comptime param keeps its raw
           // comptime arg type; a runtime param lowers a comptime-only arg to
           // its runtime type (mirrors TS `!parameter.isCompileTimeOnly`).
-          match(call_param_comptime.get(pi),.Some(f) => f,.None => false),
+          match(call_param_comptime.get(pi), .Some(f) => f, .None => false),
           p_owning,
-          match(pref.get(pi),.Some(b) => b,.None => false),
+          match(pref.get(pi), .Some(b) => b, .None => false),
           io_builtin_skip_expected,
           io_async_param_direct,
           parg,
@@ -5703,7 +5703,7 @@ try_to_call_function_with_arguments :: (
           ctx,
           rt_args,
           exn,
-          match(call_param_assigned.get(pi),.Some(a) => a,.None => Option(EvalValue).None),
+          match(call_param_assigned.get(pi), .Some(a) => a, .None => Option(EvalValue).None),
           callee_is_extern
         );
         match(
@@ -5743,7 +5743,7 @@ try_to_call_function_with_arguments :: (
       if(fn_has_variadic && (n_args > n_params), {
         (vai : usize) = n_params;
         while(vai < n_args, {
-          varg := match(adjusted_args.get(vai),.Some(a) => a,.None => make_err_expr());
+          varg := match(adjusted_args.get(vai), .Some(a) => a, .None => make_err_expr());
           v_saved_expected := ctx.expected_type;
           ctx.expected_type = Option(ExpectedTypeCtx).None;
           v_evaled := evaluate_expression_raw(varg, caller_env_m, ctx, exn);
@@ -5794,8 +5794,8 @@ try_to_call_function_with_arguments :: (
       // ----------------------------------------------------------------
       (fpi2 : usize) = usize(0);
       while(fpi2 < n_forall, {
-        flabel2 := match(fl.get(fpi2),.Some(l) => l,.None => String.from(""));
-        ftype2 := match(ft.get(fpi2),.Some(t) => t,.None => t_unit());
+        flabel2 := match(fl.get(fpi2), .Some(l) => l, .None => String.from(""));
+        ftype2 := match(ft.get(fpi2), .Some(t) => t, .None => t_unit());
         vars2 := get_variables_from_env(callee_env_m, flabel2);
         n_vars2 := vars2.len();
         if(n_vars2 > usize(0), {
@@ -5861,14 +5861,14 @@ try_to_call_function_with_arguments :: (
                   // a durable write-through in yo-self's mutable env model (the
                   // rule _bind_some_type follows for the same reason).
                   wb_top_frame := ((callee_env_m.frames.len() > usize(0)) && (last_v.frame_level == (callee_env_m.frames.len() - usize(1))));
-                  if(((wb_from_cell && wb_plain) && wb_top_frame) && !(match(v_out,.TypeVal(wb_t) => is_some_type(wb_t), _ => true)), {
+                  if(((wb_from_cell && wb_plain) && wb_top_frame) && !(match(v_out, .TypeVal(wb_t) => is_some_type(wb_t), _ => true)), {
                     wb_cell := ArrayList(EvalValue).new();
                     wb_cell.push(v_out);
                     last_v.value = wb_cell;
                   });
                   forall_arg_vals.push(
                     ArgEntry(
-                      value :.Some(v_out),
+                      value : .Some(v_out),
                       parameter_type : ftype2,
                       arg_type : last_v.ty
                     )
@@ -6124,7 +6124,7 @@ try_to_call_function_with_arguments :: (
       // registration would collide across calls). Without this the throw's
       // fn-ptr cast/temp emitted `void*` merge-assigned to i32
       // (the IoError.check stage-2 family).
-      if(is_some_type(return_type) && match(func_type,.Func({ meta : __cfm }) => __cfm.*.is_control, _ => false), {
+      if(is_some_type(return_type) && match(func_type, .Func({ meta : __cfm }) => __cfm.*.is_control, _ => false), {
         (ctl_rt_conc : TypeValue) = match(
           ctx.expected_type,
           .Some(cet) => cet.ty,
@@ -6137,7 +6137,7 @@ try_to_call_function_with_arguments :: (
               cfb.kind,
               .FunctionBody => match(
                 cfb.func_type,
-                .Some(cfty) => match(cfty,.Func({ result : crb }) => crb, _ => TypeValue.Unit),
+                .Some(cfty) => match(cfty, .Func({ result : crb }) => crb, _ => TypeValue.Unit),
                 .None => TypeValue.Unit
               ),
               _ => TypeValue.Unit
@@ -6174,8 +6174,8 @@ try_to_call_function_with_arguments :: (
       n_impl := il.len();
       (impl_i : usize) = usize(0);
       while(impl_i < n_impl, {
-        impl_label := match(il.get(impl_i),.Some(l) => l,.None => String.from(""));
-        impl_type := match(it.get(impl_i),.Some(t) => t,.None => t_unit());
+        impl_label := match(il.get(impl_i), .Some(l) => l, .None => String.from(""));
+        impl_type := match(it.get(impl_i), .Some(t) => t, .None => t_unit());
         resolved_impl_type := evaluate_function_parameter_type_again(impl_type, callee_env_m, ctx);
         (resolved : bool) = false;
         // Check for an explicit … arg at position impl_i.
@@ -6222,7 +6222,7 @@ try_to_call_function_with_arguments :: (
                         );
                         implicit_arg_vals.push(
                           ArgEntry(
-                            value :.Some(ua_val),
+                            value : .Some(ua_val),
                             parameter_type : resolved_impl_type,
                             arg_type : ua_info.ty
                           )
@@ -6302,7 +6302,7 @@ try_to_call_function_with_arguments :: (
               );
               implicit_arg_vals.push(
                 ArgEntry(
-                  value :.Some(gv_val),
+                  value : .Some(gv_val),
                   parameter_type : resolved_impl_type,
                   arg_type : given_ty
                 )
@@ -6347,12 +6347,12 @@ try_to_call_function_with_arguments :: (
       // function value's type.
       fv_has_forall := match(
         func_val,
-        .Some(fvp) => match(fvp,.FuncVal(__fvd13, _) => (__fvd13.*.forall_names.len() > usize(0)), _ => false),
+        .Some(fvp) => match(fvp, .FuncVal(__fvd13, _) => (__fvd13.*.forall_names.len() > usize(0)), _ => false),
         .None => false
       );
       callee_own_type := match(
         func_val,
-        .Some(fvg) => match(fvg,.FuncVal(__fvg, _) => get_func_type(__fvg.*.func_id), _ => func_type),
+        .Some(fvg) => match(fvg, .FuncVal(__fvg, _) => get_func_type(__fvg.*.func_id), _ => func_type),
         .None => func_type
       );
       callee_own_generic := _func_type_has_runtime_some_param(callee_own_type);
@@ -6368,7 +6368,7 @@ try_to_call_function_with_arguments :: (
       // ('call to undeclared function fn_yo_id_…' — prelude arm 1's
       // trait-impl-closure emission gap;
       // tests/codegen-bootstrap/assigned_param_overload_select.yo).
-      fv_result_ct := match(func_type,.Func({ meta : __fm12 }) => __fm12.*.result_is_comptime_only, _ => false);
+      fv_result_ct := match(func_type, .Func({ meta : __fm12 }) => __fm12.*.result_is_comptime_only, _ => false);
       (fv_has_ct_param : bool) = false;
       if(!(fv_result_ct), {
         match(
@@ -6404,7 +6404,7 @@ try_to_call_function_with_arguments :: (
       if(!(skip_specialization) && is_func_generic, {
         callee_fid_g := match(
           func_val,
-          .Some(fv) => match(fv,.FuncVal(__fvd14, _) => __fvd14.*.func_id, _ => String.from("")),
+          .Some(fv) => match(fv, .FuncVal(__fvd14, _) => __fvd14.*.func_id, _ => String.from("")),
           .None => String.from("")
         );
         // The callee's impl-instantiation identity: TS distinguishes generic-impl
@@ -6436,7 +6436,7 @@ try_to_call_function_with_arguments :: (
         mutual_is_some := mutual_info.is_some();
         is_concrete_fv := match(
           func_val,
-          .Some(fv) => match(fv,.FuncVal(_, _) => true, _ => false),
+          .Some(fv) => match(fv, .FuncVal(_, _) => true, _ => false),
           .None => false
         );
         match(
@@ -6449,7 +6449,7 @@ try_to_call_function_with_arguments :: (
           .None => ()
         );
         if((!(is_recursive_spec) && !(mutual_is_some)) && is_concrete_fv, {
-          fv2 := match(func_val,.Some(v) => v,.None => EvalValue.UnitVal);
+          fv2 := match(func_val, .Some(v) => v, .None => EvalValue.UnitVal);
           // ----------------------------------------------------------------
           // Ctl function path: isControlFunction + has generic params.
           // Must come before regular specialization to override it.
@@ -6493,13 +6493,13 @@ try_to_call_function_with_arguments :: (
                     .Some(enclosing_ty2) => match(
                       enclosing_ty2,
                       .Func({ result : rb2 }) => rb2,
-                      _ => match(func_type,.Func({ result : rb2b }) => rb2b, _ => TypeValue.Unit)
+                      _ => match(func_type, .Func({ result : rb2b }) => rb2b, _ => TypeValue.Unit)
                     ),
-                    .None => match(func_type,.Func({ result : rb2c }) => rb2c, _ => TypeValue.Unit)
+                    .None => match(func_type, .Func({ result : rb2c }) => rb2c, _ => TypeValue.Unit)
                   ),
-                  _ => match(func_type,.Func({ result : rb2d }) => rb2d, _ => TypeValue.Unit)
+                  _ => match(func_type, .Func({ result : rb2d }) => rb2d, _ => TypeValue.Unit)
                 ),
-                .None => match(func_type,.Func({ result : rb2e }) => rb2e, _ => TypeValue.Unit)
+                .None => match(func_type, .Func({ result : rb2e }) => rb2e, _ => TypeValue.Unit)
               );
               if(!(is_some_type(ctl_res_conc)) && !(is_unit_type(ctl_res_conc)), {
                 match(

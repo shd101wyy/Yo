@@ -65,7 +65,7 @@ evaluate_dyn_type :: (
     exn : Exception
   ) -> AstExpr
 )({
-  if(!(ast_expr_is_fn_call_of(expr, BK_DYN_UPPER,.None)), {
+  if(!(ast_expr_is_fn_call_of(expr, BK_DYN_UPPER, .None)), {
     exn.throw(
       dyn(
         format_error_message(
@@ -97,7 +97,7 @@ evaluate_dyn_type :: (
       .None => make_err_expr()
     );
     // Detect a negated trait: `!(Trait)`.
-    is_negated := ast_expr_is_fn_call_of(trait_arg, "!",.Some(usize(1)));
+    is_negated := ast_expr_is_fn_call_of(trait_arg, "!", .Some(usize(1)));
     actual_arg := if(
       is_negated,
       match(
@@ -171,7 +171,7 @@ evaluate_dyn_type :: (
       already := false;
       j := usize(0);
       while(j < negative_ids.len(), {
-        existing := match(negative_ids.get(j),.Some(s) => s,.None => String.from(""));
+        existing := match(negative_ids.get(j), .Some(s) => s, .None => String.from(""));
         if(existing == tid, {
           already = true;
         });
@@ -206,7 +206,7 @@ evaluate_dyn_type :: (
       already := false;
       j := usize(0);
       while(j < required_ids.len(), {
-        existing := match(required_ids.get(j),.Some(s) => s,.None => String.from(""));
+        existing := match(required_ids.get(j), .Some(s) => s, .None => String.from(""));
         if(existing == tid, {
           already = true;
         });
@@ -247,7 +247,7 @@ evaluate_dyn_type :: (
   // Mirrors `src/evaluator/types/dyn.ts:88-104`.
   qi := usize(0);
   while(qi < required_traits.len(), {
-    cur_trait := match(required_traits.get(qi),.Some(t) => t,.None => t_i32());
+    cur_trait := match(required_traits.get(qi), .Some(t) => t, .None => t_i32());
     scs := match(
       cur_trait,
       .TraitT(_, _, _, _, _, _, sc, _, _, _) => sc,
@@ -255,12 +255,12 @@ evaluate_dyn_type :: (
     );
     k := usize(0);
     while(k < scs.len(), {
-      constraint := match(scs.get(k),.Some(t) => t,.None => t_i32());
+      constraint := match(scs.get(k), .Some(t) => t, .None => t_i32());
       cid := trait_id_for_dedup(constraint);
       already := false;
       m := usize(0);
       while(m < required_ids.len(), {
-        eid := match(required_ids.get(m),.Some(s) => s,.None => String.from(""));
+        eid := match(required_ids.get(m), .Some(s) => s, .None => String.from(""));
         if(eid == cid, {
           already = true;
         });
@@ -282,7 +282,7 @@ evaluate_dyn_type :: (
   dyn_val := create_type_value(dyn_ty);
   meta_type := type_of_type(dyn_ty);
   out_info := new_expr_info(cur_env, meta_type);
-  out_info.value =.Some(dyn_val);
+  out_info.value = .Some(dyn_val);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   expr
 });

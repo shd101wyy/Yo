@@ -93,10 +93,10 @@ IntRange :: ref(struct(min : i64, max : u64));
 get_integer_type_bits :: (fn(ty : TypeValue) -> Option(u32))(
   match(
     ty,
-    .Int(bits : b, _) =>.Some(u32(b)),
-    .Usize =>.Some(g_target_pointer_size_bits),
-    .Isize =>.Some(g_target_pointer_size_bits),
-    _ =>.None
+    .Int(bits : b, _) => .Some(u32(b)),
+    .Usize => .Some(g_target_pointer_size_bits),
+    .Isize => .Some(g_target_pointer_size_bits),
+    _ => .None
   )
 );
 /// Return the value range of an integer type as an `IntRange`.
@@ -108,20 +108,20 @@ get_integer_type_range :: (fn(ty : TypeValue) -> Option(IntRange))(
     ty,
     .Int(bits : b, signed : s) => cond(
       // signed variants
-      ((s) && (b == u8(8))) =>.Some({ min : i64(-(128)), max : u64(127) }),
-      ((s) && (b == u8(16))) =>.Some({ min : i64(-(32768)), max : u64(32767) }),
-      ((s) && (b == u8(32))) =>.Some({ min : i64(-(2147483648)), max : u64(2147483647) }),
-      ((s) && (b == u8(64))) =>.Some({ min : i64(-(9223372036854775808)), max : u64(9223372036854775807) }),
+      ((s) && (b == u8(8))) => .Some({ min : i64(-(128)), max : u64(127) }),
+      ((s) && (b == u8(16))) => .Some({ min : i64(-(32768)), max : u64(32767) }),
+      ((s) && (b == u8(32))) => .Some({ min : i64(-(2147483648)), max : u64(2147483647) }),
+      ((s) && (b == u8(64))) => .Some({ min : i64(-(9223372036854775808)), max : u64(9223372036854775807) }),
       // unsigned variants
-      (!(s) && (b == u8(8))) =>.Some({ min : i64(0), max : u64(255) }),
-      (!(s) && (b == u8(16))) =>.Some({ min : i64(0), max : u64(65535) }),
-      (!(s) && (b == u8(32))) =>.Some({ min : i64(0), max : u64(4294967295) }),
-      (!(s) && (b == u8(64))) =>.Some({ min : i64(0), max : u64(18446744073709551615) }),
-      true =>.None
+      (!(s) && (b == u8(8))) => .Some({ min : i64(0), max : u64(255) }),
+      (!(s) && (b == u8(16))) => .Some({ min : i64(0), max : u64(65535) }),
+      (!(s) && (b == u8(32))) => .Some({ min : i64(0), max : u64(4294967295) }),
+      (!(s) && (b == u8(64))) => .Some({ min : i64(0), max : u64(18446744073709551615) }),
+      true => .None
     ),
-    .Usize =>.Some({ min : i64(0), max : u64(18446744073709551615) }),
-    .Isize =>.Some({ min : i64(-(9223372036854775808)), max : u64(9223372036854775807) }),
-    _ =>.None
+    .Usize => .Some({ min : i64(0), max : u64(18446744073709551615) }),
+    .Isize => .Some({ min : i64(-(9223372036854775808)), max : u64(9223372036854775807) }),
+    _ => .None
   )
 );
 // ---------------------------------------------------------------------------
@@ -288,8 +288,8 @@ type_implements_runtime_builtin :: (fn(ty : TypeValue) -> Option(bool))({
   // and decide from the base type's tag.
   (rb_base : TypeValue) = ty;
   (rb_hops : usize) = usize(0);
-  while(match(rb_base,.Pointer(_) => (rb_hops < usize(8)), _ => false), {
-    rb_base = match(rb_base,.Pointer(p) => p, _ => rb_base);
+  while(match(rb_base, .Pointer(_) => (rb_hops < usize(8)), _ => false), {
+    rb_base = match(rb_base, .Pointer(p) => p, _ => rb_base);
     rb_hops = (rb_hops + usize(1));
   });
   if(rb_hops > usize(0), {
@@ -318,48 +318,48 @@ type_implements_runtime_builtin :: (fn(ty : TypeValue) -> Option(bool))({
   match(
     type_value_tag(ty),
     // Comptime-only — never Runtime
-    .TComptimeInt =>.Some(false),
-    .TComptimeFloat =>.Some(false),
-    .TComptimeString =>.Some(false),
-    .TType =>.Some(false),
-    .TModule =>.Some(false),
-    .TTrait =>.Some(false),
-    .TExpr =>.Some(false),
-    .TComptimeList =>.Some(false),
+    .TComptimeInt => .Some(false),
+    .TComptimeFloat => .Some(false),
+    .TComptimeString => .Some(false),
+    .TType => .Some(false),
+    .TModule => .Some(false),
+    .TTrait => .Some(false),
+    .TExpr => .Some(false),
+    .TComptimeList => .Some(false),
     // Runtime-only
-    .TIso =>.Some(true),
-    .TDyn =>.Some(true),
-    .TVoid =>.Some(true),
-    .TCChar =>.Some(true),
-    .TCShort =>.Some(true),
-    .TCUShort =>.Some(true),
-    .TCInt =>.Some(true),
-    .TCUInt =>.Some(true),
-    .TCLong =>.Some(true),
-    .TCULong =>.Some(true),
-    .TCLongLong =>.Some(true),
-    .TCULongLong =>.Some(true),
-    .TCLongDouble =>.Some(true),
+    .TIso => .Some(true),
+    .TDyn => .Some(true),
+    .TVoid => .Some(true),
+    .TCChar => .Some(true),
+    .TCShort => .Some(true),
+    .TCUShort => .Some(true),
+    .TCInt => .Some(true),
+    .TCUInt => .Some(true),
+    .TCLong => .Some(true),
+    .TCULong => .Some(true),
+    .TCLongLong => .Some(true),
+    .TCULongLong => .Some(true),
+    .TCLongDouble => .Some(true),
     // Available in both
-    .TUnit =>.Some(true),
-    .TBool =>.Some(true),
-    .TUsize =>.Some(true),
-    .TIsize =>.Some(true),
-    .TU8 =>.Some(true),
-    .TI8 =>.Some(true),
-    .TU16 =>.Some(true),
-    .TI16 =>.Some(true),
-    .TU32 =>.Some(true),
-    .TI32 =>.Some(true),
-    .TU64 =>.Some(true),
-    .TI64 =>.Some(true),
-    .TF32 =>.Some(true),
-    .TF64 =>.Some(true),
-    .TStr =>.Some(true),
-    .TFunction =>.Some(true),
-    .TUnion =>.Some(true),
+    .TUnit => .Some(true),
+    .TBool => .Some(true),
+    .TUsize => .Some(true),
+    .TIsize => .Some(true),
+    .TU8 => .Some(true),
+    .TI8 => .Some(true),
+    .TU16 => .Some(true),
+    .TI16 => .Some(true),
+    .TU32 => .Some(true),
+    .TI32 => .Some(true),
+    .TU64 => .Some(true),
+    .TI64 => .Some(true),
+    .TF32 => .Some(true),
+    .TF64 => .Some(true),
+    .TStr => .Some(true),
+    .TFunction => .Some(true),
+    .TUnion => .Some(true),
     // Undecided — would need the env / Runtime trait to settle.
-    _ =>.None
+    _ => .None
   )
 });
 /// Best-effort `typeImplementsRuntime`. Uses the tag fast path; for
@@ -1014,7 +1014,7 @@ _collect_some_types_into :: (
       (i : usize) = usize(0);
       n := args_list.len();
       while(i < n, {
-        match(args_list.get(i),.Some(a) => recur(a, acc, visited_ids),.None => ());
+        match(args_list.get(i), .Some(a) => recur(a, acc, visited_ids), .None => ());
         i = (i + usize(1));
       });
     },
@@ -1030,12 +1030,12 @@ _collect_some_types_into :: (
     .Func({ forall_types : ftys, param_types : ptys, result : res }) => {
       (i : usize) = usize(0);
       while(i < ftys.len(), {
-        match(ftys.get(i),.Some(ft) => recur(ft, acc, visited_ids),.None => ());
+        match(ftys.get(i), .Some(ft) => recur(ft, acc, visited_ids), .None => ());
         i = (i + usize(1));
       });
       (j : usize) = usize(0);
       while(j < ptys.len(), {
-        match(ptys.get(j),.Some(pt) => recur(pt, acc, visited_ids),.None => ());
+        match(ptys.get(j), .Some(pt) => recur(pt, acc, visited_ids), .None => ());
         j = (j + usize(1));
       });
       recur(res, acc, visited_ids);
@@ -1043,7 +1043,7 @@ _collect_some_types_into :: (
     .Tuple(_, field_types : ftys) => {
       (i : usize) = usize(0);
       while(i < ftys.len(), {
-        match(ftys.get(i),.Some(ft) => recur(ft, acc, visited_ids),.None => ());
+        match(ftys.get(i), .Some(ft) => recur(ft, acc, visited_ids), .None => ());
         i = (i + usize(1));
       });
     },
@@ -1061,7 +1061,7 @@ _collect_some_types_into :: (
       });
       (i : usize) = usize(0);
       while(i < ftys.len(), {
-        match(ftys.get(i),.Some(ft) => recur(ft, acc, visited_ids),.None => ());
+        match(ftys.get(i), .Some(ft) => recur(ft, acc, visited_ids), .None => ());
         i = (i + usize(1));
       });
     },
@@ -1080,7 +1080,7 @@ _collect_some_types_into :: (
           .Some(field_list) => {
             (fi : usize) = usize(0);
             while(fi < field_list.len(), {
-              match(field_list.get(fi),.Some(ft) => recur(ft, acc, visited_ids),.None => ());
+              match(field_list.get(fi), .Some(ft) => recur(ft, acc, visited_ids), .None => ());
               fi = (fi + usize(1));
             });
           },
@@ -1116,14 +1116,14 @@ fields_have_incompatible_contexts :: (fn(fts : ArrayList(TypeValue)) -> bool)({
   (has_rt_only : bool) = false;
   (fi : usize) = usize(0);
   while(fi < fts.len(), {
-    (ft : TypeValue) = match(fts.get(fi),.Some(t) => t,.None => TypeValue.Unit);
+    (ft : TypeValue) = match(fts.get(fi), .Some(t) => t, .None => TypeValue.Unit);
     fi = (fi + usize(1));
     // A pointer field classifies by its POINTEE (`*(Self)` / `*(i32)` are
     // both-context; `*(Box(i32))` is runtime-only — tests/basic arm 10's
     // SelfRecursive structs). Unwrap before classifying.
     (fo_hops : usize) = usize(0);
-    while(match(ft,.Pointer(_) => (fo_hops < usize(8)), _ => false), {
-      ft = match(ft,.Pointer(p) => p, _ => ft);
+    while(match(ft, .Pointer(_) => (fo_hops < usize(8)), _ => false), {
+      ft = match(ft, .Pointer(p) => p, _ => ft);
       fo_hops = (fo_hops + usize(1));
     });
     // A reference-semantics struct (object type) is runtime-only REGARDLESS
@@ -1204,7 +1204,7 @@ type_somes_all_resolve_concrete :: (fn(ty : TypeValue) -> bool)({
   (ok : bool) = true;
   (i : usize) = usize(0);
   while((i < somes.len()) && ok, {
-    st := match(somes.get(i),.Some(t) => t,.None => TypeValue.Unit);
+    st := match(somes.get(i), .Some(t) => t, .None => TypeValue.Unit);
     (cur : TypeValue) = st;
     (seen : ArrayList(String)) = ArrayList(String).new();
     (walk : bool) = true;
@@ -1319,10 +1319,10 @@ SizeFn :: (fn(ty : TypeValue) -> Option(usize));
 (g_size_of_type_fn : Option(SizeFn)) = Option(SizeFn).None;
 (g_alignment_of_type_fn : Option(SizeFn)) = Option(SizeFn).None;
 _size_via_slot :: (fn(ty : TypeValue) -> Option(usize))(
-  match(g_size_of_type_fn,.Some(f) => f(ty),.None => Option(usize).None)
+  match(g_size_of_type_fn, .Some(f) => f(ty), .None => Option(usize).None)
 );
 _align_via_slot :: (fn(ty : TypeValue) -> Option(usize))(
-  match(g_alignment_of_type_fn,.Some(f) => f(ty),.None => Option(usize).None)
+  match(g_alignment_of_type_fn, .Some(f) => f(ty), .None => Option(usize).None)
 );
 /// Larger of two `usize`.
 _max_usize :: (fn(a : usize, b : usize) -> usize)(cond((a >= b) => a, true => b));
@@ -1353,7 +1353,7 @@ _max_field_alignment :: (fn(fts : ArrayList(TypeValue)) -> Option(usize))({
   (i : usize) = usize(0);
   n := fts.len();
   while((i < n) && !(unknown), {
-    ft := match(fts.get(i),.Some(t) => t,.None => TypeValue.Unit);
+    ft := match(fts.get(i), .Some(t) => t, .None => TypeValue.Unit);
     match(
       _align_via_slot(ft),
       .Some(a) => {
@@ -1378,7 +1378,7 @@ _aggregate_size :: (fn(fts : ArrayList(TypeValue)) -> Option(usize))({
   (i : usize) = usize(0);
   n := fts.len();
   while((i < n) && !(unknown), {
-    ft := match(fts.get(i),.Some(t) => t,.None => TypeValue.Unit);
+    ft := match(fts.get(i), .Some(t) => t, .None => TypeValue.Unit);
     match(
       _size_via_slot(ft),
       .Some(fbits) => match(
@@ -1415,45 +1415,45 @@ get_alignment_of_type :: (fn(ty_in : TypeValue) -> Option(usize))({
   match(
     ty,
     // comptime-only types have minimal alignment
-    .Unit =>.Some(usize(1)),
-    .ComptimeInt =>.Some(usize(1)),
-    .ComptimeFloat =>.Some(usize(1)),
-    .ComptimeString =>.Some(usize(1)),
-    .Void =>.Some(usize(1)),
-    .TypeUni(_) =>.Some(usize(1)),
+    .Unit => .Some(usize(1)),
+    .ComptimeInt => .Some(usize(1)),
+    .ComptimeFloat => .Some(usize(1)),
+    .ComptimeString => .Some(usize(1)),
+    .Void => .Some(usize(1)),
+    .TypeUni(_) => .Some(usize(1)),
     // Bool: 1 byte aligned
-    .BoolT =>.Some(usize(1)),
+    .BoolT => .Some(usize(1)),
     // Platform-sized integers: pointer-aligned
-    .Usize =>.Some(usize(get_target_pointer_size_bytes())),
-    .Isize =>.Some(usize(get_target_pointer_size_bytes())),
+    .Usize => .Some(usize(get_target_pointer_size_bytes())),
+    .Isize => .Some(usize(get_target_pointer_size_bytes())),
     // Fixed-width integers: bits/8 bytes
-    .Int({ bits : b }) =>.Some(usize(u32(b) / u32(8))),
+    .Int({ bits : b }) => .Some(usize(u32(b) / u32(8))),
     // Floating-point: bits/8 bytes
-    .Float({ bits : b }) =>.Some(usize(u32(b) / u32(8))),
+    .Float({ bits : b }) => .Some(usize(u32(b) / u32(8))),
     // C platform-dependent integers — return `.None`
-    .CChar =>.None,
-    .CShort =>.None,
-    .CUShort =>.None,
-    .CInt =>.None,
-    .CUInt =>.None,
-    .CLong =>.None,
-    .CULong =>.None,
-    .CLongLong =>.None,
-    .CULongLong =>.None,
-    .CLongDouble =>.None,
+    .CChar => .None,
+    .CShort => .None,
+    .CUShort => .None,
+    .CInt => .None,
+    .CUInt => .None,
+    .CLong => .None,
+    .CULong => .None,
+    .CLongLong => .None,
+    .CULongLong => .None,
+    .CLongDouble => .None,
     // Pointer and function types: pointer-aligned
-    .Pointer(_) =>.Some(usize(get_target_pointer_size_bytes())),
-    .Func({ result : _ }) =>.Some(usize(get_target_pointer_size_bytes())),
+    .Pointer(_) => .Some(usize(get_target_pointer_size_bytes())),
+    .Func({ result : _ }) => .Some(usize(get_target_pointer_size_bytes())),
     // Array: element alignment
     .Array({ element : el }) => recur(el),
     // str: pointer-aligned (fat pointer {ptr,len})
-    .Str =>.Some(usize(get_target_pointer_size_bytes())),
+    .Str => .Some(usize(get_target_pointer_size_bytes())),
     // Struct: reference-semantics (object) → pointer-aligned; newtype →
     // inner field's alignment; otherwise the max field alignment.
     .Struct({ field_types : sfts, is_reference_semantics : s_ref, is_newtype : s_nt }) =>
       cond(
         s_ref => Option(usize).Some(usize(get_target_pointer_size_bytes())),
-        (s_nt && (sfts.len() > usize(0))) => match(sfts.get(usize(0)),.Some(f0) => recur(f0),.None => Option(usize).None),
+        (s_nt && (sfts.len() > usize(0))) => match(sfts.get(usize(0)), .Some(f0) => recur(f0), .None => Option(usize).None),
         true => _max_field_alignment(sfts)
       ),
     // Tuple: max field alignment.
@@ -1472,7 +1472,7 @@ get_alignment_of_type :: (fn(ty_in : TypeValue) -> Option(usize))({
         (vi : usize) = usize(0);
         n_v := evf.len();
         while((vi < n_v) && !(unknown), {
-          vf := match(evf.get(vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
+          vf := match(evf.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
           match(
             _max_field_alignment(vf),
             .Some(a) => {
@@ -1487,7 +1487,7 @@ get_alignment_of_type :: (fn(ty_in : TypeValue) -> Option(usize))({
         cond(unknown => Option(usize).None, true => Option(usize).Some(acc))
       }
     ),
-    _ =>.None
+    _ => .None
   )
 });
 /// Return the size of `ty` in bits, or `.None` if not statically known.
@@ -1504,49 +1504,49 @@ get_size_of_type :: (fn(ty_in : TypeValue) -> Option(usize))({
   match(
     ty,
     // comptime-only / zero-size types
-    .Unit =>.Some(usize(0)),
-    .ComptimeInt =>.Some(usize(0)),
-    .ComptimeFloat =>.Some(usize(0)),
-    .ComptimeString =>.Some(usize(0)),
-    .Void =>.Some(usize(0)),
-    .TypeUni(_) =>.Some(usize(0)),
+    .Unit => .Some(usize(0)),
+    .ComptimeInt => .Some(usize(0)),
+    .ComptimeFloat => .Some(usize(0)),
+    .ComptimeString => .Some(usize(0)),
+    .Void => .Some(usize(0)),
+    .TypeUni(_) => .Some(usize(0)),
     // Bool: 1 byte = 8 bits
-    .BoolT =>.Some(usize(8)),
+    .BoolT => .Some(usize(8)),
     // Platform-sized integers
-    .Usize =>.Some(usize(get_target_pointer_size_bits())),
-    .Isize =>.Some(usize(get_target_pointer_size_bits())),
+    .Usize => .Some(usize(get_target_pointer_size_bits())),
+    .Isize => .Some(usize(get_target_pointer_size_bits())),
     // Fixed-width integers
-    .Int({ bits : b }) =>.Some(usize(b)),
+    .Int({ bits : b }) => .Some(usize(b)),
     // Floating-point
-    .Float({ bits : b }) =>.Some(usize(b)),
+    .Float({ bits : b }) => .Some(usize(b)),
     // C platform-dependent integers — return `.None` (platform-specific)
-    .CChar =>.None,
-    .CShort =>.None,
-    .CUShort =>.None,
-    .CInt =>.None,
-    .CUInt =>.None,
-    .CLong =>.None,
-    .CULong =>.None,
-    .CLongLong =>.None,
-    .CULongLong =>.None,
-    .CLongDouble =>.None,
+    .CChar => .None,
+    .CShort => .None,
+    .CUShort => .None,
+    .CInt => .None,
+    .CUInt => .None,
+    .CLong => .None,
+    .CULong => .None,
+    .CLongLong => .None,
+    .CULongLong => .None,
+    .CLongDouble => .None,
     // Pointer and function types are pointer-sized
-    .Pointer(_) =>.Some(usize(get_target_pointer_size_bits())),
-    .Func({ result : _ }) =>.Some(usize(get_target_pointer_size_bits())),
+    .Pointer(_) => .Some(usize(get_target_pointer_size_bits())),
+    .Func({ result : _ }) => .Some(usize(get_target_pointer_size_bits())),
     // Array: element size × length
     .Array({ element : el, length : n }) => match(
       recur(el),
-      .Some(elem_bits) =>.Some(elem_bits * n),
-      .None =>.None
+      .Some(elem_bits) => .Some(elem_bits * n),
+      .None => .None
     ),
     // str: fat pointer (pointer + length) = 2 × pointer size
-    .Str =>.Some(usize(u32(2) * get_target_pointer_size_bits())),
+    .Str => .Some(usize(u32(2) * get_target_pointer_size_bits())),
     // Struct: reference-semantics (object) → pointer-sized; newtype → inner
     // field's size; otherwise the C-laid-out aggregate size.
     .Struct({ field_types : sfts, is_reference_semantics : s_ref, is_newtype : s_nt }) =>
       cond(
         s_ref => Option(usize).Some(usize(get_target_pointer_size_bits())),
-        (s_nt && (sfts.len() > usize(0))) => match(sfts.get(usize(0)),.Some(f0) => recur(f0),.None => Option(usize).None),
+        (s_nt && (sfts.len() > usize(0))) => match(sfts.get(usize(0)), .Some(f0) => recur(f0), .None => Option(usize).None),
         true => _aggregate_size(sfts)
       ),
     // Tuple: C-laid-out aggregate size.
@@ -1558,7 +1558,7 @@ get_size_of_type :: (fn(ty_in : TypeValue) -> Option(usize))({
       (i : usize) = usize(0);
       n := ufts.len();
       while((i < n) && !(unknown), {
-        ft := match(ufts.get(i),.Some(t) => t,.None => TypeValue.Unit);
+        ft := match(ufts.get(i), .Some(t) => t, .None => TypeValue.Unit);
         match(
           recur(ft),
           .Some(s) => {
@@ -1587,7 +1587,7 @@ get_size_of_type :: (fn(ty_in : TypeValue) -> Option(usize))({
         (vi : usize) = usize(0);
         n_v := evf.len();
         while((vi < n_v) && !(unknown), {
-          vf := match(evf.get(vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
+          vf := match(evf.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
           match(
             _aggregate_size(vf),
             .Some(vbits) => match(
@@ -1621,7 +1621,7 @@ get_size_of_type :: (fn(ty_in : TypeValue) -> Option(usize))({
         )
       }
     ),
-    _ =>.None
+    _ => .None
   )
 });
 // Wire the function-pointer slots now that both functions are defined. Assigned
@@ -1652,7 +1652,7 @@ _type_repr_contains_raw_ptr :: (fn(ty : TypeValue, depth : usize) -> bool)(
         (i : usize) = usize(0);
         (found : bool) = false;
         while((i < fts.len()) && !(found), {
-          ft := match(fts.get(i),.Some(t) => t,.None => TypeValue.Unit);
+          ft := match(fts.get(i), .Some(t) => t, .None => TypeValue.Unit);
           if(recur(ft, depth - usize(1)), {
             found = true;
           });
@@ -1664,7 +1664,7 @@ _type_repr_contains_raw_ptr :: (fn(ty : TypeValue, depth : usize) -> bool)(
         (i : usize) = usize(0);
         (found : bool) = false;
         while((i < fts.len()) && !(found), {
-          ft := match(fts.get(i),.Some(t) => t,.None => TypeValue.Unit);
+          ft := match(fts.get(i), .Some(t) => t, .None => TypeValue.Unit);
           if(recur(ft, depth - usize(1)), {
             found = true;
           });
@@ -1676,7 +1676,7 @@ _type_repr_contains_raw_ptr :: (fn(ty : TypeValue, depth : usize) -> bool)(
         (i : usize) = usize(0);
         (found : bool) = false;
         while((i < fts.len()) && !(found), {
-          ft := match(fts.get(i),.Some(t) => t,.None => TypeValue.Unit);
+          ft := match(fts.get(i), .Some(t) => t, .None => TypeValue.Unit);
           if(recur(ft, depth - usize(1)), {
             found = true;
           });
@@ -1688,10 +1688,10 @@ _type_repr_contains_raw_ptr :: (fn(ty : TypeValue, depth : usize) -> bool)(
         (vi : usize) = usize(0);
         (found : bool) = false;
         while((vi < vfs.len()) && !(found), {
-          vf := match(vfs.get(vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
+          vf := match(vfs.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
           (fi : usize) = usize(0);
           while((fi < vf.len()) && !(found), {
-            ft := match(vf.get(fi),.Some(t) => t,.None => TypeValue.Unit);
+            ft := match(vf.get(fi), .Some(t) => t, .None => TypeValue.Unit);
             if(recur(ft, depth - usize(1)), {
               found = true;
             });
@@ -1726,7 +1726,7 @@ _type_provides_slice_source :: (fn(ty : TypeValue, depth : usize) -> bool)(
         (i : usize) = usize(0);
         (found : bool) = false;
         while((i < fts.len()) && !(found), {
-          ft := match(fts.get(i),.Some(t) => t,.None => TypeValue.Unit);
+          ft := match(fts.get(i), .Some(t) => t, .None => TypeValue.Unit);
           if(recur(ft, depth - usize(1)), {
             found = true;
           });
@@ -1738,7 +1738,7 @@ _type_provides_slice_source :: (fn(ty : TypeValue, depth : usize) -> bool)(
         (i : usize) = usize(0);
         (found : bool) = false;
         while((i < fts.len()) && !(found), {
-          ft := match(fts.get(i),.Some(t) => t,.None => TypeValue.Unit);
+          ft := match(fts.get(i), .Some(t) => t, .None => TypeValue.Unit);
           if(recur(ft, depth - usize(1)), {
             found = true;
           });
@@ -1750,7 +1750,7 @@ _type_provides_slice_source :: (fn(ty : TypeValue, depth : usize) -> bool)(
         (i : usize) = usize(0);
         (found : bool) = false;
         while((i < fts.len()) && !(found), {
-          ft := match(fts.get(i),.Some(t) => t,.None => TypeValue.Unit);
+          ft := match(fts.get(i), .Some(t) => t, .None => TypeValue.Unit);
           if(recur(ft, depth - usize(1)), {
             found = true;
           });
@@ -1762,10 +1762,10 @@ _type_provides_slice_source :: (fn(ty : TypeValue, depth : usize) -> bool)(
         (vi : usize) = usize(0);
         (found : bool) = false;
         while((vi < vfs.len()) && !(found), {
-          vf := match(vfs.get(vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
+          vf := match(vfs.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
           (fi : usize) = usize(0);
           while((fi < vf.len()) && !(found), {
-            ft := match(vf.get(fi),.Some(t) => t,.None => TypeValue.Unit);
+            ft := match(vf.get(fi), .Some(t) => t, .None => TypeValue.Unit);
             if(recur(ft, depth - usize(1)), {
               found = true;
             });

@@ -214,7 +214,7 @@ test("RuntimeDestructuring construction", {
 test("new_expr_info creates ExprInfo with None optionals", {
   env := Environment.new(String.from("test"));
   info := new_expr_info(env, TypeValue.BoolT);
-  ty_ok := match(info.ty,.BoolT => true, _ => false);
+  ty_ok := match(info.ty, .BoolT => true, _ => false);
   assert(ty_ok, "ty set to BoolT");
   assert(info.path_collection.len() == usize(0), "path_collection empty");
   assert(info.value == Option(EvalValue).None, "value is None");
@@ -224,6 +224,6 @@ test("new_expr_info creates ExprInfo with None optionals", {
 test("new_expr_info env field is set", {
   env := Environment.new(String.from("mod/path"));
   info := new_expr_info(env, TypeValue.Int(u8(32), true));
-  ty_ok := match(info.ty,.Int(bits, signed) => ((bits == u8(32)) && signed), _ => false);
+  ty_ok := match(info.ty, .Int(bits, signed) => ((bits == u8(32)) && signed), _ => false);
   assert(ty_ok, "ty is i32");
 });

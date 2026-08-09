@@ -327,7 +327,7 @@ impl(
   get_type_entry : (fn(self : Self, id : String) -> Option(CodegenTypeEntry))(
     match(
       self.types.get(id.clone()),
-      .Some(e) =>.Some(e),
+      .Some(e) => .Some(e),
       .None => match(
         self.type_key_aliases.get(id),
         .Some(target) => self.types.get(target),
@@ -346,7 +346,7 @@ impl(
     // `(__yo_enum_yo_id_N _file____tmp__temp_M)`). TS strings are immutable, so
     // this aliasing hazard does not exist there; cloning here restores that
     // contract. See issues/fixed/codegen-runtime-enum-sibling-cname-pollution.md.
-    match(self.get_type_entry(id),.Some(entry) =>.Some(entry.c_name.clone()),.None =>.None)
+    match(self.get_type_entry(id), .Some(entry) => .Some(entry.c_name.clone()), .None => .None)
   ),
   /// The per-expression evaluation metadata for `expr` (TS `expr.$`), or
   /// `.None` if the node was never evaluated.
@@ -481,12 +481,12 @@ get_runtime_struct_fields :: (fn(struct_type : TypeValue) -> ArrayList(RuntimeSt
       while(fi < n, {
         is_comptime := match(
           flags_opt,
-          .Some(flags) => match(flags.get(fi),.Some(f) => f,.None => false),
+          .Some(flags) => match(flags.get(fi), .Some(f) => f, .None => false),
           .None => false
         );
         if(!(is_comptime), {
-          label := match(field_labels.get(fi),.Some(l) => l,.None => String.from(""));
-          ty := match(field_types.get(fi),.Some(t) => t,.None => TypeValue.Unit);
+          label := match(field_labels.get(fi), .Some(l) => l, .None => String.from(""));
+          ty := match(field_types.get(fi), .Some(t) => t, .None => TypeValue.Unit);
           result.push(RuntimeStructField(label : label, ty : ty));
         });
         fi = (fi + usize(1));
@@ -608,11 +608,11 @@ should_avoid_const :: (fn(t : TypeValue) -> bool)(
 _fn_call_callee_name :: (fn(e : AstExpr) -> Option(String))(
   match(
     e,
-    .Atom(_, _) =>.None,
+    .Atom(_, _) => .None,
     .FnCall(_, func_box, _, _, _) => match(
       func_box,
-      .Atom(_, tok) =>.Some(tok.value),
-      .FnCall(_, _, _, _, _) =>.None
+      .Atom(_, tok) => .Some(tok.value),
+      .FnCall(_, _, _, _, _) => .None
     )
   )
 );
@@ -625,8 +625,8 @@ _unwrap_unsafe :: (fn(e : AstExpr) -> AstExpr)(
     e,
     .Atom(_, _) => e,
     .FnCall(_, _, args, _, _) => if(
-      ast_expr_is_fn_call_of(e, BF_UNSAFE,.None) && (args.len() == usize(1)),
-      match(args.get(usize(0)),.Some(a) => a,.None => e),
+      ast_expr_is_fn_call_of(e, BF_UNSAFE, .None) && (args.len() == usize(1)),
+      match(args.get(usize(0)), .Some(a) => a, .None => e),
       e
     )
   )
@@ -639,29 +639,29 @@ _unwrap_unsafe :: (fn(e : AstExpr) -> AstExpr)(
 is_function_value_with_only_builtin_yo_inline_function_call :: (
   fn(fv : EvalValue) -> Option(String)
 )({
-  body_box := match(fv,.FuncVal(__fvd1, _) => __fvd1.*.body, _ => return(.None));
+  body_box := match(fv, .FuncVal(__fvd1, _) => __fvd1.*.body, _ => return(.None));
   body := _unwrap_unsafe(body_box);
   operator_name := match(
     body,
     .Atom(_, _) => Option(String).None,
-    .FnCall(_, _, body_args, _, _) => if(ast_expr_is_fn_call_of(body, BK_BEGIN,.None) && (body_args.len() == usize(1)), {
-      inner := _unwrap_unsafe(match(body_args.get(usize(0)),.Some(a) => a,.None => body));
+    .FnCall(_, _, body_args, _, _) => if(ast_expr_is_fn_call_of(body, BK_BEGIN, .None) && (body_args.len() == usize(1)), {
+      inner := _unwrap_unsafe(match(body_args.get(usize(0)), .Some(a) => a, .None => body));
       match(
         _fn_call_callee_name(inner),
-        .Some(callee) => if(is_builtin_yo_inline_function(callee),.Some(callee),.None),
+        .Some(callee) => if(is_builtin_yo_inline_function(callee), .Some(callee), .None),
         .None => Option(String).None
       )
     }, match(
       _fn_call_callee_name(body),
-      .Some(callee) => if(is_builtin_yo_inline_function(callee),.Some(callee),.None),
+      .Some(callee) => if(is_builtin_yo_inline_function(callee), .Some(callee), .None),
       .None => Option(String).None
     ))
   );
   // Don't inline __yo_as — it needs proper call handling for complex args.
   match(
     operator_name,
-    .Some(op) => if(op == BF_YO_AS, Option(String).None,.Some(op)),
-    .None =>.None
+    .Some(op) => if(op == BF_YO_AS, Option(String).None, .Some(op)),
+    .None => .None
   )
 });
 /// Check if an enum can be optimized as a nullable pointer. Returns the
@@ -676,11 +676,11 @@ can_optimize_as_nullable_pointer :: (fn(t : TypeValue) -> Option(TypeValue))(
         return(.None);
       });
       (empty_found : bool) = false;
-      (pointer_type : Option(TypeValue)) =.None;
+      (pointer_type : Option(TypeValue)) = .None;
       (valid : bool) = true;
       (vi : usize) = usize(0);
       while(valid && (vi < usize(2)), {
-        fields := match(variant_fields.get(vi),.Some(f) => f,.None => ArrayList(TypeValue).new());
+        fields := match(variant_fields.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
         fc := fields.len();
         cond(
           (fc == usize(0)) => {
@@ -691,7 +691,7 @@ can_optimize_as_nullable_pointer :: (fn(t : TypeValue) -> Option(TypeValue))(
             });
           },
           (fc == usize(1)) => {
-            child := match(fields.get(usize(0)),.Some(c) => c,.None => return(.None));
+            child := match(fields.get(usize(0)), .Some(c) => c, .None => return(.None));
             cond(
               is_pointer_type(child) => {
                 match(
@@ -700,7 +700,7 @@ can_optimize_as_nullable_pointer :: (fn(t : TypeValue) -> Option(TypeValue))(
                     valid = false;
                   },
                   .None => {
-                    pointer_type =.Some(child);
+                    pointer_type = .Some(child);
                   }
                 );
               },
@@ -1031,7 +1031,7 @@ get_type_string :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
       // to the unresolved fallback instead of recursing forever.
       cond(
         _gts_stack_contains(sid) => Option(TypeValue).None,
-        true => match(src.get(usize(0)),.Some(rc0) => Option(TypeValue).Some(rc0),.None => lookup_some_resolved_concrete(sid))
+        true => match(src.get(usize(0)), .Some(rc0) => Option(TypeValue).Some(rc0), .None => lookup_some_resolved_concrete(sid))
       ),
       .Some(rct) => {
         g_gts_some_stack.push(sid.clone());
@@ -1205,12 +1205,12 @@ get_variable_name_for_codegen :: (fn(variable_name : String, env : Option(Enviro
       n := variables.len();
       cond(
         (n > usize(0)) => {
-          variable := match(variables.get(n - usize(1)),.Some(v) => v,.None => return(sanitize_for_c_identifier(variable_name.clone(), false)));
+          variable := match(variables.get(n - usize(1)), .Some(v) => v, .None => return(sanitize_for_c_identifier(variable_name.clone(), false)));
           // Extern-C: a Func with is_extern="c", OR a c_include'd GLOBAL symbol
           // (`stdout`/`stderr` — non-Func, so it can't carry is_extern on its type;
           // tracked in the g_extern_c_globals registry). Either way, keep the REAL
           // C name (skip the `__yo_c_reserved_` reserved-word prefix).
-          is_extern_c_fn := match(variable.ty,.Func({ meta : __fm1 }) => match(__fm1.*.is_extern,.Some(lang) => (lang == "c"),.None => false), _ => false);
+          is_extern_c_fn := match(variable.ty, .Func({ meta : __fm1 }) => match(__fm1.*.is_extern, .Some(lang) => (lang == "c"), .None => false), _ => false);
           // The registry is NAME-keyed, but TS's rule is per-RESOLVED-variable
           // (`variable.type.isExtern === "c"` — extern-ness rides the TYPE):
           // a LOCAL binding that merely shares the name (IoError.from_errno's
@@ -1289,7 +1289,7 @@ get_variable_name_for_codegen :: (fn(variable_name : String, env : Option(Enviro
 get_deferred_dup_target_atom_name :: (fn(dup_expr : AstExpr) -> Option(String))(
   match(
     dup_expr,
-    .Atom(_, _) =>.None,
+    .Atom(_, _) => .None,
     .FnCall(_, func_box, args, _, _) => {
       // Form 1: first arg is an atom.
       if(args.len() >= usize(1), {
@@ -1297,7 +1297,7 @@ get_deferred_dup_target_atom_name :: (fn(dup_expr : AstExpr) -> Option(String))(
           args.get(usize(0)),
           .Some(first_arg) => {
             if(ast_expr_is_atom(first_arg), {
-              return(.Some(match(first_arg,.Atom(_, tok) => tok.value,.FnCall(_, _, _, _, _) => String.from(""))));
+              return(.Some(match(first_arg, .Atom(_, tok) => tok.value, .FnCall(_, _, _, _, _) => String.from(""))));
             });
           },
           .None => ()
@@ -1308,15 +1308,15 @@ get_deferred_dup_target_atom_name :: (fn(dup_expr : AstExpr) -> Option(String))(
         match(
           func_box,
           .FnCall(_, _, dot_args, _, _) => {
-            if(ast_expr_is_fn_call_of(func_box, BF_DOT,.Some(usize(2))), {
-              first_ok := match(dot_args.get(usize(0)),.Some(a) => ast_expr_is_atom(a),.None => false);
+            if(ast_expr_is_fn_call_of(func_box, BF_DOT, .Some(usize(2))), {
+              first_ok := match(dot_args.get(usize(0)), .Some(a) => ast_expr_is_atom(a), .None => false);
               second_is_dup := match(
                 dot_args.get(usize(1)),
-                .Some(a) => match(a,.Atom(_, tok) => (tok.value == BF_DUP),.FnCall(_, _, _, _, _) => false),
+                .Some(a) => match(a, .Atom(_, tok) => (tok.value == BF_DUP), .FnCall(_, _, _, _, _) => false),
                 .None => false
               );
               if(first_ok && second_is_dup, {
-                return(.Some(match(dot_args.get(usize(0)),.Some(a) => match(a,.Atom(_, tok) => tok.value,.FnCall(_, _, _, _, _) => String.from("")),.None => String.from(""))));
+                return(.Some(match(dot_args.get(usize(0)), .Some(a) => match(a, .Atom(_, tok) => tok.value, .FnCall(_, _, _, _, _) => String.from("")), .None => String.from(""))));
               });
             });
           },
@@ -1334,22 +1334,22 @@ get_deferred_dup_target_atom_name :: (fn(dup_expr : AstExpr) -> Option(String))(
 get_deferred_drop_target_atom_name :: (fn(drop_expr : AstExpr) -> Option(String))(
   match(
     drop_expr,
-    .Atom(_, _) =>.None,
+    .Atom(_, _) => .None,
     .FnCall(_, func_box, args, _, _) => {
       // Form A: (varName.___drop)() with zero args.
       if(args.len() == usize(0), {
         match(
           func_box,
           .FnCall(_, _, dot_args, _, _) => {
-            if(ast_expr_is_fn_call_of(func_box, BF_DOT,.Some(usize(2))), {
+            if(ast_expr_is_fn_call_of(func_box, BF_DOT, .Some(usize(2))), {
               second_is_drop := match(
                 dot_args.get(usize(1)),
-                .Some(a) => match(a,.Atom(_, tok) => (tok.value == BF_DROP),.FnCall(_, _, _, _, _) => false),
+                .Some(a) => match(a, .Atom(_, tok) => (tok.value == BF_DROP), .FnCall(_, _, _, _, _) => false),
                 .None => false
               );
-              first_is_atom := match(dot_args.get(usize(0)),.Some(a) => ast_expr_is_atom(a),.None => false);
+              first_is_atom := match(dot_args.get(usize(0)), .Some(a) => ast_expr_is_atom(a), .None => false);
               if(second_is_drop && first_is_atom, {
-                return(.Some(match(dot_args.get(usize(0)),.Some(a) => match(a,.Atom(_, tok) => tok.value,.FnCall(_, _, _, _, _) => String.from("")),.None => String.from(""))));
+                return(.Some(match(dot_args.get(usize(0)), .Some(a) => match(a, .Atom(_, tok) => tok.value, .FnCall(_, _, _, _, _) => String.from("")), .None => String.from(""))));
               });
             });
           },
@@ -1357,12 +1357,12 @@ get_deferred_drop_target_atom_name :: (fn(drop_expr : AstExpr) -> Option(String)
         );
       });
       // Form B: ___drop(varName).
-      if(ast_expr_is_fn_call_of(drop_expr, BF_DROP,.None) && (args.len() >= usize(1)), {
+      if(ast_expr_is_fn_call_of(drop_expr, BF_DROP, .None) && (args.len() >= usize(1)), {
         match(
           args.get(usize(0)),
           .Some(first_arg) => {
             if(ast_expr_is_atom(first_arg), {
-              return(.Some(match(first_arg,.Atom(_, tok) => tok.value,.FnCall(_, _, _, _, _) => String.from(""))));
+              return(.Some(match(first_arg, .Atom(_, tok) => tok.value, .FnCall(_, _, _, _, _) => String.from(""))));
             });
           },
           .None => ()
@@ -1395,13 +1395,13 @@ is_deferred_drop_for_closure_capture :: (
 find_returned_async_block :: (fn(expr : Option(AstExpr)) -> Option(AstExpr))(
   match(
     expr,
-    .None =>.None,
+    .None => .None,
     .Some(e) => cond(
-      is_io_async_call(e) =>.Some(e),
+      is_io_async_call(e) => .Some(e),
       ast_expr_is_fn_call(e) => match(
         e,
         .FnCall(_, _, args, _, _) => {
-          (found : Option(AstExpr)) =.None;
+          (found : Option(AstExpr)) = .None;
           n := args.len();
           (ai : usize) = usize(0);
           while(ai < n, {

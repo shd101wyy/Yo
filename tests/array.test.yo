@@ -140,18 +140,18 @@ test("Test array slice copies (value semantics)", {
   full_copy := arr(usize(0) .. usize(4));
   part := arr(usize(1) .. usize(3));
   assert(part.len() == usize(2));
-  assert(match(part.get(usize(0)),.Some(v) => (v == 2),.None => false));
-  assert(match(part.get(usize(1)),.Some(v) => (v == 3),.None => false));
+  assert(match(part.get(usize(0)), .Some(v) => (v == 2), .None => false));
+  assert(match(part.get(usize(1)), .Some(v) => (v == 3), .None => false));
   // Mutating the copy leaves the array untouched.
   part(usize(0)) = i32(10);
   assert(arr(1) == 2);
-  assert(match(part.get(usize(0)),.Some(v) => (v == 10),.None => false));
+  assert(match(part.get(usize(0)), .Some(v) => (v == 10), .None => false));
   // Sub-slicing the copy copies again.
   sub := part(usize(0) .. usize(2));
   assert(sub.len() == usize(2));
-  assert(match(sub.get(usize(0)),.Some(v) => (v == 10),.None => false));
+  assert(match(sub.get(usize(0)), .Some(v) => (v == 10), .None => false));
   assert(full_copy.len() == usize(4));
-  assert(match(full_copy.get(usize(3)),.Some(v) => (v == 4),.None => false));
+  assert(match(full_copy.get(usize(3)), .Some(v) => (v == 4), .None => false));
 });
 // ===== Array Iterator Tests =====
 // Value-form iteration: `for(arr, (x) => body)` calls `arr.into_iter()`
@@ -212,8 +212,8 @@ test("Range copy - mutation stays in the copy", {
     i = (i + usize(1));
   });
   assert(arr(0) == i32(1), "source untouched");
-  assert(match(copy.get(usize(0)),.Some(v) => (v == i32(6)),.None => false), "copy mutated");
-  assert(match(copy.get(usize(2)),.Some(v) => (v == i32(8)),.None => false), "copy mutated end");
+  assert(match(copy.get(usize(0)), .Some(v) => (v == i32(6)), .None => false), "copy mutated");
+  assert(match(copy.get(usize(2)), .Some(v) => (v == i32(8)), .None => false), "copy mutated end");
 });
 test("Range copy iter - partial range", {
   arr := [i32(10), i32(20), i32(30), i32(40)];

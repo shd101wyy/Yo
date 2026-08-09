@@ -23,12 +23,12 @@ type_of_literal :: (fn(e : AstExpr) -> Option(TypeValue))(
   match(
     e,
     .Atom(_, tok) => cond(
-      (tok.kind == TokenKind.Bool) =>.Some(t_bool()),
-      (tok.kind == TokenKind.Integer) =>.Some(t_comptime_int()),
-      (tok.kind == TokenKind.Float) =>.Some(t_comptime_float()),
-      (tok.kind == TokenKind.StringLit) =>.Some(t_comptime_string()),
-      (tok.kind == TokenKind.TemplateString) =>.Some(t_comptime_string()),
-      (tok.kind == TokenKind.CharLit) =>.Some(t_u32()),
+      (tok.kind == TokenKind.Bool) => .Some(t_bool()),
+      (tok.kind == TokenKind.Integer) => .Some(t_comptime_int()),
+      (tok.kind == TokenKind.Float) => .Some(t_comptime_float()),
+      (tok.kind == TokenKind.StringLit) => .Some(t_comptime_string()),
+      (tok.kind == TokenKind.TemplateString) => .Some(t_comptime_string()),
+      (tok.kind == TokenKind.CharLit) => .Some(t_u32()),
       true => Option(TypeValue).None
     ),
     .FnCall(_, _, _, _, _) => Option(TypeValue).None

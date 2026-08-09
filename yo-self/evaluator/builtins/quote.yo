@@ -62,7 +62,7 @@ _is_spread_unquote :: (fn(e : AstExpr) -> bool)(
   match(
     e,
     .FnCall(_, fb, args, _, _) => {
-      is_spread := match(fb,.Atom(_, tok) => (tok.value == BK_SPREAD), _ => false);
+      is_spread := match(fb, .Atom(_, tok) => (tok.value == BK_SPREAD), _ => false);
       if(!(is_spread), {
         return(false);
       });
@@ -142,7 +142,7 @@ process_unquotes_in_expr :: (
         val := match(
           arg_info.value,
           .None => {
-            exn.throw(dyn(format_error_message(tok, String.from("unquote: argument must have a compile-time value"), false,.None)));
+            exn.throw(dyn(format_error_message(tok, String.from("unquote: argument must have a compile-time value"), false, .None)));
             EvalValue.ExprVal(make_err_expr())
           },
           .Some(v) => v
@@ -152,7 +152,7 @@ process_unquotes_in_expr :: (
           if(is_unknown_val(val), {
             return(expr);
           });
-          exn.throw(dyn(format_error_message(tok, String.from("unquote: expected Expr type"), false,.None)));
+          exn.throw(dyn(format_error_message(tok, String.from("unquote: expected Expr type"), false, .None)));
         });
         if(is_unknown_val(val), {
           return(expr);
@@ -164,7 +164,7 @@ process_unquotes_in_expr :: (
           val,
           .ExprVal(eb) => clone_expr_fresh_ids(eb),
           _ => {
-            exn.throw(dyn(format_error_message(tok, String.from("unquote: expected ExprVal"), false,.None)));
+            exn.throw(dyn(format_error_message(tok, String.from("unquote: expected ExprVal"), false, .None)));
             make_err_expr()
           }
         );
@@ -191,9 +191,9 @@ process_unquotes_in_expr :: (
                 .FnCall(_, _, splice_args, _, _) =>
                   if(_is_spread_unquote(arg), {
                     // ...#(x): arg is spread(...), its first arg is #(x)
-                    inner_arg := match(splice_args.get(usize(0)),.Some(a) => a,.None => arg);
-                    match(inner_arg,.FnCall(_, _, ia2, _, _) => match(ia2.get(usize(0)),.Some(a) => a,.None => arg),.Atom(_, _) => arg)
-                  }, match(splice_args.get(usize(0)),.Some(a) => a,.None => arg)),
+                    inner_arg := match(splice_args.get(usize(0)), .Some(a) => a, .None => arg);
+                    match(inner_arg, .FnCall(_, _, ia2, _, _) => match(ia2.get(usize(0)), .Some(a) => a, .None => arg), .Atom(_, _) => arg)
+                  }, match(splice_args.get(usize(0)), .Some(a) => a, .None => arg)),
                 .Atom(_, _) => arg
               );
               eval_splice := evaluate_expression_raw(splice_inner, env, ctx, exn);
@@ -241,7 +241,7 @@ process_unquotes_in_expr :: (
                                   .None => (),
                                   .Some(elem) => {
                                     if(is_expr_val(elem), {
-                                      inner_node := match(elem,.ExprVal(eb) => clone_expr_fresh_ids(eb), _ => arg);
+                                      inner_node := match(elem, .ExprVal(eb) => clone_expr_fresh_ids(eb), _ => arg);
                                       new_args.push(inner_node);
                                     }, {
                                       new_args.push(arg);

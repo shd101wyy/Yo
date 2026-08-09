@@ -381,7 +381,7 @@ _find_all_index_methods :: (
               match(
                 ty_opt,
                 .Some(fty) => {
-                  if(match(fty,.Func({ result : _ }) => true, _ => false), {
+                  if(match(fty, .Func({ result : _ }) => true, _ => false), {
                     result.push(
                       _IndexMethodEntry(
                         method_type : fty,
@@ -416,7 +416,7 @@ _find_all_index_methods :: (
       match(
         reg_methods.get(ri),
         .Some(m) => {
-          if(match(m.ty,.Func({ result : _ }) => true, _ => false), {
+          if(match(m.ty, .Func({ result : _ }) => true, _ => false), {
             result.push(
               _IndexMethodEntry(
                 method_type : m.ty,
@@ -535,7 +535,7 @@ _try_comptime_element_access :: (
     arg_val,
     .Some(v) => if(is_int_lit(v), {
       // Comptime integer index — direct element access
-      idx_raw := match(v,.IntLit(r) => r, _ => String.from("0"));
+      idx_raw := match(v, .IntLit(r) => r, _ => String.from("0"));
       idx_i64 := match(
         idx_raw.parse_i64(),
         .Some(n) => n,
@@ -757,7 +757,7 @@ _compute_comptime_string_index :: (
         )
       );
     });
-    idx_raw := match(arg_value,.IntLit(r) => r, _ => String.from("0"));
+    idx_raw := match(arg_value, .IntLit(r) => r, _ => String.from("0"));
     idx_i64 := match(
       idx_raw.parse_i64(),
       .Some(n) => n,
@@ -972,7 +972,7 @@ _try_comptime_string_index :: (
 _specialize_index_method :: (
   fn(mv : Option(EvalValue), mty : TypeValue, expr : AstExpr, caller_env : Environment, ctx : EvalContext, idx_expr : AstExpr, out : ArrayList(EvalValue)) -> unit
 )({
-  recv := match(expr,.FnCall(_, func, _, _, _) => func,.Atom(_, _) => expr);
+  recv := match(expr, .FnCall(_, func, _, _, _) => func, .Atom(_, _) => expr);
   margs := ArrayList(AstExpr).new();
   _a0 := margs.push(recv);
   _a1 := margs.push(idx_expr);
@@ -1076,8 +1076,8 @@ _find_comptime_index_method :: (
                           ),
                           .None => ArrayList(bool).new()
                         );
-                        self_is_ct := match(ci_flags.get(usize(0)),.Some(b) => b,.None => false);
-                        idx_is_ct := match(ci_flags.get(usize(1)),.Some(b) => b,.None => false);
+                        self_is_ct := match(ci_flags.get(usize(0)), .Some(b) => b, .None => false);
+                        idx_is_ct := match(ci_flags.get(usize(1)), .Some(b) => b, .None => false);
                         if(self_is_ct && idx_is_ct, {
                           found = Option(_IndexMethodEntry).Some(m);
                         });
@@ -1185,16 +1185,16 @@ _try_comptime_custom_type_index :: (
   if(ct_method.method_value.is_none(), {
     return(Option(IndexCallResult).None);
   });
-  ct_fn_value := match(ct_method.method_value,.Some(mv) => mv,.None => EvalValue.UnitVal);
+  ct_fn_value := match(ct_method.method_value, .Some(mv) => mv, .None => EvalValue.UnitVal);
   if(!(is_func_val(ct_fn_value)), {
     return(Option(IndexCallResult).None);
   });
   // The return type must be `*(Output)` (TS index-trait.ts:539-545).
-  ct_ret_type := match(ct_fn_type,.Func({ result : ct_r }) => ct_r, _ => t_unit());
+  ct_ret_type := match(ct_fn_type, .Func({ result : ct_r }) => ct_r, _ => t_unit());
   if(!(is_pointer_type(ct_ret_type)), {
     return(Option(IndexCallResult).None);
   });
-  output_ty := match(ct_ret_type,.Pointer(ct_pt) => ct_pt, _ => ct_ret_type);
+  output_ty := match(ct_ret_type, .Pointer(ct_pt) => ct_pt, _ => ct_ret_type);
   // Comptime pointer to self for the first argument (TS index-trait.ts:475-476).
   self_ptr_type := t_ptr(value_type);
   // Fresh 1-elem cell around self (TS index-trait.ts:472
@@ -1204,37 +1204,37 @@ _try_comptime_custom_type_index :: (
   self_ptr_value := EvalValue.PtrVal(self_ptr_cell, usize(0));
   ct_p0_ty := match(
     ct_fn_type,
-    .Func({ param_types : ct_pts0 }) => match(ct_pts0.get(usize(0)),.Some(t) => t,.None => t_unit()),
+    .Func({ param_types : ct_pts0 }) => match(ct_pts0.get(usize(0)), .Some(t) => t, .None => t_unit()),
     _ => t_unit()
   );
   ct_p1_ty := match(
     ct_fn_type,
-    .Func({ param_types : ct_pts1 }) => match(ct_pts1.get(usize(1)),.Some(t) => t,.None => t_unit()),
+    .Func({ param_types : ct_pts1 }) => match(ct_pts1.get(usize(1)), .Some(t) => t, .None => t_unit()),
     _ => t_unit()
   );
   ct_p0_label := match(
     ct_fn_type,
-    .Func({ meta : __cifm2 }) => match(__cifm2.*.param_labels.get(usize(0)),.Some(l) => l,.None => String.from("self")),
+    .Func({ meta : __cifm2 }) => match(__cifm2.*.param_labels.get(usize(0)), .Some(l) => l, .None => String.from("self")),
     _ => String.from("self")
   );
   ct_p1_label := match(
     ct_fn_type,
-    .Func({ meta : __cifm3 }) => match(__cifm3.*.param_labels.get(usize(1)),.Some(l) => l,.None => String.from("idx")),
+    .Func({ meta : __cifm3 }) => match(__cifm3.*.param_labels.get(usize(1)), .Some(l) => l, .None => String.from("idx")),
     _ => String.from("idx")
   );
   // Rebuild the method's definition-time scope from its capture snapshot, then
   // push a frame with `self` / `idx` bound (TS index-trait.ts:481-508).
-  ct_cap_names := match(ct_fn_value,.FuncVal(__cifvd2, _) => __cifvd2.*.cap_names, _ => ArrayList(String).new());
-  ct_cap_tys := match(ct_fn_value,.FuncVal(__cifvd3, _) => __cifvd3.*.cap_tys, _ => ArrayList(TypeValue).new());
-  ct_cap_vals := match(ct_fn_value,.FuncVal(_, __cicv) => __cicv, _ => ArrayList(EvalValue).new());
+  ct_cap_names := match(ct_fn_value, .FuncVal(__cifvd2, _) => __cifvd2.*.cap_names, _ => ArrayList(String).new());
+  ct_cap_tys := match(ct_fn_value, .FuncVal(__cifvd3, _) => __cifvd3.*.cap_tys, _ => ArrayList(TypeValue).new());
+  ct_cap_vals := match(ct_fn_value, .FuncVal(_, __cicv) => __cicv, _ => ArrayList(EvalValue).new());
   ct_module_path := ct_caller_env.module_path;
   ct_callee_env := Environment.new(ct_module_path);
   (ct_ci : usize) = usize(0);
   while(ct_ci < ct_cap_names.len(), {
-    ct_cn := match(ct_cap_names.get(ct_ci),.Some(nm) => nm,.None => String.from(""));
-    ct_cty := match(ct_cap_tys.get(ct_ci),.Some(t) => t,.None => t_unit());
-    ct_cv := match(ct_cap_vals.get(ct_ci),.Some(v) => Option(EvalValue).Some(v),.None => Option(EvalValue).None);
-    ct_cv_is_ct := match(ct_cv,.Some(_) => true,.None => false);
+    ct_cn := match(ct_cap_names.get(ct_ci), .Some(nm) => nm, .None => String.from(""));
+    ct_cty := match(ct_cap_tys.get(ct_ci), .Some(t) => t, .None => t_unit());
+    ct_cv := match(ct_cap_vals.get(ct_ci), .Some(v) => Option(EvalValue).Some(v), .None => Option(EvalValue).None);
+    ct_cv_is_ct := match(ct_cv, .Some(_) => true, .None => false);
     _ct_add_cap := add_variable_to_env(
       ct_callee_env,
       ct_cn.clone(),
@@ -1250,7 +1250,7 @@ _try_comptime_custom_type_index :: (
   });
   _ct_frame := ct_callee_env.push_frame(false);
   ct_param_token := ast_expr_token(
-    match(expr,.FnCall(_, ct_func_slot, _, _, _) => ct_func_slot,.Atom(_, _) => expr)
+    match(expr, .FnCall(_, ct_func_slot, _, _, _) => ct_func_slot, .Atom(_, _) => expr)
   );
   _ct_add_self := add_variable_to_env(
     ct_callee_env,
@@ -1300,7 +1300,7 @@ _try_comptime_custom_type_index :: (
   ct_saved_validating := ctx.is_validating_function_definition;
   ctx.is_validating_function_definition = false;
   ct_result := evaluate_comptime_fn_call(
-    Option(AstExpr).Some(match(expr,.FnCall(_, ct_func_slot2, _, _, _) => ct_func_slot2,.Atom(_, _) => expr)),
+    Option(AstExpr).Some(match(expr, .FnCall(_, ct_func_slot2, _, _, _) => ct_func_slot2, .Atom(_, _) => expr)),
     ct_fn_type,
     ct_fn_value,
     ct_arg_values,
@@ -1314,8 +1314,8 @@ _try_comptime_custom_type_index :: (
   // Also record the RUNTIME index method for codegen (TS index-trait.ts:578-583
   // and 601-605).
   ct_rt_method := _find_index_method(value_type, arg_type, ct_caller_env);
-  ct_rt_method_type := match(ct_rt_method,.Some(rm) => Option(TypeValue).Some(rm.method_type),.None => Option(TypeValue).None);
-  ct_rt_method_value := match(ct_rt_method,.Some(rm) => rm.method_value,.None => Option(EvalValue).None);
+  ct_rt_method_type := match(ct_rt_method, .Some(rm) => Option(TypeValue).Some(rm.method_type), .None => Option(TypeValue).None);
+  ct_rt_method_value := match(ct_rt_method, .Some(rm) => rm.method_value, .None => Option(EvalValue).None);
   // A PtrVal return derefs to the pointed-at element/field and yields the
   // ComptimeRef that makes `p(0) = v` and `&(p(0))` comptime places
   // (TS index-trait.ts:549-576).
@@ -1330,21 +1330,21 @@ _try_comptime_custom_type_index :: (
   match(
     ct_return_value,
     .PtrVal(ct_target_cell, ct_index) => {
-      ct_target := match(ct_target_cell.get(usize(0)),.Some(t0) => t0,.None => EvalValue.UnitVal);
+      ct_target := match(ct_target_cell.get(usize(0)), .Some(t0) => t0, .None => EvalValue.UnitVal);
       (ct_deref : EvalValue) = ct_target;
       (ct_cref : Option(ComptimeRef)) = Option(ComptimeRef).None;
       match(
         ct_target,
         .ArrayVal(ct_elements) => {
-          ct_deref = match(ct_elements.get(ct_index),.Some(e) => e,.None => ct_target);
+          ct_deref = match(ct_elements.get(ct_index), .Some(e) => e, .None => ct_target);
           ct_cref = Option(ComptimeRef).Some(ComptimeRef.ArrayRef(ct_elements, ct_index));
         },
         .StructVal(_, _, ct_fields_s) => {
-          ct_deref = match(ct_fields_s.get(ct_index),.Some(e) => e,.None => ct_target);
+          ct_deref = match(ct_fields_s.get(ct_index), .Some(e) => e, .None => ct_target);
           ct_cref = Option(ComptimeRef).Some(ComptimeRef.StructRef(ct_fields_s, ct_index));
         },
         .TupleVal(ct_fields_t) => {
-          ct_deref = match(ct_fields_t.get(ct_index),.Some(e) => e,.None => ct_target);
+          ct_deref = match(ct_fields_t.get(ct_index), .Some(e) => e, .None => ct_target);
           ct_cref = Option(ComptimeRef).Some(ComptimeRef.TupleRef(ct_fields_t, ct_index));
         },
         _ => ()
@@ -1614,7 +1614,7 @@ try_to_call_with_index_trait :: (
     .None => ()
   );
   ctx.expected_type = saved_idx_exp;
-  spec_method_value := match(spec_out.get(usize(0)),.Some(sv) => Option(EvalValue).Some(sv),.None => method.method_value);
+  spec_method_value := match(spec_out.get(usize(0)), .Some(sv) => Option(EvalValue).Some(sv), .None => method.method_value);
   IndexCallResult(
     value : Option(EvalValue).Some(result_val),
     ty : output_ty,
