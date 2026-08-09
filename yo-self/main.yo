@@ -562,23 +562,34 @@ run_check :: (
   if(argv.len() < usize(3), {
     exn.throw(dyn(`check: missing input file. Usage: yo-self check <input.yo | dir>`));
   });
-  target_path := argv(usize(2));
-  // Parse `--exclude <path>` flags (repeatable) from argv after the target.
+  // Positional + `--exclude <path>` (repeatable) in any order; unknown
+  // options are errors — TS's yargs is .strict() (yo-cli.ts:1348).
+  (target_path : String) = String.new();
   excludes := ArrayList(String).new();
-  (ai : usize) = usize(3);
+  (ai : usize) = usize(2);
   while(ai < argv.len(), {
     a := argv(ai);
-    if(a == "--exclude", {
-      next_i := (ai + usize(1));
-      if(next_i < argv.len(), {
-        excludes.push(argv(next_i));
-        ai = (ai + usize(2));
-      }, {
+    cond(
+      (a == "--exclude") => {
+        next_i := (ai + usize(1));
+        if(next_i < argv.len(), {
+          excludes.push(argv(next_i));
+          ai = (ai + usize(2));
+        }, {
+          ai = (ai + usize(1));
+        });
+      },
+      a.starts_with(String.from("-")) => {
+        exn.throw(dyn(`check: unknown option '${a}'. Usage: yo-self check <input.yo | dir> [--exclude PATH]`));
+      },
+      true => {
+        target_path = a.clone();
         ai = (ai + usize(1));
-      });
-    }, {
-      ai = (ai + usize(1));
-    });
+      }
+    );
+  });
+  if(target_path.len() == usize(0), {
+    exn.throw(dyn(`check: missing input file. Usage: yo-self check <input.yo | dir>`));
   });
   files := collect_check_files(target_path.clone(), excludes, io, exn);
   if(files.len() == usize(0), {
@@ -1184,7 +1195,7 @@ run_test :: (
   while(ai < argv.len(), {
     a := argv(ai);
     cond(
-      (a == "--bail") => {
+      ((a == "--bail") || (a == "-b")) => {
         bail = true;
         ai = (ai + usize(1));
       },
@@ -1192,7 +1203,7 @@ run_test :: (
         name_pattern = _arg_val(argv, ai);
         ai = (ai + usize(2));
       },
-      (a == "--parallel") => {
+      ((a == "--parallel") || (a == "-p")) => {
         // Accepted for CLI compatibility; v1 runs sequentially.
         ai = (ai + usize(2));
       },
@@ -1202,6 +1213,21 @@ run_test :: (
       },
       ((a == "-v") || (a == "--verbose")) => {
         ai = (ai + usize(1));
+      },
+      // The remaining flags the TS test command defines (yo-cli.ts). Each is
+      // consumed for CLI compatibility; v1's sequential in-process runner has
+      // no use for them yet — accepted divergence, tracked in
+      // plans/P1_CLI_PARITY.md §6.
+      ((a == "--cc") || (a == "--c-compiler") || (a == "--target") || (a == "--test-batch-size")) => {
+        ai = (ai + usize(2));
+      },
+      ((a == "--keep-generated-files") || (a == "-k") || (a == "--disable-sanitize") || (a == "--json-summary") || (a == "--profile")) => {
+        ai = (ai + usize(1));
+      },
+      a.starts_with(String.from("-")) => {
+        // TS's yargs is .strict(): an unknown option is an error, never a
+        // path (yo-cli.ts:1348).
+        exn.throw(dyn(`test: unknown option '${a}'. Usage: yo-self test <path> [--bail] [--test-name-pattern P] [--parallel N] [--exclude PATH]`));
       },
       true => {
         target_path = a.clone();
@@ -1475,6 +1501,11 @@ run_fmt :: (
     cond(
       (arg == "--check") => {
         check_mode = true;
+      },
+      arg.starts_with(String.from("-")) => {
+        // TS's yargs is .strict(): an unknown option is an error, never a
+        // path (yo-cli.ts:1348).
+        exn.throw(dyn(`fmt: unknown option '${arg}'. Usage: yo fmt [paths...] [--check]`));
       },
       true => {
         _r := input_paths.push(arg);

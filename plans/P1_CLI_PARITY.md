@@ -17,15 +17,15 @@ of its figures are stale and are called out below.
 
 ## 0. Where P1 stands
 
-|                      |                                                                                                                                   |
-| -------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| Hard blockers        | **none** — eleven compiler/runtime bugs fixed (§2, §4), each with regression coverage                                             |
-| Subcommands wired    | `check`, `compile`, `test`, `fmt`, `init`, **`cache`**, **`build`**, **`fetch`**, **`install`**                                   |
-| Subcommands left     | `doc` (not started), `version` (deferred to P3 by §6.5)                                                                           |
-| `fmt` divergence     | **0** of 808 files (was 339, then 17)                                                                                             |
-| Differential harness | `scripts/cli-diff-test.sh` + `tests/cli-cases/` — 8 cases, **all PASS**; it found 6 `build` bugs and 2 compiler/runtime bugs (§4) |
-| Gates                | `gates_fast.sh` GATE 6 (`fmt` differential) and GATE 7 (CLI differential) are new                                                 |
-| Bootstrap            | FIXPOINT_HOLDS, stage-3 byte-identical                                                                                            |
+|                      |                                                                                                                                    |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Hard blockers        | **none** — thirteen compiler/std/runtime bugs fixed (§2, §4, §5), each with regression coverage                                    |
+| Subcommands wired    | `check`, `compile`, `test`, `fmt`, `init`, **`cache`**, **`build`**, **`fetch`**, **`install`**, **`doc`** (json + markdown)       |
+| Subcommands left     | `doc --format html` (blocked on the §5 markdown_yo decision), `version` (deferred to P3 by §6.5)                                   |
+| `fmt` divergence     | **0** of 808 files (was 339, then 17)                                                                                              |
+| Differential harness | `scripts/cli-diff-test.sh` + `tests/cli-cases/` — 10 cases, **all PASS**; it found 6 `build` bugs and 4 compiler/std bugs (§4, §5) |
+| Gates                | `gates_fast.sh` GATE 6 (`fmt` differential) and GATE 7 (CLI differential) are new                                                  |
+| Bootstrap            | FIXPOINT_HOLDS, stage-3 byte-identical                                                                                             |
 
 ---
 
@@ -223,11 +223,36 @@ ELEVENTH:
 
 ---
 
-## 5. `doc` is missing its render half — NOT STARTED
+## 5. `doc` — PORTED except `--format html`
 
-Unchanged and still true. The extraction half IS ported — `yo-self/doc/` is
-1,773 lines (`extractor.yo` 587, `render_markdown.yo` 800, `model.yo` 201,
-`sections.yo` 185). What is missing, verified file by file:
+**json and markdown are DONE and differential-verified** (2026-08-10):
+`get_generic_impl_doc_entries` (evaluator/values/impl.yo), `doc/builder.yo`
+(2,600 lines, token + evaluator halves), `doc/render_json.yo` (the
+JSON.stringify key-order/omission contract), `doc_command.yo`, the `main.yo`
+dispatch, and two differential cases (`doc-json`, `doc-markdown`) producing
+BYTE-IDENTICAL doc.json / README.md / module pages / stdout under both
+compilers. Wiring it surfaced three more bugs, all fixed with tests:
+control characters in string literals emitted invalid C from BOTH compilers
+([write-up](../issues/fixed/c-string-literal-control-chars-emitted-as-unicode-escapes.md)),
+std's `eprint` was missing the `unsafe(...)` wrapper its sibling `eprintln`
+has, and method signatures lacked TS's `(Receiver) ` prefix (yo-self's Func
+type carries no SelfType — the method registry's `self_type` supplies it).
+
+**`--format html` is the one remaining piece, and it is BLOCKED on a
+decision, not on porting effort.** `render-html.ts` renders doc comments
+through `markdown_yo` — a WASM build of a **36,000-line Yo library**
+(`github.com/shd101wyy/markdown_yo`, same author). The self-hosted side
+cannot load WASM; its options are: ① vendor the markdown_yo Yo source into
+this repo (byte-parity guaranteed since it IS the same source, but it roughly
+doubles yo-self's compile surface and slows every bootstrap gate), ② make it
+a fetched dependency (puts network + chicken-and-egg into the bootstrap), or
+③ leave html unported until the P2 packaging story settles the dependency
+mechanism. Until decided, `yo-self doc --format html` reports a clear
+"not yet supported" error — it does not silently degrade.
+
+The original gap table, for reference — the extraction half was already
+ported (`extractor.yo` 587, `render_markdown.yo` 800, `model.yo` 201,
+`sections.yo` 185):
 
 | `src/doc/`       | lines | `yo-self/doc/` |
 | ---------------- | ----- | -------------- |
@@ -313,18 +338,18 @@ unescaping); `` `\0` `` in a backtick template string works.
    `tests/cli-cases/pending/` up one directory.~~ **DONE** — all eight bugs
    fixed in both compilers, the three subcommands are dispatched, the corpus is
    live, and `compile yo-self/main.yo` is clean.
-2. **`doc`** (§5) — **now the largest remaining chunk, and the next thing to
-   do.** 3,824 lines; both of its prerequisites are already landed.
-3. **Flag parity for the pre-existing subcommands.** `run_init`, `run_cache`
-   and the three undispatched wrappers reject unknown options; `test`, `check`,
-   `fmt` and `compile` still have the catch-all that assigns any unrecognized
-   token to a path, so `yo test ./tests --profile` runs against a path literally
-   named `--profile`. It exits **1** with "file or directory not found" — loud,
-   not a silent pass. `std/cli/arg_parser.yo` (546 lines, tested) already exists
-   and `main.yo` does not use it; adopting it fixes the catch-all and gets
-   `--help`/`--version` for free. Deliberately NOT done in this pass: rewriting
-   `compile`'s ~30-flag parser is the highest-regression-risk edit in the CLI
-   and every bootstrap gate depends on it.
+2. ~~**`doc`** (§5).~~ **DONE except html** — see §5 for the markdown_yo
+   decision that gates the last format.
+3. ~~**Flag parity for the pre-existing subcommands.**~~ **DONE for `test`,
+   `check` and `fmt`** (2026-08-10): all three now reject unknown options
+   (TS's yargs is `.strict()`, yo-cli.ts:1348) and accept every flag the TS
+   command defines. `test` consumes `--cc/--c-compiler`, `--target`,
+   `--test-batch-size`, `--keep-generated-files/-k`, `--disable-sanitize`,
+   `--json-summary` and `--profile` for CLI compatibility without acting on
+   them yet — accepted divergence, same precedent as `--parallel`.
+   Deliberately still NOT done: rewriting `compile`'s ~30-flag parser is the
+   highest-regression-risk edit in the CLI and every bootstrap gate depends
+   on it; `std/cli/arg_parser.yo` adoption remains the eventual fix.
 4. **`--parallel` in the self-hosted test runner.** Still ignored ("v1 runs
    sequentially"). `std/process/command.yo` has no `spawn`/`Child` API — only
    blocking `output()`/`status()` — so implementing it means adding one to
