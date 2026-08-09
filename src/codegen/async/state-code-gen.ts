@@ -44,6 +44,49 @@ import {
 } from "../utils";
 
 /**
+ * Resolve the state machine field a match-arm binding must be STORED into.
+ *
+ * Resolves by the pattern atom's own env identity first: sibling arms may bind
+ * the same name, and each binding gets its own state machine field. A bare
+ * name scan over stateMachineVariables stores into the FIRST same-named field
+ * — the sibling's, never written on this path — while reads resolve by id to
+ * this arm's field, which stays calloc-zeroed (NULL for a ref type). See
+ * issues/fixed/async-sibling-arm-match-bindings-store-to-wrong-slot.md.
+ *
+ * Returns the variable id to store under, or undefined when the binding is a
+ * genuine local. When env resolution succeeds but the id is not a state
+ * machine variable, this is a local — it must NOT fall through to the name
+ * scan, which would hit a sibling's field. The name scan remains only as the
+ * fallback for pattern atoms carrying no env metadata.
+ */
+function resolvePatternBindingStateMachineField(
+  bindingExpr: Expr | undefined,
+  bindingName: string,
+  functionContext: FunctionGenerationContext
+): string | undefined {
+  if (!functionContext.stateMachineVariables) {
+    return undefined;
+  }
+
+  if (bindingExpr && exprIsAtom(bindingExpr) && bindingExpr.$?.env) {
+    const vars = getVariablesFromEnv(bindingExpr.$.env, bindingName);
+    if (vars.length > 0) {
+      const envId = vars[vars.length - 1]!.id;
+      return functionContext.stateMachineVariables.has(envId)
+        ? envId
+        : undefined;
+    }
+  }
+
+  for (const [id, varInfo] of functionContext.stateMachineVariables) {
+    if (varInfo.name === bindingName) {
+      return id;
+    }
+  }
+  return undefined;
+}
+
+/**
  * Represents a code segment between await points.
  */
 export interface StateSegment {
@@ -1580,6 +1623,7 @@ function generateMatchWithAwait(
     let nullCaseIndex = -1;
     let pointerCaseIndex = -1;
     let pointerVarName: string | undefined;
+    let pointerVarExpr: Expr | undefined;
 
     for (let i = 0; i < cases.length; i++) {
       const caseExpr = cases[i]!;
@@ -1607,6 +1651,7 @@ function generateMatchWithAwait(
             // Extract bound variable name
             if (pattern.args.length > 0 && exprIsAtom(pattern.args[0]!)) {
               pointerVarName = pattern.args[0]!.token.value;
+              pointerVarExpr = pattern.args[0]!;
             }
           }
         }
@@ -1627,19 +1672,12 @@ function generateMatchWithAwait(
         if (pointerVarName) {
           // Check if this variable is captured in the state machine
           const functionContext = context as FunctionGenerationContext;
-          let isStateMachineVar = false;
-          let varId: string | undefined;
-
-          // Look through captured variables to find if this variable crosses await boundary
-          if (functionContext.stateMachineVariables) {
-            for (const [id, varInfo] of functionContext.stateMachineVariables) {
-              if (varInfo.name === pointerVarName) {
-                isStateMachineVar = true;
-                varId = id;
-                break;
-              }
-            }
-          }
+          const varId = resolvePatternBindingStateMachineField(
+            pointerVarExpr,
+            pointerVarName,
+            functionContext
+          );
+          const isStateMachineVar = varId !== undefined;
 
           if (isStateMachineVar && varId) {
             // Store directly in state machine variable
@@ -1923,21 +1961,12 @@ function generateMatchWithAwait(
 
                 // Check if this variable is captured in the state machine
                 const functionContext = context as FunctionGenerationContext;
-                let isStateMachineVar = false;
-                let varId: string | undefined;
-
-                if (functionContext.stateMachineVariables) {
-                  for (const [
-                    id,
-                    varInfo,
-                  ] of functionContext.stateMachineVariables) {
-                    if (varInfo.name === rawVarName) {
-                      isStateMachineVar = true;
-                      varId = id;
-                      break;
-                    }
-                  }
-                }
+                const varId = resolvePatternBindingStateMachineField(
+                  destructuredVar,
+                  rawVarName,
+                  functionContext
+                );
+                const isStateMachineVar = varId !== undefined;
 
                 const fieldLabel = sanitizeForCIdentifier(
                   variantField.label,

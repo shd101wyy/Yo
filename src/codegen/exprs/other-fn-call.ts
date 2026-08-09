@@ -183,7 +183,8 @@ function isAddressableCExpr(code: string): boolean {
  */
 export function resolveVarNameInContext(
   varName: string,
-  context: CodeGenContext
+  context: CodeGenContext,
+  varExpr?: Expr
 ): string {
   const functionContext = context as FunctionGenerationContext;
   if (
@@ -194,6 +195,27 @@ export function resolveVarNameInContext(
     !functionContext.stateMachineVariables
   ) {
     return varName;
+  }
+  // Resolve by the variable's OWN identity when the expression is available:
+  // sibling match arms may bind the same name, each with its own state machine
+  // field, and the name scan below hits the FIRST one — the sibling's. See
+  // issues/fixed/async-sibling-arm-match-bindings-store-to-wrong-slot.md
+  if (varExpr && exprIsAtom(varExpr) && varExpr.$?.env) {
+    const envVars = getVariablesFromEnv(varExpr.$.env, varExpr.token.value);
+    if (envVars.length > 0) {
+      const envId = envVars[envVars.length - 1]!.id;
+      const capturedVar = functionContext.stateMachineVariables.get(envId);
+      if (capturedVar) {
+        const fieldName =
+          capturedVar.kind === "outer"
+            ? `__capture.${capturedVar.name}`
+            : `var_${envId}`;
+        return `sm->${fieldName}`;
+      }
+      // Resolved to a genuine segment-local: do NOT fall through to the name
+      // scan — it would hit a same-named sibling's state machine field.
+      return varName;
+    }
   }
   for (const [varId, capturedVar] of functionContext.stateMachineVariables) {
     if (capturedVar.name === varName) {
@@ -1803,7 +1825,8 @@ export function generateOtherFunctionCall(
                   ) {
                     const argVarName = resolveVarNameInContext(
                       sanitizeForCIdentifier(arg.$.variableName),
-                      context
+                      context,
+                      arg
                     );
                     const dropCode = generateDropCodeForValue(
                       argVarName,
@@ -1920,7 +1943,8 @@ export function generateOtherFunctionCall(
                     ) {
                       const argVarName = resolveVarNameInContext(
                         sanitizeForCIdentifier(arg.$.variableName),
-                        context
+                        context,
+                        arg
                       );
                       const dropCode = generateDropCodeForValue(
                         argVarName,
@@ -2947,7 +2971,8 @@ function emitEffectUnwindCheck(
         ) {
           const argVarName = resolveVarNameInContext(
             sanitizeForCIdentifier(arg.$.variableName),
-            context
+            context,
+            arg
           );
           // Only drop if we can confirm the variable exists:
           // - sm-> prefix → SM struct field, always exists

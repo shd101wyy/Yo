@@ -2205,6 +2205,51 @@ _find_sm_var_id_by_name :: (fn(context : FunctionGenerationContext, name : Strin
     .None => Option(String).None
   )
 );
+/// The state-machine field id a match-arm binding must be STORED into, or
+/// `.None` when the binding is a genuine local. Resolves by the pattern atom's
+/// own env identity first: sibling arms may bind the same name, each with its
+/// own state-machine field, and a bare name scan stores into the FIRST
+/// same-named field — the sibling's, never written on this path — while reads
+/// resolve by id to this arm's field, which stays calloc-zeroed (NULL for a
+/// ref type). When env resolution succeeds but the id is not a state-machine
+/// variable, the binding is a local and must NOT fall through to the name scan.
+/// Mirrors `resolvePatternBindingStateMachineField` (state-code-gen.ts). See
+/// issues/fixed/async-sibling-arm-match-bindings-store-to-wrong-slot.md.
+_resolve_pattern_binding_sm_field :: (
+  fn(
+    binding_expr : AstExpr,
+    binding_name : String,
+    context : FunctionGenerationContext
+  ) -> Option(String)
+)({
+  if(context.state_machine_variables.is_none(), {
+    return(Option(String).None);
+  });
+  if(ast_expr_is_atom(binding_expr), {
+    match(
+      context.base.get_expr_info(binding_expr),
+      .Some(ei) => {
+        vars := get_variables_from_env(ei.env, binding_name.clone());
+        if(vars.len() > usize(0), {
+          env_id := match(vars.get(vars.len() - usize(1)), .Some(v) => v.id.to_string(), .None => String.from(""));
+          return(
+            match(
+              context.state_machine_variables,
+              .Some(m) => match(
+                m.get(env_id.clone()),
+                .Some(_) => Option(String).Some(env_id),
+                .None => Option(String).None
+              ),
+              .None => Option(String).None
+            )
+          );
+        });
+      },
+      .None => ()
+    );
+  });
+  _find_sm_var_id_by_name(context, binding_name)
+});
 /// The variant name of an enum match pattern (`.Variant` simple or `.Variant(x)`
 /// destructuring), or `.None`. Mirrors the `variantName` extraction in
 /// `generateMatchWithAwait`.
@@ -2341,6 +2386,7 @@ generate_match_with_await :: (
               (null_case : Option(usize)) = Option(usize).None;
               (ptr_case : Option(usize)) = Option(usize).None;
               (ptr_var_name : Option(String)) = Option(String).None;
+              (ptr_var_expr : Option(AstExpr)) = Option(AstExpr).None;
               (ni : usize) = usize(0);
               while(ni < cases.len(), {
                 match(
@@ -2362,6 +2408,7 @@ generate_match_with_await :: (
                                 pargs.get(usize(0)),
                                 .Some(pv) => if(ast_expr_is_atom(pv), {
                                   ptr_var_name = Option(String).Some(ast_expr_token(pv).value);
+                                  ptr_var_expr = Option(AstExpr).Some(pv);
                                 }),
                                 .None => ()
                               );
@@ -2390,7 +2437,11 @@ generate_match_with_await :: (
                           ptr_var_name,
                           .Some(pvn) => {
                             match(
-                              _find_sm_var_id_by_name(context, pvn),
+                              match(
+                                ptr_var_expr,
+                                .Some(pve) => _resolve_pattern_binding_sm_field(pve, pvn.clone(), context),
+                                .None => _find_sm_var_id_by_name(context, pvn)
+                              ),
                               .Some(vid) => {
                                 fname := get_state_machine_field_name(vid, Option(String).Some(String.from("local")), context.state_machine_field_aliases);
                                 em.emit_string_line(`${indent}  sm->${fname} = ${matched_value_code};`);
@@ -2498,7 +2549,7 @@ generate_match_with_await :: (
                                     fld_type := match(vfields.get(di), .Some(t) => t, .None => TypeValue.Unit);
                                     access := `${matched_value_code}.data.${vn}.${sanitize_for_c_identifier(fld_label.clone(), false)}`;
                                     match(
-                                      _find_sm_var_id_by_name(context, raw_name),
+                                      _resolve_pattern_binding_sm_field(dvar, raw_name.clone(), context),
                                       .Some(vid) => {
                                         fname := get_state_machine_field_name(vid, Option(String).Some(String.from("local")), context.state_machine_field_aliases);
                                         em.emit_string_line(`${indent}    sm->${fname} = ${access};`);

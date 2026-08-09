@@ -17,15 +17,15 @@ of its figures are stale and are called out below.
 
 ## 0. Where P1 stands
 
-|                      |                                                                                                 |
-| -------------------- | ----------------------------------------------------------------------------------------------- |
-| Hard blockers        | **none** — nine codegen bugs fixed (§2, §4), each with a regression test                        |
-| Subcommands wired    | `check`, `compile`, `test`, `fmt`, `init`, **`cache`**, **`build`**, **`fetch`**, **`install`** |
-| Subcommands left     | `doc` (not started), `version` (deferred to P3 by §6.5)                                         |
-| `fmt` divergence     | **0** of 808 files (was 339, then 17)                                                           |
-| Differential harness | `scripts/cli-diff-test.sh` + `tests/cli-cases/` — 8 cases, and it found 6 `build` bugs (§4)     |
-| Gates                | `gates_fast.sh` GATE 6 (`fmt` differential) and GATE 7 (CLI differential) are new               |
-| Bootstrap            | FIXPOINT_HOLDS, stage-3 byte-identical                                                          |
+|                      |                                                                                                                                   |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Hard blockers        | **none** — eleven compiler/runtime bugs fixed (§2, §4), each with regression coverage                                             |
+| Subcommands wired    | `check`, `compile`, `test`, `fmt`, `init`, **`cache`**, **`build`**, **`fetch`**, **`install`**                                   |
+| Subcommands left     | `doc` (not started), `version` (deferred to P3 by §6.5)                                                                           |
+| `fmt` divergence     | **0** of 808 files (was 339, then 17)                                                                                             |
+| Differential harness | `scripts/cli-diff-test.sh` + `tests/cli-cases/` — 8 cases, **all PASS**; it found 6 `build` bugs and 2 compiler/runtime bugs (§4) |
+| Gates                | `gates_fast.sh` GATE 6 (`fmt` differential) and GATE 7 (CLI differential) are new                                                 |
+| Bootstrap            | FIXPOINT_HOLDS, stage-3 byte-identical                                                                                            |
 
 ---
 
@@ -200,6 +200,24 @@ compiler bug ([an `if` whose branch awaits, as a `while` body, emitted
 nothing](../issues/fixed/async-if-with-await-in-while-body-emits-nothing.md)),
 which is the same lesson §2 ends on: the code had never reached the code
 generator.
+
+Getting `build-run` from SELF-FAIL to PASS then took two more, a TENTH and an
+ELEVENTH:
+
+- **The `yo build run` SIGSEGV** — sibling match arms binding the same PATTERN
+  name (`execute_node`'s `.Artifact` and `.Run` arms both bind `artifact`)
+  stored the binding into the FIRST same-named state-machine slot while reads
+  used the arm's own slot, so the awaited callee captured NULL. Fixed in both
+  compilers; the effect-escape cleanup had the same name-scan defect. See
+  [the issue](../issues/fixed/async-sibling-arm-match-bindings-store-to-wrong-slot.md) —
+  it is the FOURTH member of the sibling-arm cluster, and the lesson
+  generalizes: any name-based lookup over `stateMachineVariables` is wrong.
+- **Child output overtaking parent output** — libc stdout is fully buffered to
+  a pipe, so `Building X → …` flushed at exit, AFTER the spawned program's
+  own output. `fflush` before spawn in the C runtime. See
+  [the issue](../issues/fixed/spawn-child-output-ordered-before-buffered-parent-stdout.md).
+  Invisible on a tty; deterministic under a pipe — precisely what the harness
+  compares byte-for-byte.
 
 `build-run` cannot compare stdout line-for-line — see §9.
 

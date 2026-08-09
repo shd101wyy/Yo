@@ -3609,3 +3609,70 @@ test("Test an if whose branch awaits as a while loop body", {
   assert(io.await(drive(true, io), io) == i32(3), "the non-awaiting branch runs every iteration");
   assert(io.await(drive(false, io), io) == i32(33), "the awaiting branch runs every iteration");
 });
+// ---------------------------------------------------------------------------
+// Sibling match arms whose PATTERNS bind the same name, each handing the
+// binding to an awaited future that captures it.
+//
+// Same-named `:=` locals were fixed above; PATTERN bindings store through a
+// different path. The async match generator resolved the state-machine slot
+// for the binding STORE by scanning all state-machine variables for the first
+// name match, so the second arm stored into the FIRST arm's field — while the
+// argument READ resolved by id to the second arm's own field, calloc-zeroed,
+// NULL for a ref type. The callee captured NULL and the program SIGSEGVed on
+// the future's first poll. `execute_node` in yo-self/build_runner.yo is this
+// shape (its .Artifact and .Run arms both bind `artifact`), which crashed
+// `yo build run`.
+// See issues/fixed/async-sibling-arm-match-bindings-store-to-wrong-slot.md.
+// ---------------------------------------------------------------------------
+Cargo :: ref(
+  struct(
+    label : String,
+    size : i32
+  )
+);
+CargoKind :: enum(A, B);
+find_cargo :: (fn(tag : String) -> Option(Cargo))(
+  Option(Cargo).Some(Cargo(label : tag, size : i32(7)))
+);
+describe_cargo :: (fn(c : Cargo, rio : Io) -> Impl(Future(String, Io)))(
+  rio.async((aio : Io) => {
+    aio.await(yield(aio), aio);
+    return(`${c.label}:${c.size}`)
+  })
+);
+test("Test same-named pattern bindings in sibling match arms passed to a capturing future", {
+  drive := (fn(k : CargoKind, rio : Io) -> Impl(Future(String, Io)))(
+    rio.async((aio : Io) => {
+      out := String.from("none");
+      match(
+        k,
+        .A => {
+          match(
+            find_cargo(String.from("a-item")),
+            .None => (),
+            .Some(artifact) => {
+              d := aio.await(describe_cargo(artifact, aio), aio);
+              out = d;
+            }
+          );
+        },
+        .B => {
+          match(
+            find_cargo(String.from("b-item")),
+            .None => (),
+            .Some(artifact) => {
+              d := aio.await(describe_cargo(artifact, aio), aio);
+              out = d;
+            }
+          );
+        }
+      );
+      return(out)
+    })
+  );
+  assert(io.await(drive(CargoKind.A, io), io) == `a-item:7`, "first arm's binding reaches the callee");
+  assert(
+    io.await(drive(CargoKind.B, io), io) == `b-item:7`,
+    "second arm's binding must be stored in ITS OWN slot, not the first arm's"
+  );
+});

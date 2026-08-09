@@ -1054,6 +1054,12 @@ static __yo_io_future_t* __yo_async_spawn_start(const uint8_t* file, uint8_t** a
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
 
+  // stdout to a pipe is FULLY buffered, so parent output printed before the
+  // spawn would otherwise flush at exit — AFTER a child that inherits the fd
+  // and writes to it directly.
+  fflush(stdout);
+  fflush(stderr);
+
   posix_spawn_file_actions_t actions;
   posix_spawn_file_actions_init(&actions);
 
