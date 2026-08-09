@@ -1655,6 +1655,26 @@ _emit_last_segment_completion :: (
     emit_async_future_completion(em, `      `, Option(String).None, Option(String).Some(String.from("Future %p completed")));
   });
 });
+/// Whether an await's target variable has a state machine struct field.
+///
+/// A target that nothing ever reads does not cross a state boundary, so no
+/// field is emitted for it (the struct emitter filters locals by
+/// `cross_boundary_ids`). Storing the result into `sm-><field>` anyway produced
+/// `error: no member named 'var_...'` — the result is simply unused, and
+/// skipping the store is what the no-target path already does.
+///
+/// Aliased ids still have storage (an `await_future_N` or an overlapping slot),
+/// so they count as present. Mirrors `awaitTargetHasStructField`
+/// (state-machine.ts).
+_await_target_has_struct_field :: (
+  fn(target_variable_id : String, cross_boundary_ids : Option(HashSet(String)), context : FunctionGenerationContext) -> bool
+)({
+  cbi := match(cross_boundary_ids, .Some(c) => c, .None => return(true));
+  if(cbi.contains(target_variable_id.clone()), {
+    return(true);
+  });
+  match(context.state_machine_field_aliases, .Some(a) => a.contains_key(target_variable_id), .None => false)
+});
 /// Emit the previous-await result extraction at the top of a resume state: the
 /// abort check (Future state == -2 → escape), the result copy (into
 /// `await_result_N` for cond awaits, or directly into the target SM var for
@@ -1663,7 +1683,7 @@ _emit_last_segment_completion :: (
 /// `generateAsyncBlockResumeFunction` (state-machine.ts:661). Caller guarantees
 /// `state_number >= 1`.
 _emit_prev_await_result_extraction :: (
-  fn(async_block_id : String, state_number : usize, prev_await : AwaitPoint, analysis : AwaitAnalysisResult, context : FunctionGenerationContext) -> unit
+  fn(async_block_id : String, state_number : usize, prev_await : AwaitPoint, analysis : AwaitAnalysisResult, context : FunctionGenerationContext, cross_boundary_ids : Option(HashSet(String))) -> unit
 )({
   em := context.base.emitter;
   pffn := get_future_field_name(prev_await, analysis);
@@ -1697,12 +1717,12 @@ _emit_prev_await_result_extraction :: (
     }, {
       match(
         prev_await.base.target_variable_id,
-        .Some(tvid) => {
+        .Some(tvid) => if(_await_target_has_struct_field(tvid.clone(), cross_boundary_ids, context), {
           fname := get_state_machine_field_name(tvid, Option(String).Some(String.from("local")), context.state_machine_field_aliases);
           rt := String.from("sm->");
           rt.push_string(fname);
           result_target = Option(String).Some(rt);
-        },
+        }),
         .None => ()
       );
     });
@@ -2641,7 +2661,12 @@ generate_async_block_resume_function :: (
     analysis : AwaitAnalysisResult,
     future_type : TypeValue,
     capture_type : Option(TypeValue),
-    context : FunctionGenerationContext
+    context : FunctionGenerationContext,
+    /// Variable IDs that actually got a struct field. An await's target
+    /// variable is NOT among them when nothing ever reads it — the value never
+    /// crosses a state boundary, so no field is emitted. The extraction has to
+    /// know that, or it writes to a member that does not exist.
+    cross_boundary_ids : Option(HashSet(String))
   ) -> ArrayList(String)
 )({
   em := context.base.emitter;
@@ -2693,7 +2718,7 @@ generate_async_block_resume_function :: (
               if(in_cond, {
                 em.emit_string_line(`      if (sm->${pffn} != NULL) {`);
               });
-              _emit_prev_await_result_extraction(async_block_id, segment.state_number, prev_await, analysis, context);
+              _emit_prev_await_result_extraction(async_block_id, segment.state_number, prev_await, analysis, context, cross_boundary_ids);
               _emit_cond_branch_continuation(async_block_id, prev_await, segment, body_expr, future_type, capture_type, analysis, context);
               if(in_cond, {
                 em.emit_string_line(`      }`);

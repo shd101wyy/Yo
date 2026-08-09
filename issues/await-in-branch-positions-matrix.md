@@ -88,11 +88,40 @@ compound case — which is why this hid.
 
 Fixed by detecting an already-complete `return` and emitting it verbatim.
 
+### An await whose result is never read broke the SM struct
+
+Both compilers:
+
+```rust
+task := io.async((io : Io) => {
+  n := Box(i32)(3);
+  v := io.await(future_with_returned_state(i32(1), io), io);
+  return(n.*);          // `v` is never read
+});
+```
+
+```
+error: no member named 'var_yoebb42233_v' in 'struct ..._state_t_struct'
+```
+
+**Root cause:** the struct only gets a field for variables that cross a state
+boundary, and a target nothing ever reads does not — but the extraction wrote
+`sm-><field>` regardless.
+
+An earlier note here called this "the combination with a compound `return`
+tail". **That was wrong**: `return(n.*)`, a compound return, and a plain
+assignment tail all fail identically, and reading the value anywhere makes all
+of them pass. Being unread is the whole trigger; the tail shape is irrelevant.
+
+Fixed by skipping the store when the target has no field — which is what the
+linear-await path already does when there is no target at all. Not the
+underscore either: `_v` and `v` behave the same.
+
 ---
 
 ## Still open
 
-### 1. `io.async` capture is not dup'd, so a future re-created in a loop is UAF
+### `io.async` capture is not RC-incremented, so a future re-created in a loop is UAF
 
 ```rust
 n := Box(i32)(0);
@@ -104,47 +133,35 @@ while(e.io.await(e.io.async((io2 : Io) => {
 
 TS: `n=3`. SELF: **rc=139**. TS emits
 `__yo_new_X(fn___dup((struct){.n = sm->var_n}))`; SELF emits
-`__yo_new_X((__yo_t15){.n = sm->var_600288})` — no dup, so the captured Box is
-freed under the loop.
+`__yo_new_X((__yo_t15){.n = sm->var_598000})` — the captured Box is never
+retained, so it is freed under the loop.
 
-**Same registry-keying shape as the `match` bug above.** TS's
-`getDupFunctionForType` reads `type.trait.fields` off the TYPE VALUE, so it
-finds the `___dup` of a synthesized capture struct. yo-self's `_method_c_name`
-resolves through the method registry keyed by `type_id_or_empty(type)`, and the
-capture struct is registered under its instantiation-precise `type_key` — so it
-misses. (`get_dispose_function_for_type` already documents and keys around
-exactly this.)
+**An earlier draft of this file blamed registry keying (that yo-self looks
+`___dup` up by `type_id_or_empty` where TS reads `type.trait.fields`). That
+diagnosis is WRONG — measured 2026-08-09.** For this program the self-hosted
+compiler emits **zero** `___dup` functions; TS emits 124. yo-self does not
+synthesize per-type dup helpers here at all, it works through inline
+`__yo_incr_rc` on the RC header (12 calls vs TS's 11). So there is no dup
+function to look up under any key, and the fix is not a lookup fix.
 
-**A naive fix is WRONG — do not repeat it.** Adding a `type_key`-keyed fallback
-for `___dup` at the capture site removes the segfault but yields `n=4640`
-instead of `n=3`: a loud crash traded for a silent wrong answer, which is worse.
-The dup alone is not the whole story; the capture's ownership across iterations
-needs to be worked out properly before touching this. Reverted rather than
-shipped.
+What actually has to happen: in the state-machine context TS deliberately skips
+the deferred dups (they name variables that no longer exist there) and falls
+back to the capture struct's own `___dup`. yo-self has no such fallback, so the
+capture's RC-typed fields are simply never retained. It needs an explicit
+`__yo_incr_rc` per RC-typed capture field at construction — which means
+`_build_async_capture_struct_literal` has to emit statements, not just return an
+expression string.
 
-**Workaround in use:** hoist the future into a top-level helper that takes its
-inputs by value (`future_lt` in `tests/async_await.test.yo`) instead of an
+**A shortcut was tried and reverted — do not repeat it.** Adding a
+`type_key`-keyed `___dup` fallback at the capture site removes the segfault but
+yields `n=4640` instead of `n=3` (it resolves _something_, and the something is
+wrong). A loud crash traded for a silent wrong answer is worse. This needs the
+RC increment done properly, with the usual RC discipline: diff the per-function
+incr/decr counts against the TS emit before believing any green.
+
+**Workaround in use:** hoist the future into a top-level helper taking its
+inputs by value (`future_lt` in `tests/async_await.test.yo`) rather than an
 inline closure capturing a mutable local.
-
-### 2. An await-result binding plus a compound `return` tail loses its SM field
-
-Both compilers:
-
-```rust
-task := io.async((io : Io) => {
-  n := Box(i32)(3);
-  v := io.await(future_with_returned_state(i32(1), io), io);
-  return((n.* * i32(10)) + n.*)      // <- compound return, does not read `v`
-});
-```
-
-```
-error: no member named 'var_yoebb42233_v' in 'struct ..._state_t_struct'
-```
-
-Not the underscore (`_v` and `v` behave identically) and not "unused" on its own
-— `_x := io.await(...)` in a `while` step is fine. It is the combination with a
-compound `return` tail. Loud, so not dangerous.
 
 ---
 

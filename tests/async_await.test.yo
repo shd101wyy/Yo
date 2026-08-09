@@ -3219,3 +3219,39 @@ test("Test return of a compound expression as the final expression", {
   r := io.await(task, io);
   assert(r == i32(33), "a compound return in tail position must compile");
 });
+// ---------------------------------------------------------------------------
+// An await whose result is never read.
+//
+// The state machine struct only gets a field for variables that cross a state
+// boundary, and a target nothing ever reads does not. The extraction wrote to
+// `sm-><field>` regardless, so the C referenced a member that was never
+// declared: `error: no member named 'var_..._v'`. Reading the value anywhere
+// hid it — which is why every existing test passed.
+// ---------------------------------------------------------------------------
+test("Test await whose result is never read", {
+  task := io.async((io : Io) => {
+    n := Box(i32)(3);
+    _v := io.await(future_with_returned_state(i32(1), io), io);
+    return(n.*);
+  });
+  r := io.await(task, io);
+  assert(r == i32(3), "an unread await result must not break the SM struct");
+});
+test("Test await whose result is never read, with a compound tail", {
+  task := io.async((io : Io) => {
+    n := Box(i32)(3);
+    _v := io.await(future_with_returned_state(i32(1), io), io);
+    return((n.* * i32(10)) + n.*)
+  });
+  r := io.await(task, io);
+  assert(r == i32(33), "same, with the tail materialization in play");
+});
+test("Test await whose result IS read (control)", {
+  task := io.async((io : Io) => {
+    n := Box(i32)(3);
+    v := io.await(future_with_returned_state(i32(1), io), io);
+    return((n.* * i32(10)) + v);
+  });
+  r := io.await(task, io);
+  assert(r == i32(32), "control: reading the result keeps the field");
+});

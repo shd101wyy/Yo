@@ -578,7 +578,14 @@ export function generateAsyncBlockResumeFunction(
   analysis: AwaitAnalysisResult,
   futureType: SomeType | DynType,
   captureType: StructType | undefined,
-  context: FunctionGenerationContext
+  context: FunctionGenerationContext,
+  /**
+   * Variable IDs that actually got a struct field. An await's target variable
+   * is NOT among them when nothing ever reads it — the value never crosses a
+   * state boundary, so no field is emitted for it. The extraction below has to
+   * know that, or it writes to a member that does not exist.
+   */
+  crossBoundaryIds?: Set<string>
 ): string[] {
   const emitter = context.emitter;
 
@@ -701,7 +708,14 @@ export function generateAsyncBlockResumeFunction(
         let resultTarget: string | undefined;
         if (useAwaitResultField) {
           resultTarget = `sm->await_result_${stateNumber - 1}`;
-        } else if (prevAwait.targetVariableId) {
+        } else if (
+          prevAwait.targetVariableId &&
+          awaitTargetHasStructField(
+            prevAwait.targetVariableId,
+            crossBoundaryIds,
+            context
+          )
+        ) {
           const fieldName = getStateMachineFieldName(
             prevAwait.targetVariableId,
             "local",
@@ -2747,4 +2761,28 @@ function emitWhileConditionAwaitResume(
   emitter.emitLine(``);
   emitter.emitLine(`      after_while_loop_${loopIndex}:`);
   emitter.emitLine(``);
+}
+
+/**
+ * Whether an await's target variable has a state machine struct field.
+ *
+ * A target that nothing ever reads does not cross a state boundary, so no field
+ * is emitted for it (`emitAsyncBlockStructDefinition` filters local variables by
+ * `crossBoundaryIds`). Storing the result into `sm-><field>` anyway produced
+ * `error: no member named 'var_..._v'` — the result is simply unused, and
+ * skipping the store is what the linear-await path already does when there is no
+ * target at all.
+ *
+ * Aliased ids still have storage (an `await_future_N` or an overlapping slot),
+ * so they count as present.
+ */
+function awaitTargetHasStructField(
+  targetVariableId: string,
+  crossBoundaryIds: Set<string> | undefined,
+  context: FunctionGenerationContext
+): boolean {
+  // No analysis available — keep the previous unconditional behaviour.
+  if (!crossBoundaryIds) return true;
+  if (crossBoundaryIds.has(targetVariableId)) return true;
+  return context.stateMachineFieldAliases?.has(targetVariableId) ?? false;
 }
