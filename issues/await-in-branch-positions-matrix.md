@@ -19,7 +19,7 @@ ages without trouble).
 | `match(await f, ...)` — SCRUTINEE                     | ✅ both           |
 | `while(await f, ...)` — CONDITION                     | ✅ both           |
 | `while(c, { ...await f... }, body)` — STEP            | ✅ both           |
-| `match(m, .Some(x) => { await f })` — ARM             | ✅ both (fixed)   |
+| `match(m, .Some(x) => { await f })` — ARM             | ✅ both           |
 | `if(!(await f), ...)` — await NESTED in a condition   | ⛔ rejected, both |
 | `cond(c1 => .., await f => .., ..)` — LATER condition | ⛔ rejected, both |
 
@@ -119,9 +119,7 @@ underscore either: `_v` and `v` behave the same.
 
 ---
 
-## Still open
-
-### `io.async` capture is not RC-incremented, so a future re-created in a loop is UAF
+### `io.async` capture fields were never RC-retained (a loop freed them)
 
 ```rust
 n := Box(i32)(0);
@@ -131,66 +129,51 @@ while(e.io.await(e.io.async((io2 : Io) => {
 }), e.io), { n.* = (n.* + i32(1)); });
 ```
 
-TS: `n=3`. SELF: **rc=139**. TS emits
-`__yo_new_X(fn___dup((struct){.n = sm->var_n}))`; SELF emits
-`__yo_new_X((__yo_t15){.n = sm->var_598000})` — the captured Box is never
-retained, so it is freed under the loop.
+TS: `n=3`. SELF: **rc=139** — the captured Box was freed under the loop.
 
-**An earlier draft of this file blamed registry keying (that yo-self looks
-`___dup` up by `type_id_or_empty` where TS reads `type.trait.fields`). That
-diagnosis is WRONG — measured 2026-08-09.** For this program the self-hosted
-compiler emits **zero** `___dup` functions; TS emits 124. yo-self does not
-synthesize per-type dup helpers here at all, it works through inline
-`__yo_incr_rc` on the RC header (12 calls vs TS's 11). So there is no dup
-function to look up under any key, and the fix is not a lookup fix.
+**Root cause:** the state machine's dispose DOES drop the capture struct's RC
+fields, but nothing retained them. TS balances that by dupping the whole capture
+struct through its synthesized `___dup`; yo-self synthesizes no such helper —
+for this program it emits **zero** per-type `___dup` where TS emits **124** — and
+its deferred-dup path is deliberately skipped inside a state machine.
 
-What actually has to happen: in the state-machine context TS deliberately skips
-the deferred dups (they name variables that no longer exist there) and falls
-back to the capture struct's own `___dup`. yo-self has no such fallback, so the
-capture's RC-typed fields are simply never retained. It needs an explicit
-`__yo_incr_rc` per RC-typed capture field at construction — which means
-`_build_async_capture_struct_literal` has to emit statements, not just return an
-expression string.
+An earlier draft blamed registry keying (yo-self looking `___dup` up by
+`type_id_or_empty` where TS reads `type.trait.fields`). **That was wrong**: there
+is no capture dup to find under any key. It is also why a `type_key`-keyed
+fallback "fixed" the crash while returning `n=4640` — it resolved something
+else.
 
-**A shortcut was tried and reverted — do not repeat it.** Adding a
-`type_key`-keyed `___dup` fallback at the capture site removes the segfault but
-yields `n=4640` instead of `n=3` (it resolves _something_, and the something is
-wrong). A loud crash traded for a silent wrong answer is worse. This needs the
-RC increment done properly, with the usual RC discipline: diff the per-function
-incr/decr counts against the TS emit before believing any green.
+Fixed with `_rc_field_retain_line`, the exact mirror of the existing
+`_rc_field_drop_line`: every branch there has its counterpart here, so a field
+dropped on dispose is the one retained on construction. RC changes get an
+emit diff, not just a green suite — the capture repro went incr 11 -> 12 (exactly
+the one added retain) with decr unchanged, and two unrelated repros were
+byte-identical.
 
-**Workaround in use:** hoist the future into a top-level helper taking its
-inputs by value (`future_lt` in `tests/async_await.test.yo`) rather than an
-inline closure capturing a mutable local.
+### Two `io.async` closures capturing the same local emitted invalid C
 
-### Two `io.async` closures capturing the same local — TS emits invalid C
-
-**Reference compiler only; the self-hosted one is correct here.**
-
-```rust
-task := io.async((io : Io) => {
-  n := Box(i32)(5);
-  a := io.await(io.async((io2 : Io) => { io2.await(yield(io2), io2); return(n.*); }), io);
-  b := io.await(io.async((io2 : Io) => { io2.await(yield(io2), io2); return(n.* * i32(2)); }), io);
-  return(a + b);
-});
-```
-
-SELF: `r=15`. TS:
+**Was reference-compiler only; the self-hosted one happened to be correct, but
+had the same latent mismatch.**
 
 ```
 error: used type '__yo_struct_..._id_28' where arithmetic or pointer type is required
   fn_..._id_40___drop((__yo_struct_..._id_28)(sm->await_future_1));
 ```
 
-The scope-end drops try to drop each inline closure's CAPTURE STRUCT, but apply
-it to `sm->await_future_N` — a state machine POINTER — cast to the capture
-struct by value. Casting a pointer to a struct-by-value is not legal C.
+**Root cause:** an inline `io.async(...)` produces two temps that can share a
+generated name — the closure's CAPTURE STRUCT and the future itself. Only the
+future is stored in `await_future_N`, but the alias search matched on NAME
+alone, so it could pick the capture struct. Its deferred drop then ran against
+that field: a drop of a struct BY VALUE applied to a state machine POINTER.
 
-Looks like the `awaitFutureTempVarAliases` path: the temp holding the future is
-aliased to `await_future_N`, and a deferred drop on that temp resolves to the
-wrong type. Found 2026-08-09 while adding capture regression tests; loud, so not
-dangerous.
+Fixed in both compilers by requiring the aliased variable to actually be a
+future (`typeImplementsFuture` / `type_implements_future`). yo-self matched by
+name only too — it just didn't manifest on this repro — so the guard went in
+there as well rather than waiting for it to bite.
+
+## Still open
+
+_Nothing. All six are fixed, each covered by `tests/async_await.test.yo`._
 
 ---
 

@@ -288,10 +288,24 @@ export function computeCrossBoundaryVariables(
     const tempVarName = futureArg.$?.variableName;
     if (!tempVarName) continue;
 
-    // Find the captured variable matching this temp var name
+    // Find the captured variable matching this temp var name.
+    //
+    // Match on the TYPE too, not just the name: an inline `io.async(...)`
+    // produces two temps that can share the generated name — the closure's
+    // CAPTURE STRUCT and the future itself. Only the future is stored in
+    // await_future_N. Aliasing the capture struct instead made its deferred
+    // drop run against that field, emitting a drop of a struct BY VALUE applied
+    // to a state machine POINTER:
+    //
+    //   fn_..._id_40___drop((__yo_struct_..._id_28)(sm->await_future_1));
+    //
+    // which is not legal C. It showed up with two inline async closures over
+    // the same local in one state machine.
     const capturedVar = capturedVariables.find(
       (v) =>
-        v.kind === "local" && (v.name === tempVarName || v.id === tempVarName)
+        v.kind === "local" &&
+        (v.name === tempVarName || v.id === tempVarName) &&
+        typeImplementsFuture(v.type)
     );
     if (capturedVar) {
       awaitFutureTempVarAliases.set(capturedVar.id, `await_future_${ap.index}`);

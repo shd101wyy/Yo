@@ -610,6 +610,15 @@ compute_cross_boundary_variables :: (
                   tmp_name_opt,
                   .Some(temp_var_name) => {
                     // Find the captured local matching this temp var name/id.
+                    //
+                    // Match on the TYPE too, not just the name: an inline
+                    // `io.async(...)` produces two temps that can share the
+                    // generated name — the closure's CAPTURE STRUCT and the
+                    // future itself. Only the future is stored in
+                    // await_future_N. Aliasing the capture struct instead makes
+                    // its deferred drop run against that field, emitting a drop
+                    // of a struct BY VALUE applied to a state machine POINTER
+                    // (not legal C). Mirrors state-machine.ts.
                     (cfi : usize) = usize(0);
                     (matched : Option(String)) = Option(String).None;
                     while((cfi < captured_variables.len()) && matched.is_none(), {
@@ -617,7 +626,8 @@ compute_cross_boundary_variables :: (
                         captured_variables.get(cfi),
                         .Some(cv2) => {
                           is_local := match(cv2.kind, .Local => true, .Outer => false);
-                          if(is_local && ((cv2.base.name == temp_var_name) || (cv2.base.id == temp_var_name)), {
+                          name_matches := ((cv2.base.name == temp_var_name) || (cv2.base.id == temp_var_name));
+                          if((is_local && name_matches) && type_implements_future(cv2.base.ty), {
                             matched = Option(String).Some(cv2.base.id.to_string());
                           });
                         },

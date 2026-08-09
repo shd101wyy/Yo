@@ -3284,3 +3284,31 @@ test("Test io.async closure capturing a local, re-created each iteration", {
   r := io.await(task, io);
   assert(r == i32(3), "the captured Box must survive every iteration");
 });
+test("Test two io.async closures capturing the same local", {
+  // An inline `io.async(...)` produces two temps that can share a generated
+  // name — the closure's CAPTURE STRUCT and the future. Only the future lives
+  // in `await_future_N`; aliasing the capture struct instead made its deferred
+  // drop run against that field, emitting a drop of a struct BY VALUE applied
+  // to a state machine POINTER, which is not legal C. Two inline closures over
+  // one local in a single state machine is what exposed it.
+  task := io.async((io : Io) => {
+    n := Box(i32)(5);
+    a := io.await(
+      io.async((io2 : Io) => {
+        io2.await(yield(io2), io2);
+        return(n.*);
+      }),
+      io
+    );
+    b := io.await(
+      io.async((io2 : Io) => {
+        io2.await(yield(io2), io2);
+        return(n.* * i32(2));
+      }),
+      io
+    );
+    return(a + b);
+  });
+  r := io.await(task, io);
+  assert(r == i32(15), "5 + 10 — the capture is still live for the second");
+});
