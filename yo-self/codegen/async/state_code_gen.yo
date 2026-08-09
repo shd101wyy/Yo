@@ -26,7 +26,7 @@ open(import("std/fmt"));
 { emit_async_future_completion } :: import("../exprs/async_completion.yo");
 { is_unit_type, is_enum_type } :: import("../../types/guards.yo");
 { EvalValue, type_of_eval_value } :: import("../../value.yo");
-{ get_type_string, sanitize_for_c_identifier, can_optimize_as_nullable_pointer, get_enum_variant_c_name } :: import("../utils/index.yo");
+{ get_type_string, sanitize_for_c_identifier, can_optimize_as_nullable_pointer, get_enum_variant_c_name, type_key } :: import("../utils/index.yo");
 { get_state_machine_field_name } :: import("./state_machine_naming.yo");
 { generate_comptime_value } :: import("../exprs/comptime_value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -2186,10 +2186,19 @@ generate_match_with_await :: (
           variant_names := match(match_value_type, .EnumT({ variant_names : vns }) => vns, _ => ArrayList(String).new());
           variant_fields := match(match_value_type, .EnumT({ variant_fields : vfs }) => vfs, _ => ArrayList(ArrayList(TypeValue)).new());
           variant_field_labels := match(match_value_type, .EnumT({ variant_field_labels : vfls }) => vfls, _ => ArrayList(ArrayList(String)).new());
-          enum_c_name := match(context.base.types.get(enum_id), .Some(e) => e.c_name, .None => String.from(""));
+          // TS reads `context.types[enumType.id].cName` (state-code-gen.ts).
+          // yo-self's registry is keyed by `type_key(t)`, not by the enum's
+          // `id` field, so the id-keyed lookup MISSED for every generic enum
+          // instance — `Option(i32)` included. The whole `match` was then
+          // dropped as a C comment: rc=0, no diagnostic, the arm never ran.
+          // Use the same accessor the non-async match generator uses
+          // (exprs/match.yo:1205).
+          enum_c_name := match(context.base.get_type_c_name(type_key(match_value_type)), .Some(n) => n, .None => String.from(""));
           if(enum_c_name.len() == usize(0), {
-            em.emit_string_line(`${indent}// Error: enum type has no C name`);
-            return();
+            // Never emit a comment and carry on here: the caller goes on to
+            // emit the await machinery, and the arm bodies are simply gone.
+            eprintln(`generate_match_with_await: no C name for match value type ${type_key(match_value_type)} (enum id ${enum_id})`);
+            __yo_panic("match with await: enum type not registered in context.types (see stderr)");
           });
           nullable := can_optimize_as_nullable_pointer(match_value_type);
           match(

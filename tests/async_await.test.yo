@@ -3139,3 +3139,83 @@ test("Test await in a while step matches the non-await control", {
   r := io.await(task, io);
   assert(r == i32(33), "control: the awaited-step loop must agree with this");
 });
+// ---------------------------------------------------------------------------
+// `match` ARM containing an await.
+//
+// The self-hosted compiler silently DROPPED the whole match: its
+// `generate_match_with_await` looked the enum's C name up by the enum's `id`
+// (faithful to TS, whose registry is id-keyed), but yo-self's registry is keyed
+// by `type_key`, so every generic enum instance missed and the match was
+// emitted as a C comment. rc=0, no diagnostic, the arm never ran — nothing in
+// the corpus covered it, so the hollow sweep stayed green.
+// ---------------------------------------------------------------------------
+test("Test await inside a match arm", {
+  task := io.async((io : Io) => {
+    m := Option(i32).Some(i32(1));
+    acc := Box(i32)(0);
+    match(
+      m,
+      .Some(x) => {
+        v := io.await(future_with_returned_state(i32(41), io), io);
+        acc.* = (v + x);
+      },
+      .None => ()
+    );
+    return(acc.*);
+  });
+  r := io.await(task, io);
+  assert(r == i32(43), "the matched arm must run its await and its body");
+});
+test("Test await inside a match arm that is not selected", {
+  task := io.async((io : Io) => {
+    m := Option(i32).None;
+    acc := Box(i32)(7);
+    match(
+      m,
+      .Some(x) => {
+        v := io.await(future_with_returned_state(i32(41), io), io);
+        acc.* = (v + x);
+      },
+      .None => ()
+    );
+    return(acc.*);
+  });
+  r := io.await(task, io);
+  assert(r == i32(7), "an unselected arm must not run its await");
+});
+test("Test statement after a match arm that awaits", {
+  task := io.async((io : Io) => {
+    m := Option(i32).Some(i32(1));
+    acc := Box(i32)(0);
+    match(
+      m,
+      .Some(_x) => {
+        v := io.await(future_with_returned_state(i32(41), io), io);
+        acc.* = v;
+      },
+      .None => ()
+    );
+    acc.* = (acc.* + i32(100));
+    return(acc.*);
+  });
+  r := io.await(task, io);
+  assert(r == i32(142), "code after the match must still execute");
+});
+// ---------------------------------------------------------------------------
+// `return(<compound expression>)` as an async closure's FINAL expression.
+//
+// yo-self's return codegen yields a COMPLETE `return X` statement (and emits
+// the scope-end drops itself), where TS yields the value temp and lets the
+// caller emit the return. Feeding that statement into the tail materialization
+// produced `int32_t __yo_scope_ret = return X;` — invalid C. A SIMPLE
+// `return(n.*)` was fine, which is why this hid: it only shows when the
+// materialization kicks in.
+// ---------------------------------------------------------------------------
+test("Test return of a compound expression as the final expression", {
+  task := io.async((io : Io) => {
+    n := Box(i32)(3);
+    return((n.* * i32(10)) + n.*)
+  });
+  r := io.await(task, io);
+  assert(r == i32(33), "a compound return in tail position must compile");
+});

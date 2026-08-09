@@ -277,6 +277,20 @@ generate_function_body :: (fn(body_expr : AstExpr, function_type : TypeValue, in
               em.emit_string_line(ftl);
               return(());
             });
+            // The tail expression IS a `return(...)`. yo-self's return codegen
+            // yields a COMPLETE `return X` statement and has already emitted the
+            // scope-end drops (the "// Drop local variables before early return"
+            // block); TS instead yields the value temp and lets this site emit
+            // the return. Feeding a statement into either path below produced
+            // invalid C — `T __yo_scope_ret = return X;` via the B1
+            // materialization, or `return return X;` without it.
+            if(expr_code.starts_with("return ") || (expr_code == "return"), {
+              rline := indent.clone();
+              rline.push_string(expr_code);
+              rline.push_str(";");
+              em.emit_string_line(rline);
+              return(());
+            });
             has_drops := match(context.base.get_expr_info(body_expr), .Some(bei) => match(bei.deferred_drop_expressions, .Some(d) => (d.len() > usize(0)), .None => false), .None => false);
             mat_ty := cond(
               ((has_drops && (!(result_is_unit))) && (expr_code.len() > usize(0))) => ret_ty_opt,
