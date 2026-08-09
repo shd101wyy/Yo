@@ -1,7 +1,7 @@
 import type { FnCallExpr } from "../../expr";
 import { isPtrType, isStrType, isU8Type } from "../../types/guards";
 import { isComptimeStringValue } from "../../value";
-import { type CodeGenContext, getTypeString } from "../utils";
+import { type CodeGenContext, getTypeString, quoteCString } from "../utils";
 import { generateExpr } from "./expr";
 
 export function generatePanic(
@@ -29,7 +29,7 @@ export function generatePanic(
     if (messageArg.$?.value && isComptimeStringValue(messageArg.$.value)) {
       const message = messageArg.$.value.value;
       emitter.emitLine(
-        `${indent}fprintf(stderr, "%s\\n", ${JSON.stringify(message)});`
+        `${indent}fprintf(stderr, "%s\\n", ${quoteCString(message)});`
       );
       emitter.emitLine(`${indent}abort();`);
     } else {

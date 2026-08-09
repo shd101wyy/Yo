@@ -33,6 +33,7 @@ _(env : proc_env) :: import("std/env");
 { FetchOptions, run_fetch } :: import("./fetch_command.yo");
 { InstallOptions, run_install } :: import("./install_command.yo");
 { BuildOptions, run_build } :: import("./build_runner.yo");
+{ DocCommandOptions, run_doc } :: import("./doc_command.yo");
 { HashMap } :: import("std/collections/hash_map");
 { remove_dir_all } :: import("./fetch.yo");
 { Environment } :: import("./env.yo");
@@ -1764,6 +1765,106 @@ run_build_cmd :: (
     IoExn(io : io, exn : exn)
   );
 });
+/// Parse `yo doc [path] [options]` argv and run the doc command. Flag
+/// surface mirrors the yargs definition in `src/yo-cli.ts` ("doc [path]"):
+/// positional path (default "."), -o/--output (default "yo-out/doc"),
+/// --title, --document-private, -v/--verbose, -f/--format
+/// (html|markdown|json, default html), --version.
+run_doc_cmd :: (
+  fn(
+    argv : ArrayList(String),
+    io : Io,
+    exn : Exception
+  ) -> unit
+)({
+  (input : String) = String.from(".");
+  (output_dir : String) = String.from("yo-out/doc");
+  (title : String) = String.new();
+  (include_private : bool) = false;
+  (verbose : bool) = false;
+  (format : String) = String.from("html");
+  (version : String) = String.new();
+  (saw_input : bool) = false;
+  (ai : usize) = usize(2);
+  while(ai < argv.len(), {
+    arg := argv(ai);
+    cond(
+      ((arg == "-o") || (arg == "--output")) => {
+        if((ai + usize(1)) >= argv.len(), {
+          exn.throw(dyn(String.from("doc: --output requires a value")));
+        });
+        output_dir = argv(ai + usize(1));
+        ai = (ai + usize(1));
+      },
+      arg.starts_with(String.from("--output=")) => {
+        output_dir = arg.substring(usize(9), arg.len());
+      },
+      (arg == "--title") => {
+        if((ai + usize(1)) >= argv.len(), {
+          exn.throw(dyn(String.from("doc: --title requires a value")));
+        });
+        title = argv(ai + usize(1));
+        ai = (ai + usize(1));
+      },
+      arg.starts_with(String.from("--title=")) => {
+        title = arg.substring(usize(8), arg.len());
+      },
+      (arg == "--document-private") => {
+        include_private = true;
+      },
+      ((arg == "-v") || (arg == "--verbose")) => {
+        verbose = true;
+      },
+      ((arg == "-f") || (arg == "--format")) => {
+        if((ai + usize(1)) >= argv.len(), {
+          exn.throw(dyn(String.from("doc: --format requires a value")));
+        });
+        format = argv(ai + usize(1));
+        ai = (ai + usize(1));
+      },
+      arg.starts_with(String.from("--format=")) => {
+        format = arg.substring(usize(9), arg.len());
+      },
+      (arg == "--version") => {
+        if((ai + usize(1)) >= argv.len(), {
+          exn.throw(dyn(String.from("doc: --version requires a value")));
+        });
+        version = argv(ai + usize(1));
+        ai = (ai + usize(1));
+      },
+      arg.starts_with(String.from("--version=")) => {
+        version = arg.substring(usize(10), arg.len());
+      },
+      arg.starts_with(String.from("-")) => {
+        exn.throw(dyn(`doc: unknown option '${arg}'. Usage: yo doc [path] [-o <dir>] [--title <t>] [--document-private] [-v] [-f html|markdown|json] [--version <v>]`));
+      },
+      true => {
+        if(saw_input, {
+          exn.throw(dyn(`doc: unexpected extra positional '${arg}'`));
+        });
+        input = arg.clone();
+        saw_input = true;
+      }
+    );
+    ai = (ai + usize(1));
+  });
+  if(!((format == "html") || (format == "markdown") || (format == "json")), {
+    exn.throw(dyn(`doc: invalid --format '${format}' (choices: html, markdown, json)`));
+  });
+  run_doc(
+    DocCommandOptions(
+      input : input,
+      output_dir : output_dir,
+      include_private : include_private,
+      verbose : verbose,
+      title : title,
+      format : format,
+      version : version
+    ),
+    io,
+    exn
+  );
+});
 main :: (fn(io : Io) -> unit)({
   exn := Exception(
     throw : (
@@ -1776,7 +1877,7 @@ main :: (fn(io : Io) -> unit)({
   );
   argv := args();
   if(argv.len() < usize(2), {
-    exn.throw(dyn(`no subcommand given. Usage: yo-self <compile|test|fmt|check|init|build|fetch|install|cache> ...`));
+    exn.throw(dyn(`no subcommand given. Usage: yo-self <compile|test|fmt|check|init|build|fetch|install|cache|doc> ...`));
   });
   subcmd := argv(usize(1));
   if(subcmd == "compile", {
@@ -1797,8 +1898,10 @@ main :: (fn(io : Io) -> unit)({
     run_install_cmd(argv, io, exn);
   }, if(subcmd == "cache", {
     run_cache(argv, io, exn);
+  }, if(subcmd == "doc", {
+    run_doc_cmd(argv, io, exn);
   }, {
-    exn.throw(dyn(`unknown subcommand '${subcmd}'. Usage: yo-self <compile|test|fmt|check|init|build|fetch|install|cache> ...`));
-  })))))))));
+    exn.throw(dyn(`unknown subcommand '${subcmd}'. Usage: yo-self <compile|test|fmt|check|init|build|fetch|install|cache|doc> ...`));
+  }))))))))));
 });
 export(main);

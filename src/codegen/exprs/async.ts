@@ -51,7 +51,7 @@ import {
 import type { OverlappingSlot } from "../async/state-machine";
 import type { FunctionGenerationContext } from "../functions/context";
 import { getEvidenceParameters } from "../functions/declarations";
-import { getTypeString, getVariableTypeString } from "../utils";
+import { getTypeString, getVariableTypeString, quoteCString } from "../utils";
 import { generateAtom } from "./atom";
 import { getDropFunctionForType, getDupFunctionForType } from "./drop-dup";
 import { generateExpr } from "./expr";
@@ -625,7 +625,7 @@ function generateFutureEffectSetter(
           : lastSegment;
       const aliases = [...new Set([effectLabel, lastSegment, capitalizedLast])];
       const condition = aliases
-        .map((alias) => `strcmp(field, ${JSON.stringify(alias)}) == 0`)
+        .map((alias) => `strcmp(field, ${quoteCString(alias)}) == 0`)
         .join(" || ");
       emitter.emitDeclarationLine(`  ${keyword} (${condition}) {`);
       emitter.emitDeclarationLine(`    sm->${accessPath} = value;`);

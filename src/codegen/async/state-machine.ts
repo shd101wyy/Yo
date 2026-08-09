@@ -57,7 +57,7 @@ import { findBundleFieldName } from "../exprs/async";
 import { getDupFunctionForType } from "../exprs/drop-dup";
 import { generateExpr } from "../exprs/expr";
 import type { FunctionGenerationContext } from "../functions/context";
-import { sanitizeForCIdentifier } from "../utils";
+import { sanitizeForCIdentifier, quoteCString } from "../utils";
 import { getTypeString } from "../utils/index";
 import {
   awaitIsWhileCondition,
@@ -2507,7 +2507,7 @@ function emitFutureEffectInjectionLine(
 ): void {
   if (usesGenericFutureInterface(futureType, context)) {
     context.emitter.emitLine(
-      `${indent}if (${futureAccess}->__yo_set_effect_fn) ${futureAccess}->__yo_set_effect_fn((void*)${futureAccess}, ${JSON.stringify(fieldLabel)}, (void*)${memberCode});`
+      `${indent}if (${futureAccess}->__yo_set_effect_fn) ${futureAccess}->__yo_set_effect_fn((void*)${futureAccess}, ${quoteCString(fieldLabel)}, (void*)${memberCode});`
     );
     return;
   }

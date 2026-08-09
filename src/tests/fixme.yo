@@ -1,58 +1,10 @@
 open(import("std/string"));
 open(import("std/fmt"));
-{ yield } :: import("std/async");
-
-Item :: ref(
-  struct(
-    name : String,
-    size : i32
-  )
-);
-Kind :: enum(A, B);
-lookup :: (fn(tag : String) -> Option(Item))(
-  Option(Item).Some(Item(name : tag, size : i32(7)))
-);
-describe :: (fn(item : Item, io : Io) -> Impl(Future(String, Io)))(
-  io.async((io : Io) => {
-    io.await(yield(io), io);
-    return(`${item.name}:${item.size}`)
-  })
-);
-// TWO SIBLING MATCH ARMS each binding the SAME NAME `artifact` from an inner
-// match, each handing it to an awaited future that captures it — the shape of
-// execute_node's .Artifact and .Run arms in yo-self/build_runner.yo.
-drive :: (fn(kind : Kind, io : Io) -> Impl(Future(String, Io)))(
-  io.async((io : Io) => {
-    out := String.from("none");
-    match(
-      kind,
-      .A => {
-        match(
-          lookup(String.from("a-item")),
-          .None => (),
-          .Some(artifact) => {
-            d := io.await(describe(artifact, io), io);
-            out = d;
-          }
-        );
-      },
-      .B => {
-        match(
-          lookup(String.from("b-item")),
-          .None => (),
-          .Some(artifact) => {
-            d := io.await(describe(artifact, io), io);
-            out = d;
-          }
-        );
-      }
-    );
-    return(out)
-  })
-);
 
 main :: (fn(io : Io) -> unit)({
-  println(io.await(drive(Kind.A, io), io));
-  println(io.await(drive(Kind.B, io), io));
+  sep := `\0`;
+  key := `a${sep}b`;
+  println(key.len().to_string());
+  println(`${key.as_bytes()(usize(1)) == u8(0)}`);
 });
 export(main);

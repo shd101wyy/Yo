@@ -28,6 +28,7 @@ import {
   getTypeString,
   getVariableTypeString,
   type CodeGenContext,
+  quoteCString,
 } from "../utils";
 import { getDupFunctionForType } from "./drop-dup";
 import { generateExpr } from "./expr";
@@ -573,7 +574,7 @@ function emitFutureEffectInjectionLine(
 ): void {
   if (usesGenericFutureInterface(futureType, context)) {
     context.emitter.emitLine(
-      `${indent}  if (${futureVar}->__yo_set_effect_fn) ${futureVar}->__yo_set_effect_fn((void*)${futureVar}, ${JSON.stringify(fieldLabel)}, (void*)${memberCode});`
+      `${indent}  if (${futureVar}->__yo_set_effect_fn) ${futureVar}->__yo_set_effect_fn((void*)${futureVar}, ${quoteCString(fieldLabel)}, (void*)${memberCode});`
     );
     return;
   }

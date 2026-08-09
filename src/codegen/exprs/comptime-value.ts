@@ -34,6 +34,7 @@ import {
   getRuntimeStructFields,
   getTypeString,
   sanitizeForCIdentifier,
+  quoteCString,
 } from "../utils";
 
 /**
@@ -120,7 +121,7 @@ export function generateComptimeValue(
 
     // Builtin str target: emit the fat pointer over the static literal.
     if (targetType && isStrType(targetType)) {
-      const stringLiteral = JSON.stringify(value.value);
+      const stringLiteral = quoteCString(value.value);
       const stringLength = Buffer.byteLength(value.value, "utf8");
       return `(__yo_str){ .ptr = (const uint8_t*)${stringLiteral}, .len = ${stringLength} }`;
     }
@@ -129,13 +130,13 @@ export function generateComptimeValue(
     // recorded conversion becomes the builtin str (branch-value temps,
     // field assignments). Pointer targets were handled above.
     if (!targetType || isComptimeStringType(targetType)) {
-      const stringLiteral = JSON.stringify(value.value);
+      const stringLiteral = quoteCString(value.value);
       const stringLength = Buffer.byteLength(value.value, "utf8");
       return `(__yo_str){ .ptr = (const uint8_t*)${stringLiteral}, .len = ${stringLength} }`;
     }
 
     // For regular strings, return the C string literal with proper escaping
-    return JSON.stringify(value.value);
+    return quoteCString(value.value);
   } else if (isEnumValue(value)) {
     // For enums, check if it's optimized as nullable pointer
     const enumType = value.type;

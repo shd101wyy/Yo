@@ -7,7 +7,7 @@ import {
 import { isTargetWasm } from "../../target";
 import { isUnitType } from "../../types/guards";
 import { isComptimeStringValue, isTypeValue } from "../../value";
-import { type CodeGenContext, getTypeString } from "../utils";
+import { type CodeGenContext, getTypeString, quoteCString } from "../utils";
 import { generateExpr } from "./expr";
 
 // Register class names mapped to GCC constraint letters per architecture
@@ -630,7 +630,7 @@ export function generateAsm(
   }
 
   // Escape for C string
-  const escapedTemplate = JSON.stringify(finalTemplate);
+  const escapedTemplate = quoteCString(finalTemplate);
 
   // Build output operand list
   const outputParts: string[] = [];
@@ -752,9 +752,7 @@ export function generateGlobalAsm(
   const templateExpr = expr.args[0]!;
   if (templateExpr.$?.value && isComptimeStringValue(templateExpr.$.value)) {
     const template = templateExpr.$.value.value;
-    context.emitter.emitDeclarationLine(
-      `__asm__(${JSON.stringify(template)});`
-    );
+    context.emitter.emitDeclarationLine(`__asm__(${quoteCString(template)});`);
   }
 
   return ""; // global_asm is a statement, no return value

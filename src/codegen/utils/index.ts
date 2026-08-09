@@ -320,6 +320,34 @@ export function getRuntimeStructFields(structType: StructType): TypeField[] {
 }
 
 /**
+ * Quote a string as a C string literal.
+ *
+ * JSON.stringify gets the common cases right but escapes control characters
+ * as `\uXXXX`, which is a JSON escape, not a C one — C treats ` ` as a
+ * universal character name and REJECTS control-character values ("universal
+ * character name refers to a control character"). A Yo string containing
+ * `\0` (e.g. a NUL-separated dedup key) must become `"\000"` in C. Control
+ * characters are rewritten to unambiguous 3-digit octal escapes; everything
+ * else keeps JSON.stringify's output (non-ASCII passes through as UTF-8
+ * bytes, which C string literals accept).
+ * See issues/fixed/c-string-literal-control-chars-emitted-as-unicode-escapes.md
+ */
+export function quoteCString(s: string): string {
+  return JSON.stringify(s).replace(
+    /\\u([0-9a-fA-F]{4})/g,
+    (whole, hex: string) => {
+      const code = parseInt(hex, 16);
+      if (code > 0xff) {
+        // Astral/BMP escapes JSON.stringify chose to emit (it normally passes
+        // non-ASCII through raw; lone surrogates land here) — keep as-is.
+        return whole;
+      }
+      return `\\${code.toString(8).padStart(3, "0")}`;
+    }
+  );
+}
+
+/**
  * Sanitize a string to be a valid C identifier
  * Replaces any character that's not alphanumeric or underscore with its Unicode code point
  * This ensures unique identifiers for operators like * and +
