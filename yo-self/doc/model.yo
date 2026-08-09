@@ -158,7 +158,12 @@ DocConstant :: struct(
   doc : Option(String),
   type_ : String,
   value : Option(String),
-  deprecated : Option(String)
+  deprecated : Option(String),
+  /// TS's `DocConstant` interface has no `examples`, but both builder paths
+  /// spread `...extractDocSections(doc)` into the literal, so the RUNTIME
+  /// object (and its JSON) carries one whenever the doc has an `## Examples`
+  /// section. Modeled explicitly for render_json byte parity.
+  examples : Option(String)
 );
 // ---------------------------------------------------------------------------
 // Module documentation (recursive via ArrayList)
