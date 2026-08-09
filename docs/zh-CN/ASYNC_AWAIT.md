@@ -451,6 +451,30 @@ task := io.async((io : Io)=> {
 - Poll 函数是逐步推进各状态的 switch 语句
 - 不涉及线程——所有轮询都在同一线程上进行
 
+### `io.async` 内部 `await` 可以出现的位置
+
+由于每个 `await` 都是一次状态转换，它必须位于函数体能够被**切分**的位置。分支
+**主体**可以切分；分支**条件**不行——那需要为每个条件各分配一个状态。
+
+```rust
+// ✓ 支持——await 位于分支主体中
+cond(
+  needs_write => { io.await(write_file(p, data, io), io); },
+  true => ()
+);
+
+// ✓ 支持——先绑定，再分支
+found := io.await(exists(p, io), io);
+cond(found => { ... }, true => ());
+
+// ✗ 拒绝——await 位于条件中
+cond(io.await(exists(p, io), io) => { ... }, true => ());
+if(io.await(exists(p, io), io), { ... });
+```
+
+被拒绝的写法会产生一条指明修复方式的编译错误。该限制**仅适用于 `io.async` 内部**。
+在普通 `fn` 体中，`io.await` 会同步驱动事件循环，因此可以出现在任何允许表达式的位置。
+
 ## 事件循环
 
 异步运行时使用简单的**单线程事件循环**：

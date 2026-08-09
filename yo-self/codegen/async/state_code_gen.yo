@@ -316,19 +316,39 @@ _await_is_in_cond_position :: (fn(cond_expr : AstExpr, await_point : AwaitPoint)
   found
 });
 /// Diagnostic for an await in a position the state machine cannot split at.
-/// The overwhelmingly common cause is an await in *conditional* position, so
-/// name the fix (hoist into a local) rather than just reporting the shape.
+///
+/// Two distinct causes, with two different fixes, so they get two messages:
+///  - CONDITION position (`if(await f, ...)`, `cond(await f => ...)`): splitting
+///    needs a state per condition, which the FSM does not model. Fix: hoist.
+///  - `if` BODY (`if(c, { await f })`): `if` is a macro over `cond`, and only
+///    `cond` carries the branch structure the splitter needs. Fix: write `cond`.
 /// Mirrors `unsupportedAwaitMessage` (state-code-gen.ts).
-_unsupported_await_message :: (fn(expr : AstExpr, is_if : bool) -> String)({
+_unsupported_await_message :: (fn(expr : AstExpr, is_if : bool, in_cond_pos : bool) -> String)({
   t := ast_expr_token(expr);
   where := `${t.module_path}:${(t.row + usize(1)).to_string()}:${(t.column + usize(1)).to_string()}: `;
-  kw := cond(is_if => String.from("if"), true => String.from("cond"));
-  form := cond(is_if => String.from("if(ready, { ... })"), true => String.from("cond(ready => ..., true => ...)"));
-
-  `${where}\`io.await\` is not supported in the condition of \`${kw}\` inside an \`io.async\` block.
+  if(in_cond_pos, {
+    kw := cond(is_if => String.from("if"), true => String.from("cond"));
+    form := cond(is_if => String.from("if(ready, { ... })"), true => String.from("cond(ready => ..., true => ...)"));
+    return(
+      `${where}\`io.await\` is not supported in the condition of \`${kw}\` inside an \`io.async\` block.
 Hoist it into a local first:
     ready := io.await(f, io);
     ${form}`
+    );
+  });
+  if(is_if, {
+    return(
+      `${where}\`io.await\` is not supported inside an \`if\` body within an \`io.async\` block.
+\`if\` is a macro over \`cond\`, and only \`cond\` carries the branch structure the state machine splits on. Write the \`cond\` directly:
+    cond(
+      c => { io.await(f, io); },
+      true => ()
+    );`
+    );
+  });
+
+  `${where}\`io.await\` is not supported in this position inside an \`io.async\` block.
+Hoist it into a local first: \`result := io.await(f, io);\``
 });
 generate_await_expression :: (
   fn(
@@ -456,28 +476,26 @@ generate_await_expression :: (
     _call_generate_while_with_await(expr, await_point, indent, context);
     return();
   });
-  // `if` is a macro over `cond`; the branch structure only becomes visible in
-  // its expansion, so retry there before giving up. Mirrors state-code-gen.ts:399.
-  match(
-    _await_macro_expansion(expr),
-    .Some(me) => {
-      // Report against the expression the user actually wrote (`if`).
-      if(_await_is_in_cond_position(me, await_point), {
-        // panic requires a `str`; the located detail goes to stderr.
-        eprintln(_unsupported_await_message(expr, true));
-        __yo_panic("io.await in the condition of `if` inside io.async is not supported (see stderr)");
-      });
-      recur(me, await_point, _state_number, indent, context);
-      return();
-    },
-    .None => ()
-  );
   // Nothing here can generate a correct state transition for this shape. The
   // caller unconditionally emits the await machinery next (reading
   // `sm->await_future_N`), and only the handlers above ever assign that field —
   // so returning quietly produces a NULL dereference at runtime. Fail loudly
   // instead: a compile error is always better than a segfaulting binary.
-  eprintln(_unsupported_await_message(expr, false));
+  //
+  // For an `if`, read the `cond` it expands to ONLY to tell "await in the
+  // condition" from "await in a body" — they need different fixes. Nothing is
+  // generated from the expansion. Mirrors state-code-gen.ts.
+  is_if := (ast_expr_is_fn_call(expr) && ast_expr_is_fn_call_of(expr, "if", Option(usize).None));
+  in_cond_pos := cond(
+    is_if => match(
+      _await_macro_expansion(expr),
+      .Some(me) => _await_is_in_cond_position(me, await_point),
+      .None => false
+    ),
+    true => _await_is_in_cond_position(expr, await_point)
+  );
+  // panic requires a `str`; the located detail goes to stderr.
+  eprintln(_unsupported_await_message(expr, is_if, in_cond_pos));
   __yo_panic("io.await is not supported in this position inside io.async (see stderr)")
 });
 /// Emit C for a single FSM state segment: each expression runs normally, except
@@ -1252,7 +1270,7 @@ generate_cond_with_await :: (
   // not model — the condition's C code comes back empty and we would emit
   // `tmp = ;`. Reject it here with the source-level fix instead.
   if(_await_is_in_cond_position(cond_expr, await_point), {
-    eprintln(_unsupported_await_message(cond_expr, false));
+    eprintln(_unsupported_await_message(cond_expr, false, true));
     __yo_panic("io.await in the condition of `cond` inside io.async is not supported (see stderr)");
   });
   branches_with_await := ArrayList(CondBranch).new();

@@ -2799,16 +2799,103 @@ test("Regression: recv-then-cond-send pattern (HTTP server style)", {
   assert(r == i32(3), "recv-then-cond-send should handle 3 responses");
 });
 // ---------------------------------------------------------------------------
-// `if` inside io.async — await in the BODY
+// Conditional branches containing an await, inside io.async.
 //
-// `if` is a macro over `cond`, so its branch structure only exists in
-// `$.macroExpansion`. Neither the suspension analysis nor the state-segment
-// generator followed that, so an await under an `if` got no `cond_branch`
-// field and no state transition. In condition position that produced a
-// SEGFAULTING binary at rc=0; in body position, C that did not compile.
-// See src/tests/async-await-position-gate.test.ts for the rejected shapes.
+// `cond` is the supported spelling — its branch structure is what the state
+// machine splits on. `if` is a MACRO over `cond`, and the splitter never
+// followed `$.macroExpansion`, so an await under an `if` got no state
+// transition at all: in condition position that compiled at rc=0 and produced
+// a SEGFAULTING binary (`yo-self init` shipped that way); in body position it
+// produced C that did not compile. Both shapes are now rejected at compile
+// time — see src/tests/async-await-position-gate.test.ts.
 // ---------------------------------------------------------------------------
+test("Test await inside a cond branch", {
+  task := io.async((io : Io) => {
+    acc := Box(i32)(0);
+    cond(
+      runtime(true) => {
+        v := io.await(future_with_returned_state(i32(41), io), io);
+        acc.* = v;
+      },
+      true => ()
+    );
+    return(acc.*);
+  });
+  r := io.await(task, io);
+  assert(r == i32(42), "await inside a taken cond branch should run and bind");
+});
+test("Test await inside a cond branch that is not taken", {
+  task := io.async((io : Io) => {
+    acc := Box(i32)(7);
+    cond(
+      runtime(false) => {
+        v := io.await(future_with_returned_state(i32(41), io), io);
+        acc.* = v;
+      },
+      true => ()
+    );
+    return(acc.*);
+  });
+  r := io.await(task, io);
+  assert(r == i32(7), "an untaken cond branch must not run its await");
+});
+test("Test await inside both cond branches", {
+  task := io.async((io : Io) => {
+    acc := Box(i32)(0);
+    cond(
+      runtime(false) => {
+        v := io.await(future_with_returned_state(i32(10), io), io);
+        acc.* = v;
+      },
+      true => {
+        v := io.await(future_with_returned_state(i32(20), io), io);
+        acc.* = v;
+      }
+    );
+    return(acc.*);
+  });
+  r := io.await(task, io);
+  assert(r == i32(21), "the fallback branch's await should be the one that runs");
+});
+test("Test hoisted await used as a cond condition", {
+  // The supported spelling of `cond(io.await(...) => ...)`: bind first, branch
+  // second. This is what yo-self/init.yo now does.
+  task := io.async((io : Io) => {
+    v := io.await(future_with_returned_state(i32(41), io), io);
+    acc := Box(i32)(0);
+    cond(
+      (v == i32(42)) => {
+        acc.* = i32(1);
+      },
+      true => ()
+    );
+    return(acc.*);
+  });
+  r := io.await(task, io);
+  assert(r == i32(1), "hoisting the await out of the condition should work");
+});
+test("Test statement after a cond branch that awaits", {
+  // Regression: the state AFTER the branch must still run — the original bug
+  // dropped the branch body and jumped straight past it.
+  task := io.async((io : Io) => {
+    acc := Box(i32)(0);
+    cond(
+      runtime(true) => {
+        v := io.await(future_with_returned_state(i32(9), io), io);
+        acc.* = v;
+      },
+      true => ()
+    );
+    acc.* = (acc.* + i32(100));
+    return(acc.*);
+  });
+  r := io.await(task, io);
+  assert(r == i32(110), "code after the cond must still execute");
+});
 test("Test await inside an if body", {
+  // `if` is a MACRO over `cond`; the splitter has to follow its expansion to
+  // see the branch at all. The self-hosted compiler always did; the reference
+  // compiler did not, and emitted C that would not compile.
   task := io.async((io : Io) => {
     acc := Box(i32)(0);
     if(runtime(true), {
@@ -2819,18 +2906,6 @@ test("Test await inside an if body", {
   });
   r := io.await(task, io);
   assert(r == i32(42), "await inside an if body should run and bind");
-});
-test("Test await inside an if body that is not taken", {
-  task := io.async((io : Io) => {
-    acc := Box(i32)(7);
-    if(runtime(false), {
-      v := io.await(future_with_returned_state(i32(41), io), io);
-      acc.* = v;
-    });
-    return(acc.*);
-  });
-  r := io.await(task, io);
-  assert(r == i32(7), "an untaken if body must not run its await");
 });
 test("Test await inside both if and else bodies", {
   task := io.async((io : Io) => {
@@ -2847,23 +2922,7 @@ test("Test await inside both if and else bodies", {
   r := io.await(task, io);
   assert(r == i32(21), "the else body's await should be the one that runs");
 });
-test("Test hoisted await used as an if condition", {
-  // The supported spelling of `if(io.await(...), ...)`: bind first, branch
-  // second. This is what yo-self/init.yo now does.
-  task := io.async((io : Io) => {
-    v := io.await(future_with_returned_state(i32(41), io), io);
-    acc := Box(i32)(0);
-    if(v == i32(42), {
-      acc.* = i32(1);
-    });
-    return(acc.*);
-  });
-  r := io.await(task, io);
-  assert(r == i32(1), "hoisting the await out of the condition should work");
-});
 test("Test statement after an if whose body awaits", {
-  // Regression: the state AFTER the if must still run — the original bug
-  // dropped the if body entirely and jumped straight past it.
   task := io.async((io : Io) => {
     acc := Box(i32)(0);
     if(runtime(true), {

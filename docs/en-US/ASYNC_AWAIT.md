@@ -452,6 +452,32 @@ task := io.async((io : Io)=> {
 - Poll function is a switch statement advancing through states
 - No threads involved - all polling happens on same thread
 
+### Where `await` may appear inside `io.async`
+
+Because each `await` is a state transition, it has to sit somewhere the body can
+be _split_. Branch **bodies** can be split; branch **conditions** cannot, since
+that would need one state per condition.
+
+```rust
+// ✓ supported — await in a branch body
+cond(
+  needs_write => { io.await(write_file(p, data, io), io); },
+  true => ()
+);
+
+// ✓ supported — bind first, then branch
+found := io.await(exists(p, io), io);
+cond(found => { ... }, true => ());
+
+// ✗ rejected — await in the condition
+cond(io.await(exists(p, io), io) => { ... }, true => ());
+if(io.await(exists(p, io), io), { ... });
+```
+
+The rejected forms produce a compile error naming the fix. This restriction
+applies **only inside `io.async`**. In a plain `fn` body, `io.await` drives the
+event loop synchronously and may appear anywhere an expression may.
+
 ## Event Loop
 
 The async runtime uses a simple **single-threaded event loop**:

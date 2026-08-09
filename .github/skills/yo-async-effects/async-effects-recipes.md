@@ -193,6 +193,33 @@ process_dir :: (fn(root: Path, ctx : WalkCtx) -> Impl(Future(unit, WalkCtx)))(
 - Closures cannot be `ctl`, and they cannot capture a `ctl`-typed value. Handlers are bare (non-capturing) anonymous functions. If you need to use a `ctl` handler from inside a closure body, pass it in as an explicit parameter instead of capturing it.
 - Pointers and references to `ctl` types (or structs containing them) are rejected.
 - **`recur` inside `io.async` calls the lambda, not the outer function** — use an iterative worklist for async recursion.
+- **`io.await` cannot appear in a CONDITION inside `io.async`.** Splitting there
+  would need one state machine state per condition, which the state machine does
+  not model. Bind it first — the compiler now rejects the inline form with a
+  located error rather than miscompiling it:
+
+  ```rust
+  // ✗ rejected: `io.await` is not supported in the condition of `if`/`cond`
+  if(io.await(exists(p, io), io), { ... });
+  cond(io.await(ready(io), io) => { ... }, true => ());
+
+  // ✓ hoist into a local, then branch
+  found := io.await(exists(p, io), io);
+  cond(found => { ... }, true => ());
+  ```
+
+  This only applies **inside `io.async`**. At the top level of a plain `fn`,
+  `io.await` is a synchronous drive loop and `cond(io.await(...) => ...)` is
+  fine — which is why `tests/fs/dir.test.yo` has always used it.
+
+  Awaiting inside a branch _body_ is fully supported (`cond(c => { io.await(f, io); })`,
+  and `if` bodies too). Historically this shape was a **silent** miscompile:
+  `rc=0` and a segfaulting binary, with the branch body dropped. See
+  `issues/fixed/yo-self-init-segfaults-on-first-run.md`, and
+  `issues/await-in-branch-positions-matrix.md` for the measured
+  works/rejected/diverges table across both compilers (`match` arms and
+  scrutinees still have open gaps).
+
 - **Closure params bound to a generic `E : Type.Struct` need an explicit annotation.** When a generic function takes `callback : Impl(Fn(v : V, e : E) -> R)` and you pass a closure, the closure's `e` parameter type cannot be inferred from the call's bundle argument — `E` is still unbound at the closure body's evaluation site. Define a concrete struct first and annotate the closure parameter:
   ```rust
   // ✗ fails with "Cannot infer the type of anonymous closure parameter `e`"

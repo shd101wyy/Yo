@@ -397,11 +397,14 @@ export function generateAwaitExpression(
   }
 
   // `if` is a macro over `cond`; the branch structure only becomes visible in
-  // its expansion, so retry there before giving up. Without this the `if` falls
-  // through to the error below even though `cond` is fully supported.
+  // its expansion, so retry there before giving up. Without this an `await`
+  // under an `if` gets no state transition at all, even though `cond` — which
+  // is all an `if` is — is fully supported. (yo-self already handles this; the
+  // reference compiler was the one that did not.)
   if (expr.$?.macroExpansion) {
-    // Report against the expression the user actually wrote (`if`), not the
-    // `cond` it expands into.
+    // An await in the CONDITION cannot be split no matter which spelling it
+    // arrives in, so reject it here — and report against the `if` the user
+    // actually wrote, not the `cond` it expands to.
     if (awaitIsInCondPosition(expr.$.macroExpansion, awaitPoint)) {
       throw new Error(unsupportedAwaitMessage(expr, awaitPoint));
     }
@@ -460,11 +463,14 @@ function awaitIsInCondPosition(
  * Builds the diagnostic for an await that appears in a position the async state
  * machine cannot split at.
  *
- * The overwhelmingly common cause is an await in *conditional* position —
- * `if(io.await(f, io), { ... })` or `cond(io.await(f, io) => ...)`. Splitting
- * there would require a state per condition, which the state machine does not
- * model, so we name the fix (hoist the await into a local) rather than just
- * reporting the shape.
+ * Two distinct causes, with two different fixes, so they get two messages:
+ *
+ *  - CONDITION position — `if(io.await(f, io), ...)`, `cond(io.await(f, io) => ...)`,
+ *    `match(io.await(f, io), ...)`. Splitting here needs a state per condition,
+ *    which the state machine does not model. Fix: hoist into a local.
+ *  - `if` BODY — `if(c, { io.await(f, io) })`. `if` is a macro over `cond`, and
+ *    only `cond` carries the branch structure the splitter needs. Fix: write the
+ *    `cond` directly (which is fully supported, in both compilers).
  */
 function unsupportedAwaitMessage(expr: Expr, awaitPoint: AwaitPoint): string {
   const funcName =
@@ -480,19 +486,50 @@ function unsupportedAwaitMessage(expr: Expr, awaitPoint: AwaitPoint): string {
     : "";
 
   const isIf = exprIsFunctionCallOf(expr, BuiltinKeywords.if);
-  const inConditionalPosition =
-    isIf || exprIsFunctionCallOf(expr, BuiltinKeywords.cond);
 
-  const detail = inConditionalPosition
-    ? `\`io.await\` is not supported in the condition of \`${funcName}\` inside an \`io.async\` block.\n` +
+  // For an `if`, the branch structure lives in the `cond` it expands to — read
+  // it only to tell "await in the condition" from "await in a body", which need
+  // different fixes. Nothing is generated from the expansion.
+  const inConditionalPosition = isIf
+    ? expr.$?.macroExpansion !== undefined &&
+      awaitIsInCondPosition(expr.$.macroExpansion, awaitPoint)
+    : awaitIsInCondPosition(expr, awaitPoint) ||
+      exprIsFunctionCallOf(expr, BuiltinKeywords.match);
+
+  if (inConditionalPosition) {
+    const branchForm = isIf
+      ? "if(ready, { ... })"
+      : funcName === "match"
+        ? "match(ready, ...)"
+        : "cond(ready => ..., true => ...)";
+    return (
+      `${where}\`io.await\` is not supported in the condition of \`${funcName}\` ` +
+      `inside an \`io.async\` block.\n` +
       `Hoist it into a local first:\n` +
       `    ready := io.await(f, io);\n` +
-      `    ${isIf ? "if(ready, { ... })" : "cond(ready => ..., true => ...)"}`
-    : `\`io.await\` is not supported in this position inside an \`io.async\` block ` +
-      `(expression: ${expr.tag}${funcName ? `, function: \`${funcName}\`` : ""}).\n` +
-      `Hoist it into a local first: \`result := io.await(f, io);\``;
+      `    ${branchForm}`
+    );
+  }
 
-  return `${where}${detail}`;
+  if (isIf) {
+    return (
+      `${where}\`io.await\` is not supported inside an \`if\` body within an ` +
+      `\`io.async\` block.\n` +
+      `\`if\` is a macro over \`cond\`, and only \`cond\` carries the branch ` +
+      `structure the state machine splits on. Write the \`cond\` directly:\n` +
+      `    cond(\n` +
+      `      c => { io.await(f, io); },\n` +
+      `      true => ()\n` +
+      `    );`
+    );
+  }
+
+  return (
+    `${where}\`io.await\` is not supported in this position inside an ` +
+    `\`io.async\` block (expression: ${expr.tag}` +
+    `${funcName ? `, function: \`${funcName}\`` : ""}).\n` +
+    `Hoist it into a local first: \`result := io.await(f, io);\``
+  );
 }
 
 /**
