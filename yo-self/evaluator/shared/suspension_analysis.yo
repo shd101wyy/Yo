@@ -40,8 +40,8 @@ open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { TokenKind } :: import("../../token.yo");
-{ AstExpr, ast_expr_is_fn_call_of } :: import("../../expr.yo");
-{ ExprInfo } :: import("../../expr_info.yo");
+{ AstExpr, ast_expr_is_fn_call_of, ast_expr_id } :: import("../../expr.yo");
+{ ExprInfo, lookup_macro_expansion } :: import("../../expr_info.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { Variable, Environment, get_variables_from_env } :: import("../../env.yo");
 {
@@ -360,7 +360,23 @@ walk_expr_ :: (
         ast_expr_is_fn_call_of(expr_cloned.clone(), "cond", Option(usize).None) ||
           ast_expr_is_fn_call_of(expr_cloned.clone(), "match", Option(usize).None)
       );
+      // `if` is a macro over `cond`. Its branch structure only exists in the
+      // expansion, so walk that instead — otherwise its suspension points never
+      // get the merged indices and `cond_branch` fields that codegen (which
+      // does follow the expansion) goes on to reference.
+      // Mirrors suspension-analysis.ts:229.
+      if_expansion := cond(
+        ast_expr_is_fn_call_of(expr_cloned.clone(), "if", Option(usize).None) => lookup_macro_expansion(ast_expr_id(expr_cloned.clone())),
+        true => Option(AstExpr).None
+      );
       cond(
+        if_expansion.is_some() => {
+          match(
+            if_expansion,
+            .Some(me) => recur(me, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, parent_expr),
+            .None => ()
+          );
+        },
         // -------------------------------------------------------------------
         // while — mark all new suspension points with nesting info
         // -------------------------------------------------------------------

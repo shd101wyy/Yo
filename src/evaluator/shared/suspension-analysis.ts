@@ -226,6 +226,26 @@ function walkExpr<P extends SuspensionPoint>(
         break;
       }
 
+      // `if` is a macro over `cond`. Its branch structure only exists in the
+      // expansion, so walk that instead — otherwise its suspension points never
+      // get the merged indices and `cond_branch` fields that codegen (which
+      // does follow the expansion) goes on to reference.
+      if (
+        exprIsFunctionCallOf(expr, BuiltinKeywords.if) &&
+        expr.$?.macroExpansion
+      ) {
+        walkExpr(
+          expr.$.macroExpansion,
+          points,
+          capturedVariables,
+          nameFrameToOriginalId,
+          variableIdRemapping,
+          detector,
+          parentExpr
+        );
+        break;
+      }
+
       // Handle cond branches — merge mutually exclusive suspension points
       if (exprIsFunctionCallOf(expr, BuiltinKeywords.cond)) {
         handleBranchingExpr(

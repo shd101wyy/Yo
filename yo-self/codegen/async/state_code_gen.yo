@@ -7,6 +7,7 @@
 //! remaining interdependent core, ported as a mass against the BASELINE
 //! `42` io.async/io.await differential fixture.
 open(import("std/string"));
+open(import("std/fmt"));
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { AstExpr, ast_expr_id, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_is_atom_of, ast_expr_is_atom, ast_expr_token, BK_WHILE, BK_BEGIN, BK_COND, BK_MATCH } :: import("../../expr.yo");
@@ -16,7 +17,7 @@ open(import("std/string"));
 { split_body_at_suspension_points, contains_suspension_expr } :: import("../shared/suspension_codegen.yo");
 { is_io_async_call, is_io_await_call } :: import("../../evaluator/async/await_analysis.yo");
 { expr_contains_await } :: import("../../expr_traversal.yo");
-{ expr_info_primitive_pattern_values, expr_info_is_primitive_match } :: import("../../expr_info.yo");
+{ expr_info_primitive_pattern_values, expr_info_is_primitive_match, lookup_macro_expansion } :: import("../../expr_info.yo");
 { FunctionGenerationContext, SmWhileBreakInfo, SmWhileContinueInfo, WhileLoopInfo, OuterWhileLoop, CondBranchPostWhileExprs, CondBranch, ChainedCondBranches, AsyncCondBranchInfo } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("../exprs/_expr.yo");
 { _call_generate_cond_with_await, _call_generate_match_with_await, _call_generate_while_with_await, register_fsm_emitters } :: import("./_fsm.yo");
@@ -278,6 +279,57 @@ _extract_target_var_id :: (
 /// cond/match/while with await. The actual suspend/resume happens at the state
 /// transition; this stores the awaited Future into its field (or delegates to the
 /// branch emitters). Mirrors `generateAwaitExpression` (state-code-gen.ts:184).
+/// The macro expansion of a macro call (`if` -> `cond`). Read from the durable
+/// side-table rather than this call's per-pass ExprInfo, which can lose
+/// `macro_expansion` (see codegen/types/collection.yo:557).
+_await_macro_expansion :: (fn(expr : AstExpr) -> Option(AstExpr))(
+  lookup_macro_expansion(ast_expr_id(expr))
+);
+/// True when this await sits in a branch CONDITION of `cond_expr` (rather than
+/// in a branch value, which is what the splitter supports). `cond_expr` must be
+/// a `cond` — for an `if`, pass its macro expansion.
+/// Mirrors `awaitIsInCondPosition` (state-code-gen.ts).
+_await_is_in_cond_position :: (fn(cond_expr : AstExpr, await_point : AwaitPoint) -> bool)({
+  if(!(ast_expr_is_fn_call(cond_expr) && ast_expr_is_fn_call_of(cond_expr, BK_COND, Option(usize).None)), {
+    return(false);
+  });
+  args := match(cond_expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+  (ci : usize) = usize(0);
+  (found : bool) = false;
+  while((ci < args.len()) && !(found), {
+    match(
+      args.get(ci),
+      .Some(pair) => if(ast_expr_is_fn_call(pair) && ast_expr_is_fn_call_of(pair, "=>", Option(usize).None), {
+        cond_arg := match(pair, .FnCall(_, _, a, _, _) => a.get(usize(0)), .Atom(_, _) => Option(AstExpr).None);
+        match(
+          cond_arg,
+          .Some(cnd) => if(contains_await_expr(cnd, await_point.base.expr), {
+            found = true;
+          }),
+          .None => ()
+        );
+      }),
+      .None => ()
+    );
+    ci = (ci + usize(1));
+  });
+  found
+});
+/// Diagnostic for an await in a position the state machine cannot split at.
+/// The overwhelmingly common cause is an await in *conditional* position, so
+/// name the fix (hoist into a local) rather than just reporting the shape.
+/// Mirrors `unsupportedAwaitMessage` (state-code-gen.ts).
+_unsupported_await_message :: (fn(expr : AstExpr, is_if : bool) -> String)({
+  t := ast_expr_token(expr);
+  where := `${t.module_path}:${(t.row + usize(1)).to_string()}:${(t.column + usize(1)).to_string()}: `;
+  kw := cond(is_if => String.from("if"), true => String.from("cond"));
+  form := cond(is_if => String.from("if(ready, { ... })"), true => String.from("cond(ready => ..., true => ...)"));
+
+  `${where}\`io.await\` is not supported in the condition of \`${kw}\` inside an \`io.async\` block.
+Hoist it into a local first:
+    ready := io.await(f, io);
+    ${form}`
+});
 generate_await_expression :: (
   fn(
     expr : AstExpr,
@@ -404,8 +456,29 @@ generate_await_expression :: (
     _call_generate_while_with_await(expr, await_point, indent, context);
     return();
   });
-  // Unsupported pattern.
-  em.emit_string_line(`${indent}// ERROR: Unsupported pattern for await expression`);
+  // `if` is a macro over `cond`; the branch structure only becomes visible in
+  // its expansion, so retry there before giving up. Mirrors state-code-gen.ts:399.
+  match(
+    _await_macro_expansion(expr),
+    .Some(me) => {
+      // Report against the expression the user actually wrote (`if`).
+      if(_await_is_in_cond_position(me, await_point), {
+        // panic requires a `str`; the located detail goes to stderr.
+        eprintln(_unsupported_await_message(expr, true));
+        __yo_panic("io.await in the condition of `if` inside io.async is not supported (see stderr)");
+      });
+      recur(me, await_point, _state_number, indent, context);
+      return();
+    },
+    .None => ()
+  );
+  // Nothing here can generate a correct state transition for this shape. The
+  // caller unconditionally emits the await machinery next (reading
+  // `sm->await_future_N`), and only the handlers above ever assign that field —
+  // so returning quietly produces a NULL dereference at runtime. Fail loudly
+  // instead: a compile error is always better than a segfaulting binary.
+  eprintln(_unsupported_await_message(expr, false));
+  __yo_panic("io.await is not supported in this position inside io.async (see stderr)")
 });
 /// Emit C for a single FSM state segment: each expression runs normally, except
 /// the one containing this segment's await (handled by `generate_await_expression`)
@@ -1173,6 +1246,14 @@ generate_cond_with_await :: (
   if(args.len() == usize(0), {
     em.emit_string_line(`${indent}// Error: cond must have at least one branch`);
     return();
+  });
+  // This function splits at awaits in branch VALUES. An await in a branch
+  // CONDITION would need a state per condition, which the state machine does
+  // not model — the condition's C code comes back empty and we would emit
+  // `tmp = ;`. Reject it here with the source-level fix instead.
+  if(_await_is_in_cond_position(cond_expr, await_point), {
+    eprintln(_unsupported_await_message(cond_expr, false));
+    __yo_panic("io.await in the condition of `cond` inside io.async is not supported (see stderr)");
   });
   branches_with_await := ArrayList(CondBranch).new();
   // First pass: find the first non-false branch + whether it is comptime-true.

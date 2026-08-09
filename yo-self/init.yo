@@ -174,38 +174,45 @@ init_project :: (
     e.io.await(create_dir_all(project_dir.join(Path.new(String.from("tests"))), e.io), e);
     // build.yo — abort if already exists
     build_yo_path := project_dir.join(Path.new(String.from("build.yo")));
-    if(e.io.await(exists(build_yo_path, e.io), e.io), {
+    build_yo_exists := e.io.await(exists(build_yo_path, e.io), e.io);
+    if(build_yo_exists, {
       e.exn.throw(dyn(`Error: ${build_yo_path.to_string()} already exists. Aborting.`));
     });
     e.io.await(write_file(build_yo_path, generate_build_yo(project_name), e.io), e);
     // deps.yo
     deps_yo_path := project_dir.join(Path.new(String.from("deps.yo")));
-    if(!(e.io.await(exists(deps_yo_path, e.io), e.io)), {
+    deps_yo_exists := e.io.await(exists(deps_yo_path, e.io), e.io);
+    if(!(deps_yo_exists), {
       e.io.await(write_file(deps_yo_path, String.from(generate_deps_yo()), e.io), e);
     });
     // src/main.yo
     main_path := project_dir.join(Path.new(String.from("src/main.yo")));
-    if(!(e.io.await(exists(main_path, e.io), e.io)), {
+    main_exists := e.io.await(exists(main_path, e.io), e.io);
+    if(!(main_exists), {
       e.io.await(write_file(main_path, String.from(generate_main_source()), e.io), e);
     });
     // src/lib.yo
     lib_path := project_dir.join(Path.new(String.from("src/lib.yo")));
-    if(!(e.io.await(exists(lib_path, e.io), e.io)), {
+    lib_exists := e.io.await(exists(lib_path, e.io), e.io);
+    if(!(lib_exists), {
       e.io.await(write_file(lib_path, String.from(generate_lib_source()), e.io), e);
     });
     // tests/main.test.yo
     test_path := project_dir.join(Path.new(String.from("tests/main.test.yo")));
-    if(!(e.io.await(exists(test_path, e.io), e.io)), {
+    test_exists := e.io.await(exists(test_path, e.io), e.io);
+    if(!(test_exists), {
       e.io.await(write_file(test_path, String.from(generate_test_file()), e.io), e);
     });
     // .gitignore
     gitignore_path := project_dir.join(Path.new(String.from(".gitignore")));
-    if(!(e.io.await(exists(gitignore_path, e.io), e.io)), {
+    gitignore_exists := e.io.await(exists(gitignore_path, e.io), e.io);
+    if(!(gitignore_exists), {
       e.io.await(write_file(gitignore_path, String.from(generate_gitignore()), e.io), e);
     });
     // README.md
     readme_path := project_dir.join(Path.new(String.from("README.md")));
-    if(!(e.io.await(exists(readme_path, e.io), e.io)), {
+    readme_exists := e.io.await(exists(readme_path, e.io), e.io);
+    if(!(readme_exists), {
       e.io.await(write_file(readme_path, generate_readme(project_name), e.io), e);
     });
     // Success message

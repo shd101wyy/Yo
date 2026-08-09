@@ -396,13 +396,103 @@ export function generateAwaitExpression(
     return;
   }
 
-  // Handle other patterns - error, not supported
-  emitter.emitLine(
-    `${indent}// ERROR: Unsupported pattern for await expression`
-  );
-  emitter.emitLine(
-    `${indent}// Expression type: ${expr.tag}, function: ${expr.tag === ExprTag.FnCall ? (expr.func.tag === ExprTag.Atom ? expr.func.token?.value : expr.func.tag) : "N/A"}`
-  );
+  // `if` is a macro over `cond`; the branch structure only becomes visible in
+  // its expansion, so retry there before giving up. Without this the `if` falls
+  // through to the error below even though `cond` is fully supported.
+  if (expr.$?.macroExpansion) {
+    // Report against the expression the user actually wrote (`if`), not the
+    // `cond` it expands into.
+    if (awaitIsInCondPosition(expr.$.macroExpansion, awaitPoint)) {
+      throw new Error(unsupportedAwaitMessage(expr, awaitPoint));
+    }
+    generateAwaitExpression(
+      expr.$.macroExpansion,
+      awaitPoint,
+      _stateNumber,
+      indent,
+      context
+    );
+    return;
+  }
+
+  // Nothing here can generate a correct state transition for this shape. The
+  // caller unconditionally emits the await machinery next (reading
+  // `sm->await_future_N`), and only the handlers above ever assign that field —
+  // so returning quietly produces a NULL dereference at runtime. Fail loudly
+  // instead: a compile error is always better than a segfaulting binary.
+  throw new Error(unsupportedAwaitMessage(expr, awaitPoint));
+}
+
+/**
+ * True when `awaitPoint`'s await sits in a branch CONDITION of `condExpr`
+ * (rather than in a branch value, which is what the splitter supports).
+ *
+ * `condExpr` must be a `cond` — for an `if`, pass its `$.macroExpansion`.
+ */
+function awaitIsInCondPosition(
+  condExpr: Expr,
+  awaitPoint: AwaitPoint
+): boolean {
+  if (
+    condExpr.tag !== ExprTag.FnCall ||
+    !exprIsFunctionCallOf(condExpr, BuiltinKeywords.cond)
+  ) {
+    return false;
+  }
+
+  for (const pairExpr of condExpr.args) {
+    if (
+      pairExpr.tag !== ExprTag.FnCall ||
+      !exprIsFunctionCallOf(pairExpr, "=>")
+    ) {
+      continue;
+    }
+    const condition = pairExpr.args[0];
+    if (condition && containsAwaitExpr(condition, awaitPoint.expr as Expr)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Builds the diagnostic for an await that appears in a position the async state
+ * machine cannot split at.
+ *
+ * The overwhelmingly common cause is an await in *conditional* position —
+ * `if(io.await(f, io), { ... })` or `cond(io.await(f, io) => ...)`. Splitting
+ * there would require a state per condition, which the state machine does not
+ * model, so we name the fix (hoist the await into a local) rather than just
+ * reporting the shape.
+ */
+function unsupportedAwaitMessage(expr: Expr, awaitPoint: AwaitPoint): string {
+  const funcName =
+    expr.tag === ExprTag.FnCall && expr.func.tag === ExprTag.Atom
+      ? expr.func.token?.value
+      : undefined;
+
+  const token =
+    (expr.tag === ExprTag.FnCall ? expr.func.token : expr.token) ??
+    (awaitPoint.expr as Expr).token;
+  const where = token
+    ? `${token.modulePath}:${token.position.row + 1}:${token.position.column + 1}: `
+    : "";
+
+  const isIf = exprIsFunctionCallOf(expr, BuiltinKeywords.if);
+  const inConditionalPosition =
+    isIf || exprIsFunctionCallOf(expr, BuiltinKeywords.cond);
+
+  const detail = inConditionalPosition
+    ? `\`io.await\` is not supported in the condition of \`${funcName}\` inside an \`io.async\` block.\n` +
+      `Hoist it into a local first:\n` +
+      `    ready := io.await(f, io);\n` +
+      `    ${isIf ? "if(ready, { ... })" : "cond(ready => ..., true => ...)"}`
+    : `\`io.await\` is not supported in this position inside an \`io.async\` block ` +
+      `(expression: ${expr.tag}${funcName ? `, function: \`${funcName}\`` : ""}).\n` +
+      `Hoist it into a local first: \`result := io.await(f, io);\``;
+
+  return `${where}${detail}`;
 }
 
 /**
@@ -438,6 +528,14 @@ function generateCondWithAwait(
   if (args.length === 0) {
     emitter.emitLine(`${indent}// Error: cond must have at least one branch`);
     return;
+  }
+
+  // This function splits at awaits in branch VALUES. An await in a branch
+  // CONDITION would need a state per condition, which the state machine does
+  // not model — the condition's C code comes back empty and we would emit
+  // `tmp = ;`. Reject it here with the source-level fix instead.
+  if (awaitIsInCondPosition(condExpr, awaitPoint)) {
+    throw new Error(unsupportedAwaitMessage(condExpr, awaitPoint));
   }
 
   // Store branch info for later generation
