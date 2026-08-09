@@ -230,12 +230,27 @@ Two more scoping facts:
 
 1. ~~Fix the 3 HOLLOW files~~ (§2.1) — **done**; the allowlist is empty.
 2. ~~Enable branch protection~~ — **done**; the gates are binding.
-3. **Start P1 with `init`.** It is genuinely ready (239 lines, complete
-   `init_project`) and has **five observable divergences** a differential harness
-   catches on day one — including one where **yo-self is right and TS is stale**
-   (`test "it works", {…}` old statement syntax, never caught because CI runs
-   `yo build run` and never `yo build test`). Small enough that harness bugs are
-   obvious, real enough to prove the harness works.
+3. ~~**Start P1 with `init`.**~~ — **done**, and it did its job on day one.
+   "Genuinely ready (239 lines, complete `init_project`)" was true of the code
+   and false of the reality: `init_project` was wired to **no subcommand**, so
+   it had never been executed once. Wiring it up produced `rc=139` against the
+   reference compiler's `rc=0`, and the root cause was not in `init.yo` at all
+   — the async state machine silently miscompiled `await` under an `if`,
+   emitting a C _comment_ and then dereferencing a NULL future. See
+   `issues/fixed/yo-self-init-segfaults-on-first-run.md`.
+
+   **Carry this forward:** in this codebase "ported" can mean "type-checks and
+   is unreachable", and `check` cannot tell those apart. Every ported
+   subcommand needs an execution differential before it is called ready. That
+   is now `gates_fast.sh` **GATE 5**, which runs `init` and asserts the seven
+   artifacts — deliberately not just `rc=0`, because the original bug created
+   the directories and _then_ died.
+
+   The predicted divergence where **yo-self is right and TS is stale** was
+   confirmed: `src/init.ts` still scaffolds `test "it works", {…}` and
+   `import "./deps.yo"`, pre-call syntax the language moved away from. Still
+   open — CI runs `yo build run`, never `yo build test`.
+
 4. Build `scripts/cli-diff-test.sh` alongside it. `scripts/diff-test.sh` supplies
    the verdict vocabulary and exit contract but compares only stdout+rc — useless
    for subcommands whose real output is a directory tree, a cache mutation, or an
