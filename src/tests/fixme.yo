@@ -1,10 +1,41 @@
 open(import("std/string"));
 open(import("std/fmt"));
+{ yield } :: import("std/async");
+
+Task :: ref(struct(name : String));
+Job :: enum(Run, Doc);
+
+describe_job :: (fn(k : Job, io : Io) -> Impl(Future(String, Io)))(
+  io.async((aio : Io) => {
+    description := String.from("start");
+    match(
+      k,
+      .Run => {
+        match(
+          Option(Task).Some(Task(name : String.from("exe"))),
+          .None => (),
+          .Some(run_cfg) => {
+            description = `run ${run_cfg.name}`;
+            aio.await(yield(aio), aio);
+          }
+        );
+      },
+      .Doc => {
+        match(
+          Option(Task).Some(Task(name : String.from("book"))),
+          .None => (),
+          .Some(doc_cfg) => {
+            description = `doc ${doc_cfg.name}`;
+          }
+        );
+      }
+    );
+    return(description)
+  })
+);
 
 main :: (fn(io : Io) -> unit)({
-  sep := `\0`;
-  key := `a${sep}b`;
-  println(key.len().to_string());
-  println(`${key.as_bytes()(usize(1)) == u8(0)}`);
+  println(io.await(describe_job(Job.Run, io), io));
+  println(io.await(describe_job(Job.Doc, io), io));
 });
 export(main);
