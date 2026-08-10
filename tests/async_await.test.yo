@@ -5,6 +5,7 @@ open(import("std/string"));
 open(import("std/fmt"));
 { yield } :: import("std/async");
 { ArrayList } :: import("std/collections/array_list");
+{ Exception, IoExn } :: import("std/error");
 /// A `bool` future for `while` conditions: true while `v` is under `limit`.
 /// Taken as a top-level helper rather than an inline `io.async` closure — a
 /// closure capturing a mutable local, re-created every iteration, hits a
@@ -3874,4 +3875,56 @@ test("await nested in a cond inside a cond inside an async while keeps looping",
     })
   );
   assert(io.await(drive(io), io) == usize(2), "both branch-carrying iterations ran");
+});
+// Abort-dispose must not double-drop awaitless-match pattern bindings: a
+// binding's state-machine store BORROWS the scrutinee slot's payload, so an
+// aborted state machine's dispose dropping both fields double-decrements the
+// heap message. Silent on macOS; Linux/ASan UAF (found via
+// tests/internal/version.test.yo "throws on invalid content" — see
+// issues/async-abort-dispose-double-drops-moved-enum-payload.md).
+_abort_parse_err :: (fn(content : String) -> Result(String, String))({
+  trimmed := content.trim();
+  return(.Err(`Invalid version format: "${trimmed}". Expected digits.`));
+});
+_abort_opt_str :: (fn(io : Io) -> Impl(Future(Option(String), Io)))(
+  io.async((aio : Io) => {
+    aio.await(yield(aio), aio);
+    Option(String).Some(`   not-a-version   `)
+  })
+);
+_abort_read_and_throw :: (
+  fn(
+    io : Io,
+    exn : Exception
+  ) -> Impl(Future(Option(String), IoExn))
+)(
+  io.async((e : IoExn) => {
+    first := e.io.await(_abort_opt_str(e.io), e.io);
+    match(
+      first,
+      .None => Option(String).None,
+      .Some(path_like) => {
+        second := e.io.await(_abort_opt_str(e.io), e.io);
+        inner := match(second, .Some(c) => c, .None => String.new());
+        match(
+          _abort_parse_err(inner),
+          .Err(msg) => e.exn.throw(dyn(msg.clone())),
+          .Ok(version) => .Some(version)
+        )
+      }
+    )
+  })
+);
+test("abort dispose skips awaitless-match pattern bindings (no double-drop)", {
+  // The throw handler unwinds the test body, skipping the trailing
+  // assert(false) — reaching it means the throw path did not run.
+  throw_exn := Exception(
+    throw : (
+      (_err) -> {
+        unwind(());
+      }
+    )
+  );
+  io.await(_abort_read_and_throw(io, throw_exn), IoExn(io : io, exn : throw_exn));
+  assert(false, "expected _abort_read_and_throw to throw");
 });

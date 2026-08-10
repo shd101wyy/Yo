@@ -1,10 +1,34 @@
-# Async abort-dispose double-drops an enum payload moved into a thrown dyn
+# Async abort-dispose double-drops: moved-into-dyn payloads (open) and awaitless-match bindings (FIXED)
 
-**Status: OPEN** (2026-08-10). Found by the new
+**Status: the binding pair is FIXED in TS (2026-08-11); the move-out pair
+remains band-aided by a call-site clone.** Found by the new
 `tests/internal/version.test.yo` "read_yo_version: throws on invalid
 content" port under the Linux/ASan internal-tests arm (PR #93). macOS does
 not reproduce (AMFI blocks the test-runner's ASan dylib there, and without
 ASan the double-free is silent).
+
+The same throw path produced TWO distinct double-drop pairs, uncovered one
+at a time:
+
+1. **dyn temp + scrutinee slot** (the original report below): the arm MOVES
+   the `.Err` payload into the thrown dyn; dispose drops both. Band-aided by
+   `dyn(msg.clone())` at the call site; the mechanism fix is still open.
+2. **pattern binding + scrutinee slot** (found after the clone landed — the
+   shard-2 UAF persisted): an AWAITLESS match inside a state machine stores
+   its pattern bindings into SM slots via the normal `match.ts` path, which
+   never registered them in `asyncPatternBindingFieldIds` — only the
+   match-WITH-await paths in `state-code-gen.ts` did (the PR #92 fix). So
+   the abort dispose dropped `sm->var_msg` AND the scrutinee Result slot:
+   same buffer, twice. **FIXED (TS)**: all four binding-store sites in
+   `src/codegen/exprs/match.ts` now register the field id; verified
+   structurally in the emitted C (binding drops gone from the `state == -2`
+   list, scrutinee/owned drops intact) and by
+   `tests/async_await.test.yo` "abort dispose skips awaitless-match pattern
+   bindings" (162/162; rc 35, effects 74; `leaks --atExit` clean). yo-self
+   needs no mirror yet: its `_store_temp_var_to_state_machine_if_needed` is
+   still the documented no-op stub, so it never stores binding slots (that
+   whole family's port is tracked in
+   issues/fixed/async-match-scrutinee-deferred-drops-hit-zeroed-slot.md).
 
 ## ASan trace (batch harness, thread T1)
 
