@@ -1,0 +1,11 @@
+# A failing artifact compile must FAIL the build (rc=1). The fixture fails
+# with a MISSING-IMPORT module-load error — deliberately parse-clean (an
+# unparseable fixture would break GATE 6's `fmt --check ./tests`) and NOT a
+# plain semantic error (the self-hosted def-time body-eval swallow currently
+# lets an undefined-function body compile clean — see
+# issues/self-hosted-compile-swallows-undefined-call.md). After the
+# "Compilation error:" marker the two compilers word the failure differently
+# (TS throws in-process, yo-self reports the child's exit), so only the
+# Building line is compared — the case's real assertion is the rc=1 parity.
+timeout=300
+stdout_keep=^Building 

@@ -693,16 +693,31 @@ generate_await_expression :: (
     _call_generate_while_with_await(expr, await_point, indent, context);
     return();
   });
+  // `if` is a macro over `cond` — the await lives in its expansion, so retry
+  // there before giving up. Without this an `await` under an `if` gets no
+  // state transition at all, even though `cond` — which is all an `if` is —
+  // is fully supported.
+  //
+  // Only recurse when the await is in a branch VALUE. In CONDITION position
+  // the `cond` handler cannot split it either, so fall through to the failure
+  // below and keep reporting against the `if` the user actually wrote.
+  // Mirrors state-code-gen.ts (generateAwaitExpression's macroExpansion retry).
+  is_if := (ast_expr_is_fn_call(expr) && ast_expr_is_fn_call_of(expr, "if", Option(usize).None));
+  match(
+    _await_macro_expansion(expr),
+    .Some(me_retry) => {
+      if(!(_await_is_in_cond_position(me_retry.clone(), await_point)), {
+        recur(me_retry, await_point, _state_number, indent, context);
+        return(());
+      });
+    },
+    .None => ()
+  );
   // Nothing here can generate a correct state transition for this shape. The
   // caller unconditionally emits the await machinery next (reading
   // `sm->await_future_N`), and only the handlers above ever assign that field —
   // so returning quietly produces a NULL dereference at runtime. Fail loudly
   // instead: a compile error is always better than a segfaulting binary.
-  //
-  // For an `if`, read the `cond` it expands to ONLY to tell "await in the
-  // condition" from "await in a body" — they need different fixes. Nothing is
-  // generated from the expansion. Mirrors state-code-gen.ts.
-  is_if := (ast_expr_is_fn_call(expr) && ast_expr_is_fn_call_of(expr, "if", Option(usize).None));
   in_cond_pos := cond(
     is_if => match(
       _await_macro_expansion(expr),
@@ -1764,7 +1779,17 @@ _store_cond_branch_info :: (
 _alloc_cond_branch_codes :: (
   fn(context : FunctionGenerationContext, count : usize) -> usize
 )({
-  base := context.cond_branch_case_seq;
+  // Start at 1, never 0: the state machine is calloc-zeroed, so a
+  // `sm->cond_branch_N` that was never written reads 0. Chained-branch
+  // dispatch (state_machine.yo) switches on the field OUTSIDE the
+  // await-future NULL guard and must be able to tell "branch <code> ran"
+  // from "no await-carrying branch ran" — reserving 0 for the latter makes
+  // the calloc default the unambiguous "none" value. Mirrors
+  // allocCondBranchCodes (state-code-gen.ts).
+  (base : usize) = context.cond_branch_case_seq;
+  if(base == usize(0), {
+    base = usize(1);
+  });
   (step : usize) = count;
   if(step == usize(0), {
     step = usize(1);

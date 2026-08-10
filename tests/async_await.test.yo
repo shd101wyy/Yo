@@ -3676,3 +3676,65 @@ test("Test same-named pattern bindings in sibling match arms passed to a capturi
     "second arm's binding must be stored in ITS OWN slot, not the first arm's"
   );
 });
+// ---------------------------------------------------------------------------
+// A bare `if` whose branch awaits and then EARLY-RETURNS, in an async body.
+//
+// `yo fetch`'s prune-stale-lock path (yo-self/fetch.yo run_fetch) is this
+// shape. Two independent miscompiles hid here, one per compiler:
+//
+//  - TS: the branch's remaining code after its first await hit
+//    `generateRemainingExprFuture`, which handled nested cond/match/while/
+//    begin but NOT `if` (a macro whose branch structure lives only in
+//    `$.macroExpansion`) — the nested await's future was never stored, and
+//    the chained early-return was emitted INSIDE the `await_future_N != NULL`
+//    guard of a never-submitted future. The whole branch was silently
+//    SKIPPED at runtime (printed the fall-through value, rc 0).
+//  - self-hosted: the suspension-point walker had no `if` case at all, so
+//    the branch's awaits never became await points — codegen then emitted
+//    `sm->var_N = ;` (invalid C) where the await results were read.
+//
+// The fix set: walk/emit `if` through its macro expansion on both sides,
+// start cond_branch dispatch codes at 1 so the calloc-zeroed field can gate
+// chained layers, and emit outer-cond chained layers OUTSIDE the NULL guard.
+// See issues/fixed/ts-bare-if-await-early-return-silently-skipped.md.
+// ---------------------------------------------------------------------------
+future_tag :: (fn(io : Io) -> Impl(Future(String, Io)))(
+  io.async((aio : Io) => {
+    aio.await(yield(aio), aio);
+    return(String.from("lock"))
+  })
+);
+test("Test a bare if whose branch awaits then early-returns", {
+  drive := (fn(n : usize, rio : Io) -> Impl(Future(String, Io)))(
+    rio.async((aio : Io) => {
+      if(n == usize(0), {
+        existing := aio.await(future_tag(aio), aio);
+        if(existing.len() > usize(0), {
+          aio.await(yield(aio), aio);
+        });
+        return(String.from("empty-path"));
+      });
+      return(String.from("deps-path"))
+    })
+  );
+  assert(io.await(drive(usize(0), io), io) == `empty-path`, "the awaiting branch early-returns");
+  assert(io.await(drive(usize(2), io), io) == `deps-path`, "the fall-through path still runs");
+});
+test("Test a bare if with await-binding and early return between two top-level awaits", {
+  drive := (fn(n : usize, rio : Io) -> Impl(Future(String, Io)))(
+    rio.async((aio : Io) => {
+      first := aio.await(future_tag(aio), aio);
+      if(n == usize(0), {
+        existing := aio.await(future_tag(aio), aio);
+        if(existing.len() > usize(0), {
+          aio.await(yield(aio), aio);
+        });
+        return(`empty:${first}`);
+      });
+      tail := aio.await(future_tag(aio), aio);
+      return(`deps:${first}:${tail}`)
+    })
+  );
+  assert(io.await(drive(usize(0), io), io) == `empty:lock`, "the awaiting branch early-returns with the preceding await's value");
+  assert(io.await(drive(usize(2), io), io) == `deps:lock:lock`, "the fall-through path runs the preceding AND trailing awaits");
+});

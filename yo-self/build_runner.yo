@@ -21,6 +21,7 @@ _(args : proc_args) :: import("std/env");
 { create_dir_all } :: import("std/fs/dir");
 { Command } :: import("std/process/command");
 { mm_load_yo_file, mm_reset } :: import("./module_manager.yo");
+{ exit } :: import("std/libc/stdlib");
 {
   ArtifactKind,
   BuildArtifact,
@@ -451,6 +452,68 @@ compile_artifact :: (
       cmd.arg(artifact.include_paths(i));
       i = (i + usize(1));
     });
+    // Forward the artifact's compile options — the §9 debt in
+    // plans/P1_CLI_PARITY.md. Mirrors the `codeGenerator.compileModule`
+    // option mapping in `src/build-runner.ts:967-996`: `release` is true for
+    // every level except debug/release-safe, `mapOptimize` sends
+    // release-safe/-small to -O2 and release-fast to -O3, allocator is passed
+    // unconditionally, sanitize only when not "none".
+    is_release := ((artifact.optimize != "debug") && (artifact.optimize != "release-safe"));
+    if(is_release, {
+      cmd.arg(String.from("--release"));
+    });
+    optimize_num := cond(
+      (artifact.optimize == "release-safe") => String.from("2"),
+      (artifact.optimize == "release-fast") => String.from("3"),
+      (artifact.optimize == "release-small") => String.from("2"),
+      true => String.new()
+    );
+    if(optimize_num.len() > usize(0), {
+      cmd.arg(String.from("--optimize"));
+      cmd.arg(optimize_num);
+    });
+    cmd.arg(String.from("--allocator"));
+    cmd.arg(artifact.allocator.clone());
+    if(artifact.sanitize != "none", {
+      cmd.arg(String.from("--sanitize"));
+      cmd.arg(artifact.sanitize.clone());
+    });
+    i = usize(0);
+    n = artifact.defines.len();
+    while(i < n, {
+      cmd.arg(String.from("-D"));
+      cmd.arg(artifact.defines(i));
+      i = (i + usize(1));
+    });
+    i = usize(0);
+    n = artifact.library_paths.len();
+    while(i < n, {
+      cmd.arg(String.from("-L"));
+      cmd.arg(artifact.library_paths(i));
+      i = (i + usize(1));
+    });
+    i = usize(0);
+    n = artifact.link_libraries.len();
+    while(i < n, {
+      cmd.arg(String.from("-l"));
+      cmd.arg(artifact.link_libraries(i));
+      i = (i + usize(1));
+    });
+    if(artifact.strip, {
+      cmd.arg(String.from("--strip"));
+    });
+    if(artifact.static_link, {
+      cmd.arg(String.from("--static"));
+    });
+    is_static_lib := match(artifact.kind, .StaticLibrary => true, _ => false);
+    if(is_static_lib, {
+      cmd.arg(String.from("--static-library"));
+    });
+    if(artifact.c_flags.len() > usize(0), {
+      joined := ` `.join(artifact.c_flags);
+      cmd.arg(String.from("--cflags"));
+      cmd.arg(joined);
+    });
     // STREAM the child's output rather than capturing it. `src/build-runner.ts`
     // compiles in-process, so its "Generated C code written to …" / "Compiling
     // with: …" lines and every clang diagnostic land on the build's own stdout.
@@ -870,6 +933,26 @@ execute_step :: (
     );
     results := e.io.await(execute_dag(dag, ctx, e.io, e.exn), e);
     if(ctx.summary, print_build_summary(results, dag, step_name));
+    // A failed step must fail the build. execute_node folds per-step errors
+    // into StepResult.success so the DAG finishes and the summary can show
+    // WHICH step broke — but exiting 0 after a failed compile would let CI
+    // pass silently. Mirrors runBuild (src/build-runner.ts). See
+    // issues/fixed/yo-build-exits-zero-on-failed-step.md
+    (any_failed : bool) = false;
+    (ri : usize) = usize(0);
+    while(ri < dag.len(), {
+      match(
+        results.get(dag(ri).name),
+        .Some(r) => if(!(r.success), {
+          any_failed = true;
+        }),
+        .None => ()
+      );
+      ri = (ri + usize(1));
+    });
+    if(any_failed, {
+      unsafe(exit(int(1)));
+    });
   })
 );
 // ---------------------------------------------------------------------------

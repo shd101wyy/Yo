@@ -122,7 +122,8 @@ make_constant_ :: (fn() -> DocConstant)(
     doc : Option(String).Some(`Maximum buffer size.`),
     type_ : `usize`,
     value : Option(String).Some(`1024`),
-    deprecated : Option(String).None
+    deprecated : Option(String).None,
+    examples : Option(String).None
   )
 );
 make_module_ :: (fn() -> DocModule)({
@@ -532,7 +533,8 @@ test("renderConstantMd: renders a constant without value", {
     doc : Option(String).None,
     type_ : `usize`,
     value : Option(String).None,
-    deprecated : Option(String).None
+    deprecated : Option(String).None,
+    examples : Option(String).None
   );
   md := render_constant_md(c);
   assert(md.contains(`\`usize\``), "type only");
@@ -544,7 +546,8 @@ test("renderConstantMd: renders deprecated banner", {
     doc : make_constant_().doc,
     type_ : make_constant_().type_,
     value : make_constant_().value,
-    deprecated : Option(String).Some(`Use NEW_VALUE.`)
+    deprecated : Option(String).Some(`Use NEW_VALUE.`),
+    examples : Option(String).None
   );
   md := render_constant_md(c);
   assert(md.contains(`⚠️ **Deprecated**`), "deprecated banner");
