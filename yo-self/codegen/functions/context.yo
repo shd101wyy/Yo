@@ -363,7 +363,20 @@ resolve_var_name_in_context :: (
             .None => (),
             .Some(cv) => if(cv.base.name == var_name, {
               found = true;
-              result = `sm->${get_state_machine_field_name(k.clone(), Option(String).Some(match(cv.kind, .Outer => String.from("outer"), .Local => String.from("local"))), context.state_machine_field_aliases)}`;
+              // Outer captures are named by the variable's NAME (TS
+              // resolveVarNameInContext: `__capture.${capturedVar.name}`),
+              // NEVER the map key: the same outer capture is registered both
+              // under its numeric variable id (the re-kinded analysis entry)
+              // and under its capture-struct label, and which one this name
+              // scan hits first is HashMap-order — platform-dependent. Keying
+              // the field off `k` emitted `sm->__capture.9087782` on the
+              // Linux runner while macOS happened to hit the label entry.
+              // See issues/fixpoint-linux-only-capture-field-numeric-name.md.
+              result = match(
+                cv.kind,
+                .Outer => `sm->__capture.${cv.base.name.clone()}`,
+                .Local => `sm->${get_state_machine_field_name(k.clone(), Option(String).Some(String.from("local")), context.state_machine_field_aliases)}`
+              );
             })
           )
         );
