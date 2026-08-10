@@ -18,7 +18,7 @@ touch "$RESULTS"
 # Each one compiles the whole compiler — minutes and gigabytes apiece — so without
 # this prune the sweep silently grows from the language corpus to ~4x the runtime.
 # Run them with scripts/bootstrap/ or `test ./tests/internal` deliberately instead.
-for t in $(find tests -path tests/internal -prune -o -name '*.test.yo' -print | sort); do
+for t in $(find tests \( -path tests/internal -o -path tests/cli-cases \) -prune -o -name '*.test.yo' -print | sort); do
   grep -q "^$t " "$RESULTS" && continue
   d=$(dirname "$t"); n=$(echo "$t" | tr '/' '_')
   # Remove STALE batch artifacts from the PREVIOUS file first — the marker
