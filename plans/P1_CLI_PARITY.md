@@ -1,5 +1,11 @@
 # P1 — CLI parity for the self-hosted compiler
 
+> **STATUS: COMPLETE** (2026-08-10). Every in-scope item is done and
+> differential-verified; the two out-of-scope deferrals are recorded where
+> they will be picked up — `doc --format html` → P2 (§5, maintainer decision),
+> `version` → P3 (§6.5). Kept in `plans/` (not archived) because §5's
+> markdown_yo notes and §9's debt list are the P2 pickup points.
+
 **Handover doc. Start here.** Supersedes
 [`archive/PRE_P1_HANDOVER.md`](archive/PRE_P1_HANDOVER.md), whose question
 ("what must be true before P1 starts?") is answered: nothing is blocking, and
@@ -21,7 +27,7 @@ of its figures are stale and are called out below.
 | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | Hard blockers        | **none** — thirteen compiler/std/runtime bugs fixed (§2, §4, §5), each with regression coverage                                    |
 | Subcommands wired    | `check`, `compile`, `test`, `fmt`, `init`, **`cache`**, **`build`**, **`fetch`**, **`install`**, **`doc`** (json + markdown)       |
-| Subcommands left     | `doc --format html` (blocked on the §5 markdown_yo decision), `version` (deferred to P3 by §6.5)                                   |
+| Subcommands left     | `doc --format html` (**deferred to P2** by maintainer decision, 2026-08-10 — §5), `version` (deferred to P3 by §6.5)               |
 | `fmt` divergence     | **0** of 808 files (was 339, then 17)                                                                                              |
 | Differential harness | `scripts/cli-diff-test.sh` + `tests/cli-cases/` — 10 cases, **all PASS**; it found 6 `build` bugs and 4 compiler/std bugs (§4, §5) |
 | Gates                | `gates_fast.sh` GATE 6 (`fmt` differential) and GATE 7 (CLI differential) are new                                                  |
@@ -238,17 +244,21 @@ std's `eprint` was missing the `unsafe(...)` wrapper its sibling `eprintln`
 has, and method signatures lacked TS's `(Receiver) ` prefix (yo-self's Func
 type carries no SelfType — the method registry's `self_type` supplies it).
 
-**`--format html` is the one remaining piece, and it is BLOCKED on a
-decision, not on porting effort.** `render-html.ts` renders doc comments
-through `markdown_yo` — a WASM build of a **36,000-line Yo library**
-(`github.com/shd101wyy/markdown_yo`, same author). The self-hosted side
-cannot load WASM; its options are: ① vendor the markdown_yo Yo source into
-this repo (byte-parity guaranteed since it IS the same source, but it roughly
-doubles yo-self's compile surface and slows every bootstrap gate), ② make it
-a fetched dependency (puts network + chicken-and-egg into the bootstrap), or
-③ leave html unported until the P2 packaging story settles the dependency
-mechanism. Until decided, `yo-self doc --format html` reports a clear
-"not yet supported" error — it does not silently degrade.
+**`--format html`: DEFERRED TO P2 (maintainer decision, 2026-08-10).**
+`render-html.ts` renders doc comments through `markdown_yo` — a WASM build of
+a **36,000-line Yo library** (`github.com/shd101wyy/markdown_yo`, same
+author) whose source pins yo **0.1.18** and no longer parses under the
+current compiler (262 paren-less imports, 50 old-style exports, plus ~20
+versions of std drift). The self-hosted side cannot load WASM, so real parity
+means either migrating the library to current Yo and importing its source
+(byte-identical by construction; the repo's `scripts/migrate-*.ts` tools
+replay much of the drift), or linking a native static build of the pinned
+version (per-platform blobs in the bootstrap). The maintainer chose to settle
+this when P2's packaging story lands. Until then `yo-self doc --format html`
+reports a clear "not yet supported" error — it does not silently degrade.
+For whoever picks this up: the TS loader contract is three C-ABI exports
+(`wasm_render(ptr, len, flags)`, `wasm_result_len()`, `wasm_free(ptr)`) from
+`markdown_yo/src/wasm_api.yo`, created with `{html: true, fullFeatures: true}`.
 
 The original gap table, for reference — the extraction half was already
 ported (`extractor.yo` 587, `render_markdown.yo` 800, `model.yo` 201,
@@ -338,8 +348,8 @@ unescaping); `` `\0` `` in a backtick template string works.
    `tests/cli-cases/pending/` up one directory.~~ **DONE** — all eight bugs
    fixed in both compilers, the three subcommands are dispatched, the corpus is
    live, and `compile yo-self/main.yo` is clean.
-2. ~~**`doc`** (§5).~~ **DONE except html** — see §5 for the markdown_yo
-   decision that gates the last format.
+2. ~~**`doc`** (§5).~~ **DONE**; html deferred to P2 by maintainer decision
+   (§5).
 3. ~~**Flag parity for the pre-existing subcommands.**~~ **DONE for `test`,
    `check` and `fmt`** (2026-08-10): all three now reject unknown options
    (TS's yargs is `.strict()`, yo-cli.ts:1348) and accept every flag the TS
