@@ -3738,3 +3738,84 @@ test("Test a bare if with await-binding and early return between two top-level a
   assert(io.await(drive(usize(0), io), io) == `empty:lock`, "the awaiting branch early-returns with the preceding await's value");
   assert(io.await(drive(usize(2), io), io) == `deps:lock:lock`, "the fall-through path runs the preceding AND trailing awaits");
 });
+// ─── await in an arm VALUE: the branch value must reach its destination ──────
+// Module-level helper (a test-local closure cannot be captured by the nested
+// async closure that drives each case).
+__opt7_future :: (fn(rio : Io) -> Impl(Future(Option(i32), Io)))(
+  rio.async((aio : Io) => {
+    aio.await(yield(aio), aio);
+    return(Option(i32).Some(i32(7)));
+  })
+);
+// Regression for the silent value-loss found via read_yo_version always
+// returning None: an await-carrying cond/match arm computes its value AFTER
+// the await, in the resume segment — and unless the branch registration names
+// a destination (sm->result for a tail expression, the bound variable's SM
+// field for `r := ...`), that value was computed into a temp and DISCARDED.
+// The zero-initialised result then silently decoded as `.None`/0.
+test("match as the async body's tail value with an await inside an arm", {
+  drive := (fn(rio : Io) -> Impl(Future(Option(i32), Io)))(
+    rio.async((aio : Io) => {
+      got := aio.await(__opt7_future(aio), aio);
+      match(
+        got,
+        .None => Option(i32).None,
+        .Some(v) => {
+          aio.await(yield(aio), aio);
+          Option(i32).Some(v + i32(1))
+        }
+      )
+    })
+  );
+  r := io.await(drive(io), io);
+  assert(match(r, .Some(v) => (v == i32(8)), .None => false), "tail match arm value survives the await split");
+});
+test("match bound to a local with an await inside an arm", {
+  drive := (fn(rio : Io) -> Impl(Future(Option(i32), Io)))(
+    rio.async((aio : Io) => {
+      got := aio.await(__opt7_future(aio), aio);
+      bound := match(
+        got,
+        .None => Option(i32).None,
+        .Some(v) => {
+          aio.await(yield(aio), aio);
+          Option(i32).Some(v + i32(1))
+        }
+      );
+      bound
+    })
+  );
+  r := io.await(drive(io), io);
+  assert(match(r, .Some(v) => (v == i32(8)), .None => false), "bound match arm value survives the await split");
+});
+test("cond as the async body's tail value with an await inside a branch", {
+  drive := (fn(n : usize, rio : Io) -> Impl(Future(i32, Io)))(
+    rio.async(
+      (aio : Io) => cond(
+        (n == usize(0)) => {
+          aio.await(yield(aio), aio);
+          i32(41)
+        },
+        true => i32(3)
+      )
+    )
+  );
+  assert(io.await(drive(usize(0), io), io) == i32(41), "tail cond awaiting branch value survives");
+  assert(io.await(drive(usize(2), io), io) == i32(3), "tail cond fall-through branch value survives");
+});
+test("cond bound to a local with an await inside a branch", {
+  drive := (fn(n : usize, rio : Io) -> Impl(Future(i32, Io)))(
+    rio.async((aio : Io) => {
+      bound := cond(
+        (n == usize(0)) => {
+          aio.await(yield(aio), aio);
+          i32(41)
+        },
+        true => i32(3)
+      );
+      bound + i32(1)
+    })
+  );
+  assert(io.await(drive(usize(0), io), io) == i32(42), "bound cond awaiting branch value survives");
+  assert(io.await(drive(usize(2), io), io) == i32(4), "bound cond fall-through branch value survives");
+});

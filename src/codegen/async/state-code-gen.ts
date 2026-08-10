@@ -968,6 +968,22 @@ function generateCondWithAwait(
     throw new Error(unsupportedAwaitMessage(condExpr, awaitPoint));
   }
 
+  // Tail position: a cond that IS the async body's implicit return value has
+  // no := target, so the await-branch registration must name sm->result as
+  // the destination of the branch's last remaining expression — otherwise the
+  // value computed after the await is discarded and the zero-initialised
+  // result silently decodes as .None/0 (same defect as the match case; see
+  // generateMatchWithAwait's registrationTargetAssignment).
+  const condRegistrationTargetAssignment =
+    targetAssignmentCode ??
+    (isUnitType(condExpr.$?.type)
+      ? undefined
+      : targetVariableId
+        ? `sm->${getStateMachineFieldName(targetVariableId, "local", context.stateMachineFieldAliases)}`
+        : context.asyncBodyReturnExpr === condExpr
+          ? "sm->result"
+          : undefined);
+
   // Store branch info for later generation
   const branchesWithAwait: Array<{
     index: number;
@@ -1096,7 +1112,19 @@ function generateCondWithAwait(
                 argCode === "break" ||
                 argCode === "continue" ||
                 argCode?.includes("return");
+              // The begin block's LAST expression is the branch VALUE — with a
+              // bound/tail destination it must be ASSIGNED, not emitted as a
+              // discarded statement (nor skipped as a bare temp reference).
               if (
+                argCode &&
+                !isControlFlow &&
+                j === beginArgs.length - 1 &&
+                condRegistrationTargetAssignment
+              ) {
+                emitter.emitLine(
+                  `${indent}${condRegistrationTargetAssignment} = ${argCode};`
+                );
+              } else if (
                 argCode &&
                 (isControlFlow ||
                   (arg.$ && !isTempVariableName(arg.$.env.modulePath, argCode)))
@@ -1127,7 +1155,12 @@ function generateCondWithAwait(
               code === "break" ||
               code === "continue" ||
               code?.includes("return");
-            if (
+            // Branch VALUE with a bound/tail destination: assign, don't discard.
+            if (code && !isControlFlow && condRegistrationTargetAssignment) {
+              emitter.emitLine(
+                `${indent}${condRegistrationTargetAssignment} = ${code};`
+              );
+            } else if (
               code &&
               (isControlFlow ||
                 (value.$ && !isTempVariableName(value.$.env.modulePath, code)))
@@ -1159,7 +1192,7 @@ function generateCondWithAwait(
       context.asyncCondBranchInfo.set(awaitPoint.index, {
         branches: branchesWithAwait,
         targetVariableId,
-        targetAssignmentCode,
+        targetAssignmentCode: condRegistrationTargetAssignment,
       });
     }
     return;
@@ -1315,7 +1348,19 @@ function generateCondWithAwait(
                 argCode === "break" ||
                 argCode === "continue" ||
                 argCode?.includes("return");
+              // The begin block's LAST expression is the branch VALUE — with a
+              // bound/tail destination it must be ASSIGNED, not emitted as a
+              // discarded statement (nor skipped as a bare temp reference).
               if (
+                argCode &&
+                !isControlFlow &&
+                j === beginArgs.length - 1 &&
+                condRegistrationTargetAssignment
+              ) {
+                emitter.emitLine(
+                  `${valueIndent}${condRegistrationTargetAssignment} = ${argCode};`
+                );
+              } else if (
                 argCode &&
                 (isControlFlow ||
                   (arg.$ && !isTempVariableName(arg.$.env.modulePath, argCode)))
@@ -1352,7 +1397,12 @@ function generateCondWithAwait(
               code === "break" ||
               code === "continue" ||
               code?.includes("return");
-            if (
+            // Branch VALUE with a bound/tail destination: assign, don't discard.
+            if (code && !isControlFlow && condRegistrationTargetAssignment) {
+              emitter.emitLine(
+                `${valueIndent}${condRegistrationTargetAssignment} = ${code};`
+              );
+            } else if (
               code &&
               (isControlFlow ||
                 (value.$ && !isTempVariableName(value.$.env.modulePath, code)))
@@ -1395,7 +1445,7 @@ function generateCondWithAwait(
     context.asyncCondBranchInfo.set(awaitPoint.index, {
       branches: branchesWithAwait,
       targetVariableId,
-      targetAssignmentCode,
+      targetAssignmentCode: condRegistrationTargetAssignment,
     });
   }
 }
@@ -1621,6 +1671,28 @@ function generateMatchWithAwait(
     return;
   }
 
+  // The value an await-carrying arm computes AFTER its await never leaves the
+  // resume segment unless the branch registration names a destination: the
+  // resume generator assigns the branch's LAST remaining expression to
+  // `targetAssignmentCode` (state-machine.ts, "Execute remaining code from
+  // chosen cond branch"). The registrations below historically attached NO
+  // target at all, so
+  //   r := match(x, .Some(v) => { io.await(…); value })  — r stayed zeroed
+  //   match(x, …) as the async body's tail value          — sm->result stayed zeroed
+  // and the zeroed enum silently decoded as `.None` (found via
+  // `read_yo_version` always returning None). Only targetAssignmentCode is
+  // registered — registering targetVariableId would ALSO trigger the
+  // "assign await result now" copy, overwriting the branch value.
+  const registrationTargetAssignment =
+    targetAssignmentCode ??
+    (isUnitType(matchExpr.$?.type)
+      ? undefined
+      : targetVariableId
+        ? `sm->${getStateMachineFieldName(targetVariableId, "local", context.stateMachineFieldAliases)}`
+        : context.asyncBodyReturnExpr === matchExpr
+          ? "sm->result"
+          : undefined);
+
   const enumType = matchValueType as EnumType;
   const enumCName = context.types[enumType.id]?.cName;
 
@@ -1743,6 +1815,7 @@ function generateMatchWithAwait(
             ) || {
               branches: [],
             };
+            branchData.targetAssignmentCode ??= registrationTargetAssignment;
 
             branchData.branches.push({
               index: condBranchBase + pointerCaseIndex,
@@ -1831,6 +1904,7 @@ function generateMatchWithAwait(
             ) || {
               branches: [],
             };
+            branchData.targetAssignmentCode ??= registrationTargetAssignment;
 
             branchData.branches.push({
               index: condBranchBase + nullCaseIndex,
@@ -2047,6 +2121,7 @@ function generateMatchWithAwait(
           ) || {
             branches: [],
           };
+          branchData.targetAssignmentCode ??= registrationTargetAssignment;
 
           // A NESTED match inside this arm claims the dispatch slot: its
           // `sm->cond_branch_N = …` assignment overwrites this arm's, so a
@@ -2187,6 +2262,18 @@ function generatePrimitiveMatchWithAwait(
   // Dispatch codes unique within this function — see allocCondBranchCodes.
   const condBranchBase = allocCondBranchCodes(context, cases.length);
 
+  // Same value-destination derivation as the enum path — see
+  // generateMatchWithAwait's registrationTargetAssignment.
+  const registrationTargetAssignment =
+    targetAssignmentCode ??
+    (isUnitType(matchExpr.$?.type)
+      ? undefined
+      : targetVariableId
+        ? `sm->${getStateMachineFieldName(targetVariableId, "local", context.stateMachineFieldAliases)}`
+        : context.asyncBodyReturnExpr === matchExpr
+          ? "sm->result"
+          : undefined);
+
   // Store branch info for later generation
   const branchesWithAwait: Array<{
     index: number;
@@ -2306,7 +2393,7 @@ function generatePrimitiveMatchWithAwait(
   context.asyncCondBranchInfo.set(awaitPoint.index, {
     branches: branchesWithAwait,
     targetVariableId,
-    targetAssignmentCode,
+    targetAssignmentCode: registrationTargetAssignment,
   });
 }
 

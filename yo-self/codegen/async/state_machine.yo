@@ -1952,10 +1952,20 @@ _emit_cond_branch_remaining :: (
             match(segment.await_point, .Some(ap) => generate_remaining_expr_future(expr, ap, analysis, indent.clone(), context), .None => ());
           }, {
             code := _call_generate_expr(expr, indent.clone(), context);
+            // The branch VALUE is usually materialized into a codegen temp,
+            // and the generator returns that temp's NAME — the target
+            // assignment must win over the temp-reference skip, or the arm's
+            // value is computed and then discarded (the zeroed sm->result /
+            // target silently decoded as .None). Mirrors state-machine.ts.
+            is_target_assign := (is_last && branch_target_assignment.is_some());
             skip := if(
               code.len() == usize(0),
               true,
-              match(context.base.get_expr_info(expr), .Some(ein) => is_temp_variable_name(ein.env.module_path, code), .None => true)
+              if(
+                is_target_assign,
+                match(context.base.get_expr_info(expr), .Some(_ein) => false, .None => true),
+                match(context.base.get_expr_info(expr), .Some(ein) => is_temp_variable_name(ein.env.module_path, code), .None => true)
+              )
             );
             if(!(skip), {
               match(
@@ -2137,15 +2147,21 @@ _emit_cond_branch_continuation :: (
             },
             .None => ()
           );
-          match(
-            cbd.target_variable_id,
-            .Some(tvid) => {
-              fname := get_state_machine_field_name(tvid, Option(String).Some(String.from("local")), context.state_machine_field_aliases);
-              em.emit_string_line(`      // Assign cond result to target variable`);
-              em.emit_string_line(`      sm->${fname} = sm->await_result_${prev_await.base.index.to_string()};`);
-            },
-            .None => ()
-          );
+          // Only when no branch-level destination was registered: this copy
+          // is emitted AFTER the branch switch, so with target_assignment_code
+          // present it would overwrite the branch value (computed after the
+          // await) with the raw await result. Mirrors state-machine.ts.
+          if(cbd.target_assignment_code.is_none(), {
+            match(
+              cbd.target_variable_id,
+              .Some(tvid) => {
+                fname := get_state_machine_field_name(tvid, Option(String).Some(String.from("local")), context.state_machine_field_aliases);
+                em.emit_string_line(`      // Assign cond result to target variable`);
+                em.emit_string_line(`      sm->${fname} = sm->await_result_${prev_await.base.index.to_string()};`);
+              },
+              .None => ()
+            );
+          });
           em.emit_string_line(String.from(""));
         });
       },

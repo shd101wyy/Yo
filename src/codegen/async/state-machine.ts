@@ -966,17 +966,19 @@ export function generateAsyncBlockResumeFunction(
 
                   // Normal expression
                   const code = generateExpr(expr, "          ", context);
-                  // Skip empty code, expressions without metadata, and temp variable references
-                  if (
-                    !code ||
-                    !expr.$ ||
-                    isTempVariableName(expr.$.env.modulePath, code)
-                  ) {
+                  // The branch VALUE is usually materialized into a codegen
+                  // temp, and generateExpr returns that temp's NAME — so the
+                  // target assignment must win over the temp-reference skip,
+                  // or the arm's value is computed and then discarded (the
+                  // zeroed sm->result / target silently decoded as .None).
+                  if (!code || !expr.$) {
                     // Skip
                   } else if (isLastExpr && branchTargetAssignmentCode) {
                     emitter.emitLine(
                       `          ${branchTargetAssignmentCode} = ${code};`
                     );
+                  } else if (isTempVariableName(expr.$.env.modulePath, code)) {
+                    // Skip bare temp references in statement position
                   } else {
                     emitter.emitLine(`          ${code};`);
                   }
@@ -1119,8 +1121,15 @@ export function generateAsyncBlockResumeFunction(
             }
           }
 
-          // If the cond result is assigned to a variable, assign the await result now
-          if (condBranchData.targetVariableId) {
+          // If the cond result is assigned to a variable, assign the await
+          // result now — but ONLY when no branch-level destination was
+          // registered: this copy is emitted AFTER the branch switch, so with
+          // targetAssignmentCode present it would overwrite the branch value
+          // (computed after the await) with the raw await result.
+          if (
+            condBranchData.targetVariableId &&
+            !condBranchData.targetAssignmentCode
+          ) {
             const fieldName = getStateMachineFieldName(
               condBranchData.targetVariableId,
               "local",

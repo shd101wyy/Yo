@@ -41,6 +41,18 @@ rejections must fail at COMPILE time, not silently).
 
 ## Fixed
 
+### A cond/match BRANCH VALUE (computed after an arm's await, or in the non-await arm of a bound cond) was silently DISCARDED — broken in BOTH (2026-08-10)
+
+Tail-position `match`/`cond` (the async body's implicit return) and
+`r := match/cond(...)` bindings lost the branch value: no destination was
+registered for the await-branch's remaining code, the post-switch
+await-result copy overwrote what WAS assigned, and the temp-reference skip
+discarded values before the target check (also in the non-await inline
+path). The zeroed slot decoded as `.None`/`0` — rc=0, silent. Found via
+`read_yo_version` always returning None. Full write-up:
+`issues/fixed/async-branch-value-discarded-cond-match-tail-and-binding.md`.
++4 regression tests in async_await.test.yo (tail/bound × match/cond).
+
 ### Bare `if` body with MULTIPLE awaits + early return — broken in BOTH (2026-08-10)
 
 The 2026-08-09 rows above covered a SINGLE await per `if` body. A branch that
