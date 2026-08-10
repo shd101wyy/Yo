@@ -35,6 +35,7 @@ _(env : proc_env) :: import("std/env");
 { BuildOptions, run_build } :: import("./build_runner.yo");
 { DocCommandOptions, run_doc } :: import("./doc_command.yo");
 { generate_unsafe_report, format_unsafe_report, unsafe_report_to_json } :: import("./unsafe_report.yo");
+{ generate_public_safe_report, format_public_safe_report, public_safe_report_to_json } :: import("./public_safe_report.yo");
 { HashMap } :: import("std/collections/hash_map");
 { remove_dir_all } :: import("./fetch.yo");
 { Environment } :: import("./env.yo");
@@ -1840,6 +1841,44 @@ run_unsafe_report_cmd :: (
     println(format_unsafe_report(report));
   });
 });
+/// `yo public-safe-report [path] [--json]` — the public-signature raw-
+/// pointer lint (port of the TS subcommand; scanning lives in
+/// public_safe_report.yo). Informational: findings do NOT fail the exit.
+run_public_safe_report_cmd :: (
+  fn(
+    argv : ArrayList(String),
+    io : Io,
+    exn : Exception
+  ) -> unit
+)({
+  (target : String) = String.from("./std");
+  (as_json : bool) = false;
+  (ai : usize) = usize(2);
+  while(ai < argv.len(), {
+    arg := argv(ai);
+    cond(
+      (arg == "--json") => {
+        as_json = true;
+      },
+      true => {
+        target = arg.clone();
+      }
+    );
+    ai = (ai + usize(1));
+  });
+  // Path.new(".") normalizes to the empty path, so check the CWD directly.
+  target_exists := if(target == ".", true, io.await(exists(Path.new(target.clone()), io), io));
+  if(!(target_exists), {
+    eprintln(`public-safe-report: path does not exist: ${target}`);
+    exn.throw(dyn(`public-safe-report: path does not exist`));
+  });
+  report := io.await(generate_public_safe_report(target.clone(), io, exn), IoExn(io : io, exn : exn));
+  if(as_json, {
+    println(public_safe_report_to_json(report));
+  }, {
+    println(format_public_safe_report(report));
+  });
+});
 run_doc_cmd :: (
   fn(
     argv : ArrayList(String),
@@ -1947,7 +1986,7 @@ main :: (fn(io : Io) -> unit)({
   );
   argv := args();
   if(argv.len() < usize(2), {
-    exn.throw(dyn(`no subcommand given. Usage: yo-self <compile|test|fmt|check|init|build|fetch|install|cache|doc|unsafe-report> ...`));
+    exn.throw(dyn(`no subcommand given. Usage: yo-self <compile|test|fmt|check|init|build|fetch|install|cache|doc|unsafe-report|public-safe-report> ...`));
   });
   subcmd := argv(usize(1));
   if(subcmd == "compile", {
@@ -1972,8 +2011,10 @@ main :: (fn(io : Io) -> unit)({
     run_doc_cmd(argv, io, exn);
   }, if(subcmd == "unsafe-report", {
     run_unsafe_report_cmd(argv, io, exn);
+  }, if(subcmd == "public-safe-report", {
+    run_public_safe_report_cmd(argv, io, exn);
   }, {
-    exn.throw(dyn(`unknown subcommand '${subcmd}'. Usage: yo-self <compile|test|fmt|check|init|build|fetch|install|cache|doc|unsafe-report> ...`));
-  })))))))))));
+    exn.throw(dyn(`unknown subcommand '${subcmd}'. Usage: yo-self <compile|test|fmt|check|init|build|fetch|install|cache|doc|unsafe-report|public-safe-report> ...`));
+  }))))))))))));
 });
 export(main);
