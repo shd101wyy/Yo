@@ -37,9 +37,11 @@ renumbering the whole file.
 - **Small inputs agree**: the async probe, a lexer slice
   (`tokenize` via `yo-self/lexer.yo`), and a parser slice (`parse` via
   `yo-self/parser.yo`) all emit BYTE-IDENTICAL C under both binaries.
-  An evaluator slice (`{ Evaluator } :: import("evaluator/index.yo")`)
-  was in flight at snapshot time — if it differs, that is the fast repro
-  loop (~4 min/side instead of ~9).
+  An evaluator slice (`{ Evaluator } :: import("evaluator/index.yo")` +
+  parser, 14 MB of C) is ALSO byte-identical. The divergence needs the
+  codegen modules and/or main.yo in the closure — next slices to try:
+  `codegen/codegen_c.yo`, then `module_manager.yo`, then `main.yo` minus
+  subcommands.
 - Unknown whether P1 introduced it or it predates the branch — develop's
   fixpoint is green, but on this branch the clang failure masked the diff
   from day one, so there is no bisectable signal before the bare-if fix.
