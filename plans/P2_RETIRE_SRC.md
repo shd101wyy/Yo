@@ -123,6 +123,18 @@ Also landed en route: `yo build` exits 1 on failed steps (both compilers +
 to `compile` (an undefined call builds a runnable no-op binary —
 [open issue](../issues/self-hosted-compile-swallows-undefined-call.md)).
 
+## doc --format html: LANDED (2026-08-10)
+
+The P1 deferral is closed. `vendor/markdown_yo` (git submodule, branch
+`migrate-to-latest-yo` — the library migrated to current Yo, 1035/1035
+markdown-it fixtures green) supplies `markdown_to_html` by SOURCE import to
+`yo-self/doc/render_html.yo` (1:1 port of render-html.ts; static CSS/JS in
+`render_html_assets.yo`, script-extracted verbatim). The TS side keeps the
+npm WASM. `tests/cli-cases/doc-html` PASSES byte-identical, and
+doc-json/doc-markdown stay green with the vendored library in the build.
+Open follow-up: `issues/doc-builder-generic-signature-divergence.md`
+(builder-level, all formats, predates html).
+
 ## 2.4 — TS-only test inventory (23 files, ~9,000 lines)
 
 Ground truth: `tests/internal/` has 59 files including `formatter`,
