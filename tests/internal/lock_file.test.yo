@@ -211,3 +211,56 @@ test("upsert_lock_entry: preserves other entries", {
     .Some(b) => assert(b.commit == "bbb", "dep-b unchanged")
   );
 });
+// ---------------------------------------------------------------------------
+// P2.4 audit residuals (ported from build-system.test.ts "Lock file parser" /
+// "Lock file serialization")
+// ---------------------------------------------------------------------------
+test("parse_lock_file: quoted and unquoted values both parse", {
+  content := String.from("\n[[dependencies]]\nname = \"quoted-dep\"\nurl = https://example.com/dep.git\nref = \"main\"\ncommit = abc123\nhash = sha256-XXX\n");
+  lock := parse_lock_file(content);
+  assert(lock.dependencies.len() == usize(1), "one dep");
+  match(
+    lock.dependencies.get(usize(0)),
+    .None => assert(false, "dep at 0 expected"),
+    .Some(dep) => {
+      assert(dep.name == "quoted-dep", "quoted name");
+      assert(dep.url == "https://example.com/dep.git", "unquoted url");
+      assert(dep.commit == "abc123", "unquoted commit");
+    }
+  );
+});
+test("parse_lock_file: missing fields get defaults (ref=HEAD, rest empty)", {
+  content := String.from("\n[[dependencies]]\nname = \"minimal\"\n");
+  lock := parse_lock_file(content);
+  assert(lock.dependencies.len() == usize(1), "one dep");
+  match(
+    lock.dependencies.get(usize(0)),
+    .None => assert(false, "dep at 0 expected"),
+    .Some(dep) => {
+      assert(dep.name == "minimal", "name");
+      assert(dep.url == "", "url defaults empty");
+      assert(dep.ref == "HEAD", "ref defaults HEAD");
+      assert(dep.commit == "", "commit defaults empty");
+      assert(dep.hash == "", "hash defaults empty");
+    }
+  );
+});
+test("write_lock_file_content: round-trip multiple dependencies", {
+  deps := ArrayList(LockEntry).new();
+  deps.push(LockEntry(name : String.from("dep-a"), url : String.from("https://a.git"), ref : String.from("main"), commit : String.from("aaa"), hash : String.from("sha256-A")));
+  deps.push(LockEntry(name : String.from("dep-b"), url : String.from("https://b.git"), ref : String.from("v2"), commit : String.from("bbb"), hash : String.from("sha256-B")));
+  lock := LockFile(dependencies : deps);
+  serialized := write_lock_file_content(lock);
+  parsed := parse_lock_file(serialized);
+  assert(parsed.dependencies.len() == usize(2), "both deps survive");
+  match(
+    parsed.dependencies.get(usize(0)),
+    .Some(d) => assert(d.name == "dep-a", "first dep"),
+    .None => assert(false, "dep 0 missing")
+  );
+  match(
+    parsed.dependencies.get(usize(1)),
+    .Some(d) => assert(d.name == "dep-b", "second dep"),
+    .None => assert(false, "dep 1 missing")
+  );
+});
