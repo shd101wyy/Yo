@@ -1172,19 +1172,10 @@ evaluate_function_parameter :: (
         });
         lhs_mut = match(c_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
       });
-      // ref modifier — strip the wrapper and record the `ref` flag (consumed
-      // into the Func type's `param_is_ref` for the flow-soundness check).
-      if(ast_expr_is_fn_call_of(lhs_mut, BK_INOUT, Option(usize).None), {
-        r_args := _fn_call_args(lhs_mut);
-        if(!(r_args.len() == usize(1)), {
-          exn.throw(
-            dyn(format_error_message(ast_expr_token(lhs_mut), `Expected one argument for "ref", got ${r_args.len()}`, false, .None))
-          );
-        });
-        is_param_ref = true;
-        lhs_mut = match(r_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
-      });
-      // own modifier
+      // own modifier — processed BEFORE inout (TS function.ts order), so
+      // `own(inout(x))` reaches the inout branch with the own flag set and
+      // gets the targeted combination error below, while `inout(own(x))`
+      // falls through to the trailing "Expected identifier" rejection.
       if(ast_expr_is_fn_call_of(lhs_mut, "own", Option(usize).None), {
         is_owning_rc_value = true;
         o_args := _fn_call_args(lhs_mut);
@@ -1201,6 +1192,46 @@ evaluate_function_parameter :: (
           );
         });
         lhs_mut = match(o_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+      });
+      // ref modifier — strip the wrapper and record the `ref` flag (consumed
+      // into the Func type's `param_is_ref` for the flow-soundness check).
+      if(ast_expr_is_fn_call_of(lhs_mut, BK_INOUT, Option(usize).None), {
+        r_args := _fn_call_args(lhs_mut);
+        if(!(r_args.len() == usize(1)), {
+          exn.throw(
+            dyn(format_error_message(ast_expr_token(lhs_mut), `Expected one argument for "inout", got ${r_args.len()}`, false, .None))
+          );
+        });
+        if(is_owning_rc_value, {
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(lhs_mut),
+                `Cannot combine 'own' and 'inout' on the same parameter — they have opposite calling conventions.`,
+                false,
+                .None
+              )
+            )
+          );
+        });
+        if(is_parameter_comptime_by_default, {
+          // generic/using params are erased at runtime; they have no callee-
+          // side binding for inout to refer to. comptime(inout(...)) is
+          // permitted (sets is_compile_time_only above), but generic(inout(...))
+          // makes no sense.
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(lhs_mut),
+                `'inout' cannot combine with 'generic'/'using' parameters — they are erased at runtime and have no callee-side binding to mutate.`,
+                false,
+                .None
+              )
+            )
+          );
+        });
+        is_param_ref = true;
+        lhs_mut = match(r_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
       });
       // quote modifier
       if(ast_expr_is_fn_call_of(lhs_mut, BK_QUOTE, Option(usize).None), {

@@ -733,3 +733,82 @@ test("Tokenize x : (fn() -> i32) yields correct bracket count", {
   assert(lp == usize(2), "expected 2 LParen tokens");
   assert(rp == usize(2), "expected 2 RParen tokens");
 });
+// ─── Reserved verification quantifiers ───────────────────────────────────────
+// Port of src/tests/reserved-quantifiers.test.ts: `forall` / `∀` are reserved
+// at LEX time (plans/archive/FORALL_TO_GENERIC.md) with a diagnostic that
+// names the fix; `exists` / `∃` are deliberately NOT reserved (`exists` is a
+// live std API, std/fs/file.yo). The TS file's compile-level positives
+// (`generic(T : Type)` binds, `exists` fns compile) are covered by the whole
+// std/ + tests/ corpus; the lexer-level gate is what needs a direct test.
+test("forall is reserved for verification quantifiers", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        match(
+          downcast(err, LexerError),
+          .Some(le) => assert(le.message == `\`forall\` is reserved for verification quantifiers. Use \`generic(T : Type)\` to declare type parameters.`, "wrong error message"),
+          .None => assert(false, "expected LexerError")
+        );
+        unwind(());
+      }
+    )
+  );
+  tokenize(`sum :: (fn(forall(T : Type), a : T) -> T)(a);`, `test.yo`, exn);
+  assert(false, "expected a lexer error to be raised");
+});
+test("∀ is reserved for verification quantifiers", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        match(
+          downcast(err, LexerError),
+          .Some(le) => assert(le.message == `\`∀\` is reserved for verification quantifiers. Use \`generic(T : Type)\` to declare type parameters.`, "wrong error message"),
+          .None => assert(false, "expected LexerError")
+        );
+        unwind(());
+      }
+    )
+  );
+  tokenize(`x :: ∀;`, `test.yo`, exn);
+  assert(false, "expected a lexer error to be raised");
+});
+test("exists is NOT reserved — tokenizes as a plain identifier", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected lexer error");
+        unwind(());
+      }
+    )
+  );
+  toks := non_ws(lex_or_panic(`exists`, exn));
+  assert(toks.len() == usize(1), "expected 1 token");
+  match(
+    toks.get(usize(0)),
+    .None => assert(false, "no token at 0"),
+    .Some(tok) => {
+      assert(tok.kind == TokenKind.Identifier, "expected Identifier");
+      assert(tok.value == `exists`, "value must be 'exists'");
+    }
+  );
+});
+test("generic tokenizes as a plain identifier (the binder survives)", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected lexer error");
+        unwind(());
+      }
+    )
+  );
+  toks := non_ws(lex_or_panic(`generic`, exn));
+  assert(toks.len() == usize(1), "expected 1 token");
+  match(
+    toks.get(usize(0)),
+    .None => assert(false, "no token at 0"),
+    .Some(tok) => {
+      assert(tok.kind == TokenKind.Identifier, "expected Identifier");
+      assert(tok.value == `generic`, "value must be 'generic'");
+    }
+  );
+});
