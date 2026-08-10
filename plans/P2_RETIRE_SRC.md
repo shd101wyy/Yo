@@ -10,7 +10,7 @@ The phase's items, from the umbrella plan:
 
 | item | what                                                             | status                                   |
 | ---- | ---------------------------------------------------------------- | ---------------------------------------- |
-| 2.1  | bootstrap seed release (TS builds the binaries one last time)    | not started — needs a release            |
+| 2.1  | bootstrap seed release (TS builds the binaries one last time)    | **workflow landed** — needs a dispatch   |
 | 2.2  | repo-root `build.yo`: the compiler builds itself with `yo build` | **DONE** (verified both ways 2026-08-10) |
 | 2.3  | CI migration: seed release + `yo build` replace bun              | not started (blocked on 2.1/2.2)         |
 | 2.4  | re-express TS-only tests in Yo                                   | **inventory below**                      |
@@ -193,6 +193,27 @@ dispatch arms, and cli-cases pinning `--json` output parity on a small
 fixture. Mechanical but sizeable (~1 focused session); nothing else depends
 on them, so this is its own P2.4 slice — port them right before 2.5, or the
 maintainer may choose to retire them (the audit is reproducible with grep).
+
+## 2.1 — seed release workflow (landed; awaiting the maintainer's dispatch)
+
+`.github/workflows/release.yml` grew a `seed-bundles` job (2026-08-10): after
+the existing npm/vsce/Pages release, a matrix over `linux-x64` /
+`macos-arm64` / `windows-x64` builds the self-hosted binary with the TS
+compiler (`node out/cjs/yo-cli.cjs compile yo-self/main.yo --release
+--allocator mimalloc` — the fixpoint-proven configuration), assembles
+`yo-v<version>-<os>-<arch>.tar.gz` (= `bin/yo` + `std/` + LICENSE; init
+templates are inline in the binary), smoke-tests it from OUTSIDE the checkout
+(compile + run hello with `YO_STD` pointed at the bundled std), and attaches
+it to the GitHub Release via `gh release upload`. The release body documents
+the trust chain. Notes:
+
+- The Windows leg is `experimental: true` (first native-Windows build of the
+  self-hosted compiler) — a red Windows build does not block the seed.
+- Linux bundle is glibc + liburing dynamic; static musl is Phase 3, not 2.1.
+- Minting the seed = the maintainer running the Release workflow_dispatch as
+  usual; nothing else changed in the release flow.
+- 2.3 consumes it: replace each CI job's bun/node setup with "download pinned
+  seed tarball → extract → PATH + `YO_STD` → `yo build`".
 
 ## Sequencing note
 
