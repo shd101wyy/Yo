@@ -249,7 +249,15 @@ _arm_value_with_dups :: (fn(body_expr : AstExpr, indent : String, context : Func
   if(bdups.len() == usize(0), {
     return(Option(String).None);
   });
+  // Clear `variable_name` around the RAW generation (TS match.ts:133-136):
+  // with it set, the atom generator returns the info's temp alias — a
+  // NOT-YET-DECLARED name — and the `btv != raw_code` declaration below is
+  // skipped. Same phantom-temp class as the stage-2 fixpoint blocker in
+  // cond.yo; see issues/stage2-match-if-else-value-phantom-temp.md.
+  saved_arm_vn := bei.variable_name;
+  bei.variable_name = Option(String).None;
   raw_code := _call_generate_expr(body_expr, indent.clone(), context);
+  bei.variable_name = saved_arm_vn;
   (final_code : String) = raw_code.clone();
   match(
     bei.variable_name,

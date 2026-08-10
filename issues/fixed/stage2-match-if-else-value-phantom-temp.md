@@ -1,7 +1,22 @@
 # Stage-2 miscompile: if-else value inside a match arm dups a phantom temp with the WRONG type
 
-**Status: OPEN — the P2.2 / CI-fixpoint blocker.** Found 2026-08-10 by the
-first self-hosted `yo build` self-build; reduced to 25 lines the same day.
+**Status: FIXED** 2026-08-10 (`yo-self/codegen/exprs/cond.yo`,
+`yo-self/codegen/exprs/match.yo`). Found by the first self-hosted `yo build`
+self-build; reduced to 25 lines and root-caused the same day.
+
+**Root cause (established by instrumenting `expr_info_table_set` and the
+cond arm-value reader):** TS clears `expr.$.variableName` around the RAW
+generation of a dup-carrying value (7 sites: cond.ts:299/418, match.ts:134,
+return.ts:73/588/601, begin.ts:114) so the atom generator cannot return the
+info's temp alias. yo-self had ported only 3 of the 7. Without the clear,
+generating the else-value atom `ps` returned the NOT-YET-DECLARED temp name,
+the `vtv != raw_code` declaration was skipped, and every use referenced an
+undeclared identifier. (The "wrong type" appearance was a red herring — the
+Option-shaped dup is String's newtype underbelly, correct all along.)
+`cond.yo` and `match.yo` now do the exact TS dance (ExprInfo is a ref
+struct, so the handle mutation mirrors TS mutating `expr.$`). `begin.yo` is
+missing TS's whole last-arg deferred-dup block — a LATENT gap recorded in
+plans/P2_RETIRE_SRC.md, not part of this fix.
 
 Reducer (fails in seconds):
 [`repros/stage2-match-if-else-value-phantom-temp.yo`](repros/stage2-match-if-else-value-phantom-temp.yo)
