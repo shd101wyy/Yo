@@ -738,33 +738,68 @@ static __yo_io_future_t* __yo_async_closedir_start(void* dir) {
   return __yo_wasm_io_completed((result < 0) ? -errno : 0);
 }
 
-static __yo_io_future_t* __yo_async_getdents_start(int32_t fd, void* buf, uint32_t buf_size) {
-  // Emulate getdents using readdir on a dup()'d fd (same as macOS)
-  int dup_fd = dup(fd);
-  if (dup_fd < 0) {
-    return __yo_wasm_io_completed(-errno);
-  }
+// Emulate getdents with readdir. The DIR* must PERSIST across calls for the
+// same fd (see the macOS emulation in runtime-io-common): readdir buffers
+// ahead through the offset the dup()'d fd SHARES with the caller's fd, so
+// re-opening on the next call resumes from the already-consumed offset and
+// every entry that did not fit the caller's first buffer is silently lost —
+// read_dir truncated any directory larger than one buffer (caught by the
+// 200-file regression test on the emscripten arm).
+typedef struct __yo_getdents_stream {
+  int fd;
+  DIR* dir;
+  struct __yo_getdents_stream* next;
+} __yo_getdents_stream_t;
+static __yo_getdents_stream_t* __yo_getdents_streams = NULL;
 
-  DIR* dir = fdopendir(dup_fd);
-  if (!dir) {
-    int err = errno;
-    close(dup_fd);
-    return __yo_wasm_io_completed(-err);
+static __yo_io_future_t* __yo_async_getdents_start(int32_t fd, void* buf, uint32_t buf_size) {
+  __yo_getdents_stream_t* stream = __yo_getdents_streams;
+  while (stream && stream->fd != fd) stream = stream->next;
+  DIR* dir;
+  if (stream) {
+    dir = stream->dir;
+  } else {
+    int dup_fd = dup(fd);
+    if (dup_fd < 0) {
+      return __yo_wasm_io_completed(-errno);
+    }
+    dir = fdopendir(dup_fd);
+    if (!dir) {
+      int err = errno;
+      close(dup_fd);
+      return __yo_wasm_io_completed(-err);
+    }
+    stream = (__yo_getdents_stream_t*)__yo_malloc(sizeof(__yo_getdents_stream_t));
+    stream->fd = fd;
+    stream->dir = dir;
+    stream->next = __yo_getdents_streams;
+    __yo_getdents_streams = stream;
   }
 
   size_t total = 0;
+  long last_pos = telldir(dir);
   struct dirent* entry = NULL;
+  int reached_end = 1;
 
   while ((entry = readdir(dir)) != NULL) {
     size_t reclen = (size_t)entry->d_reclen;
     if (total + reclen > (size_t)buf_size) {
+      seekdir(dir, last_pos);
+      reached_end = 0;
       break;
     }
     memcpy((char*)buf + total, entry, reclen);
     total += reclen;
+    last_pos = telldir(dir);
   }
 
-  closedir(dir);  // also closes dup_fd
+  if (reached_end) {
+    __yo_getdents_stream_t** link = &__yo_getdents_streams;
+    while (*link && *link != stream) link = &(*link)->next;
+    if (*link) *link = stream->next;
+    closedir(dir);  // also closes dup_fd
+    __yo_free(stream);
+  }
   return __yo_wasm_io_completed((int32_t)total);
 }
 

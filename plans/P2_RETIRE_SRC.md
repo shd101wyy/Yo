@@ -175,7 +175,16 @@ subcommands exist only in TS (`src/yo-cli.ts`) — they were never in P1's
 scope table. They must be ported (or explicitly retired) before 2.5 can
 delete `src/`.
 
-**Assessed 2026-08-10:** both are self-contained TEXT scanners
+**CLOSED 2026-08-10 (evening):** both subcommands are PORTED and dispatched
+(`yo-self/unsafe_report.yo`, `yo-self/public_safe_report.yo`) — byte-identical
+with TS on the whole `std/` tree in BOTH formats (human + `--json`), with
+cli-cases `unsafe-report` and `public-safe-report` pinning it in CI. The port
+found two more platform bugs: the emscripten getdents shim had the same
+truncation flaw as macOS (fixed, same persistent-stream design), and the
+Linux/ASan arm exposed an async abort-dispose double-drop of a moved enum
+payload (call-site patched in version.yo;
+issues/async-abort-dispose-double-drops-moved-enum-payload.md tracks the real
+fix). Original assessment: both are self-contained TEXT scanners
 (`src/unsafe-report.ts` 529 lines, `src/public-safe-report.ts` 518 lines) —
 regex/line-based, no parser or evaluator involvement, deliberately so
 ("auditable by grep-style review"). Port shape: two `yo-self/*.yo` files

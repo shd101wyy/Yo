@@ -1,13 +1,25 @@
 open(import("std/string"));
 open(import("std/fmt"));
+{ ArrayList } :: import("std/collections/array_list");
 { Path } :: import("std/path");
-{ exists } :: import("std/fs/file");
-{ metadata } :: import("std/fs/metadata");
+fs_dir :: import("std/fs/dir");
+fs_file :: import("std/fs/file");
 { Exception, IoExn } :: import("std/error");
+{ read_yo_version } :: import("../../yo-self/version.yo");
 main :: (fn(io : Io, exn : Exception) -> unit)({
-  p := Path.new(String.from("."));
-  println(`path str: '${p.to_string()}'`);
-  e := io.await(exists(p, io), io);
-  println(`exists('.'): ${e}`);
+  setup := IoExn(io : io, exn : exn);
+  base := String.from("/tmp/yo_uaf_probe");
+  io.await(fs_dir.create_dir_all(Path.new(base.clone()), io), setup);
+  io.await(fs_file.write_file(Path.new(`${base}/.yo-version`), String.from("not-a-version\n"), io), setup);
+  throw_exn := Exception(
+    throw : (
+      (_err) -> {
+        println(`got expected throw`);
+        unwind(());
+      }
+    )
+  );
+  got := io.await(read_yo_version(Path.new(base.clone()), io, throw_exn), IoExn(io : io, exn : throw_exn));
+  println(match(got, .Some(v) => `unexpected: ${v}`, .None => String.from("unexpected None")));
 });
 export(main);
