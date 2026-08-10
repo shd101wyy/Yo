@@ -7,8 +7,8 @@
 //!     takes a static `str`, not a runtime String);
 //!   - TS's retry-with-a-fresh-ModuleManager path collapses into
 //!     `mm_load_file`, which already catches evaluator throws internally;
-//!   - `--format html` is not yet ported (render-html.ts is the remaining
-//!     chunk) and reports a clear error instead of silently degrading.
+//!   - `--format html` renders through doc/render_html.yo (markdown via the
+//!     vendored markdown_yo source — see that file's header).
 open(import("std/string"));
 open(import("std/fmt"));
 { ArrayList } :: import("std/collections/array_list");
@@ -30,6 +30,7 @@ open(import("std/fmt"));
 } :: import("./doc/builder.yo");
 { render_index_md, render_module_md } :: import("./doc/render_markdown.yo");
 { render_doc_json_string } :: import("./doc/render_json.yo");
+{ render_doc_site } :: import("./doc/render_html.yo");
 { DocModel, DocModule } :: import("./doc/model.yo");
 { ModuleLoadOutcome, mm_load_file, resolve_std_path } :: import("./module_manager.yo");
 /// Options for `run_doc`. Mirrors `DocCommandOptions` (doc-command.ts:53);
@@ -464,9 +465,9 @@ run_doc :: (
       output_file = String.from("doc.json");
     },
     true => {
-      // html (the default). render-html.ts is the one unported doc chunk —
-      // fail loudly rather than silently produce nothing.
-      exn.throw(dyn(String.from("doc: --format html is not yet supported by the self-hosted compiler; use --format markdown or --format json")));
+      // html (the default). Mirrors doc-command.ts: renderDocSite.
+      println(`Rendering HTML to ${abs_output_dir}...`);
+      render_doc_site(model, abs_output_dir.clone(), io, IoExn(io : io, exn : exn));
     }
   );
   elapsed_ms := start.elapsed().as_millis();

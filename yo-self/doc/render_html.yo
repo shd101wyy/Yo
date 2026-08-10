@@ -1,0 +1,1662 @@
+//! doc/render_html — render a DocModel to a self-contained static HTML site.
+//! 1:1 port of `src/doc/render-html.ts`.
+//!
+//! Markdown→HTML goes through `markdown_yo` — the TS side loads its npm WASM
+//! build (`createRenderer(null, {html: true, fullFeatures: true})`); this port
+//! imports the library's SOURCE from the `vendor/markdown_yo` submodule
+//! (branch `migrate-to-latest-yo` — the same library migrated to current Yo)
+//! and builds the equivalent `Options`: `default_options()` + `html` + every
+//! `fullFeatures` flag the npm loader sets (see npm/index.js `buildFlags`:
+//! subscript, superscript, mark, math, emoji, wikilink, critic, abbr,
+//! deflist, admonition, callout, footnote — NOT typographer/breaks/xhtml/
+//! sourceMap/commonmark).
+//!
+//! The static CSS / search JS / highlight JS live in
+//! `render_html_assets.yo`, extracted verbatim from the TS templates.
+pragma(Pragma.AllowUnsafe);
+open(import("std/string"));
+open(import("std/fmt"));
+{ ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
+{ Path } :: import("std/path");
+{ write_file } :: import("std/fs/file");
+{ create_dir_all } :: import("std/fs/dir");
+{ Exception, IoExn } :: import("std/error");
+{
+  DocModel,
+  DocModule,
+  DocFunction,
+  DocType,
+  DocTrait,
+  DocConstant,
+  DocParam,
+  DocField,
+  DocVariant,
+  DocAssociatedType,
+  DocImpl,
+  doc_item_kind_to_string,
+  doc_trait_kind_to_string
+} :: import("./model.yo");
+{ generate_css, generate_search_js, generate_highlight_js } :: import("./render_html_assets.yo");
+{ markdown_to_html, Options, default_options } :: import("../../vendor/markdown_yo/src/lib.yo");
+// ── Markdown rendering ───────────────────────────────────────────────
+/// The Options the TS renderer runs with ({html: true, fullFeatures: true}).
+_doc_md_options :: (fn() -> Options)({
+  (o : Options) = default_options();
+  o.html = true;
+  o.enable_subscript = true;
+  o.enable_superscript = true;
+  o.enable_mark = true;
+  o.enable_math = true;
+  o.enable_emoji = true;
+  o.enable_wikilink = true;
+  o.enable_critic = true;
+  o.enable_abbr = true;
+  o.enable_deflist = true;
+  o.enable_admonition = true;
+  o.enable_callout = true;
+  o.enable_footnote = true;
+  o
+});
+_render_markdown :: (fn(text : String) -> String)({
+  (opts : Options) = _doc_md_options();
+  markdown_to_html(text.clone(), &(opts))
+});
+// ── HTML escaping ────────────────────────────────────────────────────
+_escape_html :: (fn(text : String) -> String)({
+  out := String.new();
+  bytes := text.as_bytes();
+  n := bytes.len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    b := match(bytes.get(i), .Some(x) => x, .None => u8(0));
+    cond(
+      (b == u8(38)) => out.push_str("&amp;"),
+      (b == u8(60)) => out.push_str("&lt;"),
+      (b == u8(62)) => out.push_str("&gt;"),
+      (b == u8(34)) => out.push_str("&quot;"),
+      (b == u8(39)) => out.push_str("&#039;"),
+      true => out.push_byte(b)
+    );
+    i = (i + usize(1));
+  });
+  out
+});
+// ── JSON string escaping (JSON.stringify semantics, for the search index) ──
+_json_str :: (fn(text : String) -> String)({
+  out := String.from("\"");
+  bytes := text.as_bytes();
+  n := bytes.len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    b := match(bytes.get(i), .Some(x) => x, .None => u8(0));
+    cond(
+      (b == u8(34)) => out.push_str("\\\""),
+      (b == u8(92)) => out.push_str("\\\\"),
+      (b == u8(10)) => out.push_str("\\n"),
+      (b == u8(13)) => out.push_str("\\r"),
+      (b == u8(9)) => out.push_str("\\t"),
+      (b == u8(8)) => out.push_str("\\b"),
+      (b == u8(12)) => out.push_str("\\f"),
+      (b < u8(32)) => {
+        // \u00XX
+        hex := `0123456789abcdef`;
+        hb := hex.as_bytes();
+        out.push_str("\\u00");
+        out.push_byte(match(hb.get(usize(b / u8(16))), .Some(x) => x, .None => u8(48)));
+        out.push_byte(match(hb.get(usize(b % u8(16))), .Some(x) => x, .None => u8(48)));
+      },
+      true => out.push_byte(b)
+    );
+    i = (i + usize(1));
+  });
+  out.push_str("\"");
+  out
+});
+// ── Module path helpers ──────────────────────────────────────────────
+/// "collections/array_list" -> "collections__array_list"
+_module_to_filename :: (fn(name : String) -> String)({
+  out := String.new();
+  bytes := name.as_bytes();
+  n := bytes.len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    b := match(bytes.get(i), .Some(x) => x, .None => u8(0));
+    if(b == u8(47), {
+      out.push_str("__");
+    }, {
+      out.push_byte(b);
+    });
+    i = (i + usize(1));
+  });
+  out
+});
+/// Last path segment.
+_module_display_name :: (fn(name : String) -> String)({
+  parts := name.split(String.from("/"));
+  match(parts.get(parts.len() - usize(1)), .Some(p) => p, .None => name.clone())
+});
+/// Directory/group part, or "" for top-level.
+_module_group :: (fn(name : String) -> String)({
+  bytes := name.as_bytes();
+  n := bytes.len();
+  (idx : usize) = usize(0);
+  (found : bool) = false;
+  (i : usize) = usize(0);
+  while(i < n, {
+    b := match(bytes.get(i), .Some(x) => x, .None => u8(0));
+    if(b == u8(47), {
+      idx = i;
+      found = true;
+    });
+    i = (i + usize(1));
+  });
+  if(found, {
+    prefix := ArrayList(u8).new();
+    (j : usize) = usize(0);
+    while(j < idx, {
+      _ := prefix.push(match(bytes.get(j), .Some(x) => x, .None => u8(0)));
+      j = (j + usize(1));
+    });
+    String.from_bytes(prefix)
+  }, String.new())
+});
+// ── Symbol link resolution ───────────────────────────────────────────
+_build_symbol_links :: (fn(model : DocModel) -> HashMap(String, String))({
+  links := HashMap(String, String).new();
+  (mi : usize) = usize(0);
+  while(mi < model.modules.len(), {
+    m := match(
+      model.modules.get(mi),
+      .Some(x) => x,
+      .None => {
+        break;
+      }
+    );
+    fname := _module_to_filename(m.name);
+    (i : usize) = usize(0);
+    while(i < m.types.len(), {
+      t := match(
+        m.types.get(i),
+        .Some(x) => x,
+        .None => {
+          break;
+        }
+      );
+      links.set(t.name.clone(), `${fname}.html#type-${t.name}`);
+      i = (i + usize(1));
+    });
+    i = usize(0);
+    while(i < m.traits.len(), {
+      tr := match(
+        m.traits.get(i),
+        .Some(x) => x,
+        .None => {
+          break;
+        }
+      );
+      links.set(tr.name.clone(), `${fname}.html#trait-${tr.name}`);
+      i = (i + usize(1));
+    });
+    i = usize(0);
+    while(i < m.functions.len(), {
+      f := match(
+        m.functions.get(i),
+        .Some(x) => x,
+        .None => {
+          break;
+        }
+      );
+      links.set(f.name.clone(), `${fname}.html#fn-${f.name}`);
+      i = (i + usize(1));
+    });
+    i = usize(0);
+    while(i < m.constants.len(), {
+      c := match(
+        m.constants.get(i),
+        .Some(x) => x,
+        .None => {
+          break;
+        }
+      );
+      links.set(c.name.clone(), `${fname}.html#const-${c.name}`);
+      i = (i + usize(1));
+    });
+    mi = (mi + usize(1));
+  });
+  links
+});
+_is_upper :: (fn(b : u8) -> bool)((b >= u8(65)) && (b <= u8(90)));
+_is_word_byte :: (fn(b : u8) -> bool)(
+  ((b >= u8(65)) && (b <= u8(90))) ||
+    (
+      ((b >= u8(97)) && (b <= u8(122))) ||
+        (((b >= u8(48)) && (b <= u8(57))) || (b == u8(95)))
+    )
+);
+/// Replace known PascalCase symbol names in an (escaped) type string with
+/// clickable links. Mirrors `linkifyType`.
+_linkify_type :: (
+  fn(type_str : String, links : HashMap(String, String), current_mod_file : Option(String)) -> String
+)({
+  escaped := _escape_html(type_str);
+  out := String.new();
+  bytes := escaped.as_bytes();
+  n := bytes.len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    b := match(bytes.get(i), .Some(x) => x, .None => u8(0));
+    // Word-boundary check: previous byte must not be a word byte.
+    prev_word := if(i > usize(0), _is_word_byte(match(bytes.get(i - usize(1)), .Some(x) => x, .None => u8(0))), false);
+    if(_is_upper(b) && !(prev_word), {
+      // scan the identifier
+      (j : usize) = i;
+      while((j < n) && _is_word_byte(match(bytes.get(j), .Some(x) => x, .None => u8(0))), {
+        j = (j + usize(1));
+      });
+      word_bytes := ArrayList(u8).new();
+      (k : usize) = i;
+      while(k < j, {
+        _ := word_bytes.push(match(bytes.get(k), .Some(x) => x, .None => u8(0)));
+        k = (k + usize(1));
+      });
+      word := String.from_bytes(word_bytes);
+      match(
+        links.get(word.clone()),
+        .Some(href) => {
+          (use_anchor : bool) = match(
+            current_mod_file,
+            .Some(cmf) => href.starts_with(`${cmf}.html#`),
+            .None => false
+          );
+          if(use_anchor, {
+            // just the anchor
+            hb := href.as_bytes();
+            (hpos : usize) = usize(0);
+            (hn : usize) = hb.len();
+            (hfound : usize) = usize(0);
+            while(hpos < hn, {
+              if(match(hb.get(hpos), .Some(x) => x, .None => u8(0)) == u8(35), {
+                hfound = hpos;
+                break;
+              });
+              hpos = (hpos + usize(1));
+            });
+            anchor_bytes := ArrayList(u8).new();
+            (ai : usize) = hfound;
+            while(ai < hn, {
+              _ := anchor_bytes.push(match(hb.get(ai), .Some(x) => x, .None => u8(0)));
+              ai = (ai + usize(1));
+            });
+            anchor := String.from_bytes(anchor_bytes);
+            out.push_string(`<a class="type-link" href="${anchor}">${word}</a>`);
+          }, {
+            out.push_string(`<a class="type-link" href="${href}">${word}</a>`);
+          });
+        },
+        .None => {
+          out.push_string(word);
+        }
+      );
+      i = j;
+    }, {
+      out.push_byte(b);
+      i = (i + usize(1));
+    });
+  });
+  out
+});
+_type_html :: (
+  fn(type_str : String, links : HashMap(String, String), current_mod_file : Option(String), use_links : bool) -> String
+)(
+  if(use_links, _linkify_type(type_str, links, current_mod_file), _escape_html(type_str))
+);
+// ── Search index (JSON, matching JSON.stringify key order + omission) ──
+_search_entry_json :: (
+  fn(name : String, kind : String, href : String, doc : Option(String), module_name : String) -> String
+)({
+  s := String.from("{");
+  s.push_string(`"name":${_json_str(name)},`);
+  s.push_string(`"kind":${_json_str(kind)},`);
+  s.push_string(`"href":${_json_str(href)},`);
+  match(
+    doc,
+    .Some(d) => {
+      s.push_string(`"doc":${_json_str(d)},`);
+    },
+    .None => ()
+  );
+  s.push_string(`"module":${_json_str(module_name)}`);
+  s.push_str("}");
+  s
+});
+// ── firstSentence ────────────────────────────────────────────────────
+/// First line trimmed, cut at the first `.!?` that is followed (after any
+/// closers `` ` " ' ’ ” ) ] } > ``) by whitespace or end; capped at 120.
+/// Mirrors the TS regex `^.*?[.!?](?=(?:[`"'’”)\]}>]*)(?:\s|$))`.
+_first_sentence :: (fn(text : String) -> String)({
+  trimmed := text.trim();
+  first_line := match(trimmed.split(String.from("\n")).get(usize(0)), .Some(l) => l, .None => String.new());
+  line := first_line.trim();
+  // Strip a trailing \r (the TS split is /\r?\n/).
+  lb := line.as_bytes();
+  (ln : usize) = lb.len();
+  if((ln > usize(0)) && (match(lb.get(ln - usize(1)), .Some(x) => x, .None => u8(0)) == u8(13)), {
+    nb := ArrayList(u8).new();
+    (ci : usize) = usize(0);
+    while(ci < (ln - usize(1)), {
+      _ := nb.push(match(lb.get(ci), .Some(x) => x, .None => u8(0)));
+      ci = (ci + usize(1));
+    });
+    line = String.from_bytes(nb).trim();
+  });
+  bytes := line.as_bytes();
+  n := bytes.len();
+  (result : String) = line.clone();
+  (i : usize) = usize(0);
+  (found : bool) = false;
+  while((i < n) && !(found), {
+    b := match(bytes.get(i), .Some(x) => x, .None => u8(0));
+    if((b == u8(46)) || ((b == u8(33)) || (b == u8(63))), {
+      // skip closers: ` " ' ) ] } >  (’ ” are multibyte; handled as bytes 0xE2..)
+      (j : usize) = (i + usize(1));
+      (closing : bool) = true;
+      while((j < n) && closing, {
+        nb := match(bytes.get(j), .Some(x) => x, .None => u8(0));
+        cond(
+          ((nb == u8(96)) || ((nb == u8(34)) || ((nb == u8(39)) || ((nb == u8(41)) || ((nb == u8(93)) || ((nb == u8(125)) || (nb == u8(62)))))))) => {
+            j = (j + usize(1));
+          },
+          // UTF-8 ’ (E2 80 99) or ” (E2 80 9D)
+          ((nb == u8(0xE2)) && ((j + usize(2)) < n)) => {
+            b2 := match(bytes.get(j + usize(1)), .Some(x) => x, .None => u8(0));
+            b3 := match(bytes.get(j + usize(2)), .Some(x) => x, .None => u8(0));
+            if((b2 == u8(0x80)) && ((b3 == u8(0x99)) || (b3 == u8(0x9D))), {
+              j = (j + usize(3));
+            }, {
+              closing = false;
+            });
+          },
+          true => {
+            closing = false;
+          }
+        );
+      });
+      // after closers: whitespace or end?
+      at_end := (j >= n);
+      ws := if(at_end, true, {
+        wb := match(bytes.get(j), .Some(x) => x, .None => u8(0));
+        (wb == u8(32)) || ((wb == u8(9)) || ((wb == u8(10)) || (wb == u8(13))))
+      });
+      if(ws, {
+        cut := ArrayList(u8).new();
+        (ci2 : usize) = usize(0);
+        while(ci2 <= i, {
+          _ := cut.push(match(bytes.get(ci2), .Some(x) => x, .None => u8(0)));
+          ci2 = (ci2 + usize(1));
+        });
+        result = String.from_bytes(cut).trim();
+        found = true;
+      });
+    });
+    i = (i + usize(1));
+  });
+  // Cap at 120 CHARS (TS slice(0,120) is UTF-16 units; doc text is ASCII-ish)
+  if(result.len() > usize(120), {
+    result = result.substring(usize(0), usize(120)).trim();
+  });
+  result
+});
+_first_sentence_opt :: (fn(doc : Option(String)) -> Option(String))(
+  match(doc, .Some(d) => Option(String).Some(_first_sentence(d)), .None => Option(String).None)
+);
+/// Build the search index as ORDERED JSON entry strings (the TS entries are
+/// serialized with JSON.stringify in wrapPage; entries here are pre-encoded
+/// but href rewriting for module pages needs the raw href, so keep pairs).
+SearchEntry :: struct(
+  name : String,
+  kind : String,
+  href : String,
+  doc : Option(String),
+  module_name : String
+);
+_build_search_index :: (fn(model : DocModel) -> ArrayList(SearchEntry))({
+  entries := ArrayList(SearchEntry).new();
+  (mi : usize) = usize(0);
+  while(mi < model.modules.len(), {
+    m := match(
+      model.modules.get(mi),
+      .Some(x) => x,
+      .None => {
+        break;
+      }
+    );
+    fname := _module_to_filename(m.name);
+    entries.push(SearchEntry(name : m.name.clone(), kind : String.from("module"), href : `module/${fname}.html`, doc : _first_sentence_opt(m.doc), module_name : m.name.clone()));
+    (i : usize) = usize(0);
+    while(i < m.functions.len(), {
+      f := match(
+        m.functions.get(i),
+        .Some(x) => x,
+        .None => {
+          break;
+        }
+      );
+      entries.push(SearchEntry(name : f.name.clone(), kind : String.from("function"), href : `module/${fname}.html#fn-${f.name}`, doc : _first_sentence_opt(f.doc), module_name : m.name.clone()));
+      i = (i + usize(1));
+    });
+    i = usize(0);
+    while(i < m.types.len(), {
+      t := match(
+        m.types.get(i),
+        .Some(x) => x,
+        .None => {
+          break;
+        }
+      );
+      entries.push(SearchEntry(name : t.name.clone(), kind : doc_item_kind_to_string(t.kind), href : `module/${fname}.html#type-${t.name}`, doc : _first_sentence_opt(t.doc), module_name : m.name.clone()));
+      (j : usize) = usize(0);
+      while(j < t.methods.len(), {
+        me := match(
+          t.methods.get(j),
+          .Some(x) => x,
+          .None => {
+            break;
+          }
+        );
+        entries.push(SearchEntry(name : `${t.name}.${me.name}`, kind : String.from("method"), href : `module/${fname}.html#method-${t.name}-${me.name}`, doc : _first_sentence_opt(me.doc), module_name : m.name.clone()));
+        j = (j + usize(1));
+      });
+      i = (i + usize(1));
+    });
+    i = usize(0);
+    while(i < m.traits.len(), {
+      tr := match(
+        m.traits.get(i),
+        .Some(x) => x,
+        .None => {
+          break;
+        }
+      );
+      entries.push(SearchEntry(name : tr.name.clone(), kind : doc_trait_kind_to_string(tr.kind), href : `module/${fname}.html#trait-${tr.name}`, doc : _first_sentence_opt(tr.doc), module_name : m.name.clone()));
+      i = (i + usize(1));
+    });
+    i = usize(0);
+    while(i < m.constants.len(), {
+      c := match(
+        m.constants.get(i),
+        .Some(x) => x,
+        .None => {
+          break;
+        }
+      );
+      entries.push(SearchEntry(name : c.name.clone(), kind : String.from("constant"), href : `module/${fname}.html#const-${c.name}`, doc : _first_sentence_opt(c.doc), module_name : m.name.clone()));
+      i = (i + usize(1));
+    });
+    mi = (mi + usize(1));
+  });
+  entries
+});
+_search_index_json :: (fn(entries : ArrayList(SearchEntry)) -> String)({
+  s := String.from("[");
+  (i : usize) = usize(0);
+  while(i < entries.len(), {
+    e := match(
+      entries.get(i),
+      .Some(x) => x,
+      .None => {
+        break;
+      }
+    );
+    if(i > usize(0), {
+      s.push_str(",");
+    });
+    s.push_string(_search_entry_json(e.name.clone(), e.kind.clone(), e.href.clone(), e.doc.clone(), e.module_name.clone()));
+    i = (i + usize(1));
+  });
+  s.push_str("]");
+  s
+});
+// ── Page layout ──────────────────────────────────────────────────────
+_wrap_page :: (
+  fn(title : String, content : String, sidebar : String, search_index_json : String, css_text : String, js_text : String) -> String
+)({
+  s := String.from("<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>");
+  s.push_string(_escape_html(title));
+  s.push_str("</title>\n<style>");
+  s.push_string(css_text.clone());
+  s.push_str("</style>\n</head>\n<body>\n<button class=\"sidebar-toggle\" id=\"sidebar-toggle\" aria-label=\"Toggle sidebar\">☰</button>\n<div class=\"sidebar-overlay\" id=\"sidebar-overlay\"></div>\n");
+  s.push_string(sidebar.clone());
+  s.push_str("\n<div class=\"main\">\n<div class=\"content\">\n");
+  s.push_string(content.clone());
+  s.push_str("\n</div>\n</div>\n<button id=\"back-to-top\" class=\"back-to-top\" aria-label=\"Back to top\">&uarr;</button>\n<script>window.__SEARCH_INDEX = ");
+  s.push_string(search_index_json.clone());
+  s.push_str(";</script>\n<script>");
+  s.push_string(js_text.clone());
+  s.push_str("</script>\n<script>");
+  s.push_string(generate_highlight_js());
+  s.push_str("</script>\n</body>\n</html>");
+  s
+});
+// ── Sidebar ──────────────────────────────────────────────────────────
+_render_sidebar :: (fn(model : DocModel, active_module : Option(String)) -> String)({
+  version_html := match(
+    model.version,
+    .Some(v) => `\n  <span class="version">${_escape_html(v)}</span>`,
+    .None => String.new()
+  );
+  overview_active := match(active_module, .Some(_) => String.new(), .None => String.from(" class=\"active\""));
+  html := `<nav class="sidebar">\n<div class="sidebar-header">\n  <h2>${_escape_html(model.name)}</h2>${version_html}\n</div>\n<div class="search-box">\n  <input type="text" id="doc-search" placeholder="Search..." autocomplete="off">\n</div>\n<div id="search-results" class="search-results"></div>\n<div class="sidebar-section">\n  <h3>Project Modules</h3>\n  <a href="index.html"${overview_active}>Overview</a>`;
+  // Group modules by directory (insertion-ordered keys).
+  group_keys := ArrayList(String).new();
+  groups := HashMap(String, ArrayList(DocModule)).new();
+  top_level := ArrayList(DocModule).new();
+  (mi : usize) = usize(0);
+  while(mi < model.modules.len(), {
+    m := match(
+      model.modules.get(mi),
+      .Some(x) => x,
+      .None => {
+        break;
+      }
+    );
+    g := _module_group(m.name);
+    if(g.len() == usize(0), {
+      top_level.push(m);
+    }, {
+      match(
+        groups.get(g.clone()),
+        .Some(lst) => {
+          lst.push(m);
+        },
+        .None => {
+          lst := ArrayList(DocModule).new();
+          lst.push(m);
+          groups.set(g.clone(), lst);
+          group_keys.push(g);
+        }
+      );
+    });
+    mi = (mi + usize(1));
+  });
+  (i : usize) = usize(0);
+  while(i < top_level.len(), {
+    m := match(
+      top_level.get(i),
+      .Some(x) => x,
+      .None => {
+        break;
+      }
+    );
+    active := match(
+      active_module,
+      .Some(am) => if(m.name == am, String.from(" class=\"active\""), String.new()),
+      .None => String.new()
+    );
+    fname := _module_to_filename(m.name);
+    html.push_string(`\n  <a href="module/${_escape_html(fname)}.html"${active}>${_escape_html(m.name)}</a>`);
+    i = (i + usize(1));
+  });
+  sorted_groups := group_keys.clone();
+  sorted_groups.sort();
+  (gi : usize) = usize(0);
+  while(gi < sorted_groups.len(), {
+    g := match(
+      sorted_groups.get(gi),
+      .Some(x) => x,
+      .None => {
+        break;
+      }
+    );
+    mods := match(groups.get(g.clone()), .Some(x) => x, .None => ArrayList(DocModule).new());
+    is_active_group := match(
+      active_module,
+      .Some(am) => (_module_group(am) == g),
+      .None => false
+    );
+    open_cls := if(is_active_group, String.from(" open"), String.new());
+    html.push_string(`\n  <div class="sidebar-group${open_cls}">`);
+    html.push_string(`\n    <div class="sidebar-group-header" onclick="this.parentElement.classList.toggle('open')">${_escape_html(g)}/</div>`);
+    html.push_string(`\n    <div class="sidebar-group-items">`);
+    (mj : usize) = usize(0);
+    while(mj < mods.len(), {
+      m := match(
+        mods.get(mj),
+        .Some(x) => x,
+        .None => {
+          break;
+        }
+      );
+      active := match(
+        active_module,
+        .Some(am) => if(m.name == am, String.from(" class=\"active\""), String.new()),
+        .None => String.new()
+      );
+      fname := _module_to_filename(m.name);
+      display := _module_display_name(m.name);
+      html.push_string(`\n      <a href="module/${_escape_html(fname)}.html"${active}>${_escape_html(display)}</a>`);
+      mj = (mj + usize(1));
+    });
+    html.push_str("\n    </div>");
+    html.push_str("\n  </div>");
+    gi = (gi + usize(1));
+  });
+  html.push_str("\n</div>");
+  // On a module page, list its items.
+  match(
+    active_module,
+    .Some(am) => {
+      (found_mod : Option(DocModule)) = Option(DocModule).None;
+      (fi : usize) = usize(0);
+      while(fi < model.modules.len(), {
+        m := match(
+          model.modules.get(fi),
+          .Some(x) => x,
+          .None => {
+            break;
+          }
+        );
+        if(m.name == am, {
+          found_mod = Option(DocModule).Some(m);
+          break;
+        });
+        fi = (fi + usize(1));
+      });
+      match(
+        found_mod,
+        .Some(m) => {
+          if(m.types.len() > usize(0), {
+            html.push_str("\n<div class=\"sidebar-section\">\n  <h3>Types</h3>");
+            (ti : usize) = usize(0);
+            while(ti < m.types.len(), {
+              t := match(
+                m.types.get(ti),
+                .Some(x) => x,
+                .None => {
+                  break;
+                }
+              );
+              html.push_string(`\n  <a href="#type-${_escape_html(t.name)}">${_escape_html(t.name)}</a>`);
+              ti = (ti + usize(1));
+            });
+            html.push_str("\n</div>");
+          });
+          if(m.traits.len() > usize(0), {
+            html.push_str("\n<div class=\"sidebar-section\">\n  <h3>Traits / Modules</h3>");
+            (ti2 : usize) = usize(0);
+            while(ti2 < m.traits.len(), {
+              tr := match(
+                m.traits.get(ti2),
+                .Some(x) => x,
+                .None => {
+                  break;
+                }
+              );
+              html.push_string(`\n  <a href="#trait-${_escape_html(tr.name)}">${_escape_html(tr.name)}</a>`);
+              ti2 = (ti2 + usize(1));
+            });
+            html.push_str("\n</div>");
+          });
+          if(m.functions.len() > usize(0), {
+            html.push_str("\n<div class=\"sidebar-section\">\n  <h3>Functions</h3>");
+            (fi2 : usize) = usize(0);
+            while(fi2 < m.functions.len(), {
+              f := match(
+                m.functions.get(fi2),
+                .Some(x) => x,
+                .None => {
+                  break;
+                }
+              );
+              html.push_string(`\n  <a href="#fn-${_escape_html(f.name)}">${_escape_html(f.name)}</a>`);
+              fi2 = (fi2 + usize(1));
+            });
+            html.push_str("\n</div>");
+          });
+          if(m.constants.len() > usize(0), {
+            html.push_str("\n<div class=\"sidebar-section\">\n  <h3>Constants</h3>");
+            (ci : usize) = usize(0);
+            while(ci < m.constants.len(), {
+              c := match(
+                m.constants.get(ci),
+                .Some(x) => x,
+                .None => {
+                  break;
+                }
+              );
+              html.push_string(`\n  <a href="#const-${_escape_html(c.name)}">${_escape_html(c.name)}</a>`);
+              ci = (ci + usize(1));
+            });
+            html.push_str("\n</div>");
+          });
+        },
+        .None => ()
+      );
+    },
+    .None => ()
+  );
+  html.push_str("\n</nav>");
+  html
+});
+// ── Doc / banner / sections ──────────────────────────────────────────
+_render_doc :: (fn(doc : Option(String)) -> String)(
+  match(
+    doc,
+    .Some(d) => `<div class="doc-content">${_render_markdown(d)}</div>`,
+    .None => String.new()
+  )
+);
+_render_deprecated_banner :: (fn(deprecated : Option(String)) -> String)(
+  match(
+    deprecated,
+    .Some(dep) => {
+      detail := _render_markdown(dep);
+      if(detail.len() > usize(0), `<div class="deprecated-banner">⚠️ <strong>Deprecated</strong>: ${detail}</div>`, String.from("<div class=\"deprecated-banner\">⚠️ <strong>Deprecated</strong></div>"))
+    },
+    .None => String.new()
+  )
+);
+_render_sections :: (
+  fn(returns : Option(String), errors : Option(String), examples : Option(String)) -> String
+)({
+  html := String.new();
+  match(
+    returns,
+    .Some(r) => {
+      html.push_string(`\n<div class="doc-section"><h5>Returns</h5><div class="doc-section-content">${_render_markdown(r)}</div></div>`);
+    },
+    .None => ()
+  );
+  match(
+    errors,
+    .Some(e) => {
+      html.push_string(`\n<div class="doc-section"><h5>Errors</h5><div class="doc-section-content">${_render_markdown(e)}</div></div>`);
+    },
+    .None => ()
+  );
+  match(
+    examples,
+    .Some(x) => {
+      html.push_string(`\n<div class="doc-section"><h5>Examples</h5><div class="doc-section-content">${_render_markdown(x)}</div></div>`);
+    },
+    .None => ()
+  );
+  html
+});
+// ── Tables ───────────────────────────────────────────────────────────
+_render_params_table :: (
+  fn(params : ArrayList(DocParam), label : String, links : HashMap(String, String), current_mod_file : Option(String), use_links : bool) -> String
+)({
+  if(params.len() == usize(0), {
+    return(String.new());
+  });
+  (has_doc : bool) = false;
+  (i : usize) = usize(0);
+  while(i < params.len(), {
+    p := match(
+      params.get(i),
+      .Some(x) => x,
+      .None => {
+        break;
+      }
+    );
+    match(
+      p.doc,
+      .Some(_) => {
+        has_doc = true;
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  doc_header := if(has_doc, String.from("<th>Description</th>"), String.new());
+  html := `<h4>${_escape_html(label)}</h4>\n<table class="params-table">\n<thead><tr><th>Name</th><th>Type</th><th>Notes</th>${doc_header}</tr></thead>\n<tbody>`;
+  i = usize(0);
+  while(i < params.len(), {
+    p := match(
+      params.get(i),
+      .Some(x) => x,
+      .None => {
+        break;
+      }
+    );
+    notes := ArrayList(String).new();
+    if(p.is_comptime, {
+      notes.push(String.from("comptime"));
+    });
+    match(
+      p.default_value,
+      .Some(dv) => {
+        notes.push(`default: ${_escape_html(dv)}`);
+      },
+      .None => ()
+    );
+    doc_cell := if(has_doc, match(p.doc, .Some(d) => `<td>${_render_markdown(d)}</td>`, .None => String.from("<td></td>")), String.new());
+    type_html := _type_html(p.type_.clone(), links, current_mod_file.clone(), use_links);
+    notes_joined := String.from(", ").join(notes);
+    html.push_string(`\n<tr><td><code>${_escape_html(p.name)}</code></td><td class="type-col">${type_html}</td><td>${notes_joined}</td>${doc_cell}</tr>`);
+    i = (i + usize(1));
+  });
+  html.push_str("\n</tbody></table>");
+  html
+});
+_render_fields_table :: (
+  fn(fields : ArrayList(DocField), links : HashMap(String, String), current_mod_file : Option(String), use_links : bool) -> String
+)({
+  if(fields.len() == usize(0), {
+    return(String.new());
+  });
+  html := String.from("<h4>Fields</h4>\n<table class=\"fields-table\">\n<thead><tr><th>Name</th><th>Type</th><th>Description</th></tr></thead>\n<tbody>");
+  (i : usize) = usize(0);
+  while(i < fields.len(), {
+    f := match(
+      fields.get(i),
+      .Some(x) => x,
+      .None => {
+        break;
+      }
+    );
+    doc_text := match(f.doc, .Some(d) => _render_markdown(d), .None => String.new());
+    type_html := _type_html(f.type_.clone(), links, current_mod_file.clone(), use_links);
+    html.push_string(`\n<tr><td><code>${_escape_html(f.name)}</code></td><td class="type-col">${type_html}</td><td>${doc_text}</td></tr>`);
+    i = (i + usize(1));
+  });
+  html.push_str("\n</tbody></table>");
+  html
+});
+_render_variants_table :: (
+  fn(variants : ArrayList(DocVariant), links : HashMap(String, String), current_mod_file : Option(String), use_links : bool) -> String
+)({
+  if(variants.len() == usize(0), {
+    return(String.new());
+  });
+  html := String.from("<h4>Variants</h4>\n<table class=\"variants-table\">\n<thead><tr><th>Variant</th><th>Fields</th><th>Description</th></tr></thead>\n<tbody>");
+  (i : usize) = usize(0);
+  while(i < variants.len(), {
+    v := match(
+      variants.get(i),
+      .Some(x) => x,
+      .None => {
+        break;
+      }
+    );
+    fields_str := match(
+      v.fields,
+      .Some(fls) => {
+        parts := ArrayList(String).new();
+        (j : usize) = usize(0);
+        while(j < fls.len(), {
+          f := match(
+            fls.get(j),
+            .Some(x) => x,
+            .None => {
+              break;
+            }
+          );
+          type_html := _type_html(f.type_.clone(), links, current_mod_file.clone(), use_links);
+          parts.push(`${_escape_html(f.name)}: ${type_html}`);
+          j = (j + usize(1));
+        });
+        String.from(", ").join(parts)
+      },
+      .None => String.new()
+    );
+    doc_text := match(v.doc, .Some(d) => _render_markdown(d), .None => String.new());
+    html.push_string(`\n<tr><td><code>${_escape_html(v.name)}</code></td><td class="type-col">${fields_str}</td><td>${doc_text}</td></tr>`);
+    i = (i + usize(1));
+  });
+  html.push_str("\n</tbody></table>");
+  html
+});
+_render_associated_types :: (
+  fn(types_opt : Option(ArrayList(DocAssociatedType)), links : HashMap(String, String), current_mod_file : Option(String), use_links : bool) -> String
+)({
+  types := match(
+    types_opt,
+    .Some(t) => t,
+    .None => {
+      return(String.new());
+    }
+  );
+  if(types.len() == usize(0), {
+    return(String.new());
+  });
+  html := String.from("<h4>Associated Types</h4>\n<table class=\"fields-table\">\n<thead><tr><th>Name</th><th>Constraint</th><th>Description</th></tr></thead>\n<tbody>");
+  (i : usize) = usize(0);
+  while(i < types.len(), {
+    t := match(
+      types.get(i),
+      .Some(x) => x,
+      .None => {
+        break;
+      }
+    );
+    doc_text := match(t.doc, .Some(d) => _render_markdown(d), .None => String.new());
+    constraint_html := match(
+      t.constraint,
+      .Some(c) => _type_html(c, links, current_mod_file.clone(), use_links),
+      .None => String.new()
+    );
+    html.push_string(`\n<tr><td><code>${_escape_html(t.name)}</code></td><td class="type-col">${constraint_html}</td><td>${doc_text}</td></tr>`);
+    i = (i + usize(1));
+  });
+  html.push_str("\n</tbody></table>");
+  html
+});
+// ── Methods / impls ──────────────────────────────────────────────────
+_render_method_items :: (
+  fn(methods : ArrayList(DocFunction), parent_name : String, links : HashMap(String, String), current_mod_file : Option(String), use_links : bool) -> String
+)({
+  html := String.new();
+  (i : usize) = usize(0);
+  while(i < methods.len(), {
+    m := match(
+      methods.get(i),
+      .Some(x) => x,
+      .None => {
+        break;
+      }
+    );
+    html.push_string(`\n<div class="method-item" id="method-${_escape_html(parent_name)}-${_escape_html(m.name)}">\n<div class="method-header"><code>${_escape_html(m.name)}</code> : <code>${_escape_html(m.signature)}</code></div>\n<div class="method-body">`);
+    html.push_string(_render_deprecated_banner(m.deprecated));
+    html.push_string(_render_doc(m.doc));
+    if(m.parameters.len() > usize(0), {
+      html.push_string(_render_params_table(m.parameters, String.from("Parameters"), links, current_mod_file.clone(), use_links));
+    });
+    ret_html := _type_html(m.return_type.clone(), links, current_mod_file.clone(), use_links);
+    html.push_string(`\n<p>Returns: <code>${ret_html}</code></p>`);
+    html.push_string(_render_sections(m.returns.clone(), m.errors.clone(), m.examples.clone()));
+    html.push_str("\n</div></div>");
+    i = (i + usize(1));
+  });
+  html
+});
+_render_methods :: (
+  fn(methods : ArrayList(DocFunction), parent_name : String, links : HashMap(String, String), current_mod_file : Option(String), use_links : bool) -> String
+)({
+  if(methods.len() == usize(0), {
+    return(String.new());
+  });
+  html := String.from("<h4>Methods</h4>");
+  html.push_string(_render_method_items(methods, parent_name, links, current_mod_file, use_links));
+  html
+});
+_render_trait_impls :: (
+  fn(impls : ArrayList(String), links : HashMap(String, String), current_mod_file : Option(String), use_links : bool) -> String
+)({
+  if(impls.len() == usize(0), {
+    return(String.new());
+  });
+  html := String.from("<h4>Trait Implementations</h4>\n<div class=\"trait-impl-list\">");
+  (i : usize) = usize(0);
+  while(i < impls.len(), {
+    name := match(
+      impls.get(i),
+      .Some(x) => x,
+      .None => {
+        break;
+      }
+    );
+    (href_opt : Option(String)) = if(use_links, links.get(name.clone()), Option(String).None);
+    match(
+      href_opt,
+      .Some(href) => {
+        resolved := match(
+          current_mod_file,
+          .Some(cmf) => if(href.starts_with(`${cmf}.html#`), {
+            hb := href.as_bytes();
+            (hp : usize) = usize(0);
+            while(hp < hb.len(), {
+              if(match(hb.get(hp), .Some(x) => x, .None => u8(0)) == u8(35), {
+                break;
+              });
+              hp = (hp + usize(1));
+            });
+            ab := ArrayList(u8).new();
+            while(hp < hb.len(), {
+              _ := ab.push(match(hb.get(hp), .Some(x) => x, .None => u8(0)));
+              hp = (hp + usize(1));
+            });
+            String.from_bytes(ab)
+          }, href.clone()),
+          .None => href.clone()
+        );
+        html.push_string(`\n<a class="trait-impl-badge" href="${resolved}">${_escape_html(name)}</a>`);
+      },
+      .None => {
+        html.push_string(`\n<span class="trait-impl-badge">${_escape_html(name)}</span>`);
+      }
+    );
+    i = (i + usize(1));
+  });
+  html.push_str("\n</div>");
+  html
+});
+_render_impl_blocks :: (
+  fn(impls_opt : Option(ArrayList(DocImpl)), all_methods : ArrayList(DocFunction), parent_name : String, links : HashMap(String, String), current_mod_file : Option(String), use_links : bool) -> String
+)({
+  has_impls := match(impls_opt, .Some(im) => (im.len() > usize(0)), .None => false);
+  if(!(has_impls) && (all_methods.len() == usize(0)), {
+    return(String.new());
+  });
+  methods_by_name := HashMap(String, DocFunction).new();
+  (i : usize) = usize(0);
+  while(i < all_methods.len(), {
+    m := match(
+      all_methods.get(i),
+      .Some(x) => x,
+      .None => {
+        break;
+      }
+    );
+    methods_by_name.set(m.name.clone(), m);
+    i = (i + usize(1));
+  });
+  claimed := HashMap(String, bool).new();
+  html := String.new();
+  match(
+    impls_opt,
+    .Some(impls) => {
+      (ii : usize) = usize(0);
+      while(ii < impls.len(), {
+        impl_ := match(
+          impls.get(ii),
+          .Some(x) => x,
+          .None => {
+            break;
+          }
+        );
+        html.push_str("\n<details class=\"impl-block\" open>");
+        html.push_string(`\n<summary class="impl-header"><code>${_escape_html(impl_.signature)}</code></summary>`);
+        match(
+          impl_.associated_types,
+          .Some(ats) => {
+            (ai : usize) = usize(0);
+            while(ai < ats.len(), {
+              at := match(
+                ats.get(ai),
+                .Some(x) => x,
+                .None => {
+                  break;
+                }
+              );
+              type_html := _type_html(at.type_.clone(), links, current_mod_file.clone(), use_links);
+              html.push_string(`\n<div class="method-item">\n<div class="method-header"><code>${_escape_html(at.name)}</code> : <code>${type_html}</code></div>`);
+              match(
+                at.doc,
+                .Some(d) => {
+                  html.push_string(`\n<div class="method-body">${_render_markdown(d)}</div>`);
+                },
+                .None => ()
+              );
+              html.push_str("\n</div>");
+              ai = (ai + usize(1));
+            });
+          },
+          .None => ()
+        );
+        impl_methods := ArrayList(DocFunction).new();
+        (ni : usize) = usize(0);
+        while(ni < impl_.method_names.len(), {
+          nm := match(
+            impl_.method_names.get(ni),
+            .Some(x) => x,
+            .None => {
+              break;
+            }
+          );
+          match(
+            methods_by_name.get(nm.clone()),
+            .Some(mm) => {
+              impl_methods.push(mm);
+            },
+            .None => ()
+          );
+          claimed.set(nm, true);
+          ni = (ni + usize(1));
+        });
+        if(impl_methods.len() > usize(0), {
+          html.push_string(_render_method_items(impl_methods, parent_name.clone(), links, current_mod_file.clone(), use_links));
+        });
+        unresolved := ArrayList(String).new();
+        ni = usize(0);
+        while(ni < impl_.method_names.len(), {
+          nm := match(
+            impl_.method_names.get(ni),
+            .Some(x) => x,
+            .None => {
+              break;
+            }
+          );
+          if(!(methods_by_name.contains_key(nm.clone())), {
+            unresolved.push(`<code>${_escape_html(nm)}</code>`);
+          });
+          ni = (ni + usize(1));
+        });
+        if(unresolved.len() > usize(0), {
+          joined := String.from(", ").join(unresolved);
+          html.push_string(`\n<div class="method-body"><p>Methods: ${joined}</p></div>`);
+        });
+        html.push_str("\n</details>");
+        ii = (ii + usize(1));
+      });
+    },
+    .None => ()
+  );
+  unclaimed := ArrayList(DocFunction).new();
+  i = usize(0);
+  while(i < all_methods.len(), {
+    m := match(
+      all_methods.get(i),
+      .Some(x) => x,
+      .None => {
+        break;
+      }
+    );
+    if(!(claimed.contains_key(m.name.clone())), {
+      unclaimed.push(m);
+    });
+    i = (i + usize(1));
+  });
+  if(unclaimed.len() > usize(0), {
+    html.push_str("\n<details class=\"impl-block\" open>");
+    html.push_str("\n<summary class=\"impl-header\">Methods</summary>");
+    html.push_string(_render_method_items(unclaimed, parent_name, links, current_mod_file, use_links));
+    html.push_str("\n</details>");
+  });
+  html
+});
+// ── Item cards ───────────────────────────────────────────────────────
+_render_function :: (
+  fn(f : DocFunction, links : HashMap(String, String), current_mod_file : Option(String), use_links : bool) -> String
+)({
+  dep_cls := match(f.deprecated, .Some(_) => String.from(" deprecated"), .None => String.new());
+  html := `<div class="item-card${dep_cls}" id="fn-${_escape_html(f.name)}">\n<div class="item-header">\n  <a class="item-name" href="#fn-${_escape_html(f.name)}">${_escape_html(f.name)}</a>\n  <span class="item-kind">function</span>\n</div>\n<div class="item-body">\n<div class="decl-signature">${_escape_html(f.signature)}</div>`;
+  html.push_string(_render_deprecated_banner(f.deprecated));
+  html.push_string(_render_doc(f.doc));
+  match(
+    f.type_params,
+    .Some(tps) => if(tps.len() > usize(0), {
+      html.push_string(_render_params_table(tps, String.from("Type Parameters"), links, current_mod_file.clone(), use_links));
+    }),
+    .None => ()
+  );
+  if(f.parameters.len() > usize(0), {
+    html.push_string(_render_params_table(f.parameters, String.from("Parameters"), links, current_mod_file.clone(), use_links));
+  });
+  match(
+    f.effects,
+    .Some(effs) => if(effs.len() > usize(0), {
+      html.push_string(_render_params_table(effs, String.from("Effects"), links, current_mod_file.clone(), use_links));
+    }),
+    .None => ()
+  );
+  ret_html := _type_html(f.return_type.clone(), links, current_mod_file.clone(), use_links);
+  html.push_string(`\n<p>Returns: <code>${ret_html}</code></p>`);
+  html.push_string(_render_sections(f.returns.clone(), f.errors.clone(), f.examples.clone()));
+  html.push_str("\n</div></div>");
+  html
+});
+_render_type :: (
+  fn(t : DocType, links : HashMap(String, String), current_mod_file : Option(String), use_links : bool) -> String
+)({
+  dep_cls := match(t.deprecated, .Some(_) => String.from(" deprecated"), .None => String.new());
+  kind_str := doc_item_kind_to_string(t.kind);
+  html := `<div class="item-card${dep_cls}" id="type-${_escape_html(t.name)}">\n<div class="item-header">\n  <a class="item-name" href="#type-${_escape_html(t.name)}">${_escape_html(t.name)}</a>\n  <span class="item-kind">${_escape_html(kind_str)}</span>\n</div>\n<div class="item-body">\n<div class="decl-signature">${_escape_html(t.signature)}</div>`;
+  html.push_string(_render_deprecated_banner(t.deprecated));
+  html.push_string(_render_doc(t.doc));
+  match(
+    t.type_params,
+    .Some(tps) => if(tps.len() > usize(0), {
+      html.push_string(_render_params_table(tps, String.from("Type Parameters"), links, current_mod_file.clone(), use_links));
+    }),
+    .None => ()
+  );
+  match(
+    t.fields,
+    .Some(fls) => if(fls.len() > usize(0), {
+      html.push_string(_render_fields_table(fls, links, current_mod_file.clone(), use_links));
+    }),
+    .None => ()
+  );
+  match(
+    t.variants,
+    .Some(vs) => if(vs.len() > usize(0), {
+      html.push_string(_render_variants_table(vs, links, current_mod_file.clone(), use_links));
+    }),
+    .None => ()
+  );
+  html.push_string(_render_trait_impls(t.trait_impls, links, current_mod_file.clone(), use_links));
+  html.push_string(_render_impl_blocks(t.impls, t.methods, t.name.clone(), links, current_mod_file.clone(), use_links));
+  match(
+    t.examples,
+    .Some(x) => {
+      html.push_string(`\n<div class="doc-section"><h5>Examples</h5><div class="doc-section-content">${_render_markdown(x)}</div></div>`);
+    },
+    .None => ()
+  );
+  html.push_str("\n</div></div>");
+  html
+});
+_render_trait :: (
+  fn(tr : DocTrait, links : HashMap(String, String), current_mod_file : Option(String), use_links : bool) -> String
+)({
+  dep_cls := match(tr.deprecated, .Some(_) => String.from(" deprecated"), .None => String.new());
+  kind_str := doc_trait_kind_to_string(tr.kind);
+  html := `<div class="item-card${dep_cls}" id="trait-${_escape_html(tr.name)}">\n<div class="item-header">\n  <a class="item-name" href="#trait-${_escape_html(tr.name)}">${_escape_html(tr.name)}</a>\n  <span class="item-kind">${kind_str}</span>\n</div>\n<div class="item-body">\n<div class="decl-signature">${_escape_html(tr.signature)}</div>`;
+  html.push_string(_render_deprecated_banner(tr.deprecated));
+  html.push_string(_render_doc(tr.doc));
+  match(
+    tr.type_params,
+    .Some(tps) => if(tps.len() > usize(0), {
+      html.push_string(_render_params_table(tps, String.from("Type Parameters"), links, current_mod_file.clone(), use_links));
+    }),
+    .None => ()
+  );
+  html.push_string(_render_associated_types(tr.associated_types, links, current_mod_file.clone(), use_links));
+  html.push_string(_render_methods(tr.methods, tr.name.clone(), links, current_mod_file.clone(), use_links));
+  match(
+    tr.examples,
+    .Some(x) => {
+      html.push_string(`\n<div class="doc-section"><h5>Examples</h5><div class="doc-section-content">${_render_markdown(x)}</div></div>`);
+    },
+    .None => ()
+  );
+  if(tr.implementors.len() > usize(0), {
+    html.push_str("\n<h4>Implementors</h4>\n<div class=\"trait-impl-list\">");
+    (i : usize) = usize(0);
+    while(i < tr.implementors.len(), {
+      name := match(
+        tr.implementors.get(i),
+        .Some(x) => x,
+        .None => {
+          break;
+        }
+      );
+      (href_opt : Option(String)) = if(use_links, links.get(name.clone()), Option(String).None);
+      match(
+        href_opt,
+        .Some(href) => {
+          resolved := match(
+            current_mod_file,
+            .Some(cmf) => if(href.starts_with(`${cmf}.html#`), {
+              hb := href.as_bytes();
+              (hp : usize) = usize(0);
+              while(hp < hb.len(), {
+                if(match(hb.get(hp), .Some(x) => x, .None => u8(0)) == u8(35), {
+                  break;
+                });
+                hp = (hp + usize(1));
+              });
+              ab := ArrayList(u8).new();
+              while(hp < hb.len(), {
+                _ := ab.push(match(hb.get(hp), .Some(x) => x, .None => u8(0)));
+                hp = (hp + usize(1));
+              });
+              String.from_bytes(ab)
+            }, href.clone()),
+            .None => href.clone()
+          );
+          html.push_string(`\n<a class="trait-impl-badge" href="${resolved}">${_escape_html(name)}</a>`);
+        },
+        .None => {
+          html.push_string(`\n<span class="trait-impl-badge">${_escape_html(name)}</span>`);
+        }
+      );
+      i = (i + usize(1));
+    });
+    html.push_str("\n</div>");
+  });
+  html.push_str("\n</div></div>");
+  html
+});
+_render_constant :: (
+  fn(c : DocConstant, links : HashMap(String, String), current_mod_file : Option(String), use_links : bool) -> String
+)({
+  type_html := _type_html(c.type_.clone(), links, current_mod_file.clone(), use_links);
+  dep_cls := match(c.deprecated, .Some(_) => String.from(" deprecated"), .None => String.new());
+  html := `<div class="item-card${dep_cls}" id="const-${_escape_html(c.name)}">\n<div class="item-header">\n  <a class="item-name" href="#const-${_escape_html(c.name)}">${_escape_html(c.name)}</a>\n  <span class="item-kind">constant</span>\n  <span class="item-sig">${type_html}</span>\n</div>\n<div class="item-body">`;
+  html.push_string(_render_deprecated_banner(c.deprecated));
+  html.push_string(_render_doc(c.doc));
+  match(
+    c.value,
+    .Some(v) => {
+      html.push_string(`\n<p>Value: <code>${_escape_html(v)}</code></p>`);
+    },
+    .None => ()
+  );
+  html.push_str("\n</div></div>");
+  html
+});
+// ── Index page ───────────────────────────────────────────────────────
+_render_module_card :: (fn(m : DocModule) -> String)({
+  desc := match(m.doc, .Some(d) => _first_sentence(d), .None => String.from("No description"));
+  stats := ArrayList(String).new();
+  if(m.functions.len() > usize(0), {
+    stats.push(`${m.functions.len()} fn`);
+  });
+  if(m.types.len() > usize(0), {
+    stats.push(`${m.types.len()} type`);
+  });
+  (n_traits : usize) = usize(0);
+  (n_mods : usize) = usize(0);
+  (i : usize) = usize(0);
+  while(i < m.traits.len(), {
+    tr := match(
+      m.traits.get(i),
+      .Some(x) => x,
+      .None => {
+        break;
+      }
+    );
+    if(doc_trait_kind_to_string(tr.kind) == "trait", {
+      n_traits = (n_traits + usize(1));
+    }, {
+      n_mods = (n_mods + usize(1));
+    });
+    i = (i + usize(1));
+  });
+  if(n_traits > usize(0), {
+    stats.push(`${n_traits} trait`);
+  });
+  if(n_mods > usize(0), {
+    stats.push(`${n_mods} module`);
+  });
+  if(m.constants.len() > usize(0), {
+    stats.push(`${m.constants.len()} const`);
+  });
+  stats_joined := String.from(" · ").join(stats);
+  `\n<div class="module-card">\n  <h3><a href="module/${_escape_html(_module_to_filename(m.name))}.html">${_escape_html(m.name)}</a></h3>\n  <div class="module-desc">${_render_markdown(desc)}</div>\n  <div class="module-stats">${stats_joined}</div>\n</div>`
+});
+_render_index_content :: (fn(model : DocModel) -> String)({
+  version_badge := match(
+    model.version,
+    .Some(v) => ` <span class="version-badge">${_escape_html(v)}</span>`,
+    .None => String.new()
+  );
+  html := `<h1>${_escape_html(model.name)} — API Documentation${version_badge}</h1>`;
+  if(model.modules.len() == usize(0), {
+    html.push_str("<p>No documented modules found.</p>");
+    return(html);
+  });
+  html.push_str("<h2>Project Modules</h2>");
+  group_keys := ArrayList(String).new();
+  groups := HashMap(String, ArrayList(DocModule)).new();
+  top_level := ArrayList(DocModule).new();
+  (mi : usize) = usize(0);
+  while(mi < model.modules.len(), {
+    m := match(
+      model.modules.get(mi),
+      .Some(x) => x,
+      .None => {
+        break;
+      }
+    );
+    g := _module_group(m.name);
+    if(g.len() == usize(0), {
+      top_level.push(m);
+    }, {
+      match(
+        groups.get(g.clone()),
+        .Some(lst) => {
+          lst.push(m);
+        },
+        .None => {
+          lst := ArrayList(DocModule).new();
+          lst.push(m);
+          groups.set(g.clone(), lst);
+          group_keys.push(g);
+        }
+      );
+    });
+    mi = (mi + usize(1));
+  });
+  if(top_level.len() > usize(0), {
+    html.push_str("\n<div class=\"module-grid\">");
+    (i : usize) = usize(0);
+    while(i < top_level.len(), {
+      m := match(
+        top_level.get(i),
+        .Some(x) => x,
+        .None => {
+          break;
+        }
+      );
+      html.push_string(_render_module_card(m));
+      i = (i + usize(1));
+    });
+    html.push_str("\n</div>");
+  });
+  sorted_groups := group_keys.clone();
+  sorted_groups.sort();
+  (gi : usize) = usize(0);
+  while(gi < sorted_groups.len(), {
+    g := match(
+      sorted_groups.get(gi),
+      .Some(x) => x,
+      .None => {
+        break;
+      }
+    );
+    mods := match(groups.get(g.clone()), .Some(x) => x, .None => ArrayList(DocModule).new());
+    html.push_string(`\n<h3 class="module-group-header">${_escape_html(g)}/</h3>`);
+    html.push_str("\n<div class=\"module-grid\">");
+    (mj : usize) = usize(0);
+    while(mj < mods.len(), {
+      m := match(
+        mods.get(mj),
+        .Some(x) => x,
+        .None => {
+          break;
+        }
+      );
+      html.push_string(_render_module_card(m));
+      mj = (mj + usize(1));
+    });
+    html.push_str("\n</div>");
+    gi = (gi + usize(1));
+  });
+  html
+});
+// ── Module page ──────────────────────────────────────────────────────
+_render_module_content :: (
+  fn(m : DocModule, links : HashMap(String, String)) -> String
+)({
+  current_mod_file := Option(String).Some(_module_to_filename(m.name));
+  html := `<div class="breadcrumb"><a href="../index.html">Home</a> &rsaquo; ${_escape_html(m.name)}</div>`;
+  html.push_string(`<h1>Module <code>${_escape_html(m.name)}</code></h1>`);
+  html.push_string(`<div class="module-path">${_escape_html(m.path)}</div>`);
+  html.push_string(_render_doc(m.doc));
+  if(m.types.len() > usize(0), {
+    html.push_str("<h2>Types</h2>\n<div class=\"item-list\">");
+    (i : usize) = usize(0);
+    while(i < m.types.len(), {
+      t := match(
+        m.types.get(i),
+        .Some(x) => x,
+        .None => {
+          break;
+        }
+      );
+      html.push_string(_render_type(t, links, current_mod_file.clone(), true));
+      i = (i + usize(1));
+    });
+    html.push_str("\n</div>");
+  });
+  if(m.traits.len() > usize(0), {
+    html.push_str("<h2>Traits / Modules</h2>\n<div class=\"item-list\">");
+    (i : usize) = usize(0);
+    while(i < m.traits.len(), {
+      tr := match(
+        m.traits.get(i),
+        .Some(x) => x,
+        .None => {
+          break;
+        }
+      );
+      html.push_string(_render_trait(tr, links, current_mod_file.clone(), true));
+      i = (i + usize(1));
+    });
+    html.push_str("\n</div>");
+  });
+  if(m.functions.len() > usize(0), {
+    html.push_str("<h2>Functions</h2>\n<div class=\"item-list\">");
+    (i : usize) = usize(0);
+    while(i < m.functions.len(), {
+      f := match(
+        m.functions.get(i),
+        .Some(x) => x,
+        .None => {
+          break;
+        }
+      );
+      html.push_string(_render_function(f, links, current_mod_file.clone(), true));
+      i = (i + usize(1));
+    });
+    html.push_str("\n</div>");
+  });
+  if(m.constants.len() > usize(0), {
+    html.push_str("<h2>Constants</h2>\n<div class=\"item-list\">");
+    (i : usize) = usize(0);
+    while(i < m.constants.len(), {
+      c := match(
+        m.constants.get(i),
+        .Some(x) => x,
+        .None => {
+          break;
+        }
+      );
+      html.push_string(_render_constant(c, links, current_mod_file.clone(), true));
+      i = (i + usize(1));
+    });
+    html.push_str("\n</div>");
+  });
+  html
+});
+// ── String replace helpers (std String has no replace) ──────────────
+_find_bytes_from :: (fn(hay : ArrayList(u8), needle : ArrayList(u8), start : usize) -> Option(usize))({
+  hn := hay.len();
+  nn := needle.len();
+  if(nn == usize(0), {
+    return(Option(usize).None);
+  });
+  if(hn < nn, {
+    return(Option(usize).None);
+  });
+  (i : usize) = start;
+  while((i + nn) <= hn, {
+    (j : usize) = usize(0);
+    (ok : bool) = true;
+    while((j < nn) && ok, {
+      hb := match(hay.get(i + j), .Some(x) => x, .None => u8(0));
+      nb := match(needle.get(j), .Some(x) => x, .None => u8(0));
+      if(hb != nb, {
+        ok = false;
+      });
+      j = (j + usize(1));
+    });
+    if(ok, {
+      return(Option(usize).Some(i));
+    });
+    i = (i + usize(1));
+  });
+  Option(usize).None
+});
+_replace_occurrences :: (fn(text : String, from : String, to : String, first_only : bool) -> String)({
+  hay := text.as_bytes();
+  needle := from.as_bytes();
+  out := ArrayList(u8).new();
+  (pos : usize) = usize(0);
+  (done : bool) = false;
+  while(!(done), {
+    match(
+      _find_bytes_from(hay, needle, pos),
+      .Some(idx) => {
+        (k : usize) = pos;
+        while(k < idx, {
+          _ := out.push(match(hay.get(k), .Some(x) => x, .None => u8(0)));
+          k = (k + usize(1));
+        });
+        tb := to.as_bytes();
+        (tk : usize) = usize(0);
+        while(tk < tb.len(), {
+          _ := out.push(match(tb.get(tk), .Some(x) => x, .None => u8(0)));
+          tk = (tk + usize(1));
+        });
+        pos = (idx + needle.len());
+        if(first_only, {
+          done = true;
+        });
+      },
+      .None => {
+        done = true;
+      }
+    );
+  });
+  (k2 : usize) = pos;
+  while(k2 < hay.len(), {
+    _ := out.push(match(hay.get(k2), .Some(x) => x, .None => u8(0)));
+    k2 = (k2 + usize(1));
+  });
+  String.from_bytes(out)
+});
+// ── Href rewriting for module pages ──────────────────────────────────
+/// Sidebar: href="module/ -> href=", index.html -> ../index.html (first only).
+_fix_sidebar_for_module_page :: (fn(sidebar : String) -> String)({
+  s := _replace_occurrences(sidebar, String.from("href=\"module/"), String.from("href=\""), false);
+  _replace_occurrences(s, String.from("href=\"index.html\""), String.from("href=\"../index.html\""), true)
+});
+/// Search index hrefs: strip "module/" prefix, else "../" prefix.
+_fix_search_index_for_module_page :: (fn(entries : ArrayList(SearchEntry)) -> ArrayList(SearchEntry))({
+  out := ArrayList(SearchEntry).new();
+  (i : usize) = usize(0);
+  while(i < entries.len(), {
+    e := match(
+      entries.get(i),
+      .Some(x) => x,
+      .None => {
+        break;
+      }
+    );
+    new_href := if(e.href.starts_with("module/"), e.href.substring(usize(7), e.href.len()), `../${e.href}`);
+    out.push(SearchEntry(name : e.name.clone(), kind : e.kind.clone(), href : new_href, doc : e.doc.clone(), module_name : e.module_name.clone()));
+    i = (i + usize(1));
+  });
+  out
+});
+// ── Main entry point ─────────────────────────────────────────────────
+/// Render a DocModel to a static HTML site (index.html + module/<name>.html).
+/// Mirrors `renderDocSite` (render-html.ts:1813).
+render_doc_site :: (
+  fn(model : DocModel, output_dir : String, io : Io, ioexn : IoExn) -> unit
+)({
+  css_text := generate_css();
+  js_text := generate_search_js();
+  search_idx := _build_search_index(model);
+  symbol_links := _build_symbol_links(model);
+  io.await(create_dir_all(Path.new(output_dir.clone()), io), ioexn);
+  module_dir := `${output_dir}/module`;
+  io.await(create_dir_all(Path.new(module_dir.clone()), io), ioexn);
+  index_content := _render_index_content(model);
+  index_sidebar := _render_sidebar(model, Option(String).None);
+  index_page := _wrap_page(`${model.name} — Documentation`, index_content, index_sidebar, _search_index_json(search_idx), css_text, js_text);
+  io.await(write_file(Path.new(`${output_dir}/index.html`), index_page, io), ioexn);
+  (mi : usize) = usize(0);
+  while(mi < model.modules.len(), {
+    m := match(
+      model.modules.get(mi),
+      .Some(x) => x,
+      .None => {
+        break;
+      }
+    );
+    fname := _module_to_filename(m.name);
+    mod_sidebar := _fix_sidebar_for_module_page(_render_sidebar(model, Option(String).Some(m.name.clone())));
+    mod_content := _render_module_content(m, symbol_links);
+    mod_search := _fix_search_index_for_module_page(search_idx);
+    mod_page := _wrap_page(`${m.name} — ${model.name}`, mod_content, mod_sidebar, _search_index_json(mod_search), css_text, js_text);
+    io.await(write_file(Path.new(`${module_dir}/${fname}.html`), mod_page, io), ioexn);
+    mi = (mi + usize(1));
+  });
+});
+export(render_doc_site);
