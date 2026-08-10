@@ -3248,3 +3248,20 @@ test("comptime_assert validates argument type even in function body", {
   comptime_assert(Type.eq(i32, i32), "Type.eq works");
   comptime_assert(true, "literal true works");
 });
+test("i64.MIN renders as a valid signed C literal", {
+  // `-9223372036854775808LL` is NOT a valid signed C literal: the digits do
+  // not fit long long, so clang types it UNSIGNED long long
+  // (-Wimplicitly-unsigned-literal, hidden by -w) and a comparison it is
+  // inlined into silently goes unsigned. The compiler must render i64.MIN
+  // as `(-9223372036854775807LL - 1)`. A stage-2-built compiler with the
+  // bad rendering rejected EVERY comptime signed subtraction ("3 - 1 = 2
+  // exceeds isize range") — the PR #92 fixpoint divergence.
+  min_val :: i64.MIN;
+  v := i64(3);
+  assert(!(v < min_val), "3 < i64.MIN must be false");
+  assert(v > min_val, "3 > i64.MIN must be true");
+  assert(min_val.to_string() == "-9223372036854775808", "value intact");
+  sub_ok :: (isize(3) - isize(1));
+  s := sub_ok;
+  assert(s == isize(2), "comptime signed subtraction folds");
+});

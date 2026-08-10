@@ -207,8 +207,20 @@ generate_comptime_value :: (fn(value : EvalValue, ty : TypeValue, context : Code
   match(
     value,
     .IntLit(raw) => {
+      // `-9223372036854775808LL` is NOT a valid signed literal in C: the
+      // digits 9223372036854775808 don't fit long long, so clang types the
+      // literal `unsigned long long` (-Wimplicitly-unsigned-literal, hidden
+      // by -w) and any comparison it is inlined into silently goes UNSIGNED
+      // — `_i64_op_wrapped`'s `a < (i64.MIN + b)` then returned TRUE for
+      // `isize(3) - isize(1)`, making the self-hosted binary reject EVERY
+      // comptime signed subtraction. Emit the portable INT64_MIN idiom.
+      // Mirrors generateComptimeValue (comptime-value.ts).
+      suffix := _int_suffix(ty);
+      if((suffix == "LL") && (raw == "-9223372036854775808"), {
+        return(String.from("(-9223372036854775807LL - 1)"));
+      });
       out := raw.clone();
-      out.push_str(_int_suffix(ty));
+      out.push_str(suffix);
       out
     },
     .FloatLit(raw) => {

@@ -1,6 +1,22 @@
 # Fixpoint: TS-built and self-built binaries allocate enum-value ids in different order
 
-**Status: OPEN** (found 2026-08-10, the layer UNDER the bare-if clang errors —
+**Status: FIXED 2026-08-10** — root cause was the C rendering of `i64.MIN`:
+`-9223372036854775808LL` is not a valid signed literal (clang types it
+`unsigned long long`, warning hidden by `-w`), so a comparison it was
+inlined into went UNSIGNED. yo-self's emission of `_i64_op_wrapped`
+(`a < (i64.MIN + b)`) inlined the literal — the self-built binary then
+rejected EVERY comptime signed subtraction ("3 - 1 = 2 exceeds isize
+range"); TS's emission was only accidentally correct (it materializes the
+sum into an `int64_t` temp, converting back to signed). The swallowed
+def-eval failures shifted id allocation (~77 ids, first at
+doc/builder.yo's `_collect_doc_comment_before`, whose first statement is
+the `(isize(0) - isize(1))` idiom), renumbering every mangle. Both
+compilers now render `i64.MIN` as `(-9223372036854775807LL - 1)`
+(comptime-value.ts / comptime_value.yo). Regression test: "i64.MIN renders
+as a valid signed C literal" in tests/comptime.test.yo. FIXPOINT_HOLDS
+verified locally after the fix.
+
+Hunt record (found 2026-08-10, the layer UNDER the bare-if clang errors —
 this diff was unreachable until `issues/fixed/ts-bare-if-await-early-return-silently-skipped.md`
 took stage-2 from 17 clang errors to 0). It is what keeps
 `scripts/bootstrap/fixpoint_only.sh` at FIXPOINT_BROKEN and PR #92's

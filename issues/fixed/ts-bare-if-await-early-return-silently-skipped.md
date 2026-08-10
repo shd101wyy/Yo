@@ -72,6 +72,15 @@ broke the PR #92 bootstrap-fixpoint job (8 stage-2 clang errors, all
    `nestedClaimedDispatch` kind) keep their unconditional inside-guard
    placement. TS: extracted `processChainedBranch` in state-machine.ts;
    yo-self: `_emit_outer_chained_branch_layers` in state_machine.yo.
+7. **`expr_contains_await` follows the expansion table** (expr_traversal.yo —
+   the TS `$.macroExpansion` case its header admitted omitting). Fix (1)
+   made the analysis SEE if-body awaits, so an if-in-while body now builds a
+   real state machine instead of s28's accidental synchronous-await
+   fallback — but the while-body emitter's finder still walked raw args
+   (where an `aio.await` clone-expansion node is unregistered) and emitted
+   "Expected await in while loop body but none found": the loop body
+   vanished and the program spun forever (the hollow sweep's
+   async_await.test.yo RED, hung at bug #9's while-body-if test).
 
 ## Verification
 

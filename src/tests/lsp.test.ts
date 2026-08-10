@@ -1,4 +1,5 @@
 import { describe, it, expect, afterEach } from "bun:test";
+import * as os from "node:os";
 import * as path from "node:path";
 import { handleCompletion } from "../lsp/completion";
 import { handleDefinition } from "../lsp/definition";
@@ -346,7 +347,12 @@ export(main);
       const docManager = new LspDocumentManager(stdPath);
       activeDocManagers.push(docManager);
 
-      const modulePath = `file://${path.resolve(__dirname, "dirty_dot.yo")}`;
+      // A temp path OUTSIDE the repo: the buffer must behave as a standalone
+      // module. Inside the repo it now sits under the repo-root build.yo
+      // (P2.2), and ensureBuildImportsResolved's mid-analysis build.yo
+      // evaluation invalidates the last-good-module fallback this completion
+      // depends on — see issues/lsp-build-yo-eval-degrades-dirty-completion.md.
+      const modulePath = `file://${path.join(os.tmpdir(), "yo_lsp_dirty_dot.yo")}`;
       // Good source that evaluates successfully and uses Option
       const goodSource = `
 main :: (fn() -> i32)({
