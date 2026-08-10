@@ -482,17 +482,49 @@ _extract_target_var_id :: (
   fn(var_name_expr : AstExpr, context : FunctionGenerationContext) -> Option(String)
 )({
   if(ast_expr_is_atom(var_name_expr) && (ast_expr_token(var_name_expr).kind == TokenKind.Identifier), {
+    vn := ast_expr_token(var_name_expr).value;
     match(
       context.base.get_expr_info(var_name_expr),
       .Some(ei) => {
-        vn := ast_expr_token(var_name_expr).value;
-        vars := get_variables_from_env(ei.env, vn);
+        vars := get_variables_from_env(ei.env, vn.clone());
         if(vars.len() > usize(0), {
           return(
             match(
               vars.get(vars.len() - usize(1)),
               .Some(v) => Option(String).Some(v.id.to_string()),
               .None => Option(String).None
+            )
+          );
+        });
+      },
+      .None => ()
+    );
+    // Fallback: the := LHS atom's stored env can PREDATE its own binding
+    // (yo-self def-time envs are copies taken during evaluation; TS's shared
+    // env sees the definition), so the env lookup finds nothing where TS
+    // succeeds — the bound cond/match then lost its branch values. Every
+    // hoisted local lives in the state-machine variables map: scan it by
+    // name for a Local entry and use its ID (the map key).
+    match(
+      context.state_machine_variables,
+      .Some(vars_map) => {
+        key_iter := vars_map.keys();
+        (more : bool) = true;
+        while(more, {
+          match(
+            key_iter.next(),
+            .None => {
+              more = false;
+            },
+            .Some(k) => match(
+              vars_map.get(k.clone()),
+              .None => (),
+              .Some(cv) => {
+                is_local := match(cv.kind, .Local => true, .Outer => false);
+                if(is_local && (cv.base.name == vn), {
+                  return(Option(String).Some(k.clone()));
+                });
+              }
             )
           );
         });
