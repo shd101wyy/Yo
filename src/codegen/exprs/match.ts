@@ -19,6 +19,7 @@ import {
 } from "../../types/guards";
 import { TypeTag } from "../../types/tags";
 import { isTempVariableName } from "../../utils";
+import { storeTempVarToStateMachineIfNeeded } from "./other-fn-call";
 import { isBooleanValue, isNumberValue, type Value } from "../../value";
 import { type FunctionGenerationContext } from "../functions/context";
 import {
@@ -267,6 +268,15 @@ export function generateMatchExpression(
       );
       matchedValueCode = subjectVarName;
     }
+    // Inside a state machine, the scrutinee temp may be a hoisted variable
+    // whose deferred drop runs in a LATER state or in the escape dispose —
+    // both reference `sm->var_<temp>`, which stays calloc-zeroed unless the
+    // local is stored into it, turning every such drop into a silent no-op
+    // and leaking the scrutinee's payload (the awaitless-arm Task leak in
+    // tests/async_await.test.yo, caught by CI's LeakSanitizer). No-op when
+    // the temp is not tracked. The await-carrying match path has the same
+    // store in generateMatchWithAwait.
+    storeTempVarToStateMachineIfNeeded(matchedValueCode, indent, context);
   }
 
   // Check if this is a primitive type match (integer, bool)

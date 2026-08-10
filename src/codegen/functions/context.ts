@@ -105,6 +105,11 @@ export interface FunctionGenerationContext extends CodeGenContext {
       paramType: Type;
     }[];
   }>;
+  // State machine fields that hold match PATTERN BINDINGS. A binding borrows
+  // the scrutinee's ownership (its store does not dup), so the escape dispose
+  // must not drop it alongside the scrutinee — that would double-decr. Filled
+  // by generateMatchWithAwait's binding stores.
+  asyncPatternBindingFieldIds?: Set<string>;
   // Branch tracking for cond expressions with await
   asyncCondBranchInfo?: Map<
     number,

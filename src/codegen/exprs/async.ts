@@ -1202,6 +1202,16 @@ function generateAsyncBlockStateDisposeFunction(
       if (awaitFutureTempVarAliases.has(v.id)) continue;
       // Skip variables that are borrowing an RC value from another variable
       if (v.isOwningTheSameRcValueAs !== undefined) continue;
+      // Skip match pattern bindings — their stores BORROW the scrutinee's
+      // ownership (no dup), and the scrutinee's own slot drop (now real, see
+      // storeTempVarToStateMachineIfNeeded in generateMatchWithAwait) already
+      // releases the payload. Dropping the binding too would double-decr.
+      if (
+        (context as FunctionGenerationContext).asyncPatternBindingFieldIds?.has(
+          v.id
+        )
+      )
+        continue;
 
       const fieldName = getStateMachineFieldName(v.id, "local");
       const fieldRef = `sm->${fieldName}`;

@@ -28,6 +28,7 @@ import { isEnumType, isUnitType } from "../../types/guards";
 import { isTempVariableName } from "../../utils";
 import { isBooleanValue } from "../../value";
 import { emitAsyncFutureCompletion } from "../exprs/async-completion";
+import { storeTempVarToStateMachineIfNeeded } from "../exprs/other-fn-call";
 import { generateComptimeValue } from "../exprs/comptime-value";
 import { generateExpr } from "../exprs/expr";
 import type { FunctionGenerationContext } from "../functions/context";
@@ -1577,6 +1578,14 @@ function generateMatchWithAwait(
 
   // Generate the matched value
   const matchedValueCode = generateExpr(matchedValueExpr, indent, context);
+  // The scrutinee temp is a hoisted state machine variable whenever its
+  // deferred drop runs in a LATER state (post-await remaining code, escape
+  // dispose). Those drops reference `sm->var_<temp>` — which stayed
+  // calloc-zeroed because nothing ever stored the local temp into it, so
+  // every drop was a silent no-op and the scrutinee's payload LEAKED (the
+  // `Task` leak in tests/async_await.test.yo's awaitless-arm test; caught by
+  // CI's LeakSanitizer). No-op when the scrutinee is not a tracked temp.
+  storeTempVarToStateMachineIfNeeded(matchedValueCode, indent, context);
   const matchValueType = matchedValueExpr.$?.type;
 
   if (!matchValueType) {
@@ -1680,7 +1689,12 @@ function generateMatchWithAwait(
           const isStateMachineVar = varId !== undefined;
 
           if (isStateMachineVar && varId) {
-            // Store directly in state machine variable
+            // Store directly in state machine variable (a BORROW — see the
+            // enum destructuring site above).
+            if (!functionContext.asyncPatternBindingFieldIds) {
+              functionContext.asyncPatternBindingFieldIds = new Set();
+            }
+            functionContext.asyncPatternBindingFieldIds.add(varId);
             const fieldName = getStateMachineFieldName(
               varId,
               "local",
@@ -1975,7 +1989,13 @@ function generateMatchWithAwait(
                 const accessExpr = `${matchedValueCode}.data.${variantName}.${fieldLabel}`;
 
                 if (isStateMachineVar && varId) {
-                  // Store in state machine variable
+                  // Store in state machine variable. The binding BORROWS the
+                  // scrutinee's ownership (no dup) — record it so the escape
+                  // dispose does not double-drop it beside the scrutinee.
+                  if (!functionContext.asyncPatternBindingFieldIds) {
+                    functionContext.asyncPatternBindingFieldIds = new Set();
+                  }
+                  functionContext.asyncPatternBindingFieldIds.add(varId);
                   const fieldName = getStateMachineFieldName(
                     varId,
                     "local",
@@ -1999,6 +2019,10 @@ function generateMatchWithAwait(
 
       // Check if this case has await
       if (branchHasAwait(caseBody)) {
+        const functionContextPre = context as FunctionGenerationContext;
+        const branchCountBefore =
+          functionContextPre.asyncCondBranchInfo?.get(awaitPoint.index)
+            ?.branches.length ?? 0;
         const remainingExprs = generateCondBranchWithAwait(
           caseBody,
           awaitPoint,
@@ -2018,14 +2042,53 @@ function generateMatchWithAwait(
             branches: [],
           };
 
-          branchData.branches.push({
-            index: condBranchBase + i,
-            value: caseBody,
-            hasAwait: true,
-            remainingExprs,
-            deferredDropExpressions: caseBody.$?.deferredDropExpressions,
-            awaitTargetVariableId: findBranchAwaitTargetVariableId(caseBody),
-          });
+          // A NESTED match inside this arm claims the dispatch slot: its
+          // `sm->cond_branch_N = …` assignment overwrites this arm's, so a
+          // `case` keyed on THIS arm's code is unreachable at resume — its
+          // deferred drops never ran and the nested scrutinee leaked. When the
+          // nesting pushed branches during the recursion above and this arm
+          // has nothing left but trivial unit exprs (drops ride
+          // deferredDropExpressions), attach the arm as a chained layer
+          // instead: chained layers run AFTER the branch switch regardless of
+          // the dispatch value, which is safe here because RC drops are no-ops
+          // on the zeroed slots of arms that never ran. Arms with REAL
+          // trailing statements keep today's (dead-case) placement — running
+          // them cross-arm would be wrong; that gap is pre-existing.
+          const nestedClaimedDispatch =
+            branchData.branches.length > branchCountBefore;
+          const remainingIsTrivial = remainingExprs.every(
+            (e) =>
+              exprIsAtomOf(e, "()") ||
+              (exprIsFunctionCall(e) &&
+                exprIsFunctionCallOf(e, BuiltinKeywords.tuple) &&
+                e.args.length === 0)
+          );
+          if (nestedClaimedDispatch && remainingIsTrivial) {
+            if (!branchData.chainedBranches) {
+              branchData.chainedBranches = [];
+            }
+            branchData.chainedBranches.push({
+              branches: [
+                {
+                  index: condBranchBase + i,
+                  value: caseBody,
+                  hasAwait: true,
+                  remainingExprs,
+                  deferredDropExpressions: caseBody.$?.deferredDropExpressions,
+                },
+              ],
+              condBranchFieldIndex: awaitPoint.index,
+            });
+          } else {
+            branchData.branches.push({
+              index: condBranchBase + i,
+              value: caseBody,
+              hasAwait: true,
+              remainingExprs,
+              deferredDropExpressions: caseBody.$?.deferredDropExpressions,
+              awaitTargetVariableId: findBranchAwaitTargetVariableId(caseBody),
+            });
+          }
 
           functionContext.asyncCondBranchInfo.set(awaitPoint.index, branchData);
         }
