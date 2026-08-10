@@ -7,26 +7,28 @@
 //! for `// @skip_prelude` comment directives instead; this module
 //! ports the AST-based scan so the two evaluators stay aligned.
 //!
-//! Scope: this file ONLY implements the SkipPrelude pre-scan that
-//! must run before the prelude loads. Full pragma evaluation
-//! (AllowUnsafe gating of `unsafe(...)`, `asm(...)`, `extern(...)`,
-//! pointer ops, etc.) is part of the broader Phase C port and is
-//! tracked separately. Until that lands, AllowUnsafe-and-friends
-//! pragmas are no-ops in yo-self; raw-pointer ops compile without
-//! being gated. That mirrors the structural shape of the TS
-//! implementation closely enough that adding the gates later is
-//! mechanical.
+//! Scope: the SkipPrelude pre-scan that must run before the prelude
+//! loads, plus the eval-time `evaluate_pragma` handler with the full
+//! Phase-G argument validation (the argument is evaluated and must
+//! yield a `Pragma` enum variant — typos, non-Pragma enums and
+//! non-enum values are compile errors, mirroring TS).
 pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_id, BF_PRAGMA } :: import("../../expr.yo");
+{ HashSet } :: import("std/collections/hash_set");
+{ eprintln } :: import("std/fmt");
+{ AstExpr, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_id, ast_expr_to_string, BF_PRAGMA } :: import("../../expr.yo");
 { TokenKind } :: import("../../token.yo");
-{ new_expr_info, expr_info_table_set } :: import("../../expr_info.yo");
+{ new_expr_info, expr_info_table_set, expr_info_table_get } :: import("../../expr_info.yo");
 { Environment } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue } :: import("../../value.yo");
+{ TypeValue } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
+{ type_to_string } :: import("../../types/string.yo");
+{ format_error_message } :: import("../../error.yo");
 { register_file_pragma } :: import("../memory_safety.yo");
+{ evaluate_expression_raw } :: import("../exprs/expr.yo");
 { Exception } :: import("std/error");
 // Pragma kinds use the prelude's `Pragma` enum (auto-loaded), not a separate
 // internal type — yo-self is self-hosted, so the compiler reuses the
@@ -141,12 +143,30 @@ pre_scan_for_skip_prelude :: (fn(program : ArrayList(AstExpr)) -> bool)({
   });
   found
 });
-/// Eval-time `pragma(...)` handler. Registers the file-level pragma so
-/// `is_implicitly_unsafe_capable_file` (and the Phase-C raw-pointer /
-/// `unsafe(...)` gates) can see it. Mirrors the registration part of
-/// `evaluatePragma` (`src/evaluator/builtins/pragma.ts:113-116`); yo-self uses
-/// the syntactic `recognize_pragma_arg` (the `Pragma.X` shape) rather than
-/// fully evaluating the arg. Returns the expr annotated with a unit result.
+/// Files already warned about a not-yet-implemented verify-mode pragma,
+/// keyed `<module_path>|<kind>`. Mirrors `warnedVerifyFiles` in
+/// `src/evaluator/builtins/pragma.ts`.
+(g_warned_verify_files : HashSet(String)) = HashSet(String).new();
+/// One-time per-file warning for verify-mode pragmas that the verifier
+/// doesn't yet honor. Phase 0 only — these warnings disappear when the
+/// verifier lands in Phase 1. Mirrors `warnVerifyModeNotImplemented`.
+warn_verify_mode_not_implemented :: (fn(module_path : String, kind_name : String) -> unit)({
+  key := `${module_path}|${kind_name}`;
+  if(g_warned_verify_files.contains(key.clone()), return(()));
+  _added := g_warned_verify_files.add(key);
+  eprintln(
+    `[warning] pragma(Pragma.${kind_name}) in ${module_path}: verify mode is not implemented yet (Phase 0 of plans/FORMAL_VERIFICATION.md). Contracts in this file will behave as if no pragma were set — they parse and (in later phases) lower to runtime asserts, but no proof obligations are generated.`
+  );
+});
+/// Eval-time `pragma(...)` handler. Mirrors `evaluatePragma`
+/// (`src/evaluator/builtins/pragma.ts`): the `SkipPrelude` AST shape
+/// short-circuits (the file may not have `Pragma` in scope — that is exactly
+/// what SkipPrelude implies); every other argument is EVALUATED and must
+/// yield a `Pragma` enum variant, which catches typos
+/// (`pragma(Pragma.AlloeUnsafe)`), non-Pragma enums (`pragma(Ordering.Less)`)
+/// and non-enum values (`pragma(42)`) — all previously accepted silently by
+/// the syntactic-only handler. The matched variant is registered in the
+/// per-file pragma registry. Returns the expr annotated with a unit result.
 evaluate_pragma :: (
   fn(
     expr : AstExpr,
@@ -155,24 +175,105 @@ evaluate_pragma :: (
     exn : Exception
   ) -> AstExpr
 )({
-  arg_opt := match(
+  args := match(
     expr,
-    .FnCall(_, _, args, _, _) => args.get(usize(0)),
-    .Atom(_, _) => Option(AstExpr).None
+    .FnCall(_, _, a, _, _) => a,
+    .Atom(_, _) => ArrayList(AstExpr).new()
+  );
+  if(args.len() != usize(1), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(expr),
+          `Expected 1 arguments, got ${args.len()}:\n${ast_expr_to_string(expr)}`,
+          false,
+          .None
+        )
+      )
+    );
+  });
+  arg := match(args.get(usize(0)), .Some(a) => a, .None => expr);
+  // Fast path: the pre-scan already recognized and registered
+  // `pragma(Pragma.SkipPrelude);` by AST shape — skip evaluation entirely.
+  skip_fast := match(
+    recognize_pragma_arg(arg),
+    .Some(k) => match(k, .SkipPrelude => true, _ => false),
+    .None => false
+  );
+  if(skip_fast, {
+    out0 := new_expr_info(env, t_unit());
+    out0.value = Option(EvalValue).Some(EvalValue.UnitVal);
+    expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out0);
+    return(expr);
+  });
+  // Normal path: evaluate the argument, then check it's a Pragma enum
+  // variant. Catches typos, misuse, and shadowed `Pragma` names.
+  evaluated := evaluate_expression_raw(arg, env, ctx, exn);
+  info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
+  (arg_env : Environment) = env;
+  (variant : Option(String)) = Option(String).None;
+  (got_ty_str : String) = String.from("");
+  match(
+    info_opt,
+    .None => exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(arg),
+          `Failed to evaluate the argument of 'pragma(...)'.`,
+          false,
+          .None
+        )
+      )
+    ),
+    .Some(info) => {
+      arg_env = info.env;
+      got_ty_str = type_to_string(info.ty);
+      match(
+        info.ty,
+        .EnumT({ name, selected_variant_name }) => if(name == "Pragma", {
+          variant = selected_variant_name.clone();
+        }),
+        _ => ()
+      );
+    }
   );
   match(
-    arg_opt,
-    .Some(arg) => match(
-      recognize_pragma_arg(arg),
+    variant,
+    .None => exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(arg),
+          `'pragma(...)' expects a 'Pragma.X' argument (e.g. 'pragma(Pragma.AllowUnsafe);'). Got value of type ${got_ty_str} from: ${ast_expr_to_string(arg)}`,
+          false,
+          .None
+        )
+      )
+    ),
+    .Some(vname) => match(
+      pragma_kind_from_variant_name(vname.clone()),
+      .None => exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(arg),
+            `Unknown 'Pragma' variant '${vname}'. The compiler does not recognize this pragma — make sure the prelude's 'Pragma' enum and 'evaluator/memory_safety.yo' agree on the set of supported variants.`,
+            false,
+            .None
+          )
+        )
+      ),
       .Some(kind) => {
         tok := ast_expr_token(expr);
         register_file_pragma(tok.module_path.clone(), kind);
-      },
-      .None => ()
-    ),
-    .None => ()
+        match(
+          kind,
+          .Verify => warn_verify_mode_not_implemented(tok.module_path.clone(), String.from("Verify")),
+          .VerifyOrAssert => warn_verify_mode_not_implemented(tok.module_path.clone(), String.from("VerifyOrAssert")),
+          _ => ()
+        );
+      }
+    )
   );
-  out := new_expr_info(env, t_unit());
+  out := new_expr_info(arg_env, t_unit());
   out.value = Option(EvalValue).Some(EvalValue.UnitVal);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
   expr

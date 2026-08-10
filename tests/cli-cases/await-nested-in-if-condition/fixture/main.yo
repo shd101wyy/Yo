@@ -1,0 +1,21 @@
+open(import("std/string"));
+open(import("std/fmt"));
+{ Exception, IoExn } :: import("std/error");
+{ yield } :: import("std/async");
+ready :: (fn(io : Io) -> Impl(Future(bool, Io)))(
+  io.async((io : Io) => {
+    io.await(yield(io), io);
+    return(true);
+  })
+);
+do_it :: (fn(io : Io, exn : Exception) -> Impl(Future(unit, IoExn)))(
+  io.async((e) => {
+    if(!(e.io.await(ready(e.io), e.io)), {
+      println(String.from("not taken"));
+    });
+  })
+);
+main :: (fn(io : Io, exn : Exception) -> unit)({
+  io.await(do_it(io, exn), IoExn(io : io, exn : exn));
+});
+export(main);
