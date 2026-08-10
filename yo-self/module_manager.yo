@@ -34,6 +34,7 @@ open(import("std/fmt"));
 { read_file } :: import("std/fs/file");
 { ArrayList } :: import("std/collections/array_list");
 { getenv } :: import("std/libc/stdlib");
+{ current_exe } :: import("std/env");
 { AstExpr } :: import("./expr.yo");
 { ExprInfoTable } :: import("./expr_info.yo");
 { parse } :: import("./parser.yo");
@@ -114,28 +115,84 @@ _failed_outcome :: (fn() -> ModuleLoadOutcome)(
 // ---------------------------------------------------------------------------
 // std path resolution — TS `findStdDirectory` / `ModuleManager.stdPath`
 // ---------------------------------------------------------------------------
+/// The `--std-path` CLI override (highest-precedence std root). `main.yo`
+/// strips the flag from argv before subcommand dispatch and stashes the
+/// value here — the TS counterpart is the root-level yargs option +
+/// `setStdPathOverride` middleware in `yo-cli.ts`.
+(g_std_path_override : Option(String)) = Option(String).None;
+set_std_path_override :: (fn(path : String) -> unit)({
+  g_std_path_override = Option(String).Some(path);
+});
+/// The stashed `--std-path` override, if any. `build_runner.yo` forwards it
+/// to child `compile`/`test` processes — TS needs no equivalent because its
+/// build runner compiles artifacts in-process, where the override already
+/// applies.
+get_std_path_override :: (fn() -> Option(String))({
+  return(g_std_path_override.clone());
+});
+/// True when `path` exists on disk. Sync libc `stat` (mirroring TS
+/// `existsSync`) — the resolver runs before any Io/event-loop context
+/// exists, so the async `std/fs` `exists` is not usable here.
+_path_exists_sync :: (fn(path : String) -> bool)({
+  { stat } :: import("std/libc/sys/stat");
+  { GlobalAllocator } :: import("std/allocator");
+  { malloc, free } :: GlobalAllocator;
+  cstr := path.to_cstr().ptr().unwrap();
+  // 512 bytes comfortably exceeds `struct stat` on every supported target;
+  // only the return code is read.
+  buf := malloc(usize(512)).unwrap();
+  rc := unsafe(stat(*(char)(cstr), buf));
+  free(.Some(buf));
+  return(rc == int(0));
+});
 /// Resolve the standard-library root. The proper evaluator needs this so
 /// `import("std/...")` can be satisfied — without it, the prelude cannot be
 /// loaded and the majority of user code references (`Option`, `Box`, `+`, …)
 /// fail with "Variable not found".
 ///
-/// Lookup order (mirrors TS `evaluator/index.ts:142`):
-///   1. `YO_STD` env var, if set and non-empty.
-///   2. `./std` relative to the current working directory.
+/// Lookup order (mirrors TS `module-manager.ts` `findStdDirectory`):
+///   1. The `--std-path` CLI flag (stashed via `set_std_path_override`).
+///   2. `YO_STD` env var, if set and non-empty.
+///   3. A `std` directory next to — or in any ancestor of — the running
+///      executable's directory. This is what makes an installed release
+///      bundle (`<prefix>/bin/yo` + `<prefix>/std`) self-locating.
+///   4. `./std` relative to the current working directory (repo dev flow).
 resolve_std_path :: (fn() -> String)({
+  match(
+    g_std_path_override,
+    .Some(p) => {
+      return(p.clone());
+    },
+    .None => {}
+  );
   name_cstr := String.from("YO_STD").to_cstr().ptr().unwrap();
   val_ptr := unsafe(getenv(*(char)(name_cstr)));
   match(
     val_ptr,
-    .None => String.from("./std"),
+    .None => {},
     .Some(ptr) => {
       v := String.from_cstr(*(u8)(ptr)).unwrap();
-      cond(
-        (v.len() > usize(0)) => v,
-        true => String.from("./std")
-      )
+      if(v.len() > usize(0), {
+        return(v);
+      });
     }
-  )
+  );
+  match(
+    current_exe(),
+    .Err(_) => {},
+    .Ok(exe_path) => {
+      dir := exe_path.parent();
+      while(dir.is_some(), {
+        d := dir.unwrap();
+        candidate := d.join(Path.new(String.from("std")));
+        if(_path_exists_sync(candidate.to_string()), {
+          return(candidate.to_string());
+        });
+        dir = d.parent();
+      });
+    }
+  );
+  return(String.from("./std"));
 });
 // ---------------------------------------------------------------------------
 // State accessors (main.yo's compile path drives these directly)
@@ -551,6 +608,8 @@ mm_load_yo_file :: (
 export(
   ModuleLoadOutcome,
   resolve_std_path,
+  set_std_path_override,
+  get_std_path_override,
   mm_set_loader_context,
   mm_demand_loader,
   mm_prelude_env,

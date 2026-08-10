@@ -22,7 +22,7 @@ import {
   formatPublicSafeReport,
   generatePublicSafeReport,
 } from "./public-safe-report";
-import { ModuleManager } from "./module-manager";
+import { ModuleManager, setStdPathOverride } from "./module-manager";
 import {
   hostTarget,
   isTargetStandaloneWasi,
@@ -196,6 +196,16 @@ function runCli(): void {
   yargs(hideBin(process.argv))
     .scriptName("yo")
     .wrap(null)
+    .option("std-path", {
+      type: "string",
+      describe:
+        "Path to the standard-library root (overrides YO_STD and the default search next to the compiler)",
+    })
+    .middleware((argv) => {
+      if (typeof argv.stdPath === "string" && argv.stdPath.length > 0) {
+        setStdPathOverride(argv.stdPath);
+      }
+    })
     .usage(
       `The Yo Programming Language ${packageJson.version}
 Usage:

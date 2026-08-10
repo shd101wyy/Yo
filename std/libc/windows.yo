@@ -34,6 +34,11 @@ c_include(
   // _putenv_s - Sets environment variable (Windows-specific)
   // Returns 0 on success, non-zero on error
   _putenv_s : (fn(varname : *(char), value_string : *(char)) -> int),
+  // GetModuleFileNameW - Gets the path of the current executable (Unicode
+  // version; hModule = NULL means "the .exe of the current process").
+  // Returns the number of WCHARs copied excluding the null terminator, or 0
+  // on failure; a return value equal to nSize means the buffer was too small.
+  GetModuleFileNameW : (fn(hModule : ?*(void), lpFilename : *(WCHAR), nSize : DWORD) -> DWORD),
   // Code page constants
   CP_UTF8 : u32
 );
@@ -41,4 +46,5 @@ export(GetCurrentDirectoryW);
 export(SetCurrentDirectoryA);
 export(WideCharToMultiByte);
 export(_putenv_s);
+export(GetModuleFileNameW);
 export(CP_UTF8);

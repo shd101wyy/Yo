@@ -1,0 +1,12 @@
+# Global `--std-path` flag: the second check points it at a directory that
+# does not exist and must FAIL under BOTH compilers EVEN THOUGH the harness
+# sets YO_STD to the real std — proving the flag is parsed by both CLIs and
+# takes precedence over the env var (resolution step 1 beats step 2). The
+# first check is the baseline that attributes the failure to the flag.
+# `check` (not compile --emit-c) because emitted-C include ORDER differs
+# between the compilers (issues/emitted-c-include-order-differs-ts-vs-self.md)
+# and would trip the tree comparison.
+# stdout=ignore: the prelude-load failure is surfaced differently (TS uncaught
+# throw vs "yo-self: error:"), and check prints absolute sandbox paths.
+stdout=ignore
+timeout=120

@@ -20,7 +20,7 @@ _(args : proc_args) :: import("std/env");
 { exists } :: import("std/fs/file");
 { create_dir_all } :: import("std/fs/dir");
 { Command } :: import("std/process/command");
-{ mm_load_yo_file, mm_reset } :: import("./module_manager.yo");
+{ mm_load_yo_file, mm_reset, get_std_path_override } :: import("./module_manager.yo");
 { exit } :: import("std/libc/stdlib");
 {
   ArtifactKind,
@@ -419,6 +419,17 @@ compile_artifact :: (
     println(`Building ${project_name}${version_suffix} → ${rel_output}${lib_suffix}`);
     cmd := Command.new(_self_exe());
     cmd.arg(String.from("compile"));
+    // Forward the parent's `--std-path` override to the child compile. TS
+    // needs no equivalent: its build runner compiles artifacts in-process,
+    // where the override already applies.
+    match(
+      get_std_path_override(),
+      .Some(sp) => {
+        cmd.arg(String.from("--std-path"));
+        cmd.arg(sp);
+      },
+      .None => {}
+    );
     cmd.arg(source_path.to_string());
     cmd.arg(String.from("-o"));
     cmd.arg(output_path.to_string());
@@ -585,6 +596,16 @@ run_test_suite :: (
     test_path := Path.new(ctx.project_dir).join(Path.new(suite.root));
     cmd := Command.new(_self_exe());
     cmd.arg(String.from("test"));
+    // Forward the parent's `--std-path` override to the child test run (same
+    // rationale as the compile_artifact forwarding above).
+    match(
+      get_std_path_override(),
+      .Some(sp) => {
+        cmd.arg(String.from("--std-path"));
+        cmd.arg(sp);
+      },
+      .None => {}
+    );
     cmd.arg(test_path.to_string());
     if(suite.verbose, cmd.arg(String.from("--verbose")));
     if(suite.bail, cmd.arg(String.from("--bail")));

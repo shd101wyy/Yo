@@ -20,7 +20,37 @@ import { clearAllCachedTypes } from "./types/creators";
 import type { Expr } from "./expr";
 import type { StructValue } from "./value";
 
+/**
+ * The `--std-path` CLI override (highest-precedence std root), stashed by
+ * the root-level yargs middleware in `yo-cli.ts`. The self-hosted
+ * counterpart is `set_std_path_override` in `yo-self/module_manager.yo`.
+ */
+let stdPathOverride: string | undefined;
+
+export function setStdPathOverride(stdPath: string): void {
+  stdPathOverride = stdPath;
+}
+
+/**
+ * Resolve the standard-library root. Lookup order (mirrored by
+ * `resolve_std_path` in `yo-self/module_manager.yo`):
+ *   1. The `--std-path` CLI flag (stashed via `setStdPathOverride`).
+ *   2. `YO_STD` env var, if set and non-empty.
+ *   3. A `std` directory next to — or in any ancestor of — the compiler's
+ *      own location (`startPath`, i.e. `__dirname`). This is what makes an
+ *      installed bundle self-locating.
+ *   4. `./std` relative to the current working directory (repo dev flow).
+ */
 function findStdDirectory(startPath: string): string {
+  if (stdPathOverride) {
+    return stdPathOverride;
+  }
+
+  const envStd = process.env.YO_STD;
+  if (envStd) {
+    return envStd;
+  }
+
   let currentPath = startPath;
 
   // eslint-disable-next-line no-constant-condition
@@ -35,6 +65,11 @@ function findStdDirectory(startPath: string): string {
       break;
     }
     currentPath = parentPath;
+  }
+
+  const cwdStdPath = path.resolve("std");
+  if (existsSync(cwdStdPath)) {
+    return cwdStdPath;
   }
 
   return path.join(__dirname, "../std");

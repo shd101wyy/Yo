@@ -47,6 +47,7 @@ _(env : proc_env) :: import("std/env");
 {
   ModuleLoadOutcome,
   resolve_std_path,
+  set_std_path_override,
   mm_clear_prelude_env,
   mm_set_shared_expr_info_table,
   mm_resolve_entry_abs,
@@ -1984,7 +1985,26 @@ main :: (fn(io : Io) -> unit)({
       }
     )
   );
-  argv := args();
+  raw_argv := args();
+  // Global `--std-path <dir>` flag: strip it from argv before subcommand
+  // dispatch and stash the override with the module manager. The TS
+  // counterpart is the root-level yargs `std-path` option in `yo-cli.ts`.
+  argv := ArrayList(String).new();
+  ai := usize(0);
+  while(ai < raw_argv.len(), {
+    a := raw_argv(ai);
+    if(a == "--std-path", {
+      if((ai + usize(1)) < raw_argv.len(), {
+        set_std_path_override(raw_argv(ai + usize(1)).clone());
+        ai = (ai + usize(1));
+      }, {
+        exn.throw(dyn(`--std-path requires a directory argument`));
+      });
+    }, {
+      argv.push(a);
+    });
+    ai = (ai + usize(1));
+  });
   if(argv.len() < usize(2), {
     exn.throw(dyn(`no subcommand given. Usage: yo-self <compile|test|fmt|check|init|build|fetch|install|cache|doc|unsafe-report|public-safe-report> ...`));
   });
