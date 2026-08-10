@@ -41,7 +41,22 @@ Landed 2026-08-10:
 - **Verified under TS**: `./yo-cli build` produced a working
   `yo-out/aarch64-macos/bin/yo` (check + doc smoke-tested; kept at
   `/tmp/yo-via-tsbuild` during bring-up).
-- **Self-hosted self-build (`yo-s26 build`) in flight** at time of writing.
+- **The first self-hosted self-build attempt found two bugs** — the dogfood
+  doing exactly its job:
+  1. **`yo build` exited 0 on a failed step — in BOTH compilers** (TS bug,
+     faithfully ported). The per-step catch that lets the summary name the
+     broken step never fed a final verdict. FIXED both sides + a
+     `tests/cli-cases/build-fail` differential case asserting the failure
+     contract. See
+     [the issue](../issues/fixed/yo-build-exits-zero-on-failed-step.md) —
+     and its lesson: the differential only catches rc MISMATCHES, so a
+     shared wrong rc passes silently; failure contracts need their own cases.
+  2. **Self-hosted DEBUG-mode emission of the compiler miscompiles** (16
+     `use of undeclared identifier '_file____User_temp_N'` C errors). That
+     first attempt ran the child compile without `--release` because the
+     forwarding fix hadn't landed in the running binary. OPEN — off the
+     critical path since everything canonical builds at -O2:
+     [issue](../issues/self-hosted-debug-emission-undeclared-temp.md).
 
 Still open in 2.2:
 

@@ -21,6 +21,7 @@ _(args : proc_args) :: import("std/env");
 { create_dir_all } :: import("std/fs/dir");
 { Command } :: import("std/process/command");
 { mm_load_yo_file, mm_reset } :: import("./module_manager.yo");
+{ exit } :: import("std/libc/stdlib");
 {
   ArtifactKind,
   BuildArtifact,
@@ -932,6 +933,26 @@ execute_step :: (
     );
     results := e.io.await(execute_dag(dag, ctx, e.io, e.exn), e);
     if(ctx.summary, print_build_summary(results, dag, step_name));
+    // A failed step must fail the build. execute_node folds per-step errors
+    // into StepResult.success so the DAG finishes and the summary can show
+    // WHICH step broke — but exiting 0 after a failed compile would let CI
+    // pass silently. Mirrors runBuild (src/build-runner.ts). See
+    // issues/fixed/yo-build-exits-zero-on-failed-step.md
+    (any_failed : bool) = false;
+    (ri : usize) = usize(0);
+    while(ri < dag.len(), {
+      match(
+        results.get(dag(ri).name),
+        .Some(r) => if(!(r.success), {
+          any_failed = true;
+        }),
+        .None => ()
+      );
+      ri = (ri + usize(1));
+    });
+    if(any_failed, {
+      unsafe(exit(int(1)));
+    });
   })
 );
 // ---------------------------------------------------------------------------
