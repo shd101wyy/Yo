@@ -311,6 +311,43 @@ test("symlink creates a symbolic link", {
 // ============================================================================
 // read_dir
 // ============================================================================
+test("read_dir survives directories larger than one getdents buffer", {
+  // Regression: the macOS getdents emulation re-opened the directory on
+  // every call, but readdir's buffered read had already advanced the offset
+  // the dup()'d fd shares with the caller's fd — so entries beyond the first
+  // 4096-byte batch were silently LOST and read_dir truncated large
+  // directories (~45 entries with typical name lengths). The fix keeps a
+  // per-fd DIR* stream alive across getdents calls (mirroring the Windows
+  // FindFirstFile emulation). 200 files forces several batches on every
+  // platform.
+  exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  tmp := temp_dir();
+  dname := path_join(tmp, `yo_fs_read_dir_large`);
+  dpath := Path.new(dname.clone());
+  io.await(fs_dir.create_dir_all(dpath, io), IoExn(io : io, exn : exn));
+  (i : usize) = usize(0);
+  while(runtime(i < usize(200)), {
+    io.await(fs_file.write_file(Path.new(path_join(dname.clone(), `file_with_a_reasonably_long_name_${i}.txt`)), String.from("x"), io), IoExn(io : io, exn : exn));
+    i = (i + usize(1));
+  });
+  entries := io.await(fs_dir.read_dir(dpath, io), IoExn(io : io, exn : exn));
+  unsafe(printf("  large-dir entries count = %lld\n", i64(entries.len())));
+  assert(entries.len() == usize(200), "expected all 200 entries (truncation regression)");
+  // Cleanup
+  (j : usize) = usize(0);
+  while(runtime(j < usize(200)), {
+    io.await(fs_dir.remove_file(Path.new(path_join(dname.clone(), `file_with_a_reasonably_long_name_${j}.txt`)), io), IoExn(io : io, exn : exn));
+    j = (j + usize(1));
+  });
+  io.await(fs_dir.remove_dir(dpath, io), IoExn(io : io, exn : exn));
+});
 test("read_dir lists directory entries", {
   exn := Exception(
     throw : (
