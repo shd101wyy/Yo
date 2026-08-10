@@ -7,9 +7,9 @@
 //! remaining interdependent core, ported as a mass against the BASELINE
 //! `42` io.async/io.await differential fixture.
 open(import("std/string"));
-open(import("std/fmt"));
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
+{ codegen_fatal } :: import("../constants.yo");
 { AstExpr, ast_expr_id, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_is_atom_of, ast_expr_is_atom, ast_expr_token, BK_WHILE, BK_BEGIN, BK_COND, BK_MATCH } :: import("../../expr.yo");
 { TokenKind } :: import("../../token.yo");
 { AwaitPoint, CapturedVariable } :: import("../../evaluator/async/await_analysis_types.yo");
@@ -543,14 +543,21 @@ _await_is_in_cond_position :: (fn(cond_expr : AstExpr, await_point : AwaitPoint)
 _unsupported_await_message :: (fn(expr : AstExpr, is_if : bool, in_cond_pos : bool) -> String)({
   t := ast_expr_token(expr);
   where := `${t.module_path}:${(t.row + usize(1)).to_string()}:${(t.column + usize(1)).to_string()}: `;
+  func_name := match(
+    expr,
+    .FnCall(_, func_box, _, _, _) => match(func_box, .Atom(_, ftok) => ftok.value.clone(), _ => String.from("")),
+    .Atom(_, _) => String.from("")
+  );
   if(in_cond_pos, {
-    kw := cond(is_if => String.from("if"), true => String.from("cond"));
-    form := cond(is_if => String.from("if(ready, { ... })"), true => String.from("cond(ready => ..., true => ...)"));
+    kw := cond((func_name.len() > usize(0)) => func_name.clone(), is_if => String.from("if"), true => String.from("cond"));
+    form := cond(is_if => String.from("if(!(ready), { ... })"), true => String.from("cond(c1 => ..., !(ready) => ..., true => ...)"));
     return(
-      `${where}\`io.await\` is not supported in the condition of \`${kw}\` inside an \`io.async\` block.
-Hoist it into a local first:
+      `${where}\`io.await\` in a \`${kw}\` condition inside an \`io.async\` block must BE the first condition — it cannot be nested inside a larger expression, and it cannot be in a later branch.
+A later branch's condition is only evaluated if the earlier ones fail, so hoisting it would await even when an earlier branch matches.
+Bind it to a local first:
     ready := io.await(f, io);
-    ${form}`
+    ${form}
+(note this evaluates the await unconditionally, which is why the compiler will not do it for you).`
     );
   });
   if(is_if, {
@@ -563,8 +570,10 @@ Hoist it into a local first:
     );`
     );
   });
+  fn_note := if(func_name.len() > usize(0), `, function: \`${func_name}\``, String.from(""));
+  expr_tag := match(expr, .FnCall(_, _, _, _, _) => String.from("FnCall"), .Atom(_, _) => String.from("Atom"));
 
-  `${where}\`io.await\` is not supported in this position inside an \`io.async\` block.
+  `${where}\`io.await\` is not supported in this position inside an \`io.async\` block (expression: ${expr_tag}${fn_note}).
 Hoist it into a local first: \`result := io.await(f, io);\``
 });
 generate_await_expression :: (
@@ -726,9 +735,7 @@ generate_await_expression :: (
     ),
     true => _await_is_in_cond_position(expr, await_point)
   );
-  // panic requires a `str`; the located detail goes to stderr.
-  eprintln(_unsupported_await_message(expr, is_if, in_cond_pos));
-  __yo_panic("io.await is not supported in this position inside io.async (see stderr)")
+  codegen_fatal(_unsupported_await_message(expr, is_if, in_cond_pos));
 });
 /// Register `value` for every `io.await` node inside `expr` whose subtree holds
 /// this await point's call. One await can appear under more than one ExprId —
@@ -1835,8 +1842,7 @@ generate_cond_with_await :: (
     .None => false
   );
   if(_await_is_in_cond_position(cond_expr, await_point) && !(has_substitution), {
-    eprintln(_unsupported_await_message(cond_expr, false, true));
-    __yo_panic("io.await in the condition of `cond` inside io.async is not supported (see stderr)");
+    codegen_fatal(_unsupported_await_message(cond_expr, false, true));
   });
   branches_with_await := ArrayList(CondBranch).new();
   // First pass: find the first non-false branch + whether it is comptime-true.
@@ -2400,8 +2406,7 @@ generate_match_with_await :: (
           if(enum_c_name.len() == usize(0), {
             // Never emit a comment and carry on here: the caller goes on to
             // emit the await machinery, and the arm bodies are simply gone.
-            eprintln(`generate_match_with_await: no C name for match value type ${type_key(match_value_type)} (enum id ${enum_id})`);
-            __yo_panic("match with await: enum type not registered in context.types (see stderr)");
+            codegen_fatal(`generate_match_with_await: no C name for match value type ${type_key(match_value_type)} (enum id ${enum_id})`);
           });
           nullable := can_optimize_as_nullable_pointer(match_value_type);
           match(

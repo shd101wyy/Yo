@@ -1,5 +1,9 @@
 # io.await in an unsplittable position (port of src/tests/async-await-position-gate.test.ts):
-# the compile must FAIL (rc=1) under BOTH compilers — this failure used to be
-# SILENT (a C comment + NULL await_future_N deref at runtime). The diagnostic
-# text goes to stderr (not diffed); the rc parity is the assertion.
+# the compile must FAIL under BOTH compilers — this failure used to be SILENT
+# (a C comment + NULL await_future_N deref at runtime), and the self-hosted
+# side used to __yo_panic (rc=134) where TS exits 1 (fixed via codegen_fatal).
+# stdout=ignore: TS surfaces the error as an uncaught throw with a stack, the
+# self-hosted one as "yo-self: error:" — no common line. Both emit the same
+# "must BE the first condition" diagnostic (probe-verified, byte-identical).
+stdout=ignore
 timeout=120
