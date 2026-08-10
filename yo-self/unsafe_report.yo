@@ -1,0 +1,901 @@
+//! `yo unsafe-report` — list every `unsafe(...)` site, `asm`/`extern`
+//! declaration, and `pragma(Pragma.AllowUnsafe);`-declaring file. Audit-
+//! friendly output for memory-safety review (Phase E of
+//! plans/MEMORY_SAFETY.md).
+//!
+//! 1:1 port of `src/unsafe-report.ts`. Scanning is TEXT-based — no parser or
+//! evaluator involvement, deliberately so ("auditable by grep-style review").
+//! The TS regexes are hand-rolled here as byte scanners; columns are byte
+//! positions where TS reports UTF-16 units — identical on ASCII source lines,
+//! which is what code lines are in practice.
+pragma(Pragma.AllowUnsafe);
+open(import("std/string"));
+open(import("std/fmt"));
+{ ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
+{ HashSet } :: import("std/collections/hash_set");
+{ Path } :: import("std/path");
+fs_dir :: import("std/fs/dir");
+{ FileType } :: import("std/fs/dir");
+fs_file :: import("std/fs/file");
+fs_metadata :: import("std/fs/metadata");
+fs_walker :: import("std/fs/walker");
+{ Exception, IoExn } :: import("std/error");
+{ cwd : env_cwd } :: import("std/env");
+/// Sub-classification for `unsafe(...)` sites: "extern-call", "deref",
+/// "arith", "addr-of", or "other". Mirrors `UnsafeSubKind` (a string union in
+/// TS; plain `String` here so the JSON serialization is literal).
+UnsafeFinding :: ref(
+  struct(
+    file : String,
+    /// 1-based.
+    line : usize,
+    /// 1-based.
+    column : usize,
+    /// "unsafe" | "asm" | "extern" | "pragma".
+    kind : String,
+    /// Only set for kind == "unsafe".
+    sub_kind : Option(String),
+    /// Only set for sub_kind == "extern-call".
+    callee_name : Option(String),
+    /// The full source line where the match occurred, trimmed.
+    snippet : String,
+    /// Closest preceding `// SAFETY:` comment within the scan-back window.
+    safety_comment : Option(String)
+  )
+);
+UnsafeTotals :: ref(
+  struct(
+    files_scanned : usize,
+    privileged : usize,
+    unsafe_sites : usize,
+    unsafe_extern_call : usize,
+    unsafe_deref : usize,
+    unsafe_arith : usize,
+    unsafe_addr_of : usize,
+    unsafe_other : usize,
+    asm_sites : usize,
+    extern_sites : usize
+  )
+);
+ExternCallee :: ref(
+  struct(
+    callee : String,
+    count : usize
+  )
+);
+UnsafeReport :: ref(
+  struct(
+    privileged_files : ArrayList(String),
+    findings : ArrayList(UnsafeFinding),
+    totals : UnsafeTotals,
+    /// Top extern callees by call-site count, descending.
+    top_extern_callees : ArrayList(ExternCallee)
+  )
+);
+_is_ident_byte :: (fn(b : u8) -> bool)(
+  ((((b >= u8(97)) && (b <= u8(122))) || ((b >= u8(65)) && (b <= u8(90)))) || ((b >= u8(48)) && (b <= u8(57)))) || (b == u8(95))
+);
+_is_ident_start_byte :: (fn(b : u8) -> bool)(
+  (((b >= u8(97)) && (b <= u8(122))) || ((b >= u8(65)) && (b <= u8(90)))) || (b == u8(95))
+);
+_is_ws_byte :: (fn(b : u8) -> bool)(
+  (((b == u8(32)) || (b == u8(9))) || (b == u8(10))) || (b == u8(13))
+);
+/// Strip line comments and string literals from a line (replacing string
+/// contents with spaces) so keyword scans don't fire inside `"unsafe(x)"` or
+/// `// unsafe(...)`. The stripped line is byte-for-byte positionally aligned
+/// with the original (escapes become two spaces), so a byte index in the
+/// stripped line IS the original byte index — TS keeps an explicit map, but
+/// its map is also the identity for everything it emits. Mirrors
+/// `stripCommentsAndStrings`.
+_strip_comments_and_strings :: (fn(line : String) -> ArrayList(u8))({
+  bytes := line.as_bytes();
+  out := ArrayList(u8).new();
+  (in_str : u8) = u8(0);
+  (i : usize) = usize(0);
+  n := bytes.len();
+  while(i < n, {
+    ch := bytes(i);
+    if((((in_str == u8(0)) && (ch == u8(47))) && ((i + usize(1)) < n)) && (bytes(i + usize(1)) == u8(47)), {
+      // Line comment: drop to end of line.
+      return(out);
+    });
+    if(in_str != u8(0), {
+      if((ch == u8(92)) && ((i + usize(1)) < n), {
+        out.push(u8(32));
+        out.push(u8(32));
+        i = (i + usize(2));
+      }, {
+        if(ch == in_str, {
+          in_str = u8(0);
+        });
+        out.push(u8(32));
+        i = (i + usize(1));
+      });
+    }, {
+      if((ch == u8(34)) || (ch == u8(96)), {
+        in_str = ch;
+        out.push(u8(32));
+        i = (i + usize(1));
+      }, {
+        out.push(ch);
+        i = (i + usize(1));
+      });
+    });
+  });
+  out
+});
+/// Index of the matching `)` for the `(` at `open_idx` in `src_bytes`, or
+/// `.None` if unmatched. Skips string-literal contents. Mirrors
+/// `findMatchingClose`.
+_find_matching_close :: (fn(src_bytes : ArrayList(u8), open_idx : usize) -> Option(usize))({
+  n := src_bytes.len();
+  if((open_idx >= n) || (src_bytes(open_idx) != u8(40)), {
+    return(Option(usize).None);
+  });
+  (depth : i64) = i64(0);
+  (in_str : u8) = u8(0);
+  (i : usize) = open_idx;
+  while(i < n, {
+    c := src_bytes(i);
+    if(in_str != u8(0), {
+      if(c == u8(92), {
+        i = (i + usize(1));
+      }, {
+        if(c == in_str, {
+          in_str = u8(0);
+        });
+      });
+    }, {
+      if((c == u8(34)) || (c == u8(96)), {
+        in_str = c;
+      }, {
+        if(c == u8(40), {
+          depth = (depth + i64(1));
+        });
+        if(c == u8(41), {
+          depth = (depth - i64(1));
+          if(depth == i64(0), {
+            return(Option(usize).Some(i));
+          });
+        });
+      });
+    });
+    i = (i + usize(1));
+  });
+  Option(usize).None
+});
+/// True when the bytes at `i` spell `needle` (ASCII).
+_bytes_at :: (fn(src : ArrayList(u8), i : usize, needle : str) -> bool)({
+  nb := String.from(needle).as_bytes();
+  if((i + nb.len()) > src.len(), {
+    return(false);
+  });
+  (k : usize) = usize(0);
+  while(k < nb.len(), {
+    if(src(i + k) != nb(k), {
+      return(false);
+    });
+    k = (k + usize(1));
+  });
+  true
+});
+/// Read the identifier starting at `i`, or empty when none.
+_ident_at :: (fn(src : ArrayList(u8), i : usize) -> String)({
+  n := src.len();
+  if((i >= n) || !(_is_ident_start_byte(src(i))), {
+    return(String.new());
+  });
+  sb := StringBuilder.new();
+  (k : usize) = i;
+  while((k < n) && _is_ident_byte(src(k)), {
+    sb.write_byte(src(k));
+    k = (k + usize(1));
+  });
+  sb.to_string()
+});
+/// First-pass harvest of every `extern "c"` function name in the scanned
+/// sources: find `c_include(` / `extern("c",` block headers (with a
+/// non-identifier byte before, or line start), bound the block with paren
+/// matching, and collect each `name :` field whose RHS (skipping whitespace
+/// and optional `(`s) starts with `fn(`. Mirrors
+/// `harvestExternCFunctionNames`.
+_harvest_extern_c_fns :: (fn(srcs : ArrayList(String)) -> HashSet(String))({
+  names := HashSet(String).new();
+  (si : usize) = usize(0);
+  while(si < srcs.len(), {
+    src := srcs(si).as_bytes();
+    n := src.len();
+    (i : usize) = usize(0);
+    while(i < n, {
+      boundary_ok := if(i == usize(0), true, !(_is_ident_byte(src(i - usize(1)))));
+      (open_idx : Option(usize)) = Option(usize).None;
+      if(boundary_ok && _bytes_at(src, i, "c_include("), {
+        open_idx = Option(usize).Some(i + usize(9));
+      });
+      if(open_idx.is_none() && (boundary_ok && _bytes_at(src, i, "extern(")), {
+        // Require `"c"` then `,` after optional whitespace.
+        (k : usize) = (i + usize(7));
+        while((k < n) && _is_ws_byte(src(k)), {
+          k = (k + usize(1));
+        });
+        if(_bytes_at(src, k, "\"c\""), {
+          k = (k + usize(3));
+          while((k < n) && _is_ws_byte(src(k)), {
+            k = (k + usize(1));
+          });
+          if((k < n) && (src(k) == u8(44)), {
+            open_idx = Option(usize).Some(i + usize(6));
+          });
+        });
+      });
+      match(
+        open_idx,
+        .None => {
+          i = (i + usize(1));
+        },
+        .Some(op) => match(
+          _find_matching_close(src, op),
+          .None => {
+            i = (i + usize(1));
+          },
+          .Some(close) => {
+            // Collect `name :` fields whose RHS starts with fn( (after
+            // optional whitespace/newlines and up to two `(`s).
+            (j : usize) = (op + usize(1));
+            while(j < close, {
+              if(_is_ident_start_byte(src(j)) && (if(j == usize(0), true, !(_is_ident_byte(src(j - usize(1)))))), {
+                name := _ident_at(src, j);
+                (k2 : usize) = (j + name.as_bytes().len());
+                while((k2 < close) && ((src(k2) == u8(32)) || (src(k2) == u8(9))), {
+                  k2 = (k2 + usize(1));
+                });
+                if((k2 < close) && (src(k2) == u8(58)), {
+                  k2 = (k2 + usize(1));
+                  (parens : usize) = usize(0);
+                  (moving : bool) = true;
+                  while(moving && (k2 < close), {
+                    cond(
+                      _is_ws_byte(src(k2)) => {
+                        k2 = (k2 + usize(1));
+                      },
+                      ((src(k2) == u8(40)) && (parens < usize(2))) => {
+                        parens = (parens + usize(1));
+                        k2 = (k2 + usize(1));
+                      },
+                      true => {
+                        moving = false;
+                      }
+                    );
+                  });
+                  if(_bytes_at(src, k2, "fn("), {
+                    _added := names.add(name.clone());
+                  });
+                });
+                j = (j + name.as_bytes().len());
+              }, {
+                j = (j + usize(1));
+              });
+            });
+            i = (close + usize(1));
+          }
+        )
+      );
+    });
+    si = (si + usize(1));
+  });
+  names
+});
+/// Classify the body of an `unsafe(...)` wrap. Heuristics in priority order:
+/// leading `<harvested-ident>(` → extern-call; `.*` not followed by an
+/// identifier byte → deref; `&+`/`&-`/`&/` → arith; `&(` → addr-of; else
+/// other. Mirrors `classifyUnsafeBody`.
+_classify_unsafe_body :: (
+  fn(src : ArrayList(u8), body_start : usize, body_end : usize, extern_c_fns : HashSet(String)) -> UnsafeFinding
+)({
+  // Returned as a partial finding carrying only sub_kind + callee_name.
+  (k : usize) = body_start;
+  while((k < body_end) && _is_ws_byte(src(k)), {
+    k = (k + usize(1));
+  });
+  name := _ident_at(src, k);
+  if(name.len() > usize(0), {
+    (k2 : usize) = (k + name.as_bytes().len());
+    while((k2 < body_end) && _is_ws_byte(src(k2)), {
+      k2 = (k2 + usize(1));
+    });
+    if(((k2 < body_end) && (src(k2) == u8(40))) && extern_c_fns.contains(name.clone()), {
+      return(
+        UnsafeFinding(
+          file : String.new(),
+          line : usize(0),
+          column : usize(0),
+          kind : String.from("unsafe"),
+          sub_kind : Option(String).Some(String.from("extern-call")),
+          callee_name : Option(String).Some(name),
+          snippet : String.new(),
+          safety_comment : Option(String).None
+        )
+      );
+    });
+  });
+  (sub : String) = String.from("other");
+  (i : usize) = body_start;
+  (found : bool) = false;
+  while(!(found) && ((i + usize(1)) < body_end), {
+    if((src(i) == u8(46)) && (src(i + usize(1)) == u8(42)), {
+      after_ok := if((i + usize(2)) >= body_end, true, !(_is_ident_byte(src(i + usize(2)))));
+      if(after_ok, {
+        sub = String.from("deref");
+        found = true;
+      });
+    });
+    i = (i + usize(1));
+  });
+  if(!(found), {
+    i = body_start;
+    while(!(found) && ((i + usize(1)) < body_end), {
+      if((src(i) == u8(38)) && (((src(i + usize(1)) == u8(43)) || (src(i + usize(1)) == u8(45))) || (src(i + usize(1)) == u8(47))), {
+        sub = String.from("arith");
+        found = true;
+      });
+      i = (i + usize(1));
+    });
+  });
+  if(!(found), {
+    i = body_start;
+    while(!(found) && ((i + usize(1)) < body_end), {
+      if((src(i) == u8(38)) && (src(i + usize(1)) == u8(40)), {
+        sub = String.from("addr-of");
+        found = true;
+      });
+      i = (i + usize(1));
+    });
+  });
+  UnsafeFinding(
+    file : String.new(),
+    line : usize(0),
+    column : usize(0),
+    kind : String.from("unsafe"),
+    sub_kind : Option(String).Some(sub),
+    callee_name : Option(String).None,
+    snippet : String.new(),
+    safety_comment : Option(String).None
+  )
+});
+/// Scan one line for the four patterns (`unsafe(`, `asm(`, `extern(`,
+/// `pragma(Pragma.AllowUnsafe)`), with identifier-boundary checks matching
+/// the TS regexes, SAFETY: scan-back for unsafe sites, and full-source body
+/// classification for multi-line wraps. Mirrors `scanLine`.
+_scan_line :: (
+  fn(
+    file : String,
+    line_no : usize,
+    raw_line : String,
+    prev_lines : ArrayList(String),
+    extern_c_fns : HashSet(String),
+    full_src : ArrayList(u8),
+    line_start_offset : usize
+  ) -> ArrayList(UnsafeFinding)
+)({
+  stripped := _strip_comments_and_strings(raw_line.clone());
+  findings := ArrayList(UnsafeFinding).new();
+  n := stripped.len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    (kind : String) = String.new();
+    (kw_len : usize) = usize(0);
+    // `\bunsafe\(` — TS's \b means an identifier boundary on BOTH sides;
+    // the `(` already bounds the right side.
+    boundary_ok := if(i == usize(0), true, !(_is_ident_byte(stripped(i - usize(1)))));
+    if(boundary_ok, {
+      cond(
+        _bytes_at(stripped, i, "unsafe(") => {
+          kind = String.from("unsafe");
+          kw_len = usize(6);
+        },
+        _bytes_at(stripped, i, "asm(") => {
+          kind = String.from("asm");
+          kw_len = usize(3);
+        },
+        _bytes_at(stripped, i, "extern(") => {
+          kind = String.from("extern");
+          kw_len = usize(6);
+        },
+        _bytes_at(stripped, i, "pragma(Pragma.AllowUnsafe)") => {
+          kind = String.from("pragma");
+          kw_len = usize(6);
+        },
+        true => ()
+      );
+    });
+    if(kind.len() == usize(0), {
+      i = (i + usize(1));
+    }, {
+      (sub_kind : Option(String)) = Option(String).None;
+      (callee_name : Option(String)) = Option(String).None;
+      (safety_comment : Option(String)) = Option(String).None;
+      if(kind == "unsafe", {
+        // SAFETY: scan-back over the previous comment lines.
+        (k : i64) = (i64(prev_lines.len()) - i64(1));
+        (scanning : bool) = true;
+        while(scanning && (k >= i64(0)), {
+          prev := prev_lines(usize(k)).trim();
+          cond(
+            (prev.starts_with(`// SAFETY:`) || prev.starts_with(`//SAFETY:`)) => {
+              // Drop the leading `//` and any following spaces.
+              pb := prev.as_bytes();
+              (p : usize) = usize(2);
+              while((p < pb.len()) && (pb(p) == u8(32)), {
+                p = (p + usize(1));
+              });
+              sb := StringBuilder.new();
+              while(p < pb.len(), {
+                sb.write_byte(pb(p));
+                p = (p + usize(1));
+              });
+              safety_comment = Option(String).Some(sb.to_string());
+              scanning = false;
+            },
+            ((prev.len() > usize(0)) && !(prev.starts_with(`//`))) => {
+              scanning = false;
+            },
+            true => {
+              k = (k - i64(1));
+            }
+          );
+        });
+        // Classify the wrap body in the FULL source (multi-line wraps).
+        unsafe_open := ((line_start_offset + i) + usize(6));
+        match(
+          _find_matching_close(full_src, unsafe_open),
+          .Some(close_idx) => {
+            c := _classify_unsafe_body(full_src, unsafe_open + usize(1), close_idx, extern_c_fns);
+            sub_kind = c.sub_kind;
+            callee_name = c.callee_name;
+          },
+          .None => {
+            sub_kind = Option(String).Some(String.from("other"));
+          }
+        );
+      });
+      findings.push(
+        UnsafeFinding(
+          file : file.clone(),
+          line : line_no,
+          column : (i + usize(1)),
+          kind : kind.clone(),
+          sub_kind : sub_kind,
+          callee_name : callee_name,
+          snippet : raw_line.trim(),
+          safety_comment : safety_comment
+        )
+      );
+      i = (i + kw_len);
+    });
+  });
+  findings
+});
+/// Recursively collect .yo files under `p`, skipping node_modules/.git/dist/
+/// yo-out/build and every dot-directory (but not a `.`/`..` root argument).
+/// Mirrors `walkYoFiles`.
+_walk_yo_files :: (fn(root : String, out : ArrayList(String), io : Io, exn : Exception) -> Impl(Future(unit, IoExn)))(
+  io.async((e : IoExn) => {
+    // Built on std/fs/walker (its stack loop is the proven async-while
+    // shape) with post-filtering instead of TS's descend-time pruning: an
+    // entry is dropped when ANY path segment below the root matches the
+    // skip set (node_modules/.git/dist/yo-out/build or a dot-directory).
+    // Same result set as `walkYoFiles`; the walk simply also reads the
+    // skipped directories' names.
+    //
+    // `.` needs care twice over: Path.new(".") normalizes to the EMPTY path
+    // (every fs call on it fails), and TS's path.join(".", x) yields bare
+    // `x` — so walk the CWD by absolute path but label entries with the
+    // TS-join shape (no `./` prefix).
+    is_dot := (root == ".");
+    walk_root := if(is_dot, match(env_cwd(), .Ok(cp) => cp.to_string(), .Err(_) => String.from(".")), root.clone());
+    exists := e.io.await(fs_file.exists(Path.new(walk_root.clone()), e.io), e.io);
+    if(!(exists), {
+      // Mirrors the TS statSync try/catch: unreadable/missing → skip.
+      return(());
+    });
+    md := e.io.await(fs_metadata.metadata(Path.new(walk_root.clone()), e.io), e);
+    if(!(md.is_dir()), {
+      if(root.ends_with(`.yo`), {
+        out.push(root.clone());
+      });
+      return(());
+    });
+    entries := e.io.await(fs_walker.walk(Path.new(walk_root.clone()), e.io), e);
+    root_prefix_len := walk_root.as_bytes().len();
+    collected := ArrayList(String).new();
+    (i : usize) = usize(0);
+    while(runtime(i < entries.len()), {
+      entry := entries(i);
+      keep := match(entry.file_type, .Directory => false, _ => true);
+      p := entry.path.to_string();
+      if(keep && p.ends_with(`.yo`), {
+        // Split the part below the root into segments; drop the entry when
+        // any DIRECTORY segment (all but the last) is skippable.
+        rel := p.substring(root_prefix_len + usize(1), p.len());
+        segs := rel.split(`/`);
+        (ok : bool) = true;
+        (si : usize) = usize(0);
+        while(runtime((si + usize(1)) < segs.len()), {
+          seg := segs(si);
+          skip := ((((((seg == "node_modules") || (seg == ".git")) || (seg == "dist")) || (seg == "yo-out")) || (seg == "build")) || seg.starts_with(`.`));
+          if(skip, {
+            ok = false;
+          });
+          si = (si + usize(1));
+        });
+        if(ok, {
+          // Label with TS's path.join(root, rel) shape: bare `rel` for `.`.
+          collected.push(if(is_dot, rel.clone(), p.clone()));
+        });
+      });
+      i = (i + usize(1));
+    });
+    // Sort for determinism (TS's readdirSync order is name-sorted; the
+    // walker returns raw directory order). NOTE: this is full-path
+    // lexicographic, which can diverge from TS's preorder-with-sorted-
+    // children when a directory name collides with a file-name prefix
+    // (e.g. `b/` vs `b.yo`) — acceptable for an audit listing.
+    collected.sort();
+    (ci : usize) = usize(0);
+    while(runtime(ci < collected.len()), {
+      out.push(collected(ci).clone());
+      ci = (ci + usize(1));
+    });
+    ()
+  })
+);
+/// Generate the report for every .yo file under `root_path`. Mirrors
+/// `generateUnsafeReport`.
+generate_unsafe_report :: (fn(root_path : String, io : Io, exn : Exception) -> Impl(Future(UnsafeReport, IoExn)))(
+  io.async((e : IoExn) => {
+    yo_files := ArrayList(String).new();
+    e.io.await(_walk_yo_files(root_path.clone(), yo_files, e.io, e.exn), e);
+    privileged_files := ArrayList(String).new();
+    findings := ArrayList(UnsafeFinding).new();
+    // First pass: read every file once; harvest extern "c" names.
+    file_srcs := ArrayList(String).new();
+    (fi : usize) = usize(0);
+    while(fi < yo_files.len(), {
+      src := e.io.await(fs_file.read_string(Path.new(yo_files(fi).clone()), e.io), e);
+      file_srcs.push(src);
+      fi = (fi + usize(1));
+    });
+    extern_c_fns := _harvest_extern_c_fns(file_srcs);
+    (f2 : usize) = usize(0);
+    while(f2 < yo_files.len(), {
+      file := yo_files(f2);
+      src := file_srcs(f2);
+      src_bytes := src.as_bytes();
+      lines := src.split(`\n`);
+      prev := ArrayList(String).new();
+      (has_pragma : bool) = false;
+      (line_start : usize) = usize(0);
+      (li : usize) = usize(0);
+      while(li < lines.len(), {
+        raw_line := lines(li);
+        line_findings := _scan_line(file.clone(), li + usize(1), raw_line.clone(), prev, extern_c_fns, src_bytes, line_start);
+        (lf : usize) = usize(0);
+        while(lf < line_findings.len(), {
+          f := line_findings(lf);
+          if(f.kind == "pragma", {
+            has_pragma = true;
+          }, {
+            findings.push(f);
+          });
+          lf = (lf + usize(1));
+        });
+        prev.push(raw_line.clone());
+        if(prev.len() > usize(8), {
+          _removed := prev.remove(usize(0));
+        });
+        line_start = ((line_start + raw_line.as_bytes().len()) + usize(1));
+        li = (li + usize(1));
+      });
+      if(has_pragma, {
+        privileged_files.push(file.clone());
+      });
+      f2 = (f2 + usize(1));
+    });
+    // Totals + top extern callees.
+    (n_extern_call : usize) = usize(0);
+    (n_deref : usize) = usize(0);
+    (n_arith : usize) = usize(0);
+    (n_addr_of : usize) = usize(0);
+    (n_other : usize) = usize(0);
+    (n_unsafe : usize) = usize(0);
+    (n_asm : usize) = usize(0);
+    (n_extern : usize) = usize(0);
+    callee_names := ArrayList(String).new();
+    callee_counts := HashMap(String, usize).new();
+    (ci : usize) = usize(0);
+    while(ci < findings.len(), {
+      f := findings(ci);
+      cond(
+        (f.kind == "unsafe") => {
+          n_unsafe = (n_unsafe + usize(1));
+          sk := match(f.sub_kind, .Some(s) => s.clone(), .None => String.from("other"));
+          cond(
+            (sk == "extern-call") => {
+              n_extern_call = (n_extern_call + usize(1));
+            },
+            (sk == "deref") => {
+              n_deref = (n_deref + usize(1));
+            },
+            (sk == "arith") => {
+              n_arith = (n_arith + usize(1));
+            },
+            (sk == "addr-of") => {
+              n_addr_of = (n_addr_of + usize(1));
+            },
+            true => {
+              n_other = (n_other + usize(1));
+            }
+          );
+          match(
+            f.callee_name,
+            .Some(callee) => {
+              prev_count := callee_counts.get(callee.clone()).unwrap_or(usize(0));
+              if(prev_count == usize(0), {
+                callee_names.push(callee.clone());
+              });
+              callee_counts.set(callee.clone(), prev_count + usize(1));
+            },
+            .None => ()
+          );
+        },
+        (f.kind == "asm") => {
+          n_asm = (n_asm + usize(1));
+        },
+        (f.kind == "extern") => {
+          n_extern = (n_extern + usize(1));
+        },
+        true => ()
+      );
+      ci = (ci + usize(1));
+    });
+    // Sort callees by count descending; STABLE on the first-seen order for
+    // ties (TS sorts the insertion-ordered entries). Stable selection sort:
+    // repeatedly take the FIRST remaining entry with the maximum count.
+    top := ArrayList(ExternCallee).new();
+    remaining := ArrayList(String).new();
+    (ui : usize) = usize(0);
+    while(ui < callee_names.len(), {
+      remaining.push(callee_names(ui).clone());
+      ui = (ui + usize(1));
+    });
+    while(remaining.len() > usize(0), {
+      (best : usize) = usize(0);
+      (best_count : usize) = callee_counts.get(remaining(usize(0)).clone()).unwrap_or(usize(0));
+      (ti : usize) = usize(1);
+      while(ti < remaining.len(), {
+        count := callee_counts.get(remaining(ti).clone()).unwrap_or(usize(0));
+        if(count > best_count, {
+          best = ti;
+          best_count = count;
+        });
+        ti = (ti + usize(1));
+      });
+      top.push(ExternCallee(callee : remaining(best).clone(), count : best_count));
+      _removed := remaining.remove(best);
+    });
+    UnsafeReport(
+      privileged_files : privileged_files,
+      findings : findings,
+      totals : UnsafeTotals(
+        files_scanned : yo_files.len(),
+        privileged : privileged_files.len(),
+        unsafe_sites : n_unsafe,
+        unsafe_extern_call : n_extern_call,
+        unsafe_deref : n_deref,
+        unsafe_arith : n_arith,
+        unsafe_addr_of : n_addr_of,
+        unsafe_other : n_other,
+        asm_sites : n_asm,
+        extern_sites : n_extern
+      ),
+      top_extern_callees : top
+    )
+  })
+);
+/// Format the report for human consumption. Mirrors `formatUnsafeReport`
+/// line for line.
+format_unsafe_report :: (fn(report : UnsafeReport) -> String)({
+  out := StringBuilder.new();
+  out.write_str("Unsafe surface report\n");
+  out.write_str("=====================\n");
+  out.write_str("\n");
+  out.write_string(`Scanned ${report.totals.files_scanned} .yo file(s); ${report.totals.privileged} declare pragma(Pragma.AllowUnsafe);.\n`);
+  out.write_string(`  unsafe(...) sites: ${report.totals.unsafe_sites}\n`);
+  out.write_string(`    extern-call: ${report.totals.unsafe_extern_call}\n`);
+  out.write_string(`    deref:       ${report.totals.unsafe_deref}\n`);
+  out.write_string(`    arith:       ${report.totals.unsafe_arith}\n`);
+  out.write_string(`    addr-of:     ${report.totals.unsafe_addr_of}\n`);
+  out.write_string(`    other:       ${report.totals.unsafe_other}\n`);
+  out.write_string(`  asm(...) sites:    ${report.totals.asm_sites}\n`);
+  out.write_string(`  extern(...) sites: ${report.totals.extern_sites}\n`);
+  out.write_str("\n");
+  if(report.top_extern_callees.len() > usize(0), {
+    top_n := if(report.top_extern_callees.len() > usize(15), usize(15), report.top_extern_callees.len());
+    out.write_str("Top extern callees (by unsafe-wrapped call-site count):\n");
+    (i : usize) = usize(0);
+    while(i < top_n, {
+      entry := report.top_extern_callees(i);
+      count_str := `${entry.count}`;
+      out.write_str("  ");
+      (pad : usize) = count_str.len();
+      while(pad < usize(4), {
+        out.write_str(" ");
+        pad = (pad + usize(1));
+      });
+      out.write_string(`${count_str}  ${entry.callee}\n`);
+      i = (i + usize(1));
+    });
+    if(report.top_extern_callees.len() > top_n, {
+      out.write_string(`  ... and ${report.top_extern_callees.len() - top_n} more callee(s)\n`);
+    });
+    out.write_str("\n");
+  });
+  if(report.findings.len() > usize(0), {
+    out.write_str("Findings (file:line:col):\n");
+    (i : usize) = usize(0);
+    while(i < report.findings.len(), {
+      f := report.findings(i);
+      label := if(
+        f.kind == "unsafe",
+        match(
+          f.callee_name,
+          .Some(callee) => `unsafe(extern-call:${callee})`,
+          .None => `unsafe(${match(f.sub_kind, .Some(s) => s.clone(), .None => String.from("other"))})`
+        ),
+        `${f.kind}()`
+      );
+      out.write_string(`  ${f.file}:${f.line.to_string()}:${f.column.to_string()}: ${label} — ${f.snippet}\n`);
+      match(
+        f.safety_comment,
+        .Some(sc) => out.write_string(`    ${sc}\n`),
+        .None => ()
+      );
+      i = (i + usize(1));
+    });
+    out.write_str("\n");
+  });
+  if(report.privileged_files.len() > usize(0), {
+    out.write_str("Privileged files (declare pragma):\n");
+    (i : usize) = usize(0);
+    while(i < report.privileged_files.len(), {
+      out.write_string(`  ${report.privileged_files(i)}\n`);
+      i = (i + usize(1));
+    });
+  });
+  (s : String) = out.to_string();
+  // TS joins with \n and never ends with a newline; strip the trailing ones
+  // the per-line writes above accumulate.
+  while(runtime(s.ends_with(`\n`)), {
+    s = s.substring(usize(0), s.len() - usize(1));
+  });
+  s
+});
+/// JSON string escaping (same shape as doc/render_html.yo's _json_str —
+/// duplicated because unsafe_report is a leaf CLI module).
+_json_str :: (fn(text : String) -> String)({
+  out := String.from("\"");
+  bytes := text.as_bytes();
+  n := bytes.len();
+  (i : usize) = usize(0);
+  while(runtime(i < n), {
+    b := match(bytes.get(i), .Some(x) => x, .None => u8(0));
+    cond(
+      (b == u8(34)) => out.push_str("\\\""),
+      (b == u8(92)) => out.push_str("\\\\"),
+      (b == u8(10)) => out.push_str("\\n"),
+      (b == u8(13)) => out.push_str("\\r"),
+      (b == u8(9)) => out.push_str("\\t"),
+      (b == u8(8)) => out.push_str("\\b"),
+      (b == u8(12)) => out.push_str("\\f"),
+      (b < u8(32)) => {
+        hex := `0123456789abcdef`;
+        hb := hex.as_bytes();
+        out.push_str("\\u00");
+        out.push_byte(match(hb.get(usize(b / u8(16))), .Some(x) => x, .None => u8(48)));
+        out.push_byte(match(hb.get(usize(b % u8(16))), .Some(x) => x, .None => u8(48)));
+      },
+      true => out.push_byte(b)
+    );
+    i = (i + usize(1));
+  });
+  out.push_str("\"");
+  out
+});
+/// Machine-readable report — byte-for-byte `JSON.stringify(report, null, 2)`
+/// of the TS shape: camelCase keys in declaration order, optional fields
+/// OMITTED when absent (undefined never serializes). Mirrors the `--json`
+/// arm of the `unsafe-report` subcommand.
+unsafe_report_to_json :: (fn(report : UnsafeReport) -> String)({
+  out := StringBuilder.new();
+  out.write_str("{\n  \"privilegedFiles\": [");
+  (i : usize) = usize(0);
+  while(runtime(i < report.privileged_files.len()), {
+    if(i > usize(0), {
+      out.write_str(",");
+    });
+    out.write_string(`\n    ${_json_str(report.privileged_files(i).clone())}`);
+    i = (i + usize(1));
+  });
+  if(report.privileged_files.len() > usize(0), {
+    out.write_str("\n  ");
+  });
+  out.write_str("],\n  \"findings\": [");
+  (fi : usize) = usize(0);
+  while(runtime(fi < report.findings.len()), {
+    f := report.findings(fi);
+    if(fi > usize(0), {
+      out.write_str(",");
+    });
+    out.write_string(`\n    {\n      "file": ${_json_str(f.file.clone())},\n      "line": ${f.line},\n      "column": ${f.column},\n      "kind": ${_json_str(f.kind.clone())}`);
+    match(
+      f.sub_kind,
+      .Some(sk) => out.write_string(`,\n      "subKind": ${_json_str(sk.clone())}`),
+      .None => ()
+    );
+    match(
+      f.callee_name,
+      .Some(cn) => out.write_string(`,\n      "calleeName": ${_json_str(cn.clone())}`),
+      .None => ()
+    );
+    out.write_string(`,\n      "snippet": ${_json_str(f.snippet.clone())}`);
+    match(
+      f.safety_comment,
+      .Some(sc) => out.write_string(`,\n      "safetyComment": ${_json_str(sc.clone())}`),
+      .None => ()
+    );
+    out.write_str("\n    }");
+    fi = (fi + usize(1));
+  });
+  if(report.findings.len() > usize(0), {
+    out.write_str("\n  ");
+  });
+  out.write_str("],\n  \"totals\": {\n");
+  out.write_string(`    "filesScanned": ${report.totals.files_scanned},\n`);
+  out.write_string(`    "privileged": ${report.totals.privileged},\n`);
+  out.write_string(`    "unsafeSites": ${report.totals.unsafe_sites},\n`);
+  out.write_str("    \"unsafeBySubKind\": {\n");
+  out.write_string(`      "extern-call": ${report.totals.unsafe_extern_call},\n`);
+  out.write_string(`      "deref": ${report.totals.unsafe_deref},\n`);
+  out.write_string(`      "arith": ${report.totals.unsafe_arith},\n`);
+  out.write_string(`      "addr-of": ${report.totals.unsafe_addr_of},\n`);
+  out.write_string(`      "other": ${report.totals.unsafe_other}\n`);
+  out.write_str("    },\n");
+  out.write_string(`    "asmSites": ${report.totals.asm_sites},\n`);
+  out.write_string(`    "externSites": ${report.totals.extern_sites}\n`);
+  out.write_str("  },\n  \"topExternCallees\": [");
+  (ti : usize) = usize(0);
+  while(runtime(ti < report.top_extern_callees.len()), {
+    entry := report.top_extern_callees(ti);
+    if(ti > usize(0), {
+      out.write_str(",");
+    });
+    out.write_string(`\n    {\n      "callee": ${_json_str(entry.callee.clone())},\n      "count": ${entry.count}\n    }`);
+    ti = (ti + usize(1));
+  });
+  if(report.top_extern_callees.len() > usize(0), {
+    out.write_str("\n  ");
+  });
+  out.write_str("]\n}");
+  out.to_string()
+});
+export(
+  UnsafeFinding,
+  UnsafeTotals,
+  ExternCallee,
+  UnsafeReport,
+  generate_unsafe_report,
+  format_unsafe_report,
+  unsafe_report_to_json
+);

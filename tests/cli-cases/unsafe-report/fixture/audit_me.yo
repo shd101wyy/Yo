@@ -1,0 +1,12 @@
+pragma(Pragma.AllowUnsafe);
+open(import("std/string"));
+{ malloc, free } :: import("std/libc/stdlib");
+bump :: (fn(p : *(i32)) -> i32)({
+  // SAFETY: p points at a live i32 owned by the caller.
+  v := unsafe(p.*);
+  q := unsafe(p.add(usize(1)));
+  r := &(v);
+  s := unsafe(r.*);
+  v + s
+});
+export(bump);

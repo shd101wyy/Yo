@@ -1,3 +1,13 @@
+open(import("std/string"));
 open(import("std/fmt"));
-main :: (fn() -> unit)(println("scratch"));
+{ Path } :: import("std/path");
+{ exists } :: import("std/fs/file");
+{ metadata } :: import("std/fs/metadata");
+{ Exception, IoExn } :: import("std/error");
+main :: (fn(io : Io, exn : Exception) -> unit)({
+  p := Path.new(String.from("."));
+  println(`path str: '${p.to_string()}'`);
+  e := io.await(exists(p, io), io);
+  println(`exists('.'): ${e}`);
+});
 export(main);
