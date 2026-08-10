@@ -201,19 +201,28 @@ the existing npm/vsce/Pages release, a matrix over `linux-x64` /
 `macos-arm64` / `windows-x64` builds the self-hosted binary with the TS
 compiler (`node out/cjs/yo-cli.cjs compile yo-self/main.yo --release
 --allocator mimalloc` — the fixpoint-proven configuration), assembles
-`yo-v<version>-<os>-<arch>.tar.gz` (= `bin/yo` + `std/` + LICENSE; init
-templates are inline in the binary), smoke-tests it from OUTSIDE the checkout
-(compile + run hello with `YO_STD` pointed at the bundled std), and attaches
-it to the GitHub Release via `gh release upload`. The release body documents
-the trust chain. Notes:
+`yo-v<version>-<os>-<arch>.tar.gz` (= `bin/yo` + `std/` + `vendor/mimalloc/`
 
-- The Windows leg is `experimental: true` (first native-Windows build of the
+- LICENSE; init templates are inline in the binary; vendor/ ships because
+  both compilers resolve mimalloc as `dirname(std)/vendor` and the self-hosted
+  binary passes those paths to clang unconditionally under `--allocator
+mimalloc`), smoke-tests it from OUTSIDE the checkout
+  (compile + run hello with `YO_STD` pointed at the bundled std), and attaches
+  it to the GitHub Release via `gh release upload`. The release body documents
+  the trust chain. Notes:
+
+* The Windows leg is `experimental: true` (first native-Windows build of the
   self-hosted compiler) — a red Windows build does not block the seed.
-- Linux bundle is glibc + liburing dynamic; static musl is Phase 3, not 2.1.
-- Minting the seed = the maintainer running the Release workflow_dispatch as
+* Linux bundle is glibc + liburing dynamic; static musl is Phase 3, not 2.1.
+* Minting the seed = the maintainer running the Release workflow_dispatch as
   usual; nothing else changed in the release flow.
-- 2.3 consumes it: replace each CI job's bun/node setup with "download pinned
-  seed tarball → extract → PATH + `YO_STD` → `yo build`".
+* 2.3 consumes it: replace each CI job's bun/node setup with "download pinned
+  seed tarball → extract → PATH → `yo build`". `YO_STD` is optional since the
+  std-resolution rework (2026-08-10): the binary self-locates a `std/` sibling
+  of (or ancestor of) its own directory via `std/env.current_exe()`, and a
+  `--std-path` flag overrides everything (order: `--std-path` → `YO_STD` →
+  exe-relative walk-up → `./std`; mirrored in `module-manager.ts`
+  `findStdDirectory` and `module_manager.yo` `resolve_std_path`).
 
 ## Sequencing note
 

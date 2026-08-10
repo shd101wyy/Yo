@@ -138,8 +138,8 @@ jobs:
             ## Native bundles (bootstrap seed chain)
             The `yo-v*-<os>-<arch>.tar.gz` assets attached below are the self-hosted
             compiler built by the TypeScript compiler at this release's commit
-            (`bin/yo` + `std/` + LICENSE). See `plans/SELF_HOSTING_COMPLETION.md`
-            Phase 2 for the trust chain.
+            (`bin/yo` + `std/` + `vendor/mimalloc/` + LICENSE). See
+            `plans/SELF_HOSTING_COMPLETION.md` Phase 2 for the trust chain.
           draft: false
           prerelease: false
           files: ${{ steps.create_vsix.outputs.vsixPath }}
@@ -161,8 +161,9 @@ jobs:
   # and plans/P2_RETIRE_SRC.md. The TypeScript compiler builds the native
   # self-hosted binary "one last time" per platform; the tarballs attached to
   # the release are what the 2.3 CI migration downloads instead of setting up
-  # bun/node. Bundle layout: <name>/bin/yo, <name>/std/, <name>/LICENSE.md
-  # (init templates are generated inline by the binary — nothing to ship).
+  # bun/node. Bundle layout: <name>/bin/yo, <name>/std/, <name>/vendor/mimalloc/,
+  # <name>/LICENSE.md (init templates are generated inline by the binary —
+  # nothing else to ship).
   # CI consumers extract it, put bin/ on PATH, and set YO_STD to the bundled
   # std/. The Linux bundle is glibc + liburing dynamic for now — the
   # static-musl user-facing story is Phase 3 (distribution), not the seed.
@@ -240,6 +241,13 @@ jobs:
           mkdir -p "$BUNDLE/bin"
           if [ -f yo-seed.exe ]; then cp yo-seed.exe "$BUNDLE/bin/yo.exe"; else cp yo-seed "$BUNDLE/bin/yo"; fi
           cp -R std "$BUNDLE/std"
+          # vendor/mimalloc must ship as a SIBLING of std: both compilers
+          # resolve it as dirname(std)/vendor, and mimalloc is the DEFAULT
+          # allocator — the self-hosted binary passes the vendor paths to
+          # clang unconditionally, so a bundle without it cannot compile
+          # anything with the default allocator.
+          mkdir -p "$BUNDLE/vendor"
+          cp -R vendor/mimalloc "$BUNDLE/vendor/mimalloc"
           cp LICENSE.md "$BUNDLE/"
           tar -czf "$BUNDLE.tar.gz" "$BUNDLE"
           echo "BUNDLE=$BUNDLE" >> $GITHUB_ENV
