@@ -64,6 +64,7 @@ open(import("std/string"));
   type_id_or_empty
 } :: import("./type_trait_methods.yo");
 { FuncMeta, TypeValue } :: import("../../types/definitions.yo");
+{ type_to_string } :: import("../../types/string.yo");
 { t_unit, t_type, t_some_t, t_usize } :: import("../../types/creators.yo");
 { is_some_type, is_function_type, is_expr_type } :: import("../../types/guards.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
@@ -1448,6 +1449,227 @@ find_associated_type_from_generic_impls :: (
 // Install the in-module forward hook (see g_find_assoc_from_impls_fn above
 // try_match_generic_impl).
 g_find_assoc_from_impls_fn = Option(FindAssocFromImplsFn).Some(find_associated_type_from_generic_impls);
+// ---------------------------------------------------------------------------
+// Generic-impl DOC entries — the `yo doc` builder's view of the registry.
+// Mirrors `GenericImplDocEntry` / `formatGenericImplSignature` /
+// `getGenericImplDocEntries` (src/evaluator/values/impl.ts:1788-1903).
+// ---------------------------------------------------------------------------
+/// One matched generic impl, formatted for documentation. TS carries
+/// `methods: {name, type}[]`; yo-self splits it into the parallel
+/// `method_names` / `method_types` arrays.
+GenericImplDocEntry :: struct(
+  signature : String,
+  trait_name : Option(String),
+  method_names : ArrayList(String),
+  method_types : ArrayList(TypeValue)
+);
+/// Mirrors `getReceiverBaseTypeId` (impl.ts:1057): the constructor function id
+/// when the type carries one (TS `functionValue.funcId`), else the type's own
+/// `id`; "" when it has neither.
+_receiver_base_type_id_for_doc :: (fn(t : TypeValue) -> String)(
+  match(
+    t,
+    .Struct({ id, constructor_func_id }) => if(
+      constructor_func_id.len() > usize(0),
+      constructor_func_id.clone(),
+      id.clone()
+    ),
+    .EnumT({ id }) => id.clone(),
+    .TraitT({ id }) => id.clone(),
+    .SomeT({ id }) => id.clone(),
+    _ => String.from("")
+  )
+);
+/// The nominal name of a named type, "" otherwise. Mirrors TS's
+/// `"typeName" in type ? type.typeName : undefined` reads in the doc-entry walk.
+_type_name_for_doc :: (fn(t : TypeValue) -> String)(
+  match(
+    t,
+    .Struct({ name }) => name.clone(),
+    .EnumT({ name }) => name.clone(),
+    .Union({ name }) => name.clone(),
+    .TraitT({ name }) => name.clone(),
+    _ => String.from("")
+  )
+);
+/// Mirrors `formatGenericImplSignature` (impl.ts:1795). TS distinguishes
+/// type-kind forall params (`typeToString(param.someType.parentType)`) from
+/// value-kind ones (`typeToString(param.type)`); yo-self keeps both as SomeT
+/// whose `parent_type` IS that meta-type, so one arm covers both kinds.
+_format_generic_impl_signature :: (fn(entry : GenericImplEntry) -> String)({
+  parts := ArrayList(String).new();
+  if(entry.forall_names.len() > usize(0), {
+    fa_parts := ArrayList(String).new();
+    (fi : usize) = usize(0);
+    while(fi < entry.forall_names.len(), {
+      fa_name := match(entry.forall_names.get(fi), .Some(n) => n, .None => String.from(""));
+      fa_ty := match(
+        entry.forall_some_types.get(fi),
+        .Some(s) => match(
+          s,
+          .SomeT({ parent_type }) => type_to_string(parent_type),
+          _ => type_to_string(s)
+        ),
+        .None => String.from("")
+      );
+      fa_parts.push(`${fa_name} : ${fa_ty}`);
+      fi = (fi + usize(1));
+    });
+    parts.push(`generic(${String.from(", ").join(fa_parts)})`);
+  });
+  if(entry.where_constraint_some_types.len() > usize(0), {
+    w_parts := ArrayList(String).new();
+    (wi : usize) = usize(0);
+    while(wi < entry.where_constraint_some_types.len(), {
+      w_name := match(
+        entry.where_constraint_some_types.get(wi),
+        .Some(ws) => match(ws, .SomeT({ name }) => name.clone(), _ => type_to_string(ws)),
+        .None => String.from("")
+      );
+      w_trait := match(
+        entry.where_constraint_traits.get(wi),
+        .Some(wt) => type_to_string(wt),
+        .None => String.from("")
+      );
+      w_parts.push(`${w_name} <: ${w_trait}`);
+      wi = (wi + usize(1));
+    });
+    parts.push(`where(${String.from(", ").join(w_parts)})`);
+  });
+  parts.push(type_to_string(entry.receiver_type_pattern));
+  if(_type_name_for_doc(entry.trait_type).len() > usize(0), {
+    parts.push(type_to_string(entry.trait_type));
+  });
+  `impl(${String.from(", ").join(parts)})`
+});
+/// Mirrors `getGenericImplDocEntries` (impl.ts:1830). `receiver_type_name` is
+/// "" for TS's absent optional. Method lists come from the TRAIT type's fields
+/// (TS reads `impl.traitType.fields`); yo-self stores an anonymous impl's
+/// trait_type as Unit with the fields on the entry itself, so the non-TraitT
+/// arm reads `entry.field_names` / `field_types` — the same members TS finds
+/// on its synthesized anonymous TraitType.
+get_generic_impl_doc_entries :: (
+  fn(
+    concrete_type : TypeValue,
+    env : Environment,
+    receiver_type_name : String
+  ) -> ArrayList(GenericImplDocEntry)
+)({
+  (resolved : TypeValue) = concrete_type;
+  if(is_some_type(concrete_type), {
+    r := get_value_of_some_type_from_env(env, concrete_type);
+    if(!(is_some_type(r)), {
+      resolved = r;
+    });
+  });
+  results := ArrayList(GenericImplDocEntry).new();
+  seen := ArrayList(String).new();
+  concrete_base_id := _receiver_base_type_id_for_doc(resolved);
+  concrete_name := _type_name_for_doc(resolved);
+  wanted_name := if(receiver_type_name.len() > usize(0), receiver_type_name.clone(), concrete_name.clone());
+  n_keys := g_impl_registry_keys.len();
+  (ki : usize) = usize(0);
+  while(ki < n_keys, {
+    // No `continue` in these registry loops — see
+    // issues/codegen-continue-in-while-heap-corruption.md.
+    entry_list := match(
+      g_impl_registry_entry_lists.get(ki),
+      .Some(l) => l,
+      .None => ArrayList(GenericImplEntry).new()
+    );
+    n_entries := entry_list.len();
+    (ei : usize) = usize(0);
+    while(ei < n_entries, {
+      match(
+        entry_list.get(ei),
+        .Some(entry) => {
+          (matched : bool) = try_match_generic_impl(resolved, entry, env).is_some();
+          if(!(matched) && (concrete_base_id.len() > usize(0)), {
+            if(_receiver_base_type_id_for_doc(entry.receiver_type_pattern) == concrete_base_id, {
+              matched = true;
+            });
+          });
+          if(!(matched) && (wanted_name.len() > usize(0)), {
+            if(_type_name_for_doc(entry.receiver_type_pattern) == wanted_name, {
+              matched = true;
+            });
+          });
+          if(matched, {
+            method_names := ArrayList(String).new();
+            method_types := ArrayList(TypeValue).new();
+            match(
+              entry.trait_type,
+              .TraitT({ field_labels, field_types }) => {
+                (mi : usize) = usize(0);
+                while(mi < field_labels.len(), {
+                  m_label := match(field_labels.get(mi), .Some(l) => l, .None => String.from(""));
+                  m_type := match(field_types.get(mi), .Some(t) => Option(TypeValue).Some(t), .None => Option(TypeValue).None);
+                  match(
+                    m_type,
+                    .Some(mt) => if((m_label.len() > usize(0)) && is_function_type(mt), {
+                      method_names.push(m_label.clone());
+                      method_types.push(mt);
+                    }),
+                    .None => ()
+                  );
+                  mi = (mi + usize(1));
+                });
+              },
+              _ => {
+                (mi : usize) = usize(0);
+                while(mi < entry.field_names.len(), {
+                  m_label := match(entry.field_names.get(mi), .Some(l) => l, .None => String.from(""));
+                  m_type := match(entry.field_types.get(mi), .Some(t) => Option(TypeValue).Some(t), .None => Option(TypeValue).None);
+                  match(
+                    m_type,
+                    .Some(mt) => if((m_label.len() > usize(0)) && is_function_type(mt), {
+                      method_names.push(m_label.clone());
+                      method_types.push(mt);
+                    }),
+                    .None => ()
+                  );
+                  mi = (mi + usize(1));
+                });
+              }
+            );
+            signature := _format_generic_impl_signature(entry);
+            // TS dedup key: `${signature}\0${methodNames.join("\0")}`.
+            nul_sep := `\0`;
+            key := `${signature}\0${nul_sep.join(method_names)}`;
+            (already : bool) = false;
+            (si : usize) = usize(0);
+            while((si < seen.len()) && !(already), {
+              if(match(seen.get(si), .Some(s) => (s == key), .None => false), {
+                already = true;
+              });
+              si = (si + usize(1));
+            });
+            if(!(already), {
+              seen.push(key.clone());
+              trait_nm := _type_name_for_doc(entry.trait_type);
+              (trait_name_opt : Option(String)) = Option(String).None;
+              if(trait_nm.len() > usize(0), {
+                trait_name_opt = Option(String).Some(trait_nm.clone());
+              });
+              results.push(
+                GenericImplDocEntry(
+                  signature : signature,
+                  trait_name : trait_name_opt,
+                  method_names : method_names,
+                  method_types : method_types
+                )
+              );
+            });
+          });
+        },
+        .None => ()
+      );
+      ei = (ei + usize(1));
+    });
+    ki = (ki + usize(1));
+  });
+  results
+});
 /// Resolve a trait-name expression to its base `TraitT` TypeValue
 /// by env lookup. Handles both atom names (e.g. `LogicalNot`) and
 /// parametric trait shapes (`ComptimeAdd(comptime_int)` →
@@ -3293,3 +3515,4 @@ export(is_concrete_impl_being_registered);
 export(mark_concrete_impl_being_registered);
 export(unmark_concrete_impl_being_registered);
 export(has_negative_impl);
+export(GenericImplDocEntry, get_generic_impl_doc_entries);

@@ -34,6 +34,7 @@ import {
   getRuntimeStructFields,
   getTypeString,
   sanitizeForCIdentifier,
+  quoteCString,
 } from "../utils";
 
 /**
@@ -102,6 +103,14 @@ export function generateComptimeValue(
       return str + "ULL";
     }
     if (value.tag === ValueTag.I64 || value.tag === ValueTag.Isize) {
+      // `-9223372036854775808LL` is NOT a valid signed literal in C: the
+      // digits 9223372036854775808 don't fit long long, so clang types the
+      // literal `unsigned long long` (-Wimplicitly-unsigned-literal, hidden
+      // by -w) and any comparison it is inlined into silently goes UNSIGNED.
+      // Emit the portable INT64_MIN idiom instead.
+      if (str === "-9223372036854775808") {
+        return "(-9223372036854775807LL - 1)";
+      }
       return str + "LL";
     }
     if (value.tag === ValueTag.U32) {
@@ -120,7 +129,7 @@ export function generateComptimeValue(
 
     // Builtin str target: emit the fat pointer over the static literal.
     if (targetType && isStrType(targetType)) {
-      const stringLiteral = JSON.stringify(value.value);
+      const stringLiteral = quoteCString(value.value);
       const stringLength = Buffer.byteLength(value.value, "utf8");
       return `(__yo_str){ .ptr = (const uint8_t*)${stringLiteral}, .len = ${stringLength} }`;
     }
@@ -129,13 +138,13 @@ export function generateComptimeValue(
     // recorded conversion becomes the builtin str (branch-value temps,
     // field assignments). Pointer targets were handled above.
     if (!targetType || isComptimeStringType(targetType)) {
-      const stringLiteral = JSON.stringify(value.value);
+      const stringLiteral = quoteCString(value.value);
       const stringLength = Buffer.byteLength(value.value, "utf8");
       return `(__yo_str){ .ptr = (const uint8_t*)${stringLiteral}, .len = ${stringLength} }`;
     }
 
     // For regular strings, return the C string literal with proper escaping
-    return JSON.stringify(value.value);
+    return quoteCString(value.value);
   } else if (isEnumValue(value)) {
     // For enums, check if it's optimized as nullable pointer
     const enumType = value.type;

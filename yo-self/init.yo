@@ -249,6 +249,14 @@ init_project :: (
     println(String.from("    README.md"));
     println(String.from(""));
     println(String.from("  Get started:"));
+    // Echo the directory as the user typed it, but only when it is not already
+    // the cwd (`yo init .`). Mirrors `src/init.ts`.
+    cond(
+      (project_dir.to_string() != Path.new(user_cwd_str.clone()).to_string()) => {
+        println(`    cd ${options.dir}`);
+      },
+      true => ()
+    );
     println(String.from("    yo build run"));
     println(String.from(""));
   })

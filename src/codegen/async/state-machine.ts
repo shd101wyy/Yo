@@ -57,7 +57,7 @@ import { findBundleFieldName } from "../exprs/async";
 import { getDupFunctionForType } from "../exprs/drop-dup";
 import { generateExpr } from "../exprs/expr";
 import type { FunctionGenerationContext } from "../functions/context";
-import { sanitizeForCIdentifier } from "../utils";
+import { sanitizeForCIdentifier, quoteCString } from "../utils";
 import { getTypeString } from "../utils/index";
 import {
   awaitIsWhileCondition,
@@ -838,6 +838,52 @@ export function generateAsyncBlockResumeFunction(
                 `          ASYNC_DEBUG("${asyncBlockId}: Executing remaining code from branch ${branch.index}\\n");`
               );
 
+              // Bind THIS branch's own await result. Several arms share one
+              // await point (only one arm runs, so one suspension state
+              // suffices), so the single pre-switch copy driven by
+              // `prevAwait.targetVariableId` can only name one arm's binding —
+              // every other arm read a zero-initialised field and the program
+              // silently produced `false`/`0`. Skip the arm that the pre-switch
+              // copy already covers, so it is not written twice.
+              if (
+                branch.awaitTargetVariableId &&
+                branch.awaitTargetVariableId !== prevAwait.targetVariableId
+              ) {
+                // Only when the binding really is THIS await point's result. An
+                // arm may contain a second await that suspends into a LATER
+                // state; its binding is that state's business and has a
+                // different type, so copying `await_result_N` into it emits an
+                // invalid C assignment. Types agreeing is the check that tells
+                // the two apart.
+                const branchTargetVar = context.stateMachineVariables?.get(
+                  branch.awaitTargetVariableId
+                );
+                const sameResultType =
+                  branchTargetVar?.type !== undefined &&
+                  getTypeString(branchTargetVar.type, context) ===
+                    getTypeString(prevAwait.resultType, context);
+                // …and the binding must really live in the state struct. A
+                // segment-local that the SM optimization kept out of it has no
+                // field to write ("no member named 'var_N' in struct").
+                if (
+                  sameResultType &&
+                  awaitTargetHasStructField(
+                    branch.awaitTargetVariableId,
+                    crossBoundaryIds,
+                    context
+                  )
+                ) {
+                  const branchTargetField = getStateMachineFieldName(
+                    branch.awaitTargetVariableId,
+                    "local",
+                    context.stateMachineFieldAliases
+                  );
+                  emitter.emitLine(
+                    `          sm->${branchTargetField} = sm->await_result_${prevAwait.index};`
+                  );
+                }
+              }
+
               // If there are remaining expressions, generate them
               if (branch.remainingExprs && branch.remainingExprs.length > 0) {
                 // Set up state machine context for code generation
@@ -1041,163 +1087,33 @@ export function generateAsyncBlockResumeFunction(
             emitter.emitLine(`      }`);
           }
 
-          // Process chained branches (outer cond's remaining code after nested cond's switch)
+          // Process chained branches (outer cond's remaining code after the
+          // nested cond's switch). Placement depends on the layer's dispatch
+          // field:
+          //  - condBranchFieldIndex === prevAwait.index: the field was CLAIMED
+          //    by the nested cond (its write overwrote the outer one), so its
+          //    value cannot gate the layer — run it unconditionally, INSIDE
+          //    the NULL guard (only drops-safe layers are chained this way;
+          //    see the nestedClaimedDispatch diversion in state-code-gen.ts).
+          //  - any other field: the layer belongs to an OUTER cond whose
+          //    dispatch field is still reliable, and it must also run when
+          //    THIS state's await was never submitted (the nested branch was
+          //    not taken) — emitted AFTER the NULL guard closes; see below.
           if (condBranchData.chainedBranches) {
             for (const chainedLayer of condBranchData.chainedBranches) {
-              for (const chainedBranch of chainedLayer.branches) {
-                if (
-                  chainedBranch.hasAwait &&
-                  chainedBranch.remainingExprs &&
-                  chainedBranch.remainingExprs.length > 0
-                ) {
-                  // Set up state machine context for code generation
-                  const previousInStateMachineForChained =
-                    context.inAsyncStateMachine;
-                  const previousStateMachineVariablesForChained =
-                    context.stateMachineVariables;
-                  const previousVariableIdRemappingForChained =
-                    context.variableIdRemapping;
-                  const previousPendingDeferredDropsForChained =
-                    context.pendingDeferredDrops;
-
-                  context.inAsyncStateMachine = { futureType };
-                  context.variableIdRemapping = analysis.variableIdRemapping;
-                  const whileLoopDataForChainedDrops =
-                    functionContext.asyncWhileLoopInfo?.get(prevAwait.index);
-                  context.pendingDeferredDrops = [
-                    ...(chainedBranch.deferredDropExpressions ?? []),
-                    ...(whileLoopDataForChainedDrops?.bodyExpr.$
-                      ?.deferredDropExpressions ?? []),
-                    ...(bodyExpr.$?.deferredDropExpressions ?? []),
-                  ];
-                  const combinedVariablesChained = new Map<
-                    string,
-                    CapturedVariable
-                  >();
-                  for (const v of analysis.capturedVariables) {
-                    combinedVariablesChained.set(v.id, v);
-                  }
-                  if (captureType) {
-                    for (const field of captureType.fields) {
-                      combinedVariablesChained.set(field.label, {
-                        id: field.label,
-                        name: field.label,
-                        type: field.type,
-                        kind: "outer",
-                        isOwningTheSameRcValueAs: undefined,
-                      });
-                    }
-                  }
-                  context.stateMachineVariables = combinedVariablesChained;
-
-                  const hasAdditionalCondAwaitChained =
-                    segment.awaitPoint?.isInsideCond ?? false;
-                  let foundAdditionalAwaitChained = false;
-                  const additionalRemainingExprsChained: Expr[] = [];
-
-                  for (const expr of chainedBranch.remainingExprs) {
-                    if (foundAdditionalAwaitChained) {
-                      additionalRemainingExprsChained.push(expr);
-                      continue;
-                    }
-
-                    if (
-                      hasAdditionalCondAwaitChained &&
-                      exprContainsAwait(expr)
-                    ) {
-                      foundAdditionalAwaitChained = true;
-                      generateRemainingExprFuture(
-                        expr,
-                        segment.awaitPoint!,
-                        analysis,
-                        "      ",
-                        context
-                      );
-                      continue;
-                    }
-
-                    const code = generateExpr(expr, "      ", context);
-                    if (
-                      !code ||
-                      !expr.$ ||
-                      isTempVariableName(expr.$.env.modulePath, code)
-                    ) {
-                      // Skip
-                    } else {
-                      emitter.emitLine(`      ${code};`);
-                    }
-                  }
-
-                  if (foundAdditionalAwaitChained && segment.awaitPoint) {
-                    const nextIndex = segment.awaitPoint.index;
-                    if (!functionContext.asyncCondBranchInfo) {
-                      functionContext.asyncCondBranchInfo = new Map();
-                    }
-                    const existingChained =
-                      functionContext.asyncCondBranchInfo.get(nextIndex);
-                    if (existingChained) {
-                      if (!existingChained.chainedBranches) {
-                        existingChained.chainedBranches = [];
-                      }
-                      existingChained.chainedBranches.push({
-                        branches: [
-                          {
-                            index: chainedBranch.index,
-                            value: chainedBranch.value,
-                            hasAwait:
-                              additionalRemainingExprsChained.length > 0 ||
-                              additionalRemainingExprsChained.some((e) =>
-                                exprContainsAwait(e)
-                              ),
-                            remainingExprs: additionalRemainingExprsChained,
-                            deferredDropExpressions:
-                              chainedBranch.deferredDropExpressions,
-                          },
-                        ],
-                        condBranchFieldIndex: chainedLayer.condBranchFieldIndex,
-                      });
-                    } else {
-                      functionContext.asyncCondBranchInfo.set(nextIndex, {
-                        branches: [
-                          {
-                            index: chainedBranch.index,
-                            value: chainedBranch.value,
-                            hasAwait:
-                              additionalRemainingExprsChained.length > 0 ||
-                              additionalRemainingExprsChained.some((e) =>
-                                exprContainsAwait(e)
-                              ),
-                            remainingExprs: additionalRemainingExprsChained,
-                            deferredDropExpressions:
-                              chainedBranch.deferredDropExpressions,
-                          },
-                        ],
-                        condBranchFieldIndex: chainedLayer.condBranchFieldIndex,
-                      });
-                    }
-                  } else {
-                    if (chainedBranch.deferredDropExpressions) {
-                      for (const dropExpr of chainedBranch.deferredDropExpressions) {
-                        const dropCode = generateExpr(
-                          dropExpr,
-                          "      ",
-                          context
-                        );
-                        if (dropCode && dropCode.includes("sm->")) {
-                          emitter.emitLine(`      ${dropCode};`);
-                        }
-                      }
-                    }
-                  }
-
-                  context.inAsyncStateMachine =
-                    previousInStateMachineForChained;
-                  context.stateMachineVariables =
-                    previousStateMachineVariablesForChained;
-                  context.variableIdRemapping =
-                    previousVariableIdRemappingForChained;
-                  context.pendingDeferredDrops =
-                    previousPendingDeferredDropsForChained;
+              if (chainedLayer.condBranchFieldIndex === prevAwait.index) {
+                for (const chainedBranch of chainedLayer.branches) {
+                  processChainedBranch(
+                    chainedBranch,
+                    chainedLayer.condBranchFieldIndex,
+                    segment,
+                    prevAwait,
+                    analysis,
+                    bodyExpr,
+                    captureType,
+                    futureType,
+                    context
+                  );
                 }
               }
             }
@@ -1224,6 +1140,49 @@ export function generateAsyncBlockResumeFunction(
         // Close the isInsideCond NULL guard
         if (prevAwait.isInsideCond) {
           emitter.emitLine(`      }`);
+        }
+
+        // Chained layers from an OUTER cond (field !== prevAwait.index): the
+        // outer branch's remaining code must run even when THIS state's await
+        // was never submitted (the nested branch was not taken), so it lives
+        // OUTSIDE the NULL guard, gated on the outer cond's own dispatch
+        // field. Branch codes start at 1 (allocCondBranchCodes), so the
+        // calloc-zeroed field of a never-taken cond cannot match a case here.
+        if (condBranchData?.chainedBranches) {
+          for (const chainedLayer of condBranchData.chainedBranches) {
+            if (chainedLayer.condBranchFieldIndex === prevAwait.index) {
+              continue;
+            }
+            for (const chainedBranch of chainedLayer.branches) {
+              if (
+                !(
+                  chainedBranch.hasAwait &&
+                  chainedBranch.remainingExprs &&
+                  chainedBranch.remainingExprs.length > 0
+                )
+              ) {
+                continue;
+              }
+              emitter.emitLine(
+                `      // Outer cond branch ${chainedBranch.index} remaining code (chained)`
+              );
+              emitter.emitLine(
+                `      if (sm->cond_branch_${chainedLayer.condBranchFieldIndex} == ${chainedBranch.index}) {`
+              );
+              processChainedBranch(
+                chainedBranch,
+                chainedLayer.condBranchFieldIndex,
+                segment,
+                prevAwait,
+                analysis,
+                bodyExpr,
+                captureType,
+                futureType,
+                context
+              );
+              emitter.emitLine(`      }`);
+            }
+          }
         }
 
         // Check if this await was part of a while loop
@@ -2304,6 +2263,165 @@ export function generateAsyncBlockResumeFunction(
 }
 
 /**
+ * Emits ONE chained branch's remaining code (an outer cond's code that runs
+ * after a nested cond/match claimed the same await point). Shared by the two
+ * placements in generateAsyncBlockResumeFunction: inside the isInsideCond
+ * NULL guard (dispatch-claimed layers, run unconditionally) and after it
+ * (outer-field layers, gated on the outer cond's own dispatch field).
+ */
+function processChainedBranch(
+  chainedBranch: {
+    index: number;
+    value: Expr;
+    hasAwait: boolean;
+    remainingExprs?: Expr[];
+    deferredDropExpressions?: Expr[];
+  },
+  chainedLayerFieldIndex: number,
+  segment: { awaitPoint: AwaitPoint | null },
+  prevAwait: AwaitPoint,
+  analysis: AwaitAnalysisResult,
+  bodyExpr: Expr,
+  captureType: StructType | undefined,
+  futureType: SomeType | DynType,
+  context: FunctionGenerationContext
+): void {
+  const emitter = context.emitter;
+  const functionContext = context;
+  if (
+    chainedBranch.hasAwait &&
+    chainedBranch.remainingExprs &&
+    chainedBranch.remainingExprs.length > 0
+  ) {
+    // Set up state machine context for code generation
+    const previousInStateMachineForChained = context.inAsyncStateMachine;
+    const previousStateMachineVariablesForChained =
+      context.stateMachineVariables;
+    const previousVariableIdRemappingForChained = context.variableIdRemapping;
+    const previousPendingDeferredDropsForChained = context.pendingDeferredDrops;
+
+    context.inAsyncStateMachine = { futureType };
+    context.variableIdRemapping = analysis.variableIdRemapping;
+    const whileLoopDataForChainedDrops =
+      functionContext.asyncWhileLoopInfo?.get(prevAwait.index);
+    context.pendingDeferredDrops = [
+      ...(chainedBranch.deferredDropExpressions ?? []),
+      ...(whileLoopDataForChainedDrops?.bodyExpr.$?.deferredDropExpressions ??
+        []),
+      ...(bodyExpr.$?.deferredDropExpressions ?? []),
+    ];
+    const combinedVariablesChained = new Map<string, CapturedVariable>();
+    for (const v of analysis.capturedVariables) {
+      combinedVariablesChained.set(v.id, v);
+    }
+    if (captureType) {
+      for (const field of captureType.fields) {
+        combinedVariablesChained.set(field.label, {
+          id: field.label,
+          name: field.label,
+          type: field.type,
+          kind: "outer",
+          isOwningTheSameRcValueAs: undefined,
+        });
+      }
+    }
+    context.stateMachineVariables = combinedVariablesChained;
+
+    const hasAdditionalCondAwaitChained =
+      segment.awaitPoint?.isInsideCond ?? false;
+    let foundAdditionalAwaitChained = false;
+    const additionalRemainingExprsChained: Expr[] = [];
+
+    for (const expr of chainedBranch.remainingExprs) {
+      if (foundAdditionalAwaitChained) {
+        additionalRemainingExprsChained.push(expr);
+        continue;
+      }
+
+      if (hasAdditionalCondAwaitChained && exprContainsAwait(expr)) {
+        foundAdditionalAwaitChained = true;
+        generateRemainingExprFuture(
+          expr,
+          segment.awaitPoint!,
+          analysis,
+          "      ",
+          context
+        );
+        continue;
+      }
+
+      const code = generateExpr(expr, "      ", context);
+      if (!code || !expr.$ || isTempVariableName(expr.$.env.modulePath, code)) {
+        // Skip
+      } else {
+        emitter.emitLine(`      ${code};`);
+      }
+    }
+
+    if (foundAdditionalAwaitChained && segment.awaitPoint) {
+      const nextIndex = segment.awaitPoint.index;
+      if (!functionContext.asyncCondBranchInfo) {
+        functionContext.asyncCondBranchInfo = new Map();
+      }
+      const existingChained =
+        functionContext.asyncCondBranchInfo.get(nextIndex);
+      if (existingChained) {
+        if (!existingChained.chainedBranches) {
+          existingChained.chainedBranches = [];
+        }
+        existingChained.chainedBranches.push({
+          branches: [
+            {
+              index: chainedBranch.index,
+              value: chainedBranch.value,
+              hasAwait:
+                additionalRemainingExprsChained.length > 0 ||
+                additionalRemainingExprsChained.some((e) =>
+                  exprContainsAwait(e)
+                ),
+              remainingExprs: additionalRemainingExprsChained,
+              deferredDropExpressions: chainedBranch.deferredDropExpressions,
+            },
+          ],
+          condBranchFieldIndex: chainedLayerFieldIndex,
+        });
+      } else {
+        functionContext.asyncCondBranchInfo.set(nextIndex, {
+          branches: [
+            {
+              index: chainedBranch.index,
+              value: chainedBranch.value,
+              hasAwait:
+                additionalRemainingExprsChained.length > 0 ||
+                additionalRemainingExprsChained.some((e) =>
+                  exprContainsAwait(e)
+                ),
+              remainingExprs: additionalRemainingExprsChained,
+              deferredDropExpressions: chainedBranch.deferredDropExpressions,
+            },
+          ],
+          condBranchFieldIndex: chainedLayerFieldIndex,
+        });
+      }
+    } else {
+      if (chainedBranch.deferredDropExpressions) {
+        for (const dropExpr of chainedBranch.deferredDropExpressions) {
+          const dropCode = generateExpr(dropExpr, "      ", context);
+          if (dropCode && dropCode.includes("sm->")) {
+            emitter.emitLine(`      ${dropCode};`);
+          }
+        }
+      }
+    }
+
+    context.inAsyncStateMachine = previousInStateMachineForChained;
+    context.stateMachineVariables = previousStateMachineVariablesForChained;
+    context.variableIdRemapping = previousVariableIdRemappingForChained;
+    context.pendingDeferredDrops = previousPendingDeferredDropsForChained;
+  }
+}
+
+/**
  * Generates code to store the future from an await expression found in cond branch remaining expressions.
  * This handles the case where a cond branch has multiple sequential awaits.
  */
@@ -2347,6 +2465,25 @@ function generateRemainingExprFuture(
       );
       emitter.emitLine(`${indent}sm->${futureFieldName} = ${futureCode};`);
     }
+    return;
+  }
+
+  // Handle: if(cond, { await ... }) - `if` is a macro over `cond`; its branch
+  // structure only exists in the expansion, so route through that (otherwise
+  // this falls through to the warning below and the await's future is never
+  // stored — the branch is then silently skipped at runtime).
+  if (
+    expr.tag === ExprTag.FnCall &&
+    exprIsFunctionCallOf(expr, BuiltinKeywords.if) &&
+    expr.$?.macroExpansion
+  ) {
+    generateAwaitExpression(
+      expr.$.macroExpansion,
+      awaitPoint,
+      0,
+      indent,
+      context
+    );
     return;
   }
 
@@ -2461,7 +2598,7 @@ function emitFutureEffectInjectionLine(
 ): void {
   if (usesGenericFutureInterface(futureType, context)) {
     context.emitter.emitLine(
-      `${indent}if (${futureAccess}->__yo_set_effect_fn) ${futureAccess}->__yo_set_effect_fn((void*)${futureAccess}, ${JSON.stringify(fieldLabel)}, (void*)${memberCode});`
+      `${indent}if (${futureAccess}->__yo_set_effect_fn) ${futureAccess}->__yo_set_effect_fn((void*)${futureAccess}, ${quoteCString(fieldLabel)}, (void*)${memberCode});`
     );
     return;
   }

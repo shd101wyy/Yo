@@ -1,0 +1,35 @@
+//! Build the Yo compiler with its own build system.
+//!
+//! P2.2 of `plans/SELF_HOSTING_COMPLETION.md`: this file makes `yo build` the
+//! canonical way to build the compiler — replacing both `bun run build` (the
+//! TS reference) and the raw `yo-cli compile yo-self/main.yo --release`
+//! invocation — and doubles as the P1 build-system parity acceptance test.
+//!
+//! Steps:
+//!   yo build            → compile the self-hosted compiler (install step)
+//!   yo build test       → run the language suite (NOTE: includes
+//!                         tests/internal — each of its 58 files compiles the
+//!                         whole compiler. TestSuite has no exclude field yet;
+//!                         CI jobs that want the fast suite keep invoking
+//!                         `yo test ./tests --exclude tests/internal`.)
+build :: import("std/build");
+
+// ReleaseSmall maps to plain `-O2` — byte-for-byte the flags of today's
+// canonical `yo-cli compile yo-self/main.yo --release` build (release mode +
+// -O2; see `mapOptimize` in src/build-runner.ts — release-small → "2", and
+// release-safe would instead drop the release flag). NOT Debug: a -O0
+// compiler binary hits the 1 GiB main-stack ceiling on deep comptime
+// recursion (AGENTS.md "Common Pitfalls").
+yo_exe :: build.executable({
+  name : "yo",
+  root : "./yo-self/main.yo",
+  optimize : build.Optimize.ReleaseSmall
+});
+
+tests :: build.test({ name : "language-tests", root : "./tests/" });
+
+install :: build.step("install", "Build the self-hosted compiler");
+install.depend_on(yo_exe);
+
+test_step :: build.step("test", "Run the language test suite");
+test_step.depend_on(tests);

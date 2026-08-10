@@ -92,8 +92,13 @@ export function initProject(options: InitOptions): void {
   console.log(`    README.md`);
   console.log();
   console.log("  Get started:");
-  if (projectDir !== process.cwd()) {
-    console.log(`    cd ${path.relative(process.cwd(), projectDir)}`);
+  // Echo the directory as the user typed it, and compare against the user's cwd
+  // — not `process.cwd()`, which yo-cli may have already changed (that is what
+  // YO_ORIGINAL_CWD exists to record). `path.relative(process.cwd(), …)` was
+  // both a different question and unportable to the self-hosted scaffolder,
+  // which has no `path.relative`.
+  if (projectDir !== path.resolve(userCwd)) {
+    console.log(`    cd ${options.dir}`);
   }
   console.log(`    yo build run`);
   console.log();
@@ -104,6 +109,7 @@ export function initProject(options: InitOptions): void {
 function generateBuildYo(name: string): string {
   return `build :: import("std/build");
 { imports } :: import("./deps.yo");
+{ assert, panic } :: import("std/assert");
 
 mod :: build.module({ name: "${name}", root: "./src/lib.yo" });
 
@@ -155,9 +161,9 @@ export(add);
 }
 
 function generateTestFile(): string {
-  return `test "it works", {
-  assert((1 + 1) == 2, "math is broken");
-};
+  return `test("it works", {
+  assert(((1 + 1) == 2), "math is broken");
+});
 `;
 }
 
@@ -166,7 +172,7 @@ function generateDepsYo(): string {
 // Managed by \`yo install\`. Manual edits are preserved.
 //
 // Usage in build.yo:
-//   { imports } :: import "./deps.yo";
+//   { imports } :: import("./deps.yo");
 //   exe.add_import_list(imports);
 //
 // Add a dependency:

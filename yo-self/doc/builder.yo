@@ -1,0 +1,2605 @@
+//! Doc model builder — combines doc comment extraction with evaluator type
+//! info to produce structured documentation.
+//!
+//! Mirrors `src/doc/builder.ts` — 1:1 port.
+//!
+//! This file currently holds the TOKEN-SCANNING half (everything reachable
+//! from tokens alone: trait-impl extraction, impl-info extraction, the
+//! token-only fallback builder, and cross-references). The evaluator half
+//! (`buildDocModule`) follows in the same file as the port proceeds — see
+//! plans/P1_CLI_PARITY.md §5's worksheet.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
+{ Token, TokenKind } :: import("../token.yo");
+{
+  DocParam,
+  DocField,
+  DocVariant,
+  DocAssociatedType,
+  DocImplAssocType,
+  DocImpl,
+  DocFunction,
+  DocType,
+  DocTrait,
+  DocConstant,
+  DocModule,
+  DocItemKind,
+  DocTraitKind
+} :: import("./model.yo");
+{ DocExtractionResult } :: import("./extractor.yo");
+{ parse_doc_comment } :: import("./sections.yo");
+{ TypeValue } :: import("../types/definitions.yo");
+{
+  is_struct_type,
+  is_enum_type,
+  is_union_type,
+  is_trait_type,
+  is_module_type,
+  is_function_type,
+  is_function_type_and_is_type_function
+} :: import("../types/guards.yo");
+{ type_to_string } :: import("../types/string.yo");
+{ EvalValue, value_to_string } :: import("../value.yo");
+{ Environment } :: import("../env.yo");
+{ MethodEntry, get_type_trait_methods_for_type } :: import("../evaluator/values/type_trait_methods.yo");
+{ GenericImplDocEntry, get_generic_impl_doc_entries } :: import("../evaluator/values/impl.yo");
+{ get_func_param_comptime, get_func_param_defaults } :: import("../evaluator/types/function.yo");
+{ get_func_type } :: import("../function_value.yo");
+// ---------------------------------------------------------------------------
+// Shared small types
+// ---------------------------------------------------------------------------
+/// Parsed section fields shared by DocType, DocTrait, and DocConstant.
+/// Mirrors `DocSections` (builder.ts:91).
+DocSections :: struct(
+  deprecated : Option(String),
+  examples : Option(String)
+);
+/// Per-type info extracted from `impl(...)` token scanning.
+/// Mirrors the `extractImplInfoFromTokens` map value (builder.ts:763).
+TokenImplInfo :: struct(
+  trait_impls : ArrayList(String),
+  impls : ArrayList(DocImpl),
+  methods : ArrayList(DocFunction)
+);
+/// Mirrors `TraitBodyExtraction` (builder.ts:581).
+TraitBodyExtraction :: struct(
+  method_names : ArrayList(String),
+  associated_types : ArrayList(DocImplAssocType),
+  methods : ArrayList(DocFunction)
+);
+// ---------------------------------------------------------------------------
+// Doc-comment helpers
+// ---------------------------------------------------------------------------
+/// Extract deprecated/examples sections from a doc comment string.
+/// Mirrors `extractDocSections` (builder.ts:97). `.None` doc → both `.None`.
+extract_doc_sections :: (fn(doc : Option(String)) -> DocSections)(
+  match(
+    doc,
+    .None => DocSections(deprecated : Option(String).None, examples : Option(String).None),
+    .Some(text) => {
+      parsed := parse_doc_comment(text);
+      DocSections(
+        deprecated : parsed.sections.get(String.from("deprecated")),
+        examples : parsed.sections.get(String.from("examples"))
+      )
+    }
+  )
+);
+/// Build a lookup map from declaration name → doc comment content.
+/// Mirrors `buildDocLookup` (builder.ts:110).
+build_doc_lookup :: (fn(extraction : DocExtractionResult) -> HashMap(String, String))({
+  lookup := HashMap(String, String).new();
+  (i : usize) = usize(0);
+  n := extraction.declarations.len();
+  while(i < n, {
+    match(
+      extraction.declarations.get(i),
+      .Some(assoc) => if(assoc.declaration_name.len() > usize(0), {
+        lookup.set(assoc.declaration_name.clone(), assoc.comment.content.clone());
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  lookup
+});
+// ---------------------------------------------------------------------------
+// Method / trait-name merging
+// ---------------------------------------------------------------------------
+/// Mirrors `mergeMethods` (builder.ts:215): secondary entries whose name a
+/// primary entry already has are dropped.
+merge_methods :: (
+  fn(primary : ArrayList(DocFunction), secondary : ArrayList(DocFunction)) -> ArrayList(DocFunction)
+)({
+  seen := ArrayList(String).new();
+  merged := ArrayList(DocFunction).new();
+  (i : usize) = usize(0);
+  while(i < primary.len(), {
+    match(
+      primary.get(i),
+      .Some(m) => {
+        seen.push(m.name.clone());
+        merged.push(m);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  (j : usize) = usize(0);
+  while(j < secondary.len(), {
+    match(
+      secondary.get(j),
+      .Some(m) => if(!(seen.contains(m.name)), {
+        seen.push(m.name.clone());
+        merged.push(m);
+      }),
+      .None => ()
+    );
+    j = (j + usize(1));
+  });
+  merged
+});
+/// Mirrors `mergeTraitImplNames` (builder.ts:231): `[...new Set([...a, ...b])]`
+/// — dedup preserving first-occurrence order.
+merge_trait_impl_names :: (
+  fn(primary : ArrayList(String), secondary : ArrayList(String)) -> ArrayList(String)
+)({
+  merged := ArrayList(String).new();
+  (i : usize) = usize(0);
+  while(i < primary.len(), {
+    match(
+      primary.get(i),
+      .Some(n) => if(!(merged.contains(n)), {
+        merged.push(n.clone());
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  (j : usize) = usize(0);
+  while(j < secondary.len(), {
+    match(
+      secondary.get(j),
+      .Some(n) => if(!(merged.contains(n)), {
+        merged.push(n.clone());
+      }),
+      .None => ()
+    );
+    j = (j + usize(1));
+  });
+  merged
+});
+// ---------------------------------------------------------------------------
+// Token-scanning primitives
+// ---------------------------------------------------------------------------
+/// Mirrors `isTriviaToken` (builder.ts:477).
+_is_trivia_token :: (fn(token : Token) -> bool)(
+  (token.kind == TokenKind.Whitespace) || (token.kind == TokenKind.SingleLineComment) || (token.kind == TokenKind.MultiLineComment) || (token.kind == TokenKind.DocLineComment) || (token.kind == TokenKind.InnerDocLineComment) || (token.kind == TokenKind.DocBlockComment) || (token.kind == TokenKind.InnerDocBlockComment)
+);
+/// Skip past balanced parentheses starting at `(`. Returns index after `)`.
+/// Mirrors `skipBalancedParens` (builder.ts:464).
+_skip_balanced_parens :: (fn(toks : ArrayList(Token), start : usize) -> usize)({
+  at_lparen := match(
+    toks.get(start),
+    .Some(t) => (t.kind == TokenKind.LParen),
+    .None => false
+  );
+  if(!(at_lparen), {
+    return(start);
+  });
+  (depth : usize) = usize(1);
+  (j : usize) = (start + usize(1));
+  while((j < toks.len()) && (depth > usize(0)), {
+    match(
+      toks.get(j),
+      .Some(t) => {
+        if(t.kind == TokenKind.LParen, {
+          depth = (depth + usize(1));
+        }, {
+          if(t.kind == TokenKind.RParen, {
+            depth = (depth - usize(1));
+          });
+        });
+      },
+      .None => ()
+    );
+    j = (j + usize(1));
+  });
+  j
+});
+/// The source text spanned by tokens [start_index, end_index], trimmed.
+/// Mirrors `sliceTokenText` (builder.ts:489).
+_slice_token_text :: (
+  fn(toks : ArrayList(Token), start_index : usize, end_index : usize) -> String
+)({
+  if((start_index > end_index) || (end_index >= toks.len()), {
+    return(String.new());
+  });
+  start_tok := match(
+    toks.get(start_index),
+    .Some(t) => t,
+    .None => {
+      return(String.new());
+    }
+  );
+  end_tok := match(
+    toks.get(end_index),
+    .Some(t) => t,
+    .None => {
+      return(String.new());
+    }
+  );
+  start := start_tok.character;
+  end := (end_tok.character + end_tok.value.len());
+  end_tok.input.substring(start, end).trim()
+});
+/// Skip one comma-delimited argument at any nesting depth. Returns the index
+/// of the delimiter that ended it. Mirrors `skipDelimitedArgument`
+/// (builder.ts:503).
+_skip_delimited_argument :: (fn(toks : ArrayList(Token), start : usize) -> usize)({
+  (paren_depth : usize) = usize(0);
+  (bracket_depth : usize) = usize(0);
+  (brace_depth : usize) = usize(0);
+  (index : usize) = start;
+  (done : bool) = false;
+  while((index < toks.len()) && !(done), {
+    token := match(
+      toks.get(index),
+      .Some(t) => t,
+      .None => {
+        done = true;
+        continue;
+      }
+    );
+    cond(
+      (token.kind == TokenKind.LParen) => {
+        paren_depth = (paren_depth + usize(1));
+      },
+      (token.kind == TokenKind.RParen) => {
+        if((paren_depth == usize(0)) && (bracket_depth == usize(0)) && (brace_depth == usize(0)), {
+          done = true;
+        }, {
+          paren_depth = (paren_depth - usize(1));
+        });
+      },
+      (token.kind == TokenKind.LBracket) => {
+        bracket_depth = (bracket_depth + usize(1));
+      },
+      (token.kind == TokenKind.RBracket) => {
+        bracket_depth = (bracket_depth - usize(1));
+      },
+      (token.kind == TokenKind.LCurlyBracket) => {
+        brace_depth = (brace_depth + usize(1));
+      },
+      (token.kind == TokenKind.RCurlyBracket) => {
+        brace_depth = (brace_depth - usize(1));
+      },
+      ((token.kind == TokenKind.Comma) && (paren_depth == usize(0)) && (bracket_depth == usize(0)) && (brace_depth == usize(0))) => {
+        done = true;
+      },
+      true => ()
+    );
+    if(!(done), {
+      index = (index + usize(1));
+    });
+  });
+  index
+});
+/// First identifier token's text in [start, end], or "". Mirrors
+/// `extractReceiverTypeName` (builder.ts:533).
+_extract_receiver_type_name :: (
+  fn(toks : ArrayList(Token), start : usize, end : usize) -> String
+)({
+  (i : usize) = start;
+  while(i <= end, {
+    match(
+      toks.get(i),
+      .Some(t) => if(t.kind == TokenKind.Identifier, {
+        return(t.value.clone());
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  String.new()
+});
+/// The return-type text after the LAST `->` of a signature, with unbalanced
+/// trailing `)` stripped. Mirrors `extractReturnTypeFromSignature`
+/// (builder.ts:546).
+_extract_return_type_from_signature :: (fn(signature : String) -> String)({
+  arrow_index := match(
+    signature.last_index_of(`->`),
+    .Some(i) => i,
+    .None => {
+      return(String.from("unknown"));
+    }
+  );
+  (return_type : String) = signature.substring(arrow_index + usize(2), signature.len()).trim();
+  // Only strip unbalanced trailing closing parens (from the outer fn(...)
+  // wrapper). Balanced parens like Option(Slice(T)) must be preserved.
+  // '(' / ')' are ASCII, so a byte walk cannot split a multibyte char.
+  (balance : isize) = isize(0);
+  bytes := return_type.as_bytes();
+  (bi : usize) = usize(0);
+  while(bi < bytes.len(), {
+    b := bytes(bi);
+    if(b == u8(40), {
+      balance = (balance + isize(1));
+    }, {
+      if(b == u8(41), {
+        balance = (balance - isize(1));
+      });
+    });
+    bi = (bi + usize(1));
+  });
+  while((balance < isize(0)) && return_type.ends_with(`)`), {
+    return_type = return_type.substring(usize(0), return_type.len() - usize(1));
+    balance = (balance + isize(1));
+  });
+  return_type.trim()
+});
+/// True when the parenthesized region starting at `l_paren_index` contains a
+/// top-or-nested `name :` pair — i.e. it is an impl BODY, not a type-args
+/// list. Mirrors `parenContainsTraitBody` (builder.ts:566).
+_paren_contains_trait_body :: (fn(toks : ArrayList(Token), l_paren_index : usize) -> bool)({
+  end := _skip_balanced_parens(toks, l_paren_index);
+  (i : usize) = (l_paren_index + usize(1));
+  while((i + usize(1)) < (end - usize(1)), {
+    is_pair := match(
+      toks.get(i),
+      .Some(t) => if(
+        t.kind == TokenKind.Identifier,
+        match(
+          toks.get(i + usize(1)),
+          .Some(t2) => ((t2.kind == TokenKind.Operator) && (t2.value == `:`)),
+          .None => false
+        ),
+        false
+      ),
+      .None => false
+    );
+    if(is_pair, {
+      return(true);
+    });
+    i = (i + usize(1));
+  });
+  false
+});
+/// Strip a doc-line comment's `/// ` (or `///`) prefix.
+_strip_doc_line_prefix :: (fn(text : String) -> String)(
+  cond(
+    text.starts_with(`/// `) => text.substring(usize(4), text.len()),
+    text.starts_with(String.from("///")) => {
+      rest := text.substring(usize(3), text.len());
+      // `\s?` — at most ONE whitespace after ///.
+      cond(
+        rest.starts_with(String.from("\t")) => rest.substring(usize(1), rest.len()),
+        rest.starts_with(` `) => rest.substring(usize(1), rest.len()),
+        true => rest
+      )
+    },
+    true => text.clone()
+  )
+);
+/// Strip a `/** ... */` block comment to its content, removing per-line
+/// leading ` * ` gutters. Mirrors the block branch of
+/// `collectDocCommentBefore` (builder.ts:621).
+_strip_doc_block_comment :: (fn(text : String) -> String)({
+  (t : String) = text.clone();
+  if(t.starts_with(String.from("/**")), {
+    t = t.substring(usize(3), t.len()).trim_start();
+  });
+  if(t.ends_with(String.from("*/")), {
+    t = t.substring(usize(0), t.len() - usize(2)).trim_end();
+  });
+  lines := t.split(String.from("\n"));
+  out_lines := ArrayList(String).new();
+  (i : usize) = usize(0);
+  while(i < lines.len(), {
+    line := match(lines.get(i), .Some(l) => l, .None => String.new());
+    // `^\s*\*\s?` — only rewrite lines that HAVE a `*` gutter.
+    stripped := line.trim_start();
+    if(stripped.starts_with(`*`), {
+      rest := stripped.substring(usize(1), stripped.len());
+      cond(
+        rest.starts_with(` `) => {
+          out_lines.push(rest.substring(usize(1), rest.len()));
+        },
+        rest.starts_with(String.from("\t")) => {
+          out_lines.push(rest.substring(usize(1), rest.len()));
+        },
+        true => {
+          out_lines.push(rest);
+        }
+      );
+    }, {
+      out_lines.push(line.clone());
+    });
+    i = (i + usize(1));
+  });
+  String.from("\n").join(out_lines).trim()
+});
+/// Collect `///` / `/** */` doc comment lines immediately preceding the token
+/// at (row, character) in the FULL (trivia-included) token array.
+/// Mirrors `collectDocCommentBefore` (builder.ts:589).
+_collect_doc_comment_before :: (
+  fn(full_tokens : ArrayList(Token), row : usize, character : usize) -> Option(String)
+)({
+  (idx : isize) = (isize(0) - isize(1));
+  (i : usize) = usize(0);
+  (found : bool) = false;
+  while((i < full_tokens.len()) && !(found), {
+    match(
+      full_tokens.get(i),
+      .Some(t) => if((t.row > row) || ((t.row == row) && (t.character >= character)), {
+        idx = isize(i);
+        found = true;
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  if(idx <= isize(0), {
+    return(Option(String).None);
+  });
+  // Walk backwards from idx-1 collecting doc comments (skipping whitespace),
+  // then reverse — TS `unshift`s into the front.
+  collected_rev := ArrayList(String).new();
+  (bi : isize) = (idx - isize(1));
+  (stop : bool) = false;
+  while((bi >= isize(0)) && !(stop), {
+    match(
+      full_tokens.get(usize(bi)),
+      .Some(t) => cond(
+        (t.kind == TokenKind.Whitespace) => (),
+        (t.kind == TokenKind.DocLineComment) => {
+          collected_rev.push(_strip_doc_line_prefix(t.value));
+        },
+        (t.kind == TokenKind.DocBlockComment) => {
+          collected_rev.push(_strip_doc_block_comment(t.value));
+        },
+        true => {
+          stop = true;
+        }
+      ),
+      .None => {
+        stop = true;
+      }
+    );
+    bi = (bi - isize(1));
+  });
+  if(collected_rev.len() == usize(0), {
+    return(Option(String).None);
+  });
+  collected_rev.reverse();
+  Option(String).Some(String.from("\n").join(collected_rev).trim())
+});
+// ---------------------------------------------------------------------------
+// impl(...) token scanning
+// ---------------------------------------------------------------------------
+/// Extract trait implementation names per type from the token stream.
+/// Mirrors `extractTraitImplsFromTokens` (builder.ts:377).
+extract_trait_impls_from_tokens :: (
+  fn(tokens : ArrayList(Token)) -> HashMap(String, ArrayList(String))
+)({
+  result := HashMap(String, ArrayList(String)).new();
+  // Filter to non-trivia tokens for easier scanning.
+  toks := ArrayList(Token).new();
+  (fi : usize) = usize(0);
+  while(fi < tokens.len(), {
+    match(
+      tokens.get(fi),
+      .Some(t) => if(!(_is_trivia_token(t)), {
+        toks.push(t);
+      }),
+      .None => ()
+    );
+    fi = (fi + usize(1));
+  });
+  (i : usize) = usize(0);
+  while(i < toks.len(), {
+    tok := match(
+      toks.get(i),
+      .Some(t) => t,
+      .None => {
+        i = (i + usize(1));
+        continue;
+      }
+    );
+    is_impl := ((tok.kind == TokenKind.Identifier) && (tok.value == `impl`));
+    has_lparen := match(
+      toks.get(i + usize(1)),
+      .Some(t) => (t.kind == TokenKind.LParen),
+      .None => false
+    );
+    if(!(is_impl && has_lparen), {
+      i = (i + usize(1));
+      continue;
+    });
+    // Skip past `impl(`.
+    (j : usize) = (i + usize(2));
+    // Skip `generic(...)` if present.
+    is_generic := match(
+      toks.get(j),
+      .Some(t) => ((t.kind == TokenKind.Identifier) && (t.value == `generic`)),
+      .None => false
+    );
+    if(is_generic, {
+      j = _skip_balanced_parens(toks, j + usize(1));
+      match(
+        toks.get(j),
+        .Some(t) => if(t.kind == TokenKind.Comma, {
+          j = (j + usize(1));
+        }),
+        .None => ()
+      );
+    });
+    // Skip `where(...)` if present.
+    is_where := match(
+      toks.get(j),
+      .Some(t) => ((t.kind == TokenKind.Identifier) && (t.value == `where`)),
+      .None => false
+    );
+    if(is_where, {
+      j = _skip_balanced_parens(toks, j + usize(1));
+      match(
+        toks.get(j),
+        .Some(t) => if(t.kind == TokenKind.Comma, {
+          j = (j + usize(1));
+        }),
+        .None => ()
+      );
+    });
+    // The receiver type name.
+    type_name := match(
+      toks.get(j),
+      .Some(t) => if(t.kind == TokenKind.Identifier, t.value.clone(), String.new()),
+      .None => String.new()
+    );
+    if(type_name.len() == usize(0), {
+      i = (i + usize(1));
+      continue;
+    });
+    j = (j + usize(1));
+    // Skip type parameters like `(T)` after the type name.
+    is_lp := match(
+      toks.get(j),
+      .Some(t) => (t.kind == TokenKind.LParen),
+      .None => false
+    );
+    if(is_lp, {
+      j = _skip_balanced_parens(toks, j);
+    });
+    // If next is comma, the item after is the trait name.
+    is_comma := match(
+      toks.get(j),
+      .Some(t) => (t.kind == TokenKind.Comma),
+      .None => false
+    );
+    if(!(is_comma), {
+      i = (i + usize(1));
+      continue;
+    });
+    j = (j + usize(1));
+    trait_name := match(
+      toks.get(j),
+      .Some(t) => if(t.kind == TokenKind.Identifier, t.value.clone(), String.new()),
+      .None => String.new()
+    );
+    if(trait_name.len() == usize(0), {
+      i = (i + usize(1));
+      continue;
+    });
+    // Verify it's followed by `(` to confirm it's a trait (not another arg).
+    trait_lp := match(
+      toks.get(j + usize(1)),
+      .Some(t) => (t.kind == TokenKind.LParen),
+      .None => false
+    );
+    if(!(trait_lp), {
+      i = (i + usize(1));
+      continue;
+    });
+    existing := match(
+      result.get(type_name.clone()),
+      .Some(l) => l,
+      .None => ArrayList(String).new()
+    );
+    if(!(existing.contains(trait_name)), {
+      existing.push(trait_name.clone());
+    });
+    result.set(type_name.clone(), existing);
+    i = (i + usize(1));
+  });
+  result
+});
+/// Extract method names, associated types, and full method info from a trait
+/// impl body. Mirrors `extractTraitBodyMembers` (builder.ts:639).
+/// `full_tokens` is the trivia-INCLUDED array for doc-comment recovery; pass
+/// an empty list to skip doc extraction (TS `fullTokens === undefined`).
+_extract_trait_body_members :: (
+  fn(
+    toks : ArrayList(Token),
+    l_paren_index : usize,
+    full_tokens : ArrayList(Token)
+  ) -> TraitBodyExtraction
+)({
+  end := _skip_balanced_parens(toks, l_paren_index);
+  method_names := ArrayList(String).new();
+  associated_types := ArrayList(DocImplAssocType).new();
+  methods := ArrayList(DocFunction).new();
+  (i : usize) = (l_paren_index + usize(1));
+  while(i < (end - usize(1)), {
+    is_pair := match(
+      toks.get(i),
+      .Some(t) => if(
+        t.kind == TokenKind.Identifier,
+        if(
+          (i + usize(1)) < (end - usize(1)),
+          match(
+            toks.get(i + usize(1)),
+            .Some(t2) => ((t2.kind == TokenKind.Operator) && (t2.value == `:`)),
+            .None => false
+          ),
+          false
+        ),
+        false
+      ),
+      .None => false
+    );
+    if(is_pair, {
+      name_tok := match(
+        toks.get(i),
+        .Some(t) => t,
+        .None => {
+          i = (i + usize(1));
+          continue;
+        }
+      );
+      name := name_tok.value.clone();
+      doc := if(
+        full_tokens.len() > usize(0),
+        _collect_doc_comment_before(full_tokens, name_tok.row, name_tok.character),
+        Option(String).None
+      );
+      // Is the type after ":" a function type (method) or a plain type
+      // (associated type)?
+      type_start := (i + usize(2));
+      if(type_start < (end - usize(1)), {
+        type_tok_is_lparen := match(
+          toks.get(type_start),
+          .Some(t) => (t.kind == TokenKind.LParen),
+          .None => false
+        );
+        is_fn_type := (
+          (type_tok_is_lparen && ((type_start + usize(1)) < (end - usize(1)))) && match(
+            toks.get(type_start + usize(1)),
+            .Some(t) => ((t.kind == TokenKind.Identifier) && (t.value == `fn`)),
+            .None => false
+          )
+        );
+        if(is_fn_type, {
+          method_names.push(name.clone());
+          // The fn type signature: (fn(...) -> ReturnType).
+          fn_paren_end := _skip_balanced_parens(toks, type_start);
+          fn_signature := _slice_token_text(toks, type_start, fn_paren_end - usize(1));
+          return_type := _extract_return_type_from_signature(fn_signature);
+          // Parameters — between the inner parens after `fn`.
+          params := ArrayList(DocParam).new();
+          param_start := (type_start + usize(2));
+          param_start_is_lp := match(
+            toks.get(param_start),
+            .Some(t) => (t.kind == TokenKind.LParen),
+            .None => false
+          );
+          if((param_start < fn_paren_end) && param_start_is_lp, {
+            param_end := _skip_balanced_parens(toks, param_start);
+            (p : usize) = (param_start + usize(1));
+            while(p < (param_end - usize(1)), {
+              param_name := match(
+                toks.get(p),
+                .Some(t) => if(t.kind == TokenKind.Identifier, t.value.clone(), String.new()),
+                .None => String.new()
+              );
+              (advanced : bool) = false;
+              if(param_name.len() > usize(0), {
+                // TS: `if (paramName !== "self" || params.length === 0)` —
+                // a later `self` is treated as an ordinary name.
+                if((param_name != `self`) || (params.len() == usize(0)), {
+                  has_colon := (
+                    ((p + usize(1)) < (param_end - usize(1))) && match(
+                      toks.get(p + usize(1)),
+                      .Some(t) => ((t.kind == TokenKind.Operator) && (t.value == `:`)),
+                      .None => false
+                    )
+                  );
+                  if(has_colon, {
+                    type_arg_start := (p + usize(2));
+                    type_arg_end := _skip_delimited_argument(toks, type_arg_start);
+                    param_type := _slice_token_text(toks, type_arg_start, type_arg_end - usize(1));
+                    if(param_name != `self`, {
+                      params.push(
+                        DocParam(
+                          name : param_name.clone(),
+                          type_ : param_type,
+                          is_comptime : false,
+                          is_implicit : false,
+                          default_value : Option(String).None,
+                          doc : Option(String).None
+                        )
+                      );
+                    });
+                    p = type_arg_end;
+                    comma_next := (
+                      (p < (param_end - usize(1))) && match(
+                        toks.get(p),
+                        .Some(t) => (t.kind == TokenKind.Comma),
+                        .None => false
+                      )
+                    );
+                    if(comma_next, {
+                      p = (p + usize(1));
+                    });
+                    advanced = true;
+                  });
+                });
+              });
+              if(!(advanced), {
+                p = (p + usize(1));
+              });
+            });
+          });
+          methods.push(
+            DocFunction(
+              name : name.clone(),
+              doc : doc,
+              signature : fn_signature,
+              parameters : params,
+              return_type : return_type,
+              type_params : Option(ArrayList(DocParam)).None,
+              effects : Option(ArrayList(DocParam)).None,
+              is_method : true,
+              self_type : Option(String).None,
+              returns : Option(String).None,
+              errors : Option(String).None,
+              deprecated : Option(String).None,
+              examples : Option(String).None
+            )
+          );
+        }, {
+          // Associated type — collect the type expression text.
+          type_end := if(
+            type_tok_is_lparen,
+            _skip_balanced_parens(toks, type_start),
+            _skip_delimited_argument(toks, type_start)
+          );
+          associated_types.push(
+            DocImplAssocType(
+              name : name.clone(),
+              type_ : _slice_token_text(toks, type_start, type_end - usize(1)),
+              doc : doc
+            )
+          );
+        });
+      });
+    });
+    // Skip balanced nested parens to avoid false matches inside type exprs.
+    at_lp := match(
+      toks.get(i),
+      .Some(t) => (t.kind == TokenKind.LParen),
+      .None => false
+    );
+    if(at_lp, {
+      i = _skip_balanced_parens(toks, i);
+    }, {
+      i = (i + usize(1));
+    });
+  });
+  TraitBodyExtraction(
+    method_names : method_names,
+    associated_types : associated_types,
+    methods : methods
+  )
+});
+/// Extract per-type impl info (trait names, impl signatures, methods) from the
+/// token stream. Mirrors `extractImplInfoFromTokens` (builder.ts:758).
+extract_impl_info_from_tokens :: (
+  fn(
+    tokens : ArrayList(Token),
+    doc_lookup : HashMap(String, String)
+  ) -> HashMap(String, TokenImplInfo)
+)({
+  result := HashMap(String, TokenImplInfo).new();
+  toks := ArrayList(Token).new();
+  (fi : usize) = usize(0);
+  while(fi < tokens.len(), {
+    match(
+      tokens.get(fi),
+      .Some(t) => if(!(_is_trivia_token(t)), {
+        toks.push(t);
+      }),
+      .None => ()
+    );
+    fi = (fi + usize(1));
+  });
+  (i : usize) = usize(0);
+  while(i < toks.len(), {
+    tok := match(
+      toks.get(i),
+      .Some(t) => t,
+      .None => {
+        i = (i + usize(1));
+        continue;
+      }
+    );
+    is_impl := ((tok.kind == TokenKind.Identifier) && (tok.value == `impl`));
+    has_lparen := match(
+      toks.get(i + usize(1)),
+      .Some(t) => (t.kind == TokenKind.LParen),
+      .None => false
+    );
+    if(!(is_impl && has_lparen), {
+      i = (i + usize(1));
+      continue;
+    });
+    impl_end := _skip_balanced_parens(toks, i + usize(1));
+    (current : usize) = (i + usize(2));
+    signature_parts := ArrayList(String).new();
+    // `generic(...)` prefix.
+    is_generic := match(
+      toks.get(current),
+      .Some(t) => ((t.kind == TokenKind.Identifier) && (t.value == `generic`)),
+      .None => false
+    );
+    if(is_generic, {
+      forall_end := _skip_balanced_parens(toks, current + usize(1));
+      signature_parts.push(_slice_token_text(toks, current, forall_end - usize(1)));
+      current = forall_end;
+      match(
+        toks.get(current),
+        .Some(t) => if(t.kind == TokenKind.Comma, {
+          current = (current + usize(1));
+        }),
+        .None => ()
+      );
+    });
+    // `where(...)` before the receiver.
+    is_where := match(
+      toks.get(current),
+      .Some(t) => ((t.kind == TokenKind.Identifier) && (t.value == `where`)),
+      .None => false
+    );
+    if(is_where, {
+      where_end := _skip_balanced_parens(toks, current + usize(1));
+      signature_parts.push(_slice_token_text(toks, current, where_end - usize(1)));
+      current = where_end;
+      match(
+        toks.get(current),
+        .Some(t) => if(t.kind == TokenKind.Comma, {
+          current = (current + usize(1));
+        }),
+        .None => ()
+      );
+    });
+    // Receiver.
+    receiver_start := current;
+    receiver_end := _skip_delimited_argument(toks, receiver_start);
+    receiver_type_name := _extract_receiver_type_name(toks, receiver_start, receiver_end - usize(1));
+    if(receiver_type_name.len() == usize(0), {
+      i = impl_end;
+      continue;
+    });
+    signature_parts.push(_slice_token_text(toks, receiver_start, receiver_end - usize(1)));
+    current = receiver_end;
+    match(
+      toks.get(current),
+      .Some(t) => if(t.kind == TokenKind.Comma, {
+        current = (current + usize(1));
+      }),
+      .None => ()
+    );
+    // `where(...)` AFTER the receiver — inserted before it in the signature
+    // (TS splices before the last element).
+    is_where2 := match(
+      toks.get(current),
+      .Some(t) => ((t.kind == TokenKind.Identifier) && (t.value == `where`)),
+      .None => false
+    );
+    if(is_where2, {
+      where_end := _skip_balanced_parens(toks, current + usize(1));
+      receiver_part := match(signature_parts.pop(), .Some(p) => p, .None => String.new());
+      signature_parts.push(_slice_token_text(toks, current, where_end - usize(1)));
+      signature_parts.push(receiver_part);
+      current = where_end;
+      match(
+        toks.get(current),
+        .Some(t) => if(t.kind == TokenKind.Comma, {
+          current = (current + usize(1));
+        }),
+        .None => ()
+      );
+    });
+    entry := match(
+      result.get(receiver_type_name.clone()),
+      .Some(e) => e,
+      .None => TokenImplInfo(
+        trait_impls : ArrayList(String).new(),
+        impls : ArrayList(DocImpl).new(),
+        methods : ArrayList(DocFunction).new()
+      )
+    );
+    anonymous_method_names := ArrayList(String).new();
+    while(current < (impl_end - usize(1)), {
+      arg_start := current;
+      arg_end := _skip_delimited_argument(toks, arg_start);
+      first := match(
+        toks.get(arg_start),
+        .Some(t) => t,
+        .None => {
+          current = (arg_end + usize(1));
+          continue;
+        }
+      );
+      second_is_colon := match(
+        toks.get(arg_start + usize(1)),
+        .Some(t) => ((t.kind == TokenKind.Operator) && (t.value == `:`)),
+        .None => false
+      );
+      if((first.kind == TokenKind.Identifier) && second_is_colon, {
+        // Anonymous member: `name : (fn ...)`.
+        method_name := first.value.clone();
+        anonymous_method_names.push(method_name.clone());
+        type_start := (arg_start + usize(2));
+        type_start_is_lp := match(
+          toks.get(type_start),
+          .Some(t) => (t.kind == TokenKind.LParen),
+          .None => false
+        );
+        type_end := if(type_start_is_lp, _skip_balanced_parens(toks, type_start), type_start + usize(1));
+        signature := _slice_token_text(toks, type_start, type_end - usize(1));
+        entry.methods.push(
+          DocFunction(
+            name : method_name.clone(),
+            doc : doc_lookup.get(method_name.clone()),
+            signature : signature.clone(),
+            parameters : ArrayList(DocParam).new(),
+            return_type : _extract_return_type_from_signature(signature),
+            type_params : Option(ArrayList(DocParam)).None,
+            effects : Option(ArrayList(DocParam)).None,
+            is_method : true,
+            self_type : Option(String).Some(receiver_type_name.clone()),
+            returns : Option(String).None,
+            errors : Option(String).None,
+            deprecated : Option(String).None,
+            examples : Option(String).None
+          )
+        );
+      }, {
+        if(first.kind == TokenKind.Identifier, {
+          // Trait entry: `TraitName(...)` / `TraitName(args)(body)`.
+          (trait_signature : String) = first.value.clone();
+          (trait_method_names : ArrayList(String)) = ArrayList(String).new();
+          (trait_assoc_types : ArrayList(DocImplAssocType)) = ArrayList(DocImplAssocType).new();
+          (trait_methods : ArrayList(DocFunction)) = ArrayList(DocFunction).new();
+          next_is_lp := match(
+            toks.get(arg_start + usize(1)),
+            .Some(t) => (t.kind == TokenKind.LParen),
+            .None => false
+          );
+          if(next_is_lp, {
+            first_paren_end := _skip_balanced_parens(toks, arg_start + usize(1));
+            first_has_body := _paren_contains_trait_body(toks, arg_start + usize(1));
+            second_is_lp := match(
+              toks.get(first_paren_end),
+              .Some(t) => (t.kind == TokenKind.LParen),
+              .None => false
+            );
+            cond(
+              (!(first_has_body) && (first_paren_end <= arg_end) && second_is_lp) => {
+                // e.g. Index(usize)(body...) — type args first, body second.
+                trait_signature = _slice_token_text(toks, arg_start, first_paren_end - usize(1));
+                if(_paren_contains_trait_body(toks, first_paren_end), {
+                  extracted := _extract_trait_body_members(toks, first_paren_end, tokens);
+                  trait_method_names = extracted.method_names;
+                  trait_assoc_types = extracted.associated_types;
+                  trait_methods = extracted.methods;
+                  trait_signature = `${trait_signature}(...)`;
+                });
+              },
+              !(first_has_body) => {
+                trait_signature = _slice_token_text(toks, arg_start, first_paren_end - usize(1));
+              },
+              true => {
+                extracted := _extract_trait_body_members(toks, arg_start + usize(1), tokens);
+                trait_method_names = extracted.method_names;
+                trait_assoc_types = extracted.associated_types;
+                trait_methods = extracted.methods;
+                trait_signature = `${first.value}(...)`;
+              }
+            );
+          });
+          // Add extracted trait methods to the entry's method list, stamped
+          // with the receiver type (TS mutates `m.selfType`).
+          (tmi : usize) = usize(0);
+          while(tmi < trait_methods.len(), {
+            match(
+              trait_methods.get(tmi),
+              .Some(m) => {
+                entry.methods.push(
+                  DocFunction(
+                    name : m.name,
+                    doc : m.doc,
+                    signature : m.signature,
+                    parameters : m.parameters,
+                    return_type : m.return_type,
+                    type_params : m.type_params,
+                    effects : m.effects,
+                    is_method : m.is_method,
+                    self_type : Option(String).Some(receiver_type_name.clone()),
+                    returns : m.returns,
+                    errors : m.errors,
+                    deprecated : m.deprecated,
+                    examples : m.examples
+                  )
+                );
+              },
+              .None => ()
+            );
+            tmi = (tmi + usize(1));
+          });
+          entry.trait_impls.push(first.value.clone());
+          full_parts := ArrayList(String).new();
+          (spi : usize) = usize(0);
+          while(spi < signature_parts.len(), {
+            match(
+              signature_parts.get(spi),
+              .Some(p) => {
+                full_parts.push(p.clone());
+              },
+              .None => ()
+            );
+            spi = (spi + usize(1));
+          });
+          full_parts.push(trait_signature.clone());
+          (assoc_opt : Option(ArrayList(DocImplAssocType))) = Option(ArrayList(DocImplAssocType)).None;
+          if(trait_assoc_types.len() > usize(0), {
+            assoc_opt = Option(ArrayList(DocImplAssocType)).Some(trait_assoc_types);
+          });
+          entry.impls.push(
+            DocImpl(
+              signature : `impl(${String.from(", ").join(full_parts)})`,
+              trait_name : Option(String).Some(first.value.clone()),
+              method_names : trait_method_names,
+              associated_types : assoc_opt
+            )
+          );
+        });
+      });
+      current = arg_end;
+      match(
+        toks.get(current),
+        .Some(t) => if(t.kind == TokenKind.Comma, {
+          current = (current + usize(1));
+        }),
+        .None => ()
+      );
+    });
+    if(anonymous_method_names.len() > usize(0), {
+      entry.impls.push(
+        DocImpl(
+          signature : `impl(${String.from(", ").join(signature_parts)}, ...)`,
+          trait_name : Option(String).None,
+          method_names : anonymous_method_names,
+          associated_types : Option(ArrayList(DocImplAssocType)).None
+        )
+      );
+    });
+    result.set(receiver_type_name.clone(), entry);
+    i = impl_end;
+  });
+  result
+});
+// ---------------------------------------------------------------------------
+// Token-only fallback builder + cross references
+// ---------------------------------------------------------------------------
+/// Build a minimal DocModule from token extraction only (no evaluator).
+/// Mirrors `buildDocModuleFromTokens` (builder.ts:1481).
+build_doc_module_from_tokens :: (
+  fn(
+    name : String,
+    path : String,
+    extraction : DocExtractionResult,
+    tokens : ArrayList(Token)
+  ) -> DocModule
+)({
+  trait_impl_map := extract_trait_impls_from_tokens(tokens);
+  (module_doc : Option(String)) = Option(String).None;
+  match(
+    extraction.module_doc,
+    .Some(md) => {
+      module_doc = Option(String).Some(md.content.clone());
+    },
+    .None => ()
+  );
+  types := ArrayList(DocType).new();
+  constants := ArrayList(DocConstant).new();
+  (i : usize) = usize(0);
+  while(i < extraction.declarations.len(), {
+    assoc := match(
+      extraction.declarations.get(i),
+      .Some(a) => a,
+      .None => {
+        i = (i + usize(1));
+        continue;
+      }
+    );
+    if(assoc.declaration_name.len() == usize(0), {
+      i = (i + usize(1));
+      continue;
+    });
+    decl_name := assoc.declaration_name.clone();
+    sections := extract_doc_sections(Option(String).Some(assoc.comment.content.clone()));
+    match(
+      trait_impl_map.get(decl_name.clone()),
+      .Some(trait_impls) => {
+        // Likely a type — add as a type with trait impls. NOTE: TS omits the
+        // doc field here (builder.ts:1509 literal has no `doc`).
+        types.push(
+          DocType(
+            name : decl_name.clone(),
+            doc : Option(String).None,
+            kind : DocItemKind.Struct,
+            signature : decl_name.clone(),
+            type_params : Option(ArrayList(DocParam)).None,
+            fields : Option(ArrayList(DocField)).None,
+            variants : Option(ArrayList(DocVariant)).None,
+            methods : ArrayList(DocFunction).new(),
+            trait_impls : trait_impls,
+            impls : Option(ArrayList(DocImpl)).None,
+            deprecated : sections.deprecated,
+            examples : sections.examples
+          )
+        );
+      },
+      .None => {
+        // Generic fallback: a constant. NOTE: TS omits `doc` here too.
+        constants.push(
+          DocConstant(
+            name : decl_name.clone(),
+            doc : Option(String).None,
+            type_ : String.from("(unknown)"),
+            value : Option(String).None,
+            deprecated : sections.deprecated,
+            examples : sections.examples
+          )
+        );
+      }
+    );
+    i = (i + usize(1));
+  });
+  DocModule(
+    name : name,
+    path : path,
+    doc : module_doc,
+    functions : ArrayList(DocFunction).new(),
+    types : types,
+    traits : ArrayList(DocTrait).new(),
+    constants : constants,
+    submodules : ArrayList(Box(DocModule)).new()
+  )
+});
+/// Fill in `trait.implementors` across all modules from `type.trait_impls`.
+/// Mirrors `buildCrossReferences` (builder.ts:1538) — mutates in place.
+build_cross_references :: (fn(modules : ArrayList(DocModule)) -> unit)({
+  // Collect all trait → implementor relationships (insertion-ordered,
+  // deduplicated — TS uses a Set).
+  trait_names := ArrayList(String).new();
+  trait_implementors := ArrayList(ArrayList(String)).new();
+  (mi : usize) = usize(0);
+  while(mi < modules.len(), {
+    m := match(
+      modules.get(mi),
+      .Some(x) => x,
+      .None => {
+        mi = (mi + usize(1));
+        continue;
+      }
+    );
+    (ti : usize) = usize(0);
+    while(ti < m.types.len(), {
+      t := match(
+        m.types.get(ti),
+        .Some(x) => x,
+        .None => {
+          ti = (ti + usize(1));
+          continue;
+        }
+      );
+      (tri : usize) = usize(0);
+      while(tri < t.trait_impls.len(), {
+        trait_name := match(t.trait_impls.get(tri), .Some(n) => n, .None => String.new());
+        if(trait_name.len() > usize(0), {
+          idx := trait_names.index_of(trait_name);
+          match(
+            idx,
+            .Some(existing_idx) => {
+              lst := match(trait_implementors.get(existing_idx), .Some(l) => l, .None => ArrayList(String).new());
+              if(!(lst.contains(t.name)), {
+                lst.push(t.name.clone());
+              });
+            },
+            .None => {
+              lst := ArrayList(String).new();
+              lst.push(t.name.clone());
+              trait_names.push(trait_name.clone());
+              trait_implementors.push(lst);
+            }
+          );
+        });
+        tri = (tri + usize(1));
+      });
+      ti = (ti + usize(1));
+    });
+    mi = (mi + usize(1));
+  });
+  // Fill in implementors on traits (sorted — TS `Array.from(set).sort()`).
+  (mj : usize) = usize(0);
+  while(mj < modules.len(), {
+    m := match(
+      modules.get(mj),
+      .Some(x) => x,
+      .None => {
+        mj = (mj + usize(1));
+        continue;
+      }
+    );
+    (tj : usize) = usize(0);
+    while(tj < m.traits.len(), {
+      tr := match(
+        m.traits.get(tj),
+        .Some(x) => x,
+        .None => {
+          tj = (tj + usize(1));
+          continue;
+        }
+      );
+      match(
+        trait_names.index_of(tr.name),
+        .Some(found_idx) => {
+          impls := match(trait_implementors.get(found_idx), .Some(l) => l, .None => ArrayList(String).new());
+          sorted := ArrayList(String).new();
+          (si : usize) = usize(0);
+          while(si < impls.len(), {
+            match(
+              impls.get(si),
+              .Some(s) => {
+                sorted.push(s.clone());
+              },
+              .None => ()
+            );
+            si = (si + usize(1));
+          });
+          sorted.sort();
+          m.traits(tj) = DocTrait(
+            name : tr.name,
+            doc : tr.doc,
+            kind : tr.kind,
+            signature : tr.signature,
+            type_params : tr.type_params,
+            associated_types : tr.associated_types,
+            methods : tr.methods,
+            implementors : sorted,
+            deprecated : tr.deprecated,
+            examples : tr.examples
+          );
+        },
+        .None => ()
+      );
+      tj = (tj + usize(1));
+    });
+    mj = (mj + usize(1));
+  });
+});
+// ---------------------------------------------------------------------------
+// Evaluator half — buildDocModule and its helpers
+// ---------------------------------------------------------------------------
+/// Mirrors `extractGenericImplInfo`'s return shape (builder.ts:245).
+GenericImplInfo :: struct(
+  methods : ArrayList(DocFunction),
+  impls : ArrayList(DocImpl),
+  trait_impls : ArrayList(String)
+);
+/// Resolve the "inner" type behind a type-constructor function.
+/// Mirrors `resolveInnerType` (builder.ts:63): when the field is a
+/// type-constructor Func and its VALUE is a FuncVal whose registered type has
+/// a non-Type return, that return IS the inner struct/enum/trait; a generic
+/// constructor (return still Type) keeps the wrapper Func type.
+_resolve_inner_type :: (fn(field_type : TypeValue, value : EvalValue) -> TypeValue)({
+  if(is_function_type(field_type) && is_function_type_and_is_type_function(field_type), {
+    match(
+      value,
+      .FuncVal(data, _) => {
+        registered := get_func_type(data.*.func_id);
+        match(
+          registered,
+          .Func({ result }) => {
+            is_type_uni_result := match(result, .TypeUni(_) => true, _ => false);
+            if(!(is_type_uni_result), {
+              return(result);
+            });
+          },
+          _ => ()
+        );
+      },
+      _ => ()
+    );
+    return(field_type);
+  });
+  field_type
+});
+/// Convert a Func type's value parameters to DocParams. Mirrors
+/// `functionParamsToDocParams` (builder.ts:122). Per-param comptime flags and
+/// defaults ride the func-id side tables (evaluator/types/function.yo) keyed
+/// by `meta.origin_id`; TS stores the default EXPR (`String(defaultValueExpr)`)
+/// while yo-self side-tables the default VALUE, so `value_to_string` stands in.
+_function_params_to_doc_params :: (
+  fn(func_type : TypeValue, doc_lookup : Option(HashMap(String, String))) -> ArrayList(DocParam)
+)({
+  out := ArrayList(DocParam).new();
+  match(
+    func_type,
+    .Func({ param_types, meta }) => {
+      labels := meta.*.param_labels;
+      origin := match(meta.*.origin_id, .Some(oid) => oid, .None => String.new());
+      comptime_flags := get_func_param_comptime(origin);
+      defaults := get_func_param_defaults(origin);
+      (i : usize) = usize(0);
+      while((i < labels.len()) && (i < param_types.len()), {
+        label := match(labels.get(i), .Some(l) => l, .None => String.new());
+        ty := match(
+          param_types.get(i),
+          .Some(t) => t,
+          .None => {
+            i = (i + usize(1));
+            continue;
+          }
+        );
+        is_ct := match(comptime_flags.get(i), .Some(b) => b, .None => false);
+        (default_str : Option(String)) = Option(String).None;
+        match(
+          defaults.get(i),
+          .Some(od) => match(
+            od,
+            .Some(v) => {
+              default_str = Option(String).Some(value_to_string(v));
+            },
+            .None => ()
+          ),
+          .None => ()
+        );
+        (doc : Option(String)) = Option(String).None;
+        match(
+          doc_lookup,
+          .Some(dl) => {
+            doc = dl.get(label.clone());
+          },
+          .None => ()
+        );
+        out.push(
+          DocParam(
+            name : label.clone(),
+            type_ : type_to_string(ty),
+            is_comptime : is_ct,
+            is_implicit : false,
+            default_value : default_str,
+            doc : doc
+          )
+        );
+        i = (i + usize(1));
+      });
+    },
+    _ => ()
+  );
+  out
+});
+/// Convert a Func type's generic (forall) parameters to DocParams. Mirrors
+/// `forallParamsToDocParams` (builder.ts:137) — always comptime, no defaults.
+_forall_params_to_doc_params :: (
+  fn(func_type : TypeValue, doc_lookup : Option(HashMap(String, String))) -> ArrayList(DocParam)
+)({
+  out := ArrayList(DocParam).new();
+  match(
+    func_type,
+    .Func({ forall_types, meta }) => {
+      labels := meta.*.forall_labels;
+      (i : usize) = usize(0);
+      while((i < labels.len()) && (i < forall_types.len()), {
+        label := match(labels.get(i), .Some(l) => l, .None => String.new());
+        ty := match(
+          forall_types.get(i),
+          .Some(t) => t,
+          .None => {
+            i = (i + usize(1));
+            continue;
+          }
+        );
+        (doc : Option(String)) = Option(String).None;
+        match(
+          doc_lookup,
+          .Some(dl) => {
+            doc = dl.get(label.clone());
+          },
+          .None => ()
+        );
+        out.push(
+          DocParam(
+            name : label.clone(),
+            type_ : type_to_string(ty),
+            is_comptime : true,
+            is_implicit : false,
+            default_value : Option(String).None,
+            doc : doc
+          )
+        );
+        i = (i + usize(1));
+      });
+    },
+    _ => ()
+  );
+  out
+});
+/// Build a DocFunction from a Func TypeValue. Mirrors `buildDocFunction`
+/// (builder.ts:151).
+build_doc_function :: (
+  fn(
+    name : String,
+    func_type : TypeValue,
+    doc : Option(String),
+    is_method : bool,
+    self_type : Option(String),
+    doc_lookup : Option(HashMap(String, String)),
+    /// TS's typeToString prints `(Receiver) fn(...)` when the FunctionType
+    /// carries a `SelfType` (types/utils.ts:1202-1204). yo-self's Func has no
+    /// such field, so the registry-method path passes the receiver name here;
+    /// "" = no prefix (trait/module/token/generic-impl methods, which TS also
+    /// prints unprefixed).
+    signature_prefix : String
+  ) -> DocFunction
+)({
+  base_signature := type_to_string(func_type);
+  signature := if(signature_prefix.len() > usize(0), `(${signature_prefix}) ${base_signature}`, base_signature.clone());
+  (returns : Option(String)) = Option(String).None;
+  (errors : Option(String)) = Option(String).None;
+  (deprecated : Option(String)) = Option(String).None;
+  (examples : Option(String)) = Option(String).None;
+  match(
+    doc,
+    .Some(text) => {
+      parsed := parse_doc_comment(text);
+      returns = parsed.sections.get(String.from("returns"));
+      errors = parsed.sections.get(String.from("errors"));
+      deprecated = parsed.sections.get(String.from("deprecated"));
+      examples = parsed.sections.get(String.from("examples"));
+    },
+    .None => ()
+  );
+  (return_type : String) = String.from("unknown");
+  (type_params : Option(ArrayList(DocParam))) = Option(ArrayList(DocParam)).None;
+  match(
+    func_type,
+    .Func({ result, meta }) => {
+      return_type = type_to_string(result);
+      if(meta.*.forall_labels.len() > usize(0), {
+        type_params = Option(ArrayList(DocParam)).Some(_forall_params_to_doc_params(func_type, doc_lookup));
+      });
+    },
+    _ => ()
+  );
+  DocFunction(
+    name : name,
+    doc : doc,
+    signature : signature,
+    parameters : _function_params_to_doc_params(func_type, doc_lookup),
+    return_type : return_type,
+    type_params : type_params,
+    effects : Option(ArrayList(DocParam)).None,
+    is_method : is_method,
+    self_type : self_type,
+    returns : returns,
+    errors : errors,
+    deprecated : deprecated,
+    examples : examples
+  )
+});
+/// The nominal name of a named type, "" otherwise.
+_doc_type_name :: (fn(t : TypeValue) -> String)(
+  match(
+    t,
+    .Struct({ name }) => name.clone(),
+    .EnumT({ name }) => name.clone(),
+    .Union({ name }) => name.clone(),
+    .TraitT({ name }) => name.clone(),
+    _ => String.new()
+  )
+);
+/// Extract a type's methods. Mirrors `extractMethods` (builder.ts:186) —
+/// TS walks `structType.trait.fields`; yo-self attaches nothing to the type,
+/// so the same members live in the type_trait_methods registry keyed by the
+/// type's id. `___`-prefixed (compiler-generated) members are skipped.
+_extract_methods :: (
+  fn(type_id : String, type_name : String, doc_lookup : HashMap(String, String)) -> ArrayList(DocFunction)
+)({
+  methods := ArrayList(DocFunction).new();
+  if(type_id.len() == usize(0), {
+    return(methods);
+  });
+  entries := get_type_trait_methods_for_type(type_id);
+  (i : usize) = usize(0);
+  while(i < entries.len(), {
+    entry := match(
+      entries.get(i),
+      .Some(e) => e,
+      .None => {
+        i = (i + usize(1));
+        continue;
+      }
+    );
+    if(is_function_type(entry.ty) && !(entry.label.starts_with(String.from("___"))), {
+      (receiver_name : String) = type_name.clone();
+      match(
+        entry.self_type,
+        .Some(st) => {
+          st_name := _doc_type_name(st);
+          if(st_name.len() > usize(0), {
+            receiver_name = st_name;
+          });
+        },
+        .None => ()
+      );
+      methods.push(
+        build_doc_function(
+          entry.label.clone(),
+          entry.ty,
+          doc_lookup.get(entry.label.clone()),
+          true,
+          Option(String).Some(type_name.clone()),
+          Option(HashMap(String, String)).Some(doc_lookup),
+          receiver_name
+        )
+      );
+    });
+    i = (i + usize(1));
+  });
+  methods
+});
+/// Mirrors `extractGenericImplInfo` (builder.ts:235): the registry's matched
+/// entries as DocFunctions + DocImpls + trait names. TS's DocImpl entries keep
+/// an extra `methods` array of raw FunctionTypes; the declared DocImpl model
+/// has no such field, so yo-self emits the declared shape.
+_extract_generic_impl_info :: (
+  fn(
+    concrete_type : TypeValue,
+    type_name : String,
+    doc_lookup : HashMap(String, String),
+    env : Environment
+  ) -> GenericImplInfo
+)({
+  entries := get_generic_impl_doc_entries(concrete_type, env, type_name.clone());
+  methods := ArrayList(DocFunction).new();
+  impls := ArrayList(DocImpl).new();
+  trait_impls := ArrayList(String).new();
+  seen_method_names := ArrayList(String).new();
+  (i : usize) = usize(0);
+  while(i < entries.len(), {
+    entry := match(
+      entries.get(i),
+      .Some(e) => e,
+      .None => {
+        i = (i + usize(1));
+        continue;
+      }
+    );
+    match(
+      entry.trait_name,
+      .Some(tn) => if(!(trait_impls.contains(tn)), {
+        trait_impls.push(tn.clone());
+      }),
+      .None => ()
+    );
+    (mi : usize) = usize(0);
+    while((mi < entry.method_names.len()) && (mi < entry.method_types.len()), {
+      m_name := match(entry.method_names.get(mi), .Some(n) => n, .None => String.new());
+      m_type := match(
+        entry.method_types.get(mi),
+        .Some(t) => t,
+        .None => {
+          mi = (mi + usize(1));
+          continue;
+        }
+      );
+      if(!(seen_method_names.contains(m_name)), {
+        seen_method_names.push(m_name.clone());
+        methods.push(
+          build_doc_function(
+            m_name.clone(),
+            m_type,
+            doc_lookup.get(m_name.clone()),
+            true,
+            Option(String).Some(type_name.clone()),
+            Option(HashMap(String, String)).Some(doc_lookup),
+            String.new()
+          )
+        );
+      });
+      mi = (mi + usize(1));
+    });
+    impls.push(
+      DocImpl(
+        signature : entry.signature.clone(),
+        trait_name : entry.trait_name,
+        method_names : entry.method_names,
+        associated_types : Option(ArrayList(DocImplAssocType)).None
+      )
+    );
+    i = (i + usize(1));
+  });
+  GenericImplInfo(methods : methods, impls : impls, trait_impls : trait_impls)
+});
+/// Mirrors `getTypeKind` (builder.ts:291).
+_get_type_kind :: (fn(t : TypeValue) -> DocItemKind)({
+  if(is_struct_type(t), {
+    return(
+      match(
+        t,
+        .Struct({ is_reference_semantics, is_atomic_rc, is_newtype }) => cond(
+          is_newtype => DocItemKind.Newtype,
+          is_atomic_rc => DocItemKind.AtomicObject,
+          is_reference_semantics => DocItemKind.Object,
+          true => DocItemKind.Struct
+        ),
+        _ => DocItemKind.Struct
+      )
+    );
+  });
+  cond(
+    is_enum_type(t) => DocItemKind.Enum,
+    is_union_type(t) => DocItemKind.Union,
+    is_trait_type(t) => DocItemKind.Trait,
+    is_module_type(t) => DocItemKind.Module,
+    true => DocItemKind.TypeAlias
+  )
+});
+/// Mirrors `typeFieldsToDocFields` (builder.ts:307). yo-self's Struct/Union
+/// TypeValues carry no per-field default values (they live in func-id side
+/// tables that do not apply to type fields), so `default_value` is `.None`.
+_type_fields_to_doc_fields :: (
+  fn(
+    field_labels : ArrayList(String),
+    field_types : ArrayList(TypeValue),
+    doc_lookup : HashMap(String, String)
+  ) -> ArrayList(DocField)
+)({
+  out := ArrayList(DocField).new();
+  (i : usize) = usize(0);
+  while((i < field_labels.len()) && (i < field_types.len()), {
+    label := match(field_labels.get(i), .Some(l) => l, .None => String.new());
+    ty := match(
+      field_types.get(i),
+      .Some(t) => t,
+      .None => {
+        i = (i + usize(1));
+        continue;
+      }
+    );
+    out.push(
+      DocField(
+        name : label.clone(),
+        type_ : type_to_string(ty),
+        doc : doc_lookup.get(label.clone()),
+        default_value : Option(String).None
+      )
+    );
+    i = (i + usize(1));
+  });
+  out
+});
+/// Mirrors `enumVariantsToDocVariants` (builder.ts:321). TS assigns a
+/// discriminant to EVERY variant (auto-numbered when not explicit), so the
+/// always-populated `variant_discriminants` matches. A payload-free variant
+/// (empty field list) gets `.None` fields, matching TS's `undefined`.
+_enum_variants_to_doc_variants :: (
+  fn(enum_type : TypeValue, doc_lookup : HashMap(String, String)) -> ArrayList(DocVariant)
+)({
+  out := ArrayList(DocVariant).new();
+  match(
+    enum_type,
+    .EnumT({ variant_names, variant_fields, variant_field_labels, variant_discriminants }) => {
+      (i : usize) = usize(0);
+      while(i < variant_names.len(), {
+        v_name := match(variant_names.get(i), .Some(n) => n, .None => String.new());
+        v_field_types := match(variant_fields.get(i), .Some(f) => f, .None => ArrayList(TypeValue).new());
+        v_field_labels := match(variant_field_labels.get(i), .Some(l) => l, .None => ArrayList(String).new());
+        (fields_opt : Option(ArrayList(DocField))) = Option(ArrayList(DocField)).None;
+        if(v_field_types.len() > usize(0), {
+          fields_opt = Option(ArrayList(DocField)).Some(_type_fields_to_doc_fields(v_field_labels, v_field_types, doc_lookup));
+        });
+        (disc : Option(String)) = Option(String).None;
+        match(
+          variant_discriminants.get(i),
+          .Some(d) => {
+            disc = Option(String).Some(d.to_string());
+          },
+          .None => ()
+        );
+        out.push(
+          DocVariant(
+            name : v_name.clone(),
+            fields : fields_opt,
+            doc : doc_lookup.get(v_name.clone()),
+            discriminant : disc
+          )
+        );
+        i = (i + usize(1));
+      });
+    },
+    _ => ()
+  );
+  out
+});
+/// Mirrors `getTypeConstructorParams` (builder.ts:345): the generic params of
+/// a type-constructor field, from forall params or comptime value params.
+_get_type_constructor_params :: (fn(field_type : TypeValue) -> Option(ArrayList(DocParam)))({
+  if(!(is_function_type(field_type) && is_function_type_and_is_type_function(field_type)), {
+    return(Option(ArrayList(DocParam)).None);
+  });
+  has_forall := match(
+    field_type,
+    .Func({ meta }) => (meta.*.forall_labels.len() > usize(0)),
+    _ => false
+  );
+  if(has_forall, {
+    return(Option(ArrayList(DocParam)).Some(_forall_params_to_doc_params(field_type, Option(HashMap(String, String)).None)));
+  });
+  // Regular comptime params used as type params.
+  all_params := _function_params_to_doc_params(field_type, Option(HashMap(String, String)).None);
+  comptime_params := ArrayList(DocParam).new();
+  (i : usize) = usize(0);
+  while(i < all_params.len(), {
+    match(
+      all_params.get(i),
+      .Some(p) => if(p.is_comptime, {
+        comptime_params.push(p);
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  if(comptime_params.len() > usize(0), {
+    return(Option(ArrayList(DocParam)).Some(comptime_params));
+  });
+  Option(ArrayList(DocParam)).None
+});
+/// The nominal id of a named type, "" otherwise (for the method registry).
+_doc_type_id :: (fn(t : TypeValue) -> String)(
+  match(
+    t,
+    .Struct({ id }) => id.clone(),
+    .EnumT({ id }) => id.clone(),
+    .TraitT({ id }) => id.clone(),
+    _ => String.new()
+  )
+);
+/// Build a DocModule from evaluator output and extracted doc comments.
+/// Mirrors `buildDocModule` (builder.ts:990). `module_value`/`module_type`
+/// come from module_manager's load outcome (TS: `moduleValue: StructValue`,
+/// whose `.type` yo-self carries separately since FuncVals are untyped).
+build_doc_module :: (
+  fn(
+    name : String,
+    path : String,
+    module_value : EvalValue,
+    module_type : TypeValue,
+    extraction : DocExtractionResult,
+    tokens : ArrayList(Token),
+    env : Environment
+  ) -> DocModule
+)({
+  doc_lookup := build_doc_lookup(extraction);
+  trait_impl_map := extract_trait_impls_from_tokens(tokens);
+  token_impl_info_map := extract_impl_info_from_tokens(tokens, doc_lookup);
+  (module_doc : Option(String)) = Option(String).None;
+  match(
+    extraction.module_doc,
+    .Some(md) => {
+      module_doc = Option(String).Some(md.content.clone());
+    },
+    .None => ()
+  );
+  functions := ArrayList(DocFunction).new();
+  types := ArrayList(DocType).new();
+  traits := ArrayList(DocTrait).new();
+  constants := ArrayList(DocConstant).new();
+  result := DocModule(
+    name : name.clone(),
+    path : path.clone(),
+    doc : module_doc,
+    functions : functions,
+    types : types,
+    traits : traits,
+    constants : constants,
+    submodules : ArrayList(Box(DocModule)).new()
+  );
+  if(!(is_module_type(module_type)), {
+    return(result);
+  });
+  (ns_field_labels : ArrayList(String)) = ArrayList(String).new();
+  (ns_field_types : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
+  match(
+    module_type,
+    .Struct({ field_labels, field_types }) => {
+      ns_field_labels = field_labels;
+      ns_field_types = field_types;
+    },
+    _ => ()
+  );
+  (value_list : ArrayList(EvalValue)) = ArrayList(EvalValue).new();
+  match(
+    module_value,
+    .StructVal(_, _, field_values) => {
+      value_list = field_values;
+    },
+    _ => ()
+  );
+  (i : usize) = usize(0);
+  while(i < ns_field_labels.len(), {
+    field_name := match(ns_field_labels.get(i), .Some(l) => l, .None => String.new());
+    field_type := match(
+      ns_field_types.get(i),
+      .Some(t) => t,
+      .None => {
+        i = (i + usize(1));
+        continue;
+      }
+    );
+    value := match(value_list.get(i), .Some(v) => v, .None => EvalValue.UnitVal);
+    doc := doc_lookup.get(field_name.clone());
+    // Skip empty-label fields (anonymous impl blocks) and compiler-internal
+    // names.
+    if((field_name.len() == usize(0)) || field_name.starts_with(String.from("___")) || field_name.starts_with(String.from("__yo_")), {
+      i = (i + usize(1));
+      continue;
+    });
+    // -- Type declarations (value holds the actual type) --
+    (handled : bool) = false;
+    match(
+      value,
+      .TypeVal(actual_type) => {
+        handled = true;
+        sections := extract_doc_sections(doc);
+        cond(
+          is_struct_type(actual_type) => {
+            direct_methods := _extract_methods(_doc_type_id(actual_type), field_name.clone(), doc_lookup);
+            generic_impl_info := _extract_generic_impl_info(actual_type, field_name.clone(), doc_lookup, env);
+            (token_methods : ArrayList(DocFunction)) = ArrayList(DocFunction).new();
+            (token_trait_impls : ArrayList(String)) = ArrayList(String).new();
+            (token_impls : ArrayList(DocImpl)) = ArrayList(DocImpl).new();
+            match(
+              token_impl_info_map.get(field_name.clone()),
+              .Some(tii) => {
+                token_methods = tii.methods;
+                token_trait_impls = tii.trait_impls;
+                token_impls = tii.impls;
+              },
+              .None => ()
+            );
+            all_impls := ArrayList(DocImpl).new();
+            (gi : usize) = usize(0);
+            while(gi < generic_impl_info.impls.len(), {
+              match(
+                generic_impl_info.impls.get(gi),
+                .Some(im) => {
+                  all_impls.push(im);
+                },
+                .None => ()
+              );
+              gi = (gi + usize(1));
+            });
+            (ti2 : usize) = usize(0);
+            while(ti2 < token_impls.len(), {
+              match(
+                token_impls.get(ti2),
+                .Some(im) => {
+                  all_impls.push(im);
+                },
+                .None => ()
+              );
+              ti2 = (ti2 + usize(1));
+            });
+            (st_fields : ArrayList(DocField)) = ArrayList(DocField).new();
+            match(
+              actual_type,
+              .Struct({ field_labels : sfl, field_types : sft }) => {
+                st_fields = _type_fields_to_doc_fields(sfl, sft, doc_lookup);
+              },
+              _ => ()
+            );
+            base_trait_impls := match(
+              trait_impl_map.get(field_name.clone()),
+              .Some(l) => l,
+              .None => ArrayList(String).new()
+            );
+            types.push(
+              DocType(
+                name : field_name.clone(),
+                doc : doc,
+                kind : _get_type_kind(actual_type),
+                signature : type_to_string(actual_type),
+                type_params : _get_type_constructor_params(field_type),
+                fields : Option(ArrayList(DocField)).Some(st_fields),
+                variants : Option(ArrayList(DocVariant)).None,
+                methods : merge_methods(merge_methods(direct_methods, generic_impl_info.methods), token_methods),
+                trait_impls : merge_trait_impl_names(merge_trait_impl_names(base_trait_impls, generic_impl_info.trait_impls), token_trait_impls),
+                impls : Option(ArrayList(DocImpl)).Some(all_impls),
+                deprecated : sections.deprecated,
+                examples : sections.examples
+              )
+            );
+          },
+          is_enum_type(actual_type) => {
+            direct_methods := _extract_methods(_doc_type_id(actual_type), field_name.clone(), doc_lookup);
+            generic_impl_info := _extract_generic_impl_info(actual_type, field_name.clone(), doc_lookup, env);
+            (token_methods : ArrayList(DocFunction)) = ArrayList(DocFunction).new();
+            (token_trait_impls : ArrayList(String)) = ArrayList(String).new();
+            (token_impls : ArrayList(DocImpl)) = ArrayList(DocImpl).new();
+            match(
+              token_impl_info_map.get(field_name.clone()),
+              .Some(tii) => {
+                token_methods = tii.methods;
+                token_trait_impls = tii.trait_impls;
+                token_impls = tii.impls;
+              },
+              .None => ()
+            );
+            all_impls := ArrayList(DocImpl).new();
+            (gi : usize) = usize(0);
+            while(gi < generic_impl_info.impls.len(), {
+              match(
+                generic_impl_info.impls.get(gi),
+                .Some(im) => {
+                  all_impls.push(im);
+                },
+                .None => ()
+              );
+              gi = (gi + usize(1));
+            });
+            (ti2 : usize) = usize(0);
+            while(ti2 < token_impls.len(), {
+              match(
+                token_impls.get(ti2),
+                .Some(im) => {
+                  all_impls.push(im);
+                },
+                .None => ()
+              );
+              ti2 = (ti2 + usize(1));
+            });
+            base_trait_impls := match(
+              trait_impl_map.get(field_name.clone()),
+              .Some(l) => l,
+              .None => ArrayList(String).new()
+            );
+            types.push(
+              DocType(
+                name : field_name.clone(),
+                doc : doc,
+                kind : DocItemKind.Enum,
+                signature : type_to_string(actual_type),
+                type_params : _get_type_constructor_params(field_type),
+                fields : Option(ArrayList(DocField)).None,
+                variants : Option(ArrayList(DocVariant)).Some(_enum_variants_to_doc_variants(actual_type, doc_lookup)),
+                methods : merge_methods(merge_methods(direct_methods, generic_impl_info.methods), token_methods),
+                trait_impls : merge_trait_impl_names(merge_trait_impl_names(base_trait_impls, generic_impl_info.trait_impls), token_trait_impls),
+                impls : Option(ArrayList(DocImpl)).Some(all_impls),
+                deprecated : sections.deprecated,
+                examples : sections.examples
+              )
+            );
+          },
+          is_union_type(actual_type) => {
+            generic_impl_info := _extract_generic_impl_info(actual_type, field_name.clone(), doc_lookup, env);
+            (token_methods : ArrayList(DocFunction)) = ArrayList(DocFunction).new();
+            (token_trait_impls : ArrayList(String)) = ArrayList(String).new();
+            (token_impls : ArrayList(DocImpl)) = ArrayList(DocImpl).new();
+            match(
+              token_impl_info_map.get(field_name.clone()),
+              .Some(tii) => {
+                token_methods = tii.methods;
+                token_trait_impls = tii.trait_impls;
+                token_impls = tii.impls;
+              },
+              .None => ()
+            );
+            all_impls := ArrayList(DocImpl).new();
+            (gi : usize) = usize(0);
+            while(gi < generic_impl_info.impls.len(), {
+              match(
+                generic_impl_info.impls.get(gi),
+                .Some(im) => {
+                  all_impls.push(im);
+                },
+                .None => ()
+              );
+              gi = (gi + usize(1));
+            });
+            (ti2 : usize) = usize(0);
+            while(ti2 < token_impls.len(), {
+              match(
+                token_impls.get(ti2),
+                .Some(im) => {
+                  all_impls.push(im);
+                },
+                .None => ()
+              );
+              ti2 = (ti2 + usize(1));
+            });
+            (un_fields : ArrayList(DocField)) = ArrayList(DocField).new();
+            match(
+              actual_type,
+              .Union(_, ufl, uft) => {
+                un_fields = _type_fields_to_doc_fields(ufl, uft, doc_lookup);
+              },
+              _ => ()
+            );
+            base_trait_impls := match(
+              trait_impl_map.get(field_name.clone()),
+              .Some(l) => l,
+              .None => ArrayList(String).new()
+            );
+            types.push(
+              DocType(
+                name : field_name.clone(),
+                doc : doc,
+                kind : DocItemKind.Union,
+                signature : type_to_string(actual_type),
+                type_params : _get_type_constructor_params(field_type),
+                fields : Option(ArrayList(DocField)).Some(un_fields),
+                variants : Option(ArrayList(DocVariant)).None,
+                methods : merge_methods(generic_impl_info.methods, token_methods),
+                trait_impls : merge_trait_impl_names(merge_trait_impl_names(base_trait_impls, generic_impl_info.trait_impls), token_trait_impls),
+                impls : Option(ArrayList(DocImpl)).Some(all_impls),
+                deprecated : sections.deprecated,
+                examples : sections.examples
+              )
+            );
+          },
+          is_trait_type(actual_type) => {
+            trait_methods := ArrayList(DocFunction).new();
+            associated_types := ArrayList(DocAssociatedType).new();
+            match(
+              actual_type,
+              .TraitT({ assoc_type_names, field_labels : tfl, field_types : tft }) => {
+                (fi : usize) = usize(0);
+                while((fi < tfl.len()) && (fi < tft.len()), {
+                  t_label := match(tfl.get(fi), .Some(l) => l, .None => String.new());
+                  t_type := match(
+                    tft.get(fi),
+                    .Some(t) => t,
+                    .None => {
+                      fi = (fi + usize(1));
+                      continue;
+                    }
+                  );
+                  if(assoc_type_names.contains(t_label), {
+                    associated_types.push(
+                      DocAssociatedType(
+                        name : t_label.clone(),
+                        doc : doc_lookup.get(t_label.clone()),
+                        constraint : Option(String).Some(type_to_string(t_type))
+                      )
+                    );
+                  }, {
+                    if(is_function_type(t_type) && !(t_label.starts_with(String.from("___"))), {
+                      trait_methods.push(
+                        build_doc_function(
+                          t_label.clone(),
+                          t_type,
+                          doc_lookup.get(t_label.clone()),
+                          true,
+                          Option(String).Some(field_name.clone()),
+                          Option(HashMap(String, String)).Some(doc_lookup),
+                          String.new()
+                        )
+                      );
+                    });
+                  });
+                  fi = (fi + usize(1));
+                });
+              },
+              _ => ()
+            );
+            (assoc_opt : Option(ArrayList(DocAssociatedType))) = Option(ArrayList(DocAssociatedType)).None;
+            if(associated_types.len() > usize(0), {
+              assoc_opt = Option(ArrayList(DocAssociatedType)).Some(associated_types);
+            });
+            traits.push(
+              DocTrait(
+                name : field_name.clone(),
+                doc : doc,
+                kind : DocTraitKind.Trait,
+                signature : type_to_string(actual_type),
+                type_params : _get_type_constructor_params(field_type),
+                associated_types : assoc_opt,
+                methods : trait_methods,
+                implementors : ArrayList(String).new(),
+                deprecated : sections.deprecated,
+                examples : sections.examples
+              )
+            );
+          },
+          is_module_type(actual_type) => {
+            module_methods := ArrayList(DocFunction).new();
+            match(
+              actual_type,
+              .Struct({ field_labels : mfl, field_types : mft }) => {
+                (fi : usize) = usize(0);
+                while((fi < mfl.len()) && (fi < mft.len()), {
+                  m_label := match(mfl.get(fi), .Some(l) => l, .None => String.new());
+                  m_type := match(
+                    mft.get(fi),
+                    .Some(t) => t,
+                    .None => {
+                      fi = (fi + usize(1));
+                      continue;
+                    }
+                  );
+                  if(is_function_type(m_type) && !(m_label.starts_with(String.from("___"))) && (m_label.len() > usize(0)), {
+                    module_methods.push(
+                      build_doc_function(
+                        m_label.clone(),
+                        m_type,
+                        doc_lookup.get(m_label.clone()),
+                        true,
+                        Option(String).Some(field_name.clone()),
+                        Option(HashMap(String, String)).Some(doc_lookup),
+                        String.new()
+                      )
+                    );
+                  });
+                  fi = (fi + usize(1));
+                });
+              },
+              _ => ()
+            );
+            traits.push(
+              DocTrait(
+                name : field_name.clone(),
+                doc : doc,
+                kind : DocTraitKind.Module,
+                signature : type_to_string(actual_type),
+                type_params : _get_type_constructor_params(field_type),
+                associated_types : Option(ArrayList(DocAssociatedType)).None,
+                methods : module_methods,
+                implementors : ArrayList(String).new(),
+                deprecated : sections.deprecated,
+                examples : sections.examples
+              )
+            );
+          },
+          true => {
+            // Other TypeValue — document as a type alias.
+            base_trait_impls := match(
+              trait_impl_map.get(field_name.clone()),
+              .Some(l) => l,
+              .None => ArrayList(String).new()
+            );
+            types.push(
+              DocType(
+                name : field_name.clone(),
+                doc : doc,
+                kind : DocItemKind.TypeAlias,
+                signature : type_to_string(actual_type),
+                type_params : Option(ArrayList(DocParam)).None,
+                fields : Option(ArrayList(DocField)).None,
+                variants : Option(ArrayList(DocVariant)).None,
+                methods : ArrayList(DocFunction).new(),
+                trait_impls : base_trait_impls,
+                impls : Option(ArrayList(DocImpl)).None,
+                deprecated : sections.deprecated,
+                examples : sections.examples
+              )
+            );
+          }
+        );
+      },
+      _ => ()
+    );
+    if(handled, {
+      i = (i + usize(1));
+      continue;
+    });
+    // -- Function declarations --
+    if(is_function_type(field_type), {
+      if(is_function_type_and_is_type_function(field_type), {
+        inner_type := _resolve_inner_type(field_type, value);
+        sections := extract_doc_sections(doc);
+        cond(
+          is_struct_type(inner_type) => {
+            direct_methods := _extract_methods(_doc_type_id(inner_type), field_name.clone(), doc_lookup);
+            generic_impl_info := _extract_generic_impl_info(inner_type, field_name.clone(), doc_lookup, env);
+            (token_methods : ArrayList(DocFunction)) = ArrayList(DocFunction).new();
+            (token_trait_impls : ArrayList(String)) = ArrayList(String).new();
+            (token_impls : ArrayList(DocImpl)) = ArrayList(DocImpl).new();
+            match(
+              token_impl_info_map.get(field_name.clone()),
+              .Some(tii) => {
+                token_methods = tii.methods;
+                token_trait_impls = tii.trait_impls;
+                token_impls = tii.impls;
+              },
+              .None => ()
+            );
+            all_impls := ArrayList(DocImpl).new();
+            (gi : usize) = usize(0);
+            while(gi < generic_impl_info.impls.len(), {
+              match(
+                generic_impl_info.impls.get(gi),
+                .Some(im) => {
+                  all_impls.push(im);
+                },
+                .None => ()
+              );
+              gi = (gi + usize(1));
+            });
+            (ti2 : usize) = usize(0);
+            while(ti2 < token_impls.len(), {
+              match(
+                token_impls.get(ti2),
+                .Some(im) => {
+                  all_impls.push(im);
+                },
+                .None => ()
+              );
+              ti2 = (ti2 + usize(1));
+            });
+            (st_fields : ArrayList(DocField)) = ArrayList(DocField).new();
+            match(
+              inner_type,
+              .Struct({ field_labels : sfl, field_types : sft }) => {
+                st_fields = _type_fields_to_doc_fields(sfl, sft, doc_lookup);
+              },
+              _ => ()
+            );
+            base_trait_impls := match(
+              trait_impl_map.get(field_name.clone()),
+              .Some(l) => l,
+              .None => ArrayList(String).new()
+            );
+            types.push(
+              DocType(
+                name : field_name.clone(),
+                doc : doc,
+                kind : _get_type_kind(inner_type),
+                signature : type_to_string(field_type),
+                type_params : _get_type_constructor_params(field_type),
+                fields : Option(ArrayList(DocField)).Some(st_fields),
+                variants : Option(ArrayList(DocVariant)).None,
+                methods : merge_methods(merge_methods(direct_methods, generic_impl_info.methods), token_methods),
+                trait_impls : merge_trait_impl_names(merge_trait_impl_names(base_trait_impls, generic_impl_info.trait_impls), token_trait_impls),
+                impls : Option(ArrayList(DocImpl)).Some(all_impls),
+                deprecated : sections.deprecated,
+                examples : sections.examples
+              )
+            );
+          },
+          is_enum_type(inner_type) => {
+            direct_methods := _extract_methods(_doc_type_id(inner_type), field_name.clone(), doc_lookup);
+            generic_impl_info := _extract_generic_impl_info(inner_type, field_name.clone(), doc_lookup, env);
+            (token_methods : ArrayList(DocFunction)) = ArrayList(DocFunction).new();
+            (token_trait_impls : ArrayList(String)) = ArrayList(String).new();
+            (token_impls : ArrayList(DocImpl)) = ArrayList(DocImpl).new();
+            match(
+              token_impl_info_map.get(field_name.clone()),
+              .Some(tii) => {
+                token_methods = tii.methods;
+                token_trait_impls = tii.trait_impls;
+                token_impls = tii.impls;
+              },
+              .None => ()
+            );
+            all_impls := ArrayList(DocImpl).new();
+            (gi : usize) = usize(0);
+            while(gi < generic_impl_info.impls.len(), {
+              match(
+                generic_impl_info.impls.get(gi),
+                .Some(im) => {
+                  all_impls.push(im);
+                },
+                .None => ()
+              );
+              gi = (gi + usize(1));
+            });
+            (ti2 : usize) = usize(0);
+            while(ti2 < token_impls.len(), {
+              match(
+                token_impls.get(ti2),
+                .Some(im) => {
+                  all_impls.push(im);
+                },
+                .None => ()
+              );
+              ti2 = (ti2 + usize(1));
+            });
+            base_trait_impls := match(
+              trait_impl_map.get(field_name.clone()),
+              .Some(l) => l,
+              .None => ArrayList(String).new()
+            );
+            types.push(
+              DocType(
+                name : field_name.clone(),
+                doc : doc,
+                kind : DocItemKind.Enum,
+                signature : type_to_string(field_type),
+                type_params : _get_type_constructor_params(field_type),
+                fields : Option(ArrayList(DocField)).None,
+                variants : Option(ArrayList(DocVariant)).Some(_enum_variants_to_doc_variants(inner_type, doc_lookup)),
+                methods : merge_methods(merge_methods(direct_methods, generic_impl_info.methods), token_methods),
+                trait_impls : merge_trait_impl_names(merge_trait_impl_names(base_trait_impls, generic_impl_info.trait_impls), token_trait_impls),
+                impls : Option(ArrayList(DocImpl)).Some(all_impls),
+                deprecated : sections.deprecated,
+                examples : sections.examples
+              )
+            );
+          },
+          is_trait_type(inner_type) => {
+            trait_methods := ArrayList(DocFunction).new();
+            associated_types := ArrayList(DocAssociatedType).new();
+            match(
+              inner_type,
+              .TraitT({ assoc_type_names, field_labels : tfl, field_types : tft }) => {
+                (fi : usize) = usize(0);
+                while((fi < tfl.len()) && (fi < tft.len()), {
+                  t_label := match(tfl.get(fi), .Some(l) => l, .None => String.new());
+                  t_type := match(
+                    tft.get(fi),
+                    .Some(t) => t,
+                    .None => {
+                      fi = (fi + usize(1));
+                      continue;
+                    }
+                  );
+                  if(assoc_type_names.contains(t_label), {
+                    associated_types.push(
+                      DocAssociatedType(
+                        name : t_label.clone(),
+                        doc : doc_lookup.get(t_label.clone()),
+                        constraint : Option(String).Some(type_to_string(t_type))
+                      )
+                    );
+                  }, {
+                    if(is_function_type(t_type) && !(t_label.starts_with(String.from("___"))), {
+                      trait_methods.push(
+                        build_doc_function(
+                          t_label.clone(),
+                          t_type,
+                          doc_lookup.get(t_label.clone()),
+                          true,
+                          Option(String).Some(field_name.clone()),
+                          Option(HashMap(String, String)).Some(doc_lookup),
+                          String.new()
+                        )
+                      );
+                    });
+                  });
+                  fi = (fi + usize(1));
+                });
+              },
+              _ => ()
+            );
+            (assoc_opt : Option(ArrayList(DocAssociatedType))) = Option(ArrayList(DocAssociatedType)).None;
+            if(associated_types.len() > usize(0), {
+              assoc_opt = Option(ArrayList(DocAssociatedType)).Some(associated_types);
+            });
+            traits.push(
+              DocTrait(
+                name : field_name.clone(),
+                doc : doc,
+                kind : DocTraitKind.TraitFunction,
+                signature : type_to_string(field_type),
+                type_params : _get_type_constructor_params(field_type),
+                associated_types : assoc_opt,
+                methods : trait_methods,
+                implementors : ArrayList(String).new(),
+                deprecated : sections.deprecated,
+                examples : sections.examples
+              )
+            );
+          },
+          is_module_type(inner_type) => {
+            module_methods := ArrayList(DocFunction).new();
+            match(
+              inner_type,
+              .Struct({ field_labels : mfl, field_types : mft }) => {
+                (fi : usize) = usize(0);
+                while((fi < mfl.len()) && (fi < mft.len()), {
+                  m_label := match(mfl.get(fi), .Some(l) => l, .None => String.new());
+                  m_type := match(
+                    mft.get(fi),
+                    .Some(t) => t,
+                    .None => {
+                      fi = (fi + usize(1));
+                      continue;
+                    }
+                  );
+                  if(is_function_type(m_type) && !(m_label.starts_with(String.from("___"))) && (m_label.len() > usize(0)), {
+                    module_methods.push(
+                      build_doc_function(
+                        m_label.clone(),
+                        m_type,
+                        doc_lookup.get(m_label.clone()),
+                        true,
+                        Option(String).Some(field_name.clone()),
+                        Option(HashMap(String, String)).Some(doc_lookup),
+                        String.new()
+                      )
+                    );
+                  });
+                  fi = (fi + usize(1));
+                });
+              },
+              _ => ()
+            );
+            traits.push(
+              DocTrait(
+                name : field_name.clone(),
+                doc : doc,
+                kind : DocTraitKind.ModuleFunction,
+                signature : type_to_string(field_type),
+                type_params : _get_type_constructor_params(field_type),
+                associated_types : Option(ArrayList(DocAssociatedType)).None,
+                methods : module_methods,
+                implementors : ArrayList(String).new(),
+                deprecated : sections.deprecated,
+                examples : sections.examples
+              )
+            );
+          },
+          true => {
+            // TS distinguishes `comptime(Trait)` / `comptime(Module)` returns
+            // via TypeHierarchyType.baseType; yo-self's TypeUni carries no
+            // baseType, so a level >= 1 return classifies as trait-function
+            // (TS's `!retType.baseType` case) and anything else falls through
+            // to the unresolvable generic type constructor.
+            is_hierarchy := match(
+              field_type,
+              .Func({ result : fn_result }) => match(fn_result, .TypeUni(lvl) => (lvl >= usize(1)), _ => false),
+              _ => false
+            );
+            if(is_hierarchy, {
+              traits.push(
+                DocTrait(
+                  name : field_name.clone(),
+                  doc : doc,
+                  kind : DocTraitKind.TraitFunction,
+                  signature : type_to_string(field_type),
+                  type_params : _get_type_constructor_params(field_type),
+                  associated_types : Option(ArrayList(DocAssociatedType)).None,
+                  methods : ArrayList(DocFunction).new(),
+                  implementors : ArrayList(String).new(),
+                  deprecated : sections.deprecated,
+                  examples : sections.examples
+                )
+              );
+            }, {
+              // Generic type constructor that we can't resolve.
+              generic_impl_info := _extract_generic_impl_info(field_type, field_name.clone(), doc_lookup, env);
+              (token_methods : ArrayList(DocFunction)) = ArrayList(DocFunction).new();
+              (token_trait_impls : ArrayList(String)) = ArrayList(String).new();
+              (token_impls : ArrayList(DocImpl)) = ArrayList(DocImpl).new();
+              match(
+                token_impl_info_map.get(field_name.clone()),
+                .Some(tii) => {
+                  token_methods = tii.methods;
+                  token_trait_impls = tii.trait_impls;
+                  token_impls = tii.impls;
+                },
+                .None => ()
+              );
+              all_impls := ArrayList(DocImpl).new();
+              (gi : usize) = usize(0);
+              while(gi < generic_impl_info.impls.len(), {
+                match(
+                  generic_impl_info.impls.get(gi),
+                  .Some(im) => {
+                    all_impls.push(im);
+                  },
+                  .None => ()
+                );
+                gi = (gi + usize(1));
+              });
+              (ti2 : usize) = usize(0);
+              while(ti2 < token_impls.len(), {
+                match(
+                  token_impls.get(ti2),
+                  .Some(im) => {
+                    all_impls.push(im);
+                  },
+                  .None => ()
+                );
+                ti2 = (ti2 + usize(1));
+              });
+              base_trait_impls := match(
+                trait_impl_map.get(field_name.clone()),
+                .Some(l) => l,
+                .None => ArrayList(String).new()
+              );
+              types.push(
+                DocType(
+                  name : field_name.clone(),
+                  doc : doc,
+                  kind : DocItemKind.TypeFunction,
+                  signature : type_to_string(field_type),
+                  type_params : _get_type_constructor_params(field_type),
+                  fields : Option(ArrayList(DocField)).None,
+                  variants : Option(ArrayList(DocVariant)).None,
+                  methods : merge_methods(generic_impl_info.methods, token_methods),
+                  trait_impls : merge_trait_impl_names(merge_trait_impl_names(base_trait_impls, generic_impl_info.trait_impls), token_trait_impls),
+                  impls : Option(ArrayList(DocImpl)).Some(all_impls),
+                  deprecated : sections.deprecated,
+                  examples : sections.examples
+                )
+              );
+            });
+          }
+        );
+        i = (i + usize(1));
+        continue;
+      });
+      // Regular function or comptime function.
+      functions.push(
+        build_doc_function(
+          field_name.clone(),
+          field_type,
+          doc,
+          false,
+          Option(String).None,
+          Option(HashMap(String, String)).Some(doc_lookup),
+          String.new()
+        )
+      );
+      i = (i + usize(1));
+      continue;
+    });
+    // -- Constant --
+    const_sections := extract_doc_sections(doc);
+    constants.push(
+      DocConstant(
+        name : field_name.clone(),
+        doc : doc,
+        type_ : type_to_string(field_type),
+        value : Option(String).Some(value_to_string(value)),
+        deprecated : const_sections.deprecated,
+        examples : const_sections.examples
+      )
+    );
+    i = (i + usize(1));
+  });
+  result
+});
+export(
+  DocSections,
+  TokenImplInfo,
+  TraitBodyExtraction,
+  extract_doc_sections,
+  build_doc_lookup,
+  merge_methods,
+  merge_trait_impl_names,
+  extract_trait_impls_from_tokens,
+  extract_impl_info_from_tokens,
+  build_doc_module_from_tokens,
+  build_cross_references,
+  GenericImplInfo,
+  build_doc_function,
+  build_doc_module
+);

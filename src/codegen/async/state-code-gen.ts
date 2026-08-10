@@ -11,6 +11,7 @@ import {
   isIoAsyncCall,
   isIoAwaitCall,
 } from "../../evaluator/async/await-analysis";
+import { extractTargetVariableId } from "../../evaluator/shared/suspension-analysis";
 import {
   BuiltinKeywords,
   ExprTag,
@@ -27,6 +28,7 @@ import { isEnumType, isUnitType } from "../../types/guards";
 import { isTempVariableName } from "../../utils";
 import { isBooleanValue } from "../../value";
 import { emitAsyncFutureCompletion } from "../exprs/async-completion";
+import { storeTempVarToStateMachineIfNeeded } from "../exprs/other-fn-call";
 import { generateComptimeValue } from "../exprs/comptime-value";
 import { generateExpr } from "../exprs/expr";
 import type { FunctionGenerationContext } from "../functions/context";
@@ -37,9 +39,53 @@ import {
 import { getStateMachineFieldName } from "./state-machine";
 import {
   canOptimizeAsNullablePointer,
+  canOptimizeAsSimpleEnum,
   getTypeString,
   sanitizeForCIdentifier,
 } from "../utils";
+
+/**
+ * Resolve the state machine field a match-arm binding must be STORED into.
+ *
+ * Resolves by the pattern atom's own env identity first: sibling arms may bind
+ * the same name, and each binding gets its own state machine field. A bare
+ * name scan over stateMachineVariables stores into the FIRST same-named field
+ * — the sibling's, never written on this path — while reads resolve by id to
+ * this arm's field, which stays calloc-zeroed (NULL for a ref type). See
+ * issues/fixed/async-sibling-arm-match-bindings-store-to-wrong-slot.md.
+ *
+ * Returns the variable id to store under, or undefined when the binding is a
+ * genuine local. When env resolution succeeds but the id is not a state
+ * machine variable, this is a local — it must NOT fall through to the name
+ * scan, which would hit a sibling's field. The name scan remains only as the
+ * fallback for pattern atoms carrying no env metadata.
+ */
+function resolvePatternBindingStateMachineField(
+  bindingExpr: Expr | undefined,
+  bindingName: string,
+  functionContext: FunctionGenerationContext
+): string | undefined {
+  if (!functionContext.stateMachineVariables) {
+    return undefined;
+  }
+
+  if (bindingExpr && exprIsAtom(bindingExpr) && bindingExpr.$?.env) {
+    const vars = getVariablesFromEnv(bindingExpr.$.env, bindingName);
+    if (vars.length > 0) {
+      const envId = vars[vars.length - 1]!.id;
+      return functionContext.stateMachineVariables.has(envId)
+        ? envId
+        : undefined;
+    }
+  }
+
+  for (const [id, varInfo] of functionContext.stateMachineVariables) {
+    if (varInfo.name === bindingName) {
+      return id;
+    }
+  }
+  return undefined;
+}
 
 /**
  * Represents a code segment between await points.
@@ -802,6 +848,75 @@ function unsupportedAwaitMessage(expr: Expr, awaitPoint: AwaitPoint): string {
 }
 
 /**
+ * The variable a cond/match ARM binds its own `io.await` result to — the `a` in
+ * `.Ok(_) => { a := io.await(f, io); … }`.
+ *
+ * Several arms collapse onto ONE await point (only one arm can run, so one
+ * suspension state suffices), and the await point carries a single
+ * `targetVariableId`. That is fine for the arm the analysis happened to visit
+ * first and WRONG for every other one: their bindings were never assigned from
+ * `sm->await_result_N` and read a zero-initialised struct field. The C compiled
+ * and the program ran — it simply produced `false`/`0`.
+ *
+ * Mirrors `extractTargetVariableId`'s contract: the target only exists when the
+ * await call is the direct RHS of a `:=`. Does not descend into a nested
+ * `io.async` body — those awaits belong to that block's own state machine.
+ */
+function findBranchAwaitTargetVariableId(expr: Expr): string | undefined {
+  let found: string | undefined;
+  const visit = (e: Expr): void => {
+    if (found !== undefined || e.tag !== ExprTag.FnCall) return;
+    if (isIoAsyncCall(e)) return;
+    if (exprIsFunctionCallOf(e, ":=")) {
+      const rhs = e.args[1];
+      if (rhs && rhs.tag === ExprTag.FnCall && isIoAwaitCall(rhs)) {
+        const id = extractTargetVariableId(e);
+        if (id !== undefined) {
+          found = id;
+          return;
+        }
+      }
+    }
+    if (e.func) visit(e.func);
+    for (const arg of e.args) visit(arg);
+  };
+  visit(expr);
+  return found;
+}
+
+/**
+ * Allocate `count` DISTINCT `sm->cond_branch_N` dispatch codes for one
+ * `cond`/`match` that contains an await.
+ *
+ * The code used to be the arm's own index (`0`, `1`, …). Every `cond`/`match`
+ * that awaits under the same await point shares ONE
+ * `asyncCondBranchInfo` entry and therefore one resume `switch`, so two sibling
+ * or nested matches both numbering their arms from 0 emitted `case 0:` twice
+ * and `case 1:` three times — C rejects the function outright ("duplicate case
+ * value"). It takes an OUTER match whose arms each contain an inner match with
+ * an await to trigger, which is why it stayed invisible until `build`/`fetch`/
+ * `install` were wired to a subcommand (plans/P1_CLI_PARITY.md §1).
+ *
+ * Handing every arm a code unique within the function makes the writer
+ * (`sm->cond_branch_N = <code>`) and the reader (`case <code>:`) agree while
+ * keeping distinct matches distinguishable at runtime.
+ */
+function allocCondBranchCodes(
+  context: FunctionGenerationContext,
+  count: number
+): number {
+  // Start at 1, never 0: the state machine is calloc-zeroed, so a
+  // `sm->cond_branch_N` that was never written reads 0. Chained-branch
+  // dispatch (state-machine.ts) switches on the field OUTSIDE the
+  // await-future NULL guard and must be able to tell "branch <code> ran"
+  // from "no await-carrying branch ran" — reserving 0 for the latter makes
+  // the calloc default the unambiguous "none" value.
+  const base = context.condBranchCaseSeq ?? 1;
+  context.condBranchCaseSeq = base + Math.max(count, 1);
+  return base;
+}
+
+/**
  * Generates async-aware code for a cond expression containing await in branches.
  * Strategy:
  * 1. Evaluate conditions and determine which branch to take
@@ -818,6 +933,11 @@ function generateCondWithAwait(
   targetAssignmentCode?: string // C code for assignment target (for `= (target, cond(...))`)
 ): void {
   const emitter = context.emitter;
+  // Dispatch codes unique within this function — see allocCondBranchCodes.
+  const condBranchBase = allocCondBranchCodes(
+    context,
+    condExpr.tag === ExprTag.FnCall ? condExpr.args.length : 1
+  );
 
   // Type guard - condExpr should be a FnCall
   if (
@@ -855,6 +975,7 @@ function generateCondWithAwait(
     hasAwait: boolean;
     remainingExprs?: Expr[]; // Expressions after the await in this branch
     deferredDropExpressions?: Expr[]; // Drop expressions for the branch's begin block
+    awaitTargetVariableId?: string; // This branch's own `x := io.await(…)` binding
   }> = [];
 
   // First pass: check for compile-time constant conditions to optimize dead branches.
@@ -1106,7 +1227,7 @@ function generateCondWithAwait(
     if (branchContainsAwait) {
       // Store which branch was taken
       emitter.emitLine(
-        `${valueIndent}sm->cond_branch_${awaitPoint.index} = ${i};`
+        `${valueIndent}sm->cond_branch_${awaitPoint.index} = ${condBranchBase + i};`
       );
       // This branch contains an await - generate code to spawn and store Future
       const remainingExprs = generateCondBranchWithAwait(
@@ -1129,27 +1250,29 @@ function generateCondWithAwait(
             (b) => b.hasAwait && b.remainingExprs && b.remainingExprs.length > 0
           ) ?? false;
         whileInfo.condBranchPostWhileExprs = {
-          branchIndex: i,
+          branchIndex: condBranchBase + i,
           condBranchFieldIndex: awaitPoint.index,
           exprs: remainingExprs,
           deferredDropExpressions: value.$?.deferredDropExpressions,
           skipCondBranchCheck: hasNestedCondConflict,
         };
         branchesWithAwait.push({
-          index: i,
+          index: condBranchBase + i,
           value,
           hasAwait: true,
           remainingExprs: [], // Post-while-loop exprs are in while loop info
           deferredDropExpressions: value.$?.deferredDropExpressions,
+          awaitTargetVariableId: findBranchAwaitTargetVariableId(value),
         });
       } else {
         // Store branch info with remaining expressions and deferred drops from the branch's begin block
         branchesWithAwait.push({
-          index: i,
+          index: condBranchBase + i,
           value,
           hasAwait: true,
           remainingExprs,
           deferredDropExpressions: value.$?.deferredDropExpressions,
+          awaitTargetVariableId: findBranchAwaitTargetVariableId(value),
         });
       }
     } else {
@@ -1241,7 +1364,7 @@ function generateCondWithAwait(
       }
       // Store branch info without remaining expressions
       branchesWithAwait.push({
-        index: i,
+        index: condBranchBase + i,
         value,
         hasAwait: false,
       });
@@ -1449,6 +1572,8 @@ function generateMatchWithAwait(
   // match is: match(value, .Pattern1(x) => body1, .Pattern2 => body2, ...)
   const matchedValueExpr = matchExpr.args[0];
   const cases = matchExpr.args.slice(1);
+  // Dispatch codes unique within this function — see allocCondBranchCodes.
+  const condBranchBase = allocCondBranchCodes(context, cases.length);
 
   if (!matchedValueExpr || cases.length === 0) {
     emitter.emitLine(
@@ -1459,6 +1584,14 @@ function generateMatchWithAwait(
 
   // Generate the matched value
   const matchedValueCode = generateExpr(matchedValueExpr, indent, context);
+  // The scrutinee temp is a hoisted state machine variable whenever its
+  // deferred drop runs in a LATER state (post-await remaining code, escape
+  // dispose). Those drops reference `sm->var_<temp>` — which stayed
+  // calloc-zeroed because nothing ever stored the local temp into it, so
+  // every drop was a silent no-op and the scrutinee's payload LEAKED (the
+  // `Task` leak in tests/async_await.test.yo's awaitless-arm test; caught by
+  // CI's LeakSanitizer). No-op when the scrutinee is not a tracked temp.
+  storeTempVarToStateMachineIfNeeded(matchedValueCode, indent, context);
   const matchValueType = matchedValueExpr.$?.type;
 
   if (!matchValueType) {
@@ -1505,6 +1638,7 @@ function generateMatchWithAwait(
     let nullCaseIndex = -1;
     let pointerCaseIndex = -1;
     let pointerVarName: string | undefined;
+    let pointerVarExpr: Expr | undefined;
 
     for (let i = 0; i < cases.length; i++) {
       const caseExpr = cases[i]!;
@@ -1532,6 +1666,7 @@ function generateMatchWithAwait(
             // Extract bound variable name
             if (pattern.args.length > 0 && exprIsAtom(pattern.args[0]!)) {
               pointerVarName = pattern.args[0]!.token.value;
+              pointerVarExpr = pattern.args[0]!;
             }
           }
         }
@@ -1552,22 +1687,20 @@ function generateMatchWithAwait(
         if (pointerVarName) {
           // Check if this variable is captured in the state machine
           const functionContext = context as FunctionGenerationContext;
-          let isStateMachineVar = false;
-          let varId: string | undefined;
-
-          // Look through captured variables to find if this variable crosses await boundary
-          if (functionContext.stateMachineVariables) {
-            for (const [id, varInfo] of functionContext.stateMachineVariables) {
-              if (varInfo.name === pointerVarName) {
-                isStateMachineVar = true;
-                varId = id;
-                break;
-              }
-            }
-          }
+          const varId = resolvePatternBindingStateMachineField(
+            pointerVarExpr,
+            pointerVarName,
+            functionContext
+          );
+          const isStateMachineVar = varId !== undefined;
 
           if (isStateMachineVar && varId) {
-            // Store directly in state machine variable
+            // Store directly in state machine variable (a BORROW — see the
+            // enum destructuring site above).
+            if (!functionContext.asyncPatternBindingFieldIds) {
+              functionContext.asyncPatternBindingFieldIds = new Set();
+            }
+            functionContext.asyncPatternBindingFieldIds.add(varId);
             const fieldName = getStateMachineFieldName(
               varId,
               "local",
@@ -1585,7 +1718,7 @@ function generateMatchWithAwait(
         }
 
         emitter.emitLine(
-          `${indent}  sm->cond_branch_${awaitPoint.index} = ${pointerCaseIndex};`
+          `${indent}  sm->cond_branch_${awaitPoint.index} = ${condBranchBase + pointerCaseIndex};`
         );
 
         if (branchHasAwait(caseBody)) {
@@ -1612,11 +1745,12 @@ function generateMatchWithAwait(
             };
 
             branchData.branches.push({
-              index: pointerCaseIndex,
+              index: condBranchBase + pointerCaseIndex,
               value: caseBody,
               hasAwait: true,
               remainingExprs,
               deferredDropExpressions: caseBody.$?.deferredDropExpressions,
+              awaitTargetVariableId: findBranchAwaitTargetVariableId(caseBody),
             });
 
             functionContext.asyncCondBranchInfo.set(
@@ -1674,7 +1808,7 @@ function generateMatchWithAwait(
         const caseBody = caseExpr.args[1]!;
 
         emitter.emitLine(
-          `${indent}  sm->cond_branch_${awaitPoint.index} = ${nullCaseIndex};`
+          `${indent}  sm->cond_branch_${awaitPoint.index} = ${condBranchBase + nullCaseIndex};`
         );
 
         // Check if null case also has await
@@ -1699,11 +1833,12 @@ function generateMatchWithAwait(
             };
 
             branchData.branches.push({
-              index: nullCaseIndex,
+              index: condBranchBase + nullCaseIndex,
               value: caseBody,
               hasAwait: true,
               remainingExprs,
               deferredDropExpressions: caseBody.$?.deferredDropExpressions,
+              awaitTargetVariableId: findBranchAwaitTargetVariableId(caseBody),
             });
 
             functionContext.asyncCondBranchInfo.set(
@@ -1753,8 +1888,18 @@ function generateMatchWithAwait(
 
     emitter.emitLine(`${indent}}`);
   } else {
-    // Regular enum with switch/case
-    emitter.emitLine(`${indent}switch (${matchedValueCode}.tag) {`);
+    // Regular enum with switch/case.
+    //
+    // A payload-free enum is lowered to a PLAIN C enum ("optimized as simple
+    // enum" in codegen/types/generation.ts) with no `tag` member, so `.tag` on
+    // it does not compile. `codegen/exprs/match.ts` has always branched on
+    // `canOptimizeAsSimpleEnum`; this generator did not, so any `match` on such
+    // an enum inside an async body emitted `switch (x.tag)` — "member reference
+    // base type ... is not a structure or union".
+    const scrutineeCode = canOptimizeAsSimpleEnum(enumType)
+      ? matchedValueCode
+      : `${matchedValueCode}.tag`;
+    emitter.emitLine(`${indent}switch (${scrutineeCode}) {`);
 
     let hasWildcardDefault = false;
     for (let i = 0; i < cases.length; i++) {
@@ -1807,7 +1952,7 @@ function generateMatchWithAwait(
         emitter.emitLine(`${indent}  case ${variantTag}: {`);
       }
       emitter.emitLine(
-        `${indent}    sm->cond_branch_${awaitPoint.index} = ${i};`
+        `${indent}    sm->cond_branch_${awaitPoint.index} = ${condBranchBase + i};`
       );
 
       // Handle destructuring patterns like .Some(task)
@@ -1836,21 +1981,12 @@ function generateMatchWithAwait(
 
                 // Check if this variable is captured in the state machine
                 const functionContext = context as FunctionGenerationContext;
-                let isStateMachineVar = false;
-                let varId: string | undefined;
-
-                if (functionContext.stateMachineVariables) {
-                  for (const [
-                    id,
-                    varInfo,
-                  ] of functionContext.stateMachineVariables) {
-                    if (varInfo.name === rawVarName) {
-                      isStateMachineVar = true;
-                      varId = id;
-                      break;
-                    }
-                  }
-                }
+                const varId = resolvePatternBindingStateMachineField(
+                  destructuredVar,
+                  rawVarName,
+                  functionContext
+                );
+                const isStateMachineVar = varId !== undefined;
 
                 const fieldLabel = sanitizeForCIdentifier(
                   variantField.label,
@@ -1859,7 +1995,13 @@ function generateMatchWithAwait(
                 const accessExpr = `${matchedValueCode}.data.${variantName}.${fieldLabel}`;
 
                 if (isStateMachineVar && varId) {
-                  // Store in state machine variable
+                  // Store in state machine variable. The binding BORROWS the
+                  // scrutinee's ownership (no dup) — record it so the escape
+                  // dispose does not double-drop it beside the scrutinee.
+                  if (!functionContext.asyncPatternBindingFieldIds) {
+                    functionContext.asyncPatternBindingFieldIds = new Set();
+                  }
+                  functionContext.asyncPatternBindingFieldIds.add(varId);
                   const fieldName = getStateMachineFieldName(
                     varId,
                     "local",
@@ -1883,6 +2025,10 @@ function generateMatchWithAwait(
 
       // Check if this case has await
       if (branchHasAwait(caseBody)) {
+        const functionContextPre = context as FunctionGenerationContext;
+        const branchCountBefore =
+          functionContextPre.asyncCondBranchInfo?.get(awaitPoint.index)
+            ?.branches.length ?? 0;
         const remainingExprs = generateCondBranchWithAwait(
           caseBody,
           awaitPoint,
@@ -1902,13 +2048,53 @@ function generateMatchWithAwait(
             branches: [],
           };
 
-          branchData.branches.push({
-            index: i,
-            value: caseBody,
-            hasAwait: true,
-            remainingExprs,
-            deferredDropExpressions: caseBody.$?.deferredDropExpressions,
-          });
+          // A NESTED match inside this arm claims the dispatch slot: its
+          // `sm->cond_branch_N = …` assignment overwrites this arm's, so a
+          // `case` keyed on THIS arm's code is unreachable at resume — its
+          // deferred drops never ran and the nested scrutinee leaked. When the
+          // nesting pushed branches during the recursion above and this arm
+          // has nothing left but trivial unit exprs (drops ride
+          // deferredDropExpressions), attach the arm as a chained layer
+          // instead: chained layers run AFTER the branch switch regardless of
+          // the dispatch value, which is safe here because RC drops are no-ops
+          // on the zeroed slots of arms that never ran. Arms with REAL
+          // trailing statements keep today's (dead-case) placement — running
+          // them cross-arm would be wrong; that gap is pre-existing.
+          const nestedClaimedDispatch =
+            branchData.branches.length > branchCountBefore;
+          const remainingIsTrivial = remainingExprs.every(
+            (e) =>
+              exprIsAtomOf(e, "()") ||
+              (exprIsFunctionCall(e) &&
+                exprIsFunctionCallOf(e, BuiltinKeywords.tuple) &&
+                e.args.length === 0)
+          );
+          if (nestedClaimedDispatch && remainingIsTrivial) {
+            if (!branchData.chainedBranches) {
+              branchData.chainedBranches = [];
+            }
+            branchData.chainedBranches.push({
+              branches: [
+                {
+                  index: condBranchBase + i,
+                  value: caseBody,
+                  hasAwait: true,
+                  remainingExprs,
+                  deferredDropExpressions: caseBody.$?.deferredDropExpressions,
+                },
+              ],
+              condBranchFieldIndex: awaitPoint.index,
+            });
+          } else {
+            branchData.branches.push({
+              index: condBranchBase + i,
+              value: caseBody,
+              hasAwait: true,
+              remainingExprs,
+              deferredDropExpressions: caseBody.$?.deferredDropExpressions,
+              awaitTargetVariableId: findBranchAwaitTargetVariableId(caseBody),
+            });
+          }
 
           functionContext.asyncCondBranchInfo.set(awaitPoint.index, branchData);
         }
@@ -1998,6 +2184,8 @@ function generatePrimitiveMatchWithAwait(
   targetAssignmentCode?: string
 ): void {
   const emitter = context.emitter;
+  // Dispatch codes unique within this function — see allocCondBranchCodes.
+  const condBranchBase = allocCondBranchCodes(context, cases.length);
 
   // Store branch info for later generation
   const branchesWithAwait: Array<{
@@ -2006,6 +2194,7 @@ function generatePrimitiveMatchWithAwait(
     hasAwait: boolean;
     remainingExprs?: Expr[];
     deferredDropExpressions?: Expr[];
+    awaitTargetVariableId?: string; // This branch's own `x := io.await(…)` binding
   }> = [];
 
   emitter.emitLine(`${indent}switch (${matchedValueCode}) {`);
@@ -2049,7 +2238,7 @@ function generatePrimitiveMatchWithAwait(
     }
 
     emitter.emitLine(
-      `${indent}    sm->cond_branch_${awaitPoint.index} = ${i};`
+      `${indent}    sm->cond_branch_${awaitPoint.index} = ${condBranchBase + i};`
     );
 
     if (branchHasAwait(caseBody)) {
@@ -2061,11 +2250,12 @@ function generatePrimitiveMatchWithAwait(
       );
 
       branchesWithAwait.push({
-        index: i,
+        index: condBranchBase + i,
         value: caseBody,
         hasAwait: true,
         remainingExprs,
         deferredDropExpressions: caseBody.$?.deferredDropExpressions,
+        awaitTargetVariableId: findBranchAwaitTargetVariableId(caseBody),
       });
     } else {
       if (
@@ -2098,7 +2288,7 @@ function generatePrimitiveMatchWithAwait(
         }
       }
       branchesWithAwait.push({
-        index: i,
+        index: condBranchBase + i,
         value: caseBody,
         hasAwait: false,
       });
@@ -2238,6 +2428,34 @@ function generateCondBranchWithAwait(
       ) {
         // While loop with await in the body
         generateWhileWithAwait(expr, awaitPoint, indent, context);
+      } else if (
+        expr.$?.macroExpansion &&
+        exprIsFunctionCall(expr.$.macroExpansion) &&
+        exprIsFunctionCallOf(expr.$.macroExpansion, BuiltinKeywords.cond)
+      ) {
+        // An `if` inside a cond/match branch. `if` is a `cond` wearing a macro
+        // head, and only the expansion carries the branch structure — the same
+        // recursion `generateAwaitExpression` does at the top level of an async
+        // body, which is why `if` works there and used to be rejected here.
+        generateCondWithAwait(
+          expr.$.macroExpansion,
+          awaitPoint,
+          indent,
+          context
+        );
+      } else {
+        // An await in a shape none of the above can split. At the TOP level of an
+        // async body this same situation throws `unsupportedAwaitMessage` — see
+        // `generateAwaitExpression`, whose comment is "a compile error is always
+        // better than a segfaulting binary". Inside a cond/match branch it used to
+        // fall out of the chain silently: no `sm->await_future_N` store, so the
+        // await machinery emitted right after read a NULL future.
+        //
+        // `out = io.await(f, io)` (assignment, as opposed to `out := …`) is the
+        // shape that exposed this. It is a loud error at the top level and was a
+        // silent no-op — or a SIGSEGV once the state machine ran on — in a branch.
+        // See issues/fixed/async-unsupported-await-shape-in-branch-silently-dropped.md.
+        throw new Error(unsupportedAwaitMessage(expr, awaitPoint));
       }
     } else {
       // Expression doesn't contain await - generate normally
@@ -2544,6 +2762,30 @@ function generateWhileBodyWithAwait(
     generateMatchWithAwait(awaitExpr, awaitPoint, indent, context);
     // The match branch remainingExprs are already stored in context.asyncCondBranchInfo
     // but we still need to collect expressions AFTER the match in the while loop body
+    for (let i = awaitFoundIndex + 1; i < bodyExprs.length; i++) {
+      remainingExprs.push(bodyExprs[i]!);
+    }
+    return remainingExprs;
+  } else if (
+    awaitExpr.$?.macroExpansion &&
+    exprIsFunctionCall(awaitExpr.$.macroExpansion) &&
+    exprIsFunctionCallOf(awaitExpr.$.macroExpansion, BuiltinKeywords.cond)
+  ) {
+    // An `if` — which is a `cond` wearing a macro head. The AST node stays an
+    // `if`; the branch structure only exists in its expansion, so neither check
+    // above matched and the loop body emitted NOTHING AT ALL: no branch code, no
+    // `sm->cond_branch_N` assignment. The loop ran, did nothing, and the program
+    // exited 0 — a silent no-op, not a crash. Dispatch on the expansion exactly
+    // as the `cond` case above does, and keep collecting the ORIGINAL body's
+    // trailing expressions (the loop counter increment lives there).
+    // See issues/fixed/async-if-with-await-in-while-body-emits-nothing.md.
+    generateCondWithAwait(
+      awaitExpr.$.macroExpansion,
+      awaitPoint,
+      indent,
+      context,
+      undefined
+    );
     for (let i = awaitFoundIndex + 1; i < bodyExprs.length; i++) {
       remainingExprs.push(bodyExprs[i]!);
     }

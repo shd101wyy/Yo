@@ -77,7 +77,12 @@ _strip_str_delims :: (fn(raw : String) -> String)({
   }, raw.clone())
 });
 /// Produce a C string literal `"..."` from raw bytes, escaping C-special
-/// characters. The faithful stand-in for TS `JSON.stringify(value)`.
+/// characters. The faithful stand-in for TS `quoteCString` (codegen/utils):
+/// control bytes have NO valid `\uXXXX` spelling in C ("universal character
+/// name refers to a control character"), so besides the named escapes they
+/// become unambiguous 3-digit octal. A NUL byte pushed verbatim (the old
+/// behavior) poisons the emitted C — see
+/// issues/fixed/c-string-literal-control-chars-emitted-as-unicode-escapes.md
 _c_string_literal :: (fn(raw : String) -> String)({
   out := String.from("\"");
   // BYTE count (see _strip_str_delims note): this loop reads raw BYTES.
@@ -91,6 +96,14 @@ _c_string_literal :: (fn(raw : String) -> String)({
       (b == u8(10)) => out.push_str("\\n"),
       (b == u8(9)) => out.push_str("\\t"),
       (b == u8(13)) => out.push_str("\\r"),
+      (b == u8(8)) => out.push_str("\\b"),
+      (b == u8(12)) => out.push_str("\\f"),
+      (b < u8(32)) => {
+        out.push_byte(u8(92));
+        out.push_byte(u8(48) + (b / u8(64)));
+        out.push_byte(u8(48) + ((b / u8(8)) % u8(8)));
+        out.push_byte(u8(48) + (b % u8(8)));
+      },
       true => out.push_byte(b)
     );
     i = (i + usize(1));
@@ -194,8 +207,20 @@ generate_comptime_value :: (fn(value : EvalValue, ty : TypeValue, context : Code
   match(
     value,
     .IntLit(raw) => {
+      // `-9223372036854775808LL` is NOT a valid signed literal in C: the
+      // digits 9223372036854775808 don't fit long long, so clang types the
+      // literal `unsigned long long` (-Wimplicitly-unsigned-literal, hidden
+      // by -w) and any comparison it is inlined into silently goes UNSIGNED
+      // — `_i64_op_wrapped`'s `a < (i64.MIN + b)` then returned TRUE for
+      // `isize(3) - isize(1)`, making the self-hosted binary reject EVERY
+      // comptime signed subtraction. Emit the portable INT64_MIN idiom.
+      // Mirrors generateComptimeValue (comptime-value.ts).
+      suffix := _int_suffix(ty);
+      if((suffix == "LL") && (raw == "-9223372036854775808"), {
+        return(String.from("(-9223372036854775807LL - 1)"));
+      });
       out := raw.clone();
-      out.push_str(_int_suffix(ty));
+      out.push_str(suffix);
       out
     },
     .FloatLit(raw) => {

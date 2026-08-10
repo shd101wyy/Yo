@@ -1,0 +1,457 @@
+//! JSON documentation renderer — serializes a DocModel to JSON.
+//!
+//! Mirrors `src/doc/render-json.ts`, whose whole body is
+//! `JSON.stringify(model, null, 2)` — so the real contract this file ports is
+//! JSON.stringify's semantics over the builder's object literals:
+//!
+//!   - keys appear in OBJECT-LITERAL INSERTION ORDER (one canonical order per
+//!     model type — the literals in builder.ts / doc-command.ts);
+//!   - `undefined`-valued keys are OMITTED (every `Option.None` here);
+//!   - `effects` is always undefined in TS's buildDocFunction, so it is never
+//!     emitted; `DocParam.is_implicit` exists only in the yo model and is
+//!     never emitted.
+//!
+//! Rendering is PURE (model → JSON string) like render_markdown.yo; the
+//! output-directory write lives in the doc command, where Io is available.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ JsonValue, json_stringify, json_stringify_pretty } :: import("std/encoding/json");
+{
+  DocParam,
+  DocField,
+  DocVariant,
+  DocAssociatedType,
+  DocImplAssocType,
+  DocImpl,
+  DocFunction,
+  DocType,
+  DocTrait,
+  DocConstant,
+  DocModule,
+  DocModel,
+  doc_item_kind_to_string,
+  doc_trait_kind_to_string
+} :: import("./model.yo");
+// ---------------------------------------------------------------------------
+// Object-building helpers
+// ---------------------------------------------------------------------------
+/// Append a key/value pair to a JSON object under construction.
+_obj_add :: (
+  fn(keys : ArrayList(String), vals : ArrayList(JsonValue), k : String, v : JsonValue) -> unit
+)({
+  keys.push(k);
+  vals.push(v);
+});
+/// Append a string-valued key.
+_obj_add_str :: (
+  fn(keys : ArrayList(String), vals : ArrayList(JsonValue), k : String, v : String) -> unit
+)({
+  keys.push(k);
+  vals.push(JsonValue.Str(value : v));
+});
+/// Append a string-valued key only when the value is present — the
+/// JSON.stringify `undefined`-omission rule.
+_obj_add_opt_str :: (
+  fn(keys : ArrayList(String), vals : ArrayList(JsonValue), k : String, v : Option(String)) -> unit
+)({
+  match(
+    v,
+    .Some(s) => {
+      keys.push(k);
+      vals.push(JsonValue.Str(value : s));
+    },
+    .None => ()
+  );
+});
+/// Append a bool-valued key.
+_obj_add_bool :: (
+  fn(keys : ArrayList(String), vals : ArrayList(JsonValue), k : String, v : bool) -> unit
+)({
+  keys.push(k);
+  vals.push(JsonValue.Bool(value : v));
+});
+/// A JSON array of strings.
+_str_array :: (fn(items : ArrayList(String)) -> JsonValue)({
+  vals := ArrayList(JsonValue).new();
+  (i : usize) = usize(0);
+  while(i < items.len(), {
+    match(
+      items.get(i),
+      .Some(s) => {
+        vals.push(JsonValue.Str(value : s.clone()));
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  JsonValue.Array(items : vals)
+});
+// ---------------------------------------------------------------------------
+// Per-model-type converters (key order = the TS literal's insertion order)
+// ---------------------------------------------------------------------------
+/// DocParam → {name, type, isComptime, defaultValue?, doc?}.
+_param_to_json :: (fn(p : DocParam) -> JsonValue)({
+  keys := ArrayList(String).new();
+  vals := ArrayList(JsonValue).new();
+  _obj_add_str(keys, vals, String.from("name"), p.name.clone());
+  _obj_add_str(keys, vals, String.from("type"), p.type_.clone());
+  _obj_add_bool(keys, vals, String.from("isComptime"), p.is_comptime);
+  _obj_add_opt_str(keys, vals, String.from("defaultValue"), p.default_value);
+  _obj_add_opt_str(keys, vals, String.from("doc"), p.doc);
+  JsonValue.Object(keys : keys, values : vals)
+});
+_params_to_json :: (fn(params : ArrayList(DocParam)) -> JsonValue)({
+  vals := ArrayList(JsonValue).new();
+  (i : usize) = usize(0);
+  while(i < params.len(), {
+    match(
+      params.get(i),
+      .Some(p) => {
+        vals.push(_param_to_json(p));
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  JsonValue.Array(items : vals)
+});
+/// DocField → {name, type, doc?, defaultValue?}.
+_field_to_json :: (fn(f : DocField) -> JsonValue)({
+  keys := ArrayList(String).new();
+  vals := ArrayList(JsonValue).new();
+  _obj_add_str(keys, vals, String.from("name"), f.name.clone());
+  _obj_add_str(keys, vals, String.from("type"), f.type_.clone());
+  _obj_add_opt_str(keys, vals, String.from("doc"), f.doc);
+  _obj_add_opt_str(keys, vals, String.from("defaultValue"), f.default_value);
+  JsonValue.Object(keys : keys, values : vals)
+});
+_fields_to_json :: (fn(fields : ArrayList(DocField)) -> JsonValue)({
+  vals := ArrayList(JsonValue).new();
+  (i : usize) = usize(0);
+  while(i < fields.len(), {
+    match(
+      fields.get(i),
+      .Some(f) => {
+        vals.push(_field_to_json(f));
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  JsonValue.Array(items : vals)
+});
+/// DocVariant → {name, fields?, doc?, discriminant?}.
+_variant_to_json :: (fn(v : DocVariant) -> JsonValue)({
+  keys := ArrayList(String).new();
+  vals := ArrayList(JsonValue).new();
+  _obj_add_str(keys, vals, String.from("name"), v.name.clone());
+  match(
+    v.fields,
+    .Some(fields) => {
+      _obj_add(keys, vals, String.from("fields"), _fields_to_json(fields));
+    },
+    .None => ()
+  );
+  _obj_add_opt_str(keys, vals, String.from("doc"), v.doc);
+  _obj_add_opt_str(keys, vals, String.from("discriminant"), v.discriminant);
+  JsonValue.Object(keys : keys, values : vals)
+});
+/// DocAssociatedType → {name, doc?, constraint?}.
+_assoc_type_to_json :: (fn(a : DocAssociatedType) -> JsonValue)({
+  keys := ArrayList(String).new();
+  vals := ArrayList(JsonValue).new();
+  _obj_add_str(keys, vals, String.from("name"), a.name.clone());
+  _obj_add_opt_str(keys, vals, String.from("doc"), a.doc);
+  _obj_add_opt_str(keys, vals, String.from("constraint"), a.constraint);
+  JsonValue.Object(keys : keys, values : vals)
+});
+/// DocImplAssocType → {name, type, doc?}.
+_impl_assoc_type_to_json :: (fn(a : DocImplAssocType) -> JsonValue)({
+  keys := ArrayList(String).new();
+  vals := ArrayList(JsonValue).new();
+  _obj_add_str(keys, vals, String.from("name"), a.name.clone());
+  _obj_add_str(keys, vals, String.from("type"), a.type_.clone());
+  _obj_add_opt_str(keys, vals, String.from("doc"), a.doc);
+  JsonValue.Object(keys : keys, values : vals)
+});
+/// DocImpl → {signature, traitName?, methodNames, associatedTypes?}.
+_impl_to_json :: (fn(im : DocImpl) -> JsonValue)({
+  keys := ArrayList(String).new();
+  vals := ArrayList(JsonValue).new();
+  _obj_add_str(keys, vals, String.from("signature"), im.signature.clone());
+  _obj_add_opt_str(keys, vals, String.from("traitName"), im.trait_name);
+  _obj_add(keys, vals, String.from("methodNames"), _str_array(im.method_names));
+  match(
+    im.associated_types,
+    .Some(assocs) => {
+      a_vals := ArrayList(JsonValue).new();
+      (i : usize) = usize(0);
+      while(i < assocs.len(), {
+        match(
+          assocs.get(i),
+          .Some(a) => {
+            a_vals.push(_impl_assoc_type_to_json(a));
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      _obj_add(keys, vals, String.from("associatedTypes"), JsonValue.Array(items : a_vals));
+    },
+    .None => ()
+  );
+  JsonValue.Object(keys : keys, values : vals)
+});
+/// DocFunction → {name, doc?, signature, parameters, returnType, typeParams?,
+/// isMethod, selfType?, returns?, errors?, deprecated?, examples?}.
+_function_to_json :: (fn(f : DocFunction) -> JsonValue)({
+  keys := ArrayList(String).new();
+  vals := ArrayList(JsonValue).new();
+  _obj_add_str(keys, vals, String.from("name"), f.name.clone());
+  _obj_add_opt_str(keys, vals, String.from("doc"), f.doc);
+  _obj_add_str(keys, vals, String.from("signature"), f.signature.clone());
+  _obj_add(keys, vals, String.from("parameters"), _params_to_json(f.parameters));
+  _obj_add_str(keys, vals, String.from("returnType"), f.return_type.clone());
+  match(
+    f.type_params,
+    .Some(tp) => {
+      _obj_add(keys, vals, String.from("typeParams"), _params_to_json(tp));
+    },
+    .None => ()
+  );
+  _obj_add_bool(keys, vals, String.from("isMethod"), f.is_method);
+  _obj_add_opt_str(keys, vals, String.from("selfType"), f.self_type);
+  _obj_add_opt_str(keys, vals, String.from("returns"), f.returns);
+  _obj_add_opt_str(keys, vals, String.from("errors"), f.errors);
+  _obj_add_opt_str(keys, vals, String.from("deprecated"), f.deprecated);
+  _obj_add_opt_str(keys, vals, String.from("examples"), f.examples);
+  JsonValue.Object(keys : keys, values : vals)
+});
+_functions_to_json :: (fn(fns : ArrayList(DocFunction)) -> JsonValue)({
+  vals := ArrayList(JsonValue).new();
+  (i : usize) = usize(0);
+  while(i < fns.len(), {
+    match(
+      fns.get(i),
+      .Some(f) => {
+        vals.push(_function_to_json(f));
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  JsonValue.Array(items : vals)
+});
+/// DocType → {name, doc?, kind, signature, typeParams?, fields?, variants?,
+/// methods, traitImpls, impls?, deprecated?, examples?}.
+_type_to_json :: (fn(t : DocType) -> JsonValue)({
+  keys := ArrayList(String).new();
+  vals := ArrayList(JsonValue).new();
+  _obj_add_str(keys, vals, String.from("name"), t.name.clone());
+  _obj_add_opt_str(keys, vals, String.from("doc"), t.doc);
+  _obj_add_str(keys, vals, String.from("kind"), doc_item_kind_to_string(t.kind));
+  _obj_add_str(keys, vals, String.from("signature"), t.signature.clone());
+  match(
+    t.type_params,
+    .Some(tp) => {
+      _obj_add(keys, vals, String.from("typeParams"), _params_to_json(tp));
+    },
+    .None => ()
+  );
+  match(
+    t.fields,
+    .Some(fields) => {
+      _obj_add(keys, vals, String.from("fields"), _fields_to_json(fields));
+    },
+    .None => ()
+  );
+  match(
+    t.variants,
+    .Some(variants) => {
+      v_vals := ArrayList(JsonValue).new();
+      (i : usize) = usize(0);
+      while(i < variants.len(), {
+        match(
+          variants.get(i),
+          .Some(v) => {
+            v_vals.push(_variant_to_json(v));
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      _obj_add(keys, vals, String.from("variants"), JsonValue.Array(items : v_vals));
+    },
+    .None => ()
+  );
+  _obj_add(keys, vals, String.from("methods"), _functions_to_json(t.methods));
+  _obj_add(keys, vals, String.from("traitImpls"), _str_array(t.trait_impls));
+  match(
+    t.impls,
+    .Some(impls) => {
+      i_vals := ArrayList(JsonValue).new();
+      (i : usize) = usize(0);
+      while(i < impls.len(), {
+        match(
+          impls.get(i),
+          .Some(im) => {
+            i_vals.push(_impl_to_json(im));
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      _obj_add(keys, vals, String.from("impls"), JsonValue.Array(items : i_vals));
+    },
+    .None => ()
+  );
+  _obj_add_opt_str(keys, vals, String.from("deprecated"), t.deprecated);
+  _obj_add_opt_str(keys, vals, String.from("examples"), t.examples);
+  JsonValue.Object(keys : keys, values : vals)
+});
+/// DocTrait → {name, doc?, kind, signature, typeParams?, associatedTypes?,
+/// methods, implementors, deprecated?, examples?}.
+_trait_to_json :: (fn(t : DocTrait) -> JsonValue)({
+  keys := ArrayList(String).new();
+  vals := ArrayList(JsonValue).new();
+  _obj_add_str(keys, vals, String.from("name"), t.name.clone());
+  _obj_add_opt_str(keys, vals, String.from("doc"), t.doc);
+  _obj_add_str(keys, vals, String.from("kind"), doc_trait_kind_to_string(t.kind));
+  _obj_add_str(keys, vals, String.from("signature"), t.signature.clone());
+  match(
+    t.type_params,
+    .Some(tp) => {
+      _obj_add(keys, vals, String.from("typeParams"), _params_to_json(tp));
+    },
+    .None => ()
+  );
+  match(
+    t.associated_types,
+    .Some(assocs) => {
+      a_vals := ArrayList(JsonValue).new();
+      (i : usize) = usize(0);
+      while(i < assocs.len(), {
+        match(
+          assocs.get(i),
+          .Some(a) => {
+            a_vals.push(_assoc_type_to_json(a));
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      _obj_add(keys, vals, String.from("associatedTypes"), JsonValue.Array(items : a_vals));
+    },
+    .None => ()
+  );
+  _obj_add(keys, vals, String.from("methods"), _functions_to_json(t.methods));
+  _obj_add(keys, vals, String.from("implementors"), _str_array(t.implementors));
+  _obj_add_opt_str(keys, vals, String.from("deprecated"), t.deprecated);
+  _obj_add_opt_str(keys, vals, String.from("examples"), t.examples);
+  JsonValue.Object(keys : keys, values : vals)
+});
+/// DocConstant → {name, doc?, type, value?, deprecated?, examples?}.
+/// (`examples` rides the `...extractDocSections(doc)` spread in TS — see
+/// model.yo.)
+_constant_to_json :: (fn(c : DocConstant) -> JsonValue)({
+  keys := ArrayList(String).new();
+  vals := ArrayList(JsonValue).new();
+  _obj_add_str(keys, vals, String.from("name"), c.name.clone());
+  _obj_add_opt_str(keys, vals, String.from("doc"), c.doc);
+  _obj_add_str(keys, vals, String.from("type"), c.type_.clone());
+  _obj_add_opt_str(keys, vals, String.from("value"), c.value);
+  _obj_add_opt_str(keys, vals, String.from("deprecated"), c.deprecated);
+  _obj_add_opt_str(keys, vals, String.from("examples"), c.examples);
+  JsonValue.Object(keys : keys, values : vals)
+});
+/// DocModule → {name, path, doc?, functions, types, traits, constants,
+/// submodules}. Recursive through submodules.
+_module_to_json :: (fn(m : DocModule) -> JsonValue)({
+  keys := ArrayList(String).new();
+  vals := ArrayList(JsonValue).new();
+  _obj_add_str(keys, vals, String.from("name"), m.name.clone());
+  _obj_add_str(keys, vals, String.from("path"), m.path.clone());
+  _obj_add_opt_str(keys, vals, String.from("doc"), m.doc);
+  _obj_add(keys, vals, String.from("functions"), _functions_to_json(m.functions));
+  t_vals := ArrayList(JsonValue).new();
+  (ti : usize) = usize(0);
+  while(ti < m.types.len(), {
+    match(
+      m.types.get(ti),
+      .Some(t) => {
+        t_vals.push(_type_to_json(t));
+      },
+      .None => ()
+    );
+    ti = (ti + usize(1));
+  });
+  _obj_add(keys, vals, String.from("types"), JsonValue.Array(items : t_vals));
+  tr_vals := ArrayList(JsonValue).new();
+  (tri : usize) = usize(0);
+  while(tri < m.traits.len(), {
+    match(
+      m.traits.get(tri),
+      .Some(t) => {
+        tr_vals.push(_trait_to_json(t));
+      },
+      .None => ()
+    );
+    tri = (tri + usize(1));
+  });
+  _obj_add(keys, vals, String.from("traits"), JsonValue.Array(items : tr_vals));
+  c_vals := ArrayList(JsonValue).new();
+  (ci : usize) = usize(0);
+  while(ci < m.constants.len(), {
+    match(
+      m.constants.get(ci),
+      .Some(c) => {
+        c_vals.push(_constant_to_json(c));
+      },
+      .None => ()
+    );
+    ci = (ci + usize(1));
+  });
+  _obj_add(keys, vals, String.from("constants"), JsonValue.Array(items : c_vals));
+  s_vals := ArrayList(JsonValue).new();
+  (si : usize) = usize(0);
+  while(si < m.submodules.len(), {
+    match(
+      m.submodules.get(si),
+      .Some(sub) => {
+        s_vals.push(recur(sub.*));
+      },
+      .None => ()
+    );
+    si = (si + usize(1));
+  });
+  _obj_add(keys, vals, String.from("submodules"), JsonValue.Array(items : s_vals));
+  JsonValue.Object(keys : keys, values : vals)
+});
+/// DocModel → {name, modules, version?} (the literal in doc-command.ts:304).
+_model_to_json :: (fn(model : DocModel) -> JsonValue)({
+  keys := ArrayList(String).new();
+  vals := ArrayList(JsonValue).new();
+  _obj_add_str(keys, vals, String.from("name"), model.name.clone());
+  m_vals := ArrayList(JsonValue).new();
+  (i : usize) = usize(0);
+  while(i < model.modules.len(), {
+    match(
+      model.modules.get(i),
+      .Some(m) => {
+        m_vals.push(_module_to_json(m));
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  _obj_add(keys, vals, String.from("modules"), JsonValue.Array(items : m_vals));
+  _obj_add_opt_str(keys, vals, String.from("version"), model.version);
+  JsonValue.Object(keys : keys, values : vals)
+});
+/// The doc.json content for a DocModel. Mirrors `renderDocJson`
+/// (render-json.ts:17) minus the fs writes, which live in the doc command.
+render_doc_json_string :: (fn(model : DocModel, pretty : bool) -> String)({
+  v := _model_to_json(model);
+  if(pretty, json_stringify_pretty(v, usize(2)), json_stringify(v))
+});
+export(render_doc_json_string);

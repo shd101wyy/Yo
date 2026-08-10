@@ -150,16 +150,58 @@ if [ "$init_rc" != "0" ] || [ -n "$missing" ]; then
   dump_log "/tmp/${P}_init.log"
 fi
 
-# NOTE: a `fmt` differential is deliberately NOT a gate yet. Both root causes
-# behind the bulk of the divergence are now fixed (the Dot case eating a
-# preceding space, and a char-index used as a byte offset that DESTROYED any
-# file mixing non-ASCII text with a backtick string), taking
-# `<bin> fmt --check ./std ./tests ./yo-self` from 339 files to 17. The
-# remaining 17 are one class: a stray space before `)` when an operator token
-# ends a MULTILINE paren frame — `(==)`, `(..)`, `(..=)`, `quote(=>)`, C-variadic
-# `...`. It does not reproduce single-line. Tracked in
-# issues/yo-self-formatter-diverges-from-ts.md. Wire the gate in when that
-# class is fixed; until then it would land permanently red.
+echo "=== T1 GATE 6: fmt differential ==="
+# The repo is kept TS-`fmt`-clean, so any file the SELF-HOSTED formatter reports
+# as "would format" is a divergence between the two formatters — which is the
+# thing to gate on, and it runs in under a minute (the byte-for-byte `cmp` loop
+# over all 808 files takes ~25 min and is the slow confirmation, not the gate).
+#
+# This was 339 divergent files, then 17, and is now 0. Three root causes, all
+# fixed: the Dot case ate a preceding space; `read_raw_template_string` used a
+# character index as a byte offset and DESTROYED any file mixing non-ASCII text
+# with a backtick string; and `_trim_trailing_h_ws` did the same thing in
+# reverse — a byte index handed to the CHAR-indexed `String.substring`, which
+# clamped and made the trim a silent no-op (the `(== )` / `quote(&& )` class).
+# Plus a missing indent on closer/comma/semicolon tokens landing at line start.
+# See plans/P1_CLI_PARITY.md §7.
+#
+# Guard against the gate going hollow: assert the TS side is clean FIRST. If the
+# repo itself drifts out of TS-fmt-clean, "self-hosted reports 0" would stop
+# meaning "the two agree".
+#
+# Clear GATE 1's leftovers first. It runs with YO_KEEP_BATCH=1 (the hollow check
+# needs the emitted .c), which leaves generated `.yo_selftest_batch_*.yo` next to
+# the test files — machine-generated and NOT fmt-clean, so `fmt --check ./tests`
+# would report them and this gate would fail on its own debris.
+find ./tests -name '.yo_selftest_batch_*' -delete 2>/dev/null
+
+node ./out/cjs/yo-cli.cjs fmt --check ./std ./tests ./yo-self &> "/tmp/${P}_fmt_ts.log"
+fmt_ts_rc=$?
+YO_MAIN_STACK_MB=4096 "$S1" fmt --check ./std ./tests ./yo-self &> "/tmp/${P}_fmt_self.log"
+fmt_self_rc=$?
+echo "FMT_TS_RC=$fmt_ts_rc FMT_SELF_RC=$fmt_self_rc"
+if [ "$fmt_ts_rc" != "0" ]; then
+  fail "the repo is not TS-fmt-clean, so the fmt differential cannot be judged"
+  dump_log "/tmp/${P}_fmt_ts.log"
+fi
+if [ "$fmt_self_rc" != "0" ]; then
+  fail "self-hosted fmt diverges from the reference formatter"
+  dump_log "/tmp/${P}_fmt_self.log"
+fi
+
+echo "=== T1 GATE 7: CLI subcommand differential ==="
+# GATE 5 runs `init` and asserts its artifacts. This runs the whole corpus under
+# BOTH compilers in isolated sandboxes (own project dir, own HOME) and diffs
+# exit code, stdout, the project tree and the HOME tree. See
+# tests/cli-cases/README.md; cases for not-yet-dispatched subcommands live in
+# tests/cli-cases/pending/ and are not picked up here.
+YO_SELF_BIN=$S1 scripts/cli-diff-test.sh &> "/tmp/${P}_clidiff.log"
+clidiff_rc=$?
+echo "CLIDIFF_RC=$clidiff_rc  $(tail -1 "/tmp/${P}_clidiff.log")"
+if [ "$clidiff_rc" != "0" ]; then
+  fail "CLI subcommand differential failed"
+  dump_log "/tmp/${P}_clidiff.log"
+fi
 
 echo "=== T1_DONE (${P}) failures=${fails} ==="
 [ "$fails" = "0" ] || exit 1

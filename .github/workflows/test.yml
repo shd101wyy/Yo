@@ -94,7 +94,7 @@ jobs:
       # and gigabytes to compile, and the ~30 min fast suite would become ~70.
       - name: Run tests
         # run: ./yo-cli test ./tests --verbose
-        run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs test ./tests --exclude tests/internal --parallel 2 --bail --verbose --c-compiler clang --profile
+        run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs test ./tests --exclude tests/internal --exclude tests/cli-cases --parallel 2 --bail --verbose --c-compiler clang --profile
 
   # Bootstrap fixpoint, split into TWO jobs so each self-emit gets a fresh
   # 16 GB box (a single job's stage-3 starved the runner agent after the
@@ -607,7 +607,7 @@ jobs:
       # tests/internal is host-toolchain-only (it compiles the compiler); excluded
       # from the cross-target jobs for the same runtime/memory reason as above.
       - name: Run WASM tests
-        run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs test ./tests --exclude tests/internal --parallel 2 --bail --verbose --c-compiler emcc --profile
+        run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs test ./tests --exclude tests/internal --exclude tests/cli-cases --parallel 2 --bail --verbose --c-compiler emcc --profile
 
   test-wasm32_wasi:
     runs-on: ubuntu-latest
@@ -656,7 +656,7 @@ jobs:
 
       # See the WASM job: tests/internal is host-toolchain-only.
       - name: Run WASI tests
-        run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs test ./tests --exclude tests/internal --parallel 2 --bail --verbose --target wasm-wasi --profile
+        run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs test ./tests --exclude tests/internal --exclude tests/cli-cases --parallel 2 --bail --verbose --target wasm-wasi --profile
 
   # Full-corpus HOLLOW SWEEP under the self-hosted binary.
   #

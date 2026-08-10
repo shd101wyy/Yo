@@ -51,7 +51,7 @@ import {
 import type { OverlappingSlot } from "../async/state-machine";
 import type { FunctionGenerationContext } from "../functions/context";
 import { getEvidenceParameters } from "../functions/declarations";
-import { getTypeString, getVariableTypeString } from "../utils";
+import { getTypeString, getVariableTypeString, quoteCString } from "../utils";
 import { generateAtom } from "./atom";
 import { getDropFunctionForType, getDupFunctionForType } from "./drop-dup";
 import { generateExpr } from "./expr";
@@ -625,7 +625,7 @@ function generateFutureEffectSetter(
           : lastSegment;
       const aliases = [...new Set([effectLabel, lastSegment, capitalizedLast])];
       const condition = aliases
-        .map((alias) => `strcmp(field, ${JSON.stringify(alias)}) == 0`)
+        .map((alias) => `strcmp(field, ${quoteCString(alias)}) == 0`)
         .join(" || ");
       emitter.emitDeclarationLine(`  ${keyword} (${condition}) {`);
       emitter.emitDeclarationLine(`    sm->${accessPath} = value;`);
@@ -1202,6 +1202,16 @@ function generateAsyncBlockStateDisposeFunction(
       if (awaitFutureTempVarAliases.has(v.id)) continue;
       // Skip variables that are borrowing an RC value from another variable
       if (v.isOwningTheSameRcValueAs !== undefined) continue;
+      // Skip match pattern bindings — their stores BORROW the scrutinee's
+      // ownership (no dup), and the scrutinee's own slot drop (now real, see
+      // storeTempVarToStateMachineIfNeeded in generateMatchWithAwait) already
+      // releases the payload. Dropping the binding too would double-decr.
+      if (
+        (context as FunctionGenerationContext).asyncPatternBindingFieldIds?.has(
+          v.id
+        )
+      )
+        continue;
 
       const fieldName = getStateMachineFieldName(v.id, "local");
       const fieldRef = `sm->${fieldName}`;

@@ -18,6 +18,8 @@ import {
   isUnitType,
 } from "../../types/guards";
 import { TypeTag } from "../../types/tags";
+import { isTempVariableName } from "../../utils";
+import { storeTempVarToStateMachineIfNeeded } from "./other-fn-call";
 import { isBooleanValue, isNumberValue, type Value } from "../../value";
 import { type FunctionGenerationContext } from "../functions/context";
 import {
@@ -92,7 +94,19 @@ function generateCaseBody(
     for (let j = 0; j < beginArgs.length - 1; j++) {
       const arg = beginArgs[j]!;
       const argCode = generateExpr(arg, indent, context);
-      if (argCode) {
+      // A statement that is nothing but a temp variable's name evaluates to
+      // nothing and is dropped. Every other statement emitter already gates on
+      // this (`isTempVariableName` throughout async/state-code-gen.ts), and so
+      // does yo-self's counterpart in `codegen/exprs/match.yo` — only this one
+      // did not. Inside an async state machine the omission was not cosmetic: a
+      // temp the SM holds as a FIELD was emitted here under its source name,
+      // which is not a declared C identifier in the resume function, while the
+      // very next line referred to the same temp correctly as `sm->var_<id>`.
+      // See issues/fixed/async-sibling-arm-same-named-locals.md (variant C).
+      if (
+        argCode &&
+        !(arg.$ && isTempVariableName(arg.$.env.modulePath, argCode))
+      ) {
         context.emitter.emitLine(`${indent}${argCode};`);
       }
       // Stop after control flow (dead code may lack metadata)
@@ -254,6 +268,15 @@ export function generateMatchExpression(
       );
       matchedValueCode = subjectVarName;
     }
+    // Inside a state machine, the scrutinee temp may be a hoisted variable
+    // whose deferred drop runs in a LATER state or in the escape dispose —
+    // both reference `sm->var_<temp>`, which stays calloc-zeroed unless the
+    // local is stored into it, turning every such drop into a silent no-op
+    // and leaking the scrutinee's payload (the awaitless-arm Task leak in
+    // tests/async_await.test.yo, caught by CI's LeakSanitizer). No-op when
+    // the temp is not tracked. The await-carrying match path has the same
+    // store in generateMatchWithAwait.
+    storeTempVarToStateMachineIfNeeded(matchedValueCode, indent, context);
   }
 
   // Check if this is a primitive type match (integer, bool)
@@ -600,6 +623,10 @@ export function generateMatchExpression(
 
         // Generate the case label
         context.emitter.emitLine(`${indent}case ${variantTag}: {`);
+        // Names this arm destructures into REAL C locals. Registered in
+        // `localShadowedVariables` around the arm body below so a same-named
+        // hoisted state-machine local is not re-declared in the same scope.
+        const armDestructuredNames: string[] = [];
 
         // Handle destructuring patterns like .Point(point) => { ... }
         if (caseValue.args.length > 1) {
@@ -665,6 +692,7 @@ export function generateMatchExpression(
                       context.emitter.emitLine(
                         `${indent}  ${fieldType} ${varName} = ${matchedValueCode}${accessPrefix}data.${variantName}.${fieldName};`
                       );
+                      armDestructuredNames.push(varName);
 
                       // Check if this variable needs to be stored in the state machine
                       const functionContext =
@@ -743,6 +771,8 @@ export function generateMatchExpression(
                     context.emitter.emitLine(
                       `${indent}  ${fieldType} ${varName} = ${matchedValueCode}${accessPrefix}data.${variantName}.${fieldName};`
                     );
+                    armDestructuredNames.push(varName);
+
                     // Check if this variable needs to be stored in the state machine
                     // For async contexts, pattern-matched variables that are used across await points
                     // need to be stored in the state machine structure
@@ -801,8 +831,38 @@ export function generateMatchExpression(
           caseBody = caseBody.args[1]!; // Get the value part of the case
         }
 
+        // Inside a state machine this arm's destructured names are REAL C
+        // locals declared just above. If such a name is ALSO a hoisted
+        // state-machine local, the body's "load" of it re-declares the name
+        // in the same scope ("error: redefinition of 'p'").
+        // `localShadowedVariables` is the mechanism for this — atom.ts uses
+        // the local C variable instead of `sm->var_...` for a registered
+        // name — but only the nullable-pointer match path populated it.
+        // Scope it to this arm and undo it after, as that path does.
+        // See issues/fixed/async-match-binding-redeclared-in-state-machine.md.
+        const smShadowCtx = context as FunctionGenerationContext;
+        const shadowedByThisArm: string[] = [];
+        if (
+          smShadowCtx.inAsyncStateMachine ||
+          smShadowCtx.inEffectStateMachine
+        ) {
+          if (!smShadowCtx.localShadowedVariables) {
+            smShadowCtx.localShadowedVariables = new Set();
+          }
+          for (const shadowName of armDestructuredNames) {
+            if (!smShadowCtx.localShadowedVariables.has(shadowName)) {
+              smShadowCtx.localShadowedVariables.add(shadowName);
+              shadowedByThisArm.push(shadowName);
+            }
+          }
+        }
+
         // Generate the body of the case
         const bodyCode = generateCaseBody(caseBody, indent + "  ", context);
+
+        for (const shadowName of shadowedByThisArm) {
+          smShadowCtx.localShadowedVariables?.delete(shadowName);
+        }
         if (
           !isUnit &&
           tempVariableName &&
@@ -831,6 +891,10 @@ export function generateMatchExpression(
         caseValue.func.func.token.value === "." &&
         caseValue.func.args.length === 1
       ) {
+        // Names this arm destructures into REAL C locals. Registered in
+        // `localShadowedVariables` around the arm body below so a same-named
+        // hoisted state-machine local is not re-declared in the same scope.
+        const armDestructuredNames: string[] = [];
         // Extract variant name from .Point(point) pattern
         const variantName = caseValue.func.args[0]!.token.value;
         const variantTag = getEnumVariantCName(enumType, variantName, context);
@@ -898,6 +962,7 @@ export function generateMatchExpression(
                       context.emitter.emitLine(
                         `${indent}  ${fieldType} ${varName} = ${matchedValueCode}${accessPrefix}data.${variantName}.${fieldName};`
                       );
+                      armDestructuredNames.push(varName);
 
                       // Check if this variable needs to be stored in the state machine
                       const functionContext =
@@ -976,6 +1041,7 @@ export function generateMatchExpression(
                       `${indent}  ${fieldType} ${varName} = ${matchedValueCode}${accessPrefix}data.${variantName}.${fieldName};`
                     );
 
+                    armDestructuredNames.push(varName);
                     // Check if this variable needs to be stored in the state machine
                     const functionContext =
                       context as FunctionGenerationContext;
@@ -1028,8 +1094,38 @@ export function generateMatchExpression(
           caseBody = caseBody.args[1]!; // Get the value part of the case
         }
 
+        // Inside a state machine this arm's destructured names are REAL C
+        // locals declared just above. If such a name is ALSO a hoisted
+        // state-machine local, the body's "load" of it re-declares the name
+        // in the same scope ("error: redefinition of 'p'").
+        // `localShadowedVariables` is the mechanism for this — atom.ts uses
+        // the local C variable instead of `sm->var_...` for a registered
+        // name — but only the nullable-pointer match path populated it.
+        // Scope it to this arm and undo it after, as that path does.
+        // See issues/fixed/async-match-binding-redeclared-in-state-machine.md.
+        const smShadowCtx = context as FunctionGenerationContext;
+        const shadowedByThisArm: string[] = [];
+        if (
+          smShadowCtx.inAsyncStateMachine ||
+          smShadowCtx.inEffectStateMachine
+        ) {
+          if (!smShadowCtx.localShadowedVariables) {
+            smShadowCtx.localShadowedVariables = new Set();
+          }
+          for (const shadowName of armDestructuredNames) {
+            if (!smShadowCtx.localShadowedVariables.has(shadowName)) {
+              smShadowCtx.localShadowedVariables.add(shadowName);
+              shadowedByThisArm.push(shadowName);
+            }
+          }
+        }
+
         // Generate the body of the case
         const bodyCode = generateCaseBody(caseBody, indent + "  ", context);
+
+        for (const shadowName of shadowedByThisArm) {
+          smShadowCtx.localShadowedVariables?.delete(shadowName);
+        }
         if (
           !isUnit &&
           tempVariableName &&

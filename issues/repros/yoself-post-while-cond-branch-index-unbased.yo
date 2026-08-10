@@ -1,0 +1,38 @@
+pragma(Pragma.AllowUnsafe);
+open(import("std/string"));
+open(import("std/fmt"));
+{ Exception, IoExn } :: import("std/error");
+{ Path } :: import("std/path");
+{ File } :: import("std/fs/file");
+fs_file :: import("std/fs/file");
+fs_dir :: import("std/fs/dir");
+{ BufWriter } :: import("std/sys/bufio/buf_writer");
+
+// 16 bytes through an 8-byte BufWriter. The buffer fills, auto-flushes, and the
+// second half is copied — under the reference compiler. Under the SELF-HOSTED
+// compiler `_flush_inner`'s buffer reset is skipped, so the writer reflushes the
+// same 8 bytes forever: this program never terminates and grows the file without
+// bound (it reached 4 GB in the temp dir before anyone noticed).
+//
+//   $ ./yo-cli compile … && ./a.out          -> content: abcdefghijklmnop, exit 0
+//   $ /tmp/yo-self compile … && timeout 20 ./a.out
+//                                            -> no output, exit 124, 75 MB written
+main :: (fn(io : Io) -> unit)({
+  exn := Exception(
+    throw : (
+      (err) -> {
+        println(`err: ${err}`);
+        unwind(());
+      }
+    )
+  );
+  p := Path.new(`/tmp/yo_bufwriter_unbased_repro.txt`);
+  f := io.await(File.open(p, .Write, io), IoExn(io : io, exn : exn));
+  writer := BufWriter.with_capacity(f.fd(), usize(8));
+  io.await(writer.write_string(`abcdefghijklmnop`, io), io);
+  io.await(writer.flush(io), io);
+  content := io.await(fs_file.read_string(p, io), IoExn(io : io, exn : exn));
+  println(`content: ${content}`);
+  io.await(fs_dir.remove_file(p, io), IoExn(io : io, exn : exn));
+});
+export(main);

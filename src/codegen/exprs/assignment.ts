@@ -9,6 +9,7 @@ import {
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
+  type Expr,
   type FnCallExpr,
 } from "../../expr";
 import { isArrayType, isUnitType } from "../../types/guards";
@@ -22,6 +23,51 @@ import {
 } from "../utils";
 import { generateDeferredDupExpressions } from "./drop-dup";
 import { generateExpr } from "./expr";
+
+/**
+ * The state-machine field an assignment TARGET must write to, or `undefined`
+ * when the target is not an SM-resident local.
+ *
+ * `generateAtom` resolves a variable that BORROWS another's Rc value through
+ * `isOwningTheSameRcValueAs`, so a read of it yields the OWNER's field. Right for
+ * a read, wrong for a write: after `out = d` the evaluator records that `out`
+ * shares `d`'s Rc value, so generating the LHS as an expression produced
+ * `sm->var_<d>` and the assignment updated `d` instead of `out`. Inside a match
+ * arm after an await, the arm ran, the await returned the right value, and `out`
+ * silently kept its old one.
+ *
+ * Resolve the target by its OWN id, honouring field aliases and outer captures
+ * exactly as `generateAtom` does otherwise.
+ * See issues/fixed/async-assignment-target-redirected-to-rc-owner.md.
+ */
+function resolveAssignmentTargetField(
+  lhs: Expr,
+  context: FunctionGenerationContext
+): string | undefined {
+  if (
+    !(context.inAsyncStateMachine || context.inEffectStateMachine) ||
+    !context.stateMachineVariables ||
+    !exprIsAtom(lhs) ||
+    !lhs.$?.env
+  ) {
+    return undefined;
+  }
+  const varName = lhs.token.value;
+  if (context.localShadowedVariables?.has(varName)) return undefined;
+  const variables = getVariablesFromEnv(lhs.$.env, varName);
+  if (variables.length === 0) return undefined;
+  let varId = variables[variables.length - 1]!.id;
+  if (context.variableIdRemapping?.has(varId)) {
+    varId = context.variableIdRemapping.get(varId)!;
+  }
+  const capturedVar = context.stateMachineVariables.get(varId);
+  if (!capturedVar) return undefined;
+  const aliasedField = context.stateMachineFieldAliases?.get(varId);
+  if (aliasedField) return `sm->${aliasedField}`;
+  return capturedVar.kind === "outer"
+    ? `sm->__capture.${varName}`
+    : `sm->var_${capturedVar.id}`;
+}
 
 export function generateAssignment(
   expr: FnCallExpr,
@@ -99,7 +145,9 @@ export function generateAssignment(
   if (!lhs.$?.type) {
     return `// Error: No type information for left-hand side ${exprToString(lhs)}\n`;
   }
-  const lhsCode = generateExpr(lhs, indent, context);
+  const lhsCode =
+    resolveAssignmentTargetField(lhs, context as FunctionGenerationContext) ??
+    generateExpr(lhs, indent, context);
 
   // Check if we need to save the old value into temp variable
   let skippedTempVar = false;

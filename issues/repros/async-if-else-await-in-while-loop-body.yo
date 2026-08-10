@@ -1,0 +1,47 @@
+open(import("std/string"));
+open(import("std/fmt"));
+{ ArrayList } :: import("std/collections/array_list");
+{ yield } :: import("std/async");
+
+step :: (fn(name : String, io : Io) -> Impl(Future(unit, Io)))(
+  io.async((io : Io) => {
+    io.await(yield(io), io);
+    println(`ran ${name}`);
+    return(())
+  })
+);
+
+// A `while` in an async body whose entire body is an `if` — one branch prints,
+// the OTHER awaits. The shape `run_build` uses for `--dry-run`:
+//
+//   while(i < n, { if(dry_run, { println(…) }, { io.await(execute_step(…)) }); })
+//
+// Expected: `ran a` / `ran b` when dry is false, `would run a` / `would run b`
+// when it is true.
+drive :: (fn(dry : bool, io : Io) -> Impl(Future(unit, Io)))(
+  io.async((io : Io) => {
+    names := ArrayList(String).new();
+    names.push(`a`);
+    names.push(`b`);
+    i := usize(0);
+    n := names.len();
+    while(runtime(i < n), {
+      name := names(i);
+      if(dry, {
+        println(`would run ${name}`);
+      }, {
+        io.await(step(name, io), io);
+      });
+      i = (i + usize(1));
+    });
+    return(())
+  })
+);
+
+main :: (fn(io : Io) -> unit)({
+  println(`--- dry ---`);
+  io.await(drive(true, io), io);
+  println(`--- wet ---`);
+  io.await(drive(false, io), io);
+});
+export(main);

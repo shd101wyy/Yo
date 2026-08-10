@@ -1,0 +1,11 @@
+# `build run` compiles the project with a C compiler and executes it. Slower
+# than the other cases, and the emitted C / object files legitimately differ
+# between the two compilers — hence the `ignore` file. What is being compared is
+# the artifact PATHS produced, plus the stdout lines that CAN match.
+timeout=900
+# The two compilers emit different (equivalent) C, so clang's diagnostics carry
+# different line numbers and the "Compiling with: …" line names a different .c
+# path. None of that is comparable. What IS comparable, and what this case
+# exists to assert, is that the build produced a working program and ran it —
+# so keep the program's own output and the build's step lines.
+stdout_keep=^(Hello, world!|Building |Build Summary|Error|error:)

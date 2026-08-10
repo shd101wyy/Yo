@@ -19,6 +19,10 @@ Current entry points:
 - [`SELF_HOSTING_COMPLETION.md`](SELF_HOSTING_COMPLETION.md) — the active
   next-phase roadmap: full CLI parity in yo-self, retiring `src/` + bun,
   release bundles + install scripts, LSP + VS Code.
+- [`P1_CLI_PARITY.md`](P1_CLI_PARITY.md) — **the P1 handover; start here for
+  CLI-parity work.** Where P1 stands, three verified-false premises in P1's own
+  plan, the suggested order, and the method notes. Supersedes
+  `archive/PRE_P1_HANDOVER.md`.
 
 Conventions:
 

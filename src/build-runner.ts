@@ -573,6 +573,17 @@ async function executeStep(
   if (ctx.summary) {
     printBuildSummary(results, dag, stepName);
   }
+
+  // A failed step must fail the build. executeNode catches per-step errors
+  // into StepResult.success so the DAG can finish and the summary can show
+  // WHICH step broke — but `yo build` exiting 0 after a failed compile would
+  // let CI pass silently. See
+  // issues/fixed/yo-build-exits-zero-on-failed-step.md
+  for (const result of results.values()) {
+    if (!result.success) {
+      process.exit(1);
+    }
+  }
 }
 
 /**

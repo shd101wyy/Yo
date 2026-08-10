@@ -730,8 +730,91 @@ json_stringify :: (fn(value : JsonValue) -> String)({
   _stringify_into(value, out);
   String.from_bytes(out)
 });
-/// Serialize a `JsonValue` to a pretty-printed JSON string.
-json_stringify_pretty :: (fn(value : JsonValue, _indent : usize) -> String)(
-  json_stringify(value)
+/// Write `n` spaces to `out`.
+_write_spaces :: (fn(n : usize, out : ArrayList(u8)) -> unit)({
+  i := usize(0);
+  while(i < n, i = (i + usize(1)), {
+    out.push(u8(32));
+  });
+});
+/// Pretty-printing worker. `indent` is the per-level width; `depth` is the
+/// current nesting level. Matches `JSON.stringify(value, null, indent)`:
+/// containers break one element per line, an EMPTY container stays on one line
+/// (`{}` / `[]`), and object keys are followed by `": "`.
+_stringify_pretty_into :: (
+  fn(
+    value : JsonValue,
+    indent : usize,
+    depth : usize,
+    out : ArrayList(u8)
+  ) -> unit
+)({
+  match(
+    value,
+    .Array(items) => {
+      out.push(u8(91)); // '['
+      cond(
+        (items.len() == usize(0)) => (),
+        true => {
+          i := usize(0);
+          while(i < items.len(), i = (i + usize(1)), {
+            cond(
+              (i > usize(0)) => {
+                out.push(u8(44)); // ','
+              },
+              true => ()
+            );
+            out.push(u8(10)); // '\n'
+            _write_spaces(indent * (depth + usize(1)), out);
+            recur(items(i), indent, depth + usize(1), out);
+          });
+          out.push(u8(10));
+          _write_spaces(indent * depth, out);
+        }
+      );
+      out.push(u8(93)); // ']'
+    },
+    .Object(keys, values) => {
+      out.push(u8(123)); // '{'
+      cond(
+        (keys.len() == usize(0)) => (),
+        true => {
+          i := usize(0);
+          while(i < keys.len(), i = (i + usize(1)), {
+            cond(
+              (i > usize(0)) => {
+                out.push(u8(44)); // ','
+              },
+              true => ()
+            );
+            out.push(u8(10)); // '\n'
+            _write_spaces(indent * (depth + usize(1)), out);
+            _write_str_escaped(keys(i), out);
+            out.push(u8(58)); // ':'
+            out.push(u8(32)); // ' '
+            recur(values(i), indent, depth + usize(1), out);
+          });
+          out.push(u8(10));
+          _write_spaces(indent * depth, out);
+        }
+      );
+      out.push(u8(125)); // '}'
+    },
+    // Scalars are identical in both modes.
+    _ => _stringify_into(value, out)
+  );
+});
+/// Serialize a `JsonValue` to a pretty-printed JSON string, `indent` spaces per
+/// nesting level. `indent == 0` produces the compact form, as
+/// `JSON.stringify(v, null, 0)` does.
+json_stringify_pretty :: (fn(value : JsonValue, indent : usize) -> String)(
+  cond(
+    (indent == usize(0)) => json_stringify(value),
+    true => {
+      out := ArrayList(u8).new();
+      _stringify_pretty_into(value, indent, usize(0), out);
+      String.from_bytes(out)
+    }
+  )
 );
 export(json_stringify, json_stringify_pretty);

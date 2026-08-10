@@ -25,6 +25,7 @@ open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 {
   AstExpr,
+  ast_expr_id,
   ast_expr_is_fn_call_of,
   is_function_boundary_arrow,
   make_err_expr,
@@ -35,6 +36,7 @@ open(import("std/string"));
   BK_MATCH,
   BK_BEGIN
 } :: import("./expr.yo");
+{ lookup_macro_expansion } :: import("./expr_info.yo");
 { is_io_await_call, is_io_async_call } :: import("./evaluator/async/await_analysis.yo");
 /// Traverse an evaluated expression tree checking for an `unwind` usage.
 /// Skips new function/closure boundaries; recurses into cond/match branches.
@@ -289,6 +291,21 @@ expr_contains_await :: (fn(expr : AstExpr) -> bool)(
       if(is_io_await_call(expr), {
         return(true);
       });
+      // A macro call (`if(...)`) keeps its macro head in the AST; the nodes
+      // the evaluator actually stamped (io-builtin markers included) are the
+      // EXPANSION's clones, so an `aio.await(...)` inside a raw `if` arg is
+      // invisible to this walk — recurse into the expansion instead. Mirrors
+      // `exprContainsAwait` (src/expr-traversal.ts:378), which follows
+      // `expr.$.macroExpansion`. Without this, an if-in-while body whose
+      // branch awaits emitted "Expected await in while loop body but none
+      // found" — the loop body vanished and the program spun forever.
+      match(
+        lookup_macro_expansion(ast_expr_id(expr)),
+        .Some(me) => {
+          return(recur(me));
+        },
+        .None => ()
+      );
       // cond/match: recurse into branch parts directly (bypassing => at arg level).
       (is_cond_or_match : bool) = (
         ast_expr_is_fn_call_of(expr, BK_COND, .None) ||

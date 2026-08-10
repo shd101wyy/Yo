@@ -1,0 +1,497 @@
+//! yo doc — documentation generation CLI command.
+//!
+//! Mirrors `src/doc-command.ts` — 1:1 port.
+//!
+//! Adaptations, each noted at its site:
+//!   - `package.json`'s `name` is read with a string scan (std json_parse
+//!     takes a static `str`, not a runtime String);
+//!   - TS's retry-with-a-fresh-ModuleManager path collapses into
+//!     `mm_load_file`, which already catches evaluator throws internally;
+//!   - `--format html` renders through doc/render_html.yo (markdown via the
+//!     vendored markdown_yo source — see that file's header).
+open(import("std/string"));
+open(import("std/fmt"));
+{ ArrayList } :: import("std/collections/array_list");
+{ Path } :: import("std/path");
+{ Exception, IoExn } :: import("std/error");
+{ read_file, write_file, exists } :: import("std/fs/file");
+{ metadata } :: import("std/fs/metadata");
+{ read_dir, create_dir_all } :: import("std/fs/dir");
+{ Command } :: import("std/process");
+{ cwd } :: import("std/env");
+{ Instant } :: import("std/time/instant");
+{ tokenize } :: import("./lexer.yo");
+{ Token } :: import("./token.yo");
+{ extract_doc_comments, DocExtractionResult } :: import("./doc/extractor.yo");
+{
+  build_doc_module,
+  build_doc_module_from_tokens,
+  build_cross_references
+} :: import("./doc/builder.yo");
+{ render_index_md, render_module_md } :: import("./doc/render_markdown.yo");
+{ render_doc_json_string } :: import("./doc/render_json.yo");
+{ render_doc_site } :: import("./doc/render_html.yo");
+{ DocModel, DocModule } :: import("./doc/model.yo");
+{ ModuleLoadOutcome, mm_load_file, resolve_std_path } :: import("./module_manager.yo");
+/// Options for `run_doc`. Mirrors `DocCommandOptions` (doc-command.ts:53);
+/// Options with TS `undefined` are "" here.
+DocCommandOptions :: struct(
+  input : String,
+  output_dir : String,
+  include_private : bool,
+  verbose : bool,
+  title : String,
+  format : String,
+  version : String
+);
+/// `path.resolve(p)`: absolute paths normalize on Path construction; relative
+/// paths are joined onto the current working directory (which also
+/// normalizes). Mirrors node's resolve for the single-argument uses here.
+_resolve_path :: (fn(p : String, exn : Exception) -> String)({
+  path := Path.new(p.clone());
+  if(path.is_absolute(), {
+    return(path.to_string());
+  });
+  base := match(
+    cwd(),
+    .Ok(c) => c,
+    .Err(e) => exn.throw(dyn(`doc: cannot determine cwd: ${e}`))
+  );
+  base.join(path).to_string()
+});
+/// One `git -C <dir> <args...>` invocation → trimmed stdout, or `.None` on
+/// failure/empty (mirrors `git(...)`'s catch in detectGitVersion).
+_run_git :: (
+  fn(
+    dir : String,
+    git_args : ArrayList(String),
+    io : Io,
+    exn : Exception
+  ) -> Option(String)
+)({
+  cmd := Command.new(String.from("git"));
+  cmd.arg(String.from("-C"));
+  cmd.arg(dir);
+  (ai : usize) = usize(0);
+  while(ai < git_args.len(), {
+    match(
+      git_args.get(ai),
+      .Some(a) => cmd.arg(a),
+      .None => ()
+    );
+    ai = (ai + usize(1));
+  });
+  out := io.await(cmd.output(io), IoExn(io : io, exn : exn));
+  // TS's execFileSync inherits stderr, so git's own diagnostics (e.g.
+  // `fatal: not a git repository`) reach the terminal. Pass the captured
+  // stderr through verbatim to match.
+  stderr_text := String.from_bytes(out.stderr);
+  if(stderr_text.len() > usize(0), {
+    eprint(stderr_text);
+  });
+  if(!(out.status.success()), {
+    return(Option(String).None);
+  });
+  v := String.from_bytes(out.stdout).trim();
+  if(v.len() == usize(0), Option(String).None, Option(String).Some(v))
+});
+/// Detect version from git: prefer an exact tag on HEAD, fall back to the
+/// short commit hash. Mirrors `detectGitVersion` (doc-command.ts:32);
+/// `git -C <dir>` stands in for execFileSync's `cwd` option (std's Command
+/// has no current_dir — same route as build_runner's `_git_version`).
+detect_git_version :: (
+  fn(dir : String, io : Io, exn : Exception) -> Option(String)
+)({
+  describe_args := ArrayList(String).new();
+  describe_args.push(String.from("describe"));
+  describe_args.push(String.from("--tags"));
+  describe_args.push(String.from("--exact-match"));
+  describe_args.push(String.from("HEAD"));
+  exact := _run_git(dir.clone(), describe_args, io, exn);
+  match(
+    exact,
+    .Some(v) => Option(String).Some(v),
+    .None => {
+      rev_args := ArrayList(String).new();
+      rev_args.push(String.from("rev-parse"));
+      rev_args.push(String.from("--short"));
+      rev_args.push(String.from("HEAD"));
+      _run_git(dir, rev_args, io, exn)
+    }
+  )
+});
+/// Recursively collect documentable `.yo` files. Mirrors `collectYoFiles`
+/// (doc-command.ts:98): hidden entries, node_modules, yo-out, out and tmp are
+/// skipped; `.test.yo` files are excluded.
+_collect_yo_files :: (
+  fn(
+    dir : String,
+    files : ArrayList(String),
+    io : Io,
+    exn : Exception
+  ) -> unit
+)({
+  entries := io.await(read_dir(Path.new(dir.clone()), io), IoExn(io : io, exn : exn));
+  (i : usize) = usize(0);
+  while(i < entries.len(), {
+    i = (i + usize(1));
+    match(
+      entries.get(i - usize(1)),
+      .None => (),
+      .Some(entry) => {
+        skip := cond(
+          entry.name.starts_with(String.from(".")) => true,
+          (entry.name == "node_modules") => true,
+          (entry.name == "yo-out") => true,
+          (entry.name == "out") => true,
+          (entry.name == "tmp") => true,
+          true => false
+        );
+        if(!(skip), {
+          full := Path.new(dir.clone()).join(Path.new(entry.name.clone())).to_string();
+          match(
+            entry.file_type,
+            .Directory => recur(full, files, io, exn),
+            .File => {
+              if(entry.name.ends_with(String.from(".yo")) && !(entry.name.ends_with(String.from(".test.yo"))), {
+                files.push(full);
+              });
+            },
+            .Symlink => (),
+            .Other => ()
+          );
+        });
+      }
+    );
+  });
+});
+/// Find all `.yo` source files to document. Mirrors `findYoFiles`
+/// (doc-command.ts:74): a file input must be a `.yo` file; a directory is
+/// walked recursively; results are sorted.
+_find_yo_files :: (
+  fn(input_path : String, io : Io, exn : Exception) -> ArrayList(String)
+)({
+  abs := _resolve_path(input_path, exn);
+  path_exists := io.await(exists(Path.new(abs.clone()), io), io);
+  if(!(path_exists), {
+    exn.throw(dyn(`Path does not exist: ${abs}`));
+  });
+  meta := io.await(metadata(Path.new(abs.clone()), io), IoExn(io : io, exn : exn));
+  if(meta.is_file(), {
+    if(!(abs.ends_with(String.from(".yo"))), {
+      exn.throw(dyn(`Not a .yo file: ${abs}`));
+    });
+    single := ArrayList(String).new();
+    single.push(abs.clone());
+    return(single);
+  });
+  if(!(meta.is_dir()), {
+    exn.throw(dyn(`Not a file or directory: ${abs}`));
+  });
+  files := ArrayList(String).new();
+  _collect_yo_files(abs, files, io, exn);
+  files.sort();
+  files
+});
+/// Derive a module name from a file path relative to the project root.
+/// Mirrors `moduleNameFromPath` (doc-command.ts:124).
+_module_name_from_path :: (fn(file_path : String, base_path : String) -> String)({
+  rel := Path.new(file_path.clone()).relative_from(Path.new(base_path.clone())).to_string();
+  if(rel.ends_with(String.from(".yo")), rel.substring(usize(0), rel.len() - usize(3)), rel.clone())
+});
+/// The value of the FIRST `"<key>" : "<value>"` pair in `content`, or `.None`.
+/// Stands in for both TS lookups in `inferProjectName`: JSON.parse(...).name
+/// for package.json (std's json_parse takes a static `str`, not a runtime
+/// String) and the `\.name\s*=\s*"..."` regex for build.yo.
+_scan_quoted_value_after :: (fn(content : String, marker : String, connector : String) -> Option(String))({
+  (search_from : usize) = usize(0);
+  (result : Option(String)) = Option(String).None;
+  (done : bool) = false;
+  while(!(done), {
+    idx := match(
+      content.index_of(marker, search_from),
+      .Some(x) => x,
+      .None => {
+        done = true;
+        continue;
+      }
+    );
+    (j : usize) = (idx + marker.len());
+    // Skip whitespace.
+    (moved : bool) = true;
+    while(moved && (j < content.len()), {
+      c := content.substring(j, j + usize(1));
+      if((c == ` `) || (c == String.from("\t")) || (c == String.from("\n")) || (c == String.from("\r")), {
+        j = (j + usize(1));
+      }, {
+        moved = false;
+      });
+    });
+    // Expect the connector (":" or "=").
+    if((j < content.len()) && (content.substring(j, j + usize(1)) == connector), {
+      j = (j + usize(1));
+      (moved2 : bool) = true;
+      while(moved2 && (j < content.len()), {
+        c := content.substring(j, j + usize(1));
+        if((c == ` `) || (c == String.from("\t")) || (c == String.from("\n")) || (c == String.from("\r")), {
+          j = (j + usize(1));
+        }, {
+          moved2 = false;
+        });
+      });
+      if((j < content.len()) && (content.substring(j, j + usize(1)) == `"`), {
+        j = (j + usize(1));
+        end := match(
+          content.index_of(`"`, j),
+          .Some(e) => e,
+          .None => {
+            done = true;
+            continue;
+          }
+        );
+        if(end > j, {
+          result = Option(String).Some(content.substring(j, end));
+          done = true;
+          continue;
+        });
+      });
+    });
+    search_from = (idx + marker.len());
+  });
+  result
+});
+/// Derive the project name from package.json, build.yo, or the directory
+/// name. Mirrors `inferProjectName` (doc-command.ts:133).
+_infer_project_name :: (
+  fn(base_path : String, io : Io, exn : Exception) -> String
+)({
+  pkg_path := Path.new(base_path.clone()).join(Path.new(String.from("package.json")));
+  pkg_exists := io.await(exists(pkg_path, io), io);
+  if(pkg_exists, {
+    pkg_bytes := io.await(read_file(Path.new(base_path.clone()).join(Path.new(String.from("package.json"))), io), IoExn(io : io, exn : exn));
+    content := String.from_bytes(pkg_bytes);
+    match(
+      _scan_quoted_value_after(content, `"name"`, `:`),
+      .Some(n) => {
+        return(n);
+      },
+      .None => ()
+    );
+  });
+  build_path := Path.new(base_path.clone()).join(Path.new(String.from("build.yo")));
+  build_exists := io.await(exists(build_path, io), io);
+  if(build_exists, {
+    build_bytes := io.await(read_file(Path.new(base_path.clone()).join(Path.new(String.from("build.yo"))), io), IoExn(io : io, exn : exn));
+    content := String.from_bytes(build_bytes);
+    match(
+      _scan_quoted_value_after(content, `.name`, `=`),
+      .Some(n) => {
+        return(n);
+      },
+      .None => ()
+    );
+  });
+  match(
+    Path.new(base_path.clone()).file_name(),
+    .Some(n) => n,
+    .None => base_path.clone()
+  )
+});
+/// Document a single `.yo` file. Mirrors `documentFile` (doc-command.ts:162).
+/// `mm_load_file` already catches evaluator throws (its local exception
+/// handler returns a not-ok outcome), so TS's fresh-ModuleManager retry has
+/// no counterpart — a failed load goes straight to the token-only fallback.
+_document_file :: (
+  fn(
+    file_path : String,
+    base_path : String,
+    std_path : String,
+    verbose : bool,
+    io : Io,
+    exn : Exception
+  ) -> Option(DocModule)
+)({
+  module_name := _module_name_from_path(file_path.clone(), base_path.clone());
+  if(verbose, {
+    println(`  Documenting: ${module_name}`);
+  });
+  src_bytes := io.await(read_file(Path.new(file_path.clone()), io), IoExn(io : io, exn : exn));
+  src := String.from_bytes(src_bytes);
+  // A lexer failure is caught locally so the walk continues (TS's
+  // try/tokenize → warn → null).
+  lex_exn := Exception(
+    throw : (
+      (err) -> {
+        unwind(Option(DocModule).None);
+      }
+    )
+  );
+  tokens := tokenize(src, `file://${file_path}`, lex_exn);
+  extraction := extract_doc_comments(tokens);
+  outcome := mm_load_file(file_path.clone(), std_path.clone(), false, io, exn);
+  if(outcome.ok, {
+    return(
+      Option(DocModule).Some(
+        build_doc_module(
+          module_name.clone(),
+          module_name.clone(),
+          outcome.module_value,
+          outcome.module_type,
+          extraction,
+          tokens,
+          outcome.env
+        )
+      )
+    );
+  });
+  eprintln(`  Warning: ${module_name} evaluation failed, using token-only docs`);
+  Option(DocModule).Some(build_doc_module_from_tokens(module_name.clone(), module_name.clone(), extraction, tokens))
+});
+/// Render the Markdown site: README.md index + one page per module under
+/// module/. Mirrors `renderDocMarkdown` (render-markdown.ts:455).
+_render_markdown_site :: (
+  fn(model : DocModel, out_dir : String, io : Io, exn : Exception) -> unit
+)({
+  ioexn := IoExn(io : io, exn : exn);
+  io.await(create_dir_all(Path.new(out_dir.clone()), io), ioexn);
+  io.await(create_dir_all(Path.new(out_dir.clone()).join(Path.new(String.from("module"))), io), ioexn);
+  io.await(
+    write_file(Path.new(out_dir.clone()).join(Path.new(String.from("README.md"))), render_index_md(model), io),
+    ioexn
+  );
+  (i : usize) = usize(0);
+  while(i < model.modules.len(), {
+    match(
+      model.modules.get(i),
+      .Some(m) => {
+        page := render_module_md(m);
+        target := Path.new(out_dir.clone()).join(Path.new(String.from("module"))).join(Path.new(`${m.name}.md`));
+        // A nested module name ("collections/array_list") needs its parent
+        // dir; TS's writeFileSync would throw there — creating it is the
+        // working superset.
+        match(
+          target.parent(),
+          .Some(parent_dir) => {
+            io.await(create_dir_all(parent_dir, io), ioexn);
+          },
+          .None => ()
+        );
+        io.await(write_file(target, page, io), ioexn);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+});
+/// Main entry point for the `yo doc` command. Mirrors `runDoc`
+/// (doc-command.ts:251).
+run_doc :: (
+  fn(options : DocCommandOptions, io : Io, exn : Exception) -> unit
+)({
+  start := Instant.now();
+  input_abs := _resolve_path(options.input.clone(), exn);
+  input_exists := io.await(exists(Path.new(input_abs.clone()), io), io);
+  if(!(input_exists), {
+    exn.throw(dyn(`Path does not exist: ${input_abs}`));
+  });
+  input_meta := io.await(metadata(Path.new(input_abs.clone()), io), IoExn(io : io, exn : exn));
+  base_path := if(
+    input_meta.is_dir(),
+    input_abs.clone(),
+    match(
+      Path.new(input_abs.clone()).parent(),
+      .Some(p) => p.to_string(),
+      .None => input_abs.clone()
+    )
+  );
+  println(`Finding .yo source files...`);
+  files := _find_yo_files(options.input.clone(), io, exn);
+  if(files.len() == usize(0), {
+    println(`No .yo files found to document.`);
+    return(());
+  });
+  plural := if(files.len() == usize(1), String.new(), `s`);
+  println(`Found ${files.len()} file${plural}`);
+  project_name := if(options.title.len() > usize(0), options.title.clone(), _infer_project_name(base_path.clone(), io, exn));
+  std_path := resolve_std_path();
+  println(`Generating documentation...`);
+  modules := ArrayList(DocModule).new();
+  (fi : usize) = usize(0);
+  while(fi < files.len(), {
+    match(
+      files.get(fi),
+      .Some(file) => match(
+        _document_file(file, base_path.clone(), std_path.clone(), options.verbose, io, exn),
+        .Some(m) => {
+          modules.push(m);
+        },
+        .None => ()
+      ),
+      .None => ()
+    );
+    fi = (fi + usize(1));
+  });
+  if(modules.len() == usize(0), {
+    println(`No documentable modules found.`);
+    return(());
+  });
+  build_cross_references(modules);
+  resolved_version := if(
+    options.version.len() > usize(0),
+    Option(String).Some(options.version.clone()),
+    detect_git_version(base_path.clone(), io, exn)
+  );
+  model := DocModel(
+    name : project_name,
+    modules : modules,
+    version : resolved_version
+  );
+  abs_output_dir := _resolve_path(options.output_dir.clone(), exn);
+  (output_file : String) = String.from("index.html");
+  cond(
+    (options.format == "markdown") => {
+      println(`Rendering Markdown to ${abs_output_dir}...`);
+      _render_markdown_site(model, abs_output_dir.clone(), io, exn);
+      output_file = String.from("README.md");
+    },
+    (options.format == "json") => {
+      println(`Rendering JSON to ${abs_output_dir}...`);
+      io.await(create_dir_all(Path.new(abs_output_dir.clone()), io), IoExn(io : io, exn : exn));
+      json := render_doc_json_string(model, true);
+      io.await(
+        write_file(Path.new(abs_output_dir.clone()).join(Path.new(String.from("doc.json"))), json, io),
+        IoExn(io : io, exn : exn)
+      );
+      output_file = String.from("doc.json");
+    },
+    true => {
+      // html (the default). Mirrors doc-command.ts: renderDocSite.
+      println(`Rendering HTML to ${abs_output_dir}...`);
+      render_doc_site(model, abs_output_dir.clone(), io, IoExn(io : io, exn : exn));
+    }
+  );
+  elapsed_ms := start.elapsed().as_millis();
+  // TS: ((Date.now() - startTime) / 1000).toFixed(1) — seconds with one
+  // (rounded) decimal.
+  tenths := ((elapsed_ms + i64(50)) / i64(100));
+  elapsed := `${tenths / i64(10)}.${tenths % i64(10)}`;
+  (total_items : usize) = usize(0);
+  (mi : usize) = usize(0);
+  while(mi < modules.len(), {
+    match(
+      modules.get(mi),
+      .Some(m) => {
+        total_items = (total_items + m.functions.len() + m.types.len() + m.traits.len() + m.constants.len());
+      },
+      .None => ()
+    );
+    mi = (mi + usize(1));
+  });
+  m_plural := if(modules.len() == usize(1), String.new(), `s`);
+  i_plural := if(total_items == usize(1), String.new(), `s`);
+  println(String.new());
+  println(`Documentation generated successfully!`);
+  println(`  ${modules.len()} module${m_plural}, ${total_items} item${i_plural} documented in ${elapsed}s`);
+  println(`  Output: ${abs_output_dir}/${output_file}`);
+});
+export(DocCommandOptions, run_doc, detect_git_version);

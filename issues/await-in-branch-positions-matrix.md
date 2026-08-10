@@ -9,19 +9,20 @@ one, `io.await` is a synchronous drive loop and none of this applies (which is
 why `tests/fs/dir.test.yo` has used `cond(io.await(...) => ...)` at top level for
 ages without trouble).
 
-| shape                                                 | status            |
-| ----------------------------------------------------- | ----------------- |
-| `cond(c => { await f })` — branch VALUE               | ✅ both           |
-| `if(c, { await f })` / `if`+`else` bodies             | ✅ both           |
-| `x := await f; if(x, ...)` — hoisted                  | ✅ both           |
-| `if(await f, ...)` — CONDITION                        | ✅ both           |
-| `cond(await f => ...)` — FIRST condition              | ✅ both           |
-| `match(await f, ...)` — SCRUTINEE                     | ✅ both           |
-| `while(await f, ...)` — CONDITION                     | ✅ both           |
-| `while(c, { ...await f... }, body)` — STEP            | ✅ both           |
-| `match(m, .Some(x) => { await f })` — ARM             | ✅ both           |
-| `if(!(await f), ...)` — await NESTED in a condition   | ⛔ rejected, both |
-| `cond(c1 => .., await f => .., ..)` — LATER condition | ⛔ rejected, both |
+| shape                                                                                 | status                     |
+| ------------------------------------------------------------------------------------- | -------------------------- |
+| `cond(c => { await f })` — branch VALUE                                               | ✅ both                    |
+| `if(c, { await f })` / `if`+`else` bodies                                             | ✅ both                    |
+| `x := await f; if(x, ...)` — hoisted                                                  | ✅ both                    |
+| `if(await f, ...)` — CONDITION                                                        | ✅ both                    |
+| `cond(await f => ...)` — FIRST condition                                              | ✅ both                    |
+| `match(await f, ...)` — SCRUTINEE                                                     | ✅ both                    |
+| `while(await f, ...)` — CONDITION                                                     | ✅ both                    |
+| `while(c, { ...await f... }, body)` — STEP                                            | ✅ both                    |
+| `match(m, .Some(x) => { await f })` — ARM                                             | ✅ both                    |
+| `if(c, { x := await f; if(..await..); return(v) })` — MULTI-await body + early return | ✅ both (fixed 2026-08-10) |
+| `if(!(await f), ...)` — await NESTED in a condition                                   | ⛔ rejected, both          |
+| `cond(c1 => .., await f => .., ..)` — LATER condition                                 | ⛔ rejected, both          |
 
 The two rejections are deliberate and carry a diagnostic naming the fix:
 
@@ -39,6 +40,19 @@ rejections must fail at COMPILE time, not silently).
 ---
 
 ## Fixed
+
+### Bare `if` body with MULTIPLE awaits + early return — broken in BOTH (2026-08-10)
+
+The 2026-08-09 rows above covered a SINGLE await per `if` body. A branch that
+awaits, then awaits again (directly or under a nested `if`), then
+early-returns — `run_fetch`'s prune-stale-lock shape in yo-self/fetch.yo —
+was miscompiled by both compilers in different ways: TS silently SKIPPED the
+branch at runtime; SELF emitted invalid C (`sm->var_N = ;`), which is what
+broke the PR #92 bootstrap-fixpoint job. Root causes and the six-part fix
+(walk/emit `if` through its macro expansion everywhere, dispatch codes start
+at 1, outer chained layers emitted outside the NULL guard) are in
+`issues/fixed/ts-bare-if-await-early-return-silently-skipped.md`. Covered by
+the two "bare if" tests in `tests/async_await.test.yo`.
 
 ### `match` arm containing an await was silently dropped by SELF
 

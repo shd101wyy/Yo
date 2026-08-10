@@ -184,21 +184,35 @@ prefix_operator_needs_leading_space :: (fn(token : Token, previous : Option(Toke
 /// closing delimiters and statement terminators to absorb the placeholder
 /// space added by `ensureSpace`-style helpers.
 _trim_trailing_h_ws :: (fn(s : String) -> String)({
+  // Count how many trailing space/tab BYTES there are. Space and tab are
+  // single-byte ASCII, so that count is also a CHARACTER count — which is what
+  // matters, because `String.substring` is CHAR-indexed.
+  //
+  // Handing `substring` a BYTE index (the previous shape: walk `i` down from
+  // `bytes.len()` and slice `[0, i)`) made this a silent NO-OP for any buffer
+  // that already contained a multi-byte character: `i` then exceeded the
+  // character count, `substring` never found that character index and clamped
+  // to the whole string, so the trailing space survived. That is the entire
+  // remaining `fmt` divergence — `(== )`, `(.. )`, `(..= )`, `quote(&& )` and
+  // the C-variadic `... )` — and it only ever showed up in files with an em
+  // dash (or any non-ASCII) EARLIER in the output, which is why it looked like
+  // a "multiline paren frame" rule and never reproduced in an ASCII repro.
+  // Same class as the `read_raw_template_string` char-index-as-byte-offset bug.
   bytes := s.as_bytes();
   n := bytes.len();
-  (i : usize) = n;
+  (k : usize) = usize(0);
   (done : bool) = false;
-  while((i > usize(0)) && (!(done)), {
-    b := match(bytes.get(i - usize(1)), .Some(x) => x, .None => u8(0));
+  while((k < n) && (!(done)), {
+    b := match(bytes.get((n - k) - usize(1)), .Some(x) => x, .None => u8(0));
     if((b == u8(32)) || (b == u8(9)), {
-      i = (i - usize(1));
+      k = (k + usize(1));
     }, {
       done = true;
     });
   });
   cond(
-    (i == n) => s,
-    true => s.substring(usize(0), i)
+    (k == usize(0)) => s,
+    true => s.substring(usize(0), s.len() - k)
   )
 });
 /// Count the leading `[ \t]*` characters of `line`. Mirrors
@@ -2001,6 +2015,15 @@ format_yo_source :: (
                       },
                       true => {
                         result = _trim_trailing_h_ws(result);
+                        if(at_line_start, {
+                          (sp : usize) = usize(0);
+                          count := (indent_level * INDENT_SIZE);
+                          while(sp < count, {
+                            result.push_str(" ");
+                            sp = (sp + usize(1));
+                          });
+                          at_line_start = false;
+                        });
                         result.push_str(")");
                       }
                     );
@@ -2064,6 +2087,15 @@ format_yo_source :: (
                       },
                       true => {
                         result = _trim_trailing_h_ws(result);
+                        if(at_line_start, {
+                          (sp : usize) = usize(0);
+                          count := (indent_level * INDENT_SIZE);
+                          while(sp < count, {
+                            result.push_str(" ");
+                            sp = (sp + usize(1));
+                          });
+                          at_line_start = false;
+                        });
                         result.push_str("]");
                       }
                     );
@@ -2091,6 +2123,15 @@ format_yo_source :: (
                       );
                     });
                     result = _trim_trailing_h_ws(result);
+                    if(at_line_start, {
+                      (sp : usize) = usize(0);
+                      count := (indent_level * INDENT_SIZE);
+                      while(sp < count, {
+                        result.push_str(" ");
+                        sp = (sp + usize(1));
+                      });
+                      at_line_start = false;
+                    });
                     result.push_str(",");
                     next_is_closer := match(
                       next,
@@ -2182,6 +2223,15 @@ format_yo_source :: (
                           );
                         });
                         result = _trim_trailing_h_ws(result);
+                        if(at_line_start, {
+                          (sp : usize) = usize(0);
+                          count := (indent_level * INDENT_SIZE);
+                          while(sp < count, {
+                            result.push_str(" ");
+                            sp = (sp + usize(1));
+                          });
+                          at_line_start = false;
+                        });
                         result.push_str(";");
                         emit_newline := match(
                           next,

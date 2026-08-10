@@ -181,9 +181,10 @@ function isAddressableCExpr(code: string): boolean {
  * async or effect state machine context. Returns `sm->__capture.X` for outer
  * variables or `sm->var_X` for locals; otherwise returns the name unchanged.
  */
-function resolveVarNameInContext(
+export function resolveVarNameInContext(
   varName: string,
-  context: CodeGenContext
+  context: CodeGenContext,
+  varExpr?: Expr
 ): string {
   const functionContext = context as FunctionGenerationContext;
   if (
@@ -194,6 +195,27 @@ function resolveVarNameInContext(
     !functionContext.stateMachineVariables
   ) {
     return varName;
+  }
+  // Resolve by the variable's OWN identity when the expression is available:
+  // sibling match arms may bind the same name, each with its own state machine
+  // field, and the name scan below hits the FIRST one — the sibling's. See
+  // issues/fixed/async-sibling-arm-match-bindings-store-to-wrong-slot.md
+  if (varExpr && exprIsAtom(varExpr) && varExpr.$?.env) {
+    const envVars = getVariablesFromEnv(varExpr.$.env, varExpr.token.value);
+    if (envVars.length > 0) {
+      const envId = envVars[envVars.length - 1]!.id;
+      const capturedVar = functionContext.stateMachineVariables.get(envId);
+      if (capturedVar) {
+        const fieldName =
+          capturedVar.kind === "outer"
+            ? `__capture.${capturedVar.name}`
+            : `var_${envId}`;
+        return `sm->${fieldName}`;
+      }
+      // Resolved to a genuine segment-local: do NOT fall through to the name
+      // scan — it would hit a same-named sibling's state machine field.
+      return varName;
+    }
   }
   for (const [varId, capturedVar] of functionContext.stateMachineVariables) {
     if (capturedVar.name === varName) {
@@ -1554,8 +1576,18 @@ export function generateOtherFunctionCall(
 
               return tempVar; // Return the temp variable name
             } else {
-              // Error: regular function call returns non-unit type but no temp variable assigned
-              return `// Error: Regular function call returns ${getTypeString(functionValue.specializedType?.return.type ?? functionValueType.return.type, context)} but no temp variable assigned`;
+              // No temp variable was attached to this call. The evaluator skips
+              // one where the result flows straight out — `return(String.new())`
+              // in a plain function compiles to `return fn_String_new();`, no
+              // holding variable needed. Inside an async state machine that same
+              // `return` is lowered to "declare a result temp, assign
+              // sm->result", so the call still has to appear as an EXPRESSION.
+              // Emitting a comment here produced `T temp = // Error: …;` — C
+              // that never compiles. Emit the call itself: it is used exactly
+              // once, by the declaration the caller is building, and ownership
+              // transfers to that declaration just as it would have to the temp.
+              // See issues/fixed/async-match-arm-early-return-drops-call-result.md.
+              return `${cFuncName}(${namedCastedArgsList})`;
             }
           }
         }
@@ -1793,7 +1825,8 @@ export function generateOtherFunctionCall(
                   ) {
                     const argVarName = resolveVarNameInContext(
                       sanitizeForCIdentifier(arg.$.variableName),
-                      context
+                      context,
+                      arg
                     );
                     const dropCode = generateDropCodeForValue(
                       argVarName,
@@ -1910,7 +1943,8 @@ export function generateOtherFunctionCall(
                     ) {
                       const argVarName = resolveVarNameInContext(
                         sanitizeForCIdentifier(arg.$.variableName),
-                        context
+                        context,
+                        arg
                       );
                       const dropCode = generateDropCodeForValue(
                         argVarName,
@@ -2937,7 +2971,8 @@ function emitEffectUnwindCheck(
         ) {
           const argVarName = resolveVarNameInContext(
             sanitizeForCIdentifier(arg.$.variableName),
-            context
+            context,
+            arg
           );
           // Only drop if we can confirm the variable exists:
           // - sm-> prefix → SM struct field, always exists

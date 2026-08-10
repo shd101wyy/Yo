@@ -1,0 +1,57 @@
+open(import("std/string"));
+open(import("std/fmt"));
+{ Exception, IoExn, AnyError } :: import("std/error");
+{ Path } :: import("std/path");
+{ exists } :: import("std/fs/file");
+
+Kind :: enum(A, B, C);
+
+probe :: (fn(k : Kind, io : Io, exn : Exception) -> Impl(Future(bool, IoExn)))(
+  io.async((e : IoExn) => {
+    (ok : bool) = true;
+    match(
+      k,
+      .A => {
+        match(
+          Option(i32).Some(i32(1)),
+          .None => (),
+          .Some(_) => {
+            a := e.io.await(exists(Path.new(String.from("/tmp")), e.io), e.io);
+            if(!(a), {
+              ok = false;
+            });
+          }
+        );
+      },
+      .B => {
+        match(
+          Option(i32).Some(i32(2)),
+          .None => (),
+          .Some(_) => {
+            b := e.io.await(exists(Path.new(String.from("/tmp")), e.io), e.io);
+            if(!(b), {
+              ok = false;
+            });
+          }
+        );
+      },
+      .C => ()
+    );
+    ok
+  })
+);
+
+main :: (fn(io : Io) -> unit)({
+  exn := Exception(
+    throw : (
+      (err) -> {
+        eprintln(err.to_string());
+        unwind();
+      }
+    )
+  );
+  println(`A=${io.await(probe(Kind.A, io, exn), IoExn(io : io, exn : exn))}`);
+  println(`B=${io.await(probe(Kind.B, io, exn), IoExn(io : io, exn : exn))}`);
+  println(`C=${io.await(probe(Kind.C, io, exn), IoExn(io : io, exn : exn))}`);
+});
+export(main);

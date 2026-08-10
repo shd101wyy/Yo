@@ -239,8 +239,13 @@ _split_top_level_args_list :: (fn(s : String) -> ArrayList(String))({
   });
   out
 });
-/// SM var→field resolution (Phase 5) — returns the name unchanged outside a
-/// state machine (the no-async corpus). Mirrors `resolveVarNameInContext`.
+/// SM var→field resolution — STILL A STUB here: it returns the name unchanged.
+/// The real implementation is `resolve_var_name_in_context` in
+/// `codegen/functions/context.yo` (it had to live in a leaf module because
+/// `return.yo` needs it and this file already imports `return.yo`). Pointing
+/// this stub at it would change behaviour at every call site below, which is a
+/// separate change from the `return(<hoisted local>)` fix that needed it —
+/// see issues/fixed/async-await-in-nested-match-arms.md.
 _resolve_var_name_in_context :: (fn(var_name : String, context : FunctionGenerationContext) -> String)(
   var_name
 );
@@ -1813,7 +1818,24 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
               if(ou_may_unwind, emit_effect_unwind_check(indent.clone(), context, ou_is_install, expr));
               return(Option(String).Some(tv));
             },
-            .None => return(Option(String).Some(String.from("// Error: function call returns non-unit but no temp variable assigned")))
+            // No temp variable was attached. The evaluator skips one where the
+            // result flows straight out — `return(String.new())` in a plain
+            // function compiles to `return fn_String_new();`. Inside an async
+            // state machine that `return` is lowered to "declare a result temp,
+            // assign sm->result", so the call must still appear as an
+            // EXPRESSION; a comment here produced `T temp = // Error: …;`, C
+            // that never compiles. Emit the call itself — it is used exactly
+            // once, by the declaration the caller is building. Mirrors
+            // src/codegen/exprs/other-fn-call.ts.
+            // See issues/fixed/async-match-arm-early-return-drops-call-result.md.
+            .None => {
+              inline_call := String.new();
+              inline_call.push_string(c_func_name);
+              inline_call.push_str("(");
+              inline_call.push_string(casted);
+              inline_call.push_str(")");
+              return(Option(String).Some(inline_call));
+            }
           );
         },
         .None => ()

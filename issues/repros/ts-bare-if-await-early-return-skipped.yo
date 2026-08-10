@@ -1,0 +1,29 @@
+open(import("std/string"));
+open(import("std/fmt"));
+{ yield } :: import("std/async");
+
+fetch_name :: (fn(io : Io) -> Impl(Future(String, Io)))(
+  io.async((aio : Io) => {
+    aio.await(yield(aio), aio);
+    return(String.from("lock"))
+  })
+);
+
+probe :: (fn(n : usize, io : Io) -> Impl(Future(String, Io)))(
+  io.async((aio : Io) => {
+    if(n == usize(0), {
+      existing := aio.await(fetch_name(aio), aio);
+      if(existing.len() > usize(0), {
+        aio.await(yield(aio), aio);
+      });
+      return(String.from("empty-path"));
+    });
+    return(String.from("deps-path"))
+  })
+);
+
+main :: (fn(io : Io) -> unit)({
+  println(io.await(probe(usize(0), io), io));
+  println(io.await(probe(usize(2), io), io));
+});
+export(main);

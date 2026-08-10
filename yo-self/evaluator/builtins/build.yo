@@ -12,9 +12,9 @@
 //!      dispatches the `__yo_build_*` builtins to registry mutators.
 //!
 //! Parts (1) and (2) live here as data-type definitions + an `impl`
-//! block. Part (3) is still a Phase 3 stub — completing it is its
-//! own follow-up (depends on the evaluator builtin-dispatch
-//! plumbing).
+//! block; part (3) is the `evaluate_yo_build_functions` dispatch at the
+//! bottom, which populates the module-level global registry that
+//! `get_build_registry` hands out.
 //!
 //! (Previously, parts (1) and (2) lived in a separate
 //! `yo-self/build/build_registry.yo` file with no TS counterpart.
@@ -31,7 +31,25 @@ open(import("std/string"));
   BF_YO_BUILD_TARGET_HOST,
   BF_YO_BUILD_TARGET_PARSE,
   BF_YO_BUILD_OPTION,
-  BF_YO_BUILD_DEP_MODULE
+  BF_YO_BUILD_DEP_MODULE,
+  BF_YO_BUILD_EXECUTABLE,
+  BF_YO_BUILD_STATIC_LIBRARY,
+  BF_YO_BUILD_SHARED_LIBRARY,
+  BF_YO_BUILD_TEST,
+  BF_YO_BUILD_RUN,
+  BF_YO_BUILD_STEP,
+  BF_YO_BUILD_STEP_DEPEND_ON,
+  BF_YO_BUILD_DEPENDENCY,
+  BF_YO_BUILD_PATH_DEPENDENCY,
+  BF_YO_BUILD_SYSTEM_LIBRARY,
+  BF_YO_BUILD_LINK,
+  BF_YO_BUILD_LINK_SYSTEM_LIBRARY,
+  BF_YO_BUILD_DEP_ARTIFACT,
+  BF_YO_BUILD_MODULE,
+  BF_YO_BUILD_MODULE_LINK,
+  BF_YO_BUILD_ADD_IMPORT,
+  BF_YO_BUILD_ADD_CFLAGS,
+  BF_YO_BUILD_DOC
 } :: import("../../expr.yo");
 { new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr_info.yo");
 { Environment } :: import("../../env.yo");
@@ -150,6 +168,15 @@ BuildDocConfig :: ref(
     version : String
   )
 );
+/// A `-D<name>=<value>` option declared by `build.option(...)`.
+/// Mirrors the `{ description, defaultValue }` value type of TS's
+/// `BuildRegistry.declaredOptions`.
+BuildDeclaredOption :: ref(
+  struct(
+    description : String,
+    default_value : String
+  )
+);
 /// Result of resolving a dependency name to its concrete type.
 ResolvedDep :: enum(
   Artifact(value : BuildArtifact),
@@ -175,7 +202,8 @@ BuildRegistry :: ref(
     dependency_artifacts : ArrayList(DependencyArtifactRef),
     modules : ArrayList(BuildModuleEntry),
     doc_configs : ArrayList(BuildDocConfig),
-    cli_options : HashMap(String, String)
+    cli_options : HashMap(String, String),
+    declared_options : HashMap(String, BuildDeclaredOption)
   )
 );
 impl(
@@ -192,7 +220,8 @@ impl(
       dependency_artifacts : ArrayList(DependencyArtifactRef).new(),
       modules : ArrayList(BuildModuleEntry).new(),
       doc_configs : ArrayList(BuildDocConfig).new(),
-      cli_options : HashMap(String, String).new()
+      cli_options : HashMap(String, String).new(),
+      declared_options : HashMap(String, BuildDeclaredOption).new()
     )
   ),
   register_executable : (fn(inout(self) : Self, artifact : BuildArtifact, exn : Exception) -> unit)({
@@ -391,6 +420,59 @@ impl(
   register_doc : (fn(inout(self) : Self, config : BuildDocConfig) -> unit)({
     self.doc_configs.push(config);
   }),
+  /// Attach a system library to a registered module. No-op when the module is
+  /// unknown or the library is already attached. Mirrors `registerModuleLink`.
+  register_module_link : (fn(inout(self) : Self, module_name : String, system_library_name : String) -> unit)({
+    i := usize(0);
+    n := self.modules.len();
+    while(i < n, {
+      m := self.modules(i);
+      if(m.name == module_name, {
+        already := false;
+        j := usize(0);
+        k := m.linked_system_libraries.len();
+        while(j < k, {
+          if(m.linked_system_libraries(j) == system_library_name, {
+            already = true;
+          });
+          j = (j + usize(1));
+        });
+        cond(
+          already => (),
+          true => {
+            m.linked_system_libraries.push(system_library_name.clone());
+          }
+        );
+        return(());
+      });
+      i = (i + usize(1));
+    });
+    ()
+  }),
+  /// Attach an imported module to a registered artifact. Silently ignores a
+  /// duplicate `import_name` (the caller diagnoses that) and an unknown
+  /// artifact. Mirrors `registerImportedModule`.
+  register_imported_module : (fn(inout(self) : Self, artifact_name : String, imported : ImportedModule) -> unit)({
+    i := usize(0);
+    n := self.artifacts.len();
+    while(i < n, {
+      a := self.artifacts(i);
+      if(a.name == artifact_name, {
+        j := usize(0);
+        m := a.imported_modules.len();
+        while(j < m, {
+          if(a.imported_modules(j).import_name == imported.import_name, {
+            return(());
+          });
+          j = (j + usize(1));
+        });
+        a.imported_modules.push(imported);
+        return(());
+      });
+      i = (i + usize(1));
+    });
+    ()
+  }),
   find_artifact : (fn(inout(self) : Self, name : String) -> Option(BuildArtifact))({
     i := usize(0);
     n := self.artifacts.len();
@@ -541,6 +623,7 @@ impl(
     self.modules = ArrayList(BuildModuleEntry).new();
     self.doc_configs = ArrayList(BuildDocConfig).new();
     self.cli_options = HashMap(String, String).new();
+    self.declared_options = HashMap(String, BuildDeclaredOption).new();
   }),
   _check_duplicate_artifact_name : (fn(inout(self) : Self, name : String, exn : Exception) -> unit)({
     i := usize(0);
@@ -560,6 +643,46 @@ impl(
     });
   })
 );
+// ---------------------------------------------------------------------------
+// The global registry
+// ---------------------------------------------------------------------------
+// `build.yo` evaluation populates ONE registry, which the caller then reads —
+// `yo build` for the DAG, `yo fetch`/`yo install` for the dependency list. TS
+// keeps it in a module-level `globalRegistry` with lazy construction; this is
+// the same thing.
+(g_build_registry : Option(BuildRegistry)) = Option(BuildRegistry).None;
+/// The global build registry, constructed on first use. Mirrors
+/// `getBuildRegistry`.
+get_build_registry :: (fn() -> BuildRegistry)(
+  match(
+    g_build_registry,
+    .Some(r) => r,
+    .None => {
+      r := BuildRegistry.new();
+      g_build_registry = Option(BuildRegistry).Some(r);
+      r
+    }
+  )
+);
+/// Empty the global registry and drop it. Mirrors `clearBuildRegistry`.
+clear_build_registry :: (fn() -> unit)({
+  match(
+    g_build_registry,
+    .Some(r) => {
+      r.clear();
+    },
+    .None => ()
+  );
+  g_build_registry = Option(BuildRegistry).None;
+});
+/// Install `new_registry` as the global one and return the previous. Mirrors
+/// `swapBuildRegistry` — the build runner uses it to evaluate a DEPENDENCY's
+/// `build.yo` into a scratch registry without clobbering the project's.
+swap_build_registry :: (fn(new_registry : Option(BuildRegistry)) -> Option(BuildRegistry))({
+  prev := g_build_registry;
+  g_build_registry = new_registry;
+  prev
+});
 // ---------------------------------------------------------------------------
 // evaluate_yo_build_functions
 // ---------------------------------------------------------------------------
@@ -677,20 +800,183 @@ _build_extract_string :: (
     }
   )
 );
+/// Read arg `idx` as a boolean. TS uses `Boolean(expr.args[i].$?.value)`, whose
+/// only falsy `EvalValue` shapes here are a missing value and `BoolVal(false)`.
+_build_extract_bool :: (
+  fn(args : ArrayList(AstExpr), idx : usize, ctx : EvalContext) -> bool
+)(
+  match(
+    _build_arg_value(args, idx, ctx),
+    .Some(v) => match(v, .BoolVal(b) => b, .UnitVal => false, _ => true),
+    .None => false
+  )
+);
+/// The variant name of arg `idx` when it is an enum value, else `.None`.
+/// Used for `build.step.depend_on`'s `dep_kind`.
+/// The variant NAME of an enum-valued argument, without the leading dot.
+///
+/// yo-self stores enum variants dot-prefixed — `EvalValue.EnumVal(".Run", …)`,
+/// built as `` `.${variant_name}` `` in `evaluator/calls/function.yo` — while
+/// TS's `isEnumValue(v).variantName` is bare (`"Run"`). Callers here are ports of
+/// TS comparisons against the bare name, so strip the dot at this boundary
+/// rather than dot-prefixing every comparison.
+///
+/// Without the strip, `__yo_build_step_depend_on` never recognised a `Run`
+/// dependency, so `step.depend_on(build.run(exe))` recorded the ARTIFACT name
+/// instead of `run:<artifact>`. The run node then vanished from the DAG and
+/// `yo build run` built the program, reported "run ok", and never executed it.
+_build_extract_variant :: (
+  fn(args : ArrayList(AstExpr), idx : usize, ctx : EvalContext) -> Option(String)
+)(
+  match(
+    _build_arg_value(args, idx, ctx),
+    .Some(v) => match(
+      v,
+      .EnumVal(variant, _) => Option(String).Some(
+        if(variant.starts_with(String.from(".")), variant.substring(usize(1), variant.len()), variant.clone())
+      ),
+      _ => Option(String).None
+    ),
+    .None => Option(String).None
+  )
+);
+/// Split `s` on runs of whitespace, dropping empty pieces — TS's
+/// `.split(/\s+/).filter(Boolean)`.
+_build_split_ws :: (fn(s : String) -> ArrayList(String))({
+  out := ArrayList(String).new();
+  cur := String.new();
+  bytes := s.as_bytes();
+  (i : usize) = usize(0);
+  n := bytes.len();
+  while(i < n, {
+    b := match(bytes.get(i), .Some(x) => x, .None => u8(0));
+    cond(
+      ((((b == u8(32)) || (b == u8(9))) || (b == u8(10))) || (b == u8(13))) => {
+        if(cur.len() > usize(0), {
+          out.push(cur.clone());
+          cur = String.new();
+        });
+      },
+      true => {
+        cur.push_byte(b);
+      }
+    );
+    i = (i + usize(1));
+  });
+  if(cur.len() > usize(0), {
+    out.push(cur);
+  });
+  out
+});
+/// Optional string arg: arg `idx` when present, else `fallback`.
+_build_extract_string_or :: (
+  fn(
+    args : ArrayList(AstExpr),
+    idx : usize,
+    param : str,
+    fallback : String,
+    expr : AstExpr,
+    ctx : EvalContext,
+    exn : Exception
+  ) -> String
+)(
+  cond(
+    (args.len() > idx) => _build_extract_string(args, idx, param, expr, ctx, exn),
+    true => fallback
+  )
+);
+/// Throw the standard "expects N arguments" build-function diagnostic.
+_build_require_args :: (
+  fn(
+    args : ArrayList(AstExpr),
+    least : usize,
+    message : String,
+    expr : AstExpr,
+    exn : Exception
+  ) -> unit
+)({
+  if(args.len() < least, {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(expr),
+          `${message}, got ${args.len()}`,
+          false,
+          .None
+        )
+      )
+    );
+  });
+});
+/// A `BuildArtifact` with every list empty and every flag off — the shape TS
+/// spreads into `registerExecutable`/`registerStaticLibrary`/
+/// `registerSharedLibrary`. `kind` is set by the registry method.
+_build_new_artifact :: (
+  fn(
+    name : String,
+    root : String,
+    target : String,
+    optimize : String,
+    allocator : String,
+    sanitize : String
+  ) -> BuildArtifact
+)(
+  BuildArtifact(
+    kind : ArtifactKind.Executable,
+    name : name,
+    root : root,
+    target : target,
+    optimize : optimize,
+    allocator : allocator,
+    sanitize : sanitize,
+    link_libraries : ArrayList(String).new(),
+    include_paths : ArrayList(String).new(),
+    library_paths : ArrayList(String).new(),
+    c_sources : ArrayList(String).new(),
+    c_flags : ArrayList(String).new(),
+    defines : ArrayList(String).new(),
+    strip : false,
+    static_link : false,
+    runtime_files : ArrayList(String).new(),
+    linked_artifacts : ArrayList(String).new(),
+    linked_system_libs : ArrayList(String).new(),
+    imported_modules : ArrayList(ImportedModule).new()
+  )
+);
+/// Attach `library_name` to `artifact_name`'s system-library list, if the
+/// artifact exists and does not already link it. Shared by `__yo_build_link`
+/// (system-library branch) and `__yo_build_link_system_library`.
+_build_attach_system_library :: (
+  fn(reg : BuildRegistry, artifact_name : String, library_name : String) -> unit
+)({
+  match(
+    reg.find_artifact(artifact_name),
+    .Some(art) => {
+      (i : usize) = usize(0);
+      while(i < art.linked_system_libs.len(), {
+        if(art.linked_system_libs(i) == library_name, {
+          return(());
+        });
+        i = (i + usize(1));
+      });
+      art.linked_system_libs.push(library_name);
+    },
+    .None => ()
+  );
+});
 /// Dispatch the `__yo_build_*` evaluator builtins to their comptime
 /// result. 1-to-1 with `evaluateYoBuildFunctions` in
 /// `src/evaluator/builtins/build.ts`.
 ///
-/// **Scope note.** The build *registry* (which these builtins populate in
-/// the TS reference for the build runner) is out of scope for the
-/// evaluator/`check` milestone — see plans/archive/BOOTSTRAPPING_EVALUATOR.md (no
-/// build-runner self-hosting). During `check`, every build-function call
-/// inside a function body is a "trial" evaluation (its comptime params are
-/// `UnknownVal`), and even the TS reference skips the registry on the
-/// trial path. So this handler validates arguments and returns each
-/// builtin's correct comptime TYPE (so a `build.yo` type-checks); it does
-/// not populate the `BuildRegistry`. The registry mutators above remain
-/// for when the build runner is ported.
+/// During `check`, a build-function call inside a function body is a "trial"
+/// evaluation (its comptime params are `UnknownVal`), and the TS reference
+/// skips the registry on that path too — so the trial branch only validates
+/// arguments and returns each builtin's correct comptime TYPE.
+///
+/// On the REAL path (concrete comptime args — i.e. a top-level `build.yo` being
+/// evaluated) every builtin mutates `get_build_registry()`, exactly as TS does.
+/// That is what `yo build`, `yo fetch` and `yo install` read: without it the
+/// registry stays empty and `yo build` builds an empty DAG and exits 0.
 evaluate_yo_build_functions :: (
   fn(
     expr : AstExpr,
@@ -743,23 +1029,24 @@ evaluate_yo_build_functions :: (
     return(_build_string_result(expr, env, ctx, parsed));
   });
   if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_OPTION, Option(usize).None), {
-    if(args.len() < usize(3), {
-      exn.throw(
-        dyn(
-          format_error_message(
-            ast_expr_token(expr),
-            `__yo_build_option expects 3 arguments (name, description, default), got ${args.len()}`,
-            false,
-            .None
-          )
-        )
-      );
-    });
-    _opt_name := _build_extract_string(args, usize(0), "name", expr, ctx, exn);
-    _opt_desc := _build_extract_string(args, usize(1), "description", expr, ctx, exn);
+    _build_require_args(args, usize(3), String.from("__yo_build_option expects 3 arguments (name, description, default)"), expr, exn);
+    opt_name := _build_extract_string(args, usize(0), "name", expr, ctx, exn);
+    opt_desc := _build_extract_string(args, usize(1), "description", expr, ctx, exn);
     default_value := _build_extract_string(args, usize(2), "default", expr, ctx, exn);
-    // No CLI overrides during `check` — return the declared default.
-    return(_build_string_result(expr, env, ctx, default_value));
+    reg_opt := get_build_registry();
+    _do := reg_opt.declared_options.set(
+      opt_name.clone(),
+      BuildDeclaredOption(description : opt_desc, default_value : default_value.clone())
+    );
+    // A `-D<name>=<value>` on the command line overrides the declared default.
+    return(
+      _build_string_result(
+        expr,
+        env,
+        ctx,
+        match(reg_opt.cli_options.get(opt_name), .Some(v) => v, .None => default_value)
+      )
+    );
   });
   if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_DEP_MODULE, Option(usize).None), {
     if(args.len() < usize(2), {
@@ -786,11 +1073,283 @@ evaluate_yo_build_functions :: (
     encoded := ((dep_name + nul_sep) + mod_name);
     return(_build_string_result(expr, env, ctx, encoded));
   });
-  // All other build builtins return unit (executable, static_library,
-  // shared_library, link, link_system_library, test, run, step, doc,
-  // step_depend_on, dependency, path_dependency, system_library,
-  // dep_artifact, module, module_link, add_import, add_cflags). Registry
-  // population is deferred (see the scope note above).
+  // ── Registry-mutating builtins (all return unit) ────────────────────
+  reg := get_build_registry();
+  host_triple := host_target().triple;
+  if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_EXECUTABLE, Option(usize).None), {
+    _build_require_args(args, usize(2), String.from("__yo_build_executable expects at least 2 arguments (name, root)"), expr, exn);
+    reg.register_executable(
+      _build_new_artifact(
+        _build_extract_string(args, usize(0), "name", expr, ctx, exn),
+        _build_extract_string(args, usize(1), "root", expr, ctx, exn),
+        _build_extract_string_or(args, usize(2), "target", host_triple.clone(), expr, ctx, exn),
+        _build_extract_string_or(args, usize(3), "optimize", String.from("debug"), expr, ctx, exn),
+        _build_extract_string_or(args, usize(4), "allocator", String.from("mimalloc"), expr, ctx, exn),
+        _build_extract_string_or(args, usize(5), "sanitize", String.from("none"), expr, ctx, exn)
+      ),
+      exn
+    );
+    return(_build_unit_result(expr, env, ctx));
+  });
+  if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_STATIC_LIBRARY, Option(usize).None), {
+    _build_require_args(args, usize(2), String.from("__yo_build_static_library expects at least 2 arguments (name, root)"), expr, exn);
+    reg.register_static_library(
+      _build_new_artifact(
+        _build_extract_string(args, usize(0), "name", expr, ctx, exn),
+        _build_extract_string(args, usize(1), "root", expr, ctx, exn),
+        _build_extract_string_or(args, usize(2), "target", host_triple.clone(), expr, ctx, exn),
+        _build_extract_string_or(args, usize(3), "optimize", String.from("debug"), expr, ctx, exn),
+        String.from("libc"),
+        String.from("none")
+      ),
+      exn
+    );
+    return(_build_unit_result(expr, env, ctx));
+  });
+  if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_SHARED_LIBRARY, Option(usize).None), {
+    _build_require_args(args, usize(2), String.from("__yo_build_shared_library expects at least 2 arguments (name, root)"), expr, exn);
+    reg.register_shared_library(
+      _build_new_artifact(
+        _build_extract_string(args, usize(0), "name", expr, ctx, exn),
+        _build_extract_string(args, usize(1), "root", expr, ctx, exn),
+        _build_extract_string_or(args, usize(2), "target", host_triple.clone(), expr, ctx, exn),
+        _build_extract_string_or(args, usize(3), "optimize", String.from("debug"), expr, ctx, exn),
+        String.from("libc"),
+        String.from("none")
+      ),
+      exn
+    );
+    return(_build_unit_result(expr, env, ctx));
+  });
+  // Unified link: a name that matches a registered SYSTEM library attaches as
+  // one; anything else is an artifact-to-artifact link.
+  if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_LINK, Option(usize).None), {
+    _build_require_args(args, usize(2), String.from("__yo_build_link expects 2 arguments (artifact_name, library_name)"), expr, exn);
+    link_artifact := _build_extract_string(args, usize(0), "artifact_name", expr, ctx, exn);
+    link_library := _build_extract_string(args, usize(1), "library_name", expr, ctx, exn);
+    match(
+      reg.find_system_library(link_library.clone()),
+      .Some(_) => {
+        _build_attach_system_library(reg, link_artifact, link_library);
+      },
+      .None => {
+        reg.register_link(link_artifact, link_library);
+      }
+    );
+    return(_build_unit_result(expr, env, ctx));
+  });
+  // Kept for backward compatibility; `build.link()` now handles both cases.
+  if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_LINK_SYSTEM_LIBRARY, Option(usize).None), {
+    _build_require_args(args, usize(2), String.from("__yo_build_link_system_library expects 2 arguments (artifact_name, system_lib_name)"), expr, exn);
+    _build_attach_system_library(
+      reg,
+      _build_extract_string(args, usize(0), "artifact_name", expr, ctx, exn),
+      _build_extract_string(args, usize(1), "system_lib_name", expr, ctx, exn)
+    );
+    return(_build_unit_result(expr, env, ctx));
+  });
+  if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_TEST, Option(usize).None), {
+    _build_require_args(args, usize(2), String.from("__yo_build_test expects at least 2 arguments (name, root)"), expr, exn);
+    reg.register_test(
+      BuildTestSuite(
+        name : _build_extract_string(args, usize(0), "name", expr, ctx, exn),
+        root : _build_extract_string(args, usize(1), "root", expr, ctx, exn),
+        target : _build_extract_string_or(args, usize(2), "target", host_triple.clone(), expr, ctx, exn),
+        verbose : false,
+        bail : false,
+        parallel : i32(1)
+      )
+    );
+    return(_build_unit_result(expr, env, ctx));
+  });
+  if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_RUN, Option(usize).None), {
+    _build_require_args(args, usize(1), String.from("__yo_build_run expects at least 1 argument (artifact_name)"), expr, exn);
+    reg.register_run(
+      _build_extract_string(args, usize(0), "artifact_name", expr, ctx, exn),
+      ArrayList(String).new()
+    );
+    return(_build_unit_result(expr, env, ctx));
+  });
+  if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_STEP, Option(usize).None), {
+    _build_require_args(args, usize(2), String.from("__yo_build_step expects 2 arguments (name, description)"), expr, exn);
+    reg.register_step(
+      _build_extract_string(args, usize(0), "name", expr, ctx, exn),
+      _build_extract_string(args, usize(1), "description", expr, ctx, exn)
+    );
+    return(_build_unit_result(expr, env, ctx));
+  });
+  if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_DOC, Option(usize).None), {
+    _build_require_args(args, usize(10), String.from("__yo_build_doc expects 10 arguments"), expr, exn);
+    reg.register_doc(
+      BuildDocConfig(
+        name : _build_extract_string(args, usize(0), "name", expr, ctx, exn),
+        root : _build_extract_string(args, usize(1), "root", expr, ctx, exn),
+        output_dir : _build_extract_string(args, usize(2), "output", expr, ctx, exn),
+        format : _build_extract_string(args, usize(3), "format", expr, ctx, exn),
+        include_private : _build_extract_bool(args, usize(4), ctx),
+        include_deps : _build_extract_bool(args, usize(5), ctx),
+        title : _build_extract_string(args, usize(6), "title", expr, ctx, exn),
+        logo : _build_extract_string(args, usize(7), "logo", expr, ctx, exn),
+        favicon : _build_extract_string(args, usize(8), "favicon", expr, ctx, exn),
+        version : _build_extract_string(args, usize(9), "version", expr, ctx, exn)
+      )
+    );
+    return(_build_unit_result(expr, env, ctx));
+  });
+  if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_STEP_DEPEND_ON, Option(usize).None), {
+    _build_require_args(args, usize(3), String.from("__yo_build_step_depend_on expects 3 arguments (step_name, dep_name, dep_kind)"), expr, exn);
+    step_name := _build_extract_string(args, usize(0), "step_name", expr, ctx, exn);
+    dep_name := _build_extract_string(args, usize(1), "dep_name", expr, ctx, exn);
+    // A Run dependency is stored under a `run:` prefix so it cannot collide
+    // with the artifact of the same name.
+    resolved_dep_name := match(
+      _build_extract_variant(args, usize(2), ctx),
+      .Some(variant) => cond((variant == "Run") => `run:${dep_name}`, true => dep_name.clone()),
+      .None => dep_name.clone()
+    );
+    reg.add_step_dependency(step_name, resolved_dep_name);
+    return(_build_unit_result(expr, env, ctx));
+  });
+  if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_DEPENDENCY, Option(usize).None), {
+    _build_require_args(args, usize(2), String.from("__yo_build_dependency expects at least 2 arguments (name, url)"), expr, exn);
+    reg.register_dependency(
+      BuildGitDependency(
+        name : _build_extract_string(args, usize(0), "name", expr, ctx, exn),
+        url : _build_extract_string(args, usize(1), "url", expr, ctx, exn),
+        ref : _build_extract_string_or(args, usize(2), "ref", String.from("HEAD"), expr, ctx, exn),
+        path : _build_extract_string_or(args, usize(3), "path", String.new(), expr, ctx, exn)
+      )
+    );
+    return(_build_unit_result(expr, env, ctx));
+  });
+  if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_PATH_DEPENDENCY, Option(usize).None), {
+    _build_require_args(args, usize(2), String.from("__yo_build_path_dependency expects 2 arguments (name, path)"), expr, exn);
+    reg.register_path_dependency(
+      BuildPathDependency(
+        name : _build_extract_string(args, usize(0), "name", expr, ctx, exn),
+        path : _build_extract_string(args, usize(1), "path", expr, ctx, exn)
+      )
+    );
+    return(_build_unit_result(expr, env, ctx));
+  });
+  if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_SYSTEM_LIBRARY, Option(usize).None), {
+    _build_require_args(args, usize(1), String.from("__yo_build_system_library expects at least 1 argument (name)"), expr, exn);
+    reg.register_system_library(
+      BuildSystemLibrary(
+        name : _build_extract_string(args, usize(0), "name", expr, ctx, exn),
+        fallback_include : _build_extract_string_or(args, usize(1), "fallback_include", String.new(), expr, ctx, exn),
+        fallback_lib : _build_extract_string_or(args, usize(2), "fallback_lib", String.new(), expr, ctx, exn),
+        fallback_link : _build_extract_string_or(args, usize(3), "fallback_link", String.new(), expr, ctx, exn),
+        defines : _build_split_ws(_build_extract_string_or(args, usize(4), "defines", String.new(), expr, ctx, exn))
+      )
+    );
+    return(_build_unit_result(expr, env, ctx));
+  });
+  if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_DEP_ARTIFACT, Option(usize).None), {
+    _build_require_args(args, usize(2), String.from("__yo_build_dep_artifact expects 2 arguments (dependency_name, artifact_name)"), expr, exn);
+    reg.register_dependency_artifact(
+      DependencyArtifactRef(
+        dependency_name : _build_extract_string(args, usize(0), "dependency_name", expr, ctx, exn),
+        artifact_name : _build_extract_string(args, usize(1), "artifact_name", expr, ctx, exn)
+      )
+    );
+    return(_build_unit_result(expr, env, ctx));
+  });
+  if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_MODULE, Option(usize).None), {
+    _build_require_args(args, usize(2), String.from("__yo_build_module expects 2 arguments (name, root)"), expr, exn);
+    reg.register_module(
+      BuildModuleEntry(
+        name : _build_extract_string(args, usize(0), "name", expr, ctx, exn),
+        root : _build_extract_string(args, usize(1), "root", expr, ctx, exn),
+        linked_system_libraries : ArrayList(String).new()
+      )
+    );
+    return(_build_unit_result(expr, env, ctx));
+  });
+  if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_MODULE_LINK, Option(usize).None), {
+    _build_require_args(args, usize(2), String.from("__yo_build_module_link expects 2 arguments (module_name, system_library_name)"), expr, exn);
+    reg.register_module_link(
+      _build_extract_string(args, usize(0), "module_name", expr, ctx, exn),
+      _build_extract_string(args, usize(1), "system_library_name", expr, ctx, exn)
+    );
+    return(_build_unit_result(expr, env, ctx));
+  });
+  if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_ADD_IMPORT, Option(usize).None), {
+    _build_require_args(args, usize(4), String.from("__yo_build_add_import expects 4 arguments (artifact_name, import_name, module_name, dependency_name)"), expr, exn);
+    imp_artifact := _build_extract_string(args, usize(0), "artifact_name", expr, ctx, exn);
+    imp_name := _build_extract_string(args, usize(1), "import_name", expr, ctx, exn);
+    imp_module := _build_extract_string(args, usize(2), "module_name", expr, ctx, exn);
+    imp_dep := _build_extract_string(args, usize(3), "dependency_name", expr, ctx, exn);
+    // Diagnose a duplicate import name BEFORE registering — `register_imported_module`
+    // silently ignores one, which would otherwise hide the user's mistake.
+    match(
+      reg.find_artifact(imp_artifact.clone()),
+      .Some(art) => {
+        (di : usize) = usize(0);
+        while(di < art.imported_modules.len(), {
+          existing := art.imported_modules(di);
+          if(existing.import_name == imp_name, {
+            exn.throw(
+              dyn(
+                format_error_message(
+                  ast_expr_token(expr),
+                  `Duplicate import name "${imp_name}" on artifact "${imp_artifact}". Already imported from module "${existing.module_name}".`,
+                  false,
+                  .None
+                )
+              )
+            );
+          });
+          di = (di + usize(1));
+        });
+      },
+      .None => ()
+    );
+    reg.register_imported_module(
+      imp_artifact,
+      ImportedModule(
+        import_name : imp_name,
+        module_name : imp_module,
+        dependency_name : imp_dep,
+        resolved_root : Option(String).None,
+        propagated_system_libs : ArrayList(String).new()
+      )
+    );
+    return(_build_unit_result(expr, env, ctx));
+  });
+  if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_ADD_CFLAGS, Option(usize).None), {
+    _build_require_args(args, usize(2), String.from("__yo_build_add_cflags expects 2 arguments (artifact_name, flags)"), expr, exn);
+    cf_artifact := _build_extract_string(args, usize(0), "artifact_name", expr, ctx, exn);
+    cf_flags := _build_split_ws(_build_extract_string(args, usize(1), "flags", expr, ctx, exn));
+    match(
+      reg.find_artifact(cf_artifact),
+      .Some(art) => {
+        (fi : usize) = usize(0);
+        while(fi < cf_flags.len(), {
+          match(
+            cf_flags.get(fi),
+            .Some(f) => {
+              art.c_flags.push(f);
+            },
+            .None => ()
+          );
+          fi = (fi + usize(1));
+        });
+      },
+      .None => ()
+    );
+    return(_build_unit_result(expr, env, ctx));
+  });
+  exn.throw(
+    dyn(
+      format_error_message(
+        ast_expr_token(expr),
+        `Unknown build function: ${ast_expr_token(expr).value}`,
+        false,
+        .None
+      )
+    )
+  );
   _build_unit_result(expr, env, ctx)
 });
 // ---------------------------------------------------------------------------
@@ -809,7 +1368,11 @@ export(
   DependencyArtifactRef,
   BuildModuleEntry,
   BuildDocConfig,
+  BuildDeclaredOption,
   ResolvedDep,
   BuildRegistry,
+  get_build_registry,
+  clear_build_registry,
+  swap_build_registry,
   evaluate_yo_build_functions
 );

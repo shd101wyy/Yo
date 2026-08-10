@@ -2,7 +2,7 @@
 
 **Proposed 2026-08-09.** Design decision, not yet implemented. Companion to
 [`OPERATOR_ASSOCIATIVITY.md`](OPERATOR_ASSOCIATIVITY.md) (Yo's no-precedence
-philosophy) and [`PRE_P1_HANDOVER.md`](PRE_P1_HANDOVER.md) §6 (the `fmt`
+philosophy) and [`P1_CLI_PARITY.md`](P1_CLI_PARITY.md) §6 (the `fmt`
 divergence, whose "space before `.`" class this rule resolves).
 
 ## TL;DR

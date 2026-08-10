@@ -1,0 +1,39 @@
+open(import("std/string"));
+open(import("std/fmt"));
+{ Exception, IoExn, AnyError } :: import("std/error");
+{ ArrayList } :: import("std/collections/array_list");
+{ yield } :: import("std/async");
+
+// A `match` used as a DEFINITION's RHS whose `.None` arm early-`return`s a
+// freshly-constructed value, inside an async body that awaits later.
+probe :: (fn(seed : i32, io : Io, exn : Exception) -> Impl(Future(String, IoExn)))(
+  io.async((e : IoExn) => {
+    stack := ArrayList(i32).new();
+    if(seed > i32(0), {
+      stack.push(seed);
+    });
+    item := match(
+      stack.pop(),
+      .None => {
+        return(String.new());
+      },
+      .Some(it) => it
+    );
+    e.io.await(yield(e.io), e.io);
+    return(`got ${item}`);
+  })
+);
+
+main :: (fn(io : Io) -> unit)({
+  exn := Exception(
+    throw : (
+      (err) -> {
+        eprintln(err.to_string());
+        unwind();
+      }
+    )
+  );
+  println(`empty=[${io.await(probe(i32(0), io, exn), IoExn(io : io, exn : exn))}]`);
+  println(`full=[${io.await(probe(i32(7), io, exn), IoExn(io : io, exn : exn))}]`);
+});
+export(main);

@@ -1,0 +1,144 @@
+//! `yo fetch` — evaluate `build.yo` to discover declared dependencies, fetch
+//! every git dependency into the global cache, and update `yo.lock`.
+//!
+//! This mirrors `src/fetch-command.ts`.
+open(import("std/string"));
+open(import("std/fmt"));
+{ AnyError, Exception, IoExn } :: import("std/error");
+{ Path } :: import("std/path");
+{ env } :: import("std/env");
+{ cwd } :: import("std/env");
+{ exists, read_file, write_file } :: import("std/fs/file");
+{ BuildGitDependency, get_build_registry, clear_build_registry } :: import("./evaluator/builtins/build.yo");
+{ FetchResult, fetch_all_deps } :: import("./fetch.yo");
+{ mm_load_yo_file, mm_reset } :: import("./module_manager.yo");
+/// Options for `run_fetch`. Mirrors TS `FetchOptions`.
+FetchOptions :: ref(
+  struct(
+    build_file : String,
+    verbose : bool,
+    update : bool
+  )
+);
+/// The user's working directory. `yo-cli` records it in `YO_ORIGINAL_CWD`
+/// before it changes directory, so that is the authority when present.
+_user_cwd :: (fn() -> String)(
+  match(
+    env.get(String.from("YO_ORIGINAL_CWD")),
+    .Some(d) => d,
+    .None => match(cwd(), .Ok(p) => p.to_string(), .Err(_) => String.from("."))
+  )
+);
+/// Resolve `p` against the user's cwd unless it is already absolute.
+_resolve_from_cwd :: (fn(p : String) -> Path)(
+  cond(
+    (p.starts_with(String.from("/"))) => Path.new(p),
+    true => Path.new(_user_cwd()).join(Path.new(p))
+  )
+);
+/// Ensure `.yo-cache/` is listed in the project's `.gitignore`.
+/// Mirrors TS `ensureGitignore`.
+ensure_gitignore :: (
+  fn(
+    project_dir : String,
+    io : Io,
+    exn : Exception
+  ) -> Impl(Future(unit, IoExn))
+)(
+  io.async((e : IoExn) => {
+    gitignore_str := Path.new(project_dir).join(Path.new(String.from(".gitignore"))).to_string();
+    entry := String.from(".yo-cache/");
+    already := e.io.await(exists(Path.new(gitignore_str.clone()), e.io), e.io);
+    cond(
+      already => {
+        content := String.from_bytes(e.io.await(read_file(Path.new(gitignore_str.clone()), e.io), e));
+        cond(
+          (content.contains(entry.clone())) => (),
+          true => {
+            e.io.await(write_file(Path.new(gitignore_str.clone()), `${content}\n${entry}\n`, e.io), e);
+          }
+        );
+      },
+      true => {
+        e.io.await(write_file(Path.new(gitignore_str.clone()), `${entry}\n`, e.io), e);
+      }
+    );
+  })
+);
+/// Evaluate `build.yo` and fetch every git dependency it declares.
+run_fetch :: (
+  fn(
+    options : FetchOptions,
+    io : Io,
+    exn : Exception
+  ) -> Impl(Future(unit, IoExn))
+)(
+  io.async((e : IoExn) => {
+    resolved_build_file := _resolve_from_cwd(options.build_file.clone());
+    resolved_build_file_str := resolved_build_file.to_string();
+    build_file_exists := e.io.await(exists(Path.new(resolved_build_file_str.clone()), e.io), e.io);
+    cond(
+      !(build_file_exists) => {
+        eprintln(`Error: Build file not found: ${resolved_build_file_str}`);
+        eprintln(String.from("Run 'yo init' to create a project with a build.yo file."));
+        e.exn.throw(dyn(String.from("fetch: build file not found")));
+      },
+      true => ()
+    );
+    project_dir := match(
+      resolved_build_file.parent(),
+      .Some(p) => p.to_string(),
+      .None => String.from(".")
+    );
+    cond(
+      options.verbose => println(`Evaluating ${options.build_file}...`),
+      true => ()
+    );
+    // Evaluating `build.yo` is what POPULATES the registry — the
+    // `__yo_build_*` builtins mutate it as a side effect. Errors are
+    // swallowed, as in TS: a build file with runtime components can throw
+    // after the registry is already populated.
+    clear_build_registry();
+    _outcome := mm_load_yo_file(resolved_build_file_str.clone(), e.io, e.exn);
+    mm_reset();
+    registry := get_build_registry();
+    dependencies := registry.dependencies;
+    cond(
+      (dependencies.len() == usize(0)) => {
+        println(String.from("No dependencies declared in build.yo."));
+        return(());
+      },
+      true => ()
+    );
+    println(`Found ${dependencies.len()} dependency(ies) in ${options.build_file}:`);
+    (i : usize) = usize(0);
+    while(i < dependencies.len(), {
+      match(
+        dependencies.get(i),
+        .Some(d) => println(`  - ${d.name} (${d.url} @ ${d.ref})`),
+        .None => ()
+      );
+      i = (i + usize(1));
+    });
+    println(String.from(""));
+    cond(
+      options.update => println(String.from("Updating: re-resolving all git refs to latest commits...\n")),
+      true => ()
+    );
+    result := e.io.await(
+      fetch_all_deps(project_dir.clone(), dependencies, options.verbose, options.update, e.io, e.exn),
+      e
+    );
+    println(String.from("\nResolved dependencies:"));
+    (j : usize) = usize(0);
+    while(j < result.resolved_names.len(), {
+      name := match(result.resolved_names.get(j), .Some(x) => x, .None => String.new());
+      dep_path := match(result.resolved_paths.get(j), .Some(x) => x, .None => String.new());
+      println(`  ${name} → ${Path.new(dep_path).relative_from(Path.new(project_dir.clone())).to_string()}`);
+      j = (j + usize(1));
+    });
+    e.io.await(ensure_gitignore(project_dir, e.io, e.exn), e);
+    println(String.from("\nDone. Lock file updated: yo.lock"));
+  })
+);
+export(FetchOptions, ensure_gitignore, run_fetch);

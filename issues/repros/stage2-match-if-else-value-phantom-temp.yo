@@ -1,0 +1,26 @@
+open(import("std/string"));
+open(import("std/fmt"));
+{ Path } :: import("std/path");
+{ yield } :: import("std/async");
+
+probe :: (fn(bf : String, io : Io) -> Impl(Future(String, Io)))(
+  io.async((aio : Io) => {
+    build_file_path := Path.new(bf);
+    project_dir := match(
+      build_file_path.parent(),
+      .Some(p) => {
+        ps := p.to_string();
+        if(ps.len() == usize(0), String.from("."), ps)
+      },
+      .None => String.from(".")
+    );
+    aio.await(yield(aio), aio);
+    return(project_dir)
+  })
+);
+
+main :: (fn(io : Io) -> unit)({
+  println(io.await(probe(String.from("./build.yo"), io), io));
+  println(io.await(probe(String.from("a/b/c.yo"), io), io));
+});
+export(main);

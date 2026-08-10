@@ -20,13 +20,14 @@ open(import("std/string"));
 { is_unit_type, is_some_type } :: import("../../types/guards.yo");
 { lookup_some_resolved_concrete } :: import("../../expr_info.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ FunctionGenerationContext } :: import("../functions/context.yo");
+{ FunctionGenerationContext, resolve_var_name_in_context } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { emit_async_future_escape, emit_async_future_completion } :: import("./async_completion.yo");
 { resolve_some_type_to_concrete } :: import("./closures.yo");
 { extract_future_trait_from_type } :: import("../../evaluator/trait_checking.yo");
 { t_unit } :: import("../../types/creators.yo");
 { generate_atom } :: import("./atom.yo");
+
 { generate_deferred_drop_expressions, generate_deferred_dup_expressions } :: import("./drop_dup.yo");
 { get_type_string, get_variable_name_for_codegen, get_deferred_drop_target_atom_name, is_deferred_drop_for_closure_capture, sanitize_for_c_identifier, scope_stack_contains } :: import("../utils/index.yo");
 /// The atom a `___drop(x)` / `x.___drop()` drop expression targets.
@@ -840,10 +841,24 @@ generate_return :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
           generate_pending_deferred_drops(indent.clone(), context, expr, true, false, false, Option(HashSet(String)).None, Option(String).None);
           em_sm := context.base.emitter;
           em_sm.emit_string_line(`${indent.clone()}// Final state - complete the result Future`);
+          // `return_temp_var` is derived from the SOURCE-level variable name.
+          // Inside a state machine a local of that name does not exist as a C
+          // local — it was hoisted into the state struct as `sm->var_<id>` — so
+          // emitting the bare name produces `sm->result = results;` with
+          // `results` undeclared, for any `return(<local>)` in an async body
+          // that also awaits later. `_resolve_var_name_in_context` returns the
+          // name unchanged when it really is a C temp, so this is safe for both.
+          // See issues/fixed/async-await-in-nested-match-arms.md.
           result_code := if(
             is_unit_result,
             Option(String).None,
-            Option(String).Some(match(return_temp_var, .Some(rtv2) => rtv2, .None => arg_code.clone()))
+            Option(String).Some(
+              match(
+                return_temp_var,
+                .Some(rtv2) => resolve_var_name_in_context(rtv2, context),
+                .None => arg_code.clone()
+              )
+            )
           );
           emit_async_future_completion(em_sm, indent.clone(), result_code, Option(String).Some(context.base.current_function_name.clone()));
           return(String.from(""));

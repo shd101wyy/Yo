@@ -1936,3 +1936,25 @@ test("String Ord compares byte-lexicographically", {
   assert(String.from("ab") < String.from("abc"), "prefix sorts first");
   assert(String.new() < String.from("a"), "empty sorts first");
 });
+// ---------------------------------------------------------------------------
+// Control characters in string literals must survive codegen.
+//
+// The C emitter quoted string literals with JSON escaping, and JSON spells a
+// control character `\uXXXX` — which C REJECTS ("universal character name
+// refers to a control character"). A `\0` in any string literal (e.g. a
+// NUL-separated dedup key, mirroring TS `join("\0")`) made the emitted C fail
+// to compile. Control bytes now emit as named escapes or 3-digit octal.
+// See issues/fixed/c-string-literal-control-chars-emitted-as-unicode-escapes.md.
+// ---------------------------------------------------------------------------
+test("String literals carry NUL and control characters through codegen", {
+  sep := `\0`;
+  assert(sep.bytes_len() == usize(1), "NUL literal is one byte");
+  assert(sep.byte_at(usize(0)) == u8(0), "and that byte is 0");
+  key := `a${sep}b`;
+  assert(key.bytes_len() == usize(3), "NUL embeds in a template string");
+  assert(key.byte_at(usize(1)) == u8(0), "the embedded byte is 0");
+  ctl := `\0${String.from("x")}\b\f`;
+  assert(ctl.bytes_len() == usize(4), "NUL + x + backspace + formfeed");
+  assert(ctl.byte_at(usize(2)) == u8(8), "backspace byte");
+  assert(ctl.byte_at(usize(3)) == u8(12), "formfeed byte");
+});
