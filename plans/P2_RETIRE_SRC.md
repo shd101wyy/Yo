@@ -99,9 +99,19 @@ The first full-CI run over the P1 work failed 7 jobs; all triaged:
    [the bare-if issue](../issues/fixed/ts-bare-if-await-early-return-silently-skipped.md)
    and the updated
    [await-position matrix](../issues/await-in-branch-positions-matrix.md).
+   Wave 3 (the byte-diff layer the clang errors had masked): the C
+   `i64.MIN` literal — `-9223372036854775808LL` is ULL-typed in C, so
+   yo-self's inlined overflow-check comparisons went unsigned and every
+   SELF-BUILT binary rejected all comptime signed subtraction; the swallowed
+   def-eval failures renumbered every mangle. Plus the traversal gap the
+   analysis fix unmasked (`expr_contains_await` now follows the expansion
+   table — the if-in-while sweep hang). FIXPOINT_HOLDS verified locally.
+   See issues/fixed/fixpoint-enum-id-allocation-order-divergence.md.
    NOTE `gates_fast.sh` does NOT include the stage-2 compile — run
    `scripts/bootstrap/fixpoint_only.sh` before believing a yo-self change is
-   fixpoint-clean.
+   fixpoint-clean. A bug that exists ONLY in a stage-2-built binary is
+   invisible to every CI arm that tests the TS-built stage-1 — the byte-diff
+   is the only detector for that class.
 4. **tests/internal doc_render_markdown — FIXED.** The P1 doc model added
    `examples` to `DocConstant`; the internal test's three constructions were
    not updated. Broke BOTH the TS arm (shard 0, module-eval error) and the
