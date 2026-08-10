@@ -905,7 +905,13 @@ function allocCondBranchCodes(
   context: FunctionGenerationContext,
   count: number
 ): number {
-  const base = context.condBranchCaseSeq ?? 0;
+  // Start at 1, never 0: the state machine is calloc-zeroed, so a
+  // `sm->cond_branch_N` that was never written reads 0. Chained-branch
+  // dispatch (state-machine.ts) switches on the field OUTSIDE the
+  // await-future NULL guard and must be able to tell "branch <code> ran"
+  // from "no await-carrying branch ran" — reserving 0 for the latter makes
+  // the calloc default the unambiguous "none" value.
+  const base = context.condBranchCaseSeq ?? 1;
   context.condBranchCaseSeq = base + Math.max(count, 1);
   return base;
 }

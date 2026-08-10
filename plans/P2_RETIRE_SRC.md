@@ -87,22 +87,26 @@ The first full-CI run over the P1 work failed 7 jobs; all triaged:
    `build-list-steps` carries a scaffolded `tests/main.test.yo` that the
    `./tests` walk and the sweep's `find` swept up. Both now exclude
    `tests/cli-cases`.
-3. **Bootstrap fixpoint — stage-2 miscompile, OPEN, the P2.2 blocker.** The
-   self-hosted compiler mis-emits `run_build`'s `project_dir` shape (a
-   `match(path.parent(), .Some(p) => { ps := …; if(ps.len() == 0, ".", ps) },
-…)` inside an `io.async` block): the if's else-branch value temp is
-   REFERENCED but never DECLARED (`use of undeclared identifier
-'_file____User_temp_N'`, 16-17 errors), plus one bool-into-struct
-   type confusion. Reproduce: `/tmp/yo-s27 compile yo-self/main.yo --release
--o /tmp/x` (any argv form — the earlier debug-only theory in
-   [the debug-emission issue](../issues/self-hosted-debug-emission-undeclared-temp.md)
-   was wrong; that issue needs updating when this is fixed). NOTE
-   `gates_fast.sh` does NOT include the stage-2 compile — run
+3. **Bootstrap fixpoint — stage-2 miscompile, FIXED in two waves.**
+   Wave 1 (phantom-temp class, ~9 of 17 errors): the clear-variableName-
+   around-raw-generation dance existed at only 3 of TS's 7 sites — ported to
+   cond.yo/match.yo (see
+   [the phantom-temp issue](../issues/fixed/stage2-match-if-else-value-phantom-temp.md)).
+   Wave 2 (empty-RHS class, the remaining 8, all in fetch.yo): awaits inside
+   bare-`if` bodies — a shape BOTH compilers miscompiled (TS silently skipped
+   the branch at runtime; yo-self dropped the awaits and emitted
+   `sm->var_N = ;`). Six-part fix across both compilers, kept 1:1 — see
+   [the bare-if issue](../issues/fixed/ts-bare-if-await-early-return-silently-skipped.md)
+   and the updated
+   [await-position matrix](../issues/await-in-branch-positions-matrix.md).
+   NOTE `gates_fast.sh` does NOT include the stage-2 compile — run
    `scripts/bootstrap/fixpoint_only.sh` before believing a yo-self change is
-   fixpoint-clean. Reduction lead: the failing C is in an async-block resume;
-   the shape to reduce is an if-VALUE (no await) whose else branch returns a
-   local, inside a match arm, inside io.async, compiled BY the self-hosted
-   binary.
+   fixpoint-clean.
+4. **tests/internal doc_render_markdown — FIXED.** The P1 doc model added
+   `examples` to `DocConstant`; the internal test's three constructions were
+   not updated. Broke BOTH the TS arm (shard 0, module-eval error) and the
+   self-hosted differential (the same file fails to transpile and poisons
+   batch 33's C). 25/25 under both compilers after the fix.
 
 Also landed en route: `yo build` exits 1 on failed steps (both compilers +
 `build-fail` case), and the self-hosted def-eval swallow was found to extend

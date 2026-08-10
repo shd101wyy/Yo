@@ -12,7 +12,7 @@ open(import("std/string"));
 { TypeValue } :: import("../../types/definitions.yo");
 { is_some_type, is_concrete_trait_type, is_struct_type, is_function_type, is_dyn_type, is_unit_type } :: import("../../types/guards.yo");
 { type_implements_future, extract_future_trait_from_type } :: import("../../evaluator/trait_checking.yo");
-{ lookup_some_resolved_concrete } :: import("../../expr_info.yo");
+{ lookup_macro_expansion, lookup_some_resolved_concrete } :: import("../../expr_info.yo");
 { AwaitAnalysisResult, AwaitPoint, CapturedVariable, CapturedVariableKind } :: import("../../evaluator/async/await_analysis_types.yo");
 { SuspensionCapturedVariable } :: import("../../evaluator/shared/suspension_analysis_types.yo");
 { StateSegment, split_into_state_segments, generate_await_expression, generate_state_segment_code, hoist_non_splittable_awaits, await_is_while_condition } :: import("./state_code_gen.yo");
@@ -1469,6 +1469,20 @@ generate_remaining_expr_future :: (
     );
     return();
   });
+  // `if(cond, { await ... })` — a macro over `cond`; its branch structure only
+  // exists in the expansion, so route through that (otherwise this falls
+  // through to the warning below and the await's future is never stored — the
+  // branch is then silently skipped at runtime). Mirrors state-machine.ts.
+  if(ast_expr_is_fn_call(expr) && ast_expr_is_fn_call_of(expr, "if", Option(usize).None), {
+    match(
+      lookup_macro_expansion(ast_expr_id(expr)),
+      .Some(me) => {
+        generate_await_expression(me, await_point, usize(0), indent, context);
+        return(());
+      },
+      .None => ()
+    );
+  });
   // Nested cond / match / while / begin → delegate to the await emitter.
   is_block := (((ast_expr_is_fn_call_of(expr, BK_COND, Option(usize).None) || ast_expr_is_fn_call_of(expr, BK_MATCH, Option(usize).None)) || ast_expr_is_fn_call_of(expr, BK_WHILE, Option(usize).None)) || ast_expr_is_fn_call_of(expr, BK_BEGIN, Option(usize).None));
   if(ast_expr_is_fn_call(expr) && is_block, {
@@ -2089,6 +2103,13 @@ _emit_cond_branch_continuation :: (
           if(!(skip_switch), {
             em.emit_string_line(`      }`);
           });
+          // Chained layers whose dispatch field was CLAIMED by the nested
+          // cond (field == prev_await.index): the field's value cannot gate
+          // them — run unconditionally, INSIDE the NULL guard (only
+          // drops-safe layers are chained this way). Layers from an OUTER
+          // cond (any other field) are emitted AFTER the guard closes by
+          // `_emit_outer_chained_branch_layers` — they must also run when
+          // this state's await was never submitted. Mirrors state-machine.ts.
           match(
             cbd.chained_branches,
             .Some(layers) => {
@@ -2096,7 +2117,7 @@ _emit_cond_branch_continuation :: (
               while(li < layers.len(), {
                 match(
                   layers.get(li),
-                  .Some(layer) => {
+                  .Some(layer) => if(layer.cond_branch_field_index == prev_await.base.index, {
                     (ci : usize) = usize(0);
                     while(ci < layer.branches.len(), {
                       match(
@@ -2108,7 +2129,7 @@ _emit_cond_branch_continuation :: (
                       );
                       ci = (ci + usize(1));
                     });
-                  },
+                  }),
                   .None => ()
                 );
                 li = (li + usize(1));
@@ -2128,6 +2149,65 @@ _emit_cond_branch_continuation :: (
           em.emit_string_line(String.from(""));
         });
       },
+      .None => ()
+    ),
+    .None => ()
+  );
+});
+/// Chained layers from an OUTER cond (field != prev_await.index): the outer
+/// branch's remaining code must run even when THIS state's await was never
+/// submitted (the nested branch was not taken), so it lives OUTSIDE the
+/// is_inside_cond NULL guard, gated on the outer cond's own dispatch field.
+/// Branch codes start at 1 (_alloc_cond_branch_codes), so the calloc-zeroed
+/// field of a never-taken cond cannot match a case here. Mirrors the
+/// post-guard chained processing in `generateAsyncBlockResumeFunction`
+/// (state-machine.ts).
+_emit_outer_chained_branch_layers :: (
+  fn(
+    prev_await : AwaitPoint,
+    segment : StateSegment,
+    body_expr : AstExpr,
+    future_type : TypeValue,
+    capture_type : Option(TypeValue),
+    analysis : AwaitAnalysisResult,
+    context : FunctionGenerationContext
+  ) -> unit
+)({
+  em := context.base.emitter;
+  match(
+    context.async_cond_branch_info,
+    .Some(cbi_map) => match(
+      cbi_map.get(prev_await.base.index),
+      .Some(cbd) => match(
+        cbd.chained_branches,
+        .Some(layers) => {
+          (li : usize) = usize(0);
+          while(li < layers.len(), {
+            match(
+              layers.get(li),
+              .Some(layer) => if(!(layer.cond_branch_field_index == prev_await.base.index), {
+                (ci : usize) = usize(0);
+                while(ci < layer.branches.len(), {
+                  match(
+                    layer.branches.get(ci),
+                    .Some(cb) => if(cb.has_await && match(cb.remaining_exprs, .Some(r) => (r.len() > usize(0)), .None => false), {
+                      em.emit_string_line(`      // Outer cond branch ${cb.index.to_string()} remaining code (chained)`);
+                      em.emit_string_line(`      if (sm->cond_branch_${layer.cond_branch_field_index.to_string()} == ${cb.index.to_string()}) {`);
+                      _emit_cond_branch_remaining(cb, prev_await, segment, body_expr, future_type, capture_type, analysis, layer.cond_branch_field_index, Option(String).None, `      `, context);
+                      em.emit_string_line(`      }`);
+                    }),
+                    .None => ()
+                  );
+                  ci = (ci + usize(1));
+                });
+              }),
+              .None => ()
+            );
+            li = (li + usize(1));
+          });
+        },
+        .None => ()
+      ),
       .None => ()
     ),
     .None => ()
@@ -2780,6 +2860,7 @@ generate_async_block_resume_function :: (
               if(in_cond, {
                 em.emit_string_line(`      }`);
               });
+              _emit_outer_chained_branch_layers(prev_await, segment, body_expr, future_type, capture_type, analysis, context);
               _emit_while_continuation(prev_await, segment, body_expr, async_block_id, future_type, capture_type, analysis, context);
             },
             .None => ()
