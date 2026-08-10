@@ -286,3 +286,30 @@ struct { __yo_ref_header_t header; int state; T result; void (*continuation_fn)(
 ```
 
 For `Option(unit)` return types, the `.Some` variant has no data field — only the tag is set.
+
+### Extern functions and `#include` emission (both compilers)
+
+- The header for a `c_include`d symbol comes from extern-function REGISTRATION
+  during codegen collection, not from module evaluation. TS: the callee's
+  `FunctionType.cInclude` (stamped in `evaluator/exprs/c-include.ts`) is read
+  in `codegen/c/collection.ts`. yo-self: `FuncMeta` has no `c_include` field —
+  the header lives in an evaluator side-table keyed by extern symbol name
+  (`evaluator/exprs/c_include.yo`, `get_c_include_for_extern`) and is looked
+  up by `_register_extern_fn_callee` in `codegen/functions/collection.yo`.
+- **A `c_include`/extern callee's expr-info VALUE is `Some(UnknownVal)`, not
+  `None`.** Any collection logic that dispatches on the callee value must
+  treat "value present but not a FuncVal" the same as "no value" (TS's
+  `else if (functionType.isExtern...)` chain). Routing only the `.None` arm
+  left `context.extern_functions` permanently empty until 2026-08-10 — see
+  `issues/fixed/yo-self-extern-c-include-never-registered.md`.
+- Missing-header failures are MASKED for common headers: `emit_c_includes`
+  hardcodes `<unistd.h>`/`<sys/stat.h>`/`<sys/random.h>` (POSIX) and
+  `<windows.h>`/`<bcrypt.h>`/`<io.h>` (Windows), and the sys-runtime C
+  templates carry their own includes. Test new `c_include` bindings with a
+  header NOT in those sets by compiling a user of the symbol under the
+  SELF-HOSTED binary, not just TS.
+- Platform-unique headers (e.g. `<mach-o/dyld.h>`) must be added to the
+  target-filter sets in `codegen/c/collection.{ts,yo}` (posix-only /
+  windows-only / macos-only): a registered include can leak from a
+  comptime-eliminated platform branch, and yo-self's collection walk sees
+  those branches even where TS's does not.

@@ -49,3 +49,27 @@ Fixing it means revisiting the def-eval swallow with `is_executing` set for
 the ENTRY module's exported roots — the historically hard part is that
 def-eval must stay lenient for generic bodies that only type-check after
 specialization. Needs its own campaign; do not quick-patch.
+
+## 2026-08-10 — two more gates masked by the same swallow (P2.4 probe)
+
+Porting `src/tests/unsafe-gate.test.ts` surfaced the same mechanism from a
+different angle. In a file OUTSIDE the implicit-unsafe dirs, with no
+`pragma(Pragma.AllowUnsafe)`:
+
+| program (in `main`'s body)          | TS   | self-hosted    |
+| ----------------------------------- | ---- | -------------- |
+| `p := &(x);`                        | rc=1 | **rc=0** (gap) |
+| `v := unsafe(i32(0));`              | rc=1 | **rc=0** (gap) |
+| `foo :: (fn(p : *(i32)) -> i32)...` | rc=1 | rc=1           |
+
+Both gates EXIST in yo-self (`evaluate_unsafe`'s privilege check in
+`evaluator/builtins/unsafe.yo`; the `&(...)` structural gate) — they fire
+inside function BODIES, so the def-time body-eval swallow eats the throw and
+`compile` proceeds. The `*(i32)` case fires because the SIGNATURE is
+evaluated eagerly (`function.yo:1469`), outside the swallow.
+
+Consequence for P2.4: the unsafe-gate negative cli-cases (`&(x)` and bare
+`unsafe(...)`) cannot pass until this issue is fixed — they would score
+SELF-FAIL (TS rc=1, self rc=0). Do NOT add them to `tests/cli-cases/` before
+then; the positive case (`unsafe-pragma-ok`) and the signature-level gate
+case (`ptr-type-safe-code`) pass today and are added.

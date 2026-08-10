@@ -874,35 +874,61 @@ static __yo_io_future_t* __yo_async_getdents_start(int32_t fd, void* buf, uint32
 `);
     } else if (isMacos) {
       emitter.emitLine(`
+// macOS doesn't have getdents; emulate with readdir. The DIR* must PERSIST
+// across calls for the same fd: readdir buffers ahead (advancing the offset
+// the dup()'d fd SHARES with the caller's fd), so re-opening on the next
+// call resumes from the already-consumed offset and every entry that did
+// not fit the caller's first buffer is silently lost — read_dir truncated
+// any directory larger than one buffer. Same per-fd-state design as the
+// Windows FindFirstFile emulation (__yo_win_get_dir_state). Single-threaded
+// event loop — no locking (see AGENTS.md, async threading model).
+typedef struct __yo_getdents_stream {
+  int fd;
+  DIR* dir;
+  struct __yo_getdents_stream* next;
+} __yo_getdents_stream_t;
+static __yo_getdents_stream_t* __yo_getdents_streams = NULL;
+
 static __yo_io_future_t* __yo_async_getdents_start(int32_t fd, void* buf, uint32_t buf_size) {
   __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
   memset(future, 0, sizeof(__yo_io_future_t));
-  
+
   future->header.ref_count = 1;
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
-  
-  // macOS doesn't have getdents; emulate using readdir on a dup()'d fd
-  int dup_fd = dup(fd);
-  if (dup_fd < 0) {
-    future->result = -errno;
-    atomic_init(&future->state, -1);
-    return future;
-  }
 
-  DIR* dir = fdopendir(dup_fd);
-  if (!dir) {
-    int err = errno;
-    close(dup_fd);
-    future->result = -err;
-    atomic_init(&future->state, -1);
-    return future;
+  __yo_getdents_stream_t* stream = __yo_getdents_streams;
+  while (stream && stream->fd != fd) stream = stream->next;
+  DIR* dir;
+  if (stream) {
+    dir = stream->dir;
+  } else {
+    int dup_fd = dup(fd);
+    if (dup_fd < 0) {
+      future->result = -errno;
+      atomic_init(&future->state, -1);
+      return future;
+    }
+    dir = fdopendir(dup_fd);
+    if (!dir) {
+      int err = errno;
+      close(dup_fd);
+      future->result = -err;
+      atomic_init(&future->state, -1);
+      return future;
+    }
+    stream = (__yo_getdents_stream_t*)__yo_malloc(sizeof(__yo_getdents_stream_t));
+    stream->fd = fd;
+    stream->dir = dir;
+    stream->next = __yo_getdents_streams;
+    __yo_getdents_streams = stream;
   }
 
   int dir_fd = dirfd(dir);
   size_t total = 0;
   long last_pos = telldir(dir);
   struct dirent* entry = NULL;
+  int reached_end = 1;
 
   while ((entry = readdir(dir)) != NULL) {
     size_t reclen = (size_t)entry->d_reclen;
@@ -930,6 +956,7 @@ static __yo_io_future_t* __yo_async_getdents_start(int32_t fd, void* buf, uint32
     }
     if (total + reclen > (size_t)buf_size) {
       seekdir(dir, last_pos);
+      reached_end = 0;
       break;
     }
     memcpy((char*)buf + total, entry, reclen);
@@ -937,10 +964,18 @@ static __yo_io_future_t* __yo_async_getdents_start(int32_t fd, void* buf, uint32
     last_pos = telldir(dir);
   }
 
-  closedir(dir);  // closes dup_fd
+  if (reached_end) {
+    // Exhausted: drop the stream. A further call re-opens at the shared fd
+    // offset, which readdir has consumed to the end, and returns 0.
+    __yo_getdents_stream_t** link = &__yo_getdents_streams;
+    while (*link && *link != stream) link = &(*link)->next;
+    if (*link) *link = stream->next;
+    closedir(dir);  // closes dup_fd
+    __yo_free(stream);
+  }
   future->result = (int32_t)total;
   atomic_init(&future->state, -1);
-  
+
   return future;
 }
 `);

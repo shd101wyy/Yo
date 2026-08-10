@@ -19,6 +19,9 @@ jobs:
       contents: write
       pages: write
       id-token: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      sha: ${{ steps.bump_commit.outputs.sha }}
 
     steps:
       - name: Checkout repository
@@ -90,12 +93,14 @@ jobs:
           echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Commit version bump
+        id: bump_commit
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           git add package.json vscode-extension/package.json
           git commit -m "chore: bump version to ${{ steps.version.outputs.version }}"
           git push
+          echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
 
       - name: Publish to npm
         run: npm publish --access public
@@ -129,6 +134,12 @@ jobs:
 
             ## Changes
             ${{ steps.last_commit.outputs.message }}
+
+            ## Native bundles (bootstrap seed chain)
+            The `yo-v*-<os>-<arch>.tar.gz` assets attached below are the self-hosted
+            compiler built by the TypeScript compiler at this release's commit
+            (`bin/yo` + `std/` + `vendor/mimalloc/` + LICENSE). See
+            `plans/SELF_HOSTING_COMPLETION.md` Phase 2 for the trust chain.
           draft: false
           prerelease: false
           files: ${{ steps.create_vsix.outputs.vsixPath }}
@@ -145,3 +156,134 @@ jobs:
 
       - name: Deploy to GitHub Pages
         uses: actions/deploy-pages@v4
+
+  # Bootstrap seed bundles — plans/SELF_HOSTING_COMPLETION.md Phase 2 (task 2.1)
+  # and plans/P2_RETIRE_SRC.md. The TypeScript compiler builds the native
+  # self-hosted binary "one last time" per platform; the tarballs attached to
+  # the release are what the 2.3 CI migration downloads instead of setting up
+  # bun/node. Bundle layout: <name>/bin/yo, <name>/std/, <name>/vendor/mimalloc/,
+  # <name>/LICENSE.md (init templates are generated inline by the binary —
+  # nothing else to ship).
+  # CI consumers extract it, put bin/ on PATH, and set YO_STD to the bundled
+  # std/. The Linux bundle is glibc + liburing dynamic for now — the
+  # static-musl user-facing story is Phase 3 (distribution), not the seed.
+  seed-bundles:
+    name: Seed bundle (${{ matrix.target }})
+    needs: release
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    permissions:
+      contents: write
+    # Only the CI-runner platforms (linux-x64, macos-arm64, windows-x64) are
+    # required for the 2.3 seed; the rest are Phase-3 coverage. Experimental
+    # legs must not block the seed: windows-x64 is the first native-Windows
+    # build of the self-hosted compiler (the plan flags a porting-tail risk),
+    # and macos-x64/linux-arm64 have never been exercised in CI. Promote a
+    # leg to experimental: false once it has produced a green bundle.
+    # linux-arm64 is glibc like linux-x64 — the static-musl story
+    # (SELF_HOSTING_COMPLETION.md Phase 3) replaces both Linux legs later.
+    continue-on-error: ${{ matrix.experimental }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux-x64
+            experimental: false
+          - os: ubuntu-24.04-arm
+            target: linux-arm64
+            experimental: true
+          - os: macos-latest
+            target: macos-arm64
+            experimental: false
+          - os: macos-13
+            target: macos-x64
+            experimental: true
+          - os: windows-latest
+            target: windows-x64
+            experimental: true
+
+    steps:
+      - name: Checkout the released commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release.outputs.sha }}
+          submodules: recursive
+
+      - name: Install liburing
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y liburing-dev
+
+      - name: Install LLVM/Clang
+        if: runner.os == 'Windows'
+        run: |
+          choco install llvm -y
+          echo "C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Build the TS compiler
+        run: |
+          bun install
+          bun run build
+
+      # --allocator mimalloc matches the bootstrap-fixpoint configuration in
+      # test.yml: the seed binary's own self-emits are exactly what 2.3's CI
+      # will run, and mimalloc is the allocator proven to survive those on
+      # 16 GB Linux boxes (glibc malloc inflates the emit's RSS ~72%).
+      - name: Build the native yo binary (TS compiler, one last time)
+        shell: bash
+        run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs compile yo-self/main.yo --release --allocator mimalloc -o yo-seed
+
+      - name: Assemble the bundle
+        shell: bash
+        run: |
+          BUNDLE="yo-v${{ needs.release.outputs.version }}-${{ matrix.target }}"
+          mkdir -p "$BUNDLE/bin"
+          if [ -f yo-seed.exe ]; then cp yo-seed.exe "$BUNDLE/bin/yo.exe"; else cp yo-seed "$BUNDLE/bin/yo"; fi
+          cp -R std "$BUNDLE/std"
+          # vendor/mimalloc must ship as a SIBLING of std: both compilers
+          # resolve it as dirname(std)/vendor, and mimalloc is the DEFAULT
+          # allocator — the self-hosted binary passes the vendor paths to
+          # clang unconditionally, so a bundle without it cannot compile
+          # anything with the default allocator.
+          mkdir -p "$BUNDLE/vendor"
+          cp -R vendor/mimalloc "$BUNDLE/vendor/mimalloc"
+          cp LICENSE.md "$BUNDLE/"
+          tar -czf "$BUNDLE.tar.gz" "$BUNDLE"
+          echo "BUNDLE=$BUNDLE" >> $GITHUB_ENV
+
+      # Compile and run a hello program with the bundled binary + bundled std,
+      # from a directory OUTSIDE the repo checkout, so the bundle is proven
+      # self-sufficient before it is published.
+      - name: Smoke-test the bundle
+        shell: bash
+        run: |
+          BUNDLE_DIR="$PWD/$BUNDLE"
+          mkdir -p "$RUNNER_TEMP/seed-smoke" && cd "$RUNNER_TEMP/seed-smoke"
+          printf '%s\n' 'open(import("std/fmt"));' 'main :: (fn() -> unit)(println("hello from the yo seed"));' 'export(main);' > hello.yo
+          if [ -f "$BUNDLE_DIR/bin/yo.exe" ]; then YO="$BUNDLE_DIR/bin/yo.exe"; else YO="$BUNDLE_DIR/bin/yo"; fi
+          # `pwd -W` yields a Windows-style path under git-bash (the native
+          # binary cannot resolve an MSYS /c/... path); elsewhere it fails and
+          # plain pwd is used.
+          YO_STD=$(cd "$BUNDLE_DIR/std" && (pwd -W 2>/dev/null || pwd))
+          YO_STD="$YO_STD" "$YO" compile hello.yo --release -o hello
+          if [ -f hello.exe ]; then OUT=$(./hello.exe); else OUT=$(./hello); fi
+          echo "smoke output: $OUT"
+          test "$OUT" = "hello from the yo seed"
+
+      - name: Attach the bundle to the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "v${{ needs.release.outputs.version }}" "$BUNDLE.tar.gz" --clobber

@@ -1,0 +1,11 @@
+test("format effect", {
+Raise :: (fn(msg : String, msg2 : String) -> i32);
+
+// Use an effect in a function (effect becomes an implicit parameter)
+safe_divide :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(
+cond(
+(y == 0) => raise(`div-by-zero`, `I don't like it`),
+true => (x / y)
+)
+);
+});

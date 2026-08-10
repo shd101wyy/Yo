@@ -20,6 +20,7 @@
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
+{ Exception } :: import("std/error");
 { TypeTag } :: import("../types/tags.yo");
 {
   BF_YO_OP_ADD,
@@ -169,4 +170,37 @@ is_builtin_yo_inline_function :: (fn(name : String) -> bool)(
 is_primitive_type_tag :: (fn(t : TypeTag) -> bool)(
   PrimitiveTypeTags.contains(t)
 );
-export(is_builtin_yo_inline_function, is_primitive_type_tag);
+
+// ---------------------------------------------------------------------------
+// Fatal codegen errors
+// ---------------------------------------------------------------------------
+/// The exception handler codegen fatals are routed through — registered by
+/// `compile_module` (codegen_c.yo) at entry, exactly like the
+/// `set_evaluate_expression_fn` global-pointer pattern in
+/// `evaluator/exprs/expr.yo`. TS throws from deep inside the emitters and the
+/// CLI's top-level catch turns that into a clean rc=1; yo-self's emitters do
+/// not thread `exn`, so before this slot existed they had to `__yo_panic`
+/// (SIGABRT, rc=134) — a raw abort where TS reports a compile error. See the
+/// await-position cli-cases.
+(g_codegen_fatal_exn : Option(Exception)) = Option(Exception).None;
+/// Register the handler fatal codegen errors unwind through.
+set_codegen_fatal_exn :: (fn(exn : Exception) -> unit)({
+  g_codegen_fatal_exn = Option(Exception).Some(exn);
+  ()
+});
+/// Report a fatal, unrecoverable codegen error. Throws `message` through the
+/// registered handler (the top-level CLI handler exits with rc=1, matching a
+/// TS compile error); panics only when no handler was registered (a direct
+/// emitter invocation outside `compile_module` — never the CLI path).
+codegen_fatal :: (fn(message : String) -> unit)({
+  match(
+    g_codegen_fatal_exn,
+    .Some(exn) => {
+      exn.throw(dyn(message.clone()));
+      ()
+    },
+    .None => ()
+  );
+  __yo_panic("fatal codegen error with no handler registered (see message above)")
+});
+export(is_builtin_yo_inline_function, is_primitive_type_tag, set_codegen_fatal_exn, codegen_fatal);

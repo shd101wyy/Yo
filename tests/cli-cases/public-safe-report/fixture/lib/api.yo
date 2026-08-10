@@ -1,0 +1,15 @@
+pragma(Pragma.AllowUnsafe);
+open(import("std/string"));
+leaky :: (fn(p : *(u8), n : usize) -> *(u8))({
+  q := unsafe(p.add(n));
+  q
+});
+read_ptr :: (fn(p : *(u8)) -> u8)(unsafe(p.*));
+as_ptr :: (fn(x : *(i32)) -> *(i32))(x);
+extend_from_ptr :: (fn(p : *(u8)) -> unit)({
+  v := unsafe(p.*);
+  ()
+});
+_private_helper :: (fn(p : *(u8)) -> u8)(unsafe(p.*));
+safe_add :: (fn(x : i32, y : i32) -> i32)(x + y);
+export(leaky, read_ptr, as_ptr, extend_from_ptr, safe_add);

@@ -8,18 +8,25 @@ the traps as they are found. Started 2026-08-10, branch `p2/self-build`.
 
 The phase's items, from the umbrella plan:
 
-| item | what                                                             | status                           |
-| ---- | ---------------------------------------------------------------- | -------------------------------- |
-| 2.1  | bootstrap seed release (TS builds the binaries one last time)    | not started — needs a release    |
-| 2.2  | repo-root `build.yo`: the compiler builds itself with `yo build` | **IN FLIGHT** — see below        |
-| 2.3  | CI migration: seed release + `yo build` replace bun              | not started (blocked on 2.1/2.2) |
-| 2.4  | re-express TS-only tests in Yo                                   | **inventory below**              |
-| 2.5  | retire: freeze + delete `src/`, drop package.json/bun/out        | blocked on 2.1–2.4               |
-| 2.6  | docs sweep (AGENTS.md, instructions, skills)                     | blocked on 2.5                   |
+| item | what                                                             | status                                   |
+| ---- | ---------------------------------------------------------------- | ---------------------------------------- |
+| 2.1  | bootstrap seed release (TS builds the binaries one last time)    | **workflow landed** — needs a dispatch   |
+| 2.2  | repo-root `build.yo`: the compiler builds itself with `yo build` | **DONE** (verified both ways 2026-08-10) |
+| 2.3  | CI migration: seed release + `yo build` replace bun              | not started (blocked on 2.1/2.2)         |
+| 2.4  | re-express TS-only tests in Yo                                   | **inventory below**                      |
+| 2.5  | retire: freeze + delete `src/`, drop package.json/bun/out        | blocked on 2.1–2.4                       |
+| 2.6  | docs sweep (AGENTS.md, instructions, skills)                     | blocked on 2.5                           |
 
 ---
 
 ## 2.2 — repo-root `build.yo` (the dogfood build)
+
+**VERIFIED BOTH WAYS 2026-08-10 (evening)** — after the branch-value and
+capture fixes landed: `./yo-cli build` (TS) and a self-hosted `yo build`
+(stage-1 with all fixes, `YO_STD` pointed at the repo std) each compiled
+`yo-self/main.yo` through this build.yo to a working `yo-out/.../bin/yo`
+(rc=0), and BOTH products compile and run a hello program. The remaining
+gap for full dogfooding is 2.3's seed-release wiring, not the build itself.
 
 Landed 2026-08-10:
 
@@ -142,31 +149,80 @@ Ground truth: `tests/internal/` has 59 files including `formatter`,
 `version`, `doc_extractor`, `doc_render_markdown`, `doc_sections`;
 `tests/cli-cases/` has 10 differential cases.
 
-| TS file (lines)                            | covers                                           | verdict                                                                                                                                                                                  |
-| ------------------------------------------ | ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| build-system.test.ts (2075)                | lock-file parse, DAG, doc-site helpers, registry | PARTIAL — `tests/internal/lock_file.test.yo` + cli-cases cover slices; needs a per-describe audit against `tests/internal/`                                                              |
-| lsp.test.ts (1506)                         | the TS LSP                                       | dies with `src/` — P4 rewrites the LSP in Yo with its own tests; port nothing                                                                                                            |
-| formatter.test.ts (574)                    | formatYoSource/formatYoFiles                     | covered: `tests/internal/formatter.test.yo` + GATE 6 fmt differential (808 files) — verify describe-level gaps                                                                           |
-| type-representation-pointer.test.ts (248)  | typeRepresentationContainsRawPtr                 | port to `tests/internal/` (pure fn)                                                                                                                                                      |
-| unsafe-report-classify.test.ts (209)       | unsafe-report sub-kinds                          | port to `tests/internal/` once `unsafe-report` is in yo-self (NOT dispatched today — P2 gap found by this inventory)                                                                     |
-| public-safe-report.test.ts (163)           | `yo public-safe-report` CLI                      | same gap as above — subcommand not in yo-self                                                                                                                                            |
-| version.test.ts (157)                      | parseYoVersion/findYoVersionFile                 | covered: `tests/internal/version.test.yo` — verify                                                                                                                                       |
-| async-await-position-gate.test.ts (141)    | rejected await positions                         | port as `comptime_expect_error` cases (see memory: prefer comptime_expect_error over TS gate tests)                                                                                      |
-| unsafe-gate.test.ts (126)                  | unsafe() gate outside std/yo-self                | shells out to yo-cli; port as cli-case or comptime_expect_error                                                                                                                          |
-| reserved-quantifiers.test.ts (116)         | forall/exists reserved                           | comptime_expect_error port                                                                                                                                                               |
-| contracts-runtime-violation.test.ts (109)  | contract panics at run time                      | port to `tests/` (run-fail assertions)                                                                                                                                                   |
-| comptime-ref-gate.test.ts (109)            | comptime(ref(...)) rejection                     | comptime_expect_error port                                                                                                                                                               |
-| contracts-comptime-violation.test.ts (107) | contract compile errors                          | comptime_expect_error port                                                                                                                                                               |
-| pragma-validation.test.ts (97)             | pragma arg validation                            | comptime_expect_error port                                                                                                                                                               |
-| thread-safety-codegen.test.ts (89)         | atomic RC codegen pins                           | port to `tests/internal/` (emitted-C greps) or accept as covered by runtime tests                                                                                                        |
-| import-path.test.ts (73)                   | safeRelativePath, win32 paths                    | port to `tests/internal/` against yo-self's path helpers                                                                                                                                 |
-| fixme.test.ts (28)                         | scratch harness                                  | dies with `src/`; port nothing                                                                                                                                                           |
-| src/doc/\*.test.ts (6 files, ~3,100)       | doc pipeline units                               | PARTIAL — extractor/sections/render-markdown have internal tests; builder/render-json now covered end-to-end by cli-cases doc-json/doc-markdown; render-html deferred with the html port |
+| TS file (lines)                            | covers                                           | verdict                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ------------------------------------------ | ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| build-system.test.ts (2075)                | lock-file parse, DAG, doc-site helpers, registry | **AUDITED 2026-08-10**: lock-file 12 internal tests map semantically onto the 15 TS ones (residuals ported same day: quoted-value parse, default-missing-fields, roundtrip-multiple — 15/15); Target/Clang triples covered by internal target.test.yo (22 vs TS 21); global cache covered (cache.test.yo). **PORTED**: buildDAG+detectCycle → new `tests/internal/build_runner.test.yo` (10/10). **FUNCTIONAL GAP**: `computeDependencyHash` (build-runner.ts:1035, dependency cache integrity) has NO yo-self counterpart at all — record + decide before 2.5. Registry/artifact/staging describes: end-to-end via build cli-cases                             |
+| lsp.test.ts (1506)                         | the TS LSP                                       | dies with `src/` — P4 rewrites the LSP in Yo with its own tests; port nothing                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| formatter.test.ts (574)                    | formatYoSource/formatYoFiles                     | **AUDITED+PORTED 2026-08-10**: all 46 formatYoSource (input→expected) pairs script-extracted VERBATIM into `tests/internal/formatter_fixtures/` (.input/.expected — non-.yo so GATE 6 skips them) + a walker test in formatter.test.yo; all 46 pass under yo-self's formatter. GATE 6 keeps canonical-form parity; the fixtures pin messy-input NORMALIZATION. The walker exposed+fixed a REAL std bug: macOS read_dir truncated >1-buffer directories (issues/fixed/macos-read-dir-truncates-large-directories.md). formatYoFiles fs-level describes: fmt-write/fmt-check behavior still TS-only — GATE 6 covers --check; consider fmt cli-cases at retirement |
+| type-representation-pointer.test.ts (248)  | typeRepresentationContainsRawPtr                 | **PORTED 2026-08-10** → `tests/internal/types_utils.test.yo` (16 cases against yo-self's `type_representation_contains_raw_ptr`; the TS cyclic-reference case becomes a 45-deep depth-cap test — TypeValue values cannot form cycles)                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| unsafe-report-classify.test.ts (209)       | unsafe-report sub-kinds                          | port to `tests/internal/` once `unsafe-report` is in yo-self (NOT dispatched today — P2 gap found by this inventory)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| public-safe-report.test.ts (163)           | `yo public-safe-report` CLI                      | same gap as above — subcommand not in yo-self                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| version.test.ts (157)                      | parseYoVersion/findYoVersionFile                 | covered: `tests/internal/version.test.yo` — verify                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| async-await-position-gate.test.ts (141)    | rejected await positions                         | **PORTED 2026-08-10** → cli-cases `await-nested-in-if-condition` + `await-in-later-cond-branch` (NOT comptime_expect_error — the gate fires in CODEGEN, after evaluation). Exposed + fixed: yo-self panicked (rc=134) where TS exits 1 → `codegen_fatal` slot; message text now TS-parity. The TS file's third test (a source grep of state-code-gen.ts) dies with src/                                                                                                                                                                                                                                                                                         |
+| unsafe-gate.test.ts (126)                  | unsafe() gate outside std/yo-self                | **PARTIAL 2026-08-10**: positive arm → cli-case `unsafe-pragma-ok` (build-run, pins `v = 42`); signature gate → `ptr-type-safe-code`. The body-level `&(x)` / bare-`unsafe()` negatives are BLOCKED on the def-eval swallow (self accepts, TS rejects — see issues/self-hosted-compile-swallows-undefined-call.md 2026-08-10 addendum); add those two cases when it is fixed                                                                                                                                                                                                                                                                                    |
+| reserved-quantifiers.test.ts (116)         | forall/exists reserved                           | **PORTED 2026-08-10** → `tests/internal/lexer.test.yo` (they are LEXER errors — comptime_expect_error cannot express them; the internal test asserts the exact diagnostic against yo-self's lexer)                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| contracts-runtime-violation.test.ts (109)  | contract panics at run time                      | **PORTED 2026-08-10** → cli-cases `contracts-runtime-requires`/`-ensures`/`-old-ensures` (build-run, rc parity; panic messages probe-verified identical) + `contracts-runtime-ok` (rc=0, pins `d = 5`)                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| comptime-ref-gate.test.ts (109)            | comptime(ref(...)) rejection                     | **PORTED 2026-08-10** → `tests/comptime_ref.test.yo` negatives (message pins stay TS-side until retirement). Exposed + fixed: yo-self's modifier walker had inout BEFORE own and neither gate — generic(inout(T)) and inout(own(x)) were silently accepted                                                                                                                                                                                                                                                                                                                                                                                                      |
+| contracts-comptime-violation.test.ts (107) | contract compile errors                          | **PORTED 2026-08-10** → `tests/comptime.test.yo` (top-level comptime_expect_error — inside a test() body the def-time body eval fires the violation BEFORE the wrapper; 30/30 green under both compilers)                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| pragma-validation.test.ts (97)             | pragma arg validation                            | **PORTED 2026-08-10** → cli-cases `pragma-typo` / `pragma-non-pragma-enum` / `pragma-non-enum` (comptime_expect_error(pragma(...)) crashes the TS CLI — not expressible that way). Exposed + fixed: yo-self's evaluate_pragma was syntactic-only and accepted all three silently → full Phase-G validation ported                                                                                                                                                                                                                                                                                                                                               |
+| thread-safety-codegen.test.ts (89)         | atomic RC codegen pins                           | port to `tests/internal/` (emitted-C greps) or accept as covered by runtime tests                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| import-path.test.ts (73)                   | safeRelativePath, win32 paths                    | **NOTHING TO PORT** (2026-08-10): yo-self deliberately omits `safeRelativePath` (yo-self/evaluator/exprs/import.yo header) — it uses absolute paths directly, which IS the helper's cross-drive fallback; same-drive relativization is cosmetic. Windows CI covers the behavior that matters                                                                                                                                                                                                                                                                                                                                                                    |
+| fixme.test.ts (28)                         | scratch harness                                  | dies with `src/`; port nothing                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| src/doc/\*.test.ts (6 files, ~3,100)       | doc pipeline units                               | PARTIAL — extractor/sections/render-markdown have internal tests; builder/render-json now covered end-to-end by cli-cases doc-json/doc-markdown; render-html deferred with the html port                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 
 **New P2 gap found by the inventory:** `unsafe-report` / `public-safe-report`
 subcommands exist only in TS (`src/yo-cli.ts`) — they were never in P1's
 scope table. They must be ported (or explicitly retired) before 2.5 can
 delete `src/`.
+
+**CLOSED 2026-08-10 (evening):** both subcommands are PORTED and dispatched
+(`yo-self/unsafe_report.yo`, `yo-self/public_safe_report.yo`) — byte-identical
+with TS on the whole `std/` tree in BOTH formats (human + `--json`), with
+cli-cases `unsafe-report` and `public-safe-report` pinning it in CI. The port
+found two more platform bugs: the emscripten getdents shim had the same
+truncation flaw as macOS (fixed, same persistent-stream design), and the
+Linux/ASan arm exposed an async abort-dispose double-drop of a moved enum
+payload (call-site patched in version.yo;
+issues/async-abort-dispose-double-drops-moved-enum-payload.md tracks the real
+fix). Original assessment: both are self-contained TEXT scanners
+(`src/unsafe-report.ts` 529 lines, `src/public-safe-report.ts` 518 lines) —
+regex/line-based, no parser or evaluator involvement, deliberately so
+("auditable by grep-style review"). Port shape: two `yo-self/*.yo` files
+(string scanning + the UnsafeSubKind classification table), two `main.yo`
+dispatch arms, and cli-cases pinning `--json` output parity on a small
+fixture. Mechanical but sizeable (~1 focused session); nothing else depends
+on them, so this is its own P2.4 slice — port them right before 2.5, or the
+maintainer may choose to retire them (the audit is reproducible with grep).
+
+## 2.1 — seed release workflow (landed; awaiting the maintainer's dispatch)
+
+`.github/workflows/release.yml` grew a `seed-bundles` job (2026-08-10): after
+the existing npm/vsce/Pages release, a matrix over `linux-x64` /
+`macos-arm64` / `windows-x64` builds the self-hosted binary with the TS
+compiler (`node out/cjs/yo-cli.cjs compile yo-self/main.yo --release
+--allocator mimalloc` — the fixpoint-proven configuration), assembles
+`yo-v<version>-<os>-<arch>.tar.gz` (= `bin/yo` + `std/` + `vendor/mimalloc/`
+
+- LICENSE; init templates are inline in the binary; vendor/ ships because
+  both compilers resolve mimalloc as `dirname(std)/vendor` and the self-hosted
+  binary passes those paths to clang unconditionally under `--allocator
+mimalloc`), smoke-tests it from OUTSIDE the checkout
+  (compile + run hello with `YO_STD` pointed at the bundled std), and attaches
+  it to the GitHub Release via `gh release upload`. The release body documents
+  the trust chain. Notes:
+
+* The Windows leg is `experimental: true` (first native-Windows build of the
+  self-hosted compiler) — a red Windows build does not block the seed.
+* Linux bundle is glibc + liburing dynamic; static musl is Phase 3, not 2.1.
+* Minting the seed = the maintainer running the Release workflow_dispatch as
+  usual; nothing else changed in the release flow.
+* 2.3 consumes it: replace each CI job's bun/node setup with "download pinned
+  seed tarball → extract → PATH → `yo build`". `YO_STD` is optional since the
+  std-resolution rework (2026-08-10): the binary self-locates a `std/` sibling
+  of (or ancestor of) its own directory via `std/env.current_exe()`, and a
+  `--std-path` flag overrides everything (order: `--std-path` → `YO_STD` →
+  exe-relative walk-up → `./std`; mirrored in `module-manager.ts`
+  `findStdDirectory` and `module_manager.yo` `resolve_std_path`).
 
 ## Sequencing note
 

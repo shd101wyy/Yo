@@ -6,7 +6,7 @@
 //! CodegenExternFnEntry, supplied at registration) and read from there here.
 open(import("std/string"));
 { CodeGenContext } :: import("../utils/index.yo");
-{ is_target_windows } :: import("../../target.yo");
+{ is_target_windows, is_target_macos } :: import("../../target.yo");
 /// Collect C include headers from the collected types and extern functions.
 /// Mirrors `collectCIncludes`.
 collect_c_includes :: (fn(context : CodeGenContext) -> unit)({
@@ -54,6 +54,7 @@ collect_c_includes :: (fn(context : CodeGenContext) -> unit)({
 /// includes, and the allocator compatibility layer). Mirrors `emitCIncludes`.
 emit_c_includes :: (fn(context : CodeGenContext) -> unit)({
   is_windows := is_target_windows(context.target_info);
+  is_macos := is_target_macos(context.target_info);
   // Emit platform-specific feature macros.
   if(is_windows, {
     context.emitter.emit_header_line("#ifndef WIN32_LEAN_AND_MEAN");
@@ -82,7 +83,8 @@ emit_c_includes :: (fn(context : CodeGenContext) -> unit)({
       .Some(include) => {
         skip_posix := (is_windows && ((include == "<unistd.h>") || (include == "<dirent.h>")));
         skip_windows := ((!(is_windows)) && (((include == "<windows.h>") || (include == "<bcrypt.h>")) || (include == "<io.h>")));
-        if(!(skip_posix || skip_windows), {
+        skip_macos := ((!(is_macos)) && (include == "<mach-o/dyld.h>"));
+        if(!((skip_posix || skip_windows) || skip_macos), {
           line := String.from("#include ");
           line.push_string(include);
           context.emitter.emit_header_string_line(line);

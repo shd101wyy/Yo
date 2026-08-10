@@ -17,6 +17,7 @@
 //! Phase-3/5 and stubbed there.
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
+{ set_codegen_fatal_exn } :: import("./constants.yo");
 { TypeValue } :: import("../types/definitions.yo");
 { type_key } :: import("../types/type_key.yo");
 { EvalValue } :: import("../value.yo");
@@ -286,6 +287,9 @@ static void __yo_dispose_dispatch(void* ptr) {
 /// generateDeferredAsyncBlocks (Phase 5), generateClosureDisposeFunctions
 /// (Phase 5), generateSpecialized* (Gap 2), generateLibraryInitFunction.
 compile_module :: (fn(module_value : EvalValue, info : ExprInfoTable, target : TargetInfo, allocator : String, debug_gc : bool, debug_parallelism : bool, debug_async_await : bool, is_library : bool, eval_ctx : EvalContext, module_env : Environment, exn : Exception) -> String)({
+  // Route fatal emitter errors (codegen_fatal) through this compile's exn so
+  // they exit rc=1 like a TS compile error instead of __yo_panic's SIGABRT.
+  set_codegen_fatal_exn(exn);
   // Wire the mutual-recursion indirections before any collection / body walk.
   register_collect_type();
   register_on_demand_declare();

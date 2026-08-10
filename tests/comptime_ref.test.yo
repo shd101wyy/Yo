@@ -10,10 +10,11 @@
 /// matches the existing modifier nesting convention (generic/using/
 /// comptime are outer, ref is inner, quote is innermost).
 ///
-/// Negative cases (generic+inout rejected, inout(comptime(name))
-/// rejected) are pinned in src/tests/comptime-ref-gate.test.ts —
-/// they need to assert compile errors which are easier to express
-/// from the TypeScript side.
+/// Negative cases (generic+inout rejected, own+inout rejected) are
+/// pinned as `comptime_expect_error` at the end of this file (ported
+/// from src/tests/comptime-ref-gate.test.ts for P2.4; the exact error
+/// MESSAGES were pinned TS-side — comptime_expect_error asserts only
+/// that the rejection fires).
 // Positive: comptime+ref allows mutation that propagates back.
 bump :: (fn(comptime(inout(n)) : usize) -> comptime(usize))({
   n = (n + usize(1));
@@ -44,4 +45,19 @@ comptime_assert(double_bump(usize(5)) == usize(7), "5 -> 6 -> 7");
 // comptime+ref call sites above don't leak any runtime artifacts.
 test("comptime(inout(...)) parameters are runtime-invisible", {
   assert(true, "ran");
+});
+// Negative: generic(...) params are comptime-by-default AND erased at
+// runtime, so there is no callee-side binding for inout to refer to
+// ("'inout' cannot combine with 'generic'/'using' parameters").
+test("inout inside generic(...) is rejected", {
+  comptime_expect_error(
+    (fn(generic(inout(T) : Type), x : T) -> T)(x)
+  );
+});
+// Negative: own and inout are opposite calling conventions
+// ("Cannot combine 'own' and 'inout' on the same parameter").
+test("own(inout(...)) is rejected", {
+  comptime_expect_error(
+    (fn(own(inout(x)) : i32) -> i32)(x)
+  );
 });

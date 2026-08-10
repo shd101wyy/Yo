@@ -33,7 +33,12 @@ seed. LSP (P4) rides on a stable native toolchain.
 
 ---
 
-## Phase 1 — full subcommand parity in `yo-self`
+## Phase 1 — full subcommand parity in `yo-self` — **COMPLETE 2026-08-10**
+
+> **P1 is DONE** — every subcommand dispatched and differentially validated
+> (corpus green, `doc --format html` shipped via the vendored `markdown_yo`,
+> fmt gate landed). [`P1_CLI_PARITY.md`](P1_CLI_PARITY.md) records the
+> campaign. The paragraphs below are kept as written for history.
 
 > **READ [`P1_CLI_PARITY.md`](P1_CLI_PARITY.md) FIRST.** It is the P1 handover: it lists what must be
 > true before P1 starts, and corrects three premises of the paragraph below that
@@ -100,7 +105,18 @@ outputs/exit codes/effects against the TS CLI (`scripts/bootstrap/` style).
 (`tests/build-projects/` to be collected from the existing TS
 `build-system.test.ts` fixtures).
 
-## Phase 2 — retire `src/` and the bun/node toolchain
+## Phase 2 — retire `src/` and the bun/node toolchain — **IN PROGRESS**
+
+> **Working doc: [`P2_RETIRE_SRC.md`](P2_RETIRE_SRC.md)** (branch
+> `p2/self-build`). Status 2026-08-10: **2.1 workflow landed** (release.yml
+> `seed-bundles` job — awaiting the maintainer's dispatch), **2.2 DONE**
+> (repo-root build.yo verified both ways), **2.4 ports landed** (inventory in
+> the P2 doc, incl. `unsafe-report`/`public-safe-report`), 2.3/2.5/2.6
+> blocked on the seed dispatch. Bonus groundwork for 2.3/P3: std-root
+> resolution reworked in BOTH compilers (`--std-path` flag → `YO_STD` →
+> exe-relative walk-up via new `std/env.current_exe()` → `./std`), so the
+> release bundles are **self-locating** — no env wiring needed by CI or the
+> installer.
 
 The self-hosting trust chain has to move off TypeScript before `src/` can go.
 
@@ -156,10 +172,20 @@ Work items:
 
 1. **Release CI**: on tag, build bundles for `macos-arm64`, `macos-x64`,
    `linux-x64`, `linux-arm64`, `windows-x64` — each = native `yo` binary +
-   `std/` + init templates + LICENSE. (Windows bundle implies the compiler
-   builds and runs natively there — today's Windows CI runs the TS compiler,
-   so this is the first native-Windows exercise of the self-hosted binary;
-   budget for a porting tail.)
+   `std/` + `vendor/mimalloc/` + LICENSE (init templates are generated inline
+   by the binary; vendor/ must ship as a SIBLING of std/ because both
+   compilers resolve mimalloc as `dirname(std)/vendor`). (Windows bundle
+   implies the compiler builds and runs natively there — today's Windows CI
+   runs the TS compiler, so this is the first native-Windows exercise of the
+   self-hosted binary; budget for a porting tail.)
+
+   **Started 2026-08-10**: `release.yml`'s `seed-bundles` job builds and
+   attaches `linux-x64` (glibc, not yet static musl), `macos-arm64`, and
+   `windows-x64` (experimental) bundles, smoke-tested from outside the
+   checkout. Bundles are self-locating (`bin/yo` finds the sibling `std/`
+   via the executable-relative walk-up), so the installer only needs to
+   extract and put `bin/` on PATH. Still open here: `macos-x64`,
+   `linux-arm64`, and the static-musl Linux story below.
 
    **Linux libc decision — one static musl binary per arch, not per-libc
    bundles.** A glibc-linked `yo` does not run on musl distros (different

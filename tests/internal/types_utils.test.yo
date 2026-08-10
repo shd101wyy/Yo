@@ -3,7 +3,7 @@
 open(import("std/string"));
 open(import("std/fmt"));
 { TypeValue } :: import("../../yo-self/types/definitions.yo");
-{ t_i8, t_i16, t_i32, t_i64, t_u8, t_u16, t_u32, t_u64, t_usize, t_isize, t_bool, t_unit, t_f32, t_f64, t_comptime_int, t_comptime_float, t_comptime_string, t_some_t, t_array, t_iso, t_dyn_simple, t_future_trait_simple } :: import("../../yo-self/types/creators.yo");
+{ t_i8, t_i16, t_i32, t_i64, t_u8, t_u16, t_u32, t_u64, t_usize, t_isize, t_bool, t_unit, t_f32, t_f64, t_comptime_int, t_comptime_float, t_comptime_string, t_some_t, t_array, t_iso, t_dyn_simple, t_future_trait_simple, t_ptr } :: import("../../yo-self/types/creators.yo");
 { Environment } :: import("../../yo-self/env.yo");
 { ArrayList } :: import("std/collections/array_list");
 { assert, panic } :: import("std/assert");
@@ -22,7 +22,8 @@ open(import("std/fmt"));
   type_requires_comptime_modifier,
   type_prohibits_comptime_modifier,
   get_all_some_types,
-  type_contains_rc_type
+  type_contains_rc_type,
+  type_representation_contains_raw_ptr
 }
 :: import("../../yo-self/types/utils.yo");
 // ---------------------------------------------------------------------------
@@ -473,4 +474,141 @@ test("type_contains_rc_type: unresolved SomeT is conservatively true", {
   // Unresolved generic — conservative: true
   some := t_some_t(String.from("T"), usize(0));
   assert(type_contains_rc_type(some), "SomeT unresolved → true");
+});
+// ---------------------------------------------------------------------------
+// type_representation_contains_raw_ptr (port of
+// src/tests/type-representation-pointer.test.ts — the flowability predicate
+// from plans/archive/SLICE_FLOWABILITY.md Phase A). Types are built directly
+// via creators / TypeValue constructors, mirroring the TS unit tests.
+// TS-only cases not ported: "undefined is false" (no undefined in Yo); the
+// cyclic-reference test becomes a depth-cap test — TypeValue values cannot
+// form object-graph cycles, and yo-self terminates via the depth cap (40)
+// rather than TS's visited set.
+// ---------------------------------------------------------------------------
+_trp_struct :: (fn(name : String, labels : ArrayList(String), types : ArrayList(TypeValue), is_ref : bool, is_atomic : bool, is_newtype : bool) -> TypeValue)(
+  TypeValue.Struct(String.from(""), name, labels, types, is_ref, is_atomic, is_newtype, String.from(""), ArrayList(TypeValue).new(), false)
+);
+_trp_labels1 :: (fn(a : String) -> ArrayList(String))({
+  l := ArrayList(String).new();
+  l.push(a);
+  l
+});
+_trp_types1 :: (fn(a : TypeValue) -> ArrayList(TypeValue))({
+  l := ArrayList(TypeValue).new();
+  l.push(a);
+  l
+});
+test("raw-ptr predicate: primitive types are false", {
+  assert(!(type_representation_contains_raw_ptr(t_i32())), "i32");
+  assert(!(type_representation_contains_raw_ptr(t_bool())), "bool");
+  assert(!(type_representation_contains_raw_ptr(t_u8())), "u8");
+  assert(!(type_representation_contains_raw_ptr(t_unit())), "unit");
+});
+test("raw-ptr predicate: Ptr(i32) is true (base case)", {
+  assert(type_representation_contains_raw_ptr(t_ptr(t_i32())), "*(i32)");
+});
+test("raw-ptr predicate: Array(i32, 3) is false — arrays inline value-typed elements", {
+  assert(!(type_representation_contains_raw_ptr(t_array(t_i32(), usize(3)))), "[i32; 3]");
+});
+test("raw-ptr predicate: Array(Ptr(i32), 3) is true — array of pointers propagates", {
+  assert(type_representation_contains_raw_ptr(t_array(t_ptr(t_i32()), usize(3))), "[*(i32); 3]");
+});
+test("raw-ptr predicate: plain struct with no pointer fields is false", {
+  s := _trp_struct(String.from("Plain"), _trp_labels1(String.from("x")), _trp_types1(t_i32()), false, false, false);
+  assert(!(type_representation_contains_raw_ptr(s)), "struct(x : i32)");
+});
+test("raw-ptr predicate: newtype struct wrapping a Ptr field is true", {
+  s := _trp_struct(String.from("Wrap"), _trp_labels1(String.from("p")), _trp_types1(t_ptr(t_u8())), false, false, true);
+  assert(type_representation_contains_raw_ptr(s), "newtype(p : *(u8))");
+});
+test("raw-ptr predicate: plain struct wrapping a Ptr field is true", {
+  s := _trp_struct(String.from("Holder"), _trp_labels1(String.from("p")), _trp_types1(t_ptr(t_u8())), false, false, false);
+  assert(type_representation_contains_raw_ptr(s), "struct(p : *(u8))");
+});
+test("raw-ptr predicate: object struct with Ptr field is FALSE — heap-owning", {
+  s := _trp_struct(String.from("Owned"), _trp_labels1(String.from("p")), _trp_types1(t_ptr(t_u8())), true, false, false);
+  assert(!(type_representation_contains_raw_ptr(s)), "object(p : *(u8))");
+});
+test("raw-ptr predicate: atomic object struct is FALSE — Arc-style heap-owning", {
+  s := _trp_struct(String.from("Shared"), _trp_labels1(String.from("p")), _trp_types1(t_ptr(t_u8())), true, true, false);
+  assert(!(type_representation_contains_raw_ptr(s)), "atomic object(p : *(u8))");
+});
+test("raw-ptr predicate: tuple with a Ptr field is true", {
+  labels := ArrayList(String).new();
+  labels.push(String.from(""));
+  labels.push(String.from(""));
+  types := ArrayList(TypeValue).new();
+  types.push(t_i32());
+  types.push(t_ptr(t_u8()));
+  assert(type_representation_contains_raw_ptr(TypeValue.Tuple(labels, types)), "(i32, *(u8))");
+});
+test("raw-ptr predicate: tuple of primitives is false", {
+  labels := ArrayList(String).new();
+  labels.push(String.from(""));
+  labels.push(String.from(""));
+  types := ArrayList(TypeValue).new();
+  types.push(t_i32());
+  types.push(t_bool());
+  assert(!(type_representation_contains_raw_ptr(TypeValue.Tuple(labels, types))), "(i32, bool)");
+});
+test("raw-ptr predicate: enum with a variant carrying a Ptr field is true", {
+  vnames := ArrayList(String).new();
+  vnames.push(String.from("None"));
+  vnames.push(String.from("Some"));
+  vfields := ArrayList(ArrayList(TypeValue)).new();
+  vfields.push(ArrayList(TypeValue).new());
+  vfields.push(_trp_types1(t_ptr(t_u8())));
+  vlabels := ArrayList(ArrayList(String)).new();
+  vlabels.push(ArrayList(String).new());
+  vlabels.push(_trp_labels1(String.from("0")));
+  discs := ArrayList(i64).new();
+  discs.push(i64(0));
+  discs.push(i64(1));
+  e := TypeValue.EnumT(String.from(""), String.from("OptPtr"), vnames, vfields, Option(String).None, vlabels, discs, false, false);
+  assert(type_representation_contains_raw_ptr(e), "enum(None, Some(*(u8)))");
+});
+test("raw-ptr predicate: enum with only primitive variants is false", {
+  vnames := ArrayList(String).new();
+  vnames.push(String.from("A"));
+  vnames.push(String.from("B"));
+  vfields := ArrayList(ArrayList(TypeValue)).new();
+  vfields.push(ArrayList(TypeValue).new());
+  vfields.push(_trp_types1(t_i32()));
+  vlabels := ArrayList(ArrayList(String)).new();
+  vlabels.push(ArrayList(String).new());
+  vlabels.push(_trp_labels1(String.from("0")));
+  discs := ArrayList(i64).new();
+  discs.push(i64(0));
+  discs.push(i64(1));
+  e := TypeValue.EnumT(String.from(""), String.from("Prim"), vnames, vfields, Option(String).None, vlabels, discs, false, false);
+  assert(!(type_representation_contains_raw_ptr(e)), "enum(A, B(i32))");
+});
+test("raw-ptr predicate: union with a Ptr field is true", {
+  labels := ArrayList(String).new();
+  labels.push(String.from("i"));
+  labels.push(String.from("p"));
+  types := ArrayList(TypeValue).new();
+  types.push(t_i32());
+  types.push(t_ptr(t_u8()));
+  assert(type_representation_contains_raw_ptr(TypeValue.Union(String.from("U"), labels, types)), "union(i : i32, p : *(u8))");
+});
+test("raw-ptr predicate: nested struct wrapping a newtype with an inner Ptr is true", {
+  inner := _trp_struct(String.from("Inner"), _trp_labels1(String.from("p")), _trp_types1(t_ptr(t_u8())), false, false, true);
+  outer := _trp_struct(String.from("Outer"), _trp_labels1(String.from("w")), _trp_types1(inner), false, false, false);
+  assert(type_representation_contains_raw_ptr(outer), "struct(w : newtype(p : *(u8)))");
+});
+test("raw-ptr predicate: depth cap terminates deep nesting (cyclic-reference stand-in)", {
+  (deep : TypeValue) = t_ptr(t_u8());
+  (i : usize) = usize(0);
+  while(i < usize(45), {
+    deep = _trp_struct(String.from("Nest"), _trp_labels1(String.from("inner")), _trp_types1(deep.clone()), false, false, false);
+    i = (i + usize(1));
+  });
+  // 45 levels exceed the 40-deep cap: the Ptr leaf is unreachable, the
+  // predicate terminates and answers false. Termination is the property the
+  // TS cyclic test pins (TS uses a visited set; yo-self a depth cap).
+  assert(!(type_representation_contains_raw_ptr(deep)), "45-deep chain terminates false");
+});
+test("raw-ptr predicate: Dyn(Trait) is FALSE — RC-managed reference-semantics", {
+  assert(!(type_representation_contains_raw_ptr(t_dyn_simple(ArrayList(TypeValue).new()))), "Dyn()");
 });

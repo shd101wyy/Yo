@@ -1,0 +1,674 @@
+//! `yo public-safe-report` — lint public stdlib signatures for raw-pointer
+//! leaks: every top-level public `fn(...)` whose parameters or return type
+//! expose `*(T)` outside an `extern(...)` block, with the FFI-by-construction
+//! directories and the raw-pointer-API-by-contract names exempt. The lint is
+//! informational — it exits 0 even with findings.
+//!
+//! 1:1 port of `src/public-safe-report.ts` (the byte-scanner conventions and
+//! the deliberately duplicated file walker match `unsafe_report.yo` — TS
+//! duplicates `walkYoFiles` between the two files the same way).
+pragma(Pragma.AllowUnsafe);
+open(import("std/string"));
+open(import("std/fmt"));
+{ ArrayList } :: import("std/collections/array_list");
+{ Path } :: import("std/path");
+fs_file :: import("std/fs/file");
+fs_metadata :: import("std/fs/metadata");
+fs_walker :: import("std/fs/walker");
+{ Exception, IoExn } :: import("std/error");
+{ cwd : env_cwd } :: import("std/env");
+PublicSafeFinding :: ref(
+  struct(
+    file : String,
+    /// 1-based.
+    line : usize,
+    /// 1-based, of the `*(`.
+    column : usize,
+    /// The exported / public top-level identifier this signature belongs to.
+    decl_name : String,
+    /// "parameter" or "return" — which slot exposes the pointer.
+    slot : String,
+    /// The raw pointer type as it appears, e.g. `*(u8)`.
+    pointer_type : String,
+    /// The surrounding signature text, whitespace-collapsed and trimmed.
+    snippet : String
+  )
+);
+PublicSafeTotals :: ref(
+  struct(
+    files_scanned : usize,
+    public_decls_scanned : usize,
+    findings : usize
+  )
+);
+PublicSafeReport :: ref(
+  struct(
+    findings : ArrayList(PublicSafeFinding),
+    totals : PublicSafeTotals
+  )
+);
+/// Byte span [s, e) — named because two anonymous `struct(...)` mentions do
+/// not unify as the same type.
+_Span :: struct(
+  s : usize,
+  e : usize
+);
+/// A `*(...)` occurrence in a text slice.
+_PtrHit :: struct(
+  pointer_type : String,
+  offset : usize
+);
+/// A 1-based (line, column) pair.
+_LineCol :: struct(
+  line : usize,
+  column : usize
+);
+/// One extracted top-level `name :: (fn(...) -> R)` declaration.
+_FnDecl :: ref(
+  struct(
+    name : String,
+    param_text : String,
+    return_text : String,
+    /// Absolute byte offset in the file where the parameter text begins
+    /// (right after the `fn(`), for line/column mapping.
+    params_start : usize
+  )
+);
+_psr_is_ident_byte :: (fn(b : u8) -> bool)(
+  ((((b >= u8(97)) && (b <= u8(122))) || ((b >= u8(65)) && (b <= u8(90)))) || ((b >= u8(48)) && (b <= u8(57)))) || (b == u8(95))
+);
+_psr_is_alpha_byte :: (fn(b : u8) -> bool)(
+  ((b >= u8(97)) && (b <= u8(122))) || ((b >= u8(65)) && (b <= u8(90)))
+);
+_psr_is_ws_byte :: (fn(b : u8) -> bool)(
+  (((b == u8(32)) || (b == u8(9))) || (b == u8(10))) || (b == u8(13))
+);
+_psr_bytes_at :: (fn(src : ArrayList(u8), i : usize, needle : str) -> bool)({
+  nb := String.from(needle).as_bytes();
+  if((i + nb.len()) > src.len(), {
+    return(false);
+  });
+  (k : usize) = usize(0);
+  while(k < nb.len(), {
+    if(src(i + k) != nb(k), {
+      return(false);
+    });
+    k = (k + usize(1));
+  });
+  true
+});
+/// Advance `i` past a string literal / line comment when one starts there;
+/// returns the new index (unchanged when neither starts at `i`). Shared by
+/// every balance scan below (mirrors the inline skip blocks of the TS scans).
+_psr_skip_string_or_comment :: (fn(src : ArrayList(u8), i : usize) -> usize)({
+  n := src.len();
+  c := src(i);
+  if((c == u8(34)) || (c == u8(96)), {
+    q := c;
+    (k : usize) = (i + usize(1));
+    (going : bool) = true;
+    while(going && (k < n), {
+      cond(
+        (src(k) == u8(92)) => {
+          k = (k + usize(2));
+        },
+        (src(k) == q) => {
+          going = false;
+          k = (k + usize(1));
+        },
+        true => {
+          k = (k + usize(1));
+        }
+      );
+    });
+    return(k);
+  });
+  if(((c == u8(47)) && ((i + usize(1)) < n)) && (src(i + usize(1)) == u8(47)), {
+    (k : usize) = i;
+    while((k < n) && (src(k) != u8(10)), {
+      k = (k + usize(1));
+    });
+    return(k);
+  });
+  i
+});
+/// Names whose raw pointer is part of the contract, not a leak. Mirrors
+/// `RAW_POINTER_API_PATTERNS`.
+_name_is_raw_pointer_api :: (fn(name : String) -> bool)(
+  ((((name.ends_with(`_cstr`) || (name == "from_cstr")) || ((name == "from_raw_parts") || (name == "as_ptr"))) || ((name == "from_raw") || name.ends_with(`_raw`))) || (name.starts_with(`raw_`) || name.ends_with(`_ptr`))) || ((name == "argv") || (name == "argc"))
+);
+/// Directories whose files are FFI by construction. Mirrors `FFI_DIR_NAMES`
+/// + the `.test.yo` exemption of `shouldSkipFile`.
+_should_skip_file :: (fn(file : String) -> bool)({
+  if(file.ends_with(`.test.yo`), {
+    return(true);
+  });
+  segs := file.split(`/`);
+  (i : usize) = usize(0);
+  while(runtime(i < segs.len()), {
+    seg := segs(i);
+    if((((seg == "libc") || (seg == "linux")) || ((seg == "darwin") || (seg == "cuda"))) || ((seg == "sys") || (seg == "sync")), {
+      return(true);
+    });
+    i = (i + usize(1));
+  });
+  false
+});
+/// Byte spans of `extern(...)` declarations — pointer types inside them are
+/// FFI signatures by design. Mirrors `findExternSpans`.
+_find_extern_spans :: (fn(src : ArrayList(u8)) -> ArrayList(_Span))({
+  spans := ArrayList(_Span).new();
+  n := src.len();
+  (i : usize) = usize(0);
+  while(runtime(i < n), {
+    boundary_ok := if(i == usize(0), true, !(_psr_is_ident_byte(src(i - usize(1)))));
+    if((boundary_ok && _psr_bytes_at(src, i, "extern")) && true, {
+      // `extern` then optional whitespace then `(`.
+      (k : usize) = (i + usize(6));
+      while((k < n) && _psr_is_ws_byte(src(k)), {
+        k = (k + usize(1));
+      });
+      if((k < n) && (src(k) == u8(40)), {
+        start := i;
+        (depth : i64) = i64(1);
+        (j : usize) = (k + usize(1));
+        (open_found : bool) = false;
+        while(runtime((j < n) && !(open_found)), {
+          nj := _psr_skip_string_or_comment(src, j);
+          if(nj != j, {
+            j = nj;
+          }, {
+            if(src(j) == u8(40), {
+              depth = (depth + i64(1));
+            });
+            if(src(j) == u8(41), {
+              depth = (depth - i64(1));
+              if(depth == i64(0), {
+                spans.push(_Span(s : start, e : (j + usize(1))));
+                open_found = true;
+              });
+            });
+            j = (j + usize(1));
+          });
+        });
+        i = j;
+      }, {
+        i = (i + usize(6));
+      });
+    }, {
+      i = (i + usize(1));
+    });
+  });
+  spans
+});
+_position_inside_spans :: (fn(offset : usize, spans : ArrayList(_Span)) -> bool)({
+  (i : usize) = usize(0);
+  while(runtime(i < spans.len()), {
+    sp := spans(i);
+    if((offset >= sp.s) && (offset < sp.e), {
+      return(true);
+    });
+    i = (i + usize(1));
+  });
+  false
+});
+/// Every `*(...)` pointer-type occurrence in `text` with its offset, skipping
+/// string literals and line comments. Mirrors `findPointerTypes`.
+_find_pointer_types :: (fn(text : ArrayList(u8)) -> ArrayList(_PtrHit))({
+  out := ArrayList(_PtrHit).new();
+  n := text.len();
+  (i : usize) = usize(0);
+  while(runtime(i < n), {
+    ni := _psr_skip_string_or_comment(text, i);
+    if(ni != i, {
+      i = ni;
+    }, {
+      if(((text(i) == u8(42)) && ((i + usize(1)) < n)) && (text(i + usize(1)) == u8(40)), {
+        start := i;
+        (depth : i64) = i64(0);
+        (j : usize) = (i + usize(1));
+        (closed : bool) = false;
+        while(runtime((j < n) && !(closed)), {
+          cond(
+            (text(j) == u8(40)) => {
+              depth = (depth + i64(1));
+              j = (j + usize(1));
+            },
+            (text(j) == u8(41)) => {
+              depth = (depth - i64(1));
+              j = (j + usize(1));
+              if(depth == i64(0), {
+                closed = true;
+              });
+            },
+            true => {
+              j = (j + usize(1));
+            }
+          );
+        });
+        sb := StringBuilder.new();
+        (b : usize) = start;
+        while(b < j, {
+          sb.write_byte(text(b));
+          b = (b + usize(1));
+        });
+        out.push(_PtrHit(pointer_type : sb.to_string(), offset : start));
+        i = j;
+      }, {
+        i = (i + usize(1));
+      });
+    });
+  });
+  out
+});
+/// (line, column) of `offset` in `src` — 1-based, column from the previous
+/// newline. Mirrors `offsetToLineCol`.
+_offset_to_line_col :: (fn(src : ArrayList(u8), offset : usize) -> _LineCol)({
+  (line : usize) = usize(1);
+  (last_nl : i64) = i64(-(1));
+  (i : usize) = usize(0);
+  while(runtime(i < offset), {
+    if(src(i) == u8(10), {
+      line = (line + usize(1));
+      last_nl = i64(i);
+    });
+    i = (i + usize(1));
+  });
+  _LineCol(line : line, column : usize(i64(offset) - last_nl))
+});
+/// The whitespace-collapsed 60-byte window around `offset` in `text`.
+/// Mirrors `shortSnippet`.
+_short_snippet :: (fn(text : ArrayList(u8), offset : usize) -> String)({
+  start := if(offset > usize(20), offset - usize(20), usize(0));
+  end := if((offset + usize(40)) < text.len(), offset + usize(40), text.len());
+  sb := StringBuilder.new();
+  (i : usize) = start;
+  (last_was_ws : bool) = false;
+  while(i < end, {
+    b := text(i);
+    if(_psr_is_ws_byte(b), {
+      if(!(last_was_ws), {
+        sb.write_byte(u8(32));
+      });
+      last_was_ws = true;
+    }, {
+      sb.write_byte(b);
+      last_was_ws = false;
+    });
+    i = (i + usize(1));
+  });
+  sb.to_string().trim()
+});
+/// Extract every top-level `name :: (fn(<params>) -> <return>)` declaration.
+/// The anchor is the canonical formatted shape at a LINE START (no indent):
+/// `name :: (` then optional whitespace then `fn` then optional whitespace
+/// then `(`. Mirrors `extractTopLevelFnDecls` (its `^name :: \(\s*fn\s*\(`
+/// anchored regex).
+_extract_top_level_fn_decls :: (fn(src : ArrayList(u8)) -> ArrayList(_FnDecl))({
+  decls := ArrayList(_FnDecl).new();
+  n := src.len();
+  (i : usize) = usize(0);
+  while(runtime(i < n), {
+    at_line_start := if(i == usize(0), true, src(i - usize(1)) == u8(10));
+    if(at_line_start && _psr_is_alpha_byte(src(i)), {
+      // Parse the identifier.
+      (k : usize) = i;
+      while((k < n) && _psr_is_ident_byte(src(k)), {
+        k = (k + usize(1));
+      });
+      name_sb := StringBuilder.new();
+      (b : usize) = i;
+      while(b < k, {
+        name_sb.write_byte(src(b));
+        b = (b + usize(1));
+      });
+      // ` :: (` — literal single spaces, per the TS regex.
+      if(_psr_bytes_at(src, k, " :: ("), {
+        sig_open := (k + usize(4));
+        // Optional whitespace, `fn`, optional whitespace, `(`.
+        (m : usize) = (sig_open + usize(1));
+        while((m < n) && _psr_is_ws_byte(src(m)), {
+          m = (m + usize(1));
+        });
+        if(_psr_bytes_at(src, m, "fn"), {
+          (m2 : usize) = (m + usize(2));
+          while((m2 < n) && _psr_is_ws_byte(src(m2)), {
+            m2 = (m2 + usize(1));
+          });
+          if((m2 < n) && (src(m2) == u8(40)), {
+            params_start := (m2 + usize(1));
+            // Balance-scan the whole signature from sig_open.
+            (depth : i64) = i64(0);
+            (j : usize) = sig_open;
+            (sig_close : i64) = i64(-(1));
+            while(runtime((j < n) && (sig_close < i64(0))), {
+              nj := _psr_skip_string_or_comment(src, j);
+              if(nj != j, {
+                j = nj;
+              }, {
+                if(src(j) == u8(40), {
+                  depth = (depth + i64(1));
+                });
+                if(src(j) == u8(41), {
+                  depth = (depth - i64(1));
+                  if(depth == i64(0), {
+                    sig_close = i64(j);
+                  });
+                });
+                j = (j + usize(1));
+              });
+            });
+            if(sig_close > i64(0), {
+              // Balance-scan the parameter list from params_start.
+              (pdepth : i64) = i64(1);
+              (pj : usize) = params_start;
+              (params_end : i64) = i64(-(1));
+              while(runtime((pj < usize(sig_close)) && (params_end < i64(0))), {
+                npj := _psr_skip_string_or_comment(src, pj);
+                if(npj != pj, {
+                  pj = npj;
+                }, {
+                  if(src(pj) == u8(40), {
+                    pdepth = (pdepth + i64(1));
+                  });
+                  if(src(pj) == u8(41), {
+                    pdepth = (pdepth - i64(1));
+                    if(pdepth == i64(0), {
+                      params_end = i64(pj);
+                    });
+                  });
+                  pj = (pj + usize(1));
+                });
+              });
+              if(params_end > i64(0), {
+                param_sb := StringBuilder.new();
+                (pb : usize) = params_start;
+                while(pb < usize(params_end), {
+                  param_sb.write_byte(src(pb));
+                  pb = (pb + usize(1));
+                });
+                // Everything after the params `)` and a `->` is the return type.
+                (rt : usize) = (usize(params_end) + usize(1));
+                while((rt < usize(sig_close)) && _psr_is_ws_byte(src(rt)), {
+                  rt = (rt + usize(1));
+                });
+                ret_sb := StringBuilder.new();
+                if(_psr_bytes_at(src, rt, "->"), {
+                  (rb : usize) = (rt + usize(2));
+                  while((rb < usize(sig_close)) && _psr_is_ws_byte(src(rb)), {
+                    rb = (rb + usize(1));
+                  });
+                  (re : usize) = usize(sig_close);
+                  while((re > rb) && _psr_is_ws_byte(src(re - usize(1))), {
+                    re = (re - usize(1));
+                  });
+                  while(rb < re, {
+                    ret_sb.write_byte(src(rb));
+                    rb = (rb + usize(1));
+                  });
+                });
+                decls.push(
+                  _FnDecl(
+                    name : name_sb.to_string(),
+                    param_text : param_sb.to_string(),
+                    return_text : ret_sb.to_string(),
+                    params_start : params_start
+                  )
+                );
+              });
+            });
+          });
+        });
+      });
+      i = k;
+    }, {
+      i = (i + usize(1));
+    });
+  });
+  decls
+});
+/// Scan one file's declarations for pointer leaks. Mirrors `scanFile` (the
+/// params_start captured at extraction replaces TS's re-location searches).
+_scan_file :: (fn(file : String, src_str : String, findings : ArrayList(PublicSafeFinding)) -> unit)({
+  src := src_str.as_bytes();
+  extern_spans := _find_extern_spans(src);
+  decls := _extract_top_level_fn_decls(src);
+  (di : usize) = usize(0);
+  while(runtime(di < decls.len()), {
+    decl := decls(di);
+    keep := (!(decl.name.starts_with(`_`)) && !(_name_is_raw_pointer_api(decl.name.clone())));
+    if(keep && !(_position_inside_spans(decl.params_start, extern_spans)), {
+      param_bytes := decl.param_text.as_bytes();
+      param_hits := _find_pointer_types(param_bytes);
+      (hi : usize) = usize(0);
+      while(runtime(hi < param_hits.len()), {
+        hit := param_hits(hi);
+        lc := _offset_to_line_col(src, decl.params_start + hit.offset);
+        findings.push(
+          PublicSafeFinding(
+            file : file.clone(),
+            line : lc.line,
+            column : lc.column,
+            decl_name : decl.name.clone(),
+            slot : String.from("parameter"),
+            pointer_type : hit.pointer_type.clone(),
+            snippet : _short_snippet(param_bytes, hit.offset)
+          )
+        );
+        hi = (hi + usize(1));
+      });
+      if(decl.return_text.len() > usize(0), {
+        ret_bytes := decl.return_text.as_bytes();
+        ret_hits := _find_pointer_types(ret_bytes);
+        if(ret_hits.len() > usize(0), {
+          // TS approximates the return text's absolute position via the
+          // first `->` after params_start.
+          (arrow : usize) = decl.params_start;
+          (found_arrow : bool) = false;
+          while(runtime((arrow < src.len()) && !(found_arrow)), {
+            if(_psr_bytes_at(src, arrow, "->"), {
+              found_arrow = true;
+            }, {
+              arrow = (arrow + usize(1));
+            });
+          });
+          ret_start := if(found_arrow, arrow + usize(2), decl.params_start);
+          (ri : usize) = usize(0);
+          while(runtime(ri < ret_hits.len()), {
+            hit := ret_hits(ri);
+            lc := _offset_to_line_col(src, ret_start + hit.offset);
+            findings.push(
+              PublicSafeFinding(
+                file : file.clone(),
+                line : lc.line,
+                column : lc.column,
+                decl_name : decl.name.clone(),
+                slot : String.from("return"),
+                pointer_type : hit.pointer_type.clone(),
+                snippet : _short_snippet(ret_bytes, hit.offset)
+              )
+            );
+            ri = (ri + usize(1));
+          });
+        });
+      });
+    });
+    di = (di + usize(1));
+  });
+});
+/// The same .yo tree walk as unsafe_report.yo's (see its comment for the `.`
+/// and skip-set handling); duplicated because TS duplicates `walkYoFiles`.
+_psr_walk_yo_files :: (fn(root : String, out : ArrayList(String), io : Io, exn : Exception) -> Impl(Future(unit, IoExn)))(
+  io.async((e : IoExn) => {
+    is_dot := (root == ".");
+    walk_root := if(is_dot, match(env_cwd(), .Ok(cp) => cp.to_string(), .Err(_) => String.from(".")), root.clone());
+    exists := e.io.await(fs_file.exists(Path.new(walk_root.clone()), e.io), e.io);
+    if(!(exists), {
+      return(());
+    });
+    md := e.io.await(fs_metadata.metadata(Path.new(walk_root.clone()), e.io), e);
+    if(!(md.is_dir()), {
+      if(root.ends_with(`.yo`), {
+        out.push(root.clone());
+      });
+      return(());
+    });
+    entries := e.io.await(fs_walker.walk(Path.new(walk_root.clone()), e.io), e);
+    root_prefix_len := walk_root.as_bytes().len();
+    collected := ArrayList(String).new();
+    (i : usize) = usize(0);
+    while(runtime(i < entries.len()), {
+      entry := entries(i);
+      keep := match(entry.file_type, .Directory => false, _ => true);
+      p := entry.path.to_string();
+      if(keep && p.ends_with(`.yo`), {
+        rel := p.substring(root_prefix_len + usize(1), p.len());
+        segs := rel.split(`/`);
+        (ok : bool) = true;
+        (si : usize) = usize(0);
+        while(runtime((si + usize(1)) < segs.len()), {
+          seg := segs(si);
+          skip := ((((((seg == "node_modules") || (seg == ".git")) || (seg == "dist")) || (seg == "yo-out")) || (seg == "build")) || seg.starts_with(`.`));
+          if(skip, {
+            ok = false;
+          });
+          si = (si + usize(1));
+        });
+        if(ok, {
+          collected.push(if(is_dot, rel.clone(), p.clone()));
+        });
+      });
+      i = (i + usize(1));
+    });
+    collected.sort();
+    (ci : usize) = usize(0);
+    while(runtime(ci < collected.len()), {
+      out.push(collected(ci).clone());
+      ci = (ci + usize(1));
+    });
+    ()
+  })
+);
+/// Generate the report. Mirrors `generatePublicSafeReport`.
+generate_public_safe_report :: (fn(root_path : String, io : Io, exn : Exception) -> Impl(Future(PublicSafeReport, IoExn)))(
+  io.async((e : IoExn) => {
+    files := ArrayList(String).new();
+    e.io.await(_psr_walk_yo_files(root_path.clone(), files, e.io, e.exn), e);
+    findings := ArrayList(PublicSafeFinding).new();
+    (public_decls_scanned : usize) = usize(0);
+    (files_scanned : usize) = usize(0);
+    (fi : usize) = usize(0);
+    while(runtime(fi < files.len()), {
+      file := files(fi);
+      if(!(_should_skip_file(file.clone())), {
+        files_scanned = (files_scanned + usize(1));
+        src := e.io.await(fs_file.read_string(Path.new(file.clone()), e.io), e);
+        decls := _extract_top_level_fn_decls(src.as_bytes());
+        (di : usize) = usize(0);
+        while(runtime(di < decls.len()), {
+          decl := decls(di);
+          if(!(decl.name.starts_with(`_`)) && !(_name_is_raw_pointer_api(decl.name.clone())), {
+            public_decls_scanned = (public_decls_scanned + usize(1));
+          });
+          di = (di + usize(1));
+        });
+        _scan_file(file.clone(), src, findings);
+      });
+      fi = (fi + usize(1));
+    });
+    PublicSafeReport(
+      findings : findings,
+      totals : PublicSafeTotals(
+        files_scanned : files_scanned,
+        public_decls_scanned : public_decls_scanned,
+        findings : findings.len()
+      )
+    )
+  })
+);
+/// Human format. Mirrors `formatPublicSafeReport` line for line.
+format_public_safe_report :: (fn(report : PublicSafeReport) -> String)({
+  out := StringBuilder.new();
+  out.write_str("Public stdlib safety report\n");
+  out.write_str("===========================\n");
+  out.write_str("\n");
+  out.write_string(`Scanned ${report.totals.files_scanned} .yo file(s); ${report.totals.public_decls_scanned} public top-level fn declaration(s) inspected.\n`);
+  out.write_string(`  raw-pointer leaks: ${report.totals.findings}\n`);
+  out.write_str("\n");
+  if(report.findings.len() == usize(0), {
+    out.write_str("No raw-pointer leaks found in public stdlib signatures.");
+    return(out.to_string());
+  });
+  out.write_str("Findings (file:line:col):\n");
+  (i : usize) = usize(0);
+  while(runtime(i < report.findings.len()), {
+    f := report.findings(i);
+    out.write_string(`  ${f.file}:${f.line}:${f.column}: ${f.decl_name} ${f.slot} exposes ${f.pointer_type} — ${f.snippet}\n`);
+    i = (i + usize(1));
+  });
+  out.write_str("\n");
+  out.write_str("These public signatures expose raw pointer types. Migrate to value types (e.g. Slice(u8), ref(name) : T) where the raw pointer is not part of the API contract. Names ending in _cstr, _ptr, _raw, or from_raw_parts / as_ptr are exempt — they signal raw-pointer use by contract.");
+  out.to_string()
+});
+/// JSON string escaping (same shape as unsafe_report.yo's).
+_psr_json_str :: (fn(text : String) -> String)({
+  out := String.from("\"");
+  bytes := text.as_bytes();
+  n := bytes.len();
+  (i : usize) = usize(0);
+  while(runtime(i < n), {
+    b := match(bytes.get(i), .Some(x) => x, .None => u8(0));
+    cond(
+      (b == u8(34)) => out.push_str("\\\""),
+      (b == u8(92)) => out.push_str("\\\\"),
+      (b == u8(10)) => out.push_str("\\n"),
+      (b == u8(13)) => out.push_str("\\r"),
+      (b == u8(9)) => out.push_str("\\t"),
+      (b == u8(8)) => out.push_str("\\b"),
+      (b == u8(12)) => out.push_str("\\f"),
+      (b < u8(32)) => {
+        hex := `0123456789abcdef`;
+        hb := hex.as_bytes();
+        out.push_str("\\u00");
+        out.push_byte(match(hb.get(usize(b / u8(16))), .Some(x) => x, .None => u8(48)));
+        out.push_byte(match(hb.get(usize(b % u8(16))), .Some(x) => x, .None => u8(48)));
+      },
+      true => out.push_byte(b)
+    );
+    i = (i + usize(1));
+  });
+  out.push_str("\"");
+  out
+});
+/// `JSON.stringify(report, null, 2)` parity: camelCase keys in declaration
+/// order (findings first, then totals — the TS interface order).
+public_safe_report_to_json :: (fn(report : PublicSafeReport) -> String)({
+  out := StringBuilder.new();
+  out.write_str("{\n  \"findings\": [");
+  (i : usize) = usize(0);
+  while(runtime(i < report.findings.len()), {
+    f := report.findings(i);
+    if(i > usize(0), {
+      out.write_str(",");
+    });
+    out.write_string(`\n    {\n      "file": ${_psr_json_str(f.file.clone())},\n      "line": ${f.line},\n      "column": ${f.column},\n      "declName": ${_psr_json_str(f.decl_name.clone())},\n      "slot": ${_psr_json_str(f.slot.clone())},\n      "pointerType": ${_psr_json_str(f.pointer_type.clone())},\n      "snippet": ${_psr_json_str(f.snippet.clone())}\n    }`);
+    i = (i + usize(1));
+  });
+  if(report.findings.len() > usize(0), {
+    out.write_str("\n  ");
+  });
+  out.write_str("],\n  \"totals\": {\n");
+  out.write_string(`    "filesScanned": ${report.totals.files_scanned},\n`);
+  out.write_string(`    "publicDeclsScanned": ${report.totals.public_decls_scanned},\n`);
+  out.write_string(`    "findings": ${report.totals.findings}\n`);
+  out.write_str("  }\n}");
+  out.to_string()
+});
+export(
+  PublicSafeFinding,
+  PublicSafeTotals,
+  PublicSafeReport,
+  generate_public_safe_report,
+  format_public_safe_report,
+  public_safe_report_to_json
+);

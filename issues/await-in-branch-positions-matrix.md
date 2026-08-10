@@ -41,6 +41,30 @@ rejections must fail at COMPILE time, not silently).
 
 ## Fixed
 
+### An await nested TWO branch levels deep inside an async while silently exited the loop after one iteration — broken in BOTH (2026-08-10)
+
+The while chain (`asyncWhileLoopInfo`) only propagated through the body's
+top-level remaining exprs; a branch-nested await chained through
+`asyncCondBranchInfo` with no while entry — so the loop state looped back
+BEFORE the nested await ran (stale condition → exit) and the nested await's
+state completed the future with no loop-back. `if` and `cond` alike; one
+branch level was fine. Found by the unsafe-report walker processing exactly
+one directory. Fix: forward the while entry through the branch chain +
+treat the pending nested await as pre-chained. Full write-up:
+`issues/fixed/async-while-nested-branch-await-exits-loop.md`. +2 tests.
+
+### A cond/match BRANCH VALUE (computed after an arm's await, or in the non-await arm of a bound cond) was silently DISCARDED — broken in BOTH (2026-08-10)
+
+Tail-position `match`/`cond` (the async body's implicit return) and
+`r := match/cond(...)` bindings lost the branch value: no destination was
+registered for the await-branch's remaining code, the post-switch
+await-result copy overwrote what WAS assigned, and the temp-reference skip
+discarded values before the target check (also in the non-await inline
+path). The zeroed slot decoded as `.None`/`0` — rc=0, silent. Found via
+`read_yo_version` always returning None. Full write-up:
+`issues/fixed/async-branch-value-discarded-cond-match-tail-and-binding.md`.
++4 regression tests in async_await.test.yo (tail/bound × match/cond).
+
 ### Bare `if` body with MULTIPLE awaits + early return — broken in BOTH (2026-08-10)
 
 The 2026-08-09 rows above covered a SINGLE await per `if` body. A branch that

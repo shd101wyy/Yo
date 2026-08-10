@@ -39,6 +39,12 @@ c_include(
     (fn(path : *(char)) -> int),
   getcwd :
     (fn(buf : *(char), size : usize) -> ?*(char)),
+  // Read the target of a symbolic link. Returns the number of bytes placed
+  // in buf (NOT null-terminated), or -1 on error. Declared with `isize`
+  // (ABI-compatible with `ssize_t` on all supported targets) so callers can
+  // compare/convert the result numerically.
+  readlink :
+    (fn(pathname : *(char), buf : *(char), bufsiz : usize) -> isize),
   // Process control
   fork :
     (fn() -> pid_t),
@@ -96,6 +102,7 @@ export(
   rmdir,
   chdir,
   getcwd,
+  readlink,
   // Process control
   fork,
   execve,

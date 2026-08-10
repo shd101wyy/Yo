@@ -726,6 +726,15 @@ export function generateMatchExpression(
                           context.emitter.emitLine(
                             `${indent}  sm->${smField} = ${varName};`
                           );
+                          // Borrowing store — skip in abort-dispose (see the
+                          // sibling sites below).
+                          if (!functionContext.asyncPatternBindingFieldIds) {
+                            functionContext.asyncPatternBindingFieldIds =
+                              new Set();
+                          }
+                          functionContext.asyncPatternBindingFieldIds.add(
+                            varId
+                          );
                         }
                       }
                     }
@@ -810,6 +819,17 @@ export function generateMatchExpression(
                         context.emitter.emitLine(
                           `${indent}  sm->${getStateMachineFieldName(varId, "local", functionContext.stateMachineFieldAliases)} = ${varName};`
                         );
+                        // The store BORROWS the scrutinee's ownership (no
+                        // dup): record it so the abort-dispose drop list
+                        // skips this field — dropping both the scrutinee
+                        // slot and the binding double-decrements the payload
+                        // (Linux/ASan UAF in version.test.yo; same fix as
+                        // state-code-gen's match-with-await paths).
+                        if (!functionContext.asyncPatternBindingFieldIds) {
+                          functionContext.asyncPatternBindingFieldIds =
+                            new Set();
+                        }
+                        functionContext.asyncPatternBindingFieldIds.add(varId);
                       }
                     }
                   }
@@ -991,6 +1011,15 @@ export function generateMatchExpression(
                           context.emitter.emitLine(
                             `${indent}  sm->${getStateMachineFieldName(varId, "local", functionContext.stateMachineFieldAliases)} = ${varName};`
                           );
+                          // Borrowing store — skip in abort-dispose (see the
+                          // sibling sites in this function).
+                          if (!functionContext.asyncPatternBindingFieldIds) {
+                            functionContext.asyncPatternBindingFieldIds =
+                              new Set();
+                          }
+                          functionContext.asyncPatternBindingFieldIds.add(
+                            varId
+                          );
                         }
                       }
                     }
@@ -1073,6 +1102,17 @@ export function generateMatchExpression(
                         context.emitter.emitLine(
                           `${indent}  sm->${getStateMachineFieldName(varId, "local", functionContext.stateMachineFieldAliases)} = ${varName};`
                         );
+                        // The store BORROWS the scrutinee's ownership (no
+                        // dup): record it so the abort-dispose drop list
+                        // skips this field — dropping both the scrutinee
+                        // slot and the binding double-decrements the payload
+                        // (Linux/ASan UAF in version.test.yo; same fix as
+                        // state-code-gen's match-with-await paths).
+                        if (!functionContext.asyncPatternBindingFieldIds) {
+                          functionContext.asyncPatternBindingFieldIds =
+                            new Set();
+                        }
+                        functionContext.asyncPatternBindingFieldIds.add(varId);
                       }
                     }
                   }

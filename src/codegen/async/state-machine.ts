@@ -966,17 +966,19 @@ export function generateAsyncBlockResumeFunction(
 
                   // Normal expression
                   const code = generateExpr(expr, "          ", context);
-                  // Skip empty code, expressions without metadata, and temp variable references
-                  if (
-                    !code ||
-                    !expr.$ ||
-                    isTempVariableName(expr.$.env.modulePath, code)
-                  ) {
+                  // The branch VALUE is usually materialized into a codegen
+                  // temp, and generateExpr returns that temp's NAME — so the
+                  // target assignment must win over the temp-reference skip,
+                  // or the arm's value is computed and then discarded (the
+                  // zeroed sm->result / target silently decoded as .None).
+                  if (!code || !expr.$) {
                     // Skip
                   } else if (isLastExpr && branchTargetAssignmentCode) {
                     emitter.emitLine(
                       `          ${branchTargetAssignmentCode} = ${code};`
                     );
+                  } else if (isTempVariableName(expr.$.env.modulePath, code)) {
+                    // Skip bare temp references in statement position
                   } else {
                     emitter.emitLine(`          ${code};`);
                   }
@@ -996,6 +998,26 @@ export function generateAsyncBlockResumeFunction(
                 if (foundAdditionalAwait && segment.awaitPoint) {
                   // Store continuation info for the next state
                   const nextIndex = segment.awaitPoint.index;
+                  // A nested-branch await inside a while body must CARRY the
+                  // while-loop chain: without this the final chained state has
+                  // no whileLoopInfo entry, emits no loop-back, and completes
+                  // the future after ONE iteration (the loop's own state
+                  // looped back before the nested await ran, saw the stale
+                  // condition, and exited — silently). See
+                  // issues/async-while-nested-branch-await-exits-loop.md.
+                  const enclosingWhile =
+                    functionContext.asyncWhileLoopInfo?.get(prevAwait.index);
+                  if (
+                    enclosingWhile &&
+                    !functionContext.asyncWhileLoopInfo!.has(nextIndex)
+                  ) {
+                    functionContext.asyncWhileLoopInfo!.set(nextIndex, {
+                      ...enclosingWhile,
+                      whileLoopOriginIndex:
+                        enclosingWhile.whileLoopOriginIndex ?? prevAwait.index,
+                      isChainedAwait: true,
+                    });
+                  }
                   if (!functionContext.asyncCondBranchInfo) {
                     functionContext.asyncCondBranchInfo = new Map();
                   }
@@ -1119,8 +1141,15 @@ export function generateAsyncBlockResumeFunction(
             }
           }
 
-          // If the cond result is assigned to a variable, assign the await result now
-          if (condBranchData.targetVariableId) {
+          // If the cond result is assigned to a variable, assign the await
+          // result now — but ONLY when no branch-level destination was
+          // registered: this copy is emitted AFTER the branch switch, so with
+          // targetAssignmentCode present it would overwrite the branch value
+          // (computed after the await) with the raw await result.
+          if (
+            condBranchData.targetVariableId &&
+            !condBranchData.targetAssignmentCode
+          ) {
             const fieldName = getStateMachineFieldName(
               condBranchData.targetVariableId,
               "local",
@@ -1222,7 +1251,20 @@ export function generateAsyncBlockResumeFunction(
 
           // Track whether the remaining expressions contain another await
           // that chains to the next state. If so, skip the loop-back code.
-          let chainedToNextAwait = false;
+          // Pre-chained case: an await NESTED IN A BRANCH of this state's
+          // cond switch stored the next await's future and FORWARDED this
+          // while entry to the next state (see the enclosingWhile forward in
+          // the branch loop above). Emitting a loop-back here would loop
+          // BEFORE that await runs (and the branch's post-await code) — the
+          // one-iteration silent exit. The not-taken runtime path reaches the
+          // next state through the existing `await_future_N == NULL` else
+          // (state transition), whose forwarded entry loops back correctly.
+          let chainedToNextAwait =
+            (segment.awaitPoint?.isInsideCond ?? false) &&
+            (functionContext.asyncWhileLoopInfo?.has(
+              segment.awaitPoint!.index
+            ) ??
+              false);
 
           // If there are remaining expressions after the await, generate them
           if (

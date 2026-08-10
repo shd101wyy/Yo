@@ -1,0 +1,14 @@
+//! macOS `<mach-o/dyld.h>` — dynamic linker interface.
+//! Only available when compiling for macOS: import this module only from
+//! inside a `platform == Platform.Macos` branch (the same rule as
+//! `std/libc/windows`).
+pragma(Pragma.AllowUnsafe);
+c_include(
+  "<mach-o/dyld.h>",
+  // _NSGetExecutablePath - copies the path of the current executable into
+  // buf. Returns 0 on success; -1 if the buffer is too small, in which case
+  // *bufsize is updated to the required size. The returned path may contain
+  // symlinks — resolve with `realpath` for a canonical path.
+  _NSGetExecutablePath : (fn(buf : *(char), bufsize : *(u32)) -> int)
+);
+export(_NSGetExecutablePath);

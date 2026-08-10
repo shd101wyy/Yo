@@ -153,3 +153,177 @@ test("current_yo_version returns a non-empty string", {
   v := current_yo_version();
   assert(String.from(v).len() > usize(0), "version is non-empty");
 });
+// ---------------------------------------------------------------------------
+// find_yo_version_file / read_yo_version (fs-based — ported from the
+// findYoVersionFile / readYoVersionFile describes of src/tests/version.test.ts)
+// ---------------------------------------------------------------------------
+{ find_yo_version_file, read_yo_version } :: import("../../yo-self/version.yo");
+{ Path } :: import("std/path");
+fs_dir :: import("std/fs/dir");
+fs_file :: import("std/fs/file");
+{ Exception, IoExn } :: import("std/error");
+{ temp_dir, path_join } :: import("../helper");
+test("find_yo_version_file: finds .yo-version in current directory", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        println(`  unexpected error: ${err}`);
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  base := path_join(temp_dir(), `yo_ver_cur`);
+  io.await(fs_dir.create_dir_all(Path.new(base.clone()), io), ioexn);
+  vfile := path_join(base.clone(), `.yo-version`);
+  io.await(fs_file.write_file(Path.new(vfile.clone()), String.from("0.1.12\n"), io), ioexn);
+  found := io.await(find_yo_version_file(Path.new(base.clone()), io), io);
+  match(
+    found,
+    .Some(p) => assert(p.to_string() == vfile, "must find the file in the start dir"),
+    .None => assert(false, "expected to find .yo-version")
+  );
+  io.await(fs_dir.remove_file(Path.new(vfile), io), ioexn);
+  io.await(fs_dir.remove_dir(Path.new(base), io), ioexn);
+});
+test("find_yo_version_file: finds .yo-version in parent directory", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        println(`  unexpected error: ${err}`);
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  base := path_join(temp_dir(), `yo_ver_par`);
+  child := path_join(base.clone(), `child`);
+  io.await(fs_dir.create_dir_all(Path.new(child.clone()), io), ioexn);
+  vfile := path_join(base.clone(), `.yo-version`);
+  io.await(fs_file.write_file(Path.new(vfile.clone()), String.from("0.1.12\n"), io), ioexn);
+  found := io.await(find_yo_version_file(Path.new(child.clone()), io), io);
+  match(
+    found,
+    .Some(p) => assert(p.to_string() == vfile, "must find the parent's file"),
+    .None => assert(false, "expected to find .yo-version upward")
+  );
+  io.await(fs_dir.remove_file(Path.new(vfile), io), ioexn);
+  io.await(fs_dir.remove_dir(Path.new(child), io), ioexn);
+  io.await(fs_dir.remove_dir(Path.new(base), io), ioexn);
+});
+test("find_yo_version_file: picks nearest .yo-version in directory hierarchy", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        println(`  unexpected error: ${err}`);
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  base := path_join(temp_dir(), `yo_ver_near`);
+  inner := path_join(base.clone(), `inner`);
+  io.await(fs_dir.create_dir_all(Path.new(inner.clone()), io), ioexn);
+  outer_v := path_join(base.clone(), `.yo-version`);
+  inner_v := path_join(inner.clone(), `.yo-version`);
+  io.await(fs_file.write_file(Path.new(outer_v.clone()), String.from("0.1.1\n"), io), ioexn);
+  io.await(fs_file.write_file(Path.new(inner_v.clone()), String.from("0.1.2\n"), io), ioexn);
+  found := io.await(find_yo_version_file(Path.new(inner.clone()), io), io);
+  match(
+    found,
+    .Some(p) => assert(p.to_string() == inner_v, "the NEAREST file wins"),
+    .None => assert(false, "expected to find .yo-version")
+  );
+  io.await(fs_dir.remove_file(Path.new(inner_v), io), ioexn);
+  io.await(fs_dir.remove_file(Path.new(outer_v), io), ioexn);
+  io.await(fs_dir.remove_dir(Path.new(inner), io), ioexn);
+  io.await(fs_dir.remove_dir(Path.new(base), io), ioexn);
+});
+test("find_yo_version_file: returns None when no .yo-version exists", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        println(`  unexpected error: ${err}`);
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  base := path_join(temp_dir(), `yo_ver_none`);
+  io.await(fs_dir.create_dir_all(Path.new(base.clone()), io), ioexn);
+  found := io.await(find_yo_version_file(Path.new(base.clone()), io), io);
+  assert(match(found, .None => true, .Some(_) => false), "no file anywhere up from the temp dir");
+  io.await(fs_dir.remove_dir(Path.new(base), io), ioexn);
+});
+test("read_yo_version: reads and parses .yo-version", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        println(`  unexpected error: ${err}`);
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  base := path_join(temp_dir(), `yo_ver_read`);
+  io.await(fs_dir.create_dir_all(Path.new(base.clone()), io), ioexn);
+  vfile := path_join(base.clone(), `.yo-version`);
+  io.await(fs_file.write_file(Path.new(vfile.clone()), String.from("v0.1.12\n"), io), ioexn);
+  got := io.await(read_yo_version(Path.new(base.clone()), io, exn), ioexn);
+  match(
+    got,
+    .Some(v) => assert(v == `0.1.12`, "parsed and v-prefix stripped"),
+    .None => assert(false, "expected Some(version)")
+  );
+  io.await(fs_dir.remove_file(Path.new(vfile), io), ioexn);
+  io.await(fs_dir.remove_dir(Path.new(base), io), ioexn);
+});
+test("read_yo_version: returns None when no file exists", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        println(`  unexpected error: ${err}`);
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  base := path_join(temp_dir(), `yo_ver_read_none`);
+  io.await(fs_dir.create_dir_all(Path.new(base.clone()), io), ioexn);
+  got := io.await(read_yo_version(Path.new(base.clone()), io, exn), ioexn);
+  assert(match(got, .None => true, .Some(_) => false), "no file → None");
+  io.await(fs_dir.remove_dir(Path.new(base), io), ioexn);
+});
+test("read_yo_version: throws on invalid content", {
+  cleanup_exn := Exception(
+    throw : (
+      (err) -> {
+        println(`  unexpected error: ${err}`);
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  cleanup_ioexn := IoExn(io : io, exn : cleanup_exn);
+  base := path_join(temp_dir(), `yo_ver_bad`);
+  io.await(fs_dir.create_dir_all(Path.new(base.clone()), io), cleanup_ioexn);
+  vfile := path_join(base.clone(), `.yo-version`);
+  io.await(fs_file.write_file(Path.new(vfile.clone()), String.from("not-a-version\n"), io), cleanup_ioexn);
+  // The throw handler unwinds the test body, skipping the trailing
+  // assert(false) — reaching it means read_yo_version accepted bad content.
+  throw_exn := Exception(
+    throw : (
+      (_err) -> {
+        unwind(());
+      }
+    )
+  );
+  io.await(read_yo_version(Path.new(base.clone()), io, throw_exn), IoExn(io : io, exn : throw_exn));
+  assert(false, "expected read_yo_version to throw on invalid content");
+});

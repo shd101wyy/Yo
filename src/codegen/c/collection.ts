@@ -1,4 +1,4 @@
-import { isTargetWindows } from "../../target";
+import { isTargetMacos, isTargetWindows } from "../../target";
 import type { CodeGenContext } from "../utils";
 
 /**
@@ -54,9 +54,12 @@ export function emitCIncludes(context: CodeGenContext): void {
   // guarded block below re-adds the right ones for the actual target.
   const posixOnlyIncludes = new Set(["<unistd.h>", "<dirent.h>"]);
   const windowsOnlyIncludes = new Set(["<windows.h>", "<bcrypt.h>", "<io.h>"]);
+  const macosOnlyIncludes = new Set(["<mach-o/dyld.h>"]);
+  const isMacos = isTargetMacos(context.targetInfo);
   for (const include of context.cIncludes) {
     if (isWindows && posixOnlyIncludes.has(include)) continue;
     if (!isWindows && windowsOnlyIncludes.has(include)) continue;
+    if (!isMacos && macosOnlyIncludes.has(include)) continue;
     context.emitter.emitHeaderLine(`#include ${include}`);
   }
 

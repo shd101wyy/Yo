@@ -5,6 +5,7 @@ open(import("std/string"));
 open(import("std/fmt"));
 { yield } :: import("std/async");
 { ArrayList } :: import("std/collections/array_list");
+{ Exception, IoExn } :: import("std/error");
 /// A `bool` future for `while` conditions: true while `v` is under `limit`.
 /// Taken as a top-level helper rather than an inline `io.async` closure — a
 /// closure capturing a mutable local, re-created every iteration, hits a
@@ -3737,4 +3738,193 @@ test("Test a bare if with await-binding and early return between two top-level a
   );
   assert(io.await(drive(usize(0), io), io) == `empty:lock`, "the awaiting branch early-returns with the preceding await's value");
   assert(io.await(drive(usize(2), io), io) == `deps:lock:lock`, "the fall-through path runs the preceding AND trailing awaits");
+});
+// ─── await in an arm VALUE: the branch value must reach its destination ──────
+// Module-level helper (a test-local closure cannot be captured by the nested
+// async closure that drives each case).
+__opt7_future :: (fn(rio : Io) -> Impl(Future(Option(i32), Io)))(
+  rio.async((aio : Io) => {
+    aio.await(yield(aio), aio);
+    return(Option(i32).Some(i32(7)));
+  })
+);
+// Regression for the silent value-loss found via read_yo_version always
+// returning None: an await-carrying cond/match arm computes its value AFTER
+// the await, in the resume segment — and unless the branch registration names
+// a destination (sm->result for a tail expression, the bound variable's SM
+// field for `r := ...`), that value was computed into a temp and DISCARDED.
+// The zero-initialised result then silently decoded as `.None`/0.
+test("match as the async body's tail value with an await inside an arm", {
+  drive := (fn(rio : Io) -> Impl(Future(Option(i32), Io)))(
+    rio.async((aio : Io) => {
+      got := aio.await(__opt7_future(aio), aio);
+      match(
+        got,
+        .None => Option(i32).None,
+        .Some(v) => {
+          aio.await(yield(aio), aio);
+          Option(i32).Some(v + i32(1))
+        }
+      )
+    })
+  );
+  r := io.await(drive(io), io);
+  assert(match(r, .Some(v) => (v == i32(8)), .None => false), "tail match arm value survives the await split");
+});
+test("match bound to a local with an await inside an arm", {
+  drive := (fn(rio : Io) -> Impl(Future(Option(i32), Io)))(
+    rio.async((aio : Io) => {
+      got := aio.await(__opt7_future(aio), aio);
+      bound := match(
+        got,
+        .None => Option(i32).None,
+        .Some(v) => {
+          aio.await(yield(aio), aio);
+          Option(i32).Some(v + i32(1))
+        }
+      );
+      bound
+    })
+  );
+  r := io.await(drive(io), io);
+  assert(match(r, .Some(v) => (v == i32(8)), .None => false), "bound match arm value survives the await split");
+});
+test("cond as the async body's tail value with an await inside a branch", {
+  drive := (fn(n : usize, rio : Io) -> Impl(Future(i32, Io)))(
+    rio.async(
+      (aio : Io) => cond(
+        (n == usize(0)) => {
+          aio.await(yield(aio), aio);
+          i32(41)
+        },
+        true => i32(3)
+      )
+    )
+  );
+  assert(io.await(drive(usize(0), io), io) == i32(41), "tail cond awaiting branch value survives");
+  assert(io.await(drive(usize(2), io), io) == i32(3), "tail cond fall-through branch value survives");
+});
+test("cond bound to a local with an await inside a branch", {
+  drive := (fn(n : usize, rio : Io) -> Impl(Future(i32, Io)))(
+    rio.async((aio : Io) => {
+      bound := cond(
+        (n == usize(0)) => {
+          aio.await(yield(aio), aio);
+          i32(41)
+        },
+        true => i32(3)
+      );
+      bound + i32(1)
+    })
+  );
+  assert(io.await(drive(usize(0), io), io) == i32(42), "bound cond awaiting branch value survives");
+  assert(io.await(drive(usize(2), io), io) == i32(4), "bound cond fall-through branch value survives");
+});
+// ─── await nested TWO branch levels deep inside an async while ───────────────
+// Regression: a branch-nested await inside a while body never inherited the
+// while-loop chain — the loop's own resume state looped back BEFORE the
+// nested await ran (seeing the stale condition, it exited), and the nested
+// await's state completed the future with no loop-back at all. The loop
+// silently ran ONE iteration. Both `if` and `cond` nesting were affected.
+test("await nested in an if inside an if inside an async while keeps looping", {
+  drive := (fn(rio : Io) -> Impl(Future(usize, Io)))(
+    rio.async((aio : Io) => {
+      (count : usize) = usize(0);
+      stack := ArrayList(usize).new();
+      stack.push(usize(3));
+      while(runtime(stack.len() > usize(0)), {
+        n := match(stack.pop(), .Some(x) => x, .None => usize(0));
+        if(n > usize(1), {
+          aio.await(yield(aio), aio);
+          if(n > usize(2), {
+            aio.await(yield(aio), aio);
+            stack.push(n - usize(1));
+          });
+          count = (count + usize(1));
+        });
+      });
+      count
+    })
+  );
+  assert(io.await(drive(io), io) == usize(2), "both branch-carrying iterations ran");
+});
+test("await nested in a cond inside a cond inside an async while keeps looping", {
+  drive := (fn(rio : Io) -> Impl(Future(usize, Io)))(
+    rio.async((aio : Io) => {
+      (count : usize) = usize(0);
+      stack := ArrayList(usize).new();
+      stack.push(usize(3));
+      while(runtime(stack.len() > usize(0)), {
+        n := match(stack.pop(), .Some(x) => x, .None => usize(0));
+        cond(
+          (n > usize(1)) => {
+            aio.await(yield(aio), aio);
+            cond(
+              (n > usize(2)) => {
+                aio.await(yield(aio), aio);
+                stack.push(n - usize(1));
+              },
+              true => ()
+            );
+            count = (count + usize(1));
+          },
+          true => ()
+        );
+      });
+      count
+    })
+  );
+  assert(io.await(drive(io), io) == usize(2), "both branch-carrying iterations ran");
+});
+// Abort-dispose must not double-drop awaitless-match pattern bindings: a
+// binding's state-machine store BORROWS the scrutinee slot's payload, so an
+// aborted state machine's dispose dropping both fields double-decrements the
+// heap message. Silent on macOS; Linux/ASan UAF (found via
+// tests/internal/version.test.yo "throws on invalid content" — see
+// issues/async-abort-dispose-double-drops-moved-enum-payload.md).
+_abort_parse_err :: (fn(content : String) -> Result(String, String))({
+  trimmed := content.trim();
+  return(.Err(`Invalid version format: "${trimmed}". Expected digits.`));
+});
+_abort_opt_str :: (fn(io : Io) -> Impl(Future(Option(String), Io)))(
+  io.async((aio : Io) => {
+    aio.await(yield(aio), aio);
+    Option(String).Some(`   not-a-version   `)
+  })
+);
+_abort_read_and_throw :: (
+  fn(
+    io : Io,
+    exn : Exception
+  ) -> Impl(Future(Option(String), IoExn))
+)(
+  io.async((e : IoExn) => {
+    first := e.io.await(_abort_opt_str(e.io), e.io);
+    match(
+      first,
+      .None => Option(String).None,
+      .Some(path_like) => {
+        second := e.io.await(_abort_opt_str(e.io), e.io);
+        inner := match(second, .Some(c) => c, .None => String.new());
+        match(
+          _abort_parse_err(inner),
+          .Err(msg) => e.exn.throw(dyn(msg.clone())),
+          .Ok(version) => .Some(version)
+        )
+      }
+    )
+  })
+);
+test("abort dispose skips awaitless-match pattern bindings (no double-drop)", {
+  // The throw handler unwinds the test body, skipping the trailing
+  // assert(false) — reaching it means the throw path did not run.
+  throw_exn := Exception(
+    throw : (
+      (_err) -> {
+        unwind(());
+      }
+    )
+  );
+  io.await(_abort_read_and_throw(io, throw_exn), IoExn(io : io, exn : throw_exn));
+  assert(false, "expected _abort_read_and_throw to throw");
 });

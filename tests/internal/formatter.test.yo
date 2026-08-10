@@ -42,3 +42,54 @@ test("format_yo_source: idempotent on nested calls and match", {
   twice := _fmt(once.clone());
   assert(once == twice, "nested form idempotent");
 });
+// ---------------------------------------------------------------------------
+// Fixture corpus — the 46 (input → expected) pairs script-extracted VERBATIM
+// from src/tests/formatter.test.ts (P2.4). Each .input is deliberately
+// NON-canonical source (the suffix is not .yo so GATE 6's `fmt --check
+// ./tests` skips them); the .expected next to it is the canonical output the
+// TS formatter produced and pinned. This is the coverage GATE 6 cannot give:
+// the 808-file differential only proves both compilers agree on
+// already-canonical text, never that messy input NORMALIZES correctly.
+// Assumes the runner's cwd is the repo root (how `./yo-cli test` and CI run).
+// ---------------------------------------------------------------------------
+{ Path } :: import("std/path");
+fs_dir :: import("std/fs/dir");
+fs_file :: import("std/fs/file");
+test("format_yo_source: fixture corpus from formatter.test.ts", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        println(`  unexpected io error: ${err}`);
+        assert(false, "fixture io failed");
+        unwind(());
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  dir := String.from("tests/internal/formatter_fixtures");
+  entries := io.await(fs_dir.read_dir(Path.new(dir.clone()), io), ioexn);
+  (checked : usize) = usize(0);
+  (failed : usize) = usize(0);
+  (i : usize) = usize(0);
+  while(i < entries.len(), {
+    match(
+      entries.get(i),
+      .Some(e) => if(e.name.ends_with(`.input`), {
+        base := e.name.substring(usize(0), e.name.len() - usize(6));
+        input := io.await(fs_file.read_string(Path.new(`${dir}/${base}.input`), io), ioexn);
+        expected := io.await(fs_file.read_string(Path.new(`${dir}/${base}.expected`), io), ioexn);
+        got := _fmt(input);
+        if(got != expected, {
+          println(`  FIXTURE FAILED: ${base}`);
+          failed = (failed + usize(1));
+        });
+        checked = (checked + usize(1));
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  println(`  ${checked.to_string()} fixtures checked`);
+  assert(failed == usize(0), "some formatter fixtures diverged (see above)");
+  assert(checked >= usize(46), "fixture corpus missing (cwd must be the repo root)");
+});

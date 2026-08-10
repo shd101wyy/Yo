@@ -33,6 +33,7 @@ open(import("std/string"));
 { find_methods_from_generic_impls } :: import("../../evaluator/values/impl.yo");
 { create_specialized_function_inline } :: import("../../evaluator/calls/helper.yo");
 { get_func_param_comptime } :: import("../../evaluator/types/function.yo");
+{ get_c_include_for_extern } :: import("../../evaluator/exprs/c_include.yo");
 // Auto-derived ___dispose synthesis (collect_dispose_methods): synthesize the
 // recursive RC-field-drop function from the struct's fields, parse + evaluate it,
 // register it as the type's ___dispose method. Mirrors TS evaluator/types/utils.ts
@@ -250,6 +251,48 @@ _callee_token_value :: (fn(expr : AstExpr) -> String)(
     .Atom(_, _) => String.from("")
   )
 );
+/// Register the callee as an extern "c"/"yo" function when its type carries
+/// the FFI marker. Mirrors TS `collection.ts:504-536` — the `else if
+/// (functionType.isExtern === ...)` chain, which TS reaches whenever the
+/// callee VALUE is not a function value: c_include/extern symbols hold an
+/// UnknownValue, so this must fire from BOTH the `.Some(non-func)` and
+/// `.None` callee-value arms (routing only `.None` here left
+/// `context.extern_functions` permanently empty — see
+/// issues/fixed/yo-self-extern-c-include-never-registered.md).
+_register_extern_fn_callee :: (
+  fn(
+    cei_ty : TypeValue,
+    expr : AstExpr,
+    context : CodeGenContext
+  ) -> unit
+)({
+  match(
+    cei_ty,
+    .Func({ meta : __fm4 }) => match(
+      __fm4.*.is_extern,
+      .Some(lang) => {
+        is_internal := match(__fm4.*.extern_name, .Some(en) => en.clone().starts_with(String.from("__yo_")), .None => false);
+        if((lang == "c") || (!(is_internal)), {
+          c_name := match(
+            __fm4.*.extern_name,
+            .Some(en) => if(lang == "c", en.clone(), sanitize_for_c_identifier(en.clone(), false)),
+            .None => {
+              tok := _callee_token_value(expr);
+              if(lang == "c", tok.clone(), sanitize_for_c_identifier(tok.clone(), false))
+            }
+          );
+          // The header this symbol was `c_include`d under, from the
+          // evaluator's side-table (the port of TS reading `type.cInclude`
+          // off the extern function type). None for plain `extern("c", ...)`
+          // declarations.
+          context.register_extern_function(type_key(cei_ty), cei_ty, c_name, get_c_include_for_extern(c_name.clone()));
+        });
+      },
+      .None => ()
+    ),
+    _ => ()
+  );
+});
 /// func_id of a FuncVal EvalValue, or "".
 _func_val_id :: (fn(v : EvalValue) -> String)(
   match(v, .FuncVal(__fvd3, _) => __fvd3.*.func_id, _ => String.from(""))
@@ -700,31 +743,14 @@ find_function_calls_in_expr :: (fn(expr : AstExpr, context : CodeGenContext, inf
                   recur(_func_val_body(fv), context, info);
                 }
               ),
-              true => ()
+              // Callee value present but not a function value (UnknownVal —
+              // a c_include/extern symbol): register as an extern function,
+              // exactly like the no-value arm below (TS reaches its extern
+              // else-if in both cases).
+              true => _register_extern_fn_callee(cei.ty, expr, context)
             ),
             // No callee value → extern "c"/"yo": register as an extern function.
-            .None => match(
-              cei.ty,
-              .Func({ meta : __fm4 }) => match(
-                __fm4.*.is_extern,
-                .Some(lang) => {
-                  is_internal := match(__fm4.*.extern_name, .Some(en) => en.clone().starts_with(String.from("__yo_")), .None => false);
-                  if((lang == "c") || (!(is_internal)), {
-                    c_name := match(
-                      __fm4.*.extern_name,
-                      .Some(en) => if(lang == "c", en.clone(), sanitize_for_c_identifier(en.clone(), false)),
-                      .None => {
-                        tok := _callee_token_value(expr);
-                        if(lang == "c", tok.clone(), sanitize_for_c_identifier(tok.clone(), false))
-                      }
-                    );
-                    context.register_extern_function(type_key(cei.ty), cei.ty, c_name, Option(String).None);
-                  });
-                },
-                .None => ()
-              ),
-              _ => ()
-            )
+            .None => _register_extern_fn_callee(cei.ty, expr, context)
           );
         }),
         .None => ()
