@@ -6,8 +6,11 @@
 //! the environment.  The `is_extern`/`externName` markers ARE ported (onto the
 //! `Func` variant): the extern-call `unsafe(...)` gate in `calls/function.yo`
 //! reads them to require `c_include`d FFI call sites be wrapped in `unsafe(...)`
-//! (plans/archive/EXTERN_UNSAFE_WRAP.md). Only `cInclude` (a codegen concern) stays
-//! skipped.
+//! (plans/archive/EXTERN_UNSAFE_WRAP.md). `cInclude` is ported as the
+//! side-table below (2026-08-10 — its absence made every self-emitted binary
+//! rely on the hardcoded platform includes; `<mach-o/dyld.h>` was the first
+//! header not covered, see
+//! issues/fixed/yo-self-extern-c-include-never-registered.md).
 pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 {
@@ -33,6 +36,26 @@ open(import("std/string"));
 { evaluate_expression } :: import("./expr.yo");
 { EvalModuleFieldResult, evaluate_module_field } :: import("../types/record.yo");
 { ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
+// ---------------------------------------------------------------------------
+// The `cInclude` side-table — the port of `FunctionType.cInclude`
+// (c-include.ts:141). yo-self's `FuncMeta` carries no `c_include` field
+// (adding one would touch all 13 FuncMeta constructors and risk the
+// type-intern merge dropping it), so the header is recorded here, keyed by
+// the extern symbol name, when the FFI marker is stamped — and read back by
+// the codegen extern-fn registration (`codegen/functions/collection.yo`).
+// Process-lifetime, like the default-args and macro-expansion side-tables:
+// re-evaluation re-records the same mapping, and a stale entry can at worst
+// re-emit a header the target already knows.
+// ---------------------------------------------------------------------------
+(g_extern_c_includes : HashMap(String, String)) = HashMap(String, String).new();
+record_c_include_for_extern :: (fn(name : String, header : String) -> unit)({
+  _r := g_extern_c_includes.set(name, header);
+});
+/// The C header a `c_include`d extern symbol was declared under, if any.
+get_c_include_for_extern :: (fn(name : String) -> Option(String))(
+  g_extern_c_includes.get(name)
+);
 evaluate_c_include :: (
   fn(
     expr : AstExpr,
@@ -199,7 +222,8 @@ User code should normally call stdlib wrappers (e.g. functions in
     // (calls/function.yo) can identify calls to this `c_include`d symbol.
     // Mirrors `c-include.ts:138-145` (the `isFunctionType` branch). Non-`Func`
     // field types (type declarations like `time_t : Type`) carry no
-    // `is_extern` slot and are never called. `cInclude` is codegen-only.
+    // `is_extern` slot and are never called. `cInclude` goes to the
+    // side-table above (TS stores it on the type).
     field_ty_with_extern := match(
       result.field_type,
       .Func({
@@ -209,32 +233,35 @@ User code should normally call stdlib wrappers (e.g. functions in
         where_types : wts,
         result : ret,
         meta : m
-      }) => TypeValue.Func(
-        fts,
-        pts,
-        its,
-        wts,
-        ret,
-        box(
-          FuncMeta(
-            forall_labels : m.*.forall_labels.clone(),
-            param_labels : m.*.param_labels.clone(),
-            implicit_labels : m.*.implicit_labels.clone(),
-            implicit_spreads : m.*.implicit_spreads.clone(),
-            result_is_comptime_only : m.*.result_is_comptime_only,
-            param_is_ref : m.*.param_is_ref.clone(),
-            param_is_owning : m.*.param_is_owning.clone(),
-            result_is_ref : m.*.result_is_ref,
-            has_variadic : m.*.has_variadic,
-            is_extern : Option(String).Some(String.from("c")),
-            extern_name : Option(String).Some(result.label.clone()),
-            is_control : m.*.is_control,
-            variadic_label : Option(String).None,
-            variadic_comptime : false
-          )
-        ),
-        ArrayList(TypeValue).new()
-      ),
+      }) => {
+        record_c_include_for_extern(result.label.clone(), c_header_file.clone());
+        TypeValue.Func(
+          fts,
+          pts,
+          its,
+          wts,
+          ret,
+          box(
+            FuncMeta(
+              forall_labels : m.*.forall_labels.clone(),
+              param_labels : m.*.param_labels.clone(),
+              implicit_labels : m.*.implicit_labels.clone(),
+              implicit_spreads : m.*.implicit_spreads.clone(),
+              result_is_comptime_only : m.*.result_is_comptime_only,
+              param_is_ref : m.*.param_is_ref.clone(),
+              param_is_owning : m.*.param_is_owning.clone(),
+              result_is_ref : m.*.result_is_ref,
+              has_variadic : m.*.has_variadic,
+              is_extern : Option(String).Some(String.from("c")),
+              extern_name : Option(String).Some(result.label.clone()),
+              is_control : m.*.is_control,
+              variadic_label : Option(String).None,
+              variadic_comptime : false
+            )
+          ),
+          ArrayList(TypeValue).new()
+        )
+      },
       _ => result.field_type
     );
     field_labels.push(result.label.clone());
@@ -298,3 +325,4 @@ User code should normally call stdlib wrappers (e.g. functions in
   expr
 });
 export(evaluate_c_include);
+export(get_c_include_for_extern);
