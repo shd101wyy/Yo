@@ -8,18 +8,25 @@ the traps as they are found. Started 2026-08-10, branch `p2/self-build`.
 
 The phase's items, from the umbrella plan:
 
-| item | what                                                             | status                           |
-| ---- | ---------------------------------------------------------------- | -------------------------------- |
-| 2.1  | bootstrap seed release (TS builds the binaries one last time)    | not started — needs a release    |
-| 2.2  | repo-root `build.yo`: the compiler builds itself with `yo build` | **IN FLIGHT** — see below        |
-| 2.3  | CI migration: seed release + `yo build` replace bun              | not started (blocked on 2.1/2.2) |
-| 2.4  | re-express TS-only tests in Yo                                   | **inventory below**              |
-| 2.5  | retire: freeze + delete `src/`, drop package.json/bun/out        | blocked on 2.1–2.4               |
-| 2.6  | docs sweep (AGENTS.md, instructions, skills)                     | blocked on 2.5                   |
+| item | what                                                             | status                                   |
+| ---- | ---------------------------------------------------------------- | ---------------------------------------- |
+| 2.1  | bootstrap seed release (TS builds the binaries one last time)    | not started — needs a release            |
+| 2.2  | repo-root `build.yo`: the compiler builds itself with `yo build` | **DONE** (verified both ways 2026-08-10) |
+| 2.3  | CI migration: seed release + `yo build` replace bun              | not started (blocked on 2.1/2.2)         |
+| 2.4  | re-express TS-only tests in Yo                                   | **inventory below**                      |
+| 2.5  | retire: freeze + delete `src/`, drop package.json/bun/out        | blocked on 2.1–2.4                       |
+| 2.6  | docs sweep (AGENTS.md, instructions, skills)                     | blocked on 2.5                           |
 
 ---
 
 ## 2.2 — repo-root `build.yo` (the dogfood build)
+
+**VERIFIED BOTH WAYS 2026-08-10 (evening)** — after the branch-value and
+capture fixes landed: `./yo-cli build` (TS) and a self-hosted `yo build`
+(stage-1 with all fixes, `YO_STD` pointed at the repo std) each compiled
+`yo-self/main.yo` through this build.yo to a working `yo-out/.../bin/yo`
+(rc=0), and BOTH products compile and run a hello program. The remaining
+gap for full dogfooding is 2.3's seed-release wiring, not the build itself.
 
 Landed 2026-08-10:
 
