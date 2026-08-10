@@ -69,6 +69,46 @@ Still open in 2.2:
 - `build.run(exe)` takes no args, and a bare `yo` exits 1, so there is no
   run step in the compiler's build.yo.
 
+## PR #92 CI triage (2026-08-10) — three distinct root causes
+
+The first full-CI run over the P1 work failed 7 jobs; all triaged:
+
+1. **Language tests (ubuntu) — LSan leak, FIXED (TS).** Linux runs the suite
+   under LeakSanitizer (macOS cannot — use `leaks --atExit` locally, which
+   reproduced it exactly). Async match scrutinees leaked their payloads:
+   deferred drops referenced `sm->var_<temp>` slots nothing ever stored, the
+   escape dispose double-counted borrow bindings once the store landed, and
+   nested matches made outer-arm drop cases unreachable (now chained). See
+   [the issue](../issues/fixed/async-match-scrutinee-deferred-drops-hit-zeroed-slot.md).
+   **yo-self port pending** — its `_store_temp_var_to_state_machine_if_needed`
+   is a documented no-op stub, so stage-2-built binaries carry the same class.
+2. **Language tests (macOS/Windows/wasm×2) + hollow sweep — fixture bleed,
+   FIXED.** The differential corpus fixtures are project trees;
+   `build-list-steps` carries a scaffolded `tests/main.test.yo` that the
+   `./tests` walk and the sweep's `find` swept up. Both now exclude
+   `tests/cli-cases`.
+3. **Bootstrap fixpoint — stage-2 miscompile, OPEN, the P2.2 blocker.** The
+   self-hosted compiler mis-emits `run_build`'s `project_dir` shape (a
+   `match(path.parent(), .Some(p) => { ps := …; if(ps.len() == 0, ".", ps) },
+…)` inside an `io.async` block): the if's else-branch value temp is
+   REFERENCED but never DECLARED (`use of undeclared identifier
+'_file____User_temp_N'`, 16-17 errors), plus one bool-into-struct
+   type confusion. Reproduce: `/tmp/yo-s27 compile yo-self/main.yo --release
+-o /tmp/x` (any argv form — the earlier debug-only theory in
+   [the debug-emission issue](../issues/self-hosted-debug-emission-undeclared-temp.md)
+   was wrong; that issue needs updating when this is fixed). NOTE
+   `gates_fast.sh` does NOT include the stage-2 compile — run
+   `scripts/bootstrap/fixpoint_only.sh` before believing a yo-self change is
+   fixpoint-clean. Reduction lead: the failing C is in an async-block resume;
+   the shape to reduce is an if-VALUE (no await) whose else branch returns a
+   local, inside a match arm, inside io.async, compiled BY the self-hosted
+   binary.
+
+Also landed en route: `yo build` exits 1 on failed steps (both compilers +
+`build-fail` case), and the self-hosted def-eval swallow was found to extend
+to `compile` (an undefined call builds a runnable no-op binary —
+[open issue](../issues/self-hosted-compile-swallows-undefined-call.md)).
+
 ## 2.4 — TS-only test inventory (23 files, ~9,000 lines)
 
 Ground truth: `tests/internal/` has 59 files including `formatter`,
