@@ -41,6 +41,18 @@ rejections must fail at COMPILE time, not silently).
 
 ## Fixed
 
+### An await nested TWO branch levels deep inside an async while silently exited the loop after one iteration — broken in BOTH (2026-08-10)
+
+The while chain (`asyncWhileLoopInfo`) only propagated through the body's
+top-level remaining exprs; a branch-nested await chained through
+`asyncCondBranchInfo` with no while entry — so the loop state looped back
+BEFORE the nested await ran (stale condition → exit) and the nested await's
+state completed the future with no loop-back. `if` and `cond` alike; one
+branch level was fine. Found by the unsafe-report walker processing exactly
+one directory. Fix: forward the while entry through the branch chain +
+treat the pending nested await as pre-chained. Full write-up:
+`issues/fixed/async-while-nested-branch-await-exits-loop.md`. +2 tests.
+
 ### A cond/match BRANCH VALUE (computed after an arm's await, or in the non-await arm of a bound cond) was silently DISCARDED — broken in BOTH (2026-08-10)
 
 Tail-position `match`/`cond` (the async body's implicit return) and

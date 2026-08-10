@@ -3819,3 +3819,59 @@ test("cond bound to a local with an await inside a branch", {
   assert(io.await(drive(usize(0), io), io) == i32(42), "bound cond awaiting branch value survives");
   assert(io.await(drive(usize(2), io), io) == i32(4), "bound cond fall-through branch value survives");
 });
+// ─── await nested TWO branch levels deep inside an async while ───────────────
+// Regression: a branch-nested await inside a while body never inherited the
+// while-loop chain — the loop's own resume state looped back BEFORE the
+// nested await ran (seeing the stale condition, it exited), and the nested
+// await's state completed the future with no loop-back at all. The loop
+// silently ran ONE iteration. Both `if` and `cond` nesting were affected.
+test("await nested in an if inside an if inside an async while keeps looping", {
+  drive := (fn(rio : Io) -> Impl(Future(usize, Io)))(
+    rio.async((aio : Io) => {
+      (count : usize) = usize(0);
+      stack := ArrayList(usize).new();
+      stack.push(usize(3));
+      while(runtime(stack.len() > usize(0)), {
+        n := match(stack.pop(), .Some(x) => x, .None => usize(0));
+        if(n > usize(1), {
+          aio.await(yield(aio), aio);
+          if(n > usize(2), {
+            aio.await(yield(aio), aio);
+            stack.push(n - usize(1));
+          });
+          count = (count + usize(1));
+        });
+      });
+      count
+    })
+  );
+  assert(io.await(drive(io), io) == usize(2), "both branch-carrying iterations ran");
+});
+test("await nested in a cond inside a cond inside an async while keeps looping", {
+  drive := (fn(rio : Io) -> Impl(Future(usize, Io)))(
+    rio.async((aio : Io) => {
+      (count : usize) = usize(0);
+      stack := ArrayList(usize).new();
+      stack.push(usize(3));
+      while(runtime(stack.len() > usize(0)), {
+        n := match(stack.pop(), .Some(x) => x, .None => usize(0));
+        cond(
+          (n > usize(1)) => {
+            aio.await(yield(aio), aio);
+            cond(
+              (n > usize(2)) => {
+                aio.await(yield(aio), aio);
+                stack.push(n - usize(1));
+              },
+              true => ()
+            );
+            count = (count + usize(1));
+          },
+          true => ()
+        );
+      });
+      count
+    })
+  );
+  assert(io.await(drive(io), io) == usize(2), "both branch-carrying iterations ran");
+});

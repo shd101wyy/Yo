@@ -1987,6 +1987,40 @@ _emit_cond_branch_remaining :: (
       chained := match(
         segment.await_point,
         .Some(ap) => if(found_additional, {
+          // A nested-branch await inside a while body must CARRY the
+          // while-loop chain: without this the final chained state has no
+          // while entry, emits no loop-back, and completes the future after
+          // ONE iteration. Mirrors the enclosingWhile forward in
+          // state-machine.ts's branch loop. See
+          // issues/fixed/async-while-nested-branch-await-exits-loop.md.
+          match(
+            context.async_while_loop_info,
+            .Some(wmap) => match(
+              wmap.get(prev_await.base.index),
+              .Some(enclosing) => if(!(wmap.contains_key(ap.base.index)), {
+                // Fresh object: WhileLoopInfo is a ref type, so mutating the
+                // enclosing handle would alias the previous state's entry.
+                wmap.set(
+                  ap.base.index,
+                  WhileLoopInfo(
+                    condition_expr : enclosing.condition_expr,
+                    step_expr : enclosing.step_expr,
+                    body_expr : enclosing.body_expr,
+                    body_exprs_after_await : enclosing.body_exprs_after_await,
+                    while_loop_origin_index : Option(usize).Some(match(enclosing.while_loop_origin_index, .Some(o) => o, .None => prev_await.base.index)),
+                    is_chained_await : Option(bool).Some(true),
+                    condition_await : enclosing.condition_await,
+                    step_await : enclosing.step_await,
+                    cond_branch_post_while_exprs : enclosing.cond_branch_post_while_exprs,
+                    outer_while_loop : enclosing.outer_while_loop
+                  )
+                );
+                context.async_while_loop_info = Option(HashMap(usize, WhileLoopInfo)).Some(wmap);
+              }),
+              .None => ()
+            ),
+            .None => ()
+          );
           _chain_additional_remaining(context, ap.base.index, branch.index, branch.value, additional_remaining, branch.deferred_drop_expressions, cond_field);
           true
         }, false),
@@ -2613,7 +2647,27 @@ _emit_while_continuation :: (
         wai_s := wai.to_string();
         em.emit_string_line(`      // Execute remaining code from while loop body and continue loop`);
         em.emit_string_line(`      if (sm->while_loop_${wai_s}_active) {`);
-        (chained_to_next : bool) = false;
+        // Pre-chained case: an await NESTED IN A BRANCH of this state's cond
+        // switch stored the next await's future and FORWARDED this while
+        // entry to the next state (see _register_branch_continuation).
+        // Emitting a loop-back here would loop BEFORE that await (and the
+        // branch's post-await code) runs — the one-iteration silent exit.
+        // The not-taken runtime path reaches the next state through the
+        // existing `await_future_N == NULL` else transition, whose forwarded
+        // entry loops back correctly. Mirrors state-machine.ts.
+        (chained_to_next : bool) = match(
+          segment.await_point,
+          .Some(ap) => if(
+            match(ap.base.is_inside_cond, .Some(b) => b, .None => false),
+            match(
+              context.async_while_loop_info,
+              .Some(wmap) => wmap.contains_key(ap.base.index),
+              .None => false
+            ),
+            false
+          ),
+          .None => false
+        );
         match(
           while_data.body_exprs_after_await,
           .Some(after) => if(after.len() > usize(0), {
