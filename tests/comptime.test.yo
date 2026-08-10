@@ -3265,3 +3265,21 @@ test("i64.MIN renders as a valid signed C literal", {
   s := sub_ok;
   assert(s == isize(2), "comptime signed subtraction folds");
 });
+// ─── Comptime contract violations (port of contracts-comptime-violation.test.ts) ──
+// A `requires`/`ensures` clause on a comptime fn is checked during CTFE, so a
+// violating call is a compile error and comptime_expect_error can pin it.
+// Without the contract each call folds cleanly, so these cannot pass vacuously.
+__contract_abs :: (fn(comptime(x) : i32, requires(x >= i32(-(100)))) -> comptime(i32))(
+  cond((x >= i32(0)) => x, true => -(x))
+);
+__contract_neg :: (fn(comptime(x) : i32, ensures(result >= i32(0))) -> comptime(i32))(-(x));
+// The negatives sit at TOP LEVEL: inside a test(...) body the violating call
+// is evaluated during def-time body evaluation, BEFORE comptime_expect_error
+// gets to wrap it, and the error escapes as a module-load failure.
+comptime_expect_error(__contract_abs(i32(-(200))));
+comptime_expect_error(__contract_neg(i32(5)));
+test("comptime requires(...) on a satisfying call compiles cleanly", {
+  ok :: __contract_abs(i32(-(50)));
+  v := ok;
+  assert(v == i32(50), "abs(-50) folds to 50");
+});
