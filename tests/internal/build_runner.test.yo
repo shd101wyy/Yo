@@ -1,0 +1,220 @@
+/// Tests for `yo-self/build_runner.yo`'s DAG builder and cycle detector —
+/// ports of the `buildDAG` / `detectCycle` describes of
+/// `src/tests/build-system.test.ts` (P2.4). These are the only direct tests
+/// of the scheduler logic; the build cli-cases exercise it end-to-end but
+/// never pin the DAG shape. Note `detect_cycle` returns the cycle NODE NAME
+/// (`Option(String)`) where TS returns the cycle path array — asserts are
+/// presence/absence, matching the TS assertions' substance.
+open(import("std/string"));
+open(import("std/fmt"));
+open(import("std/error"));
+{ ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
+{ assert, panic } :: import("std/assert");
+{ DAGNode, DAGNodeKind, build_dag, detect_cycle } :: import("../../yo-self/build_runner.yo");
+{ BuildRegistry, BuildArtifact, ArtifactKind, ImportedModule } :: import("../../yo-self/evaluator/builtins/build.yo");
+_mk_artifact :: (fn(kind : ArtifactKind, name : String, root : String) -> BuildArtifact)(
+  BuildArtifact(
+    kind : kind,
+    name : name,
+    root : root,
+    target : String.from(""),
+    optimize : String.from(""),
+    allocator : String.from(""),
+    sanitize : String.from(""),
+    link_libraries : ArrayList(String).new(),
+    include_paths : ArrayList(String).new(),
+    library_paths : ArrayList(String).new(),
+    c_sources : ArrayList(String).new(),
+    c_flags : ArrayList(String).new(),
+    defines : ArrayList(String).new(),
+    strip : false,
+    static_link : false,
+    runtime_files : ArrayList(String).new(),
+    linked_artifacts : ArrayList(String).new(),
+    linked_system_libs : ArrayList(String).new(),
+    imported_modules : ArrayList(ImportedModule).new()
+  )
+);
+_dag_find :: (fn(dag : ArrayList(DAGNode), name : String) -> Option(DAGNode))({
+  (i : usize) = usize(0);
+  while(i < dag.len(), {
+    node := dag(i);
+    if(node.name == name, {
+      return(Option(DAGNode).Some(node));
+    });
+    i = (i + usize(1));
+  });
+  Option(DAGNode).None
+});
+_deps_contain :: (fn(node : DAGNode, dep : String) -> bool)({
+  (i : usize) = usize(0);
+  while(i < node.depends_on.len(), {
+    if(node.depends_on(i) == dep, {
+      return(true);
+    });
+    i = (i + usize(1));
+  });
+  false
+});
+_mk_node :: (fn(name : String, deps : ArrayList(String)) -> DAGNode)(
+  DAGNode(name : name, kind : DAGNodeKind.Artifact, depends_on : deps)
+);
+_deps1 :: (fn(a : String) -> ArrayList(String))({
+  l := ArrayList(String).new();
+  l.push(a);
+  l
+});
+test("build_dag: empty step produces a single-node DAG", {
+  reg := BuildRegistry.new();
+  reg.register_step(String.from("install"), String.from("Build all"));
+  dag := build_dag(reg, String.from("install"));
+  assert(dag.len() == usize(1), "root step only");
+  node := dag(usize(0));
+  assert(node.name == `install`, "root name");
+  assert(node.depends_on.len() == usize(0), "no deps");
+});
+test("build_dag: step with artifact dependencies", {
+  exn := Exception(
+    throw : (
+      (_err) -> {
+        assert(false, "unexpected registry error");
+        unwind(());
+      }
+    )
+  );
+  reg := BuildRegistry.new();
+  reg.register_executable(_mk_artifact(ArtifactKind.Executable, String.from("app"), String.from("./src/main.yo")), exn);
+  reg.register_static_library(_mk_artifact(ArtifactKind.StaticLibrary, String.from("lib-a"), String.from("./src/a.yo")), exn);
+  reg.register_step(String.from("install"), String.from("Build all"));
+  reg.add_step_dependency(String.from("install"), String.from("app"));
+  reg.add_step_dependency(String.from("install"), String.from("lib-a"));
+  dag := build_dag(reg, String.from("install"));
+  assert(dag.len() == usize(3), "install, app, lib-a");
+  assert(_dag_find(dag, String.from("app")).is_some(), "app present");
+  assert(_dag_find(dag, String.from("lib-a")).is_some(), "lib-a present");
+});
+test("build_dag: linked artifacts create edges", {
+  exn := Exception(
+    throw : (
+      (_err) -> {
+        assert(false, "unexpected registry error");
+        unwind(());
+      }
+    )
+  );
+  reg := BuildRegistry.new();
+  reg.register_executable(_mk_artifact(ArtifactKind.Executable, String.from("app"), String.from("./src/main.yo")), exn);
+  reg.register_static_library(_mk_artifact(ArtifactKind.StaticLibrary, String.from("mylib"), String.from("./src/lib.yo")), exn);
+  reg.register_link(String.from("app"), String.from("mylib"));
+  reg.register_step(String.from("install"), String.from("Build all"));
+  reg.add_step_dependency(String.from("install"), String.from("app"));
+  dag := build_dag(reg, String.from("install"));
+  match(
+    _dag_find(dag, String.from("app")),
+    .Some(app_node) => assert(_deps_contain(app_node, String.from("mylib")), "app depends on mylib"),
+    .None => assert(false, "app node missing")
+  );
+});
+test("build_dag: run step depends on its artifact", {
+  exn := Exception(
+    throw : (
+      (_err) -> {
+        assert(false, "unexpected registry error");
+        unwind(());
+      }
+    )
+  );
+  reg := BuildRegistry.new();
+  reg.register_executable(_mk_artifact(ArtifactKind.Executable, String.from("app"), String.from("./src/main.yo")), exn);
+  reg.register_run(String.from("app"), ArrayList(String).new());
+  reg.register_step(String.from("run"), String.from("Run the app"));
+  reg.add_step_dependency(String.from("run"), String.from("run:app"));
+  dag := build_dag(reg, String.from("run"));
+  match(
+    _dag_find(dag, String.from("run:app")),
+    .Some(run_node) => {
+      assert(match(run_node.kind, .Run => true, _ => false), "kind is Run");
+      assert(_deps_contain(run_node, String.from("app")), "run:app depends on app");
+    },
+    .None => assert(false, "run:app node missing")
+  );
+});
+test("build_dag: nested steps are walked transitively", {
+  exn := Exception(
+    throw : (
+      (_err) -> {
+        assert(false, "unexpected registry error");
+        unwind(());
+      }
+    )
+  );
+  reg := BuildRegistry.new();
+  reg.register_executable(_mk_artifact(ArtifactKind.Executable, String.from("app"), String.from("./src/main.yo")), exn);
+  reg.register_step(String.from("compile"), String.from("Compile step"));
+  reg.add_step_dependency(String.from("compile"), String.from("app"));
+  reg.register_step(String.from("install"), String.from("Install step"));
+  reg.add_step_dependency(String.from("install"), String.from("compile"));
+  dag := build_dag(reg, String.from("install"));
+  assert(dag.len() == usize(3), "install, compile, app");
+  match(
+    _dag_find(dag, String.from("install")),
+    .Some(install_node) => assert(_deps_contain(install_node, String.from("compile")), "install depends on compile"),
+    .None => assert(false, "install node missing")
+  );
+});
+test("build_dag: deduplicates shared dependencies", {
+  exn := Exception(
+    throw : (
+      (_err) -> {
+        assert(false, "unexpected registry error");
+        unwind(());
+      }
+    )
+  );
+  reg := BuildRegistry.new();
+  reg.register_static_library(_mk_artifact(ArtifactKind.StaticLibrary, String.from("common"), String.from("./src/common.yo")), exn);
+  reg.register_executable(_mk_artifact(ArtifactKind.Executable, String.from("app-a"), String.from("./src/a.yo")), exn);
+  reg.register_executable(_mk_artifact(ArtifactKind.Executable, String.from("app-b"), String.from("./src/b.yo")), exn);
+  reg.register_link(String.from("app-a"), String.from("common"));
+  reg.register_link(String.from("app-b"), String.from("common"));
+  reg.register_step(String.from("install"), String.from("Build all"));
+  reg.add_step_dependency(String.from("install"), String.from("app-a"));
+  reg.add_step_dependency(String.from("install"), String.from("app-b"));
+  dag := build_dag(reg, String.from("install"));
+  (common_count : usize) = usize(0);
+  (i : usize) = usize(0);
+  while(i < dag.len(), {
+    node := dag(i);
+    if(node.name == `common`, {
+      common_count = (common_count + usize(1));
+    });
+    i = (i + usize(1));
+  });
+  assert(common_count == usize(1), "common appears exactly once");
+});
+test("detect_cycle: no cycle returns None", {
+  dag := ArrayList(DAGNode).new();
+  dag.push(_mk_node(String.from("a"), ArrayList(String).new()));
+  dag.push(_mk_node(String.from("b"), _deps1(String.from("a"))));
+  dag.push(_mk_node(String.from("c"), _deps1(String.from("b"))));
+  assert(detect_cycle(dag).is_none(), "acyclic DAG");
+});
+test("detect_cycle: direct cycle is detected", {
+  dag := ArrayList(DAGNode).new();
+  dag.push(_mk_node(String.from("a"), _deps1(String.from("b"))));
+  dag.push(_mk_node(String.from("b"), _deps1(String.from("a"))));
+  assert(detect_cycle(dag).is_some(), "a <-> b cycle");
+});
+test("detect_cycle: indirect cycle is detected", {
+  dag := ArrayList(DAGNode).new();
+  dag.push(_mk_node(String.from("a"), _deps1(String.from("b"))));
+  dag.push(_mk_node(String.from("b"), _deps1(String.from("c"))));
+  dag.push(_mk_node(String.from("c"), _deps1(String.from("a"))));
+  assert(detect_cycle(dag).is_some(), "a -> b -> c -> a cycle");
+});
+test("detect_cycle: self-loop is detected", {
+  dag := ArrayList(DAGNode).new();
+  dag.push(_mk_node(String.from("a"), _deps1(String.from("a"))));
+  assert(detect_cycle(dag).is_some(), "a -> a self-loop");
+});
