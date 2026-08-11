@@ -103,6 +103,32 @@ repeatedly paid for. The rest of the migration is proven — 15 of 16 jobs green
 including seed → stage-1 → stage-2 ≡ stage-3 byte-identical, the internal-tests
 differential, and the 188-file hollow sweep.
 
+## Instrumented probe: the corruption is UPSTREAM of the totals read (2026-08-11)
+
+A seed-built stage-1 was rebuilt with two `eprintln` probes — one immediately
+after `report := io.await(generate_public_safe_report(…))` in
+`main.yo:1892`, one at the entry of `public_safe_report_to_json`. Running it:
+
+```
+mimalloc: error: thread 0x340007000: corrupted free list entry of size 96b at 0x020000286F00
+```
+
+**Neither probe printed.** The abort happens before the await even returns, so the
+heap is already corrupted *inside* `generate_public_safe_report`'s async body —
+during `_psr_walk_yo_files` / the scan loop / `_scan_file` — and the
+`0xDFDFDFDFDFDFDFDF` totals seen in the non-aborting runs are a DOWNSTREAM
+symptom of that, not the site of the defect. This rules out the call-site
+hypothesis (probe 4 below) as the primary root, and it explains why the
+manifestation varies between runs (silently-wrong counters vs an abort): both are
+consequences of an already-corrupted heap, and which one surfaces depends on
+allocator layout.
+
+Next probe placement should therefore be INSIDE the async body: after the walk
+await, after each `read_string`, and before the `PublicSafeReport(...)`
+construction — bisecting the async body rather than its result. Note each
+iteration costs one ~20-25 min seed-built stage-1 rebuild, so prefer a single
+build carrying several probes over sequential single-probe builds.
+
 ## Minimal-reproducer attempts — what does NOT trigger it (2026-08-11)
 
 Three shapes were tried against both codegens (TS-compiled vs compiled by a
