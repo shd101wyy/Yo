@@ -24,6 +24,14 @@ env:
   # the first release built from the fixed compiler, so it is the first
   # trustworthy seed. install-seed fails hard if the pinned release has no
   # bundle for a leg's target.
+  #
+  # Must name a PUBLISHED release. Releases are created as drafts and flipped
+  # public by the release workflow's publish-release job only after every
+  # required bundle leg uploads (so `latest` can never point at a bundle-less
+  # release) — and a DRAFT release's assets 404 on the public download URL.
+  # Bumping this pin before publish-release has run fails all four
+  # seed-driven jobs at the download, which is exactly what happened on the
+  # first push of this pin.
   SEED_VERSION: v0.2.2
 
 jobs:

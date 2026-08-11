@@ -27,7 +27,7 @@ runs:
         # unrelated `yo` — and the job failed somewhere confusing instead of
         # here. The seed IS the trust-chain root: if it is absent, stop.
         if ! curl -fsSL -o "$RUNNER_TEMP/yo-seed.tar.gz" "$URL"; then
-          echo "::error::No seed bundle for ${T} at ${{ inputs.version }} ($URL). Either the release is missing that leg, or SEED_VERSION points at a tag that predates it. Bump SEED_VERSION to a release whose seed matrix covers this target."
+          echo "::error::No seed bundle for ${T} at ${{ inputs.version }} ($URL). Causes, in order of likelihood: (1) the release is still a DRAFT — releases are created as drafts and published only after every required bundle leg uploads, and a draft's assets 404 on this public download URL; (2) the release genuinely has no bundle for this target; (3) SEED_VERSION points at a tag that predates the leg. Wait for publish-release, or bump SEED_VERSION to a PUBLISHED release whose seed matrix covers this target."
           exit 1
         fi
         # Record the bundle's digest in the log. Not a pin (that needs a
