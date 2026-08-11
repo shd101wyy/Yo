@@ -41,3 +41,23 @@ YO_MAIN_STACK_MB=4096 ./yo-v0.2.0-macos-arm64/bin/yo compile yo-self/main.yo --r
 # macOS: mi_free invalid-pointer errors; Linux: binary produced but
 # tests/comptime.test.yo + tests/fn.test.yo RED under it.
 ```
+
+## Progress (2026-08-11, evening)
+
+The scrutinee-store port landed (`_store_temp_var_to_state_machine_if_needed`
+is real in yo-self; s60 battery fully green incl. FIXPOINT_HOLDS with the
+stores in the emitted C). The stage-2 gate moved but is not closed:
+
+- stage-2-built binary: async_await 162/162 ✓ (was part of the crash class)
+- `comptime.test.yo` / `fn.test.yo`: the binary now SEGVS (exit 11) while
+  COMPILING the generated batch program (`--verbose` shows "batch compile
+  failed (exit 11)"; non-verbose confusingly exits 0 — separate runner bug
+  worth a look). Same family, next layer.
+
+Next: rerun the failing batch with --keep-generated-files (if supported) or
+regenerate it, compile it directly under /tmp/local_s2 vs /tmp/yo-s60 to
+isolate evaluator-vs-codegen phase, then bisect the batch contents. The
+remaining unported family pieces are the match.ts:279 + state-code-gen.ts:1644
+scrutinee-store call-site mirrors and the binding-registration/dispose-skip
+pair (yo-self match.yo has NO SM handling at all — 19 TS call sites total,
+inventory pending).
