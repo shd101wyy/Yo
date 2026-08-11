@@ -102,10 +102,11 @@ jobs:
           git push
           echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
 
-      - name: Publish to npm
-        run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      # npm publishing STOPPED as of v0.2.0 (P2 retires the TS compiler —
+      # the npm package WAS the TS compiler; the native seed bundles below
+      # are the distribution now). Consequence: the npm-based `yo version`
+      # cache cannot see versions >= 0.2.0 until Phase 3 re-points it at
+      # GitHub Releases (SELF_HOSTING_COMPLETION.md Phase 3 item 4).
 
       - name: Build and package VS Code extension
         run: |

@@ -240,7 +240,11 @@ Work items:
 list --remote` reads GitHub Releases (replaces the npm registry), `version
 install X` downloads the bundle into the version cache — shared code path
    with the install scripts per item 2; `.yo-version` pinning semantics
-   unchanged.
+   unchanged. **Urgency raised 2026-08-11: npm publishing stopped at v0.2.0**
+   (the release workflow no longer publishes the package — the npm package
+   WAS the TS compiler), so the npm-based version cache cannot see any
+   version from v0.2.0 on; this item is what restores `yo version
+   install`/`list --remote` for new versions.
 
 **Gate:** fresh VM/container per platform: `curl … | sh` (or `install.bat`),
 then `yo init && yo build test` succeeds with no other toolchain present
