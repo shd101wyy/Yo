@@ -55,7 +55,17 @@ function compileAndRun(source: string): {
       return { code: err.status ?? null, output };
     }
   } finally {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    // Cleanup must not fail a passing test. On Windows, removing a directory
+    // that holds a just-executed binary fails with EBUSY/EPERM while the image
+    // is still mapped (or an AV scanner holds a handle), and `force: true` only
+    // suppresses ENOENT — so this line, not any assertion, failed the Windows
+    // leg of CI. This is the only TS test that RUNS a binary out of its temp
+    // dir, which is why it is the only one that flaked.
+    try {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    } catch {
+      // leave the temp dir behind; the OS reaps it
+    }
   }
 }
 
