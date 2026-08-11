@@ -29,7 +29,8 @@ open(import("std/string"));
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { get_type_string, get_variable_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier, is_function_value_with_only_builtin_yo_inline_function_call, type_key, get_runtime_struct_fields, RuntimeStructField, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, ImplClosureCallInfo, scope_stack_contains } :: import("../utils/index.yo");
 { resolve_some_type_to_concrete } :: import("./closures.yo");
-{ extract_fn_trait_from_type } :: import("../../evaluator/trait_checking.yo");
+{ extract_fn_trait_from_type, type_implements_future } :: import("../../evaluator/trait_checking.yo");
+{ CapturedVariable } :: import("../../evaluator/async/await_analysis_types.yo");
 { generate_comptime_value } :: import("./comptime_value.yo");
 { generate_deferred_drop_expressions, emit_deferred_dup_or_code } :: import("./drop_dup.yo");
 { generate_yo_inline_function_call } :: import("./inline_fns.yo");
@@ -249,11 +250,53 @@ _split_top_level_args_list :: (fn(s : String) -> ArrayList(String))({
 _resolve_var_name_in_context :: (fn(var_name : String, context : FunctionGenerationContext) -> String)(
   var_name
 );
-/// SM temp-var store (Phase 5) — no-op outside a state machine. Mirrors
-/// `storeTempVarToStateMachineIfNeeded`.
-_store_temp_var_to_state_machine_if_needed :: (fn(temp_var : String, indent : String, context : FunctionGenerationContext) -> unit)(
-  ()
-);
+/// SM temp-var store — the REAL port of `storeTempVarToStateMachineIfNeeded`
+/// (other-fn-call.ts:237; was a documented no-op stub until 2026-08-11).
+/// Inside a state machine, a local temp declared as a C local must ALSO be
+/// stored to its `sm->var_<id>` field, or every deferred drop naming that
+/// field is a silent no-op on calloc zero (the async-match-scrutinee leak
+/// family). The stub's absence surfaced as mi_free invalid-pointer crashes
+/// the moment a SELF-BUILT binary compiled the compiler — see
+/// issues/fixed/seed-built-stage1-miscompiles-current-source.md.
+_store_temp_var_to_state_machine_if_needed :: (fn(temp_var : String, indent : String, context : FunctionGenerationContext) -> unit)({
+  if(context.in_async_state_machine.is_none(), return(()));
+  smv := match(
+    context.state_machine_variables,
+    .Some(m) => m,
+    .None => return(())
+  );
+  // Lookup by id key first, then FIRST-MATCH-BY-NAME reading ENTRY fields
+  // (never derive emitted names from map keys — the PR #92 capture lesson).
+  (found : Option(CapturedVariable)) = smv.get(temp_var);
+  if(found.is_none(), {
+    vals := smv.values();
+    (go : bool) = true;
+    while(go, {
+      match(
+        vals.next(),
+        .Some(cv) => if(cv.base.name == temp_var, {
+          found = Option(CapturedVariable).Some(cv);
+          go = false;
+        }),
+        .None => {
+          go = false;
+        }
+      );
+    });
+  });
+  match(
+    found,
+    .None => (),
+    .Some(cv) => {
+      match(cv.kind, .Outer => return(()), .Local => ());
+      // Skip Future-typed temps — their lifecycle is managed by the await
+      // logic (await_future_X fields); storing here would double-free.
+      if(type_implements_future(cv.base.ty), return(()));
+      em := context.base.emitter;
+      em.emit_string_line(`${indent}sm->var_${cv.base.id} = ${sanitize_for_c_identifier(temp_var.clone(), false)};`);
+    }
+  );
+});
 /// The container-pointer C code for an interior `ref` argument (an Index-trait
 /// expression), or `.None`. Mirrors `getInteriorRefContainerCode`.
 _get_interior_ref_container_code :: (fn(arg_expr : AstExpr, param_is_ref : bool, indent : String, context : FunctionGenerationContext) -> Option(String))(
