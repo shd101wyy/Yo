@@ -94,12 +94,30 @@ jobs:
 
       - name: Commit version bump
         id: bump_commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           git add package.json vscode-extension/package.json
           git commit -m "chore: bump version to ${{ steps.version.outputs.version }}"
-          git push
+          # A personal repo's ruleset CANNOT grant the Actions integration a
+          # bypass (HTTP 422 "must be part of the ruleset source or owner
+          # organization"), so a protected develop rejects this direct push.
+          # Fall back to landing the bump via a PR — the maintainer's merge
+          # goes through the existing repository-admin bypass. The bump
+          # commit stays reachable via the side branch, so the seed-bundles
+          # job's checkout-by-SHA still works either way.
+          if git push; then
+            echo "Version bump pushed directly to develop."
+          else
+            BRANCH="release/version-bump-${{ steps.version.outputs.version }}"
+            echo "Direct push rejected by branch protection - opening a version-bump PR via ${BRANCH}."
+            git push -f origin "HEAD:refs/heads/${BRANCH}"
+            gh pr create --base develop --head "${BRANCH}" \
+              --title "chore: bump version to ${{ steps.version.outputs.version }}" \
+              --body "Automated version bump from the release workflow (direct push to develop is blocked by branch protection). Merge before the next release so future bumps start from this version." || true
+          fi
           echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
 
       # npm publishing STOPPED as of v0.2.0 (P2 retires the TS compiler —
