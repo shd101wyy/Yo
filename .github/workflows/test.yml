@@ -93,17 +93,16 @@ jobs:
           cd tmp/hello-world
           node ../../out/cjs/yo-cli.cjs build run
 
-      # Native-Windows build of the self-hosted compiler — the release
-      # workflow's windows-x64 seed leg compiles yo-self/main.yo natively,
-      # and v0.2.0 showed that nothing else exercises that closure on
-      # Windows (POSIX-isms — F_OK, setenv, main-wrapper returns — only
-      # surfaced at release time; the fix is
-      # issues/fixed/windows-native-selfhosted-build-fails.md). GATING (this
-      # PR carries the fix): a regression here blocks PRs instead of
-      # releases. The smoke `check` proves the built binary RUNS (evaluator,
-      # module loading, executable-relative std discovery).
+      # Native build of the self-hosted compiler on EVERY release target —
+      # exactly what the release workflow's seed legs do, so seed-leg
+      # breakage surfaces on PRs instead of at release time. v0.2.0 proved
+      # the need: nothing else exercised the compiler's own closure on
+      # Windows, and its POSIX-isms (F_OK, setenv, main-wrapper returns —
+      # issues/fixed/windows-native-selfhosted-build-fails.md) only showed
+      # up at release time. GATING: a regression here blocks the PR. The
+      # smoke `check` proves the built binary RUNS (evaluator, module
+      # loading, executable-relative std discovery).
       - name: Native self-hosted compiler build (advance seed-leg detection)
-        if: runner.os == 'Windows'
         shell: bash
         run: |
           node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs compile yo-self/main.yo --release --allocator mimalloc -o yo-native-probe
