@@ -303,3 +303,25 @@ on the child-compile-FAILURE error path natively — only reachable when a
 compile fails; tracked in issues/fixed/windows-native-selfhosted-build-fails.md
 (iteration-3 note). Promote the release windows-x64 leg after the next
 release proves it E2E.
+
+## 2.5 — retire `src/`: sequence (written 2026-08-11, blocked on 2.3)
+
+Remaining bun/node consumers once 2.3 lands (inventory):
+
+| consumer                                                               | retire move                                                                                                                |
+| ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| TS unit tests (`bun test`, `src/tests/*.test.ts`)                      | 2.4 already re-expressed the coverage; delete with `src/`                                                                  |
+| internal-tests TS shards (ground truth)                                | ground truth becomes the SEED-built stage-1 (the differential arm keeps its shape; the shards retire)                      |
+| `test` job's `bun run build` + unit-test/fmt/smoke steps via `out/cjs` | replace with the seed binary (`yo fmt --check`, `yo init`+`yo build run` smoke); unit-test step deleted                    |
+| wasm legs (emcc via TS CLI)                                            | drive with the seed binary (`--target wasm32-*` works self-hosted)                                                         |
+| TSan leg                                                               | seed binary compiles the sync tests; no TS involvement needed                                                              |
+| `yo-cli` bash + `yo-cli.ps1` shims                                     | re-point from `node out/cjs/yo-cli.cjs` to the installed native binary (P3 item 2's shim)                                  |
+| `package.json`/`bun.lock`/`build.js`/`out/`/`node_modules`             | delete from root; `vscode-extension/` keeps its own lockfile (stays TS by design)                                          |
+| `scripts/build-site.ts` (docs site, runs under bun)                    | rewrite as a Yo program or keep bun in the RELEASE workflow only (release already needs node for vsce; acceptable)         |
+| `computeDependencyHash` open question                                  | decide with 2.5: the TS-only dep-hash path either ports or the lock format drops it — resolve when deleting `src/fetch.ts` |
+
+Sequence: 2.3 green on a trusted seed → convert the remaining test.yml
+steps job-by-job (each PR keeps the suite green) → freeze `src/` (attic
+tag `src-attic-final`) → delete + root cleanup → re-point shims → 2.6 docs
+sweep (AGENTS.md build/test commands, `.github/instructions/`, skills —
+everything that says `bun run build`).
