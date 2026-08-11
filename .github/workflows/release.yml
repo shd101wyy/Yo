@@ -121,7 +121,8 @@ jobs:
             git push -f origin "HEAD:refs/heads/${BRANCH}"
             gh pr create --base develop --head "${BRANCH}" \
               --title "chore: bump version to ${{ steps.version.outputs.version }}" \
-              --body "Automated version bump from the release workflow (direct push to develop is blocked by branch protection). Merge before the next release so future bumps start from this version." || true
+              --body "Automated version bump from the release workflow (direct push to develop is blocked by branch protection). Merge before the next release so future bumps start from this version." \
+              || echo "::warning::gh pr create failed — open the version-bump PR manually from branch ${BRANCH} (v0.2.0's failed silently on a missing pull-requests:write permission)."
           fi
           echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
 

@@ -92,14 +92,18 @@ jobs:
       # workflow's windows-x64 seed leg compiles yo-self/main.yo natively,
       # and v0.2.0 showed that nothing else exercises that closure on
       # Windows (POSIX-isms — F_OK, setenv, main-wrapper returns — only
-      # surfaced at release time; issues/windows-native-selfhosted-build-fails.md).
-      # NON-GATING until that porting tail is fixed; flip continue-on-error
-      # off once this step is green so regressions block PRs instead of
-      # releases.
+      # surfaced at release time; the fix is
+      # issues/fixed/windows-native-selfhosted-build-fails.md). GATING (this
+      # PR carries the fix): a regression here blocks PRs instead of
+      # releases. The smoke `check` proves the built binary RUNS (evaluator,
+      # module loading, executable-relative std discovery).
       - name: Native self-hosted compiler build (advance seed-leg detection)
         if: runner.os == 'Windows'
-        continue-on-error: true
-        run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs compile yo-self/main.yo --release --allocator mimalloc -o yo-native-probe
+        shell: bash
+        run: |
+          node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs compile yo-self/main.yo --release --allocator mimalloc -o yo-native-probe
+          if [ -f yo-native-probe.exe ]; then PROBE=./yo-native-probe.exe; else PROBE=./yo-native-probe; fi
+          "$PROBE" check std/assert.yo
 
       # `tests/internal` (the compiler's own tests — they import yo-self/ evaluator
       # and codegen internals) is excluded here and runs as its own job below.
