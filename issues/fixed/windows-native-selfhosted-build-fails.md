@@ -30,3 +30,20 @@ With the three classes fixed, the windows CI step reached LINKING and hit
 _mi_thread_local_free` — mimalloc's Windows large-page support needs
 `advapi32`. Added next to the existing ws2_32/bcrypt system libs in BOTH
 compilers (src/codegen/index.ts, yo-self/main.yo).
+
+## Iteration 3 (2026-08-11): the probe BUILT AND RAN natively — two findings
+
+`Successfully compiled to yo-native-probe.exe` + a passing `check` — the
+first native-Windows execution of the self-hosted compiler. Then its own
+compile of the smoke program failed:
+
+1. `LNK1181: cannot open input file 'm.lib'` — yo-self's link line passes
+   `-lm -pthread` unconditionally (TS passes neither for native targets).
+   Now gated `!is_target_windows` (kept on POSIX to avoid touching proven
+   link lines).
+2. **Follow-up (open)**: the step exited rc=139 — the probe appears to
+   SEGV on the C-compiler-failure ERROR path natively on Windows (after
+   clang's exit the driver should rc=1 via exn.throw). Only reachable when
+   a child compile fails; needs a Windows box or the CI step with a
+   deliberately-broken compile to chase. Same family suspicion as the
+   abort-dispose/unwind class.

@@ -1105,8 +1105,14 @@ run_compile :: (
   });
   cmd.arg(String.from("-o"));
   cmd.arg(output.clone());
-  cmd.arg(String.from("-lm"));
-  cmd.arg(String.from("-pthread"));
+  // POSIX-only: MSVC has no m.lib (math lives in the CRT — LNK1181 on the
+  // first native-Windows probe smoke) and -pthread is meaningless there.
+  // (TS passes neither for native targets; kept on POSIX to avoid touching
+  // proven link lines.)
+  if(!(is_target_windows(target)), {
+    cmd.arg(String.from("-lm"));
+    cmd.arg(String.from("-pthread"));
+  });
   // liburing for async I/O (io_uring) on Linux — see `_probe_liburing`. Without
   // it every emitted `io_uring_*` reference is an undefined symbol at link time.
   if(is_target_linux(target), {
