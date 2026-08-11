@@ -32,7 +32,7 @@ open(import("std/string"));
 { get_state_machine_field_name } :: import("./state_machine_naming.yo");
 { Emitter } :: import("../../emitter.yo");
 { emit_async_future_completion, emit_async_future_escape } :: import("../exprs/async_completion.yo");
-{ get_dup_function_for_type } :: import("../exprs/drop_dup.yo");
+{ get_dup_function_for_type, generate_dup_code_for_value } :: import("../exprs/drop_dup.yo");
 /// True when `ty` is an io.async/io.await Future SomeType (vs an extern
 /// `__yo_io_future_t`). Mirrors `isIoFutureType` (state-machine.ts:496).
 ///
@@ -1774,9 +1774,24 @@ _emit_prev_await_result_extraction :: (
         match(
           get_dup_function_for_type(prev_await.result_type, context),
           .Some(dup) => em.emit_string_line(`      ${rt} = ${dup}(sm->${pffn}->result);`),
+          // yo-self synthesizes NO ___dup methods, so get_dup_function_for_type
+          // is ALWAYS None here and TS's fallback — a bare shallow copy — was
+          // yo-self's ONLY path. The copy hands the state-machine slot a
+          // BORROWED reference that the Future's dispose then frees, so every
+          // awaited RC result was a use-after-free waiting for a reader. Lower
+          // the dup INLINE instead, exactly as this compiler lowers every other
+          // dup and drop it has no method for (generate_dup_code_for_value emits
+          // its statements through the same emitter and returns the expression).
+          //
+          // MEASURED: `public-safe-report` under a self-built compiler read its
+          // totals out of freed memory (0xDFDFDFDFDFDFDFDF, mimalloc's freed-block
+          // fill) and corrupted the free list once more than one file was
+          // scanned, because `entries := await fs_walker.walk(...)` — an
+          // ArrayList of RC'd entries — was shallow-copied into its slot. See
+          // issues/fixed/self-built-compiler-uaf-in-report-and-build-paths.md.
           .None => {
-            em.emit_string_line(`      /* Warning: No ___dup function found for result type, shallow copy may cause use-after-free */`);
-            em.emit_string_line(`      ${rt} = sm->${pffn}->result;`);
+            dup_code := generate_dup_code_for_value(`sm->${pffn}->result`, prev_await.result_type, context);
+            em.emit_string_line(`      ${rt} = ${dup_code};`);
           }
         );
       }, {

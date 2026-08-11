@@ -1,10 +1,72 @@
 # A SELF-BUILT compiler has a use-after-free in the report and build paths — 8 cli-cases abort
 
-**Status: OPEN, and it BLOCKS P2.3** (found 2026-08-11 by the first CI run in
-which stage-1 is built by the previous release instead of by TypeScript). This is
-the bug class the 2.3 migration exists to expose: every CI arm until now tested a
-**TS-built** stage-1, so a defect in what the SELF-HOSTED codegen emits for the
-compiler's own sources was invisible.
+**Status: FIXED 2026-08-12** (`yo-self/codegen/async/state_machine.yo` — the
+await-result store now lowers its dup inline). Found 2026-08-11 by the first CI
+run in which stage-1 is built by the previous release instead of by TypeScript:
+exactly the bug class the 2.3 migration exists to expose, because every CI arm
+until then tested a **TS-built** stage-1, so a defect in what the SELF-HOSTED
+codegen emits for the compiler's own sources was invisible.
+
+## Root cause: every awaited RC result was shallow-copied into its slot
+
+When an `await`'s result contains Rc-managed data, the value must be DUPPED into
+the state-machine slot, because the Future's dispose function will drop it and
+the slot needs its own reference. TS does that
+(`src/codegen/async/state-machine.ts:744-755`); its `else` branch — warn and
+shallow-copy — is dead code there, because TS synthesizes `___dup` methods.
+
+yo-self synthesizes **none**, so `get_dup_function_for_type` always returns
+`None` and TS's dead fallback was yo-self's ONLY path. The emitted C says it
+outright:
+
+```c
+/* TS   */ sm->varM_entries = fnM_id_917___dup(sm->await_future_2->result);
+/* self */ /* Warning: No ___dup function found for result type, shallow copy may cause use-after-free */
+           sm->varM_entries = sm->await_future_2->result;
+```
+
+So the slot held a BORROWED reference that dispose then freed — a
+use-after-free at every await of an RC result, waiting for a reader.
+
+**Blast radius (measured):** 44 such sites in the C of a seed-built compiler
+(`grep -c "No ___dup function found" ` on its emitted `.c`), and 7 in the
+standalone driver used for the bisection.
+
+Why `public-safe-report` was where it surfaced: `entries := await
+fs_walker.walk(...)` yields an `ArrayList` of RC'd entries, so the freed buffer
+is proportional to the number of directory entries — which is why the corruption
+scaled with file count (0 files clean, 1 file garbage totals, 2 files free-list
+corruption) and why `unsafe_report.yo`, whose counter loops contain no awaits,
+was unaffected.
+
+## Fix
+
+`state_machine.yo`'s `.None` branch now calls `generate_dup_code_for_value`
+(`yo-self/codegen/exprs/drop_dup.yo:406`) — the inline dup generator this
+compiler already uses for every other dup it has no method for, which emits its
+statements through the same emitter and returns the expression. That makes
+yo-self's semantics equal TS's by inlining, which is the established pattern in
+that file (the value-struct and value-enum dup arms carry the same note).
+
+## Verification
+
+| | before | after |
+| --- | --- | --- |
+| `public-safe-report --json` on 2 files (self-built) | `filesScanned: 16131858542891098079`, free-list corruption | `filesScanned: 2` — byte-identical to TS, 0 mimalloc messages |
+| `scripts/cli-diff-test.sh` (27 cases, self-built stage-1) | PASS 15, DIFF 3, SELF-FAIL 5, BOTH-FAIL 4 | **PASS 27, DIFF 0, SELF-FAIL 0** |
+| `check ./yo-self` | 247/247 | 247/247 |
+| "No ___dup" sites in the driver's emitted C | 7 | 0 (191 inline dup ops) |
+
+## No value-asserting regression test — deliberately
+
+A `tests/*.test.yo` asserting values could not gate this class honestly: under
+the TS compiler it passes either way (TS has the dup), and under a self-built
+compiler the borrowed reference is often still readable — shapes 5 and 6 below
+hit the shallow-copy path and printed correct output anyway. The reliable
+detectors are the ones that caught it: **GATE 7 (the cli-case differential) run
+against a SEED-BUILT stage-1**, which PR #98 makes CI do, plus mimalloc's
+diagnostics on the compiler's own stderr. A test that can pass while broken is
+the failure mode this repo has repeatedly paid for.
 
 ## Symptom
 
