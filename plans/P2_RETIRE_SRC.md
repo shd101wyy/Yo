@@ -267,3 +267,39 @@ mimalloc`), smoke-tests it from OUTSIDE the checkout
 2.1 (seed release) is the maintainer's cut — everything else here can land
 first. The practical order: finish 2.2 (self-build verified both ways) →
 2.4 ports → 2.3 CI swap on a seed release → 2.5 retire → 2.6 docs.
+
+## 2.3 — CI migration: the seed replaces bun/node (campaign design, started 2026-08-11, branch `p2/ci-migration`)
+
+Prereqs all DONE: seed v0.2.0 shipped (self-locating bundles), repo-root
+`yo build` verified, all five targets prove the native build on PRs
+(PR #95). Pin `SEED_VERSION: v0.2.0` once at the top of test.yml; bump it
+each release.
+
+Common step (per job/leg): download
+`yo-$SEED_VERSION-<target>.tar.gz` from the GitHub Release, extract, put
+`bin/` on PATH — no YO_STD needed (bundles self-locate). Target mapping
+follows the seed matrix (ubuntu-latest→linux-x64, ubuntu-24.04-arm→
+linux-arm64, macos-latest→macos-arm64, macos-26-intel→macos-x64,
+windows-latest→windows-x64).
+
+Job-by-job treatment:
+
+| job                                     | 2.3 change                                                                                                                                                                                                                    |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `test` (5 legs)                         | bun STAYS for the TS unit tests until 2.5. The native-probe step switches its builder: seed `yo build` compiles yo-self (previous release builds current compiler — the real trust-chain dogfood) instead of the TS compiler. |
+| `bootstrap-fixpoint` + stage-3          | stage-1 built by the SEED (`yo build`), not TS. Chain becomes: previous release → stage-1 → stage-2 ≡ stage-3.                                                                                                                |
+| self-hosted tier-1 gates                | stage-1 via seed.                                                                                                                                                                                                             |
+| internal-tests self-hosted differential | stage-1 via seed; the TS shards stay as ground truth until 2.5.                                                                                                                                                               |
+| hollow sweep                            | stage-1 via seed.                                                                                                                                                                                                             |
+| wasm / TSan legs                        | unchanged until 2.5 (TS-driven).                                                                                                                                                                                              |
+| vscode-extension packaging              | keeps bun forever (by design).                                                                                                                                                                                                |
+
+Gate for 2.3: all self-hosted arms green with NO TS involvement in their
+stage-1 builds. The "no bun/node anywhere" gate is 2.5's, not 2.3's — the
+TS unit tests and TS differential arms retire together with src/.
+
+Windows follow-up (from the PR #95 iterations): the probe SEGVs (rc=139)
+on the child-compile-FAILURE error path natively — only reachable when a
+compile fails; tracked in issues/fixed/windows-native-selfhosted-build-fails.md
+(iteration-3 note). Promote the release windows-x64 leg after the next
+release proves it E2E.
