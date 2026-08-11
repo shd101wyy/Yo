@@ -134,3 +134,34 @@ RC_POLICY_MECHANISM_SPLIT policy-patch family).
 Key artifacts: /tmp/v2.yo (6-line crash repro, stage-2 rc=139),
 /tmp/fn_ts.c + /tmp/fn_s2.c (the diverging emitted bodies), /tmp/local_s2 +
 /tmp/yo-s60 (binaries), /tmp/ts_stage1.c + /tmp/local_stage2.c (full C).
+
+## Analysis trail (2026-08-11, night — for the instrumentation session)
+
+- The buggy escape block (full view, /tmp/fn_s2_full.c lines 40-60) drops
+  BOTH `arg_expr` (raw decr — ref-typed, so the entry genuinely targets the
+  BINDING) AND `arg_expr_opt`'s payload (inline Option switch) — same node,
+  twice. TS drops only the two Options. The delta is exactly ONE extra
+  entry: drop(arg_expr). It recurs at ~10 escape points in the fn.
+- Ruled out: yo-self's `_resolve_drop_target_in_scope` is a faithful port
+  (identity-based); bindings are CREATED non-owning in both evaluators
+  (match.ts:921/972 `isOwningTheRcValue: false`; match.yo:2100/2138 pass
+  false); BOTH sides have the all-cases-own propagation (expr.ts:2223-2233,
+  utils.yo:1592-1595) — so no obvious one-sided flip.
+- Mini repros do NOT reproduce (mini/mini2/mini3 in /tmp — arm binding +
+  throwing call + reuse + nested-match template throw all emit correct
+  escape drops under BOTH codegens). The trigger is something else in
+  comptime_assert.yo's arm (candidates: the `(x : Option(T)) = match(...)`
+  TYPED fn-level declarations; is_comptime scrutinee flag; the arm being
+  inside `if(validating || !executing)`; interaction with the all-cases-own
+  merge across the arm's NESTED match).
+- NEXT (do this first): instrument — in yo-self/codegen/exprs/return.yo's
+  generate_pending_deferred_drops, before emission, eprintln each kept
+  drop's `get_deferred_drop_target_atom_name` WHEN it equals "arg_expr",
+  plus whether the entry came from pending vs expr-info; rebuild stage-1
+  (TS-built, ~10 min), fixpoint stage-2 emit of yo-self, and observe which
+  path emits it. Also instrument the all-cases-own flip (utils.yo:1593) to
+  eprintln when it flips a var named "arg_expr" — if it fires during the
+  stage-2 emit's EVALUATION of comptime_assert.yo, compare with a matching
+  console.log in expr.ts:2223 under `./yo-cli check
+yo-self/evaluator/builtins/comptime_assert.yo`. REVERT instrumentation
+  after.
