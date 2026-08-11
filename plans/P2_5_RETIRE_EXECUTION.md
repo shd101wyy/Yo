@@ -426,7 +426,7 @@ Both cost a CI cycle and neither is discoverable from the code:
   | binary | emits correctly? | is correct? |
   | --- | --- | --- |
   | old seed | no | yes (it was TS-built) |
-  | stage-1 built BY the old seed from fixed sources | **yes** | **no** |
+  | stage-1 built BY the old seed from fixed sources | **yes** | **no** — the 27-case corpus scores PASS 15 / DIFF 3 / SELF-FAIL 5 / BOTH-FAIL 4, IDENTICAL to pre-fix |
   | stage-1 built by TS from fixed sources | yes | yes |
   | stage-1 built by a seed cut AFTER the fix | yes | yes |
 
