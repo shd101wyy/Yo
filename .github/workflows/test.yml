@@ -118,7 +118,18 @@ jobs:
           "$PROBE" check std/assert.yo
           mkdir -p tmp/native-probe-smoke && cd tmp/native-probe-smoke
           printf '%s\n' 'open(import("std/fmt"));' 'main :: (fn() -> unit)(println("native probe smoke"));' 'export(main);' > hello.yo
-          "../../${PROBE#./}" compile hello.yo --release -o hello
+          "../../${PROBE#./}" compile hello.yo --release -o hello 2>compile.err || { cat compile.err; exit 1; }
+          cat compile.err
+          # The probe is built with mimalloc, so mimalloc's own diagnostics are
+          # a free correctness gate on the compiler's std usage: a pointer that
+          # crossed allocators (e.g. a libc-malloc'd realpath buffer released
+          # through GlobalAllocator) prints "mi_free: invalid pointer" and leaks
+          # instead of crashing, so rc=0 hides it. v0.2.0/v0.2.1 shipped exactly
+          # that — issues/fixed/current-exe-realpath-cross-allocator-free.md.
+          if grep -q "mimalloc: error" compile.err; then
+            echo "::error::The compiler reported allocator errors on its own stderr (cross-allocator free)."
+            exit 1
+          fi
           if [ -f hello.exe ]; then OUT=$(./hello.exe); else OUT=$(./hello); fi
           echo "smoke output: $OUT"
           test "$OUT" = "native probe smoke"

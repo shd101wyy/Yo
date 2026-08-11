@@ -2,7 +2,6 @@
 //! 1:1 port of `src/evaluator/exprs/while.ts` (Phase 2ad).
 //!
 //! Phase 2 stubs:
-//!   - MAX_COMPTIME_LOOP_ITERATIONS is fixed at 10000 (no env var support)
 //!   - Comptime while loop unrolling with runtime body (cloneExpr path) deferred to Phase 3
 //!
 //! Exported symbols: evaluate_while
@@ -45,14 +44,50 @@ open(import("std/string"));
 { evaluate_begin_expression } :: import("./begin.yo");
 { evaluate_expression_raw } :: import("./expr.yo");
 { Exception } :: import("std/error");
+// `env` is the Environment parameter name throughout this file, so std/env's
+// process-environment namespace is bound under a different name (main.yo:19
+// does the same).
+_(env : proc_env) :: import("std/env");
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-/// Maximum number of compile-time while loop iterations before bailing out.
-///
-/// Phase 2 stub: fixed at 10000 (no YO_MAX_COMPTIME_LOOP_ITERATIONS env var).
-/// Mirrors the `MAX_COMPTIME_LOOP_ITERATIONS` IIFE in `src/evaluator/exprs/while.ts`.
-MAX_COMPTIME_LOOP_ITERATIONS :: usize(10000);
+/// Default maximum number of compile-time while loop iterations before bailing
+/// out. Mirrors the `MAX_COMPTIME_LOOP_ITERATIONS` IIFE in
+/// `src/evaluator/exprs/while.ts:34-41`.
+DEFAULT_MAX_COMPTIME_LOOP_ITERATIONS :: usize(10000);
+/// Memoized resolution of the limit. Read once per process: the limit is tested
+/// once per unrolled iteration, so a fresh `env.get` per test would allocate a
+/// String up to `limit` times per comptime loop.
+(_g_max_comptime_loop_iterations : Option(usize)) = Option(usize).None;
+/// The effective limit: `YO_MAX_COMPTIME_LOOP_ITERATIONS` when it parses as a
+/// positive integer, else the default — the behavior the two "To increase the
+/// limit, set the YO_MAX_COMPTIME_LOOP_ITERATIONS environment variable" halves
+/// of `_throw_max_iterations_error` promise. (TS uses `parseInt`, which also
+/// accepts trailing garbage such as `12abc`; `parse_u64` rejects it and falls
+/// back to the default. Rejecting a malformed value is the safer half of that
+/// divergence.)
+max_comptime_loop_iterations :: (fn() -> usize)(
+  match(
+    _g_max_comptime_loop_iterations,
+    .Some(cached) => cached,
+    .None => {
+      resolved := match(
+        proc_env.get(String.from("YO_MAX_COMPTIME_LOOP_ITERATIONS")),
+        .None => DEFAULT_MAX_COMPTIME_LOOP_ITERATIONS,
+        .Some(raw) => match(
+          raw.parse_u64(),
+          .None => DEFAULT_MAX_COMPTIME_LOOP_ITERATIONS,
+          .Some(parsed) => cond(
+            (parsed > u64(0)) => usize(parsed),
+            true => DEFAULT_MAX_COMPTIME_LOOP_ITERATIONS
+          )
+        )
+      );
+      _g_max_comptime_loop_iterations = Option(usize).Some(resolved);
+      resolved
+    }
+  )
+);
 // ---------------------------------------------------------------------------
 // Phase 0 of plans/FORMAL_VERIFICATION.md §A2: loop invariants must appear as
 // the first statement of the loop body. 1:1 port of
@@ -184,7 +219,7 @@ _throw_max_iterations_error :: (
 )({
   possible := _body_has_any_terminator_possible(body_expr, body_info_cf);
   // Store in local variable to avoid taking address of rvalue literal in C codegen.
-  limit := MAX_COMPTIME_LOOP_ITERATIONS;
+  limit := max_comptime_loop_iterations();
   err_msg := cond(
     possible =>
       `Compile-time while loop exceeded the maximum iteration count (${limit.to_string()}). The loop body contains a conditional \`break\`, \`return\`, or \`unwind\`, but the loop did not terminate within the limit.\nIf this is an infinite runtime loop, use \`while true, { ... }\` instead.\nTo increase the limit, set the YO_MAX_COMPTIME_LOOP_ITERATIONS environment variable.`,
@@ -653,7 +688,10 @@ evaluate_while :: (
       (cond_still_true : bool) = match(next_cond_val, .Some(v) => match(v, .BoolVal(b) => b, _ => false), .None => false);
       (unroll_iter : usize) = usize(1);
       (unroll_abort : bool) = false;
-      while((cond_still_true && (unroll_iter < MAX_COMPTIME_LOOP_ITERATIONS)) && !(unroll_abort), {
+      // Hoisted: the limit is memoized, but reading it once per loop keeps the
+      // per-iteration condition a plain comparison.
+      unroll_limit := max_comptime_loop_iterations();
+      while((cond_still_true && (unroll_iter < unroll_limit)) && !(unroll_abort), {
         cloned_body := clone_expr_fresh_ids(body_expr);
         old_loop_body_u := ctx.is_evaluating_loop_body;
         ctx.is_evaluating_loop_body = Option(LoopBodyCtx).Some(LoopBodyCtx(kind : LoopKind.While, env : current_env, entry_frame_count : current_env.frames.len()));
@@ -741,7 +779,7 @@ evaluate_while :: (
   // recurse to evaluate the next iteration.
   if(eff_cond_is_true_main, {
     next_count := (comptime_iteration_count + usize(1));
-    if(next_count >= MAX_COMPTIME_LOOP_ITERATIONS, {
+    if(next_count >= max_comptime_loop_iterations(), {
       _throw_max_iterations_error(expr, body_expr, body_info.control_flow, exn);
     });
     return(recur(expr, env, ctx, next_count, exn));

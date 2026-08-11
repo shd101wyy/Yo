@@ -1,3 +1,23 @@
+> **RESOLVED 2026-08-11 — MEASURED, with the check itself controlled.** The
+> self-hosted formatter now agrees with the TS-formatted committed tree on
+> **all 865 `.yo` files** in `std/ tests/ yo-self/`: `fmt --check` over the three
+> trees exits 0 with no output (stage-1 built from `p2/retire-prep`). Because a
+> vacuous `--check` would look identical, two negative controls were run: a
+> deliberately misformatted standalone file reports `would format:` and rc=1,
+> and a misformatted file PLANTED inside `tests/` is found by the tree walk
+> (proving the walker visits files rather than skipping them).
+>
+> So the specific fear recorded below — "once `src/` is retired the self-hosted
+> formatter becomes canonical and the first `yo fmt` would silently restyle
+> hundreds of files" — is no longer true, and GATE 6 can become `yo fmt --check`
+> plus an idempotence check without a permanently-red gate. The remaining
+> residuals for a STABLE cli-case are unrelated to output: `formatter.yo`'s
+> `FormatYoFilesOptions.cwd` is dead, and the walked file list is neither sorted
+> nor deduped — see plans/P2_5_RETIRE_EXECUTION.md step 14.
+>
+> Kept for its reproduction recipe and its "why this was never caught" lesson,
+> which still applies to every self-referential gate.
+
 # yo-self's formatter diverges from the TS reference on ~315 files
 
 **Found 2026-08-08** by the first-ever `fmt` differential between the two
