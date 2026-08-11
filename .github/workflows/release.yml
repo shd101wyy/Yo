@@ -214,15 +214,26 @@ jobs:
           - os: ubuntu-latest
             target: linux-x64
             experimental: false
+          # linux-arm64 promoted: green on its first v0.2.0 run.
           - os: ubuntu-24.04-arm
             target: linux-arm64
-            experimental: true
+            experimental: false
           - os: macos-latest
             target: macos-arm64
             experimental: false
-          - os: macos-13
+          # macos-x64 runs on macos-26-intel — the LAST Intel macOS GitHub
+          # offers (macos-13 was retired; the v0.2.0 macos-13 leg sat queued
+          # forever). Experimental until it produces a green bundle; when
+          # GitHub retires this label too, drop the leg (Apple is sunsetting
+          # Intel macOS) and Intel-Mac users build from source.
+          - os: macos-26-intel
             target: macos-x64
             experimental: true
+          # windows-x64 stays experimental: the v0.2.0 leg surfaced the
+          # anticipated porting tail (POSIX-isms in the compiler's own
+          # closure — see issues/windows-native-selfhosted-build-fails.md);
+          # the windows CI job now builds the native compiler non-gating to
+          # catch regressions ahead of release time.
           - os: windows-latest
             target: windows-x64
             experimental: true

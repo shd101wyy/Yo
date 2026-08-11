@@ -107,16 +107,20 @@ outputs/exit codes/effects against the TS CLI (`scripts/bootstrap/` style).
 
 ## Phase 2 — retire `src/` and the bun/node toolchain — **IN PROGRESS**
 
-> **Working doc: [`P2_RETIRE_SRC.md`](P2_RETIRE_SRC.md)** (branch
-> `p2/self-build`). Status 2026-08-10: **2.1 workflow landed** (release.yml
-> `seed-bundles` job — awaiting the maintainer's dispatch), **2.2 DONE**
-> (repo-root build.yo verified both ways), **2.4 ports landed** (inventory in
-> the P2 doc, incl. `unsafe-report`/`public-safe-report`), 2.3/2.5/2.6
-> blocked on the seed dispatch. Bonus groundwork for 2.3/P3: std-root
-> resolution reworked in BOTH compilers (`--std-path` flag → `YO_STD` →
-> exe-relative walk-up via new `std/env.current_exe()` → `./std`), so the
-> release bundles are **self-locating** — no env wiring needed by CI or the
-> installer.
+> **Working doc: [`P2_RETIRE_SRC.md`](P2_RETIRE_SRC.md).** Status
+> 2026-08-11: **2.1 DONE — the bootstrap seed exists**
+> (https://github.com/shd101wyy/Yo/releases/tag/v0.2.0:
+> `yo-v0.2.0-{linux-x64,linux-arm64,macos-arm64}.tar.gz`; npm publishing
+> stopped with this release; macos-x64 moved to the `macos-26-intel`
+> runner — the last Intel label GitHub offers; windows-x64 is the known
+> porting tail,
+> issues/windows-native-selfhosted-build-fails.md). **2.2 DONE** (repo-root
+> build.yo verified both ways; `TestSuite.exclude` landed via PR #94).
+> **2.4 DONE** (inventory in the P2 doc). **2.3 (CI migration) is UNBLOCKED
+> and next**; 2.5/2.6 follow it. Groundwork already in: std-root resolution
+> reworked in BOTH compilers (`--std-path` flag → `YO_STD` → exe-relative
+> walk-up via `std/env.current_exe()` → `./std`), so the bundles are
+> **self-locating** — CI consumers just extract and put `bin/` on PATH.
 
 The self-hosting trust chain has to move off TypeScript before `src/` can go.
 
