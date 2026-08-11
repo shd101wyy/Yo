@@ -98,6 +98,20 @@ jobs:
           cd vscode-extension
           npm version ${{ inputs.bump }} --no-git-tag-version
 
+      # The self-hosted compiler carries its own copy of the version: TS derives
+      # it from package.json (src/version.ts:21) but yo-self cannot read a JSON
+      # file at build time, so `yo-self/version.yo` hardcodes it. Left to drift
+      # it went stale by a whole minor series (0.1.23 while package.json said
+      # 0.2.1), which surfaces in the `.yo-version` diagnostics that quote the
+      # current version as their example — and it becomes the release's version
+      # source of truth once package.json is deleted (P2.5 blocker B5).
+      - name: Bump version in yo-self/version.yo
+        run: |
+          NEW_VERSION="${{ steps.version.outputs.version }}"
+          perl -pi -e "s/^CURRENT_YO_VERSION :: \".*\";/CURRENT_YO_VERSION :: \"$NEW_VERSION\";/" yo-self/version.yo
+          grep -q "CURRENT_YO_VERSION :: \"$NEW_VERSION\";" yo-self/version.yo
+          echo "yo-self/version.yo now pins $NEW_VERSION"
+
       - name: Build
         run: bun run build
 
@@ -116,7 +130,7 @@ jobs:
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          git add package.json vscode-extension/package.json
+          git add package.json vscode-extension/package.json yo-self/version.yo
           git commit -m "chore: bump version to ${{ steps.version.outputs.version }} [skip ci]"
           # A personal repo's ruleset CANNOT grant the Actions integration a
           # bypass (HTTP 422 "must be part of the ruleset source or owner
@@ -331,7 +345,18 @@ jobs:
           # binary cannot resolve an MSYS /c/... path); elsewhere it fails and
           # plain pwd is used.
           YO_STD=$(cd "$BUNDLE_DIR/std" && (pwd -W 2>/dev/null || pwd))
-          YO_STD="$YO_STD" "$YO" compile hello.yo --release -o hello
+          YO_STD="$YO_STD" "$YO" compile hello.yo --release -o hello 2>compile.err || { cat compile.err; exit 1; }
+          cat compile.err
+          # The bundle's binary is built with mimalloc, whose diagnostics are a
+          # correctness gate the release should not ship past: a pointer that
+          # crossed allocators inside the compiler's own std usage prints
+          # "mi_free: invalid pointer" and leaks rather than crashing, so rc=0
+          # hides it. v0.2.0 and v0.2.1 both shipped that (two per compile) —
+          # issues/fixed/current-exe-realpath-cross-allocator-free.md.
+          if grep -q "mimalloc: error" compile.err; then
+            echo "::error::The bundled compiler reported allocator errors on its own stderr — refusing to ship this bundle."
+            exit 1
+          fi
           if [ -f hello.exe ]; then OUT=$(./hello.exe); else OUT=$(./hello); fi
           echo "smoke output: $OUT"
           test "$OUT" = "hello from the yo seed"

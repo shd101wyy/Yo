@@ -365,7 +365,7 @@ Two more scoping facts:
   canonicalizing, so a raw "would format" count conflates real spacing bugs with
   benign line-breaking differences — which is why the measurement above compares
   BOTH formatters' output on the same input instead of counting `--check` hits.
-  [`issues/yo-self-formatter-diverges-from-ts.md`](../issues/yo-self-formatter-diverges-from-ts.md)
+  [`issues/fixed/yo-self-formatter-diverges-from-ts.md`](../issues/fixed/yo-self-formatter-diverges-from-ts.md)
 
 - **Depth-8 RC cap** — `_type_contains_rc_inner` returns `false` past 8 levels
   where TS uses an unbounded visited set, so an object nested >8 aggregate levels
