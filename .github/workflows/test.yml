@@ -16,7 +16,15 @@ env:
   # 2.3 CI migration (P2_RETIRE_SRC.md §2.3): the previous release (the
   # bootstrap seed) builds stage-1 in every self-hosted job — the trust
   # chain is "previous release builds current compiler". Bump each release.
-  SEED_VERSION: v0.2.0
+  #
+  # MUST be a release whose seed can build the CURRENT yo-self. v0.2.0 and
+  # v0.2.1 CANNOT: a codegen bug in them miscompiles current sources into a
+  # stage-1 that fails comptime/fn and crashes in mi_free
+  # (issues/fixed/seed-built-stage1-miscompiles-current-source.md). v0.2.2 is
+  # the first release built from the fixed compiler, so it is the first
+  # trustworthy seed. install-seed fails hard if the pinned release has no
+  # bundle for a leg's target.
+  SEED_VERSION: v0.2.2
 
 jobs:
   test:
