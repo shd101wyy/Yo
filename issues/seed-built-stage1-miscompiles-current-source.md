@@ -108,3 +108,29 @@ NEXT: instrument/inspect `generate_pending_deferred_drops`'s target
 resolution in return.yo for this shape; the extracted bodies are in
 /tmp/fn_ts.c and /tmp/fn_s2.c; rebuild s61 + rerun /tmp/v2.yo emit under a
 fresh stage-2 to verify any fix (then comptime/fn tests + sweep + fixpoint).
+
+## Minimization status (handoff)
+
+Two mini attempts (/tmp/mini.yo, /tmp/mini2.yo: ref-enum Option binding, arm
+calls a throwing fn, single/double binding use) do NOT reproduce — both
+codegens emit only temp drops in the arm's escape block, never the binding.
+The real comptime_assert arm differs in: the binding is used in a LATER
+nested exn.throw inside a TEMPLATE STRING (`${ast_expr_to_string(arg_expr)}`),
+there are TWO fn-level Option locals (arg_expr_opt/msg_expr_opt) whose
+fn-level deferred drops stack with the arm's, and the arm's begin holds
+multiple := declarations. Next repro attempt should copy the arm shape
+verbatim (nested match + conditional throw using the binding in a template).
+
+Alternative (likely faster): compare the EVALUATOR-side drop sets directly —
+run both compilers on yo-self/evaluator/builtins/comptime_assert.yo alone
+(check/emit) with a temporary debug print of deferred_drop_expressions for
+the `.Some(arg_expr)` arm's begin (TS: log in match.ts/begin.ts where
+deferredDropExpressions is read; yo-self: eprintln in codegen/exprs/match.yo
+generate_case_body where cur_drops is read), and diff the entry lists. If
+the LISTS match, the bug is yo-self's codegen-side emission (drop-target
+name resolution); if they differ, it is evaluator drop policy (the
+RC_POLICY_MECHANISM_SPLIT policy-patch family).
+
+Key artifacts: /tmp/v2.yo (6-line crash repro, stage-2 rc=139),
+/tmp/fn_ts.c + /tmp/fn_s2.c (the diverging emitted bodies), /tmp/local_s2 +
+/tmp/yo-s60 (binaries), /tmp/ts_stage1.c + /tmp/local_stage2.c (full C).
