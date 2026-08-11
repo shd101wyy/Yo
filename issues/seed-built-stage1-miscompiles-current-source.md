@@ -61,3 +61,50 @@ remaining unported family pieces are the match.ts:279 + state-code-gen.ts:1644
 scrutinee-store call-site mirrors and the binding-registration/dispose-skip
 pair (yo-self match.yo has NO SM handling at all — 19 TS call sites total,
 inventory pending).
+
+## ROOT CAUSE ISOLATED (2026-08-11, late)
+
+Minimal repro (`/tmp/v2.yo`, stage-2 rc=139, stage-1 rc=0):
+
+```rust
+main :: (fn() -> unit)({
+  io :: __yo_builtin_io;
+  begin(comptime_expect_error(comptime_assert(i32 == i32, "x")), ());
+});
+```
+
+Probes: `comptime_expect_error(comptime_assert(false, "boom"))` OK, bare
+`comptime_expect_error(i32 == i32)` OK, undefined-name OK — the throw must
+happen INSIDE `evaluate_comptime_assert`'s ARG evaluation.
+
+Function-body diff between the TS-emitted C (`/tmp/ts_stage1.c:502451`) and
+the yo-self-emitted C (`/tmp/local_stage2.c:1044848`, `yo_id_369945`) of
+`evaluate_comptime_assert` (yo-self/evaluator/builtins/comptime_assert.yo:38),
+at the `__yo_effect_escaped` early-return after
+`evaluate_expression(arg_expr, ...)`:
+
+```c
+// TS (correct):
+fn_..___drop(msg_expr_opt);
+fn_..___drop(arg_expr_opt);      // drops the OWNING Option locals
+
+// yo-self (the bug):
+__yo_decr_rc((void*)(arg_expr)); // drops the BORROWED match binding (.Some(arg_expr) =>)
+switch (msg_expr_opt.tag) { case SOME: __yo_decr_rc(msg_expr_opt.data.Some.value); ... }
+```
+
+The borrowed `arg_expr` (bound by `.Some(arg_expr) =>` with no dup) gets a
+raw decr — over-drop → the AST node dies → codegen later walks it
+(`expr_contains_return_statement` reading `e->tag` at offset 0x40) → SEGV.
+This is the escape-cleanup borrow-binding class: TS guards with
+`resolveDropTargetInScope` (return.ts ~line 336: "match the drop target by
+variable identity, not just name — a match-arm payload borrow must not
+stand in for the outer variable"). Suspect either `_keep_pending_drop` /
+the drop-target C-name resolution in `yo-self/codegen/exprs/return.yo`
+resolving the pending drop (which TS resolves to `arg_expr_opt`) to the
+inner binding, or the inline drop generator choosing the binding name.
+
+NEXT: instrument/inspect `generate_pending_deferred_drops`'s target
+resolution in return.yo for this shape; the extracted bodies are in
+/tmp/fn_ts.c and /tmp/fn_s2.c; rebuild s61 + rerun /tmp/v2.yo emit under a
+fresh stage-2 to verify any fix (then comptime/fn tests + sweep + fixpoint).
