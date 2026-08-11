@@ -12,6 +12,12 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # 2.3 CI migration (P2_RETIRE_SRC.md §2.3): the previous release (the
+  # bootstrap seed) builds stage-1 in every self-hosted job — the trust
+  # chain is "previous release builds current compiler". Bump each release.
+  SEED_VERSION: v0.2.0
+
 jobs:
   test:
     runs-on: ${{ matrix.os }}
@@ -170,20 +176,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y liburing-dev time
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+      # 2.3 CI migration (P2_RETIRE_SRC.md §2.3): NO bun/node in this job —
+      # the SEED (previous release) builds stage-1. The trust chain becomes
+      # previous release → stage-1 → stage-2 ≡ stage-3.
+      - name: Install the seed compiler (previous release)
+        uses: ./.github/actions/install-seed
         with:
-          bun-version: latest
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-
-      - name: Install dependencies
-        run: |
-          bun install
-          bun run build
+          version: ${{ env.SEED_VERSION }}
 
       # The whole chain runs on the bundled mimalloc: glibc malloc inflates
       # the emit's RSS ~72% over its live set (15.5 GB observed vs 9.0 GB
@@ -193,9 +192,12 @@ jobs:
       # --allocator flag changes the emitted C (a small __yo_malloc →
       # mi_malloc header block), so BOTH emit commands pass it and the
       # fixpoint compares mimalloc-flavored C on both sides (verified to
-      # hold locally).
-      - name: "Stage 1: build the self-hosted compiler with the TS compiler"
-        run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs compile yo-self/main.yo --release --allocator mimalloc -o /tmp/yo-stage1
+      # hold locally). Stage-1 is now itself a self-hosted emit (the seed),
+      # so it runs niced with the zswap prep the stage-2 emit uses.
+      - name: "Stage 1: build the self-hosted compiler with the SEED (previous release)"
+        run: |
+          echo Y | sudo tee /sys/module/zswap/parameters/enabled || true
+          nice -n 10 env YO_MAIN_STACK_MB=4096 yo compile yo-self/main.yo --release --allocator mimalloc -o /tmp/yo-stage1
 
       # Memory plan for the emits (measured 2026-08-04, handoff doc §1):
       # the emit holds ~9 GB live but TOUCHES ~28 GB (stage-2) / ~39 GB
@@ -352,13 +354,20 @@ jobs:
         with:
           node-version: "24"
 
+      # bun stays: the gates' differential corpus runs the TS CLI as ground
+      # truth (until 2.5). Only stage-1's BUILDER changes to the seed.
       - name: Install dependencies
         run: |
           bun install
           bun run build
 
-      - name: "Stage 1: build the self-hosted compiler with the TS compiler"
-        run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs compile yo-self/main.yo --release -o /tmp/yo-stage1
+      - name: Install the seed compiler (previous release)
+        uses: ./.github/actions/install-seed
+        with:
+          version: ${{ env.SEED_VERSION }}
+
+      - name: "Stage 1: build the self-hosted compiler with the SEED (previous release)"
+        run: YO_MAIN_STACK_MB=4096 nice -n 10 yo compile yo-self/main.yo --release --allocator mimalloc -o /tmp/yo-stage1
 
       # YO_MAIN_STACK_MB: compiled Yo programs run main on a worker thread whose
       # stack defaults to 1 GiB; the self-hosted compiler's deep comptime
@@ -540,13 +549,15 @@ jobs:
         with:
           node-version: "24"
 
-      - name: Install dependencies
-        run: |
-          bun install
-          bun run build
+      # 2.3: NO bun/node — this job runs only the self-hosted binary; the
+      # SEED builds stage-1.
+      - name: Install the seed compiler (previous release)
+        uses: ./.github/actions/install-seed
+        with:
+          version: ${{ env.SEED_VERSION }}
 
-      - name: "Stage 1: build the self-hosted compiler with the TS compiler"
-        run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs compile yo-self/main.yo --release -o /tmp/yo-stage1
+      - name: "Stage 1: build the self-hosted compiler with the SEED (previous release)"
+        run: YO_MAIN_STACK_MB=4096 nice -n 10 yo compile yo-self/main.yo --release --allocator mimalloc -o /tmp/yo-stage1
 
       - name: Run tests/internal under the self-hosted binary (differential)
         env:
@@ -733,23 +744,15 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y liburing-dev
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+      # 2.3: NO bun/node — the sweep scores only the self-hosted binary; the
+      # SEED builds stage-1.
+      - name: Install the seed compiler (previous release)
+        uses: ./.github/actions/install-seed
         with:
-          bun-version: latest
+          version: ${{ env.SEED_VERSION }}
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-
-      - name: Install dependencies
-        run: |
-          bun install
-          bun run build
-
-      - name: "Stage 1: build the self-hosted compiler with the TS compiler"
-        run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs compile yo-self/main.yo --release -o /tmp/yo-stage1
+      - name: "Stage 1: build the self-hosted compiler with the SEED (previous release)"
+        run: YO_MAIN_STACK_MB=4096 nice -n 10 yo compile yo-self/main.yo --release --allocator mimalloc -o /tmp/yo-stage1
 
       - name: Sweep every language test file through the self-hosted binary
         env:

@@ -1,0 +1,37 @@
+name: Install the Yo seed compiler
+description: >
+  Download the pinned previous-release native bundle (P2_RETIRE_SRC.md §2.3)
+  and put its bin/ on PATH. Bundles are self-locating (no YO_STD needed).
+inputs:
+  version:
+    description: Seed release tag (e.g. v0.2.0)
+    required: true
+outputs:
+  installed:
+    description: "'true' if installed; 'false' when no bundle exists for this platform"
+    value: ${{ steps.install.outputs.installed }}
+runs:
+  using: composite
+  steps:
+    - id: install
+      shell: bash
+      run: |
+        case "${{ runner.os }}-${{ runner.arch }}" in
+          Linux-X64) T=linux-x64 ;;
+          Linux-ARM64) T=linux-arm64 ;;
+          macOS-ARM64) T=macos-arm64 ;;
+          macOS-X64) T=macos-x64 ;;
+          Windows-X64) T=windows-x64 ;;
+          *) echo "::error::unsupported runner ${{ runner.os }}-${{ runner.arch }}"; exit 1 ;;
+        esac
+        URL="https://github.com/${{ github.repository }}/releases/download/${{ inputs.version }}/yo-${{ inputs.version }}-${T}.tar.gz"
+        if curl -fsSL -o "$RUNNER_TEMP/yo-seed.tar.gz" "$URL"; then
+          mkdir -p "$RUNNER_TEMP/yo-seed"
+          tar -xzf "$RUNNER_TEMP/yo-seed.tar.gz" -C "$RUNNER_TEMP/yo-seed" --strip-components=1
+          echo "$RUNNER_TEMP/yo-seed/bin" >> "$GITHUB_PATH"
+          echo "installed=true" >> "$GITHUB_OUTPUT"
+          echo "seed ${T} installed from ${{ inputs.version }}"
+        else
+          echo "::warning::No seed bundle for ${T} at ${{ inputs.version }} — caller must fall back to the TS compiler."
+          echo "installed=false" >> "$GITHUB_OUTPUT"
+        fi
