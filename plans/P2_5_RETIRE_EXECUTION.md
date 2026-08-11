@@ -415,6 +415,28 @@ Both cost a CI cycle and neither is discoverable from the code:
   starvation signature, not a gate failure), while the other two converted jobs
   survived the same profile by luck. Every job that builds a stage-1 natively
   needs the 32 GB `/mnt` swap step the fixpoint job already had.
+- **A codegen fix takes TWO GENERATIONS to reach a seed-built binary.** Measured
+  2026-08-12 with the awaited-RC-result dup fix
+  (`issues/fixed/self-built-compiler-uaf-in-report-and-build-paths.md`). A stage-1
+  built by the OLD seed from FIXED sources is a hybrid: what it **emits** is
+  correct (0 shallow-copy warnings in its output, because its codegen logic comes
+  from the fixed sources), but what it **is** still carries the defect (it still
+  corrupted the free list), because the old seed compiled it. So:
+
+  | binary | emits correctly? | is correct? |
+  | --- | --- | --- |
+  | old seed | no | yes (it was TS-built) |
+  | stage-1 built BY the old seed from fixed sources | **yes** | **no** |
+  | stage-1 built by TS from fixed sources | yes | yes |
+  | stage-1 built by a seed cut AFTER the fix | yes | yes |
+
+  Consequence for every codegen fix from here on: **land the fix, cut a release,
+  THEN bump `SEED_VERSION`** — a seed-driven CI arm cannot go green on the fix
+  until the seed itself was built from the fixed compiler. This is exactly why
+  #100's fix needed v0.2.2 before 2.3 could be attempted, and it will be the
+  standing cost of every codegen fix once `src/` is gone and the chain has no TS
+  shortcut. Budget one release per codegen fix that affects the compiler's own
+  compilation.
 - **A conflicted PR gets NO `pull_request` run, silently.** When a PR's merge
   commit cannot be computed, GitHub creates no run at all: no annotation, no
   failed check, nothing in `gh run list`, `total_count: 0` for the head SHA. Two
