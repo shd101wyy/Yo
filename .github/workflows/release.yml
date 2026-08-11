@@ -143,9 +143,15 @@ jobs:
           packagePath: ./vscode-extension
           registryUrl: https://marketplace.visualstudio.com
 
-      - name: Create GitHub Release
+      - name: Create GitHub Release (draft — published after the seed bundles land)
         uses: softprops/action-gh-release@v2
         with:
+          # Draft until the required seed-bundle legs have uploaded their
+          # assets (the publish-release job below flips it public). Keeps the
+          # release atomic: `latest` never points at a release without its
+          # native bundles, and a failed REQUIRED leg leaves an invisible
+          # draft instead of a published release missing binaries.
+          draft: true
           tag_name: v${{ steps.version.outputs.version }}
           name: Release v${{ steps.version.outputs.version }}
           body: |
@@ -159,7 +165,6 @@ jobs:
             compiler built by the TypeScript compiler at this release's commit
             (`bin/yo` + `std/` + `vendor/mimalloc/` + LICENSE). See
             `plans/SELF_HOSTING_COMPLETION.md` Phase 2 for the trust chain.
-          draft: false
           prerelease: false
           files: ${{ steps.create_vsix.outputs.vsixPath }}
 
@@ -306,3 +311,25 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload "v${{ needs.release.outputs.version }}" "$BUNDLE.tar.gz" --clobber
+
+  # Flip the draft release public once the seed bundles are in. Runs only
+  # when the seed-bundles job succeeded — with the experimental legs on
+  # continue-on-error, the job-level result reflects exactly the REQUIRED
+  # legs (linux-x64, macos-arm64). A red required leg leaves the release as
+  # an invisible draft instead of a published release missing its binaries.
+  publish-release:
+    name: Publish the release
+    needs: [release, seed-bundles]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release.outputs.sha }}
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "v${{ needs.release.outputs.version }}" --draft=false
