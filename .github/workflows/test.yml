@@ -224,7 +224,14 @@ jobs:
       - name: "Stage 1: build the self-hosted compiler with the SEED (previous release)"
         run: |
           echo Y | sudo tee /sys/module/zswap/parameters/enabled || true
-          nice -n 10 env YO_MAIN_STACK_MB=4096 yo compile yo-self/main.yo --release --allocator mimalloc -o /tmp/yo-stage1
+          # --std-path ./std is LOAD-BEARING. Without it the seed self-locates
+          # its OWN bundled std (the walk-up from its bin/ dir), so stage-1
+          # would be "current yo-self sources + the PREVIOUS RELEASE's std" —
+          # a hybrid that never ships, which both masks std regressions and
+          # can manufacture failures. Measured 2026-08-11: a seed-compiled
+          # program picked up the seed's std/env.yo (3 mi_free errors from the
+          # already-fixed cross-allocator free) and 0 with --std-path ./std.
+          nice -n 10 env YO_MAIN_STACK_MB=4096 yo compile yo-self/main.yo --release --allocator mimalloc --std-path ./std -o /tmp/yo-stage1
 
       # Memory plan for the emits (measured 2026-08-04, handoff doc §1):
       # the emit holds ~9 GB live but TOUCHES ~28 GB (stage-2) / ~39 GB
@@ -366,6 +373,22 @@ jobs:
         with:
           submodules: recursive
 
+      # The seed-built stage-1 is a NATIVE self-emit: ~9-11.5 GB peak (AGENTS.md),
+      # where the TS-built stage-1 it replaced was capped at 4 GB by
+      # --max-old-space-size. On a 16 GB runner that is marginal, and it showed —
+      # this job died with "The hosted runner lost communication with the server"
+      # (the CPU/memory-starvation signature) on the first seed-driven run, while
+      # the other two converted jobs survived by luck. Take the same headroom the
+      # bootstrap-fixpoint job already does. NOTE /swapfile is taken (the runner
+      # ships with one active — "Text file busy"); use the /mnt resource disk.
+      - name: Add swap space
+        run: |
+          sudo fallocate -l 32G /mnt/swapfile
+          sudo chmod 600 /mnt/swapfile
+          sudo mkswap /mnt/swapfile
+          sudo swapon /mnt/swapfile
+          free -h
+
       - name: Install liburing
         run: |
           sudo apt-get update
@@ -394,7 +417,9 @@ jobs:
           version: ${{ env.SEED_VERSION }}
 
       - name: "Stage 1: build the self-hosted compiler with the SEED (previous release)"
-        run: YO_MAIN_STACK_MB=4096 nice -n 10 yo compile yo-self/main.yo --release --allocator mimalloc -o /tmp/yo-stage1
+        # --std-path ./std is load-bearing: without it the seed compiles against
+        # its own bundled std, not this checkout's. See the fixpoint job.
+        run: YO_MAIN_STACK_MB=4096 nice -n 10 yo compile yo-self/main.yo --release --allocator mimalloc --std-path ./std -o /tmp/yo-stage1
 
       # YO_MAIN_STACK_MB: compiled Yo programs run main on a worker thread whose
       # stack defaults to 1 GiB; the self-hosted compiler's deep comptime
@@ -561,6 +586,22 @@ jobs:
         with:
           submodules: recursive
 
+      # The seed-built stage-1 is a NATIVE self-emit: ~9-11.5 GB peak (AGENTS.md),
+      # where the TS-built stage-1 it replaced was capped at 4 GB by
+      # --max-old-space-size. On a 16 GB runner that is marginal, and it showed —
+      # this job died with "The hosted runner lost communication with the server"
+      # (the CPU/memory-starvation signature) on the first seed-driven run, while
+      # the other two converted jobs survived by luck. Take the same headroom the
+      # bootstrap-fixpoint job already does. NOTE /swapfile is taken (the runner
+      # ships with one active — "Text file busy"); use the /mnt resource disk.
+      - name: Add swap space
+        run: |
+          sudo fallocate -l 32G /mnt/swapfile
+          sudo chmod 600 /mnt/swapfile
+          sudo mkswap /mnt/swapfile
+          sudo swapon /mnt/swapfile
+          free -h
+
       - name: Install liburing
         run: |
           sudo apt-get update
@@ -576,7 +617,9 @@ jobs:
           version: ${{ env.SEED_VERSION }}
 
       - name: "Stage 1: build the self-hosted compiler with the SEED (previous release)"
-        run: YO_MAIN_STACK_MB=4096 nice -n 10 yo compile yo-self/main.yo --release --allocator mimalloc -o /tmp/yo-stage1
+        # --std-path ./std is load-bearing: without it the seed compiles against
+        # its own bundled std, not this checkout's. See the fixpoint job.
+        run: YO_MAIN_STACK_MB=4096 nice -n 10 yo compile yo-self/main.yo --release --allocator mimalloc --std-path ./std -o /tmp/yo-stage1
 
       - name: Run tests/internal under the self-hosted binary (differential)
         env:
@@ -758,6 +801,22 @@ jobs:
         with:
           submodules: recursive
 
+      # The seed-built stage-1 is a NATIVE self-emit: ~9-11.5 GB peak (AGENTS.md),
+      # where the TS-built stage-1 it replaced was capped at 4 GB by
+      # --max-old-space-size. On a 16 GB runner that is marginal, and it showed —
+      # this job died with "The hosted runner lost communication with the server"
+      # (the CPU/memory-starvation signature) on the first seed-driven run, while
+      # the other two converted jobs survived by luck. Take the same headroom the
+      # bootstrap-fixpoint job already does. NOTE /swapfile is taken (the runner
+      # ships with one active — "Text file busy"); use the /mnt resource disk.
+      - name: Add swap space
+        run: |
+          sudo fallocate -l 32G /mnt/swapfile
+          sudo chmod 600 /mnt/swapfile
+          sudo mkswap /mnt/swapfile
+          sudo swapon /mnt/swapfile
+          free -h
+
       - name: Install liburing
         run: |
           sudo apt-get update
@@ -771,7 +830,9 @@ jobs:
           version: ${{ env.SEED_VERSION }}
 
       - name: "Stage 1: build the self-hosted compiler with the SEED (previous release)"
-        run: YO_MAIN_STACK_MB=4096 nice -n 10 yo compile yo-self/main.yo --release --allocator mimalloc -o /tmp/yo-stage1
+        # --std-path ./std is load-bearing: without it the seed compiles against
+        # its own bundled std, not this checkout's. See the fixpoint job.
+        run: YO_MAIN_STACK_MB=4096 nice -n 10 yo compile yo-self/main.yo --release --allocator mimalloc --std-path ./std -o /tmp/yo-stage1
 
       - name: Sweep every language test file through the self-hosted binary
         env:
