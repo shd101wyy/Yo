@@ -114,7 +114,7 @@ outputs/exit codes/effects against the TS CLI (`scripts/bootstrap/` style).
 > stopped with this release; macos-x64 moved to the `macos-26-intel`
 > runner — the last Intel label GitHub offers; windows-x64 is the known
 > porting tail,
-> issues/windows-native-selfhosted-build-fails.md). **2.2 DONE** (repo-root
+> issues/fixed/windows-native-selfhosted-build-fails.md). **2.2 DONE** (repo-root
 > build.yo verified both ways; `TestSuite.exclude` landed via PR #94).
 > **2.4 DONE** (inventory in the P2 doc). **2.3 (CI migration) is UNBLOCKED
 > and next**; 2.5/2.6 follow it. Groundwork already in: std-root resolution

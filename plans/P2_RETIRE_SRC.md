@@ -223,7 +223,7 @@ the TS compiler). Release-day findings, all handled in the workflow:
   that label too, the leg gets dropped.
 - **windows-x64 failed as anticipated** (POSIX-isms in the compiler's own
   closure — F_OK, setenv, main-wrapper returns; see
-  issues/windows-native-selfhosted-build-fails.md). The windows CI job now
+  issues/fixed/windows-native-selfhosted-build-fails.md). The windows CI job now
   builds the native compiler non-gating for advance detection.
 
 Original workflow notes (kept for reference):
