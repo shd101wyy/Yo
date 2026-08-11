@@ -22,3 +22,11 @@ comptime-only comment class present in working binaries); macOS suite
 162/162, corpus 27/27, FIXPOINT_HOLDS at s59. Final proof is the windows
 CI native-build step (lands via PR #95) going green — then flip it gating
 and promote the release windows-x64 leg.
+
+## Iteration 2 (2026-08-11): link failure past the original three
+
+With the three classes fixed, the windows CI step reached LINKING and hit
+`LNK2019: unresolved __imp_OpenProcessToken / __imp_LookupPrivilegeValueA in
+_mi_thread_local_free` — mimalloc's Windows large-page support needs
+`advapi32`. Added next to the existing ws2_32/bcrypt system libs in BOTH
+compilers (src/codegen/index.ts, yo-self/main.yo).

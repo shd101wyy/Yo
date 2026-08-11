@@ -1124,6 +1124,9 @@ run_compile :: (
   if(is_target_windows(target), {
     cmd.arg(String.from("-lws2_32"));
     cmd.arg(String.from("-lbcrypt"));
+    // mimalloc's Windows large-page support needs advapi32
+    // (OpenProcessToken/LookupPrivilegeValueA); harmless when unused.
+    cmd.arg(String.from("-ladvapi32"));
   });
   st := io.await(cmd.status(io), IoExn(io : io, exn : exn));
   if(st.raw != i32(0), {

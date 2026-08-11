@@ -515,6 +515,12 @@ export class CodeGenerator {
           if (isTargetWindows(targetInfo) && !libraries.includes("bcrypt")) {
             libraries.push("bcrypt");
           }
+          // mimalloc's Windows large-page support pulls OpenProcessToken/
+          // LookupPrivilegeValueA (LNK2019 on the first native-Windows
+          // compiler build); harmless when unused.
+          if (isTargetWindows(targetInfo) && !libraries.includes("advapi32")) {
+            libraries.push("advapi32");
+          }
         }
         libraries.forEach((library) => {
           if (isMSVC) {
