@@ -607,6 +607,21 @@ run_test_suite :: (
       .None => {}
     );
     cmd.arg(test_path.to_string());
+    // Suite excludes are project-relative; the child test runner resolves
+    // `--exclude` against its CWD, so anchor them to the project dir (TS
+    // does the same in-process via path.resolve(projectDir, e)).
+    (exi : usize) = usize(0);
+    while(exi < suite.exclude.len(), {
+      match(
+        suite.exclude.get(exi),
+        .Some(ex) => {
+          cmd.arg(String.from("--exclude"));
+          cmd.arg(Path.new(ctx.project_dir.clone()).join(Path.new(ex.clone())).to_string());
+        },
+        .None => {}
+      );
+      exi = (exi + usize(1));
+    });
     if(suite.verbose, cmd.arg(String.from("--verbose")));
     if(suite.bail, cmd.arg(String.from("--bail")));
     if(suite.parallel > i32(1), {

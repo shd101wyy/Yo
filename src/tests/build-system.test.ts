@@ -1338,6 +1338,7 @@ describe("BuildRegistry steps", () => {
       verbose: false,
       bail: false,
       parallel: 1,
+      exclude: [],
     });
     expect(reg.testSuites).toHaveLength(1);
     expect(reg.testSuites[0]!.name).toBe("tests");

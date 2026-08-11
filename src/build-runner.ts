@@ -1956,7 +1956,12 @@ async function runTestSuite(
 
   const { findTestFiles, runTests } = await import("./test-runner");
   const testPath = path.resolve(projectDir, testSuite.root);
-  const testFiles = findTestFiles(testPath);
+  // Suite excludes are project-relative; findTestFiles resolves against the
+  // CWD, so anchor them to the project dir explicitly.
+  const excludePaths = testSuite.exclude.map((e) =>
+    path.resolve(projectDir, e)
+  );
+  const testFiles = findTestFiles(testPath, excludePaths);
 
   if (testFiles.length === 0) {
     console.log(`No test files found in ${testSuite.root}`);
