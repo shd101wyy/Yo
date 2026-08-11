@@ -18,10 +18,15 @@ jobs:
     timeout-minutes: 360
     strategy:
       fail-fast: false
+      # One leg per release-bundle target (see release.yml's seed matrix):
+      # linux-x64, linux-arm64, macos-arm64, macos-x64 (macos-26-intel is
+      # the last Intel label GitHub offers), windows-x64.
       matrix:
         os:
           - ubuntu-latest
+          - ubuntu-24.04-arm
           - macos-latest
+          - macos-26-intel
           - windows-latest
 
     steps:
