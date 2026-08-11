@@ -165,3 +165,25 @@ Key artifacts: /tmp/v2.yo (6-line crash repro, stage-2 rc=139),
   console.log in expr.ts:2223 under `./yo-cli check
 yo-self/evaluator/builtins/comptime_assert.yo`. REVERT instrumentation
   after.
+
+## FIXED (2026-08-11, night) — 13 lines in yo-self/codegen/exprs/return.yo
+
+Final root cause (three probe rounds; instrumentation reverted): the
+executing path's `arg_expr := match(arg_expr_opt, …)` — a LATER fn-level
+owning local — has its pending scope drop evaluated at the VALIDATION arm's
+`__yo_effect_escaped` cleanup points. That escape path deliberately runs
+with `skip_env_check=true` (an earlier stage-2 leak fix) whose liveness
+signal is the block-scope stack keyed by C NAME — and the arm's same-named
+match binding `.Some(arg_expr)` makes the name look declared, so the later
+variable's drop emitted a raw decr against the BORROWED binding.
+
+Fix: the reduced (escape) filter in `_keep_pending_drop` now also applies
+the positional guard the full env branch has — the drop's TARGET variable
+(resolved by identity from the drop expr) initialized AFTER the cleanup
+point is skipped. Mirrors TS's "declared after this cleanup point" skip.
+
+Verified: FIXPOINT_HOLDS; the 6-line repro emits rc=0 under a stage-2
+binary; a STAGE-2-BUILT compiler passes tests/comptime.test.yo 30/30,
+tests/fn.test.yo 24/24, tests/async_await.test.yo 162/162 (the v0.2.0-seed
+RED set); stage-1 suites + 27/27 corpus green. The seed-trust chain is
+restored — SEED_VERSION bumps to the first release containing this fix.

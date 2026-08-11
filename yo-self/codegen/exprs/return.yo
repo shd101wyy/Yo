@@ -243,6 +243,19 @@ _keep_pending_drop :: (fn(drop_expr : AstExpr, expr : AstExpr, already : HashSet
         if(consumed_esc, {
           return(false);
         });
+        // Positional guard, ALSO on the escape path: a drop whose TARGET
+        // variable is initialized AFTER this cleanup point must not fire —
+        // the scope-stack name signal below cannot tell two SAME-NAMED
+        // variables apart (a later `x := …` vs an in-scope match binding
+        // `.Some(x)`: the binding's open frame makes `x` look declared, and
+        // the emitted drop then raw-decrs the BORROWED binding — the
+        // seed-trust UAF, issues/fixed/seed-built-stage1-miscompiles-current-source.md).
+        // Mirrors the full env branch's initialized-after skip (TS
+        // return.ts "declared after this cleanup point").
+        init_after := match(tv.initialized_at_token, .Some(it) => _variable_initialized_after_cleanup_point(it, expr), .None => false);
+        if(init_after, {
+          return(false);
+        });
       },
       .None => ()
     );
