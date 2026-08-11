@@ -1273,8 +1273,14 @@ run_test :: (
       if(ast_expr_is_fn_call_of(e, BK_TEST, .None), {
         targs := match(e, .FnCall(_, _, a2, _, _) => a2, _ => ArrayList(AstExpr).new());
         if(targs.len() >= usize(2), {
-          tname := match(targs.get(usize(0)), .Some(ne) => match(ne, .Atom(_, ntok) => ntok.value, _ => String.from("unnamed_test")), .None => String.from("unnamed_test"));
-          tbody := match(targs.get(usize(1)), .Some(b) => b, .None => make_err_expr());
+          // Go through extract_test_name, which strips the surrounding quotes a
+          // StringLit token value carries ("name" -> name). That matches what TS
+          // reports: it reads the EVALUATED comptime string
+          // (src/test-runner.ts:316) and only falls back to the raw token value.
+          // Taking ntok.value directly printed `✓ "name"` and made
+          // --test-name-pattern match against the quote characters.
+          tname := match(extract_test_name(e), .Some(n) => n, .None => String.from("unnamed_test"));
+          tbody := match(extract_test_body(e), .Some(b) => b, .None => make_err_expr());
           keep := if(name_pattern.len() > usize(0), tname.contains(name_pattern.clone()), true);
           if(keep, {
             tests.push(TestDecl(name : tname, body_src : ast_expr_to_string(tbody)));
