@@ -69,6 +69,14 @@ function compileAndRun(source: string): {
   }
 }
 
+// Each test here runs a FULL `--release` compile (clang -O2) and then executes
+// the binary. That does not fit the suite-wide `bun test --timeout 60000` on a
+// cold Windows runner: the leg failed at exactly 60s after the group started,
+// inside the compile `execFileSync` with no compiler diagnostic — a timeout, not
+// a build error. Give these four a budget matched to what they actually do
+// rather than raising the global timeout for ~1500 fast tests.
+const COMPILE_AND_RUN_TIMEOUT_MS = 300_000;
+
 describe("runtime contract violations — panic at run time", () => {
   test("runtime requires(...) violation panics", () => {
     const { code, output } = compileAndRun(`
@@ -80,7 +88,7 @@ export(main);
 `);
     expect(code).not.toBe(0);
     expect(output).toMatch(/requires failed/);
-  });
+  }, COMPILE_AND_RUN_TIMEOUT_MS);
 
   test("runtime ensures(...) violation panics", () => {
     const { code, output } = compileAndRun(`
@@ -92,7 +100,7 @@ export(main);
 `);
     expect(code).not.toBe(0);
     expect(output).toMatch(/ensures failed/);
-  });
+  }, COMPILE_AND_RUN_TIMEOUT_MS);
 
   test("ensures(...) with old(...) violation panics", () => {
     const { code, output } = compileAndRun(`
@@ -102,7 +110,7 @@ export(main);
 `);
     expect(code).not.toBe(0);
     expect(output).toMatch(/ensures failed/);
-  });
+  }, COMPILE_AND_RUN_TIMEOUT_MS);
 
   test("satisfying contract does NOT panic (exit 0)", () => {
     const { code } = compileAndRun(`
@@ -115,5 +123,5 @@ main :: (fn() -> unit)({
 export(main);
 `);
     expect(code).toBe(0);
-  });
+  }, COMPILE_AND_RUN_TIMEOUT_MS);
 });
