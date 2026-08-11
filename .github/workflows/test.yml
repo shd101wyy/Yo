@@ -539,18 +539,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y liburing-dev
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-
       # 2.3: NO bun/node — this job runs only the self-hosted binary; the
-      # SEED builds stage-1.
+      # SEED builds stage-1. (The Setup Bun / Setup Node.js steps that used to
+      # sit here were dead the moment stage-1 moved to the seed, and directly
+      # contradicted this comment.)
       - name: Install the seed compiler (previous release)
         uses: ./.github/actions/install-seed
         with:

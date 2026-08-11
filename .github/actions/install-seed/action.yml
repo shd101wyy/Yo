@@ -6,10 +6,6 @@ inputs:
   version:
     description: Seed release tag (e.g. v0.2.0)
     required: true
-outputs:
-  installed:
-    description: "'true' if installed; 'false' when no bundle exists for this platform"
-    value: ${{ steps.install.outputs.installed }}
 runs:
   using: composite
   steps:
@@ -25,13 +21,24 @@ runs:
           *) echo "::error::unsupported runner ${{ runner.os }}-${{ runner.arch }}"; exit 1 ;;
         esac
         URL="https://github.com/${{ github.repository }}/releases/download/${{ inputs.version }}/yo-${{ inputs.version }}-${T}.tar.gz"
-        if curl -fsSL -o "$RUNNER_TEMP/yo-seed.tar.gz" "$URL"; then
-          mkdir -p "$RUNNER_TEMP/yo-seed"
-          tar -xzf "$RUNNER_TEMP/yo-seed.tar.gz" -C "$RUNNER_TEMP/yo-seed" --strip-components=1
-          echo "$RUNNER_TEMP/yo-seed/bin" >> "$GITHUB_PATH"
-          echo "installed=true" >> "$GITHUB_OUTPUT"
-          echo "seed ${T} installed from ${{ inputs.version }}"
-        else
-          echo "::warning::No seed bundle for ${T} at ${{ inputs.version }} — caller must fall back to the TS compiler."
-          echo "installed=false" >> "$GITHUB_OUTPUT"
+        # FAIL HARD on a missing bundle. This used to warn and set an
+        # `installed=false` output that no caller read, so a retired or
+        # never-built target degraded to "no yo on PATH" — or, worse, to an
+        # unrelated `yo` — and the job failed somewhere confusing instead of
+        # here. The seed IS the trust-chain root: if it is absent, stop.
+        if ! curl -fsSL -o "$RUNNER_TEMP/yo-seed.tar.gz" "$URL"; then
+          echo "::error::No seed bundle for ${T} at ${{ inputs.version }} ($URL). Either the release is missing that leg, or SEED_VERSION points at a tag that predates it. Bump SEED_VERSION to a release whose seed matrix covers this target."
+          exit 1
         fi
+        # Record the bundle's digest in the log. Not a pin (that needs a
+        # committed checksum per release/target — P3 hardening); this makes a
+        # swapped bundle forensically visible after the fact.
+        if command -v sha256sum >/dev/null 2>&1; then
+          sha256sum "$RUNNER_TEMP/yo-seed.tar.gz"
+        elif command -v shasum >/dev/null 2>&1; then
+          shasum -a 256 "$RUNNER_TEMP/yo-seed.tar.gz"
+        fi
+        mkdir -p "$RUNNER_TEMP/yo-seed"
+        tar -xzf "$RUNNER_TEMP/yo-seed.tar.gz" -C "$RUNNER_TEMP/yo-seed" --strip-components=1
+        echo "$RUNNER_TEMP/yo-seed/bin" >> "$GITHUB_PATH"
+        echo "seed ${T} installed from ${{ inputs.version }}"
