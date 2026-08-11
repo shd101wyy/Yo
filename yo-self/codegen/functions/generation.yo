@@ -903,7 +903,11 @@ generate_main_wrapper :: (fn(context : FunctionGenerationContext, module_vars : 
     context.consumed_var_pending_drops = saved_consumed;
   });
   if(is_target_posix(context.base.target_info), {
-    init_call := if(has_module_vars, String.from("  __yo_main_module_init();\n"), String.new());
+    // The escape check after module init mirrors TS generateMainWrapper: an
+    // effectful initializer that escapes must not fall through into user
+    // main. Bare `return NULL;`/`return 0;` are fine here (worker is void*,
+    // main is int) — the helper above is where a bare `return;` lives.
+    init_call := if(has_module_vars, String.from("  __yo_main_module_init();\n  if (__yo_effect_escaped) return NULL;\n"), String.new());
     block :=
       `
 // Program body runs on a large-stack worker thread (see generateMainWrapper).
@@ -943,7 +947,7 @@ int main(int argc, char** argv) {
 `;
     em.emit_string(block);
   }, {
-    init_call := if(has_module_vars, String.from("  __yo_main_module_init();\n"), String.new());
+    init_call := if(has_module_vars, String.from("  __yo_main_module_init();\n  if (__yo_effect_escaped) return 0;\n"), String.new());
     block :=
       `
 // Main wrapper - calls __yo_user_main directly

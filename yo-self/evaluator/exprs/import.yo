@@ -30,17 +30,27 @@ open(import("std/string"));
 { Exception } :: import("std/error");
 { Path } :: import("std/path");
 { cwd } :: import("std/env");
-{ access, F_OK } :: import("std/libc/unistd");
+{ stat } :: import("std/libc/sys/stat");
+{ GlobalAllocator } :: import("std/allocator");
 { evaluate_expression } :: import("./expr.yo");
 { random_id } :: import("../../utils.yo");
 // ---------------------------------------------------------------------------
 // _file_exists_sync
 // ---------------------------------------------------------------------------
-/// Synchronous file existence check using POSIX `access(2)`.
+/// Synchronous file existence check via libc `stat` — portable to Windows
+/// (MSVC has stat in <sys/stat.h>; POSIX `access`/`F_OK` broke the v0.2.0
+/// windows seed leg). Mirrors TS `existsSync` and module_manager.yo's
+/// `_path_exists_sync`.
 _file_exists_sync :: (fn(absolute_path : String) -> bool)({
+  { malloc, free } :: GlobalAllocator;
   cstr := absolute_path.to_cstr();
   ptr := *(char)(cstr.ptr().unwrap());
-  unsafe(access(ptr, F_OK)) == int(0)
+  // 512 bytes comfortably exceeds `struct stat` on every supported target;
+  // only the return code is read.
+  buf := malloc(usize(512)).unwrap();
+  rc := unsafe(stat(ptr, buf));
+  free(.Some(buf));
+  rc == int(0)
 });
 // ---------------------------------------------------------------------------
 // Module path resolution (shared with main.yo's preload_module_tree)
