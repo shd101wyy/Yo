@@ -120,7 +120,11 @@ TestSuite :: struct(
   /// Root test file.
   root : comptime_str,
   /// Compilation target triple (defaults to host).
-  (target : comptime_str) ?= __yo_build_target_host()
+  (target : comptime_str) ?= __yo_build_target_host(),
+  /// Comma-separated paths (files or directories, relative to the project
+  /// root) excluded from the test walk — a path is excluded if it equals an
+  /// entry or lives under one, e.g. "tests/internal,tests/cli-cases".
+  (exclude : comptime_str) ?= ""
 );
 export(TestSuite);
 // ── Build module type ────────────────────────────────────────────────
@@ -318,7 +322,7 @@ shared_library :: (fn(comptime(config) : SharedLibrary) -> comptime(Step))({
 export(shared_library);
 /// Register a test-suite artifact. Returns a `Step` for dependency wiring.
 test :: (fn(comptime(config) : TestSuite) -> comptime(Step))({
-  __yo_build_test(config.name, config.root, config.target);
+  __yo_build_test(config.name, config.root, config.target, config.exclude);
   Step(name : config.name, kind : StepKind.TestSuite)
 });
 export(test);

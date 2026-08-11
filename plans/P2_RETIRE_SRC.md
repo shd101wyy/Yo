@@ -67,8 +67,16 @@ Landed 2026-08-10:
 
 Still open in 2.2:
 
-- `TestSuite.exclude` (std/build.yo + both runners) so `yo build test` can be
-  the fast suite.
+- ~~`TestSuite.exclude` (std/build.yo + both runners) so `yo build test` can
+  be the fast suite.~~ **DONE 2026-08-11** (branch `p2/testsuite-exclude`):
+  comma-separated project-relative `exclude` on the TestSuite config, threaded
+  through `__yo_build_test` in both evaluators; TS anchors entries to the
+  project dir in-process, yo-self forwards project-joined `--exclude` flags to
+  the child test run. Repo-root build.yo now excludes
+  `tests/internal,tests/cli-cases`, making `yo build test` the fast suite.
+  Differential case `tests/cli-cases/build-test-exclude` (an excluded
+  `assert(false)` test must be skipped by BOTH compilers; negative control
+  verified rc=1 without the exclude).
 - Fixpoint steps (`stage2`/`stage3`) and release-bundle steps: the build
   system's `step()` is dependency-grouping only — no command execution — so
   these need either a build-API extension or stay as

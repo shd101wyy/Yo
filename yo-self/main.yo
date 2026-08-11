@@ -22,7 +22,7 @@ _(env : proc_env) :: import("std/env");
 { metadata } :: import("std/fs/metadata");
 { read_dir, FileType, remove_file } :: import("std/fs/dir");
 { Command } :: import("std/process/command");
-{ exit, setenv } :: import("std/libc/stdlib");
+{ exit } :: import("std/libc/stdlib");
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, BK_OPEN, BK_IMPORT, BK_TEST, ast_expr_is_fn_call_of, ast_expr_to_string, make_err_expr } :: import("./expr.yo");
 { ExprInfoTable, expr_info_table_new } :: import("./expr_info.yo");
@@ -1385,9 +1385,10 @@ run_test :: (
         (ri : usize) = batch_start;
         while((ri < batch_end) && !(bailed), {
           t := match(tests.get(ri), .Some(x) => x, .None => TestDecl(name : String.from(""), body_src : String.from("()")));
-          idx_cstr := String.from("YO_TEST_INDEX").to_cstr().ptr().unwrap();
-          val_cstr := (ri - batch_start).to_string().to_cstr().ptr().unwrap();
-          _sv := unsafe(setenv(*(char)(idx_cstr), *(char)(val_cstr), int(1)));
+          // std/env's portable wrapper, NOT raw libc setenv — Windows has no
+          // setenv (the v0.2.0 windows seed leg failed on it); env.set
+          // branches to _putenv_s there.
+          _sv := proc_env.set(String.from("YO_TEST_INDEX"), (ri - batch_start).to_string());
           tcmd := Command.new(tmp_bin.clone());
           st := io.await(tcmd.status(io), IoExn(io : io, exn : exn));
           if(st.success(), {

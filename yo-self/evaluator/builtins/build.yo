@@ -101,7 +101,9 @@ BuildTestSuite :: ref(
     target : String,
     verbose : bool,
     bail : bool,
-    parallel : i32
+    parallel : i32,
+    /// Project-relative paths (files or directories) excluded from the walk.
+    exclude : ArrayList(String)
   )
 );
 BuildRunStep :: ref(
@@ -1150,6 +1152,19 @@ evaluate_yo_build_functions :: (
   });
   if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_TEST, Option(usize).None), {
     _build_require_args(args, usize(2), String.from("__yo_build_test expects at least 2 arguments (name, root)"), expr, exn);
+    // Comma-separated project-relative paths excluded from the test walk
+    // (std/build.yo TestSuite.exclude; "" means no excludes).
+    exclude_raw := _build_extract_string_or(args, usize(3), "exclude", String.from(""), expr, ctx, exn);
+    exclude_list := ArrayList(String).new();
+    exclude_parts := exclude_raw.split(",");
+    (epi : usize) = usize(0);
+    while(epi < exclude_parts.len(), {
+      part := match(exclude_parts.get(epi), .Some(s) => s.trim(), .None => String.new());
+      if(part.len() > usize(0), {
+        exclude_list.push(part);
+      });
+      epi = (epi + usize(1));
+    });
     reg.register_test(
       BuildTestSuite(
         name : _build_extract_string(args, usize(0), "name", expr, ctx, exn),
@@ -1157,7 +1172,8 @@ evaluate_yo_build_functions :: (
         target : _build_extract_string_or(args, usize(2), "target", host_triple.clone(), expr, ctx, exn),
         verbose : false,
         bail : false,
-        parallel : i32(1)
+        parallel : i32(1),
+        exclude : exclude_list
       )
     );
     return(_build_unit_result(expr, env, ctx));

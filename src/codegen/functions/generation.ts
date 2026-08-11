@@ -1066,7 +1066,23 @@ int main(int argc, char** argv) {
 }
 `);
     } else {
-      // Windows / WASM: run directly on the main thread.
+      // Windows / WASM: run directly on the main thread. Module-level
+      // initialization goes into the same dedicated `void` helper the POSIX
+      // path uses: an effectful initializer whose call escapes emits the
+      // effect-unwind check `if (__yo_effect_escaped) return;`, and that
+      // bare `return;` is a hard error inside `int main` (clang 21+
+      // -Wreturn-mismatch — the v0.2.0 windows seed leg failed on exactly
+      // this, three effectful initializers deep in the compiler's closure).
+      if (moduleLevelVars.length > 0) {
+        emitter.emitLine(`
+// Module-level mutable variable initialization (see the POSIX wrapper's note).
+static void __yo_main_module_init(void) {`);
+        for (const { cVarName, rhs } of moduleLevelVars) {
+          const rhsCode = generateExpr(rhs, "  ", context);
+          emitter.emitLine(`  ${cVarName} = ${rhsCode};`);
+        }
+        emitter.emitLine(`}`);
+      }
       emitter.emitLine(`
 // Main wrapper - calls __yo_user_main directly
 int main(int argc, char** argv) {
@@ -1076,14 +1092,10 @@ int main(int argc, char** argv) {
   __yo_args = (Slice_uint8_t_u42_){ .data = (uint8_t**)argv, .length = (size_t)argc };
   ${asyncInit}`);
 
-      // Generate module-level init code INSIDE main() so temp vars and function calls
-      // are valid C (not file-scope initializers).
       if (moduleLevelVars.length > 0) {
-        emitter.emitLine(`  // Initialize module-level mutable variables`);
-        for (const { cVarName, rhs } of moduleLevelVars) {
-          const rhsCode = generateExpr(rhs, "  ", context);
-          emitter.emitLine(`  ${cVarName} = ${rhsCode};`);
-        }
+        emitter.emitLine(`  // Initialize module-level mutable variables
+  __yo_main_module_init();
+  if (__yo_effect_escaped) return 0;`);
       }
 
       emitter.emitLine(`  // Call sync main
