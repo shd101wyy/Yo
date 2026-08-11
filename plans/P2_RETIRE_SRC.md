@@ -10,9 +10,9 @@ The phase's items, from the umbrella plan:
 
 | item | what                                                             | status                                   |
 | ---- | ---------------------------------------------------------------- | ---------------------------------------- |
-| 2.1  | bootstrap seed release (TS builds the binaries one last time)    | **workflow landed** — needs a dispatch   |
+| 2.1  | bootstrap seed release (TS builds the binaries one last time)    | **DONE — v0.2.0 shipped 2026-08-11**     |
 | 2.2  | repo-root `build.yo`: the compiler builds itself with `yo build` | **DONE** (verified both ways 2026-08-10) |
-| 2.3  | CI migration: seed release + `yo build` replace bun              | not started (blocked on 2.1/2.2)         |
+| 2.3  | CI migration: seed release + `yo build` replace bun              | **UNBLOCKED** — seed exists (next up)    |
 | 2.4  | re-express TS-only tests in Yo                                   | **inventory below**                      |
 | 2.5  | retire: freeze + delete `src/`, drop package.json/bun/out        | blocked on 2.1–2.4                       |
 | 2.6  | docs sweep (AGENTS.md, instructions, skills)                     | blocked on 2.5                           |
@@ -81,6 +81,12 @@ Still open in 2.2:
   system's `step()` is dependency-grouping only — no command execution — so
   these need either a build-API extension or stay as
   `scripts/bootstrap/*.sh` wrappers invoked around `yo build`.
+- Per-platform fixpoint (hardening, deferred): today byte-identity runs only
+  on linux-x64 (the dedicated memory-tuned two-job pipeline — each self-emit
+  holds ~9-11.5 GB, so it cannot ride the suite legs; arm64 macOS runners
+  have 7 GB). The per-leg native-build step covers build+check+compile-run
+  smoke instead. Once windows-x64 stabilizes, consider a scheduled or
+  release-time fixpoint job per target with the same memory tuning.
 - `build.run(exe)` takes no args, and a bare `yo` exits 1, so there is no
   run step in the compiler's build.yo.
 
@@ -202,7 +208,31 @@ fixture. Mechanical but sizeable (~1 focused session); nothing else depends
 on them, so this is its own P2.4 slice — port them right before 2.5, or the
 maintainer may choose to retire them (the audit is reproducible with grep).
 
-## 2.1 — seed release workflow (landed; awaiting the maintainer's dispatch)
+## 2.1 — seed release: **DONE — v0.2.0 shipped 2026-08-11**
+
+https://github.com/shd101wyy/Yo/releases/tag/v0.2.0 — the bootstrap seed
+exists: `yo-v0.2.0-{linux-x64,linux-arm64,macos-arm64}.tar.gz` (all three
+legs green first try; linux-arm64 promoted from experimental). npm
+publishing STOPPED with this release (user decision — the npm package was
+the TS compiler). Release-day findings, all handled in the workflow:
+
+- **A personal repo's ruleset cannot grant the Actions integration a
+  bypass** (HTTP 422), so the version-bump push to a protected develop
+  always fails → the workflow now falls back to opening a
+  `release/version-bump-<v>` PR (maintainer's merge uses the admin bypass).
+- **Releases are now atomic**: created as a DRAFT, published by a final job
+  only when the required bundle legs succeed — `latest` can never point at
+  a release missing its binaries.
+- **macos-x64 moved to the `macos-26-intel` runner** (the last Intel macOS
+  GitHub offers; `macos-13` is retired — the v0.2.0 leg sat queued forever
+  on it). Experimental until its first green bundle; when GitHub retires
+  that label too, the leg gets dropped.
+- **windows-x64 failed as anticipated** (POSIX-isms in the compiler's own
+  closure — F_OK, setenv, main-wrapper returns; see
+  issues/fixed/windows-native-selfhosted-build-fails.md). The windows CI job now
+  builds the native compiler non-gating for advance detection.
+
+Original workflow notes (kept for reference):
 
 `.github/workflows/release.yml` grew a `seed-bundles` job (2026-08-10): after
 the existing npm/vsce/Pages release, a matrix over `linux-x64` /

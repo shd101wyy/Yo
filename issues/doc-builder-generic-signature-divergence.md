@@ -24,3 +24,32 @@ and the DocParam.type extraction for generic params). Fix in whichever side
 diverges from the SOURCE signature the maintainer prefers, add a generic fn
 (with a constraint) to `tests/cli-cases/doc-json/fixture`, and re-verify all
 three doc differential cases.
+
+## Analysis addendum (2026-08-11)
+
+Measured against the SOURCE (the canonical target), both sides diverge:
+
+```
+source: fn(generic(T : Type), msg : T, where(T <: ToString)) -> unit
+TS:     fn(generic(comptime(T) : Type), msg : T) -> unit
+self:   fn(generic(T) msg : T : (ToString)) -> unit
+```
+
+- TS (`src/doc/builder.ts:159`): the signature is `typeToString(funcType)` —
+  the SHARED type printer. It leaks the internal `comptime()` wrapper on
+  generic params and never prints where-constraints. Fixing typeToString
+  changes every error message (blast radius!) — do NOT fix it there for
+  doc purposes.
+- self (`yo-self/doc/builder.yo`): its own printer folds `generic(T)` onto
+  the first parameter (missing comma and `: Type`), appends the constraint
+  to the parameter type (`T : (ToString)`), and DROPS `?=` defaults
+  (TS keeps them — see `assert`).
+
+Recommended fix shape: render doc signatures from the DECLARATION SOURCE
+TOKENS instead of the evaluated type — Yo function declarations always
+spell the full type (`name :: (fn(...) -> ...)(body)`), so the source text
+IS the canonical signature (fmt-canonical, constraint- and default-
+preserving), and both builders converge by construction. Then add a generic
+fn with a where-constraint + a `?=` default to
+`tests/cli-cases/doc-json/fixture` and re-verify the three doc differential
+cases.

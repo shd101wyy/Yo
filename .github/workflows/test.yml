@@ -18,10 +18,15 @@ jobs:
     timeout-minutes: 360
     strategy:
       fail-fast: false
+      # One leg per release-bundle target (see release.yml's seed matrix):
+      # linux-x64, linux-arm64, macos-arm64, macos-x64 (macos-26-intel is
+      # the last Intel label GitHub offers), windows-x64.
       matrix:
         os:
           - ubuntu-latest
+          - ubuntu-24.04-arm
           - macos-latest
+          - macos-26-intel
           - windows-latest
 
     steps:
@@ -87,6 +92,36 @@ jobs:
           node ./out/cjs/yo-cli.cjs init ./tmp/hello-world --name hello-world
           cd tmp/hello-world
           node ../../out/cjs/yo-cli.cjs build run
+
+      # Native build of the self-hosted compiler on EVERY release target —
+      # exactly what the release workflow's seed legs do, so seed-leg
+      # breakage surfaces on PRs instead of at release time. v0.2.0 proved
+      # the need: nothing else exercised the compiler's own closure on
+      # Windows, and its POSIX-isms (F_OK, setenv, main-wrapper returns —
+      # issues/fixed/windows-native-selfhosted-build-fails.md) only showed
+      # up at release time. GATING: a regression here blocks the PR. The
+      # smoke `check` proves the built binary RUNS (evaluator, module
+      # loading, executable-relative std discovery).
+      # The smoke goes end-to-end: the probe binary must CHECK (evaluator +
+      # module loading + exe-relative std discovery) and COMPILE-AND-RUN a
+      # program natively (codegen + C-compiler integration + the produced
+      # executable) — the same smoke the release seed legs perform. Full
+      # per-platform byte-identity (probe emits yo-self, recompile, re-emit,
+      # compare) is the bootstrap-fixpoint workload: ~9-11.5 GB per emit,
+      # ~+1 h per leg — it stays in the dedicated memory-tuned fixpoint job
+      # (linux-x64) rather than here.
+      - name: Native self-hosted compiler build (advance seed-leg detection)
+        shell: bash
+        run: |
+          node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs compile yo-self/main.yo --release --allocator mimalloc -o yo-native-probe
+          if [ -f yo-native-probe.exe ]; then PROBE=./yo-native-probe.exe; else PROBE=./yo-native-probe; fi
+          "$PROBE" check std/assert.yo
+          mkdir -p tmp/native-probe-smoke && cd tmp/native-probe-smoke
+          printf '%s\n' 'open(import("std/fmt"));' 'main :: (fn() -> unit)(println("native probe smoke"));' 'export(main);' > hello.yo
+          "../../${PROBE#./}" compile hello.yo --release -o hello
+          if [ -f hello.exe ]; then OUT=$(./hello.exe); else OUT=$(./hello); fi
+          echo "smoke output: $OUT"
+          test "$OUT" = "native probe smoke"
 
       # `tests/internal` (the compiler's own tests — they import yo-self/ evaluator
       # and codegen internals) is excluded here and runs as its own job below.
