@@ -103,6 +103,46 @@ repeatedly paid for. The rest of the migration is proven — 15 of 16 jobs green
 including seed → stage-1 → stage-2 ≡ stage-3 byte-identical, the internal-tests
 differential, and the 188-file hollow sweep.
 
+## Input bisection: the corruption is PER-FILE (2026-08-11) — free, no rebuild
+
+Running the same seed-built stage-1 against directories with different file
+counts localizes the defect without touching the compiler:
+
+| input directory      | `.yo` files | rc      | result                                     |
+| -------------------- | ----------- | ------- | ------------------------------------------ |
+| empty                | 0           | 0       | `"filesScanned": 0` — **correct**          |
+| one tiny file         | 1           | 0       | `"filesScanned": 16131858542891098079` (freed memory) |
+| two tiny files        | 2           | **134** | `mimalloc: corrupted free list entry`      |
+
+**The corruption scales with the number of files scanned**, and zero files is
+clean — so the walk itself is fine and the defect is in the PER-FILE body of the
+scan loop (`public_safe_report.yo:561-578`). One iteration is enough to corrupt
+the totals; two are enough to corrupt the free list.
+
+### What that leaves as the prime suspect
+
+The per-file body does four things. Synthetic reproductions have now covered
+three of them under both codegens with identical, correct results:
+
+| per-file work                                              | covered by | result |
+| ---------------------------------------------------------- | ---------- | ------ |
+| counter mutations inside an `if` body in the loop           | shape 4    | clean  |
+| `await fs_file.read_string(...)` (a REAL suspension)        | shape 5    | clean  |
+| `extract(src.as_bytes())` returning `ArrayList(ref(struct))`| shape 6    | clean  |
+| **`_scan_file(file.clone(), src, findings)`**               | —          | **untested** |
+
+So `_scan_file` is the prime suspect: it is the one piece of per-file work not
+yet reproduced, and its shape is the most drop-sensitive of the four — it takes
+the awaited `src` String by value, takes the caller's `findings` ArrayList by
+reference, and appends `ref(struct)` findings to it from inside a callee, across
+an await boundary in the caller.
+
+**Recommended next step: source-level bisection on the real file**, not more
+synthetic shapes (six have now failed to reproduce). Neutralize `_scan_file`'s
+call first; if the totals come out right, bisect inside `_scan_file`. Budget one
+~20-25 min seed-built stage-1 rebuild per iteration, and carry several probes or
+neutralizations per build.
+
 ## Instrumented probe: the corruption is UPSTREAM of the totals read (2026-08-11)
 
 A seed-built stage-1 was rebuilt with two `eprintln` probes — one immediately
@@ -149,6 +189,9 @@ them is the trigger:
    the state machine genuinely SUSPENDS and resumes (shapes 2-4 awaited an
    `io.async` closure that returns without suspending, which may never exercise
    slot round-tripping at all).
+6. The same as (5) plus `decls := extract(src.as_bytes())` — an `as_bytes()` temp
+   passed BY VALUE into a helper that returns `ArrayList(ref(struct))` whose
+   elements outlive the temp, mirroring `_extract_top_level_fn_decls`.
 
 So "ref-struct built from slot-resident locals in an async tail expression" is
 NOT sufficient. What the real site has that these lack: real filesystem awaits
