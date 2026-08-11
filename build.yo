@@ -7,11 +7,12 @@
 //!
 //! Steps:
 //!   yo build            → compile the self-hosted compiler (install step)
-//!   yo build test       → run the language suite (NOTE: includes
-//!                         tests/internal — each of its 58 files compiles the
-//!                         whole compiler. TestSuite has no exclude field yet;
-//!                         CI jobs that want the fast suite keep invoking
-//!                         `yo test ./tests --exclude tests/internal`.)
+//!   yo build test       → run the FAST language suite: tests/internal (each
+//!                         of its 58 files compiles the whole compiler) and
+//!                         tests/cli-cases (differential fixtures, not
+//!                         standalone tests) are excluded via
+//!                         TestSuite.exclude — same set as the CI fast-suite
+//!                         jobs' `yo test ./tests --exclude ...` invocation.
 build :: import("std/build");
 
 // ReleaseSmall maps to plain `-O2` — byte-for-byte the flags of today's
@@ -26,7 +27,11 @@ yo_exe :: build.executable({
   optimize : build.Optimize.ReleaseSmall
 });
 
-tests :: build.test({ name : "language-tests", root : "./tests/" });
+tests :: build.test({
+  name : "language-tests",
+  root : "./tests/",
+  exclude : "tests/internal,tests/cli-cases"
+});
 
 install :: build.step("install", "Build the self-hosted compiler");
 install.depend_on(yo_exe);

@@ -61,6 +61,8 @@ export interface BuildTestSuite {
   verbose: boolean;
   bail: boolean;
   parallel: number;
+  /** Project-relative paths (files or directories) excluded from the test walk. */
+  exclude: string[];
 }
 
 export interface BuildRunStep {
@@ -784,7 +786,7 @@ export function evaluateYoBuildFunctions({
     return makeUnitResult(expr, env);
   }
 
-  // __yo_build_test(name, root, target)
+  // __yo_build_test(name, root, target, exclude)
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_test)) {
     if (expr.args.length < 2) {
       throw formatErrorMessage({
@@ -806,6 +808,16 @@ export function evaluateYoBuildFunctions({
       expr.args.length > 2
         ? extractComptimeString(expr.args[2]!.$?.value, "target", expr.token)
         : hostTarget().triple;
+    // Comma-separated project-relative paths excluded from the test walk
+    // (std/build.yo TestSuite.exclude; "" means no excludes).
+    const excludeRaw =
+      expr.args.length > 3
+        ? extractComptimeString(expr.args[3]!.$?.value, "exclude", expr.token)
+        : "";
+    const exclude = excludeRaw
+      .split(",")
+      .map((e) => e.trim())
+      .filter((e) => e.length > 0);
 
     registry.registerTest({
       name,
@@ -814,6 +826,7 @@ export function evaluateYoBuildFunctions({
       verbose: false,
       bail: false,
       parallel: 1,
+      exclude,
     });
     return makeUnitResult(expr, env);
   }
