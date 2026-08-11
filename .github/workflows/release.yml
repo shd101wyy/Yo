@@ -19,6 +19,11 @@ jobs:
       contents: write
       pages: write
       id-token: write
+      # For the version-bump fallback's `gh pr create` (v0.2.0's silently
+      # failed under `|| true` — the branch was pushed but no PR appeared).
+      # NOTE: the repo setting "Allow GitHub Actions to create and approve
+      # pull requests" (Settings → Actions → General) must also be ON.
+      pull-requests: write
     outputs:
       version: ${{ steps.version.outputs.version }}
       sha: ${{ steps.bump_commit.outputs.sha }}
