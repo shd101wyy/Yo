@@ -81,6 +81,12 @@ Still open in 2.2:
   system's `step()` is dependency-grouping only — no command execution — so
   these need either a build-API extension or stay as
   `scripts/bootstrap/*.sh` wrappers invoked around `yo build`.
+- Per-platform fixpoint (hardening, deferred): today byte-identity runs only
+  on linux-x64 (the dedicated memory-tuned two-job pipeline — each self-emit
+  holds ~9-11.5 GB, so it cannot ride the suite legs; arm64 macOS runners
+  have 7 GB). The per-leg native-build step covers build+check+compile-run
+  smoke instead. Once windows-x64 stabilizes, consider a scheduled or
+  release-time fixpoint job per target with the same memory tuning.
 - `build.run(exe)` takes no args, and a bare `yo` exits 1, so there is no
   run step in the compiler's build.yo.
 
