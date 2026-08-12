@@ -150,19 +150,52 @@ Install it with: winget install Git.Git
 # Download
 # ---------------------------------------------------------------------------
 
+# Resolve the newest release tag.
+#
+# Prefer the /releases/latest REDIRECT over the REST API: the API is rate
+# limited to 60 requests/hour per IP for unauthenticated callers, and shared
+# egress IPs (CI runners, offices, NAT) routinely have that budget already
+# spent. The redirect has no such limit and needs no token.
 function Resolve-Version {
   if ($Version) {
     if ($Version -notmatch '^v') { $script:Version = "v$Version" }
     return
   }
   Info 'Resolving the latest release..'
+
   try {
-    $rel = Invoke-RestMethod -Uri "$ApiUrl/latest" -Headers @{ 'User-Agent' = 'yo-installer' } -UseBasicParsing
-    $script:Version = $rel.tag_name
+    $resp = Invoke-WebRequest -Uri "https://github.com/$Repo/releases/latest" -UseBasicParsing
+    # PowerShell 7 and 5.1 expose the final URL differently.
+    $final = $null
+    if ($resp.BaseResponse.PSObject.Properties.Name -contains 'RequestMessage') {
+      $final = $resp.BaseResponse.RequestMessage.RequestUri.AbsoluteUri   # PS 7
+    } elseif ($resp.BaseResponse.PSObject.Properties.Name -contains 'ResponseUri') {
+      $final = $resp.BaseResponse.ResponseUri.AbsoluteUri                 # PS 5.1
+    }
+    if ($final -match '/releases/tag/(.+)$') { $script:Version = $Matches[1] }
   } catch {
-    Fail "Unable to resolve the latest release tag from GitHub. Pass one explicitly, e.g. -Version v0.2.3"
+    # fall through to the API
   }
-  if (-not $script:Version) { Fail 'Unable to resolve the latest release tag.' }
+
+  if (-not $script:Version) {
+    try {
+      $headers = @{ 'User-Agent' = 'yo-installer' }
+      $token = if ($env:GITHUB_TOKEN) { $env:GITHUB_TOKEN } elseif ($env:GH_TOKEN) { $env:GH_TOKEN } else { $null }
+      if ($token) { $headers['Authorization'] = "Bearer $token" }
+      $rel = Invoke-RestMethod -Uri "$ApiUrl/latest" -Headers $headers -UseBasicParsing
+      $script:Version = $rel.tag_name
+    } catch {
+      # reported below
+    }
+  }
+
+  if (-not $script:Version) {
+    Fail @'
+Unable to resolve the latest release tag from GitHub.
+This is usually a network problem or an exhausted API rate limit.
+Pass a version explicitly, e.g. -Version v0.2.3
+'@
+  }
 }
 
 # ---------------------------------------------------------------------------

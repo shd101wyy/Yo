@@ -328,19 +328,50 @@ check_liburing_consistency() {
 # Download
 #---------------------------------------------------------
 
+# Resolve the newest release tag.
+#
+# Prefer the /releases/latest REDIRECT over the REST API: the API is rate
+# limited to 60 requests/hour per IP for unauthenticated callers, and shared
+# egress IPs (CI runners, offices, NAT) routinely have that budget already
+# spent — which is exactly how this failed on GitHub's own macOS runners while
+# working locally. The redirect has no such limit and needs no token. The API
+# stays as a fallback for wget-only boxes.
 resolve_version() {
   if [ -n "$VERSION" ]; then return 0; fi
   info "Resolving the latest release.."
+
   if has_cmd curl ; then
-    VERSION="$(curl -sSL -H 'Accept: application/vnd.github+json' "$YO_API_URL/latest" 2>/dev/null \
-      | grep '"tag_name"' | head -1 | sed 's/.*"tag_name"[ ]*:[ ]*"\([^"]*\)".*/\1/')"
-  elif has_cmd wget ; then
-    VERSION="$(wget -qO- --header='Accept: application/vnd.github+json' "$YO_API_URL/latest" 2>/dev/null \
-      | grep '"tag_name"' | head -1 | sed 's/.*"tag_name"[ ]*:[ ]*"\([^"]*\)".*/\1/')"
+    # -I: HEAD, -L: follow, and report where we landed:
+    #   https://github.com/<repo>/releases/tag/v1.2.3
+    effective="$(curl -fsSLI -o /dev/null -w '%{url_effective}' \
+      "https://github.com/$YO_REPO/releases/latest" 2>/dev/null || true)"
+    case "$effective" in
+      */releases/tag/*) VERSION="${effective##*/}";;
+    esac
   fi
+
+  if [ -z "$VERSION" ]; then
+    auth=""
+    if [ -n "${GITHUB_TOKEN:-}" ]; then auth="$GITHUB_TOKEN"; fi
+    if [ -z "$auth" ] && [ -n "${GH_TOKEN:-}" ]; then auth="$GH_TOKEN"; fi
+    if has_cmd curl ; then
+      if [ -n "$auth" ]; then
+        VERSION="$(curl -sSL -H "Authorization: Bearer $auth" -H 'Accept: application/vnd.github+json' "$YO_API_URL/latest" 2>/dev/null \
+          | grep '"tag_name"' | head -1 | sed 's/.*"tag_name"[ ]*:[ ]*"\([^"]*\)".*/\1/')"
+      else
+        VERSION="$(curl -sSL -H 'Accept: application/vnd.github+json' "$YO_API_URL/latest" 2>/dev/null \
+          | grep '"tag_name"' | head -1 | sed 's/.*"tag_name"[ ]*:[ ]*"\([^"]*\)".*/\1/')"
+      fi
+    elif has_cmd wget ; then
+      VERSION="$(wget -qO- --header='Accept: application/vnd.github+json' "$YO_API_URL/latest" 2>/dev/null \
+        | grep '"tag_name"' | head -1 | sed 's/.*"tag_name"[ ]*:[ ]*"\([^"]*\)".*/\1/')"
+    fi
+  fi
+
   if [ -z "$VERSION" ]; then
     stop "Unable to resolve the latest release tag from GitHub.
-  Pass one explicitly, e.g. --version=v0.2.3"
+  This is usually a network problem or an exhausted API rate limit.
+  Pass a version explicitly, e.g. --version=v0.2.3"
   fi
 }
 
