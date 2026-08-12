@@ -230,6 +230,63 @@ impl(
     })
   }),
   // Read all remaining data into an ArrayList of bytes.
+  /// Read EXACTLY `n` bytes, looping over short reads.
+  ///
+  /// Neither existing reader fits a length-prefixed protocol: `read` may return
+  /// fewer bytes than asked for (a pipe delivers only what has arrived so far),
+  /// and `read_bytes` stops only at EOF, but such a stream stays open between
+  /// frames. This is the operation a framed protocol needs — LSP's
+  /// `Content-Length: N` header followed by exactly N bytes of body.
+  ///
+  /// Returns `.Ok(.None)` when EOF arrives before `n` bytes are available, so a
+  /// clean shutdown between frames is distinguishable from a truncated one.
+  /// Bytes consumed by a truncated read are discarded with it: the stream is no
+  /// longer frame-aligned, so there is nothing useful to hand back.
+  read_exact : (fn(self : Self, n : usize, io : Io) -> Impl(Future(Result(Option(ArrayList(u8)), IoError), Io)))({
+    the_fd := self._fd;
+    io.async((io) => {
+      result := ArrayList(u8).new();
+      // Drain whatever the buffer already holds before touching the fd.
+      while(runtime((result.len() < n) && (self._pos < self._filled)), {
+        result.push(self._buf(self._pos));
+        self._pos = (self._pos + usize(1));
+      });
+      (read_err : Option(IoError)) = .None;
+      (hit_eof : bool) = false;
+      if(result.len() < n, {
+        raw_buf := *(u8)(malloc(self._capacity).unwrap());
+        while(runtime(result.len() < n), {
+          want := (n - result.len());
+          chunk := if(want < self._capacity, want, self._capacity);
+          rn := io.await(IO_file.read(the_fd, raw_buf, u32(chunk), self._offset), io);
+          cond(
+            (rn < i32(0)) => {
+              read_err = .Some(IoError.from_errno(i32(0) - rn));
+              break;
+            },
+            (rn == i32(0)) => {
+              hit_eof = true;
+              break;
+            },
+            true => {
+              self._offset = (self._offset + u64(rn));
+              j := usize(0);
+              while(runtime(j < usize(rn)), {
+                result.push((raw_buf.add(j)).*);
+                j = (j + usize(1));
+              });
+            }
+          );
+        });
+        free(.Some(*(void)(raw_buf)));
+      });
+      match(
+        read_err,
+        .Some(e) => .Err(e),
+        .None => if(hit_eof, .Ok(.None), .Ok(.Some(result)))
+      )
+    })
+  }),
   read_bytes : (fn(self : Self, io : Io) -> Impl(Future(Result(ArrayList(u8), IoError), Io)))({
     the_fd := self._fd;
     io.async((io) => {
