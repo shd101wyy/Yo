@@ -102,12 +102,50 @@ impl(
 fn-level fix just cured, one level up: these are IMPL-level binders, a different
 list from the fn's `forall_labels`, so the new binding does not reach them.
 
-Ruled out so far: `evaluator/types/function.yo:1774` IS kind-guarded
+**Site LOCATED — `evaluator/values/impl.yo:2331-2349`.** Every impl binder is
+bound as a type, unconditionally:
+
+```rust
+some_ty := t_some_t(param_name_str.clone(), frame_lvl);
+tv := create_type_value(some_ty);
+add_variable_to_env(forall_env, param_name_str, t_type(), .Some(tv), ...)
+```
+
+The annotation's right-hand side is parsed for the NAME and then discarded, so
+`N : usize` becomes a `TypeVal` exactly like `T : Type`.
+
+Also ruled out along the way: `evaluator/types/function.yo:1774` IS kind-guarded
 (`is_type_0` → TypeVal, else `create_unknown_val`) and is the fn-parameter path;
 `:2283` is unguarded but sits in `parse_where_clause_constraints`, whose subject
-is always a type, so unconditional is correct there. The impl-level binder
-declaration site is still unlocated — the next probe is a `[trial]`-style print
-at each `t_some_t` mint site, filtered to `N`.
+is always a type, so unconditional is correct there.
+
+### The obvious fix is REFUTED — measured twice (2026-08-13)
+
+Binding a value binder to `create_unknown_val(<declared type>)` instead — the
+fn-level fix's exact shape — **breaks 87 of 247 files**, all with
+`Cannot destructure from a module that is still being evaluated (circular
+import)`.
+
+Two attempts, isolating the cause:
+
+1. Reading the annotation with `evaluate_expression_raw` → 86 circular-import
+   failures. Plausible cause: impls are evaluated WHILE the prelude module is
+   still evaluating, so evaluating anything there re-enters module evaluation.
+2. Reading it with a PURE `find_variable_in_env` lookup instead — no evaluation
+   at all → **the same 86 failures**. So the annotation lookup was never the
+   problem: it is the BINDING itself.
+
+Conclusion: the `TypeVal(SomeT)` binding is **load-bearing for evaluating the
+impl's receiver pattern** (`Array(T, N)`), which runs in this same `forall_env`.
+A value binder cannot simply be re-kinded there.
+
+The fix therefore has to keep the SomeT for pattern evaluation and correct the
+kind only for METHOD-BODY evaluation — the body env is built later by
+`_build_def_time_body_env`, which copies comptime variables out of the impl env
+and no longer knows the declared kind. So it needs the kind carried across
+(a side table keyed by impl entry + binder name, or a kind stamped on the SomeT
+itself — note `t_some_t_with_kind` already exists for the HKT case at
+`types/function.yo:1783`). Do not retry the naive re-kinding: it is measured.
 
 ## Method notes
 
