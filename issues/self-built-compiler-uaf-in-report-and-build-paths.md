@@ -1,85 +1,194 @@
 # A SELF-BUILT compiler has a use-after-free in the report and build paths — 8 cli-cases abort
 
-**Status: REOPENED 2026-08-12 — STILL BLOCKS P2.3.** The awaited-RC-result dup
-fix below is a REAL defect fix, but it is **not** the cause of these failures and
-does not resolve them; the "verification" that claimed otherwise compared a
-TS-built binary against a seed-built one rather than fixed sources against
-unfixed ones. Corrected analysis, with the real root cause localized, is in
-"What the fix did and did not do" and "Root cause, localized" below. Found 2026-08-11 by the first CI
-run in which stage-1 is built by the previous release instead of by TypeScript:
-exactly the bug class the 2.3 migration exists to expose, because every CI arm
-until then tested a **TS-built** stage-1, so a defect in what the SELF-HOSTED
-codegen emits for the compiler's own sources was invisible.
+**Status: ROOT CAUSE FOUND AND FIXED 2026-08-12** —
+`yo-self/codegen/exprs/init_assignment.yo:205-250`. A binding lowered into an
+async state-machine slot took an **early return** that emitted the RHS raw,
+jumping over the deferred-dup chain, while the slot's drop was still emitted: a
+net **−1 per binding**. So every `element := list(i)` inside an async loop
+silently under-counted its element and freed it out from under the live list.
 
-## Root cause: every awaited RC result was shallow-copied into its slot
+Found 2026-08-11 by the first CI run in which stage-1 is built by the previous
+release instead of by TypeScript: exactly the bug class the 2.3 migration exists
+to expose, because every CI arm until then tested a **TS-built** stage-1, so a
+defect in what the SELF-HOSTED codegen emits was invisible.
 
-When an `await`'s result contains Rc-managed data, the value must be DUPPED into
-the state-machine slot, because the Future's dispose function will drop it and
-the slot needs its own reference. TS does that
-(`src/codegen/async/state-machine.ts:744-755`); its `else` branch — warn and
-shallow-copy — is dead code there, because TS synthesizes `___dup` methods.
+## Root cause
 
-yo-self synthesizes **none**, so `get_dup_function_for_type` always returns
-`None` and TS's dead fallback was yo-self's ONLY path. The emitted C says it
-outright:
+TS computes the RHS **once**, through a four-arm chain in which _every_ arm
+emits the RHS's deferred dups, and only then chooses where the value lands —
+a plain local or, for a state-machine variable, `sm->field`
+(`initialization-assignment.ts:487-494`). The destination never changes whether
+the +1 is emitted.
 
-```c
-/* TS   */ sm->varM_entries = fnM_id_917___dup(sm->await_future_2->result);
-/* self */ /* Warning: No ___dup function found for result type, shallow copy may cause use-after-free */
-           sm->varM_entries = sm->await_future_2->result;
+yo-self instead short-circuits: `init_assignment.yo:205-250` detects a
+state-machine binding, generates the RHS raw, assigns it, and **returns early**,
+jumping over the entire dup chain below:
+
+```rust
+sm_rhs := _call_generate_expr(rhs, indent.clone(), context);   // no deferred dups
+em.emit_string_line(`${indent}sm->${sm_field} = ${sm_rhs};`);
+return(Option(String).Some(String.from("")));
 ```
 
-So the slot held a BORROWED reference that dispose then freed — a
-use-after-free at every await of an RC result, waiting for a reader.
+The drop side was never conditional on the dup side, so the pair came apart.
 
-**Blast radius (measured):** 44 such sites in the C of a seed-built compiler
-(`grep -c "No ___dup function found" ` on its emitted `.c`), and 7 in the
-standalone driver used for the bisection.
+Why it hid in async code specifically: that early return is reachable _only_
+inside a state machine. Outside one, the same binding takes the normal path and
+is correct (`__yo_t2* temp = (*index(...)); __yo_incr_rc(temp); it = temp;`) —
+a sync control compiled by the same binary proves it. So the defect needs both
+an async body and an RC-carrying binding:
 
-Why `public-safe-report` was where it surfaced: `entries := await
-fs_walker.walk(...)` yields an `ArrayList` of RC'd entries, so the freed buffer
-is proportional to the number of directory entries — which is why the corruption
-scaled with file count (0 files clean, 1 file garbage totals, 2 files free-list
-corruption) and why `unsafe_report.yo`, whose counter loops contain no awaits,
-was unaffected.
+```c
+/* TS   */ temp_a = (*index(&sm->__capture.items, sm->var_i));
+           temp_b = Item___dup(temp_a);          /* the +1 */
+           sm->var_it = temp_b;
+           ...
+           Item___drop(sm->var_it);              /* balanced */
+
+/* self */ sm->var_it = (*index(...));           /* NO +1 */
+           ...
+           __yo_decr_rc((void*)(sm->var_it));    /* net -1 per iteration */
+```
+
+Elements are therefore freed while the list still points at them. The first pass
+is usually survivable (elements sit at refcount 2), so the corruption needs a
+second read of the same list — which is why it surfaced in the compiler's own
+multi-pass walks and not in small tests.
+
+`public-safe-report` was where it showed because its scan loop binds
+`decl := decls(di)` inside an async body: the crash is the _list's_ teardown
+walking element pointers that its own loop already freed.
+
+```
+frame #0: __yo_decr_rc            ← reads a freed RC header
+frame #1: <ArrayList element teardown>
+frame #2: __yo_decr_rc            ← refcount reached ZERO here
+frame #3: <async block>_resume
+```
 
 ## Fix
 
-`state_machine.yo`'s `.None` branch now calls `generate_dup_code_for_value`
-(`yo-self/codegen/exprs/drop_dup.yo:406`) — the inline dup generator this
-compiler already uses for every other dup it has no method for, which emits its
-statements through the same emitter and returns the expression. That makes
-yo-self's semantics equal TS's by inlining, which is the established pattern in
-that file (the value-struct and value-enum dup arms carry the same note).
+Route the state-machine branch's RHS through `emit_deferred_dup_or_code` — the
+helper the normal path's arms already use, which emits the dups and returns the
+dup result name — so the early return no longer skips the +1:
+
+```rust
+sm_rhs := emit_deferred_dup_or_code(rhs, _call_generate_expr(rhs, indent.clone(), context), indent.clone(), context);
+```
+
+Emission afterwards is TS-shaped (yo-self inlines `__yo_incr_rc` where TS calls
+a synthesized `___dup`, per `yo-self-rc-dup-drop-methods-never-synthesized`):
+
+```c
+__yo_t2* temp = (*index(...));
+((__yo_t2*)__yo_incr_rc((void*)(temp)));   /* the +1 */
+sm->var_it = temp;
+...
+__yo_decr_rc((void*)(sm->var_it));         /* balanced */
+```
+
+**A second, smaller parity gap** was found while reading TS and is fixed in the
+same commit: the `.None` arm of the normal path (no temp variable name on the
+RHS) also skipped its dups, where TS's matching `else` (lines 464-484) emits
+them. That arm is _unreachable for state-machine bindings_ — they return early
+above — so it is **not** the cause of this bug and has no regression test of its
+own; it is ported for parity with its three sibling arms. The outer `.None` (no
+`ExprInfo` at all) is left alone: TS guards on `rhs.$?`, so no deferred dups can
+exist there.
 
 ## Verification
 
-| | before | after |
-| --- | --- | --- |
-| `public-safe-report --json` on 2 files (self-built) | `filesScanned: 16131858542891098079`, free-list corruption | `filesScanned: 2` — byte-identical to TS, 0 mimalloc messages |
-| `scripts/cli-diff-test.sh` (27 cases, self-built stage-1) | PASS 15, DIFF 3, SELF-FAIL 5, BOTH-FAIL 4 | **PASS 27, DIFF 0, SELF-FAIL 0** |
-| `check ./yo-self` | 247/247 | 247/247 |
-| "No ___dup" sites in the driver's emitted C | 7 | 0 (191 inline dup ops) |
+A differential reproducer now lives in `tests/async_await.test.yo` ("async index
+binding keeps the element alive"): it indexes a 3-element `ArrayList` of ref
+structs inside an async loop containing an await, **twice**.
 
-## No value-asserting regression test — deliberately
+| built by                | `total` | element 0's String |
+| ----------------------- | ------- | ------------------ |
+| TS compiler             | 12      | `alpha`            |
+| self-hosted, **before** | 12      | **empty — freed**  |
+| self-hosted, **after**  | 12      | `alpha`            |
 
-A `tests/*.test.yo` asserting values could not gate this class honestly: under
-the TS compiler it passes either way (TS has the dup), and under a self-built
-compiler the borrowed reference is often still readable — shapes 5 and 6 below
-hit the shallow-copy path and printed correct output anyway. The reliable
-detectors are the ones that caught it: **GATE 7 (the cli-case differential) run
-against a SEED-BUILT stage-1**, which PR #98 makes CI do, plus mimalloc's
-diagnostics on the compiler's own stderr. A test that can pass while broken is
-the failure mode this repo has repeatedly paid for.
+Both self-hosted binaries were built **by the TS compiler from the same tree**,
+differing only by the patch — the comparison the invalid verification below
+failed to make.
 
-## Symptom
+End-to-end, on the case that actually blocked 2.3 (`public-safe-report` over the
+2-file fixture, compiled by a stage-1 carrying the fix):
+
+|                               | before                             | after              |
+| ----------------------------- | ---------------------------------- | ------------------ |
+| exit code, 3 consecutive runs | 133 / 138 / 139 (nondeterministic) | **0 / 0 / 0**      |
+| stdout vs the TS-built binary | empty (crashed)                    | **byte-identical** |
+| under Guard Malloc            | `EXC_BAD_ACCESS` in `__yo_decr_rc` | **clean exit**     |
+
+It passes under the TS compiler and FAILED under the pre-fix self-hosted binary
+with `element 0 outlived the async loop`, so it is a real ratchet in the hollow
+sweep rather than a vacuous assertion. Two passes are required: at one pass the
+elements sit at refcount 2 and the imbalance is masked — the earlier judgement
+that "no value-asserting regression test can gate this class" was wrong, and it
+was wrong because it was formed while the root cause was still misidentified.
+
+## What the earlier "fix" did and did not do
+
+The awaited-RC-result dup fix (PR #103, shipped in v0.2.3,
+`state_machine.yo:1774`) is a **real and separate defect fix** — an awaited RC
+result was shallow-copied into its slot — and it stays. It was **not** the cause
+of these 8 failures, and the verification that claimed it was is invalid: it
+compared a TS-built stage-1 against a seed-built one instead of fixed sources
+against unfixed ones. A TS-built stage-1 scores 27/27 with or without it, and
+v0.2.3 carries it and still scored 15/27.
+
+**The lesson, worth more than the fix:** when validating a codegen change, hold
+the BUILDER constant and vary the SOURCES. Varying the builder measures which
+generation compiled the compiler, not whether the patch works.
+
+## What is and is not affected — measured
+
+Same fixture, same `YO_STD`, four binaries:
+
+| binary                                 | built by        | rc  | filesScanned | findings |
+| -------------------------------------- | --------------- | --- | ------------ | -------- |
+| stage-1 built by the v0.2.2 seed       | **self-hosted** | 134 | —            | —        |
+| `local_s2` (a stage-2 from 2026-08-11) | **self-hosted** | 0   | **0** ✗      | **16** ✗ |
+| stage-1 built by the TS compiler       | TypeScript      | 0   | 1 ✓          | 2 ✓      |
+| the shipped v0.2.2 release binary      | TypeScript      | 0   | 1 ✓          | 2 ✓      |
+
+**Every self-built compiler is wrong; every TS-built compiler is right** — which
+is the signature of a `yo-self` codegen defect, and is why the builder-vs-sources
+confusion above was so easy to fall into. Reproduces identically on macOS-arm64
+and linux-x64, so it is not platform-specific.
+
+## Why nothing caught it
+
+- **Every CI arm built stage-1 with TypeScript** (until PR #98). GATE 7 therefore
+  compared TS against a TS-BUILT self-hosted binary — one compiled by the
+  correct codegen.
+- **The fixpoint cannot see it.** stage-2 ≡ stage-3 compares emitted C _text_ for
+  stability, not behavior; both stages are equally affected, so the byte-diff is
+  clean. AGENTS.md notes that a stage-2-only bug is invisible to every stage-1
+  arm; this is the same hole in the other direction — a self-BUILT-only bug is
+  invisible to every TS-built arm.
+- **Wrong numbers do not crash.** With counters read from freed memory,
+  `public-safe-report` exits 0 and prints plausible JSON. Only the mimalloc
+  build turns it into an abort. The silent wrong answer is the dangerous half.
+
+The fix and its test now sit on opposite sides of that line: the test lives in
+the language suite (run by both compilers), and the self-hosted arm is what
+fails without the fix.
+
+## Family
+
+Same class as `issues/fixed/seed-built-stage1-miscompiles-current-source.md`
+(the escape-path pending-drop filter freeing a borrowed match binding, fixed in
+#100) — a drop emitted for something still live. This is a sibling site that
+fix did not cover.
+
+## Symptom (as originally observed)
 
 `YO_SELF_BIN=<seed-built stage-1> scripts/cli-diff-test.sh` scores
 **PASS 15/16, DIFF 3, SELF-FAIL 5, BOTH-FAIL 3-4** where a TS-built stage-1 from
 the same sources scores **27/27**. Eight cases abort with rc=134; three doc cases
 differ in stdout.
-
-Two distinct manifestations, both memory corruption:
 
 ```
 $ cd <unsafe-pragma-ok fixture> && <seed-built stage-1> build run
@@ -88,296 +197,9 @@ mimalloc: error: corrupted free list entry of size 96b at 0x020004935280: value 
 ```
 
 ```
-$ cd <public-safe-report fixture> && <seed-built stage-1> public-safe-report . --json
-  "totals": { "filesScanned": 16131858542891098079,
-              "publicDeclsScanned": 16131858542891098079,
-              "findings": 16131858542891098079 }
+$ <seed-built stage-1> public-safe-report --json      # 2 files
+"filesScanned": 16131858542891098079                  # 0xDFDF… — mimalloc's freed-block fill
 ```
 
-`16131858542891098079` is `0xDFDFDFDFDFDFDFDF` — **mimalloc's freed-block fill
-pattern.** The totals are read out of memory that has already been freed. The
-"Build DAG stalled" error is a downstream symptom: the DAG's own state is
-clobbered, so the scheduler finds no runnable step.
-
-## What is and is not affected — measured
-
-Same fixture, same `YO_STD`, four binaries:
-
-| binary                                | built by        | rc  | filesScanned | findings |
-| ------------------------------------- | --------------- | --- | ------------ | -------- |
-| stage-1 built by the v0.2.2 seed      | **self-hosted** | 134 | —            | —        |
-| `local_s2` (a stage-2 from 2026-08-11)| **self-hosted** | 0   | **0** ✗      | **16** ✗ |
-| stage-1 built by the TS compiler      | TypeScript      | 0   | 1 ✓          | 2 ✓      |
-| the shipped v0.2.2 release binary     | TypeScript      | 0   | 1 ✓          | 2 ✓      |
-
-**Every self-built compiler is wrong; every TS-built compiler is right.** So this
-is NOT a v0.2.2-specific miscompile (the released binary behaves correctly — it
-was TS-built) and NOT a regression from today's work: `local_s2` predates it and
-is already wrong, silently reporting 0 files / 16 findings instead of 1 / 2.
-
-It is a **`yo-self` codegen defect**: when the self-hosted compiler compiles the
-compiler's own sources, it emits a premature drop (or a missing dup) in these
-paths. Whoever built the compiler determines whether the resulting binary is
-correct.
-
-Reproduces identically on macOS-arm64 (locally) and linux-x64 (CI), so it is not
-platform-specific.
-
-## Why nothing caught it
-
-- **Every CI arm builds stage-1 with TypeScript** (until PR #98). GATE 7 therefore
-  compared TS against a TS-BUILT self-hosted binary — a binary compiled by the
-  correct codegen.
-- **The fixpoint cannot see it.** stage-2 ≡ stage-3 compares emitted C *text* for
-  stability, not behavior; both stages are equally affected, so the byte-diff is
-  clean. This is the "a stage-2-only bug is invisible to every stage-1 arm" note
-  in AGENTS.md, now with a concrete instance in the OTHER direction: a
-  self-BUILT-only bug is invisible to every TS-built arm.
-- **`local_s2`'s wrong numbers do not crash.** With counters read from freed
-  memory, `public-safe-report` exits 0 and prints plausible-looking JSON. Only
-  the mimalloc build turns it into an abort. A silent wrong answer is the
-  dangerous half.
-
-## Family
-
-Same class as `issues/fixed/seed-built-stage1-miscompiles-current-source.md`
-(the escape-path pending-drop filter freeing a borrowed match binding, fixed in
-#100) — a drop emitted for something still live. #100's fix was verified against
-the RED set it was found from; this is a sibling site it did not cover.
-
-## Next step (the technique that solved #100)
-
-No new builds are needed to see the defect: a TS-built stage-1 IS yo-self's
-codegen, so
-
-1. emit C for `yo-self/public_safe_report.yo`'s totals path with the TS compiler
-   (`node out/cjs/yo-cli.cjs … --emit-c`) and with a self-hosted binary,
-2. diff the two emissions of the same function, and look for a `___drop`/
-   `__yo_decr_rc` that the self emission places before the last use.
-
-The `public-safe-report` path is the better reproducer of the two: it is a
-self-contained text scanner (no build system, no child processes), its wrong
-output is deterministic, and the corrupted value is self-identifying (`0xDF`
-fill).
-
-## Consequence for P2
-
-**2.3 cannot go green until this is fixed** — the whole point of the item is that
-the seed builds stage-1, and a seed-built stage-1 fails 8 of 27 cli-cases. Do not
-allowlist GATE 7: a permanently-red gate is the failure mode this repo has
-repeatedly paid for. The rest of the migration is proven — 15 of 16 jobs green,
-including seed → stage-1 → stage-2 ≡ stage-3 byte-identical, the internal-tests
-differential, and the 188-file hollow sweep.
-
-## Input bisection: the corruption is PER-FILE (2026-08-11) — free, no rebuild
-
-Running the same seed-built stage-1 against directories with different file
-counts localizes the defect without touching the compiler:
-
-| input directory      | `.yo` files | rc      | result                                     |
-| -------------------- | ----------- | ------- | ------------------------------------------ |
-| empty                | 0           | 0       | `"filesScanned": 0` — **correct**          |
-| one tiny file         | 1           | 0       | `"filesScanned": 16131858542891098079` (freed memory) |
-| two tiny files        | 2           | **134** | `mimalloc: corrupted free list entry`      |
-
-**The corruption scales with the number of files scanned**, and zero files is
-clean — so the walk itself is fine and the defect is in the PER-FILE body of the
-scan loop (`public_safe_report.yo:561-578`). One iteration is enough to corrupt
-the totals; two are enough to corrupt the free list.
-
-### What that leaves as the prime suspect
-
-The per-file body does four things. Synthetic reproductions have now covered
-three of them under both codegens with identical, correct results:
-
-| per-file work                                              | covered by | result |
-| ---------------------------------------------------------- | ---------- | ------ |
-| counter mutations inside an `if` body in the loop           | shape 4    | clean  |
-| `await fs_file.read_string(...)` (a REAL suspension)        | shape 5    | clean  |
-| `extract(src.as_bytes())` returning `ArrayList(ref(struct))`| shape 6    | clean  |
-| **`_scan_file(file.clone(), src, findings)`**               | —          | **untested** |
-
-So `_scan_file` is the prime suspect: it is the one piece of per-file work not
-yet reproduced, and its shape is the most drop-sensitive of the four — it takes
-the awaited `src` String by value, takes the caller's `findings` ArrayList by
-reference, and appends `ref(struct)` findings to it from inside a callee, across
-an await boundary in the caller.
-
-**Recommended next step: source-level bisection on the real file**, not more
-synthetic shapes (six have now failed to reproduce). Neutralize `_scan_file`'s
-call first; if the totals come out right, bisect inside `_scan_file`. Budget one
-~20-25 min seed-built stage-1 rebuild per iteration, and carry several probes or
-neutralizations per build.
-
-## Instrumented probe: the corruption is UPSTREAM of the totals read (2026-08-11)
-
-A seed-built stage-1 was rebuilt with two `eprintln` probes — one immediately
-after `report := io.await(generate_public_safe_report(…))` in
-`main.yo:1892`, one at the entry of `public_safe_report_to_json`. Running it:
-
-```
-mimalloc: error: thread 0x340007000: corrupted free list entry of size 96b at 0x020000286F00
-```
-
-**Neither probe printed.** The abort happens before the await even returns, so the
-heap is already corrupted *inside* `generate_public_safe_report`'s async body —
-during `_psr_walk_yo_files` / the scan loop / `_scan_file` — and the
-`0xDFDFDFDFDFDFDFDF` totals seen in the non-aborting runs are a DOWNSTREAM
-symptom of that, not the site of the defect. This rules out the call-site
-hypothesis (probe 4 below) as the primary root, and it explains why the
-manifestation varies between runs (silently-wrong counters vs an abort): both are
-consequences of an already-corrupted heap, and which one surfaces depends on
-allocator layout.
-
-Next probe placement should therefore be INSIDE the async body: after the walk
-await, after each `read_string`, and before the `PublicSafeReport(...)`
-construction — bisecting the async body rather than its result. Note each
-iteration costs one ~20-25 min seed-built stage-1 rebuild, so prefer a single
-build carrying several probes over sequential single-probe builds.
-
-## Minimal-reproducer attempts — what does NOT trigger it (2026-08-11)
-
-Three shapes were tried against both codegens (TS-compiled vs compiled by a
-self-hosted binary, the latter with `--allocator mimalloc` so a UAF is reported).
-**All three produced identical, correct output under both compilers**, so none of
-them is the trigger:
-
-1. **Sync** `ref(struct)` built from locals mutated in a `while`, stored into a
-   second `ref(struct)`'s field, read after the builder returns.
-2. The same, but the builder is an **async closure** (`io.async((e : IoExn) => …)`
-   returning `Impl(Future(Report, IoExn))`) with one `await` **before** the loop.
-3. The same with an additional `await` **inside** the loop body (so the
-   accumulating locals round-trip through state-machine slots every iteration).
-4. The same with the counter mutations AND the `await` moved **inside an `if`
-   body** within the loop — the shape the real site has, and the family of
-   `issues/fixed/ts-bare-if-await-early-return-silently-skipped.md`.
-5. The same as (4) but awaiting **real** `fs_file.read_string` on real files, so
-   the state machine genuinely SUSPENDS and resumes (shapes 2-4 awaited an
-   `io.async` closure that returns without suspending, which may never exercise
-   slot round-tripping at all).
-6. The same as (5) plus `decls := extract(src.as_bytes())` — an `as_bytes()` temp
-   passed BY VALUE into a helper that returns `ArrayList(ref(struct))` whose
-   elements outlive the temp, mirroring `_extract_top_level_fn_decls`.
-
-So "ref-struct built from slot-resident locals in an async tail expression" is
-NOT sufficient. What the real site has that these lack: real filesystem awaits
-(`fs_file.read_string`) nested two async frames deep, an `ArrayList` of
-`ref(struct)` findings passed BY REFERENCE into a helper that appends to it
-(`_scan_file(file, src, findings)`), a `collected.sort()`, and `String` clones
-across the awaits.
-
-Next probe, in order of expected yield:
-
-1. **Function-body C diff on the real site** (the technique that solved #100):
-   emit `yo-self` C with `node out/cjs/yo-cli.cjs … --emit-c --skip-c-compiler`
-   and with a self-hosted binary, then compare the two emissions of
-   `generate_public_safe_report` — mind that mangled names and emission order
-   differ between the compilers, so map the function first rather than diffing
-   whole files.
-2. **Source-level bisection by neutralization** on the real function (drop the
-   `_scan_file` call, then the inner awaits, then the sort) until the wrong
-   counters turn correct; python delta-debugging over arm bodies worked for the
-   batch bisection before.
-3. Check the sibling: `unsafe_report.yo` has the same shape and its cli-case
-   PASSES, so diffing the two files' totals paths may isolate the difference
-   directly. Measured difference so far: `unsafe_report`'s counter-mutating loops
-   contain NO awaits and its totals fields are mostly `.len()` calls, whereas
-   `public_safe_report` mutates `(files_scanned : usize) = …` locals inside an
-   `if` body that also holds the `await`. Shape (4) above tried exactly that and
-   came out clean, so the differentiator is something narrower still.
-4. **Look at the CALL SITE, not only the callee.** `main.yo:1892` does
-   `report := io.await(generate_public_safe_report(…), IoExn(…))` and then passes
-   `report` to a formatter. `issues/async-abort-dispose-double-drops-moved-enum-payload.md`
-   is an OPEN bug of exactly this family — an async result dropped prematurely at
-   the call site, worked around there with a `.clone()` band-aid in `version.yo`.
-   The cheapest decisive test is to add that band-aid at main.yo:1892 and see
-   whether a self-built compiler then reports the right totals; if it does, the
-   root is the async-result drop, not anything in `public_safe_report.yo`.
-
----
-
-## CORRECTION 2026-08-12: what the dup fix did and did not do
-
-The awaited-RC-result shallow copy documented above is real — the emitted C says
-`No ___dup function found for result type, shallow copy may cause use-after-free`
-— and it is fixed and shipped in v0.2.3. **But it does not fix these 8 cases**,
-and the evidence originally offered for it was invalid:
-
-| stage-1                     | built by   | sources  | corpus     |
-| --------------------------- | ---------- | -------- | ---------- |
-| TS-built                    | TypeScript | **pre**-fix  | **27/27** |
-| TS-built                    | TypeScript | post-fix | 27/27      |
-| seed-built (v0.2.2)         | seed       | pre-fix  | 15/27      |
-| seed-built (v0.2.2)         | seed       | post-fix | 15/27      |
-| seed-built (**v0.2.3**, CI) | seed       | post-fix | **15/27**  |
-
-A TS-built stage-1 scores 27/27 **with or without** the fix, so "27/27 after the
-fix" measured the BUILDER, not the fix. Confirmed directly afterwards: a driver
-compiled by a fixed-codegen compiler crashes exactly like one compiled by an
-unfixed-codegen compiler (rc=133, same mimalloc message). v0.2.3 does carry the
-fix (it emits 0 shallow-copy warnings on the pristine file) — it simply is not
-this bug.
-
-## Root cause, localized (2026-08-12)
-
-**A value moved out of an async block is dropped anyway by the state machine.**
-
-Reproducer, seconds per iteration and needing no compiler rebuild:
-`public_safe_report.yo` imports only std, so a 6-line driver imports it directly
-(`/tmp/psrdrv.yo`) and any yo-self-codegen compiler reproduces:
-
-```
-$ <any yo-self-built compiler> compile psrdrv.yo --release --allocator mimalloc -o drv && ./drv
-mimalloc: error: corrupted free list entry ...    # rc=133/134
-$ node out/cjs/yo-cli.cjs compile psrdrv.yo --release -o drv_ts && ./drv_ts
-"filesScanned": 2 ...                              # correct
-```
-
-Under Guard Malloc (`DYLD_INSERT_LIBRARIES=/usr/lib/libgmalloc.dylib`) the
-corruption becomes a deterministic SIGSEGV with a full stack:
-
-```
-#0  <ArrayList(ref psr-struct) element teardown>   ← walks freed/garbage slots
-#1  <ArrayList ___dispose>
-#3  __yo_dispose_dispatch
-#4  __yo_decr_rc                                   ← an RC reached ZERO here
-#6  _file____tmp__temp_9844_resume                 ← inside the async SM's resume
-#7  __yo_async_run_ready_tasks
-```
-
-The object is the `findings` `ArrayList(PublicSafeFinding)` that the async body
-MOVES into its result: `PublicSafeReport(findings : findings, totals : ...)`.
-Its refcount is driven to zero inside the resume while the returned Report still
-holds it, so the later teardown iterates freed slots — which is also why the
-totals read `0xDFDFDFDFDFDFDFDF` in the non-crashing runs.
-
-This single defect explains the whole failing set: all 8 cases go through async
-paths (`build`, `contracts-runtime-*` which build+run, `public-safe-report`,
-`doc-*`). And it explains the TS-vs-seed split exactly — the affected code is
-whatever the SELF-HOSTED codegen compiled.
-
-### Eliminated hypotheses (do not re-test these)
-
-1. **Awaited-RC-result shallow copy** — fixed; unrelated (table above).
-2. **Async captures are borrowed, not retained.** They ARE retained: the self
-   emission builds the capture struct as
-   `{.root = temp_dup_enum_..., .out = __yo_incr_rc(out)}`.
-3. **Unguarded Option-payload drops** — they are tag-guarded
-   (`switch (…tag) case SOME:`).
-4. Six synthetic reproductions of the surrounding shapes (ref-struct in
-   ref-struct, async with/without real suspension, await inside an `if` in a
-   `while`, `as_bytes()` into a helper returning `ref(struct)`s) are all CLEAN
-   under both codegens — the trigger needs the real move-out-of-async shape.
-
-### Where to look
-
-`generateAsyncBlockResumeFunction` returns the `localVarDrops` list consumed by
-the dispose/cleanup emitter (`src/codegen/exprs/async.ts:1544`, `:1071`;
-yo-self's counterpart takes `local_var_drops : ArrayList(String)` at
-`yo-self/codegen/exprs/async.yo:1149`). TS must be excluding the local whose
-value was moved into the result; yo-self evidently is not. Compare those two
-lists for the `gen` state machine and find the entry that should not be there —
-AGENTS.md's dup/drop-pair-optimizer pitfall (a named local moved into a struct
-field gets a deferred dup cancelled against the scope-end drop) is the mechanism
-to check first, since inside a state machine the deferred-dup path is
-deliberately skipped.
+Both are the same defect read at different times: the second is a freed block
+observed before reuse, the first the allocator's own structures after it.

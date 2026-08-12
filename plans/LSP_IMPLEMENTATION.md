@@ -1,5 +1,14 @@
 # Yo Language Server Protocol (LSP) Implementation Plan
 
+> **SUPERSEDED for the self-hosting era — see [`P4_LSP.md`](P4_LSP.md).**
+> This document planned (and delivered) the **TypeScript** LSP under `src/lsp/`,
+> which retires with `src/` in P2.5. It is kept because the feature analysis
+> and the problem statement below still hold — the Yo rewrite has to deliver
+> the same surface. What has changed: the server is rewritten in Yo as a
+> `yo lsp` subcommand, and the first slice is NOT diagnostics but fixing the
+> def-eval swallow, since `yo-self check` currently accepts code the TS
+> compiler rejects (P4_LSP.md, spike 2).
+
 ## Problem
 
 The VS Code extension (`vscode-extension/src/extension.ts`, ~1700 lines) directly imports the Yo evaluator and implements IDE features (hover, completion, go-to-definition, diagnostics) using VS Code-specific APIs. This has several problems:
