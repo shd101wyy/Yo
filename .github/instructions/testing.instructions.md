@@ -97,7 +97,7 @@ function into a `// Failed to transpile` **C comment** — the C compiler skips
 it, the binary runs nothing, and the runner reports **every test in the batch as
 passing**. Measured 2026-08-12: 23 vacuous tests in
 `tests/internal/expr_info.test.yo`, with the CI job green the whole time
-(`issues/yo-self-option-eq-ref-enum-not-specialized.md`).
+(`issues/fixed/yo-self-option-eq-ref-enum-not-specialized.md`).
 
 The `__yo_user_main` marker gate in `yo-self/codegen/functions/generation.yo`
 turns this into a hard error. **Never weaken that gate to get a job green.**

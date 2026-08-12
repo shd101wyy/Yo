@@ -1,4 +1,4 @@
-# yo-self: `==` on `Option(T)` where T is a recursive ref-enum degrades to an FTT comment — TWO missing enum-self-shell resolutions (FIXED 2026-08-12)
+# yo-self: `==` on `Option(T)` where T is a recursive ref-enum degrades to an FTT comment — TWO missing enum-self-shell resolutions (FIXED 2026-08-13)
 
 > **ROOT CAUSE + FIX (2026-08-12).** Not a specialization bug at all — the title's
 > original diagnosis was wrong, and so was the first producer I blamed
@@ -58,7 +58,16 @@ assert(a == b, "two Nones are equal");
 | yo-self (pre-gate binary) | rc=0, **1** `// Failed to transpile assert(a == b, ...)`                                                          |
 | yo-self (with the gate)   | rc=1, "Failed to transpile part of main's body"                                                                   |
 
-## Where the marker comes from
+## REFUTED hypothesis 1: the "callee never emitted" degrade
+
+**This was wrong — kept because the instrumentation that killed it is the
+useful part.** An `eprintln` at the site below plus one printing all four
+`should_skip_function_codegen` flags showed **48 `YSKIP` lines and ZERO
+`YFTT-CALL`**: this site never fires for the reproducer. The marker came from
+the MISSING-ExprInfo arm in `codegen/exprs/generation.yo` instead, which is a
+completely different mechanism — the evaluator never recorded info for the
+statement at all (the def-eval swallow's blast radius), rather than a callee
+being judged unemittable.
 
 `yo-self/codegen/exprs/other_fn_call.yo:1805`:
 
@@ -97,7 +106,17 @@ So it is not "manual impl" alone, not "ref type" alone, and not
 Note the direct `EvalValue == EvalValue` case FOLDS, so `Eq(EvalValue)` itself
 is fine at CTFE; it is the `Option` wrapper's specialization that is missing.
 
-## Failure family
+## REFUTED hypothesis 2: the specialization family
+
+**Also wrong.** The shape looked exactly like the generic-container-`Eq`
+specialization family below, and that reading is what the original title
+recorded. It is not: no specialization is missing, and the two
+`resolve_enum_shell` calls fix it without touching any spec machinery. Kept
+because the family IS real for other bugs, and because the warning in it still
+stands — `issues/patches/spec-emission-second-half-wip.patch`'s
+`_collect_specializations_of` helper looks like the obvious fix and was
+**measured harmful** ("cycle_collector RC regression — it emitted extra spec
+copies"). Do not re-apply it blind.
 
 This is the family already root-caused in
 [`yo-self-collections-batch-residuals.md`](yo-self-collections-batch-residuals.md):
