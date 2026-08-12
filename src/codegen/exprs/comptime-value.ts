@@ -36,6 +36,7 @@ import {
   sanitizeForCIdentifier,
   quoteCString,
 } from "../utils";
+import { codegenFatal } from "../constants";
 
 /**
  * `generateComptimeValue` HEAP-ALLOCATES for exactly two shapes: a
@@ -156,7 +157,7 @@ export function generateComptimeValue(
         (v) => v.name === value.variantName
       );
       if (!variant) {
-        return `// Error: Variant ${value.variantName} not found in enum`;
+        return codegenFatal(`Variant ${value.variantName} not found in enum`);
       }
 
       if (!variant.fields || variant.fields.length === 0) {
@@ -185,7 +186,9 @@ export function generateComptimeValue(
     // Generate regular tagged union construction
     const cName = context.types[enumType.id]?.cName;
     if (!cName) {
-      return `// Error: No C type name found for enum ${typeToString(enumType)}`;
+      return codegenFatal(
+        `No C type name found for enum ${typeToString(enumType)}`
+      );
     }
 
     const variantTag = getEnumVariantCName(
@@ -208,7 +211,9 @@ export function generateComptimeValue(
         (v) => v.name === value.variantName
       );
       if (!variant || !variant.fields) {
-        return `// Error: Variant ${value.variantName} not found or has no fields`;
+        return codegenFatal(
+          `Variant ${value.variantName} not found or has no fields`
+        );
       }
 
       // Filter out unit type fields; collect both designated (value enum) and
@@ -249,7 +254,9 @@ export function generateComptimeValue(
     const type = value.type;
     const cName = context.types[type.id]?.cName;
     if (!cName) {
-      return `// Error: No C type name found for tuple ${typeToString(type)}\n`;
+      return codegenFatal(
+        `No C type name found for tuple ${typeToString(type)}`
+      );
     }
 
     const fields = value.fields.map((field, index) => {
@@ -265,7 +272,9 @@ export function generateComptimeValue(
     if (type && isStructType(type)) {
       const cName = context.types[type.id]?.cName;
       if (!cName) {
-        return `// Error: No C type name found for struct ${typeToString(type)}\n`;
+        return codegenFatal(
+          `No C type name found for struct ${typeToString(type)}`
+        );
       }
 
       // Handle newtype as zero-cost abstraction
@@ -348,7 +357,9 @@ export function generateComptimeValue(
     if (value.type.ioBuiltin) {
       return "NULL";
     }
-    return `// Error: No C function name found for function value with ID ${value.funcId}\n`;
+    return codegenFatal(
+      `No C function name found for function value with ID ${value.funcId}`
+    );
   } else if (
     value.tag === ValueTag.Unknown &&
     isFunctionType(value.type) &&

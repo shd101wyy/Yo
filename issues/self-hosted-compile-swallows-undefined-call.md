@@ -1,12 +1,16 @@
 # Self-hosted `compile` builds a runnable no-op binary from an undefined call
 
-**Status: SLICE 1 FIXED 2026-08-12** — an undefined variable is now fatal at
-def time when it is raised while trial-evaluating a **concrete** function body.
-The reported symptom is gone: `compile` on a typo'd call exits 1 with
-`Variable "…" not found.` instead of emitting a runnable no-op binary. Pinned by
-the differential case `tests/cli-cases/compile-undefined-call`, which scored
-`TS-FAIL rc(ts=1,self=0)` before and `PASS` after. The wider strict mode (the
-type-level classes) stays OPEN — see "What is not in slice 1".
+**Status: FIXED 2026-08-12** — but in codegen, not by the def-time re-raise this
+document originally proposed. An untranspilable expression no longer becomes a C
+comment the C compiler skips; 220 such sites in both compilers now fail the
+compile, and a marker reaching `main` is fatal in yo-self. `compile` on a typo'd
+call exits 1 instead of emitting a runnable no-op binary, pinned by the
+differential case `tests/cli-cases/compile-undefined-call`.
+
+The def-time re-raise (`3c88a3bbb`) was committed, measured, and **REVERTED** —
+it turned 10 corpus files red. See "Why the def-time re-raise was reverted"; it
+remains the next slice, for the better diagnostic, gated on the corpus sweep.
+The wider strict mode — the ~220 type-level swallow classes — stays OPEN.
 
 Originally found 2026-08-10 while building the `build-fail`
 differential case. The known def-time body-eval swallow
@@ -216,3 +220,133 @@ for all error classes surfaces those ~220 type-level false positives, each of
 which is a separate yo-self porting gap. That is the real campaign, and it
 should be run gap-by-gap with the counts above as its progress bar — not as a
 single flip.
+
+## 2026-08-12 — FIXED, but not by the slice this document originally proposed
+
+The reported symptom is gone: `compile` on a typo'd call now exits 1 instead of
+emitting a runnable no-op binary. The fix is NOT the def-time re-raise sketched
+above — that was implemented, measured, and **reverted**. What fixed it was
+closing the second half of the mechanism, in codegen.
+
+### The second half: the diagnostic was a C COMMENT
+
+The def-eval swallow only produced a silent binary because of what happened
+downstream. When codegen could not transpile an expression it emitted
+`// Failed to transpile <expr>` or `// Error: <reason>` — and **a comment in C
+statement position is skipped by the C compiler.** The statement vanished, clang
+reported nothing, the binary linked and ran without it. That is the answer to
+"why didn't the C compiler complain": there was nothing left in the C to
+complain about. A diagnostic the C compiler can skip is not a diagnostic.
+
+### What is now fatal
+
+| family                                                  | sites (TS / yo-self) | in the compiler's own 115 MB of C | now fatal                        |
+| ------------------------------------------------------- | -------------------- | --------------------------------- | -------------------------------- |
+| `// Error: <reason>` returned as an expression's C text | 73 / 102             | 0                                 | YES, both compilers              |
+| `// Error: <reason>` `emitLine`d as a whole statement   | 20 / 17              | 0                                 | YES, both compilers              |
+| `// Failed to transpile <expr>`                         | 1 / 2                | 0                                 | TS yes; yo-self entry-point only |
+| `// Unknown type: <T>`                                  | 1 / 2                | **3**                             | NO — legitimate                  |
+
+220 sites in total route through `codegenFatal` (TS, `src/codegen/constants.ts`)
+or `codegen_fatal` / `codegen_fatal_expr` (yo-self, `codegen/constants.yo`, which
+unwinds via the compile's `exn` so it exits rc=1 like a TS compile error rather
+than `__yo_panic`'s SIGABRT).
+
+**Measure with an ANCHORED grep.** `grep -c 'Failed to transpile'` over the
+compiler's own C returns 13 — all 13 are C **string literals**, yo-self's own
+source for the emitter that builds the message. `grep -cE '^\s*// Failed to
+transpile'` returns 0. Getting this backwards makes a clean compiler look broken.
+
+### Two families that must NOT be fatal, and why
+
+**`// Unknown type:`** is a legitimate "this type has no C representation, elide
+the declaration" mechanism, and it fires routinely — the three in the compiler's
+own C are an `Option(Expr)` payload field (`Expr` is comptime-only) and two
+vtable **associated-type** members (a non-function trait member has no runtime
+slot). Making it fatal breaks the build immediately.
+
+**`// Failed to transpile` in yo-self** is consumed as an IN-BAND SIGNAL, which
+TS has no equivalent of because TS never drops an emission. Seven guards
+(`inline_fns.yo` `_binop`, `assignment.yo` x2, `return.yo`, `dyn.yo`,
+`functions/generation.yo` x2) test `starts_with("// Failed to transpile")` and
+degrade the whole enclosing STATEMENT to the comment, keeping the C
+syntactically valid instead of splicing a comment mid-expression. Then
+`functions/generation.yo` **rewrites** a superseded generic original's body to an
+`abort()` stub when its emitted body carries the marker. The rewrite finds those
+bodies by scanning the emitted text for the marker — so the marker has to exist.
+
+Making it fatal at the producer turned `tests/fn.test.yo` and
+`tests/algebraic_effects.test.yo` red. Both are dead code: the pre-change binary
+emits ZERO surviving markers for their batches, i.e. the degrades resolve
+cleanly. `fn.test.yo` runs 24 tests under both compilers.
+
+### The entry-point gate — where it IS fatal in yo-self
+
+`functions/generation.yo` already byte-scans each emitted function body for the
+marker (that is how the stub rewrite finds its targets). One condition was added
+to that existing scan: a marker in **`__yo_user_main`** fails the compile.
+
+That is the one place the marker is unambiguously harmful — `main` silently loses
+a statement, links, runs, does nothing — and it is exactly what the hollow-sweep
+detector defines as HOLLOW. Markers elsewhere keep their degrade/stub handling.
+
+### Why the def-time re-raise was reverted
+
+It was committed first (`3c88a3bbb`), and it turned **10 corpus files red**. CI
+on PR #110, carrying it alone, failed the full-corpus hollow sweep (178 GREEN,
+1 HOLLOW, 9 RED) and the tier-1 self-hosted `test` gates:
+
+| file(s)                                                                       | error                          |
+| ----------------------------------------------------------------------------- | ------------------------------ |
+| `arc`, `imm_threading`, `thread`, `sync/{atomic,mutex,once,rwlock,waitgroup}` | `Variable "Self" not found.`   |
+| `module_struct_unification`                                                   | `Variable "Module" not found.` |
+
+**This document said how to avoid that** — "Not yet measured: the `tests/`
+corpus. … Measure before flipping anything on." The measurement that WAS done,
+`check ./std` and `check ./yo-self`, does not cover the corpus, and the corpus is
+where the counterexamples live. **`check` is the wrong instrument for this
+question**; `hollow_sweep69.sh` is the right one, and it takes 26 min in CI.
+
+Two narrowing attempts followed, and both failed:
+
+1. **Exclude type-level names.** `Self` and `Module` are unbound at def time until
+   specialization binds them. Every false positive in every corpus is type-level
+   (`Self`, `Module`, and the single-letter generics `B F V E U N J`) while the
+   target bug is a snake_case value name. This fixed the 9 RED files but not
+   `fn.test.yo`.
+2. **Gate on the trial actually aborting.** The flag is set at the THROW site,
+   arbitrarily deep, and intermediate machinery legitimately raises and recovers
+   (`comptime_expect_error(x + a, "Cannot use \`a\` from outer scope")`in`fn.test.yo`raises exactly this error ON PURPOSE). Adding a "did the body eval
+abort" condition, plus a save/restore in`comptime_expect_error`, still left
+`fn.test.yo` failing.
+
+The reason both failed is structural: **the flag is a global and trials nest.**
+A nested `_trial_eval_fn_body` clears and re-sets it, so the outer trial reads the
+inner one's verdict. Each fix moved the leak instead of closing it. A correct
+version needs per-trial save/restore so a nested trial cannot clobber its parent
+— worth doing, but it is a mechanism redesign, not a patch.
+
+And it is not needed for the reported bug. **The codegen fix alone catches it**,
+verified: an undefined call leaves its expression with no ExprInfo, which lands in
+`main`, which the entry-point gate rejects.
+
+```
+$ /tmp/yo-s2only compile /tmp/undef.yo --release      # no def-time re-raise at all
+rc=1   Failed to transpile this_function_does_not_exist
+```
+
+What the re-raise would add is a better MESSAGE — `Variable "foo" not found.`
+with a caret on the identifier, instead of a codegen-level report. That is worth
+having (an LSP wants it, see P4_LSP.md) and it is the next slice, gated on the
+sweep rather than on `check`.
+
+### Standing lessons
+
+- Gate any future slice of the wider strict mode on the **full corpus sweep**
+  with an empty allowlist, not on `check ./std` / `check ./yo-self`.
+- `comptime_expect_error` raises real errors on purpose. Any "definite error"
+  channel has to survive that, and `cee` already saves ~30 pieces of state for
+  exactly this reason.
+- The sweep's HOLLOW verdict only inspects `__yo_user_main`, which is also the
+  scope the new entry-point gate takes. A marker in another function body is
+  handled by the degrade/stub architecture rather than reported.

@@ -28,6 +28,7 @@ import { checkVariableIsClosureCaptured } from "./closures";
 import { generateDeferredDupExpressions } from "./drop-dup";
 import { generateExpr } from "./expr";
 import { getStateMachineFieldName } from "../async/state-machine";
+import { codegenFatal } from "../constants";
 
 /**
  *
@@ -149,7 +150,7 @@ export function generateInitializationAssignment(
     // Use renamed variable name (e.g., "_" → temp name) if available
     const varName = lhs.$?.variableName ?? lhs.token.value;
     if (!lhs.$?.type) {
-      return `// Error: No type information for variable ${varName}\n`;
+      return codegenFatal(`No type information for variable ${varName}`);
     }
 
     // Check if the variable being assigned to is compile-time

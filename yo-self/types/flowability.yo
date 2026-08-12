@@ -40,7 +40,7 @@ open(import("std/string"));
 { ExprInfo, expr_info_table_get, has_any_control_flow, lookup_method_callee_type, expr_info_closure_function_value }
 :: import("../expr_info.yo");
 { Variable, Environment, get_variables_from_env } :: import("../env.yo");
-{ format_error_message, YoError } :: import("../error.yo");
+{ format_error_message } :: import("../error.yo");
 { Exception } :: import("std/error");
 { is_type_val } :: import("../value.yo");
 { EvalContext } :: import("../evaluator/context.yo");
@@ -86,61 +86,6 @@ flow_violation_pending :: (fn() -> bool)(
 /// The flagged rejection's message (empty if none).
 flow_violation_message :: (fn() -> String)(
   match(g_flow_violation_msg.get(usize(0)), .Some(m) => m, .None => String.from(""))
-);
-// ---------------------------------------------------------------------------
-// Undefined-variable rejections at def time (the def-eval swallow, slice 1)
-// ---------------------------------------------------------------------------
-/// `_trial_eval_fn_body` swallows every def-time body-eval error, which makes a
-/// typo'd call compile to a SILENT NO-OP BINARY: the FuncVal registers anyway
-/// and codegen emits the body minus the failing statement
-/// (issues/self-hosted-compile-swallows-undefined-call.md). TS's counterpart is
-/// fatal (function-type.ts:499).
-///
-/// The swallow cannot simply be removed. Measured 2026-08-12 over `check ./std`
-/// (236 swallowed errors) and `check ./yo-self` (54), split by the call site
-/// that raised them:
-///
-/// |                    | undefined variable | type-level (unify/…) |
-/// | ------------------ | ------------------ | -------------------- |
-/// | CONCRETE fn body   | **0**              | 29                   |
-/// | deferred generic   | 65                 | ~142                 |
-///
-/// So the two gates below are exactly the ones with no measured false
-/// positives: an undefined variable raised while trial-evaluating a
-/// NON-generic body. Generic bodies must stay lenient (their real evaluation
-/// happens at specialization, where the type params are bound — that is the
-/// whole reason the wall exists), and the 29 concrete type-level ones are
-/// late-unification artifacts that stay lenient until each is triaged.
-///
-/// Same shape as `flag_flow_violation` above, and for the same reason: the
-/// swallow handler is a capture-free `->` effect handler, so it cannot
-/// propagate anything itself. The throw site flags; the def-time caller
-/// re-raises through the real `exn`.
-/// Holds the ALREADY-FORMATTED error, not a bare string: re-formatting it at the
-/// def-time caller would attach the enclosing `fn(...)` head's caret and print
-/// the source block twice. Storing the `YoError` lets the caller rethrow it
-/// verbatim, so the diagnostic points at the offending identifier exactly as the
-/// unswallowed throw would have — which is also what an LSP needs (P4_LSP.md).
-/// `YoError` is a `ref` struct, so this shares rather than copies.
-(g_undefined_var_err : ArrayList(YoError)) = ArrayList(YoError).new();
-/// Mark the error about to be thrown as an undefined-variable rejection.
-flag_undefined_variable :: (fn(err : YoError) -> unit)({
-  g_undefined_var_err.clear();
-  g_undefined_var_err.push(err);
-  ()
-});
-/// Reset (before each def-time body eval, and after each re-raise).
-clear_undefined_variable :: (fn() -> unit)({
-  g_undefined_var_err.clear();
-  ()
-});
-/// True iff an undefined-variable rejection was flagged since the last reset.
-undefined_variable_pending :: (fn() -> bool)(
-  g_undefined_var_err.len() > usize(0)
-);
-/// The flagged rejection, ready to rethrow unchanged.
-undefined_variable_error :: (fn() -> Option(YoError))(
-  g_undefined_var_err.get(usize(0))
 );
 /// "Propagate all def-time body-eval errors" mode. Normally `_trial_eval_fn_body`
 /// SWALLOWS any error thrown while evaluating a function body at definition time
@@ -1064,10 +1009,6 @@ export(
   clear_flow_violation,
   flow_violation_pending,
   flow_violation_message,
-  flag_undefined_variable,
-  clear_undefined_variable,
-  undefined_variable_pending,
-  undefined_variable_error,
   alias_group_root,
   require_ref_own_argument_exclusivity,
   require_valid_ref_argument_places,

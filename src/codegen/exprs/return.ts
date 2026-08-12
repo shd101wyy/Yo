@@ -32,6 +32,7 @@ import {
 } from "./drop-dup";
 import { generateExpr } from "./expr";
 import { resolveVarNameInContext } from "./other-fn-call";
+import { codegenFatal } from "../constants";
 
 /**
  * Helper: Handle deferred dup expressions for an atom and return the final code
@@ -575,7 +576,7 @@ export function generateReturn(
     // For non-unit types, we need a temporary variable to hold the return value
     // before deferred drop expressions run
     if (!expr.$.variableName && !isUnitType(expr.$.type)) {
-      return `// Error: return expression missing temporary variable name`;
+      return codegenFatal(`return expression missing temporary variable name`);
     }
 
     // Special handling for async functions: we need to get the raw value code

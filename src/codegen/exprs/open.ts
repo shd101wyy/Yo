@@ -6,6 +6,7 @@ import {
   sanitizeForCIdentifier,
 } from "../utils";
 import { generateExpr } from "./expr";
+import { codegenFatal } from "../constants";
 
 /**
  * `open` for runtime struct
@@ -22,7 +23,7 @@ export function generateOpen(
   ) {
     const argExpr = expr.args[0];
     if (!argExpr || !argExpr.$?.type) {
-      return "// Error: open expression has no argument or type";
+      return codegenFatal("open expression has no argument or type");
     }
 
     const argType = argExpr.$.type;

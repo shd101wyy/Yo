@@ -26,6 +26,7 @@ open(import("std/string"));
 // eval :388); this emits it. Mirrors src/codegen/exprs/assignment.ts.
 { emit_deferred_dup_or_code } :: import("./drop_dup.yo");
 { get_type_string, get_variable_type_string } :: import("../utils/index.yo");
+{ codegen_fatal_expr } :: import("../constants.yo");
 /// The last binding for `name` is a module-level global.
 _last_is_module_level :: (fn(env : Environment, name : String) -> bool)({
   vars := get_variables_from_env(env, name);
@@ -46,20 +47,15 @@ generate_assignment :: (fn(expr : AstExpr, indent : String, context : FunctionGe
     return(String.from(""));
   });
   args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
-  lhs0 := match(args.get(usize(0)), .Some(x) => x, .None => return(String.from("// Error: assignment missing lhs\n")));
-  rhs := match(args.get(usize(1)), .Some(x) => x, .None => return(String.from("// Error: assignment missing rhs\n")));
+  lhs0 := match(args.get(usize(0)), .Some(x) => x, .None => return(codegen_fatal_expr(String.from("assignment missing lhs"))));
+  rhs := match(args.get(usize(1)), .Some(x) => x, .None => return(codegen_fatal_expr(String.from("assignment missing rhs"))));
   // `(lhs : T) = rhs` is an initialization; unwrap to the real lhs variable.
   is_init := ast_expr_is_fn_call_of(lhs0, BK_COLON, Option(usize).Some(usize(2)));
   lhs := if(is_init, match(lhs0, .FnCall(_, _, la, _, _) => match(la.get(usize(0)), .Some(x) => x, .None => lhs0), .Atom(_, _) => lhs0), lhs0);
   lhs_ei := match(
     context.base.get_expr_info(lhs),
     .Some(e) => e,
-    .None => {
-      s := String.from("// Error: No type information for left-hand side ");
-      s.push_string(ast_expr_to_string(lhs));
-      s.push_str("\n");
-      return(s);
-    }
+    .None => return(codegen_fatal_expr(`No type information for left-hand side ${ast_expr_to_string(lhs)}`))
   );
   // Module-level globals are declared in the main wrapper — skip here.
   if(is_init && ast_expr_is_atom(lhs), {

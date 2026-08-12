@@ -22,6 +22,7 @@ open(import("std/string"));
 { get_type_string, get_variable_name_for_codegen, is_function_value_with_only_builtin_yo_inline_function_call } :: import("../utils/index.yo");
 { is_array_type } :: import("../../types/guards.yo");
 { expr_info_converted_runtime_type } :: import("../../expr_info.yo");
+{ codegen_fatal_expr } :: import("../constants.yo");
 /// The C function name for a func id (registered cName, else None).
 _c_function_name_opt :: (fn(context : FunctionGenerationContext, func_id : String) -> Option(String))(
   match(context.base.get_function_entry(func_id), .Some(e) => Option(String).Some(e.c_name), .None => Option(String).None)
@@ -31,15 +32,10 @@ generate_address_of :: (fn(expr : AstExpr, indent : String, context : FunctionGe
   ei := match(
     context.base.get_expr_info(expr),
     .Some(e) => e,
-    .None => {
-      s := String.from("// Error: No type information for pointer/reference expression ");
-      s.push_string(ast_expr_to_string(expr));
-      s.push_str("\n");
-      return(s);
-    }
+    .None => return(codegen_fatal_expr(`No type information for pointer/reference expression ${ast_expr_to_string(expr)}`))
   );
   args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
-  arg := match(args.get(usize(0)), .Some(x) => x, .None => return(String.from("// Error: address-of requires an argument\n")));
+  arg := match(args.get(usize(0)), .Some(x) => x, .None => return(codegen_fatal_expr(String.from("address-of requires an argument"))));
   arg_ei_opt := context.base.get_expr_info(arg);
   // Compile-time literals need a compound literal to be addressable.
   match(

@@ -35,6 +35,7 @@ import {
   getTypeString,
 } from "../utils";
 import { generateExpr } from "./expr";
+import { codegenFatal } from "../constants";
 
 /**
  * Check if a variable is captured by the closure or is a local variable.
@@ -253,7 +254,7 @@ export function generateClosureConstruction(
   context: CodeGenContext
 ): string {
   if (!expr.$ || !expr.$.type || !expr.$.closureFunctionValue) {
-    return `// Error: Missing closure metadata`;
+    return codegenFatal(`Missing closure metadata`);
   }
 
   const fnTrait = extractFnTraitFromType(expr.$.type)!;
@@ -266,7 +267,7 @@ export function generateClosureConstruction(
   ]?.cName;
 
   if (!functionCName) {
-    return `// Error: Closure implementation function not found in context`;
+    return codegenFatal(`Closure implementation function not found in context`);
   }
 
   // Check if this is a Dyn(Fn(...)) or Impl(Fn(...))
@@ -277,7 +278,7 @@ export function generateClosureConstruction(
   if (isDynClosure) {
     const dynTypeEntry = context.types[expr.$.type.id];
     if (!dynTypeEntry) {
-      return `// Error: Dyn closure type not found in context`;
+      return codegenFatal(`Dyn closure type not found in context`);
     }
     closureCName = dynTypeEntry.cName;
   }
@@ -306,7 +307,7 @@ export function generateClosureConstruction(
     );
 
     if (!captureResult) {
-      return `// Error: Failed to allocate closure capture`;
+      return codegenFatal(`Failed to allocate closure capture`);
     }
 
     const { captureTempVar } = captureResult;
@@ -352,7 +353,9 @@ export function generateClosureConstruction(
         }
       }
 
-      return `// Error: Impl(Fn(...)) without captures missing resolvedConcreteType`;
+      return codegenFatal(
+        `Impl(Fn(...)) without captures missing resolvedConcreteType`
+      );
     }
   }
 }

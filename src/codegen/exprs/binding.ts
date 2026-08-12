@@ -6,6 +6,7 @@ import {
   type FnCallExpr,
 } from "../../expr";
 import { type CodeGenContext, getVariableTypeString } from "../utils";
+import { codegenFatal } from "../constants";
 
 /**
  * bindings `:`
@@ -25,7 +26,9 @@ export function generateBinding(
   }
 
   if (!lhs.$?.type) {
-    return `// Error: No type information for left-hand side ${exprToString(lhs)}\n`;
+    return codegenFatal(
+      `No type information for left-hand side ${exprToString(lhs)}`
+    );
   }
   const varName = lhs.token.value;
   const varTypeAndName = getVariableTypeString(lhs.$.type, varName, context);

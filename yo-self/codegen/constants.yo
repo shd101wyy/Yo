@@ -203,4 +203,27 @@ codegen_fatal :: (fn(message : String) -> unit)({
   );
   __yo_panic("fatal codegen error with no handler registered (see message above)")
 });
-export(is_builtin_yo_inline_function, is_primitive_type_tag, set_codegen_fatal_exn, codegen_fatal);
+/// `codegen_fatal` in EXPRESSION position — for the emitters, whose signatures
+/// return the C text they built.
+///
+/// Every call site used to return an "Error" **C COMMENT** instead.
+/// A comment in C statement position is skipped by the C compiler, so the
+/// emitted program silently lost that statement: clang reported nothing, the
+/// binary linked, and it ran with the failing expression simply absent — the
+/// same silent-hollowing mechanism as the "Failed to transpile" marker
+/// (issues/self-hosted-compile-swallows-undefined-call.md). A diagnostic the C
+/// compiler can skip is not a diagnostic.
+///
+/// Every one of those sites is an internal emitter precondition — a builtin
+/// reached codegen with the wrong arity, or an expression reached it with no
+/// type information — so none is reachable from source the evaluator accepted.
+/// Measured before making them fatal: emitting the WHOLE self-hosted compiler
+/// (115 MB of C, the largest program available) produces ZERO of these markers.
+///
+/// The `String` return never happens; `codegen_fatal` unwinds first. It exists
+/// so a site can keep its original shape (`.None => return(...)`).
+codegen_fatal_expr :: (fn(message : String) -> String)({
+  codegen_fatal(message);
+  String.from("")
+});
+export(is_builtin_yo_inline_function, is_primitive_type_tag, set_codegen_fatal_exn, codegen_fatal, codegen_fatal_expr);

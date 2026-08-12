@@ -14,6 +14,7 @@ open(import("std/string"));
 { _call_generate_expr } :: import("./_expr.yo");
 { type_key, get_variable_type_string, get_variable_name_for_codegen } :: import("../utils/index.yo");
 { generate_deferred_dup_expressions } :: import("./drop_dup.yo");
+{ codegen_fatal_expr } :: import("../constants.yo");
 /// Args of a FnCall (empty for an Atom).
 _args :: (fn(e : AstExpr) -> ArrayList(AstExpr))(
   match(e, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new())
@@ -107,7 +108,7 @@ _type_not_found :: (fn(ei_ty_key : String) -> String)({
 /// The `tuple(...)` function call, generating a tuple value. Mirrors
 /// `generateAnonymousTuple`.
 generate_anonymous_tuple :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
-  ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("// Error: tuple has no evaluation info")));
+  ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("tuple has no evaluation info"))));
   ty_key := type_key(ei.ty);
   c_name_opt := context.base.get_type_c_name(ty_key.clone());
   match(

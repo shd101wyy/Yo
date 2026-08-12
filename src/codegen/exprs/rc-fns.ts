@@ -18,6 +18,7 @@ import {
   resolveSomeTypeParamType,
 } from "./drop-dup";
 import { generateExpr } from "./expr";
+import { codegenFatal } from "../constants";
 
 /**
  * __yo_decr_rc - handle reference count decrement
@@ -29,7 +30,7 @@ export function generateYoDecrRc(
 ): string {
   const selfArg = expr.args[0];
   if (!selfArg) {
-    return `// Error: __yo_decr_rc requires exactly 1 argument`;
+    return codegenFatal(`__yo_decr_rc requires exactly 1 argument`);
   }
   const selfCode = generateExpr(selfArg, indent, context);
   return `__yo_decr_rc(${selfCode})`;
@@ -45,7 +46,7 @@ export function generateYoIncrRc(
 ): string {
   const selfArg = expr.args[0];
   if (!selfArg) {
-    return `// Error: __yo_incr_rc requires exactly 1 argument`;
+    return codegenFatal(`__yo_incr_rc requires exactly 1 argument`);
   }
   const selfCode = generateExpr(selfArg, indent, context);
   return `__yo_incr_rc(${selfCode})`;
@@ -61,7 +62,7 @@ export function generateYoRcOwn(
 ): string {
   const selfArg = expr.args[0];
   if (!selfArg) {
-    return `// Error: __yo_rc_own requires exactly 1 argument`;
+    return codegenFatal(`__yo_rc_own requires exactly 1 argument`);
   }
   const selfCode = generateExpr(selfArg, indent, context);
   return selfCode; // Just return the argument as-is
@@ -79,7 +80,7 @@ export function generateYoDropArrayElement(
   const arrayArg = expr.args[0];
   const indexArg = expr.args[1];
   if (!arrayArg || !indexArg) {
-    return `// Error: __yo_drop_array_element requires exactly 2 arguments`;
+    return codegenFatal(`__yo_drop_array_element requires exactly 2 arguments`);
   }
 
   const arrayCode = generateExpr(arrayArg, indent, context);
@@ -88,7 +89,7 @@ export function generateYoDropArrayElement(
   // Get the array element type to find its drop function
   const arrayType = arrayArg.$?.type;
   if (!arrayType || !isArrayType(arrayType)) {
-    return `// Error: __yo_drop_array_element requires an array type`;
+    return codegenFatal(`__yo_drop_array_element requires an array type`);
   }
 
   const elementType = arrayType.childType;
@@ -101,7 +102,7 @@ export function generateYoDropArrayElement(
   if (isArrayType(concreteElementType)) {
     const nestedArrayLength = concreteElementType.length;
     if (!isNumberValue(nestedArrayLength)) {
-      return `// Error: array element has non-constant length`;
+      return codegenFatal(`array element has non-constant length`);
     }
     const loopVar = `i_${Math.floor(Math.random() * 1000000)}`;
     // Generate inline drop code using ___drop recursively
@@ -148,7 +149,7 @@ export function generateYoDupArrayElement(
   const arrayArg = expr.args[0];
   const indexArg = expr.args[1];
   if (!arrayArg || !indexArg) {
-    return `// Error: __yo_dup_array_element requires exactly 2 arguments`;
+    return codegenFatal(`__yo_dup_array_element requires exactly 2 arguments`);
   }
 
   const arrayCode = generateExpr(arrayArg, indent, context);
@@ -157,7 +158,7 @@ export function generateYoDupArrayElement(
   // Get the array element type to find its dup function
   const arrayType = arrayArg.$?.type;
   if (!arrayType || !isArrayType(arrayType)) {
-    return `// Error: __yo_dup_array_element requires an array type`;
+    return codegenFatal(`__yo_dup_array_element requires an array type`);
   }
 
   const elementType = arrayType.childType;
@@ -170,7 +171,7 @@ export function generateYoDupArrayElement(
   if (isArrayType(concreteElementType)) {
     const nestedArrayLength = concreteElementType.length;
     if (!isNumberValue(nestedArrayLength)) {
-      return `// Error: array element has non-constant length`;
+      return codegenFatal(`array element has non-constant length`);
     }
     const tempVar = `temp_array_${Math.floor(Math.random() * 1000000)}`;
     const loopVar = `i_${Math.floor(Math.random() * 1000000)}`;
@@ -216,7 +217,7 @@ export function generateYoDropTupleElement(
   const tupleArg = expr.args[0];
   const indexArg = expr.args[1];
   if (!tupleArg || !indexArg) {
-    return `// Error: __yo_drop_tuple_element requires exactly 2 arguments`;
+    return codegenFatal(`__yo_drop_tuple_element requires exactly 2 arguments`);
   }
 
   const tupleCode = generateExpr(tupleArg, indent, context);
@@ -225,18 +226,18 @@ export function generateYoDropTupleElement(
   // Get the tuple element type to find its drop function
   const tupleType = tupleArg.$?.type;
   if (!tupleType || !isTupleType(tupleType)) {
-    return `// Error: __yo_drop_tuple_element requires a tuple type`;
+    return codegenFatal(`__yo_drop_tuple_element requires a tuple type`);
   }
 
   // Get index value
   const indexValue = indexArg.$?.value;
   if (!isNumberValue(indexValue)) {
-    return `// Error: __yo_drop_tuple_element requires a constant index`;
+    return codegenFatal(`__yo_drop_tuple_element requires a constant index`);
   }
 
   const index = Number(indexValue.value);
   if (index < 0 || index >= tupleType.fields.length) {
-    return `// Error: __yo_drop_tuple_element index out of bounds`;
+    return codegenFatal(`__yo_drop_tuple_element index out of bounds`);
   }
 
   const elementType = tupleType.fields[index]!.type;
@@ -279,7 +280,7 @@ export function generateYoDupTupleElement(
   const tupleArg = expr.args[0];
   const indexArg = expr.args[1];
   if (!tupleArg || !indexArg) {
-    return `// Error: __yo_dup_tuple_element requires exactly 2 arguments`;
+    return codegenFatal(`__yo_dup_tuple_element requires exactly 2 arguments`);
   }
 
   const tupleCode = generateExpr(tupleArg, indent, context);
@@ -288,18 +289,18 @@ export function generateYoDupTupleElement(
   // Get the tuple element type to find its dup function
   const tupleType = tupleArg.$?.type;
   if (!tupleType || !isTupleType(tupleType)) {
-    return `// Error: __yo_dup_tuple_element requires a tuple type`;
+    return codegenFatal(`__yo_dup_tuple_element requires a tuple type`);
   }
 
   // Get index value
   const indexValue = indexArg.$?.value;
   if (!isNumberValue(indexValue)) {
-    return `// Error: __yo_dup_tuple_element requires a constant index`;
+    return codegenFatal(`__yo_dup_tuple_element requires a constant index`);
   }
 
   const index = Number(indexValue.value);
   if (index < 0 || index >= tupleType.fields.length) {
-    return `// Error: __yo_dup_tuple_element index out of bounds`;
+    return codegenFatal(`__yo_dup_tuple_element index out of bounds`);
   }
 
   const elementType = tupleType.fields[index]!.type;
@@ -343,7 +344,7 @@ export function generateDup(
 ): string {
   const valueArg = expr.args[0];
   if (!valueArg) {
-    return `// Error: ___dup requires exactly 1 argument`;
+    return codegenFatal(`___dup requires exactly 1 argument`);
   }
 
   const valueCode = generateExpr(valueArg, indent, context);
@@ -369,7 +370,7 @@ export function generateDrop(
 ): string {
   const valueArg = expr.args[0];
   if (!valueArg) {
-    return `// Error: ___drop requires exactly 1 argument`;
+    return codegenFatal(`___drop requires exactly 1 argument`);
   }
 
   const valueCode = generateExpr(valueArg, indent, context);
@@ -392,7 +393,7 @@ export function generateYoDynDrop(
 ): string {
   const selfArg = expr.args[0];
   if (!selfArg) {
-    return `// Error: __yo_dyn_drop requires exactly 1 argument`;
+    return codegenFatal(`__yo_dyn_drop requires exactly 1 argument`);
   }
   const selfCode = generateExpr(selfArg, indent, context);
   // Dyn is a value type; ref-counting applies to its .data pointer.
@@ -409,7 +410,7 @@ export function generateYoDynDup(
 ): string {
   const selfArg = expr.args[0];
   if (!selfArg) {
-    return `// Error: __yo_dyn_dup requires exactly 1 argument`;
+    return codegenFatal(`__yo_dyn_dup requires exactly 1 argument`);
   }
   const selfCode = generateExpr(selfArg, indent, context);
   // Dyn is a value type; ref-counting applies to its .data pointer.
@@ -426,7 +427,7 @@ export function generateYoIncrRcAtomic(
 ): string {
   const selfArg = expr.args[0];
   if (!selfArg) {
-    return `// Error: __yo_incr_rc_atomic requires exactly 1 argument`;
+    return codegenFatal(`__yo_incr_rc_atomic requires exactly 1 argument`);
   }
   const selfCode = generateExpr(selfArg, indent, context);
   return `__yo_incr_rc_atomic(${selfCode})`;
@@ -442,7 +443,7 @@ export function generateYoDecrRcAtomic(
 ): string {
   const selfArg = expr.args[0];
   if (!selfArg) {
-    return `// Error: __yo_decr_rc_atomic requires exactly 1 argument`;
+    return codegenFatal(`__yo_decr_rc_atomic requires exactly 1 argument`);
   }
   const selfCode = generateExpr(selfArg, indent, context);
   return `__yo_decr_rc_atomic(${selfCode})`;
@@ -458,7 +459,7 @@ export function generateYoSomeTypeDrop(
 ): string {
   const selfArg = expr.args[0];
   if (!selfArg) {
-    return `// Error: __yo_sometype_drop requires exactly 1 argument`;
+    return codegenFatal(`__yo_sometype_drop requires exactly 1 argument`);
   }
   const argType = selfArg.$?.type;
 
@@ -498,7 +499,7 @@ export function generateYoSomeTypeDup(
 ): string {
   const selfArg = expr.args[0];
   if (!selfArg) {
-    return `// Error: __yo_sometype_dup requires exactly 1 argument`;
+    return codegenFatal(`__yo_sometype_dup requires exactly 1 argument`);
   }
   const argType = selfArg.$?.type;
 
@@ -532,12 +533,12 @@ export function generateRcCall(
   context: CodeGenContext
 ): string {
   if (expr.args.length !== 1) {
-    return `// Error: rc requires exactly 1 argument`;
+    return codegenFatal(`rc requires exactly 1 argument`);
   }
   const argExpr = expr.args[0]!;
   const argType = argExpr.$?.type;
   if (!argType) {
-    return `// Error: rc argument missing type information`;
+    return codegenFatal(`rc argument missing type information`);
   }
 
   const argCode = generateExpr(argExpr, indent, context);

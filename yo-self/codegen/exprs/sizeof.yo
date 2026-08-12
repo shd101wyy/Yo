@@ -3,6 +3,7 @@ open(import("std/string"));
 { AstExpr } :: import("../../expr.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
+{ codegen_fatal_expr } :: import("../constants.yo");
 /// `sizeof(<arg>)` — the C sizeof operator on the argument. Mirrors `generateSizeOf`.
 generate_sizeof :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)(
   match(
@@ -15,9 +16,9 @@ generate_sizeof :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
         out.push_str(")");
         out
       },
-      .None => String.from("// Error: sizeof requires exactly 1 argument")
+      .None => codegen_fatal_expr(String.from("sizeof requires exactly 1 argument"))
     ),
-    .Atom(_, _) => String.from("// Error: sizeof requires a call expression")
+    .Atom(_, _) => codegen_fatal_expr(String.from("sizeof requires a call expression"))
   )
 );
 export(generate_sizeof);

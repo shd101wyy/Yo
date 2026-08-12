@@ -3,6 +3,7 @@ import { isPtrType } from "../../types/guards";
 import { emitTraverseValue } from "../functions/generation";
 import type { CodeGenContext } from "../utils";
 import { generateExpr } from "./expr";
+import { codegenFatal } from "../constants";
 
 /**
  * __yo_gc_collect - trigger garbage collection
@@ -13,7 +14,7 @@ export function generateYoGcCollect(
   _context: CodeGenContext
 ): string {
   if (expr.args.length !== 0) {
-    return `// Error: __yo_gc_collect requires exactly 0 arguments`;
+    return codegenFatal(`__yo_gc_collect requires exactly 0 arguments`);
   }
   return `__yo_gc_collect()`;
 }
@@ -32,12 +33,12 @@ export function generateYoGcTraceChild(
   context: CodeGenContext
 ): string {
   if (expr.args.length !== 2) {
-    return `// Error: __yo_gc_trace_child requires exactly 2 arguments`;
+    return codegenFatal(`__yo_gc_trace_child requires exactly 2 arguments`);
   }
   const slotExpr = expr.args[1]!;
   const slotType = slotExpr.$?.type;
   if (!slotType || !isPtrType(slotType)) {
-    return `// Error: __yo_gc_trace_child slot must be a pointer`;
+    return codegenFatal(`__yo_gc_trace_child slot must be a pointer`);
   }
   const tracerCode = generateExpr(expr.args[0]!, indent, context);
   const slotCode = generateExpr(slotExpr, indent, context);

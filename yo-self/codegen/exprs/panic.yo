@@ -9,12 +9,13 @@ open(import("std/string"));
 { is_str_type, is_u8_type } :: import("../../types/guards.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { panic, assert } :: import("std/assert");
+{ codegen_fatal_expr } :: import("../constants.yo");
 /// `panic(...)`: emit a stderr message (if any) + abort(), then return an
 /// unreachable type-correct dummy value (`*(T*)NULL`) so the C compiles
 /// (panic never returns). Mirrors `generatePanic`.
 generate_panic :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
   ei_opt := context.base.get_expr_info(expr);
-  return_type := match(ei_opt, .Some(ei) => ei.ty, .None => return(String.from("// Error: panic() missing type information")));
+  return_type := match(ei_opt, .Some(ei) => ei.ty, .None => return(codegen_fatal_expr(String.from("panic() missing type information"))));
   args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   na := args.len();
   cond(
@@ -25,7 +26,7 @@ generate_panic :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
       em.emit_string_line(l);
     },
     (na == usize(1)) => {
-      msg_arg := match(args.get(usize(0)), .Some(a) => a, .None => return(String.from("// Error: panic missing argument")));
+      msg_arg := match(args.get(usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("panic missing argument"))));
       msg_ei := context.base.get_expr_info(msg_arg);
       // Compile-time string message → fprintf the escaped literal.
       comptime_msg := match(msg_ei, .Some(mei) => match(mei.value, .Some(v) => match(v, .StrLit(raw) => Option(String).Some(raw), _ => Option(String).None), .None => .None), .None => .None);
@@ -89,7 +90,7 @@ generate_panic :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
       );
     },
     true => {
-      return(String.from("// Error: panic accepts 0 or 1 arguments"));
+      return(codegen_fatal_expr(String.from("panic accepts 0 or 1 arguments")));
     }
   );
   // Unreachable, type-correct dummy value.

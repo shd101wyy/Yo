@@ -11,6 +11,7 @@ import { getEvidenceParameters } from "../functions/declarations";
 import { generateExpr } from "./expr";
 import { getDupFunctionForType, getDropFunctionForType } from "./drop-dup";
 import { typeContainsRcType } from "../../types/utils";
+import { codegenFatal } from "../constants";
 
 /**
  * Generate a spawn wrapper function for thread/worker spawn.
@@ -311,7 +312,9 @@ export function generateYoThreadSetMaximumThreads(
 ): string {
   const numArg = expr.args[0];
   if (!numArg) {
-    return `// Error: __yo_thread_set_maximum_threads requires exactly 1 argument`;
+    return codegenFatal(
+      `__yo_thread_set_maximum_threads requires exactly 1 argument`
+    );
   }
   const numCode = generateExpr(numArg, indent, context);
   return `__yo_thread_set_maximum_threads(${numCode})`;

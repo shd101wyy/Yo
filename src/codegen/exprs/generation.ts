@@ -23,7 +23,7 @@ import { isSomeType, isUnitType } from "../../types/guards";
 import { isTempVariableName } from "../../utils";
 import { isFunctionValue, isUnknownValue } from "../../value";
 import { isIoFutureType } from "../async/state-machine";
-import { BuiltinYoInlineFunctions } from "../constants";
+import { BuiltinYoInlineFunctions, codegenFatal } from "../constants";
 import type { FunctionGenerationContext } from "../functions/context";
 import {
   type CodeGenContext,
@@ -795,7 +795,7 @@ function generateFuncCall(
   if (isIoSpawnCall(expr)) {
     const futureArg = expr.args[0];
     if (!futureArg) {
-      return `// Error: spawn requires a Future argument`;
+      return codegenFatal(`spawn requires a Future argument`);
     }
     const functionContext = context as FunctionGenerationContext;
     const emitter = functionContext.emitter;
@@ -1033,7 +1033,7 @@ function generateFuncCall(
     if (isFunctionValue(functionValue)) {
       return generateComptimeValue(functionValue, context);
     } else {
-      return `// Error: Anonymous function missing function value`;
+      return codegenFatal(`Anonymous function missing function value`);
     }
   }
   // closure / lambda (x => body) or (x =>> body)
@@ -1050,7 +1050,7 @@ function generateFuncCall(
       if (isFunctionValue(functionValue)) {
         return generateComptimeValue(functionValue, context);
       } else {
-        return `// Error: Anonymous closure missing function value`;
+        return codegenFatal(`Anonymous closure missing function value`);
       }
     }
   }
@@ -1116,9 +1116,26 @@ function generateFuncCall(
     }
   }
 
-  if (exprIsFunctionCall(expr)) {
-    throw new Error(`Unhandled function call: ${exprToString(expr)}`);
-  }
-
-  return `// Failed to transpile ${exprToString(expr)}`;
+  // HALT. This used to return `// Failed to transpile <expr>` for anything that
+  // was not a function call — a C COMMENT, which the C compiler skips, so an
+  // expression codegen could not emit simply VANISHED from the program. A `main`
+  // whose only statement failed compiled to an empty body, clang reported
+  // nothing, and the binary ran and did nothing
+  // (issues/self-hosted-compile-swallows-undefined-call.md). A diagnostic the C
+  // compiler can skip is not a diagnostic.
+  //
+  // Measured before making it fatal: emitting the WHOLE self-hosted compiler
+  // (115 MB of C, the largest program available) produces ZERO of these
+  // markers, `scripts/bootstrap/known-failing.tsv` is empty, and a hello-world
+  // plus an fmt/writer/to_string probe produce zero — so no working build relied
+  // on the comment being skippable.
+  //
+  // The wording keeps "Failed to transpile" deliberately: the hollow-sweep
+  // detector greps for that string, so it still matches — now on a failed
+  // compile instead of a passing one.
+  throw new Error(
+    exprIsFunctionCall(expr)
+      ? `Failed to transpile ${exprToString(expr)} (unhandled function call)`
+      : `Failed to transpile ${exprToString(expr)}`
+  );
 }

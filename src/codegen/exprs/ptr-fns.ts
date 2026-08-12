@@ -20,6 +20,7 @@ import {
   isFunctionValueWithOnlyBuiltinYoInlineFunctionCall,
 } from "../utils";
 import { generateExpr } from "./expr";
+import { codegenFatal } from "../constants";
 
 let ptrFnsIndexTempCounter = 0;
 
@@ -33,7 +34,9 @@ export function generateAddressOf(
 ): string {
   const type = expr.$?.type;
   if (!type) {
-    return `// Error: No type information for pointer/reference expression ${exprToString(expr)}\n`;
+    return codegenFatal(
+      `No type information for pointer/reference expression ${exprToString(expr)}`
+    );
   }
   const arg = expr.args[0]!;
 

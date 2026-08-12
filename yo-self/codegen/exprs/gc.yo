@@ -8,13 +8,14 @@ open(import("std/string"));
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _traverse_value, set_traverse_visit_expr } :: import("../functions/constructors.yo");
 { _call_generate_expr } :: import("./_expr.yo");
+{ codegen_fatal_expr } :: import("../constants.yo");
 /// `__yo_gc_collect()` — trigger a cycle-GC collection (0 args). Mirrors
 /// `generateYoGcCollect`.
 generate_yo_gc_collect :: (fn(expr : AstExpr, _indent : String, _context : FunctionGenerationContext) -> String)(
   match(
     expr,
-    .FnCall(_, _, args, _, _) => if(args.len() == usize(0), String.from("__yo_gc_collect()"), String.from("// Error: __yo_gc_collect requires exactly 0 arguments")),
-    .Atom(_, _) => String.from("// Error: __yo_gc_collect requires a call expression")
+    .FnCall(_, _, args, _, _) => if(args.len() == usize(0), String.from("__yo_gc_collect()"), codegen_fatal_expr(String.from("__yo_gc_collect requires exactly 0 arguments"))),
+    .Atom(_, _) => codegen_fatal_expr(String.from("__yo_gc_collect requires a call expression"))
   )
 );
 /// `__yo_gc_trace_child(tracer, slot)` — the body of `GcTracer.visit`. `slot`
@@ -37,7 +38,7 @@ generate_yo_gc_trace_child :: (fn(expr : AstExpr, indent : String, context : Fun
         .Some(ei) => {
           slot_ty := ei.ty;
           if(!(is_pointer_type(slot_ty)), {
-            return(String.from("// Error: __yo_gc_trace_child slot must be a pointer"));
+            return(codegen_fatal_expr(String.from("__yo_gc_trace_child slot must be a pointer")));
           });
           pointee := match(slot_ty, .Pointer(p) => p, _ => TypeValue.Unit);
           // DIVERGENCE (deliberate): traverse the type the enclosing
@@ -95,10 +96,10 @@ generate_yo_gc_trace_child :: (fn(expr : AstExpr, indent : String, context : Fun
           _traverse_value(deref, walk_ty, context);
           String.from("((void)0)")
         },
-        .None => String.from("// Error: __yo_gc_trace_child slot missing type information")
+        .None => codegen_fatal_expr(String.from("__yo_gc_trace_child slot missing type information"))
       )
-    }, String.from("// Error: __yo_gc_trace_child requires exactly 2 arguments")),
-    .Atom(_, _) => String.from("// Error: __yo_gc_trace_child requires a call expression")
+    }, codegen_fatal_expr(String.from("__yo_gc_trace_child requires exactly 2 arguments"))),
+    .Atom(_, _) => codegen_fatal_expr(String.from("__yo_gc_trace_child requires a call expression"))
   )
 );
 export(generate_yo_gc_collect, generate_yo_gc_trace_child);

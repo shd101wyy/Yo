@@ -95,3 +95,28 @@ export const PrimitiveTypeTags = new Set([
   TypeTag.ULongLong,
   TypeTag.LongDouble,
 ]);
+
+/**
+ * Report an unrecoverable code-generation error.
+ *
+ * Every call site here used to `return` an "Error" **C comment** instead.
+ * A comment in C statement position is skipped by the C compiler, so the
+ * emitted program silently lost that statement: clang reported nothing, the
+ * binary linked, and it ran with the failing expression simply absent. That is
+ * how a typo'd call compiled to a do-nothing program
+ * (`issues/self-hosted-compile-swallows-undefined-call.md`). A diagnostic the C
+ * compiler can skip is not a diagnostic.
+ *
+ * Each of these sites is an internal emitter precondition — a builtin reached
+ * codegen with the wrong arity, or an expression reached it with no type
+ * information. None is reachable from valid source that the evaluator accepted,
+ * and emitting the whole self-hosted compiler (115 MB of C, the largest program
+ * available) produces zero of these markers. So halting cannot regress a
+ * working build; it can only convert a silent miscompile into a visible error.
+ *
+ * The `never` return type lets a site keep its original `return` form
+ * regardless of the enclosing function's return type.
+ */
+export function codegenFatal(message: string): never {
+  throw new Error(message);
+}

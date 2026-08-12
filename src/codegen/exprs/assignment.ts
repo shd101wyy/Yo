@@ -23,6 +23,7 @@ import {
 } from "../utils";
 import { generateDeferredDupExpressions } from "./drop-dup";
 import { generateExpr } from "./expr";
+import { codegenFatal } from "../constants";
 
 /**
  * The state-machine field an assignment TARGET must write to, or `undefined`
@@ -143,7 +144,9 @@ export function generateAssignment(
   }
 
   if (!lhs.$?.type) {
-    return `// Error: No type information for left-hand side ${exprToString(lhs)}\n`;
+    return codegenFatal(
+      `No type information for left-hand side ${exprToString(lhs)}`
+    );
   }
   const lhsCode =
     resolveAssignmentTargetField(lhs, context as FunctionGenerationContext) ??

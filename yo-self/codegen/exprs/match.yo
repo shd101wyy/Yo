@@ -34,6 +34,7 @@ open(import("std/string"));
 { _looks_like_minted_temp } :: import("./begin.yo");
 { get_type_string, get_variable_name_for_codegen, type_key, sanitize_for_c_identifier, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, get_deferred_dup_target_atom_name } :: import("../utils/index.yo");
 { resolve_enum_shell } :: import("../../types/creators.yo");
+{ codegen_fatal_expr } :: import("../constants.yo");
 /// True for an ASCII word byte ([A-Za-z0-9_]).
 _is_word_byte :: (fn(b : u8) -> bool)(
   ((b >= u8(97)) && (b <= u8(122))) || (((b >= u8(65)) && (b <= u8(90))) || (((b >= u8(48)) && (b <= u8(57))) || (b == u8(95))))
@@ -1137,8 +1138,8 @@ generate_match_expression :: (fn(expr : AstExpr, indent : String, context : Func
     )
   );
   args := _args(expr);
-  subject := match(args.get(usize(0)), .Some(s) => s, .None => return(String.from("// Error: \"match\" expression requires a subject")));
-  subject_ei := match(context.base.get_expr_info(subject), .Some(e) => e, .None => return(String.from("// Error: \"match\" expression requires a valid type")));
+  subject := match(args.get(usize(0)), .Some(s) => s, .None => return(codegen_fatal_expr(String.from("\"match\" expression requires a subject"))));
+  subject_ei := match(context.base.get_expr_info(subject), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("\"match\" expression requires a valid type"))));
   match_value_type := subject_ei.ty;
   (matched_value_code : String) = _call_generate_expr(subject, indent.clone(), context);
   // Materialize the subject into its temp var when the evaluator assigned one.
@@ -1208,9 +1209,9 @@ generate_match_expression :: (fn(expr : AstExpr, indent : String, context : Func
   // too. Mirrors the resolve_enum_shell use in _type_key_at / get_type_string.
   enum_type := resolve_enum_shell(enum_type0);
   if(!(is_enum_type(enum_type)), {
-    return(String.from("// Error: \"match\" expression requires an enum type"));
+    return(codegen_fatal_expr(String.from("\"match\" expression requires an enum type")));
   });
-  match(context.base.get_type_c_name(type_key(enum_type)), .None => return(String.from("// Error: \"match\" expression enum type has no C name")), .Some(_) => ());
+  match(context.base.get_type_c_name(type_key(enum_type)), .None => return(codegen_fatal_expr(String.from("\"match\" expression enum type has no C name"))), .Some(_) => ());
   deref_star := if(is_ptr, String.from("*"), String.from(""));
   // Nullable-pointer optimization.
   match(can_optimize_as_nullable_pointer(enum_type), .Some(nullable_inner) => return(_gen_nullable_ptr_match(expr, indent.clone(), context, matched_value_code, nullable_inner, is_ptr, temp_var_opt, is_unit)), .None => ());

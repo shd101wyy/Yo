@@ -38,6 +38,7 @@ import {
 } from "./drop-dup";
 import { generateExpr } from "./expr";
 import { getStateMachineFieldName } from "../async/state-machine";
+import { codegenFatal } from "../constants";
 
 /**
  * Check if a generated code string represents control flow (goto, break, continue, return)
@@ -234,7 +235,7 @@ export function generateMatchExpression(
   let matchedValueCode = generateExpr(subjectExpr, indent, context);
   const matchValueType = subjectExpr.$?.type;
   if (!matchValueType) {
-    return `// Error: "match" expression requires a valid type`;
+    return codegenFatal(`"match" expression requires a valid type`);
   }
 
   // If the subject expression has a temp variable name (i.e. the evaluator
@@ -312,11 +313,13 @@ export function generateMatchExpression(
   }
 
   if (!isEnumType(enumType)) {
-    return `// Error: "match" expression requires an enum type`;
+    return codegenFatal(`"match" expression requires an enum type`);
   }
   const enumCName = context.types[enumType.id]?.cName;
   if (!enumCName) {
-    return `// Error: "match" expression enum type ${enumType.typeName} has no C name`;
+    return codegenFatal(
+      `"match" expression enum type ${enumType.typeName} has no C name`
+    );
   }
 
   // Check if this enum is optimized as a nullable pointer

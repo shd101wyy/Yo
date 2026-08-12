@@ -30,6 +30,7 @@ open(import("std/string"));
 
 { generate_deferred_drop_expressions, generate_deferred_dup_expressions } :: import("./drop_dup.yo");
 { get_type_string, get_variable_name_for_codegen, get_deferred_drop_target_atom_name, is_deferred_drop_for_closure_capture, sanitize_for_c_identifier, scope_stack_contains } :: import("../utils/index.yo");
+{ codegen_fatal_expr } :: import("../constants.yo");
 /// The atom a `___drop(x)` / `x.___drop()` drop expression targets.
 _drop_target_atom :: (fn(drop_expr : AstExpr) -> Option(AstExpr))(
   match(
@@ -598,7 +599,7 @@ handle_func_call_deferred_dup :: (fn(expr : AstExpr, indent : String, context : 
 });
 /// Generate a `return` statement. Mirrors `generateReturn`.
 generate_return :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
-  ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("// Error: return expression missing metadata")));
+  ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("return expression missing metadata"))));
   args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   // (ctl-handler resume is Phase 5: FGC has no continuation_variables — omitted.)
   match(
@@ -607,7 +608,7 @@ generate_return :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
       is_unit := is_unit_type(ei.ty);
       no_temp := match(ei.variable_name, .Some(_) => false, .None => true);
       if(no_temp && !(is_unit), {
-        return(String.from("// Error: return expression missing temporary variable name"));
+        return(codegen_fatal_expr(String.from("return expression missing temporary variable name")));
       });
       arg_ei_opt := context.base.get_expr_info(arg);
       arg_has_dup := match(arg_ei_opt, .Some(aei) => match(aei.deferred_dup_expressions, .Some(d) => (d.len() > usize(0)), .None => false), .None => false);
