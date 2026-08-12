@@ -127,6 +127,11 @@ jobs:
           # structurally before it skips anything; `seed-bundles` then compiles
           # the compiler from THIS commit on five platforms, which is what would
           # actually catch a mangled version.yo.
+          # TRAP, hit for real on PR #112: GitHub scans the WHOLE commit
+          # message for the skip tokens, so a commit that merely TALKS about
+          # `[skip ci]` (a message explaining this mechanism, say) skips its own
+          # CI. A PR whose head skipped CI can never report the 15 required
+          # checks and can never merge. Write it as `skip-ci` in prose.
           git commit -m "chore: bump version to $V [skip ci]"
           if git push; then
             echo "Bump pushed directly to develop (admin ruleset bypass via RELEASE_PAT), no CI burned."
