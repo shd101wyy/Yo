@@ -35,6 +35,7 @@ open(import("std/string"));
   is_type_hierarchy_type
 } :: import("../types/guards.yo");
 { are_types_compatible, set_compat_type_implements_trait_fn } :: import("../types/compatibility.yo");
+{ resolve_enum_shell } :: import("../types/creators.yo");
 {
   get_trait_type_from_env,
   get_value_of_some_type_from_env
@@ -653,6 +654,32 @@ type_implements_trait :: (
   ) -> TraitCheckResult
 )({
   (target : TypeValue) = target_type;
+  // A recursive enum's `Self` placeholder carries NO impls. Unlike a struct
+  // shell — which reuses the final's `struct_id`, so every id-keyed lookup
+  // treats shell and final as one type for free (creators.yo:605-615) — an
+  // ENUM shell deliberately takes a DISTINCT `${enum_id}__self_shell` id
+  // (enum.yo:222-226, so a def-time `Option(shell)` cannot collide with
+  // `Option(final)` in the CTFE cache). That distinct id makes every
+  // registry keyed on the nominal id MISS, including the impl lookups below,
+  // so a shell reaching here reports "does not implement required trait" for
+  // a trait the real type does implement.
+  //
+  // Resolve it at this boundary, exactly as the other use sites already do:
+  // method dispatch (calls/function.yo:298), enum unification
+  // (types/synthesizer.yo:1596-1597), property access
+  // (exprs/property_access.yo:434, :824) and type keys (types/type_key.yo).
+  // `register_enum_final` registers the final UNDER THE SHELL ID
+  // (enum.yo:700), so the lookup hits; no-op for populated enums and
+  // non-enums. TS needs none of this — its `Self` IS the same mutable type
+  // object, so it has no shell to resolve.
+  //
+  // Found via `Option(EvalValue) == Option(EvalValue)`: the prelude's
+  // `where(T <: Eq(T))` on `Eq(Option(T))` was checked against EvalValue's
+  // shell, "failed", and the throw was swallowed by the def-time trial —
+  // leaving the statement with no ExprInfo, so codegen emitted
+  // `// Failed to transpile` for it and voided all 23 tests in the batch.
+  // See issues/yo-self-option-eq-ref-enum-not-specialized.md.
+  target = resolve_enum_shell(target);
   // 0. Phase N: Negative-impl check — runs first, authoritative. If the type
   // has a registered negative impl for this trait, it does NOT implement the
   // trait regardless of auto-derive. Mirrors `trait-checking.ts:345-358`.
