@@ -1,7 +1,15 @@
 # Self-hosted `compile` builds a runnable no-op binary from an undefined call
 
-**Status: OPEN** (found 2026-08-10 while building the `build-fail`
-differential case). The known def-time body-eval swallow
+**Status: SLICE 1 FIXED 2026-08-12** — an undefined variable is now fatal at
+def time when it is raised while trial-evaluating a **concrete** function body.
+The reported symptom is gone: `compile` on a typo'd call exits 1 with
+`Variable "…" not found.` instead of emitting a runnable no-op binary. Pinned by
+the differential case `tests/cli-cases/compile-undefined-call`, which scored
+`TS-FAIL rc(ts=1,self=0)` before and `PASS` after. The wider strict mode (the
+type-level classes) stays OPEN — see "What is not in slice 1".
+
+Originally found 2026-08-10 while building the `build-fail`
+differential case. The known def-time body-eval swallow
 (`yo-self check masks porting gaps` in the memory/plan lore) is worse than
 documented: it affects **`compile`**, not just `check`.
 
@@ -109,17 +117,45 @@ YO_DEBUG_SWALLOW=1 <yo> check ./std   2>&1 | grep -c '^\[swallow\]'
 YO_DEBUG_SWALLOW=1 YO_MAIN_STACK_MB=4096 <yo> check ./yo-self 2>&1 | grep -c '^\[swallow\]'
 ```
 
-| corpus      | files     | swallowed errors | of which "Variable X not found" | **non-generic (i.e. real)** |
-| ----------- | --------- | ---------------- | ------------------------------- | --------------------------- |
-| `./std`     | —         | 236              | 48                              | **0**                       |
-| `./yo-self` | 247/247 ✓ | 54               | 17                              | **0**                       |
+| corpus      | files      | swallowed errors | of which "Variable X not found" |
+| ----------- | ---------- | ---------------- | ------------------------------- |
+| `./std`     | 154/154 OK | 236              | 48                              |
+| `./yo-self` | 247/247 OK | 54               | 17                              |
 
-**Every single undefined-variable swallow in both corpora is a single
-uppercase letter** — `B`, `F`, `V`, `E`, `U`, `N`, `J` — i.e. an as-yet-unbound
-GENERIC TYPE PARAMETER. Not one is a real typo. That is exactly the leniency
-the original note said must be preserved ("def-eval must stay lenient for
-generic bodies that only type-check after specialization"), and it is cleanly
-separable from the bug this issue is about.
+Every undefined-variable swallow in both corpora is a single uppercase letter —
+`B`, `F`, `V`, `E`, `U`, `N`, `J` — an as-yet-unbound GENERIC TYPE PARAMETER, and
+not one is a real typo. That was the first clue, but the name shape is a SYMPTOM.
+
+**Then instrumented per CALL SITE** (`[try:<site>]` printed before each trial —
+the swallow handler is capture-free and cannot report anything itself), which is
+what actually settles it. `_trial_eval_fn_body` has three callers, and genericity
+is already encoded in which one runs:
+
+| site            | what it is                                                   | swallow sound?                       |
+| --------------- | ------------------------------------------------------------ | ------------------------------------ |
+| `flow_*` (:997) | "every non-deferred (**CONCRETE**) function"                 | **no** — codegen drops the statement |
+| `dg_*` (:1205)  | the **DEFERRED** trial, "where a generic fn's body … stamps" | yes — specialization re-evaluates    |
+| `rp_*` (:578)   | `PendingDefEval` re-run (mutual comptime recursion)          | bounded retry                        |
+
+| corpus      | site         | undefined variable | type-level |
+| ----------- | ------------ | ------------------ | ---------- |
+| `./std`     | **CONCRETE** | **0**              | **29**     |
+| `./std`     | generic      | 48                 | 159        |
+| `./yo-self` | **CONCRETE** | **0**              | **0**      |
+| `./yo-self` | generic      | 17                 | 37         |
+
+**Correction to an earlier draft of this section**, which said every swallow sat
+in a generic body and was therefore harmless. Not so: `./std` has **29 swallows
+in CONCRETE bodies** (14 in `std/fmt/to_string.yo`, 5 in `fmt/writer.yo`, plus
+`time/*`, `imm/map`, `net/tcp`, `encoding/json`, `testing/bench`,
+`string/string`). All are type-level, clustered at uniform columns that look like
+a late return-type unification — consistent with the body's ExprInfos already
+being populated, so nothing is dropped — but that is inference, not proof, and
+they stay unaudited.
+
+What IS proven: **`check ./yo-self` has zero concrete-site swallows**, so the
+compiler's own sources are unaffected and self-hosting was never at risk from
+this. Gate on the SITE, not on the spelling of the name.
 
 The remaining ~220 are type-level: "Cannot unify incompatible types",
 "Expected enum type … got unit", "Type mismatch for type member". Those are the
@@ -138,7 +174,32 @@ genuinely hard specialization cases and stay lenient.
 - **Measured zero false positives** across std AND yo-self, the two corpora
   whose green `check` the swallow exists to protect.
 
-Implementation shape: at the swallow site, classify the error before unwinding.
+**Implemented as follows** (`fix/def-eval-swallow-sizing`):
+
+- `types/flowability.yo` — a `flag_undefined_variable` /
+  `undefined_variable_pending` / `undefined_variable_error` trio, mirroring the
+  existing `flag_flow_violation` set. It carries the already-formatted `YoError`,
+  not a bare string: re-formatting at the caller attached the enclosing
+  `fn(...)` head's caret and printed the source block twice. `YoError` is a `ref`
+  struct, so storing it shares rather than copies (and it has no `derive(Clone)`
+  — an early `.clone()` here cost 5 files in `check ./yo-self`).
+- `evaluator/exprs/identifer_and_operator.yo` — flags before throwing. This is
+  the only site that knows the identifier.
+- `evaluator/calls/function_type.yo` — clears the flag before every trial (so a
+  generic body's swallowed `Variable T not found` cannot leak into the next
+  concrete check) and rethrows it VERBATIM at the concrete caller only.
+
+Verified: repro rc 0→1 with the caret on the identifier; `check ./std` 154/154
+and `check ./yo-self` 247/247 both unchanged; the new cli-case flips to PASS.
+The `check ./std` result is the load-bearing one — it is the evidence that gating
+on the site alone would have been wrong, since it would have made those 29
+concrete type-level swallows fatal.
+
+Note the duplicated caret block in yo-self's error output is PRE-EXISTING (it
+reproduces with the pre-fix binary on a top-level error that was never
+swallowed), not introduced here.
+
+Original design note: at the swallow site, classify the error before unwinding.
 If it is an undefined-variable error whose name is not a generic parameter in
 scope, set a "hard error pending" flag and let the def-time caller re-raise it
 through the real `exn` — precisely the pattern `flow_violation_pending()`

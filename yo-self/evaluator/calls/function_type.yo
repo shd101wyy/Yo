@@ -52,6 +52,9 @@ _(env : fnty_env) :: import("std/env");
   flow_violation_pending,
   flow_violation_message,
   flag_flow_violation,
+  clear_undefined_variable,
+  undefined_variable_pending,
+  undefined_variable_error,
   propagate_def_time_errors
 } :: import("../../types/flowability.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -241,11 +244,27 @@ PendingDefEval :: ref(
 /// enum like `Option(AstExpr)` would overflow it. The evaluated body therefore
 /// rides out via the `out` param, not the unwind value.
 _trial_eval_fn_body :: (
-  fn(body : AstExpr, env : Environment, ctx : EvalContext, out : ArrayList(AstExpr)) -> unit
+  fn(body : AstExpr, env : Environment, ctx : EvalContext, out : ArrayList(AstExpr), site : String) -> unit
 )({
   // Reset the flow-violation flag so a stale flag from an earlier (propagated,
   // non-def-time) throw can't be mistaken for a violation in THIS body.
   clear_flow_violation();
+  // Same for the undefined-variable flag: a generic body's swallowed
+  // "Variable T not found" must not leak into the next CONCRETE body's check.
+  clear_undefined_variable();
+  // Under YO_DEBUG_SWALLOW, announce the body about to be trial-evaluated so
+  // each `[swallow]` line below is attributable to a source location. The
+  // swallow handler is capture-free and CANNOT see `body`, so the location has
+  // to be printed from out here, before the eval — read the log as pairs:
+  // the `[swallow]` belongs to the `[try]` immediately preceding it.
+  // This is what tells a swallowed GENERIC body (sound — specialization
+  // re-evaluates and supplies the real ExprInfos) apart from a swallowed
+  // CONCRETE body (NOT sound — codegen then emits that body minus the failing
+  // statement, which is how an undefined call becomes a silent no-op binary).
+  if(fnty_env.get(`YO_DEBUG_SWALLOW`).is_some(), {
+    _tk := ast_expr_token(body);
+    eprintln(`[try:${site}] ${_tk.module_path}:${_tk.row.to_string()}:${_tk.column.to_string()}`);
+  });
   // The swallow handler is a capture-free `->` effect handler (it cannot close
   // over a propagating `exn`), so it always swallows. A deliberate
   // flow-soundness rejection sets `flow_violation_pending()` BEFORE throwing;
@@ -562,7 +581,7 @@ _rerun_pending_def_evals :: (fn(caller_env : Environment, ctx : EvalContext) -> 
         );
         rp_ctx := create_function_body_evaluation_context(pd.function_type, rp_fv, rp_env, ctx);
         rp_out := ArrayList(AstExpr).new();
-        _trial_eval_fn_body(pd.body.clone(), rp_env, rp_ctx, rp_out);
+        _trial_eval_fn_body(pd.body.clone(), rp_env, rp_ctx, rp_out, String.from("rerun"));
         if(pd.attempts > usize(1), {
           pd.attempts = (pd.attempts - usize(1));
           kept.push(pd);
@@ -981,7 +1000,7 @@ try_to_implement_function_by_function_type :: (
             });
           };
           push_active_where_trait_ids(flow_where_ids);
-          _trial_eval_fn_body(fb, flow_env, flow_ctx, flow_out);
+          _trial_eval_fn_body(fb, flow_env, flow_ctx, flow_out, String.from("CONCRETE"));
           pop_active_where_trait_ids();
           // This body captured a VALUELESS forward-declared comptime fn
           // variable — its call-site infos are incomplete until that
@@ -1016,6 +1035,29 @@ try_to_implement_function_by_function_type :: (
             viol_msg := flow_violation_message();
             clear_flow_violation();
             exn.throw(dyn(format_error_message(ast_expr_token(fb), viol_msg, false, .None)));
+          });
+          // Re-raise an undefined-variable rejection the trial-eval swallowed.
+          // THIS site only: `flow_body` is Some solely for non-deferred
+          // (concrete) functions, so a generic body — whose type params are
+          // legitimately unbound until specialization — never reaches here.
+          // Without this, a typo'd call inside a concrete body was dropped from
+          // the emitted C and the program became a silent no-op
+          // (issues/self-hosted-compile-swallows-undefined-call.md). TS is fatal
+          // here (function-type.ts:499). Measured zero false positives across
+          // `check ./std` and `check ./yo-self` — every undefined-variable
+          // swallow in both corpora came from the DEFERRED generic site.
+          if(undefined_variable_pending(), {
+            // Rethrow VERBATIM — the flagged error is already formatted at the
+            // identifier's own token, so re-formatting here would duplicate the
+            // caret block and point it at the `fn(...)` head instead.
+            match(
+              undefined_variable_error(),
+              .Some(undef_err) => {
+                clear_undefined_variable();
+                exn.throw(dyn(undef_err));
+              },
+              .None => clear_undefined_variable()
+            );
           });
           // comptime_expect_error propagation: when "propagate all def-time
           // body-eval errors" mode is active (set only around a
@@ -1189,7 +1231,7 @@ try_to_implement_function_by_function_type :: (
               });
             };
             push_active_where_trait_ids(dg_where_ids);
-            _trial_eval_fn_body(body_expr.clone(), dg_env, dg_ctx, dg_out);
+            _trial_eval_fn_body(body_expr.clone(), dg_env, dg_ctx, dg_out, String.from("generic"));
             pop_active_where_trait_ids();
             // A violation flagged by THIS trial must not leak into a later
             // definition's re-raise (TS's catch{} discards everything).

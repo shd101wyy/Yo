@@ -32,6 +32,7 @@ open(import("std/string"));
 :: import("../../value.yo");
 { get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 { format_error_message, ErrorKind } :: import("../../error.yo");
+{ flag_undefined_variable } :: import("../../types/flowability.yo");
 { Exception } :: import("std/error");
 /// Evaluate an identifier or operator expression.
 ///
@@ -199,16 +200,29 @@ evaluate_identifier_and_operator :: (
         return(expr);
       });
       // Ordinary identifiers throw.
-      exn.throw(
-        dyn(
-          format_error_message(
-            token,
-            `Variable "${identifier_string}" not found.`,
-            false,
-            Option(ErrorKind).None
-          )
-        )
+      //
+      // Flag it first. Inside a def-time trial body eval this throw is
+      // SWALLOWED by `_trial_eval_fn_body`'s capture-free handler, so a typo'd
+      // call compiled to a silent no-op binary
+      // (issues/self-hosted-compile-swallows-undefined-call.md). The handler
+      // cannot propagate anything itself, so — exactly as `flag_flow_violation`
+      // does for flow-soundness rejections — record it here and let the
+      // def-time caller re-raise through the real `exn`. Only the CONCRETE
+      // caller re-raises: a generic body legitimately sees its own type
+      // parameters as unbound until specialization.
+      // Flag the FORMATTED message, so the def-time re-raise carries this
+      // identifier's own caret rather than the enclosing body's — and rethrows
+      // it verbatim instead of formatting a second time (which printed the
+      // caret block twice and pointed at the `fn(...)` head).
+      undef_msg := format_error_message(
+        token,
+        `Variable "${identifier_string}" not found.`,
+        false,
+        Option(ErrorKind).None
       );
+      // YoError is a ref struct — the box and the throw share it, no clone.
+      flag_undefined_variable(undef_msg);
+      exn.throw(dyn(undef_msg));
       return(expr);
     }
   );
