@@ -257,7 +257,31 @@ compiler's own C returns 13 — all 13 are C **string literals**, yo-self's own
 source for the emitter that builds the message. `grep -cE '^\s*// Failed to
 transpile'` returns 0. Getting this backwards makes a clean compiler look broken.
 
-### Two families that must NOT be fatal, and why
+### THREE families that must NOT be fatal, and why
+
+**`No type information for <lhs/variable/pointer expression>`** (assignment,
+binding, initialization-assignment, ptr-fns — 4 sites per compiler) is the
+MISSING-ExprInfo class, and multi-pass emission legitimately reaches it. A
+comptime `while(comptime(i < 5), ...)` unrolls its body once per iteration and a
+DISCARDED pass arrives with no type information. Making it fatal failed
+`tests/basic.test.yo` "comptime while loop unrolling with runtime body" on every
+target — the wasm CI arms caught it first, but it reproduces natively.
+
+Verified benign rather than assumed benign, because "the test passes" is exactly
+what a hollow test also looks like:
+
+| question                                        | evidence                                                                  |
+| ----------------------------------------------- | ------------------------------------------------------------------------- |
+| is the path really reached on develop?          | YES — the fatal fired there                                               |
+| is the test hollow (passing without asserting)? | NO — injected `assert(i32(1) == i32(2))` gives rc=1                       |
+| did the elided statement matter?                | NO — `assert(sum == 10)` passes, so all five unrolled `sum = sum + i` ran |
+
+So the marker lands on a discarded emission, not on the code that runs. The
+arity/invariant checks in the same `// Error:` family (`requires exactly 1
+argument`, `requires an Iso type`, …) are genuine internal assertions and stay
+fatal.
+
+### The other two families that must NOT be fatal, and why
 
 **`// Unknown type:`** is a legitimate "this type has no C representation, elide
 the declaration" mechanism, and it fires routinely — the three in the compiler's

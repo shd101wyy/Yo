@@ -55,7 +55,12 @@ generate_assignment :: (fn(expr : AstExpr, indent : String, context : FunctionGe
   lhs_ei := match(
     context.base.get_expr_info(lhs),
     .Some(e) => e,
-    .None => return(codegen_fatal_expr(`No type information for left-hand side ${ast_expr_to_string(lhs)}`))
+    // NOT fatal: the MISSING-ExprInfo class, which multi-pass emission
+    // legitimately reaches (a comptime `while` unrolls its body once per
+    // iteration and a discarded pass has no type info). Kept a comment to
+    // match TS; the harmful case is the `__yo_user_main` gate in
+    // codegen/functions/generation.yo.
+    .None => return(`// Error: No type information for left-hand side ${ast_expr_to_string(lhs)}`)
   );
   // Module-level globals are declared in the main wrapper — skip here.
   if(is_init && ast_expr_is_atom(lhs), {
