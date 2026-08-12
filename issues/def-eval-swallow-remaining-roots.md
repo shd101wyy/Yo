@@ -108,6 +108,50 @@ with `impl(generic(T : Type), G(T), size : ..., via : ...)` — mirroring
 ArrayList's exact declaration shape, sibling declared first — ALSO resolves
 cleanly.
 
+### THIRD FACTOR FOUND: `Self.<method>()` static dispatch (2026-08-13)
+
+Minimal reproducer: **`issues/repros/self-static-method-at-def-time.yo`** (15
+lines of substance) — reproduces the exact `usize`/`unit` error.
+
+The trigger is `out := Self.new();` — STATIC dispatch on `Self` inside a method
+body at definition time. Narrowed by probe series:
+
+| probe                                                              | result         |
+| ------------------------------------------------------------------ | -------------- |
+| `?*(T)` field + `pragma(AllowUnsafe)`                              | clean          |
+| ... + a `Range(usize)` parameter                                   | clean          |
+| ... + `new : (fn() -> Self)(...)` declared AND `Self.new()` called | **REPRODUCES** |
+| ... + `new` declared but NOT called                                | clean          |
+
+Instance dispatch (`self.len()`) works throughout, before or after its
+declaration. So it is specifically STATIC-on-`Self` that fails.
+
+**The root is DELIBERATE.** `evaluator/values/impl.yo:3110-3114` makes only
+TYPE-valued fields visible to later fields' `Self.X`:
+
+> Only TYPE-valued fields (associated types like `Output : u8`) — `Self.X` never
+> resolves to a method value, and copying FuncVals into the context list proved
+> fragile.
+
+So a sibling METHOD is unreachable through `Self` during the impl's own
+evaluation; `Self.new()` yields `unit` and the trial swallows the body. The
+`g_method_values` path at `:2578-2585` has the same TYPE-only restriction.
+
+This IS the documented "Self-slot" class after all (`(result : Self) = Self.new()`
+types UNIT) — an earlier note in this file said it was not; that was wrong.
+
+**Fixing it means making FuncVal fields resolvable for `Self.X` at def time —
+exactly what a previous session tried and abandoned as fragile.** TS has no such
+limitation (its def-time body eval is fatal and it compiles `array_list` fine),
+so it is a real porting gap rather than a design choice to keep. Any attempt
+needs the full battery plus the stage-2 marker count, since the abandoned attempt
+was abandoned for fragility, not for being wrong.
+
+(Superseded note: a third factor WAS unidentified when this section was first
+written.)
+
+**Superseded — the following was the state before the probe series.**
+
 **So a third factor distinguishes the real `array_list` impl from a minimal
 generic impl with the same shape, and it is not yet identified.** Candidates not
 yet tested: the `?*(T)` optional-pointer field, `pragma(Pragma.AllowUnsafe)`, the
