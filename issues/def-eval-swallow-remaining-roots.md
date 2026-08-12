@@ -193,6 +193,38 @@ Also established:
   gated on `has_fwd_comptime_fn_cap`, which is narrow, so "the trial re-runs
   after the restore" is NOT the explanation either (checked, not assumed).
 
+### RESOLVED 2026-08-13: the context-list approach CANNOT work
+
+Final probe — `n_labels` printed at the `[trial]` site itself, WITH both pushes
+applied (885 pushes firing elsewhere in the same compile):
+
+```
+[trial] .../self-static-method-at-def-time.yo:32:48 n_labels=0
+[trial] .../self-static-method-at-def-time.yo:40:23 n_labels=0
+[trial] .../self-static-method-at-def-time.yo:41:52 n_labels=0   <- via, the swallowing one
+```
+
+Every method-body trial runs with the in-flight lists EMPTY. Since the push
+happens after each field's own evaluation, `via` (field 3) would see `len` and
+`new` if it were trialled inside the impl's field loop — it does not. **So the
+def-time body trial happens outside that loop, and no amount of publishing into
+`current_impl_trait_field_*` can reach it.**
+
+(Method note: the first run of this probe was measured with the pushes REVERTED,
+where `n_labels=0` is trivially true and proves nothing. The result above is the
+corrected run.)
+
+**Therefore the fix direction changes.** `Self.<method>()` has to become
+resolvable through a channel that is live wherever the trial runs — i.e. register
+each impl method into the ordinary type-method registry INCREMENTALLY, as each
+field is evaluated (`register_type_trait_method` per field), so normal static
+dispatch finds it. That is a larger change than the context lists and needs its
+own gated slice, but it is now the only direction consistent with the evidence.
+
+Ruled out for good, with measurements: the property-access `Self.X` fallback
+(reached, but lists empty), the static-dispatch fallback in `calls/function.yo`
+(never fires), and both push sites (fire, but not during the trials).
+
 **The one remaining question, and the exact next probe:** add `n_labels` to the
 existing `[trial]` print in `_trial_eval_fn_body`. If the trial itself already
 runs with empty lists, the body eval happens outside the impl's field loop and
