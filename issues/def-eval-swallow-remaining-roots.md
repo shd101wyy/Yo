@@ -247,6 +247,83 @@ so it is a real porting gap rather than a design choice to keep. Any attempt
 needs the full battery plus the stage-2 marker count, since the abandoned attempt
 was abandoned for fragility, not for being wrong.
 
+### ATTEMPT 2026-08-13 — forward shells in Case 2: REGRESSES, do not retry as written
+
+The direction proposed just above (register impl methods into the ordinary type
+registry so normal static dispatch finds them) was implemented as the missing
+**forward-shell pre-pass in Case 2** (generic impls). `_try_create_forward_shell`
+has exactly ONE call site in `impl.yo` — Case 3 (~:2862, non-generic impls) —
+while TS runs its equivalent for both paths, since `evaluateImplFieldList`
+(impl.ts:590) is shared. So the asymmetry is real, and the patch mirrored Case 3:
+`register_type_trait_method(<receiver pattern id>, shell)` for each direct
+function-typed field, evaluated in `forall_env`.
+
+**It works on the reproducer and regresses the corpus.**
+
+| measurement                                       | result                                           |
+| ------------------------------------------------- | ------------------------------------------------ |
+| `issues/repros/self-static-method-at-def-time.yo` | rc=0, own-swallows 1 → **0**, FTT 0              |
+| baseline distinct roots                           | 16 → **16** (no change)                          |
+| `check ./yo-self`                                 | 247/247                                          |
+| fixpoint                                          | FIXPOINT_HOLDS                                   |
+| hollow sweep                                      | **`tests/imm_map.test.yo` RED** (new regression) |
+
+`imm_map` is GREEN in all ten prior sweeps on record (`/tmp/hsweep_*`, oldest
+2026-08-09, newest 3 h before this build); the only tree difference was this
+patch. It fails as an untranspiled expression in the batch `__yo_user_main` — the
+entry-point marker gate — i.e. the patch caused precisely the silent-miscompile
+class this whole campaign exists to remove.
+
+Attribution was then CONFIRMED against a control, not inferred from the sweep
+history: a binary built from the identical tree with only `impl.yo` reverted runs
+`tests/imm_map.test.yo` at **21 passed / rc=0**, while the patched binary is RED
+on the same file. (Build the control in the main repo — a `git worktree` has
+EMPTY submodule dirs, so `vendor/markdown_yo` is missing and `main.yo` dies with
+the unhelpful `file or directory not found`.)
+
+**Root cause of the regression — the registry is the wrong one.** Case 3 may
+register shells into `type_trait_methods` because Case 3's main pass **supersedes
+each shell in place** (`impl.yo:3199-3238`, matching on
+`source_trait_id == "__forward_shell"`) and records a shell→real redirect for
+codegen. **Case 2 has no supersede path at all**: it accumulates methods into a
+`GenericImplEntry` (`method_names` / `method_types` / `method_values`, consumed by
+`try_match_generic_impl`) and never calls `register_type_trait_method`. So the
+shells become the ONLY entries under that receiver id, permanently, each carrying
+an UNEVALUATED body — and dispatch that used to fall through to generic-impl
+matching now finds a shell and emits it.
+
+TS never has this problem because its shells are not global. It pushes them onto
+a **clone** of `receiverType.trait.fields` (impl.ts:576-585, guarded by the
+`fields: [...receiverType.trait.fields]` copy at impl.ts:613-619) and **restores
+the original trait at impl.ts:899**. The shells are scoped to the impl's own
+field evaluation and leave no residue.
+
+**If retried, the yo-self analogue is the PROVISIONAL registry, not the permanent
+one.** `register_provisional_trait_method` / `clear_provisional_trait_methods`
+(`values/type_trait_methods.yo:187-250`) is already documented as the port of
+exactly this TS splice — registered during member evaluation, cleared when the
+loop finishes. Open question before spending a build on it: its entries carry
+`value : None` (type only), and its one consumer is
+`get_receiver_methods_by_name_from_env` (`env.yo:3207,3222`), which is INSTANCE
+dispatch. Whether the `Self.new()` STATIC path consults it is unverified — check
+that first, by instrumentation, not by assumption.
+
+**But the decisive fact is that this is not family A's root cause.** Even with
+shells created and dispatched correctly, the root count stayed 16 → 16, because
+`_try_create_forward_shell` returns `.None` whenever `_trial_eval_fn_type_head`
+cannot evaluate the signature — and it cannot for `array_list`'s methods
+(`Range(usize)`, `?*(T)`, `Option(T)`, `ArrayListError`), while the reproducer's
+simple `fn(self : Self) -> usize` succeeds. **The next probe is therefore why that
+signature evaluation fails, not how the resulting shell is stored.** That is also
+the single measurement that would have pre-empted this whole attempt.
+
+Method note: an earlier variant of this patch passed `local_env` instead of
+`forall_env`. It made `array_list`'s own swallows vanish — but broke module
+evaluation with `Variable "ArrayList" not found`, i.e. the shells were built in an
+env where the receiver's own nominal type is not yet bound. That `local_env`
+reached array_list's methods where `forall_env` does not is itself a clue worth
+following.
+
 (Superseded note: a third factor WAS unidentified when this section was first
 written.)
 
