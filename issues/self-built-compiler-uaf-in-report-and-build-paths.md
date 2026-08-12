@@ -1,7 +1,11 @@
 # A SELF-BUILT compiler has a use-after-free in the report and build paths — 8 cli-cases abort
 
-**Status: FIXED 2026-08-12** (`yo-self/codegen/async/state_machine.yo` — the
-await-result store now lowers its dup inline). Found 2026-08-11 by the first CI
+**Status: REOPENED 2026-08-12 — STILL BLOCKS P2.3.** The awaited-RC-result dup
+fix below is a REAL defect fix, but it is **not** the cause of these failures and
+does not resolve them; the "verification" that claimed otherwise compared a
+TS-built binary against a seed-built one rather than fixed sources against
+unfixed ones. Corrected analysis, with the real root cause localized, is in
+"What the fix did and did not do" and "Root cause, localized" below. Found 2026-08-11 by the first CI
 run in which stage-1 is built by the previous release instead of by TypeScript:
 exactly the bug class the 2.3 migration exists to expose, because every CI arm
 until then tested a **TS-built** stage-1, so a defect in what the SELF-HOSTED
@@ -289,3 +293,91 @@ Next probe, in order of expected yield:
    The cheapest decisive test is to add that band-aid at main.yo:1892 and see
    whether a self-built compiler then reports the right totals; if it does, the
    root is the async-result drop, not anything in `public_safe_report.yo`.
+
+---
+
+## CORRECTION 2026-08-12: what the dup fix did and did not do
+
+The awaited-RC-result shallow copy documented above is real — the emitted C says
+`No ___dup function found for result type, shallow copy may cause use-after-free`
+— and it is fixed and shipped in v0.2.3. **But it does not fix these 8 cases**,
+and the evidence originally offered for it was invalid:
+
+| stage-1                     | built by   | sources  | corpus     |
+| --------------------------- | ---------- | -------- | ---------- |
+| TS-built                    | TypeScript | **pre**-fix  | **27/27** |
+| TS-built                    | TypeScript | post-fix | 27/27      |
+| seed-built (v0.2.2)         | seed       | pre-fix  | 15/27      |
+| seed-built (v0.2.2)         | seed       | post-fix | 15/27      |
+| seed-built (**v0.2.3**, CI) | seed       | post-fix | **15/27**  |
+
+A TS-built stage-1 scores 27/27 **with or without** the fix, so "27/27 after the
+fix" measured the BUILDER, not the fix. Confirmed directly afterwards: a driver
+compiled by a fixed-codegen compiler crashes exactly like one compiled by an
+unfixed-codegen compiler (rc=133, same mimalloc message). v0.2.3 does carry the
+fix (it emits 0 shallow-copy warnings on the pristine file) — it simply is not
+this bug.
+
+## Root cause, localized (2026-08-12)
+
+**A value moved out of an async block is dropped anyway by the state machine.**
+
+Reproducer, seconds per iteration and needing no compiler rebuild:
+`public_safe_report.yo` imports only std, so a 6-line driver imports it directly
+(`/tmp/psrdrv.yo`) and any yo-self-codegen compiler reproduces:
+
+```
+$ <any yo-self-built compiler> compile psrdrv.yo --release --allocator mimalloc -o drv && ./drv
+mimalloc: error: corrupted free list entry ...    # rc=133/134
+$ node out/cjs/yo-cli.cjs compile psrdrv.yo --release -o drv_ts && ./drv_ts
+"filesScanned": 2 ...                              # correct
+```
+
+Under Guard Malloc (`DYLD_INSERT_LIBRARIES=/usr/lib/libgmalloc.dylib`) the
+corruption becomes a deterministic SIGSEGV with a full stack:
+
+```
+#0  <ArrayList(ref psr-struct) element teardown>   ← walks freed/garbage slots
+#1  <ArrayList ___dispose>
+#3  __yo_dispose_dispatch
+#4  __yo_decr_rc                                   ← an RC reached ZERO here
+#6  _file____tmp__temp_9844_resume                 ← inside the async SM's resume
+#7  __yo_async_run_ready_tasks
+```
+
+The object is the `findings` `ArrayList(PublicSafeFinding)` that the async body
+MOVES into its result: `PublicSafeReport(findings : findings, totals : ...)`.
+Its refcount is driven to zero inside the resume while the returned Report still
+holds it, so the later teardown iterates freed slots — which is also why the
+totals read `0xDFDFDFDFDFDFDFDF` in the non-crashing runs.
+
+This single defect explains the whole failing set: all 8 cases go through async
+paths (`build`, `contracts-runtime-*` which build+run, `public-safe-report`,
+`doc-*`). And it explains the TS-vs-seed split exactly — the affected code is
+whatever the SELF-HOSTED codegen compiled.
+
+### Eliminated hypotheses (do not re-test these)
+
+1. **Awaited-RC-result shallow copy** — fixed; unrelated (table above).
+2. **Async captures are borrowed, not retained.** They ARE retained: the self
+   emission builds the capture struct as
+   `{.root = temp_dup_enum_..., .out = __yo_incr_rc(out)}`.
+3. **Unguarded Option-payload drops** — they are tag-guarded
+   (`switch (…tag) case SOME:`).
+4. Six synthetic reproductions of the surrounding shapes (ref-struct in
+   ref-struct, async with/without real suspension, await inside an `if` in a
+   `while`, `as_bytes()` into a helper returning `ref(struct)`s) are all CLEAN
+   under both codegens — the trigger needs the real move-out-of-async shape.
+
+### Where to look
+
+`generateAsyncBlockResumeFunction` returns the `localVarDrops` list consumed by
+the dispose/cleanup emitter (`src/codegen/exprs/async.ts:1544`, `:1071`;
+yo-self's counterpart takes `local_var_drops : ArrayList(String)` at
+`yo-self/codegen/exprs/async.yo:1149`). TS must be excluding the local whose
+value was moved into the result; yo-self evidently is not. Compare those two
+lists for the `gen` state machine and find the entry that should not be there —
+AGENTS.md's dup/drop-pair-optimizer pitfall (a named local moved into a struct
+field gets a deferred dup cancelled against the scope-end drop) is the mechanism
+to check first, since inside a state machine the deferred-dup path is
+deliberately skipped.
