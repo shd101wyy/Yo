@@ -1,0 +1,17 @@
+# Address-of in safe code (port of unsafe-gate.test.ts): `&(x)` inside a function
+# BODY, with no pragma(Pragma.AllowUnsafe), must FAIL under BOTH compilers.
+#
+# This is the BODY-level gate, and it was blocked until 2026-08-12. The gate
+# fires while evaluating main's body, where the def-eval swallow ate it, so the
+# self-hosted compiler exited 0 and emitted a runnable no-op binary while TS
+# rejected it (SELF-FAIL). It passes now because a `// Failed to transpile`
+# marker reaching `__yo_user_main` is fatal — the swallow still eats the throw,
+# but the statement it drops can no longer vanish silently. See
+# issues/self-hosted-compile-swallows-undefined-call.md.
+#
+# stdout=ignore: the two compilers word the fatal differently (TS names the
+# gate, the self-hosted binary names the untranspiled entry point). rc parity is
+# the assertion — and the sibling ptr-type-safe-code case covers the
+# signature-level gate the same way.
+stdout=ignore
+timeout=120

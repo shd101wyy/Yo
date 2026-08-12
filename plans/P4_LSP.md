@@ -80,6 +80,21 @@ than no LSP at all, because silence is read as approval. So:
 > **Fixing the def-eval swallow is a prerequisite for LSP diagnostics, not a
 > parallel nice-to-have.**
 
+**UPDATE 2026-08-12 — half of this is done, and it is the half that matters
+least for an LSP.** `compile` no longer accepts an undefined call: an
+untranspilable expression is fatal (220 marker sites in both compilers), and in
+yo-self a marker reaching `__yo_user_main` fails the compile. So the silent
+no-op binary is gone.
+
+But the diagnostic is a CODEGEN-level report — "Failed to transpile part of
+main's body" — with no row/column and no identifier. An LSP needs
+`Variable "foo" not found.` anchored at the identifier's token. That is the
+def-time re-raise, which was implemented, measured, and REVERTED (it turned 10
+corpus files red; the flag is a global and trials nest). Slice 0 below is
+therefore still open, but its scope is now narrower and better understood: it is
+a DIAGNOSTIC-QUALITY problem, not a "the checker accepts broken code" problem,
+and the issue doc records the three corrections a redesign has to make.
+
 Its severity was previously ranked as "rises once `src/` is gone". It rises
 again here: it also gates the LSP's most valuable feature.
 
@@ -95,15 +110,15 @@ since the TS side formats exactly that.
 Each slice is independently useful and independently testable. Do not start
 slice 4 before slice 0 is done.
 
-| #   | slice                                                              | gate                                                                     |
-| --- | ------------------------------------------------------------------ | ------------------------------------------------------------------------ |
-| 0   | fix the def-eval swallow; add a structured-diagnostics entry point | `check` on a file with an undefined call reports it, with row/column     |
-| 1   | transport: framing, JSON-RPC dispatch, `initialize`, document sync | a scripted client completes the handshake and syncs an edit              |
-| 2   | diagnostics (publishDiagnostics on open/change)                    | broken file → squiggle at the right range; fixing it clears the squiggle |
-| 3   | hover + go-to-definition + document symbols                        | fixture-driven request/response tests                                    |
-| 4   | completion (1541 lines — the tail)                                 | fixture-driven, per completion kind                                      |
-| 5   | references, rename, signature help, folding, inlay hints           | fixture-driven                                                           |
-| 6   | point the VS Code extension at the Yo server; drop `src/lsp`       | extension works against the native binary with no Node dependency        |
+| #   | slice                                                                                                                                                                                                                             | gate                                                                     |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| 0   | def-time re-raise for a structured diagnostic (the ACCEPTANCE half is done — see the 2026-08-12 update; what is missing is row/column + identifier, and it needs per-trial save/restore so nested trials cannot clobber the flag) | `check` on a file with an undefined call reports it, with row/column     |
+| 1   | transport: framing, JSON-RPC dispatch, `initialize`, document sync                                                                                                                                                                | a scripted client completes the handshake and syncs an edit              |
+| 2   | diagnostics (publishDiagnostics on open/change)                                                                                                                                                                                   | broken file → squiggle at the right range; fixing it clears the squiggle |
+| 3   | hover + go-to-definition + document symbols                                                                                                                                                                                       | fixture-driven request/response tests                                    |
+| 4   | completion (1541 lines — the tail)                                                                                                                                                                                                | fixture-driven, per completion kind                                      |
+| 5   | references, rename, signature help, folding, inlay hints                                                                                                                                                                          | fixture-driven                                                           |
+| 6   | point the VS Code extension at the Yo server; drop `src/lsp`                                                                                                                                                                      | extension works against the native binary with no Node dependency        |
 
 `formatting.ts` (31 lines) is already covered by `yo fmt` and needs only wiring.
 
