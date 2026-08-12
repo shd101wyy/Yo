@@ -139,13 +139,58 @@ Conclusion: the `TypeVal(SomeT)` binding is **load-bearing for evaluating the
 impl's receiver pattern** (`Array(T, N)`), which runs in this same `forall_env`.
 A value binder cannot simply be re-kinded there.
 
-The fix therefore has to keep the SomeT for pattern evaluation and correct the
-kind only for METHOD-BODY evaluation — the body env is built later by
-`_build_def_time_body_env`, which copies comptime variables out of the impl env
-and no longer knows the declared kind. So it needs the kind carried across
-(a side table keyed by impl entry + binder name, or a kind stamped on the SomeT
-itself — note `t_some_t_with_kind` already exists for the HKT case at
-`types/function.yo:1783`). Do not retry the naive re-kinding: it is measured.
+### FOUR measured attempts, all reverted — read before trying a fifth
+
+`check ./yo-self` (~3 min, no build needed) was the gate for each. Baseline 247/247.
+
+| #   | attempt                                                                                                                | result      |
+| --- | ---------------------------------------------------------------------------------------------------------------------- | ----------- |
+| 1   | re-kind the impl env binding; read the annotation with `evaluate_expression_raw`                                       | **160/247** |
+| 2   | same, but read it with a PURE `find_variable_in_env` (no evaluation)                                                   | **160/247** |
+| 3   | leave the env binding alone; register the kind, resolving the annotation via `get_variables_from_env` during impl eval | **160/247** |
+| 4   | register the kind NAME only (purely syntactic, zero resolution), resolve it later in `_build_def_time_body_env`        | **238/247** |
+
+Isolated sub-results, each measured separately:
+
+- The `creators.yo` side table alone: **247/247** — harmless.
+- Adding `register_some_binder_kind` to `impl.yo`'s existing `creators.yo`
+  destructure, with NO code using it: **247/247** — so the added import is not
+  the problem either.
+- Attempt 3's code block, differing from attempt 4 only by resolving the
+  annotation at impl-eval time: 160/247. **So a lookup during impl evaluation is
+  itself unsafe** — `get_variables_from_env` can trigger lazy module resolution.
+- Attempt 4 fails only 9 files, and they are the import-cycle-heavy ones:
+  `main.yo`, `evaluator/index.yo`, `build_runner.yo`, `doc_command.yo`,
+  `fetch_command.yo`, `macro_expand.yo`, `closure_type.yo`, `recur.yo`,
+  `anonymous_function.yo`.
+
+Every failure mode is the same error: **"Cannot destructure from a module that is
+still being evaluated (circular import). The requested fields are not yet
+available."**
+
+### What that actually says about the codebase
+
+yo-self's circular-import handling is **order-sensitive**: a module mid-cycle can
+only be destructured for fields already evaluated. So ANY change that perturbs
+evaluation order in this path — even re-kinding one variable in a body env —
+re-orders enough to break a partially-evaluated destructure. That is why this
+whole family resists otherwise-correct fixes, and it is the real blocker, not the
+kind correction itself.
+
+A fifth attempt should therefore NOT try another place to re-kind. It should
+either
+
+- make the binder kind available WITHOUT touching evaluation order at all (e.g.
+  carried on the FuncVal at method-registration time, read only by the body-env
+  builder), or
+- fix the order-sensitivity first, so the module system tolerates a
+  destructure of a not-yet-evaluated field (that is the deeper bug, and it would
+  also de-risk every other def-eval fix).
+
+`t_some_t_with_kind` was considered and rejected as the carrier: its field is
+documented as the HKT kind and "must be a `Func` TypeValue", so putting `usize`
+there would make a length binder look like a higher-kinded variable to the
+TypeApplication paths.
 
 ## Method notes
 
