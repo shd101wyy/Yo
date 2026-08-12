@@ -18,11 +18,16 @@ name: Prepare release
 # admin-owned PAT pushes straight through with NO change to the ruleset,
 # while GITHUB_TOKEN (github-actions[bot], not a bypass actor, and a personal
 # repo cannot grant the Actions integration a bypass — HTTP 422) is rejected.
-# A PAT push also TRIGGERS the Test workflow, which GITHUB_TOKEN deliberately
-# does not — and that run is exactly what release.yml gates on. Without the
-# secret this falls back to a PR: the same one-click merge as before, but now
-# in the step where a PR is the expected mechanism rather than a fallback
-# that skewed the tag.
+# Note the rejection is for having NO passing checks, so `[skip ci]` does not
+# help a bot push: the ADMIN BYPASS is the whole reason the PAT is needed.
+# Without the secret this falls back to a PR — the same one-click merge as
+# before, but now in the step where a PR is the expected mechanism rather
+# than a fallback that skewed the tag, and it costs a full suite run.
+#
+# Deliberately NOT solved by relaxing the ruleset: those 15 required checks
+# are what keep develop green and what make release.yml's gate mean anything
+# (they are also what currently holds a red PR back from merging). Dropping
+# the rule would let GITHUB_TOKEN push, at the price of the guarantee.
 #
 # RELEASE_PAT: a fine-grained PAT, this repository only, Contents: read and
 # write. Nothing else.
@@ -114,18 +119,27 @@ jobs:
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           git add package.json vscode-extension/package.json yo-self/version.yo
-          # Deliberately NO [skip ci]: this is the commit the release tags and
-          # builds the seed bundles from, and release.yml refuses to ship a SHA
-          # whose Test run is not green. The suite run IS the point — it is
-          # what makes `yo-self/version.yo` (compiled into the binary) a vetted
-          # change rather than an untested one riding along with the release.
-          git commit -m "chore: bump version to $V"
+          # [skip ci] on the direct push: the whole delta is version strings —
+          # measured on the real bumps, 3 files and 6 lines, and no test in the
+          # repo asserts a version — so the 17-job suite would burn ~an hour per
+          # runner verifying nothing. release.yml gates on the newest
+          # non-version-only ancestor instead, and proves this commit's delta
+          # structurally before it skips anything; `seed-bundles` then compiles
+          # the compiler from THIS commit on five platforms, which is what would
+          # actually catch a mangled version.yo.
+          git commit -m "chore: bump version to $V [skip ci]"
           if git push; then
-            echo "Bump pushed directly to develop (admin ruleset bypass via RELEASE_PAT)."
+            echo "Bump pushed directly to develop (admin ruleset bypass via RELEASE_PAT), no CI burned."
             echo "PR_OPENED=false" >> $GITHUB_ENV
           else
             BRANCH="release/version-bump-$V"
             echo "Direct push rejected — RELEASE_PAT is unset or lacks Contents: write. Opening a PR via ${BRANCH}."
+            # Strip [skip ci] for the PR path: a PR whose head commit skips CI
+            # never reports the 15 required checks, so the ruleset would hold it
+            # unmergeable forever — the exact deadlock the p2/ci-migration
+            # attempt walked into. The PR path pays for a suite run; that is the
+            # cost of not having the secret.
+            git commit -q --amend -m "chore: bump version to $V"
             git push -f origin "HEAD:refs/heads/${BRANCH}"
             gh pr create --base develop --head "${BRANCH}" \
               --title "chore: bump version to $V" \
@@ -141,10 +155,13 @@ jobs:
             echo "### Prepared v$V"
             echo
             if [[ "${PR_OPENED}" == "true" ]]; then
-              echo "1. Merge the \`release/version-bump-$V\` pull request."
-              echo "2. Wait for the **Test** workflow on \`develop\` to conclude successfully."
+              echo "1. Merge the \`release/version-bump-$V\` pull request (it runs the full suite — set"
+              echo "   the \`RELEASE_PAT\` secret to push the bump straight to develop and skip that)."
+              echo "2. Dispatch **Release**."
             else
-              echo "1. Wait for the **Test** workflow on \`develop\` to conclude successfully (the bump push started it)."
+              echo "1. Dispatch **Release** — nothing to wait for; the bump carries \`[skip ci]\` and"
+              echo "   the release gates on the newest non-version-only ancestor's run."
             fi
-            echo "3. Dispatch **Release** — it does no bumping; it tags and ships that exact commit."
+            echo
+            echo "**Release** does no bumping: it tags and ships that exact commit."
           } >> $GITHUB_STEP_SUMMARY

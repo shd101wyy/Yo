@@ -43,21 +43,64 @@ jobs:
         # for the exact SHA being released, rather than re-running the ~55 min
         # suite inline.
         #
-        # This SHA is now the release's single anchor: it is what gets tagged,
-        # what `seed-bundles` checks out, and what `publish-release` flips. No
-        # commit is created after it, so all three see the vetted tree.
+        # HEAD is the release's single anchor: it is what gets tagged, what
+        # `seed-bundles` checks out, and what `publish-release` flips. No commit
+        # is created after it, so all three see the same tree.
+        #
+        # `prepare-release` lands the bump with [skip ci], because its entire
+        # delta is version STRINGS — measured on the real bumps: 3 files, 6
+        # lines, and no test in the repo asserts a version — so the 17-job suite
+        # would burn ~an hour per runner verifying nothing. This step therefore
+        # walks back to the newest ancestor that is NOT a version-only commit
+        # and gates on that run.
+        #
+        # Custody survives because the skip is PROVEN STRUCTURALLY rather than
+        # taken on trust from the commit subject (trusting the subject is how the
+        # `[skip ci]` + gate-on-parent attempt on p2/ci-migration went wrong):
+        # every changed path must be a version file AND every changed line a
+        # version field, so a smuggled edit — even one inside version.yo — fails
+        # closed and demands a real run. `seed-bundles` is the second net: it
+        # compiles yo-self/main.yo from the RELEASED sha on five platforms and
+        # smoke-tests each binary, so a mangled version.yo cannot ship quietly.
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -uo pipefail
           SHA=$(git rev-parse HEAD)
           echo "sha=$SHA" >> $GITHUB_OUTPUT
-          echo "Releasing $SHA"
+
+          # A subset rather than an exact file match, so this keeps working when
+          # package.json is deleted in P2.5 (blocker B5).
+          VERSION_FILES="package.json vscode-extension/package.json yo-self/version.yo"
+          is_version_only() {
+            local c=$1
+            git rev-parse -q --verify "$c^" >/dev/null 2>&1 || return 1
+            local changed f
+            changed=$(git diff --name-only "$c^" "$c")
+            [ -n "$changed" ] || return 1
+            while IFS= read -r f; do
+              case " $VERSION_FILES " in *" $f "*) ;; *) return 1 ;; esac
+            done <<<"$changed"
+            local other
+            other=$(git diff -U0 "$c^" "$c" -- $VERSION_FILES \
+              | grep -E '^[+-]' | grep -vE '^(\+\+\+|---)' \
+              | grep -vcE '^[-+]([[:space:]]*"version":[[:space:]]*"[0-9]+\.[0-9]+\.[0-9]+",?$|CURRENT_YO_VERSION :: "[0-9]+\.[0-9]+\.[0-9]+";$)') || true
+            [ "$other" = "0" ]
+          }
+
+          GATE_SHA=$SHA
+          while is_version_only "$GATE_SHA"; do
+            echo "  $(git rev-parse --short "$GATE_SHA") is a version-string-only commit — looking at its parent"
+            GATE_SHA=$(git rev-parse "$GATE_SHA^")
+          done
+
+          echo "Releasing $SHA (gating on $GATE_SHA)"
           CONCLUSION=$(gh api \
-            "repos/${{ github.repository }}/actions/workflows/test.yml/runs?head_sha=$SHA&status=completed" \
+            "repos/${{ github.repository }}/actions/workflows/test.yml/runs?head_sha=$GATE_SHA&status=completed" \
             --jq '[.workflow_runs[] | select(.conclusion != null)] | first | .conclusion // "none"')
-          echo "Test workflow conclusion for $SHA: $CONCLUSION"
+          echo "Test workflow conclusion for $GATE_SHA: $CONCLUSION"
           if [[ "$CONCLUSION" != "success" ]]; then
-            echo "::error::Refusing to release $SHA — the Test workflow is '$CONCLUSION', not 'success'."
+            echo "::error::Refusing to release $SHA — the Test workflow for $GATE_SHA is '$CONCLUSION', not 'success'."
             exit 1
           fi
 

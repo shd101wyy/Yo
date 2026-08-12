@@ -296,9 +296,9 @@ which produced two defects:
    `target_commitish` to `github.sha` — the PRE-bump commit — so the `v0.2.2`
    tag points at a tree saying `0.2.1`, and `v0.2.4`'s at `0.2.3`.
 2. **The shipped bundles came from a commit no CI run had covered.** The
-   green-gate checked SHA_A, the bump created SHA_B in-job, and
+   green-gate checked SHA*A, the bump created SHA_B in-job, and
    `seed-bundles` checked out SHA_B. Not inert: `yo-self/version.yo` is
-   _compiled into_ every bundled binary.
+   \_compiled into* every bundled binary.
 
 Both are structural — nothing can have tested a commit the release itself
 creates. So the bump moved ahead of the release, and `release.yml` now only
@@ -320,17 +320,48 @@ merges work.
 Consequently a **direct push to develop needs an admin identity, not a
 ruleset change**: `prepare-release.yml` checks out with
 `${{ secrets.RELEASE_PAT || secrets.GITHUB_TOKEN }}` and pushes straight to
-develop when `RELEASE_PAT` (fine-grained, this repo, Contents: read/write)
-is set, falling back to the version-bump PR when it is not. A PAT push also
-**triggers** the Test workflow, which `GITHUB_TOKEN` deliberately does not —
-and that run is what the release gates on. Scoping a ruleset to "except this
-workflow" is not possible: conditions are ref-name patterns only.
+develop when `RELEASE_PAT` (fine-grained, this repo, Contents: read/write) is
+set, falling back to the version-bump PR when it is not. The rejection is for
+having **no passing checks**, so `[skip ci]` does not help a bot push — the
+admin bypass is the entire reason the PAT is needed. And scoping a ruleset to
+"except this workflow" is not possible: conditions are ref-name patterns only.
 
-> Do **not** solve this with `[skip ci]` + gate-on-parent. That combination
-> was proposed on `p2/ci-migration` and deadlocks: its exclusion list is only
-> `package.json|vscode-extension/package.json`, but the bump also commits
-> `yo-self/version.yo`, so `NON_PKG` is never 0, the parent fallback never
-> fires, and the gate lands on a `[skip ci]` commit with `CONCLUSION=none`.
+**The ruleset was deliberately NOT relaxed.** Dropping
+`required_status_checks` would let `GITHUB_TOKEN` push directly and need no
+secret, but those 15 contexts are what keep develop green, what make
+release.yml's gate mean anything, and what hold a red PR back from merging
+(concretely: #98's tier-1 job is red as of 2026-08-12 and the ruleset is what
+stops it landing). The secret is the cheaper price.
+
+**The bump commit carries `[skip ci]` and the release gates on its ancestor.**
+The delta is version strings — measured on the real bumps: 3 files, 6 lines,
+and no test in the repo asserts a version (the only `0.2.x` occurrences are
+help-text examples in `scripts/install.*`) — so the 17-job suite verifies
+nothing about it. `release.yml`'s gate walks back to the newest ancestor that
+is not version-only.
+
+> The earlier `p2/ci-migration` attempt at this deadlocked, and the reason is
+> the lesson: it **trusted the commit subject** (`chore: bump version`\*) and
+> paired it with an incomplete file list (`package.json|vscode-extension/package.json`,
+> omitting `yo-self/version.yo`), so `NON_PKG` was never 0, the parent fallback
+> never fired, and the gate landed on a `[skip ci]` commit with
+> `CONCLUSION=none`. The replacement ignores the subject entirely and proves the
+> claim structurally: every changed path must be a version file **and** every
+> changed line a version field. Verified against all seven historical bump
+> commits and four adversarial ones (bump + smuggled README edit, bump + real
+> code appended to `version.yo`, a dependency edit under a lying subject) —
+> every non-conforming case fails closed and demands a real run. Pre-0.2.3
+> bumps also fail it, correctly: they predate the `version.yo` bump and touch
+> only two files. The path check is a **subset** test so it survives
+> `package.json`'s deletion in P2.5.
+>
+> Second net: `seed-bundles` compiles `yo-self/main.yo` from the released SHA
+> on five platforms and smoke-tests each binary, so a mangled `version.yo`
+> cannot ship quietly regardless.
+>
+> One asymmetry to keep: the PR fallback must **not** carry `[skip ci]`, or the
+> 15 required checks never report and the ruleset holds the PR unmergeable
+> forever. `prepare-release` amends the message to drop it on that path.
 
 ## Sequencing note
 
