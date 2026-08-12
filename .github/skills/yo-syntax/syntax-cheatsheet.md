@@ -571,6 +571,14 @@ is_pos :: ghost_fn((fn(x : i32) -> bool)(x > i32(0)));
 - One `requires(...)` and one `ensures(...)` max per signature; put
   multiple predicates inside the single call: `requires(a, b)`. Two
   `requires(...)` clauses, or a zero-arg `requires()`, is a syntax error.
+- **`short`, `long`, `int`, `char` cannot be used as variable names.** They are
+  builtin type names, so `short := ...` fails with `Failed to define variable
+"short"` — a message that points at the binding and says nothing about
+  keywords, so it reads like a type-inference failure in the RHS and sends you
+  debugging the wrong expression. Measured 2026-08-12: `short`/`long`/`int`/`char`
+  are rejected; `float`, `double`, `signed`, `unsigned`, `register`, `volatile`
+  are all fine. Rename the local (`truncated`, `count`, `ch`, …).
+
 - `result` is a wrapper-bound local (NOT a reserved word) — it coexists
   with `result` used as an ordinary variable name elsewhere.
 - `pragma(Pragma.NoContracts);` erases contracts; `pragma(Pragma.Verify);`
