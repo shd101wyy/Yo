@@ -163,6 +163,45 @@ So the call is resolved somewhere neither of those covers, OR the context lists
 are empty at that moment (the push happens per-field as the impl is evaluated,
 and `new` precedes `via` in the repro, so they SHOULD be populated — unverified).
 
+### INSTRUMENTED 2026-08-13 — where it actually breaks
+
+Two probes (`PROBE-SELFX` at the `Self.X` fallback, `PROBE-PUSH` at each impl
+field push), built and run against the reproducer:
+
+1. **The `Self.X` fallback IS reached** for `prop=new` — so it is not shadowed by
+   an earlier branch, as suspected.
+2. **But it sees `n_labels=0`**: the in-flight context lists are EMPTY at the
+   moment `Self.new` resolves. That is why both earlier fix locations were inert.
+3. **The push fires on two different paths.** With only the generic-impl branch
+   (`g_mval`, impl.yo ~:2578) patched, pushes appear for `clone`, `dispose`,
+   `hash`, `index`, `next`, `trace` — all TRAIT-impl methods, never the
+   reproducer's `len`/`new`/`via`. An INHERENT impl
+   (`impl(generic(T), G(T), len, new, via)`) goes through the "Case 3" site
+   (~:3110) instead; patching that too fires 885 pushes.
+4. **Even with both pushing, `Self.new` still sees `n_labels=0`.** So the lists
+   do not survive from the push into whatever context evaluates the body.
+
+Also established:
+
+- Pushing methods into `current_impl_trait_field_types` WITHOUT the matching
+  consumer branch breaks 87 files, while the two together are 247/247. That is a
+  concrete explanation of the original "copying FuncVals into the context list
+  proved fragile" note: the earlier attempt most likely landed the push without a
+  consumer.
+- The impl RESTORES the saved lists when it finishes (impl.yo:2607 and :3431),
+  and `PendingDefEval` carries none of them — but the deferred-re-run path is
+  gated on `has_fwd_comptime_fn_cap`, which is narrow, so "the trial re-runs
+  after the restore" is NOT the explanation either (checked, not assumed).
+
+**The one remaining question, and the exact next probe:** add `n_labels` to the
+existing `[trial]` print in `_trial_eval_fn_body`. If the trial itself already
+runs with empty lists, the body eval happens outside the impl's field loop and
+the lists must be carried to it; if the trial has them populated, the loss is
+inside the body evaluation's context threading (`function_type.yo`'s
+`create_function_body_evaluation_context` copy).
+
+That single bit decides which half to fix, and costs one build.
+
 **Next step must be instrumentation, not a third guess**: print at
 `_try_find_receiver_method` entry whether `is_static` is true for `Self.new()`
 and what `ctx.current_impl_trait_field_labels` contains at that moment. Two build
