@@ -302,11 +302,35 @@ field evaluation and leave no residue.
 one.** `register_provisional_trait_method` / `clear_provisional_trait_methods`
 (`values/type_trait_methods.yo:187-250`) is already documented as the port of
 exactly this TS splice — registered during member evaluation, cleared when the
-loop finishes. Open question before spending a build on it: its entries carry
-`value : None` (type only), and its one consumer is
-`get_receiver_methods_by_name_from_env` (`env.yo:3207,3222`), which is INSTANCE
-dispatch. Whether the `Self.new()` STATIC path consults it is unverified — check
-that first, by instrumentation, not by assumption.
+loop finishes.
+
+**VERIFIED by reading, no build needed: the static path does NOT consult it.**
+`Self.new()` is `is_static` (`calls/function.yo:313`, receiver value is a
+`TypeVal`), so it resolves through
+`get_type_trait_methods_by_name_from_env` (`env.yo:2736`), whose only three
+sources are the trait-qualified special case, the PERMANENT registry
+(`get_type_trait_methods_by_name`, :2780), and the generic-impl fallback
+(:2784-2790). The provisional registry's only consumer is
+`get_receiver_methods_by_name_from_env` (`env.yo:3207,3222`) — INSTANCE dispatch.
+So a provisional-registry fix needs BOTH halves: register during the loop AND add
+a provisional consult to the static lookup as a last-resort fallback. Landing the
+registration without the consumer is inert; landing a consumer that outranks the
+generic-impl fallback is how `imm_map` broke.
+
+Note also that shells may not be needed at all here: in both the reproducer and
+`array_list`, the sibling (`new`) is declared BEFORE the caller (`via` /
+`slice_copy`), so its REAL FuncVal already exists when the caller's body is
+trialled. Registering real values, scoped and cleared, is strictly safer than
+registering unevaluated shells.
+
+**The one thing that must be measured first**, because it decides whether ANY
+scoped mechanism can work: the probe series recorded above found the in-flight
+context lists EMPTY at the trial site even with 885 pushes firing elsewhere,
+which was read as "the trial runs outside the impl's field loop". If that is
+literally true, a registry cleared at loop end is already empty by trial time and
+only a permanent registration could work — which is exactly the unsafe option.
+Resolve that contradiction (print at both the field-loop push and the trial, with
+the receiver id, in ONE build) before designing anything further.
 
 **But the decisive fact is that this is not family A's root cause.** Even with
 shells created and dispatched correctly, the root count stayed 16 → 16, because
