@@ -78,15 +78,51 @@ slice_copy : (fn(self : Self, r : Range(usize)) -> Self)({
 ```
 
 `self.len()` yields `unit` at definition time, so the `cond` arms cannot unify
-(`usize` vs `unit`). **NOT a declaration-order problem** — measured: `len` is at
-`array_list.yo:29`, well before `slice_copy` at :74. A struct-module's methods
-are not registered until the whole module literal finishes evaluating, so ANY
-sibling call is unresolvable during a def-time trial regardless of order.
+(`usize` vs `unit`).
 
-This is the documented "Self-slot" class (`(result : Self) = Self.new()` types
-UNIT — `issues/retired/yo-self-hollow-test-batch-main.md`). Fixing it means
-registering a module's methods before evaluating their bodies — a two-pass
-change with broad blast radius, so it wants its own gated slice.
+### Measured facts (2026-08-13) — and TWO refuted causes
+
+Bisected by editing `std/collections/array_list.yo` self-revertingly and
+recompiling a 4-line importer (~25 s per iteration, no compiler rebuild — `std`
+is read fresh by any stage-1 binary):
+
+| variant of `slice_copy`'s first statement    | swallowed error                                                                       |
+| -------------------------------------------- | ------------------------------------------------------------------------------------- |
+| original `cond((r.end > self.len()) => ...)` | Cannot unify: `usize` and `unit`                                                      |
+| `e := self.len();`                           | Cannot unify: `usize` and `unit` (so `e` is unit ⇒ `self.len()` is unit)              |
+| `e := r.end;`                                | Expected enum type … for match expression, got `unit` (the `match(self.get(i), ...)`) |
+
+So **both** sibling calls are unit: `len` (declared at :29, BEFORE `slice_copy`
+at :74) and `get` (declared at :211, AFTER it). Removing one statement simply
+exposes the next failure in the same body.
+
+**Refuted cause 1 — "methods are not registered until the module literal
+finishes".** A plain `impl(M, len : ..., via_instance : ...)` where `via_instance`
+calls `self.len()` inside a `cond` RESOLVES cleanly at definition time (rc=0, 0
+markers, no swallow).
+
+**Refuted cause 2 — "it needs a generic impl whose `Self` carries an unresolved
+type argument".** The same probe rebuilt as
+`G :: (fn(comptime(T) : Type) -> comptime(Type))(ref(struct(v : T, n : usize)))`
+with `impl(generic(T : Type), G(T), size : ..., via : ...)` — mirroring
+ArrayList's exact declaration shape, sibling declared first — ALSO resolves
+cleanly.
+
+**So a third factor distinguishes the real `array_list` impl from a minimal
+generic impl with the same shape, and it is not yet identified.** Candidates not
+yet tested: the `?*(T)` optional-pointer field, `pragma(Pragma.AllowUnsafe)`, the
+number of methods in the impl (ArrayList has dozens; the probes had two), or
+interaction with a method that itself failed its trial earlier in the same impl
+(note `[trial] :57:4` runs immediately before `[trial] :73:59`).
+
+Related but NOT the same as the documented "Self-slot" class
+(`(result : Self) = Self.new()` types UNIT —
+`issues/retired/yo-self-hollow-test-batch-main.md`); that one is about `Self.X`
+static access, this one is instance dispatch.
+
+Next probe: extend the minimal generic-impl repro one property at a time toward
+the real ArrayList (optional-pointer field → many methods → a preceding failing
+trial) until it reproduces; that names the third factor without guessing.
 
 ### B. Impl-level VALUE binder bound as a TYPE (#4, #5, #6)
 
