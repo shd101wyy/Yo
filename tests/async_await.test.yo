@@ -3928,3 +3928,46 @@ test("abort dispose skips awaitless-match pattern bindings (no double-drop)", {
   io.await(_abort_read_and_throw(io, throw_exn), IoExn(io : io, exn : throw_exn));
   assert(false, "expected _abort_read_and_throw to throw");
 });
+/// A ref struct whose payload is itself RC-managed, so a premature drop
+/// corrupts observable data instead of merely unbalancing a counter.
+IndexElem :: ref(struct(name : String, n : usize));
+/// Reads elements out of an `ArrayList` BY INDEX inside an async loop whose
+/// body contains an await, so each `it := items(i)` binding is lowered into a
+/// state-machine slot (`sm->var_N = (*index(...));`) rather than a C local.
+/// That shape has no RHS temp, and the self-hosted codegen used to skip the
+/// binding's deferred dup there while still emitting the loop-end drop — a
+/// net -1 per element per pass. TWO passes are required: the elements start at
+/// refcount 2, so a single pass only masks the imbalance.
+_index_elems_twice :: (fn(items : ArrayList(IndexElem), io : Io) -> Impl(Future(usize, Io)))(
+  io.async((io : Io) => {
+    (total : usize) = usize(0);
+    (i : usize) = usize(0);
+    while(runtime(i < items.len()), {
+      it := items(i);
+      total = (total + it.n);
+      io.await(yield(io), io);
+      i = (i + usize(1));
+    });
+    (j : usize) = usize(0);
+    while(runtime(j < items.len()), {
+      it2 := items(j);
+      total = (total + it2.n);
+      io.await(yield(io), io);
+      j = (j + usize(1));
+    });
+    return(total);
+  })
+);
+test("async index binding keeps the element alive (two passes over the list)", {
+  items := ArrayList(IndexElem).new();
+  items.push(IndexElem(name : String.from("alpha"), n : usize(1)));
+  items.push(IndexElem(name : String.from("beta"), n : usize(2)));
+  items.push(IndexElem(name : String.from("gamma"), n : usize(3)));
+  total := io.await(_index_elems_twice(items, io), io);
+  assert(total == usize(12), "two passes over 1+2+3 should total 12");
+  // The list still owns every element. Without the +1 on the state-machine
+  // binding, the second pass frees them while the list still points at them,
+  // which surfaces here as an emptied String rather than a crash.
+  assert(items(0).name == String.from("alpha"), "element 0 outlived the async loop");
+  assert(items(2).name == String.from("gamma"), "element 2 outlived the async loop");
+});

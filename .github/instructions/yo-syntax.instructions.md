@@ -475,6 +475,19 @@ Tagged :: (fn(comptime(T) : Type) -> comptime(Type))(
 );
 ```
 
+## `short`, `long`, `int`, `char` are not usable as variable names
+
+They are builtin type names. `short := io.await(...)` fails with:
+
+```
+Error: Failed to define variable "short":
+```
+
+The diagnostic points at the binding and never mentions keywords, so it reads
+like the RHS failed to type — the wrong place to look. Measured 2026-08-12:
+`short`, `long`, `int` and `char` are rejected; `float`, `double`, `signed`,
+`unsigned`, `register` and `volatile` are accepted. Rename the local.
+
 ## Other syntax notes
 
 - `unit` is a type not value, `()` is the unit value.

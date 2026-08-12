@@ -7,10 +7,14 @@ the roadmap for making `yo-self/` **the** compiler, not the port of one.
 
 ## End state
 
-1. The `src/` TypeScript compiler is retired. Bun/Node/npm/yarn are no longer
-   required to build, install, test, or use Yo — **except**
-   `vscode-extension/`, which stays TypeScript + bun by design (it is a VS Code
-   client; that ecosystem is TS).
+1. The `src/` TypeScript compiler is retired. No JavaScript runtime is required
+   to build, install, test, or use Yo — **except** `vscode-extension/`, which
+   stays TypeScript by design (it is a VS Code client; that ecosystem is TS).
+   **Updated 2026-08-12: the extension moved from bun to Node/npm**, so `bun`
+   is needed NOWHERE after retirement rather than surviving for one job. Its
+   toolchain (`vsce`, `vscode-languageclient`, `@types/vscode`) is npm-native,
+   `npm version` already bumped it at release time, and `build.js` used no
+   bun-specific API — so the switch was scripts + lockfile only.
 2. The self-hosted binary supports **every** `yo` subcommand (`init`, `build`,
    `doc`, `fetch`, `install`, `cache`, `version`, plus today's
    `check`/`compile`/`test`/`fmt`) at CLI-flag parity — and the compiler

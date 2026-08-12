@@ -61,7 +61,7 @@ check that the type's constructor stamps a dispose id and that
 ## VS Code extension
 
 - Ignore editor errors for `.yo` files — the extension may not use updated grammar/evaluator code.
-- To rebuild: `cd vscode-extension && bun package`
+- To rebuild: `cd vscode-extension && npm run package` (npm, not bun — the extension is the one npm-based tree in the repo)
 
 ## Debugging regressions with git bisect
 
