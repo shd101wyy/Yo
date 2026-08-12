@@ -283,6 +283,87 @@ _trial_eval_fn_body :: (
   evaluated := evaluate_begin_expression(body, env, ctx, ArrayList(Variable).new(), true, inner_exn);
   out.push(evaluated);
 });
+/// The env value for a TYPE-kinded binder — a `comptime(T) : Type` parameter or
+/// a `generic(T : Type)` forall: `TypeVal(SomeT(name))`, preferring the SomeT the
+/// SIGNATURE already mentions for that name (so body and signature share ONE
+/// identity — minting a fresh one gave `ZPair(K, V)` a different CTFE cache key
+/// than the signature's `*(ZPair(K, V))`), and stamping the fn's where-clause
+/// constraints onto a freshly minted one.
+///
+/// Deliberately NOT `create_unknown_val(Type)`: an unknown VALUE of type `Type`
+/// is not usable AS a type, so a type-constructor body (`struct(_0 : A, _1 : B)`)
+/// throws "expected type for element, got A" (field.yo:293). TS can use
+/// `createUnknownValue(declaredType)` (helper.ts:1038-1067) because its type
+/// objects are mutable and resolve in place; yo-self's TypeValues are value-typed
+/// snapshots, so the placeholder itself has to BE a type.
+///
+/// Shared by the parameter loop and the forall loop in
+/// `_build_def_time_body_env` — they must agree, or a `generic(T)` binder and a
+/// `comptime(T)` param of the same name would bind different identities.
+_type_binder_env_value :: (
+  fn(
+    name : String,
+    sig_some_ts : ArrayList(TypeValue),
+    where_entries : ArrayList(WhereConstraintEntry),
+    level : usize
+  ) -> Option(EvalValue)
+)({
+  // Prefer the signature's own SomeT for this name; mint only when the
+  // signature never mentions it.
+  (sig_match : Option(TypeValue)) = Option(TypeValue).None;
+  (smi : usize) = usize(0);
+  while((smi < sig_some_ts.len()) && sig_match.is_none(), {
+    match(
+      sig_some_ts.get(smi),
+      .Some(st) => match(
+        st,
+        .SomeT(_, st_name, _, _, _, _, _, _, _, _, _) => if(st_name == name, {
+          sig_match = Option(TypeValue).Some(st);
+        }),
+        _ => ()
+      ),
+      .None => ()
+    );
+    smi = (smi + usize(1));
+  });
+  match(
+    sig_match,
+    .Some(st) => Option(EvalValue).Some(create_type_value(st)),
+    .None => {
+      fresh_some := t_some_t(name.clone(), level);
+      // Stamp the fn's where-clause constraints for this label onto the fresh
+      // SomeT (see the where_entries doc comment on _build_def_time_body_env).
+      (we_i : usize) = usize(0);
+      while(we_i < where_entries.len(), {
+        we := match(
+          where_entries.get(we_i),
+          .Some(e) => e,
+          .None => {
+            we_i = (we_i + usize(1));
+            continue;
+          }
+        );
+        if(we.lhs_label == name, {
+          match(
+            fresh_some,
+            .SomeT(_, _, _, _, fs_req, fs_req_lv, fs_neg, fs_neg_lv, _, _, _) => {
+              if(we.is_negated, {
+                fs_neg.push(we.trait_ty);
+                fs_neg_lv.push(usize(0));
+              }, {
+                fs_req.push(we.trait_ty);
+                fs_req_lv.push(usize(0));
+              });
+            },
+            _ => ()
+          );
+        });
+        we_i = (we_i + usize(1));
+      });
+      Option(EvalValue).Some(create_type_value(fresh_some))
+    }
+  )
+});
 /// Build a fresh definition-time evaluation env for a function body: captures
 /// (re-derived from `caller_env` so other top-level names resolve) + a frame
 /// with the parameters bound (with `is_ref`/`is_parameter` set so the
@@ -322,6 +403,15 @@ _build_def_time_body_env :: (
     // throw abandoned the whole prelude begin loop ("Variable Option/Dispose
     // not found" cascade).
     where_entries : ArrayList(WhereConstraintEntry),
+    /// The fn's own type — read ONLY for its generic binders
+    /// (`Func.forall_types` paired with `FuncMeta.forall_labels`). A
+    /// `generic(B : Type)` binder is NOT in `param_labels`, so the
+    /// comptime-type-param binding in the parameter loop below never covered it
+    /// and every body mention of `B` threw `Variable "B" not found` at
+    /// definition time — 15 of the 33 distinct def-time swallow roots measured
+    /// on a hello-world (all of prelude's Functor/Monad surface:
+    /// `Result.map`/`map_err`/`and_then`, `Option.map`, ...).
+    fn_type_for_foralls : TypeValue,
     // True when this fn is being DEFINED inside another function body. TS
     // then evaluates the body against
     // keepTopLevelFrameAndComptimeVariablesFromEnv(callerEnv)
@@ -424,6 +514,57 @@ _build_def_time_body_env :: (
       sri = (sri + usize(1));
     });
   };
+  // Bind the fn's GENERIC BINDERS before the parameters. `generic(B : Type)`
+  // lives in `forall_labels`, a list PARALLEL to but separate from
+  // `param_labels`, so the type-kinded binding in the parameter loop below never
+  // reached it: at definition time the body's `Result(B, ErrorType)` threw
+  // `Variable "B" not found`, the def-time trial swallowed it, and the statement
+  // lost its ExprInfo — which is how a body silently became a
+  // `// Failed to transpile` comment.
+  //
+  // Bound through the SAME `_type_binder_env_value` the parameter loop uses, so
+  // a `generic(T)` binder and a `comptime(T) : Type` param of one name cannot
+  // bind two different SomeT identities. Only TYPE-kinded binders are bound —
+  // a VALUE binder (`generic(N : usize)`) must stay unbound so the value-generic
+  // machinery still infers it from the call (binding it to a TypeVal is exactly
+  // the `usize`-vs-`Type` misbind recorded in the collections residuals).
+  //
+  // Skipped when a parameter of the same name exists: the parameter loop is
+  // authoritative for it (and runs after, so it would overwrite anyway).
+  {
+    fa_labels := match(fn_type_for_foralls, .Func({ meta : __fa_m }) => __fa_m.*.forall_labels, _ => ArrayList(String).new());
+    fa_types := match(fn_type_for_foralls, .Func({ forall_types : __fa_t }) => __fa_t, _ => ArrayList(TypeValue).new());
+    (fa_i : usize) = usize(0);
+    while(fa_i < fa_labels.len(), {
+      fa_name := match(fa_labels.get(fa_i), .Some(n) => n, .None => String.from(""));
+      fa_ty := match(fa_types.get(fa_i), .Some(t) => t, .None => t_unit());
+      is_param_too := {
+        (fp_i : usize) = usize(0);
+        (fp_hit : bool) = false;
+        while((fp_i < param_labels.len()) && !(fp_hit), {
+          if(match(param_labels.get(fp_i), .Some(l) => (l == fa_name), .None => false), {
+            fp_hit = true;
+          });
+          fp_i = (fp_i + usize(1));
+        });
+        fp_hit
+      };
+      if((fa_name.len() > usize(0)) && (is_type_0(fa_ty) && !(is_param_too)), {
+        add_variable_to_env(
+          fresh_env,
+          fa_name.clone(),
+          fa_ty,
+          _type_binder_env_value(fa_name.clone(), sig_some_ts, where_entries, pf_level),
+          true,
+          false,
+          false,
+          false,
+          synthetic_token(fa_name, module_path)
+        );
+      });
+      fa_i = (fa_i + usize(1));
+    });
+  };
   (pi : usize) = usize(0);
   while(pi < param_labels.len(), {
     pn := match(param_labels.get(pi), .Some(n) => n, .None => String.from(""));
@@ -444,63 +585,7 @@ _build_def_time_body_env :: (
     // value-branch early-returned and a borrowed-param tail (`to_string :
     // (...)(self)`) lost its balancing ___dup — println(s) then freed the
     // caller's String buffer (net −1 per call).
-    pv := if(is_type_0(pt), {
-      // Prefer the signature's own SomeT for this name; mint only when
-      // the signature never mentions the param.
-      (sig_match : Option(TypeValue)) = Option(TypeValue).None;
-      (smi : usize) = usize(0);
-      while((smi < sig_some_ts.len()) && sig_match.is_none(), {
-        match(
-          sig_some_ts.get(smi),
-          .Some(st) => match(
-            st,
-            .SomeT(_, st_name, _, _, _, _, _, _, _, _, _) => if(st_name == pn, {
-              sig_match = Option(TypeValue).Some(st);
-            }),
-            _ => ()
-          ),
-          .None => ()
-        );
-        smi = (smi + usize(1));
-      });
-      match(
-        sig_match,
-        .Some(st) => Option(EvalValue).Some(create_type_value(st)),
-        .None => {
-          fresh_some := t_some_t(pn, pf_level);
-          // Stamp the fn's where-clause constraints for this label onto the
-          // fresh SomeT (see the where_entries doc comment above).
-          (we_i : usize) = usize(0);
-          while(we_i < where_entries.len(), {
-            we := match(
-              where_entries.get(we_i),
-              .Some(e) => e,
-              .None => {
-                we_i = (we_i + usize(1));
-                continue;
-              }
-            );
-            if(we.lhs_label == pn, {
-              match(
-                fresh_some,
-                .SomeT(_, _, _, _, fs_req, fs_req_lv, fs_neg, fs_neg_lv, _, _, _) => {
-                  if(we.is_negated, {
-                    fs_neg.push(we.trait_ty);
-                    fs_neg_lv.push(usize(0));
-                  }, {
-                    fs_req.push(we.trait_ty);
-                    fs_req_lv.push(usize(0));
-                  });
-                },
-                _ => ()
-              );
-            });
-            we_i = (we_i + usize(1));
-          });
-          Option(EvalValue).Some(create_type_value(fresh_some))
-        }
-      )
-    }, Option(EvalValue).None);
+    pv := if(is_type_0(pt), _type_binder_env_value(pn.clone(), sig_some_ts, where_entries, pf_level), Option(EvalValue).None);
     add_parameter_to_env(
       fresh_env,
       pn,
@@ -543,6 +628,7 @@ _rerun_pending_def_evals :: (fn(caller_env : Environment, ctx : EvalContext) -> 
           pd.param_is_owning,
           pd.result_ty,
           pd.where_entries,
+          pd.function_type,
           pd.strip_outer
         );
         rp_fv := EvalValue.FuncVal(
@@ -913,6 +999,7 @@ try_to_implement_function_by_function_type :: (
             param_is_owning,
             result_box,
             def_where_entries,
+            function_type,
             ctx.is_evaluating_function_body_or_async_block.is_some()
           );
           // Bind the variadic parameter (`...(quote(elems))` → `elems` as
@@ -1143,6 +1230,7 @@ try_to_implement_function_by_function_type :: (
               param_is_owning,
               result_box,
               dg_where,
+              function_type,
               ctx.is_evaluating_function_body_or_async_block.is_some()
             );
             // A THROWAWAY FuncVal with a fresh id (same pattern as flow_fv
