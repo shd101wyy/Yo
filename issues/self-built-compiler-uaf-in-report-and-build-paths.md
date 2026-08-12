@@ -1,11 +1,11 @@
 # A SELF-BUILT compiler has a use-after-free in the report and build paths — 8 cli-cases abort
 
 **Status: ROOT CAUSE FOUND AND FIXED 2026-08-12** —
-`yo-self/codegen/exprs/init_assignment.yo`. A variable binding whose RHS carries
-no temp variable never emitted its deferred dup, while the matching drop was
-still emitted: a net **−1 per binding**. Inside an async state machine that is
-the _normal_ shape (`sm->var_N = (*index(...));`), so every
-`element := list(i)` in an async loop silently under-counted its element.
+`yo-self/codegen/exprs/init_assignment.yo:205-250`. A binding lowered into an
+async state-machine slot took an **early return** that emitted the RHS raw,
+jumping over the deferred-dup chain, while the slot's drop was still emitted: a
+net **−1 per binding**. So every `element := list(i)` inside an async loop
+silently under-counted its element and freed it out from under the live list.
 
 Found 2026-08-11 by the first CI run in which stage-1 is built by the previous
 release instead of by TypeScript: exactly the bug class the 2.3 migration exists
