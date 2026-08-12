@@ -374,3 +374,98 @@ sweep rather than on `check`.
 - The sweep's HOLLOW verdict only inspects `__yo_user_main`, which is also the
   scope the new entry-point gate takes. A marker in another function body is
   handled by the degrade/stub architecture rather than reported.
+
+## 2026-08-12 — the gate is LIVENESS-based, and one shape still escapes
+
+The first gate covered only `__yo_user_main`, which was far too narrow: a typo in a
+HELPER still compiled clean, dropping both the bad call AND the function's return
+value, so the helper returned garbage and the program ran.
+
+```
+helper :: (fn() -> i32)({ this_function_does_not_exist(); i32(7) });
+main   :: (fn() -> unit)({ v := helper(); () });
+```
+
+```
+TS           rc=1
+self-hosted  rc=0   ->  emitted C carries BOTH statements as comments
+```
+
+The gate now fires when the marker sits in a function that is LIVE:
+
+    is_live_here := __yo_user_main || (fid_has_runtime_calls(fid) && !fid_fully_specialized(fid))
+
+`fid_has_runtime_calls` (new, expr_info.yo) reads the existing `g_fid_rtcalls`
+counter. `__yo_user_main` is named explicitly because NOTHING dispatches to it
+through the counted path — the main wrapper calls it directly.
+
+### Why liveness, and why measured rather than assumed
+
+The whole 188-file corpus contains exactly **16** `// Failed to transpile` markers,
+in **3** files, and all sit in DEAD bodies:
+
+| file                                   | FTT | `// Unknown type:` |
+| -------------------------------------- | --- | ------------------ |
+| tests/algebraic_effects.test.yo        | 12  | 0                  |
+| tests/impl.test.yo                     | 3   | 0                  |
+| tests/closure_param_forwarding.test.yo | 1   | 0                  |
+| tests/type_reflection.test.yo          | 0   | 24 (legitimate)    |
+
+So gating on anything coarser than liveness fails those files for no benefit —
+which is exactly what happened: gating "every non-superseded function" turned
+tests/algebraic_effects red.
+
+### REJECTED alternative: counting references in the emitted C
+
+Since the evaluator's counter misses some dispatches, the obvious alternative is to
+ask the OUTPUT whether a function is referenced — count whole-token occurrences of
+its C name and treat >= 3 (prototype + definition + >= 1 use) as live. **It is
+UNSOUND and must not be used.** Measured on the 16 real markers: it correctly
+exempts all of algebraic_effects (refs=2) and impl (refs=2), but reports
+closure_param_forwarding's carrier LIVE at refs=3 — and that third reference is a
+CALL FROM A CALLER THAT IS ITSELF DEAD. Transitive deadness defeats it, so it
+over-reports liveness, and over-reporting REJECTS VALID PROGRAMS. Proof the code
+really is dead: the file reports 3 passed unprobed, and its
+`assert(r.len() == usize(4))` could not hold if the dropped `walk2(...)` call were
+the one that ran.
+
+(A probe caveat worth recording: injecting `assert(i32(1) == i32(2))` as the FIRST
+statement of a test short-circuits it before the real assertions, so it proves the
+test runs but proves NOTHING about a later assert. Place the probe after the
+assertions you want to reason about, or read the unprobed result.)
+
+### STILL OPEN: a typo in a struct METHOD is not gated
+
+```
+Point :: struct(x : i32);
+impl(Point, get : (fn(self : Self) -> i32)({ this_does_not_exist(); self.x }));
+main :: (fn() -> unit)({ p := Point(x : 1); v := p.get(); () });
+```
+
+```
+TS           rc=1
+self-hosted  rc=0
+```
+
+The emitted C proves the function is genuinely live — prototype, a CALL from main,
+and the definition carrying the marker:
+
+```
+353:  static inline int32_t yo_id_2991(__yo_t0 self);
+1352:   int32_t _temp = yo_id_2991(p);          <-- called
+1355: static inline int32_t yo_id_2991(__yo_t0 self) {
+3654:   // Failed to transpile ...
+```
+
+yet `fid_has_runtime_calls` returns false for its fid. So method dispatch does not
+reach the single `record_fid_rtcall` site (`evaluator/calls/function.yo:2065`, in
+`_evaluate_funcval_runtime_call`). The fix is to record the dispatch on the method
+path too — and it must fire ONLY on an actual dispatch, never on a merely
+CONSIDERED overload, or it over-reports liveness and we are back to rejecting valid
+programs. Generic and closure shapes ARE already caught; method receivers are the
+remaining hole.
+
+Verified for this gate: corpus sweep **188 GREEN** / SWEEP_GATE_OK; helper and main
+typos rc=1; generic and closure typos rc=1 (match TS); fn 24, algebraic_effects 74,
+basic 33, impl 6, closure_param_forwarding 3, type_reflection 35 all passing;
+check ./std 154/154, check ./yo-self 247/247.
