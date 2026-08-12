@@ -8,14 +8,33 @@ the traps as they are found. Started 2026-08-10, branch `p2/self-build`.
 
 The phase's items, from the umbrella plan:
 
-| item | what                                                             | status                                   |
-| ---- | ---------------------------------------------------------------- | ---------------------------------------- |
-| 2.1  | bootstrap seed release (TS builds the binaries one last time)    | **DONE — v0.2.0 shipped 2026-08-11**     |
-| 2.2  | repo-root `build.yo`: the compiler builds itself with `yo build` | **DONE** (verified both ways 2026-08-10) |
-| 2.3  | CI migration: seed release + `yo build` replace bun              | **UNBLOCKED** — seed exists (next up)    |
-| 2.4  | re-express TS-only tests in Yo                                   | **inventory below**                      |
-| 2.5  | retire: freeze + delete `src/`, drop package.json/bun/out        | blocked on 2.1–2.4                       |
-| 2.6  | docs sweep (AGENTS.md, instructions, skills)                     | blocked on 2.5                           |
+| item | what                                                             | status                                                               |
+| ---- | ---------------------------------------------------------------- | -------------------------------------------------------------------- |
+| 2.1  | bootstrap seed release (TS builds the binaries one last time)    | **DONE** — v0.2.0 shipped 2026-08-11; seeds now at **v0.2.3**        |
+| 2.2  | repo-root `build.yo`: the compiler builds itself with `yo build` | **DONE** (verified both ways 2026-08-10)                             |
+| 2.3  | CI migration: seed release + `yo build` replace bun              | **IN REVIEW** (PR #98) — needs a **v0.2.4** seed; see §2.3 below     |
+| 2.4  | re-express TS-only tests in Yo                                   | **DONE** — inventory below                                           |
+| 2.5  | retire: freeze + delete `src/`, drop package.json/bun/out        | **PLANNED** — [`P2_5_RETIRE_EXECUTION.md`](P2_5_RETIRE_EXECUTION.md) |
+| 2.6  | docs sweep (AGENTS.md, instructions, skills)                     | blocked on 2.5                                                       |
+
+**Where 2.3 actually stands (2026-08-12).** Everything on PR #98 is green
+except the tier-1 gates, and the cause is understood, fixed and merged — but
+the fix cannot reach that job yet:
+
+> **The two-generation rule.** A codegen fix reaches a SEED-BUILT binary only
+> one release after it lands. #98's GATE 7 builds stage-1 with the pinned seed,
+> and the v0.2.3 seed was itself built from pre-fix sources, so it keeps
+> emitting the defect no matter what the tree says. Closing 2.3 is therefore:
+> merge the fix → cut **v0.2.4** → bump `SEED_VERSION` → GATE 7 passes.
+> This has now bitten twice (v0.2.2 and v0.2.3); treat it as the default
+> assumption whenever a self-hosted CI arm disagrees with a local build.
+
+The blocker itself is `issues/self-built-compiler-uaf-in-report-and-build-paths.md`
+(a binding lowered into an async state-machine slot skipped its deferred dup
+while the slot's drop was still emitted — net −1 per binding). Note the first
+diagnosis of that bug was **wrong** and the wrong fix shipped in v0.2.3; the
+issue records both the correction and the method lesson (hold the BUILDER
+constant, vary the SOURCES).
 
 ---
 

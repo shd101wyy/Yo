@@ -108,19 +108,28 @@ outputs/exit codes/effects against the TS CLI (`scripts/bootstrap/` style).
 ## Phase 2 — retire `src/` and the bun/node toolchain — **IN PROGRESS**
 
 > **Working doc: [`P2_RETIRE_SRC.md`](P2_RETIRE_SRC.md).** Status
-> 2026-08-11: **2.1 DONE — the bootstrap seed exists**
-> (https://github.com/shd101wyy/Yo/releases/tag/v0.2.0:
-> `yo-v0.2.0-{linux-x64,linux-arm64,macos-arm64}.tar.gz`; npm publishing
-> stopped with this release; macos-x64 moved to the `macos-26-intel`
-> runner — the last Intel label GitHub offers; windows-x64 is the known
-> porting tail,
-> issues/fixed/windows-native-selfhosted-build-fails.md). **2.2 DONE** (repo-root
-> build.yo verified both ways; `TestSuite.exclude` landed via PR #94).
-> **2.4 DONE** (inventory in the P2 doc). **2.3 (CI migration) is UNBLOCKED
-> and next**; 2.5/2.6 follow it. Groundwork already in: std-root resolution
-> reworked in BOTH compilers (`--std-path` flag → `YO_STD` → exe-relative
-> walk-up via `std/env.current_exe()` → `./std`), so the bundles are
-> **self-locating** — CI consumers just extract and put `bin/` on PATH.
+> **2026-08-12**: **2.1 DONE** — the seed chain is live and now four releases
+> deep (v0.2.0 → v0.2.3); **all five bundles** ship
+> (`yo-v0.2.3-{linux-x64,linux-arm64,macos-arm64,macos-x64,windows-x64}.tar.gz`),
+> and npm publishing stopped at v0.2.0. **2.2 DONE** (repo-root build.yo
+> verified both ways; `TestSuite.exclude` landed via PR #94). **2.4 DONE**
+> (inventory in the P2 doc). **2.3 IN REVIEW** (PR #98): every job green
+> except the tier-1 gates, whose blocker is fixed and merged but cannot reach
+> that job until a **v0.2.4** seed is cut — see the two-generation rule in the
+> P2 doc. **2.5 planned** in
+> [`P2_5_RETIRE_EXECUTION.md`](P2_5_RETIRE_EXECUTION.md); 2.6 follows it.
+> Groundwork already in: std-root resolution reworked in BOTH compilers
+> (`--std-path` flag → `YO_STD` → exe-relative walk-up via
+> `std/env.current_exe()` → `./std`), so the bundles are **self-locating** —
+> CI consumers just extract and put `bin/` on PATH.
+>
+> **What 2.3 has already bought, and it is the point of the phase:** building
+> stage-1 with the previous RELEASE instead of with TypeScript exposed a class
+> of defect every prior CI arm was blind to — bugs in what the SELF-HOSTED
+> codegen emits. Two were found and fixed this way
+> (`issues/fixed/seed-built-stage1-miscompiles-current-source.md`,
+> `issues/self-built-compiler-uaf-in-report-and-build-paths.md`), neither
+> visible to a TS-built stage-1.
 
 The self-hosting trust chain has to move off TypeScript before `src/` can go.
 
@@ -183,13 +192,18 @@ Work items:
    runs the TS compiler, so this is the first native-Windows exercise of the
    self-hosted binary; budget for a porting tail.)
 
-   **Started 2026-08-10**: `release.yml`'s `seed-bundles` job builds and
-   attaches `linux-x64` (glibc, not yet static musl), `macos-arm64`, and
-   `windows-x64` (experimental) bundles, smoke-tested from outside the
-   checkout. Bundles are self-locating (`bin/yo` finds the sibling `std/`
-   via the executable-relative walk-up), so the installer only needs to
-   extract and put `bin/` on PATH. Still open here: `macos-x64`,
-   `linux-arm64`, and the static-musl Linux story below.
+   **DONE 2026-08-12** (bundles), except musl. `release.yml`'s `seed-bundles`
+   job builds and attaches **all five** bundles — `linux-x64`, `linux-arm64`,
+   `macos-arm64`, `macos-x64`, `windows-x64` — each smoke-tested from outside
+   the checkout, with releases kept atomic (draft until every required leg
+   uploads, then a publish job flips it). Bundles are self-locating (`bin/yo`
+   finds the sibling `std/` via the executable-relative walk-up), so the
+   installer only extracts and puts `bin/` on PATH. **Still open: the
+   static-musl Linux story below** — today's Linux bundles are glibc, verified
+   dynamically linked against `/lib64/ld-linux-x86-64.so.2`, so they do not
+   run on Alpine, and on NixOS they fail to start at all (that path does not
+   exist there; the loader lives in `/nix/store`). See
+   [`P3_DISTRIBUTION.md`](P3_DISTRIBUTION.md) item 3.
 
    **Linux libc decision — one static musl binary per arch, not per-libc
    bundles.** A glibc-linked `yo` does not run on musl distros (different
@@ -218,14 +232,33 @@ Work items:
    unchanged from `BUILD_SYSTEM.md`: native target = host (gnu and musl
    variants on Linux), plus `wasm32-emscripten`/`wasm32-wasi` from any host.
 
-2. **`util/install.sh`** (POSIX sh, curl-pipe-able) and **`util/install.bat`**
-   (cmd; a PowerShell variant optional later), adapted from Koka's.
-   **Version-selectable**: `--version vX.Y.Z` (Koka's `-v` flag) picks the
-   release to download; default = latest. The script installs bundles into
-   the SAME per-version layout the `yo version` cache uses, so the installer
-   and `yo version install X` are two front-ends to one mechanism —
-   `.yo-version` pinning then works out of the box for script-installed
-   versions too (the `yo` shim resolves the pinned version exactly as today).
+2. **Install scripts — LANDED 2026-08-12** as `scripts/install.sh` (POSIX sh,
+   curl-pipe-able) and `scripts/install.ps1` (PowerShell, not the planned
+   `.bat`), adapted from Koka's. Note the paths: `scripts/`, not `util/`.
+   `--version` / `--prefix` / `--uninstall` / `--force` / `--dry-run` /
+   `--no-deps` / `--no-verify`; dependency installation across
+   apt/dnf/zypper/pacman/apk/yum; verification that compiles and runs a hello
+   world rather than checking a version string. Exercised by
+   `.github/workflows/install-scripts.yml` on all five platforms against the
+   REAL published bundles, plus weekly (nothing in a normal PR touches these
+   files, so a release-layout change would otherwise break them silently).
+
+   **Deviation from this plan, deliberate:** they install into
+   `<prefix>/lib/yo/<tag>` rather than the `yo version` cache layout, so the
+   installer and `yo version install X` are NOT yet one mechanism — the thing
+   item 4 / P3 item 2 wanted. The layouts are structurally the same (a
+   per-version directory holding a bundle extraction), so unifying them is a
+   re-rooting rather than a rewrite. Tracked in
+   [`P3_DISTRIBUTION.md`](P3_DISTRIBUTION.md) item 1.
+
+   Dependencies the scripts install, each verified against the shipped
+   compiler rather than assumed: a C compiler (`yo compile` invokes `clang` by
+   default), **git** (`yo fetch` / `yo install` shell out to it), and on Linux
+   **liburing and pkg-config as a pair** — the emitted C gates io_uring on
+   `#if __has_include(<liburing.h>)` while `-luring` is added only when
+   `pkg-config --exists liburing` succeeds, so the header WITHOUT pkg-config
+   is strictly worse than neither.
+
 3. **Host the installers on GitHub Pages**, so the canonical one-liner is:
 
    ```bash
@@ -256,6 +289,35 @@ then `yo init && yo build test` succeeds with no other toolchain present
 evaluate bundling zig as Koka bundles nothing but suggests one).
 
 ## Phase 4 — LSP + VS Code integration
+
+> **Working doc: [`P4_LSP.md`](P4_LSP.md) — SCOPED 2026-08-12.** Measured
+> sizing (4,730 lines across 14 files, `completion.ts` alone 1,541, plus a
+> transport layer TypeScript gets free from `vscode-languageserver/node`) and
+> two feasibility spikes:
+>
+> - **Transport: GREEN.** A Yo program can read its own stdin when stdin is a
+>   PIPE — the prerequisite that could have sunk this, since `std/sys/file.read`
+>   is positional and positional reads fail on pipes with `ESPIPE`. Proven
+>   against real LSP framing, including back-to-back frames.
+>   `BufReader.read_exact` was added to std for it.
+> - **Diagnostics: RED.** `yo-self check` reports "evaluator OK" for a file
+>   calling an undefined function, where the TS compiler reports it with a
+>   position — the def-eval swallow. An LSP on that checker would report NO
+>   errors on broken code, which is worse than shipping none, because editor
+>   silence reads as approval.
+>
+> **So increment 1 below is wrong as written**: diagnostics cannot come first.
+> The corrected order is in P4_LSP.md — fix the def-eval swallow and add a
+> structured-diagnostics entry point (`check` prints progress text, it does not
+> return ranges) BEFORE any protocol work.
+>
+> This bears on P2.5's decision **B2** — _"keep `src/lsp` as an island, or ship
+> a syntax-only extension"_ — without settling it. P4 fixes the LONG-TERM
+> answer (rewritten in Yo, so no island survives), but B2 is about the
+> INTERIM, between deleting `src/` and P4 shipping, and that remains a
+> maintainer call. What P4 changes is the arithmetic: an island kept for the
+> interim is thrown away when P4 lands, so its cost has to be justified by
+> that window alone.
 
 1. **`yo lsp`** subcommand: a Yo-native LSP server over stdio. Increment 1:
    document sync + diagnostics from the `check` surface (the evaluator already
@@ -289,3 +351,17 @@ P1 CLI parity  ──►  P2 retire src/ + bun  ──►  P3 releases + install
 
 Nothing here blocks merging the bootstrap PR (#76) — this roadmap starts
 from its merge.
+
+### Where the phases actually stand — 2026-08-12
+
+| phase            | status                                                                                                                                                |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| P1 CLI parity    | **COMPLETE** 2026-08-10                                                                                                                               |
+| P2 retire `src/` | 2.1/2.2/2.4 **DONE**; 2.3 **in review** (needs a v0.2.4 seed); 2.5 planned, 2.6 after it                                                              |
+| P3 distribution  | five bundles **shipping**; installers **landed**; `yo version` on Releases and static-musl **open** — and musl now has a second reason (NixOS/Alpine) |
+| P4 LSP           | **scoped**, blocked on the def-eval swallow                                                                                                           |
+
+The strict phase order has held with one exception worth noting: P3's
+installers landed before P2 finished, because they only depend on the release
+bundles (a P2.1 output), not on `src/` being gone. Anything else in P3 that
+depends only on published bundles can be pulled forward the same way.

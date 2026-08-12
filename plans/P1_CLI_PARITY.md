@@ -2,7 +2,7 @@
 
 > **STATUS: COMPLETE** (2026-08-10). Every in-scope item is done and
 > differential-verified; the two out-of-scope deferrals are recorded where
-> they will be picked up — `doc --format html` → P2 (§5, maintainer decision),
+> they will be picked up — `doc --format html` → **done in P2** (§5),
 > `version` → P3 (§6.5). Kept in `plans/` (not archived) because §5's
 > markdown_yo notes and §9's debt list are the P2 pickup points.
 
@@ -23,15 +23,15 @@ of its figures are stale and are called out below.
 
 ## 0. Where P1 stands
 
-|                      |                                                                                                                                    |
-| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| Hard blockers        | **none** — thirteen compiler/std/runtime bugs fixed (§2, §4, §5), each with regression coverage                                    |
-| Subcommands wired    | `check`, `compile`, `test`, `fmt`, `init`, **`cache`**, **`build`**, **`fetch`**, **`install`**, **`doc`** (json + markdown)       |
-| Subcommands left     | `doc --format html` (**deferred to P2** by maintainer decision, 2026-08-10 — §5), `version` (deferred to P3 by §6.5)               |
-| `fmt` divergence     | **0** of 808 files (was 339, then 17)                                                                                              |
-| Differential harness | `scripts/cli-diff-test.sh` + `tests/cli-cases/` — 10 cases, **all PASS**; it found 6 `build` bugs and 4 compiler/std bugs (§4, §5) |
-| Gates                | `gates_fast.sh` GATE 6 (`fmt` differential) and GATE 7 (CLI differential) are new                                                  |
-| Bootstrap            | FIXPOINT_HOLDS, stage-3 byte-identical                                                                                             |
+|                      |                                                                                                                                                                                                                                                   |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Hard blockers        | **none** — thirteen compiler/std/runtime bugs fixed (§2, §4, §5), each with regression coverage                                                                                                                                                   |
+| Subcommands wired    | `check`, `compile`, `test`, `fmt`, `init`, **`cache`**, **`build`**, **`fetch`**, **`install`**, **`doc`** (json + markdown)                                                                                                                      |
+| Subcommands left     | `doc --format html` **DONE 2026-08-10** (ported after this doc was written — `yo-self/doc/render_html.yo` + the vendored `markdown_yo` submodule; pinned by the `doc-html` cli-case, byte-identical to TS). `version` still deferred to P3 (§6.5) |
+| `fmt` divergence     | **0** of 808 files (was 339, then 17)                                                                                                                                                                                                             |
+| Differential harness | `scripts/cli-diff-test.sh` + `tests/cli-cases/` — 10 cases, **all PASS**; it found 6 `build` bugs and 4 compiler/std bugs (§4, §5)                                                                                                                |
+| Gates                | `gates_fast.sh` GATE 6 (`fmt` differential) and GATE 7 (CLI differential) are new                                                                                                                                                                 |
+| Bootstrap            | FIXPOINT_HOLDS, stage-3 byte-identical                                                                                                                                                                                                            |
 
 ---
 
@@ -243,6 +243,15 @@ control characters in string literals emitted invalid C from BOTH compilers
 std's `eprint` was missing the `unsafe(...)` wrapper its sibling `eprintln`
 has, and method signatures lacked TS's `(Receiver) ` prefix (yo-self's Func
 type carries no SelfType — the method registry's `self_type` supplies it).
+
+**`--format html`: RESOLVED — landed in P2, 2026-08-10.** The migration route
+below is the one that was taken: `markdown_yo` was migrated to current Yo
+(1035/1035 fixtures green) and vendored as a submodule, `render-html.ts` was
+ported to `yo-self/doc/render_html.yo`, and the `doc-html` cli-case pins the
+output byte-identical to TS. The historical analysis is kept because it
+records WHY the WASM route was rejected.
+
+Original note follows.
 
 **`--format html`: DEFERRED TO P2 (maintainer decision, 2026-08-10).**
 `render-html.ts` renders doc comments through `markdown_yo` — a WASM build of
