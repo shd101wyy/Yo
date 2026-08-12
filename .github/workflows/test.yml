@@ -17,13 +17,19 @@ env:
   # bootstrap seed) builds stage-1 in every self-hosted job — the trust
   # chain is "previous release builds current compiler". Bump each release.
   #
-  # MUST be a release whose seed can build the CURRENT yo-self. v0.2.0 and
-  # v0.2.1 CANNOT: a codegen bug in them miscompiles current sources into a
-  # stage-1 that fails comptime/fn and crashes in mi_free
-  # (issues/fixed/seed-built-stage1-miscompiles-current-source.md). v0.2.2 is
-  # the first release built from the fixed compiler, so it is the first
-  # trustworthy seed. install-seed fails hard if the pinned release has no
-  # bundle for a leg's target.
+  # MUST be a release whose seed can build a CORRECT current yo-self. Two
+  # separate codegen defects have made older seeds unusable here:
+  #   - v0.2.0/v0.2.1 miscompile current sources outright (a stage-1 built by
+  #     them fails comptime/fn and crashes in mi_free) —
+  #     issues/fixed/seed-built-stage1-miscompiles-current-source.md
+  #   - v0.2.2 shallow-copies every awaited RC result into its state-machine
+  #     slot, so a stage-1 IT builds has a use-after-free in every async path
+  #     and scores 15/27 on the cli-case differential —
+  #     issues/fixed/self-built-compiler-uaf-in-report-and-build-paths.md
+  # v0.2.3 is the first seed whose OWN codegen carries both fixes. Note a
+  # codegen fix always takes TWO generations to reach a seed-built binary: the
+  # fix must be IN the seed, not merely in the sources the seed compiles.
+  # install-seed fails hard if the pinned release has no bundle for a target.
   #
   # Must name a PUBLISHED release. Releases are created as drafts and flipped
   # public by the release workflow's publish-release job only after every
@@ -32,7 +38,7 @@ env:
   # Bumping this pin before publish-release has run fails all four
   # seed-driven jobs at the download, which is exactly what happened on the
   # first push of this pin.
-  SEED_VERSION: v0.2.2
+  SEED_VERSION: v0.2.3
 
 jobs:
   test:
