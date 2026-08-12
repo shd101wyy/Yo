@@ -790,3 +790,76 @@ test("BufWriter multiple writes then single flush", {
   assert(content == `aaabbbccc`, "should concatenate all writes");
   io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
 });
+test("BufReader read_exact reads exactly n bytes and leaves the rest", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        println(`  unexpected error: ${err}`);
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  tmp := temp_dir();
+  fpath := Path.new(path_join(tmp, `yo_bufio_read_exact.txt`));
+  io.await(fs_file.write_file(fpath, String.from("HEAD\nabcdefghijTAIL\n"), io), IoExn(io : io, exn : exn));
+  f := io.await(File.open(fpath, .Read, io), IoExn(io : io, exn : exn));
+  reader := BufReader.new(f.fd());
+  // A header line, then a fixed-size payload, then the remainder — the shape a
+  // length-prefixed protocol needs. read_exact must stop ON the boundary so the
+  // next read_line still sees the tail.
+  io.await(reader.read_line(io), io);
+  body := io.await(reader.read_exact(usize(10), io), io);
+  match(
+    body,
+    .Ok(opt) => match(
+      opt,
+      .Some(bytes) => {
+        assert(bytes.len() == usize(10), "should read exactly 10 bytes");
+        assert(String.from_bytes(bytes) == `abcdefghij`, "should read the payload");
+      },
+      .None => assert(false, "should not hit EOF")
+    ),
+    .Err(e) => assert(false, "should not get error")
+  );
+  rest := io.await(reader.read_line(io), io);
+  match(
+    rest,
+    .Ok(opt2) => match(
+      opt2,
+      .Some(s) => assert(s == `TAIL`, "the byte after the payload must still be there"),
+      .None => assert(false, "should not hit EOF before the tail")
+    ),
+    .Err(e2) => assert(false, "should not get error reading the tail")
+  );
+  io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
+});
+test("BufReader read_exact reports EOF when short", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        println(`  unexpected error: ${err}`);
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  tmp := temp_dir();
+  fpath := Path.new(path_join(tmp, `yo_bufio_read_exact_short.txt`));
+  io.await(fs_file.write_file(fpath, String.from("tiny"), io), IoExn(io : io, exn : exn));
+  f := io.await(File.open(fpath, .Read, io), IoExn(io : io, exn : exn));
+  reader := BufReader.new(f.fd());
+  // Asking for more than exists must be distinguishable from a clean read, so a
+  // truncated frame is never mistaken for a valid short one.
+  truncated := io.await(reader.read_exact(usize(100), io), io);
+  match(
+    truncated,
+    .Ok(opt) => match(
+      opt,
+      .Some => assert(false, "should not return a partial buffer"),
+      .None => assert(true, "EOF before n bytes reports None")
+    ),
+    .Err(e) => assert(false, "should not get error")
+  );
+  io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
+});

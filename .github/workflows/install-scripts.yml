@@ -1,0 +1,144 @@
+name: Install scripts
+
+# Exercises scripts/install.sh and scripts/install.ps1 against the REAL published
+# release bundles on every platform we ship one for.
+#
+# This is the only test these scripts get: they run on a user's machine, not
+# ours, and a broken installer is invisible to every other job in this repo.
+# It also pins down the two things most likely to rot — the release asset names
+# and the bundle's bin/std/vendor layout — because the installer fails loudly
+# when either changes.
+#
+# The scheduled run matters as much as the PR run: nothing in a normal PR
+# touches these files, but a change to release.yml's bundle layout, or a GitHub
+# API change, breaks them silently.
+
+on:
+  push:
+    branches: [develop, main]
+    paths:
+      [
+        scripts/install.sh,
+        scripts/install.ps1,
+        .github/workflows/install-scripts.yml,
+      ]
+  pull_request:
+    paths:
+      [
+        scripts/install.sh,
+        scripts/install.ps1,
+        .github/workflows/install-scripts.yml,
+      ]
+  schedule:
+    - cron: "0 7 * * 1" # Mondays, 07:00 UTC
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release tag to install (default: latest)"
+        required: false
+        default: ""
+
+jobs:
+  posix:
+    name: install.sh (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Dependency installation runs for real here: on Linux that is the
+          # apt path (clang, git, pkg-config, liburing-dev), which is the
+          # riskiest part of the script and has no other coverage. On macOS the
+          # branch is a no-op check, which is also worth exercising.
+          - os: ubuntu-latest
+            target: linux-x64
+          - os: ubuntu-24.04-arm
+            target: linux-arm64
+          - os: macos-latest
+            target: macos-arm64
+          - os: macos-26-intel
+            target: macos-x64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Yo via install.sh
+        shell: bash
+        run: |
+          sh scripts/install.sh --prefix "$HOME/.yo-test" \
+            ${{ github.event.inputs.version && format('--version={0}', github.event.inputs.version) || '' }}
+
+      # The installer verifies itself by compiling a hello world, but it does so
+      # through the REAL binary path. Users invoke the symlink, which only works
+      # if the compiler resolves its own path through the link and then finds
+      # std by walking up. Compile from a directory with no ./std so a fallback
+      # cannot mask a broken resolution.
+      - name: Use the installed compiler through the symlink
+        shell: bash
+        run: |
+          export PATH="$HOME/.yo-test/bin:$PATH"
+          mkdir -p "$RUNNER_TEMP/viasym" && cd "$RUNNER_TEMP/viasym"
+          [ -d ./std ] && { echo "fixture is not clean: ./std exists"; exit 1; }
+          cat > hello.yo <<'EOF'
+          open(import("std/fmt"));
+          main :: (fn() -> unit)({
+            println(`installed ok`);
+          });
+          export(main);
+          EOF
+          yo compile hello.yo -o hello
+          out="$(./hello)"
+          echo "program printed: $out"
+          [ "$out" = "installed ok" ] || { echo "unexpected output"; exit 1; }
+
+      - name: Uninstall leaves nothing behind
+        shell: bash
+        run: |
+          sh scripts/install.sh --uninstall --prefix "$HOME/.yo-test" --force
+          if [ -e "$HOME/.yo-test/bin/yo" ]; then echo "shim survived uninstall"; exit 1; fi
+          if [ -d "$HOME/.yo-test/lib/yo" ]; then echo "lib/yo survived uninstall"; exit 1; fi
+
+  windows:
+    name: install.ps1 (windows-x64)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # -NoDeps: the runner image already has clang and git, and winget is
+      # unreliable in CI. Check-Dependencies still runs, so a missing tool is
+      # still reported.
+      - name: Install Yo via install.ps1
+        shell: pwsh
+        run: |
+          $ver = "${{ github.event.inputs.version }}"
+          if ($ver) {
+            ./scripts/install.ps1 -Prefix "$env:RUNNER_TEMP\yo-test" -Version $ver -NoDeps
+          } else {
+            ./scripts/install.ps1 -Prefix "$env:RUNNER_TEMP\yo-test" -NoDeps
+          }
+
+      - name: Use the installed compiler through the shim
+        shell: pwsh
+        run: |
+          $env:PATH = "$env:RUNNER_TEMP\yo-test\bin;$env:PATH"
+          $dir = Join-Path $env:RUNNER_TEMP 'viasym'
+          New-Item -ItemType Directory -Path $dir -Force | Out-Null
+          Set-Location $dir
+          @'
+          open(import("std/fmt"));
+          main :: (fn() -> unit)({
+            println(`installed ok`);
+          });
+          export(main);
+          '@ | Set-Content -Path hello.yo -Encoding UTF8
+          yo compile hello.yo -o hello.exe
+          if ($LASTEXITCODE -ne 0) { throw "yo compile failed" }
+          $out = (& .\hello.exe | Out-String).Trim()
+          Write-Host "program printed: $out"
+          if ($out -ne 'installed ok') { throw "unexpected output: $out" }
+
+      - name: Uninstall leaves nothing behind
+        shell: pwsh
+        run: |
+          ./scripts/install.ps1 -Uninstall -Prefix "$env:RUNNER_TEMP\yo-test" -Force
+          if (Test-Path "$env:RUNNER_TEMP\yo-test\bin\yo.cmd") { throw "shim survived uninstall" }
+          if (Test-Path "$env:RUNNER_TEMP\yo-test\lib\yo")     { throw "lib\yo survived uninstall" }
