@@ -254,6 +254,16 @@ _trial_eval_fn_body :: (
   // — the fastest way to see WHY a test arm hollows (measure-rule 4's
   // module-level extraction without the extraction). The handler is a
   // capture-free `->`, so the gate reads the process env directly.
+  // Under YO_DEBUG_SWALLOW, announce WHOSE body is about to be trialled before
+  // running it. The handler below is a capture-free `->` and therefore cannot
+  // capture `body`, so the owner cannot be printed from inside it — and many
+  // swallowed errors carry a token pointing at line 1, which makes the
+  // `[swallow]` line alone unattributable. Any `[swallow]` in the log belongs to
+  // the most recent `[trial]` above it.
+  if(fnty_env.get(`YO_DEBUG_SWALLOW`).is_some(), {
+    dbg_tok := ast_expr_token(body);
+    eprintln(`[trial] ${dbg_tok.module_path}:${dbg_tok.row.to_string()}:${dbg_tok.column.to_string()}`);
+  });
   inner_exn := Exception(
     throw : (
       (_err) -> {
