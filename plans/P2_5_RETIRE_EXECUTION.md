@@ -342,6 +342,109 @@ returns only: the `vscode-extension` carve-out (`AGENTS.md:278`, `debugging.inst
 
 ---
 
+## Notes on individual steps, from scoping (2026-08-11)
+
+**Steps 4 and 6 are ONE refactor, not two.** The runner spawns each test with
+`tcmd.status(io)` (`yo-self/main.yo:1408`), which returns only an exit status.
+All three pieces of missing behavior need the child's captured output instead:
+the ASan `detect_leaks is not supported` retry (TS reads the combined output and
+re-runs with `detect_leaks=0`, `src/test-runner.ts:806-820`), `-v/--verbose`
+failure output (TS prints the captured output on failure — which is why a bare
+`✗ <name>` is all yo-self can show), and TS's capture-then-print display
+generally. `Command.output(io)` already exists in std and is used elsewhere in
+yo-self (`build_runner.yo:109`, `doc_command.yo:84`), so **no std change is
+needed** — but the switch turns streaming into buffering for every self-hosted
+test run, a visible change to three jobs' CI logs. Do it as one PR.
+
+Two further facts for that PR:
+
+- `std/process/command.yo` has **no per-command environment.** The runner already
+  works around this by mutating the PARENT env before spawning
+  (`proc_env.set("YO_TEST_INDEX", …)`, main.yo:1406 — deliberately std/env's
+  portable wrapper, not libc `setenv`, which Windows lacks).
+  `ASAN_OPTIONS`/`LSAN_OPTIONS` must take the same route.
+- macOS needs LSan suppressions written to a file (`leak:libobjc`,
+  `leak:libdyld`, `leak:libxpc`, `leak:libsystem_malloc`, `leak:dyld` —
+  `getMacOSLsanSuppressions`, src/compiler-utils.ts) plus
+  `LSAN_OPTIONS=suppressions=<file>`; Windows+clang needs the ASan runtime DLL
+  directory prepended to PATH (`findClangAsanDllPath`).
+
+**Unmeasured risk to settle before defaulting to `address` (TS's default):** the
+three self-hosted jobs currently compile and run tests with NO sanitizer and
+already take 20-35 min each. Measure one file's wall-clock with and without
+before choosing between "TS-faithful default" and "default on, arms opt out with
+`--disable-sanitize` except one dedicated leg" — which is already the shape
+test.yml uses for TSan.
+
+## Release-process traps found while cutting v0.2.2 (2026-08-11)
+
+Both cost a CI cycle and neither is discoverable from the code:
+
+- **`SEED_VERSION` can only name a PUBLISHED release.** Releases are created as
+  drafts and flipped public by `publish-release` only after every required
+  bundle leg uploads (the atomicity that keeps `latest` from pointing at a
+  bundle-less release) — and **a draft release's assets 404 on the public
+  download URL.** Pinning the seed to a still-draft v0.2.2 failed all four
+  seed-driven jobs at the download. Measured: v0.2.2's asset URL returned 404
+  while draft and 200 once published; v0.2.1's returned 200 throughout. The pin
+  and `install-seed`'s error message now both say so.
+- **A seed-built stage-1 inherits the PREVIOUS RELEASE's `std`** unless the build
+  passes `--std-path`. The seed self-locates the `std/` bundled beside its own
+  `bin/`, so `yo compile yo-self/main.yo` under a seed on PATH produces "current
+  `yo-self/` sources + the previous release's std" — a hybrid that never ships,
+  which hides std regressions from every seed-driven job and can manufacture
+  failures. Measured at the binary level 2026-08-11, using the already-fixed
+  cross-allocator free as a tracer (it prints two `mi_free: invalid pointer`
+  lines per compile):
+
+  | binary | invalid frees | std it embeds |
+  | --- | --- | --- |
+  | stage-1 built by the v0.2.2 seed, no `--std-path` | 2 | the seed's |
+  | stage-1 built by TS from the fixed tree | 0 | the checkout's |
+  | the v0.2.2 release binary itself | 2 | as shipped |
+
+  All four stage-1 builds in test.yml now pass `--std-path ./std`. Note the flag
+  also short-circuits resolution BEFORE `current_exe()` is called, so a probe
+  that passes `--std-path` cannot observe this — the first attempt at the
+  measurement was vacuous for exactly that reason.
+- **A native self-build needs swap on a 16 GB runner.** Converting stage-1 from
+  TS to the seed raised peak memory from `node --max-old-space-size=4096`'s cap
+  to a native self-emit's ~9-11.5 GB. The tier-1 gates job died with "The hosted
+  runner lost communication with the server" (GitHub stored **no log at all**
+  for it, and its step still read `in_progress` — that combination IS the
+  starvation signature, not a gate failure), while the other two converted jobs
+  survived the same profile by luck. Every job that builds a stage-1 natively
+  needs the 32 GB `/mnt` swap step the fixpoint job already had.
+- **A codegen fix takes TWO GENERATIONS to reach a seed-built binary.** Measured
+  2026-08-12 with the awaited-RC-result dup fix
+  (`issues/fixed/self-built-compiler-uaf-in-report-and-build-paths.md`). A stage-1
+  built by the OLD seed from FIXED sources is a hybrid: what it **emits** is
+  correct (0 shallow-copy warnings in its output, because its codegen logic comes
+  from the fixed sources), but what it **is** still carries the defect (it still
+  corrupted the free list), because the old seed compiled it. So:
+
+  | binary | emits correctly? | is correct? |
+  | --- | --- | --- |
+  | old seed | no | yes (it was TS-built) |
+  | stage-1 built BY the old seed from fixed sources | **yes** | **no** — the 27-case corpus scores PASS 15 / DIFF 3 / SELF-FAIL 5 / BOTH-FAIL 4, IDENTICAL to pre-fix |
+  | stage-1 built by TS from fixed sources | yes | yes |
+  | stage-1 built by a seed cut AFTER the fix | yes | yes |
+
+  Consequence for every codegen fix from here on: **land the fix, cut a release,
+  THEN bump `SEED_VERSION`** — a seed-driven CI arm cannot go green on the fix
+  until the seed itself was built from the fixed compiler. This is exactly why
+  #100's fix needed v0.2.2 before 2.3 could be attempted, and it will be the
+  standing cost of every codegen fix once `src/` is gone and the chain has no TS
+  shortcut. Budget one release per codegen fix that affects the compiler's own
+  compilation.
+- **A conflicted PR gets NO `pull_request` run, silently.** When a PR's merge
+  commit cannot be computed, GitHub creates no run at all: no annotation, no
+  failed check, nothing in `gh run list`, `total_count: 0` for the head SHA. Two
+  pushes vanished this way before `gh pr view --json mergeable` showed
+  `CONFLICTING`. And after resolving it, one MORE push was needed — the
+  synchronize event fired while the stale conflicted merge ref was still cached.
+  When a push produces no run, check mergeability first.
+
 ## P2-exit risk register: open bugs whose SEVERITY changes at deletion
 
 Distinct from the accepted losses (capability that goes away deliberately).
