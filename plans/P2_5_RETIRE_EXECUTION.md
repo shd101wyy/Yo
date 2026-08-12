@@ -46,20 +46,20 @@ Docs: the retirement debt is **not** `bun run build` (6 lines in live docs). It 
 
 #### What the audit corrected in the umbrella doc (applied there 2026-08-11)
 
-| P2_RETIRE_SRC.md line | claim as written                                                          | ground truth                                                                                                                                                                                                                                                  |
-| --------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| :161                  | `tests/internal/` has 59 files                                            | correct. AGENTS.md:57, :134, :147, `.github/instructions/testing.instructions.md:45`, :50, `yo-self/README.md:44` and test.yml:380, :459, :510 all still say 58 — those are stale, not this line                                                              |
-| :163                  | "`tests/cli-cases/` has 10 differential cases"                            | **27** case directories (`ls -d tests/cli-cases/*/ \| wc -l` = 27). `tests/cli-cases/pending/` does not exist and `tests/cli-cases/README.md:39-41` says it should not                                                                                        |
-| :168                  | `computeDependencyHash` = "dependency cache integrity"                    | mislabel. It is a shared-build cache KEY (`src/build-runner.ts:1032-1035` "same dependency identity → same hash → shared build"). Integrity is `computeContentHash` (`src/fetch.ts:149`) and IS ported (`yo-self/fetch.yo:235`, :366, :382, :410, :815, :858) |
-| :172-173              | unsafe-report / public-safe-report "not in yo-self"                       | stale — superseded by this doc's own CLOSED note at :192. Both are ported and dispatched (`yo-self/main.yo:37-38`, run at :1820) with strict-stdout cli-cases                                                                                                 |
-| :185                  | "render-html deferred with the html port"                                 | stale — `tests/cli-cases/doc-html` exists and html is the DEFAULT format (`yo-self/doc_command.yo:450`, :468)                                                                                                                                                 |
-| :289 (`test` row)     | "The native-probe step switches its builder: seed `yo build`"             | PLANNED, NOT DONE — PR #98 does not touch the `test` job (`origin/p2/ci-migration:.github/workflows/test.yml:122` still `node --expose-gc … ./out/cjs/yo-cli.cjs compile yo-self/main.yo`). Mechanism is `yo compile`, not `yo build`                         |
-| :295                  | "vscode-extension packaging keeps bun forever (by design)"                | true of its own bundler only. Its language server IS a `src/` artifact: `vscode-extension/build.js:24` copies `../out/cjs/yo-lsp.cjs`, produced by root `build.js:76-78` from `src/lsp/server.ts`, and `build.js:27-32` only `console.warn`s when missing     |
-| :316                  | "wasm legs → drive with the seed binary (`--target wasm32-*` works)"      | FALSE three times over: `yo test` discards `--target`/`--c-compiler` (main.yo:1233); `rg emcc yo-self/` = 0 hits; and there is no `runtime_io_wasm.yo` at all — the dispatcher panics (`yo-self/codegen/async/runtime.yo:41`)                                 |
-| :317                  | "TSan leg → seed binary compiles the sync tests; no TS involvement"       | FALSE. The leg's whole mechanism is `YO_TEST_SANITIZE: thread` (test.yml:595) read by `src/test-runner.ts:558`; `rg YO_TEST_SANITIZE yo-self/` = 0 hits and the batch compile passes no sanitizer                                                             |
-| :318                  | shims run `node out/cjs/yo-cli.cjs`                                       | they run `bun run src/yo-cli.ts` (`yo-cli:30`, `yo-cli.ps1:32`) and hard-fail without bun (`yo-cli:19-21`). They die with `src/` directly, not with `out/`                                                                                                    |
-| :319                  | root cleanup = `package.json`/`bun.lock`/`build.js`/`out/`/`node_modules` | undercounts: 10 tracked root files + `.husky/pre-commit`; `out/` and `node_modules` are gitignored. Also omits `shell.nix:16-17` (`bun`, `nodejs_24`), which `README.md:296` points contributors at                                                           |
-| :320                  | build-site.ts "runs under bun … release workflow only"                    | also runs on every PR (test.yml:66) with output nothing in that job consumes, and it imports the **npm** `markdown_yo` (`scripts/build-site.ts:21`, `package.json:51`) resolved from root `node_modules`                                                      |
+| P2_RETIRE_SRC.md line | claim as written                                                                                                                                              | ground truth                                                                                                                                                                                                                                                  |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| :161                  | `tests/internal/` has 59 files                                                                                                                                | correct. AGENTS.md:57, :134, :147, `.github/instructions/testing.instructions.md:45`, :50, `yo-self/README.md:44` and test.yml:380, :459, :510 all still say 58 — those are stale, not this line                                                              |
+| :163                  | "`tests/cli-cases/` has 10 differential cases"                                                                                                                | **27** case directories (`ls -d tests/cli-cases/*/ \| wc -l` = 27). `tests/cli-cases/pending/` does not exist and `tests/cli-cases/README.md:39-41` says it should not                                                                                        |
+| :168                  | `computeDependencyHash` = "dependency cache integrity"                                                                                                        | mislabel. It is a shared-build cache KEY (`src/build-runner.ts:1032-1035` "same dependency identity → same hash → shared build"). Integrity is `computeContentHash` (`src/fetch.ts:149`) and IS ported (`yo-self/fetch.yo:235`, :366, :382, :410, :815, :858) |
+| :172-173              | unsafe-report / public-safe-report "not in yo-self"                                                                                                           | stale — superseded by this doc's own CLOSED note at :192. Both are ported and dispatched (`yo-self/main.yo:37-38`, run at :1820) with strict-stdout cli-cases                                                                                                 |
+| :185                  | "render-html deferred with the html port"                                                                                                                     | stale — `tests/cli-cases/doc-html` exists and html is the DEFAULT format (`yo-self/doc_command.yo:450`, :468)                                                                                                                                                 |
+| :289 (`test` row)     | "The native-probe step switches its builder: seed `yo build`"                                                                                                 | PLANNED, NOT DONE — PR #98 does not touch the `test` job (`origin/p2/ci-migration:.github/workflows/test.yml:122` still `node --expose-gc … ./out/cjs/yo-cli.cjs compile yo-self/main.yo`). Mechanism is `yo compile`, not `yo build`                         |
+| :295                  | "vscode-extension packaging keeps bun forever (by design)" — **no longer true as of 2026-08-12**: the extension is on Node/npm, so no bun survives retirement | true of its own bundler only. Its language server IS a `src/` artifact: `vscode-extension/build.js:24` copies `../out/cjs/yo-lsp.cjs`, produced by root `build.js:76-78` from `src/lsp/server.ts`, and `build.js:27-32` only `console.warn`s when missing     |
+| :316                  | "wasm legs → drive with the seed binary (`--target wasm32-*` works)"                                                                                          | FALSE three times over: `yo test` discards `--target`/`--c-compiler` (main.yo:1233); `rg emcc yo-self/` = 0 hits; and there is no `runtime_io_wasm.yo` at all — the dispatcher panics (`yo-self/codegen/async/runtime.yo:41`)                                 |
+| :317                  | "TSan leg → seed binary compiles the sync tests; no TS involvement"                                                                                           | FALSE. The leg's whole mechanism is `YO_TEST_SANITIZE: thread` (test.yml:595) read by `src/test-runner.ts:558`; `rg YO_TEST_SANITIZE yo-self/` = 0 hits and the batch compile passes no sanitizer                                                             |
+| :318                  | shims run `node out/cjs/yo-cli.cjs`                                                                                                                           | they run `bun run src/yo-cli.ts` (`yo-cli:30`, `yo-cli.ps1:32`) and hard-fail without bun (`yo-cli:19-21`). They die with `src/` directly, not with `out/`                                                                                                    |
+| :319                  | root cleanup = `package.json`/`bun.lock`/`build.js`/`out/`/`node_modules`                                                                                     | undercounts: 10 tracked root files + `.husky/pre-commit`; `out/` and `node_modules` are gitignored. Also omits `shell.nix:16-17` (`bun`, `nodejs_24`), which `README.md:296` points contributors at                                                           |
+| :320                  | build-site.ts "runs under bun … release workflow only"                                                                                                        | also runs on every PR (test.yml:66) with output nothing in that job consumes, and it imports the **npm** `markdown_yo` (`scripts/build-site.ts:21`, `package.json:51`) resolved from root `node_modules`                                                      |
 
 The §2.5 inventory table additionally has **no row** for: the 5-platform `test ./tests` ground truth (test.yml:130-132); the three TS-dependent gates (`gates_fast.sh` GATE 2/6/7); all of `release.yml` (the `npm version` bump on root `package.json` at :75-90/:107, and `seed-bundles` still building the bundle with the TS compiler at :276-287); CLI surface that exists only in `src/yo-cli.ts` (`version` + `.yo-version` re-dispatch, `skills`, `lsp`, `--help`, `--version`); `src/lsp/` and the extension; the other 17 `scripts/` JS files; and the root dotfiles.
 
@@ -397,16 +397,17 @@ Both cost a CI cycle and neither is discoverable from the code:
   cross-allocator free as a tracer (it prints two `mi_free: invalid pointer`
   lines per compile):
 
-  | binary | invalid frees | std it embeds |
-  | --- | --- | --- |
-  | stage-1 built by the v0.2.2 seed, no `--std-path` | 2 | the seed's |
-  | stage-1 built by TS from the fixed tree | 0 | the checkout's |
-  | the v0.2.2 release binary itself | 2 | as shipped |
+  | binary                                            | invalid frees | std it embeds  |
+  | ------------------------------------------------- | ------------- | -------------- |
+  | stage-1 built by the v0.2.2 seed, no `--std-path` | 2             | the seed's     |
+  | stage-1 built by TS from the fixed tree           | 0             | the checkout's |
+  | the v0.2.2 release binary itself                  | 2             | as shipped     |
 
   All four stage-1 builds in test.yml now pass `--std-path ./std`. Note the flag
   also short-circuits resolution BEFORE `current_exe()` is called, so a probe
   that passes `--std-path` cannot observe this — the first attempt at the
   measurement was vacuous for exactly that reason.
+
 - **A native self-build needs swap on a 16 GB runner.** Converting stage-1 from
   TS to the seed raised peak memory from `node --max-old-space-size=4096`'s cap
   to a native self-emit's ~9-11.5 GB. The tier-1 gates job died with "The hosted
@@ -423,12 +424,12 @@ Both cost a CI cycle and neither is discoverable from the code:
   from the fixed sources), but what it **is** still carries the defect (it still
   corrupted the free list), because the old seed compiled it. So:
 
-  | binary | emits correctly? | is correct? |
-  | --- | --- | --- |
-  | old seed | no | yes (it was TS-built) |
-  | stage-1 built BY the old seed from fixed sources | **yes** | **no** — the 27-case corpus scores PASS 15 / DIFF 3 / SELF-FAIL 5 / BOTH-FAIL 4, IDENTICAL to pre-fix |
-  | stage-1 built by TS from fixed sources | yes | yes |
-  | stage-1 built by a seed cut AFTER the fix | yes | yes |
+  | binary                                           | emits correctly? | is correct?                                                                                           |
+  | ------------------------------------------------ | ---------------- | ----------------------------------------------------------------------------------------------------- |
+  | old seed                                         | no               | yes (it was TS-built)                                                                                 |
+  | stage-1 built BY the old seed from fixed sources | **yes**          | **no** — the 27-case corpus scores PASS 15 / DIFF 3 / SELF-FAIL 5 / BOTH-FAIL 4, IDENTICAL to pre-fix |
+  | stage-1 built by TS from fixed sources           | yes              | yes                                                                                                   |
+  | stage-1 built by a seed cut AFTER the fix        | yes              | yes                                                                                                   |
 
   Consequence for every codegen fix from here on: **land the fix, cut a release,
   THEN bump `SEED_VERSION`** — a seed-driven CI arm cannot go green on the fix
@@ -437,6 +438,7 @@ Both cost a CI cycle and neither is discoverable from the code:
   standing cost of every codegen fix once `src/` is gone and the chain has no TS
   shortcut. Budget one release per codegen fix that affects the compiler's own
   compilation.
+
 - **A conflicted PR gets NO `pull_request` run, silently.** When a PR's merge
   commit cannot be computed, GitHub creates no run at all: no annotation, no
   failed check, nothing in `gh run list`, `total_count: 0` for the head SHA. Two

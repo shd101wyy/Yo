@@ -118,7 +118,7 @@ jobs:
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          git add package.json vscode-extension/package.json yo-self/version.yo
+          git add package.json vscode-extension/package.json vscode-extension/package-lock.json yo-self/version.yo
           git commit -m "chore: bump version to ${{ steps.version.outputs.version }}"
           # A personal repo's ruleset CANNOT grant the Actions integration a
           # bypass (HTTP 422 "must be part of the ruleset source or owner
@@ -149,10 +149,8 @@ jobs:
       - name: Build and package VS Code extension
         run: |
           cd vscode-extension
-          bun install
-          npm install -g @vscode/vsce
-          bun run build
-          bun package
+          npm ci
+          npm run package
 
       - name: Publish extension to Visual Studio Marketplace
         id: create_vsix

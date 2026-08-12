@@ -61,16 +61,18 @@ jobs:
       - name: Install dependencies
         run: |
           bun install
-          npm install -g @vscode/vsce
           bun run build
           bun run scripts/build-site.ts --output yo-out/site
 
+      # The extension is a VS Code client, so it lives in the Node/npm ecosystem
+      # its own tooling (vsce, vscode-languageclient, @types/vscode) is built
+      # for. Keeping it on npm means bun is needed NOWHERE once src/ retires,
+      # rather than surviving for this one job.
       - name: Bundle vscode extension
         run: |
           cd vscode-extension
-          bun install
-          bun run build
-          bun package
+          npm ci
+          npm run package
 
       - name: Publish extension to Visual Studio Marketplace
         id: create_vsix
