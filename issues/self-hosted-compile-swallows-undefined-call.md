@@ -448,7 +448,7 @@ statement of a test short-circuits it before the real assertions, so it proves t
 test runs but proves NOTHING about a later assert. Place the probe after the
 assertions you want to reason about, or read the unprobed result.)
 
-### FIXED 2026-08-12: a typo in a struct METHOD (was the last silent shape)
+### REVERTED 2026-08-12: the method/helper gate broke the BOOTSTRAP (see below)
 
 ```
 Point :: struct(x : i32);
@@ -518,3 +518,60 @@ All five typo shapes now match the TS reference:
 Gate: corpus sweep 188 GREEN / SWEEP_GATE_OK, empty allowlist; algebraic_effects 74,
 impl 6, closure_param_forwarding 3, fn 24, basic 33, type_reflection 35;
 check ./yo-self 247/247.
+
+## 2026-08-12 — the liveness gate is REVERTED: it broke the compiler's self-compile
+
+`38cd3ff83` (gate any LIVE function) and `784c1f15e` (count method dispatch) are
+both reverted. The gate is back to `__yo_user_main` only, which IS fixpoint-verified.
+
+They worked on the corpus and failed on the compiler:
+
+| binary           | gate              | stage-2 self-emit |
+| ---------------- | ----------------- | ----------------- |
+| entry-point gate | `__yo_user_main`  | **rc=0**          |
+| `38cd3ff83`      | any live function | **rc=1**          |
+| `784c1f15e`      | + method dispatch | rc=1 (same fn)    |
+
+```
+yo-self: error: Failed to transpile part of "yo_id_1174838" — its emitted C
+         contains an untranspiled expression, so the function would run without it
+```
+
+So a marker lands in a function of the COMPILER'S OWN code that the gate judges
+live, and the compile of the compiler dies. The compiler demonstrably works
+(188 GREEN, fixpoint holds with the narrower gate), so the marker is on code whose
+loss does not change behaviour — i.e. the liveness signal over-reports here. Which
+function `yo_id_1174838` is, and why it is judged live, is the open question; note
+its marker does NOT survive into the final C (all three marker families count 0 in
+a successful stage-2 emit), so the stub rewrite or a later pass removes it — the
+gate fires BEFORE that happens.
+
+### The verification rule this establishes
+
+The corpus sweep compiles TEST PROGRAMS. **It never compiles the compiler.** The
+liveness gate was validated with a 188-GREEN sweep and shipped anyway broken. Three
+harnesses are needed, and they cover disjoint ground:
+
+| harness                                | covers                        | misses                  |
+| -------------------------------------- | ----------------------------- | ----------------------- |
+| `hollow_sweep69.sh`                    | the 188-file language corpus  | the compiler itself; TS |
+| stage-2 self-emit / `fixpoint_only.sh` | the compiler compiling itself | the corpus; TS          |
+| TS suite, native AND wasm              | the reference compiler        | anything self-hosted    |
+
+Any codegen-gate change needs ALL THREE before it is pushed. This session lost a
+cycle to each of the three gaps in turn: `check` instead of the sweep (the reverted
+slice 1), the sweep without the TS suite (the wasm failure), and the sweep without
+the self-emit (this one).
+
+### What is still gated, and what is not
+
+Gated (fatal): a marker surviving in `__yo_user_main`, plus the 220 `// Error:`
+arity/invariant sites in both compilers, plus TS's untranspilable-expression throw.
+So a typo in `main` cannot produce a silent no-op binary.
+
+NOT gated: a typo in a helper, a method, a generic, or a closure — all still
+compile clean self-hosted where TS exits 1. The design for closing it is recorded
+above (method dispatch via `record_method_callee_value` with a SEPARATE
+`g_fid_dispatched` counter, and the two traps to avoid); what it additionally needs
+is to not fire on the compiler's own build, which means understanding
+`yo_id_1174838` first.

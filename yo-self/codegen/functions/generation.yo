@@ -25,7 +25,7 @@ open(import("std/string"));
 { Environment } :: import("../../env.yo");
 { EvalValue } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ has_any_control_flow, get_module_level_init_exprs, fid_fully_specialized, fid_has_runtime_calls, expr_info_consumed_variable_drop_expressions, is_module_level_global, module_global_c_suffix } :: import("../../expr_info.yo");
+{ has_any_control_flow, get_module_level_init_exprs, fid_fully_specialized, expr_info_consumed_variable_drop_expressions, is_module_level_global, module_global_c_suffix } :: import("../../expr_info.yo");
 { is_unit_type } :: import("../../types/guards.yo");
 { is_temp_variable_name } :: import("../../utils.yo");
 { is_target_posix, is_target_linux } :: import("../../target.yo");
@@ -607,49 +607,23 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
           });
         });
       };
-      // LIVE-CODE GATE. A `// Failed to transpile` marker is a C COMMENT, so the C
-      // compiler skips it and the emitted function silently LOSES that statement:
-      // it links, runs, and does the wrong thing. That is how a typo'd call became
-      // a runnable no-op binary
-      // (issues/self-hosted-compile-swallows-undefined-call.md).
+      // ENTRY-POINT GATE. A `// Failed to transpile` marker in the program's own
+      // `main` is the one case where the marker is unambiguously HARMFUL: the C
+      // compiler skips the comment, so `main` loses that statement, links, runs
+      // and does nothing. That is precisely how a typo'd call compiled to a
+      // runnable no-op binary (issues/self-hosted-compile-swallows-undefined-call.md)
+      // with no diagnostic from anywhere — and it is the same condition the
+      // hollow-sweep detector calls HOLLOW (a batch `__yo_user_main` that is a
+      // marker reports every test as passed while running no assertions).
       //
-      // Fatal in every function EXCEPT a dead superseded generic original, which
-      // the stub rewrite immediately below replaces wholesale (so its marker never
-      // reaches the output). That exception is load-bearing and measured:
-      // tests/fn.test.yo and tests/algebraic_effects.test.yo both carry markers on
-      // exactly that dead code, and gating them fails both files.
-      //
-      // Gating ONLY `__yo_user_main` was the first version of this and it was too
-      // narrow: a typo inside a HELPER function still compiled clean, dropping
-      // both the bad call AND the function's return value, so the helper returned
-      // garbage. Most code is not in `main`, so that left the bug essentially
-      // intact one frame deeper.
-      // Gate on LIVENESS. A marker only matters in a function that actually runs:
-      // there it silently deletes a statement from live code. In DEAD code it is
-      // benign, and it is also load-bearing — yo-self drops emissions TS never
-      // drops, the degrade guards keep those bodies syntactically valid, and the
-      // stub rewrite below replaces superseded generic originals wholesale.
-      //
-      // Measured over the whole 188-file corpus: exactly 16 FTT markers exist, in
-      // 3 files (tests/algebraic_effects 12, tests/impl 3,
-      // tests/closure_param_forwarding 1), all in dead bodies. Gating them fails
-      // those files for no benefit. (tests/type_reflection's 24 markers are
-      // `// Unknown type:`, a different and legitimate mechanism.)
-      //
-      // `fid_has_runtime_calls` is conservative in the SAFE direction: a live
-      // function it misses is simply not gated (status quo), while over-reporting
-      // liveness would reject a valid program — the failure mode that already cost
-      // one reverted commit. `__yo_user_main` is counted by nobody (the main
-      // wrapper calls it directly, not via the dispatch path), so it is named
-      // explicitly.
-      //
-      // Gating only `__yo_user_main` was the previous version and it was too
-      // narrow: a typo in a HELPER still compiled clean, dropping both the bad
-      // call and the function's return value so the helper returned garbage.
-      is_live_here := ((c_function_name == "__yo_user_main") || (fid_has_runtime_calls(func_id.clone()) && !(fid_fully_specialized(func_id.clone()))));
-      if(stub_found_ftt && is_live_here, {
+      // Markers elsewhere are NOT gated here: the degrade guards keep the C
+      // valid, and the stub rewrite just below deletes the ones that land on
+      // dead superseded originals. Gating those too was tried and reverted — it
+      // failed tests/fn.test.yo and tests/algebraic_effects.test.yo, whose
+      // markers are exactly that dead code.
+      if(stub_found_ftt && (c_function_name == "__yo_user_main"), {
         codegen_fatal(
-          `Failed to transpile part of "${c_function_name}" — its emitted C contains an untranspiled expression, so the function would run without it`
+          `Failed to transpile part of main's body — the emitted C for "${c_function_name}" contains an untranspiled expression, so the program would run without it`
         );
       });
       if(stub_found_ftt && fid_fully_specialized(func_id.clone()), {

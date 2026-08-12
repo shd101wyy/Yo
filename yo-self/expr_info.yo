@@ -825,42 +825,8 @@ lookup_io_builtin_call :: (fn(call_id : ExprId) -> Option(String))(
 // `<specialized_c_name>(args)`.
 (g_method_callee_values : HashMap(ExprId, EvalValue)) = HashMap(ExprId, EvalValue).new();
 /// Record the resolved/specialized method FuncVal for a method-call expr id.
-/// Method-dispatch liveness, kept STRICTLY SEPARATE from the supersession counters
-/// below — see the note in `record_method_callee_value` for why mixing them breaks
-/// the `abort()`-stub rewrite. Defined HERE, above its caller: Yo has no forward
-/// references.
-(g_fid_dispatched : HashMap(String, usize)) = HashMap(String, usize).new();
-/// Count a method dispatch to `fid` (codegen will emit a call to it).
-record_fid_dispatch :: (fn(fid : String) -> unit)({
-  n := match(g_fid_dispatched.get(fid.clone()), .Some(v) => v, .None => usize(0));
-  g_fid_dispatched.set(fid, n + usize(1));
-  ()
-});
 record_method_callee_value :: (fn(call_id : ExprId, v : EvalValue) -> unit)({
   g_method_callee_values.set(call_id, v);
-  // Recording a method callee means codegen WILL dispatch this call to `v`, so
-  // this is the exact point at which the callee becomes live. Method dispatch
-  // never reaches the `record_fid_rtcall` site in `_evaluate_funcval_runtime_call`
-  // (evaluator/calls/function.yo), so without this a live method body carrying a
-  // `// Failed to transpile` marker was exempted by the gate and its statement
-  // silently vanished — a typo in `impl(Point, get : ...)` compiled clean and the
-  // method returned garbage
-  // (issues/self-hosted-compile-swallows-undefined-call.md).
-  //
-  // Deliberately a SEPARATE counter from `g_fid_rtcalls`. That map feeds
-  // `fid_fully_specialized`, which drives `should_skip_function_codegen` AND the
-  // `abort()`-stub rewrite: an extra `calls` increment there can flip a superseded
-  // generic original from dead to live, un-stubbing a body whose C is genuinely
-  // un-emittable, which turns the corpus's dead-body markers fatal
-  // (tests/algebraic_effects, tests/impl, tests/closure_param_forwarding). Keeping
-  // the supersession arithmetic byte-identical means the only behavioural delta is
-  // the liveness gate itself.
-  //
-  // Recorded HERE rather than in `try_to_call_function_with_arguments` because that
-  // helper is also driven by `_trial_call_overload_candidate` as a PROBE; recording
-  // there would mark merely-CONSIDERED overloads live, and over-reporting liveness
-  // rejects valid programs.
-  match(v, .FuncVal(__mcv_fd, _) => record_fid_dispatch(__mcv_fd.*.func_id), _ => ());
   ()
 });
 /// Look up the resolved/specialized method FuncVal for a method-call expr id.
@@ -1363,27 +1329,6 @@ fid_fully_specialized :: (fn(fid : String) -> bool)({
   calls := match(g_fid_rtcalls.get(fid.clone()), .Some(v) => v, .None => usize(0));
   (specs > usize(0)) && (specs >= calls)
 });
-/// True iff at least one runtime call was ever dispatched to `fid` — i.e. the
-/// function is LIVE. Zero means no call site reached it, so its emitted body is
-/// dead code.
-///
-/// Used by the marker gate in `codegen/functions/generation.yo` to decide whether
-/// an untranspiled expression in a function body is harmful. In dead code it is
-/// not: yo-self drops emissions TS never drops, and the degrade guards keep the C
-/// valid for exactly those bodies (measured: the whole 188-file corpus carries 16
-/// such markers, all in 3 files — tests/algebraic_effects, tests/impl,
-/// tests/closure_param_forwarding). In LIVE code the same marker silently deletes
-/// a statement from a function that actually runs, which is the def-eval-swallow
-/// bug (issues/self-hosted-compile-swallows-undefined-call.md).
-///
-/// Deliberately conservative in the SAFE direction: a live function this counter
-/// missed is merely not gated (the status quo), whereas over-reporting liveness
-/// would reject a valid program. `__yo_user_main` is counted by NOBODY — the main
-/// wrapper calls it directly, not through the dispatch path — so the gate names it
-/// explicitly rather than relying on this.
-fid_has_runtime_calls :: (fn(fid : String) -> bool)(
-  match(g_fid_rtcalls.get(fid.clone()), .Some(v) => (v > usize(0)), .None => false) || match(g_fid_dispatched.get(fid), .Some(d) => (d > usize(0)), .None => false)
-);
 // Macro-expansion side-table: a macro CALL's expanded form (e.g. `if(c, t, e)` →
 // its `cond(...)`), keyed by the call's expr id. yo-self codegen lowers a macro
 // call ONLY via `ExprInfo.macro_expansion` (generation.yo) — but that per-pass
@@ -1497,6 +1442,6 @@ export(
   struct_fully_concrete_instance,
   adopt_receiver_struct_instance
 );
-export(record_fid_rtcall, record_fid_spec, record_fid_dispatch, fid_fully_specialized, fid_has_runtime_calls);
+export(record_fid_rtcall, record_fid_spec, fid_fully_specialized);
 export(record_macro_expansion, lookup_macro_expansion);
 export(record_module_level_init_expr, get_module_level_init_exprs);
