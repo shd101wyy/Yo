@@ -1,0 +1,35 @@
+//! Reproducer for the pre-spawn stdout flush in `std/process/command.yo`.
+//!
+//!   <bin> compile issues/repros/spawn-stdout-flush-order.yo --release -o /tmp/ord
+//!   /tmp/ord | cat        # PIPED — this is the condition that matters
+//!
+//! Correct (causal) order:      PARENT-BEFORE, CHILD, PARENT-AFTER
+//! Without the flush, piped:    CHILD, PARENT-BEFORE, PARENT-AFTER
+//!
+//! `print`/`println` go through C `fwrite(..., stdout)` (std/fmt/index.yo), which
+//! is BLOCK-buffered when stdout is a pipe, while the child inherits the raw fd
+//! and writes straight through. So the parent's earlier line surfaced after the
+//! child's. Unpiped (tty) the bug is invisible — stdout is line-buffered there,
+//! which is why it only ever showed up in CI.
+//!
+//! Real-world impact: `yo build run | tee log` printed "Building probe →" AFTER
+//! the built program's own output. Surfaced by PR #98's GATE 7 as four `rc=0;
+//! stdout` DIFFs (build-run, doc-html, doc-json, doc-markdown) whose line SETS
+//! were identical and only the interleaving differed.
+//!
+//! To re-verify the negative control, comment out the `fflush` in
+//! `std/process/command.yo` and recompile — no compiler rebuild is needed, since
+//! `std` is compiled into each program.
+open(import("std/string"));
+open(import("std/fmt"));
+{ Command } :: import("std/process/command");
+{ Exception } :: import("std/error");
+
+main :: (fn(io : Io, exn : Exception) -> unit)({
+  println(`PARENT-BEFORE`);
+  cmd := Command.new(`/bin/echo`);
+  cmd.arg(`CHILD`);
+  io.await(cmd.status(io), { io, exn });
+  println(`PARENT-AFTER`);
+});
+export(main);
