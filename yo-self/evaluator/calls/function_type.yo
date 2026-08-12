@@ -549,12 +549,29 @@ _build_def_time_body_env :: (
         });
         fp_hit
       };
-      if((fa_name.len() > usize(0)) && (is_type_0(fa_ty) && !(is_param_too)), {
+      if((fa_name.len() > usize(0)) && !(is_param_too), {
+        fa_val := if(
+          is_type_0(fa_ty.clone()),
+          _type_binder_env_value(fa_name.clone(), sig_some_ts, where_entries, pf_level),
+          // A VALUE binder (`generic(N : usize)` on `from_array`, whose body does
+          // `Self.with_capacity(N)` and `while(i < N, ...)`): bind an unknown
+          // VALUE of the DECLARED type — TS's
+          // `createUnknownValue(declaredType)` (helper.ts:1038-1067). Kind
+          // matters: a TypeVal here is exactly the `usize`-vs-`Type` misbind
+          // recorded in issues/yo-self-collections-batch-residuals.md, whereas
+          // leaving it unbound throws `Variable "N" not found`.
+          //
+          // Safe for the dup accounting that forbids UnknownVal on RUNTIME
+          // params (see the `pv` comment below): a forall binder is
+          // compile-time by construction, never a runtime parameter, so no body
+          // read of it can reach set_expr_as_needs_to_call_dup's value branch.
+          Option(EvalValue).Some(create_unknown_val(fa_ty.clone()))
+        );
         add_variable_to_env(
           fresh_env,
           fa_name.clone(),
           fa_ty,
-          _type_binder_env_value(fa_name.clone(), sig_some_ts, where_entries, pf_level),
+          fa_val,
           true,
           false,
           false,
