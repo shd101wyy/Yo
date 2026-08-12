@@ -240,8 +240,10 @@ the TS compiler). Release-day findings, all handled in the workflow:
 
 - **A personal repo's ruleset cannot grant the Actions integration a
   bypass** (HTTP 422), so the version-bump push to a protected develop
-  always fails → the workflow now falls back to opening a
+  always fails → the workflow fell back to opening a
   `release/version-bump-<v>` PR (maintainer's merge uses the admin bypass).
+  **Superseded 2026-08-12** — the bump no longer happens during the release
+  at all; see "release mechanics: bump-first" below.
 - **Releases are now atomic**: created as a DRAFT, published by a final job
   only when the required bundle legs succeed — `latest` can never point at
   a release missing its binaries.
@@ -274,8 +276,8 @@ mimalloc`), smoke-tests it from OUTSIDE the checkout
 * The Windows leg is `experimental: true` (first native-Windows build of the
   self-hosted compiler) — a red Windows build does not block the seed.
 * Linux bundle is glibc + liburing dynamic; static musl is Phase 3, not 2.1.
-* Minting the seed = the maintainer running the Release workflow_dispatch as
-  usual; nothing else changed in the release flow.
+* Minting the seed = the maintainer running **Prepare release** and then
+  **Release** (two dispatches since 2026-08-12 — see below).
 * 2.3 consumes it: replace each CI job's bun/node setup with "download pinned
   seed tarball → extract → PATH → `yo build`". `YO_STD` is optional since the
   std-resolution rework (2026-08-10): the binary self-locates a `std/` sibling
@@ -283,6 +285,52 @@ mimalloc`), smoke-tests it from OUTSIDE the checkout
   `--std-path` flag overrides everything (order: `--std-path` → `YO_STD` →
   exe-relative walk-up → `./std`; mirrored in `module-manager.ts`
   `findStdDirectory` and `module_manager.yo` `resolve_std_path`).
+
+## Release mechanics: bump-first (2026-08-12)
+
+Cutting a release is now **two dispatches**: **Prepare release** (bump) then
+**Release** (tag + ship). The bump used to happen inside the release job,
+which produced two defects:
+
+1. **The tag named the previous version.** `action-gh-release` defaults
+   `target_commitish` to `github.sha` — the PRE-bump commit — so the `v0.2.2`
+   tag points at a tree saying `0.2.1`, and `v0.2.4`'s at `0.2.3`.
+2. **The shipped bundles came from a commit no CI run had covered.** The
+   green-gate checked SHA_A, the bump created SHA_B in-job, and
+   `seed-bundles` checked out SHA_B. Not inert: `yo-self/version.yo` is
+   _compiled into_ every bundled binary.
+
+Both are structural — nothing can have tested a commit the release itself
+creates. So the bump moved ahead of the release, and `release.yml` now only
+_reads_ the version (asserting all three sources agree and the tag does not
+already exist). Tag, bundles, `CURRENT_YO_VERSION`, and the CI-verified
+commit are one SHA by construction; `target_commitish` is pinned explicitly
+to the gated SHA rather than inherited.
+
+**What actually protects develop** (the old comment guessed wrong): there is
+no classic branch protection — `/branches/develop/protection` returns 404.
+It is a repository **ruleset** (`branch_protection`, id 13548862) on
+`~DEFAULT_BRANCH` with three rules — block deletion, block non-fast-forward,
+and **require 15 status checks (strict)**. There is **no "require a pull
+request" rule**, so what rejects the bot's push is the status-check rule: a
+brand-new commit has none of the 15. `bypass_actors` is exactly
+`RepositoryRole 5` (admin, mode `always`), which is why the maintainer's
+merges work.
+
+Consequently a **direct push to develop needs an admin identity, not a
+ruleset change**: `prepare-release.yml` checks out with
+`${{ secrets.RELEASE_PAT || secrets.GITHUB_TOKEN }}` and pushes straight to
+develop when `RELEASE_PAT` (fine-grained, this repo, Contents: read/write)
+is set, falling back to the version-bump PR when it is not. A PAT push also
+**triggers** the Test workflow, which `GITHUB_TOKEN` deliberately does not —
+and that run is what the release gates on. Scoping a ruleset to "except this
+workflow" is not possible: conditions are ref-name patterns only.
+
+> Do **not** solve this with `[skip ci]` + gate-on-parent. That combination
+> was proposed on `p2/ci-migration` and deadlocks: its exclusion list is only
+> `package.json|vscode-extension/package.json`, but the bump also commits
+> `yo-self/version.yo`, so `NON_PKG` is never 0, the parent fallback never
+> fires, and the gate lands on a `[skip ci]` commit with `CONCLUSION=none`.
 
 ## Sequencing note
 

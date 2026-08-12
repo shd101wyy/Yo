@@ -1,0 +1,150 @@
+name: Prepare release
+
+# Step 1 of 2 in cutting a release. Bumps the three version sources on
+# develop and stops. `release.yml` (step 2) does NO bumping — it tags and
+# ships develop's HEAD exactly as the Test workflow verified it.
+#
+# Why the bump cannot happen inside release.yml: `yo-self/version.yo` is
+# COMPILED INTO every shipped binary, so a bump made during the release
+# produces artifacts from a commit no test run has ever covered, and leaves
+# the tag pointing at the pre-bump tree (v0.2.2's tag names 0.2.1 and
+# v0.2.4's names 0.2.3). Landing the bump first is what makes tag ==
+# seed bundles == CURRENT_YO_VERSION == the CI-verified commit, all one SHA.
+#
+# The push goes DIRECTLY to develop when `RELEASE_PAT` is set. develop is
+# guarded by the `branch_protection` repository ruleset, whose only real gate
+# is 15 required status checks — there is no "require a pull request" rule —
+# and whose bypass list is `RepositoryRole 5` (admin, mode `always`). So an
+# admin-owned PAT pushes straight through with NO change to the ruleset,
+# while GITHUB_TOKEN (github-actions[bot], not a bypass actor, and a personal
+# repo cannot grant the Actions integration a bypass — HTTP 422) is rejected.
+# A PAT push also TRIGGERS the Test workflow, which GITHUB_TOKEN deliberately
+# does not — and that run is exactly what release.yml gates on. Without the
+# secret this falls back to a PR: the same one-click merge as before, but now
+# in the step where a PR is the expected mechanism rather than a fallback
+# that skewed the tag.
+#
+# RELEASE_PAT: a fine-grained PAT, this repository only, Contents: read and
+# write. Nothing else.
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Version bump type"
+        required: true
+        default: "patch"
+        type: choice
+        options:
+          - patch
+          - minor
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      # For the no-PAT fallback's `gh pr create`. NOTE: the repo setting
+      # "Allow GitHub Actions to create and approve pull requests"
+      # (Settings → Actions → General) must also be ON.
+      pull-requests: write
+
+    steps:
+      - name: Checkout develop
+        uses: actions/checkout@v4
+        with:
+          ref: develop
+          # RELEASE_PAT (admin ⇒ ruleset bypass) when present, else the bot
+          # token, whose push will be rejected and fall back to a PR.
+          token: ${{ secrets.RELEASE_PAT || secrets.GITHUB_TOKEN }}
+          # Full history + tags: the already-released check below needs them.
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Bump all three version sources
+        id: version
+        run: |
+          set -euo pipefail
+          npm version ${{ inputs.bump }} --no-git-tag-version
+          NEW_VERSION=$(node -p "require('./package.json').version")
+          # Bumped to the EXPLICIT version rather than by bump type, so the
+          # extension cannot silently drift out of lockstep with the root.
+          (cd vscode-extension && npm version "$NEW_VERSION" --no-git-tag-version)
+          # The self-hosted compiler carries its own copy of the version: TS
+          # derives it from package.json (src/version.ts:21) but yo-self cannot
+          # read a JSON file at build time, so `yo-self/version.yo` hardcodes
+          # it. Left to drift it went stale by a whole minor series (0.1.23
+          # while package.json said 0.2.1), which surfaces in the
+          # `.yo-version` diagnostics that quote the current version as their
+          # example — and it becomes the release's version source of truth once
+          # package.json is deleted (P2_5_RETIRE_EXECUTION.md blocker B5).
+          perl -pi -e "s/^CURRENT_YO_VERSION :: \".*\";/CURRENT_YO_VERSION :: \"$NEW_VERSION\";/" yo-self/version.yo
+          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "New version: $NEW_VERSION"
+
+      - name: Verify the three sources agree and the version is unreleased
+        run: |
+          set -euo pipefail
+          V="${{ steps.version.outputs.version }}"
+          ROOT=$(node -p "require('./package.json').version")
+          EXT=$(node -p "require('./vscode-extension/package.json').version")
+          YOSELF=$(perl -ne 'print "$1\n" if /^CURRENT_YO_VERSION :: "(.*)";/' yo-self/version.yo)
+          echo "package.json=$ROOT  vscode-extension=$EXT  yo-self/version.yo=$YOSELF"
+          if [[ "$ROOT" != "$V" || "$EXT" != "$V" || "$YOSELF" != "$V" ]]; then
+            echo "::error::Version sources disagree — expected $V in all three."
+            exit 1
+          fi
+          if git rev-parse -q --verify "refs/tags/v$V" >/dev/null; then
+            echo "::error::Tag v$V already exists — that version is released."
+            exit 1
+          fi
+
+      - name: Land the bump on develop
+        env:
+          # `gh` keeps GITHUB_TOKEN deliberately: the PR fallback needs
+          # pull-requests:write, which a Contents-only RELEASE_PAT lacks.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          V="${{ steps.version.outputs.version }}"
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add package.json vscode-extension/package.json yo-self/version.yo
+          # Deliberately NO [skip ci]: this is the commit the release tags and
+          # builds the seed bundles from, and release.yml refuses to ship a SHA
+          # whose Test run is not green. The suite run IS the point — it is
+          # what makes `yo-self/version.yo` (compiled into the binary) a vetted
+          # change rather than an untested one riding along with the release.
+          git commit -m "chore: bump version to $V"
+          if git push; then
+            echo "Bump pushed directly to develop (admin ruleset bypass via RELEASE_PAT)."
+            echo "PR_OPENED=false" >> $GITHUB_ENV
+          else
+            BRANCH="release/version-bump-$V"
+            echo "Direct push rejected — RELEASE_PAT is unset or lacks Contents: write. Opening a PR via ${BRANCH}."
+            git push -f origin "HEAD:refs/heads/${BRANCH}"
+            gh pr create --base develop --head "${BRANCH}" \
+              --title "chore: bump version to $V" \
+              --body "Version bump for v$V, from the Prepare release workflow. Merge this, wait for develop's Test run to conclude successfully, then dispatch **Release** — it tags and ships that exact commit." \
+              || echo "::error::gh pr create failed — open the PR manually from branch ${BRANCH} (v0.2.0's failed silently on a missing pull-requests:write permission)."
+            echo "PR_OPENED=true" >> $GITHUB_ENV
+          fi
+
+      - name: What to do next
+        run: |
+          V="${{ steps.version.outputs.version }}"
+          {
+            echo "### Prepared v$V"
+            echo
+            if [[ "${PR_OPENED}" == "true" ]]; then
+              echo "1. Merge the \`release/version-bump-$V\` pull request."
+              echo "2. Wait for the **Test** workflow on \`develop\` to conclude successfully."
+            else
+              echo "1. Wait for the **Test** workflow on \`develop\` to conclude successfully (the bump push started it)."
+            fi
+            echo "3. Dispatch **Release** — it does no bumping; it tags and ships that exact commit."
+          } >> $GITHUB_STEP_SUMMARY

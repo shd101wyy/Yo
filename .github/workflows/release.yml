@@ -1,16 +1,18 @@
 name: Release
 
+# Step 2 of 2 in cutting a release. Does NO version bumping: `prepare-release.yml`
+# lands the bump on develop first, so by the time this runs the tree already
+# carries the version being released AND the Test workflow has vetted that exact
+# commit. Everything downstream — the tag, the seed bundles, the
+# CURRENT_YO_VERSION compiled into them — is that one SHA.
+#
+# It used to bump in-job, which meant the tag pointed at the pre-bump tree (the
+# v0.2.2 tag names 0.2.1, v0.2.4's names 0.2.3) while the seed bundles were built
+# from an in-job commit no test run had ever covered. Landing the bump first is
+# what removes both.
+
 on:
   workflow_dispatch:
-    inputs:
-      bump:
-        description: "Version bump type"
-        required: true
-        default: "patch"
-        type: choice
-        options:
-          - patch
-          - minor
 
 jobs:
   release:
@@ -19,14 +21,9 @@ jobs:
       contents: write
       pages: write
       id-token: write
-      # For the version-bump fallback's `gh pr create` (v0.2.0's silently
-      # failed under `|| true` — the branch was pushed but no PR appeared).
-      # NOTE: the repo setting "Allow GitHub Actions to create and approve
-      # pull requests" (Settings → Actions → General) must also be ON.
-      pull-requests: write
     outputs:
       version: ${{ steps.version.outputs.version }}
-      sha: ${{ steps.bump_commit.outputs.sha }}
+      sha: ${{ steps.gate.outputs.sha }}
 
     steps:
       - name: Checkout repository
@@ -38,15 +35,22 @@ jobs:
           submodules: recursive
 
       - name: Require a green test run for this commit
-        # This workflow publishes to npm and the VS Code Marketplace — both
-        # irreversible. It used to go checkout -> build -> publish with no test
-        # dependency at all, so a red develop was publishable. Gate on the
-        # Test workflow having CONCLUDED SUCCESSFULLY for the exact SHA being
-        # released, rather than re-running the ~55 min suite inline.
+        id: gate
+        # This workflow publishes to the VS Code Marketplace and attaches the
+        # seed bundles — both irreversible. It used to go checkout -> build ->
+        # publish with no test dependency at all, so a red develop was
+        # publishable. Gate on the Test workflow having CONCLUDED SUCCESSFULLY
+        # for the exact SHA being released, rather than re-running the ~55 min
+        # suite inline.
+        #
+        # This SHA is now the release's single anchor: it is what gets tagged,
+        # what `seed-bundles` checks out, and what `publish-release` flips. No
+        # commit is created after it, so all three see the vetted tree.
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           SHA=$(git rev-parse HEAD)
+          echo "sha=$SHA" >> $GITHUB_OUTPUT
           echo "Releasing $SHA"
           CONCLUSION=$(gh api \
             "repos/${{ github.repository }}/actions/workflows/test.yml/runs?head_sha=$SHA&status=completed" \
@@ -72,33 +76,34 @@ jobs:
         run: |
           bun install
 
-      - name: Bump version in root package.json
+      - name: Read and verify the version to release
         id: version
+        # No bumping here — `prepare-release.yml` landed it on develop before
+        # this workflow was dispatched. All three sources must agree:
+        # `yo-self/version.yo` is COMPILED INTO the shipped binary and is the
+        # one that historically drifted (0.1.23 while package.json said 0.2.1),
+        # and it becomes the sole source once package.json is deleted
+        # (P2_5_RETIRE_EXECUTION.md blocker B5) — at which point this step loses
+        # two of its three reads and nothing else here changes.
         run: |
-          cd ${{ github.workspace }}
-          npm version ${{ inputs.bump }} --no-git-tag-version
-          NEW_VERSION=$(node -p "require('./package.json').version")
-          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
-          echo "New version: $NEW_VERSION"
-
-      - name: Bump version in vscode-extension package.json
-        run: |
-          cd vscode-extension
-          npm version ${{ inputs.bump }} --no-git-tag-version
-
-      # The self-hosted compiler carries its own copy of the version: TS derives
-      # it from package.json (src/version.ts:21) but yo-self cannot read a JSON
-      # file at build time, so `yo-self/version.yo` hardcodes it. Left to drift
-      # it went stale by a whole minor series (0.1.23 while package.json said
-      # 0.2.1), which surfaces in the `.yo-version` diagnostics that quote the
-      # current version as their example — and it becomes the release's version
-      # source of truth once package.json is deleted (P2.5 blocker B5).
-      - name: Bump version in yo-self/version.yo
-        run: |
-          NEW_VERSION="${{ steps.version.outputs.version }}"
-          perl -pi -e "s/^CURRENT_YO_VERSION :: \".*\";/CURRENT_YO_VERSION :: \"$NEW_VERSION\";/" yo-self/version.yo
-          grep -q "CURRENT_YO_VERSION :: \"$NEW_VERSION\";" yo-self/version.yo
-          echo "yo-self/version.yo now pins $NEW_VERSION"
+          set -euo pipefail
+          ROOT=$(node -p "require('./package.json').version")
+          EXT=$(node -p "require('./vscode-extension/package.json').version")
+          YOSELF=$(perl -ne 'print "$1\n" if /^CURRENT_YO_VERSION :: "(.*)";/' yo-self/version.yo)
+          echo "package.json=$ROOT  vscode-extension=$EXT  yo-self/version.yo=$YOSELF"
+          if [[ "$ROOT" != "$EXT" || "$ROOT" != "$YOSELF" ]]; then
+            echo "::error::Version sources disagree. Dispatch 'Prepare release' rather than bumping by hand."
+            exit 1
+          fi
+          # Refuse to re-release: without this, a dispatch on an unbumped
+          # develop would try to move an existing tag and re-publish the
+          # extension at a version already on the Marketplace.
+          if git rev-parse -q --verify "refs/tags/v$ROOT" >/dev/null; then
+            echo "::error::v$ROOT is already released (tag exists). Dispatch 'Prepare release' first to bump the version."
+            exit 1
+          fi
+          echo "version=$ROOT" >> $GITHUB_OUTPUT
+          echo "Releasing v$ROOT"
 
       - name: Build
         run: bun run build
@@ -106,39 +111,15 @@ jobs:
       - name: Get last commit message
         id: last_commit
         run: |
-          LAST_COMMIT_MSG=$(git log -1 --pretty=%B)
+          # HEAD is normally the version-bump commit `prepare-release` landed,
+          # which makes for empty release notes — report the most recent commit
+          # that is NOT a bump.
+          REF=$(git rev-list -1 --invert-grep --grep='^chore: bump version to' HEAD)
+          [ -n "$REF" ] || REF=HEAD
+          LAST_COMMIT_MSG=$(git log -1 --pretty=%B "$REF")
           echo "message<<EOF" >> $GITHUB_OUTPUT
           echo "$LAST_COMMIT_MSG" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
-
-      - name: Commit version bump
-        id: bump_commit
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
-          git add package.json vscode-extension/package.json yo-self/version.yo
-          git commit -m "chore: bump version to ${{ steps.version.outputs.version }}"
-          # A personal repo's ruleset CANNOT grant the Actions integration a
-          # bypass (HTTP 422 "must be part of the ruleset source or owner
-          # organization"), so a protected develop rejects this direct push.
-          # Fall back to landing the bump via a PR — the maintainer's merge
-          # goes through the existing repository-admin bypass. The bump
-          # commit stays reachable via the side branch, so the seed-bundles
-          # job's checkout-by-SHA still works either way.
-          if git push; then
-            echo "Version bump pushed directly to develop."
-          else
-            BRANCH="release/version-bump-${{ steps.version.outputs.version }}"
-            echo "Direct push rejected by branch protection - opening a version-bump PR via ${BRANCH}."
-            git push -f origin "HEAD:refs/heads/${BRANCH}"
-            gh pr create --base develop --head "${BRANCH}" \
-              --title "chore: bump version to ${{ steps.version.outputs.version }}" \
-              --body "Automated version bump from the release workflow (direct push to develop is blocked by branch protection). Merge before the next release so future bumps start from this version." \
-              || echo "::warning::gh pr create failed — open the version-bump PR manually from branch ${BRANCH} (v0.2.0's failed silently on a missing pull-requests:write permission)."
-          fi
-          echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
 
       # npm publishing STOPPED as of v0.2.0 (P2 retires the TS compiler —
       # the npm package WAS the TS compiler; the native seed bundles below
@@ -173,9 +154,15 @@ jobs:
           # draft instead of a published release missing binaries.
           draft: true
           tag_name: v${{ steps.version.outputs.version }}
+          # Pin the tag to the gated SHA explicitly. The action otherwise
+          # defaults to github.sha, which was the PRE-BUMP commit back when this
+          # job created the bump itself — that is how the v0.2.2 tag came to name
+          # 0.2.1 and v0.2.4's to name 0.2.3. It is the same commit now, but
+          # stated rather than inherited.
+          target_commitish: ${{ steps.gate.outputs.sha }}
           name: Release v${{ steps.version.outputs.version }}
           body: |
-            ${{ inputs.bump == 'minor' && 'Minor' || 'Patch' }} release v${{ steps.version.outputs.version }}
+            Release v${{ steps.version.outputs.version }}
 
             ## Changes
             ${{ steps.last_commit.outputs.message }}
