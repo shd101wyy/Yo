@@ -239,7 +239,15 @@ generate_initialization_assignment :: (fn(expr : AstExpr, indent : String, conte
                 ),
                 .None => `var_${sm_bind_id.clone()}`
               );
-              sm_rhs := _call_generate_expr(rhs, indent.clone(), context);
+              // The RHS must go through the deferred-dup chain before it lands
+              // in the slot. TS has no early return here: it computes ONE
+              // `rhsCode` through all four dup-emitting arms and only then
+              // picks `sm->field` as the destination
+              // (initialization-assignment.ts:487-494). Returning early with
+              // the raw expression skipped the +1 while the slot's drop was
+              // still emitted, so `element := list(i)` inside an async loop
+              // freed the element out from under the live list.
+              sm_rhs := emit_deferred_dup_or_code(rhs, _call_generate_expr(rhs, indent.clone(), context), indent.clone(), context);
               em.emit_string_line(`${indent.clone()}sm->${sm_field.clone()} = ${sm_rhs.clone()};`);
               return(Option(String).Some(String.from("")));
             });
@@ -312,8 +320,16 @@ generate_initialization_assignment :: (fn(expr : AstExpr, indent : String, conte
               emit_deferred_dup_or_code(rhs, temp_var_name, indent.clone(), context)
             })
           },
-          .None => _call_generate_expr(rhs, indent.clone(), context)
+          // No temp variable name on the RHS — TS's `else` arm
+          // (initialization-assignment.ts:464-484) STILL emits the RHS's
+          // deferred dups here ("Handle deferred dup expressions for RHS
+          // without temp variable"), so the drop this binding will get has a
+          // matching +1. This arm is unreachable for state-machine bindings
+          // (those return early above); it is ported for parity with the three
+          // sibling arms, which all already route through this helper.
+          .None => emit_deferred_dup_or_code(rhs, _call_generate_expr(rhs, indent.clone(), context), indent.clone(), context)
         ),
+        // No ExprInfo at all — no deferred dups can exist (TS guards on `rhs.$?`).
         .None => _call_generate_expr(rhs, indent.clone(), context)
       );
       // Raw-pointer-deref RHS (`(p &+ i).*` / `p.*`) of an RC-carrying type:
