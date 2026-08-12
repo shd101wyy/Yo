@@ -101,9 +101,29 @@ detect_osarch() {
 
   OSARCH="$OSNAME-$arch"
 
-  if [ "$OSNAME" = "linux" ] && [ -n "$(find /etc -maxdepth 1 -name '*-release' -type f 2>/dev/null)" ]; then
-    distrocfg="$(cat /etc/*-release 2>/dev/null)"
-    if contains "$distrocfg" "rhel|centos|fedora|rocky|alma"; then
+  if [ "$OSNAME" = "linux" ]; then
+    distrocfg=""
+    if [ -r /etc/os-release ]; then
+      distrocfg="$(cat /etc/os-release 2>/dev/null)"
+    fi
+
+    # Immutable / atomic distributions come FIRST: several of them also match
+    # a classic family (SteamOS is Arch, Bazzite is Fedora), but their root
+    # filesystem is read-only or declaratively managed, so imperatively
+    # installing packages either fails outright or is reverted by the next
+    # system update. They need advice, not a package manager.
+    if [ -f /etc/NIXOS ] || contains "$distrocfg" "^ID=nixos"; then
+      OSDISTRO="nixos"
+    elif contains "$distrocfg" "^ID=steamos"; then
+      OSDISTRO="steamos"
+    # /run/ostree-booted is the authoritative marker — the rpm-ostree BINARY can
+    # also exist on an ordinary mutable Fedora, where skipping dnf would be
+    # wrong.
+    elif [ -f /run/ostree-booted ]; then
+      OSDISTRO="ostree"
+    elif has_cmd transactional-update; then
+      OSDISTRO="microos"
+    elif contains "$distrocfg" "rhel|centos|fedora|rocky|alma"; then
       OSDISTRO="rhel"
     elif contains "$distrocfg" "opensuse|suse"; then
       OSDISTRO="opensuse"
@@ -115,6 +135,66 @@ detect_osarch() {
       OSDISTRO="debian"
     fi
   fi
+}
+
+# True for distributions where imperative package installation is the wrong
+# answer, whatever package manager happens to be present.
+is_immutable_distro() {
+  case "$OSDISTRO" in
+    nixos|steamos|ostree|microos) return 0;;
+    *) return 1;;
+  esac
+}
+
+immutable_distro_advice() {
+  case "$OSDISTRO" in
+    nixos)
+      warn "NixOS detected: packages are managed declaratively, so this script"
+      warn "will not install anything. Get a toolchain with, for example:"
+      warn "    nix-shell -p clang git pkg-config liburing"
+      warn "or add those to your configuration.nix / home-manager profile.";;
+    steamos)
+      warn "SteamOS detected: the root filesystem is read-only and pacman"
+      warn "changes are reverted by system updates. Rather than"
+      warn "'steamos-readonly disable', prefer a container:"
+      warn "    distrobox create --name dev --image archlinux"
+      warn "    distrobox enter dev   # then install clang git pkgconf liburing";;
+    ostree)
+      warn "An ostree-based system (Silverblue/Kinoite/Bazzite) was detected."
+      warn "Install the toolchain with rpm-ostree (needs a reboot):"
+      warn "    rpm-ostree install clang git pkgconf-pkg-config liburing-devel"
+      warn "or work inside a toolbox:  toolbox enter";;
+    microos)
+      warn "openSUSE MicroOS detected: use a transactional update (needs a reboot):"
+      warn "    transactional-update pkg install clang git pkg-config liburing-devel"
+      warn "or work inside a distrobox container.";;
+  esac
+}
+
+# The published Linux bundles are ordinary glibc binaries whose ELF interpreter
+# is an absolute path (/lib64/ld-linux-x86-64.so.2). NixOS does not provide that
+# path — the loader lives in /nix/store — so the binary fails to exec with a
+# baffling "No such file or directory" even though the file is plainly there.
+# Say so up front rather than let the user meet that error cold.
+check_dynamic_loader() {
+  if [ "$OSNAME" != "linux" ]; then return 0; fi
+  case "$(uname -m)" in
+    x86_64*|amd64*) loader="/lib64/ld-linux-x86-64.so.2";;
+    arm64*|aarch64*) loader="/lib/ld-linux-aarch64.so.1";;
+    *) return 0;;
+  esac
+  if [ -e "$loader" ]; then return 0; fi
+  warn ""
+  warn "WARNING: this system has no $loader."
+  warn "The published bundle is a normal glibc binary and will fail to start"
+  warn "with 'No such file or directory' even once installed."
+  if [ "$OSDISTRO" = "nixos" ]; then
+    warn "On NixOS, run it through one of:"
+    warn "    nix-shell -p steam-run --run 'steam-run yo --help'"
+    warn "    programs.nix-ld.enable = true;   # then re-login"
+    warn "or patch the interpreter:  patchelf --set-interpreter \"\$(cat \$NIX_CC/nix-support/dynamic-linker)\" <yo>"
+  fi
+  warn ""
 }
 
 #---------------------------------------------------------
@@ -235,38 +315,107 @@ zypper_install() {
   sudocmd zypper install -y "$@" || { warn "installing zypper packages failed ($*)"; return 1; }
 }
 
+# Which dependencies are actually absent. Computed BEFORE touching a package
+# manager so an already-equipped machine is never asked for a sudo password to
+# install nothing — the common case for developer boxes and CI images.
+MISSING_CC=""
+MISSING_GIT=""
+MISSING_PKGCONFIG=""
+MISSING_LIBURING=""
+
+compute_missing_deps() {
+  MISSING_CC=""; MISSING_GIT=""; MISSING_PKGCONFIG=""; MISSING_LIBURING=""
+  if ! has_cmd clang && ! has_cmd gcc && ! has_cmd cc; then MISSING_CC="yes"; fi
+  if ! has_cmd git; then MISSING_GIT="yes"; fi
+  if [ "$OSNAME" = "linux" ]; then
+    if ! has_cmd pkg-config && ! has_cmd pkgconf; then MISSING_PKGCONFIG="yes"; fi
+    # "Installed" for liburing means pkg-config can SEE it, since that is
+    # exactly the test the compiler makes before adding -luring.
+    if ! (has_cmd pkg-config && pkg-config --exists liburing 2>/dev/null); then
+      MISSING_LIBURING="yes"
+    fi
+  fi
+}
+
+any_missing() {
+  if [ -n "$MISSING_CC$MISSING_GIT$MISSING_PKGCONFIG$MISSING_LIBURING" ]; then
+    return 0
+  fi
+  return 1
+}
+
+# Package names differ per distribution; select only the missing ones.
+_pkglist() {  # <cc-pkg> <git-pkg> <pkgconfig-pkg> <liburing-pkg>
+  out=""
+  if [ -n "$MISSING_CC" ]; then out="$out $1"; fi
+  if [ -n "$MISSING_GIT" ]; then out="$out $2"; fi
+  if [ -n "$MISSING_PKGCONFIG" ]; then out="$out $3"; fi
+  if [ -n "$MISSING_LIBURING" ]; then out="$out $4"; fi
+  echo "$out"
+}
+
 install_dependencies() {
   if [ -n "$NO_DEPS" ]; then
     info "Skipping dependency installation (--no-deps)."
     return 0
   fi
 
+  compute_missing_deps
+  if ! any_missing ; then
+    info "All dependencies are already present; installing nothing."
+    return 0
+  fi
+
   if [ "$OSNAME" = "macos" ]; then
     # macOS ships clang AND git with the Command Line Tools, and uses kqueue
     # rather than io_uring, so a single CLT install covers everything.
-    if ! has_cmd clang && ! has_cmd gcc; then
-      warn "No C compiler found. Install Apple's Command Line Tools:"
+    if [ -n "$MISSING_CC" ] || [ -n "$MISSING_GIT" ]; then
+      warn "Missing developer tools. Install Apple's Command Line Tools:"
       warn "    xcode-select --install"
-      warn "(That also provides git.) Then re-run this installer."
+      warn "That provides both clang and git. Then re-run this installer."
     fi
     return 0
   fi
 
-  info "Installing dependencies (C compiler, git, liburing, pkg-config).."
+  if is_immutable_distro ; then
+    info "Missing:$(_pkglist 'a C compiler' 'git' 'pkg-config' 'liburing')"
+    immutable_distro_advice
+    return 0
+  fi
+
+  pkgs=""
   if has_cmd apt-get ; then
-    apt_get_install clang git pkg-config liburing-dev || true
+    pkgs="$(_pkglist clang git pkg-config liburing-dev)"
   elif has_cmd dnf ; then
-    dnf_install clang git pkgconf-pkg-config liburing-devel || true
+    pkgs="$(_pkglist clang git pkgconf-pkg-config liburing-devel)"
   elif has_cmd zypper ; then
-    zypper_install clang git pkg-config liburing-devel || true
+    pkgs="$(_pkglist clang git pkg-config liburing-devel)"
   elif has_cmd pacman ; then
-    pacman_install clang git pkgconf liburing || true
+    pkgs="$(_pkglist clang git pkgconf liburing)"
   elif has_cmd apk ; then
-    apk_install clang git pkgconf liburing-dev || true
+    pkgs="$(_pkglist clang git pkgconf liburing-dev)"
   elif has_cmd yum ; then
-    yum_install clang git pkgconfig liburing-devel || true
+    pkgs="$(_pkglist clang git pkgconfig liburing-devel)"
   else
-    info "No supported package manager found; skipping dependency installation."
+    warn "No supported package manager found; skipping dependency installation."
+    warn "Missing:$(_pkglist 'a C compiler' 'git' 'pkg-config' 'liburing')"
+    return 0
+  fi
+
+  info "Installing:$pkgs"
+  # shellcheck disable=SC2086
+  if has_cmd apt-get ; then
+    apt_get_install $pkgs || true
+  elif has_cmd dnf ; then
+    dnf_install $pkgs || true
+  elif has_cmd zypper ; then
+    zypper_install $pkgs || true
+  elif has_cmd pacman ; then
+    pacman_install $pkgs || true
+  elif has_cmd apk ; then
+    apk_install $pkgs || true
+  elif has_cmd yum ; then
+    yum_install $pkgs || true
   fi
 }
 
@@ -600,6 +749,7 @@ main_install() {
   detect_osarch
   resolve_version
   install_dependencies
+  check_dynamic_loader
   check_c_compiler
   check_git
   check_liburing_consistency
