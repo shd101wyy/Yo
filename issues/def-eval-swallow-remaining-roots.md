@@ -140,6 +140,35 @@ evaluation; `Self.new()` yields `unit` and the trial swallows the body. The
 This IS the documented "Self-slot" class after all (`(result : Self) = Self.new()`
 types UNIT) — an earlier note in this file said it was not; that was wrong.
 
+### Attempt 2026-08-13 — implemented in TWO places, neither fires (reverted)
+
+Both halves type-checked at 247/247 and BOTH were built and measured; the repro
+still swallows and the root count stays at 16, so neither path is the one
+`Self.new()` actually takes.
+
+1. **`property_access.yo`'s `Self.X` fallback** extended to resolve a
+   FUNCTION-typed entry to its FuncVal (ExprInfo type = the Func type, value =
+   the FuncVal), with `impl.yo` publishing sibling methods into the in-flight
+   context lists — the method VALUE in a NEW parallel list
+   (`current_impl_trait_field_values`) rather than in
+   `current_impl_trait_field_types`, since conflating methods with associated
+   types is the likely reason the older attempt "proved fragile". No effect:
+   `Self.new()` is a CALL, so it does not come through property access.
+2. **`calls/function.yo`'s static-dispatch path**, where `hits.len() == 0`
+   returns `None` and the call degenerates to `unit`: added an in-flight-impl
+   fallback that scans the same context lists and synthesizes a `MethodEntry`
+   hit, scoped to `is_static` and FuncVal-valued entries. Also no effect.
+
+So the call is resolved somewhere neither of those covers, OR the context lists
+are empty at that moment (the push happens per-field as the impl is evaluated,
+and `new` precedes `via` in the repro, so they SHOULD be populated — unverified).
+
+**Next step must be instrumentation, not a third guess**: print at
+`_try_find_receiver_method` entry whether `is_static` is true for `Self.new()`
+and what `ctx.current_impl_trait_field_labels` contains at that moment. Two build
+cycles were spent on plausible-looking locations that never executed; a single
+`[trial]`-style probe would have named the right one first.
+
 **Fixing it means making FuncVal fields resolvable for `Self.X` at def time —
 exactly what a previous session tried and abandoned as fragile.** TS has no such
 limitation (its def-time body eval is fatal and it compiles `array_list` fine),
