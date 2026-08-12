@@ -15,14 +15,29 @@ types), adds algebraic effects and comptime, and targets the two niches the
 incumbents leave open: humane verified systems programming, and a language
 whose ergonomics are designed for LLM authorship from day one.
 
-## Phase 0 — finish bootstrap (in flight)
+## Phase 0 — finish bootstrap — **COMPLETE**
 
-Exit criteria: #69 all-GREEN under the honest hollow-scoring, #70 stays
-61/61, STRICT_FIXPOINT holds, and the two-compiler lockstep is retired to a
-maintenance cadence. Known remaining fronts (tracked in
-`plans/archive/YO_SELF_STAGE2_HANDOFF.md` and `issues/`): cluster-B
-`dyn(box(closure))` spec emission, cee validations, contracts Phase-0 port,
-the REDs, the `||`-LHS trait-call miscompile, `await_analysis` check triage.
+All exit criteria met: the corpus is green under honest hollow-scoring, the
+fixpoint holds (stage-2 ≡ stage-3, byte-identical, CI-gated), and every listed
+front — cluster-B `dyn(box(closure))` spec emission, cee validations, the
+contracts port, the REDs, the `||`-LHS trait-call miscompile,
+`await_analysis` triage — closed. Record: [`BOOTSTRAPPING.md`](BOOTSTRAPPING.md).
+
+The two-compiler lockstep is **not yet** retired to a maintenance cadence —
+that is what Phase 0.5 below is doing, and it is where current work sits.
+
+## Phase 0.5 — self-hosting completion (in flight)
+
+Retire `src/` and the bun/node toolchain, ship installers, rewrite the LSP in
+Yo. This was not a phase in the original draft: at the time, "bootstrap done"
+was assumed to mean the TypeScript compiler could simply be dropped. It cannot
+— CI, the release chain, the version cache, the LSP and the VS Code extension
+all reach into `src/`, and the trust chain has to move to
+"previous release builds current compiler" first.
+
+Working docs: [`SELF_HOSTING_COMPLETION.md`](SELF_HOSTING_COMPLETION.md)
+(umbrella) → `P1_CLI_PARITY.md` (complete) → `P2_RETIRE_SRC.md` (active) →
+`P3_DISTRIBUTION.md` → `P4_LSP.md`.
 
 ## Phase 1 — Formal verification (the flagship)
 
@@ -124,11 +139,18 @@ design constraint, not an accident:
 ## Sequencing summary
 
 ```
-bootstrap done ──> Phase 1 verification (design + pure fragment)
-      │                   │
+bootstrap done ──> Phase 0.5 self-hosting completion ──> Phase 1 verification
+   (COMPLETE)         (IN FLIGHT: retire src/,              (design + pure fragment)
+                       installers, LSP in Yo)                    │
+                                                                 │
       ├── Phase 2 tooling (incremental, LSP, errors)   [parallel track]
       │                   │
       ├── Phase 3 identity/perf debt (unblocks 1 & 2 at scale)
       │                   │
       └── Phase 4 LLM pack + publish  ──> Phase 5 targets/ecosystem
 ```
+
+Note Phase 0.5's LSP work (`P4_LSP.md`) and Phase 2's tooling track overlap:
+the Yo-native language server is the same deliverable seen from two roadmaps.
+Phase 2's "incremental re-check" is the part P4 explicitly does NOT cover —
+P4 ships a correct server, not yet a fast one.

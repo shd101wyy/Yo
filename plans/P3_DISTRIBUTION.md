@@ -3,16 +3,15 @@
 **Working doc for Phase 3 of
 [`SELF_HOSTING_COMPLETION.md`](SELF_HOSTING_COMPLETION.md).** Same contract
 as `P1_CLI_PARITY.md`/`P2_RETIRE_SRC.md`: measured numbers, live status,
-traps recorded as found. Drafted 2026-08-11, while P2's last blocker (the
-seed-trust UAF) was in flight.
+traps recorded as found. Drafted 2026-08-11; **item 1 landed 2026-08-12**.
 
 ## What P2 already delivered that P3 builds on
 
-- **v0.2.1 ships all five native bundles** (linux-x64, linux-arm64,
-  macos-arm64, macos-x64, windows-x64), each `bin/yo` + `std/` +
-  `vendor/mimalloc/` + LICENSE, **self-locating** (`--std-path` → `YO_STD` →
-  exe-relative walk-up → `./std`) — an installer only extracts and puts
-  `bin/` on PATH.
+- **Every release since v0.2.1 ships all five native bundles** (linux-x64,
+  linux-arm64, macos-arm64, macos-x64, windows-x64 — current: **v0.2.3**),
+  each `bin/yo` + `std/` + `vendor/mimalloc/` + LICENSE, **self-locating**
+  (`--std-path` → `YO_STD` → exe-relative walk-up → `./std`) — an installer
+  only extracts and puts `bin/` on PATH.
 - **Releases are atomic** (draft until required legs upload, then a publish
   job flips it) — `latest` can never point at a bundle-less release, which
   is the invariant `install.sh` needs.
@@ -22,25 +21,76 @@ seed-trust UAF) was in flight.
   bypass the Actions integration (bump lands via `[skip ci]` PR; gate falls
   back to the parent SHA); `macos-26-intel` is the last Intel runner label.
 
-## Item 1 — `util/install.sh` + `util/install.bat` (Koka model)
+## Item 1 — install scripts — **LANDED 2026-08-12**
 
-Reference: `~/Workspace/koka/util/install.sh` (719 lines) / `install.bat`
-(610). Shape to copy: single POSIX-sh script, curl-pipe-able,
-version-selectable (`--version vX.Y.Z`, default latest), `--prefix`
-override (`/usr/local` default; `%LOCALAPPDATA%\yo` on Windows), uninstall
-mode, dry-run, os/arch sniffing, PATH guidance, optional `--vscode` flag
-(`code --install-extension`).
+`scripts/install.sh` (POSIX sh) + `scripts/install.ps1` (PowerShell — the
+planned `.bat` was skipped; PowerShell ships everywhere Windows CI and users
+actually are). Note the paths are `scripts/`, not `util/`.
 
-- Download URL: `https://github.com/shd101wyy/Yo/releases/download/<tag>/yo-<tag>-<os>-<arch>.tar.gz`
-  (exactly what the seed jobs publish today).
-- **Install INTO the per-version cache layout** (item 2's layout), with a
-  `yo` shim on PATH that resolves `.yo-version` pins — the installer and
-  `yo version install X` become two front-ends to one mechanism. Do item 2
-  first or together; a `--prefix`-only installer now would be rework.
-- Host both scripts at the Pages site root (`scripts/build-site.ts` grows a
-  copy step); the canonical one-liner
-  `curl -sSL https://shd101wyy.github.io/Yo/install.sh | sh` stays stable
-  across releases while release CI bumps the default version inside it.
+Delivered: `--version` (default latest) / `--prefix` / `--uninstall` /
+`--force` / `--quiet` / `--dry-run` / `--no-deps` / `--no-verify`, os/arch
+sniffing, sudo only when the prefix is not writable, PATH guidance, and
+dependency installation across apt/dnf/zypper/pacman/apk/yum.
+
+**Verification compiles and runs a hello world** rather than checking a
+version string — a downloaded binary is not a working install unless `std`
+resolves, the vendored mimalloc is found, and the C compiler links.
+`.github/workflows/install-scripts.yml` runs both scripts on all five
+platforms against the REAL published bundles, plus weekly; each job also
+compiles from a directory with no `./std`, so a broken std-resolution cannot
+hide behind a fallback.
+
+### The deviation this doc warned about
+
+> "Install INTO the per-version cache layout … a `--prefix`-only installer now
+> would be rework."
+
+That is what shipped: `<prefix>/lib/yo/<tag>/{bin,std,vendor}` with a
+`<prefix>/bin/yo` symlink (a `.cmd` shim on Windows, where symlinks need admin
+or Developer Mode). So the installer and `yo version install X` are still two
+mechanisms, and `.yo-version` pinning does not yet work for script-installed
+versions.
+
+The rework is smaller than feared: the layout IS per-version and IS a plain
+bundle extraction — the same shape item 2 specifies — so unification is a
+**re-rooting** (point the installer at the version-cache root, or teach the
+cache about the install root), not a rewrite. Do it as part of item 2, which
+has to touch both sides anyway.
+
+### Dependencies — measured against the shipped compiler, not assumed
+
+| dependency                | why                                                                               | without it                  |
+| ------------------------- | --------------------------------------------------------------------------------- | --------------------------- |
+| clang / gcc               | `yo compile` invokes `clang` by default (`yo-self/main.yo:747`)                   | cannot compile at all       |
+| **git**                   | `yo fetch` / `yo install` shell out to `git ls-remote`/`clone`/`fetch`/`checkout` | dependency management fails |
+| liburing **+** pkg-config | async I/O (io_uring) on Linux                                                     | see below                   |
+
+**liburing and pkg-config must be installed as a pair.** The emitted C gates
+its io_uring calls on `#if __has_include(<liburing.h>)`, while `-luring` is
+added only when `pkg-config --exists liburing` succeeds. A box with the header
+but no pkg-config therefore emits io_uring calls and fails to link them
+(`undefined reference to io_uring_peek_batch_cqe`) — the header WITHOUT
+pkg-config is strictly worse than neither. The installer installs both and
+warns when it finds that combination already present.
+
+### Immutable distributions
+
+NixOS, SteamOS, ostree systems (Silverblue/Kinoite/Bazzite) and openSUSE
+MicroOS get detected FIRST — several also match a classic family (SteamOS is
+Arch, Bazzite is Fedora), so family matching alone misroutes them — and are
+given targeted advice instead of a package manager, since imperative installs
+there either fail or are reverted by the next update.
+
+On NixOS there is a second, harder problem that no package can fix: see item 3.
+
+### Still open on item 1
+
+- Hosting at the Pages site root, so the canonical one-liner is
+  `curl -sSL https://shd101wyy.github.io/Yo/install.sh | sh`
+  (`scripts/build-site.ts` grows a copy step). Today the URL is the raw
+  GitHub one.
+- The optional `--vscode` flag (`code --install-extension`).
+- Unifying with the version cache (above).
 
 ## Item 2 — `yo version` re-pointed at GitHub Releases (URGENT)
 
@@ -67,9 +117,28 @@ Redesign:
 
 ## Item 3 — static-musl Linux bundles
 
+**Priority raised 2026-08-12: there are now two distinct distros where the
+shipped Linux bundle cannot run, not one.** Measured on the published
+`yo-v0.2.3-linux-x64.tar.gz`:
+
+```
+bin/yo: ELF 64-bit LSB pie executable, x86-64, dynamically linked,
+        interpreter /lib64/ld-linux-x86-64.so.2
+```
+
+- **Alpine/musl** — the known case: different ld.so and symbol versioning.
+- **NixOS** — `/lib64/ld-linux-x86-64.so.2` does not exist there at all (the
+  loader lives in `/nix/store`), so the binary fails to `exec` with
+  `No such file or directory` while the file is plainly present. This is
+  unfixable by any package the installer could install; the workarounds are
+  `steam-run`, `programs.nix-ld.enable`, or `patchelf --set-interpreter`. A
+  static binary needs no interpreter and sidesteps it entirely.
+
+The installer warns about both today (it checks for the loader up front), but
+a warning is a workaround, not a fix — item 3 is the fix.
+
 One fully static musl binary per arch (Zig/Deno/Bun model) replaces both
-glibc Linux legs; a glibc `yo` cannot run on Alpine (different ld.so +
-symbol versioning). Constraints (from `BUILD_SYSTEM.md` + the plan):
+glibc Linux legs. Constraints (from `BUILD_SYSTEM.md` + the plan):
 
 - Yo cannot cross-compile gnu→musl — release CI builds inside an Alpine
   container (`container:` on the linux legs, or a docker-run step).
@@ -100,7 +169,21 @@ pinning round-trips.
 
 ## Sequencing
 
-Item 2 first (it unblocks version management NOW and defines the cache
-layout item 1 installs into) → item 1 (installer over that mechanism) →
-item 3 (musl bundles; installer needs no change if names stay
-`linux-<arch>`) → item 4 opportunistically. P4 (LSP) stays separate.
+**Superseded 2026-08-12 — item 1 shipped first.** The original order put item 2
+first so the installer could be built over the version cache; in practice the
+installer landed standalone because it depends only on the published bundles.
+That cost the unification, which item 2 now has to absorb (a re-rooting — see
+item 1).
+
+Revised order:
+
+1. **Item 2** (`yo version` on GitHub Releases) — still the most urgent, since
+   npm publishing stopped at v0.2.0 and `version list --remote` / `version
+install` are dead for every version since. Fold the installer re-rooting
+   into it so the two front-ends converge.
+2. **Item 3** (static musl) — raised in priority: it is the only real fix for
+   both Alpine AND NixOS, and the installer names stay `linux-<arch>`, so it
+   needs no installer change.
+3. **Item 4** (release hardening) opportunistically.
+
+P4 (LSP) stays separate — see [`P4_LSP.md`](P4_LSP.md).

@@ -17,12 +17,28 @@ Current entry points:
 - [`BOOTSTRAPPING.md`](BOOTSTRAPPING.md) — the (completed) bootstrap campaign
   record; umbrella over the archived per-slice docs.
 - [`SELF_HOSTING_COMPLETION.md`](SELF_HOSTING_COMPLETION.md) — the active
-  next-phase roadmap: full CLI parity in yo-self, retiring `src/` + bun,
-  release bundles + install scripts, LSP + VS Code.
-- [`P1_CLI_PARITY.md`](P1_CLI_PARITY.md) — **the P1 handover; start here for
-  CLI-parity work.** Where P1 stands, three verified-false premises in P1's own
-  plan, the suggested order, and the method notes. Supersedes
-  `archive/PRE_P1_HANDOVER.md`.
+  next-phase roadmap and umbrella over P1-P4: full CLI parity in yo-self,
+  retiring `src/` + bun, release bundles + install scripts, LSP + VS Code.
+  Its "Where the phases actually stand" table is the fastest status read.
+
+Its per-phase working docs, in order:
+
+- [`P1_CLI_PARITY.md`](P1_CLI_PARITY.md) — **COMPLETE 2026-08-10.** Kept for
+  the method notes and the three verified-false premises it found in P1's own
+  plan. Supersedes `archive/PRE_P1_HANDOVER.md`.
+- [`P2_RETIRE_SRC.md`](P2_RETIRE_SRC.md) — **the active handover; start here.**
+  2.1/2.2/2.4 done, 2.3 in review, and the two-generation rule that governs
+  when a codegen fix can reach a seed-built CI job.
+- [`P2_5_RETIRE_EXECUTION.md`](P2_5_RETIRE_EXECUTION.md) — the audited
+  deletion plan for `src/`: 9 blockers, 28 steps, the deletion manifest, and
+  the scope decisions still open for the maintainer.
+- [`P3_DISTRIBUTION.md`](P3_DISTRIBUTION.md) — installers (landed), `yo
+version` on GitHub Releases (urgent — npm publishing stopped at v0.2.0), and
+  static-musl Linux bundles.
+- [`P4_LSP.md`](P4_LSP.md) — the LSP rewrite in Yo: measured sizing, the
+  transport spike (green) and the diagnostics spike (red — blocked on the
+  def-eval swallow). Supersedes `LSP_IMPLEMENTATION.md`, which planned the
+  TypeScript server that retires with `src/`.
 
 Conventions:
 
