@@ -1070,9 +1070,11 @@ _evaluate_expression_wrapper :: (
         // cee observation: in propagate mode (a comptime_expect_error
         // clone eval) a swallowed throw must still be OBSERVABLE — see
         // flowability.yo's cee_observed_error channel. The propagate-mode
-        // check lives in note_def_time_swallow (flowability.yo): a BRANCH
-        // inside this capture-free `->` handler miscompiles under the TS
-        // codegen (the fs/walker rc=139 async-emitter corruption).
+        // check lives in note_def_time_swallow (flowability.yo), which keeps this
+        // handler a straight-line call. NOTE the old reason given here — "a BRANCH
+        // in a capture-free handler miscompiles" — is STALE; see the corrected note
+        // on note_def_time_swallow. The real defect was the unwind emitter raising
+        // __yo_effect_escaped before evaluating the argument, fixed 2026-08-07.
         note_def_time_swallow();
         unwind(make_err_expr());
       }

@@ -152,10 +152,24 @@ is already encoded in which one runs:
 in a generic body and was therefore harmless. Not so: `./std` has **29 swallows
 in CONCRETE bodies** (14 in `std/fmt/to_string.yo`, 5 in `fmt/writer.yo`, plus
 `time/*`, `imm/map`, `net/tcp`, `encoding/json`, `testing/bench`,
-`string/string`). All are type-level, clustered at uniform columns that look like
-a late return-type unification — consistent with the body's ExprInfos already
-being populated, so nothing is dropped — but that is inference, not proof, and
-they stay unaudited.
+`string/string`). All are type-level, clustered at uniform columns.
+
+**The "late return-type unification" explanation for that cluster is REFUTED
+(2026-08-12).** It appeared here as inference and would send the next reader off to
+audit return-type unification, which is a dead end. The evidence against it:
+yo-self's CONCRETE trial path (`function_type.yo` 984 → 1015 → 1044 → 1079) performs
+**no** return-type check at all; TS's equivalent
+(`src/evaluator/calls/function-type.ts:583-611`) sits OUTSIDE the call that yo-self
+swallows; and the one in-trial unification that does exist
+(`yo-self/evaluator/exprs/begin.yo:1957-1996`) is gated on the body ending in an
+explicit `return(...)` — 13 of the 14 `to_string` bodies contain no `return`, and
+the one that does is not in the cluster. So the root is elsewhere and remains
+unidentified.
+
+What replaces the old "so nothing is dropped" reassurance is no longer inference:
+the codegen marker gate now FAILS the compile when an untranspiled expression lands
+in a live function, so a dropped statement in this cluster could not reach a binary
+silently.
 
 What IS proven: **`check ./yo-self` has zero concrete-site swallows**, so the
 compiler's own sources are unaffected and self-hosting was never at risk from
@@ -434,7 +448,7 @@ statement of a test short-circuits it before the real assertions, so it proves t
 test runs but proves NOTHING about a later assert. Place the probe after the
 assertions you want to reason about, or read the unprobed result.)
 
-### STILL OPEN: a typo in a struct METHOD is not gated
+### FIXED 2026-08-12: a typo in a struct METHOD (was the last silent shape)
 
 ```
 Point :: struct(x : i32);
@@ -469,3 +483,38 @@ Verified for this gate: corpus sweep **188 GREEN** / SWEEP_GATE_OK; helper and m
 typos rc=1; generic and closure typos rc=1 (match TS); fn 24, algebraic_effects 74,
 basic 33, impl 6, closure_param_forwarding 3, type_reflection 35 all passing;
 check ./std 154/154, check ./yo-self 247/247.
+
+### Method dispatch — the fix, and the trap it avoids
+
+`record_method_callee_value` (expr_info.yo) is the choke point: recording a method
+callee means codegen WILL dispatch that call to that FuncVal, so it is exactly where
+the callee becomes live. It now also calls `record_fid_dispatch(fid)`, and
+`fid_has_runtime_calls` reads either counter.
+
+**The trap: do NOT increment `g_fid_rtcalls`.** That map feeds
+`fid_fully_specialized` (`specs > 0 && specs >= calls`), which drives BOTH
+`should_skip_function_codegen` and the `abort()`-stub rewrite. An extra `calls`
+increment can flip a superseded generic original from dead to live, un-stubbing a
+body whose C is genuinely un-emittable — which turns the corpus's 16 dead-body
+markers fatal and reddens tests/algebraic_effects, tests/impl and
+tests/closure_param_forwarding. A SEPARATE `g_fid_dispatched` keeps the supersession
+arithmetic byte-identical, so the only behavioural delta is the gate.
+
+Second trap: record at `record_method_callee_value`, NOT inside
+`try_to_call_function_with_arguments` — that helper is also driven by
+`_trial_call_overload_candidate` as a PROBE, so recording there marks merely
+CONSIDERED overloads live. Over-reporting liveness rejects valid programs.
+
+All five typo shapes now match the TS reference:
+
+| shape   | TS  | self-hosted |
+| ------- | --- | ----------- |
+| main    | 1   | 1           |
+| helper  | 1   | 1           |
+| method  | 1   | 1           |
+| generic | 1   | 1           |
+| closure | 1   | 1           |
+
+Gate: corpus sweep 188 GREEN / SWEEP_GATE_OK, empty allowlist; algebraic_effects 74,
+impl 6, closure_param_forwarding 3, fn 24, basic 33, type_reflection 35;
+check ./yo-self 247/247.
