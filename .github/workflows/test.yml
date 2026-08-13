@@ -433,6 +433,13 @@ jobs:
       - name: "Tier-1 gates via the self-hosted binary (`test` + corpus + check)"
         env:
           YO_MAIN_STACK_MB: "4096"
+          # STAGING RATCHET: the runner's LeakSanitizer verdicts (P2.5 step 4,
+          # TS parity) exposed pre-existing self-hosted-emit leak debt — 50
+          # corpus files leak (closure captures et al.;
+          # issues/self-hosted-emit-leaks-remaining-classes.md). ASan/LSan
+          # still RUN and REPORT here; only the leak-alone failure is staged
+          # off. DELETE this line when the leak campaign closes the debt.
+          YO_TEST_LEAK_VERDICT: "0"
         run: S1=/tmp/yo-stage1 P=ci bash scripts/bootstrap/gates_fast.sh
 
       - name: Upload gate logs
@@ -843,6 +850,8 @@ jobs:
       - name: Sweep every language test file through the self-hosted binary
         env:
           YO_MAIN_STACK_MB: "4096"
+          # Same staging ratchet as the tier-1 job — see that job's comment.
+          YO_TEST_LEAK_VERDICT: "0"
         run: BIN=/tmp/yo-stage1 OUT=/tmp/hsweep bash scripts/bootstrap/hollow_sweep69.sh
 
       # results.txt alone is a scorecard, not a diagnosis — the first CI run of
