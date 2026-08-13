@@ -442,6 +442,53 @@ before. The entries carry real values and the Case-3-direct shape, so this is
 the faithful-port direction (TS shows in-flight evaluated fields to both
 paths); the full battery is the arbiter.
 
+### LANDED 2026-08-13 (branch `fix/family-a-provisional-static`) — families A and B, measured
+
+Three commits, each measured on the std baseline (importer of std/fmt):
+
+| stage                                                   | swallows |
+| ------------------------------------------------------- | -------- |
+| baseline (post-PR #110)                                 | 19       |
+| + per-field provisional registration (earlier siblings) | 18       |
+| + forward shells (later siblings) + trait-ctor + fam B  | 14       |
+
+Roots cleared: #1, #2 (slice_copy family, incl. the transient with_capacity
+and from_array layers), #4, #5 (Array slice_copy — family B), #7. #6
+progressed to its next layer (prelude 7623, SomeT callee).
+
+**Layered findings, in discovery order:**
+
+1. **Earlier siblings** (`Self.new()` before `slice_copy`): per-field
+   provisional registration with the REAL forall-stamped FuncVal; static
+   lookup consults provisional LAST (below the generic-impl fallback).
+2. **Shell values are uncallable** — a shell FuncVal carries an EMPTY
+   capture snapshot, and the inline-FuncVal call arm builds the body env
+   from it (`capture_env_for`), so calling a shell evaluated its body in an
+   env with NO module bindings (`Variable "GlobalAllocator" not found`,
+   push's body from slice_copy's trial). Provisional forward entries must
+   carry `value : None` — callable from the TYPE alone, the trait-splice
+   contract.
+3. **The eager pre-pass itself diverges imm_map** — experiment B (pre-pass
+   head-evals kept, registration DISABLED) still turned
+   `tests/imm_map.test.yo` RED: `Map(i32,i32).new()`'s batch-time
+   specialization failed `Type mismatch for type member "_root": Expected
+<enum>, Got Type(1)`. The poison is the EARLY evaluation of every
+   field's signature head (map.yo's `Map(K, U)` instantiations), not the
+   entries. A `YO_C2_PREPASS_SKIP` bisect build confirmed module locality:
+   skipping only imm/map went GREEN. The underlying instantiation-order
+   fragility is still unexplained — TS runs the same eager shape safely.
+4. **Resolution: lazy materialization.** Case 2 pushes an in-flight record
+   (receiver id, unevaluated colon-pair fields incl. trait-constructor
+   inners, forall env, ctx); env.yo's provisional-miss paths call
+   `materialize_in_flight_method` (callback slot), which head-evals ONLY
+   the sibling actually asked for, once per label. Sweep: 188/188 GREEN
+   expected (imm_map verified 21/21 directly; full sweep pending).
+5. **Family B**: name-only side table (`types/creators.yo`), registered
+   syntactically at the impl binder site, resolved PURELY (builtin scalar
+   names) in `_build_def_time_body_env`'s capture copy, cleared with the
+   impl. The forall-env binding stays `TypeVal(SomeT)` (load-bearing for
+   receiver-pattern eval).
+
 ### B. Impl-level VALUE binder bound as a TYPE (#4, #5, #6)
 
 ```rust

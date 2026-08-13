@@ -77,7 +77,7 @@ _(env : impl_dbg_env) :: import("std/env");
 { random_id } :: import("../../utils.yo");
 { register_func_type } :: import("../../function_value.yo");
 { EvalValue, FuncValData, create_type_value, create_unknown_val } :: import("../../value.yo");
-{ EvalContext, ExpectedTypeCtx } :: import("../context.yo");
+{ EvalContext, ExpectedTypeCtx, in_def_time_trial } :: import("../context.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { evaluate_anonymous_module_begin_exprs } :: import("./anonymous_module.yo");
 { format_error_message } :: import("../../error.yo");
@@ -431,8 +431,29 @@ register_negative_impl :: (fn(type_id : String, trait_id : String) -> unit)({
 _resolve_one_forall_binding :: (
   fn(expected_env : Environment, fa_some : TypeValue, fa_name : String) -> Option(TypeValue)
 )({
+  // TS parity (impl.ts tryMatchGenericImpl, substitutions extraction): a
+  // binding unified to a DIFFERENT SomeType is a binding — "include the
+  // substitution if resolved to a concrete type, OR unified to a different
+  // SomeType; only skip when it is still its own original SomeType". A
+  // cross-impl method call at DEFINITION time is exactly this case: the
+  // Clone impl's `self.len()` matches the inherent `ArrayList(T)` impl
+  // against `ArrayList(T')`, binding T := T' (abstract). Rejecting every
+  // SomeT here made the call degrade to unit and the def-time trial
+  // swallow the whole body (root #3 of
+  // issues/def-eval-swallow-remaining-roots.md).
+  fa_some_id := match(fa_some, .SomeT({ id : __fsi }) => __fsi, _ => String.from(""));
   bound_type := get_value_of_some_type_from_env(expected_env, fa_some);
   if(!(is_some_type(bound_type)), {
+    return(Option(TypeValue).Some(bound_type));
+  });
+  // Accept a DIFFERENT-id SomeT from the ID-keyED channel ONLY: that is a
+  // genuine unification (T := the CALLER's own binder — the cross-impl
+  // def-time dispatch case, root #3). The NAME-based fallback below stays
+  // concrete-only: name lookup can hit an unrelated same-name SomeT from
+  // an outer scope, and accepting those broke std module evaluation
+  // ("Incompatible function return type" from std/string — measured).
+  bt_id := match(bound_type, .SomeT({ id : __bti }) => __bti, _ => String.from(""));
+  if((bt_id.len() > usize(0)) && (bt_id != fa_some_id), {
     return(Option(TypeValue).Some(bound_type));
   });
   // Name-based fallback: look up `fa_name` directly in `expected_env`.
@@ -448,7 +469,21 @@ _resolve_one_forall_binding :: (
       ev,
       .TypeVal(b) => cond(
         !(is_some_type(b)) => Option(TypeValue).Some(b),
-        true => Option(TypeValue).None
+        // Abstract (different-id SomeT) name-channel binding: accepted ONLY
+        // inside a definition-time body trial. There it is what resolves a
+        // sibling impl's method dispatch (array_list's Clone impl calling
+        // the inherent impl's `len` on ArrayList(T') — matching binds
+        // T := T'); everywhere else name lookup can hit an unrelated
+        // same-name SomeT from an outer scope, and unscoped acceptance
+        // broke std module evaluation ("Incompatible function return
+        // type" — measured 2026-08-13).
+        true => {
+          nb_id := match(b, .SomeT({ id : __nbi }) => __nbi, _ => String.from(""));
+          cond(
+            ((in_def_time_trial() && (nb_id.len() > usize(0))) && (nb_id != fa_some_id)) => Option(TypeValue).Some(b),
+            true => Option(TypeValue).None
+          )
+        }
       ),
       // VALUE-level generic (`generic(U : usize)` array lengths): the
       // synthesizer binds the variable to an IntLit. Represent the
