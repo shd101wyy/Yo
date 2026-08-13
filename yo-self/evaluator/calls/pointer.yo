@@ -21,7 +21,8 @@ open(import("std/fmt"));
   expr_info_table_set
 } :: import("../../expr_info.yo");
 { Environment } :: import("../../env.yo");
-{ EvalContext } :: import("../context.yo");
+{ EvalContext, in_def_time_trial } :: import("../context.yo");
+_(env : ptr_dbg_env) :: import("std/env");
 { EvalValue, create_type_value, is_type_value } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_ptr, t_i32 } :: import("../../types/creators.yo");
@@ -129,6 +130,9 @@ If you need to thread a handler through code, pass it by value (handlers are fn-
       });
       ptr_ty := t_ptr(inner_ty);
       ptr_val := create_type_value(ptr_ty);
+      if(in_def_time_trial() && ptr_dbg_env.get(`YO_DEBUG_CTFE`).is_some(), {
+        eprintln(`[ptr-call] inner=${type_to_string(inner_ty)} out=${type_to_string(ptr_ty)}`);
+      });
       meta_ty := type_of_type(ptr_ty);
       next_env := arg_info.env;
       out_info := new_expr_info(next_env, meta_ty);

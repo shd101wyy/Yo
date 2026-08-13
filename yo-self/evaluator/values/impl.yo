@@ -643,7 +643,13 @@ _bind_forall_from_type_args :: (
     if(is_match, {
       match(
         con_ta.get(j),
-        .Some(ct) => if(!(is_some_type(ct)), {
+        // `Unit` in a type_arguments slot is the NON-TYPE-ARG placeholder
+        // (comptime_fn.yo inst_type_args pads value args with Unit so
+        // positions line up) — never a real binding. Binding a forall to it
+        // specialized `_find_bucket` with `key : unit` under the HashMap
+        // Clone-impl trial and the sibling `set` re-eval swallowed
+        // ("Cannot unify u64 and unit", hash_map:714 of the corpus family).
+        .Some(ct) => if((!(is_some_type(ct))) && !(match(ct, .Unit => true, _ => false)), {
           return(Option(TypeValue).Some(ct));
         }, {
           // Trial-scoped abstract acceptance — same contract as
@@ -779,13 +785,49 @@ try_match_generic_impl :: (
       }
     )
   );
+  if(impl_dbg_env.get(`YO_DEBUG_BIND`).is_some(), {
+    (tmf_ids : String) = String.from("");
+    (tmf_i : usize) = usize(0);
+    while(tmf_i < unify_env.frames.len(), {
+      match(
+        unify_env.frames.get(tmf_i),
+        .Some(tmf_f) => {
+          tmf_ids.push_string(tmf_f.id.to_string());
+          tmf_ids.push_string(String.from(","));
+        },
+        .None => ()
+      );
+      tmf_i = (tmf_i + usize(1));
+    });
+    tmf_lvl := match(
+      entry.forall_some_types.get(usize(0)),
+      .Some(tmf_st) => match(tmf_st, .SomeT({ frame_level : tmf_l }) => tmf_l, _ => usize(9999)),
+      .None => usize(9999)
+    );
+    eprintln(`[tm-frames] pat=${type_to_string(entry.receiver_type_pattern)} fa0_lvl=${tmf_lvl.to_string()} frames=${tmf_ids}`);
+  });
   checked := ArrayList(TypePair).new();
   opts := Option(SynthesizeOptions).None;
+  // Isolate the GIVEN side exactly like the expected side above: TS's
+  // tryMatchGenericImpl runs synthesis in scratch chains it DISCARDS
+  // (impl.ts:2243 pushEnvFrame — persistent chains make every update
+  // invisible to the caller). yo-self passed the caller `env` RAW, so the
+  // synthesizer's given-side shadow-binds landed in the caller env's TOP
+  // frame — during a def-time trial that frame is DURABLE and SHARED, and
+  // one candidate's junk binding (`T := <hash_map struct>` written while
+  // probing a hash_map-family entry against a HashSet receiver) then
+  // poisoned every LATER match's (frame-level, name) resolution: the
+  // blanket pointer impl's `T` resolved to the junk struct, `*(u8)` failed
+  // to unify against it, `.add` dispatch found nothing, and the trial
+  // swallowed ("Failed to evaluate, got ((ctrl_ptr.add)(i).(*))" — the
+  // hash_set corpus family, issues/def-eval-swallow-remaining-roots.md).
+  (given_scratch : Environment) = snapshot_env(env);
+  given_scratch.push_frame(false);
   synth_result := synthesize_types(
     entry.receiver_type_pattern,
     unify_env,
     resolved_concrete,
-    env,
+    given_scratch,
     checked,
     opts,
     exn_match
@@ -1342,6 +1384,9 @@ find_methods_from_generic_impls :: (
         ei = (ei + usize(1));
       }, {
         mb_opt := try_match_generic_impl(resolved, entry, env);
+        if((in_def_time_trial() && impl_dbg_env.get(`YO_DEBUG_DISPATCH`).is_some()) && (method_name == "add"), {
+          eprintln(`[fmg-try] name=${method_name} recv=${type_to_string(resolved)} pat=${type_to_string(entry.receiver_type_pattern)} matched=${mb_opt.is_some().to_string()}`);
+        });
         if(mb_opt.is_none(), {
           ei = (ei + usize(1));
         }, {

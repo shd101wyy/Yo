@@ -19,7 +19,7 @@ open(import("std/string"));
 open(import("std/fmt"));
 _(env : ctfe_dbg_env) :: import("std/env");
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr, clone_expr_fresh_ids } :: import("../../expr.yo");
+{ AstExpr, ast_expr_token, ast_expr_id, ast_expr_to_string, make_err_expr, clone_expr_fresh_ids } :: import("../../expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_get, register_struct_ctor_fid, lookup_struct_ctor_fid, register_trait_ctor_fid, ComptimeRef } :: import("../../expr_info.yo");
 { Variable, Environment, snapshot_env } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -688,7 +688,12 @@ evaluate_comptime_fn_call :: (
       );
       dbge_i = (dbge_i + usize(1));
     });
-    eprintln(`[ctfe-in] fid=${func_id_str} args=${dbge_args}`);
+    dbge_callee := match(
+      function_callee_expr,
+      .Some(fce) => ast_expr_to_string(fce),
+      .None => String.from("<none>")
+    );
+    eprintln(`[ctfe-in] fid=${func_id_str} callee=${dbge_callee} args=${dbge_args}`);
   });
   // Execution gate for unknown arguments. TS never executes a comptime body
   // when an argument is a runtime unknown: its runtime-unknowns are

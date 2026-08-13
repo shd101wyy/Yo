@@ -1,5 +1,80 @@
 # The def-eval swallow: remaining roots, measured and attributed
 
+> **CORPUS PHASE (2026-08-13, after the minimal-repro 19 → 0).** The
+> WIDER corpus (self-compile of yo-self: 3603 trials; fast repro:
+> `issues/repros/`-adjacent driver importing hash_map THEN hash_set)
+> exposed a pre-existing family the minimal repro never reached — 5
+> swallows, three stacked roots, **ALL FIXED — the full self-compile
+> corpus is now SWALLOW-FREE (3603 trials, 0 swallows, 0 FTT markers,
+> fix tip `1dce05268` on PR #120)**:
+>
+> - **hash_set ×4 ("Failed to evaluate, got ((ctrl_ptr.add)(i).(\*))") —
+>   FIXED** (`5c748639e`): `try_match_generic_impl` passed the caller env
+>   RAW as the given side, so every candidate probe's given-side
+>   shadow-binds landed durably in the shared trial env; one hash_map-era
+>   probe's `T := <hash_map struct>` junk then broke the blanket pointer
+>   impl's `T` resolution for every later `.add`. Fix: scratch frame on
+>   the given side (TS discards its chains, impl.ts:2243). Also fixed
+>   upstream layer (`53ad21724`): `_bind_some_type` now binds a type
+>   variable with its KIND (`type_of_type`), not the bound type — TS
+>   value.type parity — and its in-place path preserves the old
+>   variable's type.
+> - **hash_map:714 ("Cannot unify u64 and unit" in the Clone impl's
+>   trial) — FIXED (`1dce05268`, dig record below):** the failure is GARBAGE-IN: inside the
+>   Clone body's nested `result.set(k, v)` eval, `k` is ALREADY
+>   unit-typed — the degrade happens in the
+>   `it.next()` → `bucket_ptr.*.key.clone()` chain (hash_map.yo:719-733)
+>   before `set` runs; `set`'s param synthesis then binds `K := unit`
+>   (call-scoped, legitimately) and the sibling `_find_bucket` spec
+>   mints `key : unit`. Two defensive fixes landed alongside
+>   (Unit-placeholder guard in `_bind_forall_from_type_args`;
+>   trial-scoped callee-env scratch isolation in helper.yo Step 7 —
+>   which contained the previously DURABLE cross-trial variant of the
+>   K-junk, `[bind-T]` fid-verified). **Frontier (probed to the exact link):** the deref
+>   `bucket_ptr.(*)` inside the Clone body ends up UNSTAMPED — `.key`'s
+>   object eval runs it (property_access.yo:547) but the node carries no
+>   ExprInfo afterwards ([pa-fallthrough] prop=key obj_ty=<no-info>), and
+>   NO `prop=*` fallthrough prints, so the deref neither took the
+>   pointer-deref arm's stamping paths nor the final fallback.
+>   **LAYER 4 (probed via `[pa-deref-in]`):** the deref DOES enter
+>   `evaluate_property_access`'s deref arm, but `bucket_ptr` itself is
+>   stamped as a BARE STRUCT — `obj_ty=<struct:struct_yo_id_3384>`
+>   (generic `Bucket(K,V)`), no pointer wrapper — so every pointer path
+>   in the arm misses and it exits without stamping. The healthy sibling
+>   line shows what it should be: `(data_ptr.add)((self._index))
+obj_ty=*(<struct:struct_yo_id_3134>)`. `bucket_ptr` is bound by the
+>   match binder from `it.next()`'s return type `enum_yo_id_3386` =
+>   def-time-evaluated `Option(*(Bucket(K, V)))` — and the binder binds
+>   `variant_fields_wf.get(i)` verbatim, so enum 3386's `Some` field
+>   holds the bare struct: **the `*(...)` wrap was lost when enum 3386
+>   was CREATED** — so it first looked like a lost `*` wrap.
+>   **ROOT FOUND (layer 5, `[arg-eval]` probe):** enum 3386 is not a
+>   mangled `Option(*(Bucket))` at all — it is the perfectly healthy
+>   return type of THE WRONG `next`. `[arg-eval]` showed the re-eval
+>   evaluating literal AST `Option(Bucket(K, V))` — hash_map.yo:512, the
+>   BY-VALUE iterator `HashMapIter`'s `next`. `[tm-try]`/`[fmg-cand]`
+>   confirmed the dispatch: for receiver `HashMapIterPtr(K,V)` (struct 3503) BOTH `next` candidates bind — `pat=struct_3370` (HashMapIter →
+>   enum 3386) FIRST, `pat=struct_3458` (HashMapIterPtr → enum 3137 =
+>   `Option(*(Bucket))`) second — and the first wins. They unify because
+>   the trial-scoped STRUCTURAL fallback in the synthesizer's
+>   struct-vs-struct arm (added for original root #3) accepts same name
+>   - same field labels, and the two iterator structs are both ANONYMOUS
+>     (`name=""`) with identical fields `(_map, _index)`. Structural
+>     checking can never separate them; only nominal identity (ctor fid)
+>     can — TS compares funcIds (synthesizer.ts:662). **FIX:** the shape
+>     fallback now requires a MISSING effective cfid on at least one side
+>     (its original rescue purpose); when both cfids are known and differ,
+>     the pair rejects nominally (`cfid_unknown3` gate,
+>     evaluator/types/synthesizer.yo). Hooks in-tree: [rm-early],
+>     [rcv-swallow], [pa-fallthrough], [pa-deref-in], [ptr-call],
+>     [match-bind], [arg-eval] (YO_DEBUG_CTFE2), `[ctfe-in] callee=` (all
+>     YO_DEBUG_CTFE-gated unless noted).
+>
+> Debug hooks added this phase (all env-gated, in-tree): `[rm-miss]`,
+> `[fmg-try]`, `[tm-frames]`, `[call-none] callee_ty`, and
+> `[bind-T]`/`YO_DEBUG_BIND=<name>` (write-side frame-id tracing in
+> `_bind_some_type`).
+
 > **STATE 2026-08-13 (third session, later): 19 → 0. ALL ROOTS FIXED.**
 > Root 537's true root was a MIS-PORT in `_filter_receiver_methods`
 > (yo-self/env.yo): the pointee-vs-receiver check used the LENIENT

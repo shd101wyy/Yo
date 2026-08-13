@@ -220,7 +220,18 @@ ReceiverMethodResult :: struct(
 _try_eval_receiver_node :: (
   fn(arg : AstExpr, env : Environment, ctx : EvalContext, out : ArrayList(AstExpr)) -> unit
 )({
-  rcv_exn := Exception(throw : ((_e) -> unwind(())));
+  rcv_exn := Exception(
+    throw : (
+      (_e) -> {
+        // Capture-free swallow; YO_DEBUG_CTFE surfaces the error (the same
+        // pattern as _trial_eval_fn_body's [swallow] hook).
+        if(fncall_dbg_env.get(`YO_DEBUG_CTFE`).is_some(), {
+          eprintln(`[rcv-swallow] ${_e.to_string()}`);
+        });
+        unwind(());
+      }
+    )
+  );
   rcv_evaled := evaluate_expression_raw(arg, env, ctx, rcv_exn);
   out.push(rcv_evaled);
 });
@@ -281,10 +292,16 @@ _try_find_receiver_method :: (
             ri2
           },
           .None => {
+            if(in_def_time_trial() && fncall_dbg_env.get(`YO_DEBUG_CTFE`).is_some(), {
+              eprintln(`[rm-early] reason=recv-eval-no-info recv=${ast_expr_to_string(receiver_expr)}`);
+            });
             return(Option(ReceiverMethodResult).None);
           }
         ),
         .None => {
+          if(in_def_time_trial() && fncall_dbg_env.get(`YO_DEBUG_CTFE`).is_some(), {
+            eprintln(`[rm-early] reason=recv-eval-failed recv=${ast_expr_to_string(receiver_expr)}`);
+          });
           return(Option(ReceiverMethodResult).None);
         }
       )
@@ -330,6 +347,9 @@ _try_find_receiver_method :: (
     )
   );
   if(hits.len() == usize(0), {
+    if(in_def_time_trial() && fncall_dbg_env.get(`YO_DEBUG_CTFE`).is_some(), {
+      eprintln(`[rm-miss] name=${method_name} recv=${type_to_string(receiver_type)} static=${is_static.to_string()}`);
+    });
     return(Option(ReceiverMethodResult).None);
   });
   // Take the first hit (mirrors the prior "first match wins"
@@ -4597,6 +4617,14 @@ Fix: wrap the call:
                 new_expr_info(env, t_unit())
               }
             );
+            if(in_def_time_trial() && fncall_dbg_env.get(`YO_DEBUG_CTFE2`).is_some(), {
+              ae_val_str := match(
+                arg_info.value,
+                .Some(aev) => value_to_string(aev),
+                .None => String.from("<no-val>")
+              );
+              eprintln(`[arg-eval] expr=${ast_expr_to_string(arg_expr_eff)} ty=${type_to_string(arg_info.ty)} val=${ae_val_str}`);
+            });
             _push_arg := evaled_arg_infos.push(arg_info);
             // A COMPTIME variadic's trailing args (indices >= n_p) are not C
             // arguments either — `rt_ct_flags_args` only covers the FIXED
@@ -6378,7 +6406,7 @@ Fix: wrap the call:
             );
           });
           if(in_def_time_trial() && fncall_dbg_env.get(`YO_DEBUG_CTFE`).is_some(), {
-            eprintln(`[call-none] ret=${type_to_string(ret_type_none)} callee=${ast_expr_to_string(func_expr)}`);
+            eprintln(`[call-none] ret=${type_to_string(ret_type_none)} callee=${ast_expr_to_string(func_expr)} callee_ty=${type_to_string(callee_ty_none)}`);
           });
           out_none := new_expr_info(call_result_none.caller_env, ret_type_none);
           out_none.value = Option(EvalValue).Some(_call_result_unknown(ret_type_none, callee_env));
