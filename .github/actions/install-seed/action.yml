@@ -1,0 +1,44 @@
+name: Install the Yo seed compiler
+description: >
+  Download the pinned previous-release native bundle (P2_RETIRE_SRC.md §2.3)
+  and put its bin/ on PATH. Bundles are self-locating (no YO_STD needed).
+inputs:
+  version:
+    description: Seed release tag (e.g. v0.2.0)
+    required: true
+runs:
+  using: composite
+  steps:
+    - id: install
+      shell: bash
+      run: |
+        case "${{ runner.os }}-${{ runner.arch }}" in
+          Linux-X64) T=linux-x64 ;;
+          Linux-ARM64) T=linux-arm64 ;;
+          macOS-ARM64) T=macos-arm64 ;;
+          macOS-X64) T=macos-x64 ;;
+          Windows-X64) T=windows-x64 ;;
+          *) echo "::error::unsupported runner ${{ runner.os }}-${{ runner.arch }}"; exit 1 ;;
+        esac
+        URL="https://github.com/${{ github.repository }}/releases/download/${{ inputs.version }}/yo-${{ inputs.version }}-${T}.tar.gz"
+        # FAIL HARD on a missing bundle. This used to warn and set an
+        # `installed=false` output that no caller read, so a retired or
+        # never-built target degraded to "no yo on PATH" — or, worse, to an
+        # unrelated `yo` — and the job failed somewhere confusing instead of
+        # here. The seed IS the trust-chain root: if it is absent, stop.
+        if ! curl -fsSL -o "$RUNNER_TEMP/yo-seed.tar.gz" "$URL"; then
+          echo "::error::No seed bundle for ${T} at ${{ inputs.version }} ($URL). Causes, in order of likelihood: (1) the release is still a DRAFT — releases are created as drafts and published only after every required bundle leg uploads, and a draft's assets 404 on this public download URL; (2) the release genuinely has no bundle for this target; (3) SEED_VERSION points at a tag that predates the leg. Wait for publish-release, or bump SEED_VERSION to a PUBLISHED release whose seed matrix covers this target."
+          exit 1
+        fi
+        # Record the bundle's digest in the log. Not a pin (that needs a
+        # committed checksum per release/target — P3 hardening); this makes a
+        # swapped bundle forensically visible after the fact.
+        if command -v sha256sum >/dev/null 2>&1; then
+          sha256sum "$RUNNER_TEMP/yo-seed.tar.gz"
+        elif command -v shasum >/dev/null 2>&1; then
+          shasum -a 256 "$RUNNER_TEMP/yo-seed.tar.gz"
+        fi
+        mkdir -p "$RUNNER_TEMP/yo-seed"
+        tar -xzf "$RUNNER_TEMP/yo-seed.tar.gz" -C "$RUNNER_TEMP/yo-seed" --strip-components=1
+        echo "$RUNNER_TEMP/yo-seed/bin" >> "$GITHUB_PATH"
+        echo "seed ${T} installed from ${{ inputs.version }}"

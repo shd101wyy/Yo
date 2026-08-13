@@ -47,7 +47,19 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           SHA=$(git rev-parse HEAD)
-          echo "Releasing $SHA"
+          # A pure version-bump commit is the release workflow's own output
+          # and lands with [skip ci] (two version fields; a full suite run
+          # per release would be waste). It has no test run of its own, so
+          # gate on its PARENT in that case.
+          MSG=$(git log -1 --pretty=%s)
+          if [[ "$MSG" == "chore: bump version"* ]]; then
+            NON_PKG=$(git diff --name-only HEAD~1 HEAD | grep -cvE '^(package\.json|vscode-extension/package\.json)$' || true)
+            if [[ "$NON_PKG" == "0" ]]; then
+              SHA=$(git rev-parse HEAD~1)
+              echo "HEAD is a pure version bump — gating on parent $SHA"
+            fi
+          fi
+          echo "Releasing $(git rev-parse HEAD) (gate SHA: $SHA)"
           CONCLUSION=$(gh api \
             "repos/${{ github.repository }}/actions/workflows/test.yml/runs?head_sha=$SHA&status=completed" \
             --jq '[.workflow_runs[] | select(.conclusion != null)] | first | .conclusion // "none"')
@@ -119,7 +131,7 @@ jobs:
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           git add package.json vscode-extension/package.json vscode-extension/package-lock.json yo-self/version.yo
-          git commit -m "chore: bump version to ${{ steps.version.outputs.version }}"
+          git commit -m "chore: bump version to ${{ steps.version.outputs.version }} [skip ci]"
           # A personal repo's ruleset CANNOT grant the Actions integration a
           # bypass (HTTP 422 "must be part of the ruleset source or owner
           # organization"), so a protected develop rejects this direct push.
@@ -134,7 +146,7 @@ jobs:
             echo "Direct push rejected by branch protection - opening a version-bump PR via ${BRANCH}."
             git push -f origin "HEAD:refs/heads/${BRANCH}"
             gh pr create --base develop --head "${BRANCH}" \
-              --title "chore: bump version to ${{ steps.version.outputs.version }}" \
+              --title "chore: bump version to ${{ steps.version.outputs.version }} [skip ci]" \
               --body "Automated version bump from the release workflow (direct push to develop is blocked by branch protection). Merge before the next release so future bumps start from this version." \
               || echo "::warning::gh pr create failed — open the version-bump PR manually from branch ${BRANCH} (v0.2.0's failed silently on a missing pull-requests:write permission)."
           fi
@@ -246,15 +258,16 @@ jobs:
           # Intel macOS) and Intel-Mac users build from source.
           - os: macos-26-intel
             target: macos-x64
-            experimental: true
-          # windows-x64 stays experimental: the v0.2.0 leg surfaced the
+            experimental: false
+          # windows-x64 PROMOTED (v0.2.1 proved it E2E: bundle built, smoked,
+          # shipped). History: the v0.2.0 leg surfaced the
           # anticipated porting tail (POSIX-isms in the compiler's own
           # closure — see issues/fixed/windows-native-selfhosted-build-fails.md);
           # the windows CI job now builds the native compiler non-gating to
           # catch regressions ahead of release time.
           - os: windows-latest
             target: windows-x64
-            experimental: true
+            experimental: false
 
     steps:
       - name: Checkout the released commit

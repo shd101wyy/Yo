@@ -12,6 +12,34 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # 2.3 CI migration (P2_RETIRE_SRC.md §2.3): the previous release (the
+  # bootstrap seed) builds stage-1 in every self-hosted job — the trust
+  # chain is "previous release builds current compiler". Bump each release.
+  #
+  # MUST be a release whose seed can build a CORRECT current yo-self. Two
+  # separate codegen defects have made older seeds unusable here:
+  #   - v0.2.0/v0.2.1 miscompile current sources outright (a stage-1 built by
+  #     them fails comptime/fn and crashes in mi_free) —
+  #     issues/fixed/seed-built-stage1-miscompiles-current-source.md
+  #   - v0.2.2 shallow-copies every awaited RC result into its state-machine
+  #     slot, so a stage-1 IT builds has a use-after-free in every async path
+  #     and scores 15/27 on the cli-case differential —
+  #     issues/fixed/self-built-compiler-uaf-in-report-and-build-paths.md
+  # v0.2.3 is the first seed whose OWN codegen carries both fixes. Note a
+  # codegen fix always takes TWO generations to reach a seed-built binary: the
+  # fix must be IN the seed, not merely in the sources the seed compiles.
+  # install-seed fails hard if the pinned release has no bundle for a target.
+  #
+  # Must name a PUBLISHED release. Releases are created as drafts and flipped
+  # public by the release workflow's publish-release job only after every
+  # required bundle leg uploads (so `latest` can never point at a bundle-less
+  # release) — and a DRAFT release's assets 404 on the public download URL.
+  # Bumping this pin before publish-release has run fails all four
+  # seed-driven jobs at the download, which is exactly what happened on the
+  # first push of this pin.
+  SEED_VERSION: v0.2.4
+
 jobs:
   test:
     runs-on: ${{ matrix.os }}
@@ -61,18 +89,16 @@ jobs:
       - name: Install dependencies
         run: |
           bun install
+          npm install -g @vscode/vsce
           bun run build
           bun run scripts/build-site.ts --output yo-out/site
 
-      # The extension is a VS Code client, so it lives in the Node/npm ecosystem
-      # its own tooling (vsce, vscode-languageclient, @types/vscode) is built
-      # for. Keeping it on npm means bun is needed NOWHERE once src/ retires,
-      # rather than surviving for this one job.
       - name: Bundle vscode extension
         run: |
           cd vscode-extension
-          npm ci
-          npm run package
+          bun install
+          bun run build
+          bun package
 
       - name: Publish extension to Visual Studio Marketplace
         id: create_vsix
@@ -183,20 +209,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y liburing-dev time
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+      # 2.3 CI migration (P2_RETIRE_SRC.md §2.3): NO bun/node in this job —
+      # the SEED (previous release) builds stage-1. The trust chain becomes
+      # previous release → stage-1 → stage-2 ≡ stage-3.
+      - name: Install the seed compiler (previous release)
+        uses: ./.github/actions/install-seed
         with:
-          bun-version: latest
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-
-      - name: Install dependencies
-        run: |
-          bun install
-          bun run build
+          version: ${{ env.SEED_VERSION }}
 
       # The whole chain runs on the bundled mimalloc: glibc malloc inflates
       # the emit's RSS ~72% over its live set (15.5 GB observed vs 9.0 GB
@@ -206,9 +225,19 @@ jobs:
       # --allocator flag changes the emitted C (a small __yo_malloc →
       # mi_malloc header block), so BOTH emit commands pass it and the
       # fixpoint compares mimalloc-flavored C on both sides (verified to
-      # hold locally).
-      - name: "Stage 1: build the self-hosted compiler with the TS compiler"
-        run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs compile yo-self/main.yo --release --allocator mimalloc -o /tmp/yo-stage1
+      # hold locally). Stage-1 is now itself a self-hosted emit (the seed),
+      # so it runs niced with the zswap prep the stage-2 emit uses.
+      - name: "Stage 1: build the self-hosted compiler with the SEED (previous release)"
+        run: |
+          echo Y | sudo tee /sys/module/zswap/parameters/enabled || true
+          # --std-path ./std is LOAD-BEARING. Without it the seed self-locates
+          # its OWN bundled std (the walk-up from its bin/ dir), so stage-1
+          # would be "current yo-self sources + the PREVIOUS RELEASE's std" —
+          # a hybrid that never ships, which both masks std regressions and
+          # can manufacture failures. Measured 2026-08-11: a seed-compiled
+          # program picked up the seed's std/env.yo (3 mi_free errors from the
+          # already-fixed cross-allocator free) and 0 with --std-path ./std.
+          nice -n 10 env YO_MAIN_STACK_MB=4096 yo compile yo-self/main.yo --release --allocator mimalloc --std-path ./std -o /tmp/yo-stage1
 
       # Memory plan for the emits (measured 2026-08-04, handoff doc §1):
       # the emit holds ~9 GB live but TOUCHES ~28 GB (stage-2) / ~39 GB
@@ -235,14 +264,7 @@ jobs:
             env YO_MAIN_STACK_MB=4096 nice -n 10 /usr/bin/time -v \
             /tmp/yo-stage1 compile yo-self/main.yo --release --emit-c --skip-c-compiler --allocator mimalloc -o /tmp/yo-stage2
           kill $SAMPLER || true
-          # `// Error:` joined this list when both codegens were changed to HALT
-          # rather than emit a skippable C comment for an untranspilable
-          # expression. All three patterns should now be unreachable by
-          # construction, so this is a backstop against a new marker site.
-          # ANCHORED on purpose: unanchored, this matches yo-self's own source
-          # STRING LITERALS for these messages (13 of them) and reports a clean
-          # self-emit as broken.
-          markers=$(grep -cE '^\s*// (Failed to transpile|Unknown type:|Error:)' /tmp/yo-stage2.c || true)
+          markers=$(grep -cE '^\s*// (Failed to transpile|Unknown type:)' /tmp/yo-stage2.c || true)
           echo "stage-2 markers: $markers"
           test "$markers" = "0"
 
@@ -357,6 +379,22 @@ jobs:
         with:
           submodules: recursive
 
+      # The seed-built stage-1 is a NATIVE self-emit: ~9-11.5 GB peak (AGENTS.md),
+      # where the TS-built stage-1 it replaced was capped at 4 GB by
+      # --max-old-space-size. On a 16 GB runner that is marginal, and it showed —
+      # this job died with "The hosted runner lost communication with the server"
+      # (the CPU/memory-starvation signature) on the first seed-driven run, while
+      # the other two converted jobs survived by luck. Take the same headroom the
+      # bootstrap-fixpoint job already does. NOTE /swapfile is taken (the runner
+      # ships with one active — "Text file busy"); use the /mnt resource disk.
+      - name: Add swap space
+        run: |
+          sudo fallocate -l 32G /mnt/swapfile
+          sudo chmod 600 /mnt/swapfile
+          sudo mkswap /mnt/swapfile
+          sudo swapon /mnt/swapfile
+          free -h
+
       - name: Install liburing
         run: |
           sudo apt-get update
@@ -372,13 +410,22 @@ jobs:
         with:
           node-version: "24"
 
+      # bun stays: the gates' differential corpus runs the TS CLI as ground
+      # truth (until 2.5). Only stage-1's BUILDER changes to the seed.
       - name: Install dependencies
         run: |
           bun install
           bun run build
 
-      - name: "Stage 1: build the self-hosted compiler with the TS compiler"
-        run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs compile yo-self/main.yo --release -o /tmp/yo-stage1
+      - name: Install the seed compiler (previous release)
+        uses: ./.github/actions/install-seed
+        with:
+          version: ${{ env.SEED_VERSION }}
+
+      - name: "Stage 1: build the self-hosted compiler with the SEED (previous release)"
+        # --std-path ./std is load-bearing: without it the seed compiles against
+        # its own bundled std, not this checkout's. See the fixpoint job.
+        run: YO_MAIN_STACK_MB=4096 nice -n 10 yo compile yo-self/main.yo --release --allocator mimalloc --std-path ./std -o /tmp/yo-stage1
 
       # YO_MAIN_STACK_MB: compiled Yo programs run main on a worker thread whose
       # stack defaults to 1 GiB; the self-hosted compiler's deep comptime
@@ -545,28 +592,40 @@ jobs:
         with:
           submodules: recursive
 
+      # The seed-built stage-1 is a NATIVE self-emit: ~9-11.5 GB peak (AGENTS.md),
+      # where the TS-built stage-1 it replaced was capped at 4 GB by
+      # --max-old-space-size. On a 16 GB runner that is marginal, and it showed —
+      # this job died with "The hosted runner lost communication with the server"
+      # (the CPU/memory-starvation signature) on the first seed-driven run, while
+      # the other two converted jobs survived by luck. Take the same headroom the
+      # bootstrap-fixpoint job already does. NOTE /swapfile is taken (the runner
+      # ships with one active — "Text file busy"); use the /mnt resource disk.
+      - name: Add swap space
+        run: |
+          sudo fallocate -l 32G /mnt/swapfile
+          sudo chmod 600 /mnt/swapfile
+          sudo mkswap /mnt/swapfile
+          sudo swapon /mnt/swapfile
+          free -h
+
       - name: Install liburing
         run: |
           sudo apt-get update
           sudo apt-get install -y liburing-dev
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+      # 2.3: NO bun/node — this job runs only the self-hosted binary; the
+      # SEED builds stage-1. (The Setup Bun / Setup Node.js steps that used to
+      # sit here were dead the moment stage-1 moved to the seed, and directly
+      # contradicted this comment.)
+      - name: Install the seed compiler (previous release)
+        uses: ./.github/actions/install-seed
         with:
-          bun-version: latest
+          version: ${{ env.SEED_VERSION }}
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-
-      - name: Install dependencies
-        run: |
-          bun install
-          bun run build
-
-      - name: "Stage 1: build the self-hosted compiler with the TS compiler"
-        run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs compile yo-self/main.yo --release -o /tmp/yo-stage1
+      - name: "Stage 1: build the self-hosted compiler with the SEED (previous release)"
+        # --std-path ./std is load-bearing: without it the seed compiles against
+        # its own bundled std, not this checkout's. See the fixpoint job.
+        run: YO_MAIN_STACK_MB=4096 nice -n 10 yo compile yo-self/main.yo --release --allocator mimalloc --std-path ./std -o /tmp/yo-stage1
 
       - name: Run tests/internal under the self-hosted binary (differential)
         env:
@@ -748,28 +807,38 @@ jobs:
         with:
           submodules: recursive
 
+      # The seed-built stage-1 is a NATIVE self-emit: ~9-11.5 GB peak (AGENTS.md),
+      # where the TS-built stage-1 it replaced was capped at 4 GB by
+      # --max-old-space-size. On a 16 GB runner that is marginal, and it showed —
+      # this job died with "The hosted runner lost communication with the server"
+      # (the CPU/memory-starvation signature) on the first seed-driven run, while
+      # the other two converted jobs survived by luck. Take the same headroom the
+      # bootstrap-fixpoint job already does. NOTE /swapfile is taken (the runner
+      # ships with one active — "Text file busy"); use the /mnt resource disk.
+      - name: Add swap space
+        run: |
+          sudo fallocate -l 32G /mnt/swapfile
+          sudo chmod 600 /mnt/swapfile
+          sudo mkswap /mnt/swapfile
+          sudo swapon /mnt/swapfile
+          free -h
+
       - name: Install liburing
         run: |
           sudo apt-get update
           sudo apt-get install -y liburing-dev
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+      # 2.3: NO bun/node — the sweep scores only the self-hosted binary; the
+      # SEED builds stage-1.
+      - name: Install the seed compiler (previous release)
+        uses: ./.github/actions/install-seed
         with:
-          bun-version: latest
+          version: ${{ env.SEED_VERSION }}
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-
-      - name: Install dependencies
-        run: |
-          bun install
-          bun run build
-
-      - name: "Stage 1: build the self-hosted compiler with the TS compiler"
-        run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs compile yo-self/main.yo --release -o /tmp/yo-stage1
+      - name: "Stage 1: build the self-hosted compiler with the SEED (previous release)"
+        # --std-path ./std is load-bearing: without it the seed compiles against
+        # its own bundled std, not this checkout's. See the fixpoint job.
+        run: YO_MAIN_STACK_MB=4096 nice -n 10 yo compile yo-self/main.yo --release --allocator mimalloc --std-path ./std -o /tmp/yo-stage1
 
       - name: Sweep every language test file through the self-hosted binary
         env:
