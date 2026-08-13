@@ -195,8 +195,28 @@ export function generateAssignment(
           );
         }
       } else {
-        // No matching field found — skip (should not happen in practice)
-        skippedTempVar = true;
+        // The old-value temp was never lowered into the state struct (it
+        // does not cross a suspension point — e.g. a reassignment inside an
+        // `if` whose old-value drop lands in the SAME state), so a plain
+        // LOCAL temp is the correct home for the old value. Previously this
+        // arm skipped the declaration entirely while the scope-end drop
+        // still referenced the temp name — clang: "use of undeclared
+        // identifier '_yo..._temp_N'" on e.g.
+        // `abs_exe = Path.new(base).join(Path.new(abs_exe.clone())).to_string();`
+        // inside io.async (P2.5 step 9's run_executable; minimal repro in
+        // issues/repros/async-slot-self-reassign-undeclared-temp.yo).
+        const tempVarNameAndType = getVariableTypeString(
+          lhs.$.type,
+          tempVarName,
+          context
+        );
+        if (!isUnitType(lhs.$.type)) {
+          context.emitter.emitLine(
+            `${indent}${tempVarNameAndType} = ${lhsCode}; // Save old value for later use (not an sm-> slot)`
+          );
+        } else {
+          skippedTempVar = true;
+        }
       }
     } else {
       const tempVarNameAndType = getVariableTypeString(
