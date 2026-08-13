@@ -551,6 +551,24 @@ suspected difference: the g\_ branch evaluates fields with
 `ctx.expected_type` = the trait's substituted field type, while the direct
 branch CLEARS expected_type.
 
+**ATTEMPTED AND REVERTED (branch `wip/root3-synthesis-layer`):** the
+synthesis-layer fixes for this — a trial-scoped struct-shape structural
+fallback in `synthesizer.yo`'s struct arm (the enum arm's twin) plus
+trial-scoped abstract acceptance in `_bind_forall_from_type_args` — DID
+resolve the dispatch (root 797/616 progressed into the ::-vs-:= comptime
+binding layer, canaries `imm_map`/`derive_clone_complex` both green), but
+the hollow sweep turned **10 files RED**: the whole `tests/collections/`
+family, `iter_filter_closure`, `iterator_combinators`,
+`where_clause_fn_inference`. The struct fallback alone (unscoped
+intermediate binary) already breaks `btree_map`, and the scoped r4 build
+fails it identically — the same structural lesson yet again: trial-time
+resolutions stamp shared body ASTs that codegen consumes, so ANY loosening
+that lets trials resolve more surfaces as miscompiles until the underlying
+staleness (specialization re-eval must OVERWRITE trial stamps) is fixed.
+**That staleness repair is the real prerequisite for the remaining roots**
+— take it up with fresh context; the WIP branch has the working
+synthesis-layer changes and the ::-check skip (stash) to rebase on top.
+
 **PINPOINTED (instrumented build, `YO_DEBUG_DISPATCH=1`):** the trait
 branch's trial binds `self` to a FRESH `G` instantiation minted by
 `_substitute_self_in_method_ty` (recv id 5094 ≠ the impl pattern 3377),

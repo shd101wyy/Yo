@@ -1,5 +1,16 @@
 # Handover — the def-eval swallow endgame, and the three PRs behind it
 
+> **UPDATE 2026-08-13 (evening session).** §0's steps are DONE or superseded:
+> PR #110 MERGED; #98 → closed, rebased as **#113**; #112 → closed, reworked as
+> **#114** (RELEASE_PAT direct bump, stacked on #113). Family A §3 was
+> implemented and went much further than this doc's shape — the full record
+> (six landed fixes, three measured regressions and their scoping, the
+> remaining ~10 roots with root-#3 pinpointed to a `synthesize_types` gap) is
+> in `issues/def-eval-swallow-remaining-roots.md`, branch
+> `fix/family-a-provisional-static`: baseline swallows **19 → 10**, sweep
+> 188/188 GREEN, FIXPOINT_HOLDS, `check ./std` 154/154,
+> `check ./yo-self` 247/247. §2–§4 below are historical.
+
 **Written 2026-08-13.** Branch `fix/def-eval-swallow-sizing` = PR #110.
 Read this first, then `issues/def-eval-swallow-remaining-roots.md` for the full
 measurement record. This doc is the state, the traps, and the next move; that
