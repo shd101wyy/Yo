@@ -559,6 +559,15 @@ impl(
         segments := self._segments;
         sep := String.from("/");
         result := String.new();
+        // A relative path with no segments is the CURRENT DIRECTORY and must
+        // render as "." — `stat("")` is ENOENT, which made `yo test .` /
+        // `yo check .` fail with a bare "file or directory not found". This
+        // is a RENDER-level rule (Node: path.normalize(".") === "." and
+        // path.dirname("foo") === "."): the empty-segment representation is
+        // untouched, so join/parent/relative_from keep their semantics.
+        if((!(self._is_absolute)) && (segments.len() == usize(0)), {
+          return(String.from("."));
+        });
         // Check if first segment is a Windows drive letter (e.g., "C:")
         has_drive_letter := cond(
           (segments.len() > usize(0)) => {

@@ -34,9 +34,12 @@ test("Path.new handles complex normalization", {
   assert(s == `/usr/bin/test`);
 });
 test("Path.new handles empty path", {
+  // An empty relative path RENDERS as "." (the current directory) — Node's
+  // path.normalize("") === "."; stat("") is ENOENT. The representation stays
+  // empty-segments, so parent()/file_name() still return None (below).
   path := Path.new(``);
   s := path.to_string();
-  assert(s == ``);
+  assert(s == `.`);
 });
 test("Path.new strips trailing slashes", {
   path := Path.new(`/usr/local/bin/`);
@@ -358,9 +361,13 @@ test("Path normalization removes multiple ..", {
   assert(s == `/etc`);
 });
 test("Path with only dots", {
+  // A relative path whose segments all normalize away stays "." (the current
+  // directory), never the EMPTY string — stat("") is ENOENT, which broke
+  // `yo test .` / `yo check .`. Node's path.normalize agrees; the empty
+  // INPUT is the only empty path.
   path := Path.new(`./././.`);
   s := path.to_string();
-  assert(s == ``);
+  assert(s == `.`);
 });
 test("Path .. beyond root is ignored for relative paths", {
   path := Path.new(`../../../etc`);
