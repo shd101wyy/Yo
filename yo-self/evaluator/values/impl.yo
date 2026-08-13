@@ -444,6 +444,9 @@ _resolve_one_forall_binding :: (
   fa_some_id := match(fa_some, .SomeT({ id : __fsi }) => __fsi, _ => String.from(""));
   bound_type := get_value_of_some_type_from_env(expected_env, fa_some);
   if(!(is_some_type(bound_type)), {
+    if(impl_dbg_env.get(`YO_DEBUG_DISPATCH`).is_some(), {
+      eprintln(`[rfb-bound] name=${fa_name} via=id-concrete ty=${type_to_string(bound_type)} trial=${in_def_time_trial().to_string()}`);
+    });
     return(Option(TypeValue).Some(bound_type));
   });
   // Accept a DIFFERENT-id SomeT binding ONLY inside a definition-time body
@@ -460,6 +463,9 @@ _resolve_one_forall_binding :: (
   if((in_def_time_trial() && (bt_id.len() > usize(0))) && (bt_id != fa_some_id), {
     return(Option(TypeValue).Some(bound_type));
   });
+  if(impl_dbg_env.get(`YO_DEBUG_DISPATCH`).is_some(), {
+    eprintln(`[rfb-id-miss] name=${fa_name} own_id=${fa_some_id} bound_id=${bt_id} trial=${in_def_time_trial().to_string()}`);
+  });
   // Name-based fallback: look up `fa_name` directly in `expected_env`.
   name_vars := get_variables_from_env(expected_env, fa_name);
   n_nvars := name_vars.len();
@@ -472,7 +478,12 @@ _resolve_one_forall_binding :: (
     .Some(ev) => match(
       ev,
       .TypeVal(b) => cond(
-        !(is_some_type(b)) => Option(TypeValue).Some(b),
+        !(is_some_type(b)) => {
+          if(impl_dbg_env.get(`YO_DEBUG_DISPATCH`).is_some(), {
+            eprintln(`[rfb-bound] name=${fa_name} via=name-concrete ty=${type_to_string(b)} trial=${in_def_time_trial().to_string()}`);
+          });
+          Option(TypeValue).Some(b)
+        },
         // Abstract (different-id SomeT) name-channel binding: accepted ONLY
         // inside a definition-time body trial. There it is what resolves a
         // sibling impl's method dispatch (array_list's Clone impl calling
@@ -635,6 +646,20 @@ _bind_forall_from_type_args :: (
         .Some(ct) => if(!(is_some_type(ct)), {
           return(Option(TypeValue).Some(ct));
         }, {
+          // Trial-scoped abstract acceptance — same contract as
+          // _resolve_one_forall_binding: inside a definition-time body
+          // trial a DIFFERENT-id SomeT type argument IS the binding
+          // (ArrayList(T_pattern) matched against the Clone impl's
+          // ArrayList(T'), root #3 — field synthesis leaves T unbound
+          // because ?*(T) unification binds neither side, and this
+          // type-args recovery was the only channel left).
+          {
+            ct_abs_id := match(ct, .SomeT({ id : __cai }) => __cai, _ => String.from(""));
+            fa_abs_id := match(fa_some, .SomeT({ id : __fai }) => __fai, _ => String.from(""));
+            if((in_def_time_trial() && (ct_abs_id.len() > usize(0))) && (ct_abs_id != fa_abs_id), {
+              return(Option(TypeValue).Some(ct));
+            });
+          };
           // `ct` is still a SomeType. For an async future's output type, yo-self
           // KEEPS the output unresolved through eval (the FSM/future machinery
           // keys on that SomeType identity), and the concrete type lands in the
@@ -744,8 +769,12 @@ try_match_generic_impl :: (
   exn_match := Exception(
     throw : (
       (err) -> {
-        // Synthesis failed → no match.
-        err;
+        // Synthesis failed → no match. YO_DEBUG_DISPATCH prints the
+        // swallowed error (capture-free handler, same pattern as the
+        // [swallow] hook) — pairs with the [tm-try] line above it.
+        if(impl_dbg_env.get(`YO_DEBUG_DISPATCH`).is_some(), {
+          eprintln(`[tm-synth-swallow] ${err.to_string()}`);
+        });
         unwind(Option(ArrayList(TypeValue)).None);
       }
     )
@@ -982,7 +1011,13 @@ try_match_generic_impl :: (
   // record's type id lets every later resolution channel (step-4 assoc
   // check, find_associated_type_from_generic_impls step 1, my wcr recovery)
   // read them from the registry directly. Concrete-only + deduped.
-  if(all_bound, {
+  // DEF-time trials must not make DURABLE registrations: a trial-time
+  // abstract match (the trial-scoped acceptance above) registering assoc
+  // types under the trial receiver's id redirected BATCH-time resolution —
+  // tests/collections/btree_map.test.yo's main lost the `for(m.iter())`
+  // closure arg's ExprInfo (repair 1 of
+  // issues/def-eval-swallow-remaining-roots.md).
+  if(all_bound && !(in_def_time_trial()), {
     dar_tid := type_id_or_empty(resolved_concrete);
     if(dar_tid.len() > usize(0), {
       dar_s := subst_new();
@@ -1359,6 +1394,18 @@ find_methods_from_generic_impls :: (
               // synthesis, whose frame levels are stale at the call site — the
               // same reason `_substitute_self_in_method_ty` exists.
               spec_s := subst_new();
+              // Collect the method type's OWN SomeT instances once: a forall
+              // name can appear at DIFFERENT frame levels inside one method
+              // type (the pointer-arithmetic impl's `add` carries `*(T)`
+              // params at the impl forall's level but a return `*(T)` minted
+              // at another — `[fmg-cand]` showed the param substituted and
+              // the return left RAW, whose stale-level `T` then resolved
+              // against the receiver at the call site: `*(*(T))`, root 537
+              // of issues/def-eval-swallow-remaining-roots.md). Substitute
+              // every same-NAME occurrence at its own level — the forall
+              // twin of _substitute_self_in_method_ty's "EVERY Self at its
+              // OWN frame level" rule above.
+              ft_all_somes := get_all_some_types(ftype);
               (sb_i : usize) = usize(0);
               while(sb_i < entry.forall_names.len(), {
                 sb_name := match(entry.forall_names.get(sb_i), .Some(n) => n, .None => String.from(""));
@@ -1366,7 +1413,24 @@ find_methods_from_generic_impls :: (
                 sb_ty := match(match_bindings.get(sb_i), .Some(t) => t, .None => t_unit());
                 match(
                   sb_some,
-                  .SomeT(_, _, lvl, _, _, _, _, _, _, _, _) => subst_add(spec_s, sb_name, lvl, sb_ty),
+                  .SomeT(_, _, lvl, _, _, _, _, _, _, _, _) => {
+                    subst_add(spec_s, sb_name, lvl, sb_ty);
+                    (fts_i : usize) = usize(0);
+                    while(fts_i < ft_all_somes.len(), {
+                      match(
+                        ft_all_somes.get(fts_i),
+                        .Some(fts_t) => match(
+                          fts_t,
+                          .SomeT(_, fts_n, fts_lvl, _, _, _, _, _, _, _, _) => if((fts_n == sb_name) && (fts_lvl != lvl), {
+                            subst_add(spec_s, sb_name, fts_lvl, sb_ty);
+                          }),
+                          _ => ()
+                        ),
+                        .None => ()
+                      );
+                      fts_i = (fts_i + usize(1));
+                    });
+                  },
                   _ => ()
                 );
                 sb_i = (sb_i + usize(1));
@@ -1381,9 +1445,13 @@ find_methods_from_generic_impls :: (
               // exact-equality test compare EnumT(id, Some(T)) against
               // EnumT(id, Some(Node)) and silently never fire.
               subst_set_self(spec_s, entry.receiver_type_pattern, resolved);
+              fmg_spec_ty := substitute(spec_s, ftype);
+              if(impl_dbg_env.get(`YO_DEBUG_DISPATCH`).is_some(), {
+                eprintln(`[fmg-cand] method=${method_name} recv=${type_to_string(resolved)} raw=${type_to_string(ftype)} spec=${type_to_string(fmg_spec_ty)} trial=${in_def_time_trial().to_string()}`);
+              });
               results.push(
                 MethodCandidate(
-                  method_type : substitute(spec_s, ftype),
+                  method_type : fmg_spec_ty,
                   method_value : _inject_forall_captures(fvalue, entry.forall_names, match_bindings, match_binding_vals),
                   source_trait_id : entry.trait_key.clone()
                 )

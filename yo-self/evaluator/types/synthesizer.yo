@@ -30,6 +30,7 @@ open(import("std/string"));
   synthetic_token
 } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
+{ in_def_time_trial } :: import("../context.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { register_some_resolved_concrete, lookup_some_resolved_concrete, lookup_struct_ctor_fid } :: import("../../expr_info.yo");
 { type_value_tag, t_effects_row, t_usize, resolve_enum_shell } :: import("../../types/creators.yo");
@@ -1548,7 +1549,40 @@ _synthesize_types_impl :: (
       );
     });
     same_constructor3 := ((exp_eff_cfid.len() > usize(0)) && (exp_eff_cfid == giv_eff_cfid));
-    if((exp_id3 != giv_id3) && !(same_constructor3), {
+    // Structural fallback when the cfid guard would reject — the STRUCT twin
+    // of the enum arm's below: an instantiation minted on a path that
+    // bypasses the ctor stamp (fn-specialization bodies, def-time trial
+    // substitutions — the trait-constructor branch's trial receiver, root #3
+    // of issues/def-eval-swallow-remaining-roots.md) carries no recorded
+    // cfid, so `G(T)`-pattern vs the fresh `G` instance threw "Cannot unify
+    // incompatible struct types" before field unification could bind T.
+    // Same name AND identical field-label lists → proceed to the per-field
+    // unification below, which still does the real structural checking.
+    // SCOPED to definition-time trials: unscoped, the looser matching
+    // reached specialization/codegen channels and re-broke
+    // tests/derive_clone_complex.test.yo (the session's recurring lesson —
+    // abstract/looser products must stay out of stamps codegen consumes).
+    (same_shape3 : bool) = false;
+    if(((exp_id3 != giv_id3) && !(same_constructor3)) && in_def_time_trial(), {
+      exp_snm := match(expected_ty, .Struct({ name : n }) => n, _ => String.from(""));
+      giv_snm := match(given_ty, .Struct({ name : n }) => n, _ => String.from(""));
+      exp_lbls := match(expected_ty, .Struct({ field_labels : l }) => l, _ => ArrayList(String).new());
+      giv_lbls := match(given_ty, .Struct({ field_labels : l }) => l, _ => ArrayList(String).new());
+      if(((exp_snm == giv_snm) && (exp_lbls.len() > usize(0))) && (exp_lbls.len() == giv_lbls.len()), {
+        (sl_i : usize) = usize(0);
+        (sl_eq : bool) = true;
+        while((sl_i < exp_lbls.len()) && sl_eq, {
+          sl_e := match(exp_lbls.get(sl_i), .Some(x) => x, .None => String.from(""));
+          sl_g := match(giv_lbls.get(sl_i), .Some(x) => x, .None => String.from(""));
+          if(sl_e != sl_g, {
+            sl_eq = false;
+          });
+          sl_i = (sl_i + usize(1));
+        });
+        same_shape3 = sl_eq;
+      });
+    });
+    if(((exp_id3 != giv_id3) && !(same_constructor3)) && !(same_shape3), {
       exn.throw(
         dyn(
           format_error_message(
