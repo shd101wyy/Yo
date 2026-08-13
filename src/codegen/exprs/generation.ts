@@ -1121,7 +1121,7 @@ function generateFuncCall(
   // expression codegen could not emit simply VANISHED from the program. A `main`
   // whose only statement failed compiled to an empty body, clang reported
   // nothing, and the binary ran and did nothing
-  // (issues/self-hosted-compile-swallows-undefined-call.md). A diagnostic the C
+  // (issues/fixed/self-hosted-compile-swallows-undefined-call.md). A diagnostic the C
   // compiler can skip is not a diagnostic.
   //
   // Measured before making it fatal: emitting the WHOLE self-hosted compiler

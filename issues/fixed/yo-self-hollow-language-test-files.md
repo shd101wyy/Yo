@@ -122,7 +122,7 @@ that a real compile does.
 
 ### This is NOT the def-time swallow surface
 
-That was my first hypothesis and it is wrong. `issues/def-time-body-eval-swallow-surface.md`
+That was my first hypothesis and it is wrong. `issues/retired/def-time-body-eval-swallow-surface.md`
 is why the error is _invisible_, but the defect itself is one specific failure in
 comptime call evaluation. Fixing the swallow would only make it _loud_. Start from
 the repro above and `comptime_fn.yo:500` — ask what `function_value` actually is

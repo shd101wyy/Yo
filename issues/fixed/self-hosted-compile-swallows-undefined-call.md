@@ -13,7 +13,7 @@ it turned 10 corpus files red. See "Why the def-time re-raise was reverted".
 **2026-08-13 — the def-time re-raise has LANDED (`a87525aad`,
 `swallow/fatal-trial-handler`).** The swallow campaign fixed every root the
 2026-08-12 attempt tripped over (19 minimal-repro roots + the 5-corpus
-hash*set/hash_map family, `issues/def-eval-swallow-remaining-roots.md`), after
+hash*set/hash_map family, `issues/fixed/def-eval-swallow-remaining-roots.md`), after
 which the CONCRETE-path trial re-raise went in green: sweep 188/188,
 FIXPOINT_HOLDS, `check ./std` 154/154, `check ./yo-self` 247/247, self-compile
 3607 trials / 0 swallows. Scope is TS parity exactly: the deferred-GENERIC

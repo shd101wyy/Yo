@@ -73,7 +73,7 @@ Error: Variable "undefined_fn" not found.
   bad.yo:1:26
 ```
 
-This is the def-eval swallow (`issues/self-hosted-compile-swallows-undefined-call.md`).
+This is the def-eval swallow (`issues/fixed/self-hosted-compile-swallows-undefined-call.md`).
 An LSP built on this checker would report **no errors on broken code** — worse
 than no LSP at all, because silence is read as approval. So:
 

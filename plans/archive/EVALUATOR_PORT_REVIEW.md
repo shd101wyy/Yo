@@ -322,7 +322,7 @@ gap is deferred on a larger feature (see note)
   - **Surfacing them is NOT incremental.** Measured the swallow gap surface
     (log-and-swallow diagnostic over std+tests) = **104 DISTINCT incidental
     failure categories** during def-time body eval in type-check mode
-    (`issues/def-time-body-eval-swallow-surface.md`). Un-swallowing would propagate
+    (`issues/retired/def-time-body-eval-swallow-surface.md`). Un-swallowing would propagate
     all 104 → massive regression. So surfacing the in-body gates = the **def-eval
     robustness project**: faithfully completing the def-time body-eval paths that
     were shortcut during the port. Root cause: `Func` TypeValue dropped TS's

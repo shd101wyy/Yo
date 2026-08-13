@@ -321,7 +321,7 @@ design, so a real fix makes CI red until the list is updated. That is intentiona
   is `rc=0` with 0 errors, because `check` never forces the comptime evaluation a
   real compile does. Never use `check` to validate a fix here.
 - **Errors are swallowed.** Without `YO_DEBUG_SWALLOW=1` you will chase symptoms.
-  This is not the same as `issues/def-time-body-eval-swallow-surface.md` — that
+  This is not the same as `issues/retired/def-time-body-eval-swallow-surface.md` — that
   explains why the error is _invisible_, not why it happens. Fixing the swallow
   would only make this loud.
 - **Do not extract a minimal `main` from a hollow test file.** Both obvious

@@ -43,7 +43,7 @@ export function generateAddressOf(
   // is caught separately: TS throws for an untranspilable expression
   // (generation.ts) and yo-self gates `__yo_user_main`
   // (codegen/functions/generation.yo). See
-  // issues/self-hosted-compile-swallows-undefined-call.md.
+  // issues/fixed/self-hosted-compile-swallows-undefined-call.md.
   if (!type) {
     return `// Error: No type information for pointer/reference expression ${exprToString(expr)}`;
   }
