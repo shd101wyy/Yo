@@ -68,7 +68,7 @@ _(env : impl_dbg_env) :: import("std/env");
 } :: import("./type_trait_methods.yo");
 { FuncMeta, TypeValue } :: import("../../types/definitions.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ t_unit, t_type, t_some_t, t_usize } :: import("../../types/creators.yo");
+{ t_unit, t_type, t_some_t, t_usize, register_some_binder_kind, clear_some_binder_kind } :: import("../../types/creators.yo");
 { is_some_type, is_function_type, is_expr_type } :: import("../../types/guards.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { subst_new, subst_add, subst_set_self, substitute } :: import("../../types/substitution.yo");
@@ -2337,6 +2337,17 @@ evaluate_module_value :: (
           .Atom(_, _) => ArrayList(AstExpr).new()
         );
         lhs2 := match(colon_args2.get(usize(0)), .Some(e) => e, .None => make_err_expr());
+        // Register the binder's declared KIND, name-only (no evaluation —
+        // resolution happens purely in _build_def_time_body_env; see
+        // resolve_some_binder_kind in types/creators.yo). Only value-binder
+        // kinds matter, so `: Type` is skipped.
+        rhs2 := match(colon_args2.get(usize(1)), .Some(e) => e, .None => make_err_expr());
+        if(ast_expr_is_atom(rhs2), {
+          rhs2_name := ast_expr_token(rhs2).value.clone();
+          if(rhs2_name != "Type", {
+            register_some_binder_kind(ast_expr_token(lhs2).value.clone(), frame_lvl, rhs2_name);
+          });
+        });
         Option(String).Some(ast_expr_token(lhs2).value.clone())
       }, if(
         ast_expr_is_atom(fp_expr),
@@ -2441,6 +2452,17 @@ evaluate_module_value :: (
         match(
           _try_create_forward_shell(c2_pp_expr, forall_env, ctx, receiver_type_pattern),
           .Some(c2_shell_entry) => {
+            // Strip the shell FuncVal: a provisional entry must be callable
+            // from its TYPE alone (`value : None`, the trait-splice contract
+            // at type_trait_methods.yo:187-204 — TS's assignedValue is
+            // undefined mid-window and the call never evaluates the body).
+            // Keeping the shell value routes def-time calls through the
+            // inline-FuncVal arm (calls/function.yo), which builds the body
+            // env from the FuncVal's flat capture snapshot — EMPTY for a
+            // shell — so the body threw `Variable "GlobalAllocator" not
+            // found` from an env with no module bindings (measured on
+            // array_list's push, called from slice_copy's trial).
+            c2_shell_entry.value = Option(EvalValue).None;
             register_provisional_trait_method(c2_recv_id.clone(), c2_shell_entry);
           },
           .None => {
@@ -2452,6 +2474,33 @@ evaluate_module_value :: (
             });
           }
         );
+        // Trait-constructor fields (`Trait(name : fn, ...)`): pre-declare
+        // the INNER colon pairs the same way — the direct try above returns
+        // None for them (its shape check requires the field itself to be a
+        // colon pair). array_list's Clone/Index/Iterator impls are this
+        // shape; their method bodies call siblings and methods of other
+        // impls on Self at def time (root #3 of
+        // issues/def-eval-swallow-remaining-roots.md).
+        if((ast_expr_is_fn_call(c2_pp_expr) && !(ast_expr_is_fn_call_of(c2_pp_expr, BK_COLON, .Some(usize(2))))) && (!(ast_expr_is_fn_call_of(c2_pp_expr, BK_WHERE, .None)) && !(ast_expr_is_fn_call_of(c2_pp_expr, "!", .Some(usize(1))))), {
+          c2_ta := match(
+            c2_pp_expr,
+            .FnCall(_, _, ta, _, _) => ta,
+            .Atom(_, _) => ArrayList(AstExpr).new()
+          );
+          (c2_ti : usize) = usize(0);
+          while(c2_ti < c2_ta.len(), {
+            c2_te := match(c2_ta.get(c2_ti), .Some(e) => e, .None => make_err_expr());
+            c2_ti = (c2_ti + usize(1));
+            match(
+              _try_create_forward_shell(c2_te, forall_env, ctx, receiver_type_pattern),
+              .Some(c2_tshell) => {
+                c2_tshell.value = Option(EvalValue).None;
+                register_provisional_trait_method(c2_recv_id.clone(), c2_tshell);
+              },
+              .None => ()
+            );
+          });
+        });
       });
     });
     (fj : usize) = (receiver_arg_idx + usize(1));
@@ -2698,6 +2747,50 @@ evaluate_module_value :: (
                   g_to_push = _stamp_impl_forall_on_method(g_mval, forall_names);
                 });
                 g_method_values.push(g_to_push);
+                // Supersede this method's pre-pass shell in the PROVISIONAL
+                // registry (or register fresh) so later siblings' def-time
+                // body trials see the real value — the trait-constructor
+                // twin of the direct colon-pair branch below. Tagged with
+                // the trait's id (Case 3's fresh-registration semantics:
+                // inherent-first resolution reads source_trait_id).
+                if(c2_recv_id != "", {
+                  c2g_src_tid := match(
+                    g_trait_ty_opt,
+                    .Some(c2g_tt) => type_id_or_empty(c2g_tt),
+                    .None => String.from("")
+                  );
+                  (c2g_superseded : bool) = false;
+                  c2g_prior := get_provisional_trait_methods_by_name(c2_recv_id, g_mname);
+                  (c2g_pi : usize) = usize(0);
+                  while((c2g_pi < c2g_prior.len()) && !(c2g_superseded), {
+                    match(
+                      c2g_prior.get(c2g_pi),
+                      .Some(c2g_e) => {
+                        if(c2g_e.source_trait_id == "__forward_shell", {
+                          c2g_e.ty = gfi.ty;
+                          c2g_e.value = Option(EvalValue).Some(g_to_push);
+                          c2g_e.source_trait_id = c2g_src_tid.clone();
+                          c2g_superseded = true;
+                        });
+                      },
+                      .None => ()
+                    );
+                    c2g_pi = (c2g_pi + usize(1));
+                  });
+                  if(!(c2g_superseded), {
+                    register_provisional_trait_method(
+                      c2_recv_id.clone(),
+                      MethodEntry(
+                        label : g_mname.clone(),
+                        ty : gfi.ty,
+                        value : Option(EvalValue).Some(g_to_push),
+                        source_trait_id : c2g_src_tid,
+                        needs_pointer_conversion : false,
+                        self_type : Option(TypeValue).None
+                      )
+                    );
+                  });
+                });
               }
             );
           });
@@ -2780,6 +2873,19 @@ evaluate_module_value :: (
     if(c2_recv_id != "", {
       clear_provisional_trait_methods(c2_recv_id);
     });
+    // Drop the binder-kind registrations (same lifetime as the impl:
+    // clearing an unregistered name is a no-op, so type binders are fine).
+    {
+      (sbk_i : usize) = usize(0);
+      while(sbk_i < forall_names.len(), {
+        match(
+          forall_names.get(sbk_i),
+          .Some(sbk_n) => clear_some_binder_kind(sbk_n, frame_lvl),
+          .None => ()
+        );
+        sbk_i = (sbk_i + usize(1));
+      });
+    };
     // For inherent impls, trait_type = Unit (empty key — correct for registry).
     (trait_ty : TypeValue) = t_unit();
     trait_key_str := get_trait_key(trait_ty);

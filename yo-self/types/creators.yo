@@ -16,6 +16,7 @@
 //! TypeValue enum) and `creators.ts` (constructors).
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
 { TypeValue, FuncMeta } :: import("./definitions.yo");
 { TypeTag } :: import("./tags.yo");
 // ---------------------------------------------------------------------------
@@ -648,6 +649,55 @@ resolve_struct_shell :: (fn(t : TypeValue) -> TypeValue)(
   )
 );
 
+/// Impl-level generic VALUE-binder kinds (`N : usize` in
+/// `impl(generic(T : Type, N : usize), ...)`), registered SYNTACTICALLY at
+/// impl evaluation (evaluator/values/impl.yo) and consumed by
+/// `_build_def_time_body_env`'s capture copy (calls/function_type.yo).
+/// The binder must stay `TypeVal(SomeT)` in the impl's forall env — that
+/// binding is load-bearing for receiver-pattern evaluation (`Array(T, N)`)
+/// — but a def-time BODY env must see an unknown VALUE of the declared
+/// type, or the body's `r.end > N` fails "Cannot unify usize and Type"
+/// (family B of issues/def-eval-swallow-remaining-roots.md). Resolving the
+/// annotation at impl-eval time (or via env lookup at body-env-build time)
+/// triggers lazy module resolution mid-import-cycle — measured 160/247 and
+/// 238/247 there — so registration is NAME-only and resolution below is
+/// PURE: builtin scalar names, no env involvement. Keyed by
+/// `<name>@<frame level>` (the SomeT's identity pair); cleared when the
+/// impl's evaluation finishes.
+(_some_binder_kinds : HashMap(String, String)) = HashMap(String, String).new();
+register_some_binder_kind :: (
+  fn(name : String, lvl : usize, kind_name : String) -> unit
+)({
+  ___sbk := _some_binder_kinds.set(`${name}@${lvl.to_string()}`, kind_name);
+});
+clear_some_binder_kind :: (fn(name : String, lvl : usize) -> unit)({
+  _some_binder_kinds.remove(`${name}@${lvl.to_string()}`);
+});
+/// PURE resolution: builtin scalar names only — a non-builtin annotation
+/// returns `.None` and the binder keeps its (SomeT) binding. `Type` never
+/// registers, so type binders are unaffected.
+resolve_some_binder_kind :: (fn(name : String, lvl : usize) -> Option(TypeValue))(
+  match(
+    _some_binder_kinds.get(`${name}@${lvl.to_string()}`),
+    .Some(kind_name) => cond(
+      (kind_name == "usize") => Option(TypeValue).Some(t_usize()),
+      (kind_name == "isize") => Option(TypeValue).Some(t_isize()),
+      (kind_name == "u8") => Option(TypeValue).Some(t_u8()),
+      (kind_name == "u16") => Option(TypeValue).Some(t_u16()),
+      (kind_name == "u32") => Option(TypeValue).Some(t_u32()),
+      (kind_name == "u64") => Option(TypeValue).Some(t_u64()),
+      (kind_name == "i8") => Option(TypeValue).Some(t_i8()),
+      (kind_name == "i16") => Option(TypeValue).Some(t_i16()),
+      (kind_name == "i32") => Option(TypeValue).Some(t_i32()),
+      (kind_name == "i64") => Option(TypeValue).Some(t_i64()),
+      (kind_name == "f32") => Option(TypeValue).Some(t_f32()),
+      (kind_name == "f64") => Option(TypeValue).Some(t_f64()),
+      (kind_name == "bool") => Option(TypeValue).Some(t_bool()),
+      true => Option(TypeValue).None
+    ),
+    .None => Option(TypeValue).None
+  )
+);
 export(register_enum_final, resolve_enum_shell, _patch_self_shell);
 export(register_struct_final, resolve_struct_shell);
 export(
@@ -682,6 +732,9 @@ export(
   t_c_long,
   t_c_ulong,
   t_c_longlong,
+  register_some_binder_kind,
+  clear_some_binder_kind,
+  resolve_some_binder_kind,
   t_c_ulonglong,
   t_c_longdouble,
   t_ptr,
