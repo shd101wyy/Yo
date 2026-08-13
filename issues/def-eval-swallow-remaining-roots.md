@@ -44,8 +44,24 @@
 > discarded with the trial, mirroring TS's shared-object model without its
 > in-place mutation.
 >
-> The endgame (fatal `_trial_eval_fn_body`) stays gated on all 7 + a
-> corpus-wide re-attempt.
+> The endgame (fatal `_trial_eval_fn_body`) stays gated on all remaining
+> roots + a corpus-wide re-attempt.
+>
+> **LATER SAME SESSION — repair 1 landed** (`wip/root3-synthesis-layer`,
+> PR #117): the flow-site `in_def_time_trial` flag was the leak (concrete
+> fns' trial stamps ARE codegen's input — batch mains included); with it
+> off, the synthesis loosenings are safe (sweep 188/188) and roots 797 +
+> 616 cleared. **5 roots remain.**
+>
+> **Root 537's frontier** (minimal repro `scratchpad/idx537.yo`, hooks
+> in-tree): the Index-impl trial's `_ptr.add(idx)` — dispatch, match, and
+> the finder's substitution are all CORRECT (`[fmg-cand]` shows
+> `fn(self : *(T)) -> *(T)` with T properly bound to the G-impl's SomeT —
+> both binders are NAMED T so the print looks unsubstituted). The doubling
+> to `*(*(T))` therefore happens in the CALL-SITE return resolution after
+> dispatch (the "call-time SomeT synthesis, whose frame levels are stale"
+> warning in find_methods_from_generic_impls' own comment). Next: trace
+> the runtime-return path's resolved_ret computation for this call.
 
 **Live inventory.** `_trial_eval_fn_body`
 (`yo-self/evaluator/calls/function_type.yo`) wraps definition-time body
