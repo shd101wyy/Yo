@@ -1,0 +1,14 @@
+# The UNREFERENCED sibling of compile-undefined-call: the failing function is
+# never called and never exported, so codegen never emits it and the
+# marker-fatal backstop (which pins the original case) never sees it. Only the
+# DEFINITION-TIME body evaluation can reject it — TS does (function-type.ts:499
+# has no catch on the concrete path), and the self-hosted compiler swallowed it
+# silently (rc=0, clean emit) until the trial handler's fatal re-raise landed
+# (the def-eval swallow campaign's endgame; see
+# issues/fixed/def-eval-swallow-remaining-roots.md and
+# issues/fixed/self-hosted-compile-swallows-undefined-call.md).
+#
+# stdout=ignore: the compilers word the fatal differently; rc=1 parity is the
+# assertion, and rc parity is exactly what was broken.
+stdout=ignore
+timeout=120

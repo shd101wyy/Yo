@@ -440,7 +440,7 @@ _resolve_one_forall_binding :: (
   // against `ArrayList(T')`, binding T := T' (abstract). Rejecting every
   // SomeT here made the call degrade to unit and the def-time trial
   // swallow the whole body (root #3 of
-  // issues/def-eval-swallow-remaining-roots.md).
+  // issues/fixed/def-eval-swallow-remaining-roots.md).
   fa_some_id := match(fa_some, .SomeT({ id : __fsi }) => __fsi, _ => String.from(""));
   bound_type := get_value_of_some_type_from_env(expected_env, fa_some);
   if(!(is_some_type(bound_type)), {
@@ -820,7 +820,7 @@ try_match_generic_impl :: (
   // blanket pointer impl's `T` resolved to the junk struct, `*(u8)` failed
   // to unify against it, `.add` dispatch found nothing, and the trial
   // swallowed ("Failed to evaluate, got ((ctrl_ptr.add)(i).(*))" — the
-  // hash_set corpus family, issues/def-eval-swallow-remaining-roots.md).
+  // hash_set corpus family, issues/fixed/def-eval-swallow-remaining-roots.md).
   (given_scratch : Environment) = snapshot_env(env);
   given_scratch.push_frame(false);
   synth_result := synthesize_types(
@@ -1058,7 +1058,7 @@ try_match_generic_impl :: (
   // types under the trial receiver's id redirected BATCH-time resolution —
   // tests/collections/btree_map.test.yo's main lost the `for(m.iter())`
   // closure arg's ExprInfo (repair 1 of
-  // issues/def-eval-swallow-remaining-roots.md).
+  // issues/fixed/def-eval-swallow-remaining-roots.md).
   if(all_bound && !(in_def_time_trial()), {
     dar_tid := type_id_or_empty(resolved_concrete);
     if(dar_tid.len() > usize(0), {
@@ -1446,7 +1446,7 @@ find_methods_from_generic_impls :: (
               // at another — `[fmg-cand]` showed the param substituted and
               // the return left RAW, whose stale-level `T` then resolved
               // against the receiver at the call site: `*(*(T))`, root 537
-              // of issues/def-eval-swallow-remaining-roots.md). Substitute
+              // of issues/fixed/def-eval-swallow-remaining-roots.md). Substitute
               // every same-NAME occurrence at its own level — the forall
               // twin of _substitute_self_in_method_ty's "EVERY Self at its
               // OWN frame level" rule above.
@@ -2153,7 +2153,7 @@ _trial_eval_fn_type_head :: (
   // YO_DEBUG_SWALLOW=1 prints the swallowed signature-eval error — a shell
   // that silently fails to materialize is why a forward-referenced sibling
   // later swallows its whole body (family A's second half; see
-  // issues/def-eval-swallow-remaining-roots.md). Capture-free `->` handler,
+  // issues/fixed/def-eval-swallow-remaining-roots.md). Capture-free `->` handler,
   // same pattern as function_type.yo's `[swallow]` hook.
   inner_exn := Exception(
     throw : (
@@ -2736,7 +2736,7 @@ evaluate_module_value :: (
         // Trait-constructor fields (`Trait(name : fn, ...)`): their INNER
         // colon pairs are forward-declarable the same way (array_list's
         // Clone/Index/Iterator impls — root #3 of
-        // issues/def-eval-swallow-remaining-roots.md).
+        // issues/fixed/def-eval-swallow-remaining-roots.md).
         if((ast_expr_is_fn_call(c2_pp_expr) && !(ast_expr_is_fn_call_of(c2_pp_expr, BK_COLON, .Some(usize(2))))) && (!(ast_expr_is_fn_call_of(c2_pp_expr, BK_WHERE, .None)) && !(ast_expr_is_fn_call_of(c2_pp_expr, "!", .Some(usize(1))))), {
           c2_ta := match(
             c2_pp_expr,
@@ -2860,7 +2860,7 @@ evaluate_module_value :: (
             // sees neither the permanent registry nor the generic-impl
             // registry mid-loop, the call degrades to unit, and the trial
             // swallows the body (array_list slice_copy, roots #1-#3 in
-            // issues/def-eval-swallow-remaining-roots.md). Entries carry
+            // issues/fixed/def-eval-swallow-remaining-roots.md). Entries carry
             // the REAL evaluated value (unlike the value:None signature
             // splice at the Case 3 site) and are cleared at loop end.
             // If the pre-pass above created a forward shell for this

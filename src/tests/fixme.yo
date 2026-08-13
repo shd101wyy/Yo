@@ -1,3 +1,33 @@
-open(import("std/fmt"));
-main :: (fn() -> unit)(println("scratch"));
+// Minimal repro attempt: TS codegen emitted an undeclared temp in a drop for
+// a short-circuit || chain whose LAST operand creates an RC temp
+// (`(a || b) || f(x).is_some()`).
+{ assert } :: import("std/assert");
+{ ArrayList } :: import("std/collections/array_list");
+
+Payload :: enum(Empty, Items(xs : ArrayList(i32)));
+
+make_opt :: (fn(n : i32) -> Option(Payload))({
+  out := Option(Payload).None;
+  cond(
+    (n > i32(0)) => {
+      xs := ArrayList(i32).new();
+      xs.push(n);
+      out = Option(Payload).Some(Payload.Items(xs));
+    },
+    true => ()
+  );
+  out
+});
+
+check_flag :: (fn(a : bool, b : bool, n : i32) -> bool)({
+  (flag : bool) = ((a || b) || make_opt(n).is_some());
+  flag
+});
+
+main :: (fn() -> unit)({
+  r := check_flag(false, false, i32(3));
+  assert(r);
+  r2 := check_flag(true, false, i32(0));
+  assert(r2);
+});
 export(main);

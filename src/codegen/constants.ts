@@ -104,7 +104,7 @@ export const PrimitiveTypeTags = new Set([
  * emitted program silently lost that statement: clang reported nothing, the
  * binary linked, and it ran with the failing expression simply absent. That is
  * how a typo'd call compiled to a do-nothing program
- * (`issues/self-hosted-compile-swallows-undefined-call.md`). A diagnostic the C
+ * (`issues/fixed/self-hosted-compile-swallows-undefined-call.md`). A diagnostic the C
  * compiler can skip is not a diagnostic.
  *
  * Each of these sites is an internal emitter precondition — a builtin reached

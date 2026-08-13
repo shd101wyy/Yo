@@ -1,3 +1,15 @@
+> **RETIRED (2026-08-13).** This doc's subject — the `_trial_eval_fn_body`
+> swallow and whether un-swallowing is feasible — was resolved wholesale by
+> the def-eval swallow campaign
+> (`issues/fixed/def-eval-swallow-remaining-roots.md`): every root was fixed
+> (minimal repro 19 → 0, corpus 5 → 0; self-compile 3607 trials / 0 swallows)
+> and the handler is now FATAL on the concrete path (exact TS parity —
+> deferred-generic trials keep discarding, as TS's own `catch {}` at
+> function-type.ts:112 does). The 104-category inventory below is the
+> historical sizing that framed that campaign. What remains of the surface is
+> a DIFFERENT mechanism — per-node silent degrades that never throw — tracked
+> in `issues/fixed/yo-self-method-miss-degrades-to-unit.md`.
+
 > **STATUS UPDATE (2026-08-06).** The std/string usize-vs-u8 swallow noise this doc's
 > surface included is fixed — it was an index-trait expected-type mis-port, not a std
 > error (`issues/fixed/yo-self-std-string-swallowed-unify-noise.md`, commit

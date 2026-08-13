@@ -8,8 +8,23 @@ call exits 1 instead of emitting a runnable no-op binary, pinned by the
 differential case `tests/cli-cases/compile-undefined-call`.
 
 The def-time re-raise (`3c88a3bbb`) was committed, measured, and **REVERTED** —
-it turned 10 corpus files red. See "Why the def-time re-raise was reverted"; it
-remains the next slice, for the better diagnostic, gated on the corpus sweep.
+it turned 10 corpus files red. See "Why the def-time re-raise was reverted".
+
+**2026-08-13 — the def-time re-raise has LANDED (`a87525aad`,
+`swallow/fatal-trial-handler`).** The swallow campaign fixed every root the
+2026-08-12 attempt tripped over (19 minimal-repro roots + the 5-corpus
+hash*set/hash_map family, `issues/fixed/def-eval-swallow-remaining-roots.md`), after
+which the CONCRETE-path trial re-raise went in green: sweep 188/188,
+FIXPOINT_HOLDS, `check ./std` 154/154, `check ./yo-self` 247/247, self-compile
+3607 trials / 0 swallows. Scope is TS parity exactly: the deferred-GENERIC
+trial keeps discarding errors (TS's own `catch {}` at function-type.ts:112);
+the concrete path re-raises (ts:499 has no catch). The unreferenced-fn hole
+this closes is pinned by
+`tests/cli-cases/compile-undefined-call-unreferenced` (TS rc=1, yo-self
+formerly rc=0 + clean emit). En route the fwd-comptime-fn capture detection
+stopped counting compiler-internal `\_\_yo*`-synthetics (`\_\_yo_return_self` made
+the flag true for EVERY definition, suppressing any def-time re-raise and
+registering a useless bounded re-run per definition).
 The wider strict mode — the ~220 type-level swallow classes — stays OPEN.
 
 Originally found 2026-08-10 while building the `build-fail`

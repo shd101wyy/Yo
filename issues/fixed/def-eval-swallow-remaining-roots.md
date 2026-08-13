@@ -92,10 +92,20 @@ obj_ty=*(<struct:struct_yo_id_3134>)`. `bucket_ptr` is bound by the
 > Battery: sweep 188/188 GREEN, canaries incl. ptr/unsafe/array_list all
 > green, check ./std 154/154, check ./yo-self 247/247, fixpoint pending.
 >
-> **NEXT: the endgame** — make `_trial_eval_fn_body` FATAL (TS parity,
-> function-type.ts:499) and re-attempt the corpus; the last fatal attempt
-> (2026-08-12) broke 10 files because the swallow was load-bearing, all
-> of whose roots are now fixed.
+> **ENDGAME ACHIEVED (2026-08-13, `a87525aad` on
+> `swallow/fatal-trial-handler`).** `_trial_eval_fn_body` errors on the
+> CONCRETE path are now FATAL — exact TS parity: function-type.ts:499
+> has no catch there, while the deferred-GENERIC trial keeps discarding
+> (TS's own `catch {}` at ts:112). Mechanism: the capture-free handler
+> flags the formatted error into a module-local cell; the flow site
+> re-raises when its OWN trial failed (flow*out empty — a non-empty out
+> means the flag is a nested dg trial's leftover). The
+> fwd-comptime-fn carve-out survives for genuine forward declarations;
+> its detection now skips compiler-internal `\_\_yo*` synthetics
+(`\_\_yo_return_self`had made the flag true for EVERY definition,
+suppressing any fatal). Battery: sweep 188/188 + SWEEP_GATE_OK,
+FIXPOINT_HOLDS, checks 154/154 + 247/247, self-compile 3607 trials /
+0 swallows, fn.test 24/24; pinned by`tests/cli-cases/compile-undefined-call-unreferenced`.
 
 > **STATE 2026-08-13 (third session): 19 → 1 swallow. ONLY ROOT 537 REMAINS.**
 > Landed on `swallow/somet-compat-trial` (stacked on `wip/root3-synthesis-layer`,

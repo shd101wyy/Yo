@@ -1,0 +1,14 @@
+// Repro for issues/fixed/yo-self-method-miss-degrades-to-unit.md: a call to an
+// UNDEFINED METHOD in a concrete fn body compiles rc=0 under yo-self (the
+// call degrades to unit without throwing — [rm-miss] → [call-none]) while TS
+// rejects it (rc=1). The def-time fatal trial handler cannot catch it: no
+// error is ever thrown. Verify:
+//   ./yo-cli compile <this>            → rc=1 (TS reference)
+//   <yo-self-bin> compile <this>       → rc=0 today (THE BUG); rc=1 when fixed
+bad :: (fn() -> i32)({
+  x := i32(1);
+  x.definitely_not_a_method()
+});
+export(bad);
+main :: (fn() -> unit)(());
+export(main);

@@ -1,18 +1,32 @@
 # Handover — the def-eval swallow endgame, and the three PRs behind it
 
+> **CAMPAIGN COMPLETE — ENDGAME ACHIEVED (2026-08-13, late session).**
+> Every swallow root is fixed and the fatal handler is IN: minimal repro
+> 19 → 0 (PRs #115/#116/#118/#119, all merged), corpus family 5 → 0
+> (PR #120: hash_set ×4 + hash_map:714 — the wrong-`next` dispatch via
+> the anonymous-struct shape fallback, fixed by the nominal cfid gate),
+> and `_trial_eval_fn_body` now RE-RAISES concrete-path errors
+> (`a87525aad`, `swallow/fatal-trial-handler`, stacked on #120) — exact
+> TS parity: ts:499 fatal, deferred-generic ts:112 still discards.
+> Full battery green on the fatal tip: sweep 188/188, FIXPOINT_HOLDS,
+> checks 154/154 + 247/247, self-compile 3607 trials / 0 swallows.
+> Pinned by `tests/cli-cases/compile-undefined-call-unreferenced`.
+> Full record: `issues/fixed/def-eval-swallow-remaining-roots.md`. Everything
+> below is historical.
+
 > **UPDATE 2026-08-13 (evening session).** §0's steps are DONE or superseded:
 > PR #110 MERGED; #98 → closed, rebased as **#113**; #112 → closed, reworked as
 > **#114** (RELEASE_PAT direct bump, stacked on #113). Family A §3 was
 > implemented and went much further than this doc's shape — the full record
 > (six landed fixes, three measured regressions and their scoping, the
 > remaining ~10 roots with root-#3 pinpointed to a `synthesize_types` gap) is
-> in `issues/def-eval-swallow-remaining-roots.md`, branch
+> in `issues/fixed/def-eval-swallow-remaining-roots.md`, branch
 > `fix/family-a-provisional-static`: baseline swallows **19 → 10**, sweep
 > 188/188 GREEN, FIXPOINT_HOLDS, `check ./std` 154/154,
 > `check ./yo-self` 247/247. §2–§4 below are historical.
 
 **Written 2026-08-13.** Branch `fix/def-eval-swallow-sizing` = PR #110.
-Read this first, then `issues/def-eval-swallow-remaining-roots.md` for the full
+Read this first, then `issues/fixed/def-eval-swallow-remaining-roots.md` for the full
 measurement record. This doc is the state, the traps, and the next move; that
 file is the evidence.
 
@@ -53,7 +67,7 @@ Progress so far, all landed with the full battery:
 | + generic VALUE binders bound | 16             | 0                        |
 
 16 roots remain (19 swallows), inventoried and attributed to owning functions in
-`issues/def-eval-swallow-remaining-roots.md`. They fall into two families.
+`issues/fixed/def-eval-swallow-remaining-roots.md`. They fall into two families.
 
 ---
 
@@ -268,12 +282,12 @@ same file for the CI migration. Rebase each on develop after #110 lands.
 
 ## 7. Where everything lives
 
-| what                                     | where                                                      |
-| ---------------------------------------- | ---------------------------------------------------------- |
-| full measurement record, 16-root table   | `issues/def-eval-swallow-remaining-roots.md`               |
-| family A reproducer                      | `issues/repros/self-static-method-at-def-time.yo`          |
-| the swallow's surface / earlier analysis | `issues/def-time-body-eval-swallow-surface.md`             |
-| the silent-miscompile origin story       | `issues/self-hosted-compile-swallows-undefined-call.md`    |
-| P2 roadmap this feeds                    | `plans/P2_RETIRE_SRC.md`, `plans/P2_5_RETIRE_EXECUTION.md` |
-| the trial/swallow debug hook             | `yo-self/evaluator/calls/function_type.yo:263-280`         |
-| the marker gate that makes it visible    | `yo-self/codegen/functions/generation.yo:575-630`          |
+| what                                     | where                                                         |
+| ---------------------------------------- | ------------------------------------------------------------- |
+| full measurement record, 16-root table   | `issues/fixed/def-eval-swallow-remaining-roots.md`            |
+| family A reproducer                      | `issues/repros/self-static-method-at-def-time.yo`             |
+| the swallow's surface / earlier analysis | `issues/retired/def-time-body-eval-swallow-surface.md`        |
+| the silent-miscompile origin story       | `issues/fixed/self-hosted-compile-swallows-undefined-call.md` |
+| P2 roadmap this feeds                    | `plans/P2_RETIRE_SRC.md`, `plans/P2_5_RETIRE_EXECUTION.md`    |
+| the trial/swallow debug hook             | `yo-self/evaluator/calls/function_type.yo:263-280`            |
+| the marker gate that makes it visible    | `yo-self/codegen/functions/generation.yo:575-630`             |

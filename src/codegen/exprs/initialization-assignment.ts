@@ -160,7 +160,7 @@ export function generateInitializationAssignment(
       // is caught separately: TS throws for an untranspilable expression
       // (generation.ts) and yo-self gates `__yo_user_main`
       // (codegen/functions/generation.yo). See
-      // issues/self-hosted-compile-swallows-undefined-call.md.
+      // issues/fixed/self-hosted-compile-swallows-undefined-call.md.
       return `// Error: No type information for variable ${varName}\n`;
     }
 

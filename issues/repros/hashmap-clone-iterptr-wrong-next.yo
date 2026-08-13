@@ -1,0 +1,26 @@
+// Repro for the LAST corpus swallow (hash_map:714, fixed 1dce05268; ledger:
+// issues/fixed/def-eval-swallow-remaining-roots.md corpus phase).
+//
+// Importing hash_map THEN hash_set and touching both puts the HashMap Clone
+// impl through its definition-time trial. Inside that trial, `it.next()` on a
+// `HashMapIterPtr(K,V)` receiver dispatched to the WRONG method — the
+// BY-VALUE `HashMapIter`'s `next : -> Option(Bucket(K,V))` — because the
+// synthesizer's trial-scoped struct-shape fallback unified the two ANONYMOUS
+// same-shaped iterator structs (both name="", both fields `(_map, _index)`).
+// `bucket_ptr` then typed as a bare Bucket struct, the deref stamped nothing,
+// `.key`/`.clone` degraded to unit, and `set`'s synthesis bound `K := unit`:
+// the "Cannot unify u64 and unit" swallow.
+//
+// Verify (must show 0 swallows and rc=0):
+//   YO_DEBUG_SWALLOW=1 <yo-self-bin> compile issues/repros/hashmap-clone-iterptr-wrong-next.yo \
+//     --emit-c --skip-c-compiler --release -o /tmp/x
+{ HashMap } :: import("std/collections/hash_map");
+{ HashSet } :: import("std/collections/hash_set");
+
+main :: (fn() -> unit)({
+  s := HashSet(i32).new();
+  s.add(i32(1));
+  m := HashMap(i32, i32).new();
+  m.set(i32(1), i32(2));
+});
+export(main);

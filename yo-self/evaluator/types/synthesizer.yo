@@ -262,7 +262,7 @@ _bind_some_type :: (
   // of the `T` atom stamp `info.ty = <the SomeT>`, and kind-checking
   // builtins rejected it ("__yo_type_contains_rc_type: expected a Type
   // argument, got: T : (Eq + Hash)" — the hash_set family of
-  // issues/def-eval-swallow-remaining-roots.md). Non-TypeVal values keep
+  // issues/fixed/def-eval-swallow-remaining-roots.md). Non-TypeVal values keep
   // the caller's ty.
   bind_ty := match(
     val,
@@ -1580,7 +1580,7 @@ _synthesize_types_impl :: (
     // of the enum arm's below: an instantiation minted on a path that
     // bypasses the ctor stamp (fn-specialization bodies, def-time trial
     // substitutions — the trait-constructor branch's trial receiver, root #3
-    // of issues/def-eval-swallow-remaining-roots.md) carries no recorded
+    // of issues/fixed/def-eval-swallow-remaining-roots.md) carries no recorded
     // cfid, so `G(T)`-pattern vs the fresh `G` instance threw "Cannot unify
     // incompatible struct types" before field unification could bind T.
     // Same name AND identical field-label lists → proceed to the per-field
@@ -1599,7 +1599,7 @@ _synthesize_types_impl :: (
     // BY-VALUE iterator's `next : -> Option(Bucket(K,V))` for a
     // HashMapIterPtr receiver, so `bucket_ptr` lost its pointer type and
     // the trial swallowed "Cannot unify u64 and unit" (hash_map:714,
-    // issues/def-eval-swallow-remaining-roots.md corpus phase).
+    // issues/fixed/def-eval-swallow-remaining-roots.md corpus phase).
     (same_shape3 : bool) = false;
     cfid_unknown3 := ((exp_eff_cfid.len() == usize(0)) || (giv_eff_cfid.len() == usize(0)));
     if((((exp_id3 != giv_id3) && !(same_constructor3)) && cfid_unknown3) && in_def_time_trial(), {
