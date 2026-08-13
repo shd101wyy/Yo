@@ -9,7 +9,12 @@
  */
 
 import { getVariablesFromEnv } from "../../env";
-import { type Expr, ExprTag } from "../../expr";
+import {
+  BuiltinKeywords,
+  type Expr,
+  ExprTag,
+  exprIsFunctionCallOf,
+} from "../../expr";
 import { TokenType } from "../../token";
 
 import {
@@ -99,6 +104,28 @@ export function analyzeAwaitPoints(body: Expr): AwaitAnalysisResult {
   };
 
   const result = analyzeSuspensionPoints(body, detector);
+
+  // Mark the await whose value IS the async body's own result: a standalone
+  // await as the body's final expression (`io.async((e) => e.io.await(f, e))`
+  // or a begin block ending in one). It has no target variable, so the
+  // linear-await "result unused" optimization must not drop its value — the
+  // resume stores `sm->await_result_N` and the completion segment assigns it
+  // to `sm->result` (see splitIntoStateSegments in codegen).
+  {
+    let tail: Expr = body;
+    while (
+      tail.tag === ExprTag.FnCall &&
+      exprIsFunctionCallOf(tail, BuiltinKeywords.begin) &&
+      tail.args.length > 0
+    ) {
+      tail = tail.args[tail.args.length - 1]!;
+    }
+    for (const p of result.suspensionPoints) {
+      if (p.expr === tail) {
+        p.isBodyResult = true;
+      }
+    }
+  }
 
   // Map shared captured variables to CapturedVariable (adding kind: "local")
   const capturedVariables: CapturedVariable[] = result.capturedVariables.map(

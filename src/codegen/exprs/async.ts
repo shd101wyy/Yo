@@ -801,7 +801,11 @@ function emitAsyncBlockStructDefinition(
       // `sm->await_result_N` to decide whether to run another iteration.
       const needsAwaitResultField =
         !isEffectivelyUnit &&
-        (awaitPoint.isInsideCond || awaitIsWhileCondition(awaitPoint));
+        (awaitPoint.isInsideCond ||
+          awaitIsWhileCondition(awaitPoint) ||
+          // The body's own result (standalone tail await) — the completion
+          // segment reads sm->await_result_N (see splitIntoStateSegments).
+          !!awaitPoint.isBodyResult);
 
       if (needsAwaitResultField) {
         // Determine the correct type for await_result_X:

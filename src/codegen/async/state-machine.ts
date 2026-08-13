@@ -713,7 +713,11 @@ export function generateAsyncBlockResumeFunction(
         // whether to run another iteration, so it needs the field too — it has
         // no target variable to write the result into.
         const useAwaitResultField =
-          !!prevAwait.isInsideCond || awaitIsWhileCondition(prevAwait);
+          !!prevAwait.isInsideCond ||
+          awaitIsWhileCondition(prevAwait) ||
+          // The body's own result (a standalone tail await): the completion
+          // segment reads sm->await_result_N — see splitIntoStateSegments.
+          !!prevAwait.isBodyResult;
 
         // Determine the assignment target:
         // - Linear await with target variable: write directly to sm->var_X

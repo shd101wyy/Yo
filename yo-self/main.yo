@@ -17,7 +17,15 @@ open(import("std/error"));
 open(import("std/fmt"));
 { args, cwd } :: import("std/env");
 _(env : proc_env) :: import("std/env");
-{ CURRENT_YO_VERSION } :: import("./version.yo");
+{ CURRENT_YO_VERSION, read_yo_version } :: import("./version.yo");
+{
+  cached_binary_path,
+  is_version_cached,
+  list_cached_versions,
+  clean_version_cache,
+  ensure_cached_version,
+  fetch_remote_versions
+} :: import("./version_cache.yo");
 { Regex } :: import("std/regex");
 { Path } :: import("std/path");
 { read_file, write_file, exists } :: import("std/fs/file");
@@ -2565,6 +2573,160 @@ run_doc_cmd :: (
     exn
   );
 });
+/// The `version` subcommand — mirrors src/yo-cli.ts's `version [action] [value]`:
+/// no action prints the current + pinned version; pin/install/list/clean
+/// manage the GitHub-Releases-backed native-bundle cache
+/// (plans/P3_DISTRIBUTION.md item 2).
+run_version_cmd :: (
+  fn(
+    argv : ArrayList(String),
+    io : Io,
+    exn : Exception
+  ) -> unit
+)({
+  (action : String) = String.from("");
+  (value : String) = String.from("");
+  (remote : bool) = false;
+  (vi : usize) = usize(2);
+  while(vi < argv.len(), {
+    a := argv(vi);
+    cond(
+      (a == "--remote") => {
+        remote = true;
+        vi = (vi + usize(1));
+      },
+      a.starts_with("-") => {
+        exn.throw(dyn(`version: unknown option '${a}'`));
+        vi = (vi + usize(1));
+      },
+      (action == "") => {
+        action = a.clone();
+        vi = (vi + usize(1));
+      },
+      true => {
+        value = a.clone();
+        vi = (vi + usize(1));
+      }
+    );
+  });
+  version_cwd := match(
+    proc_env.get(`YO_ORIGINAL_CWD`),
+    .Some(oc) => oc,
+    .None => match(cwd(), .Ok(cp) => cp.to_string(), .Err(_) => String.from("."))
+  );
+  if(action == "", {
+    current := String.from(CURRENT_YO_VERSION);
+    println(`Yo ${current}`);
+    pinned := io.await(read_yo_version(Path.new(version_cwd.clone()), io, exn), IoExn(io : io, exn : exn));
+    match(
+      pinned,
+      .Some(pv) => if(pv == current, {
+        println(`.yo-version: ${pv} (matches current)`);
+      }, {
+        println(`.yo-version: ${pv} (current: ${current})`);
+      }),
+      .None => println(String.from("No .yo-version file found in project."))
+    );
+    return(());
+  });
+  cond(
+    (action == "pin") => {
+      version_to_pin := if(value == "", String.from(CURRENT_YO_VERSION), value.clone());
+      if(value != "", {
+        remote_versions := io.await(fetch_remote_versions(io, exn), IoExn(io : io, exn : exn));
+        (found_pin : bool) = false;
+        (rvi : usize) = usize(0);
+        while(rvi < remote_versions.len(), {
+          match(
+            remote_versions.get(rvi),
+            .Some(rv) => if(rv == version_to_pin, {
+              found_pin = true;
+            }),
+            .None => ()
+          );
+          rvi = (rvi + usize(1));
+        });
+        if(!(found_pin), {
+          exn.throw(dyn(`Error: Yo version ${version_to_pin} is not available. Run \`yo version list --remote\` to see the published releases.`));
+        });
+      });
+      io.await(write_file(Path.new(`${version_cwd}/.yo-version`), `${version_to_pin}\n`, io), IoExn(io : io, exn : exn));
+      println(`Pinned Yo version to ${version_to_pin} in .yo-version`);
+    },
+    (action == "install") => {
+      if(value == "", {
+        exn.throw(dyn(String.from("Error: Specify a version to install.\nUsage: yo version install <version>")));
+      });
+      already := io.await(is_version_cached(value.clone(), io, exn), IoExn(io : io, exn : exn));
+      if(already, {
+        println(`Yo v${value} is already cached.`);
+      }, {
+        _dir := io.await(ensure_cached_version(value.clone(), io, exn), IoExn(io : io, exn : exn));
+      });
+    },
+    (action == "list") => {
+      current_v := String.from(CURRENT_YO_VERSION);
+      if(remote, {
+        remote_versions := io.await(fetch_remote_versions(io, exn), IoExn(io : io, exn : exn));
+        println(String.from("Available releases:"));
+        (li : usize) = usize(0);
+        while(li < remote_versions.len(), {
+          match(
+            remote_versions.get(li),
+            .Some(rv) => {
+              cached_mark := if(io.await(is_version_cached(rv.clone(), io, exn), IoExn(io : io, exn : exn)), String.from(" (cached)"), String.from(""));
+              current_mark := if(rv == current_v, String.from(" (current)"), String.from(""));
+              println(`  ${rv}${current_mark}${cached_mark}`);
+            },
+            .None => ()
+          );
+          li = (li + usize(1));
+        });
+      }, {
+        cached_list := io.await(list_cached_versions(io, exn), IoExn(io : io, exn : exn));
+        if(cached_list.len() == usize(0), {
+          println(String.from("No cached versions. Use `yo version install <version>` to cache a version."));
+        }, {
+          println(String.from("Cached versions:"));
+          (ci : usize) = usize(0);
+          while(ci < cached_list.len(), {
+            match(
+              cached_list.get(ci),
+              .Some(cv) => {
+                current_mark2 := if(cv == current_v, String.from(" (current)"), String.from(""));
+                println(`  ${cv}${current_mark2}`);
+              },
+              .None => ()
+            );
+            ci = (ci + usize(1));
+          });
+        });
+      });
+    },
+    (action == "clean") => {
+      if(value != "", {
+        was_cached := io.await(is_version_cached(value.clone(), io, exn), IoExn(io : io, exn : exn));
+        if(!(was_cached), {
+          println(`Yo v${value} is not cached.`);
+        }, {
+          io.await(clean_version_cache(Option(String).Some(value.clone()), io, exn), IoExn(io : io, exn : exn));
+          println(`Removed cached Yo v${value}.`);
+        });
+      }, {
+        cached_list2 := io.await(list_cached_versions(io, exn), IoExn(io : io, exn : exn));
+        if(cached_list2.len() == usize(0), {
+          println(String.from("No cached versions to remove."));
+        }, {
+          io.await(clean_version_cache(Option(String).None, io, exn), IoExn(io : io, exn : exn));
+          println(`Removed ${cached_list2.len().to_string()} cached version(s).`);
+        });
+      });
+    },
+    true => {
+      exn.throw(dyn(`Unknown action: ${action}\nAvailable actions: pin, install, list, clean`));
+    }
+  );
+});
 /// The top-level usage text (mirrors the TS `.usage(...)` block,
 /// src/yo-cli.ts:209-281; the `help` cli-case golden pins this output).
 _top_level_help_text :: (fn() -> String)({
@@ -2687,9 +2849,44 @@ main :: (fn(io : Io) -> unit)({
     return(());
   });
   if(argv.len() < usize(2), {
-    exn.throw(dyn(`no subcommand given. Usage: yo <compile|test|fmt|check|init|build|fetch|install|cache|doc|unsafe-report|public-safe-report> ...`));
+    exn.throw(dyn(`no subcommand given. Usage: yo <compile|test|fmt|check|init|build|fetch|install|cache|doc|version|unsafe-report|public-safe-report> ...`));
   });
   subcmd := argv(usize(1));
+  // .yo-version PRE-DISPATCH (src/yo-cli.ts:118-195 parity): before any
+  // subcommand runs, a project pinning a DIFFERENT version re-dispatches to
+  // that version's cached native binary. Skipped for `version` itself, for
+  // --help/--version (handled above), and when already dispatched.
+  if(((subcmd != "version") && (subcmd != "lsp")) && match(proc_env.get(`YO_VERSION_DISPATCHED`), .Some(dv) => (dv != "1"), .None => true), {
+    dispatch_cwd := match(
+      proc_env.get(`YO_ORIGINAL_CWD`),
+      .Some(oc) => oc,
+      .None => match(cwd(), .Ok(cp) => cp.to_string(), .Err(_) => String.from("."))
+    );
+    pin_exn := Exception(throw : ((_pe) -> unwind(())));
+    pinned_opt := io.await(read_yo_version(Path.new(dispatch_cwd.clone()), io, pin_exn), IoExn(io : io, exn : pin_exn));
+    match(
+      pinned_opt,
+      .Some(pinned_v) => if(pinned_v != String.from(CURRENT_YO_VERSION), {
+        cached_dir := io.await(ensure_cached_version(pinned_v.clone(), io, exn), IoExn(io : io, exn : exn));
+        bin_path := cached_binary_path(cached_dir);
+        bin_found := io.await(exists(Path.new(bin_path.clone()), io), io);
+        if(!(bin_found), {
+          exn.throw(dyn(`Error: Cached Yo v${pinned_v} is missing its compiler binary at ${bin_path}`));
+        });
+        _e1 := proc_env.set(String.from("YO_VERSION_DISPATCHED"), String.from("1"));
+        _e2 := proc_env.set(String.from("YO_ORIGINAL_CWD"), dispatch_cwd.clone());
+        dcmd := Command.new(bin_path.clone());
+        (dai : usize) = usize(1);
+        while(dai < argv.len(), {
+          dcmd.arg(argv(dai));
+          dai = (dai + usize(1));
+        });
+        dst := io.await(dcmd.status(io), IoExn(io : io, exn : exn));
+        unsafe(exit(int(dst.raw)));
+      }),
+      .None => ()
+    );
+  });
   if(subcmd == "compile", {
     run_compile(argv, io, exn);
   }, if(subcmd == "test", {
@@ -2714,8 +2911,10 @@ main :: (fn(io : Io) -> unit)({
     run_unsafe_report_cmd(argv, io, exn);
   }, if(subcmd == "public-safe-report", {
     run_public_safe_report_cmd(argv, io, exn);
+  }, if(subcmd == "version", {
+    run_version_cmd(argv, io, exn);
   }, {
-    exn.throw(dyn(`unknown subcommand '${subcmd}'. Usage: yo <compile|test|fmt|check|init|build|fetch|install|cache|doc|unsafe-report|public-safe-report> ...`));
-  }))))))))))));
+    exn.throw(dyn(`unknown subcommand '${subcmd}'. Usage: yo <compile|test|fmt|check|init|build|fetch|install|cache|doc|version|unsafe-report|public-safe-report> ...`));
+  })))))))))))));
 });
 export(main);

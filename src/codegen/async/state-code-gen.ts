@@ -140,7 +140,7 @@ export function splitIntoStateSegments(
     handleSequentialSuspensions: true,
   });
 
-  const segments = shared.map((seg) => ({
+  const segments: StateSegment[] = shared.map((seg) => ({
     stateNumber: seg.stateNumber,
     expressions: seg.expressions,
     awaitPoint: seg.suspensionPoint,
@@ -159,6 +159,36 @@ export function splitIntoStateSegments(
       expressions: [],
       awaitPoint: null,
     });
+
+    // A STANDALONE await as the body's final expression: without this, the
+    // await machinery suspended correctly but the EMPTY completion segment
+    // completed the Future with a calloc-zero result — and the resume's
+    // linear-await optimization ("no target variable → result unused") had
+    // already skipped storing the value, so
+    // `io.async((e) => e.io.await(exists(...), e.io))` returned false for an
+    // existing file (found by P3's is_version_cached). Treat it exactly like
+    // a hoisted non-splittable await: mark the await point as the body
+    // result (the resume then stores `sm->await_result_N`), move the await
+    // node into the completion segment, and let the final-segment result
+    // capture render it as `sm->result = sm->await_result_N`.
+    const tailSeg = segments[segments.length - 2]!;
+    const tailIdx = tailSeg.expressions.length - 1;
+    if (
+      tailIdx >= 0 &&
+      tailSeg.expressions[tailIdx] === tailSeg.awaitPoint!.expr
+    ) {
+      const enclosing = tailSeg.expressions[tailIdx]!;
+      tailSeg.expressions.splice(tailIdx, 1);
+      tailSeg.storeFutureForAwait = tailSeg.awaitPoint!;
+      // isBodyResult was set by analyzeAwaitPoints; assert the invariant so a
+      // future analysis change cannot silently reopen the zero-result hole.
+      if (!tailSeg.awaitPoint!.isBodyResult) {
+        tailSeg.awaitPoint!.isBodyResult = true;
+      }
+      const completion = segments[segments.length - 1]!;
+      completion.expressions.unshift(enclosing);
+      completion.hoistedAwaitPoint = tailSeg.awaitPoint!;
+    }
   }
 
   hoistNonSplittableAwaits(segments);

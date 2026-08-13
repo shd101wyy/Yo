@@ -3971,3 +3971,18 @@ test("async index binding keeps the element alive (two passes over the list)", {
   assert(items(0).name == String.from("alpha"), "element 0 outlived the async loop");
   assert(items(2).name == String.from("gamma"), "element 2 outlived the async loop");
 });
+test("standalone await as the async body's own result", {
+  // The tail-await hole: `io.async((e) => e.io.await(f, e))` — no target
+  // variable, so the linear-await "result unused" optimization dropped the
+  // value and the empty completion segment completed the Future with
+  // calloc zero. `is_version_cached` returned false for cached versions.
+  make_forty_two :: (fn(io2 : Io) -> Impl(Future(i32, IoExn)))(
+    io2.async((_e : IoExn) => i32(42))
+  );
+  tail_result :: (fn(io2 : Io) -> Impl(Future(i32, IoExn)))(
+    io2.async((e : IoExn) => e.io.await(make_forty_two(e.io), e))
+  );
+  exn := Exception(throw : ((_err) -> unwind(())));
+  got := io.await(tail_result(io), IoExn(io : io, exn : exn));
+  assert(got == i32(42));
+});
