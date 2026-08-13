@@ -242,12 +242,40 @@ PendingDefEval :: ref(
 /// fixed 64-byte `__yo_unwind_value` buffer (codegen), so unwinding a large
 /// enum like `Option(AstExpr)` would overflow it. The evaluated body therefore
 /// rides out via the `out` param, not the unwind value.
+// ---------------------------------------------------------------------------
+// Trial-swallow cell — the FATAL-endgame channel (TS parity).
+//
+// TS's definition-time body evaluation has TWO dispositions
+// (src/evaluator/calls/function-type.ts):
+//   - the DEFERRED-GENERIC trial (checkDeferredGenericReturnType) wraps its
+//     evaluateBeginExpression in `catch { return; }` (ts:112) — errors are
+//     DISCARDED. yo-self's dg site mirrors that: swallowing there is faithful.
+//   - the CONCRETE path (ts:499) has NO catch — a body-eval error is FATAL.
+//
+// `_trial_eval_fn_body`'s handler is a capture-free `->` (it cannot close over
+// the propagating `exn`), so the CONCRETE call site re-raises through this
+// cell instead: the handler flags the formatted message, the flow site checks
+// it after the trial returns (same pattern as flowability.yo's
+// flag_flow_violation). The dg and pending-re-run sites clear it and move on.
+(g_trial_swallow_msg : ArrayList(String)) = ArrayList(String).new();
+_flag_trial_swallow :: (fn(msg : String) -> unit)({
+  g_trial_swallow_msg.clear();
+  g_trial_swallow_msg.push(msg);
+});
+_clear_trial_swallow :: (fn() -> unit)({
+  g_trial_swallow_msg.clear();
+});
+_trial_swallow_pending :: (fn() -> bool)(g_trial_swallow_msg.len() > usize(0));
+_trial_swallow_message :: (fn() -> String)(
+  match(g_trial_swallow_msg.get(usize(0)), .Some(m) => m.clone(), .None => String.from(""))
+);
 _trial_eval_fn_body :: (
   fn(body : AstExpr, env : Environment, ctx : EvalContext, out : ArrayList(AstExpr)) -> unit
 )({
   // Reset the flow-violation flag so a stale flag from an earlier (propagated,
   // non-def-time) throw can't be mistaken for a violation in THIS body.
   clear_flow_violation();
+  _clear_trial_swallow();
   // The swallow handler is a capture-free `->` effect handler (it cannot close
   // over a propagating `exn`), so it always swallows. A deliberate
   // flow-soundness rejection sets `flow_violation_pending()` BEFORE throwing;
@@ -272,6 +300,7 @@ _trial_eval_fn_body :: (
         if(fnty_env.get(`YO_DEBUG_SWALLOW`).is_some(), {
           eprintln(`[swallow] ${_err.to_string()}`);
         });
+        _flag_trial_swallow(_err.to_string());
         unwind(());
       }
     )
@@ -889,7 +918,17 @@ try_to_implement_function_by_function_type :: (
                       .Some(cv_v) => is_unknown_val(cv_v),
                       .None => true
                     );
-                    if((cv.is_compile_time_only && cv_unfilled) && is_function_type(cv.ty), {
+                    // Compiler-internal synthetic binders (`__yo_return_self`
+                    // et al.) are PERMANENTLY valueless fn-typed comptime
+                    // vars — they are not user forward declarations, and
+                    // counting them made this flag TRUE for every fn in
+                    // scope (which both registered a useless bounded re-run
+                    // for every definition and suppressed the fatal
+                    // re-raise below unconditionally).
+                    if(((cv.is_compile_time_only && cv_unfilled) && is_function_type(cv.ty)) && !(cv.name.starts_with("__yo_")), {
+                      if((!(has_fwd_comptime_fn_cap)) && fnty_env.get(`YO_DEBUG_SWALLOW`).is_some(), {
+                        eprintln(`[fwd-cap] name=${cv.name} frame=${cap_fi.to_string()}`);
+                      });
                       has_fwd_comptime_fn_cap = true;
                     });
                     cap_vals.push(cap_val);
@@ -1172,6 +1211,9 @@ try_to_implement_function_by_function_type :: (
           // closure-arg ExprInfo under the wip synthesis loosenings).
           _trial_eval_fn_body(fb, flow_env, flow_ctx, flow_out);
           pop_active_where_trait_ids();
+          if(fnty_env.get(`YO_DEBUG_SWALLOW`).is_some(), {
+            eprintln(`[flow-post] out=${flow_out.len().to_string()} pending=${_trial_swallow_pending().to_string()} fwd=${has_fwd_comptime_fn_cap.to_string()}`);
+          });
           // This body captured a VALUELESS forward-declared comptime fn
           // variable — its call-site infos are incomplete until that
           // declaration fills. Register a bounded re-run (assignment.yo
@@ -1207,6 +1249,28 @@ try_to_implement_function_by_function_type :: (
             clear_flow_violation();
             exn.throw(dyn(format_error_message(ast_expr_token(fb), viol_msg, false, .None)));
           });
+          // FATAL (TS parity, function-type.ts:499): this is the CONCRETE-fn
+          // path — TS's evaluateBeginExpression here has NO catch, so a
+          // definition-time body-eval error is a compile error, not a silent
+          // "Failed to transpile" hollow. Re-raise the swallowed error via the
+          // real exn (the trial handler is capture-free and flagged it into
+          // the cell instead). EXCEPTION: a body that captured a VALUELESS
+          // forward-declared comptime fn (has_fwd_comptime_fn_cap) is an
+          // EXPECTED intermediate failure — the bounded re-run above fills it
+          // once the declaration is assigned (fn arm 14's mutual recursion;
+          // TS never faces this, its module-level bindings hoist).
+          // Gated on an EMPTY flow_out: `_trial_eval_fn_body` pushes only on
+          // success, so a non-empty out means THIS body succeeded and any
+          // pending flag is a NESTED trial's leftover (a dg trial inside this
+          // body eval — its handler flags after the nested entry-clear; TS
+          // discards those, ts:112). When the outer body itself threw, its
+          // own handler flagged LAST, so the message is the outer error.
+          if((_trial_swallow_pending() && (flow_out.len() == usize(0))) && !(has_fwd_comptime_fn_cap), {
+            ts_fatal_msg := _trial_swallow_message();
+            _clear_trial_swallow();
+            exn.throw(dyn(ts_fatal_msg));
+          });
+          _clear_trial_swallow();
           // comptime_expect_error propagation: when "propagate all def-time
           // body-eval errors" mode is active (set only around a
           // `comptime_expect_error` argument eval), a body whose trial-eval THREW
