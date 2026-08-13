@@ -140,6 +140,53 @@ split_into_state_segments :: (
           hoisted_await_point : Option(AwaitPoint).None
         )
       );
+      // A STANDALONE await as the body's final expression: without this, the
+      // await machinery suspended correctly but the EMPTY completion segment
+      // completed the Future with a calloc-zero result — and the resume's
+      // linear-await optimization ("no target variable → result unused") had
+      // already skipped storing the value, so
+      // `io.async((e) => e.io.await(exists(...), e.io))` returned false for an
+      // existing file (found by P3's is_version_cached). Treat it exactly like
+      // a hoisted non-splittable await: mark the await point as the body
+      // result (the resume then stores `sm->await_result_N`), move the await
+      // node into the completion segment, and let the final-segment result
+      // capture render it as `sm->result = sm->await_result_N`.
+      // Mirrors the tail-move block in splitIntoStateSegments (state-code-gen.ts).
+      match(
+        segments.get(segments.len() - usize(2)),
+        .Some(tail_seg) => match(
+          tail_seg.await_point,
+          .Some(tap) => if(tail_seg.expressions.len() > usize(0), {
+            tail_idx := (tail_seg.expressions.len() - usize(1));
+            match(
+              tail_seg.expressions.get(tail_idx),
+              .Some(enclosing) => if(ast_expr_id(enclosing) == ast_expr_id(tap.base.expr), {
+                _r := tail_seg.expressions.remove(tail_idx);
+                tail_seg.store_future_for_await = Option(AwaitPoint).Some(tap);
+                // is_body_result was set by analyze_await_points; assert the
+                // invariant so a future analysis change cannot silently reopen
+                // the zero-result hole.
+                if(!(match(tap.base.is_body_result, .Some(b) => b, .None => false)), {
+                  tap.base.is_body_result = Option(bool).Some(true);
+                });
+                match(
+                  segments.get(segments.len() - usize(1)),
+                  .Some(completion) => {
+                    // The completion segment was just created EMPTY, so a push
+                    // is TS's unshift.
+                    _r2 := completion.expressions.push(enclosing);
+                    completion.hoisted_await_point = Option(AwaitPoint).Some(tap);
+                  },
+                  .None => ()
+                );
+              }),
+              .None => ()
+            );
+          }),
+          .None => ()
+        ),
+        .None => ()
+      );
     });
   });
   segments

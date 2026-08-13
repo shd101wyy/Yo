@@ -643,7 +643,10 @@ emit_async_block_struct_definition :: (
           // A `while` whose CONDITION awaits also needs the field: its loop
           // layout tests `sm->await_result_N` to decide whether to run another
           // iteration, and it has no target variable to write into.
-          in_cond_or_while_cond := (match(ap.base.is_inside_cond, .Some(b) => b, .None => false) || await_is_while_condition(ap));
+          // The body's own result (standalone tail await) needs it too — the
+          // completion segment reads sm->await_result_N (see
+          // split_into_state_segments).
+          in_cond_or_while_cond := (match(ap.base.is_inside_cond, .Some(b) => b, .None => false) || await_is_while_condition(ap) || match(ap.base.is_body_result, .Some(b) => b, .None => false));
           needs_field := (!(is_effectively_unit) && in_cond_or_while_cond);
           if(needs_field, {
             // For extern futures use the Future's result type; otherwise the await
