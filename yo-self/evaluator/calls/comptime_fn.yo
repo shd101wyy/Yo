@@ -16,6 +16,8 @@
 //!   - SomeType id comparison uses `SomeT.id` for exact identity.
 pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
+open(import("std/fmt"));
+_(env : ctfe_dbg_env) :: import("std/env");
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_token, ast_expr_id, make_err_expr, clone_expr_fresh_ids } :: import("../../expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_get, register_struct_ctor_fid, lookup_struct_ctor_fid, register_trait_ctor_fid, ComptimeRef } :: import("../../expr_info.yo");
@@ -500,6 +502,9 @@ evaluate_comptime_fn_call :: (
       // the trial; everywhere else the throw stays (a genuine
       // calling-a-non-function error must not be silently absorbed).
       if(in_def_time_trial(), {
+        if(ctfe_dbg_env.get(`YO_DEBUG_CTFE`).is_some(), {
+          eprintln(`[ctfe-nonfv] fid=${func_id_str}`);
+        });
         return(
           ComptimeFnCallResult(
             value : _ctfe_unknown(return_type, caller_env),
@@ -529,6 +534,9 @@ evaluate_comptime_fn_call :: (
   // During CTFE capability analysis, return an UnknownVal immediately without
   // executing the body. This prevents infinite recursion in the analysis pass.
   if(ctx.is_analyzing_ctfe_capability, {
+    if(in_def_time_trial() && ctfe_dbg_env.get(`YO_DEBUG_CTFE`).is_some(), {
+      eprintln(`[ctfe-ana-gate] fid=${func_id_str}`);
+    });
     return(
       ComptimeFnCallResult(
         value : _ctfe_unknown(return_type, caller_env),
@@ -574,6 +582,9 @@ evaluate_comptime_fn_call :: (
       (!(macro_return_is_unquote(func_id_str.clone())))
   ) &&
     (ctfe_gate_forall_n == usize(0)), {
+    if(in_def_time_trial() && ctfe_dbg_env.get(`YO_DEBUG_CTFE`).is_some(), {
+      eprintln(`[ctfe-check-gate] fid=${func_id_str}`);
+    });
     return(
       ComptimeFnCallResult(
         value : _ctfe_unknown(return_type, caller_env),
@@ -663,6 +674,22 @@ evaluate_comptime_fn_call :: (
       )
     );
   });
+  if(in_def_time_trial() && ctfe_dbg_env.get(`YO_DEBUG_CTFE`).is_some(), {
+    (dbge_args : String) = String.from("");
+    (dbge_i : usize) = usize(0);
+    while(dbge_i < all_arg_vals.len(), {
+      match(
+        all_arg_vals.get(dbge_i),
+        .Some(dv) => {
+          dbge_args.push_string(value_to_string(dv));
+          dbge_args.push_string(String.from(" | "));
+        },
+        .None => ()
+      );
+      dbge_i = (dbge_i + usize(1));
+    });
+    eprintln(`[ctfe-in] fid=${func_id_str} args=${dbge_args}`);
+  });
   // Execution gate for unknown arguments. TS never executes a comptime body
   // when an argument is a runtime unknown: its runtime-unknowns are
   // `undefined` and throw at the collect step above (comptime-fn.ts:78).
@@ -690,7 +717,36 @@ evaluate_comptime_fn_call :: (
       uai = (uai + usize(1));
     });
   };
-  if(any_arg_unknown, {
+  // TRIAL carve-out from the gate below: TS executes a TYPE-returning
+  // constructor's body even with UnknownValue args (comptime-fn.ts has no
+  // unknown-arg execution gate at all), so a def-time trial calling
+  // `_ArrayIter(T, N)` with the impl's value binder `N : usize` bound to an
+  // unknown must RUN the body — the degraded `_ctfe_unknown(Type)` is a
+  // fresh bare SomeT, which the callee-dispatch then cannot call ("TypeVal
+  // SomeT callee without FnTrait", root 7623 of
+  // issues/def-eval-swallow-remaining-roots.md). Scope: def-time trials
+  // AND type-hierarchy returns only. The gate's recursion concern
+  // (fold_range) is about VALUE-returning recursive fns — type ctors at
+  // trial time already execute today with SomeT type args (roots 7942/7973
+  // measured executing) under the same no-durable-cache regime.
+  trial_type_ctor_unknown_ok := (in_def_time_trial() && is_type_hierarchy_type(return_type));
+  if(any_arg_unknown && !(trial_type_ctor_unknown_ok), {
+    if(in_def_time_trial() && ctfe_dbg_env.get(`YO_DEBUG_CTFE`).is_some(), {
+      (dbg_args : String) = String.from("");
+      (dbg_i : usize) = usize(0);
+      while(dbg_i < all_arg_vals.len(), {
+        match(
+          all_arg_vals.get(dbg_i),
+          .Some(dv) => {
+            dbg_args.push_string(value_to_string(dv));
+            dbg_args.push_string(String.from(" | "));
+          },
+          .None => ()
+        );
+        dbg_i = (dbg_i + usize(1));
+      });
+      eprintln(`[ctfe-unk-arg] fid=${func_id_str} args=${dbg_args}`);
+    });
     return(
       ComptimeFnCallResult(
         value : _ctfe_unknown(return_type, caller_env),
@@ -700,6 +756,11 @@ evaluate_comptime_fn_call :: (
       )
     );
   });
+  // A trial-time unknown-arg type-ctor execution must NEVER cache (the
+  // unknown arg would collide distinct instantiations in the memo); the
+  // SomeT carve-outs below already disable caching for the common case,
+  // but unknown VALUE args (IntLit-typed binders) are invisible to them.
+  (trial_unknown_nocache : bool) = (any_arg_unknown && trial_type_ctor_unknown_ok);
   // Only cache CTFE calls that return a Type (TypeHierarchyType / TypeUni).
   // Pure type-constructor functions like Box(T), Vec(T) etc. are safe to cache.
   // Functions returning runtime values may have side effects and must not be cached.
@@ -736,7 +797,7 @@ evaluate_comptime_fn_call :: (
       ok2
     }
   );
-  (should_cache : bool) = (is_type_hierarchy_type(return_type) || all_args_are_types);
+  (should_cache : bool) = ((is_type_hierarchy_type(return_type) || all_args_are_types) && !(trial_unknown_nocache));
   // TS checking-phase parity (SomeT surgery slice 2b): a ctfe call whose TYPE
   // args still CONTAIN unresolved SomeTs (analysis/validation generations
   // evaluating a declaration with `Self` bound to a fresh SomeT — the
@@ -877,6 +938,9 @@ evaluate_comptime_fn_call :: (
   match(
     cached_result,
     .Some(cached_val) => {
+      if(in_def_time_trial() && ctfe_dbg_env.get(`YO_DEBUG_CTFE`).is_some(), {
+        eprintln(`[ctfe-hit] fid=${func_id_str} result=${value_to_string(cached_val)}`);
+      });
       return(
         ComptimeFnCallResult(
           value : cached_val,
@@ -1135,6 +1199,9 @@ evaluate_comptime_fn_call :: (
       },
       .None => ()
     );
+  });
+  if(in_def_time_trial() && ctfe_dbg_env.get(`YO_DEBUG_CTFE`).is_some(), {
+    eprintln(`[ctfe-out] fid=${func_id_str} result=${value_to_string(final_return_value)}`);
   });
   ComptimeFnCallResult(
     value : final_return_value,
