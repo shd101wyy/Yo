@@ -1,5 +1,41 @@
 # The def-eval swallow: remaining roots, measured and attributed
 
+> **STATE 2026-08-13 (end of second session): 19 → 7 swallows.** Landed (PR
+> #115 + two follow-up commits on `fix/family-a-provisional-static`):
+> families A and B, cross-impl abstract bindings (trial-scoped), comptime
+> params bound UnknownVal, the ::-vs-:= and typed-binding comptime skips,
+> the comptime-CTFE non-FuncVal degrade. Every landed increment is
+> sweep-188/188-clean. **All 7 remaining roots are blocked on two
+> structural repairs:**
+>
+> **Repair 1 — trial-stamp staleness (roots #3-class: 797, 616, 537).**
+> Def-time trials stamp ExprInfos and side tables on SHARED body ASTs;
+> specialization re-eval overwrites the ExprInfoTable (id-keyed) but NOT
+> every side channel (method-callee value table, fid registrations,
+> runtime-arg exprs). Every dispatch loosening that lets trials resolve
+> MORE (the synthesis-layer work on `wip/root3-synthesis-layer` — struct
+> structural fallback + type-args abstract recovery — which DID fix the
+> dispatch) turns sweep files RED through those channels (10 REDs:
+> collections + iterator combinators + where_clause_fn_inference; the
+> abstract-spec class before it). Fix the overwrite contract first — make
+> every side-table write from a trial either (a) tagged and superseded by
+> the specialization re-eval, or (b) suppressed during trials — then land
+> the wip branch on top.
+>
+> **Repair 2 — SomeT-keyed type-constructor CTFE (roots 7623, 7837, 7942,
+> 7973).** TS RUNS type-ctor CTFE with SomeType args (`IterPair(usize, A)`
+> yields a real struct type with abstract fields); yo-self deliberately
+> skips it (`ou_all_known` — "a validation-pass SomeT TypeVal must not
+> mint, it would cache-key junk", the gap-6 lesson), so the callee
+> degrades to `UnknownVal(Type(1))` and every downstream member check
+> fails. The fix needs trial-scoped instantiation that does NOT pollute
+> the CTFE cache — e.g. a separate trial-era cache keyed by SomeT ids,
+> discarded with the trial, mirroring TS's shared-object model without its
+> in-place mutation.
+>
+> The endgame (fatal `_trial_eval_fn_body`) stays gated on all 7 + a
+> corpus-wide re-attempt.
+
 **Live inventory.** `_trial_eval_fn_body`
 (`yo-self/evaluator/calls/function_type.yo`) wraps definition-time body
 evaluation in a capture-free handler that unwinds `()` on ANY error, and the
