@@ -1,5 +1,22 @@
 # The def-eval swallow: remaining roots, measured and attributed
 
+> **STATE 2026-08-13 (third session): 19 → 1 swallow. ONLY ROOT 537 REMAINS.**
+> Landed on `swallow/somet-compat-trial` (stacked on `wip/root3-synthesis-layer`,
+> PR #117):
+>
+> - **7837 + 7942 + 7973** — one bug: SomeT-vs-SomeT trial acceptance
+>   (compatibility.yo; TS's different-id rule for unconstrained expected
+>   params; flag storage moved to types/creators.yo `trial_flag_get`).
+> - **7623** — type-ctor CTFE now executes despite unknown VALUE args
+>   during trials (comptime_fn.yo unknown-arg gate carve-out,
+>   `trial_unknown_nocache` keeps the memo clean).
+>
+> Both increments: sweep 188/188 GREEN, canaries green (imm_map,
+> derive_clone_complex, btree_map, array), check ./std 154/154,
+> check ./yo-self 247/247; fixpoint run pending at time of writing.
+> Root 537's frontier is unchanged below. After 537: the fatal-handler
+> endgame + corpus re-attempt.
+
 > **STATE 2026-08-13 (end of second session): 19 → 7 swallows.** Landed (PR
 > #115 + two follow-up commits on `fix/family-a-provisional-static`):
 > families A and B, cross-impl abstract bindings (trial-scoped), comptime
