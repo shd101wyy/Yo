@@ -1003,7 +1003,13 @@ try_match_generic_impl :: (
   // record's type id lets every later resolution channel (step-4 assoc
   // check, find_associated_type_from_generic_impls step 1, my wcr recovery)
   // read them from the registry directly. Concrete-only + deduped.
-  if(all_bound, {
+  // DEF-time trials must not make DURABLE registrations: a trial-time
+  // abstract match (the trial-scoped acceptance above) registering assoc
+  // types under the trial receiver's id redirected BATCH-time resolution —
+  // tests/collections/btree_map.test.yo's main lost the `for(m.iter())`
+  // closure arg's ExprInfo (repair 1 of
+  // issues/def-eval-swallow-remaining-roots.md).
+  if(all_bound && !(in_def_time_trial()), {
     dar_tid := type_id_or_empty(resolved_concrete);
     if(dar_tid.len() > usize(0), {
       dar_s := subst_new();

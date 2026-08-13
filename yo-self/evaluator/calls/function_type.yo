@@ -1160,9 +1160,17 @@ try_to_implement_function_by_function_type :: (
             });
           };
           push_active_where_trait_ids(flow_where_ids);
-          fl_prev_trial := set_in_def_time_trial(true);
+          // NOT flagged as a def-time trial: this is the CONCRETE-fn path
+          // (flow_body is Some only when should_defer_ft is false), and for
+          // a concrete fn this evaluation's stamps ARE what codegen emits —
+          // main's body included — with no specialization re-eval ever
+          // superseding them. The in_def_time_trial loosenings are only
+          // safe where stamps are discardable: the DEFERRED-generic trial
+          // (dg below) and the pending re-run. Flagging this site made the
+          // batch main's own trial resolve abstractly
+          // (tests/collections/btree_map.test.yo lost `for(m.iter())`'s
+          // closure-arg ExprInfo under the wip synthesis loosenings).
           _trial_eval_fn_body(fb, flow_env, flow_ctx, flow_out);
-          ___fl_tr := set_in_def_time_trial(fl_prev_trial);
           pop_active_where_trait_ids();
           // This body captured a VALUELESS forward-declared comptime fn
           // variable — its call-site infos are incomplete until that
