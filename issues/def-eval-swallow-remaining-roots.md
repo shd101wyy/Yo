@@ -22,6 +22,17 @@
 > the specialization re-eval, or (b) suppressed during trials — then land
 > the wip branch on top.
 >
+> **Repair 1's concrete entry point (measured on the preserved r4
+> binary):** `tests/collections/btree_map.test.yo`'s batch main fails
+> `check_if_function_parameter_matches_argument: arg has no ExprInfo` at a
+> CONCRETE `for((m.iter)(), ptr => ...)` — i.e. a TRIAL-time abstract match
+> during module eval left a durable write that redirects BATCH-time
+> resolution. Prime suspects inside `try_match_generic_impl`'s success
+> path: the "DURABLE assoc-type registration at first success"
+> (`register_type_trait_method` under the trial receiver's id) and
+> `register_some_resolved_concrete`. Instrument those two writes with the
+> trial flag on the wip branch and diff a batch run.
+>
 > **Repair 2 — SomeT-keyed type-constructor CTFE (roots 7623, 7837, 7942,
 > 7973).** TS RUNS type-ctor CTFE with SomeType args (`IterPair(usize, A)`
 > yields a real struct type with abstract fields); yo-self deliberately
