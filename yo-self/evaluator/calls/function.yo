@@ -127,7 +127,7 @@ MACRO_DISPATCH_ENABLED :: true;
 { try_to_call_function_with_arguments, resolve_param_types_from_expected, validate_where_constraints_for_call, reapply_where_clause_exprs_for_call, create_specialized_function_inline, _type_has_array_len_var, _trial_eval_ret_type_expr } :: import("./helper.yo");
 { get_func_type, register_func_type, is_control_fn } :: import("../../function_value.yo");
 { function_may_mutate_rc_storage } :: import("../effects/mutation_summary.yo");
-{ create_unknown_val, create_unknown_val_with_name, is_runtime_only_unknown_val } :: import("../../value.yo");
+{ create_unknown_val, create_unknown_val_with_name, is_runtime_only_unknown_val, value_to_string } :: import("../../value.yo");
 /// Named call-result unknown: promotes a Type-universe result to
 /// `TypeVal(SomeT)`. TS names every result UnknownValue (variableName is
 /// REQUIRED for Type-typed slots — createUnknownValue throws otherwise,
@@ -3333,6 +3333,9 @@ Fix: wrap the call:
               );
               fsi = (fsi + usize(1));
             });
+            if(in_def_time_trial() && fncall_dbg_env.get(`YO_DEBUG_CTFE`).is_some(), {
+              eprintln(`[call-struct] id=${struct_id} name=${struct_name}`);
+            });
             call_result_s := try_to_call_type_with_arguments(fields_subst, func_expr, args, callee_env, ctx, false, exn);
             // Propagate io-builtin markers from extern function VALUES to the
             // constructed struct's FIELDS — faithful port of TS
@@ -3440,6 +3443,9 @@ Fix: wrap the call:
               });
               Option(EvalValue).Some(EvalValue.StructVal(struct_name.clone(), fnames_s, fvals_s))
             }, Option(EvalValue).None);
+            if(in_def_time_trial() && fncall_dbg_env.get(`YO_DEBUG_CTFE`).is_some(), {
+              eprintln(`[call-struct-out] ty=${type_to_string(func_type)}`);
+            });
             out_s := new_expr_info(call_result_s.caller_env, func_type);
             out_s.value = struct_val;
             out_s.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_s.runtime_arg_exprs_in_order);
@@ -5592,6 +5598,9 @@ Fix: wrap the call:
             ct_out_val = create_unknown_val(resolved_ret_ct);
           });
           out_ct.value = Option(EvalValue).Some(ct_out_val);
+          if(in_def_time_trial() && fncall_dbg_env.get(`YO_DEBUG_CTFE`).is_some(), {
+            eprintln(`[ctfe-stamp] ty=${type_to_string(resolved_ret_ct)} val=${value_to_string(ct_out_val)}`);
+          });
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_ct);
           param_vars;
           return(expr);
@@ -6367,6 +6376,9 @@ Fix: wrap the call:
               ),
               _ => ()
             );
+          });
+          if(in_def_time_trial() && fncall_dbg_env.get(`YO_DEBUG_CTFE`).is_some(), {
+            eprintln(`[call-none] ret=${type_to_string(ret_type_none)} callee=${ast_expr_to_string(func_expr)}`);
           });
           out_none := new_expr_info(call_result_none.caller_env, ret_type_none);
           out_none.value = Option(EvalValue).Some(_call_result_unknown(ret_type_none, callee_env));
