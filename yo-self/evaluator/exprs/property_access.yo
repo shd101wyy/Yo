@@ -15,6 +15,8 @@
 //! - `ModuleVal.isLoading` check — skipped (no such flag in yo-self).
 pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
+open(import("std/fmt"));
+_(env : pa_dbg_env) :: import("std/env");
 { ArrayList } :: import("std/collections/array_list");
 {
   AstExpr,
@@ -1987,6 +1989,14 @@ Raw pointer operations may dereference invalid memory.`,
   // Return expr without setting ExprInfo — codegen / function.ts will handle.
   // Mirrors `expr.$ = undefined; return(expr);` in TypeScript.
   // -------------------------------------------------------------------------
+  if(pa_dbg_env.get(`YO_DEBUG_CTFE`).is_some(), {
+    pa_obj_ty := match(
+      expr_info_table_get(ctx.expr_info_table, ast_expr_id(object_expr)),
+      .Some(pa_oi) => type_to_string(pa_oi.ty),
+      .None => String.from("<no-info>")
+    );
+    eprintln(`[pa-fallthrough] prop=${ast_expr_token(property_expr).value} obj_ty=${pa_obj_ty}`);
+  });
   expr
 });
 export(evaluate_property_access);

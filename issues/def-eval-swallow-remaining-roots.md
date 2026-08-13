@@ -28,10 +28,17 @@
 >   (Unit-placeholder guard in `_bind_forall_from_type_args`;
 >   trial-scoped callee-env scratch isolation in helper.yo Step 7 —
 >   which contained the previously DURABLE cross-trial variant of the
->   K-junk, `[bind-T]` fid-verified). **Next probe: which link of the
->   next()/deref/field/clone chain first degrades** — run the
->   hash_map+hash_set driver (scratchpad hs_driver3.yo) with
->   YO_DEBUG_RET/YO_DEBUG_CTFE and trace the `nxt` payload's type.
+>   K-junk, `[bind-T]` fid-verified). **Frontier (probed to the exact link):** the deref
+>   `bucket_ptr.(*)` inside the Clone body ends up UNSTAMPED — `.key`'s
+>   object eval runs it (property_access.yo:547) but the node carries no
+>   ExprInfo afterwards ([pa-fallthrough] prop=key obj_ty=<no-info>), and
+>   NO `prop=*` fallthrough prints, so the deref neither took the
+>   pointer-deref arm's stamping paths nor the final fallback. Next: print
+>   `bucket_ptr`'s own stamped ty at that point, and check whether the
+>   deref FnCall's returned node id matches the id `.key` looks up (an
+>   id-mismatch after clone_expr_fresh_ids would explain a stamped-but-
+>   invisible deref). Hooks in-tree: [rm-early], [rcv-swallow],
+>   [pa-fallthrough] (all YO_DEBUG_CTFE-gated).
 >
 > Debug hooks added this phase (all env-gated, in-tree): `[rm-miss]`,
 > `[fmg-try]`, `[tm-frames]`, `[call-none] callee_ty`, and

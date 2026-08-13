@@ -220,7 +220,18 @@ ReceiverMethodResult :: struct(
 _try_eval_receiver_node :: (
   fn(arg : AstExpr, env : Environment, ctx : EvalContext, out : ArrayList(AstExpr)) -> unit
 )({
-  rcv_exn := Exception(throw : ((_e) -> unwind(())));
+  rcv_exn := Exception(
+    throw : (
+      (_e) -> {
+        // Capture-free swallow; YO_DEBUG_CTFE surfaces the error (the same
+        // pattern as _trial_eval_fn_body's [swallow] hook).
+        if(fncall_dbg_env.get(`YO_DEBUG_CTFE`).is_some(), {
+          eprintln(`[rcv-swallow] ${_e.to_string()}`);
+        });
+        unwind(());
+      }
+    )
+  );
   rcv_evaled := evaluate_expression_raw(arg, env, ctx, rcv_exn);
   out.push(rcv_evaled);
 });
@@ -281,10 +292,16 @@ _try_find_receiver_method :: (
             ri2
           },
           .None => {
+            if(in_def_time_trial() && fncall_dbg_env.get(`YO_DEBUG_CTFE`).is_some(), {
+              eprintln(`[rm-early] reason=recv-eval-no-info recv=${ast_expr_to_string(receiver_expr)}`);
+            });
             return(Option(ReceiverMethodResult).None);
           }
         ),
         .None => {
+          if(in_def_time_trial() && fncall_dbg_env.get(`YO_DEBUG_CTFE`).is_some(), {
+            eprintln(`[rm-early] reason=recv-eval-failed recv=${ast_expr_to_string(receiver_expr)}`);
+          });
           return(Option(ReceiverMethodResult).None);
         }
       )
