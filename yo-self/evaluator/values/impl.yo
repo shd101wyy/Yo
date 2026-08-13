@@ -1394,6 +1394,18 @@ find_methods_from_generic_impls :: (
               // synthesis, whose frame levels are stale at the call site — the
               // same reason `_substitute_self_in_method_ty` exists.
               spec_s := subst_new();
+              // Collect the method type's OWN SomeT instances once: a forall
+              // name can appear at DIFFERENT frame levels inside one method
+              // type (the pointer-arithmetic impl's `add` carries `*(T)`
+              // params at the impl forall's level but a return `*(T)` minted
+              // at another — `[fmg-cand]` showed the param substituted and
+              // the return left RAW, whose stale-level `T` then resolved
+              // against the receiver at the call site: `*(*(T))`, root 537
+              // of issues/def-eval-swallow-remaining-roots.md). Substitute
+              // every same-NAME occurrence at its own level — the forall
+              // twin of _substitute_self_in_method_ty's "EVERY Self at its
+              // OWN frame level" rule above.
+              ft_all_somes := get_all_some_types(ftype);
               (sb_i : usize) = usize(0);
               while(sb_i < entry.forall_names.len(), {
                 sb_name := match(entry.forall_names.get(sb_i), .Some(n) => n, .None => String.from(""));
@@ -1401,7 +1413,24 @@ find_methods_from_generic_impls :: (
                 sb_ty := match(match_bindings.get(sb_i), .Some(t) => t, .None => t_unit());
                 match(
                   sb_some,
-                  .SomeT(_, _, lvl, _, _, _, _, _, _, _, _) => subst_add(spec_s, sb_name, lvl, sb_ty),
+                  .SomeT(_, _, lvl, _, _, _, _, _, _, _, _) => {
+                    subst_add(spec_s, sb_name, lvl, sb_ty);
+                    (fts_i : usize) = usize(0);
+                    while(fts_i < ft_all_somes.len(), {
+                      match(
+                        ft_all_somes.get(fts_i),
+                        .Some(fts_t) => match(
+                          fts_t,
+                          .SomeT(_, fts_n, fts_lvl, _, _, _, _, _, _, _, _) => if((fts_n == sb_name) && (fts_lvl != lvl), {
+                            subst_add(spec_s, sb_name, fts_lvl, sb_ty);
+                          }),
+                          _ => ()
+                        ),
+                        .None => ()
+                      );
+                      fts_i = (fts_i + usize(1));
+                    });
+                  },
                   _ => ()
                 );
                 sb_i = (sb_i + usize(1));
