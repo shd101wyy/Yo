@@ -1416,9 +1416,13 @@ find_methods_from_generic_impls :: (
               // exact-equality test compare EnumT(id, Some(T)) against
               // EnumT(id, Some(Node)) and silently never fire.
               subst_set_self(spec_s, entry.receiver_type_pattern, resolved);
+              fmg_spec_ty := substitute(spec_s, ftype);
+              if(impl_dbg_env.get(`YO_DEBUG_DISPATCH`).is_some(), {
+                eprintln(`[fmg-cand] method=${method_name} recv=${type_to_string(resolved)} raw=${type_to_string(ftype)} spec=${type_to_string(fmg_spec_ty)} trial=${in_def_time_trial().to_string()}`);
+              });
               results.push(
                 MethodCandidate(
-                  method_type : substitute(spec_s, ftype),
+                  method_type : fmg_spec_ty,
                   method_value : _inject_forall_captures(fvalue, entry.forall_names, match_bindings, match_binding_vals),
                   source_trait_id : entry.trait_key.clone()
                 )
