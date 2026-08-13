@@ -410,6 +410,38 @@ Next probe: extend the minimal generic-impl repro one property at a time toward
 the real ArrayList (optional-pointer field → many methods → a preceding failing
 trial) until it reproduces; that names the third factor without guessing.
 
+### IMPLEMENTED 2026-08-13 (branch `fix/family-a-provisional-static`) — the §3 handover shape, measurements pending
+
+The three-part fix from `plans/HANDOVER_DEF_EVAL_SWALLOW.md` §3, with one
+correction found by reading: **Case 3 needs NO new registration.** Its field
+loop already registers each method into the PERMANENT registry as the field
+completes (`impl.yo` `register_type_trait_method` in-loop, plus the
+forward-shell supersede), so static `Self.X` on a non-generic impl resolves
+mid-loop today. The gap is Case 2 only: methods accumulate into the
+`GenericImplEntry` registered only AFTER the loop, so nothing is visible
+mid-loop through any channel static dispatch consults. That also matches the
+probe log — every failing field was tagged `case2`.
+
+The change:
+
+1. Case 2's direct colon-pair branch registers each evaluated method into the
+   PROVISIONAL registry as its field completes — with the REAL forall-stamped
+   FuncVal (`value : .Some(m_to_push)`, `source_trait_id : ""`,
+   `self_type : None` — the same shape as Case 3's direct permanent entries),
+   NOT a valueless signature splice.
+2. `get_type_trait_methods_by_name_from_env` (env.yo) consults the provisional
+   registry as the LAST resort, ranked BELOW the generic-impl fallback (an
+   in-flight entry outranking a registered impl is how `imm_map` broke).
+3. Cleared at Case 2's field-loop end, next to the `self_type` restore.
+
+Known interaction accepted by design: the INSTANCE path
+(`get_receiver_methods_by_name_from_env`) also consults provisional when the
+permanent registry misses, so mid-loop instance calls (`self.len()`) may now
+resolve through these entries instead of whatever later fallback served them
+before. The entries carry real values and the Case-3-direct shape, so this is
+the faithful-port direction (TS shows in-flight evaluated fields to both
+paths); the full battery is the arbiter.
+
 ### B. Impl-level VALUE binder bound as a TYPE (#4, #5, #6)
 
 ```rust

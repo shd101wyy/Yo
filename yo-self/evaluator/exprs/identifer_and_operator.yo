@@ -11,6 +11,8 @@
 //!   - Self, SelfTrait, SelfModule context references
 //!   - Variable lookup with closure-capture tracking
 open(import("std/string"));
+open(import("std/fmt"));
+_(env : ident_dbg_env) :: import("std/env");
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_token, ast_expr_id } :: import("../../expr.yo");
 {
@@ -199,6 +201,9 @@ evaluate_identifier_and_operator :: (
         return(expr);
       });
       // Ordinary identifiers throw.
+      if(ident_dbg_env.get(`YO_DEBUG_SWALLOW`).is_some(), {
+        eprintln(`[var-miss] name=${identifier_string} env_module=${env.module_path} frames=${env.frames.len().to_string()}`);
+      });
       exn.throw(
         dyn(
           format_error_message(
