@@ -33,7 +33,9 @@ open(import("std/string"));
 } :: import("../../expr_info.yo");
 { Environment, Variable, pop_env_frame } :: import("../../env.yo");
 { add_variable_to_env, get_variables_from_env } :: import("../../env.yo");
-{ EvalContext, ExpectedTypeCtx } :: import("../context.yo");
+{ EvalContext, ExpectedTypeCtx, in_def_time_trial } :: import("../context.yo");
+open(import("std/fmt"));
+_(env : match_dbg_env) :: import("std/env");
 {
   EvalValue,
   create_unknown_val,
@@ -2134,6 +2136,9 @@ evaluate_match :: (
                     .Atom(_, tok) => tok.value.clone(),
                     .FnCall(_, _, _, _, tok) => tok.value.clone()
                   );
+                  if(in_def_time_trial() && match_dbg_env.get(`YO_DEBUG_CTFE`).is_some(), {
+                    eprintln(`[match-bind] name=${param_name} enum=${type_to_string(matched_type)} field=${type_to_string(field_type_pos)}`);
+                  });
                   if(!(param_name == "_"), {
                     _added_pos := add_variable_to_env(
                       env,

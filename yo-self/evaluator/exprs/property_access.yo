@@ -558,6 +558,14 @@ evaluate_property_access :: (
     },
     .None => ()
   );
+  if((ast_expr_is_atom(property_expr) && ast_expr_is_atom_of(property_expr, "*")) && pa_dbg_env.get(`YO_DEBUG_CTFE`).is_some(), {
+    pa_deref_obj_ty := match(
+      obj_info_opt,
+      .Some(pd_oi) => type_to_string(pd_oi.ty),
+      .None => String.from("<no-info>")
+    );
+    eprintln(`[pa-deref-in] obj=${ast_expr_to_string(object_expr)} obj_ty=${pa_deref_obj_ty}`);
+  });
   // -------------------------------------------------------------------------
   // `.*` dereference
   // -------------------------------------------------------------------------

@@ -1589,8 +1589,20 @@ _synthesize_types_impl :: (
     // reached specialization/codegen channels and re-broke
     // tests/derive_clone_complex.test.yo (the session's recurring lesson —
     // abstract/looser products must stay out of stamps codegen consumes).
+    // AND scoped to a MISSING nominal identity: the fallback exists to
+    // rescue instantiations minted past the ctor stamp (empty cfid). When
+    // BOTH sides carry known-but-DIFFERENT ctor fids, nominal identity is
+    // decided and the pair must reject — TS synthesizer.ts:662 compares
+    // funcIds directly. Unscoped, two ANONYMOUS same-shaped ctors unified:
+    // HashMapIter(K,V) vs HashMapIterPtr(K,V) (both name="", both fields
+    // `(_map, _index)`) let the Clone-impl trial's `it.next()` bind the
+    // BY-VALUE iterator's `next : -> Option(Bucket(K,V))` for a
+    // HashMapIterPtr receiver, so `bucket_ptr` lost its pointer type and
+    // the trial swallowed "Cannot unify u64 and unit" (hash_map:714,
+    // issues/def-eval-swallow-remaining-roots.md corpus phase).
     (same_shape3 : bool) = false;
-    if(((exp_id3 != giv_id3) && !(same_constructor3)) && in_def_time_trial(), {
+    cfid_unknown3 := ((exp_eff_cfid.len() == usize(0)) || (giv_eff_cfid.len() == usize(0)));
+    if((((exp_id3 != giv_id3) && !(same_constructor3)) && cfid_unknown3) && in_def_time_trial(), {
       exp_snm := match(expected_ty, .Struct({ name : n }) => n, _ => String.from(""));
       giv_snm := match(given_ty, .Struct({ name : n }) => n, _ => String.from(""));
       exp_lbls := match(expected_ty, .Struct({ field_labels : l }) => l, _ => ArrayList(String).new());

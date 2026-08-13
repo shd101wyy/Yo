@@ -4617,6 +4617,14 @@ Fix: wrap the call:
                 new_expr_info(env, t_unit())
               }
             );
+            if(in_def_time_trial() && fncall_dbg_env.get(`YO_DEBUG_CTFE2`).is_some(), {
+              ae_val_str := match(
+                arg_info.value,
+                .Some(aev) => value_to_string(aev),
+                .None => String.from("<no-val>")
+              );
+              eprintln(`[arg-eval] expr=${ast_expr_to_string(arg_expr_eff)} ty=${type_to_string(arg_info.ty)} val=${ae_val_str}`);
+            });
             _push_arg := evaled_arg_infos.push(arg_info);
             // A COMPTIME variadic's trailing args (indices >= n_p) are not C
             // arguments either — `rt_ct_flags_args` only covers the FIXED

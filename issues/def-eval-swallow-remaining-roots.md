@@ -33,12 +33,40 @@
 >   object eval runs it (property_access.yo:547) but the node carries no
 >   ExprInfo afterwards ([pa-fallthrough] prop=key obj_ty=<no-info>), and
 >   NO `prop=*` fallthrough prints, so the deref neither took the
->   pointer-deref arm's stamping paths nor the final fallback. Next: print
->   `bucket_ptr`'s own stamped ty at that point, and check whether the
->   deref FnCall's returned node id matches the id `.key` looks up (an
->   id-mismatch after clone_expr_fresh_ids would explain a stamped-but-
->   invisible deref). Hooks in-tree: [rm-early], [rcv-swallow],
->   [pa-fallthrough] (all YO_DEBUG_CTFE-gated).
+>   pointer-deref arm's stamping paths nor the final fallback.
+>   **LAYER 4 (probed via `[pa-deref-in]`):** the deref DOES enter
+>   `evaluate_property_access`'s deref arm, but `bucket_ptr` itself is
+>   stamped as a BARE STRUCT — `obj_ty=<struct:struct_yo_id_3384>`
+>   (generic `Bucket(K,V)`), no pointer wrapper — so every pointer path
+>   in the arm misses and it exits without stamping. The healthy sibling
+>   line shows what it should be: `(data_ptr.add)((self._index))
+obj_ty=*(<struct:struct_yo_id_3134>)`. `bucket_ptr` is bound by the
+>   match binder from `it.next()`'s return type `enum_yo_id_3386` =
+>   def-time-evaluated `Option(*(Bucket(K, V)))` — and the binder binds
+>   `variant_fields_wf.get(i)` verbatim, so enum 3386's `Some` field
+>   holds the bare struct: **the `*(...)` wrap was lost when enum 3386
+>   was CREATED** — so it first looked like a lost `*` wrap.
+>   **ROOT FOUND (layer 5, `[arg-eval]` probe):** enum 3386 is not a
+>   mangled `Option(*(Bucket))` at all — it is the perfectly healthy
+>   return type of THE WRONG `next`. `[arg-eval]` showed the re-eval
+>   evaluating literal AST `Option(Bucket(K, V))` — hash_map.yo:512, the
+>   BY-VALUE iterator `HashMapIter`'s `next`. `[tm-try]`/`[fmg-cand]`
+>   confirmed the dispatch: for receiver `HashMapIterPtr(K,V)` (struct 3503) BOTH `next` candidates bind — `pat=struct_3370` (HashMapIter →
+>   enum 3386) FIRST, `pat=struct_3458` (HashMapIterPtr → enum 3137 =
+>   `Option(*(Bucket))`) second — and the first wins. They unify because
+>   the trial-scoped STRUCTURAL fallback in the synthesizer's
+>   struct-vs-struct arm (added for original root #3) accepts same name
+>   - same field labels, and the two iterator structs are both ANONYMOUS
+>     (`name=""`) with identical fields `(_map, _index)`. Structural
+>     checking can never separate them; only nominal identity (ctor fid)
+>     can — TS compares funcIds (synthesizer.ts:662). **FIX:** the shape
+>     fallback now requires a MISSING effective cfid on at least one side
+>     (its original rescue purpose); when both cfids are known and differ,
+>     the pair rejects nominally (`cfid_unknown3` gate,
+>     evaluator/types/synthesizer.yo). Hooks in-tree: [rm-early],
+>     [rcv-swallow], [pa-fallthrough], [pa-deref-in], [ptr-call],
+>     [match-bind], [arg-eval] (YO_DEBUG_CTFE2), `[ctfe-in] callee=` (all
+>     YO_DEBUG_CTFE-gated unless noted).
 >
 > Debug hooks added this phase (all env-gated, in-tree): `[rm-miss]`,
 > `[fmg-try]`, `[tm-frames]`, `[call-none] callee_ty`, and
