@@ -46,7 +46,8 @@ open(import("std/string"));
   ComptimeFnCallResult,
   FuncOrAsyncBlockCtx,
   FuncOrAsyncBlockKind,
-  ImplConcreteTypeInfo
+  ImplConcreteTypeInfo,
+  in_def_time_trial
 } :: import("../context.yo");
 { evaluate_begin_expression } :: import("../exprs/begin.yo");
 { format_error_message } :: import("../../error.yo");
@@ -489,6 +490,25 @@ evaluate_comptime_fn_call :: (
     function_value,
     .FuncVal(__fvd2, _) => __fvd2.*.body,
     _ => {
+      // Inside a DEFINITION-time body trial, a non-FuncVal callee is a
+      // dispatch product with no impl value yet (a where-constraint trait
+      // method on an abstract receiver — prelude's `~`/`-` comptime
+      // variants, roots #14/#15 of
+      // issues/def-eval-swallow-remaining-roots.md). TS never reaches its
+      // CTFE with a non-FunctionValue (typing) — such calls degrade to an
+      // unknown of the return type earlier. Mirror that here, scoped to
+      // the trial; everywhere else the throw stays (a genuine
+      // calling-a-non-function error must not be silently absorbed).
+      if(in_def_time_trial(), {
+        return(
+          ComptimeFnCallResult(
+            value : _ctfe_unknown(return_type, caller_env),
+            caller_env : caller_env,
+            callee_env : callee_env,
+            comptime_ref : Option(ComptimeRef).None
+          )
+        );
+      });
       exn.throw(
         dyn(
           format_error_message(
