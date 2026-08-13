@@ -1,5 +1,27 @@
 # The def-eval swallow: remaining roots, measured and attributed
 
+> **STATE 2026-08-13 (third session, later): 19 → 0. ALL ROOTS FIXED.**
+> Root 537's true root was a MIS-PORT in `_filter_receiver_methods`
+> (yo-self/env.yo): the pointee-vs-receiver check used the LENIENT
+> compatibility variant where TS passes `requireExactMatch=true`
+> (env.ts:1322-1329; compatibility.ts:823-827 makes an unconstrained
+> SomeType reject concrete types under exact rules). The lenient check
+> marked blanket `impl(generic(T), *(T), add)` methods with
+> `needs_pointer_conversion` for an ALREADY-POINTER receiver → `&`-wrap →
+> `T := *(T_arr)` synthesis → the `*(T)` return doubled to `*(*(T_arr))`.
+> Three resolution-side theories were built and REFUTED first (occurs
+> check; ownership-refined occurs; id-keyed synthesis channel — which
+> faithfully served the wrong binding, proving the writer upstream); the
+> `[s9-init]`/`[rsd-dbl]`/`[occ-pass]` YO_DEBUG_RET hooks carried the dig.
+> Fix commit `aac04c097` on `swallow/somet-compat-trial` (PR #119).
+> Battery: sweep 188/188 GREEN, canaries incl. ptr/unsafe/array_list all
+> green, check ./std 154/154, check ./yo-self 247/247, fixpoint pending.
+>
+> **NEXT: the endgame** — make `_trial_eval_fn_body` FATAL (TS parity,
+> function-type.ts:499) and re-attempt the corpus; the last fatal attempt
+> (2026-08-12) broke 10 files because the swallow was load-bearing, all
+> of whose roots are now fixed.
+
 > **STATE 2026-08-13 (third session): 19 → 1 swallow. ONLY ROOT 537 REMAINS.**
 > Landed on `swallow/somet-compat-trial` (stacked on `wip/root3-synthesis-layer`,
 > PR #117):
