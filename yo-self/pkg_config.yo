@@ -9,6 +9,7 @@ open(import("std/string"));
 { Command, ExitStatus, Output } :: import("std/process/command");
 { Exception, IoExn } :: import("std/error");
 { ArrayList } :: import("std/collections/array_list");
+{ BuildSystemLibrary } :: import("./evaluator/builtins/build.yo");
 /// Resolved compiler and linker flags for a system library.
 PkgConfigResult :: ref(
   struct(
@@ -21,16 +22,10 @@ PkgConfigResult :: ref(
     runtime_files : ArrayList(String)
   )
 );
-/// Runtime representation of a system library entry from build.yo.
-BuildSystemLibrary :: ref(
-  struct(
-    name : String,
-    fallback_include : String,
-    fallback_lib : String,
-    fallback_link : String,
-    defines : ArrayList(String)
-  )
-);
+// The system-library entry type is the CANONICAL one from the build builtins
+// — pkg_config previously duplicated the identical shape locally, and the two
+// nominal types could not unify when build_runner wired the resolver in
+// (P2.5 step 9b).
 /// ASCII whitespace test (mirrors std String._is_whitespace_byte, which is private).
 _is_ws_byte :: (fn(byte : u8) -> bool)(
   (byte == u8(0x20)) || ((byte == u8(0x09)) || ((byte == u8(0x0A)) || ((byte == u8(0x0D)) || ((byte == u8(0x0C)) || (byte == u8(0x0B))))))
