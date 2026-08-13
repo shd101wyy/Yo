@@ -786,6 +786,22 @@ call_rerun_pending_def_evals :: (fn(env : Environment, ctx : EvalContext) -> uni
     .None => ()
   )
 );
+/// True while a DEFINITION-time body trial is running
+/// (`_trial_eval_fn_body`, calls/function_type.yo — set/restored at its
+/// call sites, since a swallowed error unwinds out of the helper itself).
+/// Read by impl.yo's `_resolve_one_forall_binding`: the NAME-channel
+/// acceptance of an abstract (different-SomeT) generic binding is scoped
+/// to def-time trials — unscoped it broke std module evaluation
+/// ("Incompatible function return type", measured 2026-08-13), while at
+/// def time it is what lets a sibling impl's method dispatch resolve
+/// (array_list's Clone -> len, family A root #3).
+(g_in_def_time_trial : bool) = false;
+in_def_time_trial :: (fn() -> bool)(g_in_def_time_trial);
+set_in_def_time_trial :: (fn(v : bool) -> bool)({
+  prev := g_in_def_time_trial;
+  g_in_def_time_trial = v;
+  prev
+});
 
 export(
   PathCollection,
@@ -829,5 +845,7 @@ export(
   get_pointer_type_call_result,
   track_variable_usage,
   set_rerun_pending_def_evals_fn,
-  call_rerun_pending_def_evals
+  call_rerun_pending_def_evals,
+  in_def_time_trial,
+  set_in_def_time_trial
 );
