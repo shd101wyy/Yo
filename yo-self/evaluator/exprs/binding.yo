@@ -27,7 +27,7 @@ open(import("std/fmt"));
 } :: import("../../expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, expr_info_paths_for_write, register_module_level_global } :: import("../../expr_info.yo");
 { Environment, add_variable_to_env, get_variables_from_env } :: import("../../env.yo");
-{ EvalContext, FuncOrAsyncBlockKind } :: import("../context.yo");
+{ EvalContext, FuncOrAsyncBlockKind, in_def_time_trial } :: import("../context.yo");
 { EvalValue, is_type_value, create_unknown_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
@@ -42,7 +42,8 @@ open(import("std/fmt"));
   prohibit_void_type,
   type_requires_comptime_modifier,
   type_prohibits_comptime_modifier,
-  type_contains_rc_type
+  type_contains_rc_type,
+  get_all_some_types
 } :: import("../../types/utils.yo");
 { format_error_message, format_error_messages, TokenAndError, YoError } :: import("../../error.yo");
 { type_implements_comptime, type_implements_runtime_full } :: import("../trait_checking.yo");
@@ -291,7 +292,17 @@ evaluate_binding :: (
   // Env-aware fallback for COMPOUND comptime-only types — see the twin gate
   // in initialization_assignment.yo.
   binding_requires_ct := (type_requires_comptime_modifier(user_defined_type) || (type_implements_comptime(user_defined_type, env) && !(type_implements_runtime_full(user_defined_type, env))));
-  if(binding_requires_ct && !(is_compile_time_only), {
+  // In a DEFINITION-time body trial a type still carrying unresolved SomeTs
+  // cannot be judged comptime-only — the twin of the ::-vs-:= skip in
+  // initialization_assignment.yo (root 7837, IterFilter's
+  // `(loop_result : Option(A)) = .None` — A is the where-constraint SomeT;
+  // issues/def-eval-swallow-remaining-roots.md). The specialization-time
+  // re-eval re-checks with concrete types.
+  binding_ct_check := cond(
+    ((in_def_time_trial() && binding_requires_ct) && (get_all_some_types(user_defined_type).len() > usize(0))) => false,
+    true => binding_requires_ct
+  );
+  if(binding_ct_check && !(is_compile_time_only), {
     ty_str := type_to_string(user_defined_type);
     exn.throw(
       dyn(

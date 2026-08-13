@@ -1,5 +1,52 @@
 # The def-eval swallow: remaining roots, measured and attributed
 
+> **STATE 2026-08-13 (end of second session): 19 → 7 swallows.** Landed (PR
+> #115 + two follow-up commits on `fix/family-a-provisional-static`):
+> families A and B, cross-impl abstract bindings (trial-scoped), comptime
+> params bound UnknownVal, the ::-vs-:= and typed-binding comptime skips,
+> the comptime-CTFE non-FuncVal degrade. Every landed increment is
+> sweep-188/188-clean. **All 7 remaining roots are blocked on two
+> structural repairs:**
+>
+> **Repair 1 — trial-stamp staleness (roots #3-class: 797, 616, 537).**
+> Def-time trials stamp ExprInfos and side tables on SHARED body ASTs;
+> specialization re-eval overwrites the ExprInfoTable (id-keyed) but NOT
+> every side channel (method-callee value table, fid registrations,
+> runtime-arg exprs). Every dispatch loosening that lets trials resolve
+> MORE (the synthesis-layer work on `wip/root3-synthesis-layer` — struct
+> structural fallback + type-args abstract recovery — which DID fix the
+> dispatch) turns sweep files RED through those channels (10 REDs:
+> collections + iterator combinators + where_clause_fn_inference; the
+> abstract-spec class before it). Fix the overwrite contract first — make
+> every side-table write from a trial either (a) tagged and superseded by
+> the specialization re-eval, or (b) suppressed during trials — then land
+> the wip branch on top.
+>
+> **Repair 1's concrete entry point (measured on the preserved r4
+> binary):** `tests/collections/btree_map.test.yo`'s batch main fails
+> `check_if_function_parameter_matches_argument: arg has no ExprInfo` at a
+> CONCRETE `for((m.iter)(), ptr => ...)` — i.e. a TRIAL-time abstract match
+> during module eval left a durable write that redirects BATCH-time
+> resolution. Prime suspects inside `try_match_generic_impl`'s success
+> path: the "DURABLE assoc-type registration at first success"
+> (`register_type_trait_method` under the trial receiver's id) and
+> `register_some_resolved_concrete`. Instrument those two writes with the
+> trial flag on the wip branch and diff a batch run.
+>
+> **Repair 2 — SomeT-keyed type-constructor CTFE (roots 7623, 7837, 7942,
+> 7973).** TS RUNS type-ctor CTFE with SomeType args (`IterPair(usize, A)`
+> yields a real struct type with abstract fields); yo-self deliberately
+> skips it (`ou_all_known` — "a validation-pass SomeT TypeVal must not
+> mint, it would cache-key junk", the gap-6 lesson), so the callee
+> degrades to `UnknownVal(Type(1))` and every downstream member check
+> fails. The fix needs trial-scoped instantiation that does NOT pollute
+> the CTFE cache — e.g. a separate trial-era cache keyed by SomeT ids,
+> discarded with the trial, mirroring TS's shared-object model without its
+> in-place mutation.
+>
+> The endgame (fatal `_trial_eval_fn_body`) stays gated on all 7 + a
+> corpus-wide re-attempt.
+
 **Live inventory.** `_trial_eval_fn_body`
 (`yo-self/evaluator/calls/function_type.yo`) wraps definition-time body
 evaluation in a capture-free handler that unwinds `()` on ANY error, and the
@@ -550,6 +597,24 @@ where the direct branch (same receiver, same call) now succeeds. The
 suspected difference: the g\_ branch evaluates fields with
 `ctx.expected_type` = the trait's substituted field type, while the direct
 branch CLEARS expected_type.
+
+**ATTEMPTED AND REVERTED (branch `wip/root3-synthesis-layer`):** the
+synthesis-layer fixes for this — a trial-scoped struct-shape structural
+fallback in `synthesizer.yo`'s struct arm (the enum arm's twin) plus
+trial-scoped abstract acceptance in `_bind_forall_from_type_args` — DID
+resolve the dispatch (root 797/616 progressed into the ::-vs-:= comptime
+binding layer, canaries `imm_map`/`derive_clone_complex` both green), but
+the hollow sweep turned **10 files RED**: the whole `tests/collections/`
+family, `iter_filter_closure`, `iterator_combinators`,
+`where_clause_fn_inference`. The struct fallback alone (unscoped
+intermediate binary) already breaks `btree_map`, and the scoped r4 build
+fails it identically — the same structural lesson yet again: trial-time
+resolutions stamp shared body ASTs that codegen consumes, so ANY loosening
+that lets trials resolve more surfaces as miscompiles until the underlying
+staleness (specialization re-eval must OVERWRITE trial stamps) is fixed.
+**That staleness repair is the real prerequisite for the remaining roots**
+— take it up with fresh context; the WIP branch has the working
+synthesis-layer changes and the ::-check skip (stash) to rebase on top.
 
 **PINPOINTED (instrumented build, `YO_DEBUG_DISPATCH=1`):** the trait
 branch's trial binds `self` to a FRESH `G` instantiation minted by

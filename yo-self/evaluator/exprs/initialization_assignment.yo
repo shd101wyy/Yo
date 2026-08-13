@@ -46,7 +46,8 @@ open(import("std/string"));
 {
   EvalContext,
   ExpectedTypeCtx,
-  FuncOrAsyncBlockKind
+  FuncOrAsyncBlockKind,
+  in_def_time_trial
 } :: import("../context.yo");
 { EvalValue, create_unknown_val, is_runtime_only_unknown_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -58,7 +59,8 @@ open(import("std/string"));
   type_requires_comptime_modifier,
   type_prohibits_comptime_modifier,
   type_contains_rc_type,
-  type_is_control_bound
+  type_is_control_bound,
+  get_all_some_types
 } :: import("../../types/utils.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -422,7 +424,18 @@ Bound type: ${type_to_string(rhs_info.ty)}`,
     // recursion (types/utils.ts:85-96). Use the env-aware derivation as
     // the fallback after the cheap tag path.
     lhs_requires_ct := (type_requires_comptime_modifier(lhs_type) || (type_implements_comptime(lhs_type, env) && !(type_implements_runtime_full(lhs_type, env))));
-    if(!(effective_is_compile_time_only) && lhs_requires_ct, {
+    // In a DEFINITION-time body trial a type still carrying unresolved
+    // SomeTs cannot be judged comptime-only (TS's auto-derive is
+    // conservative on SomeTypes; yo-self's trait check is optimistic, so
+    // `Option(T')` from an abstract cross-impl dispatch wrongly demanded
+    // `::` — the ::-vs-:= layer of roots 797/616/7905,
+    // issues/def-eval-swallow-remaining-roots.md). Skip; the
+    // specialization-time re-eval re-checks with concrete types.
+    lhs_ct_check := cond(
+      ((in_def_time_trial() && lhs_requires_ct) && (get_all_some_types(lhs_type).len() > usize(0))) => false,
+      true => lhs_requires_ct
+    );
+    if(!(effective_is_compile_time_only) && lhs_ct_check, {
       lhs_type_str := type_to_string(lhs_type);
       expr_str := ast_expr_to_string(expr);
       exn.throw(
