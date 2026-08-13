@@ -460,6 +460,9 @@ _resolve_one_forall_binding :: (
   if((in_def_time_trial() && (bt_id.len() > usize(0))) && (bt_id != fa_some_id), {
     return(Option(TypeValue).Some(bound_type));
   });
+  if(impl_dbg_env.get(`YO_DEBUG_DISPATCH`).is_some(), {
+    eprintln(`[rfb-id-miss] name=${fa_name} own_id=${fa_some_id} bound_id=${bt_id} trial=${in_def_time_trial().to_string()}`);
+  });
   // Name-based fallback: look up `fa_name` directly in `expected_env`.
   name_vars := get_variables_from_env(expected_env, fa_name);
   n_nvars := name_vars.len();
@@ -635,6 +638,20 @@ _bind_forall_from_type_args :: (
         .Some(ct) => if(!(is_some_type(ct)), {
           return(Option(TypeValue).Some(ct));
         }, {
+          // Trial-scoped abstract acceptance — same contract as
+          // _resolve_one_forall_binding: inside a definition-time body
+          // trial a DIFFERENT-id SomeT type argument IS the binding
+          // (ArrayList(T_pattern) matched against the Clone impl's
+          // ArrayList(T'), root #3 — field synthesis leaves T unbound
+          // because ?*(T) unification binds neither side, and this
+          // type-args recovery was the only channel left).
+          {
+            ct_abs_id := match(ct, .SomeT({ id : __cai }) => __cai, _ => String.from(""));
+            fa_abs_id := match(fa_some, .SomeT({ id : __fai }) => __fai, _ => String.from(""));
+            if((in_def_time_trial() && (ct_abs_id.len() > usize(0))) && (ct_abs_id != fa_abs_id), {
+              return(Option(TypeValue).Some(ct));
+            });
+          };
           // `ct` is still a SomeType. For an async future's output type, yo-self
           // KEEPS the output unresolved through eval (the FSM/future machinery
           // keys on that SomeType identity), and the concrete type lands in the
@@ -744,8 +761,12 @@ try_match_generic_impl :: (
   exn_match := Exception(
     throw : (
       (err) -> {
-        // Synthesis failed → no match.
-        err;
+        // Synthesis failed → no match. YO_DEBUG_DISPATCH prints the
+        // swallowed error (capture-free handler, same pattern as the
+        // [swallow] hook) — pairs with the [tm-try] line above it.
+        if(impl_dbg_env.get(`YO_DEBUG_DISPATCH`).is_some(), {
+          eprintln(`[tm-synth-swallow] ${err.to_string()}`);
+        });
         unwind(Option(ArrayList(TypeValue)).None);
       }
     )
