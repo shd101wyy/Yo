@@ -1,33 +1,58 @@
-// Minimal repro attempt: TS codegen emitted an undeclared temp in a drop for
-// a short-circuit || chain whose LAST operand creates an RC temp
-// (`(a || b) || f(x).is_some()`).
+// Minimization attempt #2 for issues/ts-codegen-undeclared-temp-in-short-circuit-option-drop.md:
+// the original context was a huge fn, the || chain inside a match arm of a
+// cond, the Option payload a large RC enum. Reproduce that nesting.
 { assert } :: import("std/assert");
 { ArrayList } :: import("std/collections/array_list");
+open(import("std/string"));
 
-Payload :: enum(Empty, Items(xs : ArrayList(i32)));
+Big :: enum(
+  A(xs : ArrayList(i32)),
+  B(s : String),
+  C(n : i32)
+);
 
-make_opt :: (fn(n : i32) -> Option(Payload))({
-  out := Option(Payload).None;
+get_big :: (fn(n : i32) -> Option(Big))({
+  out := Option(Big).None;
   cond(
     (n > i32(0)) => {
       xs := ArrayList(i32).new();
       xs.push(n);
-      out = Option(Payload).Some(Payload.Items(xs));
+      out = Option(Big).Some(Big.A(xs : xs));
     },
     true => ()
   );
   out
 });
 
-check_flag :: (fn(a : bool, b : bool, n : i32) -> bool)({
-  (flag : bool) = ((a || b) || make_opt(n).is_some());
-  flag
+classify :: (fn(k : i32, a : bool, b : bool) -> i32)({
+  (out : i32) = i32(0);
+  cond(
+    (k == i32(1)) => {
+      out = match(
+        k,
+        _ => {
+          flag := ((a || b) || get_big(k).is_some());
+          cond(
+            flag => i32(10),
+            true => i32(20)
+          )
+        }
+      );
+    },
+    (k == i32(2)) => {
+      out = i32(2);
+    },
+    true => {
+      out = i32(3);
+    }
+  );
+  out
 });
 
 main :: (fn() -> unit)({
-  r := check_flag(false, false, i32(3));
-  assert(r);
-  r2 := check_flag(true, false, i32(0));
-  assert(r2);
+  r := classify(i32(1), false, false);
+  assert(r == i32(10));
+  r2 := classify(i32(2), true, true);
+  assert(r2 == i32(2));
 });
 export(main);

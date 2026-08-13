@@ -15,8 +15,10 @@ pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 open(import("std/error"));
 open(import("std/fmt"));
-{ args } :: import("std/env");
+{ args, cwd } :: import("std/env");
 _(env : proc_env) :: import("std/env");
+{ CURRENT_YO_VERSION } :: import("./version.yo");
+{ Regex } :: import("std/regex");
 { Path } :: import("std/path");
 { read_file, write_file, exists } :: import("std/fs/file");
 { metadata } :: import("std/fs/metadata");
@@ -60,7 +62,7 @@ _(env : proc_env) :: import("std/env");
 { evaluate_anonymous_module_begin_exprs } :: import("./evaluator/values/anonymous_module.yo");
 { clear_module_cache } :: import("./evaluator/module_loader.yo");
 { format_yo_source, format_yo_files, FormatYoFilesOptions } :: import("./formatter.yo");
-{ host_target, parse_target, TargetInfo, is_target_linux, is_target_windows, is_target_wasm } :: import("./target.yo");
+{ host_target, parse_target, TargetInfo, is_target_linux, is_target_windows, is_target_macos, is_target_wasm, is_target_standalone_wasi } :: import("./target.yo");
 { compile_module } :: import("./codegen/codegen_c.yo");
 { get_needs_intel_asm_syntax } :: import("./codegen/utils/index.yo");
 { panic, assert } :: import("std/assert");
@@ -424,6 +426,46 @@ collect_module_deps :: (
     );
   });
 });
+/// Resolve a path for exclude comparison: make it absolute against the cwd,
+/// normalize separators to `/`, and fold `.`/`..` segments — the value-level
+/// equivalent of TS `path.resolve` for matching purposes.
+_resolve_for_match :: (fn(p : String) -> String)({
+  cwd_str := match(cwd(), .Ok(c) => c.to_string(), .Err(_) => String.from("."));
+  (joined : String) = p.clone();
+  is_abs := (p.starts_with("/") || ((p.len() > usize(1)) && (p.byte_at(usize(1)) == u8(58))));
+  if(!(is_abs), {
+    joined = `${cwd_str}/${p}`;
+  });
+  norm := joined.replace(String.from("\\"), String.from("/"));
+  parts := norm.split("/");
+  kept := ArrayList(String).new();
+  (pi : usize) = usize(0);
+  while(pi < parts.len(), {
+    part := match(parts.get(pi), .Some(s) => s, .None => String.from(""));
+    pi = (pi + usize(1));
+    cond(
+      ((part == "") || (part == ".")) => (),
+      (part == "..") => if(kept.len() > usize(0), {
+        _popped := kept.pop();
+      }),
+      true => {
+        _kp := kept.push(part);
+      }
+    );
+  });
+  (rebuilt : String) = String.from("");
+  (ki : usize) = usize(0);
+  while(ki < kept.len(), {
+    seg := match(kept.get(ki), .Some(s) => s, .None => String.from(""));
+    rebuilt.push_string(String.from("/"));
+    rebuilt.push_string(seg);
+    ki = (ki + usize(1));
+  });
+  if(rebuilt.len() == usize(0), {
+    rebuilt = String.from("/");
+  });
+  rebuilt
+});
 /// Recursive helper for `collect_check_files` — walks a directory
 /// tree appending each `.yo` file path to `out`.
 _walk_check_dir :: (
@@ -501,20 +543,30 @@ collect_check_files :: (
     meta.is_dir() => _walk_check_dir(path_str, raw, io, exn),
     true => ()
   );
-  // Drop any collected path that contains an `--exclude` path as a substring
-  // (so `--exclude tests/internal` skips that whole subtree from a directory
-  // check). Mirrors the exclude filter in `collectCheckFiles` (src/yo-cli.ts);
-  // yo-self lacks `path.resolve`, so this uses path-segment containment on the
-  // collected absolute paths rather than resolved-prefix matching.
+  // ANCHORED exclude matching, TS parity (src/yo-cli.ts:58-64): both sides
+  // resolve against the cwd, and a file is excluded when it IS the exclude
+  // path or lives under it (`p === ex || p.startsWith(ex + sep)`). The old
+  // substring `fp.contains(ex)` over-matched — `--exclude tests/fn` also
+  // dropped `tests/fn_pointers.test.yo` (P2.5 step 6).
+  resolved_excludes := ArrayList(String).new();
+  (rei : usize) = usize(0);
+  while(rei < excludes.len(), {
+    rex := match(excludes.get(rei), .Some(e) => e, .None => String.from(""));
+    if(!(rex.is_empty()), {
+      resolved_excludes.push(_resolve_for_match(rex));
+    });
+    rei = (rei + usize(1));
+  });
   out := ArrayList(String).new();
   (ri : usize) = usize(0);
   while(ri < raw.len(), {
     fp := match(raw.get(ri), .Some(p) => p, .None => String.from(""));
+    fp_res := _resolve_for_match(fp.clone());
     (skip : bool) = false;
     (ei : usize) = usize(0);
-    while((ei < excludes.len()) && !(skip), {
-      ex := match(excludes.get(ei), .Some(e) => e, .None => String.from(""));
-      if(!(ex.is_empty()) && fp.contains(ex), {
+    while((ei < resolved_excludes.len()) && !(skip), {
+      ex := match(resolved_excludes.get(ei), .Some(e) => e, .None => String.from(""));
+      if((fp_res == ex) || fp_res.starts_with(`${ex}/`), {
         skip = true;
       });
       ei = (ei + usize(1));
@@ -563,7 +615,7 @@ run_check :: (
   ) -> unit
 )({
   if(argv.len() < usize(3), {
-    exn.throw(dyn(`check: missing input file. Usage: yo-self check <input.yo | dir>`));
+    exn.throw(dyn(`check: missing input file. Usage: yo check <input.yo | dir>`));
   });
   // Positional + `--exclude <path>` (repeatable) in any order; unknown
   // options are errors — TS's yargs is .strict() (yo-cli.ts:1348).
@@ -583,7 +635,7 @@ run_check :: (
         });
       },
       a.starts_with(String.from("-")) => {
-        exn.throw(dyn(`check: unknown option '${a}'. Usage: yo-self check <input.yo | dir> [--exclude PATH]`));
+        exn.throw(dyn(`check: unknown option '${a}'. Usage: yo check <input.yo | dir> [--exclude PATH]`));
       },
       true => {
         target_path = a.clone();
@@ -592,7 +644,7 @@ run_check :: (
     );
   });
   if(target_path.len() == usize(0), {
-    exn.throw(dyn(`check: missing input file. Usage: yo-self check <input.yo | dir>`));
+    exn.throw(dyn(`check: missing input file. Usage: yo check <input.yo | dir>`));
   });
   files := collect_check_files(target_path.clone(), excludes, io, exn);
   if(files.len() == usize(0), {
@@ -636,6 +688,142 @@ run_check :: (
 _arg_val :: (fn(argv : ArrayList(String), i : usize) -> String)(
   if((i + usize(1)) < argv.len(), argv(i + usize(1)), String.from(""))
 );
+/// Like `_arg_val`, but a MISSING trailing value is an error instead of `""`
+/// (mirrors yargs `requiresArg` behavior — `yo compile -o` with nothing after
+/// silently produced an empty output name and a `.c` sidecar named `.c`).
+_arg_val_req :: (
+  fn(argv : ArrayList(String), i : usize, flag : String, exn : Exception) -> String
+)({
+  if((i + usize(1)) < argv.len(), {
+    return(argv(i + usize(1)));
+  });
+  exn.throw(dyn(`compile: option '${flag}' requires a value`));
+  String.from("")
+});
+/// How far the arg cursor advances for a value option: 1 when the value was
+/// attached (`--flag=value`), 2 for the space form.
+_opt_step :: (fn(attached : Option(String)) -> usize)(
+  match(attached, .Some(_) => usize(1), .None => usize(2))
+);
+/// The value of a value option: the attached `=value` when present, else the
+/// (required) next argv entry.
+_opt_value :: (
+  fn(argv : ArrayList(String), i : usize, flag : String, attached : Option(String), exn : Exception) -> String
+)(
+  match(attached, .Some(v) => v, .None => _arg_val_req(argv, i, flag, exn))
+);
+/// `compiler --version` probe (mirrors `checkCompilerAvailable`,
+/// src/compiler-utils.ts:66-73 — stdio ignored, availability = exit 0).
+_check_compiler_available :: (fn(compiler : String, io : Io) -> bool)({
+  probe := Command.new(compiler.clone());
+  probe.arg(String.from("--version"));
+  // A spawn failure (missing binary) throws through IoExn — treat it as
+  // "not available" rather than propagating.
+  inner_exn := Exception(throw : ((_e) -> unwind(false)));
+  out := io.await(probe.output(io), IoExn(io : io, exn : inner_exn));
+  out.status.raw == i32(0)
+});
+/// First available C compiler, in TS's order (`findAvailableCompiler`,
+/// src/compiler-utils.ts:79-88).
+_find_available_compiler :: (fn(io : Io) -> Option(String))({
+  candidates := ArrayList(String).new();
+  candidates.push(String.from("clang"));
+  candidates.push(String.from("cc"));
+  candidates.push(String.from("gcc"));
+  candidates.push(String.from("zig"));
+  candidates.push(String.from("cl"));
+  (fci : usize) = usize(0);
+  while(fci < candidates.len(), {
+    c := match(candidates.get(fci), .Some(x) => x, .None => String.from(""));
+    if(_check_compiler_available(c.clone(), io), {
+      return(Option(String).Some(c));
+    });
+    fci = (fci + usize(1));
+  });
+  Option(String).None
+});
+/// The parent directory of a Windows-or-POSIX path (both separators).
+_win_dirname :: (fn(p : String) -> String)({
+  (last_sep : isize) = (isize(0) - isize(1));
+  (di : usize) = usize(0);
+  while(di < p.len(), {
+    ch := p.byte_at(di);
+    if((ch == u8(47)) || (ch == u8(92)), {
+      last_sep = isize(di);
+    });
+    di = (di + usize(1));
+  });
+  if(last_sep <= isize(0), {
+    return(p.clone());
+  });
+  p.substring(usize(0), usize(last_sep))
+});
+/// Windows: the directory holding clang's ASan runtime DLL, to prepend to
+/// PATH before running ASan-instrumented test binaries
+/// (`findClangAsanDllPath`, src/compiler-utils.ts:231-274 — the DLL lives at
+/// `<llvm-root>/lib/clang/<version>/lib/windows`). `.None` on any failure or
+/// off Windows.
+_find_clang_asan_dll_path :: (fn(compiler : String, io : Io) -> Option(String))({
+  if(!(is_target_windows(host_target())), {
+    return(Option(String).None);
+  });
+  inner_exn := Exception(throw : ((_e) -> unwind(Option(String).None)));
+  wcmd := Command.new(String.from("where.exe"));
+  wcmd.arg(compiler.clone());
+  wout := io.await(wcmd.output(io), IoExn(io : io, exn : inner_exn));
+  if(wout.status.raw != i32(0), {
+    return(Option(String).None);
+  });
+  wtxt := String.from_bytes(wout.stdout);
+  first_line := match(wtxt.split("\n").get(usize(0)), .Some(l) => l.trim(), .None => String.from(""));
+  if(first_line.len() == usize(0), {
+    return(Option(String).None);
+  });
+  compiler_dir := _win_dirname(first_line.clone());
+  llvm_root := _win_dirname(compiler_dir.clone());
+  clang_lib := `${llvm_root}\\lib\\clang`;
+  clang_lib_found := io.await(exists(Path.new(clang_lib.clone()), io), io);
+  if(!(clang_lib_found), {
+    return(Option(String).None);
+  });
+  ver_entries := io.await(read_dir(Path.new(clang_lib.clone()), io), IoExn(io : io, exn : inner_exn));
+  (vei : usize) = usize(0);
+  while(vei < ver_entries.len(), {
+    ve := match(ver_entries.get(vei), .Some(e) => Option(String).Some(e.name.clone()), .None => Option(String).None);
+    vei = (vei + usize(1));
+    match(
+      ve,
+      .Some(vname) => {
+        win_lib := `${clang_lib}\\${vname}\\lib\\windows`;
+        win_found := io.await(exists(Path.new(win_lib.clone()), io), io);
+        if(win_found, {
+          return(Option(String).Some(win_lib));
+        });
+      },
+      .None => ()
+    );
+  });
+  Option(String).None
+});
+/// True when the path's basename carries an extension (TS `path.extname(p) !== ""`).
+_path_has_extension :: (fn(p : String) -> bool)({
+  (last_slash : isize) = (isize(0) - isize(1));
+  (last_dot : isize) = (isize(0) - isize(1));
+  (pi : usize) = usize(0);
+  while(pi < p.len(), {
+    ch := p.byte_at(pi);
+    if(ch == u8(47), {
+      last_slash = isize(pi);
+    });
+    if(ch == u8(46), {
+      last_dot = isize(pi);
+    });
+    pi = (pi + usize(1));
+  });
+  // A dot counts only after the last slash and not as the basename's first
+  // character (path.extname(".bashrc") === "" in Node).
+  last_dot > (last_slash + isize(1))
+});
 /// Is liburing available for linking? Mirrors `isLiburingAvailable` in
 /// `src/compiler-utils.ts`: probe `pkg-config --exists liburing`.
 ///
@@ -738,19 +926,23 @@ run_compile :: (
   ) -> unit
 )({
   if(argv.len() < usize(3), {
-    exn.throw(dyn(`compile: missing input file. Usage: yo-self compile <input.yo> [-o out] [--c-compiler cc] [--target <triple>] [--emit-c]`));
+    exn.throw(dyn(`compile: missing input file. Usage: yo compile <input.yo> [-o out] [--c-compiler cc] [--target <triple>] [--emit-c]`));
   });
   // Parse args. Mirrors the `compile` command options of the TypeScript
   // `yo-cli` (src/yo-cli.ts / src/codegen/index.ts) for the clang/gcc/zig path.
   (input_path : String) = String.from("");
   (output : String) = String.from("a.out");
-  (cc : String) = String.from("clang");
+  // `cc` stays empty until the user passes it; resolution (wasm → emcc, else
+  // findAvailableCompiler) happens after the loop, mirroring
+  // src/yo-cli.ts:468-486.
+  (cc : String) = String.from("");
   (target_triple : String) = String.from("");
   (sysroot : String) = String.from("");
   (allocator : String) = String.from("libc");
   (optimize : String) = String.from(""); // "" = unset; "0".."3"
   (sanitize : String) = String.from(""); // "" / "address" / "leak" / "thread"
   (cflags : String) = String.from("");
+  (emit_c : bool) = false;
   (skip_cc : bool) = false;
   (skip_codegen : bool) = false;
   (release : bool) = false;
@@ -769,60 +961,133 @@ run_compile :: (
   (ai : usize) = usize(2);
   while(ai < argv.len(), {
     a := argv(ai);
+    // `--flag=value` normalization: split at the FIRST '=' (values may
+    // themselves contain '=', e.g. `--cflags=-march=native`). Mirrors yargs,
+    // and the file's own precedent at the doc/build subcommands.
+    (a_name : String) = a.clone();
+    (a_val : Option(String)) = Option(String).None;
+    if(a.starts_with("--"), {
+      (eq_at : isize) = (isize(0) - isize(1));
+      (sc_i : usize) = usize(0);
+      while((sc_i < a.len()) && (eq_at < isize(0)), {
+        if(a.byte_at(sc_i) == u8(61), {
+          eq_at = isize(sc_i);
+        });
+        sc_i = (sc_i + usize(1));
+      });
+      if(eq_at > isize(0), {
+        a_name = a.substring(usize(0), usize(eq_at));
+        a_val = Option(String).Some(a.substring(usize(eq_at) + usize(1), a.len()));
+      });
+    });
     cond(
-      (a == "-o") => {
-        output = _arg_val(argv, ai);
-        ai = (ai + usize(2));
+      (a_name == "-o") => {
+        output = _opt_value(argv, ai, a_name.clone(), a_val.clone(), exn);
+        ai = (ai + _opt_step(a_val));
       },
-      ((a == "--c-compiler") || (a == "--cc")) => {
-        cc = _arg_val(argv, ai);
-        ai = (ai + usize(2));
+      ((a_name == "--c-compiler") || (a_name == "--cc")) => {
+        cc = _opt_value(argv, ai, a_name.clone(), a_val.clone(), exn);
+        ai = (ai + _opt_step(a_val));
       },
-      ((a == "--target") || (a == "-t")) => {
-        target_triple = _arg_val(argv, ai);
-        ai = (ai + usize(2));
+      ((a_name == "--target") || (a_name == "-t")) => {
+        target_triple = _opt_value(argv, ai, a_name.clone(), a_val.clone(), exn);
+        ai = (ai + _opt_step(a_val));
       },
-      (a == "--sysroot") => {
-        sysroot = _arg_val(argv, ai);
-        ai = (ai + usize(2));
+      (a_name == "--sysroot") => {
+        sysroot = _opt_value(argv, ai, a_name.clone(), a_val.clone(), exn);
+        ai = (ai + _opt_step(a_val));
       },
-      (a == "--allocator") => {
-        allocator = _arg_val(argv, ai);
-        ai = (ai + usize(2));
+      (a_name == "--allocator") => {
+        allocator = _opt_value(argv, ai, a_name.clone(), a_val.clone(), exn);
+        ai = (ai + _opt_step(a_val));
       },
-      (a == "--optimize") => {
-        optimize = _arg_val(argv, ai);
-        ai = (ai + usize(2));
+      (a_name == "--optimize") => {
+        optimize = _opt_value(argv, ai, a_name.clone(), a_val.clone(), exn);
+        ai = (ai + _opt_step(a_val));
       },
-      (a == "--sanitize") => {
-        sanitize = _arg_val(argv, ai);
-        ai = (ai + usize(2));
+      (a_name == "--sanitize") => {
+        sanitize = _opt_value(argv, ai, a_name.clone(), a_val.clone(), exn);
+        ai = (ai + _opt_step(a_val));
       },
-      (a == "--cflags") => {
-        cflags = _arg_val(argv, ai);
-        ai = (ai + usize(2));
+      (a_name == "--cflags") => {
+        cflags = _opt_value(argv, ai, a_name.clone(), a_val.clone(), exn);
+        ai = (ai + _opt_step(a_val));
       },
-      ((a == "-D") || (a == "--define")) => {
-        defines.push(_arg_val(argv, ai));
-        ai = (ai + usize(2));
+      // Array options. Space/`=` forms are GREEDY like yargs `type: "array"`:
+      // following non-dash args join the list (`-I a b` = two include paths —
+      // previously `b` silently became input_path, a wrong-file success).
+      ((a_name == "-D") || (a_name == "--define")) => {
+        defines.push(_opt_value(argv, ai, a_name.clone(), a_val.clone(), exn));
+        ai = (ai + _opt_step(a_val));
+        while((ai < argv.len()) && !(argv(ai).starts_with("-")), {
+          defines.push(argv(ai));
+          ai = (ai + usize(1));
+        });
       },
-      (a == "-I") => {
-        include_paths.push(_arg_val(argv, ai));
-        ai = (ai + usize(2));
+      (a_name == "-I") => {
+        include_paths.push(_opt_value(argv, ai, a_name.clone(), a_val.clone(), exn));
+        ai = (ai + _opt_step(a_val));
+        while((ai < argv.len()) && !(argv(ai).starts_with("-")), {
+          include_paths.push(argv(ai));
+          ai = (ai + usize(1));
+        });
       },
-      (a == "-L") => {
-        library_paths.push(_arg_val(argv, ai));
-        ai = (ai + usize(2));
+      (a_name == "-L") => {
+        library_paths.push(_opt_value(argv, ai, a_name.clone(), a_val.clone(), exn));
+        ai = (ai + _opt_step(a_val));
+        while((ai < argv.len()) && !(argv(ai).starts_with("-")), {
+          library_paths.push(argv(ai));
+          ai = (ai + usize(1));
+        });
       },
-      (a == "-l") => {
-        libraries.push(_arg_val(argv, ai));
-        ai = (ai + usize(2));
+      (a_name == "-l") => {
+        libraries.push(_opt_value(argv, ai, a_name.clone(), a_val.clone(), exn));
+        ai = (ai + _opt_step(a_val));
+        while((ai < argv.len()) && !(argv(ai).starts_with("-")), {
+          libraries.push(argv(ai));
+          ai = (ai + usize(1));
+        });
       },
-      (a == "--extern") => {
-        externs.push(_arg_val(argv, ai));
-        ai = (ai + usize(2));
+      (a_name == "--extern") => {
+        externs.push(_opt_value(argv, ai, a_name.clone(), a_val.clone(), exn));
+        ai = (ai + _opt_step(a_val));
+        while((ai < argv.len()) && !(argv(ai).starts_with("-")), {
+          externs.push(argv(ai));
+          ai = (ai + usize(1));
+        });
       },
-      ((a == "--emit-c") || (a == "--skip-c-compiler")) => {
+      // Attached short forms, gcc-style: `-I./include`, `-L./lib`, `-lm`,
+      // `-DFOO=1`, `-oout` (the TS help's own examples, src/yo-cli.ts:320-346).
+      // One value each; checked AFTER the exact matches so `-l` alone still
+      // takes the next arg.
+      (a.starts_with("-I") && ((a.len() > usize(2)) && !(a.starts_with("--")))) => {
+        include_paths.push(a.substring(usize(2), a.len()));
+        ai = (ai + usize(1));
+      },
+      (a.starts_with("-L") && ((a.len() > usize(2)) && !(a.starts_with("--")))) => {
+        library_paths.push(a.substring(usize(2), a.len()));
+        ai = (ai + usize(1));
+      },
+      (a.starts_with("-l") && ((a.len() > usize(2)) && !(a.starts_with("--")))) => {
+        libraries.push(a.substring(usize(2), a.len()));
+        ai = (ai + usize(1));
+      },
+      (a.starts_with("-D") && ((a.len() > usize(2)) && !(a.starts_with("--")))) => {
+        defines.push(a.substring(usize(2), a.len()));
+        ai = (ai + usize(1));
+      },
+      (a.starts_with("-o") && ((a.len() > usize(2)) && !(a.starts_with("--")))) => {
+        output = a.substring(usize(2), a.len());
+        ai = (ai + usize(1));
+      },
+      // `--emit-c` PRINTS the generated C to stdout and still compiles/links
+      // (TS module-manager.ts:473-475); `--skip-c-compiler` gates the link
+      // (TS codegen/index.ts:234). Previously conflated.
+      (a_name == "--emit-c") => {
+        emit_c = true;
+        ai = (ai + usize(1));
+      },
+      (a_name == "--skip-c-compiler") => {
         skip_cc = true;
         ai = (ai + usize(1));
       },
@@ -862,11 +1127,16 @@ run_compile :: (
         static_library = true;
         ai = (ai + usize(1));
       },
-      // Accepted for parity; yo-self adds no default sanitizer so it is a no-op.
+      // Accepted for parity; `compile` has no default sanitizer in either
+      // compiler (the TEST runner's default is where --disable-sanitize bites).
       (a == "--disable-sanitize") => {
         ai = (ai + usize(1));
       },
       a.starts_with("-") => {
+        // yargs is .strict() (src/yo-cli.ts:1358): an unknown option is an
+        // error. The old silent catch-all dropped mistyped flags — a
+        // `--sanitizer address` typo compiled unsanitized with rc=0.
+        exn.throw(dyn(`compile: unknown option '${a}'`));
         ai = (ai + usize(1));
       },
       true => {
@@ -874,6 +1144,40 @@ run_compile :: (
         ai = (ai + usize(1));
       }
     );
+  });
+  // ----- choices validation (yargs `choices:` parity, src/yo-cli.ts) -------
+  if(((cc != "") && (((cc != "cc") && (cc != "gcc")) && ((cc != "clang") && (cc != "zig")))) && ((cc != "cl") && (cc != "emcc")), {
+    exn.throw(dyn(`compile: invalid --c-compiler "${cc}". Choices: cc, gcc, clang, zig, cl, emcc`));
+  });
+  if((allocator != "mimalloc") && (allocator != "libc"), {
+    exn.throw(dyn(`compile: invalid --allocator "${allocator}". Choices: mimalloc, libc`));
+  });
+  if((optimize != "") && (((optimize != "0") && (optimize != "1")) && ((optimize != "2") && (optimize != "3"))), {
+    exn.throw(dyn(`compile: invalid --optimize "${optimize}". Choices: 0, 1, 2, 3`));
+  });
+  if((sanitize != "") && (((sanitize != "address") && (sanitize != "leak")) && (sanitize != "thread")), {
+    exn.throw(dyn(`compile: invalid --sanitize "${sanitize}". Choices: address, leak, thread`));
+  });
+  // ----- C compiler resolution (src/yo-cli.ts:468-486) ---------------------
+  // Auto-select emcc for wasm targets when --cc was not given; otherwise probe
+  // for the first available compiler instead of assuming clang.
+  if((cc == "") && target_triple.starts_with("wasm"), {
+    cc = String.from("emcc");
+  });
+  if(cc == "", {
+    match(
+      _find_available_compiler(io),
+      .Some(found_cc) => {
+        cc = found_cc;
+      },
+      .None => {
+        exn.throw(dyn(String.from("Error: No C compiler found. Please install a C compiler (cc, gcc, clang, zig, or cl) or specify one using the -cc/--c-compiler flag.")));
+      }
+    );
+  });
+  // emcc implies wasm32-emscripten when no target was given (yo-cli.ts:488-490).
+  if((cc == "emcc") && (target_triple == ""), {
+    target_triple = String.from("wasm32-emscripten");
   });
   std_path := resolve_std_path();
   // Create the shared ExprInfoTable BEFORE loading the prelude, and publish it
@@ -951,13 +1255,49 @@ run_compile :: (
   if(skip_codegen, {
     return(());
   });
+  // Auto-add the output extension when none was given (yo-cli.ts:494-509):
+  // emcc → `.wasm` for standalone WASI, else `.html`; Windows targets → `.exe`.
+  if((cc == "emcc") && !(_path_has_extension(output)), {
+    output = if(is_target_standalone_wasi(target), `${output}.wasm`, `${output}.html`);
+  });
+  if(is_target_windows(target) && !(_path_has_extension(output)), {
+    output = `${output}.exe`;
+  });
+  // mimalloc isn't available on wasm (codegen/index.ts:193-199) — downgrade
+  // BEFORE codegen so the emitted runtime matches the link line.
+  if((allocator == "mimalloc") && is_target_wasm(target), {
+    allocator = String.from("libc");
+  });
   // Generate C11 from the evaluated module. A static library has no main()
   // wrapper (is_library = true). Allocator + debug-logging flags are threaded
   // through to the code generator (mirrors CodeGeneratorC.compileModule).
   c_src := compile_module(module_value, ctx.expr_info_table, target, allocator.clone(), debug_gc, debug_parallelism, debug_async_await, static_library, ctx, env, exn);
-  c_path := `${output}.c`;
+  // --emit-c prints the generated C to stdout (module-manager.ts:473-475) —
+  // and compilation continues; only --skip-c-compiler stops before the link.
+  if(emit_c, {
+    println(c_src);
+  });
+  // Strip a target-format extension so `app.html` gets `app.c`, not
+  // `app.html.c` (codegen/index.ts:226-228).
+  (c_base : String) = output.clone();
+  cond(
+    c_base.ends_with(".html") => {
+      c_base = c_base.substring(usize(0), c_base.len() - usize(5));
+    },
+    c_base.ends_with(".wasm") => {
+      c_base = c_base.substring(usize(0), c_base.len() - usize(5));
+    },
+    c_base.ends_with(".exe") => {
+      c_base = c_base.substring(usize(0), c_base.len() - usize(4));
+    },
+    c_base.ends_with(".js") => {
+      c_base = c_base.substring(usize(0), c_base.len() - usize(3));
+    },
+    true => ()
+  );
+  c_path := `${c_base}.c`;
   io.await(write_file(Path.new(c_path.clone()), c_src, io), IoExn(io : io, exn : exn));
-  // --emit-c / --skip-c-compiler: write the C and stop.
+  // --skip-c-compiler: write the C and stop.
   if(skip_cc, {
     return(());
   });
@@ -1057,10 +1397,20 @@ run_compile :: (
       ci = (ci + usize(1));
     });
   });
-  // Bundled mimalloc allocator (else libc): add static.c + its include path.
+  // Bundled mimalloc allocator (else libc): add static.c + its include path,
+  // guarded by existence with TS's fallback warning (codegen/index.ts:534-555).
   if(allocator == "mimalloc", {
-    cmd.arg(`-I${std_root}/../vendor/mimalloc/include`);
-    cmd.arg(`${std_root}/../vendor/mimalloc/src/static.c`);
+    mim_static := `${std_root}/../vendor/mimalloc/src/static.c`;
+    mim_found := io.await(exists(Path.new(mim_static.clone()), io), io);
+    if(mim_found, {
+      cmd.arg(`-I${std_root}/../vendor/mimalloc/include`);
+      cmd.arg(mim_static.clone());
+      println(String.from("Using bundled mimalloc"));
+    }, {
+      eprintln(String.from("Bundled mimalloc not found, falling back to standard malloc"));
+    });
+  }, {
+    println(String.from("Using libc allocator"));
   });
   // Cross-compile target / sysroot pass-through.
   if(target_triple != "", {
@@ -1195,12 +1545,16 @@ run_test :: (
     exn : Exception
   ) -> unit
 )({
-  if(argv.len() < usize(3), {
-    exn.throw(dyn(`test: missing path. Usage: yo-self test <path> [--bail] [--test-name-pattern P] [--parallel N] [--exclude PATH]`));
-  });
-  (target_path : String) = String.from("");
+  // The positional path defaults to "." (TS: .positional("path", {default: "."}),
+  // src/yo-cli.ts:697-703) — a bare `yo test` runs the current directory.
+  (target_path : String) = String.from(".");
   (bail : bool) = false;
   (name_pattern : String) = String.from("");
+  (verbose : bool) = false;
+  (no_sanitize : bool) = false;
+  (test_cc : String) = String.from("");
+  (test_target : String) = String.from("");
+  (batch_size : usize) = TEST_BATCH_SIZE;
   // `--exclude <path>` (repeatable), same semantics as `check --exclude`.
   excludes := ArrayList(String).new();
   (ai : usize) = usize(2);
@@ -1224,22 +1578,46 @@ run_test :: (
         ai = (ai + usize(2));
       },
       ((a == "-v") || (a == "--verbose")) => {
+        verbose = true;
         ai = (ai + usize(1));
       },
-      // The remaining flags the TS test command defines (yo-cli.ts). Each is
-      // consumed for CLI compatibility; v1's sequential in-process runner has
-      // no use for them yet — accepted divergence, tracked in
-      // plans/P1_CLI_PARITY.md §6.
-      ((a == "--cc") || (a == "--c-compiler") || (a == "--target") || (a == "--test-batch-size")) => {
+      ((a == "--cc") || (a == "--c-compiler")) => {
+        test_cc = _arg_val_req(argv, ai, a.clone(), exn);
         ai = (ai + usize(2));
       },
-      ((a == "--keep-generated-files") || (a == "-k") || (a == "--disable-sanitize") || (a == "--json-summary") || (a == "--profile")) => {
+      (a == "--target") => {
+        test_target = _arg_val_req(argv, ai, a.clone(), exn);
+        ai = (ai + usize(2));
+      },
+      (a == "--test-batch-size") => {
+        bs_raw := _arg_val_req(argv, ai, a.clone(), exn);
+        match(
+          bs_raw.parse_u32(),
+          .Some(bsv) => if(bsv > u32(0), {
+            batch_size = usize(bsv);
+          }, {
+            exn.throw(dyn(`test: --test-batch-size must be a positive integer, got '${bs_raw}'`));
+          }),
+          .None => {
+            exn.throw(dyn(`test: --test-batch-size must be a positive integer, got '${bs_raw}'`));
+          }
+        );
+        ai = (ai + usize(2));
+      },
+      (a == "--disable-sanitize") => {
+        no_sanitize = true;
+        ai = (ai + usize(1));
+      },
+      // Consumed for CLI compatibility; the sequential in-process runner has
+      // no use for them yet — accepted divergence, tracked in
+      // plans/P1_CLI_PARITY.md §6.
+      ((a == "--keep-generated-files") || (a == "-k") || (a == "--json-summary") || (a == "--profile")) => {
         ai = (ai + usize(1));
       },
       a.starts_with(String.from("-")) => {
         // TS's yargs is .strict(): an unknown option is an error, never a
         // path (yo-cli.ts:1348).
-        exn.throw(dyn(`test: unknown option '${a}'. Usage: yo-self test <path> [--bail] [--test-name-pattern P] [--parallel N] [--exclude PATH]`));
+        exn.throw(dyn(`test: unknown option '${a}'. Usage: yo test <path> [--bail] [--test-name-pattern P] [--parallel N] [--exclude PATH]`));
       },
       true => {
         target_path = a.clone();
@@ -1247,7 +1625,81 @@ run_test :: (
       }
     );
   });
+  // --test-name-pattern is a REGEX, exactly as TS (`new RegExp(pattern)`,
+  // src/test-runner.ts:1469-1477) — the old substring match made anchored
+  // patterns like '^test 19' match nothing. Compiled once; an invalid
+  // pattern is an error up front.
+  (name_regex : Option(Regex)) = Option(Regex).None;
+  if(name_pattern.len() > usize(0), {
+    match(
+      Regex.new(name_pattern.clone(), String.from("")),
+      .Ok(re) => {
+        name_regex = Option(Regex).Some(re);
+      },
+      .Err(re_err) => {
+        exn.throw(dyn(`test: invalid regex pattern '${name_pattern}': ${re_err}`));
+      }
+    );
+    println(`Filtering tests matching: ${name_pattern}`);
+  });
   files := _collect_test_files(target_path, excludes, io, exn);
+  // `Pragma.SkipWasm` pre-scan for wasm targets (hasSkipDirectiveForTarget,
+  // src/test-runner.ts:152-170 + its filter loop at :1425-1453): a file whose
+  // first 50 lines carry `pragma(Pragma.SkipWasm)` — or the targeted
+  // `SkipWasm32Wasi`/`SkipWasm32Emscripten` variant — is skipped when the
+  // corresponding wasm target is selected (via --target or --cc emcc).
+  wasm_target_kind := cond(
+    test_target.starts_with("wasm") => test_target.clone(),
+    (test_cc == "emcc") => String.from("wasm32-emscripten"),
+    true => String.from("")
+  );
+  if(wasm_target_kind != "", {
+    wt_parsed := match(
+      parse_target(wasm_target_kind.clone()),
+      .Ok(t) => t,
+      .Err(e) => {
+        exn.throw(dyn(`test: invalid --target "${wasm_target_kind}": ${e}`));
+        host_target()
+      }
+    );
+    targeted_variant := if(
+      is_target_standalone_wasi(wt_parsed),
+      String.from("pragma(Pragma.SkipWasm32Wasi)"),
+      String.from("pragma(Pragma.SkipWasm32Emscripten)")
+    );
+    kept_files := ArrayList(String).new();
+    (skipped_n : usize) = usize(0);
+    (sfi : usize) = usize(0);
+    while(sfi < files.len(), {
+      sf := match(files.get(sfi), .Some(f) => f, .None => String.from(""));
+      sfi = (sfi + usize(1));
+      sf_bytes := io.await(read_file(Path.new(sf.clone()), io), IoExn(io : io, exn : exn));
+      sf_src := String.from_bytes(sf_bytes);
+      sf_lines := sf_src.split("\n");
+      (skip_this : bool) = false;
+      (sli : usize) = usize(0);
+      while((sli < sf_lines.len()) && ((sli < usize(50)) && !(skip_this)), {
+        sline := match(sf_lines.get(sli), .Some(l) => l, .None => String.from(""));
+        sli = (sli + usize(1));
+        // Whitespace-stripped `contains` == the TS regex's arbitrary
+        // intra-call whitespace tolerance; the trailing `)` in the needle
+        // keeps `SkipWasm32Wasi` from matching the bare `SkipWasm` needle.
+        stripped := sline.replace(String.from(" "), String.from("")).replace(String.from("\t"), String.from(""));
+        if(stripped.contains("pragma(Pragma.SkipWasm)") || stripped.contains(targeted_variant.clone()), {
+          skip_this = true;
+        });
+      });
+      if(skip_this, {
+        skipped_n = (skipped_n + usize(1));
+      }, {
+        kept_files.push(sf);
+      });
+    });
+    if(skipped_n > usize(0), {
+      println(`Skipping ${skipped_n.to_string()} test file(s) with pragma(Pragma.SkipWasm*) for target ${wasm_target_kind}`);
+    });
+    files = kept_files;
+  });
   if(files.len() == usize(0), {
     println(String.from("No test files found."));
     return(());
@@ -1281,7 +1733,7 @@ run_test :: (
           // --test-name-pattern match against the quote characters.
           tname := match(extract_test_name(e), .Some(n) => n, .None => String.from("unnamed_test"));
           tbody := match(extract_test_body(e), .Some(b) => b, .None => make_err_expr());
-          keep := if(name_pattern.len() > usize(0), tname.contains(name_pattern.clone()), true);
+          keep := match(name_regex, .Some(nre) => nre.test(tname.clone()), .None => true);
           if(keep, {
             tests.push(TestDecl(name : tname, body_src : ast_expr_to_string(tbody)));
           });
@@ -1307,7 +1759,7 @@ run_test :: (
       (bi : usize) = usize(0);
       while((batch_start < tests.len()) && !(bailed), {
         batch_end := cond(
-          ((batch_start + TEST_BATCH_SIZE) < tests.len()) => (batch_start + TEST_BATCH_SIZE),
+          ((batch_start + batch_size) < tests.len()) => (batch_start + batch_size),
           true => tests.len()
         );
         // Synthesize the batched program (mirror generateBatchedTestProgram).
@@ -1391,12 +1843,67 @@ run_test :: (
         ccmd.arg(tmp_yo.clone());
         ccmd.arg(String.from("-o"));
         ccmd.arg(tmp_bin.clone());
+        // Forward the runner's compiler/target choices to the child compile
+        // (previously consumed-and-dropped — `yo test --cc gcc` silently
+        // compiled with clang; P2.5 step 5).
+        if(test_cc != "", {
+          ccmd.arg(String.from("--c-compiler"));
+          ccmd.arg(test_cc.clone());
+        });
+        if(test_target != "", {
+          ccmd.arg(String.from("--target"));
+          ccmd.arg(test_target.clone());
+        });
+        // Default sanitizer is "address"; YO_TEST_SANITIZE overrides (e.g.
+        // "thread" for the TSan CI leg) and --disable-sanitize turns it off.
+        // MSVC and emcc take no sanitizer, exactly as TS
+        // (src/test-runner.ts:556-566). The child compile owns the flag
+        // mapping and the ASan-usability probe.
+        san_choice := match(
+          proc_env.get(`YO_TEST_SANITIZE`),
+          .Some(sv) => sv,
+          .None => String.from("address")
+        );
+        if((!(no_sanitize)) && ((test_cc != "cl") && (test_cc != "emcc")), {
+          ccmd.arg(String.from("--sanitize"));
+          ccmd.arg(san_choice.clone());
+        });
         bst := io.await(ccmd.status(io), IoExn(io : io, exn : exn));
         if(bst.raw != i32(0), {
           exn.throw(dyn(`test: batch compile failed (exit ${bst.raw.to_string()}) for ${tmp_yo}`));
         });
         // Run each test: YO_TEST_INDEX in the PARENT env (the spawn runtime
-        // passes environ through when envp is NULL).
+        // passes environ through when envp is NULL). The ASan run environment
+        // (TS test-runner.ts:776-840 / compiler-utils.ts:305-341) rides the
+        // same channel: setting ASAN_OPTIONS/LSAN_OPTIONS on the parent
+        // process reaches every test child — process-wide instead of TS's
+        // per-child env object, same observable effect for the children.
+        host_ti := host_target();
+        use_asan := ((!(no_sanitize)) && ((san_choice == "address") && ((test_cc != "cl") && (test_cc != "emcc"))));
+        (lsan_supp_file : String) = String.from("");
+        if(use_asan, {
+          _sv_asan := proc_env.set(String.from("ASAN_OPTIONS"), String.from("detect_leaks=1"));
+          // macOS: suppress the well-known system-library leak reports
+          // (getMacOSLsanSuppressions, compiler-utils.ts:334-341).
+          if(is_target_macos(host_ti), {
+            lsan_supp_file = `${tmp_bin}.lsan_supp.txt`;
+            io.await(write_file(Path.new(lsan_supp_file.clone()), String.from("leak:libobjc\nleak:libdyld\nleak:libxpc\nleak:libsystem_malloc\nleak:dyld"), io), IoExn(io : io, exn : exn));
+            _sv_lsan := proc_env.set(String.from("LSAN_OPTIONS"), `suppressions=${lsan_supp_file}`);
+          });
+          // Windows + clang: the ASan runtime DLL directory must be on PATH
+          // (findClangAsanDllPath, compiler-utils.ts:231-274).
+          if(is_target_windows(host_ti) && (((test_cc == "") || (test_cc == "cc")) || (test_cc == "clang")), {
+            dll_cc := if((test_cc == "") || (test_cc == "cc"), String.from("clang"), test_cc.clone());
+            match(
+              _find_clang_asan_dll_path(dll_cc, io),
+              .Some(dll_dir) => {
+                cur_path := match(proc_env.get(`PATH`), .Some(pv) => pv, .None => String.from(""));
+                _sv_path := proc_env.set(String.from("PATH"), `${dll_dir};${cur_path}`);
+              },
+              .None => ()
+            );
+          });
+        });
         (ri : usize) = batch_start;
         while((ri < batch_end) && !(bailed), {
           t := match(tests.get(ri), .Some(x) => x, .None => TestDecl(name : String.from(""), body_src : String.from("()")));
@@ -1404,19 +1911,66 @@ run_test :: (
           // setenv (the v0.2.0 windows seed leg failed on it); env.set
           // branches to _putenv_s there.
           _sv := proc_env.set(String.from("YO_TEST_INDEX"), (ri - batch_start).to_string());
+          // Capture output (TS stdio:"pipe") — the diagnostics on failure and
+          // the LeakSanitizer verdict both need it; the old `.status()` run
+          // streamed everything and left a bare `✗ name` undiagnosable.
           tcmd := Command.new(tmp_bin.clone());
-          st := io.await(tcmd.status(io), IoExn(io : io, exn : exn));
-          if(st.success(), {
+          tout := io.await(tcmd.output(io), IoExn(io : io, exn : exn));
+          (combined : String) = String.from_bytes(tout.stdout);
+          combined.push_string(String.from_bytes(tout.stderr));
+          (t_status : i32) = tout.status.raw;
+          // Older ASan runtimes: "detect_leaks is not supported" → retry once
+          // without leak detection (test-runner.ts:806-826).
+          if(use_asan && combined.contains("detect_leaks is not supported"), {
+            _sv_asan2 := proc_env.set(String.from("ASAN_OPTIONS"), String.from("detect_leaks=0"));
+            tcmd2 := Command.new(tmp_bin.clone());
+            tout2 := io.await(tcmd2.output(io), IoExn(io : io, exn : exn));
+            combined = String.from_bytes(tout2.stdout);
+            combined.push_string(String.from_bytes(tout2.stderr));
+            t_status = tout2.status.raw;
+            _sv_asan3 := proc_env.set(String.from("ASAN_OPTIONS"), String.from("detect_leaks=1"));
+          });
+          // A leak is a FAILURE even at exit 0 (test-runner.ts:835-843).
+          has_leak := (((test_cc != "emcc") && use_asan) && (((combined.contains("LeakSanitizer") || combined.contains("detected memory leaks")) || combined.contains("Direct leak")) || combined.contains("Indirect leak")));
+          if((t_status == i32(0)) && !(has_leak), {
             passed = (passed + usize(1));
             println(`  ✓ ${t.name}`);
+            // Streamed output parity: tests print through the child's stdout,
+            // which is now captured — re-emit it so passing tests keep their
+            // visible output exactly as before.
+            if(combined.len() > usize(0), {
+              print(combined.clone());
+            });
           }, {
             failed = (failed + usize(1));
             println(`  ✗ ${t.name}`);
+            err_msg := if(
+              has_leak,
+              `Memory leak detected:\n${combined}`,
+              `Test failed with exit code ${t_status.to_string()}\n${combined}`
+            );
+            // -v prints the whole diagnostic indented; the default prints the
+            // first line (test-runner.ts:1263-1276).
+            if(verbose, {
+              err_lines := err_msg.split("\n");
+              (eli : usize) = usize(0);
+              while(eli < err_lines.len(), {
+                el := match(err_lines.get(eli), .Some(l) => l, .None => String.from(""));
+                println(`    ${el}`);
+                eli = (eli + usize(1));
+              });
+            }, {
+              first_line := match(err_msg.split("\n").get(usize(0)), .Some(l) => l, .None => String.from(""));
+              println(`    ${first_line}`);
+            });
             if(bail, {
               bailed = true;
             });
           });
           ri = (ri + usize(1));
+        });
+        if(lsan_supp_file != "", {
+          io.await(remove_file(Path.new(lsan_supp_file.clone()), io), IoExn(io : io, exn : exn));
         });
         // Clean up the batch artifacts (mirrors TS cleanup()) — they live in
         // the test file's directory now, not /tmp. Debug affordance (yo-self
@@ -1991,11 +2545,91 @@ run_doc_cmd :: (
     exn
   );
 });
+/// The top-level usage text (mirrors the TS `.usage(...)` block,
+/// src/yo-cli.ts:209-281; the `help` cli-case golden pins this output).
+_top_level_help_text :: (fn() -> String)({
+  (h : String) = String.from("The Yo Programming Language ");
+  h.push_str(CURRENT_YO_VERSION);
+  h.push_string(
+    `
+Usage:
+
+yo compile <file> [options]      Compile a '.yo' file
+Examples:
+  $ yo compile main.yo -o app
+  $ yo compile main.yo -cc clang -o app
+  $ yo compile main.yo --target x86_64-linux-gnu -o app
+  $ yo compile main.yo -l m -o app
+  $ yo compile main.yo -I./include -L./lib -l mylib -o app
+  $ yo compile main.yo --release -D NDEBUG -o app
+  $ yo compile main.yo -g -o app_debug
+  $ yo compile main.yo --release -s --cflags='-march=native' -o app
+
+yo build [steps] [options]       Build project using build.yo
+Examples:
+  $ yo build                     Build all artifacts (default: install step)
+  $ yo build run                 Build and run the application
+  $ yo build test                Run the test suite
+  $ yo build --list-steps        Show available build steps
+  $ yo build --summary           Print build summary tree
+  $ yo build -Dstrip=true        Pass build option to build.yo
+
+yo init [dir] [options]          Initialize a new Yo project
+Examples:
+  $ yo init                      Initialize in current directory
+  $ yo init my-project           Initialize in ./my-project
+
+yo fetch [options]               Fetch git dependencies into .yo-cache
+Examples:
+  $ yo fetch                     Fetch all dependencies from build.yo
+  $ yo fetch --verbose           Show detailed fetch progress
+  $ yo fetch --update            Re-resolve refs to latest commits
+
+yo install <package>             Install a dependency from GitHub
+Examples:
+  $ yo install github.com/user/repo          Latest semver tag
+  $ yo install github.com/user/repo@v1.0.0   Pinned version
+  $ yo install user/repo                     Shorthand for GitHub
+
+yo test [path] [options]         Run tests
+Example:
+  $ yo test                      Run all *.test.yo files in the workspace
+  $ yo test ./tests              Run all *.test.yo files in ./tests directory
+  $ yo test ./some-file.yo       Run tests in some-file.yo
+
+yo fmt [paths...] [options]      Format Yo source files
+Examples:
+  $ yo fmt                       Format all .yo files in the current directory
+  $ yo fmt src tests             Format .yo files under src and tests
+  $ yo fmt --check               Check formatting without writing files
+
+yo doc [path] [options]          Generate API documentation
+Examples:
+  $ yo doc                       Document all .yo files in current directory
+  $ yo doc ./src                 Document all .yo files in ./src
+  $ yo doc ./src/main.yo         Document a single file
+  $ yo doc -o docs               Output to ./docs directory
+  $ yo doc --title "My Project"  Set doc site title
+
+yo version                       Manage Yo versions
+Examples:
+  $ yo version                     Show current version and .yo-version
+  $ yo version pin                 Pin current version to .yo-version
+  $ yo version pin 0.1.12          Pin specific version
+  $ yo version install 0.1.12      Pre-download a version
+  $ yo version list                List cached versions
+  $ yo version clean               Remove all cached versions
+
+yo --help                        Show this help message
+yo --version                     Show version number`
+  );
+  h
+});
 main :: (fn(io : Io) -> unit)({
   exn := Exception(
     throw : (
       (err) -> {
-        eprintln(`yo-self: error: ${err.to_string()}`);
+        eprintln(`yo: error: ${err.to_string()}`);
         unsafe(exit(int(1)));
         unwind();
       }
@@ -2021,8 +2655,19 @@ main :: (fn(io : Io) -> unit)({
     });
     ai = (ai + usize(1));
   });
+  // Top-level `--help` / `--version` (TS: yargs `.help()` + the version
+  // middleware, src/yo-cli.ts:1354-1372) — checked BEFORE the subcommand
+  // demand so `yo --help` exits 0 with the usage text instead of erroring.
+  if((argv.len() >= usize(2)) && ((argv(usize(1)) == "--help") || (argv(usize(1)) == "-h")), {
+    println(_top_level_help_text());
+    return(());
+  });
+  if((argv.len() >= usize(2)) && (argv(usize(1)) == "--version"), {
+    println(`yo ${String.from(CURRENT_YO_VERSION)}`);
+    return(());
+  });
   if(argv.len() < usize(2), {
-    exn.throw(dyn(`no subcommand given. Usage: yo-self <compile|test|fmt|check|init|build|fetch|install|cache|doc|unsafe-report|public-safe-report> ...`));
+    exn.throw(dyn(`no subcommand given. Usage: yo <compile|test|fmt|check|init|build|fetch|install|cache|doc|unsafe-report|public-safe-report> ...`));
   });
   subcmd := argv(usize(1));
   if(subcmd == "compile", {
@@ -2050,7 +2695,7 @@ main :: (fn(io : Io) -> unit)({
   }, if(subcmd == "public-safe-report", {
     run_public_safe_report_cmd(argv, io, exn);
   }, {
-    exn.throw(dyn(`unknown subcommand '${subcmd}'. Usage: yo-self <compile|test|fmt|check|init|build|fetch|install|cache|doc|unsafe-report|public-safe-report> ...`));
+    exn.throw(dyn(`unknown subcommand '${subcmd}'. Usage: yo <compile|test|fmt|check|init|build|fetch|install|cache|doc|unsafe-report|public-safe-report> ...`));
   }))))))))))));
 });
 export(main);
