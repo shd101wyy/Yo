@@ -530,6 +530,41 @@ product is kept out of codegen's channels (fid recording, spec minting).
 Any further degrade must answer "which codegen channel can this abstract
 value reach?" before landing.
 
+### Root #3 (797, Clone impl) — discriminator narrowed to the TRAIT-CONSTRUCTOR field path (2026-08-13, probes on the trial-scoped build)
+
+Probe series (`scratchpad` cc\_\* files, two impls on `G(T)` where the second
+calls the first's `len`; the CALLER must return a SomeT-containing type or no
+dg-trial runs and the pass is VACUOUS — `via2/via3` returning `usize` "passed"
+that way):
+
+| second impl's shape                                     | def-time trial |
+| ------------------------------------------------------- | -------------- |
+| direct field, `self : Self`, returns `Option(usize)`    | resolves       |
+| direct field, `inout(self) : Self`, returns `Option(…)` | resolves       |
+| direct field + `where(T <: Clone)`                      | (vacuous)      |
+| `Clone(clone : …)` trait constructor                    | **swallows**   |
+| CUSTOM trait constructor (`MyT(via5 : …)`)              | **swallows**   |
+
+So cross-impl dispatch inside a TRAIT-CONSTRUCTOR field's trial still fails
+where the direct branch (same receiver, same call) now succeeds. The
+suspected difference: the g\_ branch evaluates fields with
+`ctx.expected_type` = the trait's substituted field type, while the direct
+branch CLEARS expected_type.
+
+**PINPOINTED (instrumented build, `YO_DEBUG_DISPATCH=1`):** the trait
+branch's trial binds `self` to a FRESH `G` instantiation minted by
+`_substitute_self_in_method_ty` (recv id 5094 ≠ the impl pattern 3377),
+and `try_match_generic_impl(len's pattern 3170, recv 5094)` dies INSIDE
+`synthesize_types` (a `[tm-try]` with no `[tm-end]` = the synthesis
+exception fired) — unifying the pattern's `?*(T_len)` against the
+substituted copy's `?*(T_clone)` structure throws where TS unifies. So
+root #3 is a `types/synthesize.yo` SomeT-vs-SomeT gap, NOT a dispatch
+ranking problem. The direct branch never mints the substituted copy (no
+expected type), so its receiver IS the pattern instantiation and synthesis
+succeeds. Debug hooks left in-tree: `[dispatch-miss]` (env.yo,
+YO_DEBUG_DISPATCH), `[tm-try]/[tm-none]/[tm-end]` (impl.yo, same var),
+`[abstract-spec]` (function.yo, YO_DEBUG_SWALLOW).
+
 ### B. Impl-level VALUE binder bound as a TYPE (#4, #5, #6)
 
 ```rust

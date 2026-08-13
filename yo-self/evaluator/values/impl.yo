@@ -691,7 +691,13 @@ try_match_generic_impl :: (
   // `check` paid a growing clone per candidate per lookup). SomeT /
   // TypeAppT pattern roots always proceed (they can bind anything).
   if(!(_root_shapes_could_match(entry.receiver_type_pattern, resolved_concrete)), {
+    if(impl_dbg_env.get(`YO_DEBUG_DISPATCH`).is_some(), {
+      eprintln(`[tm-none] reason=prefilter recv=${type_id_or_empty(resolved_concrete)} pat=${type_id_or_empty(entry.receiver_type_pattern)}`);
+    });
     return(Option(ArrayList(TypeValue)).None);
+  });
+  if(impl_dbg_env.get(`YO_DEBUG_DISPATCH`).is_some(), {
+    eprintln(`[tm-try] recv=${type_id_or_empty(resolved_concrete)} pat=${type_id_or_empty(entry.receiver_type_pattern)} trial=${in_def_time_trial().to_string()}`);
   });
   // 2. Build unify_env: snapshot the env (share frames — TS `pushEnvFrame`
   //    at impl.ts:2243 copies only the frame-pointer array) and push a fresh
@@ -1028,6 +1034,9 @@ try_match_generic_impl :: (
         dar_fi = (dar_fi + usize(1));
       });
     });
+  });
+  if(impl_dbg_env.get(`YO_DEBUG_DISPATCH`).is_some(), {
+    eprintln(`[tm-end] recv=${type_id_or_empty(resolved_concrete)} pat=${type_id_or_empty(entry.receiver_type_pattern)} all_bound=${all_bound.to_string()}`);
   });
   cond(
     all_bound => Option(ArrayList(TypeValue)).Some(bindings),
