@@ -489,6 +489,47 @@ progressed to its next layer (prelude 7623, SomeT callee).
    impl. The forall-env binding stays `TypeVal(SomeT)` (load-bearing for
    receiver-pattern eval).
 
+### Abstract-binding acceptance (root #3 / cross-impl) — the ledger of scoping attempts
+
+The TS contract (tryMatchGenericImpl substitutions extraction): a binding
+unified to a DIFFERENT SomeType counts as bound. yo-self's
+`_resolve_one_forall_binding` rejected every SomeT. Landing the acceptance
+took three scopings, each measured:
+
+| variant                                           | swallows | canaries                                    |
+| ------------------------------------------------- | -------- | ------------------------------------------- |
+| accept everywhere (id + name channels)            | 4        | **std module eval BREAKS** (std/string)     |
+| id channel only                                   | 13       | all green — but array_list roots return     |
+| id always + name channel gated to def-time trials | 10       | imm_map green; **derive_clone_complex RED** |
+
+The name channel is what resolves array_list's cross-impl dispatch (the id
+channel misses those bindings); unscoped it picks up unrelated same-name
+SomeTs from outer scopes. `in_def_time_trial` (context.yo) is set around
+the three `_trial_eval_fn_body` call sites (a swallowed error unwinds OUT
+of the helper, so in-helper restore is unreachable — set/restore lives at
+the call sites) and `_materialize_default_body`'s call site.
+
+**derive_clone_complex regression (open):** the batch C calls
+`yo_id_..._rtparam0_R_gs_...` — a specialization MINTED WITH AN ABSTRACT
+type in its key. The emitter skips a SomeT-laden spec as hard-generic while
+the call site still emits the direct call. A guard skipping the mint when
+`in_def_time_trial() && (bindings or args contain SomeTs)` did NOT fix it —
+the mint happens OUTSIDE any flagged trial (context still unidentified; the
+`[abstract-spec]` YO_DEBUG_SWALLOW print at the mint's register site names
+fid + flag state for the next run). Two def-time degrades (comptime CTFE
+non-FuncVal → unknown; SomeT callee → unknown) were tried alongside and
+REVERTED: they let trials proceed deep enough to stamp partial ExprInfos
+that leak into emitted specializations (imm_map RED again, FTT comment
+INSIDE `map_values`' emitted C).
+
+**The structural lesson:** yo-self's def-time trials stamp ExprInfos on
+SHARED body ASTs that codegen consumes directly for some shapes (derive
+bodies, batch mains). Converting a MISSING stamp into an ABSTRACT stamp
+trades statement-level FTT markers for miscompiles unless every abstract
+product is kept out of codegen's channels (fid recording, spec minting).
+Any further degrade must answer "which codegen channel can this abstract
+value reach?" before landing.
+
 ### B. Impl-level VALUE binder bound as a TYPE (#4, #5, #6)
 
 ```rust

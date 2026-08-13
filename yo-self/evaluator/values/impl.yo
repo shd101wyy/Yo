@@ -77,7 +77,7 @@ _(env : impl_dbg_env) :: import("std/env");
 { random_id } :: import("../../utils.yo");
 { register_func_type } :: import("../../function_value.yo");
 { EvalValue, FuncValData, create_type_value, create_unknown_val } :: import("../../value.yo");
-{ EvalContext, ExpectedTypeCtx, in_def_time_trial } :: import("../context.yo");
+{ EvalContext, ExpectedTypeCtx, in_def_time_trial, set_in_def_time_trial } :: import("../context.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { evaluate_anonymous_module_begin_exprs } :: import("./anonymous_module.yo");
 { format_error_message } :: import("../../error.yo");
@@ -446,14 +446,18 @@ _resolve_one_forall_binding :: (
   if(!(is_some_type(bound_type)), {
     return(Option(TypeValue).Some(bound_type));
   });
-  // Accept a DIFFERENT-id SomeT from the ID-keyED channel ONLY: that is a
-  // genuine unification (T := the CALLER's own binder — the cross-impl
-  // def-time dispatch case, root #3). The NAME-based fallback below stays
-  // concrete-only: name lookup can hit an unrelated same-name SomeT from
-  // an outer scope, and accepting those broke std module evaluation
-  // ("Incompatible function return type" from std/string — measured).
+  // Accept a DIFFERENT-id SomeT binding ONLY inside a definition-time body
+  // trial (both channels): a trial's stamps are discardable/superseded, so
+  // abstract resolutions are safe there and are what resolve cross-impl
+  // dispatch (array_list's Clone -> len, root #3). OUTSIDE trials the old
+  // concrete-only rule stays — derive validation and specialization body
+  // evals produce stamps codegen consumes directly, and an abstract match
+  // there minted an abstract-keyed spec the emitter skips while the call
+  // site still emits it (tests/derive_clone_complex.test.yo 'call to
+  // undeclared function', measured; std/string module eval broke under the
+  // unscoped name channel too).
   bt_id := match(bound_type, .SomeT({ id : __bti }) => __bti, _ => String.from(""));
-  if((bt_id.len() > usize(0)) && (bt_id != fa_some_id), {
+  if((in_def_time_trial() && (bt_id.len() > usize(0))) && (bt_id != fa_some_id), {
     return(Option(TypeValue).Some(bound_type));
   });
   // Name-based fallback: look up `fa_name` directly in `expected_env`.
@@ -2011,6 +2015,9 @@ _materialize_default_body :: (
   fn(body : AstExpr, env : Environment, ctx : EvalContext, out : ArrayList(AstExpr)) -> unit
 )({
   inner_exn := Exception(throw : ((_err) -> unwind(())));
+  // A DEF-time contained-swallow evaluation like _trial_eval_fn_body — the
+  // in_def_time_trial flag is set/restored AT THE CALL SITES (a swallowed
+  // error unwinds out of this helper, skipping any in-fn restore).
   evaluated := evaluate_expression_raw(body, env, ctx, inner_exn);
   out.push(evaluated);
 });
