@@ -1880,9 +1880,21 @@ run_test :: (
         // per-child env object, same observable effect for the children.
         host_ti := host_target();
         use_asan := ((!(no_sanitize)) && ((san_choice == "address") && ((test_cc != "cl") && (test_cc != "emcc"))));
+        // YO_TEST_LEAK_VERDICT=0 stages leak checking off entirely: LSan's
+        // OWN nonzero exit fails a leaking child regardless of the runner's
+        // verdict, so `detect_leaks` itself must follow the flag — ASan's
+        // crash detection (UAF/double-free) stays fully armed either way.
+        // The staging ratchet for the pre-existing self-hosted-emit leak
+        // debt (issues/self-hosted-emit-leaks-remaining-classes.md); the
+        // default stays TS-parity ON.
+        leak_verdict := match(
+          proc_env.get(`YO_TEST_LEAK_VERDICT`),
+          .Some(lv) => (lv != "0"),
+          .None => true
+        );
         (lsan_supp_file : String) = String.from("");
         if(use_asan, {
-          _sv_asan := proc_env.set(String.from("ASAN_OPTIONS"), String.from("detect_leaks=1"));
+          _sv_asan := proc_env.set(String.from("ASAN_OPTIONS"), if(leak_verdict, String.from("detect_leaks=1"), String.from("detect_leaks=0")));
           // macOS: suppress the well-known system-library leak reports
           // (getMacOSLsanSuppressions, compiler-utils.ts:334-341).
           if(is_target_macos(host_ti), {
@@ -1928,20 +1940,11 @@ run_test :: (
             combined = String.from_bytes(tout2.stdout);
             combined.push_string(String.from_bytes(tout2.stderr));
             t_status = tout2.status.raw;
-            _sv_asan3 := proc_env.set(String.from("ASAN_OPTIONS"), String.from("detect_leaks=1"));
+            _sv_asan3 := proc_env.set(String.from("ASAN_OPTIONS"), if(leak_verdict, String.from("detect_leaks=1"), String.from("detect_leaks=0")));
           });
-          // A leak is a FAILURE even at exit 0 (test-runner.ts:835-843).
-          // YO_TEST_LEAK_VERDICT=0 keeps ASan/LSan RUNNING and REPORTING but
-          // stops the leak alone from failing the test — the staging ratchet
-          // for the pre-existing self-hosted-emit leak debt (50 corpus files;
-          // issues/self-hosted-emit-leaks-remaining-classes.md). The default
-          // stays TS-parity ON; only the two self-hosted CI jobs set it, and
-          // deleting those env lines is the campaign's finishing flip.
-          leak_verdict := match(
-            proc_env.get(`YO_TEST_LEAK_VERDICT`),
-            .Some(lv) => (lv != "0"),
-            .None => true
-          );
+          // A leak is a FAILURE even at exit 0 (test-runner.ts:835-843) —
+          // unless staged off via YO_TEST_LEAK_VERDICT=0 (hoisted above,
+          // where it also disables LSan's own exit-code).
           has_leak := ((leak_verdict && ((test_cc != "emcc") && use_asan)) && (((combined.contains("LeakSanitizer") || combined.contains("detected memory leaks")) || combined.contains("Direct leak")) || combined.contains("Indirect leak")));
           if((t_status == i32(0)) && !(has_leak), {
             passed = (passed + usize(1));
