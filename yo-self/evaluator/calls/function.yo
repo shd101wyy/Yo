@@ -330,6 +330,9 @@ _try_find_receiver_method :: (
     )
   );
   if(hits.len() == usize(0), {
+    if(in_def_time_trial() && fncall_dbg_env.get(`YO_DEBUG_CTFE`).is_some(), {
+      eprintln(`[rm-miss] name=${method_name} recv=${type_to_string(receiver_type)} static=${is_static.to_string()}`);
+    });
     return(Option(ReceiverMethodResult).None);
   });
   // Take the first hit (mirrors the prior "first match wins"
@@ -6378,7 +6381,7 @@ Fix: wrap the call:
             );
           });
           if(in_def_time_trial() && fncall_dbg_env.get(`YO_DEBUG_CTFE`).is_some(), {
-            eprintln(`[call-none] ret=${type_to_string(ret_type_none)} callee=${ast_expr_to_string(func_expr)}`);
+            eprintln(`[call-none] ret=${type_to_string(ret_type_none)} callee=${ast_expr_to_string(func_expr)} callee_ty=${type_to_string(callee_ty_none)}`);
           });
           out_none := new_expr_info(call_result_none.caller_env, ret_type_none);
           out_none.value = Option(EvalValue).Some(_call_result_unknown(ret_type_none, callee_env));
