@@ -478,7 +478,12 @@ _resolve_one_forall_binding :: (
     .Some(ev) => match(
       ev,
       .TypeVal(b) => cond(
-        !(is_some_type(b)) => Option(TypeValue).Some(b),
+        !(is_some_type(b)) => {
+          if(impl_dbg_env.get(`YO_DEBUG_DISPATCH`).is_some(), {
+            eprintln(`[rfb-bound] name=${fa_name} via=name-concrete ty=${type_to_string(b)} trial=${in_def_time_trial().to_string()}`);
+          });
+          Option(TypeValue).Some(b)
+        },
         // Abstract (different-id SomeT) name-channel binding: accepted ONLY
         // inside a definition-time body trial. There it is what resolves a
         // sibling impl's method dispatch (array_list's Clone impl calling
