@@ -39,7 +39,7 @@ _(env : fnty_env) :: import("std/env");
 } :: import("../../expr_info.yo");
 { Environment, Variable, add_variable_to_env, add_parameter_to_env, synthetic_token, snapshot_env } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ t_unit, t_some_t, t_ptr } :: import("../../types/creators.yo");
+{ t_unit, t_some_t, t_ptr, resolve_some_binder_kind } :: import("../../types/creators.yo");
 { is_type_0, is_some_type, is_unit_type, is_function_type } :: import("../../types/guards.yo");
 { wrap_function_body_with_contracts } :: import("../builtins/contracts.yo");
 { EvalValue, FuncValData, create_unknown_val, create_type_value, is_unknown_val } :: import("../../value.yo");
@@ -66,7 +66,8 @@ _(env : fnty_env) :: import("std/env");
   ExpectedTypeCtx,
   CapturedVarInfo,
   ImplConcreteTypeInfo,
-  set_rerun_pending_def_evals_fn
+  set_rerun_pending_def_evals_fn,
+  set_in_def_time_trial
 } :: import("../context.yo");
 { random_id } :: import("../../utils.yo");
 { register_func_type } :: import("../../function_value.yo");
@@ -223,6 +224,7 @@ PendingDefEval :: ref(
     param_types : ArrayList(TypeValue),
     param_is_ref : ArrayList(bool),
     param_is_owning : ArrayList(bool),
+    param_is_comptime : ArrayList(bool),
     result_ty : TypeValue,
     where_entries : ArrayList(WhereConstraintEntry),
     function_type : TypeValue,
@@ -389,6 +391,17 @@ _build_def_time_body_env :: (
     /// param's def-time binding must be created OWNING so the function-body
     /// begin block's parameters-frame drop pass releases it at scope end.
     param_is_owning : ArrayList(bool),
+    /// Per-parameter `comptime(...)` flags (the fn-type side table). TS binds
+    /// `value: isCompileTimeOnly ? [createUnknownValue(...)] : undefined`
+    /// (function-type.ts:346) — a comptime VALUE param must carry an
+    /// UnknownVal or every builtin the body hands it to throws its
+    /// "expects a compile-time known value" error at definition time and
+    /// the trial swallows the body (prelude's `Array.fill` /
+    /// `ComptimeList.car`, family C of
+    /// issues/def-eval-swallow-remaining-roots.md). RUNTIME params keep NO
+    /// value — binding them UnknownVal breaks the dup accounting (see the
+    /// pv comment below).
+    param_is_comptime : ArrayList(bool),
     // The signature's evaluated result type — scanned (with param_types)
     // for the SIGNATURE's own SomeT objects so comptime type params bind
     // the SAME SomeT identity the signature mentions. Minting fresh
@@ -454,12 +467,45 @@ _build_def_time_body_env :: (
               );
               if(keep_cv && !(cv.name == "__recur_fn"), {
                 cap_value := match(cv.value.get(usize(0)), .Some(actual) => Option(EvalValue).Some(actual), .None => Option(EvalValue).None);
-                is_ct := match(cap_value, .Some(_) => true, .None => false);
+                // Family B re-kind: an impl-level VALUE binder
+                // (`impl(generic(T : Type, N : usize), ...)`) is bound
+                // `TypeVal(SomeT)` in the impl's forall env — load-bearing
+                // there for receiver-pattern evaluation — but a def-time
+                // BODY env must see an unknown VALUE of the declared type
+                // (TS createUnknownValue(declaredType)), or `r.end > N`
+                // fails "Cannot unify usize and Type". The kind comes from
+                // the NAME-only side table registered at the impl binder
+                // site and resolved PURELY (builtin scalars, no env) —
+                // every env-involved resolution measurably broke the
+                // circular-import order (see resolve_some_binder_kind).
+                (cap_ty_final : TypeValue) = cv.ty;
+                (cap_value_final : Option(EvalValue)) = cap_value;
+                match(
+                  cap_value,
+                  .Some(cv_ev) => match(
+                    cv_ev,
+                    .TypeVal(cv_tv) => match(
+                      cv_tv,
+                      .SomeT(_, cv_sname, cv_slvl, _, _, _, _, _, _, _, _) => match(
+                        resolve_some_binder_kind(cv_sname, cv_slvl),
+                        .Some(cv_bty) => {
+                          cap_ty_final = cv_bty.clone();
+                          cap_value_final = Option(EvalValue).Some(create_unknown_val(cv_bty));
+                        },
+                        .None => ()
+                      ),
+                      _ => ()
+                    ),
+                    _ => ()
+                  ),
+                  .None => ()
+                );
+                is_ct := match(cap_value_final, .Some(_) => true, .None => false);
                 // Carry `is_reassignable` — module globals (`(x : T) = v;`)
                 // ARE reassignable from fn bodies; rebinding them read-only
                 // made std/log.yo's `_global_level = level` def-eval fail
                 // "Cannot reassign".
-                copied_var_opt := add_variable_to_env(fresh_env, cv.name, cv.ty, cap_value, is_ct, cv.is_reassignable, false, false, synthetic_token(cv.name, module_path));
+                copied_var_opt := add_variable_to_env(fresh_env, cv.name, cap_ty_final, cap_value_final, is_ct, cv.is_reassignable, false, false, synthetic_token(cv.name, module_path));
                 // Carry `is_module_level` — TS REUSES the definition env's
                 // Variable objects for def-time body eval (function-type.ts:499),
                 // so every flag survives there. This flattening copy loses
@@ -612,7 +658,16 @@ _build_def_time_body_env :: (
     // value-branch early-returned and a borrowed-param tail (`to_string :
     // (...)(self)`) lost its balancing ___dup — println(s) then freed the
     // caller's String buffer (net −1 per call).
-    pv := if(is_type_0(pt), _type_binder_env_value(pn.clone(), sig_some_ts, where_entries, pf_level), Option(EvalValue).None);
+    p_ct := match(param_is_comptime.get(pi), .Some(b) => b, .None => false);
+    pv := if(
+      is_type_0(pt),
+      _type_binder_env_value(pn.clone(), sig_some_ts, where_entries, pf_level),
+      if(
+        p_ct,
+        Option(EvalValue).Some(create_unknown_val(pt)),
+        Option(EvalValue).None
+      )
+    );
     add_parameter_to_env(
       fresh_env,
       pn,
@@ -653,6 +708,7 @@ _rerun_pending_def_evals :: (fn(caller_env : Environment, ctx : EvalContext) -> 
           pd.param_types,
           pd.param_is_ref,
           pd.param_is_owning,
+          pd.param_is_comptime,
           pd.result_ty,
           pd.where_entries,
           pd.function_type,
@@ -675,7 +731,9 @@ _rerun_pending_def_evals :: (fn(caller_env : Environment, ctx : EvalContext) -> 
         );
         rp_ctx := create_function_body_evaluation_context(pd.function_type, rp_fv, rp_env, ctx);
         rp_out := ArrayList(AstExpr).new();
+        rp_prev_trial := set_in_def_time_trial(true);
         _trial_eval_fn_body(pd.body.clone(), rp_env, rp_ctx, rp_out);
+        ___rp_tr := set_in_def_time_trial(rp_prev_trial);
         if(pd.attempts > usize(1), {
           pd.attempts = (pd.attempts - usize(1));
           kept.push(pd);
@@ -1018,12 +1076,19 @@ try_to_implement_function_by_function_type :: (
               get_func_where_constraints(ast_expr_id(dwe_ft_box).to_string()),
             .Atom(_, _) => ArrayList(WhereConstraintEntry).new()
           );
+          def_ct_flags := match(
+            expr,
+            .FnCall(_, ctf_ft_box, _, _, _) =>
+              get_func_param_comptime(ast_expr_id(ctf_ft_box).to_string()),
+            .Atom(_, _) => ArrayList(bool).new()
+          );
           flow_env := _build_def_time_body_env(
             caller_env,
             param_labels,
             param_types,
             param_is_ref,
             param_is_owning,
+            def_ct_flags,
             result_box,
             def_where_entries,
             function_type,
@@ -1095,7 +1160,9 @@ try_to_implement_function_by_function_type :: (
             });
           };
           push_active_where_trait_ids(flow_where_ids);
+          fl_prev_trial := set_in_def_time_trial(true);
           _trial_eval_fn_body(fb, flow_env, flow_ctx, flow_out);
+          ___fl_tr := set_in_def_time_trial(fl_prev_trial);
           pop_active_where_trait_ids();
           // This body captured a VALUELESS forward-declared comptime fn
           // variable — its call-site infos are incomplete until that
@@ -1112,6 +1179,7 @@ try_to_implement_function_by_function_type :: (
                 param_types : param_types,
                 param_is_ref : param_is_ref,
                 param_is_owning : param_is_owning,
+                param_is_comptime : def_ct_flags,
                 result_ty : result_box,
                 where_entries : def_where_entries,
                 function_type : function_type,
@@ -1249,12 +1317,18 @@ try_to_implement_function_by_function_type :: (
               .FnCall(_, dg_ft_box, _, _, _) => get_func_where_constraints(ast_expr_id(dg_ft_box).to_string()),
               .Atom(_, _) => ArrayList(WhereConstraintEntry).new()
             );
+            dg_ct_flags := match(
+              expr,
+              .FnCall(_, dgc_ft_box, _, _, _) => get_func_param_comptime(ast_expr_id(dgc_ft_box).to_string()),
+              .Atom(_, _) => ArrayList(bool).new()
+            );
             dg_env := _build_def_time_body_env(
               caller_env,
               param_labels,
               param_types,
               param_is_ref,
               param_is_owning,
+              dg_ct_flags,
               result_box,
               dg_where,
               function_type,
@@ -1304,7 +1378,9 @@ try_to_implement_function_by_function_type :: (
               });
             };
             push_active_where_trait_ids(dg_where_ids);
+            dg_prev_trial := set_in_def_time_trial(true);
             _trial_eval_fn_body(body_expr.clone(), dg_env, dg_ctx, dg_out);
+            ___dg_tr := set_in_def_time_trial(dg_prev_trial);
             pop_active_where_trait_ids();
             // A violation flagged by THIS trial must not leak into a later
             // definition's re-raise (TS's catch{} discards everything).

@@ -14,6 +14,7 @@
 pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 open(import("std/fmt"));
+_(env : fncall_dbg_env) :: import("std/env");
 { ArrayList } :: import("std/collections/array_list");
 {
   AstExpr,
@@ -84,7 +85,8 @@ open(import("std/fmt"));
   TraitSpecializationResult,
   ArgValues,
   ArgEntry,
-  VarArgEntry
+  VarArgEntry,
+  in_def_time_trial
 } :: import("../context.yo");
 { is_pointer_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic, is_expr_list_type, is_comptime_list_type, is_fn_trait_type, is_unit_type, is_primitive_type, is_type_0 } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
@@ -2286,6 +2288,15 @@ _evaluate_funcval_runtime_call :: (
     spec_ty_fixed := if(is_ret_regression, base_spec_ty, spec_ty_candidate);
     if(!(is_ret_regression), {
       register_func_type(spec_fid.clone(), spec_ty_fixed);
+    });
+    // YO_DEBUG_SWALLOW: announce a spec minted with SomeTs in its signature
+    // — an abstract-keyed spec is skipped by the emitter while its call
+    // site still emits (the derive_clone_complex 'undeclared function'
+    // class). Prints the mint context so the guard can be scoped right.
+    if(fncall_dbg_env.get(`YO_DEBUG_SWALLOW`).is_some(), {
+      if((get_all_some_types(spec_ty_fixed).len() > usize(0)) && (spec_fid.len() > usize(0)), {
+        eprintln(`[abstract-spec] fid=${spec_fid} trial=${in_def_time_trial().to_string()}`);
+      });
     });
     spec_callee_info := new_expr_info(env, spec_ty_fixed);
     spec_callee_info.value = Option(EvalValue).Some(spec_fv);

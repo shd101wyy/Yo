@@ -15,6 +15,8 @@
 //!   - Methods are added to env with qualified names (ReceiverType.method_name).
 pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
+open(import("std/fmt"));
+_(env : impl_dbg_env) :: import("std/env");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 {
@@ -51,7 +53,8 @@ open(import("std/string"));
   get_variables_from_env,
   snapshot_env,
   synthetic_token,
-  set_find_methods_from_generic_impls_fn
+  set_find_methods_from_generic_impls_fn,
+  set_materialize_in_flight_method_fn
 } :: import("../../env.yo");
 {
   MethodEntry,
@@ -60,12 +63,13 @@ open(import("std/string"));
   get_type_trait_methods_by_name,
   get_trait_default,
   register_provisional_trait_method,
+  get_provisional_trait_methods_by_name,
   clear_provisional_trait_methods,
   type_id_or_empty
 } :: import("./type_trait_methods.yo");
 { FuncMeta, TypeValue } :: import("../../types/definitions.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ t_unit, t_type, t_some_t, t_usize } :: import("../../types/creators.yo");
+{ t_unit, t_type, t_some_t, t_usize, register_some_binder_kind, clear_some_binder_kind } :: import("../../types/creators.yo");
 { is_some_type, is_function_type, is_expr_type } :: import("../../types/guards.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { subst_new, subst_add, subst_set_self, substitute } :: import("../../types/substitution.yo");
@@ -73,7 +77,7 @@ open(import("std/string"));
 { random_id } :: import("../../utils.yo");
 { register_func_type } :: import("../../function_value.yo");
 { EvalValue, FuncValData, create_type_value, create_unknown_val } :: import("../../value.yo");
-{ EvalContext, ExpectedTypeCtx } :: import("../context.yo");
+{ EvalContext, ExpectedTypeCtx, in_def_time_trial, set_in_def_time_trial } :: import("../context.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { evaluate_anonymous_module_begin_exprs } :: import("./anonymous_module.yo");
 { format_error_message } :: import("../../error.yo");
@@ -201,6 +205,27 @@ GenericImplEntry :: struct(
 (g_impl_registry_keys : ArrayList(String)) = ArrayList(String).new();
 (g_impl_registry_entry_lists : ArrayList(ArrayList(GenericImplEntry))) =
   ArrayList(ArrayList(GenericImplEntry)).new();
+/// One IN-FLIGHT Case-2 (generic) impl: enough state to lazily
+/// forward-declare a not-yet-evaluated sibling field when a def-time body
+/// trial asks for it (env.yo's provisional-lookup miss path →
+/// `materialize_in_flight_method`). A stack, since impl evaluation can
+/// nest (derive expansions mid-field-loop); pushed at Case-2 entry,
+/// popped where the provisional registry is cleared.
+C2InFlightImpl :: ref(
+  struct(
+    recv_id : String,
+    receiver_pattern : TypeValue,
+    /// Every direct colon-pair field plus trait-constructor INNER colon
+    /// pairs, unevaluated.
+    colon_pair_fields : ArrayList(AstExpr),
+    eval_env : Environment,
+    eval_ctx : EvalContext,
+    /// Labels already looked up (whether or not a shell materialized) —
+    /// each is attempted at most once.
+    attempted : ArrayList(String)
+  )
+);
+(g_c2_in_flight : ArrayList(C2InFlightImpl)) = ArrayList(C2InFlightImpl).new();
 /// ENV-THREADING variant of the hook — the port of TS's full
 /// `typeImplementsTrait` (`{ implemented, env }`). `TraitCheckResult` lives in
 /// trait_checking.yo (importing it here would be circular), so the adapter
@@ -406,8 +431,33 @@ register_negative_impl :: (fn(type_id : String, trait_id : String) -> unit)({
 _resolve_one_forall_binding :: (
   fn(expected_env : Environment, fa_some : TypeValue, fa_name : String) -> Option(TypeValue)
 )({
+  // TS parity (impl.ts tryMatchGenericImpl, substitutions extraction): a
+  // binding unified to a DIFFERENT SomeType is a binding — "include the
+  // substitution if resolved to a concrete type, OR unified to a different
+  // SomeType; only skip when it is still its own original SomeType". A
+  // cross-impl method call at DEFINITION time is exactly this case: the
+  // Clone impl's `self.len()` matches the inherent `ArrayList(T)` impl
+  // against `ArrayList(T')`, binding T := T' (abstract). Rejecting every
+  // SomeT here made the call degrade to unit and the def-time trial
+  // swallow the whole body (root #3 of
+  // issues/def-eval-swallow-remaining-roots.md).
+  fa_some_id := match(fa_some, .SomeT({ id : __fsi }) => __fsi, _ => String.from(""));
   bound_type := get_value_of_some_type_from_env(expected_env, fa_some);
   if(!(is_some_type(bound_type)), {
+    return(Option(TypeValue).Some(bound_type));
+  });
+  // Accept a DIFFERENT-id SomeT binding ONLY inside a definition-time body
+  // trial (both channels): a trial's stamps are discardable/superseded, so
+  // abstract resolutions are safe there and are what resolve cross-impl
+  // dispatch (array_list's Clone -> len, root #3). OUTSIDE trials the old
+  // concrete-only rule stays — derive validation and specialization body
+  // evals produce stamps codegen consumes directly, and an abstract match
+  // there minted an abstract-keyed spec the emitter skips while the call
+  // site still emits it (tests/derive_clone_complex.test.yo 'call to
+  // undeclared function', measured; std/string module eval broke under the
+  // unscoped name channel too).
+  bt_id := match(bound_type, .SomeT({ id : __bti }) => __bti, _ => String.from(""));
+  if((in_def_time_trial() && (bt_id.len() > usize(0))) && (bt_id != fa_some_id), {
     return(Option(TypeValue).Some(bound_type));
   });
   // Name-based fallback: look up `fa_name` directly in `expected_env`.
@@ -423,7 +473,21 @@ _resolve_one_forall_binding :: (
       ev,
       .TypeVal(b) => cond(
         !(is_some_type(b)) => Option(TypeValue).Some(b),
-        true => Option(TypeValue).None
+        // Abstract (different-id SomeT) name-channel binding: accepted ONLY
+        // inside a definition-time body trial. There it is what resolves a
+        // sibling impl's method dispatch (array_list's Clone impl calling
+        // the inherent impl's `len` on ArrayList(T') — matching binds
+        // T := T'); everywhere else name lookup can hit an unrelated
+        // same-name SomeT from an outer scope, and unscoped acceptance
+        // broke std module evaluation ("Incompatible function return
+        // type" — measured 2026-08-13).
+        true => {
+          nb_id := match(b, .SomeT({ id : __nbi }) => __nbi, _ => String.from(""));
+          cond(
+            ((in_def_time_trial() && (nb_id.len() > usize(0))) && (nb_id != fa_some_id)) => Option(TypeValue).Some(b),
+            true => Option(TypeValue).None
+          )
+        }
       ),
       // VALUE-level generic (`generic(U : usize)` array lengths): the
       // synthesizer binds the variable to an IntLit. Represent the
@@ -627,7 +691,13 @@ try_match_generic_impl :: (
   // `check` paid a growing clone per candidate per lookup). SomeT /
   // TypeAppT pattern roots always proceed (they can bind anything).
   if(!(_root_shapes_could_match(entry.receiver_type_pattern, resolved_concrete)), {
+    if(impl_dbg_env.get(`YO_DEBUG_DISPATCH`).is_some(), {
+      eprintln(`[tm-none] reason=prefilter recv=${type_id_or_empty(resolved_concrete)} pat=${type_id_or_empty(entry.receiver_type_pattern)}`);
+    });
     return(Option(ArrayList(TypeValue)).None);
+  });
+  if(impl_dbg_env.get(`YO_DEBUG_DISPATCH`).is_some(), {
+    eprintln(`[tm-try] recv=${type_id_or_empty(resolved_concrete)} pat=${type_id_or_empty(entry.receiver_type_pattern)} trial=${in_def_time_trial().to_string()}`);
   });
   // 2. Build unify_env: snapshot the env (share frames — TS `pushEnvFrame`
   //    at impl.ts:2243 copies only the frame-pointer array) and push a fresh
@@ -964,6 +1034,9 @@ try_match_generic_impl :: (
         dar_fi = (dar_fi + usize(1));
       });
     });
+  });
+  if(impl_dbg_env.get(`YO_DEBUG_DISPATCH`).is_some(), {
+    eprintln(`[tm-end] recv=${type_id_or_empty(resolved_concrete)} pat=${type_id_or_empty(entry.receiver_type_pattern)} all_bound=${all_bound.to_string()}`);
   });
   cond(
     all_bound => Option(ArrayList(TypeValue)).Some(bindings),
@@ -1951,6 +2024,9 @@ _materialize_default_body :: (
   fn(body : AstExpr, env : Environment, ctx : EvalContext, out : ArrayList(AstExpr)) -> unit
 )({
   inner_exn := Exception(throw : ((_err) -> unwind(())));
+  // A DEF-time contained-swallow evaluation like _trial_eval_fn_body — the
+  // in_def_time_trial flag is set/restored AT THE CALL SITES (a swallowed
+  // error unwinds out of this helper, skipping any in-fn restore).
   evaluated := evaluate_expression_raw(body, env, ctx, inner_exn);
   out.push(evaluated);
 });
@@ -1961,7 +2037,21 @@ _trial_eval_fn_type_head :: (
     ctx : EvalContext
   ) -> Option(TypeValue)
 )({
-  inner_exn := Exception(throw : ((_err) -> unwind(Option(TypeValue).None)));
+  // YO_DEBUG_SWALLOW=1 prints the swallowed signature-eval error — a shell
+  // that silently fails to materialize is why a forward-referenced sibling
+  // later swallows its whole body (family A's second half; see
+  // issues/def-eval-swallow-remaining-roots.md). Capture-free `->` handler,
+  // same pattern as function_type.yo's `[swallow]` hook.
+  inner_exn := Exception(
+    throw : (
+      (_err) -> {
+        if(impl_dbg_env.get(`YO_DEBUG_SWALLOW`).is_some(), {
+          eprintln(`[shell-head-swallow] ${_err.to_string()}`);
+        });
+        unwind(Option(TypeValue).None);
+      }
+    )
+  );
   evaluated := evaluate_expression_raw(fn_type_expr, env, ctx, inner_exn);
   match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated)),
@@ -2102,6 +2192,95 @@ _try_create_forward_shell :: (
       )
     }
   )
+});
+/// Lazily materialize a forward-declared sibling of an IN-FLIGHT Case-2
+/// impl into the PROVISIONAL registry. Called (via env.yo's callback slot)
+/// when a provisional lookup for `type_id` misses `method_name` during the
+/// impl's own field loop — i.e. a def-time body trial forward-references a
+/// later sibling (array_list's slice_copy -> get). The shell carries
+/// `value : None` (callable from its TYPE alone — the trait-splice
+/// contract; a shell FuncVal has an EMPTY capture snapshot, and the
+/// inline-FuncVal call arm builds the body env from it, measured as
+/// `Variable "GlobalAllocator" not found`). Head evaluation happens ONLY
+/// here, on demand: evaluating every field's signature head eagerly
+/// diverged tests/imm_map.test.yo even with registration disabled
+/// (experiment B — map.yo's early `Map(K, U)` instantiations poison a
+/// CTFE/instantiation order the batch main later depends on).
+/// Returns true when a shell was registered.
+materialize_in_flight_method :: (
+  fn(type_id : String, method_name : String) -> bool
+)({
+  // Find the NEWEST in-flight record for this receiver id.
+  (rec_opt : Option(C2InFlightImpl)) = Option(C2InFlightImpl).None;
+  (ri2 : usize) = g_c2_in_flight.len();
+  while((ri2 > usize(0)) && rec_opt.is_none(), {
+    ri2 = (ri2 - usize(1));
+    match(
+      g_c2_in_flight.get(ri2),
+      .Some(cand) => {
+        if(cand.recv_id == type_id, {
+          rec_opt = Option(C2InFlightImpl).Some(cand);
+        });
+      },
+      .None => ()
+    );
+  });
+  rec := match(
+    rec_opt,
+    .Some(r) => r,
+    .None => {
+      return(false);
+    }
+  );
+  // At most one attempt per label (also the re-entrancy guard: the head
+  // eval below can itself trigger lookups).
+  (seen : bool) = false;
+  {
+    (ai : usize) = usize(0);
+    while((ai < rec.attempted.len()) && !(seen), {
+      if(match(rec.attempted.get(ai), .Some(a) => (a == method_name), .None => false), {
+        seen = true;
+      });
+      ai = (ai + usize(1));
+    });
+  };
+  if(seen, {
+    return(false);
+  });
+  rec.attempted.push(method_name.clone());
+  // Find the field with this label and try to shell it.
+  (made : bool) = false;
+  (fi3 : usize) = usize(0);
+  while((fi3 < rec.colon_pair_fields.len()) && !(made), {
+    field_e := match(rec.colon_pair_fields.get(fi3), .Some(e) => e, .None => make_err_expr());
+    fi3 = (fi3 + usize(1));
+    field_lbl := match(
+      field_e,
+      .FnCall(_, _, fca, _, _) => match(
+        fca.get(usize(0)),
+        .Some(le) => ast_expr_token(le).value.clone(),
+        .None => String.from("")
+      ),
+      .Atom(_, _) => String.from("")
+    );
+    if(field_lbl == method_name, {
+      match(
+        _try_create_forward_shell(field_e, rec.eval_env, rec.eval_ctx, rec.receiver_pattern),
+        .Some(sh_entry) => {
+          sh_entry.value = Option(EvalValue).None;
+          register_provisional_trait_method(type_id.clone(), sh_entry);
+          made = true;
+        },
+        .None => {
+          if(impl_dbg_env.get(`YO_DEBUG_SWALLOW`).is_some(), {
+            sh_miss_tok := ast_expr_token(field_e);
+            eprintln(`[c2shell-miss] ${sh_miss_tok.module_path}:${sh_miss_tok.row.to_string()}:${sh_miss_tok.column.to_string()}`);
+          });
+        }
+      );
+    });
+  });
+  made
 });
 /// Parse an impl's `where(...)` clause into parallel constraint arrays for
 /// `GenericImplEntry`. For each `X <: Trait` constraint whose LHS `X` is a
@@ -2320,6 +2499,17 @@ evaluate_module_value :: (
           .Atom(_, _) => ArrayList(AstExpr).new()
         );
         lhs2 := match(colon_args2.get(usize(0)), .Some(e) => e, .None => make_err_expr());
+        // Register the binder's declared KIND, name-only (no evaluation —
+        // resolution happens purely in _build_def_time_body_env; see
+        // resolve_some_binder_kind in types/creators.yo). Only value-binder
+        // kinds matter, so `: Type` is skipped.
+        rhs2 := match(colon_args2.get(usize(1)), .Some(e) => e, .None => make_err_expr());
+        if(ast_expr_is_atom(rhs2), {
+          rhs2_name := ast_expr_token(rhs2).value.clone();
+          if(rhs2_name != "Type", {
+            register_some_binder_kind(ast_expr_token(lhs2).value.clone(), frame_lvl, rhs2_name);
+          });
+        });
         Option(String).Some(ast_expr_token(lhs2).value.clone())
       }, if(
         ast_expr_is_atom(fp_expr),
@@ -2404,6 +2594,63 @@ evaluate_module_value :: (
     // bodies.
     old_self_type_g := ctx.self_type;
     ctx.self_type = .Some(receiver_type_pattern);
+    // Receiver id for the per-field PROVISIONAL registration below.
+    // Empty for receivers without an id — skip, mirroring Case 3's guard.
+    c2_recv_id := type_id_or_empty(receiver_type_pattern);
+    // LAZY forward declarations — push an in-flight record instead of the
+    // TS-shaped eager shell pre-pass. Eagerly evaluating EVERY field's
+    // signature head before the loop measurably diverged
+    // tests/imm_map.test.yo (experiment B, 2026-08-13, registration
+    // disabled and still RED): map.yo's early `Map(K, U)`-signature
+    // instantiations poison a CTFE/instantiation order the batch main
+    // later depends on. Lazily materializing a shell only when a def-time
+    // trial actually ASKS for that sibling (env.yo's provisional-lookup
+    // miss path calls `materialize_in_flight_method` via the callback
+    // slot) keeps the blast radius to fields genuinely forward-referenced
+    // (array_list's slice_copy -> get / push) — map.yo's trials never ask,
+    // so its poisonous early instantiations never happen. The field loop
+    // below supersedes any materialized shell in place, exactly as it
+    // supersedes the per-field registrations.
+    if(c2_recv_id != "", {
+      c2_if_fields := ArrayList(AstExpr).new();
+      (c2_pp : usize) = (receiver_arg_idx + usize(1));
+      while(c2_pp < n_args, {
+        c2_pp_expr := match(args.get(c2_pp), .None => make_err_expr(), .Some(e) => e);
+        c2_pp = (c2_pp + usize(1));
+        if(ast_expr_is_fn_call(c2_pp_expr) && ast_expr_is_fn_call_of(c2_pp_expr, BK_COLON, .Some(usize(2))), {
+          c2_if_fields.push(c2_pp_expr);
+        });
+        // Trait-constructor fields (`Trait(name : fn, ...)`): their INNER
+        // colon pairs are forward-declarable the same way (array_list's
+        // Clone/Index/Iterator impls — root #3 of
+        // issues/def-eval-swallow-remaining-roots.md).
+        if((ast_expr_is_fn_call(c2_pp_expr) && !(ast_expr_is_fn_call_of(c2_pp_expr, BK_COLON, .Some(usize(2))))) && (!(ast_expr_is_fn_call_of(c2_pp_expr, BK_WHERE, .None)) && !(ast_expr_is_fn_call_of(c2_pp_expr, "!", .Some(usize(1))))), {
+          c2_ta := match(
+            c2_pp_expr,
+            .FnCall(_, _, ta, _, _) => ta,
+            .Atom(_, _) => ArrayList(AstExpr).new()
+          );
+          (c2_ti : usize) = usize(0);
+          while(c2_ti < c2_ta.len(), {
+            c2_te := match(c2_ta.get(c2_ti), .Some(e) => e, .None => make_err_expr());
+            c2_ti = (c2_ti + usize(1));
+            if(ast_expr_is_fn_call(c2_te) && ast_expr_is_fn_call_of(c2_te, BK_COLON, .Some(usize(2))), {
+              c2_if_fields.push(c2_te);
+            });
+          });
+        });
+      });
+      g_c2_in_flight.push(
+        C2InFlightImpl(
+          recv_id : c2_recv_id.clone(),
+          receiver_pattern : receiver_type_pattern,
+          colon_pair_fields : c2_if_fields,
+          eval_env : forall_env,
+          eval_ctx : ctx,
+          attempted : ArrayList(String).new()
+        )
+      );
+    });
     (fj : usize) = (receiver_arg_idx + usize(1));
     while(fj < n_args, {
       mf_expr := match(args.get(fj), .None => make_err_expr(), .Some(e) => e);
@@ -2491,6 +2738,63 @@ evaluate_module_value :: (
               false,
               mname_tok
             );
+            // Also register the evaluated method PROVISIONALLY under the
+            // receiver pattern's id. Case 2 has no per-field permanent
+            // registration (methods accumulate into the GenericImplEntry,
+            // registered only after this loop), so a LATER sibling's
+            // definition-time body trial cannot resolve `Self.method()` —
+            // static dispatch (get_type_trait_methods_by_name_from_env)
+            // sees neither the permanent registry nor the generic-impl
+            // registry mid-loop, the call degrades to unit, and the trial
+            // swallows the body (array_list slice_copy, roots #1-#3 in
+            // issues/def-eval-swallow-remaining-roots.md). Entries carry
+            // the REAL evaluated value (unlike the value:None signature
+            // splice at the Case 3 site) and are cleared at loop end.
+            // If the pre-pass above created a forward shell for this
+            // method, UPDATE it in place (MethodEntry is reference
+            // semantics — sibling dispatch results holding the entry see
+            // the real method) and record the shell→real redirect, exactly
+            // like Case 3's supersede. Mirrors TS evaluateImplFieldList
+            // assigning each evaluated field into the cloned
+            // receiverType.trait.fields as it goes.
+            if(c2_recv_id != "", {
+              (c2_superseded : bool) = false;
+              c2_prior := get_provisional_trait_methods_by_name(c2_recv_id, mname);
+              (c2_pi : usize) = usize(0);
+              while((c2_pi < c2_prior.len()) && !(c2_superseded), {
+                match(
+                  c2_prior.get(c2_pi),
+                  .Some(c2_e) => {
+                    if(c2_e.source_trait_id == "__forward_shell", {
+                      c2_shell_fid := match(c2_e.value, .Some(sv) => match(sv, .FuncVal(__c2f1, _) => __c2f1.*.func_id, _ => String.new()), .None => String.new());
+                      c2_real_fid := match(m_to_push, .FuncVal(__c2f2, _) => __c2f2.*.func_id, _ => String.new());
+                      if((c2_shell_fid.len() > usize(0)) && (c2_real_fid.len() > usize(0)), {
+                        register_shell_redirect(c2_shell_fid, c2_real_fid);
+                      });
+                      c2_e.ty = mfi.ty;
+                      c2_e.value = Option(EvalValue).Some(m_to_push);
+                      c2_e.source_trait_id = String.from("");
+                      c2_superseded = true;
+                    });
+                  },
+                  .None => ()
+                );
+                c2_pi = (c2_pi + usize(1));
+              });
+              if(!(c2_superseded), {
+                register_provisional_trait_method(
+                  c2_recv_id.clone(),
+                  MethodEntry(
+                    label : mname.clone(),
+                    ty : mfi.ty,
+                    value : Option(EvalValue).Some(m_to_push),
+                    source_trait_id : String.from(""),
+                    needs_pointer_conversion : false,
+                    self_type : Option(TypeValue).None
+                  )
+                );
+              });
+            });
           }
         );
       });
@@ -2591,6 +2895,50 @@ evaluate_module_value :: (
                   g_to_push = _stamp_impl_forall_on_method(g_mval, forall_names);
                 });
                 g_method_values.push(g_to_push);
+                // Supersede this method's pre-pass shell in the PROVISIONAL
+                // registry (or register fresh) so later siblings' def-time
+                // body trials see the real value — the trait-constructor
+                // twin of the direct colon-pair branch below. Tagged with
+                // the trait's id (Case 3's fresh-registration semantics:
+                // inherent-first resolution reads source_trait_id).
+                if(c2_recv_id != "", {
+                  c2g_src_tid := match(
+                    g_trait_ty_opt,
+                    .Some(c2g_tt) => type_id_or_empty(c2g_tt),
+                    .None => String.from("")
+                  );
+                  (c2g_superseded : bool) = false;
+                  c2g_prior := get_provisional_trait_methods_by_name(c2_recv_id, g_mname);
+                  (c2g_pi : usize) = usize(0);
+                  while((c2g_pi < c2g_prior.len()) && !(c2g_superseded), {
+                    match(
+                      c2g_prior.get(c2g_pi),
+                      .Some(c2g_e) => {
+                        if(c2g_e.source_trait_id == "__forward_shell", {
+                          c2g_e.ty = gfi.ty;
+                          c2g_e.value = Option(EvalValue).Some(g_to_push);
+                          c2g_e.source_trait_id = c2g_src_tid.clone();
+                          c2g_superseded = true;
+                        });
+                      },
+                      .None => ()
+                    );
+                    c2g_pi = (c2g_pi + usize(1));
+                  });
+                  if(!(c2g_superseded), {
+                    register_provisional_trait_method(
+                      c2_recv_id.clone(),
+                      MethodEntry(
+                        label : g_mname.clone(),
+                        ty : gfi.ty,
+                        value : Option(EvalValue).Some(g_to_push),
+                        source_trait_id : c2g_src_tid,
+                        needs_pointer_conversion : false,
+                        self_type : Option(TypeValue).None
+                      )
+                    );
+                  });
+                });
               }
             );
           });
@@ -2667,6 +3015,26 @@ evaluate_module_value :: (
     });
     // Restore self_type so the impl's parent scope sees its prior value.
     ctx.self_type = old_self_type_g;
+    // Field loop done — drop the in-flight provisional entries (the real
+    // methods live in the GenericImplEntry registered below). Mirrors the
+    // Case 3 clear and TS restoring receiverType.trait (trait-type.ts:512).
+    if(c2_recv_id != "", {
+      clear_provisional_trait_methods(c2_recv_id);
+      ___c2_pop := g_c2_in_flight.pop();
+    });
+    // Drop the binder-kind registrations (same lifetime as the impl:
+    // clearing an unregistered name is a no-op, so type binders are fine).
+    {
+      (sbk_i : usize) = usize(0);
+      while(sbk_i < forall_names.len(), {
+        match(
+          forall_names.get(sbk_i),
+          .Some(sbk_n) => clear_some_binder_kind(sbk_n, frame_lvl),
+          .None => ()
+        );
+        sbk_i = (sbk_i + usize(1));
+      });
+    };
     // For inherent impls, trait_type = Unit (empty key — correct for registry).
     (trait_ty : TypeValue) = t_unit();
     trait_key_str := get_trait_key(trait_ty);
@@ -3498,6 +3866,7 @@ _impl_generic_impl_fallback_init := (fn() -> bool)({
   set_find_methods_from_generic_impls_fn(
     _find_methods_from_generic_impls_as_method_entries
   );
+  set_materialize_in_flight_method_fn(materialize_in_flight_method);
   true
 })();
 export(evaluate_module_value);

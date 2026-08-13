@@ -410,6 +410,161 @@ Next probe: extend the minimal generic-impl repro one property at a time toward
 the real ArrayList (optional-pointer field → many methods → a preceding failing
 trial) until it reproduces; that names the third factor without guessing.
 
+### IMPLEMENTED 2026-08-13 (branch `fix/family-a-provisional-static`) — the §3 handover shape, measurements pending
+
+The three-part fix from `plans/HANDOVER_DEF_EVAL_SWALLOW.md` §3, with one
+correction found by reading: **Case 3 needs NO new registration.** Its field
+loop already registers each method into the PERMANENT registry as the field
+completes (`impl.yo` `register_type_trait_method` in-loop, plus the
+forward-shell supersede), so static `Self.X` on a non-generic impl resolves
+mid-loop today. The gap is Case 2 only: methods accumulate into the
+`GenericImplEntry` registered only AFTER the loop, so nothing is visible
+mid-loop through any channel static dispatch consults. That also matches the
+probe log — every failing field was tagged `case2`.
+
+The change:
+
+1. Case 2's direct colon-pair branch registers each evaluated method into the
+   PROVISIONAL registry as its field completes — with the REAL forall-stamped
+   FuncVal (`value : .Some(m_to_push)`, `source_trait_id : ""`,
+   `self_type : None` — the same shape as Case 3's direct permanent entries),
+   NOT a valueless signature splice.
+2. `get_type_trait_methods_by_name_from_env` (env.yo) consults the provisional
+   registry as the LAST resort, ranked BELOW the generic-impl fallback (an
+   in-flight entry outranking a registered impl is how `imm_map` broke).
+3. Cleared at Case 2's field-loop end, next to the `self_type` restore.
+
+Known interaction accepted by design: the INSTANCE path
+(`get_receiver_methods_by_name_from_env`) also consults provisional when the
+permanent registry misses, so mid-loop instance calls (`self.len()`) may now
+resolve through these entries instead of whatever later fallback served them
+before. The entries carry real values and the Case-3-direct shape, so this is
+the faithful-port direction (TS shows in-flight evaluated fields to both
+paths); the full battery is the arbiter.
+
+### LANDED 2026-08-13 (branch `fix/family-a-provisional-static`) — families A and B, measured
+
+Three commits, each measured on the std baseline (importer of std/fmt):
+
+| stage                                                   | swallows |
+| ------------------------------------------------------- | -------- |
+| baseline (post-PR #110)                                 | 19       |
+| + per-field provisional registration (earlier siblings) | 18       |
+| + forward shells (later siblings) + trait-ctor + fam B  | 14       |
+
+Roots cleared: #1, #2 (slice_copy family, incl. the transient with_capacity
+and from_array layers), #4, #5 (Array slice_copy — family B), #7. #6
+progressed to its next layer (prelude 7623, SomeT callee).
+
+**Layered findings, in discovery order:**
+
+1. **Earlier siblings** (`Self.new()` before `slice_copy`): per-field
+   provisional registration with the REAL forall-stamped FuncVal; static
+   lookup consults provisional LAST (below the generic-impl fallback).
+2. **Shell values are uncallable** — a shell FuncVal carries an EMPTY
+   capture snapshot, and the inline-FuncVal call arm builds the body env
+   from it (`capture_env_for`), so calling a shell evaluated its body in an
+   env with NO module bindings (`Variable "GlobalAllocator" not found`,
+   push's body from slice_copy's trial). Provisional forward entries must
+   carry `value : None` — callable from the TYPE alone, the trait-splice
+   contract.
+3. **The eager pre-pass itself diverges imm_map** — experiment B (pre-pass
+   head-evals kept, registration DISABLED) still turned
+   `tests/imm_map.test.yo` RED: `Map(i32,i32).new()`'s batch-time
+   specialization failed `Type mismatch for type member "_root": Expected
+<enum>, Got Type(1)`. The poison is the EARLY evaluation of every
+   field's signature head (map.yo's `Map(K, U)` instantiations), not the
+   entries. A `YO_C2_PREPASS_SKIP` bisect build confirmed module locality:
+   skipping only imm/map went GREEN. The underlying instantiation-order
+   fragility is still unexplained — TS runs the same eager shape safely.
+4. **Resolution: lazy materialization.** Case 2 pushes an in-flight record
+   (receiver id, unevaluated colon-pair fields incl. trait-constructor
+   inners, forall env, ctx); env.yo's provisional-miss paths call
+   `materialize_in_flight_method` (callback slot), which head-evals ONLY
+   the sibling actually asked for, once per label. Sweep: 188/188 GREEN
+   expected (imm_map verified 21/21 directly; full sweep pending).
+5. **Family B**: name-only side table (`types/creators.yo`), registered
+   syntactically at the impl binder site, resolved PURELY (builtin scalar
+   names) in `_build_def_time_body_env`'s capture copy, cleared with the
+   impl. The forall-env binding stays `TypeVal(SomeT)` (load-bearing for
+   receiver-pattern eval).
+
+### Abstract-binding acceptance (root #3 / cross-impl) — the ledger of scoping attempts
+
+The TS contract (tryMatchGenericImpl substitutions extraction): a binding
+unified to a DIFFERENT SomeType counts as bound. yo-self's
+`_resolve_one_forall_binding` rejected every SomeT. Landing the acceptance
+took three scopings, each measured:
+
+| variant                                           | swallows | canaries                                    |
+| ------------------------------------------------- | -------- | ------------------------------------------- |
+| accept everywhere (id + name channels)            | 4        | **std module eval BREAKS** (std/string)     |
+| id channel only                                   | 13       | all green — but array_list roots return     |
+| id always + name channel gated to def-time trials | 10       | imm_map green; **derive_clone_complex RED** |
+
+The name channel is what resolves array_list's cross-impl dispatch (the id
+channel misses those bindings); unscoped it picks up unrelated same-name
+SomeTs from outer scopes. `in_def_time_trial` (context.yo) is set around
+the three `_trial_eval_fn_body` call sites (a swallowed error unwinds OUT
+of the helper, so in-helper restore is unreachable — set/restore lives at
+the call sites) and `_materialize_default_body`'s call site.
+
+**derive_clone_complex regression (open):** the batch C calls
+`yo_id_..._rtparam0_R_gs_...` — a specialization MINTED WITH AN ABSTRACT
+type in its key. The emitter skips a SomeT-laden spec as hard-generic while
+the call site still emits the direct call. A guard skipping the mint when
+`in_def_time_trial() && (bindings or args contain SomeTs)` did NOT fix it —
+the mint happens OUTSIDE any flagged trial (context still unidentified; the
+`[abstract-spec]` YO_DEBUG_SWALLOW print at the mint's register site names
+fid + flag state for the next run). Two def-time degrades (comptime CTFE
+non-FuncVal → unknown; SomeT callee → unknown) were tried alongside and
+REVERTED: they let trials proceed deep enough to stamp partial ExprInfos
+that leak into emitted specializations (imm_map RED again, FTT comment
+INSIDE `map_values`' emitted C).
+
+**The structural lesson:** yo-self's def-time trials stamp ExprInfos on
+SHARED body ASTs that codegen consumes directly for some shapes (derive
+bodies, batch mains). Converting a MISSING stamp into an ABSTRACT stamp
+trades statement-level FTT markers for miscompiles unless every abstract
+product is kept out of codegen's channels (fid recording, spec minting).
+Any further degrade must answer "which codegen channel can this abstract
+value reach?" before landing.
+
+### Root #3 (797, Clone impl) — discriminator narrowed to the TRAIT-CONSTRUCTOR field path (2026-08-13, probes on the trial-scoped build)
+
+Probe series (`scratchpad` cc\_\* files, two impls on `G(T)` where the second
+calls the first's `len`; the CALLER must return a SomeT-containing type or no
+dg-trial runs and the pass is VACUOUS — `via2/via3` returning `usize` "passed"
+that way):
+
+| second impl's shape                                     | def-time trial |
+| ------------------------------------------------------- | -------------- |
+| direct field, `self : Self`, returns `Option(usize)`    | resolves       |
+| direct field, `inout(self) : Self`, returns `Option(…)` | resolves       |
+| direct field + `where(T <: Clone)`                      | (vacuous)      |
+| `Clone(clone : …)` trait constructor                    | **swallows**   |
+| CUSTOM trait constructor (`MyT(via5 : …)`)              | **swallows**   |
+
+So cross-impl dispatch inside a TRAIT-CONSTRUCTOR field's trial still fails
+where the direct branch (same receiver, same call) now succeeds. The
+suspected difference: the g\_ branch evaluates fields with
+`ctx.expected_type` = the trait's substituted field type, while the direct
+branch CLEARS expected_type.
+
+**PINPOINTED (instrumented build, `YO_DEBUG_DISPATCH=1`):** the trait
+branch's trial binds `self` to a FRESH `G` instantiation minted by
+`_substitute_self_in_method_ty` (recv id 5094 ≠ the impl pattern 3377),
+and `try_match_generic_impl(len's pattern 3170, recv 5094)` dies INSIDE
+`synthesize_types` (a `[tm-try]` with no `[tm-end]` = the synthesis
+exception fired) — unifying the pattern's `?*(T_len)` against the
+substituted copy's `?*(T_clone)` structure throws where TS unifies. So
+root #3 is a `types/synthesize.yo` SomeT-vs-SomeT gap, NOT a dispatch
+ranking problem. The direct branch never mints the substituted copy (no
+expected type), so its receiver IS the pattern instantiation and synthesis
+succeeds. Debug hooks left in-tree: `[dispatch-miss]` (env.yo,
+YO_DEBUG_DISPATCH), `[tm-try]/[tm-none]/[tm-end]` (impl.yo, same var),
+`[abstract-spec]` (function.yo, YO_DEBUG_SWALLOW).
+
 ### B. Impl-level VALUE binder bound as a TYPE (#4, #5, #6)
 
 ```rust
