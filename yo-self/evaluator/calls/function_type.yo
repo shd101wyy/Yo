@@ -39,7 +39,7 @@ _(env : fnty_env) :: import("std/env");
 } :: import("../../expr_info.yo");
 { Environment, Variable, add_variable_to_env, add_parameter_to_env, synthetic_token, snapshot_env } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ t_unit, t_some_t, t_ptr } :: import("../../types/creators.yo");
+{ t_unit, t_some_t, t_ptr, resolve_some_binder_kind } :: import("../../types/creators.yo");
 { is_type_0, is_some_type, is_unit_type, is_function_type } :: import("../../types/guards.yo");
 { wrap_function_body_with_contracts } :: import("../builtins/contracts.yo");
 { EvalValue, FuncValData, create_unknown_val, create_type_value, is_unknown_val } :: import("../../value.yo");
@@ -454,12 +454,45 @@ _build_def_time_body_env :: (
               );
               if(keep_cv && !(cv.name == "__recur_fn"), {
                 cap_value := match(cv.value.get(usize(0)), .Some(actual) => Option(EvalValue).Some(actual), .None => Option(EvalValue).None);
-                is_ct := match(cap_value, .Some(_) => true, .None => false);
+                // Family B re-kind: an impl-level VALUE binder
+                // (`impl(generic(T : Type, N : usize), ...)`) is bound
+                // `TypeVal(SomeT)` in the impl's forall env — load-bearing
+                // there for receiver-pattern evaluation — but a def-time
+                // BODY env must see an unknown VALUE of the declared type
+                // (TS createUnknownValue(declaredType)), or `r.end > N`
+                // fails "Cannot unify usize and Type". The kind comes from
+                // the NAME-only side table registered at the impl binder
+                // site and resolved PURELY (builtin scalars, no env) —
+                // every env-involved resolution measurably broke the
+                // circular-import order (see resolve_some_binder_kind).
+                (cap_ty_final : TypeValue) = cv.ty;
+                (cap_value_final : Option(EvalValue)) = cap_value;
+                match(
+                  cap_value,
+                  .Some(cv_ev) => match(
+                    cv_ev,
+                    .TypeVal(cv_tv) => match(
+                      cv_tv,
+                      .SomeT(_, cv_sname, cv_slvl, _, _, _, _, _, _, _, _) => match(
+                        resolve_some_binder_kind(cv_sname, cv_slvl),
+                        .Some(cv_bty) => {
+                          cap_ty_final = cv_bty.clone();
+                          cap_value_final = Option(EvalValue).Some(create_unknown_val(cv_bty));
+                        },
+                        .None => ()
+                      ),
+                      _ => ()
+                    ),
+                    _ => ()
+                  ),
+                  .None => ()
+                );
+                is_ct := match(cap_value_final, .Some(_) => true, .None => false);
                 // Carry `is_reassignable` — module globals (`(x : T) = v;`)
                 // ARE reassignable from fn bodies; rebinding them read-only
                 // made std/log.yo's `_global_level = level` def-eval fail
                 // "Cannot reassign".
-                copied_var_opt := add_variable_to_env(fresh_env, cv.name, cv.ty, cap_value, is_ct, cv.is_reassignable, false, false, synthetic_token(cv.name, module_path));
+                copied_var_opt := add_variable_to_env(fresh_env, cv.name, cap_ty_final, cap_value_final, is_ct, cv.is_reassignable, false, false, synthetic_token(cv.name, module_path));
                 // Carry `is_module_level` — TS REUSES the definition env's
                 // Variable objects for def-time body eval (function-type.ts:499),
                 // so every flag survives there. This flattening copy loses
