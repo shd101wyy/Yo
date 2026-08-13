@@ -193,7 +193,48 @@ Also established:
   gated on `has_fwd_comptime_fn_cap`, which is narrow, so "the trial re-runs
   after the restore" is NOT the explanation either (checked, not assumed).
 
-### RESOLVED 2026-08-13: the context-list approach CANNOT work
+### REFUTED 2026-08-13 (later, by ordering probe) — READ THIS BEFORE THE SECTION BELOW
+
+**The section immediately following is WRONG and is kept only for its
+measurements.** Its conclusion — "the def-time body trial happens outside the
+impl's field loop" — was inferred from `n_labels=0` and is false.
+
+A probe printing `[field-begin]`/`[field-end]` around BOTH field-evaluation sites
+(Case 2's direct colon-pair branch, `impl.yo:2458`; Case 3's, `impl.yo:3110`),
+interleaved with the existing `[trial]` line, shows the trial nested INSIDE the
+field window — on the reproducer AND on the real `array_list` target:
+
+```
+[field-begin] case2 recv=struct_yo_id_3171 name=new
+[trial]       std/collections/array_list.yo:57:4
+[field-end]   case2 recv=struct_yo_id_3171 name=new
+[field-begin] case2 recv=struct_yo_id_3171 name=slice_copy
+[trial]       std/collections/array_list.yo:73:59
+[swallow]     Error: Cannot unify incompatible types: "usize" and "unit"   <- root #1
+[field-end]   case2 recv=struct_yo_id_3171 name=slice_copy
+```
+
+Two facts follow, and they reopen the whole approach:
+
+1. **The trial runs inside the field loop**, so a LOOP-SCOPED channel (the
+   provisional registry, cleared at loop end) IS live at trial time. The
+   permanent registration that regressed `imm_map` is not required.
+2. **`new` reaches `[field-end]` before `slice_copy` reaches `[field-begin]`** —
+   its real, fully-evaluated FuncVal already exists when the failing body is
+   trialled. No forward shell is needed for this class at all.
+
+**Why the earlier probe measured `n_labels=0`:** it patched the wrong branch. The
+`g_mval` push site (`impl.yo:2581`) sits inside Case 2's TRAIT-CONSTRUCTOR branch
+— the one guarded by `!(BK_COLON)` — while the fields that actually fail
+(`len` / `new` / `via`, and `array_list`'s `new` / `slice_copy`) are direct
+`name : fn` pairs handled by the branch at `impl.yo:2458`. Nothing was ever
+pushed for them, so the lists were empty for a mundane reason. The 885 pushes
+that "fired" were all other impls. Case counts in one full compile of the
+reproducer: **200 case2 fields, 2600 case3 fields.**
+
+Reproduce with the 14-line patch in `plans/HANDOVER_DEF_EVAL_SWALLOW.md` §4.
+
+### SUPERSEDED 2026-08-13: "the context-list approach CANNOT work"
 
 Final probe — `n_labels` printed at the `[trial]` site itself, WITH both pushes
 applied (885 pushes firing elsewhere in the same compile):
