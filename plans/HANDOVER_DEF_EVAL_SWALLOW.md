@@ -1,5 +1,19 @@
 # Handover — the def-eval swallow endgame, and the three PRs behind it
 
+> **CAMPAIGN COMPLETE — ENDGAME ACHIEVED (2026-08-13, late session).**
+> Every swallow root is fixed and the fatal handler is IN: minimal repro
+> 19 → 0 (PRs #115/#116/#118/#119, all merged), corpus family 5 → 0
+> (PR #120: hash_set ×4 + hash_map:714 — the wrong-`next` dispatch via
+> the anonymous-struct shape fallback, fixed by the nominal cfid gate),
+> and `_trial_eval_fn_body` now RE-RAISES concrete-path errors
+> (`a87525aad`, `swallow/fatal-trial-handler`, stacked on #120) — exact
+> TS parity: ts:499 fatal, deferred-generic ts:112 still discards.
+> Full battery green on the fatal tip: sweep 188/188, FIXPOINT_HOLDS,
+> checks 154/154 + 247/247, self-compile 3607 trials / 0 swallows.
+> Pinned by `tests/cli-cases/compile-undefined-call-unreferenced`.
+> Full record: `issues/def-eval-swallow-remaining-roots.md`. Everything
+> below is historical.
+
 > **UPDATE 2026-08-13 (evening session).** §0's steps are DONE or superseded:
 > PR #110 MERGED; #98 → closed, rebased as **#113**; #112 → closed, reworked as
 > **#114** (RELEASE_PAT direct bump, stacked on #113). Family A §3 was
