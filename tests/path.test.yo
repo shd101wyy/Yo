@@ -271,10 +271,12 @@ test("Path.with_extension with full path", {
   assert(s == `/home/user/document.pdf`);
 });
 test("Path.with_extension on empty path returns self", {
+  // Returns SELF (no file name to extend) — and an empty relative path
+  // renders as "." (see "Path.new handles empty path" above).
   path := Path.new(``);
   new_path := path.with_extension(`txt`);
   s := new_path.to_string();
-  assert(s == ``);
+  assert(s == `.`);
 });
 test("Path.with_extension preserves directory structure", {
   path := Path.new(`src/test/main.yo`);

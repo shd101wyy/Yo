@@ -97,6 +97,43 @@ Grouped so each group is one PR (or a short PR chain) that keeps CI green. Verif
 
 #### Group B — self-hosted runner and driver prerequisites (code, no CI change)
 
+> **STATUS 2026-08-14: steps 4–9 LANDED** (branch `p2/group-b-runner-driver`).
+> Everything below except the step-10/11 decisions is implemented and
+> verified: sanitizer plumbing (default `--sanitize` w/ `YO_TEST_SANITIZE`,
+> ASan run env + LSan suppressions + Windows DLL PATH + detect_leaks retry +
+> leak verdict), `--cc`/`--target`/`--test-batch-size` forwarding (proven
+> end-to-end: the child compile's choices validation rejects a bogus value),
+> `Pragma.SkipWasm*` pre-scan, `-v` failure output (runs switched to captured
+> output), positional default `.`, ANCHORED `--exclude`, REGEX
+> `--test-name-pattern` (std/regex; prints TS's `Filtering tests matching:`),
+> the full `compile` parser hardening (strict unknown options, `=`/attached
+> forms, greedy arrays, choices validation, `findAvailableCompiler` +
+> wasm→emcc, `--emit-c`/`--skip-c-compiler` split, extension auto-append +
+> strip, mimalloc existence guard), top-level `--help`/`--version` + the 9
+> `yo-self`→`yo` renames, and the step-9 build_runner wiring (fetch,
+> per-artifact pkg-config, a REAL `.Doc` arm, test `--cc` forward,
+> `run_executable` pre-flight + cwd + wasm branch).
+>
+> **Three root-caused bugs surfaced and fixed en route** (the point of doing
+> Group B first): (1) a BOTH-compiler codegen bug — reassigning an RC var
+> living in an async state-machine slot emitted a drop of an undeclared temp
+> (`issues/fixed/async-slot-self-reassign-undeclared-temp.md`; yo-self's port
+> skipped the old-value save for ALL sm-> targets, a silent-leak family);
+> (2) `std/path`: an empty relative path rendered as `""` → `stat("")`
+> ENOENT (`yo test .` never worked); fixed at RENDER level after a
+> segments-level attempt broke `relative_from` (caught by cli-diff
+> `build-run`); (3) `pkg_config.yo` duplicated `BuildSystemLibrary`
+> nominally — deduped to the canonical build-builtins type.
+>
+> Battery: cli-diff 30/30 PASS, canaries green (fn/closure/async_await/
+> algebraic_effects/rc/arc/path/hash_map/iterator_combinators + a
+> MallocScribble async run), `tests/internal/{build_runner,fetch,pkg_config}`
+> green, `yo build` self-builds with mimalloc (step 24b's local half);
+> gates/sweep/fixpoint/checks recorded on the PR.
+>
+> Step 6's remaining bullet (runner timeouts) and steps 10/11 (wasm,
+> Windows-deps decisions) are NOT part of this slice.
+
 Each step is independently landable and gated by `tests/internal` or a new cli-case, so none of them changes CI shape.
 
 4. **Test-runner sanitizer plumbing** (B3): forward `--sanitize address` by default, honour `YO_TEST_SANITIZE` and `--disable-sanitize`, apply the ASan/LSan run env + macOS suppressions + the Windows `clang_rt` DLL PATH. → **verify:** `yo test ./tests/rc.test.yo --parallel 1` and confirm `-fsanitize=address` reaches clang (keep the batch with `YO_KEEP_BATCH` and grep the command), then re-run with `--disable-sanitize` and confirm it does not. **[local-fast]**

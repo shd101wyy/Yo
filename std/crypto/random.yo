@@ -45,6 +45,7 @@ export(CryptoError);
 // ============================================================================
 // Platform externs
 // ============================================================================
+{ errno, EINTR } :: import("../libc/errno");
 extern(
   "Yo",
   __yo_getrandom : (fn(buf : *(u8), buflen : usize, flags : u32) -> isize),
@@ -92,14 +93,31 @@ random_bytes :: (fn(buf : RawSlice(u8), exn : Exception) -> unit)({
       });
     },
     true => {
-      // Linux: getrandom syscall
-      ret := __yo_getrandom(buf_ptr, size, u32(0));
-      cond(
-        (ret < isize(0)) => {
-          exn.throw(dyn(CryptoError.Unavailable));
-        },
-        true => ()
-      );
+      // Linux: getrandom syscall. LOOP until the buffer is full: getrandom
+      // may return SHORT for requests over 256 bytes and may fail with
+      // EINTR when interrupted by a signal (getrandom(2)). The old
+      // single-shot call silently ACCEPTED a short read — the tail of the
+      // buffer kept its zero initialization (biased, predictable bytes from
+      // a "successful" call) — and threw Unavailable on a transient EINTR.
+      (filled : usize) = usize(0);
+      while(filled < size, {
+        ret := __yo_getrandom(buf_ptr.add(filled), size - filled, u32(0));
+        cond(
+          (ret < isize(0)) => {
+            e_now := unsafe(errno.*);
+            cond(
+              (e_now == EINTR) => (),
+              // retry
+              true => {
+                exn.throw(dyn(CryptoError.Unavailable));
+              }
+            );
+          },
+          true => {
+            filled = (filled + usize(ret));
+          }
+        );
+      });
     }
   )
 });
