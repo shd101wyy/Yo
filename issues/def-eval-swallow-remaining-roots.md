@@ -1,5 +1,43 @@
 # The def-eval swallow: remaining roots, measured and attributed
 
+> **CORPUS PHASE (2026-08-13, after the minimal-repro 19 → 0).** The
+> WIDER corpus (self-compile of yo-self: 3603 trials; fast repro:
+> `issues/repros/`-adjacent driver importing hash_map THEN hash_set)
+> exposed a pre-existing family the minimal repro never reached — 5
+> swallows, three stacked roots, two FIXED:
+>
+> - **hash_set ×4 ("Failed to evaluate, got ((ctrl_ptr.add)(i).(\*))") —
+>   FIXED** (`5c748639e`): `try_match_generic_impl` passed the caller env
+>   RAW as the given side, so every candidate probe's given-side
+>   shadow-binds landed durably in the shared trial env; one hash_map-era
+>   probe's `T := <hash_map struct>` junk then broke the blanket pointer
+>   impl's `T` resolution for every later `.add`. Fix: scratch frame on
+>   the given side (TS discards its chains, impl.ts:2243). Also fixed
+>   upstream layer (`53ad21724`): `_bind_some_type` now binds a type
+>   variable with its KIND (`type_of_type`), not the bound type — TS
+>   value.type parity — and its in-place path preserves the old
+>   variable's type.
+> - **hash_map:714 ("Cannot unify u64 and unit" in the Clone impl's
+>   trial) — OPEN, frontier:** the failure is GARBAGE-IN: inside the
+>   Clone body's nested `result.set(k, v)` eval, `k` is ALREADY
+>   unit-typed — the degrade happens in the
+>   `it.next()` → `bucket_ptr.*.key.clone()` chain (hash_map.yo:719-733)
+>   before `set` runs; `set`'s param synthesis then binds `K := unit`
+>   (call-scoped, legitimately) and the sibling `_find_bucket` spec
+>   mints `key : unit`. Two defensive fixes landed alongside
+>   (Unit-placeholder guard in `_bind_forall_from_type_args`;
+>   trial-scoped callee-env scratch isolation in helper.yo Step 7 —
+>   which contained the previously DURABLE cross-trial variant of the
+>   K-junk, `[bind-T]` fid-verified). **Next probe: which link of the
+>   next()/deref/field/clone chain first degrades** — run the
+>   hash_map+hash_set driver (scratchpad hs_driver3.yo) with
+>   YO_DEBUG_RET/YO_DEBUG_CTFE and trace the `nxt` payload's type.
+>
+> Debug hooks added this phase (all env-gated, in-tree): `[rm-miss]`,
+> `[fmg-try]`, `[tm-frames]`, `[call-none] callee_ty`, and
+> `[bind-T]`/`YO_DEBUG_BIND=<name>` (write-side frame-id tracing in
+> `_bind_some_type`).
+
 > **STATE 2026-08-13 (third session, later): 19 → 0. ALL ROOTS FIXED.**
 > Root 537's true root was a MIS-PORT in `_filter_receiver_methods`
 > (yo-self/env.yo): the pointee-vs-receiver check used the LENIENT

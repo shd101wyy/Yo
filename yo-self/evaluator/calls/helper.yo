@@ -5544,6 +5544,23 @@ try_to_call_function_with_arguments :: (
       arg_vals := ArrayList(ArgEntry).new();
       rt_args := ArrayList(AstExpr).new();
       (callee_env_m : Environment) = callee_env;
+      // Def-time-trial isolation: a nested method call's `callee_env` is the
+      // FuncVal's captured DEFINITION env — a SHARED, durable frame stack.
+      // Step-6 generic synthesis and Step-9 param binds below write into its
+      // TOP frame; during a trial those writes are junk the moment the trial
+      // ends, but the shared frame keeps them (the [bind-T] K := unit write
+      // into hash_map's def frame that later specialized `_find_bucket` with
+      // `key : unit` — hash_map:714 of the corpus family). TS's persistent
+      // chains scope these automatically (updates fork the chain); the
+      // yo-self equivalent is a scratch frame on a LOCAL copy — the body
+      // eval threads callee_env_m and sees every binding, the shared def
+      // env object never does. Trials only: the concrete path's frame
+      // arithmetic (function_declaration_frame_level readers) keeps its
+      // long-standing layout.
+      if(in_def_time_trial(), {
+        callee_env_m = snapshot_env(callee_env);
+        callee_env_m.push_frame(false);
+      });
       (caller_env_m : Environment) = caller_env;
       // io.async: evaluate the closure ARGUMENT under async-block context
       // (mirrors TS helper.ts:1314-1315 setting isInsideIoAsyncCall in

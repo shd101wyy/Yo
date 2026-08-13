@@ -643,7 +643,13 @@ _bind_forall_from_type_args :: (
     if(is_match, {
       match(
         con_ta.get(j),
-        .Some(ct) => if(!(is_some_type(ct)), {
+        // `Unit` in a type_arguments slot is the NON-TYPE-ARG placeholder
+        // (comptime_fn.yo inst_type_args pads value args with Unit so
+        // positions line up) — never a real binding. Binding a forall to it
+        // specialized `_find_bucket` with `key : unit` under the HashMap
+        // Clone-impl trial and the sibling `set` re-eval swallowed
+        // ("Cannot unify u64 and unit", hash_map:714 of the corpus family).
+        .Some(ct) => if((!(is_some_type(ct))) && !(match(ct, .Unit => true, _ => false)), {
           return(Option(TypeValue).Some(ct));
         }, {
           // Trial-scoped abstract acceptance — same contract as
