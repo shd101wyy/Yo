@@ -4,7 +4,9 @@
 > WIDER corpus (self-compile of yo-self: 3603 trials; fast repro:
 > `issues/repros/`-adjacent driver importing hash_map THEN hash_set)
 > exposed a pre-existing family the minimal repro never reached — 5
-> swallows, three stacked roots, two FIXED:
+> swallows, three stacked roots, **ALL FIXED — the full self-compile
+> corpus is now SWALLOW-FREE (3603 trials, 0 swallows, 0 FTT markers,
+> fix tip `1dce05268` on PR #120)**:
 >
 > - **hash_set ×4 ("Failed to evaluate, got ((ctrl_ptr.add)(i).(\*))") —
 >   FIXED** (`5c748639e`): `try_match_generic_impl` passed the caller env
@@ -18,7 +20,7 @@
 >   value.type parity — and its in-place path preserves the old
 >   variable's type.
 > - **hash_map:714 ("Cannot unify u64 and unit" in the Clone impl's
->   trial) — OPEN, frontier:** the failure is GARBAGE-IN: inside the
+>   trial) — FIXED (`1dce05268`, dig record below):** the failure is GARBAGE-IN: inside the
 >   Clone body's nested `result.set(k, v)` eval, `k` is ALREADY
 >   unit-typed — the degrade happens in the
 >   `it.next()` → `bucket_ptr.*.key.clone()` chain (hash_map.yo:719-733)
