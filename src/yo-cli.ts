@@ -36,10 +36,10 @@ import {
 } from "./test-runner";
 import { getCurrentYoVersion, readYoVersion } from "./version";
 import {
+  cachedBinaryPath,
   cleanVersionCache,
   ensureCachedVersion,
   fetchRemoteVersions,
-  findJsRuntime,
   isVersionCached,
   listCachedVersions,
 } from "./version-cache";
@@ -142,18 +142,20 @@ if (!shouldSkipDispatch) {
     (async () => {
       try {
         const cachedDir = await ensureCachedVersion(pinnedVersion);
-        const cliPath = path.join(cachedDir, "out", "cjs", "yo-cli.cjs");
+        // Cached versions are NATIVE release bundles (bin/yo + std/ +
+        // vendor/, self-locating) — spawn the binary directly; no JS
+        // runtime involved. See plans/P3_DISTRIBUTION.md item 2.
+        const binPath = cachedBinaryPath(cachedDir);
 
-        if (!fs.existsSync(cliPath)) {
+        if (!fs.existsSync(binPath)) {
           console.error(
-            `Error: Cached Yo v${pinnedVersion} is missing yo-cli.cjs at ${cliPath}`
+            `Error: Cached Yo v${pinnedVersion} is missing its compiler binary at ${binPath}`
           );
           process.exit(1);
         }
 
-        const runtime = findJsRuntime();
         // execFileSync throws on non-zero exit; success returns here
-        execFileSync(runtime, [cliPath, ...rawArgs], {
+        execFileSync(binPath, rawArgs, {
           stdio: "inherit",
           cwd: dispatchCwd,
           env: {
@@ -1202,7 +1204,7 @@ yo --version                     Show version number
             type: "string",
           })
           .option("remote", {
-            describe: "Show available versions from npm (for list action)",
+            describe: "Show available releases (for list action)",
             type: "boolean",
             default: false,
           });
@@ -1267,7 +1269,7 @@ yo --version                     Show version number
           case "list": {
             if (argv.remote) {
               const remoteVersions = await fetchRemoteVersions();
-              console.log("Available versions on npm:");
+              console.log("Available releases:");
               for (const v of remoteVersions) {
                 const current = v === getCurrentYoVersion() ? " (current)" : "";
                 const cached = isVersionCached(v) ? " (cached)" : "";
