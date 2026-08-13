@@ -33,7 +33,12 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: develop
-          token: ${{ secrets.GITHUB_TOKEN }}
+          # RELEASE_PAT (fine-grained, this repo, Contents: read/write) carries
+          # the repository-admin ruleset bypass, so the version-bump commit
+          # below pushes straight to the protected develop. Falls back to the
+          # Actions token (whose push a protected develop rejects) only when
+          # the secret is unset.
+          token: ${{ secrets.RELEASE_PAT || secrets.GITHUB_TOKEN }}
           fetch-depth: 0
           submodules: recursive
 
@@ -132,24 +137,13 @@ jobs:
           git config --local user.name "github-actions[bot]"
           git add package.json vscode-extension/package.json vscode-extension/package-lock.json yo-self/version.yo
           git commit -m "chore: bump version to ${{ steps.version.outputs.version }} [skip ci]"
-          # A personal repo's ruleset CANNOT grant the Actions integration a
-          # bypass (HTTP 422 "must be part of the ruleset source or owner
-          # organization"), so a protected develop rejects this direct push.
-          # Fall back to landing the bump via a PR — the maintainer's merge
-          # goes through the existing repository-admin bypass. The bump
-          # commit stays reachable via the side branch, so the seed-bundles
-          # job's checkout-by-SHA still works either way.
-          if git push; then
-            echo "Version bump pushed directly to develop."
-          else
-            BRANCH="release/version-bump-${{ steps.version.outputs.version }}"
-            echo "Direct push rejected by branch protection - opening a version-bump PR via ${BRANCH}."
-            git push -f origin "HEAD:refs/heads/${BRANCH}"
-            gh pr create --base develop --head "${BRANCH}" \
-              --title "chore: bump version to ${{ steps.version.outputs.version }} [skip ci]" \
-              --body "Automated version bump from the release workflow (direct push to develop is blocked by branch protection). Merge before the next release so future bumps start from this version." \
-              || echo "::warning::gh pr create failed — open the version-bump PR manually from branch ${BRANCH} (v0.2.0's failed silently on a missing pull-requests:write permission)."
-          fi
+          # The checkout used RELEASE_PAT (repository-admin ruleset bypass),
+          # so this direct push to the protected develop succeeds — no
+          # version-bump PR, no second dispatch. If it fails, the PAT is
+          # missing/expired: fail LOUDLY rather than releasing a tree whose
+          # version never landed on develop.
+          git push || { echo "::error::Direct push to develop failed — is the RELEASE_PAT secret set and unexpired (fine-grained, Contents: read/write)?"; exit 1; }
+          echo "Version bump pushed directly to develop."
           echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
 
       # npm publishing STOPPED as of v0.2.0 (P2 retires the TS compiler —
@@ -182,6 +176,10 @@ jobs:
           # native bundles, and a failed REQUIRED leg leaves an invisible
           # draft instead of a published release missing binaries.
           draft: true
+          # Tag the BUMP commit — action-gh-release defaults target_commitish
+          # to github.sha (the PRE-bump commit), which made every tag point
+          # at a tree whose version fields still said the previous version.
+          target_commitish: ${{ steps.bump_commit.outputs.sha }}
           tag_name: v${{ steps.version.outputs.version }}
           name: Release v${{ steps.version.outputs.version }}
           body: |
