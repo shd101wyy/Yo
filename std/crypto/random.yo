@@ -45,10 +45,13 @@ export(CryptoError);
 // ============================================================================
 // Platform externs
 // ============================================================================
-{ errno, EINTR } :: import("../libc/errno");
+// <errno.h> is included via this import; errno itself is read through the
+// __yo_errno builtin (the C macro is an int LVALUE, not a pointer).
+{ EINTR } :: import("../libc/errno");
 extern(
   "Yo",
   __yo_getrandom : (fn(buf : *(u8), buflen : usize, flags : u32) -> isize),
+  __yo_errno : (fn() -> i32),
   __yo_arc4random_buf : (fn(buf : *(u8), nbytes : usize) -> unit),
   __yo_bcrypt_gen_random : (fn(buf : *(u8), size : u32) -> i32),
   __yo_getentropy : (fn(buf : *(u8), buflen : usize) -> i32)
@@ -104,9 +107,9 @@ random_bytes :: (fn(buf : RawSlice(u8), exn : Exception) -> unit)({
         ret := __yo_getrandom(buf_ptr.add(filled), size - filled, u32(0));
         cond(
           (ret < isize(0)) => {
-            e_now := unsafe(errno.*);
+            e_now := __yo_errno();
             cond(
-              (e_now == EINTR) => (),
+              (e_now == i32(EINTR)) => (),
               // retry
               true => {
                 exn.throw(dyn(CryptoError.Unavailable));

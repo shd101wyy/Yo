@@ -193,6 +193,12 @@ export function generateYoInlineFunctionCall(
   else if (BuiltinFunctions.__yo_getrandom.includes(functionName)) {
     return `getrandom(${args[0]!}, ${args[1]!}, ${args[2]!})`;
   }
+  // __yo_errno - read C errno. MUST emit the bare macro: on glibc `errno`
+  // expands to `(*__errno_location())` (an int LVALUE, not a pointer), so a
+  // pointer-typed extern binding dereferenced as `(*errno)` fails to compile.
+  else if (BuiltinFunctions.__yo_errno.includes(functionName)) {
+    return `errno`;
+  }
   // __yo_arc4random_buf - macOS arc4random_buf() wrapper
   else if (BuiltinFunctions.__yo_arc4random_buf.includes(functionName)) {
     return `(arc4random_buf(${args[0]!}, ${args[1]!}), (void)0)`;

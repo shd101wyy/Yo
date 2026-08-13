@@ -51,6 +51,7 @@ export const BuiltinYoInlineFunctions = [
 
   // Crypto random
   ...BuiltinFunctions.__yo_getrandom,
+  ...BuiltinFunctions.__yo_errno,
   ...BuiltinFunctions.__yo_arc4random_buf,
   ...BuiltinFunctions.__yo_bcrypt_gen_random,
   ...BuiltinFunctions.__yo_getentropy,
