@@ -14,7 +14,7 @@ pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { TypeValue } :: import("./definitions.yo");
-{ type_value_tag, resolve_enum_shell } :: import("./creators.yo");
+{ type_value_tag, resolve_enum_shell, trial_flag_get } :: import("./creators.yo");
 { is_int_type, is_float_type, is_some_type, is_dyn_type } :: import("./guards.yo");
 { type_contains_some_type, get_all_some_types } :: import("./utils.yo");
 { TypeTag } :: import("./tags.yo");
@@ -929,6 +929,20 @@ _compat_impl :: (
       expected,
       .SomeT(name : ename, frame_level : elvl, required_trait_types : ertt) => cond(
         ((aname == ename) && (alvl == elvl)) => true,
+        // Definition-time-trial acceptance, ported from TS's different-id
+        // SomeType rule (compatibility.ts:676-744): two distinct type
+        // parameters are compatible when the GIVEN side satisfies every
+        // constraint the EXPECTED side carries — trivially true for an
+        // unconstrained forall (`A` in `where(I <: Iterator(Item := A))`
+        // accepting the trait's raw `Item`). Scoped to (a) NON-exact
+        // comparisons — the exact mode keys spec/CTFE caches, where
+        // collapsing `Box(V)`/`Box(T)` is the gap-6 identity-split family —
+        // and (b) def-time trials, whose stamps are discardable (the
+        // repair-1 contract); unscoped, yo-self's compensations around the
+        // stricter name+level rule regress (the refuted full-port note
+        // above). EMPTY expected-constraint lists only: the trait-SUBSET
+        // walk of the full TS rule is what self-recursed unboundedly.
+        (((!(require_exact)) && trial_flag_get()) && (ertt.len() == usize(0))) => true,
         true => {
           (xw_ok : bool) = (
             ((aname == ename) && (artt.len() == ertt.len()))

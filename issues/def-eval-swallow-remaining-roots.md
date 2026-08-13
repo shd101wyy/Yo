@@ -62,6 +62,40 @@
 > dispatch (the "call-time SomeT synthesis, whose frame levels are stale"
 > warning in find_methods_from_generic_impls' own comment). Next: trace
 > the runtime-return path's resolved_ret computation for this call.
+>
+> **REPAIR 2 RE-DIAGNOSED (2026-08-13, third session, `YO_DEBUG_CTFE`
+> instrumentation — comptime_fn.yo/function.yo/type.yo, in-tree).** The
+> "SomeT-keyed type-ctor CTFE" framing was WRONG for 3 of the 4 roots.
+> Measured per-root ground truth:
+>
+> - **7837, 7942, 7973 are ONE bug, and it is NOT CTFE.** The type-ctor
+>   CTFE **executes fine** with SomeT type args (`IterPair(usize, A)` →
+>   fresh anonymous struct per call; no cache under the SomeT carve-out —
+>   faithful enough for trials). The actual failure is the MEMBER
+>   compatibility check: `[tycall-mismatch] label=_1 expected=A got=Item`
+>   — yo-self's SomeT-vs-SomeT rule (name+frame_level identity,
+>   compatibility.yo) REJECTS two different type params, while TS
+>   (compatibility.ts:676-744) ACCEPTS different-id SomeTypes whenever the
+>   given side satisfies the expected side's constraint set (trivially
+>   true for an unconstrained forall `A`). Fix: trial-scoped, non-exact,
+>   empty-expected-constraints acceptance in compatibility.yo's SomeT arm
+>   (the flag storage moved to types/creators.yo `trial_flag_get` to avoid
+>   the evaluator-layer import cycle). NOT the full TS subset walk — that
+>   port self-recursed unboundedly (see the arm's history note).
+>   Note: in 7942/7973 the inner mismatch's exn.throw does NOT surface —
+>   evaluation continues and the OUTER `.Some(...)` member check reports
+>   `got=Type(1)` (a stale checking-phase stamp on the construction node),
+>   which is what made the message misattributable to CTFE.
+> - **7623 alone is the CTFE-degrade root**: `_ArrayIter(T, N)` carries a
+>   VALUE comptime param (`N : usize`, bound `<unknown: usize>` at def
+>   time) → `[ctfe-unk-arg]` (comptime_fn.yo's unknown-arg execution gate)
+>   → `_ctfe_unknown(Type)` = a fresh bare SomeT → "TypeVal SomeT callee
+>   without FnTrait (Phase 4)". TS EXECUTES type-ctor bodies with
+>   UnknownValue args (its recursion protection is the in-progress temp
+>   cache, comptime-fn.ts:188-203, pushed unconditionally). Candidate fix:
+>   during trials, let type-hierarchy-returning ctors execute despite
+>   unknown VALUE args; recursion safety needs a trial-era in-progress
+>   entry since the SomeT carve-out disables the durable cache.
 
 **Live inventory.** `_trial_eval_fn_body`
 (`yo-self/evaluator/calls/function_type.yo`) wraps definition-time body
