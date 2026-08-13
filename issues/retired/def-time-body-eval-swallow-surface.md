@@ -8,7 +8,7 @@
 > function-type.ts:112 does). The 104-category inventory below is the
 > historical sizing that framed that campaign. What remains of the surface is
 > a DIFFERENT mechanism — per-node silent degrades that never throw — tracked
-> in `issues/yo-self-method-miss-degrades-to-unit.md`.
+> in `issues/fixed/yo-self-method-miss-degrades-to-unit.md`.
 
 > **STATUS UPDATE (2026-08-06).** The std/string usize-vs-u8 swallow noise this doc's
 > surface included is fixed — it was an index-trait expected-type mis-port, not a std

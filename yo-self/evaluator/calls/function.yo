@@ -6331,6 +6331,74 @@ Fix: wrap the call:
             attach_temp_variable_to_expr(expr, false, ctx);
             return(expr);
           });
+          // TS parity (function.ts:1827): a callee that resolved to neither a
+          // method, a type constructor, an Index receiver, nor anything
+          // FUNCTION-SHAPED contributes no callable candidate — TS's
+          // `functionsWithMatchingTypes` comes up empty and it throws
+          // "No matching call found". yo-self's valueless path previously
+          // accepted ANY callee type and degraded the call to a unit-typed
+          // unknown, so an undefined METHOD on a concrete receiver compiled
+          // into a hollow `// Failed to transpile` binary
+          // (issues/fixed/yo-self-method-miss-degrades-to-unit.md). Function types,
+          // SomeTs, and Fn-trait carriers stay on the degrade path: those are
+          // the legitimate valueless callees (a runtime param bound valueless
+          // at def time, a generic closure param) whose calls type-check
+          // against the callee TYPE below. In a deferred-generic trial a
+          // throw here is discarded (TS's own catch at function-type.ts:112);
+          // on the concrete path it is a real compile error, exactly as TS.
+          // SCOPES of the throw, both yo-self-specific leniencies:
+          //   - NOT during the overload-CHECKING phase: candidate dry-runs
+          //     swallow silently, and a throw here flips which candidate
+          //     "type-checks" — the degrade-to-unit was load-bearing for
+          //     selection in thin-env dry-runs (iterator_combinators'
+          //     prelude map adapter regressed: `(self._f)(item)` in a
+          //     dry-run saw a Type(1) callee and the throw shifted the
+          //     winning overload).
+          //   - NOT for Type-hierarchy callee types: a `Type`-typed callee
+          //     in a thin def-time env is an unresolved ctor reference, not
+          //     a proven non-callable.
+          (cvl_is_fnish : bool) = (is_function_type(callee_ty_none) || is_some_type(callee_ty_none));
+          if(!(cvl_is_fnish), {
+            cvl_is_fnish = is_type_hierarchy_type(callee_ty_none);
+          });
+          if(!(cvl_is_fnish), {
+            cvl_ft := extract_fn_trait_from_type(callee_ty_none);
+            cvl_is_fnish = cvl_ft.is_some();
+          });
+          if(!(cvl_is_fnish), {
+            // Closure CAPTURE-STRUCT callee: a closure-valued field like the
+            // prelude map adapter's `self._f` is statically typed as its
+            // capture struct (`capture_<id>`, evaluator/utils/closure.yo:327)
+            // — callable through the valueless path's closure machinery.
+            // Without this arm the gate threw inside a SILENT closure-spec
+            // channel and the aborted eval leaked a Type(1) stamp downstream
+            // (tests/iterator_combinators.test.yo, `[vcall-throw]`-pinned).
+            cvl_cap_sid := match(callee_ty_none, .Struct({ id : cvl_s }) => cvl_s, _ => String.from(""));
+            cvl_is_fnish = cvl_cap_sid.starts_with("capture_");
+          });
+          //   - NOT during a deferred-generic def-time trial: dg trials leave
+          //     durable stamps that later evaluations reuse (yo-self's
+          //     shared-AST architecture); aborting one mid-body loses stamps
+          //     TS never depended on. TS discards dg-trial errors wholesale
+          //     anyway (function-type.ts:112), so skipping the throw is the
+          //     same observable outcome.
+          if(((!(cvl_is_fnish)) && !(ctx.is_in_function_call_checking_phase)) && !(in_def_time_trial()), {
+            if(fncall_dbg_env.get(`YO_DEBUG_CTFE`).is_some(), {
+              eprintln(`[vcall-throw] callee=${ast_expr_to_string(func_expr)} ty=${type_to_string(callee_ty_none)}`);
+            });
+            exn.throw(
+              dyn(
+                format_error_message(
+                  ast_expr_token(func_expr),
+                  `No matching call found with arguments:
+${ast_expr_to_string(expr)}`,
+                  false,
+                  .None
+                )
+              )
+            );
+            return(expr);
+          });
           // Per-call whole-callee freshening for io.async — see
           // _freshen_io_builtin_callee.
           (callee_ty_call_none : TypeValue) = callee_ty_none;

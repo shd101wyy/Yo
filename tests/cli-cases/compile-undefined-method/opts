@@ -1,0 +1,14 @@
+# An undefined METHOD on a concrete receiver must FAIL the compile under BOTH
+# compilers. Distinct from compile-undefined-call (undefined FUNCTION — a
+# throw-based miss): a method-resolution miss never threw in yo-self — the
+# call degraded to a unit-typed unknown ([rm-miss] -> [call-none]) and codegen
+# emitted a hollow '// Failed to transpile' binary at rc=0, which neither the
+# fatal trial handler (nothing thrown) nor the marker-fatal backstop (marker
+# not reaching main) caught. Fixed by the valueless-callee gate in
+# evaluate_function_call (TS function.ts:1827 parity; see
+# issues/fixed/yo-self-method-miss-degrades-to-unit.md).
+#
+# stdout=ignore: the compilers word the fatal differently; rc=1 parity is the
+# assertion, and rc parity is exactly what was broken.
+stdout=ignore
+timeout=120
