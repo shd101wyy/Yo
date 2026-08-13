@@ -32,6 +32,7 @@ open(import("std/string"));
 { Token } :: import("../../token.yo");
 { in_def_time_trial } :: import("../context.yo");
 { TypeValue } :: import("../../types/definitions.yo");
+{ type_of_type } :: import("../../types/hierarchy.yo");
 { register_some_resolved_concrete, lookup_some_resolved_concrete, lookup_struct_ctor_fid } :: import("../../expr_info.yo");
 { type_value_tag, t_effects_row, t_usize, resolve_enum_shell } :: import("../../types/creators.yo");
 {
@@ -251,6 +252,21 @@ _bind_some_type :: (
   ) -> unit
 )({
   token := match(tok, .Some(t) => t, .None => synthetic_token(name, env.module_path));
+  // The bound VARIABLE's declared type is the KIND of the bound value —
+  // TS binds `type: value.type` where createTypeValue computes
+  // `typeOfType(value)` (synthesizer.ts:259-271, value.ts:442-448), so a
+  // type binder `T` always carries `Type`/`Trait` as its variable type.
+  // Passing the bound TYPE ITSELF (a SomeT or concrete) made a later read
+  // of the `T` atom stamp `info.ty = <the SomeT>`, and kind-checking
+  // builtins rejected it ("__yo_type_contains_rc_type: expected a Type
+  // argument, got: T : (Eq + Hash)" — the hash_set family of
+  // issues/def-eval-swallow-remaining-roots.md). Non-TypeVal values keep
+  // the caller's ty.
+  bind_ty := match(
+    val,
+    .TypeVal(bt_payload) => type_of_type(bt_payload),
+    _ => ty
+  );
   vars := get_variables_from_env(env, name);
   n := vars.len();
   cond(
@@ -259,7 +275,7 @@ _bind_some_type :: (
       add_variable_to_env(
         env,
         name,
-        ty,
+        bind_ty,
         Option(EvalValue).Some(val),
         true,
         // is_compile_time_only
@@ -332,7 +348,7 @@ _bind_some_type :: (
         add_variable_to_env(
           env,
           name,
-          ty,
+          bind_ty,
           Option(EvalValue).Some(val),
           true,
           // is_compile_time_only
@@ -346,10 +362,13 @@ _bind_some_type :: (
         );
         return(());
       });
+      // In-place update keeps the EXISTING variable's declared type — TS
+      // `updateExistingVariable(env, variable, {...variable, value: [value]})`
+      // replaces only the value (synthesizer.ts:274-277).
       new_var := Variable(
         id : old_var.id,
         name : old_var.name,
-        ty : ty,
+        ty : old_var.ty,
         is_compile_time_only : old_var.is_compile_time_only,
         frame_level : old_var.frame_level,
         value : value_cell_of(Option(EvalValue).Some(val)),

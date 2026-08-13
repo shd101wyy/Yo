@@ -1,0 +1,61 @@
+pragma(Pragma.AllowUnsafe);
+
+HashSet :: (
+  fn(
+    comptime(T) : Type,
+    where(T <: (Eq(T), Hash))
+  ) -> comptime(Type)
+)(
+  ref(
+    struct(
+      data : ?*(T),
+      capacity : usize
+    )
+  )
+);
+
+impl(
+  generic(T : Type),
+  where(T <: (Eq(T), Hash)),
+  HashSet(T),
+  _alloc_with_capacity : (fn(capacity : usize) -> Result(Self, u8))(
+    .Ok(Self(data : .None, capacity : capacity))
+  ),
+  _data_ptr : (fn(self : Self) -> *(T))(
+    match(
+      self.data,
+      .Some(ptr) => ptr,
+      .None => __yo_panic("null")
+    )
+  ),
+  _resize : (fn(self : Self, new_capacity : usize) -> Result(unit, u8))({
+    data_ptr := Self._data_ptr(self);
+    element := data_ptr.*;
+    hash := element.hash();
+    cond(
+      Type.contains_rc_type(T) => (),
+      true => ()
+    );
+    .Ok(())
+  }),
+  add : (fn(self : Self, element : T) -> Result(bool, u8))({
+    resize_check := Self._resize(self, usize(2));
+    match(
+      resize_check,
+      .Err(err) => .Err(err),
+      .Ok(_) => .Ok(true)
+    )
+  }),
+  union : (fn(self : Self, e : T) -> Result(Self, u8))({
+    result_set_result := Self._alloc_with_capacity(usize(16));
+    match(
+      result_set_result,
+      .Err(err) => .Err(err),
+      .Ok(result_set) => {
+        result_set.add(e);
+        .Ok(result_set)
+      }
+    )
+  })
+);
+export(HashSet);
