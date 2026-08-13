@@ -15,6 +15,8 @@
 //!   - Methods are added to env with qualified names (ReceiverType.method_name).
 pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
+open(import("std/fmt"));
+_(env : impl_dbg_env) :: import("std/env");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 {
@@ -60,6 +62,7 @@ open(import("std/string"));
   get_type_trait_methods_by_name,
   get_trait_default,
   register_provisional_trait_method,
+  get_provisional_trait_methods_by_name,
   clear_provisional_trait_methods,
   type_id_or_empty
 } :: import("./type_trait_methods.yo");
@@ -1961,7 +1964,21 @@ _trial_eval_fn_type_head :: (
     ctx : EvalContext
   ) -> Option(TypeValue)
 )({
-  inner_exn := Exception(throw : ((_err) -> unwind(Option(TypeValue).None)));
+  // YO_DEBUG_SWALLOW=1 prints the swallowed signature-eval error — a shell
+  // that silently fails to materialize is why a forward-referenced sibling
+  // later swallows its whole body (family A's second half; see
+  // issues/def-eval-swallow-remaining-roots.md). Capture-free `->` handler,
+  // same pattern as function_type.yo's `[swallow]` hook.
+  inner_exn := Exception(
+    throw : (
+      (_err) -> {
+        if(impl_dbg_env.get(`YO_DEBUG_SWALLOW`).is_some(), {
+          eprintln(`[shell-head-swallow] ${_err.to_string()}`);
+        });
+        unwind(Option(TypeValue).None);
+      }
+    )
+  );
   evaluated := evaluate_expression_raw(fn_type_expr, env, ctx, inner_exn);
   match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated)),
@@ -2404,6 +2421,39 @@ evaluate_module_value :: (
     // bodies.
     old_self_type_g := ctx.self_type;
     ctx.self_type = .Some(receiver_type_pattern);
+    // Receiver id for the per-field PROVISIONAL registration below.
+    // Empty for receivers without an id — skip, mirroring Case 3's guard.
+    c2_recv_id := type_id_or_empty(receiver_type_pattern);
+    // Forward-shell pre-pass — Case 2 twin of the Case 3 pre-pass below,
+    // but into the PROVISIONAL registry (cleared at loop end). Registering
+    // Case 2 shells PERMANENTLY is the measured tests/imm_map.test.yo
+    // regression: Case 2 has no permanent supersede path, so the shells
+    // became the only entries under the receiver id, each carrying an
+    // unevaluated body (issues/def-eval-swallow-remaining-roots.md).
+    // Later siblings' def-time body trials resolve forward references
+    // (array_list's slice_copy -> get) through these; the field loop below
+    // supersedes each shell in place as the real value evaluates.
+    if(c2_recv_id != "", {
+      (c2_pp : usize) = (receiver_arg_idx + usize(1));
+      while(c2_pp < n_args, {
+        c2_pp_expr := match(args.get(c2_pp), .None => make_err_expr(), .Some(e) => e);
+        c2_pp = (c2_pp + usize(1));
+        match(
+          _try_create_forward_shell(c2_pp_expr, forall_env, ctx, receiver_type_pattern),
+          .Some(c2_shell_entry) => {
+            register_provisional_trait_method(c2_recv_id.clone(), c2_shell_entry);
+          },
+          .None => {
+            // Only worth reporting for direct colon pairs — the helper
+            // returns None for every non-fn-shaped field as well.
+            if(impl_dbg_env.get(`YO_DEBUG_SWALLOW`).is_some() && (ast_expr_is_fn_call(c2_pp_expr) && ast_expr_is_fn_call_of(c2_pp_expr, BK_COLON, .Some(usize(2)))), {
+              c2_miss_tok := ast_expr_token(c2_pp_expr);
+              eprintln(`[c2shell-miss] ${c2_miss_tok.module_path}:${c2_miss_tok.row.to_string()}:${c2_miss_tok.column.to_string()}`);
+            });
+          }
+        );
+      });
+    });
     (fj : usize) = (receiver_arg_idx + usize(1));
     while(fj < n_args, {
       mf_expr := match(args.get(fj), .None => make_err_expr(), .Some(e) => e);
@@ -2491,6 +2541,63 @@ evaluate_module_value :: (
               false,
               mname_tok
             );
+            // Also register the evaluated method PROVISIONALLY under the
+            // receiver pattern's id. Case 2 has no per-field permanent
+            // registration (methods accumulate into the GenericImplEntry,
+            // registered only after this loop), so a LATER sibling's
+            // definition-time body trial cannot resolve `Self.method()` —
+            // static dispatch (get_type_trait_methods_by_name_from_env)
+            // sees neither the permanent registry nor the generic-impl
+            // registry mid-loop, the call degrades to unit, and the trial
+            // swallows the body (array_list slice_copy, roots #1-#3 in
+            // issues/def-eval-swallow-remaining-roots.md). Entries carry
+            // the REAL evaluated value (unlike the value:None signature
+            // splice at the Case 3 site) and are cleared at loop end.
+            // If the pre-pass above created a forward shell for this
+            // method, UPDATE it in place (MethodEntry is reference
+            // semantics — sibling dispatch results holding the entry see
+            // the real method) and record the shell→real redirect, exactly
+            // like Case 3's supersede. Mirrors TS evaluateImplFieldList
+            // assigning each evaluated field into the cloned
+            // receiverType.trait.fields as it goes.
+            if(c2_recv_id != "", {
+              (c2_superseded : bool) = false;
+              c2_prior := get_provisional_trait_methods_by_name(c2_recv_id, mname);
+              (c2_pi : usize) = usize(0);
+              while((c2_pi < c2_prior.len()) && !(c2_superseded), {
+                match(
+                  c2_prior.get(c2_pi),
+                  .Some(c2_e) => {
+                    if(c2_e.source_trait_id == "__forward_shell", {
+                      c2_shell_fid := match(c2_e.value, .Some(sv) => match(sv, .FuncVal(__c2f1, _) => __c2f1.*.func_id, _ => String.new()), .None => String.new());
+                      c2_real_fid := match(m_to_push, .FuncVal(__c2f2, _) => __c2f2.*.func_id, _ => String.new());
+                      if((c2_shell_fid.len() > usize(0)) && (c2_real_fid.len() > usize(0)), {
+                        register_shell_redirect(c2_shell_fid, c2_real_fid);
+                      });
+                      c2_e.ty = mfi.ty;
+                      c2_e.value = Option(EvalValue).Some(m_to_push);
+                      c2_e.source_trait_id = String.from("");
+                      c2_superseded = true;
+                    });
+                  },
+                  .None => ()
+                );
+                c2_pi = (c2_pi + usize(1));
+              });
+              if(!(c2_superseded), {
+                register_provisional_trait_method(
+                  c2_recv_id.clone(),
+                  MethodEntry(
+                    label : mname.clone(),
+                    ty : mfi.ty,
+                    value : Option(EvalValue).Some(m_to_push),
+                    source_trait_id : String.from(""),
+                    needs_pointer_conversion : false,
+                    self_type : Option(TypeValue).None
+                  )
+                );
+              });
+            });
           }
         );
       });
@@ -2667,6 +2774,12 @@ evaluate_module_value :: (
     });
     // Restore self_type so the impl's parent scope sees its prior value.
     ctx.self_type = old_self_type_g;
+    // Field loop done — drop the in-flight provisional entries (the real
+    // methods live in the GenericImplEntry registered below). Mirrors the
+    // Case 3 clear and TS restoring receiverType.trait (trait-type.ts:512).
+    if(c2_recv_id != "", {
+      clear_provisional_trait_methods(c2_recv_id);
+    });
     // For inherent impls, trait_type = Unit (empty key — correct for registry).
     (trait_ty : TypeValue) = t_unit();
     trait_key_str := get_trait_key(trait_ty);
