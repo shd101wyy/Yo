@@ -27,6 +27,7 @@ IO_file :: import("../sys/file");
 IO_pipe :: import("../sys/pipe");
 { GlobalAllocator } :: import("../allocator");
 { malloc, free } :: GlobalAllocator;
+{ stdout, fflush } :: import("../libc/stdio");
 // ============================================================================
 // ExitStatus
 // ============================================================================
@@ -163,6 +164,22 @@ _spawn_with_fds :: (
   // boundary; the resulting `storage` ArrayList is Rc/heap-allocated and
   // can be moved into the closure's capture struct.
   storage := _build_cstr_storage(self);
+  // Flush our own stdout BEFORE creating the child. `print`/`println` go through
+  // C `fwrite(..., stdout)` (std/fmt/index.yo), which is BLOCK-buffered when
+  // stdout is a pipe — while the child inherits the raw fd and writes straight
+  // through. Without this flush, anything we printed first appears AFTER the
+  // child's output whenever stdout is not a tty, so `yo build run | tee log`
+  // prints "Building probe →" after the program's own output. `stderr` is
+  // unbuffered, so it needs no flush.
+  //
+  // Surfaced by the CLI differential (PR #98 GATE 7): build-run, doc-html,
+  // doc-json and doc-markdown all reported `rc=0; stdout` DIFFs whose line SETS
+  // were identical and only the interleaving differed — the compiler's own lines
+  // vs a child `git`/compiler process's.
+  // `fflush` takes `?*(FILE)` (C's `fflush(NULL)` flushes every stream), so the
+  // non-optional `stdout` needs wrapping. Only stdout is flushed — the measured
+  // defect — rather than passing `.None` to flush all streams.
+  unsafe(fflush(.Some(stdout)));
   io.async((e) => {
     argc := storage.len();
     // Allocate argv buffer: argc entries + 1 null terminator.

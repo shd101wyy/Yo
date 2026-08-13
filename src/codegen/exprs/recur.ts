@@ -13,6 +13,7 @@ import {
   generateDeferredDupExpressions,
 } from "./drop-dup";
 import { generateExpr } from "./expr";
+import { codegenFatal } from "../constants";
 
 /**
  * The `recur` function call,
@@ -147,6 +148,6 @@ export function generateRecur(
 
     return callCode;
   } else {
-    return `// Error: No arguments for recur call ${exprToString(expr)}\n`;
+    return codegenFatal(`No arguments for recur call ${exprToString(expr)}`);
   }
 }

@@ -43,6 +43,7 @@ import {
   getTypeString,
   sanitizeForCIdentifier,
 } from "../utils";
+import { codegenFatal } from "../constants";
 
 /**
  * Resolve the state machine field a match-arm binding must be STORED into.
@@ -391,7 +392,7 @@ export function generateAwaitExpression(
     const futureExpr = expr.args[0];
 
     if (!futureExpr) {
-      emitter.emitLine(`${indent}// Error: await without argument`);
+      codegenFatal(`await without argument`);
       return;
     }
 
@@ -422,7 +423,7 @@ export function generateAwaitExpression(
     const valueExpr = expr.args[1];
 
     if (!varNameExpr || !valueExpr) {
-      emitter.emitLine(`${indent}// Error: Invalid assignment expression`);
+      codegenFatal(`Invalid assignment expression`);
       return;
     }
 
@@ -432,14 +433,14 @@ export function generateAwaitExpression(
       const futureExpr = valueExpr.args[0];
 
       if (!futureExpr) {
-        emitter.emitLine(`${indent}// Error: await without argument`);
+        codegenFatal(`await without argument`);
         return;
       }
 
       // Get the variable name
       const varName = varNameExpr.token?.value;
       if (!varName || !varNameExpr.$) {
-        emitter.emitLine(`${indent}// Error: Invalid variable name`);
+        codegenFatal(`Invalid variable name`);
         return;
       }
 
@@ -944,7 +945,7 @@ function generateCondWithAwait(
     condExpr.tag !== ExprTag.FnCall ||
     !exprIsFunctionCallOf(condExpr, BuiltinKeywords.cond)
   ) {
-    emitter.emitLine(`${indent}// Error: Expected cond expression`);
+    codegenFatal(`Expected cond expression`);
     return;
   }
 
@@ -952,7 +953,7 @@ function generateCondWithAwait(
   // Each arg is a pair created with =>
   const args = condExpr.args;
   if (args.length === 0) {
-    emitter.emitLine(`${indent}// Error: cond must have at least one branch`);
+    codegenFatal(`cond must have at least one branch`);
     return;
   }
 
@@ -1210,7 +1211,7 @@ function generateCondWithAwait(
       pairExpr.tag !== ExprTag.FnCall ||
       !exprIsFunctionCallOf(pairExpr, "=>")
     ) {
-      emitter.emitLine(`${currentIndent}// Error: Expected => pair in cond`);
+      codegenFatal(`Expected => pair in cond`);
       continue;
     }
 
@@ -1218,7 +1219,7 @@ function generateCondWithAwait(
     const value = pairExpr.args[1];
 
     if (!condition || !value) {
-      emitter.emitLine(`${currentIndent}// Error: Invalid pair in cond`);
+      codegenFatal(`Invalid pair in cond`);
       continue;
     }
 
@@ -1615,7 +1616,7 @@ function generateMatchWithAwait(
     matchExpr.tag !== ExprTag.FnCall ||
     !exprIsFunctionCallOf(matchExpr, BuiltinKeywords.match)
   ) {
-    emitter.emitLine(`${indent}// Error: Expected match expression`);
+    codegenFatal(`Expected match expression`);
     return;
   }
 
@@ -1626,9 +1627,7 @@ function generateMatchWithAwait(
   const condBranchBase = allocCondBranchCodes(context, cases.length);
 
   if (!matchedValueExpr || cases.length === 0) {
-    emitter.emitLine(
-      `${indent}// Error: match must have a value and at least one case`
-    );
+    codegenFatal(`match must have a value and at least one case`);
     return;
   }
 
@@ -1645,7 +1644,7 @@ function generateMatchWithAwait(
   const matchValueType = matchedValueExpr.$?.type;
 
   if (!matchValueType) {
-    emitter.emitLine(`${indent}// Error: match value has no type`);
+    codegenFatal(`match value has no type`);
     return;
   }
 
@@ -1665,9 +1664,7 @@ function generateMatchWithAwait(
   }
 
   if (!isEnumType(matchValueType)) {
-    emitter.emitLine(
-      `${indent}// Error: match requires an enum type or primitive type`
-    );
+    codegenFatal(`match requires an enum type or primitive type`);
     return;
   }
 
@@ -1697,7 +1694,7 @@ function generateMatchWithAwait(
   const enumCName = context.types[enumType.id]?.cName;
 
   if (!enumCName) {
-    emitter.emitLine(`${indent}// Error: enum type has no C name`);
+    codegenFatal(`enum type has no C name`);
     return;
   }
 
@@ -1751,7 +1748,7 @@ function generateMatchWithAwait(
     if (pointerCaseIndex >= 0) {
       const caseExpr = cases[pointerCaseIndex]!;
       if (!exprIsFunctionCall(caseExpr)) {
-        emitter.emitLine(`${indent}  // Error: Expected => in case`);
+        codegenFatal(`Expected => in case`);
       } else {
         const caseBody = caseExpr.args[1]!;
 
@@ -1876,7 +1873,7 @@ function generateMatchWithAwait(
     if (nullCaseIndex >= 0) {
       const caseExpr = cases[nullCaseIndex]!;
       if (!exprIsFunctionCall(caseExpr)) {
-        emitter.emitLine(`${indent}  // Error: Expected => in case`);
+        codegenFatal(`Expected => in case`);
       } else {
         const caseBody = caseExpr.args[1]!;
 
@@ -2014,7 +2011,7 @@ function generateMatchWithAwait(
       }
 
       if (!isWildcard && !variantName) {
-        emitter.emitLine(`${indent}  // Error: Could not extract variant name`);
+        codegenFatal(`Could not extract variant name`);
         continue;
       }
 
@@ -2416,9 +2413,7 @@ function generateCondBranchWithAwait(
     branchValue.tag !== ExprTag.FnCall ||
     !exprIsFunctionCallOf(branchValue, "begin")
   ) {
-    emitter.emitLine(
-      `${indent}// Error: Expected begin block in cond branch with await`
-    );
+    codegenFatal(`Expected begin block in cond branch with await`);
     return remainingExprs;
   }
 
@@ -2578,16 +2573,14 @@ function generateWhileWithAwait(
     whileExpr.tag !== ExprTag.FnCall ||
     !exprIsFunctionCallOf(whileExpr, "while")
   ) {
-    emitter.emitLine(`${indent}// Error: Expected while expression`);
+    codegenFatal(`Expected while expression`);
     return;
   }
 
   // while is represented as: while(condition, body) or while(condition, step, body)
   const args = whileExpr.args;
   if (args.length < 2 || args.length > 3) {
-    emitter.emitLine(
-      `${indent}// Error: while must have 2 or 3 arguments (condition, [step,] body)`
-    );
+    codegenFatal(`while must have 2 or 3 arguments (condition, [step,] body)`);
     return;
   }
 
@@ -2741,9 +2734,7 @@ function generateWhileBodyWithAwait(
 
   if (awaitFoundIndex === -1) {
     // No await in body - this shouldn't happen
-    emitter.emitLine(
-      `${indent}// Error: Expected await in while loop body but none found`
-    );
+    codegenFatal(`Expected await in while loop body but none found`);
     return remainingExprs;
   }
 

@@ -2487,7 +2487,20 @@ evaluate_function_call :: (
     evaluated_first := evaluate_expression_raw(first_arg, env, ctx, exn);
     ctx.expected_type = saved_et;
     first_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_first));
-    receiver_ty := match(first_info_opt, .Some(ri) => ri.ty, .None => t_unit());
+    // Resolve a recursive enum's `Self` shell before the operator lookup, for
+    // the same reason the DOT-call receiver is resolved at :298 — an enum shell
+    // carries a distinct `__self_shell` id (enum.yo:222-226) and therefore NO
+    // methods, so `==` on it finds nothing, falls through, and the whole
+    // operator call evaluates to `unit`. That unit then collides with a sibling
+    // match arm's `bool` ("Incompatible types: Previous bool, Current unit"),
+    // the throw is swallowed by the def-time trial, and codegen emits
+    // `// Failed to transpile` for the enclosing statement.
+    //
+    // Reached via `Option(EvalValue) == Option(EvalValue)`: inside the
+    // prelude's `Eq(Option(T))` body at `T = EvalValue`, the inner `a == b`
+    // dispatches here with `a` typed as EvalValue's shell.
+    // See issues/fixed/yo-self-option-eq-ref-enum-not-specialized.md.
+    receiver_ty := resolve_enum_shell(match(first_info_opt, .Some(ri) => ri.ty, .None => t_unit()));
     // is_infix_operator_call = true: infix operators don't allow auto
     // pointer conversion of the receiver.
     op_methods := get_receiver_methods_by_name_from_env(env, op_name.clone(), receiver_ty, true);

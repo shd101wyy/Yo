@@ -31,10 +31,18 @@ for t in $(find tests \( -path tests/internal -o -path tests/cli-cases \) -prune
   hollow=NA; markers=NA
   batch_cs=$(ls "$d"/.yo_selftest_batch_*.bin.c 2>/dev/null)
   if [ -n "$batch_cs" ]; then
-    markers=$(cat $batch_cs | grep -c 'Failed to transpile\|Unknown type:')
+    markers=$(cat $batch_cs | grep -c 'Failed to transpile\|Unknown type:\|// Error:')
     hollow=0
     for c in $batch_cs; do
-      if sed -n '/^void __yo_user_main() {/,/^}/p' "$c" | grep -q 'Failed to transpile'; then hollow=1; fi
+      # `// Error:` joined this check when both codegens were changed to HALT on
+      # an untranspilable expression instead of emitting a skippable C comment.
+      # Neither marker should be emittable now, so this is a backstop against a
+      # new marker site being introduced. NOTE `Unknown type:` is deliberately
+      # NOT here: it is a LEGITIMATE "this type has no C representation, elide
+      # the declaration" mechanism (comptime-only enum payloads and vtable
+      # associated-type members — 3 of them in the compiler's own emitted C),
+      # so it stays in the informational `markers` count only.
+      if sed -n '/^void __yo_user_main() {/,/^}/p' "$c" | grep -q 'Failed to transpile\|// Error:'; then hollow=1; fi
     done
   fi
   summary=$(grep -oE '[0-9]+ passed' "$OUT/$n.log" | tail -1)

@@ -625,7 +625,7 @@ generate_await_expression :: (
     match(
       args.get(usize(0)),
       .None => {
-        em.emit_string_line(`${indent}// Error: await without argument`);
+        codegen_fatal(`await without argument`);
       },
       .Some(future_expr) => match(
         await_point.future_variable_id,
@@ -647,12 +647,12 @@ generate_await_expression :: (
     match(
       args.get(usize(0)),
       .None => {
-        em.emit_string_line(`${indent}// Error: Invalid assignment expression`);
+        codegen_fatal(`Invalid assignment expression`);
       },
       .Some(var_name_expr) => match(
         args.get(usize(1)),
         .None => {
-          em.emit_string_line(`${indent}// Error: Invalid assignment expression`);
+          codegen_fatal(`Invalid assignment expression`);
         },
         .Some(value_expr) => {
           // varName := await(futureExpr)
@@ -661,7 +661,7 @@ generate_await_expression :: (
             match(
               v_args.get(usize(0)),
               .None => {
-                em.emit_string_line(`${indent}// Error: await without argument`);
+                codegen_fatal(`await without argument`);
               },
               .Some(future_expr) => match(
                 await_point.future_variable_id,
@@ -987,7 +987,7 @@ generate_while_body_with_await :: (
     fi = (fi + usize(1));
   });
   if(!(await_found), {
-    em.emit_string_line(`${indent}// Error: Expected await in while loop body but none found`);
+    codegen_fatal(`Expected await in while loop body but none found`);
     return(remaining_exprs);
   });
   // Configure break/continue for the pre-await body (labels, not a real C loop).
@@ -1165,12 +1165,12 @@ generate_while_with_await :: (
 )({
   em := context.base.emitter;
   if(!(ast_expr_is_fn_call(while_expr) && ast_expr_is_fn_call_of(while_expr, BK_WHILE, Option(usize).None)), {
-    em.emit_string_line(`${indent}// Error: Expected while expression`);
+    codegen_fatal(`Expected while expression`);
     return();
   });
   args := match(while_expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
   if((args.len() < usize(2)) || (args.len() > usize(3)), {
-    em.emit_string_line(`${indent}// Error: while must have 2 or 3 arguments (condition, [step,] body)`);
+    codegen_fatal(`while must have 2 or 3 arguments (condition, [step,] body)`);
     return();
   });
   condition_expr := match(args.get(usize(0)), .Some(e) => e, .None => while_expr);
@@ -1925,12 +1925,12 @@ generate_cond_with_await :: (
   em := context.base.emitter;
   idx_s := await_point.base.index.to_string();
   if(!(ast_expr_is_fn_call(cond_expr) && ast_expr_is_fn_call_of(cond_expr, BK_COND, Option(usize).None)), {
-    em.emit_string_line(`${indent}// Error: Expected cond expression`);
+    codegen_fatal(`Expected cond expression`);
     return();
   });
   args := match(cond_expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
   if(args.len() == usize(0), {
-    em.emit_string_line(`${indent}// Error: cond must have at least one branch`);
+    codegen_fatal(`cond must have at least one branch`);
     return();
   });
   // Dispatch codes unique within this function — see _alloc_cond_branch_codes.
@@ -2039,7 +2039,7 @@ generate_cond_with_await :: (
     match(
       args.get(ci),
       .Some(pair) => if(!(ast_expr_is_fn_call(pair) && ast_expr_is_fn_call_of(pair, "=>", Option(usize).None)), {
-        em.emit_string_line(`${current_indent}// Error: Expected => pair in cond`);
+        codegen_fatal(`Expected => pair in cond`);
       }, {
         p_args := match(pair, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
         condition := match(p_args.get(usize(0)), .Some(c) => c, .None => cond_expr);
@@ -2049,7 +2049,7 @@ generate_cond_with_await :: (
         match(
           value_opt,
           .None => {
-            em.emit_string_line(`${current_indent}// Error: Invalid pair in cond`);
+            codegen_fatal(`Invalid pair in cond`);
           },
           .Some(value) => if(is_false, (), {
             if(has_emitted_branch, {
@@ -2456,7 +2456,7 @@ generate_match_with_await :: (
   em := context.base.emitter;
   idx_s := await_point.base.index.to_string();
   if(!(ast_expr_is_fn_call(match_expr) && ast_expr_is_fn_call_of(match_expr, BK_MATCH, Option(usize).None)), {
-    em.emit_string_line(`${indent}// Error: Expected match expression`);
+    codegen_fatal(`Expected match expression`);
     return();
   });
   args := match(match_expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
@@ -2478,17 +2478,17 @@ generate_match_with_await :: (
   match(
     matched_value_expr_opt,
     .None => {
-      em.emit_string_line(`${indent}// Error: match must have a value and at least one case`);
+      codegen_fatal(`match must have a value and at least one case`);
     },
     .Some(matched_value_expr) => if(cases.len() == usize(0), {
-      em.emit_string_line(`${indent}// Error: match must have a value and at least one case`);
+      codegen_fatal(`match must have a value and at least one case`);
     }, {
       matched_value_code := _call_generate_expr(matched_value_expr, indent, context);
       match_value_type_opt := match(context.base.get_expr_info(matched_value_expr), .Some(ei) => Option(TypeValue).Some(ei.ty), .None => Option(TypeValue).None);
       match(
         match_value_type_opt,
         .None => {
-          em.emit_string_line(`${indent}// Error: match value has no type`);
+          codegen_fatal(`match value has no type`);
         },
         .Some(match_value_type) => {
           is_prim := match(context.base.get_expr_info(match_expr), .Some(ei) => match(expr_info_is_primitive_match(ei), .Some(b) => b, .None => false), .None => false);
@@ -2497,7 +2497,7 @@ generate_match_with_await :: (
             return();
           });
           if(!(is_enum_type(match_value_type)), {
-            em.emit_string_line(`${indent}// Error: match requires an enum type or primitive type`);
+            codegen_fatal(`match requires an enum type or primitive type`);
             return();
           });
           enum_id := match(match_value_type, .EnumT({ id }) => id, _ => String.from(""));
@@ -2661,7 +2661,7 @@ generate_match_with_await :: (
                         true
                       },
                       .None => {
-                        em.emit_string_line(`${indent}  // Error: Could not extract variant name`);
+                        codegen_fatal(`Could not extract variant name`);
                         false
                       }
                     ));

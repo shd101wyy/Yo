@@ -52,6 +52,7 @@ open(import("std/string"));
 { get_dup_function_for_type, generate_dup_code_for_value } :: import("./drop_dup.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { generate_pending_deferred_drops } :: import("./return.yo");
+{ codegen_fatal_expr } :: import("../constants.yo");
 /// One effect on a Future trait (the first, mirroring TS's single
 /// `isFuture.effect`). yo-self's FutureTraitT carries effect arrays.
 _FutureEffect :: ref(struct(label : String, ty : TypeValue));
@@ -387,13 +388,13 @@ is_await_unwind_handler_installation :: (fn(future_trait_type : TypeValue, conte
 /// machine, emits a synchronous blocking wait (cold-start, poll, extract). Faithful
 /// port of `generateAwait` (await.ts:39).
 generate_await :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
-  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => return(String.from("// Error: await requires exactly 1 argument")));
-  future_arg := match(args.get(usize(0)), .Some(a) => a, .None => return(String.from("// Error: await requires exactly 1 argument")));
-  future_type := match(context.base.get_expr_info(future_arg), .Some(ei) => ei.ty, .None => return(String.from("// Error: await argument must be a Future type")));
+  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => return(codegen_fatal_expr(String.from("await requires exactly 1 argument"))));
+  future_arg := match(args.get(usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("await requires exactly 1 argument"))));
+  future_type := match(context.base.get_expr_info(future_arg), .Some(ei) => ei.ty, .None => return(codegen_fatal_expr(String.from("await argument must be a Future type"))));
   if(!(type_implements_future(future_type)), {
-    return(String.from("// Error: await argument must be a Future type"));
+    return(codegen_fatal_expr(String.from("await argument must be a Future type")));
   });
-  future_trait_type := match(extract_future_trait_from_type(future_type), .Some(t) => t, .None => return(String.from("// Error: could not extract Future trait from type")));
+  future_trait_type := match(extract_future_trait_from_type(future_type), .Some(t) => t, .None => return(codegen_fatal_expr(String.from("could not extract Future trait from type"))));
   // Inside a state machine, await emits no code — the FSM handles the suspension.
   // An await in a non-splittable position (a `cond`/`if` condition, a `match`
   // scrutinee, a `while` condition) was hoisted across the state boundary: its
@@ -413,9 +414,9 @@ generate_await :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
     .None => ()
   );
   if(!(is_io_await_call(expr)), {
-    return(String.from("// Error: await should only be used inside async blocks"));
+    return(codegen_fatal_expr(String.from("await should only be used inside async blocks")));
   });
-  expr_ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("// Error: await missing ExprInfo")));
+  expr_ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("await missing ExprInfo"))));
   expr_type := expr_ei.ty;
   future_code := _call_generate_expr(future_arg, indent.clone(), context);
   future_type_name := get_type_string(future_type, context.base);
@@ -636,15 +637,15 @@ generate_await :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
 /// (Pending=0, Running=1, Completed=-1, Aborted=-2). Faithful port of
 /// `generateState` (await.ts:305).
 generate_state :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
-  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => return(String.from("// Error: io.state requires exactly 1 argument")));
-  future_arg := match(args.get(usize(0)), .Some(a) => a, .None => return(String.from("// Error: io.state requires exactly 1 argument")));
-  future_type := match(context.base.get_expr_info(future_arg), .Some(ei) => ei.ty, .None => return(String.from("// Error: io.state argument must be a Future type")));
+  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => return(codegen_fatal_expr(String.from("io.state requires exactly 1 argument"))));
+  future_arg := match(args.get(usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("io.state requires exactly 1 argument"))));
+  future_type := match(context.base.get_expr_info(future_arg), .Some(ei) => ei.ty, .None => return(codegen_fatal_expr(String.from("io.state argument must be a Future type"))));
   if(!(type_implements_future(future_type)), {
-    return(String.from("// Error: io.state argument must be a Future type"));
+    return(codegen_fatal_expr(String.from("io.state argument must be a Future type")));
   });
   em := context.base.emitter;
   future_code := _call_generate_expr(future_arg, indent.clone(), context);
-  expr_ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("// Error: io.state missing ExprInfo")));
+  expr_ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("io.state missing ExprInfo"))));
   name_suffix := match(expr_ei.variable_name, .Some(n) => n, .None => String.from(""));
   raw_var := if(name_suffix.len() > usize(0), `__raw_state_${name_suffix.clone()}`, String.from("__raw_state"));
   result_var := match(expr_ei.variable_name, .Some(n) => n, .None => String.from("__io_state_result"));
@@ -680,20 +681,20 @@ _option_some_field_type :: (fn(option_type : TypeValue) -> Option(TypeValue))(
 generate_join_handle_await :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
   em := context.base.emitter;
   // Method call: expr.func is `.`(handle, "await"); self (JoinHandle) is func.args[0].
-  func_expr := match(expr, .FnCall(_, f, _, _, _) => f, _ => return(String.from("// Error: JoinHandle.await requires a self argument")));
+  func_expr := match(expr, .FnCall(_, f, _, _, _) => f, _ => return(codegen_fatal_expr(String.from("JoinHandle.await requires a self argument"))));
   func_is_call := match(func_expr, .FnCall(_, _, _, _, _) => true, _ => false);
   handle_arg := if(func_is_call, {
     fargs := match(func_expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
-    match(fargs.get(usize(0)), .Some(a) => a, .None => return(String.from("// Error: JoinHandle.await requires a self argument")))
+    match(fargs.get(usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("JoinHandle.await requires a self argument"))))
   }, {
     args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
-    match(args.get(usize(0)), .Some(a) => a, .None => return(String.from("// Error: JoinHandle.await requires a self argument")))
+    match(args.get(usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("JoinHandle.await requires a self argument"))))
   });
   handle_code := _call_generate_expr(handle_arg, indent.clone(), context);
-  expr_ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("// Error: JoinHandle.await missing ExprInfo")));
+  expr_ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("JoinHandle.await missing ExprInfo"))));
   option_type := expr_ei.ty;
   if(!(is_enum_type(option_type)), {
-    return(String.from("// Error: JoinHandle.await return type must be Option(T)"));
+    return(codegen_fatal_expr(String.from("JoinHandle.await return type must be Option(T)")));
   });
   option_type_name := get_type_string(option_type, context.base);
   // Extract T from Option(T): the .Some variant's first field type.

@@ -5,6 +5,7 @@ import { isIsoType } from "../../types/guards";
 import { isTypeValue } from "../../value";
 import { type CodeGenContext, getTypeString } from "../utils";
 import { generateExpr } from "./expr";
+import { codegenFatal } from "../constants";
 
 /**
  * __yo_iso_extract - extract inner value from Iso type
@@ -16,13 +17,13 @@ export function generateYoIsoExtract(
 ): string {
   const selfArg = expr.args[0];
   if (!selfArg) {
-    return `// Error: __yo_iso_extract requires exactly 1 argument`;
+    return codegenFatal(`__yo_iso_extract requires exactly 1 argument`);
   }
   const selfCode = generateExpr(selfArg, indent, context);
   const selfType = selfArg.$?.type;
 
   if (!selfType || !isIsoType(selfType)) {
-    return `// Error: __yo_iso_extract requires an Iso type`;
+    return codegenFatal(`__yo_iso_extract requires an Iso type`);
   }
 
   const isoTypeCName = getTypeString(selfType, context);
@@ -58,13 +59,13 @@ export function generateYoIsoDispose(
 ): string {
   const selfArg = expr.args[0];
   if (!selfArg) {
-    return `// Error: __yo_iso_dispose requires exactly 1 argument`;
+    return codegenFatal(`__yo_iso_dispose requires exactly 1 argument`);
   }
   const selfCode = generateExpr(selfArg, indent, context);
   const selfType = selfArg.$?.type;
 
   if (!selfType || !isIsoType(selfType)) {
-    return `// Error: __yo_iso_dispose requires an Iso type`;
+    return codegenFatal(`__yo_iso_dispose requires an Iso type`);
   }
 
   const isoTypeCName = getTypeString(selfType, context);

@@ -235,7 +235,14 @@ jobs:
             env YO_MAIN_STACK_MB=4096 nice -n 10 /usr/bin/time -v \
             /tmp/yo-stage1 compile yo-self/main.yo --release --emit-c --skip-c-compiler --allocator mimalloc -o /tmp/yo-stage2
           kill $SAMPLER || true
-          markers=$(grep -cE '^\s*// (Failed to transpile|Unknown type:)' /tmp/yo-stage2.c || true)
+          # `// Error:` joined this list when both codegens were changed to HALT
+          # rather than emit a skippable C comment for an untranspilable
+          # expression. All three patterns should now be unreachable by
+          # construction, so this is a backstop against a new marker site.
+          # ANCHORED on purpose: unanchored, this matches yo-self's own source
+          # STRING LITERALS for these messages (13 of them) and reports a clean
+          # self-emit as broken.
+          markers=$(grep -cE '^\s*// (Failed to transpile|Unknown type:|Error:)' /tmp/yo-stage2.c || true)
           echo "stage-2 markers: $markers"
           test "$markers" = "0"
 

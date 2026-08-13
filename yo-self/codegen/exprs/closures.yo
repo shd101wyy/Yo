@@ -21,6 +21,7 @@ open(import("std/string"));
 { is_closure_fn, get_closure_capture_info } :: import("../../function_value.yo");
 { EvalValue, is_func_val } :: import("../../value.yo");
 { Environment, get_variables_from_env } :: import("../../env.yo");
+{ codegen_fatal_expr } :: import("../constants.yo");
 /// Monotonic counter for unique closure capture temp names. yo-self has no
 /// Date.now(); a module-level counter gives the per-site uniqueness TS gets from
 /// `Date.now()_<row>`.
@@ -143,21 +144,21 @@ is_closure_construction :: (fn(expr : AstExpr, context : FunctionGenerationConte
 /// ARC dup-expr capture-field path (Rc captures) — the corpus/repro paths are
 /// value-type Impl closures with plain captures.
 generate_closure_construction :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
-  ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("// Error: Missing closure metadata")));
+  ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("Missing closure metadata"))));
   closure_fv := match(
     expr_info_closure_function_value(ei),
     .Some(v) => v,
     // Fallback: anonymous_function.yo records the closure FuncVal on info.value.
-    .None => match(ei.value, .Some(v) => v, .None => return(String.from("// Error: Missing closure_function_value")))
+    .None => match(ei.value, .Some(v) => v, .None => return(codegen_fatal_expr(String.from("Missing closure_function_value"))))
   );
   // The Fn call signature (for evidence params) — yo-self records the closure
   // type as a bare Func/FnTraitT, so the FnTrait may be absent; fall back to the
   // recorded type itself. Only the evidence path needs the precise call type.
   call_type_opt := extract_fn_trait_from_type(ei.ty);
   fid := match(closure_fv, .FuncVal(__fvd1, _) => __fvd1.*.func_id, _ => String.from(""));
-  function_c_name := match(context.base.functions.get(fid), .Some(fe) => fe.c_name, .None => return(String.from("// Error: Closure implementation function not found in context")));
+  function_c_name := match(context.base.functions.get(fid), .Some(fe) => fe.c_name, .None => return(codegen_fatal_expr(String.from("Closure implementation function not found in context"))));
   if(is_dyn_type(ei.ty), {
-    return(String.from("// Error: Dyn(Fn(...)) closure construction not yet ported"));
+    return(codegen_fatal_expr(String.from("Dyn(Fn(...)) closure construction not yet ported")));
   });
   // Resolve the capture struct + its fields.
   capture_ty := match(ei.capture_type, .Some(ct) => ct, .None => TypeValue.Unit);
@@ -172,7 +173,7 @@ generate_closure_construction :: (fn(expr : AstExpr, indent : String, context : 
     // while type_key collapsed such structs to their sid (the Bucket visit-fn
     // collision). TS looks up by struct id because TS ids are per-instantiation
     // AND are the registry key; type_key is yo-self's equivalent identity.
-    capture_c_name := match(context.base.get_type_c_name(type_key(capture_ty)), .Some(n) => n, .None => return(String.from("// Error: Capture type not found for closure")));
+    capture_c_name := match(context.base.get_type_c_name(type_key(capture_ty)), .Some(n) => n, .None => return(codegen_fatal_expr(String.from("Capture type not found for closure"))));
     // Build `(captureCName){ .label = <value>, ... }`. An RC-typed capture
     // field uses the evaluator's deferred `___dup(name)` expr as its
     // initializer (matched by dup TARGET name), so the capture struct holds

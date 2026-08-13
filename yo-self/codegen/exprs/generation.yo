@@ -104,7 +104,7 @@ open(import("std/string"));
 { is_unit_type, is_primitive_type, is_pointer_type, is_array_type } :: import("../../types/guards.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { set_generate_expr_fn, _call_generate_expr } :: import("./_expr.yo");
-{ is_builtin_yo_inline_function } :: import("../constants.yo");
+{ is_builtin_yo_inline_function, codegen_fatal_expr } :: import("../constants.yo");
 { generate_atom } :: import("./atom.yo");
 { generate_yo_decr_rc, generate_yo_incr_rc, generate_yo_rc_own, generate_yo_decr_rc_atomic, generate_yo_incr_rc_atomic, generate_yo_dyn_drop, generate_yo_dyn_dup, generate_drop, generate_dup, generate_yo_drop_array_element, generate_yo_dup_array_element, generate_yo_drop_tuple_element, generate_yo_dup_tuple_element, generate_yo_sometype_drop, generate_yo_sometype_dup, generate_rc_call } :: import("./rc_fns.yo");
 { generate_yo_iso_extract, generate_yo_iso_dispose, is_iso_type_call, generate_iso_type_call } :: import("./iso.yo");
@@ -316,14 +316,14 @@ _passthrough_first_arg :: (fn(expr : AstExpr, indent : String, context : Functio
 );
 /// The function-value of an anon-fn/closure node → its comptime C reference.
 _anon_fn_value :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext, err : str) -> String)(
-  match(context.base.get_expr_info(expr), .Some(ei) => match(ei.value, .Some(v) => if(is_func_val(v), generate_comptime_value(v, ei.ty, context.base), String.from(err)), .None => String.from(err)), .None => String.from(err))
+  match(context.base.get_expr_info(expr), .Some(ei) => match(ei.value, .Some(v) => if(is_func_val(v), generate_comptime_value(v, ei.ty, context.base), codegen_fatal_expr(String.from(err))), .None => codegen_fatal_expr(String.from(err))), .None => codegen_fatal_expr(String.from(err)))
 );
 /// `io.spawn(future)` — start a cold Future and return a JoinHandle (non-owning
 /// view). Faithful port of the inline io.spawn block in `generateFuncCall`
 /// (generation.ts:702).
 _generate_io_spawn :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
-  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => return(String.from("// Error: spawn requires a Future argument")));
-  future_arg := match(args.get(usize(0)), .Some(a) => a, .None => return(String.from("// Error: spawn requires a Future argument")));
+  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => return(codegen_fatal_expr(String.from("spawn requires a Future argument"))));
+  future_arg := match(args.get(usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("spawn requires a Future argument"))));
   em := context.base.emitter;
   future_code := _call_generate_expr(future_arg, indent.clone(), context);
   future_type_name := match(context.base.get_expr_info(future_arg), .Some(ei) => get_type_string(ei.ty, context.base), .None => String.from("void*"));
@@ -543,6 +543,32 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
     context.base.get_expr_info(expr),
     .Some(e) => e,
     .None => {
+      // Emit the marker; do NOT halt here. Halting at this site was tried and
+      // REVERTED — it breaks yo-self's degrade architecture, which consumes this
+      // marker as an IN-BAND signal:
+      //
+      //   * seven guards (`inline_fns.yo` `_binop`, `assignment.yo` x2,
+      //     `return.yo`, `dyn.yo`, `functions/generation.yo` x2) test
+      //     `starts_with("// Failed to transpile")` and degrade the whole
+      //     enclosing STATEMENT to the comment, so the emitted C stays
+      //     syntactically valid instead of splicing a comment mid-expression;
+      //   * `functions/generation.yo` then REWRITES a superseded generic
+      //     original's body to an `abort()` stub when its emitted body carries
+      //     this marker — dead code TS never emits at all.
+      //
+      // So the marker has to exist for the rewrite to find it. Making it fatal
+      // turned tests/fn.test.yo and tests/algebraic_effects.test.yo red, whose
+      // markers land on exactly that dead code (measured: the pre-change binary
+      // emits ZERO markers for their batches, i.e. the degrades resolve cleanly).
+      //
+      // What IS fatal is a marker that survives in the program's ENTRY POINT —
+      // see the `__yo_user_main` check in `functions/generation.yo`. That is the
+      // harmful case (`main`'s body silently loses a statement, which is how an
+      // undefined call became a runnable no-op binary,
+      // issues/self-hosted-compile-swallows-undefined-call.md) and it is also
+      // exactly what the hollow-sweep detector defines as HOLLOW. TS needs none
+      // of this: it never drops an emission, so it has no degrade chain and its
+      // counterpart simply throws (generation.ts:1119).
       out := String.from("// Failed to transpile ");
       out.push_string(ast_expr_to_string(expr));
       return(out);
@@ -711,7 +737,7 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   if(ast_expr_is_fn_call_of(expr, "->", Option(usize).Some(usize(2))), {
     arg0_is_fn := match(expr, .FnCall(_, _, a, _, _) => match(a.get(usize(0)), .Some(a0) => ast_expr_is_fn_call_of(a0, BK_FN, Option(usize).None), .None => false), .Atom(_, _) => false);
     if(arg0_is_fn, {
-      return(_anon_fn_value(expr, indent.clone(), context, "// Error: Anonymous function missing function value"));
+      return(_anon_fn_value(expr, indent.clone(), context, "Anonymous function missing function value"));
     });
   });
   // Closure `x => body` / `x =>> body` → its function value (capture-struct
@@ -719,7 +745,7 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   if(ast_expr_is_fn_call_of(expr, "=>", Option(usize).Some(usize(2))) || ast_expr_is_fn_call_of(expr, "=>>", Option(usize).Some(usize(2))), {
     is_closure_type := match(expr, .FnCall(_, _, a, _, _) => match(a.get(usize(0)), .Some(a0) => ast_expr_is_fn_call_of(a0, BK_FN, Option(usize).None), .None => false), .Atom(_, _) => false);
     if(!(is_closure_type), {
-      return(_anon_fn_value(expr, indent.clone(), context, "// Error: Anonymous closure missing function value"));
+      return(_anon_fn_value(expr, indent.clone(), context, "Anonymous closure missing function value"));
     });
   });
   if(ast_expr_is_fn_call_of(expr, BF_CONSUME, Option(usize).None), return(generate_consume(expr, indent.clone(), context)));
@@ -747,6 +773,10 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
     generate_other_function_call(expr, indent.clone(), context),
     .Some(r) => r,
     .None => {
+      // Emit the marker, same as the ExprInfo lookup above and for the same
+      // reason — the degrade guards and the superseded-original stub rewrite
+      // consume it. The entry-point check in `functions/generation.yo` is what
+      // makes it fatal when it actually matters.
       out := String.from("// Failed to transpile ");
       out.push_string(ast_expr_to_string(expr));
       out

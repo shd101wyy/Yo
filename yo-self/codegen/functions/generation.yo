@@ -44,6 +44,7 @@ open(import("std/string"));
 { generate_async_runtime } :: import("../async/runtime.yo");
 { generate_parallelism_runtime } :: import("../parallelism/runtime.yo");
 { generate_ref_struct_constructor_functions, generate_ref_enum_constructor_functions, generate_closure_constructor_functions } :: import("./constructors.yo");
+{ codegen_fatal } :: import("../constants.yo");
 /// Args of a FnCall (empty for an Atom).
 _args :: (fn(e : AstExpr) -> ArrayList(AstExpr))(
   match(e, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new())
@@ -606,6 +607,25 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
           });
         });
       };
+      // ENTRY-POINT GATE. A `// Failed to transpile` marker in the program's own
+      // `main` is the one case where the marker is unambiguously HARMFUL: the C
+      // compiler skips the comment, so `main` loses that statement, links, runs
+      // and does nothing. That is precisely how a typo'd call compiled to a
+      // runnable no-op binary (issues/self-hosted-compile-swallows-undefined-call.md)
+      // with no diagnostic from anywhere — and it is the same condition the
+      // hollow-sweep detector calls HOLLOW (a batch `__yo_user_main` that is a
+      // marker reports every test as passed while running no assertions).
+      //
+      // Markers elsewhere are NOT gated here: the degrade guards keep the C
+      // valid, and the stub rewrite just below deletes the ones that land on
+      // dead superseded originals. Gating those too was tried and reverted — it
+      // failed tests/fn.test.yo and tests/algebraic_effects.test.yo, whose
+      // markers are exactly that dead code.
+      if(stub_found_ftt && (c_function_name == "__yo_user_main"), {
+        codegen_fatal(
+          `Failed to transpile part of main's body — the emitted C for "${c_function_name}" contains an untranspiled expression, so the program would run without it`
+        );
+      });
       if(stub_found_ftt && fid_fully_specialized(func_id.clone()), {
         // RARE path (superseded generic original): rebuild the prefix from
         // bytes once. Byte-exact equivalent of the former char-indexed

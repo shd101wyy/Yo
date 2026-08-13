@@ -12,11 +12,12 @@ open(import("std/string"));
 { is_unit_type } :: import("../../types/guards.yo");
 { expr_info_converted_runtime_type } :: import("../../expr_info.yo");
 { generate_deferred_dup_expressions, generate_deferred_drop_expressions } :: import("./drop_dup.yo");
+{ codegen_fatal_expr } :: import("../constants.yo");
 /// Emit a recursive self-call `<currentFunctionName>(<args>)`. If the recur
 /// has a result variable name, emit it into a named temp first (so enclosing
 /// scope drops don't run before the call). Mirrors `generateRecur`.
 generate_recur :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
-  ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("// Error: No arguments for recur call")));
+  ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("No arguments for recur call"))));
   match(
     ei.runtime_arg_exprs_in_order,
     .Some(arg_exprs) => {
@@ -179,7 +180,7 @@ generate_recur :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
       );
       call_code
     },
-    .None => String.from("// Error: No arguments for recur call")
+    .None => codegen_fatal_expr(String.from("No arguments for recur call"))
   )
 });
 export(generate_recur);

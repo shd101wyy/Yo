@@ -1,0 +1,12 @@
+# Bare `unsafe(...)` in safe code (port of unsafe-gate.test.ts): calling
+# `unsafe(...)` inside a function BODY without pragma(Pragma.AllowUnsafe) must
+# FAIL under BOTH compilers. Without this gate, wrapping any pointer op in
+# `unsafe(...)` would bypass the deref/arith gates (plans/MEMORY_SAFETY.md
+# Phase C).
+#
+# Blocked until 2026-08-12 for the same reason as its addr-of sibling — the
+# privilege check throws inside main's body, the def-eval swallow ate it, and
+# the self-hosted compiler emitted a runnable no-op binary. Now caught by the
+# `__yo_user_main` marker gate.
+stdout=ignore
+timeout=120

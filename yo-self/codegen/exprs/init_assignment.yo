@@ -26,6 +26,7 @@ open(import("std/string"));
 { emit_deferred_dup_or_code, generate_dup_code_for_value } :: import("./drop_dup.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
 { get_type_string, get_variable_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier } :: import("../utils/index.yo");
+{ codegen_fatal_expr } :: import("../constants.yo");
 /// True if `s` is all ASCII digits (non-empty).
 _all_digits :: (fn(s : String) -> bool)({
   // BYTE count — the loop reads byte_at; String.len() counts RUNES
@@ -172,12 +173,12 @@ generate_initialization_assignment :: (fn(expr : AstExpr, indent : String, conte
       context.base.get_expr_info(lhs),
       .Some(e) => e,
       .None => return(
-        Option(String).Some({
-          s := String.from("// Error: No type information for variable ");
-          s.push_string(ast_expr_token(lhs).value);
-          s.push_str("\n");
-          s
-        })
+        // NOT fatal: the MISSING-ExprInfo class, which multi-pass emission
+        // legitimately reaches (a comptime `while` unrolls its body once per
+        // iteration and a discarded pass has no type info). Kept a comment to
+        // match TS; the harmful case is the `__yo_user_main` gate in
+        // codegen/functions/generation.yo.
+        Option(String).Some(`// Error: No type information for variable ${ast_expr_token(lhs).value}`)
       )
     );
     var_name := match(lhs_ei.variable_name, .Some(vn) => vn, .None => ast_expr_token(lhs).value);

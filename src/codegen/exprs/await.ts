@@ -33,6 +33,7 @@ import {
 import { getDupFunctionForType } from "./drop-dup";
 import { generateExpr } from "./expr";
 import { generatePendingDeferredDrops } from "./return";
+import { codegenFatal } from "../constants";
 
 /**
  * await - extract value from Future
@@ -44,20 +45,20 @@ export function generateAwait(
 ): string {
   const futureArg = expr.args[0];
   if (!futureArg) {
-    return `// Error: await requires exactly 1 argument`;
+    return codegenFatal(`await requires exactly 1 argument`);
   }
 
   const futureType = futureArg.$?.type;
 
   // Check if the type implements Future (handles both FutureTraitType and SomeType with Future impl)
   if (!futureType || !typeImplementsFuture(futureType)) {
-    return `// Error: await argument must be a Future type`;
+    return codegenFatal(`await argument must be a Future type`);
   }
 
   // Extract the Future trait type to get the result type.
   const futureTraitType = extractFutureTraitFromType(futureType);
   if (!futureTraitType) {
-    return `// Error: could not extract Future trait from type`;
+    return codegenFatal(`could not extract Future trait from type`);
   }
 
   // In async context (state machine), await expressions don't generate code
@@ -303,7 +304,7 @@ export function generateAwait(
   }
 
   // Outside async context - this is an error
-  return `// Error: await should only be used inside async blocks`;
+  return codegenFatal(`await should only be used inside async blocks`);
 }
 
 /**
@@ -320,12 +321,12 @@ export function generateState(
 ): string {
   const futureArg = expr.args[0];
   if (!futureArg) {
-    return `// Error: io.state requires exactly 1 argument`;
+    return codegenFatal(`io.state requires exactly 1 argument`);
   }
 
   const futureType = futureArg.$?.type;
   if (!futureType || !typeImplementsFuture(futureType)) {
-    return `// Error: io.state argument must be a Future type`;
+    return codegenFatal(`io.state argument must be a Future type`);
   }
 
   const functionContext = context as FunctionGenerationContext;
@@ -381,7 +382,7 @@ export function generateJoinHandleAwait(
     ? expr.func.args[0]
     : expr.args[0];
   if (!handleArg) {
-    return `// Error: JoinHandle.await requires a self argument`;
+    return codegenFatal(`JoinHandle.await requires a self argument`);
   }
 
   const handleCode = generateExpr(handleArg, indent, context);
@@ -389,7 +390,7 @@ export function generateJoinHandleAwait(
   // The return type of this call is Option(T)
   const optionType = expr.$?.type;
   if (!optionType || !isEnumType(optionType)) {
-    return `// Error: JoinHandle.await return type must be Option(T)`;
+    return codegenFatal(`JoinHandle.await return type must be Option(T)`);
   }
 
   const optionTypeName = getTypeString(optionType, context);

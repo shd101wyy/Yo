@@ -41,7 +41,7 @@ import {
   isTypeValue,
   isUnknownValue,
 } from "../../value";
-import { BuiltinYoInlineFunctions } from "../constants";
+import { BuiltinYoInlineFunctions, codegenFatal } from "../constants";
 
 import type { FunctionGenerationContext } from "../functions/context";
 import {
@@ -1973,7 +1973,9 @@ export function generateOtherFunctionCall(
               return tempVar; // Return the temp variable name
             } else {
               // Error: function parameter call returns non-unit type but no temp variable assigned
-              return `// Error: Function parameter call returns ${getTypeString(functionType.return.type, context)} but no temp variable assigned`;
+              return codegenFatal(
+                `Function parameter call returns ${getTypeString(functionType.return.type, context)} but no temp variable assigned`
+              );
             }
           }
         }
@@ -2326,13 +2328,15 @@ export function generateOtherFunctionCall(
             return tempVar; // Return the temp variable name
           } else {
             // Error: closure returns non-unit type but no temp variable assigned
-            return `// Error: Closure call returns ${getTypeString(returnType, context)} but no temp variable assigned`;
+            return codegenFatal(
+              `Closure call returns ${getTypeString(returnType, context)} but no temp variable assigned`
+            );
           }
         }
       } else {
         // Note: Closure construction is now handled in the isTypeValue(functionValue) branch below
         // by checking for expr.$?.closureFunctionValue
-        return `// Error: No runtime args found for closure call`;
+        return codegenFatal(`No runtime args found for closure call`);
       }
     }
   } else if (isTypeValue(functionValue)) {
@@ -2569,7 +2573,9 @@ export function generateOtherFunctionCall(
     // closure type - closure construction
     // Note: This is now handled at the top of generateFuncCall by checking expr.$.closureFunctionValue
     else if (typeImplementsFn(functionValue.value)) {
-      return `// Error: Closure construction should have been handled by closureFunctionValue check at top of generateFuncCall`;
+      return codegenFatal(
+        `Closure construction should have been handled by closureFunctionValue check at top of generateFuncCall`
+      );
     }
     // union
     // union is supposed to have only one member initialized

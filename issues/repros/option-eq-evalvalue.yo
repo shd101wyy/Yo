@@ -1,0 +1,31 @@
+//! Reproducer for issues/fixed/yo-self-option-eq-ref-enum-not-specialized.md.
+//!
+//!   TS:      node ./out/cjs/yo-cli.cjs compile issues/repros/option-eq-evalvalue.yo \
+//!              --emit-c --skip-c-compiler -o /tmp/r_ts     # rc=0, 0 markers
+//!   yo-self: <bin> compile issues/repros/option-eq-evalvalue.yo \
+//!              --emit-c --skip-c-compiler -o /tmp/r_ys     # 1 `// Failed to transpile`
+//!
+//! With the `__yo_user_main` marker gate in
+//! yo-self/codegen/functions/generation.yo the yo-self run exits 1 instead,
+//! which is the intended behaviour — the point is that it cannot emit the call.
+//!
+//! `EvalValue` is `ref(enum(...))` whose payloads recurse through
+//! `ArrayList(Self)`, so it carries a MANUAL `Eq` impl (`derive` cannot expand
+//! the cycle). Comparing `Option(EvalValue)` needs the prelude's
+//! `impl(generic(T), where(T <: Eq(T)), Option(T), Eq(Option(T)))` specialized
+//! at `T = EvalValue`, and that specialization is never emitted.
+//!
+//! Both operands are `.None`, yet the comparison is NOT constant-folded here
+//! (it is for `Option(Token)` and for a plain `enum`), which is itself part of
+//! the symptom — see the issue for the shapes that DO fold.
+open(import("std/string"));
+{ EvalValue } :: import("../../yo-self/value.yo");
+{ assert } :: import("std/assert");
+
+main :: (fn() -> unit)({
+  a := Option(EvalValue).None;
+  b := Option(EvalValue).None;
+  assert(a == b, "two Nones are equal");
+  ()
+});
+export(main);

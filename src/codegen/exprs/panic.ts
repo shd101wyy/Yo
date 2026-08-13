@@ -3,6 +3,7 @@ import { isPtrType, isStrType, isU8Type } from "../../types/guards";
 import { isComptimeStringValue } from "../../value";
 import { type CodeGenContext, getTypeString, quoteCString } from "../utils";
 import { generateExpr } from "./expr";
+import { codegenFatal } from "../constants";
 
 export function generatePanic(
   expr: FnCallExpr,
@@ -15,7 +16,7 @@ export function generatePanic(
   // We need to generate the panic code and then provide a dummy value for the assignment
   const returnType = expr.$?.type;
   if (!returnType) {
-    return `// Error: panic() missing type information`;
+    return codegenFatal(`panic() missing type information`);
   }
 
   if (expr.args.length === 0) {
@@ -55,7 +56,9 @@ export function generatePanic(
       emitter.emitLine(`${indent}abort();`);
     }
   } else {
-    return `// Error: panic accepts 0 or 1 arguments, got ${expr.args.length}`;
+    return codegenFatal(
+      `panic accepts 0 or 1 arguments, got ${expr.args.length}`
+    );
   }
 
   // Since panic never returns, we need to provide a dummy value of the correct type

@@ -33,6 +33,28 @@ description: "Use when running tests, setting up test files, or debugging test f
 - Currently 86+ tests
 - These are TypeScript unit tests, not `.yo` integration tests
 
+## A fixpoint run's stage-1 must come from the SAME tree it compiles
+
+`scripts/bootstrap/fixpoint_only.sh` takes a prebuilt stage-1 via `S1=` and has
+it compile the tree as it exists **when the script runs**. So editing anything
+between building that stage-1 and starting the gate invalidates the result:
+stage-2 then carries the edit while stage-1 does not, the two binaries are
+different generations, and their emissions legitimately differ.
+
+Measured 2026-08-13: adding one import to `std/process/command.yo` four seconds
+before the gate started produced `FIXPOINT_BROKEN` with **1.1 M differing
+lines** — while every individual step passed (`STAGE2_RC=0`, `hollow=0`,
+`CLANG_RC=0`, `STAGE3_RC=0`). Rebuilding stage-1 from the final tree gave
+`FIXPOINT_HOLDS` with no code change at all.
+
+**Read the diff before believing the verdict.** Pure type-id renumbering
+(`__yo_t796` → `__yo_t614` with everything shifted) is the signature of a
+different COUNT of type instantiations — i.e. generation skew — not a semantic
+regression. A real break shows localized, structural differences instead.
+
+This is the same two-generation rule as the seed pin, in a different costume:
+anything that changes `std/` shifts every program that links it.
+
 ## Compiler internal tests — `tests/internal/`
 
 These are the self-hosted compiler's own tests. **They lived at `yo-self/tests/`
@@ -65,6 +87,33 @@ being shuffled again later.
   host-toolchain-only in CI, excluded from the emcc and wasm-wasi jobs.
 - Large `.test.yo` files are batch-compiled in chunks of 100 tests by default. Use `--test-batch-size N` to tune this when a generated C batch is too large or when you need tighter failure isolation. Smaller batches reduce C size but repeat Yo compilation, so avoid lowering this unless needed.
 - Do not run multiple `./yo-self/yo-self-bin test ...` commands concurrently. The self-hosted test path currently writes shared scratch files such as `/tmp/yo_self_out.c`, so concurrent runs can collide and produce misleading compile errors or skipped-test counts.
+
+#### A hollow batch voids EVERY test in it, not one
+
+The self-hosted runner inlines **all test bodies of a batch into a single
+`__yo_user_main`** (`yo-self/main.yo:1328-1349`, `cond` arms keyed on
+`YO_TEST_INDEX`). So one expression codegen cannot transpile turns that whole
+function into a `// Failed to transpile` **C comment** — the C compiler skips
+it, the binary runs nothing, and the runner reports **every test in the batch as
+passing**. Measured 2026-08-12: 23 vacuous tests in
+`tests/internal/expr_info.test.yo`, with the CI job green the whole time
+(`issues/fixed/yo-self-option-eq-ref-enum-not-specialized.md`).
+
+The `__yo_user_main` marker gate in `yo-self/codegen/functions/generation.yo`
+turns this into a hard error. **Never weaken that gate to get a job green.**
+
+Debugging one:
+
+- `YO_KEEP_BATCH=1` keeps `.yo_selftest_batch_<fi>_<bi>.yo` next to the test
+  file; compile that directly to iterate instead of re-running the suite.
+- To read the marker's text you need a **pre-gate** binary (an older stage-1) —
+  with the gate the compile aborts before the `.c` is written.
+- Batch bodies are `ast_expr_to_string()` **re-prints**, not source slices, so a
+  round-trip defect is a candidate. Rule it out by testing the natural source
+  form as well.
+- Prefer `opt.is_none()` over `opt == Option(T).None` in tests: the latter needs
+  `Eq` on the payload type specialized, which is a much heavier requirement than
+  the assertion actually needs.
 
 ### macOS 26 AMFI / ASAN dylib workaround
 

@@ -40,6 +40,15 @@ version` on GitHub Releases (urgent — npm publishing stopped at v0.2.0), and
   def-eval swallow). Supersedes `LSP_IMPLEMENTATION.md`, which planned the
   TypeScript server that retires with `src/`.
 
+Cross-cutting:
+
+- [`HANDOVER_DEF_EVAL_SWALLOW.md`](HANDOVER_DEF_EVAL_SWALLOW.md) — **active
+  handover for the def-eval swallow endgame** (the blocker P4's diagnostics
+  spike is waiting on) plus the merge order for PRs #110 → #98 → #112. Carries
+  the ordering probe that refuted the previous "trial runs outside the impl
+  field loop" conclusion, and the Case-2 forward-shell attempt that regressed
+  `imm_map` — read it before touching `yo-self/evaluator/values/impl.yo`.
+
 Conventions:
 
 - When a plan completes (or is refuted/superseded), add a closing banner at

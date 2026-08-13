@@ -1,0 +1,51 @@
+//! Family A of the def-eval swallow, minimal (15 lines of substance).
+//!
+//!   YO_DEBUG_SWALLOW=1 <bin> compile issues/repros/self-static-method-at-def-time.yo \
+//!     --emit-c --skip-c-compiler -o /tmp/x
+//!
+//! Prints `[swallow] Error: Cannot unify incompatible types: "usize" and "unit"`
+//! — the same error `std/collections/array_list.yo`'s `slice_copy` produces.
+//!
+//! The trigger is `Self.new()`: STATIC dispatch on `Self` inside a method body,
+//! evaluated at definition time. Narrowed by measurement:
+//!
+//!   - remove `out := Self.new();` (keep `new` declared) -> CLEAN
+//!   - instance dispatch `self.len()` -> always fine, before or after declaration
+//!   - a plain `impl(M, ...)` (non-generic) -> CLEAN
+//!   - `?*(T)` field / `pragma(AllowUnsafe)` / a Range param -> none of them matter
+//!
+//! ROOT, and it is DELIBERATE: `evaluator/values/impl.yo:3110-3114` makes only
+//! TYPE-valued fields visible to later fields' `Self.X`, because "`Self.X` never
+//! resolves to a method value, and copying FuncVals into the context list proved
+//! fragile". So a sibling METHOD is unreachable through `Self` during the impl's
+//! own evaluation, `Self.new()` yields `unit`, and the def-time trial swallows
+//! the whole body — which is what later becomes a `// Failed to transpile`
+//! comment.
+//!
+//! Fixing it means making FuncVal fields resolvable for `Self.X` at def time —
+//! the thing that was tried and found fragile. TS has no such limitation (its
+//! def-time body eval is fatal and it compiles array_list fine), so this is a
+//! genuine porting gap, not a design choice Yo wants to keep.
+pragma(Pragma.AllowUnsafe);
+open(import("std/string"));
+open(import("std/fmt"));
+
+G :: (fn(comptime(T) : Type) -> comptime(Type))(ref(struct(_ptr : ?*(T), _length : usize)));
+
+impl(
+  generic(T : Type),
+  G(T),
+  len : (fn(self : Self) -> usize)({
+    return(self._length);
+  }),
+  new : (fn() -> Self)(Self(_ptr : .None, _length : usize(0))),
+  via : (fn(self : Self, r : Range(usize)) -> Self)({
+    e := cond((r.end > self.len()) => self.len(), true => r.end);
+    // THE TRIGGER — static dispatch on Self at definition time.
+    out := Self.new();
+    out
+  })
+);
+
+main :: (fn() -> unit)(println(`ok`));
+export(main);

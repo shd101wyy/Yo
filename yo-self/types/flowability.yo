@@ -990,12 +990,30 @@ require_valid_ref_argument_places :: (
 });
 
 /// Record a def-time swallowed throw for the cee observation channel.
-/// Lives HERE (a plain module fn) instead of inline in the wrapper's `->`
-/// handler: a branch inside that capture-free handler miscompiles under the
-/// TS codegen (heap corruption surfacing later in the async emitter — the
-/// fs/walker rc=139 regression; see
-/// issues/fixed/yo-ts-codegen-branch-in-effect-handler-corruption.md). The handler
-/// body must stay straight-line calls.
+/// Lives HERE (a plain module fn) rather than inline in the wrapper's `->` handler.
+///
+/// CORRECTED 2026-08-12: the old note here claimed a BRANCH inside a capture-free
+/// handler miscompiles. That premise is stale and was actively misleading — it
+/// talks a reader out of designs that are in fact fine.
+/// `issues/fixed/yo-ts-codegen-branch-in-effect-handler-corruption.md` ("Root
+/// cause: FOUND + FIXED", 2026-08-07, shipped in `4c10894cb`) found the real
+/// defect: the unwind emitter raised `__yo_effect_escaped = 1` BEFORE evaluating
+/// the unwind ARGUMENT, so a may-unwind call inside that argument emitted the
+/// caller-side pre-clear and cancelled the in-progress unwind. Both compilers now
+/// evaluate the argument first, and every published seed (0.2.0+) carries the fix.
+///
+/// The nuance worth keeping: the branch WAS the trigger — it changed which calls
+/// the argument path makes, and the bisect table in that doc shows the same
+/// `unwind(make_err_expr())` shape green 6/6 before it and red after. So "branches
+/// are irrelevant" would also be wrong; it simply is not a codegen soundness limit.
+///
+/// The REAL constraints on these handlers are: they cannot capture outer runtime
+/// variables (a hard evaluator error — see
+/// issues/fixed/throw-handler-lambda-scope-restriction.md), which is why such a
+/// handler can never reach the enclosing `exn`; and `unwind(v)` memcpys into a
+/// fixed 64-byte `__yo_unwind_value` buffer, so `v` must stay small. Calling a
+/// module fn from the handler — what this function exists for — is fine.
+/// Keeping the body straight-line is now style, and it costs nothing.
 note_def_time_swallow :: (fn() -> unit)({
   if(propagate_def_time_errors(), {
     set_cee_observed_error();
