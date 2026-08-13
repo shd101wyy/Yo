@@ -21,6 +21,7 @@ open(import("std/string"));
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
 { TypeValue } :: import("../types/definitions.yo");
+{ trial_flag_get, trial_flag_set } :: import("../types/creators.yo");
 { EvalValue } :: import("../value.yo");
 { Environment, Variable, _frame_positions } :: import("../env.yo");
 { AstExpr } :: import("../expr.yo");
@@ -795,13 +796,11 @@ call_rerun_pending_def_evals :: (fn(env : Environment, ctx : EvalContext) -> uni
 /// ("Incompatible function return type", measured 2026-08-13), while at
 /// def time it is what lets a sibling impl's method dispatch resolve
 /// (array_list's Clone -> len, family A root #3).
-(g_in_def_time_trial : bool) = false;
-in_def_time_trial :: (fn() -> bool)(g_in_def_time_trial);
-set_in_def_time_trial :: (fn(v : bool) -> bool)({
-  prev := g_in_def_time_trial;
-  g_in_def_time_trial = v;
-  prev
-});
+/// Storage lives in types/creators.yo (`trial_flag_get`/`trial_flag_set`)
+/// so types/compatibility.yo can read the flag without an evaluator-layer
+/// import cycle; these accessors remain the public API.
+in_def_time_trial :: (fn() -> bool)(trial_flag_get());
+set_in_def_time_trial :: (fn(v : bool) -> bool)(trial_flag_set(v));
 
 export(
   PathCollection,

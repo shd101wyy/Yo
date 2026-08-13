@@ -1,5 +1,44 @@
 # The def-eval swallow: remaining roots, measured and attributed
 
+> **STATE 2026-08-13 (third session, later): 19 → 0. ALL ROOTS FIXED.**
+> Root 537's true root was a MIS-PORT in `_filter_receiver_methods`
+> (yo-self/env.yo): the pointee-vs-receiver check used the LENIENT
+> compatibility variant where TS passes `requireExactMatch=true`
+> (env.ts:1322-1329; compatibility.ts:823-827 makes an unconstrained
+> SomeType reject concrete types under exact rules). The lenient check
+> marked blanket `impl(generic(T), *(T), add)` methods with
+> `needs_pointer_conversion` for an ALREADY-POINTER receiver → `&`-wrap →
+> `T := *(T_arr)` synthesis → the `*(T)` return doubled to `*(*(T_arr))`.
+> Three resolution-side theories were built and REFUTED first (occurs
+> check; ownership-refined occurs; id-keyed synthesis channel — which
+> faithfully served the wrong binding, proving the writer upstream); the
+> `[s9-init]`/`[rsd-dbl]`/`[occ-pass]` YO_DEBUG_RET hooks carried the dig.
+> Fix commit `aac04c097` on `swallow/somet-compat-trial` (PR #119).
+> Battery: sweep 188/188 GREEN, canaries incl. ptr/unsafe/array_list all
+> green, check ./std 154/154, check ./yo-self 247/247, fixpoint pending.
+>
+> **NEXT: the endgame** — make `_trial_eval_fn_body` FATAL (TS parity,
+> function-type.ts:499) and re-attempt the corpus; the last fatal attempt
+> (2026-08-12) broke 10 files because the swallow was load-bearing, all
+> of whose roots are now fixed.
+
+> **STATE 2026-08-13 (third session): 19 → 1 swallow. ONLY ROOT 537 REMAINS.**
+> Landed on `swallow/somet-compat-trial` (stacked on `wip/root3-synthesis-layer`,
+> PR #117):
+>
+> - **7837 + 7942 + 7973** — one bug: SomeT-vs-SomeT trial acceptance
+>   (compatibility.yo; TS's different-id rule for unconstrained expected
+>   params; flag storage moved to types/creators.yo `trial_flag_get`).
+> - **7623** — type-ctor CTFE now executes despite unknown VALUE args
+>   during trials (comptime_fn.yo unknown-arg gate carve-out,
+>   `trial_unknown_nocache` keeps the memo clean).
+>
+> Both increments: sweep 188/188 GREEN, canaries green (imm_map,
+> derive_clone_complex, btree_map, array), check ./std 154/154,
+> check ./yo-self 247/247; fixpoint run pending at time of writing.
+> Root 537's frontier is unchanged below. After 537: the fatal-handler
+> endgame + corpus re-attempt.
+
 > **STATE 2026-08-13 (end of second session): 19 → 7 swallows.** Landed (PR
 > #115 + two follow-up commits on `fix/family-a-provisional-static`):
 > families A and B, cross-impl abstract bindings (trial-scoped), comptime
@@ -62,6 +101,40 @@
 > dispatch (the "call-time SomeT synthesis, whose frame levels are stale"
 > warning in find_methods_from_generic_impls' own comment). Next: trace
 > the runtime-return path's resolved_ret computation for this call.
+>
+> **REPAIR 2 RE-DIAGNOSED (2026-08-13, third session, `YO_DEBUG_CTFE`
+> instrumentation — comptime_fn.yo/function.yo/type.yo, in-tree).** The
+> "SomeT-keyed type-ctor CTFE" framing was WRONG for 3 of the 4 roots.
+> Measured per-root ground truth:
+>
+> - **7837, 7942, 7973 are ONE bug, and it is NOT CTFE.** The type-ctor
+>   CTFE **executes fine** with SomeT type args (`IterPair(usize, A)` →
+>   fresh anonymous struct per call; no cache under the SomeT carve-out —
+>   faithful enough for trials). The actual failure is the MEMBER
+>   compatibility check: `[tycall-mismatch] label=_1 expected=A got=Item`
+>   — yo-self's SomeT-vs-SomeT rule (name+frame_level identity,
+>   compatibility.yo) REJECTS two different type params, while TS
+>   (compatibility.ts:676-744) ACCEPTS different-id SomeTypes whenever the
+>   given side satisfies the expected side's constraint set (trivially
+>   true for an unconstrained forall `A`). Fix: trial-scoped, non-exact,
+>   empty-expected-constraints acceptance in compatibility.yo's SomeT arm
+>   (the flag storage moved to types/creators.yo `trial_flag_get` to avoid
+>   the evaluator-layer import cycle). NOT the full TS subset walk — that
+>   port self-recursed unboundedly (see the arm's history note).
+>   Note: in 7942/7973 the inner mismatch's exn.throw does NOT surface —
+>   evaluation continues and the OUTER `.Some(...)` member check reports
+>   `got=Type(1)` (a stale checking-phase stamp on the construction node),
+>   which is what made the message misattributable to CTFE.
+> - **7623 alone is the CTFE-degrade root**: `_ArrayIter(T, N)` carries a
+>   VALUE comptime param (`N : usize`, bound `<unknown: usize>` at def
+>   time) → `[ctfe-unk-arg]` (comptime_fn.yo's unknown-arg execution gate)
+>   → `_ctfe_unknown(Type)` = a fresh bare SomeT → "TypeVal SomeT callee
+>   without FnTrait (Phase 4)". TS EXECUTES type-ctor bodies with
+>   UnknownValue args (its recursion protection is the in-progress temp
+>   cache, comptime-fn.ts:188-203, pushed unconditionally). Candidate fix:
+>   during trials, let type-hierarchy-returning ctors execute despite
+>   unknown VALUE args; recursion safety needs a trial-era in-progress
+>   entry since the SomeT carve-out disables the durable cache.
 
 **Live inventory.** `_trial_eval_fn_body`
 (`yo-self/evaluator/calls/function_type.yo`) wraps definition-time body

@@ -14,6 +14,8 @@
 //! - `isComptimeOnlyType` is approximated via `_is_comptime_only_type_approx`.
 pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
+open(import("std/fmt"));
+_(env : tycall_dbg_env) :: import("std/env");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 {
@@ -39,8 +41,8 @@ open(import("std/string"));
 { type_to_string } :: import("../../types/string.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
-{ EvalContext, ExpectedTypeCtx, TypeCallResult } :: import("../context.yo");
-{ EvalValue } :: import("../../value.yo");
+{ EvalContext, ExpectedTypeCtx, TypeCallResult, in_def_time_trial } :: import("../context.yo");
+{ EvalValue, value_to_string } :: import("../../value.yo");
 { TypeField } :: import("../types/field.yo");
 { set_expr_as_needs_to_call_dup } :: import("../utils.yo");
 { evaluate_expression } :: import("../exprs/expr.yo");
@@ -320,6 +322,11 @@ try_to_call_type_with_arguments :: (
     );
     // Type compatibility check.
     if(!(are_types_compatible(arg_type, member_element.ty)), {
+      if(in_def_time_trial() && tycall_dbg_env.get(`YO_DEBUG_CTFE`).is_some(), {
+        eprintln(
+          `[tycall-mismatch] label=${member_element.label} expected=${type_to_string(member_element.ty)} got=${type_to_string(arg_type)} argval=${match(arg_info.value, .Some(av) => value_to_string(av), .None => String.from("<none>"))}`
+        );
+      });
       exn.throw(
         dyn(
           format_error_message(

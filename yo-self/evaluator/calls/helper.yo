@@ -99,8 +99,10 @@ open(import("std/fmt"));
   CapturedVarInfo,
   SpecializingFunctionInfo,
   SpecializedFunctionCache,
-  SpecializedFunctionCacheEntry
+  SpecializedFunctionCacheEntry,
+  in_def_time_trial
 } :: import("../context.yo");
+_(env : helper_dbg_env) :: import("std/env");
 {
   PathCollection,
   path_collection_new,
@@ -5905,6 +5907,10 @@ try_to_call_function_with_arguments :: (
       // Step 9: Evaluate return type.
       // ----------------------------------------------------------------
       (return_type : TypeValue) = evaluate_function_return_type_again(ret_b, callee_env_m, ctx);
+      s9_dbg := (in_def_time_trial() && helper_dbg_env.get(`YO_DEBUG_RET`).is_some());
+      if(s9_dbg, {
+        eprintln(`[s9-init] declared=${type_to_string(ret_b)} after-rte=${type_to_string(return_type)}`);
+      });
       // Per-call forall substitution INTO a def-era NOMINAL return record.
       // A generic method's declared return can be pre-instantiated at
       // definition time into ONE Struct record (`IterFilter(Self, F)` →
@@ -6025,6 +6031,9 @@ try_to_call_function_with_arguments :: (
             s9_cand := substitute(s9, return_type);
             if((get_all_some_types(s9_cand).len() == usize(0)) || type_somes_all_resolve_concrete(s9_cand), {
               return_type = s9_cand;
+              if(s9_dbg, {
+                eprintln(`[s9-subst] ret=${type_to_string(return_type)}`);
+              });
             });
           });
         });
@@ -6063,6 +6072,9 @@ try_to_call_function_with_arguments :: (
                   .Some(rte9_ty) => {
                     if((((get_all_some_types(rte9_ty).len() == usize(0)) || type_somes_all_resolve_concrete(rte9_ty)) && !(_type_has_array_len_var(rte9_ty))) && !(is_unit_type(rte9_ty)), {
                       return_type = rte9_ty;
+                      if(s9_dbg, {
+                        eprintln(`[s9b-rte] ret=${type_to_string(return_type)}`);
+                      });
                     });
                   },
                   .None => ()
@@ -6093,6 +6105,9 @@ try_to_call_function_with_arguments :: (
             );
             callee_env_m = synth_ret.expected_env;
             return_type = evaluate_function_return_type_again(ret_b, callee_env_m, ctx);
+            if(s9_dbg, {
+              eprintln(`[s10-synth] ret=${type_to_string(return_type)} expected=${type_to_string(et.ty)}`);
+            });
             // When the (re-evaluated) return type is compatible with the
             // caller's expected type and the expected type is fully concrete,
             // ADOPT the expected type as the call's return type. Mirrors TS
@@ -6594,6 +6609,9 @@ try_to_call_function_with_arguments :: (
             s1i = (s1i + usize(1));
           });
         });
+      });
+      if(s9_dbg, {
+        eprintln(`[s-final] ret=${type_to_string(return_type)}`);
       });
       FuncCallResult(
         callee_env : callee_env_m,

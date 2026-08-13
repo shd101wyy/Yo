@@ -673,6 +673,18 @@ register_some_binder_kind :: (
 clear_some_binder_kind :: (fn(name : String, lvl : usize) -> unit)({
   _some_binder_kinds.remove(`${name}@${lvl.to_string()}`);
 });
+/// Definition-time-trial flag STORAGE. The flag's semantics and public
+/// accessors live in evaluator/context.yo (`in_def_time_trial` /
+/// `set_in_def_time_trial` delegate here); the storage sits in the types
+/// layer so types/compatibility.yo can read it without an evaluator-layer
+/// import cycle (same layering reason as `_some_binder_kinds` above).
+(g_in_def_time_trial_cell : bool) = false;
+trial_flag_get :: (fn() -> bool)(g_in_def_time_trial_cell);
+trial_flag_set :: (fn(v : bool) -> bool)({
+  prev := g_in_def_time_trial_cell;
+  g_in_def_time_trial_cell = v;
+  prev
+});
 /// PURE resolution: builtin scalar names only — a non-builtin annotation
 /// returns `.None` and the binder keeps its (SomeT) binding. `Type` never
 /// registers, so type binders are unaffected.
@@ -733,6 +745,8 @@ export(
   t_c_ulong,
   t_c_longlong,
   register_some_binder_kind,
+  trial_flag_get,
+  trial_flag_set,
   clear_some_binder_kind,
   resolve_some_binder_kind,
   t_c_ulonglong,
