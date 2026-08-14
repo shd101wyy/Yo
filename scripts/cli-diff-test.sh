@@ -186,7 +186,8 @@ normalize_stream() {
           -e "s|$REPO_ROOT|<REPO>|g" \
     | sed -E -e 's/[0-9]+(\.[0-9]+)?[[:space:]]*(ms|s\b|seconds)/<TIME>/g' \
              -e 's/\b[0-9a-f]{40}\b/<SHA1>/g' \
-             -e 's/\b[0-9a-f]{64}\b/<SHA256>/g'
+             -e 's/\b[0-9a-f]{64}\b/<SHA256>/g' \
+             -e 's/\b(aarch64|arm64|x86_64|i686)-(apple-)?(macos|darwin|linux-gnu|linux-musl|windows-msvc|windows-gnu|windows)\b/<TARGET>/g'
 }
 
 # Emit "<relpath>\t<sha>" for every regular file under $1, skipping ignored
