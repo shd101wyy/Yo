@@ -146,7 +146,11 @@ jobs:
       - name: Native self-hosted compiler build (advance seed-leg detection)
         shell: bash
         run: |
-          node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs compile yo-self/main.yo --release --allocator mimalloc -o yo-native-probe
+          # 6144, not 4096: the windows-latest leg OOM'd node's heap at the 4 GB
+          # cap compiling the probe (V8 "Reached heap limit" AFTER the C compile
+          # succeeded) once the PR stack's tree grew — the step was marginal.
+          # This whole step dies with src/ retirement (P2.5 step 18).
+          node --expose-gc --max-old-space-size=6144 ./out/cjs/yo-cli.cjs compile yo-self/main.yo --release --allocator mimalloc -o yo-native-probe
           if [ -f yo-native-probe.exe ]; then PROBE=./yo-native-probe.exe; else PROBE=./yo-native-probe; fi
           "$PROBE" check std/assert.yo
           mkdir -p tmp/native-probe-smoke && cd tmp/native-probe-smoke
