@@ -178,18 +178,19 @@ Each step is independently landable and gated by `tests/internal` or a new cli-c
 
 20. Delete the 4-shard `compiler-internal-tests` job; the self-hosted differential becomes the sole arm. **Check branch protection first** — if a required status check names the shards, PRs will block on checks that never run. → **verify:** CI + the repo's branch-protection settings (not visible from the filesystem). **[CI-only]**
 
-    **RECON 2026-08-15 — it is a RULESET, not classic branch protection.**
-    `repos/.../branches/develop/protection` returns 404; the gating lives in
-    ruleset **13548862** (`branch_protection`, target `~DEFAULT_BRANCH`,
-    enforcement `active`; develop IS the default branch). Its 15 required
-    contexts include **all four `Compiler internal tests (tests/internal, TS
-arm shard N)`**, `Compiler internal tests (tests/internal, self-hosted
-differential)`, and both `test-wasm32_*` legs — so steps 20 and 22 MUST
+        **RECON 2026-08-15 — it is a RULESET, not classic branch protection.**
+        `repos/.../branches/develop/protection` returns 404; the gating lives in
+        ruleset **13548862** (`branch_protection`, target `~DEFAULT_BRANCH`,
+        enforcement `active`; develop IS the default branch). Its 15 required
+        contexts include **all four `Compiler internal tests (tests/internal, TS
+
+    arm shard N)`**, `Compiler internal tests (tests/internal, self-hosted
+    differential)`, and both `test-wasm32\_\*`legs — so steps 20 and 22 MUST
     edit that ruleset in lockstep or every PR blocks forever on checks that
-    can never run. Note only three of the five `test (<os>)` legs are required
-    (`macos-latest`, `ubuntu-latest`, `windows-latest`); `macos-26-intel` and
-    `ubuntu-24.04-arm` are not. Also per
-    `issues/selfhosted-differential-job-needs-sharding.md`, shard the
+    can never run. Note only three of the five`test (<os>)` legs are required
+    (`macos-latest`, `ubuntu-latest`, `windows-latest`); `macos-26-intel`and
+   `ubuntu-24.04-arm`are not. Also per
+   `issues/selfhosted-differential-job-needs-sharding.md`, shard the
     differential in this SAME change so both job renames land under ONE
     required-check update.
 
@@ -199,6 +200,30 @@ differential)`, and both `test-wasm32_*` legs — so steps 20 and 22 MUST
 24. `release.yml` (B5, B7): move the version source of truth off root `package.json`; keep a bumper for `vscode-extension/package.json`; flip `seed-bundles` to previous-seed-built with the stage-2-builds-stage-1 pre-release gate; re-point or rewrite the Pages step. Land **after** #98 — #98 already edits release.yml:47-62 and will conflict. → **verify:** a `workflow_dispatch` release producing all five bundles, each smoke-tested from outside the checkout. **[CI-only]**
     24b. **`yo build` becomes the canonical yo-self builder everywhere** (user directive, 2026-08-13; completes what 2.2's root `build.yo` started). Inventory of the raw `compile yo-self/main.yo` builders to convert: - `.github/workflows/test.yml:144` (TS native probe — dies with the job in step 18 anyway), `:240`, `:428`, `:623`-area, `:836`-area (the per-job stage-1 builds) → `yo build` + take the binary from `yo-out/` (or `build.yo` grows an output-path option). Note the CI builds pass `--allocator mimalloc` while root `build.yo`'s `executable` set no allocator (defaulting Libc) — `std/build.yo` already supports `allocator` (`:86-87`, threaded at `build_runner.yo:486`), so this was a one-line `build.yo` fix (landed with this plan edit); without it the conversion would have silently changed the shipped allocator. - `.github/workflows/release.yml:310` (the seed build) → same conversion at step 24. - `scripts/bootstrap/fixpoint_only.sh:7`, `:12` — **keep as `compile --emit-c --skip-c-compiler`**: these are emit-only C byte-comparisons with explicit output paths, not builds; `yo build` has no emit-only mode and imposing one would complicate the build API for a diagnostic script. Record this as the deliberate carve-out. - Local guidance (AGENTS.md build commands, plans/, skills) — sweep in 2.6 to present `yo build` as the way to build the compiler, keeping `yo compile` for one-off artifacts.
     → **verify:** `yo build` from the repo root produces a runnable compiler byte-comparable (same flags) to the `compile --release --allocator mimalloc` build; converted CI legs green; grep shows the fixpoint carve-out is the only surviving raw self-build. **[CI-only]** for the legs, **[local-slow]** for the flag-parity check.
+
+    **VERIFIED 2026-08-15 (the flag-parity check).** `yo build --std-path ./std`
+    produces a WORKING compiler at `yo-out/<triple>/bin/yo` (`--version` and
+    `check std/assert.yo` both fine). The `--std-path` worry was unfounded:
+    `build_runner.yo:426-432` forwards the parent's override to the child
+    compile (and `:639-644` to child test runs), with the note that TS needs no
+    equivalent because it compiles in-process.
+
+    Flag parity, measured with the SAME compiler on the SAME tree so only the
+    ROUTE varies (a first attempt comparing a TS-built binary against a
+    self-built one was invalid — that measures emit divergence, not flags):
+
+    | route                                    | bytes     |
+    | ---------------------------------------- | --------- |
+    | `compile --release --allocator mimalloc` | 8 806 128 |
+    | `yo build`                               | 8 806 112 |
+
+    16 bytes apart, identical mimalloc symbol counts, both run. The binaries do
+    differ internally in ~68 k bytes (0.77%) — but a CONTROL build via the same
+    route to a DIFFERENT output path differs by 68 043 bytes, i.e. the same
+    magnitude, so that delta is embedded-path noise (the emitted `.c` is named
+    after `-o`), not a route difference. Consistent with the fixpoint gate,
+    which compares stage-2/stage-3 C EMIT byte-identically and holds: the C
+    itself carries no output path.
 
 #### Group E — freeze and delete
 

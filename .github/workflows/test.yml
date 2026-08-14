@@ -152,13 +152,28 @@ jobs:
       # it still proves the compiler's whole closure builds natively on every
       # release target, which is what caught the Windows POSIX-isms at v0.2.0
       # (issues/fixed/windows-native-selfhosted-build-fails.md).
-      - name: "Stage 1: build the self-hosted compiler with the SEED"
+      # P2.5 step 24b (user directive): `yo build` is the canonical yo-self
+      # builder. VERIFIED equivalent to the raw `compile --release --allocator
+      # mimalloc` it replaces — build.yo carries the same flags (ReleaseSmall +
+      # Mimalloc) and the two routes land 16 bytes apart on an 8.8 MB binary;
+      # the residual ~0.77% byte delta also appears between two SAME-route
+      # builds to different output paths (the emitted .c is named after -o), so
+      # it is path noise, not a route difference.
+      # `--std-path ./std` stays load-bearing and IS forwarded to the child
+      # compile (build_runner.yo:426-432).
+      - name: "Stage 1: build the self-hosted compiler with the SEED (`yo build`)"
         shell: bash
         run: |
-          yo compile yo-self/main.yo --release --allocator mimalloc --std-path ./std -o yo-stage1
-          # Windows produces yo-stage1.exe; publish the real path for later steps.
-          if [ -f yo-stage1.exe ]; then S1="$PWD/yo-stage1.exe"; else S1="$PWD/yo-stage1"; fi
-          echo "S1=$S1" >> "$GITHUB_ENV"
+          yo build --std-path ./std
+          # build.yo emits yo-out/<target-triple>/bin/yo[.exe]; the triple
+          # differs per leg, so resolve it instead of hardcoding five paths.
+          S1="$(ls yo-out/*/bin/yo yo-out/*/bin/yo.exe 2>/dev/null | head -1)"
+          if [ -z "$S1" ]; then
+            echo "::error::yo build produced no binary under yo-out/*/bin/"
+            ls -R yo-out || true
+            exit 1
+          fi
+          echo "S1=$PWD/$S1" >> "$GITHUB_ENV"
           # Fail fast if the built binary cannot run at all (evaluator, module
           # loading, executable-relative std discovery).
           "$S1" check std/assert.yo
@@ -257,7 +272,11 @@ jobs:
           # can manufacture failures. Measured 2026-08-11: a seed-compiled
           # program picked up the seed's std/env.yo (3 mi_free errors from the
           # already-fixed cross-allocator free) and 0 with --std-path ./std.
-          nice -n 10 env YO_MAIN_STACK_MB=4096 yo compile yo-self/main.yo --release --allocator mimalloc --std-path ./std -o /tmp/yo-stage1
+          # P2.5 step 24b: canonical builder is `yo build` (equivalence
+          # measured — see the `test` job's note). The --std-path rationale
+          # above is unchanged and IS forwarded to the child compile.
+          nice -n 10 env YO_MAIN_STACK_MB=4096 yo build --std-path ./std
+          cp "$(ls yo-out/*/bin/yo | head -1)" /tmp/yo-stage1
 
       # Memory plan for the emits (measured 2026-08-04, handoff doc §1):
       # the emit holds ~9 GB live but TOUCHES ~28 GB (stage-2) / ~39 GB
@@ -437,7 +456,12 @@ jobs:
       - name: "Stage 1: build the self-hosted compiler with the SEED (previous release)"
         # --std-path ./std is load-bearing: without it the seed compiles against
         # its own bundled std, not this checkout's. See the fixpoint job.
-        run: YO_MAIN_STACK_MB=4096 nice -n 10 yo compile yo-self/main.yo --release --allocator mimalloc --std-path ./std -o /tmp/yo-stage1
+        # P2.5 step 24b: `yo build` is the canonical builder (see the `test`
+        # job's note for the equivalence measurement). --std-path is forwarded
+        # to the child compile by build_runner.yo.
+        run: |
+          YO_MAIN_STACK_MB=4096 nice -n 10 yo build --std-path ./std
+          cp "$(ls yo-out/*/bin/yo | head -1)" /tmp/yo-stage1
 
       # YO_MAIN_STACK_MB: compiled Yo programs run main on a worker thread whose
       # stack defaults to 1 GiB; the self-hosted compiler's deep comptime
@@ -652,7 +676,12 @@ jobs:
       - name: "Stage 1: build the self-hosted compiler with the SEED (previous release)"
         # --std-path ./std is load-bearing: without it the seed compiles against
         # its own bundled std, not this checkout's. See the fixpoint job.
-        run: YO_MAIN_STACK_MB=4096 nice -n 10 yo compile yo-self/main.yo --release --allocator mimalloc --std-path ./std -o /tmp/yo-stage1
+        # P2.5 step 24b: `yo build` is the canonical builder (see the `test`
+        # job's note for the equivalence measurement). --std-path is forwarded
+        # to the child compile by build_runner.yo.
+        run: |
+          YO_MAIN_STACK_MB=4096 nice -n 10 yo build --std-path ./std
+          cp "$(ls yo-out/*/bin/yo | head -1)" /tmp/yo-stage1
 
       - name: Run tests/internal under the self-hosted binary (differential)
         env:
@@ -769,7 +798,12 @@ jobs:
       - name: "Stage 1: build the self-hosted compiler with the SEED (previous release)"
         # --std-path ./std is load-bearing: without it the seed compiles against
         # its own bundled std, not this checkout's. See the fixpoint job.
-        run: YO_MAIN_STACK_MB=4096 nice -n 10 yo compile yo-self/main.yo --release --allocator mimalloc --std-path ./std -o /tmp/yo-stage1
+        # P2.5 step 24b: `yo build` is the canonical builder (see the `test`
+        # job's note for the equivalence measurement). --std-path is forwarded
+        # to the child compile by build_runner.yo.
+        run: |
+          YO_MAIN_STACK_MB=4096 nice -n 10 yo build --std-path ./std
+          cp "$(ls yo-out/*/bin/yo | head -1)" /tmp/yo-stage1
 
       # P2.5 step 21 asked for a vacuity assertion here — grep the leg's log for
       # `-fsanitize=thread`, because an UNinstrumented run passes exactly like a
@@ -955,7 +989,12 @@ jobs:
       - name: "Stage 1: build the self-hosted compiler with the SEED (previous release)"
         # --std-path ./std is load-bearing: without it the seed compiles against
         # its own bundled std, not this checkout's. See the fixpoint job.
-        run: YO_MAIN_STACK_MB=4096 nice -n 10 yo compile yo-self/main.yo --release --allocator mimalloc --std-path ./std -o /tmp/yo-stage1
+        # P2.5 step 24b: `yo build` is the canonical builder (see the `test`
+        # job's note for the equivalence measurement). --std-path is forwarded
+        # to the child compile by build_runner.yo.
+        run: |
+          YO_MAIN_STACK_MB=4096 nice -n 10 yo build --std-path ./std
+          cp "$(ls yo-out/*/bin/yo | head -1)" /tmp/yo-stage1
 
       - name: Sweep every language test file through the self-hosted binary
         env:
