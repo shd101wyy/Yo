@@ -47,6 +47,7 @@ open(import("std/string"));
   BF_YO_STR_BYTE,
   BF_YO_STR_FROM_RAW_PARTS,
   BF_YO_GETRANDOM,
+  BF_YO_ERRNO,
   BF_YO_ARC4RANDOM_BUF,
   BF_YO_BCRYPT_GEN_RANDOM,
   BF_YO_GETENTROPY,
@@ -237,6 +238,10 @@ generate_yo_inline_function_call :: (fn(function_name : String, args : ArrayList
       out.push_str(")");
       out
     },
+    // BF_YO_ERRNO emits the bare macro: on glibc `errno` is
+    // `(*__errno_location())` — an int LVALUE, not a pointer; `(*errno)`
+    // fails to compile (the PR #122 Linux legs).
+    (function_name == BF_YO_ERRNO) => String.from("errno"),
     (function_name == BF_YO_ARC4RANDOM_BUF) => {
       out := String.from("(arc4random_buf(");
       out.push_string(_a(args, usize(0)));

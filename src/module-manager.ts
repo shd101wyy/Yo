@@ -1,4 +1,4 @@
-import { existsSync } from "fs";
+import { existsSync, realpathSync } from "fs";
 import * as path from "path";
 import { CodeGeneratorC } from "./codegen/codegen-c";
 import { setGenerateExprFn } from "./codegen/exprs/expr";
@@ -73,6 +73,31 @@ function findStdDirectory(startPath: string): string {
   }
 
   return path.join(__dirname, "../std");
+}
+
+/**
+ * Canonicalize a `file://` module path so every reference to the same
+ * file shares one module-cache entry: resolve to an absolute, normalized
+ * path and collapse symlinks (macOS `/tmp` -> `/private/tmp`). Without
+ * this, a module reached via two spellings — e.g. `check`'s
+ * `realpathSync` top-level key vs the evaluator's `path.join(stdPath,
+ * "prelude.yo")` implicit-prelude key — evaluates twice, and a second
+ * prelude evaluation corrupts where-constrained generic-impl resolution
+ * (see issues/seed-built-stage1-array-fill-method-miss.md). Mirrored by
+ * `canonicalize_module_path` in `yo-self/module_manager.yo`.
+ */
+export function canonicalizeModulePath(modulePath: string): string {
+  if (!modulePath.startsWith("file://")) {
+    return modulePath;
+  }
+  let canonical = path.resolve(modulePath.slice("file://".length));
+  try {
+    canonical = realpathSync(canonical);
+  } catch {
+    // Not on disk (e.g. an inputString-backed load): keep the resolved
+    // path; a genuinely missing file errors later in the load itself.
+  }
+  return "file://" + canonical;
 }
 
 export class ModuleManager {
@@ -314,6 +339,7 @@ export class ModuleManager {
         `Invalid file protocol: ${modulePath}. Only file:// is supported for now.  `
       );
     }
+    modulePath = canonicalizeModulePath(modulePath);
 
     // Track dependency if this is being loaded by another module
     if (parentModule) {
@@ -375,6 +401,7 @@ export class ModuleManager {
 
   public deleteModule(modulePath: string): void {
     // console.log(`[ModuleManager] deleteModule called for: ${modulePath}`);
+    modulePath = canonicalizeModulePath(modulePath);
     if (!modulePath.match(/^file:\/\//)) {
       throw new Error(
         `Invalid file protocol: ${modulePath}. Only file:// is supported for now.  `
@@ -438,6 +465,7 @@ export class ModuleManager {
     } = {}
   ) {
     // console.log(`= Compiling module ${modulePath}`);
+    modulePath = canonicalizeModulePath(modulePath);
     const { moduleValue, moduleError } = this.loadModule(modulePath);
     if (moduleError) {
       throw moduleError.toString();

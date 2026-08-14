@@ -13,7 +13,7 @@ open(import("std/fmt"));
 { HashMap } :: import("std/collections/hash_map");
 { Exception, IoExn } :: import("std/error");
 { Path } :: import("std/path");
-{ cwd } :: import("std/env");
+{ cwd, chdir } :: import("std/env");
 // Imported under an alias: `args` collides with the `args` parameter/field used
 // throughout this file (`run_step.args`). Same rename form main.yo uses for `env`.
 _(args : proc_args) :: import("std/env");
@@ -32,10 +32,14 @@ _(args : proc_args) :: import("std/env");
   BuildModuleEntry,
   BuildRegistry,
   ResolvedDep,
+  BuildSystemLibrary,
   get_build_registry,
   clear_build_registry
 } :: import("./evaluator/builtins/build.yo");
-{ TargetInfo, parse_target, is_target_windows, is_target_wasm } :: import("./target.yo");
+{ are_deps_cached, fetch_all_deps } :: import("./fetch.yo");
+{ resolve_all_system_libraries } :: import("./pkg_config.yo");
+{ DocCommandOptions, run_doc } :: import("./doc_command.yo");
+{ TargetInfo, parse_target, host_target, is_target_windows, is_target_wasm } :: import("./target.yo");
 // ---------------------------------------------------------------------------
 // Build options  (mirrors TypeScript BuildOptions interface)
 // ---------------------------------------------------------------------------
@@ -564,7 +568,37 @@ run_executable :: (
       ctx.target_triple
     );
     exe_path := Path.new(output_dir).join(Path.new(exe_name));
-    cmd := Command.new(exe_path.to_string());
+    // Missing-binary pre-flight (build-runner.ts:1918-1921): a step chain that
+    // skipped the compile must fail HERE with a diagnostic, not with the
+    // shell's exec error.
+    exe_found := e.io.await(exists(Path.new(exe_path.to_string()), e.io), e.io);
+    if(!(exe_found), {
+      return(Result(unit, String).Err(`Error: Compiled executable not found at ${exe_path.to_string()}`));
+    });
+    // The program runs with cwd = project dir (TS spawnSync {cwd: projectDir},
+    // build-runner.ts:1938-1942). `Command` has no cwd builder, so chdir
+    // around the spawn — the runner is single-threaded, and the exe path is
+    // made absolute FIRST so the chdir cannot invalidate it.
+    (abs_exe : String) = exe_path.to_string();
+    if(!(Path.new(abs_exe.clone()).is_absolute()), {
+      base := match(cwd(), .Ok(cb) => cb.to_string(), .Err(_) => String.from("."));
+      abs_exe = Path.new(base).join(Path.new(abs_exe.clone())).to_string();
+    });
+    prev_dir := match(cwd(), .Ok(pc) => pc.to_string(), .Err(_) => String.from("."));
+    _cd_in := chdir(Path.new(ctx.project_dir.clone()));
+    // wasm artifacts run through node on the emitted .js shim
+    // (build-runner.ts:1924-1937).
+    eff_ti_run := match(parse_target(effective_target.clone()), .Ok(t) => t, .Err(_) => host_target());
+    cmd := if(is_target_wasm(eff_ti_run), {
+      js_path := if(
+        abs_exe.ends_with(".html"),
+        `${abs_exe.substring(usize(0), (abs_exe.len() - usize(5)))}.js`,
+        abs_exe.clone()
+      );
+      wcmd := Command.new(String.from("node"));
+      wcmd.arg(js_path);
+      wcmd
+    }, Command.new(abs_exe.clone()));
     i := usize(0);
     n := args.len();
     while(i < n, {
@@ -575,6 +609,7 @@ run_executable :: (
     // `stdio: "inherit"`, so the program the user asked to run writes to the
     // user's terminal. Capturing swallowed its output entirely.
     st := e.io.await(cmd.status(e.io), e);
+    _cd_back := chdir(Path.new(prev_dir));
     if(st.success(), Result(unit, String).Ok(()), {
       code := st.code();
       Result(unit, String).Err(`Executable exited with code ${code}`)
@@ -596,6 +631,11 @@ run_test_suite :: (
     test_path := Path.new(ctx.project_dir).join(Path.new(suite.root));
     cmd := Command.new(_self_exe());
     cmd.arg(String.from("test"));
+    // Forward the build's C compiler to the child test run (TS passes
+    // cCompiler through runTests, build-runner.ts:1955-1978; hollow before
+    // the runner's own --cc forwarding landed in P2.5 step 5).
+    cmd.arg(String.from("--c-compiler"));
+    cmd.arg(ctx.c_compiler.clone());
     // Forward the parent's `--std-path` override to the child test run (same
     // rationale as the compile_artifact forwarding above).
     match(
@@ -638,6 +678,34 @@ run_test_suite :: (
     })
   })
 );
+/// Run a documentation step, mapping any thrown error to `false` (TS wraps
+/// runDocGeneration in try/catch, build-runner.ts:745-757).
+_run_doc_step :: (fn(opts : DocCommandOptions, io : Io) -> bool)({
+  doc_exn := Exception(
+    throw : (
+      (doc_err) -> {
+        eprintln(`doc step failed: ${doc_err.to_string()}`);
+        unwind(false);
+      }
+    )
+  );
+  run_doc(opts, io, doc_exn);
+  true
+});
+/// Append every element of `src` onto `dst` (ArrayList has no extend()).
+_push_all_strings :: (fn(dst : ArrayList(String), src : ArrayList(String)) -> unit)({
+  (pa_i : usize) = usize(0);
+  while(pa_i < src.len(), {
+    match(
+      src.get(pa_i),
+      .Some(s) => {
+        _p := dst.push(s.clone());
+      },
+      .None => ()
+    );
+    pa_i = (pa_i + usize(1));
+  });
+});
 // ---------------------------------------------------------------------------
 // Node execution
 // ---------------------------------------------------------------------------
@@ -726,6 +794,29 @@ execute_node :: (
           .None => (),
           .Some(doc_cfg) => {
             description = `doc ${doc_cfg.name}`;
+            // Actually generate the documentation (runDocGeneration,
+            // src/build-runner.ts:745-757 + :1987-2010). Previously this arm
+            // printed success and ran nothing — `yo init` scaffolds a doc
+            // step, so every scaffolded project's `yo build doc` was hollow.
+            println(`Generating documentation: ${doc_cfg.name}`);
+            doc_root := Path.new(ctx.project_dir.clone()).join(Path.new(doc_cfg.root.clone())).to_string();
+            doc_out := Path.new(ctx.project_dir.clone()).join(Path.new(doc_cfg.output_dir.clone())).to_string();
+            doc_fmt := if(doc_cfg.format.len() == usize(0), String.from("html"), doc_cfg.format.clone());
+            doc_ok := _run_doc_step(
+              DocCommandOptions(
+                input : doc_root,
+                output_dir : doc_out,
+                include_private : doc_cfg.include_private,
+                verbose : ctx.verbose,
+                title : doc_cfg.title.clone(),
+                format : doc_fmt,
+                version : doc_cfg.version.clone()
+              ),
+              io
+            );
+            if(!(doc_ok), {
+              success = false;
+            });
           }
         );
       }
@@ -1098,6 +1189,129 @@ run_build :: (
     if(options.list_steps, {
       print_steps(registry);
       return(());
+    });
+    // Fetch git dependencies before building (build-runner.ts:216-232).
+    // setRootBuildProjectDir + fetchTransitiveDependencies belong to the
+    // step-11 dependency-subsystem decision (plans/P2_5_RETIRE_EXECUTION.md)
+    // and are not yet ported — this is the direct-dependency wiring only.
+    if(registry.dependencies.len() > usize(0), {
+      deps_cached := e.io.await(are_deps_cached(project_dir.clone(), registry.dependencies, e.io, e.exn), e);
+      if(!(deps_cached), {
+        if(options.verbose, {
+          println(String.from("Dependencies not cached — fetching..."));
+        });
+        _fetched := e.io.await(fetch_all_deps(project_dir.clone(), registry.dependencies, options.verbose, false, e.io, e.exn), e);
+      }, {
+        if(options.verbose, {
+          println(String.from("All dependencies cached."));
+        });
+      });
+    });
+    // Resolve system libraries per-artifact via pkg-config
+    // (build-runner.ts:234-275). Each artifact only gets flags for libraries
+    // it explicitly linked; wasm targets skip host pkg-config/vcpkg (paths
+    // are incompatible) but still add `-l<name>` for the emscripten linker.
+    if(registry.system_libraries.len() > usize(0), {
+      (sa_i : usize) = usize(0);
+      while(sa_i < registry.artifacts.len(), {
+        art_opt := registry.artifacts.get(sa_i);
+        sa_i = (sa_i + usize(1));
+        match(
+          art_opt,
+          .Some(art) => if(art.linked_system_libs.len() > usize(0), {
+            linked := ArrayList(BuildSystemLibrary).new();
+            (sl_i : usize) = usize(0);
+            while(sl_i < registry.system_libraries.len(), {
+              match(
+                registry.system_libraries.get(sl_i),
+                .Some(slib) => {
+                  (is_linked : bool) = false;
+                  (ln_i : usize) = usize(0);
+                  while((ln_i < art.linked_system_libs.len()) && !(is_linked), {
+                    match(
+                      art.linked_system_libs.get(ln_i),
+                      .Some(ln) => if(ln == slib.name, {
+                        is_linked = true;
+                      }),
+                      .None => ()
+                    );
+                    ln_i = (ln_i + usize(1));
+                  });
+                  if(is_linked, {
+                    linked.push(slib);
+                  });
+                },
+                .None => ()
+              );
+              sl_i = (sl_i + usize(1));
+            });
+            if(linked.len() > usize(0), {
+              eff_target := match(options.target_triple, .Some(t) => t, .None => art.target.clone());
+              eff_ti := match(parse_target(eff_target.clone()), .Ok(t) => t, .Err(_) => host_target());
+              if(is_target_wasm(eff_ti), {
+                (wl_i : usize) = usize(0);
+                while(wl_i < linked.len(), {
+                  match(
+                    linked.get(wl_i),
+                    .Some(wlib) => {
+                      (already : bool) = false;
+                      (al_i : usize) = usize(0);
+                      while((al_i < art.link_libraries.len()) && !(already), {
+                        match(
+                          art.link_libraries.get(al_i),
+                          .Some(aln) => if(aln == wlib.name, {
+                            already = true;
+                          }),
+                          .None => ()
+                        );
+                        al_i = (al_i + usize(1));
+                      });
+                      if(!(already), {
+                        art.link_libraries.push(wlib.name.clone());
+                      });
+                    },
+                    .None => ()
+                  );
+                  wl_i = (wl_i + usize(1));
+                });
+              }, {
+                sys_flags := e.io.await(resolve_all_system_libraries(linked, options.verbose, e.io, e.exn), e);
+                _push_all_strings(art.include_paths, sys_flags.include_paths);
+                _push_all_strings(art.library_paths, sys_flags.library_paths);
+                _push_all_strings(art.link_libraries, sys_flags.link_libraries);
+                _push_all_strings(art.defines, sys_flags.defines);
+                _push_all_strings(art.c_flags, sys_flags.c_flags);
+                (rf_i : usize) = usize(0);
+                while(rf_i < sys_flags.runtime_files.len(), {
+                  match(
+                    sys_flags.runtime_files.get(rf_i),
+                    .Some(rf) => {
+                      (rf_seen : bool) = false;
+                      (rfe_i : usize) = usize(0);
+                      while((rfe_i < art.runtime_files.len()) && !(rf_seen), {
+                        match(
+                          art.runtime_files.get(rfe_i),
+                          .Some(rfe) => if(rfe == rf, {
+                            rf_seen = true;
+                          }),
+                          .None => ()
+                        );
+                        rfe_i = (rfe_i + usize(1));
+                      });
+                      if(!(rf_seen), {
+                        art.runtime_files.push(rf.clone());
+                      });
+                    },
+                    .None => ()
+                  );
+                  rf_i = (rf_i + usize(1));
+                });
+              });
+            });
+          }),
+          .None => ()
+        );
+      });
     });
     ctx := ExecutionContext(
       registry : registry,

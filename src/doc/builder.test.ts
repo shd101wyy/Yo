@@ -4,7 +4,7 @@
 // output (StructValue) with extracted doc comments to produce a DocModule.
 
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
-import { ModuleManager } from "../module-manager";
+import { ModuleManager, canonicalizeModulePath } from "../module-manager";
 import { tokenize } from "../lexer";
 import { extractDocComments } from "./extractor";
 import { buildDocModule, buildCrossReferences } from "./builder";
@@ -39,7 +39,9 @@ function buildDocFromSource(source: string, moduleName?: string): DocModule {
   const filePath = path.join(sharedTmpDir, `${name}.yo`);
   fs.writeFileSync(filePath, source);
 
-  const modulePath = `file://${filePath}`;
+  // Canonical, so modules.get() below agrees with the canonical key
+  // loadModule stores under (macOS tmp dirs sit behind /var -> /private/var).
+  const modulePath = canonicalizeModulePath(`file://${filePath}`);
   const { moduleValue, moduleError } =
     sharedModuleManager.loadModule(modulePath);
   const evaluator = sharedModuleManager.modules.get(modulePath)?.evaluator;
@@ -565,7 +567,9 @@ function getEvaluatorProgram(source: string, moduleName?: string) {
   const filePath = path.join(sharedTmpDir, `${name}.yo`);
   fs.writeFileSync(filePath, source);
 
-  const modulePath = `file://${filePath}`;
+  // Canonical, so modules.get() below agrees with the canonical key
+  // loadModule stores under (macOS tmp dirs sit behind /var -> /private/var).
+  const modulePath = canonicalizeModulePath(`file://${filePath}`);
   sharedModuleManager.loadModule(modulePath);
 
   const module = sharedModuleManager.modules.get(modulePath);

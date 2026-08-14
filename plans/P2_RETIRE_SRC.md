@@ -8,14 +8,14 @@ the traps as they are found. Started 2026-08-10, branch `p2/self-build`.
 
 The phase's items, from the umbrella plan:
 
-| item | what                                                             | status                                                               |
-| ---- | ---------------------------------------------------------------- | -------------------------------------------------------------------- |
-| 2.1  | bootstrap seed release (TS builds the binaries one last time)    | **DONE** — v0.2.0 shipped 2026-08-11; seeds now at **v0.2.3**        |
-| 2.2  | repo-root `build.yo`: the compiler builds itself with `yo build` | **DONE** (verified both ways 2026-08-10)                             |
-| 2.3  | CI migration: seed release + `yo build` replace bun              | **IN REVIEW** (PR #98) — needs a **v0.2.4** seed; see §2.3 below     |
-| 2.4  | re-express TS-only tests in Yo                                   | **DONE** — inventory below                                           |
-| 2.5  | retire: freeze + delete `src/`, drop package.json/bun/out        | **PLANNED** — [`P2_5_RETIRE_EXECUTION.md`](P2_5_RETIRE_EXECUTION.md) |
-| 2.6  | docs sweep (AGENTS.md, instructions, skills)                     | blocked on 2.5                                                       |
+| item | what                                                             | status                                                                                                                                                                                                                                          |
+| ---- | ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2.1  | bootstrap seed release (TS builds the binaries one last time)    | **DONE** — v0.2.0 shipped 2026-08-11; seeds now at **v0.2.3**                                                                                                                                                                                   |
+| 2.2  | repo-root `build.yo`: the compiler builds itself with `yo build` | **DONE** (verified both ways 2026-08-10); ADOPTION everywhere (CI probes/stage-1 builds/seed still use raw `compile`) is step **24b** of `P2_5_RETIRE_EXECUTION.md` (user directive 2026-08-13; allocator-parity fix landed in root `build.yo`) |
+| 2.3  | CI migration: seed release + `yo build` replace bun              | **IN REVIEW** (PR #98) — needs a **v0.2.4** seed; see §2.3 below                                                                                                                                                                                |
+| 2.4  | re-express TS-only tests in Yo                                   | **DONE** — inventory below                                                                                                                                                                                                                      |
+| 2.5  | retire: freeze + delete `src/`, drop package.json/bun/out        | **PLANNED** — [`P2_5_RETIRE_EXECUTION.md`](P2_5_RETIRE_EXECUTION.md)                                                                                                                                                                            |
+| 2.6  | docs sweep (AGENTS.md, instructions, skills)                     | blocked on 2.5                                                                                                                                                                                                                                  |
 
 **Where 2.3 actually stands (2026-08-12).** Everything on PR #98 is green
 except the tier-1 gates, and the cause is understood, fixed and merged — but

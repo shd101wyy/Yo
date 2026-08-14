@@ -528,6 +528,27 @@ mm_load_file :: (
       }
     )
   );
+  // A prelude that is already cached is a HIT — never re-evaluate it (TS
+  // parity: a checked prelude is a module-cache hit in `loadModule`). The env
+  // cache below is populate-once, but before this guard the prelude BODY was
+  // still re-evaluated, registering every impl a second time into the
+  // process-wide registries under fresh type identities — which corrupts
+  // where-constrained generic-impl resolution for every file checked after it
+  // (see issues/seed-built-stage1-array-fill-method-miss.md).
+  if(input_path.ends_with(String.from("prelude.yo")) && !(g_cached_prelude_env.is_none()), {
+    if(verbose, {
+      println(`check: ${input_path} — evaluator OK`);
+    });
+    return(
+      ModuleLoadOutcome(
+        ok : true,
+        module_value : EvalValue.UnitVal,
+        module_type : TypeValue.Unit,
+        env : match(g_cached_prelude_env, .Some(pe) => pe, .None => Environment.new(input_path.clone())),
+        ctx : eval_context_new(std_path.clone(), input_path.clone())
+      )
+    );
+  });
   if(verbose, {
     println(`check: parsing ${input_path}`);
   });

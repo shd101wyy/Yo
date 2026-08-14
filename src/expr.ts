@@ -1268,6 +1268,7 @@ export const BuiltinFunctions = {
 
   // Crypto random
   __yo_getrandom: ["__yo_getrandom"],
+  __yo_errno: ["__yo_errno"],
   __yo_arc4random_buf: ["__yo_arc4random_buf"],
   __yo_bcrypt_gen_random: ["__yo_bcrypt_gen_random"],
   __yo_getentropy: ["__yo_getentropy"],

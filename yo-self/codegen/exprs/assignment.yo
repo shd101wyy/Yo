@@ -19,6 +19,7 @@ open(import("std/string"));
 { Environment, get_variables_from_env } :: import("../../env.yo");
 { is_array_type, is_unit_type } :: import("../../types/guards.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
+{ CapturedVariable } :: import("../../evaluator/async/await_analysis_types.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 // §C dup-on-store: a field/index/deref store of a borrowed RC value must dup it
 // (the slot takes a new owned ref) so the value survives the source's scope-end
@@ -112,6 +113,70 @@ generate_assignment :: (fn(expr : AstExpr, indent : String, context : FunctionGe
           save.push_string(lhs_code.clone());
           save.push_str("; // Save old value for later use");
           em.emit_string_line(save);
+        }),
+        // The LHS is an sm-> slot (TS assignment.ts:169-199 + its local-temp
+        // fallback). When the old-value temp was itself lowered into the
+        // state struct, save the old value into ITS OWN sm field — the
+        // deferred drop reads it there. When it was NOT (the drop is
+        // same-state), a plain LOCAL temp is the correct home. This branch
+        // previously emitted NOTHING, so the deferred drop either dropped
+        // calloc zero (silent leak) or referenced an undeclared temp.
+        if(!(is_unit_type(lhs_type)), {
+          (sm_field : Option(String)) = Option(String).None;
+          match(
+            context.state_machine_variables,
+            .Some(smv) => {
+              (found_cv : Option(CapturedVariable)) = smv.get(temp_var_name.clone());
+              if(found_cv.is_none(), {
+                // First-match-by-name reading ENTRY fields — never derive
+                // emitted names from map keys (the PR #92 capture lesson).
+                cvals := smv.values();
+                (cv_go : bool) = true;
+                while(cv_go, {
+                  match(
+                    cvals.next(),
+                    .Some(cv) => if(cv.base.name == temp_var_name, {
+                      found_cv = Option(CapturedVariable).Some(cv);
+                      cv_go = false;
+                    }),
+                    .None => {
+                      cv_go = false;
+                    }
+                  );
+                });
+              });
+              match(
+                found_cv,
+                .Some(cv2) => match(
+                  cv2.kind,
+                  .Outer => (),
+                  .Local => {
+                    sm_field = Option(String).Some(`var_${cv2.base.id}`);
+                  }
+                ),
+                .None => ()
+              );
+            },
+            .None => ()
+          );
+          save_sm := indent.clone();
+          match(
+            sm_field,
+            .Some(fld) => {
+              save_sm.push_str("sm->");
+              save_sm.push_string(fld);
+              save_sm.push_str(" = ");
+              save_sm.push_string(lhs_code.clone());
+              save_sm.push_str("; // Save old value for deferred drop");
+            },
+            .None => {
+              save_sm.push_string(get_variable_type_string(lhs_type, temp_var_name.clone(), context.base));
+              save_sm.push_str(" = ");
+              save_sm.push_string(lhs_code.clone());
+              save_sm.push_str("; // Save old value for later use (not an sm-> slot)");
+            }
+          );
+          em.emit_string_line(save_sm);
         })
       );
     },

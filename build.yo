@@ -24,7 +24,13 @@ build :: import("std/build");
 yo_exe :: build.executable({
   name : "yo",
   root : "./yo-self/main.yo",
-  optimize : build.Optimize.ReleaseSmall
+  optimize : build.Optimize.ReleaseSmall,
+  // The canonical CI/release builds pass `--allocator mimalloc`
+  // (test.yml native probes, release.yml seed build); without this the
+  // `yo build` route silently shipped a libc-allocator compiler —
+  // plans/P2_5_RETIRE_EXECUTION.md step 24b (make `yo build` the canonical
+  // yo-self builder everywhere).
+  allocator : build.Allocator.Mimalloc
 });
 
 tests :: build.test({

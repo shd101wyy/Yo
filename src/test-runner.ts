@@ -26,7 +26,7 @@ import {
   exprIsFunctionCallOf,
   exprToString,
 } from "./expr";
-import { ModuleManager } from "./module-manager";
+import { ModuleManager, canonicalizeModulePath } from "./module-manager";
 import {
   type TargetInfo,
   isTargetStandaloneWasi,
@@ -268,7 +268,9 @@ export function extractTests(filePath: string): ExtractTestsResult {
 
     // Use ModuleManager to evaluate the file and get the evaluated expressions
     moduleManager = new ModuleManager();
-    const modulePath = `file://${filePath}`;
+    // Canonical, so the modules.get() below agrees with the canonical key
+    // loadModule stores under.
+    const modulePath = canonicalizeModulePath(`file://${filePath}`);
 
     // Test extraction also evaluates the module in-process — arm the same
     // cooperative deadline as the sequential compile so a hung module
