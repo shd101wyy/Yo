@@ -1446,7 +1446,7 @@ run_compile :: (
     cmd.arg(obj_path.clone());
     cst := io.await(cmd.status(io), IoExn(io : io, exn : exn));
     if(cst.raw != i32(0), {
-      exn.throw(dyn(`compile: C compiler failed (exit ${cst.raw.to_string()}) on ${c_path}`));
+      exn.throw(dyn(`compile: C compiler failed (exit ${cst.code().to_string()}) on ${c_path}`));
       return(())
     });
     ar_out := if(output.clone().ends_with(".a"), output.clone(), `${output}.a`);
@@ -1456,7 +1456,7 @@ run_compile :: (
     arcmd.arg(obj_path.clone());
     ast := io.await(arcmd.status(io), IoExn(io : io, exn : exn));
     if(ast.raw != i32(0), {
-      exn.throw(dyn(`compile: ar failed (exit ${ast.raw.to_string()}) creating ${ar_out}`));
+      exn.throw(dyn(`compile: ar failed (exit ${ast.code().to_string()}) creating ${ar_out}`));
     });
     return(())
   });
@@ -1500,7 +1500,7 @@ run_compile :: (
   });
   st := io.await(cmd.status(io), IoExn(io : io, exn : exn));
   if(st.raw != i32(0), {
-    exn.throw(dyn(`compile: C compiler failed (exit ${st.raw.to_string()}) on ${c_path}`));
+    exn.throw(dyn(`compile: C compiler failed (exit ${st.code().to_string()}) on ${c_path}`));
   });
 });
 /// Recursively collect `*.test.yo` files under `path_str` (or `[path_str]`
@@ -1884,7 +1884,7 @@ run_test :: (
         });
         bst := io.await(ccmd.status(io), IoExn(io : io, exn : exn));
         if(bst.raw != i32(0), {
-          exn.throw(dyn(`test: batch compile failed (exit ${bst.raw.to_string()}) for ${tmp_yo}`));
+          exn.throw(dyn(`test: batch compile failed (exit ${bst.code().to_string()}) for ${tmp_yo}`));
         });
         // Run each test: YO_TEST_INDEX in the PARENT env (the spawn runtime
         // passes environ through when envp is NULL). The ASan run environment
