@@ -161,6 +161,18 @@ Each step is independently landable and gated by `tests/internal` or a new cli-c
 
 17. **`test` job, part 1 — isolate the extension.** Move the `bun package` + Marketplace dry-run into their own job (or `if: runner.os == 'Linux'`), so `npm install -g @vscode/vsce` (test.yml:64) leaves the other four legs. Drop the `bun run scripts/build-site.ts` smoke (test.yml:66). → **verify:** CI; the extension job still produces a `.vsix`. **[CI-only]**
 18. **`test` job, part 2 — convert the Yo steps.** `install-seed`, then `yo fmt --check`, `yo init` + `yo build run`, and `yo compile yo-self/main.yo --release --allocator mimalloc -o yo-native-probe`. Add `shell: bash` to every converted step (only the probe has it today, test.yml:114 — everything else runs under pwsh on windows-latest) and `YO_MAIN_STACK_MB: "4096"` at job level (every self-hosted job sets it; the `test` job sets it nowhere). Keep the `.exe` handling the probe already models (test.yml:117, :122). Delete the `bun test` step **after** step 12. → **verify:** all five legs green. **[CI-only]**
+
+    **DEVIATION 2026-08-15 (deliberate, user-authorized reordering).** Deleting
+    the `bun test` step from the matrix was right — it ran the same TS unit
+    tests on five legs to serve one toolchain — but deleting it OUTRIGHT left
+    the 23 TS test files (466 tests) unrun by ANY job while `src/` still
+    exists. That is a blind window, not a saving: `src/` is still what
+    `./yo-cli` runs locally and it is still being CHANGED (the loadingModules
+    leak fix and its regression pin live there). The plan's "accepted loss" of
+    TS unit-test ground truth is written to coincide with src/'s DELETION, so a
+    dedicated single-runner `ts-unit-tests` job now carries it and dies WITH
+    src/ in Group E — one ~3-minute Linux job instead of five.
+
 19. **`test` job, part 3 — the 5-platform ground truth** (test.yml:130-132). The allowlist is empty (`scripts/bootstrap/known-failing.tsv:21-23`, :44 — "the list is EMPTY, which is the point"), so the 188-file corpus is genuinely green natively on linux-x64; the open questions are wall-clock (serial: `--parallel` is accepted and ignored) and never-scored macOS/Windows. **Measure one leg under the stage-1 binary before the swap** and compare against the 360-min job timeout (test.yml:18). If serial does not fit, shard by directory in the workflow. → **verify:** the measurement, then CI. **[CI-only]**
 
     **MEASURED 2026-08-15 — serial fits, no sharding needed.** A develop-built
@@ -178,19 +190,20 @@ Each step is independently landable and gated by `tests/internal` or a new cli-c
 
 20. Delete the 4-shard `compiler-internal-tests` job; the self-hosted differential becomes the sole arm. **Check branch protection first** — if a required status check names the shards, PRs will block on checks that never run. → **verify:** CI + the repo's branch-protection settings (not visible from the filesystem). **[CI-only]**
 
-         **RECON 2026-08-15 — it is a RULESET, not classic branch protection.**
-         `repos/.../branches/develop/protection` returns 404; the gating lives in
-         ruleset **13548862** (`branch_protection`, target `~DEFAULT_BRANCH`,
-         enforcement `active`; develop IS the default branch). Its 15 required
-         contexts include **all four `Compiler internal tests (tests/internal, TS
+             **RECON 2026-08-15 — it is a RULESET, not classic branch protection.**
+             `repos/.../branches/develop/protection` returns 404; the gating lives in
+             ruleset **13548862** (`branch_protection`, target `~DEFAULT_BRANCH`,
+             enforcement `active`; develop IS the default branch). Its 15 required
+             contexts include **all four `Compiler internal tests (tests/internal, TS
 
-    arm shard N)`**, `Compiler internal tests (tests/internal, self-hosted
-    differential)`, and both `test-wasm32\_\*`legs — so steps 20 and 22 MUST
- edit that ruleset in lockstep or every PR blocks forever on checks that
- can never run. Note only three of the five`test (<os>)` legs are required
- (`macos-latest`, `ubuntu-latest`, `windows-latest`); `macos-26-intel`and
-`ubuntu-24.04-arm`are not. Also per
-`issues/selfhosted-differential-job-needs-sharding.md`, shard the
+        arm shard N)`**, `Compiler internal tests (tests/internal, self-hosted
+        differential)`, and both `test-wasm32\_\*`legs — so steps 20 and 22 MUST
+
+    edit that ruleset in lockstep or every PR blocks forever on checks that
+    can never run. Note only three of the five`test (<os>)` legs are required
+    (`macos-latest`, `ubuntu-latest`, `windows-latest`); `macos-26-intel`and
+    `ubuntu-24.04-arm`are not. Also per
+    `issues/selfhosted-differential-job-needs-sharding.md`, shard the
     differential in this SAME change so both job renames land under ONE
     required-check update.
 

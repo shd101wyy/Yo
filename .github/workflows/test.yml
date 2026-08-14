@@ -90,6 +90,49 @@ jobs:
           packagePath: ./vscode-extension
           registryUrl: https://marketplace.visualstudio.com
 
+  # P2.5 step 18 removed `bun test` from the 5-platform matrix — correctly: it
+  # ran the same TS unit tests five times to serve one toolchain. But deleting
+  # it outright would leave the 23 TS test files (466 tests) unrun by ANY job
+  # while src/ still exists, which is a blind window, not a saving: src/ is
+  # still what `./yo-cli` runs locally, and it is still being CHANGED (the
+  # loadingModules leak fix and its pin, PR #125, live there). The plan's
+  # "accepted loss" of TS unit-test ground truth is meant to coincide with
+  # src/'s DELETION, so this job carries it until then and dies WITH src/ in
+  # Group E — one 3-minute Linux job instead of five.
+  ts-unit-tests:
+    name: TS unit tests (dies with src/ in Group E)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install liburing
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y liburing-dev
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install dependencies
+        run: |
+          bun install
+          bun run build
+
+      - name: Run TS unit tests
+        run: bun test --timeout 600000
+
   test:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 360
