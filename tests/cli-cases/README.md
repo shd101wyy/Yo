@@ -12,15 +12,39 @@ lines wired to no subcommand and SIGSEGV'd the first time it ran. See
 
 ## Case layout
 
-| file       | required | meaning                                                             |
-| ---------- | -------- | ------------------------------------------------------------------- |
-| `cmd`      | yes      | one shell-quoted argv per line, run in order in the sandbox project |
-| `fixture/` | no       | copied into the sandbox project dir before the first command        |
-| `ignore`   | no       | one path glob per line, dropped from the tree comparison            |
-| `opts`     | no       | `stdout=strict\|ignore`, `network=1`, `timeout=<seconds>`           |
+| file                 | required | meaning                                                                                                                                               |
+| -------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cmd`                | yes      | one shell-quoted argv per line, run in order in the sandbox project                                                                                   |
+| `fixture/`           | no       | copied into the sandbox project dir before the first command                                                                                          |
+| `ignore`             | no       | one path glob per line, dropped from the tree comparison                                                                                              |
+| `opts`               | no       | `stdout=strict\|ignore`, `stdout_keep=<ERE>`, `network=1`, `timeout=<seconds>`, `env=K=V` (repeatable; `<PROJ>`/`<HOME>` expand to the sandbox paths) |
+| `expected_rc`        | no       | golden files, recorded from the self-hosted arm via `--record` — see Golden mode below.                                                               |
+| `expected_stdout`    | no       | (absent for `stdout=ignore` cases)                                                                                                                    |
+| `expected_tree`      | no       | project-tree manifest (`<relpath>\t<sha256>`)                                                                                                         |
+| `expected_home_tree` | no       | `HOME`-tree manifest, same format                                                                                                                     |
 
 A run stops at the first non-zero exit code, so a `cmd` file may assert an error
 path by putting the failing command last.
+
+## Golden mode — what outlives `src/`
+
+When `out/cjs/yo-cli.cjs` is missing (or `--golden` is passed), the harness
+scores the self-hosted arm against each case's recorded golden files instead of
+against the TS reference — this is the corpus's post-retirement form
+(`plans/P2_5_RETIRE_EXECUTION.md` step 12). Goldens are recorded **from the
+self arm** (`--record`): the harness injects `YO_STD` on the self side only, so
+the surviving arm is the one whose environment was always explicit. A case with
+no goldens scores `NO-GOLDEN` and fails the run — a silently unscored case is
+indistinguishable from a passing one.
+
+```bash
+YO_SELF_BIN=/tmp/yo-s1 scripts/cli-diff-test.sh --golden          # score against goldens
+YO_SELF_BIN=/tmp/yo-s1 scripts/cli-diff-test.sh --record <case>   # re-record after an intended behavior change
+```
+
+Re-record only when a behavior change is intended, and review the golden diff
+in the same commit as the change that caused it — the diff IS the review
+surface once the TS arm is gone.
 
 ## Running
 

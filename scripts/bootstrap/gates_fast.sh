@@ -101,6 +101,21 @@ echo "$corpus" | grep -qE 'SELF-FAIL 0( |$)' || {
   dump_log "/tmp/${P}_corpus.log"
 }
 
+echo "=== T1 GATE 2b: corpus golden scoring ==="
+# Same corpus, self arm scored against tests/codegen-bootstrap/goldens/
+# (recorded with GATE 2's own flags — they are behavior-affecting). While both
+# compilers exist this is the drift ratchet keeping the goldens honest; after
+# src/ retirement it replaces GATE 2 (plans/P2_5_RETIRE_EXECUTION.md step 13).
+# An intended behavior change re-records in the same commit:
+#   scripts/diff-test.sh tests/codegen-bootstrap --release --parallel 4 --record
+YO_SELF_BIN=$S1 scripts/diff-test.sh tests/codegen-bootstrap --release --parallel 4 --golden &> "/tmp/${P}_corpus_golden.log"
+corpus_golden_rc=$?
+echo "CORPUS_GOLDEN_RC=$corpus_golden_rc  $(tail -1 "/tmp/${P}_corpus_golden.log")"
+if [ "$corpus_golden_rc" != "0" ]; then
+  fail "corpus golden scoring failed (re-record with --record if the change is intended)"
+  dump_log "/tmp/${P}_corpus_golden.log"
+fi
+
 echo "=== T1 GATE 3: check ./std ==="
 YO_MAIN_STACK_MB=4096 "$S1" check ./std &> "/tmp/${P}_std.log"
 std_rc=$?
@@ -150,24 +165,15 @@ if [ "$init_rc" != "0" ] || [ -n "$missing" ]; then
   dump_log "/tmp/${P}_init.log"
 fi
 
-echo "=== T1 GATE 6: fmt differential ==="
-# The repo is kept TS-`fmt`-clean, so any file the SELF-HOSTED formatter reports
-# as "would format" is a divergence between the two formatters — which is the
-# thing to gate on, and it runs in under a minute (the byte-for-byte `cmp` loop
-# over all 808 files takes ~25 min and is the slow confirmation, not the gate).
-#
-# This was 339 divergent files, then 17, and is now 0. Three root causes, all
-# fixed: the Dot case ate a preceding space; `read_raw_template_string` used a
-# character index as a byte offset and DESTROYED any file mixing non-ASCII text
-# with a backtick string; and `_trim_trailing_h_ws` did the same thing in
-# reverse — a byte index handed to the CHAR-indexed `String.substring`, which
-# clamped and made the trim a silent no-op (the `(== )` / `quote(&& )` class).
-# Plus a missing indent on closer/comma/semicolon tokens landing at line start.
-# See plans/P1_CLI_PARITY.md §7.
-#
-# Guard against the gate going hollow: assert the TS side is clean FIRST. If the
-# repo itself drifts out of TS-fmt-clean, "self-hosted reports 0" would stop
-# meaning "the two agree".
+echo "=== T1 GATE 6: fmt (self-hosted check + write idempotence) ==="
+# History: this was a TS-vs-self differential while the two formatters were
+# being reconciled (339 divergent files → 17 → 0; root causes recorded in
+# plans/P1_CLI_PARITY.md §7, resolution measured 2026-08-11 over all 865
+# files). The TS pre-check is gone per plans/P2_5_RETIRE_EXECUTION.md step 14;
+# what replaces the differential's value is (a) the tree must be
+# self-fmt-clean, and (b) write mode must be a NO-OP on a check-clean tree —
+# a diff there is a check/write divergence, the class --check alone can't see.
+# The fmt-check/fmt-write cli-cases (GATE 7/7b) pin the formatter's OUTPUT.
 #
 # Clear GATE 1's leftovers first. It runs with YO_KEEP_BATCH=1 (the hollow check
 # needs the emitted .c), which leaves generated `.yo_selftest_batch_*.yo` next to
@@ -175,18 +181,30 @@ echo "=== T1 GATE 6: fmt differential ==="
 # would report them and this gate would fail on its own debris.
 find ./tests -name '.yo_selftest_batch_*' -delete 2>/dev/null
 
-node ./out/cjs/yo-cli.cjs fmt --check ./std ./tests ./yo-self &> "/tmp/${P}_fmt_ts.log"
-fmt_ts_rc=$?
 YO_MAIN_STACK_MB=4096 "$S1" fmt --check ./std ./tests ./yo-self &> "/tmp/${P}_fmt_self.log"
 fmt_self_rc=$?
-echo "FMT_TS_RC=$fmt_ts_rc FMT_SELF_RC=$fmt_self_rc"
-if [ "$fmt_ts_rc" != "0" ]; then
-  fail "the repo is not TS-fmt-clean, so the fmt differential cannot be judged"
-  dump_log "/tmp/${P}_fmt_ts.log"
-fi
+echo "FMT_SELF_RC=$fmt_self_rc"
 if [ "$fmt_self_rc" != "0" ]; then
-  fail "self-hosted fmt diverges from the reference formatter"
+  fail "self-hosted fmt --check reports the tree unformatted"
   dump_log "/tmp/${P}_fmt_self.log"
+else
+  # Compare the diff CONTENT before/after the write, not cleanliness — a local
+  # tree may carry unrelated in-flight edits, and a bare `git checkout` here
+  # would destroy them. Files already dirty before the gate are never restored.
+  fmt_pre_diff="$(git diff -- std tests yo-self | shasum -a 256)"
+  fmt_pre_dirty="$(git diff --name-only -- std tests yo-self)"
+  YO_MAIN_STACK_MB=4096 "$S1" fmt ./std ./tests ./yo-self &> "/tmp/${P}_fmt_write.log"
+  fmt_post_diff="$(git diff -- std tests yo-self | shasum -a 256)"
+  if [ "$fmt_pre_diff" = "$fmt_post_diff" ]; then
+    echo "FMT_IDEMPOTENT=1"
+  else
+    fail "fmt write mode changed a check-clean tree (check/write divergence)"
+    git diff --stat -- std tests yo-self | head -20
+    # Restore only what the WRITE touched: dirty-now minus dirty-before.
+    git diff --name-only -- std tests yo-self | while IFS= read -r fmt_f; do
+      printf '%s\n' "$fmt_pre_dirty" | grep -qxF "$fmt_f" || git checkout -- "$fmt_f"
+    done
+  fi
 fi
 
 echo "=== T1 GATE 7: CLI subcommand differential ==="
@@ -201,6 +219,21 @@ echo "CLIDIFF_RC=$clidiff_rc  $(tail -1 "/tmp/${P}_clidiff.log")"
 if [ "$clidiff_rc" != "0" ]; then
   fail "CLI subcommand differential failed"
   dump_log "/tmp/${P}_clidiff.log"
+fi
+
+echo "=== T1 GATE 7b: CLI golden scoring ==="
+# Same corpus, scored against the per-case recorded goldens (expected_rc /
+# expected_stdout / expected_tree / expected_home_tree). While both compilers
+# exist this is the drift ratchet that keeps the goldens honest — an intended
+# behavior change must re-record its goldens in the same commit
+# (scripts/cli-diff-test.sh --record). After src/ retirement it is the
+# differential's replacement (plans/P2_5_RETIRE_EXECUTION.md step 12).
+YO_SELF_BIN=$S1 scripts/cli-diff-test.sh --golden &> "/tmp/${P}_cligolden.log"
+cligolden_rc=$?
+echo "CLIGOLDEN_RC=$cligolden_rc  $(tail -1 "/tmp/${P}_cligolden.log")"
+if [ "$cligolden_rc" != "0" ]; then
+  fail "CLI golden scoring failed (re-record with scripts/cli-diff-test.sh --record if the change is intended)"
+  dump_log "/tmp/${P}_cligolden.log"
 fi
 
 echo "=== T1_DONE (${P}) failures=${fails} ==="

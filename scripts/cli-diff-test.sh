@@ -20,6 +20,11 @@
 #                argv appended to the compiler binary, run in the sandbox
 #                project dir. `#` comments and blank lines are ignored.
 #     fixture/   OPTIONAL. Copied into the sandbox project dir before running.
+#                Files named `*.fixture` are copied with that suffix STRIPPED
+#                (`messy.yo.fixture` → `messy.yo`) — for fixtures that must be
+#                misformatted `.yo` (the fmt cases), which may not live in the
+#                repo as `.yo` or the repo-tree `fmt --check` gate would flag
+#                them (same convention as formatter_fixtures/*.input).
 #     ignore     OPTIONAL. One path glob per line; matching paths are dropped
 #                from the tree comparison (globs match the `./`-prefixed
 #                relative path, e.g. `./yo-out/*`).
@@ -37,12 +42,44 @@
 #                                         (the built program's own stdout, the
 #                                         build summary) instead of discarding all
 #                                         of it.
+#                  stdout_keep_match=<ERE> keep ONLY the matched SUBSTRING of
+#                                         matching stdout lines (grep -oE).
+#                                         For asserting a shared diagnostic
+#                                         embedded in differently-worded
+#                                         wrapper lines (TS's uncaught-throw
+#                                         stack vs `yo: error:`): the kept
+#                                         text must appear on BOTH sides, so
+#                                         a case stops passing on ANY failure
+#                                         and starts asserting THE failure.
 #                  network=1              (skipped unless --network is passed)
 #                  timeout=<seconds>      (default 300, per command)
+#                  env=K=V                extra environment for BOTH sides (one
+#                                         per line, repeatable). `<PROJ>` and
+#                                         `<HOME>` in the value expand to that
+#                                         side's sandbox paths — needed for
+#                                         cache-precedence / std-resolution
+#                                         cases whose whole point is the env.
+#     expected_rc          OPTIONAL. Golden files, recorded from the SELF arm
+#     expected_stdout      via --record (see Golden mode below). expected_stdout
+#     expected_tree        is absent for stdout=ignore cases; expected_tree /
+#     expected_home_tree   expected_home_tree are `snapshot_tree` manifests.
 #
 # Each side runs with its own HOME, so `~/.cache/yo` mutations are part of the
 # differential rather than leaking between the two sides or into the user's
 # real cache. Both the project tree and the HOME tree are compared.
+#
+# ── Golden mode (the TS arm is optional) ────────────────────────────────────
+# When `out/cjs/yo-cli.cjs` is missing — or `--golden` is passed — the harness
+# compares the self-hosted arm against each case's recorded golden files
+# instead of against the TS reference. This is what survives `src/` retirement
+# (plans/P2_5_RETIRE_EXECUTION.md step 12). Goldens are recorded FROM THE SELF
+# ARM (`--record`): the harness injects YO_STD on the self side only, so the
+# surviving arm is the one whose env was always explicit. A case with no
+# recorded goldens is a failure (NO-GOLDEN), not a skip — a silently unscored
+# case is indistinguishable from a passing one.
+#
+#   scripts/cli-diff-test.sh --record [case ...]   # (re)record from SELF arm
+#   scripts/cli-diff-test.sh --golden [case ...]   # score SELF against goldens
 #
 # ── Per-case verdicts (same vocabulary as scripts/diff-test.sh) ─────────────
 #   PASS       both sides behaved identically (rc, stdout, project tree, HOME tree)
@@ -52,10 +89,15 @@
 #   BOTH-FAIL  both failed AND their behavior differs (matching failures are
 #              a PASS — a case may legitimately assert an error path)
 #   SKIP       case declared network=1 and --network was not passed
+# Golden-mode verdicts:
+#   PASS         the self arm matches the recorded goldens
+#   GOLDEN-DIFF  it does not (rc, stdout, project tree, or HOME tree)
+#   NO-GOLDEN    the case has no expected_rc — record it or fix the case
+#   RECORDED     (--record only) goldens written from the self arm
 #
 # Usage:
 #   scripts/cli-diff-test.sh [case ...] [--cases-dir DIR] [--filter SUBSTR]
-#                            [--network] [--keep] [-v]
+#                            [--network] [--keep] [-v] [--golden] [--record]
 #
 # With no case arguments every case under --cases-dir (default
 # tests/cli-cases) runs.
@@ -80,9 +122,11 @@ FILTER=""
 VERBOSE=0
 NETWORK=0
 KEEP=0
+MODE=diff       # diff | golden
+RECORD=0
 declare -a WANTED=()
 
-usage() { sed -n '2,60p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '2,95p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -90,6 +134,8 @@ while [[ $# -gt 0 ]]; do
     --filter)    FILTER="$2"; shift 2 ;;
     --network)   NETWORK=1; shift ;;
     --keep)      KEEP=1; shift ;;
+    --golden)    MODE=golden; shift ;;
+    --record)    RECORD=1; shift ;;
     -v|--verbose) VERBOSE=1; shift ;;
     -h|--help)   usage 0 ;;
     -*)          echo "unknown flag: $1" >&2; usage 2 ;;
@@ -99,7 +145,12 @@ done
 
 [[ -d "$CASES_DIR" ]] || { echo "error: cases dir not found: $CASES_DIR" >&2; exit 2; }
 [[ -x "$YO_SELF_BIN" ]] || echo "warning: YO_SELF_BIN not found/executable: $YO_SELF_BIN (every case will SELF-FAIL)" >&2
-[[ -f "$REPO_ROOT/out/cjs/yo-cli.cjs" ]] || { echo "error: out/cjs/yo-cli.cjs missing — run 'bun run build'" >&2; exit 2; }
+# The TS arm is optional: without it the harness scores the self arm against
+# the recorded goldens instead of exiting (this is what outlives src/).
+if [[ "$MODE" == "diff" && $RECORD -eq 0 && ! -f "$REPO_ROOT/out/cjs/yo-cli.cjs" ]]; then
+  echo "note: out/cjs/yo-cli.cjs missing — no TS arm, falling back to golden mode" >&2
+  MODE=golden
+fi
 
 # Portable timeout (macOS ships none by default).
 if command -v timeout >/dev/null 2>&1; then TIMEOUT_BIN=(timeout)
@@ -182,6 +233,35 @@ explain_tree_diff() {
   done < "$m_ts"
 }
 
+# Golden-mode variant of explain_tree_diff: the golden side has no live root,
+# so content mismatches are reported by path only (the recorded hash is all we
+# kept). $1 = golden manifest, $2 = self manifest.
+explain_golden_tree_diff() {
+  local m_gold="$1" m_self="$2"
+  [[ -f "$m_gold" ]] || { echo "    (no recorded golden manifest)"; return; }
+  diff <(cut -f1 "$m_gold") <(cut -f1 "$m_self") | sed -n 's/^< /    only-in-golden: /p;s/^> /    only-in-self:   /p'
+  local p sha_gold sha_self
+  while IFS=$'\t' read -r p sha_gold; do
+    sha_self="$(grep -F -m1 "$(printf '%s\t' "$p")" "$m_self" | cut -f2)"
+    [[ -z "$sha_self" || "$sha_gold" == "$sha_self" ]] && continue
+    echo "    content-differs (vs recorded golden hash): $p"
+  done < "$m_gold"
+}
+
+# Apply the case's stdout filters to $1 in place: stdout_keep keeps matching
+# LINES, stdout_keep_match keeps only the matched SUBSTRINGS (grep -oE).
+apply_stdout_filters() {
+  local f="$1"
+  if [[ -n "$stdout_keep" ]]; then
+    grep -E "$stdout_keep" "$f" > "$f.kept" || true
+    mv "$f.kept" "$f"
+  fi
+  if [[ -n "$stdout_keep_match" ]]; then
+    grep -oE "$stdout_keep_match" "$f" > "$f.kept" || true
+    mv "$f.kept" "$f"
+  fi
+}
+
 # Read `KEY=VALUE` from a case's opts file. $1 = case dir, $2 = key, $3 = default
 opt() {
   local f="$1/opts" k="$2" d="$3" v
@@ -209,12 +289,27 @@ fi
 # Runs every line of the case's `cmd` under one compiler in a fresh sandbox.
 # Stops at the first non-zero rc (later commands would compare noise).
 # $1 = case dir, $2 = "ts"|"self", $3 = sandbox root, $4 = timeout
+# Reads the case's `env=K=V` opts from the global CASE_ENV_RAW (one K=V per
+# line; `<PROJ>`/`<HOME>` expand to this side's sandbox paths).
 # Writes $3/stdout.raw and echoes the final rc.
 run_side() {
   local cdir="$1" side="$2" sand="$3" tmo="$4"
   local proj="$sand/proj" home="$sand/home"
   mkdir -p "$proj" "$home"
   [[ -d "$cdir/fixture" ]] && cp -R "$cdir/fixture/." "$proj/"
+  # Strip the `.fixture` suffix (see the case-layout doc): lets a case ship a
+  # deliberately-misformatted `.yo` without tripping the repo fmt gate.
+  find "$proj" -name '*.fixture' -type f 2>/dev/null | while IFS= read -r fx; do
+    mv "$fx" "${fx%.fixture}"
+  done
+
+  local -a envkv=() kv
+  while IFS= read -r kv; do
+    [[ -z "$kv" ]] && continue
+    kv="${kv//<PROJ>/$proj}"
+    kv="${kv//<HOME>/$home}"
+    envkv+=("$kv")
+  done <<< "${CASE_ENV_RAW:-}"
 
   local rc=0 line
   : > "$sand/stdout.raw"
@@ -226,10 +321,10 @@ run_side() {
       echo "\$ yo ${argv[*]}"
       if [[ "$side" == "ts" ]]; then
         ( cd "$proj" && HOME="$home" YO_ORIGINAL_CWD="$proj" \
-            run_with_timeout "$tmo" "${TS_CLI[@]}" "${argv[@]}" 2>&1 )
+            run_with_timeout "$tmo" env ${envkv[@]+"${envkv[@]}"} "${TS_CLI[@]}" "${argv[@]}" 2>&1 )
       else
         ( cd "$proj" && HOME="$home" YO_ORIGINAL_CWD="$proj" YO_STD="$REPO_ROOT/std" \
-            run_with_timeout "$tmo" "$YO_SELF_BIN" "${argv[@]}" 2>&1 )
+            run_with_timeout "$tmo" env ${envkv[@]+"${envkv[@]}"} "$YO_SELF_BIN" "${argv[@]}" 2>&1 )
       fi
       rc=$?
       echo "rc=$rc"
@@ -240,7 +335,8 @@ run_side() {
 }
 
 # ── main loop ───────────────────────────────────────────────────────────────
-declare -A COUNT=( [PASS]=0 [DIFF]=0 [SELF-FAIL]=0 [TS-FAIL]=0 [BOTH-FAIL]=0 [SKIP]=0 )
+declare -A COUNT=( [PASS]=0 [DIFF]=0 [SELF-FAIL]=0 [TS-FAIL]=0 [BOTH-FAIL]=0 [SKIP]=0
+                   [GOLDEN-DIFF]=0 [NO-GOLDEN]=0 [RECORDED]=0 )
 declare -a REPORT=()
 total=0
 
@@ -258,25 +354,104 @@ for cdir in "${CASES[@]}"; do
   tmo="$(opt "$cdir" timeout 300)"
   stdout_mode="$(opt "$cdir" stdout strict)"
   stdout_keep="$(opt "$cdir" stdout_keep '')"
+  stdout_keep_match="$(opt "$cdir" stdout_keep_match '')"
   extra_ignores=""
   [[ -f "$cdir/ignore" ]] && extra_ignores="$(cat "$cdir/ignore")"
+  CASE_ENV_RAW=""
+  [[ -f "$cdir/opts" ]] && CASE_ENV_RAW="$(grep -E '^env=' "$cdir/opts" | cut -d= -f2- || true)"
 
   # `pwd -P` resolves /var -> /private/var on macOS. Without it the sandbox path
   # a child sees via `process.cwd()` differs from the one we hand it in
   # YO_ORIGINAL_CWD, and every path the tool prints relative to its cwd picks up
   # a spurious `../../..` prefix that looks like a real divergence.
   work="$(cd "$(mktemp -d)" && pwd -P)"
+
+  # ── golden mode / recording: the self arm only ────────────────────────────
+  if [[ $RECORD -eq 1 || "$MODE" == "golden" ]]; then
+    self_rc="$(run_side "$cdir" self "$work/self" "$tmo")"
+    normalize_stream "$work/self/proj" "$work/self/home" < "$work/self/stdout.raw" > "$work/self.out"
+    apply_stdout_filters "$work/self.out"
+    snapshot_tree "$work/self/proj" "$extra_ignores" > "$work/self.proj.manifest"
+    snapshot_tree "$work/self/home" "$extra_ignores" > "$work/self.home.manifest"
+
+    if [[ -n "$stdout_keep_match" && ! -s "$work/self.out" ]]; then
+      # Vacuous keep-match (see the differential path): never record or pass it.
+      COUNT[NO-GOLDEN]=$(( COUNT[NO-GOLDEN] + 1 ))
+      REPORT+=("NO-GOLDEN|$name|stdout_keep_match matched nothing — vacuous")
+      echo "── NO-GOLDEN  $name  (stdout_keep_match matched nothing — vacuous)" >&2
+      if [[ $KEEP -eq 1 ]]; then echo "  kept sandbox: $work" >&2; else rm -rf "$work"; fi
+      continue
+    fi
+    if [[ $RECORD -eq 1 ]]; then
+      printf '%s\n' "$self_rc" > "$cdir/expected_rc"
+      if [[ "$stdout_mode" != "ignore" ]]; then
+        cp "$work/self.out" "$cdir/expected_stdout"
+      else
+        rm -f "$cdir/expected_stdout"
+      fi
+      cp "$work/self.proj.manifest" "$cdir/expected_tree"
+      cp "$work/self.home.manifest" "$cdir/expected_home_tree"
+      COUNT[RECORDED]=$(( COUNT[RECORDED] + 1 ))
+      REPORT+=("RECORDED|$name|rc=$self_rc")
+      echo "── RECORDED  $name  (rc=$self_rc)" >&2
+    elif [[ ! -f "$cdir/expected_rc" ]]; then
+      COUNT[NO-GOLDEN]=$(( COUNT[NO-GOLDEN] + 1 ))
+      REPORT+=("NO-GOLDEN|$name|no expected_rc — record with --record")
+      echo "── NO-GOLDEN  $name  (no expected_rc — record with --record)" >&2
+    else
+      exp_rc="$(cat "$cdir/expected_rc")"
+      reasons=""
+      [[ "$exp_rc" != "$self_rc" ]] && reasons="$reasons rc(golden=$exp_rc,self=$self_rc)"
+      if [[ "$stdout_mode" != "ignore" ]]; then
+        if [[ ! -f "$cdir/expected_stdout" ]] || ! cmp -s "$cdir/expected_stdout" "$work/self.out"; then
+          reasons="$reasons stdout"
+        fi
+      fi
+      if [[ ! -f "$cdir/expected_tree" ]] || ! cmp -s "$cdir/expected_tree" "$work/self.proj.manifest"; then
+        reasons="$reasons tree"
+      fi
+      if [[ ! -f "$cdir/expected_home_tree" ]] || ! cmp -s "$cdir/expected_home_tree" "$work/self.home.manifest"; then
+        reasons="$reasons home"
+      fi
+
+      if [[ -z "$reasons" ]]; then
+        verdict=PASS; detail="rc=$self_rc (golden)"
+      else
+        verdict=GOLDEN-DIFF; detail="rc=$self_rc;$reasons"
+      fi
+      COUNT[$verdict]=$(( COUNT[$verdict] + 1 ))
+      REPORT+=("$verdict|$name|$detail")
+
+      if [[ "$verdict" != "PASS" || $VERBOSE -eq 1 ]]; then
+        {
+          echo "── $verdict  $name  ($detail)"
+          if [[ "$reasons" == *stdout* ]]; then
+            echo "    stdout diff (golden < / self >):"
+            diff "$cdir/expected_stdout" "$work/self.out" 2>/dev/null | head -40 | sed 's/^/      /'
+          fi
+          if [[ "$reasons" == *tree* ]]; then
+            echo "    project tree:"
+            explain_golden_tree_diff "$cdir/expected_tree" "$work/self.proj.manifest"
+          fi
+          if [[ "$reasons" == *home* ]]; then
+            echo "    HOME tree:"
+            explain_golden_tree_diff "$cdir/expected_home_tree" "$work/self.home.manifest"
+          fi
+        } >&2
+      fi
+    fi
+
+    if [[ $KEEP -eq 1 ]]; then echo "  kept sandbox: $work" >&2; else rm -rf "$work"; fi
+    continue
+  fi
+
   ts_rc="$(run_side "$cdir" ts   "$work/ts"   "$tmo")"
   self_rc="$(run_side "$cdir" self "$work/self" "$tmo")"
 
   normalize_stream "$work/ts/proj"   "$work/ts/home"   < "$work/ts/stdout.raw"   > "$work/ts.out"
   normalize_stream "$work/self/proj" "$work/self/home" < "$work/self/stdout.raw" > "$work/self.out"
-  if [[ -n "$stdout_keep" ]]; then
-    grep -E "$stdout_keep" "$work/ts.out"   > "$work/ts.out.kept"   || true
-    grep -E "$stdout_keep" "$work/self.out" > "$work/self.out.kept" || true
-    mv "$work/ts.out.kept" "$work/ts.out"
-    mv "$work/self.out.kept" "$work/self.out"
-  fi
+  apply_stdout_filters "$work/ts.out"
+  apply_stdout_filters "$work/self.out"
 
   snapshot_tree "$work/ts/proj"   "$extra_ignores" > "$work/ts.proj.manifest"
   snapshot_tree "$work/self/proj" "$extra_ignores" > "$work/self.proj.manifest"
@@ -287,6 +462,11 @@ for cdir in "${CASES[@]}"; do
   [[ "$ts_rc" != "$self_rc" ]] && reasons="$reasons rc(ts=$ts_rc,self=$self_rc)"
   if [[ "$stdout_mode" != "ignore" ]] && ! cmp -s "$work/ts.out" "$work/self.out"; then
     reasons="$reasons stdout"
+  fi
+  # A keep-match pattern that matched NOTHING on either side is a vacuous
+  # assertion (typo'd pattern, changed diagnostic) — fail it, don't pass it.
+  if [[ -n "$stdout_keep_match" && ! -s "$work/ts.out" && ! -s "$work/self.out" ]]; then
+    reasons="$reasons keep-match-vacuous"
   fi
   cmp -s "$work/ts.proj.manifest" "$work/self.proj.manifest" || reasons="$reasons tree"
   cmp -s "$work/ts.home.manifest" "$work/self.home.manifest" || reasons="$reasons home"
@@ -344,10 +524,18 @@ for r in "${REPORT[@]}"; do
   fi
 done
 echo "──────────────────────────────────────────────"
-printf 'PASS %d  DIFF %d  SELF-FAIL %d  TS-FAIL %d  BOTH-FAIL %d  SKIP %d  (total %d)\n' \
-  "${COUNT[PASS]}" "${COUNT[DIFF]}" "${COUNT[SELF-FAIL]}" "${COUNT[TS-FAIL]}" \
-  "${COUNT[BOTH-FAIL]}" "${COUNT[SKIP]}" "$total"
+if [[ $RECORD -eq 1 ]]; then
+  printf 'RECORDED %d  SKIP %d  (total %d)\n' "${COUNT[RECORDED]}" "${COUNT[SKIP]}" "$total"
+elif [[ "$MODE" == "golden" ]]; then
+  printf 'PASS %d  GOLDEN-DIFF %d  NO-GOLDEN %d  SKIP %d  (total %d)\n' \
+    "${COUNT[PASS]}" "${COUNT[GOLDEN-DIFF]}" "${COUNT[NO-GOLDEN]}" "${COUNT[SKIP]}" "$total"
+else
+  printf 'PASS %d  DIFF %d  SELF-FAIL %d  TS-FAIL %d  BOTH-FAIL %d  SKIP %d  (total %d)\n' \
+    "${COUNT[PASS]}" "${COUNT[DIFF]}" "${COUNT[SELF-FAIL]}" "${COUNT[TS-FAIL]}" \
+    "${COUNT[BOTH-FAIL]}" "${COUNT[SKIP]}" "$total"
+fi
 
-FAILED=$(( COUNT[DIFF] + COUNT[SELF-FAIL] + COUNT[TS-FAIL] + COUNT[BOTH-FAIL] ))
+FAILED=$(( COUNT[DIFF] + COUNT[SELF-FAIL] + COUNT[TS-FAIL] + COUNT[BOTH-FAIL] \
+           + COUNT[GOLDEN-DIFF] + COUNT[NO-GOLDEN] ))
 [[ $FAILED -gt 0 ]] && exit 1
 exit 0
