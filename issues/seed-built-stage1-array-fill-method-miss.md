@@ -56,15 +56,34 @@ NOT reproduce under the TS-built binary (default GC or `YO_GC_THRESHOLD=1`).
 
 ## Repro attempts so far
 
-| attempt                                                                  | binary                | platform | result                    |
-| ------------------------------------------------------------------------ | --------------------- | -------- | ------------------------- |
-| CI round 5 GATE 3                                                        | seed-built (mimalloc) | ubuntu   | **152/154 (the failure)** |
-| CI round 2 GATE 3                                                        | seed-built (mimalloc) | ubuntu   | 154/154                   |
-| `check ./std` ×several                                                   | TS-built (libc)       | macOS    | 154/154                   |
-| md5 single file, `YO_GC_THRESHOLD=1`                                     | TS-built              | macOS    | OK                        |
-| distilled table+fill probe, both GC modes                                | TS-built              | macOS    | OK                        |
-| CI rerun of the failed job (same commit, fresh seed build)               | seed-built            | ubuntu   | in flight                 |
-| seed-built stage-1 (v0.2.4 + mimalloc, e0bb8f5a3 worktree) `check ./std` | seed-built            | macOS    | **154/154 ×6** (no repro) |
+| attempt                                                                  | binary                | platform | result                                                                      |
+| ------------------------------------------------------------------------ | --------------------- | -------- | --------------------------------------------------------------------------- |
+| CI round 5 GATE 3                                                        | seed-built (mimalloc) | ubuntu   | **152/154 (the failure)**                                                   |
+| CI round 2 GATE 3                                                        | seed-built (mimalloc) | ubuntu   | 154/154                                                                     |
+| `check ./std` ×several                                                   | TS-built (libc)       | macOS    | 154/154                                                                     |
+| md5 single file, `YO_GC_THRESHOLD=1`                                     | TS-built              | macOS    | OK                                                                          |
+| distilled table+fill probe, both GC modes                                | TS-built              | macOS    | OK                                                                          |
+| CI rerun of the failed job (same commit, fresh seed build)               | seed-built            | ubuntu   | **152/154 — identical failure** (md5:212, sha256:94, byte-identical errors) |
+| seed-built stage-1 (v0.2.4 + mimalloc, e0bb8f5a3 worktree) `check ./std` | seed-built            | macOS    | **154/154 ×6** (no repro)                                                   |
+
+## Analysis addendum (2026-08-14, after the rerun)
+
+The rerun reproduced **byte-identically** on Linux. Combined with the
+fixpoint (emission is deterministic: same tree → same stage-1 binary), this
+is "deterministic per tree" — which is exactly what the layout-lottery
+theory predicts, NOT evidence against it. Note `check` never EXECUTES the
+drop_dup code that changed in the failure window: those +30 lines are
+codegen-module dead weight on the evaluator path, so they can only matter
+through binary layout.
+
+Working theory (fits every observation): an evaluator value involved in
+where-constrained generic-impl matching (the specialized method entry, its
+env, or a type-key intermediary) is **freed early** (RC or GC-rooting bug)
+on ALL platforms. macOS reads the stale-but-intact memory and "works";
+Linux's allocator recycles the slot before the lookup — md5/sha256 are the
+files that allocate the most (64-entry comptime tables) between the free
+and the `.fill` lookup, so they are the recyclers. This is the
+MallocScribble-detectable class ([[rc-probes-scribble-and-rc]]).
 
 ## Next steps
 
