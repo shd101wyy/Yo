@@ -153,6 +153,49 @@ check + valgrind.** Clean → the defect is v0.2.4 SEED CODEGEN (historical;
 fixed by advancing the seed to v0.2.5 once #122-#124 merge and release).
 Dirty → a live std/codegen bug to fix in both compilers now.
 
+## Discriminator results (debug-gate3 run 2) + a valgrind caveat
+
+**TS-built stage-1 of the same tree, on Linux: `check ./std` = 154/154
+PASSES** — while its valgrind run reports 2.56M "uninitialised" errors of
+the same shape as the seed arm. That parity of valgrind noise across a
+passing and a failing binary exposed a reading error in the localization
+above: **valgrind memcheck cannot see io_uring completions** (the kernel
+fills buffers with no syscall boundary memcheck hooks), so buffers the
+kernel legitimately filled still read as "uninitialised". Most of the 2.2M
+reports are this blindness, NOT the defect. What remains true and proven:
+
+- Current codegen produces healthy Linux binaries: the TS-built stage-1
+  passes GATE 3; the 188-file hollow sweep (stage-1-EMITTED binaries =
+  current yo-self codegen) is green; the fixpoint holds.
+- The v0.2.4-EMITTED stage-1 misbehaves, timing/layout-dependently, in the
+  async-IO-driven paths (the flagged branch sits in `collect_check_files`
+  consuming `is_file`/`is_dir` results).
+
+Best-fit defect class: a v0.2.4 async **await-result handling** bug — the
+same machinery where the tail-await result-loss was found and fixed in the
+current tree (both compilers). It only bites when an await actually
+SUSPENDS: the emitted inline fast-path (`__yo_inline_budget`) hides it
+whenever IO completes synchronously — which is why macOS (kqueue, more
+sync completions) never shows it, and why unrelated source shifts flip the
+outcome (latency lottery around the suspend window). No standalone
+tail-await shape exists in current std/yo-self sources, so v0.2.4's bug
+class is broader than the fixed shape — the exact v0.2.4 defect is
+unrecoverable-by-inspection without its era's codegen, and it is
+**immutable in a shipped release artifact**.
+
+Run 3 (in flight): stage-1 built with the **v0.2.3 seed** — pass = the
+defect entered in v0.2.4's window; fail = older class, same resolution.
+
+## Resolution path
+
+The defect lives in the v0.2.4 release binary's codegen, not in the
+current tree (both current compilers' Linux output is verified healthy).
+The fix is the trust chain working as designed: merge the open stack, cut
+v0.2.5 (whose codegen carries the async result-storage fixes), bump
+`SEED_VERSION` — the defective emitter leaves the chain. Until then the
+tier-1 job's GATE 3 fails on the v0.2.4-built stage-1; that failure is
+attributable to the RETIRED seed, not to the PRs' content.
+
 ## Next steps
 
 1. If the macOS seed-built stage-1 reproduces → iterate locally
