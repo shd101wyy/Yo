@@ -85,6 +85,26 @@ files that allocate the most (64-entry comptime tables) between the free
 and the `.fill` lookup, so they are the recyclers. This is the
 MallocScribble-detectable class ([[rc-probes-scribble-and-rc]]).
 
+## Scribble results (2026-08-14, later)
+
+Seed-built stage-1 **with libc allocator** under
+`MallocScribble=1 MallocPreScribble=1`: **154/154 clean** on macOS (as was
+the TS-built binary). This EXCLUDES the universal-early-free theory (a
+read-after-free that executes on macOS would read 0x55 poison and fail) and
+the uninitialized-read theory (PreScribble poisons fresh allocations). The
+defective code path therefore EXECUTES ONLY ON LINUX. Prime suspect: the
+Linux-specific runtime chunks the check workload exercises — the io_uring
+async-IO path in compiled std (macOS runs kqueue) corrupting evaluator heap
+workload-dependently, or a Linux-target-conditional emission difference in
+the v0.2.4 seed.
+
+Diagnostic workflow armed: `debug-gate3.yml` on branch
+`debug/gate3-array-fill` (at the failing commit e0bb8f5a3) — single-file
+scoping, within-binary determinism ×2, GC on/off discriminator, an
+allocator-swap run, valgrind memcheck on the smallest failing unit, and the
+seed-emitted stage-1 C uploaded for offline diffing against the macOS
+emission. Delete the branch when this issue closes.
+
 ## Next steps
 
 1. If the macOS seed-built stage-1 reproduces → iterate locally
