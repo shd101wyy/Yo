@@ -154,23 +154,43 @@ function buildDocFunction(
   doc: string | undefined,
   isMethod: boolean,
   selfType?: string,
-  docLookup?: DocLookup
+  docLookup?: DocLookup,
+  sourceInfo?: SourceSignatureInfo
 ): DocFunction {
-  const signature = typeToString(funcType);
+  // A source-derived signature (top-level `name :: (fn ...)(...)`
+  // declarations only) is the canonical form: it preserves
+  // where-constraints and `?=` defaults exactly as written and never leaks
+  // internal wrappers like `comptime(T)` the way typeToString does. See
+  // issues/doc-builder-generic-signature-divergence.md.
+  const signature = sourceInfo ? sourceInfo.signature : typeToString(funcType);
 
   // Parse sections from doc comment
   const parsed = doc ? parseDocComment(doc) : undefined;
+
+  const parameters = sourceInfo
+    ? sourceInfo.parameters.map((p) => ({ ...p, doc: docLookup?.get(p.name) }))
+    : functionParamsToDocParams(funcType.parameters, docLookup);
+  const typeParams = sourceInfo
+    ? sourceInfo.typeParams.length > 0
+      ? sourceInfo.typeParams.map((p) => ({
+          ...p,
+          doc: docLookup?.get(p.name),
+        }))
+      : undefined
+    : funcType.forallParameters.length > 0
+      ? forallParamsToDocParams(funcType.forallParameters, docLookup)
+      : undefined;
+  const returnType = sourceInfo
+    ? sourceInfo.returnType
+    : typeToString(funcType.return.type);
 
   return {
     name,
     doc,
     signature,
-    parameters: functionParamsToDocParams(funcType.parameters, docLookup),
-    returnType: typeToString(funcType.return.type),
-    typeParams:
-      funcType.forallParameters.length > 0
-        ? forallParamsToDocParams(funcType.forallParameters, docLookup)
-        : undefined,
+    parameters,
+    returnType,
+    typeParams,
     effects: undefined,
     isMethod,
     selfType,
@@ -561,6 +581,264 @@ function extractReturnTypeFromSignature(signature: string): string {
   }
 
   return returnType.trim();
+}
+
+// ── Source-derived top-level function signatures ─────────────────────
+//
+// Doc signatures for TOP-LEVEL functions are rendered from the declaration
+// source tokens (`name :: (fn(...) -> Ret)(body)`) instead of the evaluated
+// FunctionType: the source spelling is the canonical form — it keeps
+// where-constraints and `?=` defaults, and never leaks internal wrappers
+// like `comptime(T)`. See issues/doc-builder-generic-signature-divergence.md.
+
+/** Source-derived doc info for one top-level `name :: (fn ...)(...)` decl. */
+interface SourceSignatureInfo {
+  signature: string;
+  parameters: DocParam[];
+  typeParams: DocParam[];
+  returnType: string;
+}
+
+/**
+ * Render tokens [start, end] as canonical single-line text: token values
+ * joined with a space wherever the source had a gap, except after `(` and
+ * before `)` / `,` / `;`. Collapses multi-line declarations onto one line
+ * and drops comments interleaved in the span.
+ */
+function renderTokenSpan(toks: Token[], start: number, end: number): string {
+  let out = "";
+  for (let k = start; k <= end && k < toks.length; k++) {
+    const t = toks[k]!;
+    if (k > start) {
+      const prev = toks[k - 1]!;
+      const adjacent =
+        prev.position.character + prev.value.length === t.position.character;
+      const suppress =
+        prev.type === TokenType.LParen ||
+        t.type === TokenType.RParen ||
+        t.type === TokenType.Comma ||
+        t.type === TokenType.Semicolon;
+      if (!adjacent && !suppress) out += " ";
+    }
+    out += t.value;
+  }
+  return out;
+}
+
+/**
+ * Parse one value parameter from tokens [start, end] (one comma-delimited
+ * argument of a fn type's parameter list). Handles `name : Type`,
+ * `(name : Type) ?= default`, and wrapper forms like `comptime(name) : Type`
+ * / `inout(name) : Type`. Returns undefined for anything else.
+ */
+function parseSourceParam(
+  toks: Token[],
+  start: number,
+  end: number
+): DocParam | undefined {
+  if (start > end) return undefined;
+
+  // Split off a trailing `?= default` at the top nesting level of the arg.
+  let defaultValue: string | undefined;
+  let coreEnd = end;
+  let depth = 0;
+  for (let q = start; q <= end; q++) {
+    const t = toks[q]!;
+    if (t.type === TokenType.LParen) depth++;
+    else if (t.type === TokenType.RParen) {
+      if (depth > 0) depth--;
+    } else if (
+      depth === 0 &&
+      t.type === TokenType.Operator &&
+      t.value === "?="
+    ) {
+      if (q + 1 <= end) defaultValue = renderTokenSpan(toks, q + 1, end);
+      if (q === start) return undefined;
+      coreEnd = q - 1;
+      break;
+    }
+  }
+
+  // Unwrap a paren around the whole core: `(msg : T) ?= default`.
+  let coreStart = start;
+  if (
+    toks[coreStart]!.type === TokenType.LParen &&
+    skipBalancedParens(toks, coreStart) === coreEnd + 1
+  ) {
+    coreStart++;
+    coreEnd--;
+  }
+  if (coreStart > coreEnd) return undefined;
+
+  // The name: either a bare identifier, or a wrapper like `comptime(x)` /
+  // `inout(x)` whose first inner identifier is the name.
+  const head = toks[coreStart]!;
+  if (head.type !== TokenType.Identifier) return undefined;
+  let name = "";
+  let isComptime = false;
+  let afterName = coreStart + 1;
+  if (
+    coreStart + 1 <= coreEnd &&
+    toks[coreStart + 1]!.type === TokenType.LParen
+  ) {
+    const wrapEnd = skipBalancedParens(toks, coreStart + 1);
+    name = extractReceiverTypeName(toks, coreStart + 2, wrapEnd - 2);
+    isComptime = head.value === "comptime";
+    afterName = wrapEnd;
+  } else {
+    name = head.value;
+  }
+  if (!name) return undefined;
+
+  // The declared type: everything after the `:`.
+  if (
+    afterName + 1 > coreEnd ||
+    toks[afterName]!.type !== TokenType.Operator ||
+    toks[afterName]!.value !== ":"
+  ) {
+    return undefined;
+  }
+  return {
+    name,
+    type: renderTokenSpan(toks, afterName + 1, coreEnd),
+    isComptime,
+    defaultValue,
+  };
+}
+
+/**
+ * Parse a `(fn(...) -> Ret)` type-paren group starting at `typeStart` (the
+ * `(` before `fn`) into a SourceSignatureInfo.
+ *
+ * `where(...)` clauses are constraints, not inputs: they stay visible
+ * verbatim in `signature` but are deliberately NOT emitted as `parameters`
+ * or `typeParams` entries — the generic clause already carries each type
+ * parameter, and duplicating the constraint into the tables would desync
+ * them from the evaluator-derived tables used everywhere else.
+ */
+function parseSourceFnSignature(
+  toks: Token[],
+  typeStart: number
+): SourceSignatureInfo | undefined {
+  const fnParenEnd = skipBalancedParens(toks, typeStart);
+  // Needs at least `(`, `fn`, `(`, `)`, `)`.
+  if (fnParenEnd - 2 < typeStart + 1) return undefined;
+  const paramListStart = typeStart + 2;
+  if (
+    paramListStart >= fnParenEnd - 1 ||
+    toks[paramListStart]!.type !== TokenType.LParen
+  ) {
+    return undefined;
+  }
+  const signature = renderTokenSpan(toks, typeStart + 1, fnParenEnd - 2);
+  const paramEnd = skipBalancedParens(toks, paramListStart);
+
+  const parameters: DocParam[] = [];
+  const typeParams: DocParam[] = [];
+  let p = paramListStart + 1;
+  while (p < paramEnd - 1) {
+    const argEnd = skipDelimitedArgument(toks, p);
+    const first = toks[p]!;
+    const second = p + 1 < argEnd ? toks[p + 1] : undefined;
+    if (
+      first.type === TokenType.Identifier &&
+      first.value === "generic" &&
+      second?.type === TokenType.LParen
+    ) {
+      // generic(T : Type, ...) → the type parameters.
+      const genEnd = skipBalancedParens(toks, p + 1);
+      let g = p + 2;
+      while (g < genEnd - 1) {
+        const gEnd = skipDelimitedArgument(toks, g);
+        if (toks[g]!.type === TokenType.Identifier) {
+          const hasConstraint =
+            g + 1 < gEnd &&
+            toks[g + 1]!.type === TokenType.Operator &&
+            toks[g + 1]!.value === ":";
+          typeParams.push({
+            name: toks[g]!.value,
+            // `generic(T : Type)` → "Type"; a bare `generic(T)` means Type.
+            type: hasConstraint
+              ? renderTokenSpan(toks, g + 2, gEnd - 1)
+              : "Type",
+            isComptime: true,
+          });
+        }
+        g = gEnd;
+        if (g < genEnd - 1 && toks[g]!.type === TokenType.Comma) g++;
+      }
+    } else if (
+      first.type === TokenType.Identifier &&
+      first.value === "where" &&
+      second?.type === TokenType.LParen
+    ) {
+      // Constraint clause — kept out of the parameter tables (see above).
+    } else {
+      const param = parseSourceParam(toks, p, argEnd - 1);
+      if (param) parameters.push(param);
+    }
+    p = argEnd;
+    if (p < paramEnd - 1 && toks[p]!.type === TokenType.Comma) p++;
+  }
+
+  // The return type: everything after the depth-0 `->` between the param
+  // list and the type-paren close.
+  let returnType = "unknown";
+  let depth = 0;
+  for (let q = paramEnd; q < fnParenEnd - 1; q++) {
+    const t = toks[q]!;
+    if (t.type === TokenType.LParen) depth++;
+    else if (t.type === TokenType.RParen) {
+      if (depth > 0) depth--;
+    } else if (
+      depth === 0 &&
+      t.type === TokenType.Operator &&
+      t.value === "->" &&
+      q + 1 <= fnParenEnd - 2
+    ) {
+      returnType = renderTokenSpan(toks, q + 1, fnParenEnd - 2);
+      break;
+    }
+  }
+
+  return { signature, parameters, typeParams, returnType };
+}
+
+/**
+ * Scan the module's tokens for top-level `name :: (fn(...) -> Ret)(...)`
+ * declarations and map each name to its source-derived signature info.
+ * Nested declarations always live inside parens, so skipping every balanced
+ * paren group keeps the scan at the top level.
+ */
+function extractTopLevelFnSignatures(
+  tokens: Token[]
+): Map<string, SourceSignatureInfo> {
+  const result = new Map<string, SourceSignatureInfo>();
+  const toks = tokens.filter((token) => !isTriviaToken(token));
+  let i = 0;
+  while (i < toks.length) {
+    const token = toks[i]!;
+    if (
+      token.type === TokenType.Identifier &&
+      i + 3 < toks.length &&
+      toks[i + 1]!.type === TokenType.Operator &&
+      toks[i + 1]!.value === "::" &&
+      toks[i + 2]!.type === TokenType.LParen &&
+      toks[i + 3]!.type === TokenType.Identifier &&
+      toks[i + 3]!.value === "fn"
+    ) {
+      const info = parseSourceFnSignature(toks, i + 2);
+      if (info && !result.has(token.value)) result.set(token.value, info);
+      i = skipBalancedParens(toks, i + 2);
+      continue;
+    }
+    if (token.type === TokenType.LParen) {
+      i = skipBalancedParens(toks, i);
+    } else {
+      i++;
+    }
+  }
+  return result;
 }
 
 function parenContainsTraitBody(toks: Token[], lParenIndex: number): boolean {
@@ -992,6 +1270,7 @@ export function buildDocModule(options: BuildDocModuleOptions): DocModule {
   const docLookup = buildDocLookup(extraction);
   const traitImplMap = extractTraitImplsFromTokens(tokens);
   const tokenImplInfoMap = extractImplInfoFromTokens(tokens, docLookup);
+  const sourceFnSignatures = extractTopLevelFnSignatures(tokens);
 
   const result: DocModule = {
     name,
@@ -1445,7 +1724,8 @@ export function buildDocModule(options: BuildDocModuleOptions): DocModule {
           doc,
           false,
           undefined,
-          docLookup
+          docLookup,
+          sourceFnSignatures.get(fieldName)
         )
       );
       continue;

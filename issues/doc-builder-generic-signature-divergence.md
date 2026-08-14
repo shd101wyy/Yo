@@ -1,6 +1,18 @@
 # doc builder: generic-function signatures render differently under the two compilers
 
-**Status: OPEN** (found 2026-08-10 while verifying `doc --format html`
+**Status: FIX IMPLEMENTED 2026-08-14, pending differential re-verification.**
+Both builders now render TOP-LEVEL function signatures (and the
+parameters/typeParams/returnType tables) from the declaration source tokens:
+`extractTopLevelFnSignatures` + `parseSourceFnSignature` + `renderTokenSpan`
+in `src/doc/builder.ts`, mirrored as `_extract_top_level_fn_signatures` +
+`_parse_source_fn_signature` + `_render_token_span` in
+`yo-self/doc/builder.yo`. `where(...)` clauses stay verbatim in `signature`
+but are not emitted as parameter/typeParam entries. A generic fn with a
+where-constraint and a `?=` default (`describe`) was added to all three
+`tests/cli-cases/doc-*/fixture/point.yo`. Remaining: rebuild the self-hosted
+binary, re-record the three doc-case goldens, and confirm byte parity.
+
+**Was: OPEN** (found 2026-08-10 while verifying `doc --format html`
 byte-parity on `std/assert.yo`). Affects ALL doc formats (json shows it
 too), so it predates the html work — the P1 doc differential fixtures
 (`tests/cli-cases/doc-json/fixture`) simply contain no generic functions.
