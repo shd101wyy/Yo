@@ -194,15 +194,37 @@ so run 4 builds STAGE-2 (stage-1-emitted main.yo = current yo-self
 codegen's output) on Linux and runs GATE 3 under it. Pass = the resolution
 is sound; fail = a LIVE yo-self codegen bug to fix now.
 
-## Resolution path
+## ~~Resolution path~~ REFUTED by run 5
 
-The defect lives in the v0.2.4 release binary's codegen, not in the
-current tree (both current compilers' Linux output is verified healthy).
-The fix is the trust chain working as designed: merge the open stack, cut
-v0.2.5 (whose codegen carries the async result-storage fixes), bump
-`SEED_VERSION` — the defective emitter leaves the chain. Until then the
-tier-1 job's GATE 3 fails on the v0.2.4-built stage-1; that failure is
-attributable to the RETIRED seed, not to the PRs' content.
+Run 5 (the fixpoint job's exact stage-1/2 recipe): **STAGE-2 — current
+yo-self codegen's own emission of the compiler — FAILS GATE 3 identically
+(152/154 ×2, md5+sha256)**. The "advance the seed" resolution is dead:
+every yo-self-emitted compiler fails this workload on Linux (v0.2.3,
+v0.2.4, and current), while the TS-emitted compiler of the same sources
+passes. This is a **LIVE yo-self codegen divergence from TS** in the
+async/IO machinery — precisely the class the two-compiler differential
+exists to catch, hiding until now because (a) no yo-self-emitted compiler
+ever ran `check ./std` on Linux before the CI migration made the tier-1
+job seed-driven, and (b) the failure needs the workload's timing (the
+suspend-window lottery — the same binary passed tier-1 on run 31778789281
+and failed on 31753265776).
+
+Why the existing gates missed it: the fixpoint compares stage-2 ≡ stage-3
+BYTES (both emitted by yo-self codegen — a shared divergence cancels); the
+hollow sweep runs 188 SMALL test binaries (insufficient async/IO pressure);
+GATE 2's corpus compares runnable programs' behavior (again small); and
+`check ./std` under a yo-self-EMITTED binary was never a CI workload until
+days ago.
+
+## Actual resolution: find + fix the emission divergence
+
+Method (the [[optimizer-change-emit-diff-gate]] approach): cross-emit a
+probe exercising the `exists`/`is_file` async path for
+`--target x86_64-linux-gnu` with BOTH current compilers on macOS, then
+structurally diff the async state machines (resume states, await-result
+storage, future RC ops, event-loop interaction) and the per-function
+dup/drop counts. The divergence is the bug; fix yo-self codegen; pin with
+a differential case.
 
 ## Next steps
 
