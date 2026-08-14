@@ -1,5 +1,6 @@
 //! Geometry primitives for the doc differential.
 open(import("std/string"));
+{ ToString } :: import("std/fmt/to_string");
 
 /// A 2D point.
 Point :: struct(
@@ -24,4 +25,13 @@ MAX_COORD :: i32(1000);
 /// Double a coordinate.
 double_coord :: (fn(v : i32) -> i32)(v * i32(2));
 
-export(Point, MAX_COORD, double_coord);
+/// Describe a labeled value.
+///
+/// ## Returns
+///
+/// The string form of `msg`, prefixed with `point: `.
+describe :: (fn(generic(T : Type), (msg : T) ?= "origin", where(T <: ToString)) -> String)(
+  `point: ${msg.to_string()}`
+);
+
+export(Point, MAX_COORD, double_coord, describe);

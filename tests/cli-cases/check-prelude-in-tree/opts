@@ -1,0 +1,16 @@
+# GATE 3 regression pin (issues/seed-built-stage1-array-fill-method-miss.md):
+# `check` over a directory whose OWN prelude.yo is one of the checked targets.
+# The walker reaches prelude.yo (sorted first) before zz_use.yo; the prelude
+# was ALSO pre-loaded, so before the fix it was evaluated TWICE — TS died
+# loudly on its duplicate-method check (whenever the pre-load and target keys
+# differed: relative --std-path, or a symlinked prefix like macOS /tmp), and
+# the self-hosted compiler silently corrupted the generic-impl registry so
+# zz_use.yo's where-constrained Array specialization failed with "No matching
+# call found". Red-first verified against both pre-fix compilers.
+#
+# stdout_keep_match: the self-hosted check prints extra progress chatter
+# ("check: parsing ...") and the two compilers render file paths differently
+# (absolute vs as-written), so the kept line is the verdict summary — which is
+# exactly what the pin asserts.
+stdout_keep_match=check: [0-9]+/[0-9]+ file\(s\) passed
+timeout=120

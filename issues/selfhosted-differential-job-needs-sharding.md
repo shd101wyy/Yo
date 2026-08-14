@@ -32,6 +32,18 @@ selection logic: the four heavy files go one per shard, the rest stripe
 round-robin over the sorted glob. That took the TS arm to ~25-40 min per
 shard and is the precedent this job should follow.
 
+## Do this together with P2.5 step 20
+
+`plans/P2_5_RETIRE_EXECUTION.md` step 20 **deletes the 4-shard TS arm**, making
+this job the SOLE arm for `tests/internal` — which both raises the stakes (its
+timeout becomes the only thing standing between a regression and an unscored
+tier) and, crucially, carries the SAME branch-protection hazard described
+below. Step 20 already says "Check branch protection first".
+
+Two job-name changes, each needing a required-check update, is two chances to
+block every PR. Ship them as ONE change: delete the TS shards and shard this
+job in the same PR, with a single required-check list update covering both.
+
 ## The trap that makes this more than a YAML edit
 
 Sharding RENAMES the job: one

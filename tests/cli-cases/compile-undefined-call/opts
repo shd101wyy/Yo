@@ -14,5 +14,9 @@
 # stdout=ignore: the binaries identify fatal errors differently (TS an uncaught
 # throw with a stack, yo-self a "yo-self: error:" line) — rc parity is the
 # assertion, and rc parity is exactly what was broken.
-stdout=ignore
+# stdout_keep_match (P2.5 step 15): this case previously used stdout=ignore,
+# which ANY failure satisfied. The kept substring is the probe-verified
+# SHARED diagnostic - both compilers must emit it, so the case asserts THE
+# failure, not just A failure.
+stdout_keep_match=Variable "this_function_does_not_exist" not found
 timeout=120

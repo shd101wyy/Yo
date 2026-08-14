@@ -83,7 +83,7 @@ function findStdDirectory(startPath: string): string {
  * `realpathSync` top-level key vs the evaluator's `path.join(stdPath,
  * "prelude.yo")` implicit-prelude key — evaluates twice, and a second
  * prelude evaluation corrupts where-constrained generic-impl resolution
- * (see issues/seed-built-stage1-array-fill-method-miss.md). Mirrored by
+ * (see issues/fixed/seed-built-stage1-array-fill-method-miss.md). Mirrored by
  * `canonicalize_module_path` in `yo-self/module_manager.yo`.
  */
 export function canonicalizeModulePath(modulePath: string): string {

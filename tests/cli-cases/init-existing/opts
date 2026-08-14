@@ -3,4 +3,8 @@
 # stdout is ignored only because the two binaries name themselves differently on
 # a fatal error: TS prints the message bare, the self-hosted binary prefixes it
 # with `yo-self: error:`. Revisit at P2, when the self-hosted binary becomes `yo`.
-stdout=ignore
+# stdout_keep_match (P2.5 step 15): this case previously used stdout=ignore,
+# which ANY failure satisfied. The kept substring is the probe-verified
+# SHARED diagnostic - both compilers must emit it, so the case asserts THE
+# failure, not just A failure.
+stdout_keep_match=<PROJ>/probe/build\.yo already exists\. Aborting\.

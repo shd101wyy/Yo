@@ -1,0 +1,116 @@
+$ yo unsafe-report .
+Unsafe surface report
+=====================
+
+Scanned 3 .yo file(s); 2 declare pragma(Pragma.AllowUnsafe);.
+  unsafe(...) sites: 6
+    extern-call: 2
+    deref:       2
+    arith:       1
+    addr-of:     0
+    other:       1
+  asm(...) sites:    0
+  extern(...) sites: 0
+
+Top extern callees (by unsafe-wrapped call-site count):
+     1  memcpy_probe
+     1  strlen_probe
+
+Findings (file:line:col):
+  audit_me.yo:6:8: unsafe(deref) — v := unsafe(p.*);
+    SAFETY: p points at a live i32 owned by the caller.
+  audit_me.yo:7:8: unsafe(other) — q := unsafe(p.add(usize(1)));
+  audit_me.yo:9:8: unsafe(deref) — s := unsafe(r.*);
+  ffi_calls.yo:16:8: unsafe(extern-call:memcpy_probe) — r := unsafe(memcpy_probe(dst, src, n));
+  ffi_calls.yo:21:8: unsafe(extern-call:strlen_probe) — r := unsafe(strlen_probe(s));
+  ffi_calls.yo:26:8: unsafe(arith) — q := unsafe(p &+ n);
+
+Privileged files (declare pragma):
+  audit_me.yo
+  ffi_calls.yo
+rc=0
+$ yo unsafe-report . --json
+{
+  "privilegedFiles": [
+    "audit_me.yo",
+    "ffi_calls.yo"
+  ],
+  "findings": [
+    {
+      "file": "audit_me.yo",
+      "line": 6,
+      "column": 8,
+      "kind": "unsafe",
+      "subKind": "deref",
+      "snippet": "v := unsafe(p.*);",
+      "safetyComment": "SAFETY: p points at a live i32 owned by the caller."
+    },
+    {
+      "file": "audit_me.yo",
+      "line": 7,
+      "column": 8,
+      "kind": "unsafe",
+      "subKind": "other",
+      "snippet": "q := unsafe(p.add(usize(1)));"
+    },
+    {
+      "file": "audit_me.yo",
+      "line": 9,
+      "column": 8,
+      "kind": "unsafe",
+      "subKind": "deref",
+      "snippet": "s := unsafe(r.*);"
+    },
+    {
+      "file": "ffi_calls.yo",
+      "line": 16,
+      "column": 8,
+      "kind": "unsafe",
+      "subKind": "extern-call",
+      "calleeName": "memcpy_probe",
+      "snippet": "r := unsafe(memcpy_probe(dst, src, n));"
+    },
+    {
+      "file": "ffi_calls.yo",
+      "line": 21,
+      "column": 8,
+      "kind": "unsafe",
+      "subKind": "extern-call",
+      "calleeName": "strlen_probe",
+      "snippet": "r := unsafe(strlen_probe(s));"
+    },
+    {
+      "file": "ffi_calls.yo",
+      "line": 26,
+      "column": 8,
+      "kind": "unsafe",
+      "subKind": "arith",
+      "snippet": "q := unsafe(p &+ n);"
+    }
+  ],
+  "totals": {
+    "filesScanned": 3,
+    "privileged": 2,
+    "unsafeSites": 6,
+    "unsafeBySubKind": {
+      "extern-call": 2,
+      "deref": 2,
+      "arith": 1,
+      "addr-of": 0,
+      "other": 1
+    },
+    "asmSites": 0,
+    "externSites": 0
+  },
+  "topExternCallees": [
+    {
+      "callee": "memcpy_probe",
+      "count": 1
+    },
+    {
+      "callee": "strlen_probe",
+      "count": 1
+    }
+  ]
+}
+rc=0

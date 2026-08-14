@@ -1,0 +1,27 @@
+// Minimal std for the check-prelude-in-tree pin. The prelude must not
+// import itself.
+pragma(Pragma.SkipPrelude);
+// Comptime trait + basic impls (the real prelude defines these first).
+Comptime :: trait(
+  id := "Comptime"
+);
+export(Comptime);
+impl(u8, Comptime());
+// A where-constrained generic impl on a builtin generic receiver — the
+// exact shape that broke under double prelude evaluation (GATE 3).
+impl(generic(T : Type, U : usize), where(T <: Comptime), Array(T, U), Comptime());
+impl(
+  generic(T : Type, U : usize),
+  where(T <: Comptime),
+  Array(T, U),
+  fill_pin : (fn(comptime(val) : T) -> comptime(Self))({
+    return(__yo_array_fill(Self, val));
+  })
+);
+impl(
+  generic(T : Type, U : usize),
+  Array(T, U),
+  len_pin : (fn(inout(self) : Self) -> usize)({
+    return(U);
+  })
+);

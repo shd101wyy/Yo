@@ -2479,11 +2479,15 @@ collect_yo_files :: (
   );
 });
 /// Resolve `input_paths` to a list of `.yo` file paths. If `input_paths` is
-/// empty, defaults to ["."]. Throws via `exn` if any input path does not
-/// exist. Mirrors `findYoFormatFiles`.
+/// empty, defaults to ["."]. Each input is resolved against `fmt_cwd` unless
+/// already absolute (TS: `path.resolve(cwd, inputPath)`, formatter.ts:484).
+/// Throws via `exn` if any input path does not exist. The result is sorted
+/// with adjacent duplicates dropped — TS collects into a `Set` and returns
+/// `[...files].sort()` (formatter.ts:481, :491). Mirrors `findYoFormatFiles`.
 find_yo_format_files :: (
   fn(
     input_paths : ArrayList(String),
+    fmt_cwd : String,
     io : Io,
     exn : Exception
   ) -> ArrayList(String)
@@ -2504,7 +2508,10 @@ find_yo_format_files :: (
       paths_to_format.get(pi),
       .None => (),
       .Some(p) => {
-        path_obj := Path.new(p);
+        path_obj := cond(
+          p.starts_with(String.from("/")) => Path.new(p.clone()),
+          true => Path.new(fmt_cwd.clone()).join(Path.new(p.clone()))
+        );
         path_exists := io.await(exists(path_obj, io), io);
         if(!(path_exists), {
           exn.throw(dyn(`Path does not exist: ${p}`));
@@ -2514,7 +2521,31 @@ find_yo_format_files :: (
     );
     pi = (pi + usize(1));
   });
-  files
+  files.sort();
+  deduped := ArrayList(String).new();
+  fn2 := files.len();
+  (fi2 : usize) = usize(0);
+  while(fi2 < fn2, {
+    match(
+      files.get(fi2),
+      .None => (),
+      .Some(f) => {
+        is_dup := cond(
+          (deduped.len() == usize(0)) => false,
+          true => match(
+            deduped.get(deduped.len() - usize(1)),
+            .Some(last) => (last == f),
+            .None => false
+          )
+        );
+        if(!(is_dup), {
+          _r := deduped.push(f.clone());
+        });
+      }
+    );
+    fi2 = (fi2 + usize(1));
+  });
+  deduped
 });
 /// Format every `.yo` file found under `input_paths`. Returns the list of
 /// files visited and the subset whose content would change. In `check` mode
@@ -2527,7 +2558,7 @@ format_yo_files :: (
     exn : Exception
   ) -> FormatYoFilesResult
 )({
-  files := find_yo_format_files(input_paths, io, exn);
+  files := find_yo_format_files(input_paths, options.cwd.clone(), io, exn);
   changed := ArrayList(String).new();
   fn := files.len();
   (fi : usize) = usize(0);

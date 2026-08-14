@@ -5,5 +5,9 @@
 # identical across compilers (probe-verified) but rides stderr with build
 # chatter the two binaries word differently, hence stdout=ignore (the
 # documented escape).
-stdout=ignore
+# stdout_keep_match (P2.5 step 15): this case previously used stdout=ignore,
+# which ANY failure satisfied. The kept substring is the probe-verified
+# SHARED diagnostic - both compilers must emit it, so the case asserts THE
+# failure, not just A failure.
+stdout_keep_match=ensures failed:.*
 timeout=300

@@ -339,6 +339,445 @@ _extract_return_type_from_signature :: (fn(signature : String) -> String)({
   });
   return_type.trim()
 });
+// ---------------------------------------------------------------------------
+// Source-derived top-level function signatures
+// ---------------------------------------------------------------------------
+// Doc signatures for TOP-LEVEL functions are rendered from the declaration
+// source tokens (`name :: (fn(...) -> Ret)(body)`) instead of the evaluated
+// function type: the source spelling is the canonical form — it keeps
+// where-constraints and `?=` defaults, and never leaks internal wrappers
+// like `comptime(T)`. See issues/doc-builder-generic-signature-divergence.md.
+/// Source-derived doc info for one top-level `name :: (fn ...)(...)`
+/// declaration. Mirrors `SourceSignatureInfo` (builder.ts).
+SourceSignatureInfo :: struct(
+  signature : String,
+  parameters : ArrayList(DocParam),
+  type_params : ArrayList(DocParam),
+  return_type : String
+);
+/// Render tokens [start, end] as canonical single-line text: token values
+/// joined with a space wherever the source had a gap, except after `(` and
+/// before `)` / `,` / `;`. Collapses multi-line declarations onto one line
+/// and drops comments interleaved in the span. Mirrors `renderTokenSpan`
+/// (builder.ts).
+_render_token_span :: (
+  fn(toks : ArrayList(Token), start : usize, end_index : usize) -> String
+)({
+  (out : String) = String.new();
+  (k : usize) = start;
+  while((k <= end_index) && (k < toks.len()), {
+    t := match(
+      toks.get(k),
+      .Some(tok) => tok,
+      .None => {
+        k = (k + usize(1));
+        continue;
+      }
+    );
+    if(k > start, {
+      prev := match(toks.get(k - usize(1)), .Some(pt) => pt, .None => t);
+      adjacent := ((prev.character + prev.value.len()) == t.character);
+      suppress := ((prev.kind == TokenKind.LParen) || (t.kind == TokenKind.RParen) || (t.kind == TokenKind.Comma) || (t.kind == TokenKind.Semicolon));
+      if(!(adjacent) && !(suppress), {
+        out = `${out} `;
+      });
+    });
+    out = `${out}${t.value}`;
+    k = (k + usize(1));
+  });
+  out
+});
+/// Parse one value parameter from tokens [start, end_index] (one
+/// comma-delimited argument of a fn type's parameter list). Handles
+/// `name : Type`, `(name : Type) ?= default`, and wrapper forms like
+/// `comptime(name) : Type` / `inout(name) : Type`. `.None` for anything
+/// else. Mirrors `parseSourceParam` (builder.ts).
+_parse_source_param :: (
+  fn(toks : ArrayList(Token), start : usize, end_index : usize) -> Option(DocParam)
+)({
+  if(start > end_index, {
+    return(Option(DocParam).None);
+  });
+  // Split off a trailing `?= default` at the top nesting level of the arg.
+  (default_value : Option(String)) = Option(String).None;
+  (core_end : usize) = end_index;
+  (depth : usize) = usize(0);
+  (q : usize) = start;
+  (found_default : bool) = false;
+  while((q <= end_index) && !(found_default), {
+    t := match(
+      toks.get(q),
+      .Some(tok) => tok,
+      .None => {
+        q = (q + usize(1));
+        continue;
+      }
+    );
+    cond(
+      (t.kind == TokenKind.LParen) => {
+        depth = (depth + usize(1));
+      },
+      (t.kind == TokenKind.RParen) => {
+        if(depth > usize(0), {
+          depth = (depth - usize(1));
+        });
+      },
+      ((depth == usize(0)) && (t.kind == TokenKind.Operator) && (t.value == `?=`)) => {
+        if((q + usize(1)) <= end_index, {
+          default_value = Option(String).Some(_render_token_span(toks, q + usize(1), end_index));
+        });
+        if(q == start, {
+          return(Option(DocParam).None);
+        });
+        core_end = (q - usize(1));
+        found_default = true;
+      },
+      true => ()
+    );
+    if(!(found_default), {
+      q = (q + usize(1));
+    });
+  });
+  // Unwrap a paren around the whole core: `(msg : T) ?= default`.
+  (core_start : usize) = start;
+  starts_with_paren := match(
+    toks.get(core_start),
+    .Some(t) => (t.kind == TokenKind.LParen),
+    .None => false
+  );
+  if(starts_with_paren && (_skip_balanced_parens(toks, core_start) == (core_end + usize(1))), {
+    core_start = (core_start + usize(1));
+    core_end = (core_end - usize(1));
+  });
+  if(core_start > core_end, {
+    return(Option(DocParam).None);
+  });
+  // The name: either a bare identifier, or a wrapper like `comptime(x)` /
+  // `inout(x)` whose first inner identifier is the name.
+  head := match(
+    toks.get(core_start),
+    .Some(t) => t,
+    .None => {
+      return(Option(DocParam).None);
+    }
+  );
+  if(head.kind != TokenKind.Identifier, {
+    return(Option(DocParam).None);
+  });
+  (name : String) = String.new();
+  (is_comptime : bool) = false;
+  (after_name : usize) = (core_start + usize(1));
+  wrapper_paren := match(
+    toks.get(core_start + usize(1)),
+    .Some(t) => (((core_start + usize(1)) <= core_end) && (t.kind == TokenKind.LParen)),
+    .None => false
+  );
+  if(wrapper_paren, {
+    wrap_end := _skip_balanced_parens(toks, core_start + usize(1));
+    name = _extract_receiver_type_name(toks, core_start + usize(2), wrap_end - usize(2));
+    is_comptime = (head.value == `comptime`);
+    after_name = wrap_end;
+  }, {
+    name = head.value.clone();
+  });
+  if(name.len() == usize(0), {
+    return(Option(DocParam).None);
+  });
+  // The declared type: everything after the `:`.
+  if((after_name + usize(1)) > core_end, {
+    return(Option(DocParam).None);
+  });
+  colon_ok := match(
+    toks.get(after_name),
+    .Some(t) => ((t.kind == TokenKind.Operator) && (t.value == `:`)),
+    .None => false
+  );
+  if(!(colon_ok), {
+    return(Option(DocParam).None);
+  });
+  Option(DocParam).Some(
+    DocParam(
+      name : name,
+      type_ : _render_token_span(toks, after_name + usize(1), core_end),
+      is_comptime : is_comptime,
+      is_implicit : false,
+      default_value : default_value,
+      doc : Option(String).None
+    )
+  )
+});
+/// Parse a `(fn(...) -> Ret)` type-paren group starting at `type_start` (the
+/// `(` before `fn`) into a SourceSignatureInfo.
+///
+/// `where(...)` clauses are constraints, not inputs: they stay visible
+/// verbatim in `signature` but are deliberately NOT emitted as `parameters`
+/// or `type_params` entries — the generic clause already carries each type
+/// parameter, and duplicating the constraint into the tables would desync
+/// them from the evaluator-derived tables used everywhere else. Mirrors
+/// `parseSourceFnSignature` (builder.ts).
+_parse_source_fn_signature :: (
+  fn(toks : ArrayList(Token), type_start : usize) -> Option(SourceSignatureInfo)
+)({
+  fn_paren_end := _skip_balanced_parens(toks, type_start);
+  // Needs at least `(`, `fn`, `(`, `)`, `)`.
+  if((fn_paren_end - usize(2)) < (type_start + usize(1)), {
+    return(Option(SourceSignatureInfo).None);
+  });
+  param_list_start := (type_start + usize(2));
+  param_list_ok := match(
+    toks.get(param_list_start),
+    .Some(t) => ((param_list_start < (fn_paren_end - usize(1))) && (t.kind == TokenKind.LParen)),
+    .None => false
+  );
+  if(!(param_list_ok), {
+    return(Option(SourceSignatureInfo).None);
+  });
+  signature := _render_token_span(toks, type_start + usize(1), fn_paren_end - usize(2));
+  param_end := _skip_balanced_parens(toks, param_list_start);
+  parameters := ArrayList(DocParam).new();
+  type_params := ArrayList(DocParam).new();
+  (p : usize) = (param_list_start + usize(1));
+  while(p < (param_end - usize(1)), {
+    arg_end := _skip_delimited_argument(toks, p);
+    first := match(
+      toks.get(p),
+      .Some(t) => t,
+      .None => {
+        p = (p + usize(1));
+        continue;
+      }
+    );
+    second_is_lparen := match(
+      toks.get(p + usize(1)),
+      .Some(t) => (((p + usize(1)) < arg_end) && (t.kind == TokenKind.LParen)),
+      .None => false
+    );
+    cond(
+      ((first.kind == TokenKind.Identifier) && (first.value == `generic`) && second_is_lparen) => {
+        // generic(T : Type, ...) -> the type parameters.
+        gen_end := _skip_balanced_parens(toks, p + usize(1));
+        (g : usize) = (p + usize(2));
+        while(g < (gen_end - usize(1)), {
+          g_end := _skip_delimited_argument(toks, g);
+          g_tok := match(
+            toks.get(g),
+            .Some(t) => t,
+            .None => {
+              g = (g + usize(1));
+              continue;
+            }
+          );
+          if(g_tok.kind == TokenKind.Identifier, {
+            has_constraint := match(
+              toks.get(g + usize(1)),
+              .Some(t) => (((g + usize(1)) < g_end) && (t.kind == TokenKind.Operator) && (t.value == `:`)),
+              .None => false
+            );
+            // `generic(T : Type)` -> "Type"; a bare `generic(T)` means Type.
+            constraint := if(has_constraint, _render_token_span(toks, g + usize(2), g_end - usize(1)), String.from("Type"));
+            type_params.push(
+              DocParam(
+                name : g_tok.value.clone(),
+                type_ : constraint,
+                is_comptime : true,
+                is_implicit : false,
+                default_value : Option(String).None,
+                doc : Option(String).None
+              )
+            );
+          });
+          g = g_end;
+          g_is_comma := match(
+            toks.get(g),
+            .Some(t) => ((g < (gen_end - usize(1))) && (t.kind == TokenKind.Comma)),
+            .None => false
+          );
+          if(g_is_comma, {
+            g = (g + usize(1));
+          });
+        });
+      },
+      ((first.kind == TokenKind.Identifier) && (first.value == `where`) && second_is_lparen) => {
+        // Constraint clause — kept out of the parameter tables (see above).
+      },
+      true => {
+        match(
+          _parse_source_param(toks, p, arg_end - usize(1)),
+          .Some(param) => {
+            parameters.push(param);
+          },
+          .None => ()
+        );
+      }
+    );
+    p = arg_end;
+    p_is_comma := match(
+      toks.get(p),
+      .Some(t) => ((p < (param_end - usize(1))) && (t.kind == TokenKind.Comma)),
+      .None => false
+    );
+    if(p_is_comma, {
+      p = (p + usize(1));
+    });
+  });
+  // The return type: everything after the depth-0 `->` between the param
+  // list and the type-paren close.
+  (return_type : String) = String.from("unknown");
+  (depth : usize) = usize(0);
+  (q : usize) = param_end;
+  (found_arrow : bool) = false;
+  while((q < (fn_paren_end - usize(1))) && !(found_arrow), {
+    t := match(
+      toks.get(q),
+      .Some(tok) => tok,
+      .None => {
+        q = (q + usize(1));
+        continue;
+      }
+    );
+    cond(
+      (t.kind == TokenKind.LParen) => {
+        depth = (depth + usize(1));
+      },
+      (t.kind == TokenKind.RParen) => {
+        if(depth > usize(0), {
+          depth = (depth - usize(1));
+        });
+      },
+      ((depth == usize(0)) && (t.kind == TokenKind.Operator) && (t.value == `->`) && ((q + usize(1)) <= (fn_paren_end - usize(2)))) => {
+        return_type = _render_token_span(toks, q + usize(1), fn_paren_end - usize(2));
+        found_arrow = true;
+      },
+      true => ()
+    );
+    if(!(found_arrow), {
+      q = (q + usize(1));
+    });
+  });
+  Option(SourceSignatureInfo).Some(
+    SourceSignatureInfo(
+      signature : signature,
+      parameters : parameters,
+      type_params : type_params,
+      return_type : return_type
+    )
+  )
+});
+/// Scan the module's tokens for top-level `name :: (fn(...) -> Ret)(...)`
+/// declarations and map each name to its source-derived signature info.
+/// Nested declarations always live inside parens, so skipping every balanced
+/// paren group keeps the scan at the top level. Mirrors
+/// `extractTopLevelFnSignatures` (builder.ts).
+_extract_top_level_fn_signatures :: (
+  fn(tokens : ArrayList(Token)) -> HashMap(String, SourceSignatureInfo)
+)({
+  result := HashMap(String, SourceSignatureInfo).new();
+  // Filter to non-trivia tokens for easier scanning.
+  toks := ArrayList(Token).new();
+  (fi : usize) = usize(0);
+  while(fi < tokens.len(), {
+    match(
+      tokens.get(fi),
+      .Some(t) => if(!(_is_trivia_token(t)), {
+        toks.push(t);
+      }),
+      .None => ()
+    );
+    fi = (fi + usize(1));
+  });
+  (i : usize) = usize(0);
+  while(i < toks.len(), {
+    token := match(
+      toks.get(i),
+      .Some(t) => t,
+      .None => {
+        i = (i + usize(1));
+        continue;
+      }
+    );
+    is_decl := if((token.kind == TokenKind.Identifier) && ((i + usize(3)) < toks.len()), {
+      t1_ok := match(
+        toks.get(i + usize(1)),
+        .Some(t) => ((t.kind == TokenKind.Operator) && (t.value == `::`)),
+        .None => false
+      );
+      t2_ok := match(
+        toks.get(i + usize(2)),
+        .Some(t) => (t.kind == TokenKind.LParen),
+        .None => false
+      );
+      t3_ok := match(
+        toks.get(i + usize(3)),
+        .Some(t) => ((t.kind == TokenKind.Identifier) && (t.value == `fn`)),
+        .None => false
+      );
+      (t1_ok && t2_ok) && t3_ok
+    }, false);
+    if(is_decl, {
+      match(
+        _parse_source_fn_signature(toks, i + usize(2)),
+        .Some(info) => {
+          already := match(
+            result.get(token.value.clone()),
+            .Some(_) => true,
+            .None => false
+          );
+          if(!(already), {
+            result.set(token.value.clone(), info);
+          });
+        },
+        .None => ()
+      );
+      i = _skip_balanced_parens(toks, i + usize(2));
+      continue;
+    });
+    if(token.kind == TokenKind.LParen, {
+      i = _skip_balanced_parens(toks, i);
+    }, {
+      i = (i + usize(1));
+    });
+  });
+  result
+});
+/// Clone `params` with each entry's `doc` filled from `doc_lookup`. Mirrors
+/// the `sourceInfo.parameters.map(...)` doc fill in `buildDocFunction`
+/// (builder.ts).
+_with_param_docs :: (
+  fn(params : ArrayList(DocParam), doc_lookup : Option(HashMap(String, String))) -> ArrayList(DocParam)
+)({
+  out := ArrayList(DocParam).new();
+  (i : usize) = usize(0);
+  while(i < params.len(), {
+    p := match(
+      params.get(i),
+      .Some(x) => x,
+      .None => {
+        i = (i + usize(1));
+        continue;
+      }
+    );
+    (d : Option(String)) = Option(String).None;
+    match(
+      doc_lookup,
+      .Some(lookup) => {
+        d = lookup.get(p.name.clone());
+      },
+      .None => ()
+    );
+    out.push(
+      DocParam(
+        name : p.name.clone(),
+        type_ : p.type_.clone(),
+        is_comptime : p.is_comptime,
+        is_implicit : p.is_implicit,
+        default_value : p.default_value,
+        doc : d
+      )
+    );
+    i = (i + usize(1));
+  });
+  out
+});
 /// True when the parenthesized region starting at `l_paren_index` contains a
 /// top-or-nested `name :` pair — i.e. it is an impl BODY, not a type-args
 /// list. Mirrors `parenContainsTraitBody` (builder.ts:566).
@@ -1464,10 +1903,20 @@ build_doc_function :: (
     /// such field, so the registry-method path passes the receiver name here;
     /// "" = no prefix (trait/module/token/generic-impl methods, which TS also
     /// prints unprefixed).
-    signature_prefix : String
+    signature_prefix : String,
+    /// A source-derived signature (top-level `name :: (fn ...)(...)`
+    /// declarations only) is the canonical form: it preserves
+    /// where-constraints and `?=` defaults exactly as written and never
+    /// leaks internal wrappers like `comptime(T)` the way type_to_string
+    /// does. See issues/doc-builder-generic-signature-divergence.md.
+    source_info : Option(SourceSignatureInfo)
   ) -> DocFunction
 )({
-  base_signature := type_to_string(func_type);
+  base_signature := match(
+    source_info,
+    .Some(si) => si.signature.clone(),
+    .None => type_to_string(func_type)
+  );
   signature := if(signature_prefix.len() > usize(0), `(${signature_prefix}) ${base_signature}`, base_signature.clone());
   (returns : Option(String)) = Option(String).None;
   (errors : Option(String)) = Option(String).None;
@@ -1486,21 +1935,35 @@ build_doc_function :: (
   );
   (return_type : String) = String.from("unknown");
   (type_params : Option(ArrayList(DocParam))) = Option(ArrayList(DocParam)).None;
+  (parameters : ArrayList(DocParam)) = ArrayList(DocParam).new();
   match(
-    func_type,
-    .Func({ result, meta }) => {
-      return_type = type_to_string(result);
-      if(meta.*.forall_labels.len() > usize(0), {
-        type_params = Option(ArrayList(DocParam)).Some(_forall_params_to_doc_params(func_type, doc_lookup));
+    source_info,
+    .Some(si) => {
+      return_type = si.return_type.clone();
+      if(si.type_params.len() > usize(0), {
+        type_params = Option(ArrayList(DocParam)).Some(_with_param_docs(si.type_params, doc_lookup));
       });
+      parameters = _with_param_docs(si.parameters, doc_lookup);
     },
-    _ => ()
+    .None => {
+      match(
+        func_type,
+        .Func({ result, meta }) => {
+          return_type = type_to_string(result);
+          if(meta.*.forall_labels.len() > usize(0), {
+            type_params = Option(ArrayList(DocParam)).Some(_forall_params_to_doc_params(func_type, doc_lookup));
+          });
+        },
+        _ => ()
+      );
+      parameters = _function_params_to_doc_params(func_type, doc_lookup);
+    }
   );
   DocFunction(
     name : name,
     doc : doc,
     signature : signature,
-    parameters : _function_params_to_doc_params(func_type, doc_lookup),
+    parameters : parameters,
     return_type : return_type,
     type_params : type_params,
     effects : Option(ArrayList(DocParam)).None,
@@ -1565,7 +2028,8 @@ _extract_methods :: (
           true,
           Option(String).Some(type_name.clone()),
           Option(HashMap(String, String)).Some(doc_lookup),
-          receiver_name
+          receiver_name,
+          Option(SourceSignatureInfo).None
         )
       );
     });
@@ -1628,7 +2092,8 @@ _extract_generic_impl_info :: (
             true,
             Option(String).Some(type_name.clone()),
             Option(HashMap(String, String)).Some(doc_lookup),
-            String.new()
+            String.new(),
+            Option(SourceSignatureInfo).None
           )
         );
       });
@@ -1808,6 +2273,7 @@ build_doc_module :: (
   doc_lookup := build_doc_lookup(extraction);
   trait_impl_map := extract_trait_impls_from_tokens(tokens);
   token_impl_info_map := extract_impl_info_from_tokens(tokens, doc_lookup);
+  source_fn_signatures := _extract_top_level_fn_signatures(tokens);
   (module_doc : Option(String)) = Option(String).None;
   match(
     extraction.module_doc,
@@ -2108,7 +2574,8 @@ build_doc_module :: (
                           true,
                           Option(String).Some(field_name.clone()),
                           Option(HashMap(String, String)).Some(doc_lookup),
-                          String.new()
+                          String.new(),
+                          Option(SourceSignatureInfo).None
                         )
                       );
                     });
@@ -2162,7 +2629,8 @@ build_doc_module :: (
                         true,
                         Option(String).Some(field_name.clone()),
                         Option(HashMap(String, String)).Some(doc_lookup),
-                        String.new()
+                        String.new(),
+                        Option(SourceSignatureInfo).None
                       )
                     );
                   });
@@ -2387,7 +2855,8 @@ build_doc_module :: (
                           true,
                           Option(String).Some(field_name.clone()),
                           Option(HashMap(String, String)).Some(doc_lookup),
-                          String.new()
+                          String.new(),
+                          Option(SourceSignatureInfo).None
                         )
                       );
                     });
@@ -2441,7 +2910,8 @@ build_doc_module :: (
                         true,
                         Option(String).Some(field_name.clone()),
                         Option(HashMap(String, String)).Some(doc_lookup),
-                        String.new()
+                        String.new(),
+                        Option(SourceSignatureInfo).None
                       )
                     );
                   });
@@ -2565,7 +3035,8 @@ build_doc_module :: (
           false,
           Option(String).None,
           Option(HashMap(String, String)).Some(doc_lookup),
-          String.new()
+          String.new(),
+          source_fn_signatures.get(field_name.clone())
         )
       );
       i = (i + usize(1));
