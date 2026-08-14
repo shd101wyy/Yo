@@ -67,6 +67,35 @@ pins) and reported **872 = 868 + 4**. So test DISCOVERY is byte-for-byte the
 baseline set plus the four known new tests, and every one passed — the shared
 universe neither lost, duplicated, nor mis-attributed a single test.
 
+### Phase 1 exposed a latent TS bug (fixed here)
+
+`ModuleManager.loadModule` registers a partial StructValue as "currently
+loading" before evaluating and unregisters after — but the `Evaluator`
+CONSTRUCTOR is what evaluates, so a module whose evaluation THREW leaked its
+partial value in `loadingModules` forever. The next load of that path hit the
+leaked entry and returned the partial value with **no error**, so an import
+that must fail silently succeeded.
+
+Invisible while every compile built a fresh `ModuleManager`; live the moment
+one is reused. It surfaced as `tests/circular_import.test.yo`'s
+"Error on accessing not-yet-exported field in circular import" —
+`comptime_expect_error(import(...))` reporting "the expression was evaluated
+successfully" — failing under sharing and passing without it.
+
+yo-self already carried the fix (its `mm_eval_entry_exprs` comment: "ALWAYS
+unregister, error or not — a leaked currently-loading entry poisons every
+LATER file in a directory check",
+issues/fixed/yo-self-dir-check-state-corruption-after-failure.md), so this is
+TS/yo-self parity, not a workaround. Fixed with a `try/finally`, pinned by
+`src/tests/module-manager-loading-leak.test.ts` (red-first verified: the pin
+fails with the `finally` disabled on the same build).
+
+A speculative second fix — scrubbing the test file's sibling sources from the
+shared universe on the theory that warm fixtures change import semantics — was
+implemented, then REMOVED: instrumentation showed the circular-error fixtures
+were never cached at all (failed loads are not), and the corpus is green
+without it. Recorded so it is not re-derived.
+
 **Hermeticity pins are red-first proven:** with the per-file scrub disabled,
 both pin fixtures fail (duplicate-method / leaked module state); with it
 enabled, both pass — `src/tests/shared-eval-hermeticity.test.ts` +

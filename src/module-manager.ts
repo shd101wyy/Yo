@@ -377,21 +377,33 @@ export class ModuleManager {
     }
 
     const currentModulePath = modulePath;
-    const evaluator = new Evaluator({
-      modulePath,
-      stdPath: this.stdPath,
-      loadModule: (childModulePath: string) => {
-        return this.loadModule(childModulePath, undefined, currentModulePath);
-      },
-      inputString,
-      allowPartialModule: this.allowPartialModule,
-      registerPartialModule: (mv: StructValue) => {
-        this.loadingModules.set(modulePath, mv);
-      },
-    });
-
-    // Module evaluation complete — remove from loading set
-    this.loadingModules.delete(modulePath);
+    let evaluator: Evaluator;
+    try {
+      evaluator = new Evaluator({
+        modulePath,
+        stdPath: this.stdPath,
+        loadModule: (childModulePath: string) => {
+          return this.loadModule(childModulePath, undefined, currentModulePath);
+        },
+        inputString,
+        allowPartialModule: this.allowPartialModule,
+        registerPartialModule: (mv: StructValue) => {
+          this.loadingModules.set(modulePath, mv);
+        },
+      });
+    } finally {
+      // ALWAYS unregister, error or not. The Evaluator constructor EVALUATES
+      // the module, so a module whose evaluation throws used to leave its
+      // partial StructValue in `loadingModules` forever — and a later load of
+      // the same path then hit that leaked entry and returned the partial
+      // value with NO error, so an import that must fail silently succeeded.
+      // Latent while every compile got a fresh ModuleManager; live as soon as
+      // one is reused (the test runner's shared universe). yo-self already
+      // fixed the same class — see the "ALWAYS unregister" comment in
+      // yo-self/module_manager.yo and
+      // issues/fixed/yo-self-dir-check-state-corruption-after-failure.md.
+      this.loadingModules.delete(modulePath);
+    }
 
     const moduleValue = evaluator.getModuleValue();
     const moduleError = evaluator.getModuleError();
