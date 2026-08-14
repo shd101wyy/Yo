@@ -105,6 +105,42 @@ allocator-swap run, valgrind memcheck on the smallest failing unit, and the
 seed-emitted stage-1 C uploaded for offline diffing against the macOS
 emission. Delete the branch when this issue closes.
 
+## VALGRIND LOCALIZATION (2026-08-14, debug-gate3 run 1)
+
+The `debug-gate3` workflow (branch `debug/gate3-array-fill`) delivered:
+
+| diag                                | result                                                             |
+| ----------------------------------- | ------------------------------------------------------------------ |
+| md5 single-file (mimalloc stage-1)  | **PASSES** — needs full-run context                                |
+| full `check ./std` ×2               | 152/154 both — within-binary deterministic                         |
+| `YO_GC_THRESHOLD=0` full            | 152/154 — **NOT the cycle collector**                              |
+| libc-allocator stage-1 full         | 152/154 — **not allocator-specific**                               |
+| valgrind (libc stage-1, full ./std) | **rc=99: 2,232,810 uninitialised-value errors from 1000 contexts** |
+
+The resolvable origins all point at ONE creation site: the **statx buffer
+malloc** in `std/fs/file.yo`'s `exists`/`is_file`/`is_dir` async blocks
+(`buf := *(u8)(malloc(__yo_statx_buf_size()).unwrap())`, file.yo:328-330 —
+the emitted `_file____home_temp_*_resume` state 0). In state 1 the emitted
+C reads **`sm->await_future_0->result` as an uninitialised value** — the
+statx completion either never wrote the future's result or the branch on
+`result < 0` runs before/without it, after which the (kernel-unfilled)
+buffer's contents are read. The taint then propagates (valgrind
+origin-tracking) through the lexer (`tokenize(input, module_path)`), expr
+predicates (`ast_expr_is_fn_call_of` — the top read site, 169 contexts),
+`evaluate_variable`, and `bcmp` — i.e. into String hashes/compares inside
+the evaluator's registries, which is exactly the mechanism that turns into
+a nondeterministic method-miss downstream.
+
+Linux-only by construction: this whole statx path exists only on the
+io_uring side; macOS runs kqueue/stat. The suspect emitter: the v0.2.4
+seed's **async result-storage codegen** — the same class as the tail-await
+result-loss fixed in PR #123 (current compilers).
+
+**Discriminator (run 2, in flight): the same tree TS-built on Linux, same
+check + valgrind.** Clean → the defect is v0.2.4 SEED CODEGEN (historical;
+fixed by advancing the seed to v0.2.5 once #122-#124 merge and release).
+Dirty → a live std/codegen bug to fix in both compilers now.
+
 ## Next steps
 
 1. If the macOS seed-built stage-1 reproduces → iterate locally
