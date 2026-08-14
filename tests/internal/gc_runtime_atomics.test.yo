@@ -1,0 +1,111 @@
+//! Tests for the atomic-RC + worker-pool codegen pins.
+//!
+//! Port of `src/tests/thread-safety-codegen.test.ts` (Phase G / P2.5 step 15,
+//! plans/P2_5_RETIRE_EXECUTION.md). The TS version compiles a whole program and
+//! greps the emitted C; a cli-case cannot replace it because
+//! scripts/cli-diff-test.sh ignores `*.yo.c` by design. This port instead calls
+//! the yo-self emitter functions directly — pinning the same template text at
+//! its source:
+//!   1. `__yo_incr_rc_atomic` uses atomic_fetch_add_explicit + relaxed.
+//!   2. `__yo_decr_rc_atomic` uses atomic_fetch_sub_explicit + acq_rel.
+//!   3. Drop dispatch runs INSIDE the decrement function (lightweight variant —
+//!      the path the TS test's `arc(i32(42))` program hits; the full-GC variant
+//!      dispatches via `header->dispose_fn` instead, so pins 1-2 are asserted on
+//!      BOTH variants while pin 3 is lightweight-only, exactly like the TS test).
+//!   4. `__yo_worker_pool_init` is guarded (idempotent).
+open(import("std/string"));
+{ Emitter } :: import("../../yo-self/emitter.yo");
+{ expr_info_table_new } :: import("../../yo-self/expr_info.yo");
+{ host_target } :: import("../../yo-self/target.yo");
+{ CodeGenContext } :: import("../../yo-self/codegen/utils/index.yo");
+{ FunctionGenerationContext } :: import("../../yo-self/codegen/functions/context.yo");
+{ generate_atomic_gc_runtime_functions } :: import("../../yo-self/codegen/functions/gc_runtime.yo");
+{ generate_parallelism_runtime } :: import("../../yo-self/codegen/parallelism/runtime.yo");
+{ assert, panic } :: import("std/assert");
+/// Build a fresh per-function generation context over an empty program,
+/// mirroring codegen_c.yo's construction (`Emitter.new()` → `CodeGenContext.new`
+/// → `FunctionGenerationContext.new`). The RC-runtime emitters only touch
+/// `base.emitter`, `base.target_info`, `base.needs_cycle_gc` and the (empty)
+/// `unwind_value_c_types`, so empty registries are the production shape here.
+mk_context :: (fn(needs_cycle_gc : bool) -> FunctionGenerationContext)({
+  base := CodeGenContext.new(
+    Emitter.new(),
+    expr_info_table_new(),
+    host_target(),
+    String.from("libc"),
+    false,
+    false,
+    false,
+    false
+  );
+  base.needs_cycle_gc = needs_cycle_gc;
+  FunctionGenerationContext.new(base)
+});
+/// Emit the RC runtime through the production dispatcher
+/// (`generate_atomic_gc_runtime_functions`: full when needs_cycle_gc, else
+/// lightweight) and return the full C text (headers + declarations + code).
+emit_rc_runtime :: (fn(needs_cycle_gc : bool) -> String)({
+  ctx := mk_context(needs_cycle_gc);
+  generate_atomic_gc_runtime_functions(ctx);
+  em := ctx.base.emitter;
+  em.print()
+});
+/// Emit the parallelism runtime (thread + worker pool) for the host target and
+/// return the full C text.
+emit_parallelism_runtime :: (fn() -> String)({
+  em := Emitter.new();
+  generate_parallelism_runtime(em, false, host_target(), false);
+  em.print()
+});
+/// index_of that panics when the marker is missing (so a template rename fails
+/// loudly instead of slicing from index 0).
+must_find :: (fn(hay : String, needle : str, from : usize) -> usize)(
+  match(
+    hay.index_of(needle, from),
+    .Some(i) => i,
+    .None => {
+      msg := String.from("codegen pin marker not found in emitted C: ");
+      msg.push_str(needle);
+      panic(msg);
+      usize(0)
+    }
+  )
+);
+test("__yo_incr_rc_atomic uses atomic_fetch_add_explicit with relaxed", {
+  incr_line := "atomic_fetch_add_explicit((_Atomic uint32_t*)&header->ref_count, 1, memory_order_relaxed)";
+  c_light := emit_rc_runtime(false);
+  assert(c_light.contains("atomic_fetch_add_explicit"), "lightweight: incr uses atomic_fetch_add_explicit");
+  assert(c_light.contains(incr_line), "lightweight: incr fetch_add is memory_order_relaxed");
+  c_full := emit_rc_runtime(true);
+  assert(c_full.contains(incr_line), "full-GC: incr fetch_add is memory_order_relaxed");
+});
+test("__yo_decr_rc_atomic uses atomic_fetch_sub_explicit with acq_rel", {
+  decr_line := "atomic_fetch_sub_explicit((_Atomic uint32_t*)&header->ref_count, 1, memory_order_acq_rel)";
+  c_light := emit_rc_runtime(false);
+  assert(c_light.contains(decr_line), "lightweight: decr fetch_sub is memory_order_acq_rel");
+  c_full := emit_rc_runtime(true);
+  assert(c_full.contains(decr_line), "full-GC: decr fetch_sub is memory_order_acq_rel");
+});
+test("drop dispatch runs within the decrement function", {
+  c := emit_rc_runtime(false);
+  // Mirror the TS slice: from the decr definition to its first `}` (which
+  // closes the `if (header->type_id)` block, past the dispatch call) + 500.
+  start := must_find(c, "static void __yo_decr_rc_atomic", usize(0));
+  close := must_find(c, "}", start);
+  body := c.substring(start, close + usize(500));
+  assert(body.contains("atomic_fetch_sub_explicit"), "decr body contains the atomic fetch_sub");
+  assert(body.contains("memory_order_acq_rel"), "decr body fetch_sub is acq_rel");
+  assert(body.contains("__yo_dispose_dispatch"), "dispose dispatch runs inside __yo_decr_rc_atomic");
+});
+test("__yo_worker_pool_init is guarded (idempotent)", {
+  c := emit_parallelism_runtime();
+  assert(c.contains("__yo_worker_pool_initialized"), "pool init flag is emitted");
+  assert(c.contains("static void __yo_worker_pool_init"), "pool init function is emitted");
+  // Mirror the TS slice: from the init definition to its first `}` (which
+  // closes the guard's early-return block) + 500.
+  start := must_find(c, "static void __yo_worker_pool_init(", usize(0));
+  close := must_find(c, "}", start);
+  body := c.substring(start, close + usize(500));
+  assert(body.contains("if (__yo_worker_pool_initialized)"), "init body checks the flag");
+  assert(body.contains("return"), "init body returns early when already initialized");
+});
