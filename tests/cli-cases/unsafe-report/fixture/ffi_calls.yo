@@ -1,0 +1,29 @@
+//! unsafe-report fixture growth (P2.5 step 15): extern-call wraps x2, an
+//! arith wrap, and a c_include block — the classifier kinds the original
+//! fixture never exercised (extern-call, arith, and the c_include source of
+//! externCFns).
+pragma(Pragma.AllowUnsafe);
+open(import("std/string"));
+c_include(
+  "<string.h>",
+  memcpy_probe :
+    (fn(dst : ?*(void), src : ?*(void), n : usize) -> ?*(void)),
+  strlen_probe :
+    (fn(s : *(u8)) -> usize)
+);
+// SAFETY: caller guarantees both buffers are live and n-sized.
+copy_n :: (fn(dst : ?*(void), src : ?*(void), n : usize) -> ?*(void))({
+  r := unsafe(memcpy_probe(dst, src, n));
+  r
+});
+// SAFETY: caller guarantees s is NUL-terminated.
+len_of :: (fn(s : *(u8)) -> usize)({
+  r := unsafe(strlen_probe(s));
+  r
+});
+// SAFETY: caller guarantees p+n stays inside the allocation.
+advance :: (fn(p : *(u8), n : usize) -> *(u8))({
+  q := unsafe(p &+ n);
+  q
+});
+export(copy_n, len_of, advance);

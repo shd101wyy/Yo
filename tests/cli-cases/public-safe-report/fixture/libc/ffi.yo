@@ -1,0 +1,16 @@
+//! public-safe-report fixture growth (P2.5 step 15): an extern(...) block —
+//! pointer types INSIDE it must be skipped (FFI is opaque by construction),
+//! while the pointer-typed public fn OUTSIDE it must still be flagged.
+pragma(Pragma.AllowUnsafe);
+open(import("std/string"));
+extern(
+  "Yo",
+  __yo_probe_fill : (fn(buf : *(u8), n : usize) -> i32),
+  __yo_probe_len : (fn(s : *(u8)) -> usize)
+);
+// SAFETY: caller guarantees buf is n bytes.
+fill_report_probe :: (fn(buf : *(u8), n : usize) -> i32)({
+  r := unsafe(__yo_probe_fill(buf, n));
+  r
+});
+export(fill_report_probe);
