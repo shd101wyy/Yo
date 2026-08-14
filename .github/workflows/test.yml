@@ -4,15 +4,14 @@ on:
   push:
     branches:
       - develop
-  # Stacked-PR bases included: a PR targeting a p2/p3 campaign branch gets CI
-  # too, so integration problems surface while the stack is open instead of at
-  # the end of the merge train (base-merge → retarget → rebase → force-push).
-  # The tip PR's run scores the whole stack's combined tree.
+  # No base filter: EVERY pull request gets CI, whatever branch it targets —
+  # stacked PRs included, so integration problems surface while the stack is
+  # open instead of at the end of the merge train (base-merge → retarget →
+  # rebase → force-push). A base-branch glob here is how a stacked PR
+  # silently skips CI the day the naming convention changes. Branch pushes
+  # alone still run nothing (the push trigger stays develop-only); a PR's
+  # synchronize event covers its branch pushes.
   pull_request:
-    branches:
-      - develop
-      - "p2/**"
-      - "p3/**"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
