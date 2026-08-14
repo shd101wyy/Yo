@@ -252,25 +252,42 @@ function findTestFilesRecursive(
  * Uses the evaluator to get test names from compile-time evaluated expressions
  * Also returns non-test expressions for use in generating test programs
  */
-export function extractTests(filePath: string): ExtractTestsResult {
+export function extractTests(
+  filePath: string,
+  sharedManager?: ModuleManager
+): ExtractTestsResult {
   const tests: TestDeclaration[] = [];
   const nonTestExprs: Expr[] = [];
 
   // Declare moduleManager outside try block so we can clean it up
   let moduleManager: ModuleManager | null = null;
+  // Canonical, so the modules.get() below agrees with the canonical key
+  // loadModule stores under.
+  const modulePath = canonicalizeModulePath(`file://${filePath}`);
+  // With a run-scoped shared manager, the test module (and anything only it
+  // pulled in) must be scrubbed from the shared universe after extraction —
+  // its impls on shared types and its pragma privileges must not leak into
+  // the next file. Shared dependency modules stay cached; that reuse is the
+  // whole point (plans/SHARED_MODULE_CACHE_TESTS.md).
+  const scrubSharedModule = () => {
+    if (sharedManager) {
+      sharedManager.deleteModule(modulePath);
+    }
+  };
 
   try {
-    // Clear global state before evaluating
-    clearAllGlobalImplState();
-    clearEnvContainingPrelude();
-    clearAllCachedTypes();
-    clearAllModuleCounters();
+    if (sharedManager) {
+      moduleManager = sharedManager;
+    } else {
+      // Clear global state before evaluating
+      clearAllGlobalImplState();
+      clearEnvContainingPrelude();
+      clearAllCachedTypes();
+      clearAllModuleCounters();
 
-    // Use ModuleManager to evaluate the file and get the evaluated expressions
-    moduleManager = new ModuleManager();
-    // Canonical, so the modules.get() below agrees with the canonical key
-    // loadModule stores under.
-    const modulePath = canonicalizeModulePath(`file://${filePath}`);
+      // Use ModuleManager to evaluate the file and get the evaluated expressions
+      moduleManager = new ModuleManager();
+    }
 
     // Test extraction also evaluates the module in-process — arm the same
     // cooperative deadline as the sequential compile so a hung module
@@ -285,6 +302,7 @@ export function extractTests(filePath: string): ExtractTestsResult {
     }
     if (moduleError) {
       moduleManager = null;
+      scrubSharedModule();
       throw new Error(`Error evaluating module: ${moduleError}`);
     }
 
@@ -339,9 +357,11 @@ export function extractTests(filePath: string): ExtractTestsResult {
 
     // Clean up moduleManager to help GC
     moduleManager = null;
+    scrubSharedModule();
   } catch (error) {
     // Ensure moduleManager is cleaned up on error
     moduleManager = null;
+    scrubSharedModule();
     console.error(
       `${colors.red}Error parsing ${filePath}: ${error}${colors.reset}`
     );
@@ -435,7 +455,8 @@ function compileBatchedBinary(
   cCompiler: string,
   wasmTarget?: TargetInfo,
   keepGeneratedFiles?: boolean,
-  noSanitize?: boolean
+  noSanitize?: boolean,
+  sharedManager?: ModuleManager
 ): BatchCompileResult {
   const program = generateBatchedTestProgram(tests, nonTestContent);
   const originalDir = path.dirname(filePath);
@@ -483,25 +504,39 @@ function compileBatchedBinary(
   const SEQUENTIAL_COMPILE_TIMEOUT_MS = 600_000;
 
   let moduleManager: ModuleManager | null = null;
+  // The batch module (its impls, pragma privileges, dependency edges) must
+  // not outlive this compile in a run-scoped shared universe — but the
+  // shared dependency modules it cache-hit must (that reuse is the point,
+  // plans/SHARED_MODULE_CACHE_TESTS.md).
+  const scrubSharedBatchModule = () => {
+    if (sharedManager) {
+      sharedManager.deleteModule(`file://${testFilePath}`);
+    }
+  };
   try {
     fs.writeFileSync(testFilePath, program);
 
-    clearAllGlobalImplState();
-    clearEnvContainingPrelude();
-    clearAllCachedTypes();
-    clearAllModuleCounters();
+    if (sharedManager) {
+      moduleManager = sharedManager;
+    } else {
+      clearAllGlobalImplState();
+      clearEnvContainingPrelude();
+      clearAllCachedTypes();
+      clearAllModuleCounters();
 
-    if (wasmTarget) {
-      setCurrentTarget(wasmTarget);
-      setTargetPointerSize(wasmTarget.pointerSizeBits);
-    } else if (isEmcc) {
-      const emscriptenTarget = parseTarget("wasm32-emscripten");
-      setCurrentTarget(emscriptenTarget);
-      setTargetPointerSize(emscriptenTarget.pointerSizeBits);
+      if (wasmTarget) {
+        setCurrentTarget(wasmTarget);
+        setTargetPointerSize(wasmTarget.pointerSizeBits);
+      } else if (isEmcc) {
+        const emscriptenTarget = parseTarget("wasm32-emscripten");
+        setCurrentTarget(emscriptenTarget);
+        setTargetPointerSize(emscriptenTarget.pointerSizeBits);
+      }
+
+      moduleManager = new ModuleManager();
     }
 
     const yoCompileStart = Date.now();
-    moduleManager = new ModuleManager();
     try {
       // Sequential mode compiles in-process; arm the evaluator's cooperative
       // deadline so a hung Yo→C compile fails this file instead of hanging
@@ -516,6 +551,7 @@ function compileBatchedBinary(
       });
     } catch (compileError) {
       moduleManager = null;
+      scrubSharedBatchModule();
       cleanup();
       throw new Error(`Yo compilation error: ${describeThrown(compileError)}`);
     } finally {
@@ -527,6 +563,7 @@ function compileBatchedBinary(
     const needsIntelAsmSyntax = moduleManager.needsIntelAsmSyntax;
     const usesParallelism = moduleManager.usesParallelism;
     moduleManager = null;
+    scrubSharedBatchModule();
 
     // On Linux, prepend a setrlimit call to increase the stack limit from the
     // default 8 MB to 64 MB.  The ELF PT_GNU_STACK linker flag (-Wl,-z,stack-size=)
@@ -1237,6 +1274,7 @@ async function runTestsSequentially(
     wasmTarget?: TargetInfo;
     noSanitize?: boolean;
     testBatchSize: number;
+    sharedManager?: ModuleManager;
   }
 ): Promise<{
   results: TestResult[];
@@ -1334,7 +1372,8 @@ async function runTestsSequentially(
         cCompiler,
         options.wasmTarget,
         options.keepGeneratedFiles,
-        options.noSanitize
+        options.noSanitize,
+        options.sharedManager
       );
     } catch (compileError) {
       // If this batch has more than one test AND we haven't blown the
@@ -1523,6 +1562,30 @@ export async function runTests(
   let failedTests = 0;
   let bailed = false;
 
+  // Run-scoped shared evaluator universe for the host-target sequential
+  // path: extraction and every batch compile reuse one ModuleManager, so
+  // the shared dependency closure (for tests/internal, the whole ~99k-line
+  // compiler) evaluates ONCE per run instead of twice per file. Per-file
+  // state is scrubbed after each use (see extractTests /
+  // compileBatchedBinary). WASM/emcc runs switch the compilation target,
+  // which invalidates evaluated state — they keep the per-compile fresh
+  // universe. See plans/SHARED_MODULE_CACHE_TESTS.md.
+  const useSharedUniverse = !isWasmBuild && !isEmcc;
+  let sharedManager = useSharedUniverse ? new ModuleManager() : undefined;
+
+  // The shared universe grows monotonically (the union of every file's
+  // closure — a full tests/internal run peaked at 12.9 GiB vs ~6.5 GiB for
+  // the per-file-universe baseline). Bound it: when process RSS crosses
+  // the limit, drop the universe and start fresh (the ModuleManager
+  // constructor clears the process-global registries) — the next file
+  // pays one first-touch closure evaluation and sharing resumes. The env
+  // override exists so the reset path itself is testable.
+  const envRssLimitMb = Number(process.env.YO_TEST_SHARED_RSS_LIMIT_MB);
+  const sharedUniverseRssLimitBytes =
+    Number.isFinite(envRssLimitMb) && envRssLimitMb > 0
+      ? envRssLimitMb * 1024 * 1024
+      : os.totalmem() / 2;
+
   // Process files incrementally so users get immediate feedback
   for (const filePath of filteredTestFiles) {
     if (bailed) break;
@@ -1533,7 +1596,7 @@ export async function runTests(
     let tests: TestDeclaration[];
     let nonTestExprs: Expr[];
     try {
-      const result = extractTests(filePath);
+      const result = extractTests(filePath, sharedManager);
       tests = result.tests;
       nonTestExprs = result.nonTestExprs;
     } catch (error) {
@@ -1599,6 +1662,7 @@ export async function runTests(
       wasmTarget,
       noSanitize: options.noSanitize,
       testBatchSize,
+      sharedManager,
     });
 
     allResults.push(...result.results);
@@ -1616,6 +1680,15 @@ export async function runTests(
 
     // Try to force garbage collection between files to prevent memory accumulation
     tryForceGC();
+
+    // Bound the shared universe (see its declaration above).
+    if (
+      sharedManager &&
+      process.memoryUsage().rss > sharedUniverseRssLimitBytes
+    ) {
+      sharedManager = new ModuleManager();
+      tryForceGC();
+    }
   }
 
   const totalDuration = Date.now() - startTime;

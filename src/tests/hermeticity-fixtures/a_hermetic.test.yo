@@ -1,0 +1,22 @@
+// Shared-eval hermeticity pin, file A (plans/SHARED_MODULE_CACHE_TESTS.md).
+// Defines the SAME method name on the same builtin receiver as
+// z_hermetic.test.yo, with DIFFERENT behavior. Under the run-scoped shared
+// evaluator universe, a leaked registration from the sibling file either
+// trips the duplicate-method check (eval failure) or wins the lookup and
+// fails the sibling's asserts — both files passing in ONE sequential run is
+// the hermeticity assertion (driven by shared-eval-hermeticity.test.ts).
+{ assert } :: import("std/assert");
+{ a_bump } :: import("./a_helper.yo");
+impl(
+  i32,
+  hermetic_probe : (fn(self : Self) -> i32)({
+    return(self + i32(1));
+  })
+);
+(g_counter_a : i32) = i32(10);
+test("hermetic impl and module state (A)", {
+  assert(i32(31).hermetic_probe() == i32(32));
+  assert(a_bump() == i32(6));
+  g_counter_a = (g_counter_a + i32(1));
+  assert(g_counter_a == i32(11));
+});

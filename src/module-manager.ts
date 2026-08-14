@@ -466,6 +466,11 @@ export class ModuleManager {
   ) {
     // console.log(`= Compiling module ${modulePath}`);
     modulePath = canonicalizeModulePath(modulePath);
+    // Fresh code generator per compile: the instance accumulates emitted
+    // state, and a run-scoped shared ModuleManager (the test runner's
+    // sequential path) compiles many batch programs through one manager.
+    // Single-compile flows are unaffected — they only ever compiled once.
+    this.codeGenratorC = new CodeGeneratorC();
     const { moduleValue, moduleError } = this.loadModule(modulePath);
     if (moduleError) {
       throw moduleError.toString();
@@ -477,8 +482,18 @@ export class ModuleManager {
       throw new Error(`Module data not found for ${modulePath}`);
     }
 
-    // Collect module-level init exprs from ALL loaded modules (not just the main one)
-    // This is needed because imported modules may also have module-level mutable variables
+    // Collect module-level init exprs from ALL cached modules — imported
+    // modules may also have module-level mutable variables, and this must
+    // NOT be narrowed to the entry module's import closure: with a
+    // run-scoped shared ModuleManager (the test runner), codegen emits
+    // specialized functions reached through the process-wide impl
+    // registries, which can come from cached modules the entry never
+    // imports; excluding those modules strips the C declarations their
+    // emitted bodies reference ("use of undeclared identifier g_..."; see
+    // plans/SHARED_MODULE_CACHE_TESTS.md). Each init-expr emission carries
+    // its own declaration, so all-modules collection is self-consistent —
+    // at worst an unreferenced global plus its init lands in a binary that
+    // never reads it.
     const allModuleLevelInitExprs: Expr[] = [];
     for (const [, modData] of this.modules) {
       const mv = modData.moduleValue;
