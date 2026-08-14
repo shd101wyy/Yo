@@ -132,9 +132,21 @@ the evaluator's registries, which is exactly the mechanism that turns into
 a nondeterministic method-miss downstream.
 
 Linux-only by construction: this whole statx path exists only on the
-io_uring side; macOS runs kqueue/stat. The suspect emitter: the v0.2.4
-seed's **async result-storage codegen** — the same class as the tail-await
-result-loss fixed in PR #123 (current compilers).
+io_uring side; macOS runs kqueue/stat.
+
+Refinements from the full log: **zero `Invalid read/write` reports** — every
+flagged access is to allocated-but-unwritten memory, and the seed-emitted
+`__yo_async_statx_start` is byte-identical to the current template (future
+malloc'd + memset(0) + full field init, so the future is NOT
+created-uninitialized). The two mechanisms consistent with that:
+(a) the future is **freed early** (refcount bug in the emitted async
+machinery) and its slot re-malloc'd as the next statx buffer before the
+dangling `->result` read — recycled-not-yet-written memory reads as
+"uninitialised", never as "invalid"; or (b) the io_uring **completion does
+not fill what the code believes is filled** (CQE→future routing / unfilled
+statx fields despite rc>=0), so `exists`/`is_file` compute their bool from
+kernel-unfilled buffer bytes (the top-level trace: the uninit bool is
+branched on by the check driver itself, origin = the statx-buf malloc).
 
 **Discriminator (run 2, in flight): the same tree TS-built on Linux, same
 check + valgrind.** Clean → the defect is v0.2.4 SEED CODEGEN (historical;
