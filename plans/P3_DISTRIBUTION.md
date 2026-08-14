@@ -150,6 +150,57 @@ glibc Linux legs. Constraints (from `BUILD_SYSTEM.md` + the plan):
 - Fallback if musl validation surfaces real problems: Koka-style separate
   `-gnu`/`-musl` bundles + distro sniffing in install.sh.
 
+### The trap: no musl liburing ⇒ a binary that links fine and cannot work
+
+**Established 2026-08-15 by reading the emitter, not by guessing.** The Linux
+async runtime is included conditionally:
+
+```c
+#if __has_include(<liburing.h>)   // src/codegen/async/runtime-io-linux.ts:537
+```
+
+and the `#else` arm (`:1486`) replaces the whole subsystem with stubs whose
+init does nothing but
+
+```c
+fprintf(stderr, "[Yo] Warning: liburing not available, async I/O disabled\n");
+```
+
+The self-hosted compiler reads EVERY source file through
+`io.await(read_file(...))` (`yo-self/module_manager.yo`), so a static-musl
+build produced without a musl liburing would **link cleanly, ship, and then
+fail to compile anything** — with a warning on stderr as the only clue. The
+liburing probe is `pkg-config --exists liburing` (`yo-self/main.yo:841`), so
+it degrades silently rather than failing the build.
+
+**Therefore the musl leg MUST assert io_uring is IN the binary**, not merely
+that the binary is static. Cheapest honest assertion: grep the emitted C for
+`__YO_HAS_LIBURING`-guarded symbols, or run the built binary and fail if
+`liburing not available` appears on stderr.
+
+### Design that avoids the seed chicken-and-egg (no gcompat)
+
+The seed is a glibc binary, so it cannot run inside Alpine — which is why
+"build the musl bundle in an Alpine container" stalls. Split the pipeline at
+the C boundary instead, which the toolchain already supports:
+
+1. **On ubuntu-latest (glibc):** the seed does Yo→C only —
+   `yo compile yo-self/main.yo --release --allocator mimalloc --std-path ./std
+--emit-c --skip-c-compiler -o yo-musl`. (Precedent: `fixpoint_only.sh` is
+   emit-only for the same reason, and P2.5 step 24b keeps it that way.)
+2. **In an Alpine container:** compile that C with musl + STATIC liburing
+   (`apk add build-base liburing-dev liburing-static`), plus mimalloc's
+   `static.c`, linking `-static`.
+3. **Assert, in Alpine:** `file` reports `statically linked`, the binary runs
+   with no interpreter, `yo check std/assert.yo` succeeds, and stderr carries
+   NO "liburing not available" warning.
+
+This is PR-verifiable without publishing anything, so item 3 can be de-risked
+in normal CI before `release.yml` grows the leg.
+
+**Not locally testable on this machine** (macOS, no container runtime), so it
+must be iterated in CI.
+
 ## Item 4 — release hardening (carried from P2 notes)
 
 - Per-platform fixpoint (byte-identity) as a scheduled or release-time job

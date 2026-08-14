@@ -670,6 +670,76 @@ jobs:
           YO_TEST_LEAK_VERDICT: "0"
         run: /tmp/yo-stage1 test ./tests/internal --parallel 1 --verbose
 
+  # P3 item 3 (plans/P3_DISTRIBUTION.md): prove the static-musl Linux bundle
+  # BUILDS and RUNS before release.yml ships one. Two distros cannot run the
+  # current glibc bundle at all — Alpine (musl) and NixOS (no
+  # /lib64/ld-linux-x86-64.so.2 outside /nix/store) — and a static binary needs
+  # no interpreter, fixing both.
+  #
+  # The pipeline is split at the C boundary because the SEED is a glibc binary
+  # and cannot run inside Alpine: the seed does Yo->C on the host, and Alpine
+  # only does C->binary. That avoids gcompat entirely.
+  build-linux-musl-static:
+    name: Static musl Linux bundle (build + run, no publish)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install the seed compiler (previous release)
+        uses: ./.github/actions/install-seed
+        with:
+          version: ${{ env.SEED_VERSION }}
+
+      # Emit-only: no C compiler runs here, so the host's glibc never enters
+      # the artifact. --std-path ./std is load-bearing (the seed would
+      # otherwise use its OWN bundled std).
+      - name: "Stage 1 (Yo -> C only, on the glibc host)"
+        env:
+          YO_MAIN_STACK_MB: "4096"
+        run: |
+          yo compile yo-self/main.yo --release --allocator mimalloc --std-path ./std \
+            --emit-c --skip-c-compiler -o yo-musl
+          ls -la yo-musl.c
+
+      - name: "C -> static binary, inside Alpine (musl + static liburing)"
+        run: |
+          docker run --rm -v "$PWD:/w" -w /w alpine:3.20 sh -euc '
+            apk add --no-cache build-base linux-headers liburing-dev liburing-static
+            cc -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
+              yo-musl.c vendor/mimalloc/src/static.c \
+              -I vendor/mimalloc/include \
+              -static -luring -lpthread -lm \
+              -o yo-musl
+          '
+
+      # A static binary that merely LINKS is not the deliverable. Without a musl
+      # liburing the emitter silently swaps the whole async runtime for stubs
+      # (src/codegen/async/runtime-io-linux.ts:1486) whose init prints
+      # "liburing not available, async I/O disabled" — and since the compiler
+      # reads every source file through io.await(read_file(...)), such a binary
+      # links, ships, and then compiles NOTHING. So io_uring presence is
+      # asserted explicitly, not assumed.
+      - name: Assert the bundle is static AND has working async I/O
+        run: |
+          file yo-musl | tee file.txt
+          grep -q "statically linked" file.txt || {
+            echo "::error::musl bundle is not statically linked"; exit 1; }
+
+          docker run --rm -v "$PWD:/w" -w /w alpine:3.20 sh -euc '
+            ./yo-musl check std/assert.yo 2>run.err || { echo "check FAILED"; cat run.err; exit 1; }
+            cat run.err
+            if grep -q "liburing not available" run.err; then
+              echo "::error::async I/O was compiled OUT — the binary would fail to read sources"
+              exit 1
+            fi
+          '
+          echo "static + io_uring confirmed."
+
   test-tsan:
     name: ThreadSanitizer (sync primitives — Linux/Clang)
     runs-on: ubuntu-latest
