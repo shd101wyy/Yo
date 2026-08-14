@@ -1,6 +1,53 @@
-# Seed-built stage-1: `Array(T, N).fill` method-miss in std/crypto/{md5,sha256} (Linux CI, layout-sensitive)
+# `Array(T, N).fill` method-miss in std/crypto/{md5,sha256}: double prelude evaluation + readdir-order dependence (BOTH compilers)
 
-**Status: OPEN** (found 2026-08-14, PR #122 round-5 CI, run 31753265776).
+**Status: ROOT-CAUSED 2026-08-14** (found on PR #122 round-5 CI, run
+31753265776; the title's original "seed-built stage-1 / layout-sensitive"
+framing is preserved below as the investigation record — it was a mirage).
+
+## ROOT CAUSE (the short version)
+
+1. `run_check` pre-loads the prelude under the path string
+   `./std/prelude.yo`; the directory walker later checks `std/prelude.yo`.
+   The module cache keys on the raw path string → miss → **the prelude is
+   evaluated TWICE** whenever `std/prelude.yo` is inside the checked tree.
+2. The second prelude evaluation corrupts where-constrained generic-impl
+   resolution for files checked AFTER it: the first file needing a fresh
+   `Array(T, N)` specialization (`md5`/`sha256`, the where(T <: Comptime)
+   `fill` impl) reports "No matching call found". (Deep mechanism to pin
+   during the fix: duplicate registration under re-minted prelude type
+   identities colliding in the process-wide impl registries.)
+3. Whether prelude-as-file runs BEFORE the crypto files depends on RAW
+   READDIR ORDER (`collect_check_files` does not sort): ext4 hash order
+   usually walks it first (→ CI failures), APFS after (→ macOS immunity),
+   and ext4's per-directory hash seed differs per fresh checkout (→ the
+   "lottery" — runs 31778789281 and round 2 drew a passing order).
+
+**Both compilers fail under the forced order on macOS** (TS node CLI: 1/3
+passed; current yo-self-built binary: identical 2 errors) — this is a
+SHARED evaluator/module-manager logic bug, not codegen, not the seed, not
+Linux, not io_uring.
+
+Minimal repro (any platform, any binary):
+
+```
+cp -R std /tmp/ot/std && mv /tmp/ot/std/crypto /tmp/ot/std/zzcrypto   # force walk order
+cd /tmp/ot && yo check ./std --exclude <everything but prelude.yo, zzcrypto/{md5,sha256}.yo>
+# → prelude checked twice (pre-load + as-file), then md5/sha256 fail .fill
+```
+
+## Fix plan (all three are real defects; no workarounds)
+
+1. Canonicalize module-cache keys (absolute, normalized) in BOTH module
+   managers so the pre-load and walker share one entry — kills the double
+   evaluation.
+2. Root-cause and fix the registry collision so a re-evaluated prelude is
+   harmless anyway (idempotent registration or identity-stable lookup).
+3. Sort `collect_check_files` (and TS's walker) so check order is
+   deterministic cross-filesystem.
+
+---
+
+# Investigation record (original framing below — historical)
 
 ## Symptom
 
