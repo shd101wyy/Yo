@@ -101,9 +101,10 @@ prelude) that sharing is sound.
   (std + yo-self modules). In-process reuse — same mechanism as `check`.
 - **Not cacheable in Phase 1:** per-batch codegen (C emission is
   demand-driven per program) and clang time on the emitted ~MBs of C.
-- **Out of scope entirely:** an on-disk cache. Serializing evaluator state
-  (EvalValues contain closures, envs, interned type identities) is not
-  feasible; do not attempt.
+- **Out of scope entirely:** an on-disk cache OF EVALUATOR STATE. Serializing
+  EvalValues (closures, envs, interned type identities) is not feasible; do
+  not attempt. This does NOT rule out caching extraction's string OUTPUT on
+  disk — see Phase 3, which is exactly that and is now the leading lever.
 
 Phase 0 exists to size these buckets before building anything
 (memory rule: profile before trusting perf plans).
@@ -140,8 +141,9 @@ overall, same shape expected.)
 > Delivered: **1.66× per file** (the CI-relevant shape) and ~1.19× over the
 > whole tier. The estimate assumed cross-file extraction savings would compound;
 > in practice each file still pays first-touch evaluation for whatever it is the
-> first to import, and once evaluation shrinks, clang + C emission (untouched in
-> Phase 1) dominate what is left.
+> first to import — and per-process, extraction is not amortized at all. What
+> dominates after Phase 1 is therefore EXTRACTION (62.4 s of 95.4 s on the
+> heavy file), not clang; see Phase 3, which is aimed squarely at it.
 
 ## How CI actually runs the tier (measured against, 2026-08-15)
 
