@@ -1,13 +1,18 @@
 //! Version cache management for Yo.
 //!
-//! Downloads and caches specific versions of `@shd101wyy/yo` from the npm registry.
-//! Cached versions are stored in `~/.cache/yo/versions/<version>/`.
+//! Downloads and caches specific versions of Yo as NATIVE RELEASE BUNDLES
+//! from GitHub Releases (npm publishing stopped at v0.2.0 — the npm channel
+//! is dead for every later version; see plans/P3_DISTRIBUTION.md item 2).
+//! Cached versions are stored in `~/.cache/yo/versions/<version>/` as a plain
+//! bundle extraction: `bin/yo` (+`.exe` on Windows), `std/`, `vendor/`,
+//! LICENSE — exactly the layout `scripts/install.sh` installs, so the two
+//! mechanisms share one shape and the bundle self-locates its std.
 //!
 //! Download flow:
-//!   1. Fetch package metadata from npm registry
-//!   2. Get the tarball URL for the specified version
-//!   3. Download and extract the tarball
-//!   4. Move contents from `package/` (npm's tarball root) to the version directory
+//!   1. Resolve the host platform's bundle name (yo-v<v>-<os>-<arch>).
+//!   2. Download `https://github.com/<repo>/releases/download/v<v>/<bundle>.tar.gz`.
+//!   3. Extract; the tarball root is a `<bundle>/` directory — move it to the
+//!      version cache directory.
 //!
 //! This mirrors `src/version-cache.ts`.
 pragma(Pragma.AllowUnsafe);
@@ -17,7 +22,7 @@ open(import("std/fmt"));
 { AnyError, Exception, IoExn } :: import("std/error");
 { ArrayList } :: import("std/collections/array_list");
 { Path } :: import("std/path");
-{ read_string, exists } :: import("std/fs/file");
+{ exists } :: import("std/fs/file");
 {
   FileType,
   create_dir_all,
@@ -28,6 +33,15 @@ open(import("std/fmt"));
 } :: import("std/fs/dir");
 { walk_with, WalkOptions } :: import("std/fs/walker");
 { TempDir } :: import("std/fs/temp");
+{ env } :: import("std/env");
+{
+  host_target,
+  is_target_windows,
+  is_target_macos,
+  is_target_linux,
+  os_to_str,
+  arch_to_str
+} :: import("./target.yo");
 {
   get_global_versions_cache_dir,
   get_version_cache_dir
@@ -35,8 +49,19 @@ open(import("std/fmt"));
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-NPM_REGISTRY_URL :: "https://registry.npmjs.org";
-NPM_PACKAGE_PATH :: "/@shd101wyy/yo";
+/// The first release that ships native bundles for all platforms.
+MIN_BUNDLE_VERSION :: "0.2.1";
+/// Overridable for forks/tests — matches scripts/install.sh's YO_REPO.
+/// Computed lazily (env reads are runtime, not comptime).
+_github_repo :: (fn() -> String)(
+  match(
+    env.get(`YO_REPO`),
+    .Some(r) => r,
+    .None => `shd101wyy/Yo`
+  )
+);
+_releases_api_url :: (fn() -> String)(`https://api.github.com/repos/${_github_repo()}/releases`);
+_releases_download_url :: (fn() -> String)(`https://github.com/${_github_repo()}/releases/download`);
 // ---------------------------------------------------------------------------
 // Local helpers
 // ---------------------------------------------------------------------------
@@ -74,7 +99,6 @@ _remove_dir_all :: (
 );
 /// Extract the string value of a JSON field named `key`.
 /// Handles both `"key":"value"` and `"key": "value"` forms.
-/// The JSON must be ASCII (npm registry responses always are).
 /// Returns `.None` if the field is not found.
 _json_string_for_key :: (fn(json : String, key : String) -> Option(String))({
   pat1 := `"${key}":"`;
@@ -98,105 +122,6 @@ _json_string_for_key :: (fn(json : String, key : String) -> Option(String))({
         .None => Option(String).None,
         .Some(end) => .Some(rest.substring(usize(0), end))
       )
-    }
-  )
-});
-/// Extract all string keys from the top-level object at the JSON field `"versions"`.
-/// Used to extract version strings from npm package metadata.
-///
-/// Uses a byte-level state machine:
-///   - Tracks brace depth and whether we are inside a quoted string.
-///   - Keys at depth==1 (inside the versions object) are collected.
-///   - Keys at depth>1 (nested inside version value objects) are skipped.
-///
-/// Assumes ASCII-only JSON (safe for npm registry responses).
-_json_extract_version_keys :: (fn(json : String) -> ArrayList(String))({
-  result := ArrayList(String).new();
-  // Locate the opening '{' of the "versions" object value.
-  pat1 := String.from("\"versions\":{");
-  pat2 := String.from("\"versions\": {");
-  scan_start_opt := match(
-    json.index_of(pat1),
-    .Some(i) => Option(usize).Some(i + pat1.len()),
-    .None => match(
-      json.index_of(pat2),
-      .Some(i) => Option(usize).Some(i + pat2.len()),
-      .None => Option(usize).None
-    )
-  );
-  match(
-    scan_start_opt,
-    .None => result,
-    .Some(scan_start) => {
-      bytes := json.as_bytes(); // shared RC reference, no copy
-      json_len := bytes.len(); // == json.len() for ASCII
-      pos := scan_start;
-      depth := i32(1); // already inside the opening '{'
-      in_string := false;
-      unwind_next := false;
-      while((pos < json_len) && (depth > i32(0)), {
-        byte_opt := bytes.get(pos);
-        pos = (pos + usize(1)); // advance BEFORE dispatch
-        match(
-          byte_opt,
-          .None => {
-            depth = i32(0);
-          },
-          .Some(b) => {
-            if(unwind_next, {
-              unwind_next = false;
-            }, {
-              cond(
-                // ── Inside a string value (depth > 1) ──────────────────
-                in_string => cond(
-                  (b == u8(92)) => {
-                    unwind_next = true;
-                  },
-                  // '\'
-                  (b == u8(34)) => {
-                    in_string = false;
-                  },
-                  // closing '"'
-                  true => ()
-                ),
-                // ── depth==1 and '"': opening of a version key ─────────
-                ((b == u8(34)) && (depth == i32(1))) => {
-                  // pos already points one past the opening '"'.
-                  key_start := pos;
-                  rest := json.substring(key_start, json_len);
-                  match(
-                    rest.index_of(String.from("\"")),
-                    .None => {
-                      depth = i32(0);
-                    },
-                    // malformed JSON
-                    .Some(key_end) => {
-                      key := rest.substring(usize(0), key_end);
-                      result.push(key);
-                      pos = ((key_start + key_end) + usize(1)); // skip past closing '"'
-                    }
-                  );
-                },
-                // ── depth>1 and '"': opening of a nested string value ──
-                (b == u8(34)) => {
-                  in_string = true;
-                },
-                // ── Structural characters (not inside a string) ─────────
-                (b == u8(123)) => {
-                  depth = (depth + i32(1));
-                },
-                // '{'
-                (b == u8(125)) => {
-                  depth = (depth - i32(1));
-                },
-                // '}'
-                true => ()
-              );
-            });
-          }
-        );
-      });
-      result
     }
   )
 });
@@ -272,7 +197,48 @@ _sort_by_semver :: (fn(versions : ArrayList(String)) -> ArrayList(String))({
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
+/// The cached compiler binary inside a version directory.
+cached_binary_path :: (fn(version_dir : String) -> String)({
+  bin_name := cond(
+    is_target_windows(host_target()) => `yo.exe`,
+    true => `yo`
+  );
+  `${version_dir}/bin/${bin_name}`
+});
+/// The release-bundle basename for a version on the HOST platform,
+/// e.g. `yo-v0.2.4-macos-arm64`. Mirrors scripts/install.sh's detect_osarch.
+host_bundle_name :: (fn(version : String, exn : Exception) -> String)({
+  target := host_target();
+  os_name := cond(
+    is_target_macos(target) => `macos`,
+    is_target_linux(target) => `linux`,
+    is_target_windows(target) => `windows`,
+    true => {
+      platform_str := String.from(os_to_str(target.os));
+      exn.throw(
+        dyn(
+          `Unsupported platform for Yo release bundles: ${platform_str}. Available targets: linux-x64, linux-arm64, macos-arm64, macos-x64, windows-x64.`
+        )
+      );
+      String.new()
+    }
+  );
+  arch_name := match(
+    target.arch,
+    .X86_64 => `x64`,
+    .Aarch64 => `arm64`,
+    _ => {
+      arch_str := String.from(arch_to_str(target.arch));
+      exn.throw(
+        dyn(`Unsupported CPU architecture for Yo release bundles: ${arch_str}. Available: x64, arm64.`)
+      );
+      String.new()
+    }
+  );
+  `yo-v${version}-${os_name}-${arch_name}`
+});
 /// Check if a specific Yo version is already cached locally.
+/// A cached version is a bundle extraction whose `bin/yo` exists.
 is_version_cached :: (
   fn(
     version : String,
@@ -282,37 +248,12 @@ is_version_cached :: (
 )(
   io.async((e : IoExn) => {
     version_dir := get_version_cache_dir(version);
-    dir_exists := e.io.await(exists(Path.new(version_dir), e.io), e.io);
-    if(!(dir_exists), {
-      return(false);
-    });
-    pkg_json_path := {
-      p := version_dir.concat(String.from("/package.json"));
-      p
-    };
-    pkg_exists := e.io.await(exists(Path.new(pkg_json_path), e.io), e.io);
-    if(!(pkg_exists), {
-      return(false);
-    });
-    // Check if dependencies need to be installed.
-    // Reads package.json to check whether "dependencies" key is non-empty.
-    content := e.io.await(read_string(Path.new(pkg_json_path), e.io), e);
-    has_deps_key := content.contains(String.from("\"dependencies\""));
-    is_empty_1 := content.contains(String.from("\"dependencies\":{}"));
-    is_empty_2 := content.contains(String.from("\"dependencies\": {}"));
-    has_deps := (has_deps_key && ((!(is_empty_1)) && (!(is_empty_2))));
-    if(has_deps, {
-      node_modules_path := version_dir.concat(String.from("/node_modules"));
-      nm_exists := e.io.await(exists(Path.new(node_modules_path), e.io), e.io);
-      if(!(nm_exists), {
-        return(false);
-      });
-    });
-    true
+    e.io.await(exists(Path.new(cached_binary_path(version_dir)), e.io), e.io)
   })
 );
-/// List all locally cached Yo versions.
-/// Returns an ArrayList sorted by semver (ascending).
+/// List all locally cached Yo versions (directories holding a `bin/yo`).
+/// Returns an ArrayList sorted by semver (ascending). Old npm-shaped cache
+/// entries (package.json + node_modules) are ignored — that channel is dead.
 list_cached_versions :: (
   fn(
     io : Io,
@@ -334,9 +275,9 @@ list_cached_versions :: (
         .None => (),
         .Some(entry) => {
           if(match(entry.file_type, .Directory => true, _ => false), {
-            pkg_path := versions_dir.concat(String.from("/")).concat(entry.name).concat(String.from("/package.json"));
-            pkg_exists := e.io.await(exists(Path.new(pkg_path), e.io), e.io);
-            if(pkg_exists, {
+            entry_path := `${versions_dir}/${entry.name}`;
+            bin_exists := e.io.await(exists(Path.new(cached_binary_path(entry_path)), e.io), e.io);
+            if(bin_exists, {
               versions.push(entry.name);
             });
           });
@@ -375,57 +316,10 @@ clean_version_cache :: (
     );
   })
 );
-/// Install production dependencies for a cached version.
-/// Tries npm first, then bun. Warns (but does not fail) if neither is available.
-install_dependencies :: (
-  fn(
-    version_dir : String,
-    io : Io,
-    exn : Exception
-  ) -> Impl(Future(unit, IoExn))
-)(
-  io.async((e : IoExn) => {
-    pkg_json_path := version_dir.concat(String.from("/package.json"));
-    pkg_exists := e.io.await(exists(Path.new(pkg_json_path), e.io), e.io);
-    if(!(pkg_exists), {
-      return(());
-    });
-    content := e.io.await(read_string(Path.new(pkg_json_path), e.io), e);
-    has_key := content.contains(String.from("\"dependencies\""));
-    is_empty_1 := content.contains(String.from("\"dependencies\":{}"));
-    is_empty_2 := content.contains(String.from("\"dependencies\": {}"));
-    has_deps := (has_key && ((!(is_empty_1)) && (!(is_empty_2))));
-    if(!(has_deps), {
-      return(());
-    });
-    println(String.from("Installing dependencies..."));
-    // Try npm first, then bun, using `sh -c 'cd DIR && CMD'` since Command
-    // does not expose a cwd setter.
-    npm_script := `cd '${version_dir}' && npm install --production --no-audit --no-fund`;
-    npm_cmd := Command.new(String.from("sh"));
-    npm_cmd.arg(String.from("-c"));
-    npm_cmd.arg(npm_script);
-    npm_out := e.io.await(npm_cmd.output(e.io), e);
-    if(npm_out.status.success(), {
-      return(());
-    });
-    bun_script := `cd '${version_dir}' && bun install --production`;
-    bun_cmd := Command.new(String.from("sh"));
-    bun_cmd.arg(String.from("-c"));
-    bun_cmd.arg(bun_script);
-    bun_out := e.io.await(bun_cmd.output(e.io), e);
-    if(bun_out.status.success(), {
-      return(());
-    });
-    eprintln(
-      String.from(
-        "Warning: Could not install dependencies for cached version. Some features may not work. Install npm or bun to resolve this."
-      )
-    );
-    ()
-  })
-);
-/// HTTP GET using curl. Follows redirects. Returns the response body as a String.
+/// HTTP GET using curl, sending the headers GitHub's API requires.
+/// Follows redirects. Returns the response body as a String.
+/// Mirrors the TS httpGet: HTTP 403 throws the rate-limit message, any
+/// other status >= 400 throws `HTTP <code> fetching <url>`.
 _http_get :: (
   fn(
     url : String,
@@ -437,11 +331,17 @@ _http_get :: (
     cmd := Command.new(String.from("curl"));
     cmd.arg(String.from("--silent"));
     cmd.arg(String.from("--location"));
-    cmd.arg(String.from("--fail"));
     cmd.arg(String.from("--max-redirs"));
     cmd.arg(String.from("5"));
+    // GitHub's API rejects requests without a User-Agent.
     cmd.arg(String.from("-H"));
-    cmd.arg(String.from("Accept: application/json"));
+    cmd.arg(String.from("User-Agent: yo-version-cache"));
+    cmd.arg(String.from("-H"));
+    cmd.arg(String.from("Accept: application/vnd.github+json"));
+    // Append the final HTTP status code (3 digits) to stdout so the
+    // caller-visible status survives curl's exit-code flattening.
+    cmd.arg(String.from("-w"));
+    cmd.arg(String.from("%{http_code}"));
     cmd.arg(url);
     out := e.io.await(cmd.output(e.io), e);
     if(!(out.status.success()), {
@@ -449,27 +349,54 @@ _http_get :: (
       msg.push_string(url);
       e.exn.throw(dyn(msg));
     });
-    String.from_bytes(out.stdout)
+    // stdout = body bytes + 3-digit status code. Split at the BYTE level:
+    // release JSON can contain non-ASCII, and String indices are rune-based.
+    n := out.stdout.len();
+    if(n < usize(3), {
+      e.exn.throw(dyn(`HTTP request failed for: ${url}`));
+    });
+    code_str := String.from_bytes(out.stdout.slice_copy((n - usize(3)) .. n));
+    body := String.from_bytes(out.stdout.slice_copy(usize(0) .. (n - usize(3))));
+    code := match(code_str.parse_i64(), .None => i64(0), .Some(c) => c);
+    if(code == i64(403), {
+      // Unauthenticated GitHub API rate limit (60 requests/hour/IP).
+      e.exn.throw(
+        dyn(
+          `GitHub API rate limit reached (HTTP 403). Wait a bit and retry, or check https://github.com/${_github_repo()}/releases in a browser.`
+        )
+      );
+    });
+    if(code >= i64(400), {
+      e.exn.throw(dyn(`HTTP ${code_str} fetching ${url}`));
+    });
+    body
   })
 );
 /// Download a URL to `dest_path` using curl. Follows redirects.
+/// Returns the final HTTP status code as a 3-digit String (e.g. "200",
+/// "404") so the caller can map statuses to messages (the TS downloadFile
+/// throws and the caller inspects the message; without catch, we return
+/// the status instead). Throws only when curl itself fails (network error).
 _download_file :: (
   fn(
     url : String,
     dest_path : String,
     io : Io,
     exn : Exception
-  ) -> Impl(Future(unit, IoExn))
+  ) -> Impl(Future(String, IoExn))
 )(
   io.async((e : IoExn) => {
     cmd := Command.new(String.from("curl"));
     cmd.arg(String.from("--silent"));
     cmd.arg(String.from("--location"));
-    cmd.arg(String.from("--fail"));
     cmd.arg(String.from("--max-redirs"));
     cmd.arg(String.from("5"));
+    cmd.arg(String.from("-H"));
+    cmd.arg(String.from("User-Agent: yo-version-cache"));
     cmd.arg(String.from("-o"));
     cmd.arg(dest_path);
+    cmd.arg(String.from("-w"));
+    cmd.arg(String.from("%{http_code}"));
     cmd.arg(url);
     out := e.io.await(cmd.output(e.io), e);
     if(!(out.status.success()), {
@@ -477,39 +404,107 @@ _download_file :: (
       msg.push_string(url);
       e.exn.throw(dyn(msg));
     });
-    ()
+    // With `-o`, the body goes to the file; stdout is exactly the -w output.
+    String.from_bytes(out.stdout)
   })
 );
-/// Fetch the tarball URL for a specific version from the npm registry.
-_fetch_tarball_url :: (
+/// One page of the GitHub Releases API scan: the non-draft, non-prerelease
+/// tag names (leading "v" stripped) plus the TOTAL count of top-level
+/// objects seen (drafts included) — the <100 early-stop signal.
+_ReleasePage :: struct(tags : ArrayList(String), object_count : i64);
+/// Byte-level scanner for one GitHub Releases API response page (a
+/// top-level JSON ARRAY of release objects). Walks the bytes tracking
+/// string/escape state and brace depth; each depth-1 object span is
+/// sliced out (byte-level, so non-ASCII release bodies cannot skew
+/// rune-based indices) and probed for `tag_name` / `draft` / `prerelease`.
+/// Both `"key":value` and `"key": value` spacings are handled.
+_scan_release_page :: (fn(json : String) -> _ReleasePage)({
+  tags := ArrayList(String).new();
+  object_count := i64(0);
+  bytes := json.as_bytes(); // shared RC reference, no copy
+  n := bytes.len();
+  pos := usize(0);
+  in_string := false;
+  skip_next := false;
+  obj_depth := i32(0);
+  obj_start := usize(0);
+  while(pos < n, {
+    b := match(bytes.get(pos), .None => u8(0), .Some(x) => x);
+    cond(
+      skip_next => {
+        skip_next = false;
+      },
+      in_string => cond(
+        // '\' escapes the next byte inside a string
+        (b == u8(92)) => {
+          skip_next = true;
+        },
+        // closing '"'
+        (b == u8(34)) => {
+          in_string = false;
+        },
+        true => ()
+      ),
+      // opening '"'
+      (b == u8(34)) => {
+        in_string = true;
+      },
+      // '{'
+      (b == u8(123)) => {
+        if(obj_depth == i32(0), {
+          obj_start = pos;
+        });
+        obj_depth = (obj_depth + i32(1));
+      },
+      // '}'
+      (b == u8(125)) => {
+        obj_depth = (obj_depth - i32(1));
+        if(obj_depth == i32(0), {
+          object_count = (object_count + i64(1));
+          span := String.from_bytes(bytes.slice_copy(obj_start .. (pos + usize(1))));
+          is_draft := (span.contains(String.from("\"draft\":true")) || span.contains(String.from("\"draft\": true")));
+          is_prerelease := (span.contains(String.from("\"prerelease\":true")) || span.contains(String.from("\"prerelease\": true")));
+          if(!(is_draft || is_prerelease), {
+            match(
+              _json_string_for_key(span, String.from("tag_name")),
+              .None => (),
+              .Some(tag) => {
+                cleaned := cond(
+                  tag.starts_with(String.from("v")) => tag.substring(usize(1), tag.len()),
+                  true => tag
+                );
+                tags.push(cleaned);
+              }
+            );
+          });
+        });
+      },
+      true => ()
+    );
+    pos = (pos + usize(1));
+  });
+  _ReleasePage(tags : tags, object_count : object_count)
+});
+/// Failure cleanup for `download_version`: remove the (possibly partial)
+/// version directory and the temp directory. Ports the TS catch+finally.
+_cleanup_failed_download :: (
   fn(
-    version : String,
+    version_dir : String,
+    tmp_path : Path,
     io : Io,
     exn : Exception
-  ) -> Impl(Future(String, IoExn))
+  ) -> Impl(Future(unit, IoExn))
 )(
   io.async((e : IoExn) => {
-    pkg_url := `${NPM_REGISTRY_URL}${NPM_PACKAGE_PATH}/${version}`;
-    body := e.io.await(_http_get(pkg_url, e.io, e.exn), e);
-    // npm returns {"error":"Not found"} for non-existent versions.
-    if(body.contains(String.from("\"error\":")), {
-      msg := `Yo version ${version} is not available on npm.\nRun 'yo version list --remote'`;
-      e.exn.throw(dyn(msg));
+    ver_exists := e.io.await(exists(Path.new(version_dir), e.io), e.io);
+    if(ver_exists, {
+      e.io.await(_remove_dir_all(Path.new(version_dir), e.io, e.exn), e);
     });
-    tarball_opt := _json_string_for_key(body, String.from("tarball"));
-    match(
-      tarball_opt,
-      .None => {
-        msg := `No tarball URL found for @shd101wyy/yo@${version} in npm registry`;
-        e.exn.throw(dyn(msg));
-        String.new()
-      },
-      .Some(tarball_url) => tarball_url
-    )
+    e.io.await(_remove_dir_all(tmp_path, e.io, e.exn), e);
   })
 );
-/// Download a specific Yo version from the npm registry and cache it.
-/// Returns the path to the cached version directory.
+/// Download a specific Yo version's native bundle from GitHub Releases and
+/// cache it. Returns the path to the cached version directory.
 download_version :: (
   fn(
     version : String,
@@ -518,19 +513,38 @@ download_version :: (
   ) -> Impl(Future(String, IoExn))
 )(
   io.async((e : IoExn) => {
-    // 1. Fetch tarball URL from npm registry.
-    tarball_url := e.io.await(_fetch_tarball_url(version, e.io, e.exn), e);
-    // 2. Create version cache directory.
+    min_version := String.from(MIN_BUNDLE_VERSION);
+    if(compare_semver(version, min_version) < i64(0), {
+      e.exn.throw(
+        dyn(
+          `Yo v${version} predates the native release bundles (first bundled release: v${min_version}) and is no longer distributed — npm publishing stopped at v0.2.0. Pin v${min_version} or later.`
+        )
+      );
+    });
+    bundle_name := host_bundle_name(version, e.exn);
+    url := `${_releases_download_url()}/v${version}/${bundle_name}.tar.gz`;
     version_dir := get_version_cache_dir(version);
-    e.io.await(create_dir_all(Path.new(version_dir), e.io), e);
-    // 3. Download tarball to a temp directory.
-    println(`Downloading Yo v${version} from npm...`);
+    // 1. Download the tarball to a temp directory.
     tmp_dir := e.io.await(TempDir.new(e.io), e);
     tmp_path_str := tmp_dir.path().to_string();
-    tarball_name := `yo-${version}.tgz`;
-    tarball_path := `${tmp_path_str}/${tarball_name}`;
-    e.io.await(_download_file(tarball_url, tarball_path, e.io, e.exn), e);
-    // 4. Extract tarball. npm tarballs always contain a `package/` root dir.
+    tarball_path := `${tmp_path_str}/${bundle_name}.tar.gz`;
+    println(`Downloading Yo v${version} (${bundle_name}) from GitHub Releases...`);
+    code_str := e.io.await(_download_file(url, tarball_path, e.io, e.exn), e);
+    code := match(code_str.parse_i64(), .None => i64(0), .Some(c) => c);
+    if(code == i64(404), {
+      e.io.await(_cleanup_failed_download(version_dir, tmp_dir.path(), e.io, e.exn), e);
+      msg := `Yo v${version} has no ${bundle_name}.tar.gz release asset.`;
+      msg.push_string(String.from("\nRun `yo version list --remote` to see the published releases, or check "));
+      msg.push_string(`https://github.com/${_github_repo()}/releases`);
+      e.exn.throw(dyn(msg));
+    });
+    if(code >= i64(400), {
+      e.io.await(_cleanup_failed_download(version_dir, tmp_dir.path(), e.io, e.exn), e);
+      e.exn.throw(dyn(`HTTP ${code_str} downloading ${url}`));
+    });
+    // 2. Extract; the tarball root is a `<bundleName>/` directory holding
+    // bin/, std/ and vendor/ as SIBLINGS (the compiler resolves its std by
+    // walking up from the executable, and mimalloc as <std>/../vendor).
     tar_cmd := Command.new(String.from("tar"));
     tar_cmd.arg(String.from("xzf"));
     tar_cmd.arg(tarball_path);
@@ -538,24 +552,26 @@ download_version :: (
     tar_cmd.arg(tmp_path_str);
     tar_out := e.io.await(tar_cmd.output(e.io), e);
     if(!(tar_out.status.success()), {
-      e.exn.throw(dyn(`Failed to extract tarball for Yo v${version}`));
+      e.io.await(_cleanup_failed_download(version_dir, tmp_dir.path(), e.io, e.exn), e);
+      e.exn.throw(dyn(`Failed to extract ${bundle_name}.tar.gz for Yo v${version}`));
     });
-    // 5. Move contents from `package/` to the version cache directory.
-    extracted_dir := `${tmp_path_str}/package`;
-    extracted_exists := e.io.await(exists(Path.new(extracted_dir), e.io), e.io);
-    if(!(extracted_exists), {
-      e.exn.throw(dyn(`Unexpected tarball structure: no 'package/' directory found`));
+    extracted_dir := `${tmp_path_str}/${bundle_name}`;
+    bin_exists := e.io.await(exists(Path.new(`${extracted_dir}/bin`), e.io), e.io);
+    std_exists := e.io.await(exists(Path.new(`${extracted_dir}/std`), e.io), e.io);
+    if(!(bin_exists && std_exists), {
+      e.io.await(_cleanup_failed_download(version_dir, tmp_dir.path(), e.io, e.exn), e);
+      e.exn.throw(dyn(`Unexpected bundle layout in ${bundle_name}.tar.gz (missing bin/ or std/).`));
     });
-    // Remove any existing partial extraction.
+    // 3. Remove any existing partial extraction (or a dead npm-shaped
+    // entry), then MOVE the extracted bundle root to the version directory.
     ver_exists := e.io.await(exists(Path.new(version_dir), e.io), e.io);
     if(ver_exists, {
       e.io.await(_remove_dir_all(Path.new(version_dir), e.io, e.exn), e);
     });
+    e.io.await(create_dir_all(Path.new(get_global_versions_cache_dir()), e.io), e);
     e.io.await(rename(Path.new(extracted_dir), Path.new(version_dir), e.io), e);
-    // 6. Install production dependencies (older versions may need external packages).
-    e.io.await(install_dependencies(version_dir, e.io, e.exn), e);
     println(`Installed Yo v${version} to ${version_dir}`);
-    // 7. Clean up temp directory (best-effort; does not fail if it errors).
+    // 4. Clean up the temp directory (the tarball stays behind in it).
     e.io.await(_remove_dir_all(tmp_dir.path(), e.io, e.exn), e);
     version_dir
   })
@@ -577,8 +593,9 @@ ensure_cached_version :: (
     e.io.await(download_version(version, e.io, e.exn), e)
   })
 );
-/// Fetch all available versions of @shd101wyy/yo from the npm registry.
-/// Returns an ArrayList sorted by semver (ascending).
+/// Fetch all published Yo versions from the GitHub Releases API.
+/// Returns a semver-sorted ArrayList of version strings (tags with the `v`
+/// prefix stripped); drafts and prereleases are excluded.
 fetch_remote_versions :: (
   fn(
     io : Io,
@@ -586,42 +603,35 @@ fetch_remote_versions :: (
   ) -> Impl(Future(ArrayList(String), IoExn))
 )(
   io.async((e : IoExn) => {
-    pkg_url := `${NPM_REGISTRY_URL}${NPM_PACKAGE_PATH}`;
-    body := e.io.await(_http_get(pkg_url, e.io, e.exn), e);
-    keys := _json_extract_version_keys(body);
-    _sort_by_semver(keys)
-  })
-);
-/// Find a JavaScript runtime (node or bun) available on the system.
-/// Returns the runtime command name ("node" or "bun").
-/// Throws if neither is found.
-find_js_runtime :: (
-  fn(
-    io : Io,
-    exn : Exception
-  ) -> Impl(Future(String, IoExn))
-)(
-  io.async((e : IoExn) => {
-    // Try node first.
-    node_cmd := Command.new(String.from("node"));
-    node_cmd.arg(String.from("--version"));
-    node_out := e.io.await(node_cmd.output(e.io), e);
-    if(node_out.status.success(), {
-      return(String.from("node"));
+    versions := ArrayList(String).new();
+    // The API pages at 100 releases; three pages is far beyond the horizon.
+    page := i64(1);
+    done := false;
+    while((page <= i64(3)) && (!(done)), {
+      url := `${_releases_api_url()}?per_page=100&page=${page}`;
+      body := e.io.await(_http_get(url, e.io, e.exn), e);
+      trimmed := body.trim();
+      if(!(trimmed.starts_with(String.from("["))), {
+        e.exn.throw(dyn(`Unexpected GitHub Releases API response shape.`));
+      });
+      scanned := _scan_release_page(body);
+      i := usize(0);
+      while(i < scanned.tags.len(), {
+        match(
+          scanned.tags.get(i),
+          .None => (),
+          .Some(t) => {
+            versions.push(t);
+          }
+        );
+        i = (i + usize(1));
+      });
+      if(scanned.object_count < i64(100), {
+        done = true;
+      });
+      page = (page + i64(1));
     });
-    // Try bun.
-    bun_cmd := Command.new(String.from("bun"));
-    bun_cmd.arg(String.from("--version"));
-    bun_out := e.io.await(bun_cmd.output(e.io), e);
-    if(bun_out.status.success(), {
-      return(String.from("bun"));
-    });
-    e.exn.throw(
-      dyn(
-        `No JavaScript runtime found. Install Node.js (https://nodejs.org) or Bun (https://bun.sh) to use version management.`
-      )
-    );
-    String.new()
+    _sort_by_semver(versions)
   })
 );
 // ---------------------------------------------------------------------------
@@ -629,12 +639,12 @@ find_js_runtime :: (
 // ---------------------------------------------------------------------------
 export(
   compare_semver,
+  cached_binary_path,
+  host_bundle_name,
   is_version_cached,
   list_cached_versions,
   clean_version_cache,
-  install_dependencies,
   download_version,
   ensure_cached_version,
-  fetch_remote_versions,
-  find_js_runtime
+  fetch_remote_versions
 );

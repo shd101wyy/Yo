@@ -40,6 +40,7 @@ test("SuspensionPoint constructor sets all fields", {
     expr : make_atom_expr("x"),
     target_variable_id : Option(String).Some(String.from("v0")),
     is_inside_cond : Option(bool).Some(false),
+    is_body_result : Option(bool).Some(true),
     is_inside_while : Option(bool).Some(true),
     while_nesting_depth : Option(usize).Some(usize(1)),
     cond_branch_source_index : Option(usize).None,
@@ -51,6 +52,10 @@ test("SuspensionPoint constructor sets all fields", {
   assert(result == "v0", "target_variable_id");
   result2 := match(sp.is_inside_while, .Some(b) => b, .None => false);
   assert(result2, "is_inside_while");
+  // The tail-await marker (PR #123): a standalone tail await is the async
+  // body's own result and must keep its await_result storage.
+  result3 := match(sp.is_body_result, .Some(b) => b, .None => false);
+  assert(result3, "is_body_result");
 });
 test("SuspensionPoint optional fields default to None", {
   sp := SuspensionPoint(
@@ -58,6 +63,7 @@ test("SuspensionPoint optional fields default to None", {
     expr : make_atom_expr("y"),
     target_variable_id : Option(String).None,
     is_inside_cond : Option(bool).None,
+    is_body_result : Option(bool).None,
     is_inside_while : Option(bool).None,
     while_nesting_depth : Option(usize).None,
     cond_branch_source_index : Option(usize).None,
@@ -109,6 +115,7 @@ test("SuspensionAnalysisResult can hold suspension points", {
     expr : make_atom_expr("await_call"),
     target_variable_id : Option(String).None,
     is_inside_cond : Option(bool).None,
+    is_body_result : Option(bool).None,
     is_inside_while : Option(bool).None,
     while_nesting_depth : Option(usize).None,
     cond_branch_source_index : Option(usize).None,

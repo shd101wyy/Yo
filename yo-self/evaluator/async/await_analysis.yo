@@ -33,7 +33,7 @@ open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { TokenKind } :: import("../../token.yo");
-{ AstExpr, ast_expr_token, ast_expr_id } :: import("../../expr.yo");
+{ AstExpr, ast_expr_token, ast_expr_id, ast_expr_is_fn_call, ast_expr_is_fn_call_of, BK_BEGIN } :: import("../../expr.yo");
 { ExprInfo, lookup_io_builtin_call } :: import("../../expr_info.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { Variable, Environment, get_variables_from_env } :: import("../../env.yo");
@@ -383,6 +383,7 @@ detect_await_expr_ :: (
         expr : expr_for_sp,
         target_variable_id : target_variable_id,
         is_inside_cond : Option(bool).None,
+        is_body_result : Option(bool).None,
         is_inside_while : Option(bool).None,
         while_nesting_depth : Option(usize).None,
         cond_branch_source_index : Option(usize).None,
@@ -420,6 +421,56 @@ analyze_await_points :: (
       should_skip_body : dyn((expr) => is_io_async_call(expr))
     )
   );
+  // Mark the await whose value IS the async body's own result: a standalone
+  // await as the body's final expression (`io.async((e) => e.io.await(f, e))`
+  // or a begin block ending in one). It has no target variable, so the
+  // linear-await "result unused" optimization must not drop its value — the
+  // resume stores `sm->await_result_N` and the completion segment assigns it
+  // to `sm->result` (see split_into_state_segments in codegen).
+  // Mirrors the tail-marking block in analyzeAwaitPoints (await-analysis.ts).
+  {
+    (tail : AstExpr) = body.clone();
+    (unwrapping : bool) = true;
+    while(unwrapping, {
+      is_begin := (ast_expr_is_fn_call(tail) && ast_expr_is_fn_call_of(tail, BK_BEGIN, Option(usize).None));
+      if(is_begin, {
+        match(
+          tail,
+          .FnCall(_, _, a, _, _) => if(a.len() > usize(0), {
+            match(
+              a.get(a.len() - usize(1)),
+              .Some(last) => {
+                tail = last;
+              },
+              .None => {
+                unwrapping = false;
+              }
+            );
+          }, {
+            unwrapping = false;
+          }),
+          .Atom(_, _) => {
+            unwrapping = false;
+          }
+        );
+      }, {
+        unwrapping = false;
+      });
+    });
+    tail_id := ast_expr_id(tail);
+    n_sp := result.suspension_points.len();
+    (mi : usize) = usize(0);
+    while(mi < n_sp, {
+      match(
+        result.suspension_points.get(mi),
+        .Some(sp_m) => if(ast_expr_id(sp_m.expr) == tail_id, {
+          sp_m.is_body_result = Option(bool).Some(true);
+        }),
+        .None => ()
+      );
+      mi = (mi + usize(1));
+    });
+  };
   // Reconstruct typed AwaitPoint list from base suspension points + side-channel extras
   await_points := ArrayList(AwaitPoint).new();
   n_pts := result.suspension_points.len();

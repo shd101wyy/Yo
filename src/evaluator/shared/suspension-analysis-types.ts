@@ -28,6 +28,16 @@ export interface SuspensionPoint {
   /** Whether this suspension is inside a cond expression */
   isInsideCond?: boolean;
 
+  /**
+   * True when this suspension's value is the BODY'S OWN RESULT — the await is
+   * the final expression of the async block (`io.async((e) => e.io.await(f, e))`).
+   * It has no target variable, so the linear-await "result is unused, skip
+   * storage" optimization must NOT apply: the resume stores into
+   * `sm->await_result_N` and the completion segment assigns it to `sm->result`.
+   * Set by splitIntoStateSegments (codegen), not by the analysis.
+   */
+  isBodyResult?: boolean;
+
   /** Whether this suspension is inside a while loop */
   isInsideWhile?: boolean;
 

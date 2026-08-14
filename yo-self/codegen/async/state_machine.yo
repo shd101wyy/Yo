@@ -1750,7 +1750,9 @@ _emit_prev_await_result_extraction :: (
     // A `while` whose CONDITION awaits reads `sm->await_result_N` to decide
     // whether to run another iteration, so it needs the field too — it has no
     // target variable to write the result into.
-    use_await_result_field := (match(prev_await.base.is_inside_cond, .Some(b) => b, .None => false) || await_is_while_condition(prev_await));
+    // The body's own result (a standalone tail await): the completion segment
+    // reads sm->await_result_N — see split_into_state_segments.
+    use_await_result_field := (match(prev_await.base.is_inside_cond, .Some(b) => b, .None => false) || await_is_while_condition(prev_await) || match(prev_await.base.is_body_result, .Some(b) => b, .None => false));
     (result_target : Option(String)) = Option(String).None;
     if(use_await_result_field, {
       rt := String.from("sm->await_result_");

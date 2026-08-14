@@ -38,6 +38,14 @@ SuspensionPoint :: ref(
     target_variable_id : Option(String),
     /// Whether this suspension is inside a `cond` expression.
     is_inside_cond : Option(bool),
+    /// True when this suspension's value is the BODY'S OWN RESULT — the await
+    /// is the final expression of the async block
+    /// (`io.async((e) => e.io.await(f, e))`). It has no target variable, so
+    /// the linear-await "result is unused, skip storage" optimization must NOT
+    /// apply: the resume stores into `sm->await_result_N` and the completion
+    /// segment assigns it to `sm->result`. Set by `analyze_await_points`
+    /// (and asserted by `split_into_state_segments` in codegen).
+    is_body_result : Option(bool),
     /// Whether this suspension is inside a `while` loop.
     is_inside_while : Option(bool),
     /// The number of nested `while` loops this suspension is inside.
