@@ -420,23 +420,15 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y liburing-dev
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-
-      # bun stays: the gates' differential corpus runs the TS CLI as ground
-      # truth (until 2.5). Only stage-1's BUILDER changes to the seed.
-      - name: Install dependencies
-        run: |
-          bun install
-          bun run build
-
+      # P2.5 step 23: bun/node are GONE from this job. GATE 2 and GATE 7 used
+      # the TS CLI as the differential's reference side, which is why bun
+      # survived here ("bun stays ... until 2.5"). Steps 12-14 (merged) gave
+      # both harnesses a golden mode, and each falls back to scoring the self
+      # arm against its recorded goldens when `out/cjs/yo-cli.cjs` is absent —
+      # so the gates keep their coverage with the goldens serving as the
+      # reference side, which is the end state src/ retirement requires anyway.
+      # NO-GOLDEN counts as a failure there, so an unscored case cannot
+      # masquerade as a pass.
       - name: Install the seed compiler (previous release)
         uses: ./.github/actions/install-seed
         with:
@@ -699,27 +691,36 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y liburing-dev
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+      - name: Install the seed compiler (previous release)
+        uses: ./.github/actions/install-seed
         with:
-          bun-version: latest
+          version: ${{ env.SEED_VERSION }}
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-          registry-url: "https://registry.npmjs.org"
+      - name: "Stage 1: build the self-hosted compiler with the SEED (previous release)"
+        # --std-path ./std is load-bearing: without it the seed compiles against
+        # its own bundled std, not this checkout's. See the fixpoint job.
+        run: YO_MAIN_STACK_MB=4096 nice -n 10 yo compile yo-self/main.yo --release --allocator mimalloc --std-path ./std -o /tmp/yo-stage1
 
-      - name: Install dependencies
-        run: |
-          bun install
-          bun run build
-
+      # P2.5 step 21 asked for a vacuity assertion here — grep the leg's log for
+      # `-fsanitize=thread`, because an UNinstrumented run passes exactly like a
+      # clean instrumented one. It is NOT implemented, deliberately: NEITHER
+      # runner prints the C compile line on the test path (TS prints
+      # "Compiling with:" only in codegen's `compile` path,
+      # src/codegen/index.ts:646; yo-self prints it nowhere), so the specified
+      # grep would fail every run — a false-red gate is worse than none.
+      # Making it real needs yo-self to gain TS's `Compiling with:` print, which
+      # changes `yo compile` stdout and invalidates the recorded CLI goldens.
+      # Tracked in issues/yoself-missing-compiling-with-print.md.
       - name: Run sync tests under ThreadSanitizer
         env:
+          YO_MAIN_STACK_MB: "4096"
           YO_TEST_SANITIZE: thread
           TSAN_OPTIONS: halt_on_error=1
-        run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs test ./tests/sync --parallel 1 --bail --verbose --c-compiler clang
+          # Leak verdicts are irrelevant under TSan and the emit's tracked leak
+          # debt would only add noise — same staging ratchet as the other
+          # self-hosted jobs.
+          YO_TEST_LEAK_VERDICT: "0"
+        run: /tmp/yo-stage1 test ./tests/sync --parallel 1 --bail --verbose --c-compiler clang
 
   test-wasm32_emscripten:
     runs-on: ubuntu-latest
