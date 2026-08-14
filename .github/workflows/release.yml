@@ -89,36 +89,64 @@ jobs:
         run: |
           bun install
 
-      - name: Bump version in root package.json
+      # P2.5 step 24 / blocker B5: the version SOURCE OF TRUTH is
+      # `yo-self/version.yo`, not root package.json — which P2.5 Group E
+      # deletes. The bump is computed here in shell (the input offers only
+      # `patch` and `minor`, and anything else fails loudly) so the release
+      # does not depend on npm to know its own version.
+      - name: "Compute the next version (source of truth: yo-self/version.yo)"
         id: version
         run: |
-          cd ${{ github.workspace }}
-          npm version ${{ inputs.bump }} --no-git-tag-version
-          NEW_VERSION=$(node -p "require('./package.json').version")
+          CURRENT=$(perl -ne 'print $1 if /^CURRENT_YO_VERSION :: "([^"]+)";/' yo-self/version.yo)
+          if [ -z "$CURRENT" ]; then
+            echo "::error::could not read CURRENT_YO_VERSION from yo-self/version.yo"
+            exit 1
+          fi
+          MA=${CURRENT%%.*}
+          REST=${CURRENT#*.}
+          MI=${REST%%.*}
+          PA=${REST#*.}
+          case "${{ inputs.bump }}" in
+            patch) PA=$((PA + 1)) ;;
+            minor) MI=$((MI + 1)); PA=0 ;;
+            *) echo "::error::unsupported bump '${{ inputs.bump }}'"; exit 1 ;;
+          esac
+          NEW_VERSION="$MA.$MI.$PA"
           echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
-          echo "New version: $NEW_VERSION"
+          echo "$CURRENT -> $NEW_VERSION"
 
-      - name: Bump version in vscode-extension package.json
+      # The extension keeps its own package.json (npm-only island, §2.3), so it
+      # is SET to the computed version rather than bumped independently — two
+      # independent bumpers is how they drift apart.
+      - name: Set version in vscode-extension package.json
         run: |
           cd vscode-extension
-          npm version ${{ inputs.bump }} --no-git-tag-version
+          npm version "${{ steps.version.outputs.version }}" --no-git-tag-version --allow-same-version
 
-      # The self-hosted compiler carries its own copy of the version: TS derives
-      # it from package.json (src/version.ts:21) but yo-self cannot read a JSON
-      # file at build time, so `yo-self/version.yo` hardcodes it. Left to drift
-      # it went stale by a whole minor series (0.1.23 while package.json said
-      # 0.2.1), which surfaces in the `.yo-version` diagnostics that quote the
-      # current version as their example — and it becomes the release's version
-      # source of truth once package.json is deleted (P2.5 blocker B5).
+      # Root package.json is a FOLLOWER until Group E deletes it: keeping it in
+      # sync avoids a confusing mismatch for anything still reading it
+      # (src/version.ts:13 imports it). Skipped automatically once it is gone.
+      - name: Sync root package.json (while it still exists)
+        run: |
+          if [ -f package.json ]; then
+            npm version "${{ steps.version.outputs.version }}" --no-git-tag-version --allow-same-version
+          else
+            echo "package.json is gone (Group E) — nothing to sync."
+          fi
+
+      # `yo-self/version.yo` IS the source of truth as of P2.5 step 24 (blocker
+      # B5): the step above READ the current version from here, and this step
+      # writes the bumped one back. yo-self cannot read a JSON file at build
+      # time, so the version is hardcoded here; when package.json was the
+      # source this copy drifted a whole minor series behind (0.1.23 while
+      # package.json said 0.2.1), which showed up in the `.yo-version`
+      # diagnostics that quote the current version as their example.
       - name: Bump version in yo-self/version.yo
         run: |
           NEW_VERSION="${{ steps.version.outputs.version }}"
           perl -pi -e "s/^CURRENT_YO_VERSION :: \".*\";/CURRENT_YO_VERSION :: \"$NEW_VERSION\";/" yo-self/version.yo
           grep -q "CURRENT_YO_VERSION :: \"$NEW_VERSION\";" yo-self/version.yo
           echo "yo-self/version.yo now pins $NEW_VERSION"
-
-      - name: Build
-        run: bun run build
 
       - name: Get last commit message
         id: last_commit
@@ -135,7 +163,11 @@ jobs:
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          git add package.json vscode-extension/package.json vscode-extension/package-lock.json yo-self/version.yo
+          # Group E deletes root package.json; `git add` of a missing path is a
+          # hard error, so stage only what exists.
+          for f in package.json vscode-extension/package.json vscode-extension/package-lock.json yo-self/version.yo; do
+            [ -f "$f" ] && git add "$f"
+          done
           git commit -m "chore: bump version to ${{ steps.version.outputs.version }} [skip ci]"
           # The checkout used RELEASE_PAT (repository-admin ruleset bypass),
           # so this direct push to the protected develop succeeds — no

@@ -178,26 +178,42 @@ Each step is independently landable and gated by `tests/internal` or a new cli-c
 
 20. Delete the 4-shard `compiler-internal-tests` job; the self-hosted differential becomes the sole arm. **Check branch protection first** — if a required status check names the shards, PRs will block on checks that never run. → **verify:** CI + the repo's branch-protection settings (not visible from the filesystem). **[CI-only]**
 
-        **RECON 2026-08-15 — it is a RULESET, not classic branch protection.**
-        `repos/.../branches/develop/protection` returns 404; the gating lives in
-        ruleset **13548862** (`branch_protection`, target `~DEFAULT_BRANCH`,
-        enforcement `active`; develop IS the default branch). Its 15 required
-        contexts include **all four `Compiler internal tests (tests/internal, TS
+         **RECON 2026-08-15 — it is a RULESET, not classic branch protection.**
+         `repos/.../branches/develop/protection` returns 404; the gating lives in
+         ruleset **13548862** (`branch_protection`, target `~DEFAULT_BRANCH`,
+         enforcement `active`; develop IS the default branch). Its 15 required
+         contexts include **all four `Compiler internal tests (tests/internal, TS
 
     arm shard N)`**, `Compiler internal tests (tests/internal, self-hosted
     differential)`, and both `test-wasm32\_\*`legs — so steps 20 and 22 MUST
-    edit that ruleset in lockstep or every PR blocks forever on checks that
-    can never run. Note only three of the five`test (<os>)` legs are required
-    (`macos-latest`, `ubuntu-latest`, `windows-latest`); `macos-26-intel`and
-   `ubuntu-24.04-arm`are not. Also per
-   `issues/selfhosted-differential-job-needs-sharding.md`, shard the
+ edit that ruleset in lockstep or every PR blocks forever on checks that
+ can never run. Note only three of the five`test (<os>)` legs are required
+ (`macos-latest`, `ubuntu-latest`, `windows-latest`); `macos-26-intel`and
+`ubuntu-24.04-arm`are not. Also per
+`issues/selfhosted-differential-job-needs-sharding.md`, shard the
     differential in this SAME change so both job renames land under ONE
     required-check update.
 
 21. `test-tsan` → seed-driven, after step 4. Gate it by asserting `-fsanitize=thread` appears in the leg's log; a silently-unsanitized run is indistinguishable from a passing one. **[CI-only]**
 22. Both wasm legs → per step 10's decision: converted (asserting `emcc` reaches the compile and the produced batch binaries are wasm) or deleted. Note these legs can never be node-free — `emcc` is itself a node program (test.yml:610-614). **[CI-only]**
 23. `bootstrap-self-test` → drop bun once steps 12-14 land; `gates_fast.sh` gains a `SEED=` env alongside `S1=`/`P=` for whatever reference side survives. → **verify:** `S1=… SEED=… P=ci bash scripts/bootstrap/gates_fast.sh` with `failures=0`. **[CI-only]**
-24. `release.yml` (B5, B7): move the version source of truth off root `package.json`; keep a bumper for `vscode-extension/package.json`; flip `seed-bundles` to previous-seed-built with the stage-2-builds-stage-1 pre-release gate; re-point or rewrite the Pages step. Land **after** #98 — #98 already edits release.yml:47-62 and will conflict. → **verify:** a `workflow_dispatch` release producing all five bundles, each smoke-tested from outside the checkout. **[CI-only]**
+24. `release.yml` (B5, B7): move the version source of truth off root `package.json`; keep a bumper for `vscode-extension/package.json`; flip `seed-bundles` to previous-seed-built with the stage-2-builds-stage-1 pre-release gate; re-point or rewrite the Pages step. Land **after** #98 — #98 already edits release.yml:47-62 and will conflict.
+
+    **PARTIALLY LANDED 2026-08-15.** Done: the version source of truth moved
+    off root `package.json` to `yo-self/version.yo` — the release now READS the
+    current version from there and computes the next one in shell (the dispatch
+    input offers only `patch`/`minor`; anything else fails loudly), so it no
+    longer needs npm to know its own version. `vscode-extension/package.json`
+    is SET to that computed version rather than bumped independently (two
+    independent bumpers is how they drifted apart), root `package.json` is kept
+    in sync as a FOLLOWER while it still exists, the bump commit stages only
+    paths that exist (Group E deletes one of them, and `git add` of a missing
+    path is a hard error), and the vestigial standalone `bun run build` step is
+    gone — npm publishing stopped at v0.2.0 and the Pages step rebuilds on its
+    own. STILL OPEN: flipping `seed-bundles` to previous-seed-built with the
+    stage-2-builds-stage-1 pre-release gate, and the Pages step, which stays a
+    documented bun island until B7 decides on a Yo rewrite of
+    `scripts/build-site.ts`. → **verify:** a `workflow_dispatch` release producing all five bundles, each smoke-tested from outside the checkout. **[CI-only]**
     24b. **`yo build` becomes the canonical yo-self builder everywhere** (user directive, 2026-08-13; completes what 2.2's root `build.yo` started). Inventory of the raw `compile yo-self/main.yo` builders to convert: - `.github/workflows/test.yml:144` (TS native probe — dies with the job in step 18 anyway), `:240`, `:428`, `:623`-area, `:836`-area (the per-job stage-1 builds) → `yo build` + take the binary from `yo-out/` (or `build.yo` grows an output-path option). Note the CI builds pass `--allocator mimalloc` while root `build.yo`'s `executable` set no allocator (defaulting Libc) — `std/build.yo` already supports `allocator` (`:86-87`, threaded at `build_runner.yo:486`), so this was a one-line `build.yo` fix (landed with this plan edit); without it the conversion would have silently changed the shipped allocator. - `.github/workflows/release.yml:310` (the seed build) → same conversion at step 24. - `scripts/bootstrap/fixpoint_only.sh:7`, `:12` — **keep as `compile --emit-c --skip-c-compiler`**: these are emit-only C byte-comparisons with explicit output paths, not builds; `yo build` has no emit-only mode and imposing one would complicate the build API for a diagnostic script. Record this as the deliberate carve-out. - Local guidance (AGENTS.md build commands, plans/, skills) — sweep in 2.6 to present `yo build` as the way to build the compiler, keeping `yo compile` for one-off artifacts.
     → **verify:** `yo build` from the repo root produces a runnable compiler byte-comparable (same flags) to the `compile --release --allocator mimalloc` build; converted CI legs green; grep shows the fixpoint carve-out is the only surviving raw self-build. **[CI-only]** for the legs, **[local-slow]** for the flag-parity check.
 
