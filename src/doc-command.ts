@@ -10,7 +10,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { execFileSync } from "child_process";
 import { tokenize } from "./lexer";
-import { ModuleManager } from "./module-manager";
+import { ModuleManager, canonicalizeModulePath } from "./module-manager";
 import { extractDocComments } from "./doc/extractor";
 import {
   buildDocModule,
@@ -166,7 +166,9 @@ function documentFile(
   verbose: boolean
 ): DocModule | null {
   const moduleName = moduleNameFromPath(filePath, basePath);
-  const modulePath = `file://${filePath}`;
+  // Canonical, so the modules.get() below agrees with the canonical key
+  // loadModule stores under.
+  const modulePath = canonicalizeModulePath(`file://${filePath}`);
 
   if (verbose) {
     console.log(`  Documenting: ${moduleName}`);

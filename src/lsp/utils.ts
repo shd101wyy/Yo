@@ -7,6 +7,7 @@ import {
   exprIsFunctionCall,
 } from "../expr";
 import { TokenType, type Token } from "../token";
+import { canonicalizeModulePath } from "../module-manager";
 
 /**
  * Find a token at a given (line, character) position within a list of tokens.
@@ -219,11 +220,13 @@ export function modulePathToUri(modulePath: string): string {
  */
 export function uriToModulePath(uri: string): string {
   // LSP URIs: file:///path/to/file.yo
-  // Yo module paths: file:///path/to/file.yo (same format)
+  // Yo module paths: file:///path/to/file.yo (same format).
+  // Canonicalized so lookups in ModuleManager.modules agree with the
+  // canonical keys loadModule stores under.
   if (uri.startsWith("file://")) {
-    return uri;
+    return canonicalizeModulePath(uri);
   }
-  return `file://${uri}`;
+  return canonicalizeModulePath(`file://${uri}`);
 }
 
 /**
