@@ -93,6 +93,17 @@ jobs:
   test:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 360
+    env:
+      # Every self-hosted job sets this; the `test` job set it NOWHERE while it
+      # ran under node. The compiler's deep comptime recursion needs more than
+      # the 1 GiB default main-thread stack (AGENTS.md "Common Pitfalls").
+      YO_MAIN_STACK_MB: "4096"
+      # Same STAGING RATCHET as the tier-1 gates, hollow-sweep and differential
+      # jobs: the runner's LeakSanitizer verdicts fail a leaking child, and the
+      # self-hosted emit carries pre-existing tracked leak debt
+      # (issues/self-hosted-emit-leaks-remaining-classes.md). ASan's crash
+      # detection stays fully armed — only detect_leaks is off.
+      YO_TEST_LEAK_VERDICT: "0"
     strategy:
       fail-fast: false
       # One leg per release-bundle target (see release.yml's seed matrix):
@@ -124,83 +135,60 @@ jobs:
           choco install llvm -y
           echo "C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+      # P2.5 step 18: the matrix legs are now bun/node-FREE. The previous
+      # release (the bootstrap seed) builds stage-1 from THIS checkout, and
+      # stage-1 — the compiler these sources describe — does every remaining
+      # job: fmt, the build-system smoke, and the language corpus. That is the
+      # same trust chain the other self-hosted jobs use ("previous release
+      # builds current compiler"), now extended to all five release targets.
+      - name: Install the seed compiler (previous release)
+        uses: ./.github/actions/install-seed
         with:
-          bun-version: latest
+          version: ${{ env.SEED_VERSION }}
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-          registry-url: "https://registry.npmjs.org"
-
-      - name: Install dependencies
-        run: |
-          bun install
-          bun run build
-
-      - name: Check the formatted code
-        run: node ./out/cjs/yo-cli.cjs fmt --check ./std ./tests ./yo-self
-
-      - name: Build system smoke test
-        run: |
-          node ./out/cjs/yo-cli.cjs init ./tmp/hello-world --name hello-world
-          cd tmp/hello-world
-          node ../../out/cjs/yo-cli.cjs build run
-
-      # Native build of the self-hosted compiler on EVERY release target —
-      # exactly what the release workflow's seed legs do, so seed-leg
-      # breakage surfaces on PRs instead of at release time. v0.2.0 proved
-      # the need: nothing else exercised the compiler's own closure on
-      # Windows, and its POSIX-isms (F_OK, setenv, main-wrapper returns —
-      # issues/fixed/windows-native-selfhosted-build-fails.md) only showed
-      # up at release time. GATING: a regression here blocks the PR. The
-      # smoke `check` proves the built binary RUNS (evaluator, module
-      # loading, executable-relative std discovery).
-      # The smoke goes end-to-end: the probe binary must CHECK (evaluator +
-      # module loading + exe-relative std discovery) and COMPILE-AND-RUN a
-      # program natively (codegen + C-compiler integration + the produced
-      # executable) — the same smoke the release seed legs perform. Full
-      # per-platform byte-identity (probe emits yo-self, recompile, re-emit,
-      # compare) is the bootstrap-fixpoint workload: ~9-11.5 GB per emit,
-      # ~+1 h per leg — it stays in the dedicated memory-tuned fixpoint job
-      # (linux-x64) rather than here.
-      - name: Native self-hosted compiler build (advance seed-leg detection)
+      # --std-path ./std is LOAD-BEARING: without it the seed compiles against
+      # its OWN bundled std instead of this checkout's (same note as the
+      # fixpoint job). This step replaces the former node-driven native probe:
+      # it still proves the compiler's whole closure builds natively on every
+      # release target, which is what caught the Windows POSIX-isms at v0.2.0
+      # (issues/fixed/windows-native-selfhosted-build-fails.md).
+      - name: "Stage 1: build the self-hosted compiler with the SEED"
         shell: bash
         run: |
-          # 6144, not 4096: the windows-latest leg OOM'd node's heap at the 4 GB
-          # cap compiling the probe (V8 "Reached heap limit" AFTER the C compile
-          # succeeded) once the PR stack's tree grew — the step was marginal.
-          # This whole step dies with src/ retirement (P2.5 step 18).
-          node --expose-gc --max-old-space-size=6144 ./out/cjs/yo-cli.cjs compile yo-self/main.yo --release --allocator mimalloc -o yo-native-probe
-          if [ -f yo-native-probe.exe ]; then PROBE=./yo-native-probe.exe; else PROBE=./yo-native-probe; fi
-          "$PROBE" check std/assert.yo
-          mkdir -p tmp/native-probe-smoke && cd tmp/native-probe-smoke
-          printf '%s\n' 'open(import("std/fmt"));' 'main :: (fn() -> unit)(println("native probe smoke"));' 'export(main);' > hello.yo
-          "../../${PROBE#./}" compile hello.yo --release -o hello 2>compile.err || { cat compile.err; exit 1; }
-          cat compile.err
-          # The probe is built with mimalloc, so mimalloc's own diagnostics are
-          # a free correctness gate on the compiler's std usage: a pointer that
-          # crossed allocators (e.g. a libc-malloc'd realpath buffer released
-          # through GlobalAllocator) prints "mi_free: invalid pointer" and leaks
-          # instead of crashing, so rc=0 hides it. v0.2.0/v0.2.1 shipped exactly
-          # that — issues/fixed/current-exe-realpath-cross-allocator-free.md.
-          if grep -q "mimalloc: error" compile.err; then
-            echo "::error::The compiler reported allocator errors on its own stderr (cross-allocator free)."
-            exit 1
-          fi
-          if [ -f hello.exe ]; then OUT=$(./hello.exe); else OUT=$(./hello); fi
-          echo "smoke output: $OUT"
-          test "$OUT" = "native probe smoke"
+          yo compile yo-self/main.yo --release --allocator mimalloc --std-path ./std -o yo-stage1
+          # Windows produces yo-stage1.exe; publish the real path for later steps.
+          if [ -f yo-stage1.exe ]; then S1="$PWD/yo-stage1.exe"; else S1="$PWD/yo-stage1"; fi
+          echo "S1=$S1" >> "$GITHUB_ENV"
+          # Fail fast if the built binary cannot run at all (evaluator, module
+          # loading, executable-relative std discovery).
+          "$S1" check std/assert.yo
+
+      - name: Check the formatted code
+        shell: bash
+        run: |
+          "$S1" fmt --check ./std ./tests ./yo-self
+
+      - name: Build system smoke test
+        shell: bash
+        run: |
+          "$S1" init ./tmp/hello-world --name hello-world
+          cd tmp/hello-world
+          "$S1" build run
 
       # `tests/internal` (the compiler's own tests — they import yo-self/ evaluator
       # and codegen internals) is excluded here and runs as its own job below.
       # Without the exclude this step would pull in files that each cost minutes
       # and gigabytes to compile, and the ~30 min fast suite would become ~70.
+      #
+      # P2.5 step 19 — the 5-platform ground truth now runs under the SELF-HOSTED
+      # binary. `--parallel` is accepted and ignored by that runner (v1 is
+      # sequential), so this is serial: MEASURED at 17.5 min for all 188 files on
+      # an M4 (2742 passed / 2742, no `Failed to transpile` markers), i.e. ~20x
+      # inside this job's 360-min timeout — no directory sharding needed.
       - name: Run tests
-        # run: ./yo-cli test ./tests --verbose
-        run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs test ./tests --exclude tests/internal --exclude tests/cli-cases --parallel 2 --bail --verbose --c-compiler clang --profile
+        shell: bash
+        run: |
+          "$S1" test ./tests --exclude tests/internal --exclude tests/cli-cases --bail --verbose --c-compiler clang
 
   # Bootstrap fixpoint, split into TWO jobs so each self-emit gets a fresh
   # 16 GB box (a single job's stage-3 starved the runner agent after the
