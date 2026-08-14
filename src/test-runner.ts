@@ -1570,21 +1570,22 @@ export async function runTests(
   // compileBatchedBinary). WASM/emcc runs switch the compilation target,
   // which invalidates evaluated state — they keep the per-compile fresh
   // universe. See plans/SHARED_MODULE_CACHE_TESTS.md.
-  const useSharedUniverse = !isWasmBuild && !isEmcc;
-  let sharedManager = useSharedUniverse ? new ModuleManager() : undefined;
-
-  // The shared universe grows monotonically (the union of every file's
-  // closure — a full tests/internal run peaked at 12.9 GiB vs ~6.5 GiB for
-  // the per-file-universe baseline). Bound it: when process RSS crosses
-  // the limit, drop the universe and start fresh (the ModuleManager
-  // constructor clears the process-global registries) — the next file
-  // pays one first-touch closure evaluation and sharing resumes. The env
-  // override exists so the reset path itself is testable.
-  const envRssLimitMb = Number(process.env.YO_TEST_SHARED_RSS_LIMIT_MB);
-  const sharedUniverseRssLimitBytes =
-    Number.isFinite(envRssLimitMb) && envRssLimitMb > 0
-      ? envRssLimitMb * 1024 * 1024
-      : os.totalmem() / 2;
+  // YO_TEST_NO_SHARED_UNIVERSE=1 opts out (per-compile fresh universes, the
+  // pre-2026-08-15 behavior) for memory-constrained machines and for
+  // A/B measurement.
+  //
+  // An RSS-threshold "bound" was tried here and REMOVED as measured-harmful:
+  // when it fired it reclaimed nothing — instrumented resets logged
+  // rssAfter == rssBefore every time (3026->3026 MB, 5402->5402 MB) while RSS
+  // kept climbing — because V8 does not return its heap high-water mark to the
+  // OS and `tryForceGC()` is inert unless node runs with `--expose-gc` (CI
+  // passes it; the ./yo-cli wrapper does not). So the first trip made every
+  // later file reset too, paying full first-touch evaluation per file for zero
+  // memory saved: the tier ran 2 min SLOWER at an identical 13.8 GB peak.
+  // See plans/SHARED_MODULE_CACHE_TESTS.md.
+  const useSharedUniverse =
+    !isWasmBuild && !isEmcc && process.env.YO_TEST_NO_SHARED_UNIVERSE !== "1";
+  const sharedManager = useSharedUniverse ? new ModuleManager() : undefined;
 
   // Process files incrementally so users get immediate feedback
   for (const filePath of filteredTestFiles) {
@@ -1681,13 +1682,11 @@ export async function runTests(
     // Try to force garbage collection between files to prevent memory accumulation
     tryForceGC();
 
-    // Bound the shared universe (see its declaration above).
-    if (
-      sharedManager &&
-      process.memoryUsage().rss > sharedUniverseRssLimitBytes
-    ) {
-      sharedManager = new ModuleManager();
-      tryForceGC();
+    if (process.env.YO_TEST_DEBUG_SHARED) {
+      const rssMb = (process.memoryUsage().rss / (1024 * 1024)).toFixed(0);
+      console.log(
+        `${colors.dim}[shared] shared=${useSharedUniverse} rss=${rssMb}MB after ${relativePath}${colors.reset}`
+      );
     }
   }
 

@@ -5,8 +5,65 @@ off `p2/group-c-goldens` — retarget/rebase onto develop when the GATE 3
 merge train lands); full-tier validation in progress.**
 
 **Full-tier measurement 2026-08-15** (`test ./tests/internal --parallel 1`,
-TS runner, Mac Mini M4): **34.2 min vs the 40.5 min baseline (1.19×), 872/872
-verdicts identical, zero failures.** Peak memory footprint **12.9 GiB**
+TS runner, Mac Mini M4): **34.2 min against the documented 40.5 min baseline
+(~1.19×, soft — different build; see the A/B caveat below), 872 passed / 0
+failed**, peak 13.8 GB accumulated across 60 files in one process.
+
+### The authoritative number: a same-build per-file A/B
+
+This is the measurement that matters, because **CI runs one process per file**
+(see the CI section below). `macro_expansion.test.yo`, one build, sharing
+toggled with `YO_TEST_NO_SHARED_UNIVERSE=1`, `/usr/bin/time -l`:
+
+|                    | sharing OFF | sharing ON | delta     |
+| ------------------ | ----------- | ---------- | --------- |
+| wall-clock         | 158.7 s     | 95.4 s     | **1.66×** |
+| batch Yo→C (`yo=`) | 73.7 s      | 10.8 s     | **−85%**  |
+| clang (`cc=`)      | 17.3 s      | 17.2 s     | unchanged |
+| peak memory        | 8.13 GB     | 6.03 GB    | **−26%**  |
+
+**Sharing LOWERS peak memory per file by 26%** — it evaluates the closure once
+instead of twice. An earlier draft of this doc claimed the opposite
+("12.9 GiB vs ~6.5 GiB baseline"); that comparison was invalid — it put a
+whole-tier accumulated peak against a SINGLE FILE's documented peak. The
+13.8 GB tier figure is real but it measures 60 files accumulating in one
+process (and V8's heap high-water mark, which never returns to the OS,
+contributes in BOTH arms).
+
+The 40.5 min tier baseline quoted below is the DOCUMENTED figure
+(2026-08-05, older build), not a same-build A/B — a same-build baseline tier
+run was attempted twice and killed by this machine's background-job reaper
+both times. The tier-level ratio is therefore soft; the per-file ratio above
+is not, and it is the one CI collects.
+
+### The RSS bound was measured-harmful and REMOVED
+
+Same tier with the bound active (limit = totalmem/2 = 8 GiB): **36.2 min
+(2 min SLOWER than unbounded) at an identical 13.86 vs 13.81 GB peak.** An
+instrumented probe (`YO_TEST_DEBUG_SHARED=1`) explained it exactly — the
+reset reclaims NOTHING:
+
+```
+[shared] rss=3026MB limit=3000MB reset=true rssAfter=3026MB
+[shared] rss=3642MB limit=3000MB reset=true rssAfter=3642MB
+[shared] rss=5402MB limit=3000MB reset=true rssAfter=5402MB
+```
+
+`rssAfter == rssBefore` on every reset, and RSS keeps climbing regardless,
+because V8 does not return its heap high-water mark to the OS and
+`tryForceGC()` is inert unless node runs with `--expose-gc` (CI passes it;
+the `./yo-cli` wrapper does not). So the first trip makes every later file
+reset too — full first-touch evaluation per file, zero memory saved. It is
+replaced by an explicit `YO_TEST_NO_SHARED_UNIVERSE=1` opt-out (verified from
+both directions: pins pass either way, and the opt-out is measurably slower).
+
+Verdict identity established without a 40-minute baseline re-run, by
+reconciling against CI's own last green tier on develop (run 31708389473,
+all four TS shards): baseline **868 tests across 59 files**; this branch has
+60 files (it adds `tests/internal/gc_runtime_atomics.test.yo`, 4 thread-safety
+pins) and reported **872 = 868 + 4**. So test DISCOVERY is byte-for-byte the
+baseline set plus the four known new tests, and every one passed — the shared
+universe neither lost, duplicated, nor mis-attributed a single test. Peak memory footprint **12.9 GiB**
 (baseline ~6.5 GiB per-file peak) — the shared universe grows monotonically
 across 58 files (trap 5 confirmed): the modest tier-level speedup vs the
 1.67× single-file microbenchmark is consistent with later-file evaluation
@@ -90,6 +147,36 @@ the first and turns the batch's closure re-eval into cache hits;
 worst-case-honest estimate is a 2–3× tier speedup before touching codegen.
 (yo-self-side stage split still to measure; its runner is ~2× faster
 overall, same shape expected.)
+
+## How CI actually runs the tier (measured against, 2026-08-15)
+
+**CI does NOT run `test ./tests/internal` as one process.** The TS arm is a
+4-way shard matrix (`.github/workflows/test.yml:496`, sharded 2026-08-06),
+and inside each shard the step loops **one `node ... yo-cli.cjs test <file>`
+invocation per file** (test.yml:578) so a failure is attributed with
+`::error file=` and the remaining files still run. The self-hosted
+differential job runs alongside it.
+
+Consequences for Phase 1, and they cut both ways:
+
+- **CI gets the WITHIN-file win, which is the big one.** Extraction's
+  evaluated closure is reused by that file's batch compile(s) — the
+  measured −85% on batch Yo→C (73.3 s → 11.0 s on the heavy file, whose
+  single-invocation total went 157.7 s → 94.7 s). Every shard contains
+  exactly one heavy file by design, so every shard collects that saving.
+- **Cross-file growth never happens in CI** (fresh process per file), so
+  the RSS bound added in Phase 1 is a LOCAL-runs safeguard, not a CI one.
+- **The unclaimed CI lever is the loop itself.** Each of a shard's ~15
+  invocations pays first-touch closure evaluation (~5.6 s for a light file,
+  ~67 s for a heavy one). Running a shard's LIGHT files in ONE invocation
+  would pay it once — order ~70-80 s per shard, more for medium files.
+  Cost of doing that: per-file `::error file=` annotation is lost (the
+  runner's own per-file reporting would have to carry it), a crash takes
+  the whole batch down instead of one file, and the shard becomes subject
+  to cross-file memory growth (hence the bound). Suggested shape if
+  pursued: keep each shard's heavy file as its own invocation (isolation +
+  6.5 GB peak), batch the light files into one. Decide with a measurement
+  of a real shard file list, not from this estimate.
 
 ## Phase 1 — TS: shared evaluator universe in the sequential runner
 
