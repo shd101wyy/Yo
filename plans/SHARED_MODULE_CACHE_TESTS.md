@@ -252,14 +252,64 @@ module_manager.yo) — precedent for run-scoped shared state.
 This is the phase that matters long-term: src/ retires (P2), and the
 self-hosted runner is what CI keeps paying for.
 
-## Phase 3 (only if Phase 0/1 numbers demand it)
+## Phase 3 — the data says: cache EXTRACTION on disk
+
+Measured 2026-08-15 on `macro_expansion.test.yo` with Phase 1 sharing ON.
+Extraction was isolated by asking for a test name that matches nothing
+(`--test-name-pattern zzz_matches_nothing`), so extraction runs and the batch
+compile does not:
+
+| stage                | time       | share   |
+| -------------------- | ---------- | ------- |
+| **extraction alone** | **62.4 s** | **65%** |
+| batch Yo→C           | 10.8 s     | 11%     |
+| clang                | 17.2 s     | 18%     |
+| test runs + overhead | ~5 s       | ~5%     |
+| (total)              | 95.4 s     |         |
+
+Extraction alone also peaks at 3.80 GB. **Phase 1 solved the batch-side cost
+(−85%) and thereby promoted extraction to the bottleneck** — and in CI, which
+runs one process per file, extraction is paid in full for every file with no
+in-process reuse available to amortize it.
+
+**The lever: extraction's OUTPUT IS STRINGS.** `extractTests` exists to find
+`test(...)` declarations and hand back test names, line numbers, stringified
+test bodies and stringified non-test content — kilobytes of source text. That
+is trivially serializable, and it is NOT the thing the "no on-disk cache"
+prohibition above forbids: that prohibition is about evaluator STATE
+(EvalValues, closures, envs, interned type identities). Caching strings on
+disk dodges it entirely.
+
+Design sketch (not implemented):
+
+- Payload: exactly what `runTests` already builds — `{name, bodyString,
+filePath, lineNumber}[]` plus `nonTestContent`.
+- Key: hash of the entry file's contents + the contents of every file in its
+  transitive import closure + a compiler build identity.
+- Getting the closure without evaluating (the chicken-and-egg): record the
+  closure file list at cache-WRITE time — it is just
+  `ModuleManager.modules.keys()` after a successful extraction — and validate
+  on read by re-hashing the entry plus that recorded list. A _new_ import can
+  only appear if some existing file in the closure changed, and that change
+  already invalidates the key, so the recorded list is sufficient.
+- Expected effect on the CI shape: the heavy file goes from 158.7 s
+  (pre-Phase-1) to roughly batch + clang ≈ 30 s on a warm hit — and it helps
+  the LIGHT files proportionally more, since extraction is ~62% of their
+  wall-clock too (Phase 0: ~5.6 s of a 9.0 s total).
+- Applies to BOTH runners (yo-self does the same extract-then-compile dance),
+  and is independent of Phase 2's registry work — so for CI wall-clock this is
+  arguably the higher-value next step.
+
+Correctness risk to respect: a stale hit compiles the WRONG tests, silently.
+Any implementation needs a red-first pin that mutates a transitively imported
+file and proves the cache misses.
+
+Alternatives considered and ranked below it:
 
 - Per-module C-emission cache (hard: emission is demand-driven by
-  specialization use), or
-- Cross-file test batching (one binary for N test files' tests — cheaper
-  to build, but weakens file isolation and complicates bisection).
-
-Decide on data, not upfront.
+  specialization use, and clang is only 18%).
+- Cross-file test batching (one binary for N files' tests — cheaper to build,
+  but weakens file isolation and complicates bisection).
 
 ## Sequencing
 
