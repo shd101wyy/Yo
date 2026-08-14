@@ -183,8 +183,16 @@ class is broader than the fixed shape — the exact v0.2.4 defect is
 unrecoverable-by-inspection without its era's codegen, and it is
 **immutable in a shipped release artifact**.
 
-Run 3 (in flight): stage-1 built with the **v0.2.3 seed** — pass = the
-defect entered in v0.2.4's window; fail = older class, same resolution.
+Run 3 result: the **v0.2.3-seed stage-1 fails identically** (152/154 ×2) —
+the defect predates v0.2.4; there is NO healthy release seed to roll back
+to. The release line's async codegen carried this class at least since
+v0.2.3.
+
+Run 4 (in flight) tests the resolution's load-bearing premise: the TS pass
+only proves the TS emitter, but v0.2.5-as-seed will be YO-SELF-emitted —
+so run 4 builds STAGE-2 (stage-1-emitted main.yo = current yo-self
+codegen's output) on Linux and runs GATE 3 under it. Pass = the resolution
+is sound; fail = a LIVE yo-self codegen bug to fix now.
 
 ## Resolution path
 
