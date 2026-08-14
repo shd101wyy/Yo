@@ -1,8 +1,10 @@
 # Shared module-compilation cache for the test runner
 
-**Status: PHASE 1 IMPLEMENTED 2026-08-14 (branch `perf/shared-module-cache`,
-off `p2/group-c-goldens` — retarget/rebase onto develop when the GATE 3
-merge train lands); full-tier validation in progress.**
+**Status: PHASE 1 COMPLETE AND VALIDATED 2026-08-15** (branch
+`perf/shared-module-cache`, off `p2/group-c-goldens` — rebase onto develop and
+open the PR once the GATE 3 merge train lands). Phase 2 (yo-self) is
+researched but NOT started; its prerequisite is
+`issues/yo-self-missing-duplicate-impl-checks.md`.
 
 **Full-tier measurement 2026-08-15** (`test ./tests/internal --parallel 1`,
 TS runner, Mac Mini M4): **34.2 min against the documented 40.5 min baseline
@@ -63,30 +65,16 @@ all four TS shards): baseline **868 tests across 59 files**; this branch has
 60 files (it adds `tests/internal/gc_runtime_atomics.test.yo`, 4 thread-safety
 pins) and reported **872 = 868 + 4**. So test DISCOVERY is byte-for-byte the
 baseline set plus the four known new tests, and every one passed — the shared
-universe neither lost, duplicated, nor mis-attributed a single test. Peak memory footprint **12.9 GiB**
-(baseline ~6.5 GiB per-file peak) — the shared universe grows monotonically
-across 58 files (trap 5 confirmed): the modest tier-level speedup vs the
-1.67× single-file microbenchmark is consistent with later-file evaluation
-paying for ever-larger registries/envs. Phase 1 finalization decision:
-bound the universe — recreate the shared manager when process RSS crosses a
-threshold (self-tuning; also caps registry bloat), then re-measure. Note
-the parallel CI path (`--parallel 2`, child process per file) gets
-within-file sharing (extraction + batches) with no cross-file growth by
-construction.
+universe neither lost, duplicated, nor mis-attributed a single test.
 
-**Phase 1 results so far** (macro_expansion.test.yo, single-file run):
-157.7 s → 94.7 s (1.67×); batch Yo→C 73.3 s → 11.0 s (−85%, the closure
-cache-hits from extraction); clang unchanged (17 s) as predicted; verdicts
-identical. Single-file runs still pay extraction's first closure load
-(~67 s) — in multi-file runs files 2+ cache-hit that too, which is where
-the tier-level win multiplies. Hermeticity pins red-first proven: with the
-per-file scrub disabled, both pin fixtures fail (duplicate-method /
-leaked-state); with it enabled, both pass
-(src/tests/shared-eval-hermeticity.test.ts + hermeticity-fixtures/).
+**Hermeticity pins are red-first proven:** with the per-file scrub disabled,
+both pin fixtures fail (duplicate-method / leaked module state); with it
+enabled, both pass — `src/tests/shared-eval-hermeticity.test.ts` +
+`src/tests/hermeticity-fixtures/`.
 
 ## Problem
 
-`yo test ./tests/internal` (58 files) re-compiles the self-hosted compiler's
+`yo test ./tests/internal` (60 files) re-compiles the self-hosted compiler's
 import closure (~99k lines) from scratch for every test file — and in fact
 **at least twice per file**:
 
@@ -147,6 +135,13 @@ the first and turns the batch's closure re-eval into cache hits;
 worst-case-honest estimate is a 2–3× tier speedup before touching codegen.
 (yo-self-side stage split still to measure; its runner is ~2× faster
 overall, same shape expected.)
+
+> **This estimate was too optimistic — recorded as-written for calibration.**
+> Delivered: **1.66× per file** (the CI-relevant shape) and ~1.19× over the
+> whole tier. The estimate assumed cross-file extraction savings would compound;
+> in practice each file still pays first-touch evaluation for whatever it is the
+> first to import, and once evaluation shrinks, clang + C emission (untouched in
+> Phase 1) dominate what is left.
 
 ## How CI actually runs the tier (measured against, 2026-08-15)
 
