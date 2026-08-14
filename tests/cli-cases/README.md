@@ -56,9 +56,18 @@ YO_SELF_BIN=/tmp/yo-s1 scripts/cli-diff-test.sh --network    # include network c
 
 ## `stdout=ignore` is a debt marker, not a convenience
 
-Use it only where the two binaries deliberately identify themselves differently
-(the self-hosted one prefixes fatal errors with `yo-self: error:`), and say so in
-the case's `opts` file. Everywhere else, make the output match instead.
+Prefer `stdout_keep_match=<ERE>` — it keeps only the matched substring of
+matching lines, so a case can assert the shared diagnostic even when the two
+binaries wrap it differently (TS an uncaught throw with a stack, the
+self-hosted one a `yo: error:` line). A pattern that matches nothing on either
+side fails the case (`keep-match-vacuous`), so the assertion cannot rot into
+"any failure passes". `stdout=ignore` survives only where there is NO shared
+substring — as of P2.5 step 15 that is exactly one case (`std-path-flag`,
+whose opts file documents why); say so in the `opts` file if you add another.
+
+Fixtures that must be misformatted `.yo` (the fmt cases) ship as
+`fixture/*.yo.fixture` — the suffix is stripped on sandbox copy — so the
+repo-tree `fmt --check` gate never sees them.
 
 ## `pending/` — empty, and that is the point
 

@@ -4,5 +4,9 @@
 # anchored to the project dir by the runners (TS in-process path.resolve;
 # yo-self forwards project-joined --exclude to the child test run).
 # stdout=ignore: the two test runners' report formats differ (timings etc.).
-stdout=ignore
+# stdout_keep_match (P2.5 step 15): this case previously used stdout=ignore,
+# which ANY failure satisfied. The kept substring is the probe-verified
+# SHARED diagnostic - both compilers must emit it, so the case asserts THE
+# failure, not just A failure.
+stdout_keep_match=[0-9]+ (passed|failed)
 timeout=180

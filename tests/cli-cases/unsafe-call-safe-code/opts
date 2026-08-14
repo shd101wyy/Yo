@@ -8,5 +8,9 @@
 # privilege check throws inside main's body, the def-eval swallow ate it, and
 # the self-hosted compiler emitted a runnable no-op binary. Now caught by the
 # `__yo_user_main` marker gate.
-stdout=ignore
+# stdout_keep_match (P2.5 step 15): this case previously used stdout=ignore,
+# which ANY failure satisfied. The kept substring is the probe-verified
+# SHARED diagnostic - both compilers must emit it, so the case asserts THE
+# failure, not just A failure.
+stdout_keep_match='unsafe\(\.\.\.\)' is not available in safe code
 timeout=120

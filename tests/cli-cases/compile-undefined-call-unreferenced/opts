@@ -10,5 +10,9 @@
 #
 # stdout=ignore: the compilers word the fatal differently; rc=1 parity is the
 # assertion, and rc parity is exactly what was broken.
-stdout=ignore
+# stdout_keep_match (P2.5 step 15): this case previously used stdout=ignore,
+# which ANY failure satisfied. The kept substring is the probe-verified
+# SHARED diagnostic - both compilers must emit it, so the case asserts THE
+# failure, not just A failure.
+stdout_keep_match=Variable "[a-z_]+" not found
 timeout=120

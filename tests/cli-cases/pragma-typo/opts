@@ -5,5 +5,9 @@
 # prints "check: error in: ..."), so no output line is common. The message
 # TEXT parity is probe-verified in the port commit; the self-hosted compiler
 # accepted this file silently before the Phase-G port.
-stdout=ignore
+# stdout_keep_match (P2.5 step 15): this case previously used stdout=ignore,
+# which ANY failure satisfied. The kept substring is the probe-verified
+# SHARED diagnostic - both compilers must emit it, so the case asserts THE
+# failure, not just A failure.
+stdout_keep_match=Enum variant "[A-Za-z]+" not found in enum
 timeout=120

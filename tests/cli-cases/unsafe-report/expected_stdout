@@ -1,0 +1,72 @@
+$ yo unsafe-report .
+Unsafe surface report
+=====================
+
+Scanned 2 .yo file(s); 1 declare pragma(Pragma.AllowUnsafe);.
+  unsafe(...) sites: 3
+    extern-call: 0
+    deref:       2
+    arith:       0
+    addr-of:     0
+    other:       1
+  asm(...) sites:    0
+  extern(...) sites: 0
+
+Findings (file:line:col):
+  audit_me.yo:6:8: unsafe(deref) — v := unsafe(p.*);
+    SAFETY: p points at a live i32 owned by the caller.
+  audit_me.yo:7:8: unsafe(other) — q := unsafe(p.add(usize(1)));
+  audit_me.yo:9:8: unsafe(deref) — s := unsafe(r.*);
+
+Privileged files (declare pragma):
+  audit_me.yo
+rc=0
+$ yo unsafe-report . --json
+{
+  "privilegedFiles": [
+    "audit_me.yo"
+  ],
+  "findings": [
+    {
+      "file": "audit_me.yo",
+      "line": 6,
+      "column": 8,
+      "kind": "unsafe",
+      "subKind": "deref",
+      "snippet": "v := unsafe(p.*);",
+      "safetyComment": "SAFETY: p points at a live i32 owned by the caller."
+    },
+    {
+      "file": "audit_me.yo",
+      "line": 7,
+      "column": 8,
+      "kind": "unsafe",
+      "subKind": "other",
+      "snippet": "q := unsafe(p.add(usize(1)));"
+    },
+    {
+      "file": "audit_me.yo",
+      "line": 9,
+      "column": 8,
+      "kind": "unsafe",
+      "subKind": "deref",
+      "snippet": "s := unsafe(r.*);"
+    }
+  ],
+  "totals": {
+    "filesScanned": 2,
+    "privileged": 1,
+    "unsafeSites": 3,
+    "unsafeBySubKind": {
+      "extern-call": 0,
+      "deref": 2,
+      "arith": 0,
+      "addr-of": 0,
+      "other": 1
+    },
+    "asmSites": 0,
+    "externSites": 0
+  },
+  "topExternCallees": []
+}
+rc=0
