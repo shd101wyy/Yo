@@ -2114,34 +2114,50 @@ run_fmt :: (
     );
     ai = (ai + usize(1));
   });
-  options := FormatYoFilesOptions(check : check_mode, cwd : String.from("."));
-  result := format_yo_files(input_paths, options, io, exn);
-  // Report.
+  // TS resolves against the user's directory (yo-cli.ts:1071:
+  // `process.env.YO_ORIGINAL_CWD ?? process.cwd()`).
+  fmt_cwd := match(
+    proc_env.get(`YO_ORIGINAL_CWD`),
+    .Some(oc) => oc,
+    .None => match(cwd(), .Ok(cp) => cp.to_string(), .Err(_) => String.from("."))
+  );
+  // TS wraps the whole handler in try/catch and prints the BARE message —
+  // no `yo: error:` prefix (yo-cli.ts:1088-1090).
+  fmt_exn := Exception(
+    throw : (
+      (fmt_err) -> {
+        eprintln(`${fmt_err.to_string()}`);
+        unsafe(exit(int(1)));
+        unwind();
+      }
+    )
+  );
+  options := FormatYoFilesOptions(check : check_mode, cwd : fmt_cwd.clone());
+  result := format_yo_files(input_paths, options, io, fmt_exn);
+  // Report — TS yo-cli.ts:1077-1087: check mode lists cwd-relative paths on
+  // STDERR under a header and exits 1; write mode prints one summary line.
   cn := result.changed.len();
   cond(
     check_mode => {
-      (cidx : usize) = usize(0);
-      while(cidx < cn, {
-        match(
-          result.changed.get(cidx),
-          .Some(c) => println(`would format: ${c}`),
-          .None => ()
-        );
-        cidx = (cidx + usize(1));
-      });
       if(cn > usize(0), {
+        eprintln(String.from("The following Yo files need formatting:"));
+        (cidx : usize) = usize(0);
+        while(cidx < cn, {
+          match(
+            result.changed.get(cidx),
+            .Some(c) => eprintln(
+              Path.new(c.clone()).relative_from(Path.new(fmt_cwd.clone())).to_string()
+            ),
+            .None => ()
+          );
+          cidx = (cidx + usize(1));
+        });
         unsafe(exit(int(1)));
       });
     },
     true => {
-      (cidx : usize) = usize(0);
-      while(cidx < cn, {
-        match(
-          result.changed.get(cidx),
-          .Some(c) => println(`formatted: ${c}`),
-          .None => ()
-        );
-        cidx = (cidx + usize(1));
+      if(cn > usize(0), {
+        println(`Formatted ${cn} Yo file(s).`);
       });
     }
   );
