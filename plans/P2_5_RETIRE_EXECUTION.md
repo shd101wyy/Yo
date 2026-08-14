@@ -162,7 +162,37 @@ Each step is independently landable and gated by `tests/internal` or a new cli-c
 17. **`test` job, part 1 — isolate the extension.** Move the `bun package` + Marketplace dry-run into their own job (or `if: runner.os == 'Linux'`), so `npm install -g @vscode/vsce` (test.yml:64) leaves the other four legs. Drop the `bun run scripts/build-site.ts` smoke (test.yml:66). → **verify:** CI; the extension job still produces a `.vsix`. **[CI-only]**
 18. **`test` job, part 2 — convert the Yo steps.** `install-seed`, then `yo fmt --check`, `yo init` + `yo build run`, and `yo compile yo-self/main.yo --release --allocator mimalloc -o yo-native-probe`. Add `shell: bash` to every converted step (only the probe has it today, test.yml:114 — everything else runs under pwsh on windows-latest) and `YO_MAIN_STACK_MB: "4096"` at job level (every self-hosted job sets it; the `test` job sets it nowhere). Keep the `.exe` handling the probe already models (test.yml:117, :122). Delete the `bun test` step **after** step 12. → **verify:** all five legs green. **[CI-only]**
 19. **`test` job, part 3 — the 5-platform ground truth** (test.yml:130-132). The allowlist is empty (`scripts/bootstrap/known-failing.tsv:21-23`, :44 — "the list is EMPTY, which is the point"), so the 188-file corpus is genuinely green natively on linux-x64; the open questions are wall-clock (serial: `--parallel` is accepted and ignored) and never-scored macOS/Windows. **Measure one leg under the stage-1 binary before the swap** and compare against the 360-min job timeout (test.yml:18). If serial does not fit, shard by directory in the workflow. → **verify:** the measurement, then CI. **[CI-only]**
+
+    **MEASURED 2026-08-15 — serial fits, no sharding needed.** A develop-built
+    stage-1 (`compile yo-self/main.yo --release --allocator mimalloc`) running
+    `test ./tests --exclude tests/internal --exclude tests/cli-cases` with
+    `YO_MAIN_STACK_MB=4096 YO_TEST_LEAK_VERDICT=0` (CI's env): **17.5 min
+    (1051.87 s) serial on a Mac Mini M4, 2742 passed / 2742 total, 0 failures,
+    0 `Failed to transpile` markers across all 188 files.** That is ~20x inside
+    the 360-min job timeout; even at 3x slower CI runners it is ~55 min/leg, so
+    the directory-sharding fallback is NOT needed. The 2742 count is IDENTICAL
+    to the TS runner's on the same corpus, so this doubles as a corpus-wide
+    differential. Caveat for anyone re-measuring: the parent process's peak RSS
+    reads ~20 MB because batches compile in CHILD processes — measure children,
+    not the parent.
+
 20. Delete the 4-shard `compiler-internal-tests` job; the self-hosted differential becomes the sole arm. **Check branch protection first** — if a required status check names the shards, PRs will block on checks that never run. → **verify:** CI + the repo's branch-protection settings (not visible from the filesystem). **[CI-only]**
+
+    **RECON 2026-08-15 — it is a RULESET, not classic branch protection.**
+    `repos/.../branches/develop/protection` returns 404; the gating lives in
+    ruleset **13548862** (`branch_protection`, target `~DEFAULT_BRANCH`,
+    enforcement `active`; develop IS the default branch). Its 15 required
+    contexts include **all four `Compiler internal tests (tests/internal, TS
+arm shard N)`**, `Compiler internal tests (tests/internal, self-hosted
+differential)`, and both `test-wasm32_*` legs — so steps 20 and 22 MUST
+    edit that ruleset in lockstep or every PR blocks forever on checks that
+    can never run. Note only three of the five `test (<os>)` legs are required
+    (`macos-latest`, `ubuntu-latest`, `windows-latest`); `macos-26-intel` and
+    `ubuntu-24.04-arm` are not. Also per
+    `issues/selfhosted-differential-job-needs-sharding.md`, shard the
+    differential in this SAME change so both job renames land under ONE
+    required-check update.
+
 21. `test-tsan` → seed-driven, after step 4. Gate it by asserting `-fsanitize=thread` appears in the leg's log; a silently-unsanitized run is indistinguishable from a passing one. **[CI-only]**
 22. Both wasm legs → per step 10's decision: converted (asserting `emcc` reaches the compile and the produced batch binaries are wasm) or deleted. Note these legs can never be node-free — `emcc` is itself a node program (test.yml:610-614). **[CI-only]**
 23. `bootstrap-self-test` → drop bun once steps 12-14 land; `gates_fast.sh` gains a `SEED=` env alongside `S1=`/`P=` for whatever reference side survives. → **verify:** `S1=… SEED=… P=ci bash scripts/bootstrap/gates_fast.sh` with `failures=0`. **[CI-only]**
