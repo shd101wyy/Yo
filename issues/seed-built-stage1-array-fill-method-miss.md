@@ -64,7 +64,7 @@ NOT reproduce under the TS-built binary (default GC or `YO_GC_THRESHOLD=1`).
 | md5 single file, `YO_GC_THRESHOLD=1`                                     | TS-built              | macOS    | OK                        |
 | distilled table+fill probe, both GC modes                                | TS-built              | macOS    | OK                        |
 | CI rerun of the failed job (same commit, fresh seed build)               | seed-built            | ubuntu   | in flight                 |
-| seed-built stage-1 (v0.2.4 + mimalloc, e0bb8f5a3 worktree) `check ./std` | seed-built            | macOS    | in flight                 |
+| seed-built stage-1 (v0.2.4 + mimalloc, e0bb8f5a3 worktree) `check ./std` | seed-built            | macOS    | **154/154 ×6** (no repro) |
 
 ## Next steps
 
