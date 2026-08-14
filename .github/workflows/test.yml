@@ -600,7 +600,15 @@ jobs:
   compiler-internal-tests-selfhosted:
     name: Compiler internal tests (tests/internal, self-hosted differential)
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    # 180, not 90: this job's binaries became ASan-INSTRUMENTED when the
+    # self-hosted runner gained TS's default sanitizer (P2.5 step 4), which
+    # costs both compile and run time on top of the ~89 min this job took
+    # UNinstrumented on develop (run 31708389473: 88m50s of a 90 min budget —
+    # 70 s of headroom). Instrumentation alone blew it. If it creeps again,
+    # shard this job 4-way like the TS arm above rather than raising this
+    # further — see issues/selfhosted-differential-job-needs-sharding.md
+    # (that rename requires updating the branch-protection required checks).
+    timeout-minutes: 180
 
     steps:
       - name: Checkout repository
@@ -646,6 +654,17 @@ jobs:
       - name: Run tests/internal under the self-hosted binary (differential)
         env:
           YO_MAIN_STACK_MB: "4096"
+          # SAME STAGING RATCHET as the tier-1 gates and hollow-sweep jobs,
+          # which this job was missed by when the ratchet was wired: the
+          # runner's LeakSanitizer verdicts fail a leaking child, and the
+          # self-hosted emit has pre-existing tracked leak debt
+          # (issues/self-hosted-emit-leaks-remaining-classes.md). Here the
+          # cost was not just red tests: a leak-failed batch gets BISECTED,
+          # so a ~6.5 GB compiler-sized batch recompiled repeatedly and the
+          # job died at the 90 min limit on file 2 (ast_reflection) with
+          # llvm-symbolizer still churning. ASan's crash detection
+          # (UAF/double-free) stays fully armed — only detect_leaks is off.
+          YO_TEST_LEAK_VERDICT: "0"
         run: /tmp/yo-stage1 test ./tests/internal --parallel 1 --verbose
 
   test-tsan:
