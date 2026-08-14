@@ -1,7 +1,7 @@
 # yo-self cross-emission bakes HOST platform constants (AT_FDCWD = -2 on a linux target)
 
 **Status: OPEN** (found 2026-08-14 during the GATE 3 emit-diff hunt,
-issues/seed-built-stage1-array-fill-method-miss.md).
+issues/fixed/seed-built-stage1-array-fill-method-miss.md).
 
 Cross-emitting `std/fs/file.yo`'s `exists` from macOS with
 `--target x86_64-linux-gnu`:

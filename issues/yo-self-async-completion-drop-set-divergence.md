@@ -1,7 +1,7 @@
 # yo-self async completion drops diverge from TS: leaked String temp + phantom never-written Option fields
 
 **Status: OPEN** (found 2026-08-14 during the GATE 3 emit-diff hunt,
-issues/seed-built-stage1-array-fill-method-miss.md).
+issues/fixed/seed-built-stage1-array-fill-method-miss.md).
 
 Comparing the emitted `exists` (std/fs/file.yo:324) resume functions,
 "Drop local variables before completion":

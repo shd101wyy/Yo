@@ -1,6 +1,8 @@
 # `Array(T, N).fill` method-miss in std/crypto/{md5,sha256}: double prelude evaluation + readdir-order dependence (BOTH compilers)
 
-**Status: FIX IMPLEMENTED 2026-08-14, verification in progress** (found on
+**Status: FIXED + MERGED 2026-08-15** (develop squash 41c2d9d96 via PR #122; CI green including the GATE 3 tier-1 job that surfaced it)
+
+**Originally filed as:** (found on
 PR #122 round-5 CI, run 31753265776; the title's original "seed-built
 stage-1 / layout-sensitive" framing is preserved below as the investigation
 record — it was a mirage). Fix record at the end of the FIX section below.

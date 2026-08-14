@@ -1,7 +1,7 @@
 # yo-self is missing TS's duplicate-impl registration checks — re-registration silently corrupts instead of erroring loudly
 
 **Status: OPEN** (found 2026-08-14 while fixing
-issues/seed-built-stage1-array-fill-method-miss.md).
+issues/fixed/seed-built-stage1-array-fill-method-miss.md).
 
 ## The parity gap
 
