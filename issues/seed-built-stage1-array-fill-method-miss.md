@@ -1,8 +1,9 @@
 # `Array(T, N).fill` method-miss in std/crypto/{md5,sha256}: double prelude evaluation + readdir-order dependence (BOTH compilers)
 
-**Status: ROOT-CAUSED 2026-08-14** (found on PR #122 round-5 CI, run
-31753265776; the title's original "seed-built stage-1 / layout-sensitive"
-framing is preserved below as the investigation record — it was a mirage).
+**Status: FIX IMPLEMENTED 2026-08-14, verification in progress** (found on
+PR #122 round-5 CI, run 31753265776; the title's original "seed-built
+stage-1 / layout-sensitive" framing is preserved below as the investigation
+record — it was a mirage). Fix record at the end of the FIX section below.
 
 ## ROOT CAUSE (the short version)
 
@@ -44,6 +45,52 @@ cd /tmp/ot && yo check ./std --exclude <everything but prelude.yo, zzcrypto/{md5
    harmless anyway (idempotent registration or identity-stable lookup).
 3. Sort `collect_check_files` (and TS's walker) so check order is
    deterministic cross-filesystem.
+
+## FIX (2026-08-14)
+
+The per-compiler mechanisms turned out to differ in detail; both are fixed
+at the source:
+
+**TS.** The walker already sorts (`collectCheckFiles`, src/yo-cli.ts:76),
+and the module cache was already keyed near-canonically — `check` keys the
+top-level file by `"file://" + fs.realpathSync(file)` (yo-cli.ts:594) but
+the evaluator keys the implicit prelude by `"file://" +
+path.join(stdPath, "prelude.yo")` (src/evaluator/index.ts:132). The two
+spellings diverge whenever the std root is reached through a symlink
+(macOS `/tmp` → `/private/tmp`) or a non-normalized `--std-path` — then the
+prelude loads twice and the SECOND load dies loudly on TS's duplicate-
+method check. Fix: `canonicalizeModulePath` (resolve + realpath, falling
+back to resolve for not-yet-on-disk inputString loads) applied at the
+`loadModule` / `deleteModule` / `compileModule` entry points of
+`ModuleManager`. Canonical keys also repair TS's designed idempotence for
+re-evaluated impls: the replace-if-same-`sourceModulePath` path
+(impl.ts:2871-2881) only recognizes "same module" when both spellings
+canonicalize to one string.
+
+Red-first proof (same probe, `--std-path /tmp/ot/std` through the `/tmp`
+symlink spelling): pre-fix `check: 1/3 file(s) passed` with
+`Method "len" is already defined for type "comptime_str"`; post-fix 3/3.
+
+**yo-self.** The module cache never held the prelude at all
+(`_load_module_at_abs` early-returns on `prelude.yo`); the prelude exists
+only as the cached cloned env. `mm_load_file`'s prelude branch called
+`mm_load_prelude_file`, which re-evaluated the prelude BODY unconditionally
+— only the env store was populate-once. So pre-load + walker-hit = two full
+prelude evaluations into the process-wide impl registries, and yo-self
+(unlike TS) has NO duplicate-registration checks, so the corruption is
+silent until the first fresh `Array(T,N)` specialization fails (see
+issues/yo-self-missing-duplicate-impl-checks.md for that parity gap). Fix:
+evaluation-level populate-once — `mm_load_file` now returns a cached-hit
+outcome for any `prelude.yo` target once `g_cached_prelude_env` is set
+(mirrors a TS module-cache hit). Plus `collect_check_files` now sorts
+(`out.sort()`, main.yo) — its docstring had always CLAIMED sorted output;
+the sort was never implemented, which is what made ext4's per-checkout
+readdir hash order a verdict lottery.
+
+Item 2 (registry collision) resolved as: TS already has the designed
+idempotence + loud-reject (repaired by canonical keys); yo-self's missing
+checks are filed as issues/yo-self-missing-duplicate-impl-checks.md — with
+both double-evaluation sources closed, no shipped path re-registers today.
 
 ---
 
