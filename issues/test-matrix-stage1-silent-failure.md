@@ -1,6 +1,6 @@
 # The `test` matrix legs fail their seed `yo build` with no diagnostic output
 
-**Status: ROOT-CAUSED 2026-08-15** (found on PR #126 run 31851051908; confirmed by the always-on post-mortem in run 31856743929). Linux fix applied; macOS still open.
+**Status: RESOLVED 2026-08-15** (found on PR #126 run 31851051908; root-caused by the always-on post-mortem in run 31856743929; fixed the same day).
 
 ## Symptom
 
@@ -90,25 +90,52 @@ hollow sweep **adds a 32 GB swapfile**, and tsan simply got lucky at the edge.
 one line: P2.5 step 18 moved a full self-build onto the suite runners without
 the memory provisioning every other self-building job in this repo already had.
 
-**macOS: still open, and may not be fixable this way.** `macos-latest` (arm64)
-has ~7 GB of RAM and no equivalent knob — you cannot `fallocate` a swapfile
-there. It died with 57 MB free, so it hit a wall rather than swapping its way
-through. The next run samples `sysctl vm.swapusage` instead of free pages, to
-settle whether macOS swapped at all.
+**macOS/Windows: the self-build is REMOVED from these legs.** `macos-latest`
+(arm64) has ~7 GB and there is no `fallocate` equivalent.
 
-If macOS cannot host a self-build, the decision below is forced rather than
-optional.
+Note the macOS evidence was weaker than it first looked: a low `Pages free` is
+NORMAL on macOS, where memory sits in inactive/purgeable, so that number alone
+did not prove exhaustion the way the Linux numbers did. What settled it was
+structural, not numeric:
 
-## The design question this forces
+**Every other heavy self-building job in test.yml is `ubuntu-latest`** —
+`bootstrap-fixpoint`, `bootstrap-fixpoint-stage3`, `bootstrap-self-test`,
+`compiler-internal-tests-selfhosted`, `build-linux-musl-static`, `test-tsan`
+and `hollow-sweep`. The `test` matrix was the ONLY job attempting a self-build
+on macOS/Windows, and the only one failing. Linux-only restores the
+architecture this repo already had; it does not invent a carve-out.
 
-These legs need a compiler built from the PR's own sources — running the suite
-under the _seed_ would test the released compiler, not the change — so "just use
-the seed" is not a valid shortcut. The real choice:
+On macOS/Windows the suite now runs under the SEED with `YO_STD` pointed at the
+checkout.
 
-- provision every leg on every PR (Linux: done; macOS: no mechanism), or
-- keep the language suite on the legs that can host a build, and rely on
-  `seed-bundles` in release.yml for "it builds natively on all five targets",
-  which it already proves at release time.
+**`YO_STD` is load-bearing there, and its absence would have been silent.** std
+resolution is `--std-path` -> `YO_STD` -> a walk-up from the executable ->
+`./std`. A stage-1 binary sits at `yo-out/<triple>/bin/yo`, so its walk-up lands
+on the checkout's std for free; the seed sits at `$RUNNER_TEMP/yo-seed/bin/yo`,
+so its walk-up finds the SEED's OWN bundled std. Without `YO_STD` these legs
+would have tested the RELEASED std while reporting that they tested the PR's.
+Verified red-first against the real v0.2.4 seed: a bogus `YO_STD` fails on
+`/nonexistent/std/prelude.yo`, the correct one passes.
+
+## Coverage cost, stated plainly
+
+macOS/Windows legs now cover std changes and platform-specific runtime/codegen
+behaviour, but NOT a PR's own compiler changes on those platforms. Those are
+proven at release time by `release.yml`'s `seed-bundles`, which builds natively
+on all five targets.
+
+Restoring per-PR macOS compiler coverage needs one of:
+
+- bringing the emit's peak memory down — `plans/backlog/YO_SELF_ENV_SHARING.md`
+  identifies the root cause (def-time body envs COPY what TS SHARES, 7.4 M live
+  `Variable`s); or
+- paid larger runners (`macos-*-xlarge`), which is a spend decision, not a code
+  one.
+
+This coverage was ALREADY destined to be lost to `src/` retirement: before P2.5
+step 18 these legs tested the PR's _TypeScript_ compiler, which Group E
+deletes. Once `src/` is gone there is no way to test a PR's compiler on macOS
+without building it there.
 
 ## The diagnostic that did not work (worth remembering)
 
