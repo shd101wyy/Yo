@@ -40,6 +40,41 @@ Sequencing: the conversion needs a stage-1 build in each wasm leg, so it should
 land after the stage-1 emit/compile split, otherwise both legs inherit the
 memory failure that split exists to fix.
 
+## First self-hosted run (run 31874422392) — what it proved and what it did not
+
+The converted legs found a bug on their first run, which is the point of
+converting them: #128, whose wasm legs still drive the TS compiler, passed the
+same check on the same day.
+
+PROVED WORKING:
+
+- `Build stage-1 with the seed` passed — the new `build-stage1` composite
+  action is sound.
+- **emcc compiled the C emitted by the ported backend with 3 warnings and no
+  errors.** The port reaches the C compiler intact; this was the open question.
+
+FAILED: `yo build run` produced `hello-world.html` and then died on
+`Cannot find module .../hello-world.js` — emcc normally emits that shim beside
+the `.html`.
+
+### The fix applied, and the honest caveat
+
+yo-self passed `-lm -pthread` on every non-Windows link, so wasm got them; TS
+gates all platform system libraries on `!isWasm` and passes neither. `-pthread`
+is not inert for emcc — it switches Emscripten into pthreads mode. That is a
+REAL parity bug and is now fixed.
+
+**But it is not confirmed to be the root cause.** The inference that the link
+never ran came from a 0.2 s gap between the last warning and the node error,
+which is too fast for an Emscripten link — not from seeing what was on disk.
+With `-pthread` emcc still normally emits a `.js` (plus a `.worker.js`), so the
+mechanism is not fully explained.
+
+The smoke test now dumps `ls -lR yo-out` on failure, so the next run answers it
+directly instead of by inference. If the `.js` is present and the runner still
+cannot find it, the bug is in the run path (`build_runner.yo`'s `.html` -> `.js`
+derivation), not the link line.
+
 ## The gap (as originally found — kept for the record; resolved above)
 
 `yo-self/codegen/async/` had `runtime_io_linux.yo`, `runtime_io_macos.yo`,
