@@ -224,19 +224,33 @@ jobs:
       # it is path noise, not a route difference.
       # `--std-path ./std` stays load-bearing and IS forwarded to the child
       # compile (build_runner.yo:426-432).
-      # DIAGNOSABILITY (2026-08-15): all five legs failed here with NO output
-      # whatsoever — just "Process completed with exit code 2" after 15-29
-      # minutes. A successful `yo build` prints exactly ONE line ("Building yo
-      # <ver> -> <path>"), so silence is NOT a swallowed-stderr bug; it is what
-      # a killed child looks like. The same seed + tree + command succeeds
-      # locally on macOS arm64 in ~10 min, needing ~10 GB of swap on a 16 GB
-      # box, and this repo's other self-building jobs all provision memory
-      # explicitly (the hollow sweep adds swap; bootstrap-stage2 adds a 32 GB
-      # swapfile plus a systemd-run cgroup cap) — these legs provision nothing.
-      # Resource exhaustion is therefore the leading hypothesis but is NOT yet
-      # proven, so this step now records the evidence needed to confirm or kill
-      # it on the next run instead of guessing at a fix.
+      # WHY THIS IS LINUX-ONLY (settled 2026-08-15, run 31856743929).
+      # The self-build peaks above 15 GB: on ubuntu-latest it climbed to
+      # 15,541 MB of 15,988 and sat at ~300 MB free for four minutes before its
+      # own allocation failed (dmesg showed NO oom-kill), dying inside the
+      # Yo->C stage before the 142 MB .c was written. Linux survives that with
+      # the 32 GB swapfile added above. macOS runners cannot: macos-latest has
+      # ~7 GB and offers no equivalent knob.
+      #
+      # Making the heavy build Linux-only is not a concession, it is this
+      # repo's existing architecture. EVERY other self-building job here is
+      # ubuntu-latest — bootstrap-fixpoint, -stage3, bootstrap-self-test, the
+      # self-hosted differential, the musl leg, tsan and the hollow sweep. This
+      # matrix was the ONLY job attempting a self-build on macOS/Windows, and
+      # the only one failing.
+      #
+      # COVERAGE COST, stated plainly: on macOS/Windows the suite now runs
+      # under the SEED against THIS checkout's std (--std-path ./std). That
+      # covers std changes and platform-specific runtime/codegen behaviour, but
+      # NOT a PR's own compiler changes on those platforms — those are proven
+      # at release time by release.yml's seed-bundles, which builds natively on
+      # all five targets. Restoring per-PR macOS compiler coverage needs either
+      # the emit's memory footprint brought down (plans/backlog/
+      # YO_SELF_ENV_SHARING.md: def-time envs COPY what TS SHARES, 7.4 M live
+      # Variables) or paid larger runners. Both are out of scope here and are
+      # recorded in issues/test-matrix-stage1-silent-failure.md.
       - name: "Stage 1: build the self-hosted compiler with the SEED (`yo build`)"
+        if: runner.os == 'Linux'
         shell: bash
         run: |
           echo "::group::pre-build environment"
@@ -297,7 +311,7 @@ jobs:
       # (proven in run 31854687362), so this is the only place the forensics
       # can be printed at all.
       - name: "Stage 1 post-mortem (always runs)"
-        if: always()
+        if: always() && runner.os == 'Linux'
         shell: bash
         run: |
           echo "--- memory samples during the build (last 15) ---"
@@ -316,6 +330,30 @@ jobs:
           df -h . || true
           echo "--- partial yo-out tree: was the 142 MB .c emitted before the failure? ---"
           ls -lR yo-out 2>/dev/null | head -40 || echo "(no yo-out)"
+
+      # macOS/Windows: no self-build (see the note above). The seed IS the
+      # compiler under test on these legs, driven against this checkout's std.
+      - name: "Stage 1 (macOS/Windows): use the seed as the compiler under test"
+        if: runner.os != 'Linux'
+        shell: bash
+        run: |
+          SEED="$(command -v yo || true)"
+          if [ -z "$SEED" ]; then
+            echo "::error::the seed compiler is not on PATH"
+            exit 1
+          fi
+          echo "S1=$SEED" >> "$GITHUB_ENV"
+          # LOAD-BEARING. std resolution is --std-path -> YO_STD -> a walk-up
+          # from the executable -> ./std. A stage-1 binary lives at
+          # yo-out/<triple>/bin/yo, so its walk-up lands on THIS checkout's std
+          # for free. The seed lives at $RUNNER_TEMP/yo-seed/bin/yo, so its
+          # walk-up finds the seed's OWN bundled std instead — and the suite
+          # would then silently test the released std, not the PR's, making the
+          # stated coverage of these legs a lie. YO_STD (rather than adding
+          # --std-path to each invocation) covers every subcommand, including
+          # the child compiles that `yo build run` spawns in the smoke test.
+          echo "YO_STD=$PWD/std" >> "$GITHUB_ENV"
+          YO_STD="$PWD/std" "$SEED" check std/assert.yo
 
       - name: Check the formatted code
         shell: bash
