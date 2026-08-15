@@ -284,8 +284,24 @@ jobs:
             done ) > /dev/null 2>&1 &
           echo $! > /tmp/yo-sampler.pid
 
+          # MemoryHigh forces the kernel to RECLAIM (i.e. actually use the
+          # swapfile) instead of letting the process balloon until its own
+          # allocation fails. Run 31862196401 proved swap alone is not enough:
+          # 35,839 MB of swap was provisioned and only 44 MB was ever used
+          # while RAM sat at 15,540/15,989 — nothing applied the pressure that
+          # makes Linux page anything out. bootstrap-fixpoint has used exactly
+          # this wrapper for the same reason.
+          #
+          # It also has to survive TWO overlapping peaks: that run emitted the
+          # 140 MB .c successfully at 03:47 and then died at 03:50, because the
+          # parent still holds its ~15 GB evaluator/codegen arena while clang
+          # starts needing its own GBs. (Locally clang -O2 on this file peaks
+          # at only 3.17 GB — the problem is the sum, not clang.) Filed as
+          # issues/compiler-holds-emit-memory-during-cc.md.
+          echo Y | sudo tee /sys/module/zswap/parameters/enabled >/dev/null || true
           set +e
-          yo build --std-path ./std
+          sudo systemd-run --scope -p MemoryHigh=11G -p MemoryMax=14G \
+            env YO_MAIN_STACK_MB=4096 nice -n 10 yo build --std-path ./std
           BUILD_RC=$?
           set -e
           kill "$(cat /tmp/yo-sampler.pid)" 2>/dev/null || true
