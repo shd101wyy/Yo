@@ -242,8 +242,25 @@ libraries: liburing.so.2`. The published Linux bundle links liburing
 
 What is proven so far: the split-at-the-C-boundary design works (glibc host
 emits, Alpine compiles), the result is `statically linked` per `file`, and
-io_uring is IN rather than stubbed. What remains is one green run of the
-assertion, after which `release.yml` can grow the leg.
+io_uring is IN rather than stubbed.
+
+### VERDICT 2026-08-15 — the leg is GREEN; item 3 is de-risked
+
+Run 31863256060 reported `Static musl Linux bundle (build + run, no publish) =>
+success` with all three traps cleared. That was the last precondition stated
+above, so the design is now proven end-to-end in CI:
+
+- glibc host emits the C, Alpine compiles it against static liburing,
+- `file` reports `statically linked`,
+- the io_uring assertion passes on a binary that genuinely contains it, under
+  `seccomp=unconfined` so the profile cannot mask a stub.
+
+**Next step for item 3: `release.yml` grows the musl leg**, mirroring the
+PR-CI leg's two-container split. Note the PR leg deliberately stops before
+publishing (`no publish` in its name); the release leg adds bundle upload, and
+the `install.sh` musl branch then has something to download. Until that lands,
+Alpine users still land on the glibc bundle and hit the `ld.so` failure that
+started this item.
 
 ## Item 4 — release hardening (carried from P2 notes)
 
