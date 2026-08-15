@@ -47,13 +47,9 @@ loop runs once per outer iteration.
 
 The emitted labels are all structurally correct — both loops get
 `_start`/`_end`/`_continue`/`after_`, via the original `outerWhileLoop` path.
-The defect is drop placement, the same family as Bug B in the fixed issue but a
-THIRD emission site: `processChainedBranch`'s "no more awaits" branch
-(`src/codegen/async/state-machine.ts`, the `else` that emits
-`chainedBranch.deferredDropExpressions` inline at indent 6). It emits the
-enclosing match arm's scope-end drop of `inner` at the top of the inner loop's
-resume state, so `inner` is freed during the first iteration and the loop
-condition then re-reads freed memory:
+The defect is drop placement: the enclosing match arm's scope-end drop of
+`inner` lands at the top of the inner loop's resume state, so `inner` is freed
+during the first iteration and the loop condition then re-reads freed memory:
 
 ```c
       switch (sm->cond_branch_0) { case 4: { count += f; break; } }
@@ -66,17 +62,37 @@ condition then re-reads freed memory:
         ... fn_..._len(sm->var_..._inner) ...   // <-- reads freed memory
 ```
 
-### Attempted fix, and why it was reverted
+### Which emitter produces that drop is still UNKNOWN
 
-Routing those drops into the enclosing loop's `condBranchPostWhileExprs` slot
-made this shape correct (222) **but broke the nested repro** — that slot is
-already claimed by `generateCondWithAwait` for the `if(...)` layer in shapes
-that have one, and the two uses collide. Reverted.
+An earlier revision of this file blamed `processChainedBranch`'s "no more
+awaits" path in `state-machine.ts`. **That was wrong.** Tagging every
+`${dropCode}` emitter in `src/codegen/async/state-machine.ts` and
+`state-code-gen.ts` with a distinct `/*DROPSITE_*/` marker and recompiling this
+repro shows only ONE of them firing in that region — `SM1158`, and it emits the
+`__yo_decr_rc(await_future_0)` line, not the `inner` drop. So the drop comes
+from outside the async emitters: the generic scope-exit drop machinery
+(`src/codegen/exprs/begin.ts`, `atom.ts`, `other-fn-call.ts` all emit
+`${indent}${dropCode};`) is the place to tag next.
 
-The direction that should work is a DEDICATED field on the while-loop info
-(e.g. `postLoopDrops`) emitted immediately after `after_while_loop_N:`, so it
-cannot contend with `condBranchPostWhileExprs`. Not attempted — see the note on
-verification cost below.
+That matters for the fix, because a deferral only works if it is applied where
+the drop is actually produced.
+
+### Two attempts, both reverted
+
+1. Routing the drops into the enclosing loop's `condBranchPostWhileExprs` made
+   this shape correct (222) but **broke the nested repro into a SIGBUS** — that
+   slot is already claimed by `generateCondWithAwait` for the `if(...)` layer,
+   and the two uses collide.
+2. A DEDICATED `postLoopDrops` field on the while-loop info, emitted right after
+   `after_while_loop_N:`, avoids that collision and does emit correctly (the
+   drop code must be generated where it is COLLECTED, not where it is emitted —
+   the state-machine variable mapping is only set up at the collection point, so
+   deferring an `Expr` yields a bare `inner` and a C compile error; defer the
+   generated string instead). But it changed nothing here, because the drop is
+   not produced by the site it hooks. Reverted.
+
+The `postLoopDrops` design is still the right shape for the eventual fix; it
+just needs to be wired to the emitter that actually produces this drop.
 
 ## Hole 2 — nested await-loops over REAL I/O futures crash intermittently
 
