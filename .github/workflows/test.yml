@@ -204,10 +204,54 @@ jobs:
       # it is path noise, not a route difference.
       # `--std-path ./std` stays load-bearing and IS forwarded to the child
       # compile (build_runner.yo:426-432).
+      # DIAGNOSABILITY (2026-08-15): all five legs failed here with NO output
+      # whatsoever — just "Process completed with exit code 2" after 15-29
+      # minutes. A successful `yo build` prints exactly ONE line ("Building yo
+      # <ver> -> <path>"), so silence is NOT a swallowed-stderr bug; it is what
+      # a killed child looks like. The same seed + tree + command succeeds
+      # locally on macOS arm64 in ~10 min, needing ~10 GB of swap on a 16 GB
+      # box, and this repo's other self-building jobs all provision memory
+      # explicitly (the hollow sweep adds swap; bootstrap-stage2 adds a 32 GB
+      # swapfile plus a systemd-run cgroup cap) — these legs provision nothing.
+      # Resource exhaustion is therefore the leading hypothesis but is NOT yet
+      # proven, so this step now records the evidence needed to confirm or kill
+      # it on the next run instead of guessing at a fix.
       - name: "Stage 1: build the self-hosted compiler with the SEED (`yo build`)"
         shell: bash
         run: |
+          echo "::group::pre-build environment"
+          case "$RUNNER_OS" in
+            Linux) free -m || true; nproc || true; df -h . || true ;;
+            macOS) vm_stat | head -5 || true; sysctl -n hw.memsize hw.ncpu || true; df -h . || true ;;
+            Windows) systeminfo | grep -i "memory" || true ;;
+          esac
+          (command -v clang && clang --version | head -1) || true
+          (command -v gcc && gcc --version | head -1) || true
+          echo "::endgroup::"
+
+          # Capture the exit code instead of letting `set -e` abort with no
+          # context. `yo build`'s own output is minimal by design, so the
+          # post-mortem below is the only forensic material a failure leaves.
+          set +e
           yo build --std-path ./std
+          BUILD_RC=$?
+          set -e
+          if [ "$BUILD_RC" -ne 0 ]; then
+            echo "::error::yo build failed with exit code ${BUILD_RC}"
+            echo "--- memory after failure ---"
+            case "$RUNNER_OS" in
+              Linux)
+                free -m || true
+                # The OOM killer is the hypothesis this is here to confirm.
+                sudo dmesg 2>/dev/null | grep -iE "out of memory|oom-kill|killed process" | tail -20 || true
+                ;;
+              macOS) vm_stat | head -5 || true ;;
+            esac
+            echo "--- partial yo-out tree (was any C emitted before the failure?) ---"
+            ls -lR yo-out 2>/dev/null | head -40 || true
+            exit "$BUILD_RC"
+          fi
+
           # build.yo emits yo-out/<target-triple>/bin/yo[.exe]; the triple
           # differs per leg, so resolve it instead of hardcoding five paths.
           S1="$(ls yo-out/*/bin/yo yo-out/*/bin/yo.exe 2>/dev/null | head -1)"
