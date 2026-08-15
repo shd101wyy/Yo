@@ -46,9 +46,107 @@ env:
   SEED_VERSION: v0.2.4
 
 jobs:
+  # The VS Code extension is npm/bun-native BY DESIGN (vsce, vscode-languageclient,
+  # @types/vscode) and survives src/ retirement as a documented island
+  # (P2_RETIRE_SRC.md §2.3). It used to be bundled inside the 5-platform `test`
+  # matrix, which meant `npm install -g @vscode/vsce` ran on all five legs to
+  # serve one Linux-only packaging concern. Isolated here so the matrix legs can
+  # become toolchain-free (P2.5 steps 17-19).
+  vscode-extension:
+    name: VS Code extension (package + Marketplace dry-run)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install vsce
+        run: npm install -g @vscode/vsce
+
+      # npm-only by contract: package-lock.json is committed and there is no
+      # bun.lock here (AGENTS.md's toolchain rule).
+      - name: Build and package the extension
+        run: |
+          cd vscode-extension
+          npm ci
+          npm run build
+          npm run package
+
+      - name: Publish extension to Visual Studio Marketplace
+        id: create_vsix
+        uses: HaaLeo/publish-vscode-extension@v2
+        with:
+          dryRun: true
+          pat: ${{ secrets.VS_MARKETPLACE_TOKEN }}
+          packagePath: ./vscode-extension
+          registryUrl: https://marketplace.visualstudio.com
+
+  # P2.5 step 18 removed `bun test` from the 5-platform matrix — correctly: it
+  # ran the same TS unit tests five times to serve one toolchain. But deleting
+  # it outright would leave the 23 TS test files (466 tests) unrun by ANY job
+  # while src/ still exists, which is a blind window, not a saving: src/ is
+  # still what `./yo-cli` runs locally, and it is still being CHANGED (the
+  # loadingModules leak fix and its pin, PR #125, live there). The plan's
+  # "accepted loss" of TS unit-test ground truth is meant to coincide with
+  # src/'s DELETION, so this job carries it until then and dies WITH src/ in
+  # Group E — one 3-minute Linux job instead of five.
+  ts-unit-tests:
+    name: TS unit tests (dies with src/ in Group E)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install liburing
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y liburing-dev
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install dependencies
+        run: |
+          bun install
+          bun run build
+
+      - name: Run TS unit tests
+        run: bun test --timeout 600000
+
   test:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 360
+    env:
+      # Every self-hosted job sets this; the `test` job set it NOWHERE while it
+      # ran under node. The compiler's deep comptime recursion needs more than
+      # the 1 GiB default main-thread stack (AGENTS.md "Common Pitfalls").
+      YO_MAIN_STACK_MB: "4096"
+      # Same STAGING RATCHET as the tier-1 gates, hollow-sweep and differential
+      # jobs: the runner's LeakSanitizer verdicts fail a leaking child, and the
+      # self-hosted emit carries pre-existing tracked leak debt
+      # (issues/self-hosted-emit-leaks-remaining-classes.md). ASan's crash
+      # detection stays fully armed — only detect_leaks is off.
+      YO_TEST_LEAK_VERDICT: "0"
     strategy:
       fail-fast: false
       # One leg per release-bundle target (see release.yml's seed matrix):
@@ -68,6 +166,26 @@ jobs:
         with:
           submodules: recursive
 
+      # CONFIRMED root cause of the stage-1 failures (run 31856743929, via the
+      # sampler below): memory. On ubuntu-latest the build climbed to
+      # 15,541 MB of 15,988 and sat at ~300 MB free for four minutes before
+      # dying; dmesg showed NO oom-kill, so it was the process's own allocation
+      # failing, not the kernel reaping it. yo-out/*/bin was empty — it died
+      # inside the Yo->C stage, before the .c was ever written.
+      # Every other self-building job in this file already provisions swap
+      # (bootstrap-fixpoint, the hollow sweep); these legs provisioned nothing,
+      # which is the regression P2.5 step 18 introduced by moving a full
+      # self-build onto the suite runners. Locally the same build succeeds on
+      # 16 GB *because ~10 GB of swap is available*; the runner has 3 GB.
+      - name: Add swap space
+        if: runner.os == 'Linux'
+        run: |
+          sudo fallocate -l 32G /mnt/swapfile
+          sudo chmod 600 /mnt/swapfile
+          sudo mkswap /mnt/swapfile
+          sudo swapon /mnt/swapfile
+          free -h
+
       - name: Install liburing
         if: runner.os == 'Linux'
         run: |
@@ -80,104 +198,272 @@ jobs:
           choco install llvm -y
           echo "C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+      # P2.5 step 18: the matrix legs are now bun/node-FREE. The previous
+      # release (the bootstrap seed) builds stage-1 from THIS checkout, and
+      # stage-1 — the compiler these sources describe — does every remaining
+      # job: fmt, the build-system smoke, and the language corpus. That is the
+      # same trust chain the other self-hosted jobs use ("previous release
+      # builds current compiler"), now extended to all five release targets.
+      - name: Install the seed compiler (previous release)
+        uses: ./.github/actions/install-seed
         with:
-          bun-version: latest
+          version: ${{ env.SEED_VERSION }}
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-          registry-url: "https://registry.npmjs.org"
-
-      - name: Install dependencies
-        run: |
-          bun install
-          npm install -g @vscode/vsce
-          bun run build
-          bun run scripts/build-site.ts --output yo-out/site
-
-      - name: Bundle vscode extension
-        run: |
-          cd vscode-extension
-          bun install
-          bun run build
-          bun package
-
-      - name: Publish extension to Visual Studio Marketplace
-        id: create_vsix
-        uses: HaaLeo/publish-vscode-extension@v2
-        with:
-          dryRun: true
-          pat: ${{ secrets.VS_MARKETPLACE_TOKEN }}
-          packagePath: ./vscode-extension
-          registryUrl: https://marketplace.visualstudio.com
-
-      - name: Run unit tests
-        run: bun test --timeout 60000
-
-      - name: Check the formatted code
-        run: node ./out/cjs/yo-cli.cjs fmt --check ./std ./tests ./yo-self
-
-      - name: Build system smoke test
-        run: |
-          node ./out/cjs/yo-cli.cjs init ./tmp/hello-world --name hello-world
-          cd tmp/hello-world
-          node ../../out/cjs/yo-cli.cjs build run
-
-      # Native build of the self-hosted compiler on EVERY release target —
-      # exactly what the release workflow's seed legs do, so seed-leg
-      # breakage surfaces on PRs instead of at release time. v0.2.0 proved
-      # the need: nothing else exercised the compiler's own closure on
-      # Windows, and its POSIX-isms (F_OK, setenv, main-wrapper returns —
-      # issues/fixed/windows-native-selfhosted-build-fails.md) only showed
-      # up at release time. GATING: a regression here blocks the PR. The
-      # smoke `check` proves the built binary RUNS (evaluator, module
-      # loading, executable-relative std discovery).
-      # The smoke goes end-to-end: the probe binary must CHECK (evaluator +
-      # module loading + exe-relative std discovery) and COMPILE-AND-RUN a
-      # program natively (codegen + C-compiler integration + the produced
-      # executable) — the same smoke the release seed legs perform. Full
-      # per-platform byte-identity (probe emits yo-self, recompile, re-emit,
-      # compare) is the bootstrap-fixpoint workload: ~9-11.5 GB per emit,
-      # ~+1 h per leg — it stays in the dedicated memory-tuned fixpoint job
-      # (linux-x64) rather than here.
-      - name: Native self-hosted compiler build (advance seed-leg detection)
+      # --std-path ./std is LOAD-BEARING: without it the seed compiles against
+      # its OWN bundled std instead of this checkout's (same note as the
+      # fixpoint job). This step replaces the former node-driven native probe:
+      # it still proves the compiler's whole closure builds natively on every
+      # release target, which is what caught the Windows POSIX-isms at v0.2.0
+      # (issues/fixed/windows-native-selfhosted-build-fails.md).
+      # P2.5 step 24b (user directive): `yo build` is the canonical yo-self
+      # builder. VERIFIED equivalent to the raw `compile --release --allocator
+      # mimalloc` it replaces — build.yo carries the same flags (ReleaseSmall +
+      # Mimalloc) and the two routes land 16 bytes apart on an 8.8 MB binary;
+      # the residual ~0.77% byte delta also appears between two SAME-route
+      # builds to different output paths (the emitted .c is named after -o), so
+      # it is path noise, not a route difference.
+      # `--std-path ./std` stays load-bearing and IS forwarded to the child
+      # compile (build_runner.yo:426-432).
+      # WHY THIS IS LINUX-ONLY (settled 2026-08-15, run 31856743929).
+      # The self-build peaks above 15 GB: on ubuntu-latest it climbed to
+      # 15,541 MB of 15,988 and sat at ~300 MB free for four minutes before its
+      # own allocation failed (dmesg showed NO oom-kill), dying inside the
+      # Yo->C stage before the 142 MB .c was written. Linux survives that with
+      # the 32 GB swapfile added above. macOS runners cannot: macos-latest has
+      # ~7 GB and offers no equivalent knob.
+      #
+      # Making the heavy build Linux-only is not a concession, it is this
+      # repo's existing architecture. EVERY other self-building job here is
+      # ubuntu-latest — bootstrap-fixpoint, -stage3, bootstrap-self-test, the
+      # self-hosted differential, the musl leg, tsan and the hollow sweep. This
+      # matrix was the ONLY job attempting a self-build on macOS/Windows, and
+      # the only one failing.
+      #
+      # COVERAGE COST, stated plainly: on macOS/Windows the suite now runs
+      # under the SEED against THIS checkout's std (--std-path ./std). That
+      # covers std changes and platform-specific runtime/codegen behaviour, but
+      # NOT a PR's own compiler changes on those platforms — those are proven
+      # at release time by release.yml's seed-bundles, which builds natively on
+      # all five targets. Restoring per-PR macOS compiler coverage needs either
+      # the emit's memory footprint brought down (plans/backlog/
+      # YO_SELF_ENV_SHARING.md: def-time envs COPY what TS SHARES, 7.4 M live
+      # Variables) or paid larger runners. Both are out of scope here and are
+      # recorded in issues/test-matrix-stage1-silent-failure.md.
+      - name: "Stage 1: build the self-hosted compiler with the SEED (`yo build`)"
+        if: runner.os == 'Linux'
         shell: bash
         run: |
-          # 6144, not 4096: the windows-latest leg OOM'd node's heap at the 4 GB
-          # cap compiling the probe (V8 "Reached heap limit" AFTER the C compile
-          # succeeded) once the PR stack's tree grew — the step was marginal.
-          # This whole step dies with src/ retirement (P2.5 step 18).
-          node --expose-gc --max-old-space-size=6144 ./out/cjs/yo-cli.cjs compile yo-self/main.yo --release --allocator mimalloc -o yo-native-probe
-          if [ -f yo-native-probe.exe ]; then PROBE=./yo-native-probe.exe; else PROBE=./yo-native-probe; fi
-          "$PROBE" check std/assert.yo
-          mkdir -p tmp/native-probe-smoke && cd tmp/native-probe-smoke
-          printf '%s\n' 'open(import("std/fmt"));' 'main :: (fn() -> unit)(println("native probe smoke"));' 'export(main);' > hello.yo
-          "../../${PROBE#./}" compile hello.yo --release -o hello 2>compile.err || { cat compile.err; exit 1; }
-          cat compile.err
-          # The probe is built with mimalloc, so mimalloc's own diagnostics are
-          # a free correctness gate on the compiler's std usage: a pointer that
-          # crossed allocators (e.g. a libc-malloc'd realpath buffer released
-          # through GlobalAllocator) prints "mi_free: invalid pointer" and leaks
-          # instead of crashing, so rc=0 hides it. v0.2.0/v0.2.1 shipped exactly
-          # that — issues/fixed/current-exe-realpath-cross-allocator-free.md.
-          if grep -q "mimalloc: error" compile.err; then
-            echo "::error::The compiler reported allocator errors on its own stderr (cross-allocator free)."
+          echo "::group::pre-build environment"
+          case "$RUNNER_OS" in
+            Linux) free -m || true; nproc || true; df -h . || true ;;
+            macOS) vm_stat | head -5 || true; sysctl -n hw.memsize hw.ncpu || true; df -h . || true ;;
+            Windows) systeminfo | grep -i "memory" || true ;;
+          esac
+          (command -v clang && clang --version | head -1) || true
+          (command -v gcc && gcc --version | head -1) || true
+          echo "::endgroup::"
+
+          # A memory sampler writing to a FILE, because run 31854687362 proved
+          # an in-step post-mortem cannot work here: the whole step shell dies
+          # with `yo build`, so nothing after it executes — the log went
+          # straight from "Building yo" to the runner's own "exit code 2" with
+          # none of the post-mortem echoes. The sampler's file survives, and
+          # the `if: always()` step below reads it.
+          ( while true; do
+              date -u +%H:%M:%S >> /tmp/yo-mem.log
+              case "$RUNNER_OS" in
+                Linux) free -m | sed -n '2p' >> /tmp/yo-mem.log ;;
+                # vm.swapusage, not `vm_stat | Pages free`: the question on
+                # macOS is whether the box SWAPPED or hit a hard ceiling, and
+                # free-pages alone cannot distinguish those. The first run
+                # showed 57 MB free with no way to tell which.
+                macOS) sysctl -n vm.swapusage >> /tmp/yo-mem.log ;;
+                Windows) : ;;
+              esac
+              sleep 20
+            done ) > /dev/null 2>&1 &
+          echo $! > /tmp/yo-sampler.pid
+
+          # MemoryHigh forces the kernel to RECLAIM (i.e. actually use the
+          # swapfile) instead of letting the process balloon until its own
+          # allocation fails. Run 31862196401 proved swap alone is not enough:
+          # 35,839 MB of swap was provisioned and only 44 MB was ever used
+          # while RAM sat at 15,540/15,989 — nothing applied the pressure that
+          # makes Linux page anything out. bootstrap-fixpoint has used exactly
+          # this wrapper for the same reason.
+          #
+          # It also has to survive TWO overlapping peaks: that run emitted the
+          # 140 MB .c successfully at 03:47 and then died at 03:50, because the
+          # parent still holds its ~15 GB evaluator/codegen arena while clang
+          # starts needing its own GBs. (Locally clang -O2 on this file peaks
+          # at only 3.17 GB — the problem is the sum, not clang.) Filed as
+          # issues/compiler-holds-emit-memory-during-cc.md.
+          echo Y | sudo tee /sys/module/zswap/parameters/enabled >/dev/null || true
+          # Resolve `yo` to an ABSOLUTE path before sudo. sudo resets PATH via
+          # secure_path, so the $GITHUB_PATH entry install-seed added is gone
+          # inside the scope and a bare `yo` exits 127 instantly (run
+          # 31863256060, with memory still at 1.2 GB — nothing to do with the
+          # OOM this wrapper exists for). bootstrap-fixpoint never hit this
+          # because it invokes /tmp/yo-stage1 by absolute path.
+          YO_BIN="$(command -v yo)"
+          if [ -z "$YO_BIN" ]; then
+            echo "::error::the seed compiler is not on PATH"
             exit 1
           fi
-          if [ -f hello.exe ]; then OUT=$(./hello.exe); else OUT=$(./hello); fi
-          echo "smoke output: $OUT"
-          test "$OUT" = "native probe smoke"
+          # SPLIT AT THE C BOUNDARY, in two processes.
+          #
+          # `yo build` cannot work here with today's seed. It shells out to
+          # `yo compile`, and that ONE child does evaluate+emit AND then runs
+          # clang while still holding its whole evaluator arena — the two peaks
+          # overlap inside a process this workflow cannot reach into. Run
+          # 31864299243 is the proof: the 140 MB .c was written at 04:36 and the
+          # process was still holding ~12 GB at 04:40:59 when it died.
+          #
+          # yo-self now releases that arena before spawning the C compiler, but
+          # the SEED is a released binary that predates the fix, so stage 1 has
+          # to do the split itself: phase 1 emits C and EXITS (returning every
+          # byte to the OS), phase 2 compiles that C in a fresh process. Same
+          # design the musl leg already proves, and it is seed-independent.
+          #
+          # Build-system coverage is NOT lost: the "Build system smoke test"
+          # step below still runs `$S1 build run` on a scratch project, where
+          # the memory involved is trivial.
+          # SEED-ERA FLAGS ONLY. `--emit-c-to` is new in THIS tree and the seed
+          # is a PREVIOUS RELEASE, so passing it here made the seed treat it as
+          # a positional and try to compile /tmp/stage1.c, which does not exist:
+          # "yo-self: error: file or directory not found", 4 seconds in, with
+          # memory at 1.3 GB (run 31869066863) — nothing to do with the OOM this
+          # step is about.
+          #
+          # This is byte-for-byte the flag set the musl leg already proves works
+          # against the seed (`--emit-c --skip-c-compiler -o <base>`, writing the
+          # `<base>.c` sidecar), rather than a spelling reasoned to be
+          # equivalent. stdout is discarded because `--emit-c` PRINTS the C, and
+          # 140 MB of it would drown the job log; the sidecar is the artifact we
+          # actually want, and stderr is kept so failures still surface.
+          set +e
+          sudo systemd-run --scope -p MemoryHigh=11G -p MemoryMax=14G \
+            env YO_MAIN_STACK_MB=4096 nice -n 10 "$YO_BIN" compile yo-self/main.yo \
+              --release --allocator mimalloc --std-path ./std \
+              --emit-c --skip-c-compiler -o /tmp/stage1 > /dev/null
+          EMIT_RC=$?
+          set -e
+          kill "$(cat /tmp/yo-sampler.pid)" 2>/dev/null || true
+          if [ "$EMIT_RC" -ne 0 ]; then
+            echo "::error::seed failed to emit C for yo-self/main.yo (exit ${EMIT_RC})"
+            exit "$EMIT_RC"
+          fi
+          ls -la /tmp/stage1.c
+
+          # Phase 2 — fresh process, so the emit arena is already gone.
+          clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
+            /tmp/stage1.c vendor/mimalloc/src/static.c \
+            -I vendor/mimalloc/include -lpthread -lm -luring \
+            -o /tmp/yo-stage1
+
+          # The binary no longer lives under yo-out/<triple>/bin/, so the
+          # exe-relative walk-up finds no std — and `./std` stops resolving the
+          # moment a later step cd's into the scratch project. Pin YO_STD to the
+          # checkout, exactly as the macOS/Windows leg does.
+          echo "S1=/tmp/yo-stage1" >> "$GITHUB_ENV"
+          echo "YO_STD=$PWD/std" >> "$GITHUB_ENV"
+          # Fail fast if the built binary cannot run at all (evaluator, module
+          # loading, std discovery).
+          YO_STD="$PWD/std" /tmp/yo-stage1 check std/assert.yo
+
+      # MUST be `if: always()`. The stage-1 shell dies together with `yo build`
+      # (proven in run 31854687362), so this is the only place the forensics
+      # can be printed at all.
+      - name: "Stage 1 post-mortem (always runs)"
+        if: always() && runner.os == 'Linux'
+        shell: bash
+        run: |
+          echo "--- memory samples during the build (last 15) ---"
+          tail -30 /tmp/yo-mem.log 2>/dev/null || echo "(no samples)"
+          echo "--- memory now ---"
+          case "$RUNNER_OS" in
+            Linux)
+              free -m || true
+              echo "--- OOM killer? ---"
+              sudo dmesg 2>/dev/null | grep -iE "out of memory|oom-kill|killed process" | tail -20 \
+                || echo "(no OOM lines in dmesg)"
+              ;;
+            macOS) vm_stat | head -5 || true ;;
+          esac
+          echo "--- disk ---"
+          df -h . || true
+          echo "--- partial yo-out tree: was the 142 MB .c emitted before the failure? ---"
+          ls -lR yo-out 2>/dev/null | head -40 || echo "(no yo-out)"
+
+      # macOS/Windows: no self-build (see the note above). These legs run the
+      # checks that do NOT require a current compiler — `fmt --check` and the
+      # build-system smoke test — under the seed, against this checkout's std.
+      # They do NOT run the language suite; see the "Run tests" note for why
+      # that is impossible rather than merely expensive.
+      - name: "Stage 1 (macOS/Windows): use the seed as the compiler under test"
+        if: runner.os != 'Linux'
+        shell: bash
+        run: |
+          SEED="$(command -v yo || true)"
+          if [ -z "$SEED" ]; then
+            echo "::error::the seed compiler is not on PATH"
+            exit 1
+          fi
+          echo "S1=$SEED" >> "$GITHUB_ENV"
+          # LOAD-BEARING. std resolution is --std-path -> YO_STD -> a walk-up
+          # from the executable -> ./std. A stage-1 binary lives at
+          # yo-out/<triple>/bin/yo, so its walk-up lands on THIS checkout's std
+          # for free. The seed lives at $RUNNER_TEMP/yo-seed/bin/yo, so its
+          # walk-up finds the seed's OWN bundled std instead — and the suite
+          # would then silently test the released std, not the PR's, making the
+          # stated coverage of these legs a lie. YO_STD (rather than adding
+          # --std-path to each invocation) covers every subcommand, including
+          # the child compiles that `yo build run` spawns in the smoke test.
+          echo "YO_STD=$PWD/std" >> "$GITHUB_ENV"
+          YO_STD="$PWD/std" "$SEED" check std/assert.yo
+
+      - name: Check the formatted code
+        shell: bash
+        run: |
+          "$S1" fmt --check ./std ./tests ./yo-self
+
+      - name: Build system smoke test
+        shell: bash
+        run: |
+          "$S1" init ./tmp/hello-world --name hello-world
+          cd tmp/hello-world
+          "$S1" build run
 
       # `tests/internal` (the compiler's own tests — they import yo-self/ evaluator
       # and codegen internals) is excluded here and runs as its own job below.
       # Without the exclude this step would pull in files that each cost minutes
       # and gigabytes to compile, and the ~30 min fast suite would become ~70.
+      #
+      # P2.5 step 19 — the 5-platform ground truth now runs under the SELF-HOSTED
+      # binary. `--parallel` is accepted and ignored by that runner (v1 is
+      # sequential), so this is serial: MEASURED at 17.5 min for all 188 files on
+      # an M4 (2742 passed / 2742, no `Failed to transpile` markers), i.e. ~20x
+      # inside this job's 360-min timeout — no directory sharding needed.
+      # LINUX ONLY, and this is not a cost decision — it is a correctness one.
+      # The language suite contains REGRESSION TESTS for compiler bugs, so it
+      # can only ever be run by the compiler built from THIS checkout. Running
+      # it under the seed fails by construction on every test added since the
+      # seed was released: run 31861036285 died on "standalone await as the
+      # async body's own result" (tests/async_await.test.yo:3974), added by
+      # 15cf7bc4f with the tail-await result-loss codegen fix — a fix v0.2.4
+      # does not have, so the test correctly fails there. Any allowlist for
+      # that would need editing on every compiler fix and would invert the
+      # meaning of the suite.
+      #
+      # Since only Linux can host the stage-1 build (see the note above), the
+      # suite is Linux-only per PR. macOS/Windows compiler coverage is
+      # release-time, via release.yml's seed-bundles, which builds AND
+      # smoke-tests natively on all five targets.
       - name: Run tests
-        # run: ./yo-cli test ./tests --verbose
-        run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs test ./tests --exclude tests/internal --exclude tests/cli-cases --parallel 2 --bail --verbose --c-compiler clang --profile
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          "$S1" test ./tests --exclude tests/internal --exclude tests/cli-cases --bail --verbose --c-compiler clang
 
   # Bootstrap fixpoint, split into TWO jobs so each self-emit gets a fresh
   # 16 GB box (a single job's stage-3 starved the runner agent after the
@@ -246,7 +532,11 @@ jobs:
           # can manufacture failures. Measured 2026-08-11: a seed-compiled
           # program picked up the seed's std/env.yo (3 mi_free errors from the
           # already-fixed cross-allocator free) and 0 with --std-path ./std.
-          nice -n 10 env YO_MAIN_STACK_MB=4096 yo compile yo-self/main.yo --release --allocator mimalloc --std-path ./std -o /tmp/yo-stage1
+          # P2.5 step 24b: canonical builder is `yo build` (equivalence
+          # measured — see the `test` job's note). The --std-path rationale
+          # above is unchanged and IS forwarded to the child compile.
+          nice -n 10 env YO_MAIN_STACK_MB=4096 yo build --std-path ./std
+          cp "$(ls yo-out/*/bin/yo | head -1)" /tmp/yo-stage1
 
       # Memory plan for the emits (measured 2026-08-04, handoff doc §1):
       # the emit holds ~9 GB live but TOUCHES ~28 GB (stage-2) / ~39 GB
@@ -409,23 +699,15 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y liburing-dev
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-
-      # bun stays: the gates' differential corpus runs the TS CLI as ground
-      # truth (until 2.5). Only stage-1's BUILDER changes to the seed.
-      - name: Install dependencies
-        run: |
-          bun install
-          bun run build
-
+      # P2.5 step 23: bun/node are GONE from this job. GATE 2 and GATE 7 used
+      # the TS CLI as the differential's reference side, which is why bun
+      # survived here ("bun stays ... until 2.5"). Steps 12-14 (merged) gave
+      # both harnesses a golden mode, and each falls back to scoring the self
+      # arm against its recorded goldens when `out/cjs/yo-cli.cjs` is absent —
+      # so the gates keep their coverage with the goldens serving as the
+      # reference side, which is the end state src/ retirement requires anyway.
+      # NO-GOLDEN counts as a failure there, so an unscored case cannot
+      # masquerade as a pass.
       - name: Install the seed compiler (previous release)
         uses: ./.github/actions/install-seed
         with:
@@ -434,7 +716,12 @@ jobs:
       - name: "Stage 1: build the self-hosted compiler with the SEED (previous release)"
         # --std-path ./std is load-bearing: without it the seed compiles against
         # its own bundled std, not this checkout's. See the fixpoint job.
-        run: YO_MAIN_STACK_MB=4096 nice -n 10 yo compile yo-self/main.yo --release --allocator mimalloc --std-path ./std -o /tmp/yo-stage1
+        # P2.5 step 24b: `yo build` is the canonical builder (see the `test`
+        # job's note for the equivalence measurement). --std-path is forwarded
+        # to the child compile by build_runner.yo.
+        run: |
+          YO_MAIN_STACK_MB=4096 nice -n 10 yo build --std-path ./std
+          cp "$(ls yo-out/*/bin/yo | head -1)" /tmp/yo-stage1
 
       # YO_MAIN_STACK_MB: compiled Yo programs run main on a worker thread whose
       # stack defaults to 1 GiB; the self-hosted compiler's deep comptime
@@ -471,124 +758,29 @@ jobs:
   # --parallel 1 is REQUIRED, not conservative: macro_expansion alone peaks at
   # ~6.5 GB, so two concurrent children on a 16 GB box swap, and the swapping
   # trips the runner's own 600 s evaluator deadline — manufacturing failures that
-  # do not reproduce in isolation. The node heap cap is raised from the 4096 MB
-  # used elsewhere for the same reason.
+  # do not reproduce in isolation.
   #
-  # NOW GATES PRs (continue-on-error dropped 2026-08-06). Every job in this workflow
-  # gates. The two Linux-x86_64 parser SEGVs that had kept this job informational are
-  # FIXED (issues/fixed/escape-path-drops-unwound-call-result-temp.md), as is the
-  # node-heap OOM that used to kill the TS arm at ~file 40 of 58, and the 80-byte
-  # conditional-move leak in macro_helpers that kept this job red while it first
-  # gated (issues/fixed/where-constraints-arraylist-96b-leak.md — the dup/drop pair
+  # This tier GATES PRs (continue-on-error dropped 2026-08-06). The two
+  # Linux-x86_64 parser SEGVs that had kept it informational are FIXED
+  # (issues/fixed/escape-path-drops-unwound-call-result-temp.md), as is the
+  # 80-byte conditional-move leak in macro_helpers
+  # (issues/fixed/where-constraints-arraylist-96b-leak.md — the dup/drop pair
   # optimizer cancelled a conditional arm's dup as if unconditional).
   #
-  # SHARDED 2026-08-06: the TS arm runs as a 4-way matrix (wall time ~25-30 min per
-  # shard instead of ~100 min serial). Every file still compiles in its own node
-  # process; each shard gets exactly one of the four heavy macro/reflection files
-  # (each pays a full compiler-sized compile, ~6.5 GB peak) plus a round-robin
-  # stripe of the rest. The self-hosted differential runs as its own job below.
-  compiler-internal-tests:
-    name: Compiler internal tests (tests/internal, TS arm shard ${{ matrix.shard }})
-    runs-on: ubuntu-latest
-    timeout-minutes: 90
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [0, 1, 2, 3]
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Install liburing
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y liburing-dev
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-
-      - name: Install dependencies
-        run: |
-          bun install
-          bun run build
-
-      # NO --bail: every test binary runs under ASan/LeakSanitizer, so a leak fails
-      # one test. Bailing reported exactly ONE leak per ~3-hour run, which made
-      # convergence serial (it took a run each to surface the ref(enum) unit-variant
-      # leak and then the module-global collision). Without it a single run lists
-      # every failure, which is what a scorecard job should do anyway.
-      #
-      # YO_MAIN_STACK_MB matches what the self-hosted arm below already sets. Test
-      # binaries are compiled at -O0 (src/test-runner.ts), where clang gives every
-      # temporary its own stack slot and the big yo-self functions get multi-MB
-      # frames; AGENTS.md documents bumping this env var as the remedy for the
-      # resulting deep-recursion crashes. The TS arm not setting it was an
-      # inconsistency between the two arms, and Linux additionally gets no
-      # equivalent of the macOS-only `-Wl,-stack_size` reserve.
-      # ONE NODE PROCESS PER FILE. The Yo evaluator and codegen run IN-PROCESS —
-      # src/test-runner.ts only spawns the C compiler and the test binary — and
-      # per-file state (e.g. the process-lifetime ExprInfoTable, see
-      # plans/archive/YO_SELF_EXPRINFO_PRUNE.md) is retained across files. A single
-      # process over all 58 files therefore accumulates until V8 dies: run
-      # 31044378627 reported "Ineffective mark-compacts near heap limit" with
-      # 11.7 GB STILL LIVE after a reduce-mark-compact, at quote_macro_eval (~file 40
-      # of 58), 57 minutes in.
-      #
-      # Measured locally (peak RSS, 4 of the lighter files): 1.30 GB for all four
-      # in one process vs 1.166 GB for the heaviest alone — the heap does not
-      # return to baseline between files. Per-file processes bound it to the
-      # single-file peak; the heaviest, macro_expansion, needs ~6.5 GB, which fits.
-      #
-      # Deliberately NOT --bail and NOT one-file-per-step: the job's purpose is a
-      # full scorecard in one run, so every file runs and failures are summarised
-      # at the end.
-      - name: Run tests/internal under the TS compiler (ground truth, shard ${{ matrix.shard }})
-        env:
-          YO_MAIN_STACK_MB: "4096"
-        run: |
-          # Shard selection: the four heavy macro/reflection files (each compiles
-          # the whole self-hosted evaluator, ~6.5 GB peak / ~3 min) go one per
-          # shard; the rest are striped round-robin over the sorted glob order.
-          heavies="tests/internal/ast_reflection.test.yo tests/internal/macro_expansion.test.yo tests/internal/macro_helpers.test.yo tests/internal/quote_macro_eval.test.yo"
-          shard=${{ matrix.shard }}
-          files=$(echo "$heavies" | tr ' ' '\n' | sed -n "$((shard + 1))p")
-          i=0
-          for f in tests/internal/*.test.yo; do
-            case " $heavies " in *" $f "*) continue ;; esac
-            if [ $((i % 4)) -eq "$shard" ]; then
-              files="$files $f"
-            fi
-            i=$((i + 1))
-          done
-          echo "shard $shard files:$files"
-          # `rc_all`, not `status` — `status` is read-only in some shells.
-          rc_all=0
-          failed=""
-          for f in $files; do
-            echo "::group::$f"
-            if node --expose-gc --max-old-space-size=12288 ./out/cjs/yo-cli.cjs test "$f" --parallel 1 --verbose --c-compiler clang; then
-              echo "::endgroup::"
-            else
-              echo "::endgroup::"
-              echo "::error file=$f::tests/internal failure under the TS compiler"
-              rc_all=1
-              failed="$failed $f"
-            fi
-          done
-          if [ -n "$failed" ]; then
-            echo "FAILED FILES:$failed"
-          fi
-          exit $rc_all
+  # THE TS 4-SHARD ARM WAS DELETED 2026-08-15 (P2.5 step 20). It ran these same
+  # 58 files under the TypeScript compiler, which Group E removes entirely, so
+  # it was scaffolding with a known expiry. Its four required contexts
+  # ("… TS arm shard 0..3") were removed from ruleset 13548862 BEFORE this
+  # deletion landed — the reverse order would have blocked every PR in the repo
+  # forever on checks that can never report again.
+  #
+  # The self-hosted differential below is now the SOLE arm for this tier, which
+  # has two consequences worth stating plainly: its 180-minute budget is the
+  # only thing standing between a regression and an unscored tier, and it is
+  # unsharded, so it pays the full ~22 min serially after its stage-1 build.
+  # Sharding it is filed as issues/selfhosted-differential-job-needs-sharding.md
+  # and needs its own required-check update, because sharding RENAMES the
+  # context.
 
   # The same 58 files under the self-hosted binary, as its own job so it runs in
   # parallel with the TS shards. This is the differential that matters: a file
@@ -649,7 +841,12 @@ jobs:
       - name: "Stage 1: build the self-hosted compiler with the SEED (previous release)"
         # --std-path ./std is load-bearing: without it the seed compiles against
         # its own bundled std, not this checkout's. See the fixpoint job.
-        run: YO_MAIN_STACK_MB=4096 nice -n 10 yo compile yo-self/main.yo --release --allocator mimalloc --std-path ./std -o /tmp/yo-stage1
+        # P2.5 step 24b: `yo build` is the canonical builder (see the `test`
+        # job's note for the equivalence measurement). --std-path is forwarded
+        # to the child compile by build_runner.yo.
+        run: |
+          YO_MAIN_STACK_MB=4096 nice -n 10 yo build --std-path ./std
+          cp "$(ls yo-out/*/bin/yo | head -1)" /tmp/yo-stage1
 
       - name: Run tests/internal under the self-hosted binary (differential)
         env:
@@ -666,6 +863,109 @@ jobs:
           # (UAF/double-free) stays fully armed — only detect_leaks is off.
           YO_TEST_LEAK_VERDICT: "0"
         run: /tmp/yo-stage1 test ./tests/internal --parallel 1 --verbose
+
+  # P3 item 3 (plans/P3_DISTRIBUTION.md): prove the static-musl Linux bundle
+  # BUILDS and RUNS before release.yml ships one. Two distros cannot run the
+  # current glibc bundle at all — Alpine (musl) and NixOS (no
+  # /lib64/ld-linux-x86-64.so.2 outside /nix/store) — and a static binary needs
+  # no interpreter, fixing both.
+  #
+  # The pipeline is split at the C boundary because the SEED is a glibc binary
+  # and cannot run inside Alpine: the seed does Yo->C on the host, and Alpine
+  # only does C->binary. That avoids gcompat entirely.
+  build-linux-musl-static:
+    name: Static musl Linux bundle (build + run, no publish)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # The SEED needs liburing to RUN, even though this job only uses it to
+      # emit C. The published Linux bundle is dynamically linked against
+      # liburing.so.2, so without this the seed dies before doing any work:
+      #   yo: error while loading shared libraries: liburing.so.2:
+      #       cannot open shared object file: No such file or directory
+      # (exit 127 — the loader failing, which reads like "yo: command not
+      # found" and sent the first investigation looking for a PATH bug).
+      # This is the HOST's liburing, and is unrelated to the STATIC liburing
+      # the Alpine stage links into the artifact below.
+      - name: Install liburing (needed to run the seed)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y liburing-dev
+
+      - name: Install the seed compiler (previous release)
+        uses: ./.github/actions/install-seed
+        with:
+          version: ${{ env.SEED_VERSION }}
+
+      # Emit-only: no C compiler runs here, so the host's glibc never enters
+      # the artifact. --std-path ./std is load-bearing (the seed would
+      # otherwise use its OWN bundled std).
+      - name: "Stage 1 (Yo -> C only, on the glibc host)"
+        env:
+          YO_MAIN_STACK_MB: "4096"
+        run: |
+          yo compile yo-self/main.yo --release --allocator mimalloc --std-path ./std \
+            --emit-c --skip-c-compiler -o yo-musl
+          ls -la yo-musl.c
+
+      - name: "C -> static binary, inside Alpine (musl + static liburing)"
+        run: |
+          docker run --rm -v "$PWD:/w" -w /w alpine:3.20 sh -euc '
+            # NOT liburing-static: Alpine has no such package ("liburing-static
+            # (no such package): required by: world[liburing-static]", run
+            # 31855893056). Debian splits static libs into a -static package;
+            # Alpine ships liburing.a inside liburing-dev. Assert it is really
+            # there rather than discovering its absence as a link error.
+            apk add --no-cache build-base linux-headers liburing-dev
+            test -f /usr/lib/liburing.a || {
+              echo "::error::liburing-dev did not provide /usr/lib/liburing.a; -static -luring cannot work"
+              find / -name "liburing.a" 2>/dev/null | head
+              exit 1
+            }
+            cc -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
+              yo-musl.c vendor/mimalloc/src/static.c \
+              -I vendor/mimalloc/include \
+              -static -luring -lpthread -lm \
+              -o yo-musl
+          '
+
+      # A static binary that merely LINKS is not the deliverable. Without a musl
+      # liburing the emitter silently swaps the whole async runtime for stubs
+      # (src/codegen/async/runtime-io-linux.ts:1486) whose init prints
+      # "liburing not available, async I/O disabled" — and since the compiler
+      # reads every source file through io.await(read_file(...)), such a binary
+      # links, ships, and then compiles NOTHING. So io_uring presence is
+      # asserted explicitly, not assumed.
+      - name: Assert the bundle is static AND has working async I/O
+        run: |
+          file yo-musl | tee file.txt
+          grep -q "statically linked" file.txt || {
+            echo "::error::musl bundle is not statically linked"; exit 1; }
+
+          # --security-opt seccomp=unconfined is REQUIRED to run the binary,
+          # not a convenience. Docker's default seccomp profile blocks
+          # io_uring_setup, so a binary with io_uring correctly compiled IN
+          # dies with "io_uring_queue_init failed: Operation not permitted"
+          # (run 31862196401) — i.e. the default profile fails exactly the
+          # binaries this assertion exists to bless, and would pass a
+          # stubbed-out one. Relaxing it here is safe: this container runs our
+          # own freshly built artifact, nothing else.
+          docker run --rm --security-opt seccomp=unconfined \
+            -v "$PWD:/w" -w /w alpine:3.20 sh -euc '
+            ./yo-musl check std/assert.yo 2>run.err || { echo "check FAILED"; cat run.err; exit 1; }
+            cat run.err
+            if grep -q "liburing not available" run.err; then
+              echo "::error::async I/O was compiled OUT — the binary would fail to read sources"
+              exit 1
+            fi
+          '
+          echo "static + io_uring confirmed."
 
   test-tsan:
     name: ThreadSanitizer (sync primitives — Linux/Clang)
@@ -688,27 +988,41 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y liburing-dev
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+      - name: Install the seed compiler (previous release)
+        uses: ./.github/actions/install-seed
         with:
-          bun-version: latest
+          version: ${{ env.SEED_VERSION }}
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-          registry-url: "https://registry.npmjs.org"
-
-      - name: Install dependencies
+      - name: "Stage 1: build the self-hosted compiler with the SEED (previous release)"
+        # --std-path ./std is load-bearing: without it the seed compiles against
+        # its own bundled std, not this checkout's. See the fixpoint job.
+        # P2.5 step 24b: `yo build` is the canonical builder (see the `test`
+        # job's note for the equivalence measurement). --std-path is forwarded
+        # to the child compile by build_runner.yo.
         run: |
-          bun install
-          bun run build
+          YO_MAIN_STACK_MB=4096 nice -n 10 yo build --std-path ./std
+          cp "$(ls yo-out/*/bin/yo | head -1)" /tmp/yo-stage1
 
+      # P2.5 step 21 asked for a vacuity assertion here — grep the leg's log for
+      # `-fsanitize=thread`, because an UNinstrumented run passes exactly like a
+      # clean instrumented one. It is NOT implemented, deliberately: NEITHER
+      # runner prints the C compile line on the test path (TS prints
+      # "Compiling with:" only in codegen's `compile` path,
+      # src/codegen/index.ts:646; yo-self prints it nowhere), so the specified
+      # grep would fail every run — a false-red gate is worse than none.
+      # Making it real needs yo-self to gain TS's `Compiling with:` print, which
+      # changes `yo compile` stdout and invalidates the recorded CLI goldens.
+      # Tracked in issues/yoself-missing-compiling-with-print.md.
       - name: Run sync tests under ThreadSanitizer
         env:
+          YO_MAIN_STACK_MB: "4096"
           YO_TEST_SANITIZE: thread
           TSAN_OPTIONS: halt_on_error=1
-        run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs test ./tests/sync --parallel 1 --bail --verbose --c-compiler clang
+          # Leak verdicts are irrelevant under TSan and the emit's tracked leak
+          # debt would only add noise — same staging ratchet as the other
+          # self-hosted jobs.
+          YO_TEST_LEAK_VERDICT: "0"
+        run: /tmp/yo-stage1 test ./tests/sync --parallel 1 --bail --verbose --c-compiler clang
 
   test-wasm32_emscripten:
     runs-on: ubuntu-latest
@@ -873,7 +1187,12 @@ jobs:
       - name: "Stage 1: build the self-hosted compiler with the SEED (previous release)"
         # --std-path ./std is load-bearing: without it the seed compiles against
         # its own bundled std, not this checkout's. See the fixpoint job.
-        run: YO_MAIN_STACK_MB=4096 nice -n 10 yo compile yo-self/main.yo --release --allocator mimalloc --std-path ./std -o /tmp/yo-stage1
+        # P2.5 step 24b: `yo build` is the canonical builder (see the `test`
+        # job's note for the equivalence measurement). --std-path is forwarded
+        # to the child compile by build_runner.yo.
+        run: |
+          YO_MAIN_STACK_MB=4096 nice -n 10 yo build --std-path ./std
+          cp "$(ls yo-out/*/bin/yo | head -1)" /tmp/yo-stage1
 
       - name: Sweep every language test file through the self-hosted binary
         env:

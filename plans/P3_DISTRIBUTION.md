@@ -5,6 +5,54 @@
 as `P1_CLI_PARITY.md`/`P2_RETIRE_SRC.md`: measured numbers, live status,
 traps recorded as found. Drafted 2026-08-11; **item 1 landed 2026-08-12**.
 
+## CRITICAL PATH 2026-08-15 — cutting a release is now the blocker
+
+Four P3 deliverables are built, committed and CI-verified, and every one of them
+is inert until a release runs, because each is produced, deployed, or carried to
+users only by `release.yml`:
+
+| Deliverable                | Produced by               | Status until a release runs                         |
+| -------------------------- | ------------------------- | --------------------------------------------------- |
+| single-file `yo.c`         | `portable-c` job          | `yo-v*.c.gz` 404s on EVERY published release        |
+| static musl bundle         | `musl-bundle` job         | Alpine users get the unusable glibc bundle          |
+| `…github.io/Yo/install.sh` | Pages deploy in `release` | 404 — READMEs must use the raw URL                  |
+| Windows big-stack `main`   | a release + SEED bump     | the windows CI leg stays red (crash is in the SEED) |
+
+That last row is a different shape from the other three but the same blocker:
+the fix is in the codegen, so it reaches users only through a binary BUILT by
+the fixed codegen. Same reason a compiler fix cannot fix a CI step running the
+seed — see `issues/compiler-holds-emit-memory-during-cc.md`.
+
+Measured, not assumed: `yo-v0.2.4.c.gz` and `yo-v0.2.3.c.gz` both return 404,
+and `v0.2.4`'s asset list is five platform bundles plus the `.vsix`.
+
+The user-visible consequence is the sharp one: **`--from-source` cannot work
+against any existing release**, and that is precisely the path NixOS and Alpine
+users are told to take, since no prebuilt bundle runs for them. So the platforms
+with no other option are the ones with nothing at all until a release ships.
+`install.sh` at least fails honestly there ("may predate the single-file yo.c
+artifact"), and both READMEs now state the constraint.
+
+None of this is fixable by more code. The next action for P3 is to **cut a
+release**, then verify on it, in order: `portable-c` uploaded `yo.c.gz`;
+`musl-bundle` uploaded and smoked; the Pages site serves `/install.sh`; bump
+`SEED_VERSION` and confirm the windows leg goes green; then switch both READMEs
+to the canonical URL and promote `musl-bundle` off `continue-on-error`.
+
+### Scoreboard after 2026-08-15
+
+| item                  | state                                              |
+| --------------------- | -------------------------------------------------- |
+| 1 — install scripts   | LANDED; **installer/cache unification still open** |
+| 2 — `yo version`      | DONE                                               |
+| 3 — static musl       | DONE, proof release-gated                          |
+| 4 — release hardening | DONE, windows leg release-gated                    |
+
+So the ONLY remaining P3 engineering work is the installer/cache unification
+(`install.sh` installs to `<prefix>/lib/yo/<tag>` while `yo version install X`
+uses `~/.cache/yo/versions/<version>`, so `.yo-version` pinning does not see
+script-installed versions). Everything else is waiting on a release.
+
 ## What P2 already delivered that P3 builds on
 
 - **Every release since v0.2.1 ships all five native bundles** (linux-x64,
@@ -65,6 +113,24 @@ has to touch both sides anyway.
 | **git**                   | `yo fetch` / `yo install` shell out to `git ls-remote`/`clone`/`fetch`/`checkout` | dependency management fails |
 | liburing **+** pkg-config | async I/O (io_uring) on Linux                                                     | see below                   |
 
+**Stronger than "async I/O is degraded": the published Linux bundle does not
+start at all without `liburing.so.2`.** Measured 2026-08-15 on a CI runner
+that lacked it:
+
+```
+yo: error while loading shared libraries: liburing.so.2:
+    cannot open shared object file: No such file or directory
+```
+
+The bundle is built on a box that HAS liburing, so it links against it
+dynamically; the `#if __has_include` fallback only applies when the C is
+compiled, and by then the choice is baked into the artifact. So liburing is a
+**hard runtime dependency of the release binary**, not merely a feature
+toggle. Note the exit code is **127**, which reads exactly like
+`yo: command not found` and will send an investigation hunting a PATH bug —
+it did; see `issues/fixed/musl-job-seed-needs-host-liburing.md`. This is one
+more argument for item 3: a static binary has no such dependency.
+
 **liburing and pkg-config must be installed as a pair.** The emitted C gates
 its io_uring calls on `#if __has_include(<liburing.h>)`, while `-luring` is
 added only when `pkg-config --exists liburing` succeeds. A box with the header
@@ -85,10 +151,14 @@ On NixOS there is a second, harder problem that no package can fix: see item 3.
 
 ### Still open on item 1
 
-- Hosting at the Pages site root, so the canonical one-liner is
-  `curl -sSL https://shd101wyy.github.io/Yo/install.sh | sh`
-  (`scripts/build-site.ts` grows a copy step). Today the URL is the raw
-  GitHub one.
+- ~~Hosting at the Pages site root~~ **DONE 2026-08-15**:
+  `scripts/build-site.ts` copies `install.sh` + `install.ps1` to the site root
+  (and THROWS if either is missing — a silently absent installer would make the
+  documented one-liner pipe a 404 page into `sh`). **Not live yet**: Pages
+  deploys only from `release.yml`, and
+  `https://shd101wyy.github.io/Yo/install.sh` was verified to 404 today, so
+  both READMEs deliberately use the raw GitHub URL until a release deploys the
+  site. See the critical-path section at the top.
 - The optional `--vscode` flag (`code --install-extension`).
 - Unifying with the version cache (above).
 
@@ -150,14 +220,158 @@ glibc Linux legs. Constraints (from `BUILD_SYSTEM.md` + the plan):
 - Fallback if musl validation surfaces real problems: Koka-style separate
   `-gnu`/`-musl` bundles + distro sniffing in install.sh.
 
+### The trap: no musl liburing ⇒ a binary that links fine and cannot work
+
+**Established 2026-08-15 by reading the emitter, not by guessing.** The Linux
+async runtime is included conditionally:
+
+```c
+#if __has_include(<liburing.h>)   // src/codegen/async/runtime-io-linux.ts:537
+```
+
+and the `#else` arm (`:1486`) replaces the whole subsystem with stubs whose
+init does nothing but
+
+```c
+fprintf(stderr, "[Yo] Warning: liburing not available, async I/O disabled\n");
+```
+
+The self-hosted compiler reads EVERY source file through
+`io.await(read_file(...))` (`yo-self/module_manager.yo`), so a static-musl
+build produced without a musl liburing would **link cleanly, ship, and then
+fail to compile anything** — with a warning on stderr as the only clue. The
+liburing probe is `pkg-config --exists liburing` (`yo-self/main.yo:841`), so
+it degrades silently rather than failing the build.
+
+**Therefore the musl leg MUST assert io_uring is IN the binary**, not merely
+that the binary is static. Cheapest honest assertion: grep the emitted C for
+`__YO_HAS_LIBURING`-guarded symbols, or run the built binary and fail if
+`liburing not available` appears on stderr.
+
+### Design that avoids the seed chicken-and-egg (no gcompat)
+
+The seed is a glibc binary, so it cannot run inside Alpine — which is why
+"build the musl bundle in an Alpine container" stalls. Split the pipeline at
+the C boundary instead, which the toolchain already supports:
+
+1. **On ubuntu-latest (glibc):** the seed does Yo→C only —
+   `yo compile yo-self/main.yo --release --allocator mimalloc --std-path ./std
+--emit-c --skip-c-compiler -o yo-musl`. (Precedent: `fixpoint_only.sh` is
+   emit-only for the same reason, and P2.5 step 24b keeps it that way.)
+2. **In an Alpine container:** compile that C with musl + STATIC liburing
+   (`apk add build-base liburing-dev liburing-static`), plus mimalloc's
+   `static.c`, linking `-static`.
+3. **Assert, in Alpine:** `file` reports `statically linked`, the binary runs
+   with no interpreter, `yo check std/assert.yo` succeeds, and stderr carries
+   NO "liburing not available" warning.
+
+This is PR-verifiable without publishing anything, so item 3 can be de-risked
+in normal CI before `release.yml` grows the leg.
+
+**Not locally testable on this machine** (macOS, no container runtime), so it
+must be iterated in CI.
+
+### Status 2026-08-15 — the pipeline works; three traps found by running it
+
+The PR-CI leg now gets all the way to a **statically linked musl binary with
+io_uring genuinely compiled in**. Three failures had to be cleared, each a real
+trap rather than a typo:
+
+1. **The seed could not start** — exit 127, `yo: error while loading shared
+libraries: liburing.so.2`. The published Linux bundle links liburing
+   dynamically, so the emit host needs it installed even though this job only
+   uses the seed to emit C. Exit 127 reads as "command not found", which sent
+   the first look at PATH. (`issues/fixed/musl-job-seed-needs-host-liburing.md`)
+2. **`liburing-static` does not exist on Alpine.** Debian splits static libs
+   into a `-static` package; Alpine ships `liburing.a` inside `liburing-dev`.
+   The job now asserts `/usr/lib/liburing.a` exists rather than discovering its
+   absence as a link error 140 MB into a compile.
+3. **Docker's default seccomp profile blocks `io_uring_setup`**, so the built
+   binary died with `io_uring_queue_init failed: Operation not permitted`.
+   Note the shape of this one: the default profile fails exactly the binaries
+   this assertion exists to bless, and would happily pass a stubbed-out one.
+   The assert container now runs with `--security-opt seccomp=unconfined`.
+
+What is proven so far: the split-at-the-C-boundary design works (glibc host
+emits, Alpine compiles), the result is `statically linked` per `file`, and
+io_uring is IN rather than stubbed.
+
+### VERDICT 2026-08-15 — the leg is GREEN; item 3 is de-risked
+
+Run 31863256060 reported `Static musl Linux bundle (build + run, no publish) =>
+success` with all three traps cleared. That was the last precondition stated
+above, so the design is now proven end-to-end in CI:
+
+- glibc host emits the C, Alpine compiles it against static liburing,
+- `file` reports `statically linked`,
+- the io_uring assertion passes on a binary that genuinely contains it, under
+  `seccomp=unconfined` so the profile cannot mask a stub.
+
+### Item 3 COMPLETE 2026-08-15 — published and selectable
+
+Both remaining halves landed the same day:
+
+- **`release.yml` grows a `musl-bundle` job** — emit C on the glibc host, link
+  statically in Alpine, assemble `bin/`+`std/`+`vendor/mimalloc`, smoke it ON
+  Alpine, upload as `yo-v<ver>-linux-x64-musl.tar.gz`. EXPERIMENTAL on arrival
+  (`continue-on-error: true`), as windows-x64 was.
+
+  It is deliberately **not** in `publish-release`'s `needs`. `continue-on-error`
+  keeps a failure from failing the workflow, but the job's result is still
+  `failure`, and a dependent whose `needs` resolves to failure is SKIPPED — so
+  listing it would let a broken experimental leg block publication outright.
+  Move it into `needs` in the same commit that flips the flag off.
+
+- **`install.sh` can now select it.** It previously detected Alpine only to warn
+  that the glibc binary would not run, then pointed at a source build. It now
+  probes for the musl bundle (header-only request, so an absent optional asset
+  is free), prefers it, and falls back to glibc WITH a warning when a release
+  has none — the situation for every release so far. The `--from-source` advice
+  is suppressed on musl, where it would send a user to a build they no longer
+  need; NixOS still gets it, which is the case it genuinely fixes.
+
+- **Alpine coverage added** to `install-scripts.yml`. The posix matrix is
+  glibc-only, so every musl branch in `install.sh` had been dead code no CI run
+  executed. The new job is dry-run — a real install cannot succeed until a
+  release publishes the bundle — but asserts what regresses silently: musl
+  detected through `ldd --version` (stderr, non-zero exit), a bundle still
+  chosen, and the source-build advice suppressed.
+
+**First real proof still pending:** no release has published a musl bundle yet,
+so the upload + Alpine smoke path runs for the first time on the next release.
+Watch that job, and promote it off `continue-on-error` once it is green.
+
 ## Item 4 — release hardening (carried from P2 notes)
 
-- Per-platform fixpoint (byte-identity) as a scheduled or release-time job
-  with the linux job's memory tuning — each self-emit holds ~9-11.5 GB, so
-  it cannot ride the 7 GB suite runners (P2_RETIRE_SRC.md §2.2 note).
-- The windows error-path rc=139 follow-up (probe SEGV on a failed child
-  compile) — issues/fixed/windows-native-selfhosted-build-fails.md
-  iteration-3 note.
+- **Per-platform fixpoint — DONE 2026-08-15**, as
+  `.github/workflows/fixpoint-arm64.yml` (weekly + `workflow_dispatch`, not a
+  required check).
+
+  **Scope narrowed by measurement, and the narrowing is the finding.** A
+  self-emit peaks ABOVE 15 GB, not the 9-11.5 GB recorded here: run
+  31856743929 watched ubuntu-latest climb to 15,541 MB of 15,988 and die when
+  its own allocation failed (dmesg showed no oom-kill). macOS runners have
+  ~7 GB and no way to add a swapfile, so **macOS and Windows cannot host a
+  fixpoint on standard runners at all** — the same wall that forced test.yml's
+  `test` matrix to stop self-building there. "Per-platform" therefore means the
+  two Linux arches; x86_64 is already covered per-PR, so the new job covers
+  linux-arm64.
+
+  arm64 earns its own job because the compiler's emit is NOT arch-independent:
+  `yo-self/target.yo:165-184 detect_host()` folds `arch ==` into a comptime
+  constant, so the x64 and arm64 emissions differ by construction, and nothing
+  else in CI checks that the arm64 self-emit reaches a fixpoint.
+
+- **The windows rc=139 follow-up — FIXED 2026-08-15**, and it was not an
+  error-path bug at all. `main` ran on Windows' 1 MB process default stack
+  because the big-stack worker thread was gated on `isTargetPosix`, and
+  `YO_MAIN_STACK_MB` was read only inside that arm — so the knob was silently a
+  no-op on Windows. Now a `CreateThread` worker with `dwStackSize`, in both
+  compilers. See `issues/windows-no-main-worker-stack-rc139.md`.
+
+  **Sequencing:** the CI leg stays red until a release ships this and
+  `SEED_VERSION` bumps, because the crash is in the released SEED, built by the
+  old codegen. That is release ordering, not an outstanding defect.
 
 ## Gate
 

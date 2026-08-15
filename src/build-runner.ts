@@ -995,6 +995,16 @@ async function compileArtifact(
     release,
     optimize,
     allocator: artifact.allocator as "mimalloc" | "libc",
+    // "" means "not set" on the Yo side (comptime_str has no None), so an
+    // empty string must fall through to the default sidecar rather than
+    // redirecting the C file to a path of "".
+    // Resolved against projectDir, matching how `artifact.root` is resolved:
+    // a path written in build.yo means "relative to the project", not to
+    // whatever cwd the build happens to run from. Without this a relative
+    // `emit_c_to` landed next to the yo-cli wrapper instead of in the project.
+    emitCTo: artifact.emitCTo
+      ? path.resolve(projectDir, artifact.emitCTo)
+      : undefined,
     sanitize:
       artifact.sanitize !== "none"
         ? (artifact.sanitize as "address" | "leak" | "thread")
@@ -1865,6 +1875,10 @@ async function compileDependencyArtifact(
     release,
     optimize,
     allocator: artifact.allocator as "mimalloc" | "libc",
+    // As above, but dependency artifacts are rooted at depDir.
+    emitCTo: artifact.emitCTo
+      ? path.resolve(depDir, artifact.emitCTo)
+      : undefined,
     sanitize:
       artifact.sanitize !== "none"
         ? (artifact.sanitize as "address" | "leak" | "thread")

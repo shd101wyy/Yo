@@ -23,6 +23,9 @@ OSNAME=""
 OSDISTRO=""
 USE_SUDO=""
 YO_TEMP_DIR=""
+FROM_SOURCE=""          # build from the published single-file yo.c
+CC_OVERRIDE=""          # -cc / --c-compiler
+CFLAGS_OVERRIDE=""      # -cflags / --c-flags
 
 YO_REPO="${YO_REPO:-shd101wyy/Yo}"
 YO_DIST_BASE_URL="https://github.com/$YO_REPO/releases/download"
@@ -195,6 +198,11 @@ check_dynamic_loader() {
     warn "or patch the interpreter:  patchelf --set-interpreter \"\$(cat \$NIX_CC/nix-support/dynamic-linker)\" <yo>"
   fi
   warn ""
+  # Non-zero = "the prebuilt bundle cannot run here". The caller uses this to
+  # point at the source install, which genuinely fixes it. Without this the
+  # function returned the status of `warn ""` (always 0) and every caller
+  # believed the loader was fine.
+  return 1
 }
 
 #---------------------------------------------------------
@@ -214,10 +222,20 @@ process_options() {
       -h|--help)       MODE="help";;
       -p|--prefix)   shift; PREFIX="$1";;
       -v|--version)  shift; VERSION="$1";;
+      # Source install: build from the published single-file yo.c instead of
+      # downloading a native bundle. Supplying either of these FORCES the
+      # source path even on a platform that has a bundle — deliberately, so it
+      # is exercisable on machines we can test, rather than being dead code
+      # that only ever runs on platforms we cannot reach.
+      -cc|--c-compiler) shift; CC_OVERRIDE="$1"; FROM_SOURCE="yes";;
+      -cflags|--c-flags) shift; CFLAGS_OVERRIDE="$1"; FROM_SOURCE="yes";;
+      --from-source)   FROM_SOURCE="yes";;
       *)
         case "$1" in
           -p=*|--prefix=*)   PREFIX="${1#*=}";;
           -v=*|--version=*)  VERSION="${1#*=}";;
+          -cc=*|--c-compiler=*)  CC_OVERRIDE="${1#*=}"; FROM_SOURCE="yes";;
+          -cflags=*|--c-flags=*) CFLAGS_OVERRIDE="${1#*=}"; FROM_SOURCE="yes";;
           *) warn "Unknown option: $1"; MODE="help";;
         esac;;
     esac
@@ -534,12 +552,50 @@ download_file() {  # <url> <destination>
   fi
 }
 
+# Does <url> exist? Used to choose between bundle flavors WITHOUT downloading
+# either, so an optional bundle can be probed cheaply. Header-only request, and
+# deliberately quiet: a miss here is an expected outcome, not an error.
+download_probe() {  # <url>
+  if has_cmd curl ; then
+    curl -fsSL -I -o /dev/null "$1" 2>/dev/null || return 1
+  elif has_cmd wget ; then
+    wget -q --spider "$1" 2>/dev/null || return 1
+  else
+    return 1
+  fi
+}
+
 #---------------------------------------------------------
 # Install
 #---------------------------------------------------------
 
+# True when the C library is musl rather than glibc (Alpine and friends).
+# `ldd --version` is the reliable probe: musl's prints "musl libc" — on stderr,
+# and with a non-zero exit, so both have to be swallowed. The distro check is a
+# fallback for images with no ldd at all.
+is_musl() {
+  if has_cmd ldd && ldd --version 2>&1 | grep -qi musl; then return 0; fi
+  [ "$OSDISTRO" = "alpine" ]
+}
+
 install_dist() {
+  # On musl, prefer the static musl bundle and fall back to the glibc one.
+  # The fallback matters: the musl bundle is published by an EXPERIMENTAL
+  # release leg, so it can legitimately be missing from a given release, and a
+  # hard failure there would be worse than the loader warning the glibc path
+  # already prints.
   bundle="yo-$VERSION-$OSARCH"
+  if [ "$OSNAME" = "linux" ] && is_musl; then
+    musl_bundle="yo-$VERSION-$OSARCH-musl"
+    if download_probe "$YO_DIST_BASE_URL/$VERSION/$musl_bundle.tar.gz"; then
+      info "musl libc detected — using the static musl bundle."
+      bundle="$musl_bundle"
+    else
+      warn "musl libc detected, but $VERSION publishes no $musl_bundle bundle."
+      warn "Falling back to the glibc bundle, which will NOT run here."
+      warn "Prefer:  --from-source   (compiles yo.c with your own toolchain)"
+    fi
+  fi
   url="$YO_DIST_BASE_URL/$VERSION/$bundle.tar.gz"
   target="$PREFIX/lib/yo/$VERSION"
   bindir="$PREFIX/bin"
@@ -588,6 +644,100 @@ install_dist() {
   mkdirp "$bindir"
   yo_exe="$target/bin/yo"
   [ -x "$yo_exe" ] || stop "Installed bundle has no executable at $yo_exe"
+  if writable_parent "$bindir"; then
+    ln -sf "$yo_exe" "$bindir/yo"
+  else
+    sudocmd ln -sf "$yo_exe" "$bindir/yo"
+  fi
+  info "Linked $bindir/yo -> $yo_exe"
+}
+
+#---------------------------------------------------------
+# Source install (the single-file yo.c)
+#
+# Used when the platform has no native bundle, or when the caller passes
+# -cc/-cflags. The published yo.c carries one complete translation unit per
+# platform behind preprocessor conditionals, so the same file builds anywhere
+# with a C compiler (plans/PORTABLE_C_DISTRIBUTION.md).
+#
+# The compiled binary still needs std/ at runtime — it is a compiler, not a
+# self-contained program — so the release SOURCE tarball is fetched for it and
+# laid out in exactly the bundle's shape (bin/ and std/ as siblings), which is
+# what the executable-relative std lookup expects. vendor/mimalloc is NOT
+# needed: the published C is the libc-allocator flavor.
+#---------------------------------------------------------
+
+pick_c_compiler() {
+  if [ -n "$CC_OVERRIDE" ]; then
+    has_cmd "$CC_OVERRIDE" || stop "C compiler not found: $CC_OVERRIDE"
+    echo "$CC_OVERRIDE"; return 0
+  fi
+  if has_cmd cc; then echo "cc"; return 0; fi
+  if has_cmd clang; then echo "clang"; return 0; fi
+  if has_cmd gcc; then echo "gcc"; return 0; fi
+  stop "No C compiler found. Install clang or gcc, or pass --c-compiler <cc>."
+}
+
+install_from_source() {
+  cfile="yo-$VERSION.c.gz"
+  curl_url="$YO_DIST_BASE_URL/$VERSION/$cfile"
+  src_url="https://github.com/$YO_REPO/archive/refs/tags/$VERSION.tar.gz"
+  target="$PREFIX/lib/yo/$VERSION"
+  bindir="$PREFIX/bin"
+  CC_BIN="$(pick_c_compiler)"
+
+  info "Installing Yo $VERSION for $OSARCH FROM SOURCE"
+  info "  yo.c:     $curl_url"
+  info "  std:      $src_url"
+  info "  compiler: $CC_BIN"
+  [ -n "$CFLAGS_OVERRIDE" ] && info "  cflags:   $CFLAGS_OVERRIDE"
+  info "  target:   $target"
+
+  if [ "$DRYRUN" = "yes" ]; then
+    info "(dry run — stopping before any change)"
+    return 0
+  fi
+
+  make_temp_dir
+  info "Downloading yo.c.."
+  download_file "$curl_url" "$YO_TEMP_DIR/$cfile" \
+    || stop "Unable to download $curl_url
+  $VERSION may predate the single-file yo.c artifact. Try a newer --version."
+  gzip -dc "$YO_TEMP_DIR/$cfile" > "$YO_TEMP_DIR/yo.c" \
+    || stop "Failed to decompress $cfile"
+
+  info "Downloading the standard library.."
+  download_file "$src_url" "$YO_TEMP_DIR/src.tar.gz" \
+    || stop "Unable to download the source tarball: $src_url"
+  (cd "$YO_TEMP_DIR" && tar -xzf src.tar.gz) || stop "Failed to extract the source tarball"
+  src_std="$(find "$YO_TEMP_DIR" -maxdepth 2 -type d -name std | head -1)"
+  [ -n "$src_std" ] || stop "The source tarball has no std/ directory"
+
+  # -w: the emitted C is machine-generated and warns freely; warnings here are
+  # noise, not signal, and would bury a real error.
+  info "Compiling yo.c (this takes a minute).."
+  # shellcheck disable=SC2086  # CFLAGS_OVERRIDE is intentionally word-split
+  "$CC_BIN" -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
+    "$YO_TEMP_DIR/yo.c" -o "$YO_TEMP_DIR/yo" $CFLAGS_OVERRIDE -lpthread -lm \
+    || stop "Failed to compile yo.c with $CC_BIN.
+  On Linux, install the liburing development headers first (see --help)."
+
+  info "Installing.."
+  stage="$YO_TEMP_DIR/stage"
+  mkdir -p "$stage/bin"
+  mv "$YO_TEMP_DIR/yo" "$stage/bin/yo"
+  chmod +x "$stage/bin/yo"
+  cp -R "$src_std" "$stage/std"
+
+  if [ -e "$target" ]; then
+    writable_parent "$PREFIX/lib/yo" && rm -rf "$target" || sudocmd rm -rf "$target"
+  fi
+  mkdirp "$PREFIX/lib/yo"
+  movedir "$stage" "$target"
+
+  mkdirp "$bindir"
+  yo_exe="$target/bin/yo"
+  [ -x "$yo_exe" ] || stop "Source install produced no executable at $yo_exe"
   if writable_parent "$bindir"; then
     ln -sf "$yo_exe" "$bindir/yo"
   else
@@ -730,6 +880,9 @@ main_help() {
   echo "  -f, --force              overwrite an existing install / skip prompts"
   echo "  -p, --prefix=<dir>       install prefix (default: \$HOME/.local)"
   echo "  -v, --version=<tag>      release to install (default: latest)"
+  echo "      --from-source        build from the published single-file yo.c"
+  echo "  -cc, --c-compiler=<cc>   C compiler for the source build (implies --from-source)"
+  echo "  -cflags, --c-flags=<f>   extra C flags for the source build (implies --from-source)"
   echo "  -u, --uninstall          uninstall instead of install"
   echo "      --no-deps            do not install system dependencies"
   echo "      --no-verify          skip the post-install hello-world compile"
@@ -743,17 +896,43 @@ main_help() {
   echo "  install.sh --version=v0.2.3                 # a specific release"
   echo "  install.sh --prefix=/usr/local              # system-wide (uses sudo)"
   echo "  install.sh --no-deps --no-verify -f         # unattended (CI)"
+  echo "  install.sh --from-source                    # compile yo.c locally"
+  echo "  install.sh -cc=gcc -cflags='-march=native'  # source build, chosen toolchain"
+  echo ""
+  echo "The source build works where no bundle can run - notably Alpine/musl and"
+  echo "NixOS, whose loaders the prebuilt glibc binary cannot use."
 }
 
 main_install() {
   detect_osarch
   resolve_version
   install_dependencies
-  check_dynamic_loader
+  # check_dynamic_loader detects the two distros where the published Linux
+  # bundle cannot run at all (musl/Alpine, and NixOS where
+  # /lib64/ld-linux-x86-64.so.2 does not exist). Building from the published
+  # yo.c fixes BOTH, because the user's own C compiler links against their own
+  # libc and loader — the source path is the real answer there, not a warning.
+  # On musl the STATIC musl bundle needs no loader at all, so install_dist
+  # handles it and this advice would be actively misleading — it would send an
+  # Alpine user to a source build they no longer need. Suppress it there and
+  # let install_dist decide (it warns and falls back on its own if the release
+  # has no musl bundle). NixOS still lands here, which is the case the source
+  # path genuinely fixes.
+  if [ -z "$FROM_SOURCE" ] && ! is_musl && ! check_dynamic_loader; then
+    info ""
+    info "The prebuilt bundle cannot run on this system, but the published"
+    info "single-file yo.c can be compiled here. Re-run with:"
+    info "    install.sh --from-source"
+    info "(or pass --c-compiler <cc> / --c-flags '<flags>' to choose the toolchain)"
+  fi
   check_c_compiler
   check_git
   check_liburing_consistency
-  install_dist
+  if [ -n "$FROM_SOURCE" ]; then
+    install_from_source
+  else
+    install_dist
+  fi
   if [ "$DRYRUN" = "yes" ]; then
     return 0
   fi

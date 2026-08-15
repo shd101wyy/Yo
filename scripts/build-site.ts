@@ -518,6 +518,29 @@ export async function main(): Promise<void> {
     console.log("  ✓ path_uniqueness.png");
   }
 
+  // Publish the installers at the site ROOT, so the canonical one-liner is
+  // `curl -sSL https://shd101wyy.github.io/Yo/install.sh | sh` rather than a
+  // raw.githubusercontent.com URL with a branch name baked into it
+  // (plans/P3_DISTRIBUTION.md item 1). A raw URL is a bad contract to publish:
+  // it pins a branch, and anything printed in a README or a blog post outlives
+  // the branch name.
+  //
+  // FAIL LOUDLY if either is missing. A silently absent installer turns the
+  // documented one-liner into `curl` piping a 404 page into `sh`, which is far
+  // worse than a broken build.
+  for (const installer of ["install.sh", "install.ps1"]) {
+    const src = path.join(ROOT, "scripts", installer);
+    if (!fs.existsSync(src)) {
+      throw new Error(
+        `build-site: scripts/${installer} is missing. The published site would ` +
+          `serve a 404 at /${installer}, and the documented one-liner pipes that ` +
+          `into a shell. Refusing to build.`
+      );
+    }
+    fs.copyFileSync(src, path.join(outputDir, installer));
+    console.log(`  ✓ ${installer}`);
+  }
+
   // ── Step 3: Generate std library docs ──
   console.log("\n[3/3] Generating standard library documentation...");
   const stdOutputDir = path.join(outputDir, "std");

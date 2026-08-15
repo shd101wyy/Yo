@@ -56,6 +56,18 @@ mark_needs_intel_asm_syntax :: (fn() -> unit)({
   g_needs_intel_asm_syntax = true;
 });
 get_needs_intel_asm_syntax :: (fn() -> bool)(g_needs_intel_asm_syntax);
+// Same out-of-band channel for `uses_parallelism`, needed by the emcc link
+// line (`-pthread -sPTHREAD_POOL_SIZE=4 -sEXIT_RUNTIME=1`). TS reads it via
+// `moduleManager.usesParallelism` (codegen/index.ts:626); here the per-run
+// context flag (codegen/exprs/async.yo) is mirrored into a module global
+// because main.yo assembles the command after compile_module has returned.
+// Like the flag above it is never reset: each `compile` is its own process
+// (the test runner spawns one per file), so no state crosses compiles.
+(g_uses_parallelism : bool) = false;
+mark_uses_parallelism :: (fn() -> unit)({
+  g_uses_parallelism = true;
+});
+get_uses_parallelism :: (fn() -> bool)(g_uses_parallelism);
 { ExprInfoTable, ExprInfo, expr_info_table_get, get_extern_c_global_type, is_module_level_global, module_global_c_suffix, lookup_some_resolved_concrete } :: import("../../expr_info.yo");
 {
   AstExpr,
@@ -1455,6 +1467,8 @@ export(
   is_deferred_drop_for_closure_capture,
   find_returned_async_block,
   mark_needs_intel_asm_syntax,
+  mark_uses_parallelism,
+  get_uses_parallelism,
   get_needs_intel_asm_syntax,
   set_on_demand_declare_fn
 );

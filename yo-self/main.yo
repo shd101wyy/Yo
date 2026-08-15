@@ -30,7 +30,7 @@ _(env : proc_env) :: import("std/env");
 { Path } :: import("std/path");
 { read_file, write_file, exists } :: import("std/fs/file");
 { metadata } :: import("std/fs/metadata");
-{ read_dir, FileType, remove_file } :: import("std/fs/dir");
+{ read_dir, FileType, remove_file, create_dir_all } :: import("std/fs/dir");
 { Command } :: import("std/process/command");
 { exit } :: import("std/libc/stdlib");
 { ArrayList } :: import("std/collections/array_list");
@@ -60,6 +60,7 @@ _(env : proc_env) :: import("std/env");
   set_std_path_override,
   mm_clear_prelude_env,
   mm_set_shared_expr_info_table,
+  mm_reset,
   mm_resolve_entry_abs,
   mm_eval_entry_exprs,
   mm_load_file,
@@ -72,7 +73,7 @@ _(env : proc_env) :: import("std/env");
 { format_yo_source, format_yo_files, FormatYoFilesOptions } :: import("./formatter.yo");
 { host_target, parse_target, TargetInfo, is_target_linux, is_target_windows, is_target_macos, is_target_wasm, is_target_standalone_wasi } :: import("./target.yo");
 { compile_module } :: import("./codegen/codegen_c.yo");
-{ get_needs_intel_asm_syntax } :: import("./codegen/utils/index.yo");
+{ get_needs_intel_asm_syntax, get_uses_parallelism } :: import("./codegen/utils/index.yo");
 { panic, assert } :: import("std/assert");
 // Temporary C source path used during compilation.
 C_TMP :: "/tmp/yo_self_out.c";
@@ -957,6 +958,16 @@ run_compile :: (
   (sanitize : String) = String.from(""); // "" / "address" / "leak" / "thread"
   (cflags : String) = String.from("");
   (emit_c : bool) = false;
+  // `--emit-c-to <path>`: write the single generated C file to exactly this
+  // path instead of the `<output>.c` sidecar. "" = unset.
+  (emit_c_to : String) = String.new();
+  // `--emcc-environment <web|node>`: mirrors the TS-internal `emccEnvironment`
+  // codegen option (codegen/index.ts:187). TS has no CLI flag for it because
+  // its build-runner calls codegen in-process; ours SHELLS OUT to `compile`,
+  // so the value needs a flag to travel on. "" = unset, which is exactly TS's
+  // `undefined` for the plain `yo compile` path and adds `-sNODERAWFS=1`;
+  // build_runner passes `web` for wasm targets, which suppresses it.
+  (emcc_environment : String) = String.new();
   (skip_cc : bool) = false;
   (skip_codegen : bool) = false;
   (release : bool) = false;
@@ -1009,6 +1020,10 @@ run_compile :: (
       },
       (a_name == "--sysroot") => {
         sysroot = _opt_value(argv, ai, a_name.clone(), a_val.clone(), exn);
+        ai = (ai + _opt_step(a_val));
+      },
+      (a_name == "--emcc-environment") => {
+        emcc_environment = _opt_value(argv, ai, a_name.clone(), a_val.clone(), exn);
         ai = (ai + _opt_step(a_val));
       },
       (a_name == "--allocator") => {
@@ -1101,6 +1116,13 @@ run_compile :: (
         emit_c = true;
         ai = (ai + usize(1));
       },
+      // `--emit-c-to <path>` REDIRECTS the sidecar (it does not add a second
+      // copy), so the C compiler consumes this same path. Distinct from
+      // `--emit-c`, which only prints to stdout.
+      (a_name == "--emit-c-to") => {
+        emit_c_to = _opt_value(argv, ai, a_name.clone(), a_val.clone(), exn);
+        ai = (ai + _opt_step(a_val));
+      },
       (a_name == "--skip-c-compiler") => {
         skip_cc = true;
         ai = (ai + usize(1));
@@ -1172,6 +1194,9 @@ run_compile :: (
   if((sanitize != "") && (((sanitize != "address") && (sanitize != "leak")) && (sanitize != "thread")), {
     exn.throw(dyn(`compile: invalid --sanitize "${sanitize}". Choices: address, leak, thread`));
   });
+  if((emcc_environment != "") && ((emcc_environment != "web") && (emcc_environment != "node")), {
+    exn.throw(dyn(`compile: invalid --emcc-environment "${emcc_environment}". Choices: web, node`));
+  });
   // ----- C compiler resolution (src/yo-cli.ts:468-486) ---------------------
   // Auto-select emcc for wasm targets when --cc was not given; otherwise probe
   // for the first available compiler instead of assuming clang.
@@ -1192,6 +1217,35 @@ run_compile :: (
   // emcc implies wasm32-emscripten when no target was given (yo-cli.ts:488-490).
   if((cc == "emcc") && (target_triple == ""), {
     target_triple = String.from("wasm32-emscripten");
+  });
+  // Resolve the compilation target: --target <triple> if given, else host.
+  // Placed BEFORE the module is evaluated, matching TS (yo-cli.ts:502-503
+  // parses the target, then :521 calls compileModule, which evaluates). It
+  // also has to precede the evaluate+emit scope below, because that scope must
+  // be free to drop everything it created.
+  target := match(
+    cond(
+      (target_triple == "") => Result(TargetInfo, String).Ok(host_target()),
+      true => parse_target(target_triple)
+    ),
+    .Ok(t) => t,
+    .Err(e) => {
+      exn.throw(dyn(`compile: invalid --target "${target_triple}": ${e}`));
+      return(())
+    }
+  );
+  // Auto-add the output extension when none was given (yo-cli.ts:494-509):
+  // emcc → `.wasm` for standalone WASI, else `.html`; Windows targets → `.exe`.
+  if((cc == "emcc") && !(_path_has_extension(output)), {
+    output = if(is_target_standalone_wasi(target), `${output}.wasm`, `${output}.html`);
+  });
+  if(is_target_windows(target) && !(_path_has_extension(output)), {
+    output = `${output}.exe`;
+  });
+  // mimalloc isn't available on wasm (codegen/index.ts:193-199) — downgrade
+  // BEFORE codegen so the emitted runtime matches the link line.
+  if((allocator == "mimalloc") && is_target_wasm(target), {
+    allocator = String.from("libc");
   });
   std_path := resolve_std_path();
   // Create the shared ExprInfoTable BEFORE loading the prelude, and publish it
@@ -1228,89 +1282,104 @@ run_compile :: (
   // TS needs no equivalent: it stores node info ON the AST node (`expr.$`), so a
   // cached AST carries its annotations, whereas yo-self keys a SIDE TABLE by
   // expr id. `run_check` already clears the module cache for the same reason.
-  clear_module_cache();
-  mm_clear_prelude_env();
-  shared_info_table := expr_info_table_new();
-  mm_set_shared_expr_info_table(shared_info_table);
-  // Ensure the prelude env is cached (provides std types to the evaluator).
-  // Quiet: `compile` has no `check:` chatter.
-  mm_preload_prelude(std_path.clone(), false, io, exn);
-  // Read + parse the input module.
-  src_bytes := io.await(read_file(Path.new(input_path.clone()), io), IoExn(io : io, exn : exn));
-  src := String.from_bytes(src_bytes);
-  exprs := parse(src, input_path.clone(), exn);
-  // Demand-driven module loading. The entry module's eval context reuses the
-  // shared ExprInfoTable (created above, also used by the prelude load and every
-  // demand-loaded module) so codegen has metadata for the bodies of ALL
-  // collected functions — the prelude's, every imported module's, and the entry
-  // module's. `mm_eval_entry_exprs` applies it from the published slot.
-  entry_abs := mm_resolve_entry_abs(input_path.clone(), std_path.clone());
-  outcome := mm_eval_entry_exprs(entry_abs, std_path.clone(), exprs, io, exn);
-  if(!(outcome.ok), {
-    exn.throw(dyn(`compile: failed to evaluate module "${input_path}"`));
-    return(());
-  });
-  module_value := outcome.module_value;
-  env := outcome.env;
-  ctx := outcome.ctx;
-  // Resolve the compilation target: --target <triple> if given, else host.
-  target := match(
+  //
+  // ---------------------------------------------------------------------
+  // EVALUATE + EMIT SCOPE. Everything the evaluator and the code generator
+  // build lives inside this block, so that all of it is DROPPED before the
+  // C compiler is spawned below.
+  //
+  // This is not tidiness, it is the fix for a reproducing CI failure
+  // (issues/compiler-holds-emit-memory-during-cc.md). On run 31864299243
+  // the 140 MB .c was written at 04:36 and the process was STILL holding
+  // its ~12 GB evaluator arena at 04:40:59 when it died — while clang,
+  // which needs only 3.17 GB on its own, ran alongside it. Neither peak is
+  // fatal alone; the SUM on a 16 GB runner is.
+  //
+  // Nothing after the block reads any of it: `c_path` (declared outside so
+  // it survives) and `target` are the only values the link line needs.
+  // ---------------------------------------------------------------------
+  (c_path : String) = String.new();
+  {
+    clear_module_cache();
+    mm_clear_prelude_env();
+    shared_info_table := expr_info_table_new();
+    mm_set_shared_expr_info_table(shared_info_table);
+    // Ensure the prelude env is cached (provides std types to the evaluator).
+    // Quiet: `compile` has no `check:` chatter.
+    mm_preload_prelude(std_path.clone(), false, io, exn);
+    // Read + parse the input module.
+    src_bytes := io.await(read_file(Path.new(input_path.clone()), io), IoExn(io : io, exn : exn));
+    src := String.from_bytes(src_bytes);
+    exprs := parse(src, input_path.clone(), exn);
+    // Demand-driven module loading. The entry module's eval context reuses the
+    // shared ExprInfoTable (created above, also used by the prelude load and every
+    // demand-loaded module) so codegen has metadata for the bodies of ALL
+    // collected functions — the prelude's, every imported module's, and the entry
+    // module's. `mm_eval_entry_exprs` applies it from the published slot.
+    entry_abs := mm_resolve_entry_abs(input_path.clone(), std_path.clone());
+    outcome := mm_eval_entry_exprs(entry_abs, std_path.clone(), exprs, io, exn);
+    if(!(outcome.ok), {
+      exn.throw(dyn(`compile: failed to evaluate module "${input_path}"`));
+      return(());
+    });
+    module_value := outcome.module_value;
+    env := outcome.env;
+    ctx := outcome.ctx;
+    // --skip-codegen: evaluate only (type-check), emit no C.
+    if(skip_codegen, {
+      return(());
+    });
+    // Generate C11 from the evaluated module. A static library has no main()
+    // wrapper (is_library = true). Allocator + debug-logging flags are threaded
+    // through to the code generator (mirrors CodeGeneratorC.compileModule).
+    c_src := compile_module(module_value, ctx.expr_info_table, target, allocator.clone(), debug_gc, debug_parallelism, debug_async_await, static_library, ctx, env, exn);
+    // --emit-c prints the generated C to stdout (module-manager.ts:473-475) —
+    // and compilation continues; only --skip-c-compiler stops before the link.
+    if(emit_c, {
+      println(c_src);
+    });
+    // Strip a target-format extension so `app.html` gets `app.c`, not
+    // `app.html.c` (codegen/index.ts:226-228).
+    (c_base : String) = output.clone();
     cond(
-      (target_triple == "") => Result(TargetInfo, String).Ok(host_target()),
-      true => parse_target(target_triple)
-    ),
-    .Ok(t) => t,
-    .Err(e) => {
-      exn.throw(dyn(`compile: invalid --target "${target_triple}": ${e}`));
-      return(())
-    }
-  );
-  // --skip-codegen: evaluate only (type-check), emit no C.
-  if(skip_codegen, {
-    return(());
-  });
-  // Auto-add the output extension when none was given (yo-cli.ts:494-509):
-  // emcc → `.wasm` for standalone WASI, else `.html`; Windows targets → `.exe`.
-  if((cc == "emcc") && !(_path_has_extension(output)), {
-    output = if(is_target_standalone_wasi(target), `${output}.wasm`, `${output}.html`);
-  });
-  if(is_target_windows(target) && !(_path_has_extension(output)), {
-    output = `${output}.exe`;
-  });
-  // mimalloc isn't available on wasm (codegen/index.ts:193-199) — downgrade
-  // BEFORE codegen so the emitted runtime matches the link line.
-  if((allocator == "mimalloc") && is_target_wasm(target), {
-    allocator = String.from("libc");
-  });
-  // Generate C11 from the evaluated module. A static library has no main()
-  // wrapper (is_library = true). Allocator + debug-logging flags are threaded
-  // through to the code generator (mirrors CodeGeneratorC.compileModule).
-  c_src := compile_module(module_value, ctx.expr_info_table, target, allocator.clone(), debug_gc, debug_parallelism, debug_async_await, static_library, ctx, env, exn);
-  // --emit-c prints the generated C to stdout (module-manager.ts:473-475) —
-  // and compilation continues; only --skip-c-compiler stops before the link.
-  if(emit_c, {
-    println(c_src);
-  });
-  // Strip a target-format extension so `app.html` gets `app.c`, not
-  // `app.html.c` (codegen/index.ts:226-228).
-  (c_base : String) = output.clone();
-  cond(
-    c_base.ends_with(".html") => {
-      c_base = c_base.substring(usize(0), c_base.len() - usize(5));
-    },
-    c_base.ends_with(".wasm") => {
-      c_base = c_base.substring(usize(0), c_base.len() - usize(5));
-    },
-    c_base.ends_with(".exe") => {
-      c_base = c_base.substring(usize(0), c_base.len() - usize(4));
-    },
-    c_base.ends_with(".js") => {
-      c_base = c_base.substring(usize(0), c_base.len() - usize(3));
-    },
-    true => ()
-  );
-  c_path := `${c_base}.c`;
-  io.await(write_file(Path.new(c_path.clone()), c_src, io), IoExn(io : io, exn : exn));
+      c_base.ends_with(".html") => {
+        c_base = c_base.substring(usize(0), c_base.len() - usize(5));
+      },
+      c_base.ends_with(".wasm") => {
+        c_base = c_base.substring(usize(0), c_base.len() - usize(5));
+      },
+      c_base.ends_with(".exe") => {
+        c_base = c_base.substring(usize(0), c_base.len() - usize(4));
+      },
+      c_base.ends_with(".js") => {
+        c_base = c_base.substring(usize(0), c_base.len() - usize(3));
+      },
+      true => ()
+    );
+    // `--emit-c-to` overrides the derived sidecar path entirely, and its parent
+    // directory is created — the point of the flag is to place the file
+    // somewhere deliberate (e.g. `dist/yo.c`) that need not exist yet.
+    c_path = if(emit_c_to.len() > usize(0), emit_c_to.clone(), `${c_base}.c`);
+    if(emit_c_to.len() > usize(0), {
+      match(
+        Path.new(c_path.clone()).parent(),
+        .Some(pdir) => {
+          io.await(create_dir_all(pdir, io), IoExn(io : io, exn : exn));
+        },
+        .None => ()
+      );
+    });
+    io.await(write_file(Path.new(c_path.clone()), c_src, io), IoExn(io : io, exn : exn));
+  };
+  // The scope above has dropped the AST, the evaluated module, the env, the
+  // eval context and the 140 MB C string. The module-manager GLOBALS still
+  // pin the rest of the universe, though, and no scope can reach them: the
+  // module cache (every evaluated module's values, for the whole import
+  // closure), the cached prelude env, and the shared ExprInfoTable. Clearing
+  // them is the other half of the fix — either half alone frees nothing,
+  // because each still holds a reference to what the other drops.
+  // TS equivalent: ModuleManager.resetAllState().
+  mm_reset();
   // --skip-c-compiler: write the C and stop.
   if(skip_cc, {
     return(());
@@ -1367,6 +1436,11 @@ run_compile :: (
     cmd.arg(String.from("-static"));
   });
   // Sanitizers (clang/gcc; mirror of TS getSanitizerFlags for the Unix path).
+  // emcc takes none — TS gates the whole block on `!isEmcc`
+  // (codegen/index.ts:465), and the test path already mirrors that.
+  if(cc == "emcc", {
+    sanitize = String.from("");
+  });
   cond(
     (sanitize == "address") => {
       // Functionality probe first (TS getSanitizerFlags): a clang/ASan
@@ -1426,12 +1500,40 @@ run_compile :: (
   }, {
     println(String.from("Using libc allocator"));
   });
-  // Cross-compile target / sysroot pass-through.
-  if(target_triple != "", {
-    cmd.arg(`--target=${target_triple}`);
+  // Cross-compile target / sysroot pass-through. Skipped entirely for emcc,
+  // which handles its own target internally (codegen/index.ts:636-641) — it
+  // rejects `--target=wasm32-emscripten`.
+  if(cc != "emcc", {
+    if(target_triple != "", {
+      cmd.arg(`--target=${target_triple}`);
+    });
+    if(sysroot != "", {
+      cmd.arg(`--sysroot=${sysroot}`);
+    });
   });
-  if(sysroot != "", {
-    cmd.arg(`--sysroot=${sysroot}`);
+  // Emscripten-specific link flags (codegen/index.ts:605-634).
+  if(cc == "emcc", {
+    // WASM call_indirect demands exact signature matches, but codegen casts
+    // void* to function pointers — without this every such call traps.
+    cmd.arg(String.from("-sEMULATE_FUNCTION_POINTER_CASTS=1"));
+    // Yo emits C11, not C++. Emscripten 4.0.23+ otherwise fails to link on
+    // __cxa_increment_exception_refcount from its JS symbols library.
+    cmd.arg(String.from("-fno-exceptions"));
+    if(is_target_standalone_wasi(target), {
+      // Standalone WASI: a bare .wasm with no JS glue.
+      cmd.arg(String.from("-sSTANDALONE_WASM"));
+    }, {
+      // Node: use the real filesystem instead of MEMFS. Skipped for `web`,
+      // where NODERAWFS's require('fs') does not exist.
+      if(emcc_environment != "web", {
+        cmd.arg(String.from("-sNODERAWFS=1"));
+      });
+    });
+    if(get_uses_parallelism(), {
+      cmd.arg(String.from("-pthread"));
+      cmd.arg(String.from("-sPTHREAD_POOL_SIZE=4"));
+      cmd.arg(String.from("-sEXIT_RUNTIME=1"));
+    });
   });
   // --static-library: compile to a .o (-c -fPIC) then archive into a .a.
   // Otherwise compile + link into an executable.
@@ -1446,7 +1548,7 @@ run_compile :: (
     cmd.arg(obj_path.clone());
     cst := io.await(cmd.status(io), IoExn(io : io, exn : exn));
     if(cst.raw != i32(0), {
-      exn.throw(dyn(`compile: C compiler failed (exit ${cst.raw.to_string()}) on ${c_path}`));
+      exn.throw(dyn(`compile: C compiler failed (exit ${cst.code().to_string()}) on ${c_path}`));
       return(())
     });
     ar_out := if(output.clone().ends_with(".a"), output.clone(), `${output}.a`);
@@ -1456,7 +1558,7 @@ run_compile :: (
     arcmd.arg(obj_path.clone());
     ast := io.await(arcmd.status(io), IoExn(io : io, exn : exn));
     if(ast.raw != i32(0), {
-      exn.throw(dyn(`compile: ar failed (exit ${ast.raw.to_string()}) creating ${ar_out}`));
+      exn.throw(dyn(`compile: ar failed (exit ${ast.code().to_string()}) creating ${ar_out}`));
     });
     return(())
   });
@@ -1500,7 +1602,7 @@ run_compile :: (
   });
   st := io.await(cmd.status(io), IoExn(io : io, exn : exn));
   if(st.raw != i32(0), {
-    exn.throw(dyn(`compile: C compiler failed (exit ${st.raw.to_string()}) on ${c_path}`));
+    exn.throw(dyn(`compile: C compiler failed (exit ${st.code().to_string()}) on ${c_path}`));
   });
 });
 /// Recursively collect `*.test.yo` files under `path_str` (or `[path_str]`
@@ -1884,7 +1986,7 @@ run_test :: (
         });
         bst := io.await(ccmd.status(io), IoExn(io : io, exn : exn));
         if(bst.raw != i32(0), {
-          exn.throw(dyn(`test: batch compile failed (exit ${bst.raw.to_string()}) for ${tmp_yo}`));
+          exn.throw(dyn(`test: batch compile failed (exit ${bst.code().to_string()}) for ${tmp_yo}`));
         });
         // Run each test: YO_TEST_INDEX in the PARENT env (the spawn runtime
         // passes environ through when envp is NULL). The ASan run environment

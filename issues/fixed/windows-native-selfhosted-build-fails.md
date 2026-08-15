@@ -47,3 +47,28 @@ compile of the smoke program failed:
    a child compile fails; needs a Windows box or the CI step with a
    deliberately-broken compile to chase. Same family suspicion as the
    abort-dispose/unwind class.
+
+   **Probed on macOS 2026-08-15 — the error path itself is CLEAN there**, so
+   the SEGV really is Windows-specific rather than a generally fragile path.
+   Repro used (a forced LINK failure, which reaches the same
+   `exn.throw` as a failed compile):
+
+   ```
+   yo compile hello.yo --std-path <repo>/std -l nosuchlibrary_zzz -o /tmp/hello
+   ```
+
+   gives rc=1 with clang's own diagnostics surfaced and
+   `compile: C compiler failed (exit 1) on /tmp/hello.c`. Note `--cc /bin/false`
+   does NOT work as a probe — the `--c-compiler` validator rejects unknown
+   names before anything runs.
+
+   That probe did surface a REAL diagnostic bug, now fixed: all four
+   child-process failure messages printed `ExitStatus.raw` — the encoded
+   waitpid status — so a child that exited 1 was reported as **"exit 256"**
+   (1 << 8). `ExitStatus` carries a `code()` decoder whose own docstring says
+   to prefer it over `raw`. The four messages now use `code()`; the
+   `raw != 0` FAILURE CHECKS are deliberately unchanged, because a
+   signal-killed child has a non-zero raw but `code() == 0`, so raw is the
+   correct thing to test and the wrong thing to print. Anyone chasing the
+   Windows rc=139 with the old build should know its "exit N" numbers were
+   inflated by 256.

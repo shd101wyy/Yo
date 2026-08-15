@@ -1,0 +1,131 @@
+name: Bootstrap fixpoint (linux-arm64)
+
+# P3 item 4's remaining bullet: per-platform fixpoint (byte-identity) as a
+# SCHEDULED job with the Linux job's memory tuning.
+#
+# Scope, narrowed by what was measured on 2026-08-15: "per-platform" can only
+# mean the two Linux arches. A self-emit peaks above 15 GB (run 31856743929
+# watched ubuntu-latest climb to 15,541 MB of 15,988 and die when its own
+# allocation failed, with no oom-kill), and macOS runners have ~7 GB with no
+# way to add a swapfile. So macOS/Windows cannot host a fixpoint on standard
+# runners at all; test.yml's `test` matrix had to stop trying for exactly this
+# reason. x86_64 is already covered per-PR by test.yml's bootstrap-fixpoint
+# and -stage3 jobs, which leaves linux-arm64 as the genuinely uncovered arch.
+#
+# Why arm64 is worth covering separately: the compiler's own emit is NOT
+# arch-independent. `yo-self/target.yo:165-184 detect_host()` folds `arch ==`
+# into a comptime constant, so the x64 and arm64 emissions of the compiler
+# differ by construction. Nothing else in CI checks that the arm64 self-emit
+# reaches a fixpoint.
+#
+# SCHEDULED + dispatchable rather than per-PR: it costs two self-emits (~1 h
+# each) and duplicates a property that rarely regresses. Deliberately NOT a
+# required status check — a new job that is unlisted simply does not gate
+# (plans/P2_5_RETIRE_EXECUTION.md step 20 recon), and adding required contexts
+# is a separate, hazardous operation.
+#
+# Deliberately NO `paths:` filter: a filtered workflow that is later promoted
+# to required leaves PRs touching no matching path waiting forever on a
+# permanently-pending check.
+
+on:
+  schedule:
+    # Weekly, Sundays 04:17 UTC. Off-peak, and the odd minute avoids the
+    # top-of-hour stampede that delays scheduled runs on GitHub.
+    - cron: "17 4 * * 0"
+  workflow_dispatch:
+
+concurrency:
+  group: fixpoint-arm64
+  cancel-in-progress: true
+
+env:
+  SEED_VERSION: v0.2.4
+
+jobs:
+  fixpoint-arm64:
+    name: Bootstrap fixpoint (linux-arm64, byte-identity)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # Same headroom as the x64 fixpoint. /swapfile is taken on GitHub
+      # runners, hence /mnt/swapfile.
+      - name: Add swap space
+        run: |
+          sudo fallocate -l 32G /mnt/swapfile
+          sudo chmod 600 /mnt/swapfile
+          sudo mkswap /mnt/swapfile
+          sudo swapon /mnt/swapfile
+          free -h
+
+      - name: Install liburing and GNU time
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y liburing-dev time
+
+      - name: Install the seed compiler (previous release)
+        uses: ./.github/actions/install-seed
+        with:
+          version: ${{ env.SEED_VERSION }}
+
+      # --std-path ./std is load-bearing: without it the seed compiles against
+      # its OWN bundled std instead of this checkout's.
+      - name: "Stage 1: build the self-hosted compiler with the SEED"
+        run: |
+          echo Y | sudo tee /sys/module/zswap/parameters/enabled || true
+          nice -n 10 env YO_MAIN_STACK_MB=4096 yo build --std-path ./std
+          cp "$(ls yo-out/*/bin/yo | head -1)" /tmp/yo-stage1
+          /tmp/yo-stage1 check std/assert.yo
+
+      # Both emits run in ONE job here, unlike x64 (which is split across two
+      # boxes because a single job's stage-3 starved the runner agent after the
+      # stage-2 emit had churned the box for an hour). Kept together because
+      # this job is weekly rather than per-PR, so a re-run is cheap — if it
+      # starts losing the runner, split it the way test.yml does.
+      - name: "Stage 2: self-emit C with the stage-1 binary"
+        run: |
+          echo Y | sudo tee /sys/module/zswap/parameters/enabled || true
+          sudo systemd-run --scope -p MemoryHigh=11G -p MemoryMax=14G \
+            env YO_MAIN_STACK_MB=4096 nice -n 10 /usr/bin/time -v \
+            /tmp/yo-stage1 compile yo-self/main.yo --release --allocator mimalloc \
+              --std-path ./std --emit-c-to /tmp/yo-stage2.c --skip-c-compiler
+          ls -la /tmp/yo-stage2.c
+
+      - name: "Stage 2 binary: compile the emitted C"
+        run: |
+          clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
+            /tmp/yo-stage2.c vendor/mimalloc/src/static.c \
+            -I vendor/mimalloc/include -lpthread -lm -luring \
+            -o /tmp/yo-stage2
+          /tmp/yo-stage2 check std/assert.yo
+
+      - name: "Stage 3: self-emit C with the stage-2 binary"
+        run: |
+          echo Y | sudo tee /sys/module/zswap/parameters/enabled || true
+          sudo systemd-run --scope -p MemoryHigh=11G -p MemoryMax=14G \
+            env YO_MAIN_STACK_MB=4096 nice -n 10 /usr/bin/time -v \
+            /tmp/yo-stage2 compile yo-self/main.yo --release --allocator mimalloc \
+              --std-path ./std --emit-c-to /tmp/yo-stage3.c --skip-c-compiler
+          ls -la /tmp/yo-stage3.c
+
+      - name: "FIXPOINT: stage-2 C must be byte-identical to stage-3 C"
+        run: |
+          if cmp -s /tmp/yo-stage2.c /tmp/yo-stage3.c; then
+            echo "FIXPOINT_HOLDS (linux-arm64): stage-2 C == stage-3 C"
+          else
+            echo "::error::FIXPOINT BROKEN on linux-arm64 — stage-2 C != stage-3 C"
+            # First differing offset, not a diff: these files are ~2.26 M lines
+            # and a raw diff is unreadable. Note also that yo-self ids are a
+            # monotonic counter, so the FIRST divergence renumbers everything
+            # after it and a genuine small difference presents as a whole-file
+            # diff — read the offset, not the hunk count.
+            cmp /tmp/yo-stage2.c /tmp/yo-stage3.c | head -3
+            wc -l /tmp/yo-stage2.c /tmp/yo-stage3.c
+            exit 1
+          fi

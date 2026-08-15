@@ -610,7 +610,15 @@ static void __yo_timer_future_dispose(void* ptr) {
   }
 }
 
-// Async sleep using timerfd + io_uring
+// Async sleep using timerfd + io_uring.
+//
+// GUARDED: this body calls io_uring_get_sqe/__yo_io_ring/__yo_io_ring_submit,
+// which exist only inside runtime-io-linux.ts's
+// \`#if __has_include(<liburing.h>)\`. It is emitted from a DIFFERENT file
+// whose output lands after that #endif, so without this guard a liburing-less
+// Linux box got undefined symbols instead of the documented graceful
+// degradation — see issues/liburing-fallback-does-not-compile.md.
+#ifdef __YO_HAS_LIBURING
 static __yo_io_future_t* __yo_async_sleep_start(uint64_t milliseconds) {
   __yo_io_init();
   
@@ -668,6 +676,26 @@ ${timerDisposeInit}
   
   return future;
 }
+#else
+// No liburing: same symbol, immediately-failed future. Matches the shape of
+// the other stubs in runtime-io-linux.ts's #else arm, so a program that only
+// SLEEPS still links and reports a runtime error rather than failing to build.
+static __yo_io_future_t* __yo_async_sleep_start(uint64_t milliseconds) {
+  (void)milliseconds;
+  __yo_timer_future_t* timer_future = (__yo_timer_future_t*)__yo_malloc(sizeof(__yo_timer_future_t));
+  memset(timer_future, 0, sizeof(__yo_timer_future_t));
+  __yo_io_future_t* future = &timer_future->base;
+  future->header.ref_count = 1;
+${timerDisposeInit}
+  atomic_init(&future->state, -1);
+  future->result = -ENOSYS;
+  atomic_init(&future->continuation_fn, NULL);
+  atomic_init(&future->continuation_sm, NULL);
+  timer_future->timerfd = -1;
+  timer_future->read_buf = NULL;
+  return future;
+}
+#endif // __YO_HAS_LIBURING
 `);
   } else if (isMacos) {
     emitter.emitLine(`

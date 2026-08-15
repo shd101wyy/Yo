@@ -161,14 +161,123 @@ Each step is independently landable and gated by `tests/internal` or a new cli-c
 
 17. **`test` job, part 1 — isolate the extension.** Move the `bun package` + Marketplace dry-run into their own job (or `if: runner.os == 'Linux'`), so `npm install -g @vscode/vsce` (test.yml:64) leaves the other four legs. Drop the `bun run scripts/build-site.ts` smoke (test.yml:66). → **verify:** CI; the extension job still produces a `.vsix`. **[CI-only]**
 18. **`test` job, part 2 — convert the Yo steps.** `install-seed`, then `yo fmt --check`, `yo init` + `yo build run`, and `yo compile yo-self/main.yo --release --allocator mimalloc -o yo-native-probe`. Add `shell: bash` to every converted step (only the probe has it today, test.yml:114 — everything else runs under pwsh on windows-latest) and `YO_MAIN_STACK_MB: "4096"` at job level (every self-hosted job sets it; the `test` job sets it nowhere). Keep the `.exe` handling the probe already models (test.yml:117, :122). Delete the `bun test` step **after** step 12. → **verify:** all five legs green. **[CI-only]**
+
+    **DEVIATION 2026-08-15 (deliberate, user-authorized reordering).** Deleting
+    the `bun test` step from the matrix was right — it ran the same TS unit
+    tests on five legs to serve one toolchain — but deleting it OUTRIGHT left
+    the 23 TS test files (466 tests) unrun by ANY job while `src/` still
+    exists. That is a blind window, not a saving: `src/` is still what
+    `./yo-cli` runs locally and it is still being CHANGED (the loadingModules
+    leak fix and its regression pin live there). The plan's "accepted loss" of
+    TS unit-test ground truth is written to coincide with src/'s DELETION, so a
+    dedicated single-runner `ts-unit-tests` job now carries it and dies WITH
+    src/ in Group E — one ~3-minute Linux job instead of five.
+
 19. **`test` job, part 3 — the 5-platform ground truth** (test.yml:130-132). The allowlist is empty (`scripts/bootstrap/known-failing.tsv:21-23`, :44 — "the list is EMPTY, which is the point"), so the 188-file corpus is genuinely green natively on linux-x64; the open questions are wall-clock (serial: `--parallel` is accepted and ignored) and never-scored macOS/Windows. **Measure one leg under the stage-1 binary before the swap** and compare against the 360-min job timeout (test.yml:18). If serial does not fit, shard by directory in the workflow. → **verify:** the measurement, then CI. **[CI-only]**
+
+    **MEASURED 2026-08-15 — serial fits, no sharding needed.** A develop-built
+    stage-1 (`compile yo-self/main.yo --release --allocator mimalloc`) running
+    `test ./tests --exclude tests/internal --exclude tests/cli-cases` with
+    `YO_MAIN_STACK_MB=4096 YO_TEST_LEAK_VERDICT=0` (CI's env): **17.5 min
+    (1051.87 s) serial on a Mac Mini M4, 2742 passed / 2742 total, 0 failures,
+    0 `Failed to transpile` markers across all 188 files.** That is ~20x inside
+    the 360-min job timeout; even at 3x slower CI runners it is ~55 min/leg, so
+    the directory-sharding fallback is NOT needed. The 2742 count is IDENTICAL
+    to the TS runner's on the same corpus, so this doubles as a corpus-wide
+    differential. Caveat for anyone re-measuring: the parent process's peak RSS
+    reads ~20 MB because batches compile in CHILD processes — measure children,
+    not the parent.
+
 20. Delete the 4-shard `compiler-internal-tests` job; the self-hosted differential becomes the sole arm. **Check branch protection first** — if a required status check names the shards, PRs will block on checks that never run. → **verify:** CI + the repo's branch-protection settings (not visible from the filesystem). **[CI-only]**
+
+    **STATUS 2026-08-15: blocked on a permission, not on engineering.** The four contexts are confirmed present in ruleset 13548862 (`Compiler internal tests (tests/internal, TS arm shard 0..3)`), and the workflow deletion is trivial. Writing the ruleset is DENIED to the agent by the permission classifier — correctly, since it is repo-wide merge gating. **Safe order: update the ruleset FIRST, then merge the workflow deletion**, so no required context is ever unrunnable. The prerequisite that the differential can stand alone is now satisfied: its only failure on this branch was the `emit_c_to` BuildArtifact literal (fixed in 32b7be89c), not a defect in the job.
+
+             **RECON 2026-08-15 — it is a RULESET, not classic branch protection.**
+             `repos/.../branches/develop/protection` returns 404; the gating lives in
+             ruleset **13548862** (`branch_protection`, target `~DEFAULT_BRANCH`,
+             enforcement `active`; develop IS the default branch). Its 15 required
+             contexts include **all four `Compiler internal tests (tests/internal, TS
+
+        arm shard N)`**, `Compiler internal tests (tests/internal, self-hosted
+        differential)`, and both `test-wasm32\_\*`legs — so steps 20 and 22 MUST
+
+    edit that ruleset in lockstep or every PR blocks forever on checks that
+    can never run. Note only three of the five`test (<os>)` legs are required
+    (`macos-latest`, `ubuntu-latest`, `windows-latest`); `macos-26-intel`and
+    `ubuntu-24.04-arm`are not. Also per
+    `issues/selfhosted-differential-job-needs-sharding.md`, shard the
+    differential in this SAME change so both job renames land under ONE
+    required-check update.
+
 21. `test-tsan` → seed-driven, after step 4. Gate it by asserting `-fsanitize=thread` appears in the leg's log; a silently-unsanitized run is indistinguishable from a passing one. **[CI-only]**
 22. Both wasm legs → per step 10's decision: converted (asserting `emcc` reaches the compile and the produced batch binaries are wasm) or deleted. Note these legs can never be node-free — `emcc` is itself a node program (test.yml:610-614). **[CI-only]**
+
+    **DECIDED AND PORTED 2026-08-15 (supersedes the paragraph below).** The
+    product decision was taken: **port**, not retire. `runtime_io_wasm.yo` now
+    exists (835 lines vs the TS 832 — the C bodies extracted verbatim, since the
+    file has zero `${}` interpolations), `runtime.yo` and `runtime_io_common.yo`
+    dispatch to it instead of panicking, and the emcc link-flag branch — which
+    was missing entirely — is ported. `check ./yo-self` is clean.
+
+    **But the legs still do not exercise it.** They continue to drive
+    `node ./out/cjs/yo-cli.cjs`, so their greens measure `src/`, not `yo-self/`.
+    Step 22 is therefore NOT complete: what remains is converting both legs to
+    drive the **stage-1 binary**. That is now possible (it was not before the
+    port) and it does not conflict with "these legs can never be node-free" —
+    `emcc` stays a node program; only the Yo compiler driving it changes.
+
+    Sequence it AFTER the stage-1 emit/compile split, or each wasm leg inherits
+    the overlapping-peaks memory failure that split exists to fix
+    (`issues/compiler-holds-emit-memory-during-cc.md`).
+
+    Historical record of the original finding:
+
+    **RESOLVED 2026-08-15: neither, and this is not a Group D item.** "Converted" is impossible — `yo-self/codegen/async/` has no `runtime_io_wasm.yo` and `runtime.yo:40-42` PANICS on a wasm target ("WASM async I/O runtime is a Phase-5 follow-up"). "Deleted" would silently drop `wasm32-emscripten` + `wasm32-wasi`, which are supported targets with green, REQUIRED legs. Since these legs can never be node-free anyway, Group D has nothing to do here: they stay on the TS compiler. The forcing function is **Group E** (deleting `src/`), at which point the TS compiler they invoke ceases to exist. Filed with measured port scope (832 lines, 7 emit calls, mostly C template; macOS precedent 1779→1746) as `issues/yo-self-cannot-target-wasm.md`. It needs a product decision — port, or retire wasm support explicitly — and must not be settled implicitly by the `src/` deletion PR.
+
 23. `bootstrap-self-test` → drop bun once steps 12-14 land; `gates_fast.sh` gains a `SEED=` env alongside `S1=`/`P=` for whatever reference side survives. → **verify:** `S1=… SEED=… P=ci bash scripts/bootstrap/gates_fast.sh` with `failures=0`. **[CI-only]**
-24. `release.yml` (B5, B7): move the version source of truth off root `package.json`; keep a bumper for `vscode-extension/package.json`; flip `seed-bundles` to previous-seed-built with the stage-2-builds-stage-1 pre-release gate; re-point or rewrite the Pages step. Land **after** #98 — #98 already edits release.yml:47-62 and will conflict. → **verify:** a `workflow_dispatch` release producing all five bundles, each smoke-tested from outside the checkout. **[CI-only]**
+24. `release.yml` (B5, B7): move the version source of truth off root `package.json`; keep a bumper for `vscode-extension/package.json`; flip `seed-bundles` to previous-seed-built with the stage-2-builds-stage-1 pre-release gate; re-point or rewrite the Pages step. Land **after** #98 — #98 already edits release.yml:47-62 and will conflict.
+
+    **PARTIALLY LANDED 2026-08-15.** Done: the version source of truth moved
+    off root `package.json` to `yo-self/version.yo` — the release now READS the
+    current version from there and computes the next one in shell (the dispatch
+    input offers only `patch`/`minor`; anything else fails loudly), so it no
+    longer needs npm to know its own version. `vscode-extension/package.json`
+    is SET to that computed version rather than bumped independently (two
+    independent bumpers is how they drifted apart), root `package.json` is kept
+    in sync as a FOLLOWER while it still exists, the bump commit stages only
+    paths that exist (Group E deletes one of them, and `git add` of a missing
+    path is a hard error), and the vestigial standalone `bun run build` step is
+    gone — npm publishing stopped at v0.2.0 and the Pages step rebuilds on its
+    own. STILL OPEN: flipping `seed-bundles` to previous-seed-built with the
+    stage-2-builds-stage-1 pre-release gate, and the Pages step, which stays a
+    documented bun island until B7 decides on a Yo rewrite of
+    `scripts/build-site.ts`. → **verify:** a `workflow_dispatch` release producing all five bundles, each smoke-tested from outside the checkout. **[CI-only]**
     24b. **`yo build` becomes the canonical yo-self builder everywhere** (user directive, 2026-08-13; completes what 2.2's root `build.yo` started). Inventory of the raw `compile yo-self/main.yo` builders to convert: - `.github/workflows/test.yml:144` (TS native probe — dies with the job in step 18 anyway), `:240`, `:428`, `:623`-area, `:836`-area (the per-job stage-1 builds) → `yo build` + take the binary from `yo-out/` (or `build.yo` grows an output-path option). Note the CI builds pass `--allocator mimalloc` while root `build.yo`'s `executable` set no allocator (defaulting Libc) — `std/build.yo` already supports `allocator` (`:86-87`, threaded at `build_runner.yo:486`), so this was a one-line `build.yo` fix (landed with this plan edit); without it the conversion would have silently changed the shipped allocator. - `.github/workflows/release.yml:310` (the seed build) → same conversion at step 24. - `scripts/bootstrap/fixpoint_only.sh:7`, `:12` — **keep as `compile --emit-c --skip-c-compiler`**: these are emit-only C byte-comparisons with explicit output paths, not builds; `yo build` has no emit-only mode and imposing one would complicate the build API for a diagnostic script. Record this as the deliberate carve-out. - Local guidance (AGENTS.md build commands, plans/, skills) — sweep in 2.6 to present `yo build` as the way to build the compiler, keeping `yo compile` for one-off artifacts.
     → **verify:** `yo build` from the repo root produces a runnable compiler byte-comparable (same flags) to the `compile --release --allocator mimalloc` build; converted CI legs green; grep shows the fixpoint carve-out is the only surviving raw self-build. **[CI-only]** for the legs, **[local-slow]** for the flag-parity check.
+
+    **VERIFIED 2026-08-15 (the flag-parity check).** `yo build --std-path ./std`
+    produces a WORKING compiler at `yo-out/<triple>/bin/yo` (`--version` and
+    `check std/assert.yo` both fine). The `--std-path` worry was unfounded:
+    `build_runner.yo:426-432` forwards the parent's override to the child
+    compile (and `:639-644` to child test runs), with the note that TS needs no
+    equivalent because it compiles in-process.
+
+    Flag parity, measured with the SAME compiler on the SAME tree so only the
+    ROUTE varies (a first attempt comparing a TS-built binary against a
+    self-built one was invalid — that measures emit divergence, not flags):
+
+    | route                                    | bytes     |
+    | ---------------------------------------- | --------- |
+    | `compile --release --allocator mimalloc` | 8 806 128 |
+    | `yo build`                               | 8 806 112 |
+
+    16 bytes apart, identical mimalloc symbol counts, both run. The binaries do
+    differ internally in ~68 k bytes (0.77%) — but a CONTROL build via the same
+    route to a DIFFERENT output path differs by 68 043 bytes, i.e. the same
+    magnitude, so that delta is embedded-path noise (the emitted `.c` is named
+    after `-o`), not a route difference. Consistent with the fixpoint gate,
+    which compares stage-2/stage-3 C EMIT byte-identically and holds: the C
+    itself carries no output path.
 
 #### Group E — freeze and delete
 

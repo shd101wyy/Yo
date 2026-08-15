@@ -110,6 +110,13 @@ export class CodeGenerator {
        */
       emitC?: boolean;
       /**
+       * Write the single generated C file to this exact path instead of the
+       * default `<output>.c` sidecar. Redirects (does not duplicate) the
+       * file, so the C compiler consumes the same path; parent directories
+       * are created. Independent of `emitC`, which prints to stdout.
+       */
+      emitCTo?: string;
+      /**
        * Skip the code generation from Yo to the target.
        */
       skipCodegen?: boolean;
@@ -225,7 +232,15 @@ export class CodeGenerator {
       const outputFile = options.output as string;
       // Strip output extension to derive the C file name (e.g., app.html → app.c)
       const outputBase = outputFile.replace(/\.(html|js|wasm|exe)$/, "");
-      const tempCFile = outputBase + ".c";
+      // `--emit-c-to` REDIRECTS the sidecar rather than adding a second copy,
+      // so the C compiler below consumes this same path and exactly one C file
+      // ever exists. Parent directories are created: the point of the flag is
+      // to place the file somewhere deliberate (e.g. dist/yo.c).
+      const tempCFile = options.emitCTo ? options.emitCTo : outputBase + ".c";
+      const tempCFileDir = path.dirname(tempCFile);
+      if (tempCFileDir && !fs.existsSync(tempCFileDir)) {
+        fs.mkdirSync(tempCFileDir, { recursive: true });
+      }
       fs.writeFileSync(tempCFile, compiledCode);
 
       console.log(`Generated C code written to ${tempCFile}`);
