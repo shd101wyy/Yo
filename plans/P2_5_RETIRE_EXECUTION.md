@@ -190,6 +190,8 @@ Each step is independently landable and gated by `tests/internal` or a new cli-c
 
 20. Delete the 4-shard `compiler-internal-tests` job; the self-hosted differential becomes the sole arm. **Check branch protection first** — if a required status check names the shards, PRs will block on checks that never run. → **verify:** CI + the repo's branch-protection settings (not visible from the filesystem). **[CI-only]**
 
+    **STATUS 2026-08-15: blocked on a permission, not on engineering.** The four contexts are confirmed present in ruleset 13548862 (`Compiler internal tests (tests/internal, TS arm shard 0..3)`), and the workflow deletion is trivial. Writing the ruleset is DENIED to the agent by the permission classifier — correctly, since it is repo-wide merge gating. **Safe order: update the ruleset FIRST, then merge the workflow deletion**, so no required context is ever unrunnable. The prerequisite that the differential can stand alone is now satisfied: its only failure on this branch was the `emit_c_to` BuildArtifact literal (fixed in 32b7be89c), not a defect in the job.
+
              **RECON 2026-08-15 — it is a RULESET, not classic branch protection.**
              `repos/.../branches/develop/protection` returns 404; the gating lives in
              ruleset **13548862** (`branch_protection`, target `~DEFAULT_BRANCH`,
@@ -209,6 +211,9 @@ Each step is independently landable and gated by `tests/internal` or a new cli-c
 
 21. `test-tsan` → seed-driven, after step 4. Gate it by asserting `-fsanitize=thread` appears in the leg's log; a silently-unsanitized run is indistinguishable from a passing one. **[CI-only]**
 22. Both wasm legs → per step 10's decision: converted (asserting `emcc` reaches the compile and the produced batch binaries are wasm) or deleted. Note these legs can never be node-free — `emcc` is itself a node program (test.yml:610-614). **[CI-only]**
+
+    **RESOLVED 2026-08-15: neither, and this is not a Group D item.** "Converted" is impossible — `yo-self/codegen/async/` has no `runtime_io_wasm.yo` and `runtime.yo:40-42` PANICS on a wasm target ("WASM async I/O runtime is a Phase-5 follow-up"). "Deleted" would silently drop `wasm32-emscripten` + `wasm32-wasi`, which are supported targets with green, REQUIRED legs. Since these legs can never be node-free anyway, Group D has nothing to do here: they stay on the TS compiler. The forcing function is **Group E** (deleting `src/`), at which point the TS compiler they invoke ceases to exist. Filed with measured port scope (832 lines, 7 emit calls, mostly C template; macOS precedent 1779→1746) as `issues/yo-self-cannot-target-wasm.md`. It needs a product decision — port, or retire wasm support explicitly — and must not be settled implicitly by the `src/` deletion PR.
+
 23. `bootstrap-self-test` → drop bun once steps 12-14 land; `gates_fast.sh` gains a `SEED=` env alongside `S1=`/`P=` for whatever reference side survives. → **verify:** `S1=… SEED=… P=ci bash scripts/bootstrap/gates_fast.sh` with `failures=0`. **[CI-only]**
 24. `release.yml` (B5, B7): move the version source of truth off root `package.json`; keep a bumper for `vscode-extension/package.json`; flip `seed-bundles` to previous-seed-built with the stage-2-builds-stage-1 pre-release gate; re-point or rewrite the Pages step. Land **after** #98 — #98 already edits release.yml:47-62 and will conflict.
 
