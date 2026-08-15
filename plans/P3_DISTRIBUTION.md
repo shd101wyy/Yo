@@ -255,12 +255,39 @@ above, so the design is now proven end-to-end in CI:
 - the io_uring assertion passes on a binary that genuinely contains it, under
   `seccomp=unconfined` so the profile cannot mask a stub.
 
-**Next step for item 3: `release.yml` grows the musl leg**, mirroring the
-PR-CI leg's two-container split. Note the PR leg deliberately stops before
-publishing (`no publish` in its name); the release leg adds bundle upload, and
-the `install.sh` musl branch then has something to download. Until that lands,
-Alpine users still land on the glibc bundle and hit the `ld.so` failure that
-started this item.
+### Item 3 COMPLETE 2026-08-15 — published and selectable
+
+Both remaining halves landed the same day:
+
+- **`release.yml` grows a `musl-bundle` job** — emit C on the glibc host, link
+  statically in Alpine, assemble `bin/`+`std/`+`vendor/mimalloc`, smoke it ON
+  Alpine, upload as `yo-v<ver>-linux-x64-musl.tar.gz`. EXPERIMENTAL on arrival
+  (`continue-on-error: true`), as windows-x64 was.
+
+  It is deliberately **not** in `publish-release`'s `needs`. `continue-on-error`
+  keeps a failure from failing the workflow, but the job's result is still
+  `failure`, and a dependent whose `needs` resolves to failure is SKIPPED — so
+  listing it would let a broken experimental leg block publication outright.
+  Move it into `needs` in the same commit that flips the flag off.
+
+- **`install.sh` can now select it.** It previously detected Alpine only to warn
+  that the glibc binary would not run, then pointed at a source build. It now
+  probes for the musl bundle (header-only request, so an absent optional asset
+  is free), prefers it, and falls back to glibc WITH a warning when a release
+  has none — the situation for every release so far. The `--from-source` advice
+  is suppressed on musl, where it would send a user to a build they no longer
+  need; NixOS still gets it, which is the case it genuinely fixes.
+
+- **Alpine coverage added** to `install-scripts.yml`. The posix matrix is
+  glibc-only, so every musl branch in `install.sh` had been dead code no CI run
+  executed. The new job is dry-run — a real install cannot succeed until a
+  release publishes the bundle — but asserts what regresses silently: musl
+  detected through `ldd --version` (stderr, non-zero exit), a bundle still
+  chosen, and the source-build advice suppressed.
+
+**First real proof still pending:** no release has published a musl bundle yet,
+so the upload + Alpine smoke path runs for the first time on the next release.
+Watch that job, and promote it off `continue-on-error` once it is green.
 
 ## Item 4 — release hardening (carried from P2 notes)
 
