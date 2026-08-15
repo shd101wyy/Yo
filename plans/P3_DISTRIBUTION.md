@@ -7,9 +7,9 @@ traps recorded as found. Drafted 2026-08-11; **item 1 landed 2026-08-12**.
 
 ## CRITICAL PATH 2026-08-15 — cutting a release is now the blocker
 
-Three P3 deliverables are built, committed and CI-verified, and all three are
-inert until a release runs, because each is produced or deployed only by
-`release.yml`:
+Four P3 deliverables are built, committed and CI-verified, and every one of them
+is inert until a release runs, because each is produced, deployed, or carried to
+users only by `release.yml`:
 
 | Deliverable                | Produced by               | Status until a release runs                         |
 | -------------------------- | ------------------------- | --------------------------------------------------- |

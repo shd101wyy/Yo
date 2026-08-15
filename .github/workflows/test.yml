@@ -328,11 +328,24 @@ jobs:
           # Build-system coverage is NOT lost: the "Build system smoke test"
           # step below still runs `$S1 build run` on a scratch project, where
           # the memory involved is trivial.
+          # SEED-ERA FLAGS ONLY. `--emit-c-to` is new in THIS tree and the seed
+          # is a PREVIOUS RELEASE, so passing it here made the seed treat it as
+          # a positional and try to compile /tmp/stage1.c, which does not exist:
+          # "yo-self: error: file or directory not found", 4 seconds in, with
+          # memory at 1.3 GB (run 31869066863) — nothing to do with the OOM this
+          # step is about.
+          #
+          # This is byte-for-byte the flag set the musl leg already proves works
+          # against the seed (`--emit-c --skip-c-compiler -o <base>`, writing the
+          # `<base>.c` sidecar), rather than a spelling reasoned to be
+          # equivalent. stdout is discarded because `--emit-c` PRINTS the C, and
+          # 140 MB of it would drown the job log; the sidecar is the artifact we
+          # actually want, and stderr is kept so failures still surface.
           set +e
           sudo systemd-run --scope -p MemoryHigh=11G -p MemoryMax=14G \
             env YO_MAIN_STACK_MB=4096 nice -n 10 "$YO_BIN" compile yo-self/main.yo \
               --release --allocator mimalloc --std-path ./std \
-              --emit-c-to /tmp/stage1.c --skip-c-compiler
+              --emit-c --skip-c-compiler -o /tmp/stage1 > /dev/null
           EMIT_RC=$?
           set -e
           kill "$(cat /tmp/yo-sampler.pid)" 2>/dev/null || true
