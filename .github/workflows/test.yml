@@ -43,7 +43,7 @@ env:
   # Bumping this pin before publish-release has run fails all four
   # seed-driven jobs at the download, which is exactly what happened on the
   # first push of this pin.
-  SEED_VERSION: v0.2.4
+  SEED_VERSION: v0.2.5
 
 jobs:
   # The VS Code extension is npm/bun-native BY DESIGN (vsce, vscode-languageclient,
@@ -448,12 +448,16 @@ jobs:
       # The language suite contains REGRESSION TESTS for compiler bugs, so it
       # can only ever be run by the compiler built from THIS checkout. Running
       # it under the seed fails by construction on every test added since the
-      # seed was released: run 31861036285 died on "standalone await as the
+      # seed was released — WHICHEVER seed that is. This is structural, not a
+      # property of one pin: bumping SEED_VERSION moves the cutoff forward, it
+      # never removes it, because a regression test lands in the same commit as
+      # the fix it guards and the seed is always at least one release behind.
+      # Recorded instance: run 31861036285 died on "standalone await as the
       # async body's own result" (tests/async_await.test.yo:3974), added by
-      # 15cf7bc4f with the tail-await result-loss codegen fix — a fix v0.2.4
-      # does not have, so the test correctly fails there. Any allowlist for
-      # that would need editing on every compiler fix and would invert the
-      # meaning of the suite.
+      # 15cf7bc4f with the tail-await result-loss codegen fix, which the
+      # then-current seed (v0.2.4) did not have — so the test correctly failed
+      # there. Any allowlist for that would need editing on every compiler fix
+      # and would invert the meaning of the suite.
       #
       # Since only Linux can host the stage-1 build (see the note above), the
       # suite is Linux-only per PR. macOS/Windows compiler coverage is

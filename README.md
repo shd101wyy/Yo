@@ -76,12 +76,12 @@ Installs a native prebuilt compiler — no Node.js or npm required.
 
 ```bash
 # macOS / Linux
-$ curl -sSL https://raw.githubusercontent.com/shd101wyy/Yo/develop/scripts/install.sh | sh
+$ curl -sSL https://shd101wyy.github.io/Yo/install.sh | sh
 ```
 
 ```powershell
 # Windows (PowerShell)
-> irm https://raw.githubusercontent.com/shd101wyy/Yo/develop/scripts/install.ps1 | iex
+> irm https://shd101wyy.github.io/Yo/install.ps1 | iex
 ```
 
 This installs to `<prefix>/lib/yo/<tag>` and links `<prefix>/bin/yo`, with the
@@ -99,10 +99,10 @@ prefix defaulting to `$HOME/.local`. Useful options:
 
 ```bash
 # a specific release, system-wide
-$ curl -sSL https://raw.githubusercontent.com/shd101wyy/Yo/develop/scripts/install.sh | sh -s -- --version=v0.2.4 --prefix=/usr/local
+$ curl -sSL https://shd101wyy.github.io/Yo/install.sh | sh -s -- --version=v0.2.5 --prefix=/usr/local
 
 # build from source with your own toolchain
-$ curl -sSL https://raw.githubusercontent.com/shd101wyy/Yo/develop/scripts/install.sh | sh -s -- -cc=gcc -cflags='-march=native'
+$ curl -sSL https://shd101wyy.github.io/Yo/install.sh | sh -s -- -cc=gcc -cflags='-march=native'
 ```
 
 **Platforms without a prebuilt bundle** — pass `--from-source`. The installer
@@ -110,11 +110,6 @@ downloads the release's single-file `yo.c` and compiles it with your own C
 compiler, so it links against your own libc and loader. This is the answer on
 NixOS, where the prebuilt binary's hardcoded ELF interpreter
 (`/lib64/ld-linux-x86-64.so.2`) does not exist.
-
-> **Note:** `--from-source` needs a release that publishes the single-file
-> `yo.c`. Releases up to and including `v0.2.4` predate that artifact, so the
-> option only works on releases made after it. The installer says so explicitly
-> rather than failing obscurely.
 
 ### npm
 

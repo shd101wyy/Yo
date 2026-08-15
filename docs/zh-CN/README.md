@@ -76,12 +76,12 @@ Yo 的目标是 **简单** 和 **快速**（比 C 语言慢约 0% - 15%）。
 
 ```bash
 # macOS / Linux
-$ curl -sSL https://raw.githubusercontent.com/shd101wyy/Yo/develop/scripts/install.sh | sh
+$ curl -sSL https://shd101wyy.github.io/Yo/install.sh | sh
 ```
 
 ```powershell
 # Windows（PowerShell）
-> irm https://raw.githubusercontent.com/shd101wyy/Yo/develop/scripts/install.ps1 | iex
+> irm https://shd101wyy.github.io/Yo/install.ps1 | iex
 ```
 
 安装到 `<prefix>/lib/yo/<tag>`，并在 `<prefix>/bin/yo` 创建链接，`prefix` 默认为
@@ -99,20 +99,16 @@ $ curl -sSL https://raw.githubusercontent.com/shd101wyy/Yo/develop/scripts/insta
 
 ```bash
 # 安装指定版本，系统级安装
-$ curl -sSL https://raw.githubusercontent.com/shd101wyy/Yo/develop/scripts/install.sh | sh -s -- --version=v0.2.4 --prefix=/usr/local
+$ curl -sSL https://shd101wyy.github.io/Yo/install.sh | sh -s -- --version=v0.2.5 --prefix=/usr/local
 
 # 使用自己的工具链从源码构建
-$ curl -sSL https://raw.githubusercontent.com/shd101wyy/Yo/develop/scripts/install.sh | sh -s -- -cc=gcc -cflags='-march=native'
+$ curl -sSL https://shd101wyy.github.io/Yo/install.sh | sh -s -- -cc=gcc -cflags='-march=native'
 ```
 
 **没有预编译包的平台** —— 使用 `--from-source`。安装脚本会下载该版本的单文件
 `yo.c`，并用你自己的 C 编译器编译，因此它链接的是你自己的 libc 和加载器。这正是
 NixOS 上的解决方案 —— 预编译二进制文件中硬编码的 ELF 解释器路径
 （`/lib64/ld-linux-x86-64.so.2`）在 NixOS 上并不存在。
-
-> **注意：** `--from-source` 需要发布版本中包含单文件 `yo.c`。截至 `v0.2.4` 的所有
-> 版本都早于该产物，因此该选项仅适用于此后发布的版本。安装脚本会明确提示这一点，
-> 而不会以晦涩的方式失败。
 
 ### npm
 
