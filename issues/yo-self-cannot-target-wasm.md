@@ -93,6 +93,30 @@ forcing `--cc emcc` for wasm targets exactly as `build-runner.ts:902-907` does.
 which always passes the target explicitly. Only `yo build` reaches it** — which
 is why the smoke test, not the test suite, is what caught it.
 
+### Regression coverage, and a broader exposure
+
+**The regression test is the WASM build-system smoke test itself**, and it only
+became one with this conversion. `yo build run` against
+`CompilationTarget.Wasm32_Emscripten`, driven by the stage-1 binary, fails
+exactly when `--target` stops travelling. Before the conversion that step ran
+the TS compiler, which compiles in-process and cannot exhibit the bug — so the
+step existed but was structurally incapable of catching it.
+
+No cheaper test is available: `--dry-run` only names steps
+(`build_runner.yo:1385`), it does not print the compile command, so a
+`tests/cli-cases` entry cannot assert the flag. And `yo compile --target …`
+always passes the target explicitly, so the whole `compile` surface is blind to
+this.
+
+**The bug was never wasm-specific.** `effective_target` is `artifact.target`
+whenever the CLI does not override it, so ANY artifact declaring a non-host
+`target` in `build.yo` — a cross-compile to `aarch64-linux-gnu`, say — was
+silently built for the host, with the cross-shaped output path and extension
+applied around a native binary. wasm is simply where it was visible, because a
+host ELF cannot pretend to be a `.wasm` module. Nothing in CI declares a
+non-host non-wasm target, so that case had no coverage at all and still has
+none; the fix covers it, a test does not.
+
 ### The earlier hypothesis, which was WRONG
 
 yo-self passed `-lm -pthread` on every non-Windows link, so wasm got them; TS
