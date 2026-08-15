@@ -72,7 +72,7 @@ _(env : proc_env) :: import("std/env");
 { format_yo_source, format_yo_files, FormatYoFilesOptions } :: import("./formatter.yo");
 { host_target, parse_target, TargetInfo, is_target_linux, is_target_windows, is_target_macos, is_target_wasm, is_target_standalone_wasi } :: import("./target.yo");
 { compile_module } :: import("./codegen/codegen_c.yo");
-{ get_needs_intel_asm_syntax } :: import("./codegen/utils/index.yo");
+{ get_needs_intel_asm_syntax, get_uses_parallelism } :: import("./codegen/utils/index.yo");
 { panic, assert } :: import("std/assert");
 // Temporary C source path used during compilation.
 C_TMP :: "/tmp/yo_self_out.c";
@@ -960,6 +960,13 @@ run_compile :: (
   // `--emit-c-to <path>`: write the single generated C file to exactly this
   // path instead of the `<output>.c` sidecar. "" = unset.
   (emit_c_to : String) = String.new();
+  // `--emcc-environment <web|node>`: mirrors the TS-internal `emccEnvironment`
+  // codegen option (codegen/index.ts:187). TS has no CLI flag for it because
+  // its build-runner calls codegen in-process; ours SHELLS OUT to `compile`,
+  // so the value needs a flag to travel on. "" = unset, which is exactly TS's
+  // `undefined` for the plain `yo compile` path and adds `-sNODERAWFS=1`;
+  // build_runner passes `web` for wasm targets, which suppresses it.
+  (emcc_environment : String) = String.new();
   (skip_cc : bool) = false;
   (skip_codegen : bool) = false;
   (release : bool) = false;
@@ -1012,6 +1019,10 @@ run_compile :: (
       },
       (a_name == "--sysroot") => {
         sysroot = _opt_value(argv, ai, a_name.clone(), a_val.clone(), exn);
+        ai = (ai + _opt_step(a_val));
+      },
+      (a_name == "--emcc-environment") => {
+        emcc_environment = _opt_value(argv, ai, a_name.clone(), a_val.clone(), exn);
         ai = (ai + _opt_step(a_val));
       },
       (a_name == "--allocator") => {
@@ -1181,6 +1192,9 @@ run_compile :: (
   });
   if((sanitize != "") && (((sanitize != "address") && (sanitize != "leak")) && (sanitize != "thread")), {
     exn.throw(dyn(`compile: invalid --sanitize "${sanitize}". Choices: address, leak, thread`));
+  });
+  if((emcc_environment != "") && ((emcc_environment != "web") && (emcc_environment != "node")), {
+    exn.throw(dyn(`compile: invalid --emcc-environment "${emcc_environment}". Choices: web, node`));
   });
   // ----- C compiler resolution (src/yo-cli.ts:468-486) ---------------------
   // Auto-select emcc for wasm targets when --cc was not given; otherwise probe
@@ -1389,6 +1403,11 @@ run_compile :: (
     cmd.arg(String.from("-static"));
   });
   // Sanitizers (clang/gcc; mirror of TS getSanitizerFlags for the Unix path).
+  // emcc takes none — TS gates the whole block on `!isEmcc`
+  // (codegen/index.ts:465), and the test path already mirrors that.
+  if(cc == "emcc", {
+    sanitize = String.from("");
+  });
   cond(
     (sanitize == "address") => {
       // Functionality probe first (TS getSanitizerFlags): a clang/ASan
@@ -1448,12 +1467,40 @@ run_compile :: (
   }, {
     println(String.from("Using libc allocator"));
   });
-  // Cross-compile target / sysroot pass-through.
-  if(target_triple != "", {
-    cmd.arg(`--target=${target_triple}`);
+  // Cross-compile target / sysroot pass-through. Skipped entirely for emcc,
+  // which handles its own target internally (codegen/index.ts:636-641) — it
+  // rejects `--target=wasm32-emscripten`.
+  if(cc != "emcc", {
+    if(target_triple != "", {
+      cmd.arg(`--target=${target_triple}`);
+    });
+    if(sysroot != "", {
+      cmd.arg(`--sysroot=${sysroot}`);
+    });
   });
-  if(sysroot != "", {
-    cmd.arg(`--sysroot=${sysroot}`);
+  // Emscripten-specific link flags (codegen/index.ts:605-634).
+  if(cc == "emcc", {
+    // WASM call_indirect demands exact signature matches, but codegen casts
+    // void* to function pointers — without this every such call traps.
+    cmd.arg(String.from("-sEMULATE_FUNCTION_POINTER_CASTS=1"));
+    // Yo emits C11, not C++. Emscripten 4.0.23+ otherwise fails to link on
+    // __cxa_increment_exception_refcount from its JS symbols library.
+    cmd.arg(String.from("-fno-exceptions"));
+    if(is_target_standalone_wasi(target), {
+      // Standalone WASI: a bare .wasm with no JS glue.
+      cmd.arg(String.from("-sSTANDALONE_WASM"));
+    }, {
+      // Node: use the real filesystem instead of MEMFS. Skipped for `web`,
+      // where NODERAWFS's require('fs') does not exist.
+      if(emcc_environment != "web", {
+        cmd.arg(String.from("-sNODERAWFS=1"));
+      });
+    });
+    if(get_uses_parallelism(), {
+      cmd.arg(String.from("-pthread"));
+      cmd.arg(String.from("-sPTHREAD_POOL_SIZE=4"));
+      cmd.arg(String.from("-sEXIT_RUNTIME=1"));
+    });
   });
   // --static-library: compile to a .o (-c -fPIC) then archive into a .a.
   // Otherwise compile + link into an executable.

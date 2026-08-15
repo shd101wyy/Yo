@@ -78,7 +78,8 @@ open(import("std/string"));
   can_optimize_as_nullable_pointer,
   get_variable_type_string,
   get_variable_name_for_codegen,
-  scope_stack_contains
+  scope_stack_contains,
+  mark_uses_parallelism
 } :: import("../utils/index.yo");
 { Environment } :: import("../../env.yo");
 {
@@ -2237,6 +2238,9 @@ preregister_async_blocks_in_expr :: (fn(expr : AstExpr, context : FunctionGenera
     _called_extern_name(expr, context),
     .Some(name) => if((name == "__yo_thread_spawn") || (name == "__yo_worker_spawn"), {
       context.uses_parallelism = true;
+      // Mirror into the module global so main.yo can see it when it assembles
+      // the emcc link line (TS: moduleManager.usesParallelism).
+      mark_uses_parallelism();
     }),
     .None => ()
   );

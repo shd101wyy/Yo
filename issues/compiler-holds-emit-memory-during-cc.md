@@ -1,6 +1,36 @@
 # The compiler holds its whole evaluator arena while the C compiler runs
 
-**Status: OPEN** (measured 2026-08-15 from CI run 31862196401.)
+**Status: OPEN — CONFIRMED TWICE, and now the sole cause of a red required
+check.** (First measured 2026-08-15 from CI run 31862196401; re-confirmed the
+same day on run 31864299243 under the memory cap.)
+
+## Re-confirmation under the cgroup cap (run 31864299243) — the decisive trace
+
+With `systemd-run --scope -p MemoryHigh=11G -p MemoryMax=14G` applied to the
+`test` matrix legs, `test (ubuntu-latest)` still fails, and the post-mortem
+step pins the moment precisely:
+
+```
+04:24:13   Building yo 65bb2ec → yo-out/x86_64-linux-gnu/bin/yo
+04:36      yo-out/x86_64-linux-gnu/bin/yo.c written — 140,540,726 bytes
+04:40:59   process dies, exit 2      (samples plateau at ~12.0-12.5 GB used)
+```
+
+**The emit SUCCEEDED.** Under an 11 GB soft cap the compiler got all the way
+through evaluation and codegen and wrote the full 140 MB of C. It then spent
+nearly five more minutes alive — holding that whole arena — while clang
+compiled the file, and died there.
+
+This isolates the bug from every other hypothesis:
+
+- it is NOT the emit peak (that now fits under the cap),
+- it is NOT clang being heavy (3.17 GB alone, measured locally),
+- it is ONLY the two overlapping, and the second peak is entirely avoidable
+  because nothing after `write_file` reads any of the state being held.
+
+Verified by source read on the same day: nothing between the `write_file` at
+`yo-self/main.yo` and the end of the compile path references `module_value`,
+`env`, `ctx`, `c_src` or `shared_info_table`. The release is safe.
 
 ## What the timeline shows
 
