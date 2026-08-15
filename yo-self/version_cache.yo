@@ -44,7 +44,9 @@ open(import("std/fmt"));
 } :: import("./target.yo");
 {
   get_global_versions_cache_dir,
-  get_version_cache_dir
+  get_version_cache_dir,
+  get_install_versions_dir,
+  get_install_version_dir
 } :: import("./cache.yo");
 // ---------------------------------------------------------------------------
 // Constants
@@ -247,10 +249,67 @@ is_version_cached :: (
   ) -> Impl(Future(bool, IoExn))
 )(
   io.async((e : IoExn) => {
+    // Look in the INSTALL root first, then the download cache. P3 item 1's
+    // "installer/cache unification": scripts/install.sh lays versions out at
+    // <prefix>/lib/yo/<tag> in exactly the same bundle shape the cache uses,
+    // but nothing looked there — so a `.yo-version` pin could not see a
+    // script-installed version and would offer to re-download it.
+    // Install root wins because it is the version the user deliberately
+    // installed; the cache is a download side-effect.
+    installed := match(
+      get_install_version_dir(version.clone()),
+      .Some(d) => e.io.await(exists(Path.new(cached_binary_path(d)), e.io), e.io),
+      .None => false
+    );
+    if(installed, {
+      return(true);
+    });
     version_dir := get_version_cache_dir(version);
     e.io.await(exists(Path.new(cached_binary_path(version_dir)), e.io), e.io)
   })
 );
+/// Resolve the directory holding `version`, preferring a script-installed copy
+/// over a downloaded one. `.None` when neither exists.
+resolve_version_dir :: (
+  fn(
+    version : String,
+    io : Io,
+    exn : Exception
+  ) -> Impl(Future(Option(String), IoExn))
+)(
+  io.async((e : IoExn) => {
+    match(
+      get_install_version_dir(version.clone()),
+      .Some(d) => {
+        if(e.io.await(exists(Path.new(cached_binary_path(d.clone())), e.io), e.io), {
+          return(Option(String).Some(d));
+        });
+      },
+      .None => ()
+    );
+    cached := get_version_cache_dir(version);
+    if(e.io.await(exists(Path.new(cached_binary_path(cached.clone())), e.io), e.io), {
+      return(Option(String).Some(cached));
+    });
+    Option(String).None
+  })
+);
+/// Is `name` already in `xs`? Used to de-duplicate a version that exists in
+/// both the install root and the download cache.
+_contains_version :: (fn(xs : ArrayList(String), name : String) -> bool)({
+  i := usize(0);
+  while(i < xs.len(), {
+    match(
+      xs.get(i),
+      .Some(v) => if(v == name, {
+        return(true);
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  false
+});
 /// List all locally cached Yo versions (directories holding a `bin/yo`).
 /// Returns an ArrayList sorted by semver (ascending). Old npm-shaped cache
 /// entries (package.json + node_modules) are ignored — that channel is dead.
@@ -261,29 +320,50 @@ list_cached_versions :: (
   ) -> Impl(Future(ArrayList(String), IoExn))
 )(
   io.async((e : IoExn) => {
-    versions_dir := get_global_versions_cache_dir();
-    dir_exists := e.io.await(exists(Path.new(versions_dir), e.io), e.io);
-    if(!(dir_exists), {
-      return(ArrayList(String).new());
-    });
-    entries := e.io.await(read_dir(Path.new(versions_dir), e.io), e);
     versions := ArrayList(String).new();
-    i := usize(0);
-    while(i < entries.len(), {
+    // Scan BOTH roots: the download cache and — when this binary was
+    // script-installed — <prefix>/lib/yo. Without the second, `yo version list`
+    // omits the very version the user is running, which reads as "not
+    // installed" (P3 item 1's installer/cache unification).
+    roots := ArrayList(String).new();
+    match(
+      get_install_versions_dir(),
+      .Some(d) => {
+        roots.push(d);
+      },
+      .None => ()
+    );
+    roots.push(get_global_versions_cache_dir());
+    r := usize(0);
+    while(r < roots.len(), {
       match(
-        entries.get(i),
+        roots.get(r),
         .None => (),
-        .Some(entry) => {
-          if(match(entry.file_type, .Directory => true, _ => false), {
-            entry_path := `${versions_dir}/${entry.name}`;
-            bin_exists := e.io.await(exists(Path.new(cached_binary_path(entry_path)), e.io), e.io);
-            if(bin_exists, {
-              versions.push(entry.name);
+        .Some(versions_dir) => {
+          if(e.io.await(exists(Path.new(versions_dir.clone()), e.io), e.io), {
+            entries := e.io.await(read_dir(Path.new(versions_dir.clone()), e.io), e);
+            i := usize(0);
+            while(i < entries.len(), {
+              match(
+                entries.get(i),
+                .None => (),
+                .Some(entry) => {
+                  if(match(entry.file_type, .Directory => true, _ => false), {
+                    entry_path := `${versions_dir}/${entry.name}`;
+                    bin_exists := e.io.await(exists(Path.new(cached_binary_path(entry_path)), e.io), e.io);
+                    // A version present in BOTH roots must appear once.
+                    if(bin_exists && !(_contains_version(versions, entry.name.clone())), {
+                      versions.push(entry.name);
+                    });
+                  });
+                }
+              );
+              i = (i + usize(1));
             });
           });
         }
       );
-      i = (i + usize(1));
+      r = (r + usize(1));
     });
     _sort_by_semver(versions)
   })
@@ -642,6 +722,7 @@ export(
   cached_binary_path,
   host_bundle_name,
   is_version_cached,
+  resolve_version_dir,
   list_cached_versions,
   clean_version_cache,
   download_version,
