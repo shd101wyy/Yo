@@ -177,6 +177,23 @@ is unconditional (`skipCondBranchCheck`). Relying on that is fragile.
 Both compilers need it; `yo-self/codegen/functions/context.yo`'s
 `CondBranchPostWhileExprs` is a `ref(struct(...))` in the same single-slot shape.
 
+## Blast radius: nothing shipped is affected
+
+Emit-diff gate, run to decide whether the compiler we ship is itself exposed:
+`compile yo-self/main.yo --skip-c-compiler` under the pre-fix and post-fix
+TypeScript compilers, then diff the two ~120 MB C files.
+
+After normalising the two nondeterministic name families — gensym'd labels
+(`continue_<rand>`, `loop_<rand>`, `_yo_async_return_<rand>`) and
+millisecond-timestamped capture structs
+(`__capture_fn_..._1786819606464_59`) — the outputs are **identical**, and the
+normalised files are byte-for-byte the same size.
+
+So `yo-self` contains no nested await-loop anywhere: the fix changes nothing
+about the compiler's own emission, and neither hole can affect the shipped
+binary. It also means the two holes are reachable only by user code that writes
+a shape which, before this fix, did not compile at all.
+
 ## Why these are filed rather than fixed
 
 The async state-machine emitter miscompiles silently when it is wrong, and this
