@@ -111,6 +111,11 @@ compiler, so it links against your own libc and loader. This is the answer on
 NixOS, where the prebuilt binary's hardcoded ELF interpreter
 (`/lib64/ld-linux-x86-64.so.2`) does not exist.
 
+> **Note:** `--from-source` needs a release that publishes the single-file
+> `yo.c`. Releases up to and including `v0.2.4` predate that artifact, so the
+> option only works on releases made after it. The installer says so explicitly
+> rather than failing obscurely.
+
 ### npm
 
 The compiler is also published as an `npm` package:

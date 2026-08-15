@@ -110,6 +110,10 @@ $ curl -sSL https://raw.githubusercontent.com/shd101wyy/Yo/develop/scripts/insta
 NixOS 上的解决方案 —— 预编译二进制文件中硬编码的 ELF 解释器路径
 （`/lib64/ld-linux-x86-64.so.2`）在 NixOS 上并不存在。
 
+> **注意：** `--from-source` 需要发布版本中包含单文件 `yo.c`。截至 `v0.2.4` 的所有
+> 版本都早于该产物，因此该选项仅适用于此后发布的版本。安装脚本会明确提示这一点，
+> 而不会以晦涩的方式失败。
+
 ### npm
 
 编译器同时也作为 `npm` 包发布：
