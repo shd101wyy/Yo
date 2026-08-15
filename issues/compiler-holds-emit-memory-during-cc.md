@@ -44,12 +44,37 @@ Linux page anything out.
 
 The workflow now applies the same cap (that is a mitigation, not the fix).
 
+## Where the memory actually lives (correcting the obvious first guess)
+
+The natural first move — extract the evaluate+emit region into a scope so its
+locals drop before the child runs — is **not sufficient on its own**. The bulk
+is held by module-manager GLOBALS, which no local scoping can release:
+
+- `g_module_cache_keys` / `g_module_cache_vals` / `g_module_cache_types` and
+  `g_loading_keys` / `g_loading_envs` (`yo-self/evaluator/module_loader.yo:88-94`)
+  — every evaluated module's values, for the whole import closure.
+- `g_cached_prelude_env` (`yo-self/module_manager.yo:218`).
+- `g_shared_expr_info_table` (`:223`) — per-expression codegen metadata for the
+  prelude, every demand-loaded module AND the entry module, deliberately shared
+  so codegen can see every collected function's body.
+
+Conversely, clearing the globals alone is also not sufficient: the locals
+`module_value`, `env`, `ctx` and the 140 MB `c_src` still hold references at
+the point the C compiler is spawned, and `ctx.expr_info_table` pins the table
+even after the global slot is reassigned.
+
+So a real fix needs BOTH halves — drop the local handles and clear the globals
+— which is why this is a small design change rather than a one-line edit.
+
 ## Fix directions
 
-1. **Release before spawning.** Drop the evaluator/codegen state once the C
-   string has been written to disk and before `Command` runs the C compiler.
-   The emitted C is already on disk at that point — nothing needs the in-memory
-   copy. This alone should remove the overlap.
+1. **Release before spawning**, both halves together: clear the module cache,
+   the prelude env and the shared `ExprInfoTable`, AND drop the local
+   `module_value` / `env` / `ctx` handles, once the C string is on disk and
+   before `Command` runs the C compiler. Nothing after that point reads any of
+   it. The clearing primitives already exist (`clear_module_cache`,
+   `mm_clear_prelude_env`, `mm_set_shared_expr_info_table`) and are plain
+   global reassignments.
 2. **Free the C string.** `c_src` is a ~140 MB `String` that stays live across
    the child process; it can be released immediately after `write_file`.
 3. The broader arena cost is the subject of
