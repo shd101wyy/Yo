@@ -120,11 +120,16 @@ real issues remain in this area:
 
 The opening claim "no comptime OS branching in `std/`" was produced by a grep
 for `Os.Windows` / `is_windows`. The actual idiom is
-`platform == Platform.Windows`, so the grep missed all of it. Verified count:
-**63 matches across 13 files** — `std/env.yo`, `std/sys/socket.yo` (25 sites
-alone), `std/sys/{constants,mmap,clock,signals,sysinfo}.yo`,
-`std/fs/{dir,temp}.yo`, `std/os/{env,signal}.yo`, `std/crypto/random.yo`,
-`std/libc/dyld.yo`, plus `yo-self/cache.yo`.
+`platform == Platform.Windows`, so the grep missed all of it.
+
+Two counts appear in this doc; both are correct, for different queries.
+`Platform.(Linux|Macos|Windows)` in `std/` alone gives **63 matches across 13
+files**; widening to `platform ==|platform !=|arch ==|arch !=` and including
+`yo-self/` gives **81 sites across 15 files**. The files:
+`std/env.yo`, `std/sys/socket.yo` (25 sites alone),
+`std/sys/{constants,mmap,clock,signals,sysinfo}.yo`, `std/fs/{dir,temp}.yo`,
+`std/os/{env,signal}.yo`, `std/crypto/random.yo`, `std/libc/dyld.yo`, plus
+`yo-self/target.yo` (16) and `yo-self/cache.yo`.
 
 `src/evaluator/builtins/process.ts:42` folds `__yo_process_platform()` to a
 literal string, and the untaken `cond` arm is eliminated before codegen.
