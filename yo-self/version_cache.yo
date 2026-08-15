@@ -256,11 +256,20 @@ is_version_cached :: (
     // script-installed version and would offer to re-download it.
     // Install root wins because it is the version the user deliberately
     // installed; the cache is a download side-effect.
-    installed := match(
+    // The await is HOISTED out of the match arm on purpose. Inside an
+    // `io.async` block `io.await` may not sit in a `cond` condition or in a
+    // later branch, and `match`/`if` both lower to `cond` (std/prelude.yo's
+    // `if` macro). The self-hosted compiler accepts the nested form; the TS
+    // compiler rejects it, and TS is what builds the release bundles — so the
+    // nested form passed every PR check and broke the v0.2.5 release run.
+    // Resolving to a path FIRST and awaiting unconditionally is the shape the
+    // rest of this file already uses. An empty path simply does not exist.
+    inst_path := match(
       get_install_version_dir(version.clone()),
-      .Some(d) => e.io.await(exists(Path.new(cached_binary_path(d)), e.io), e.io),
-      .None => false
+      .Some(d) => cached_binary_path(d),
+      .None => String.new()
     );
+    installed := e.io.await(exists(Path.new(inst_path), e.io), e.io);
     if(installed, {
       return(true);
     });
@@ -278,17 +287,20 @@ resolve_version_dir :: (
   ) -> Impl(Future(Option(String), IoExn))
 )(
   io.async((e : IoExn) => {
-    match(
+    // Both awaits hoisted for the same reason as `is_version_cached` above:
+    // no `io.await` in a cond condition or a later branch.
+    inst_dir := match(
       get_install_version_dir(version.clone()),
-      .Some(d) => {
-        if(e.io.await(exists(Path.new(cached_binary_path(d.clone())), e.io), e.io), {
-          return(Option(String).Some(d));
-        });
-      },
-      .None => ()
+      .Some(d) => d,
+      .None => String.new()
     );
+    inst_found := e.io.await(exists(Path.new(cached_binary_path(inst_dir.clone())), e.io), e.io);
+    if(inst_found, {
+      return(Option(String).Some(inst_dir));
+    });
     cached := get_version_cache_dir(version);
-    if(e.io.await(exists(Path.new(cached_binary_path(cached.clone())), e.io), e.io), {
+    cached_found := e.io.await(exists(Path.new(cached_binary_path(cached.clone())), e.io), e.io);
+    if(cached_found, {
       return(Option(String).Some(cached));
     });
     Option(String).None
@@ -340,7 +352,9 @@ list_cached_versions :: (
         roots.get(r),
         .None => (),
         .Some(versions_dir) => {
-          if(e.io.await(exists(Path.new(versions_dir.clone()), e.io), e.io), {
+          // Hoisted: no `io.await` in a cond condition (see is_version_cached).
+          root_exists := e.io.await(exists(Path.new(versions_dir.clone()), e.io), e.io);
+          if(root_exists, {
             entries := e.io.await(read_dir(Path.new(versions_dir.clone()), e.io), e);
             i := usize(0);
             while(i < entries.len(), {
