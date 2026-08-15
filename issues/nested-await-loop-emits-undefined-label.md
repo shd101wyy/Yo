@@ -62,6 +62,33 @@ inner loop into its own async function (`_scan_versions_root`) — which is
 better code anyway, but the codegen bug is untouched and will catch the next
 person who nests two await-loops.
 
+## Localised to four lines (2026-08-15)
+
+All in `src/codegen/async/state-machine.ts`:
+
+| line    | what it does                                         |
+| ------- | ---------------------------------------------------- |
+| `:2228` | emits the `goto after_while_loop_${whileLoopIndex};` |
+| `:1590` | emits `after_while_loop_${whileLoopActiveIndex}:`    |
+| `:1981` | emits `after_while_loop_${outerIndex}:`              |
+| `:2959` | emits `after_while_loop_${loopIndex}:`               |
+
+The `goto` index comes from
+`whileLoopInfoForAwait.whileLoopOriginIndex ?? segment.awaitPoint.index`
+(`:2225-2227`). For the OUTER loop of a nested pair that resolves to 0, and
+**none of the three emit sites fires for 0** — the inner loop gets its label
+from one of them, which is why `after_while_loop_1` exists and
+`after_while_loop_0` does not.
+
+So the question for whoever fixes this is narrow: _under what condition should
+one of :1590 / :1981 / :2959 fire for the outer loop, and why does the nesting
+suppress it?_ Answer that and the fix is small.
+
+**Deliberately not attempted in the session that found it.** This is the async
+state-machine emitter — a wrong change here silently miscompiles every async
+program, and the differential plus fixpoint take ~2 hours to say so. It wants a
+fresh session with the repro in hand, not a tired one.
+
 ## Fix direction
 
 Make the loop-exit label name agree. Either emit `after_while_loop_N` alongside
