@@ -17,7 +17,7 @@ open(import("std/string"));
 { split_body_at_suspension_points, contains_suspension_expr } :: import("../shared/suspension_codegen.yo");
 { is_io_async_call, is_io_await_call } :: import("../../evaluator/async/await_analysis.yo");
 { extract_target_variable_id } :: import("../../evaluator/shared/suspension_analysis.yo");
-{ expr_contains_await } :: import("../../expr_traversal.yo");
+{ expr_contains_await, expr_contains_while_with_await } :: import("../../expr_traversal.yo");
 { expr_info_primitive_pattern_values, expr_info_is_primitive_match, lookup_macro_expansion } :: import("../../expr_info.yo");
 { FunctionGenerationContext, SmWhileBreakInfo, SmWhileContinueInfo, WhileLoopInfo, OuterWhileLoop, CondBranchPostWhileExprs, CondBranch, ChainedCondBranches, AsyncCondBranchInfo } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("../exprs/_expr.yo");
@@ -502,26 +502,6 @@ flatten_or_pattern_expr :: (fn(expr : AstExpr) -> ArrayList(AstExpr))({
     ri = (ri + usize(1));
   });
   out
-});
-/// True when a function body has a top-level `while` loop containing an
-/// `io.await` (such loops need the while-with-await state-machine lowering).
-/// Unwraps a `begin(...)` block to its statements. Mirrors
-/// `bodyContainsWhileWithAwait` (state-code-gen.ts:2120).
-body_contains_while_with_await :: (fn(body_expr : AstExpr) -> bool)({
-  body_exprs := if(ast_expr_is_fn_call_of(body_expr, BK_BEGIN, Option(usize).None), match(body_expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new()), {
-    single := ArrayList(AstExpr).new();
-    single.push(body_expr);
-    single
-  });
-  (i : usize) = usize(0);
-  while(i < body_exprs.len(), {
-    e := match(body_exprs.get(i), .Some(x) => x, .None => body_expr);
-    if(ast_expr_is_fn_call_of(e, BK_WHILE, Option(usize).None) && expr_contains_await(e), {
-      return(true);
-    });
-    i = (i + usize(1));
-  });
-  false
 });
 /// Extract the receiver variable's id for `target := …` / `target = …`, or
 /// `.None`. Mirrors the inline `targetVarId` lookup in `generateAwaitExpression`.
@@ -1227,7 +1207,7 @@ generate_while_with_await :: (
     match(args.get(usize(2)), .Some(e) => e, .None => while_expr),
     match(args.get(usize(1)), .Some(e) => e, .None => while_expr)
   );
-  has_nested := body_contains_while_with_await(body_expr);
+  has_nested := expr_contains_while_with_await(body_expr);
   (while_loop_index : usize) = usize(0);
   if(has_nested, {
     wli := match(context.async_next_while_loop_index, .Some(n) => n, .None => (await_point.base.index + usize(1)));
@@ -1263,7 +1243,8 @@ generate_while_with_await :: (
         condition_await : Option(bool).Some(true),
         step_await : Option(bool).None,
         cond_branch_post_while_exprs : Option(CondBranchPostWhileExprs).None,
-        outer_while_loop : Option(OuterWhileLoop).None
+        outer_while_loop : Option(OuterWhileLoop).None,
+        deferred_to_outer_while_loop : Option(bool).None
       )
     );
     context.async_while_loop_info = Option(HashMap(usize, WhileLoopInfo)).Some(cmap);
@@ -1314,7 +1295,31 @@ generate_while_with_await :: (
         );
         info_map.set(await_point.base.index, inner);
       },
-      .None => ()
+      // This outer loop suspends BEFORE control ever reaches the nested loop,
+      // so the nested loop is emitted by the resume state, not by the body
+      // generation above — there is no inner entry to attach to yet. The await
+      // point therefore belongs to THIS loop: store its own entry, and point
+      // the resume state's active flag, loop-back goto and exit label at the
+      // fresh index via while_loop_origin_index (they would otherwise default
+      // to the await index, which names the inner loop).
+      .None => {
+        info_map.set(
+          await_point.base.index,
+          WhileLoopInfo(
+            condition_expr : condition_expr,
+            step_expr : step_expr,
+            body_expr : body_expr,
+            body_exprs_after_await : Option(ArrayList(AstExpr)).Some(body_exprs_after_await),
+            while_loop_origin_index : Option(usize).Some(while_loop_index),
+            is_chained_await : Option(bool).None,
+            condition_await : Option(bool).None,
+            step_await : Option(bool).Some(step_is_awaiting),
+            cond_branch_post_while_exprs : Option(CondBranchPostWhileExprs).None,
+            outer_while_loop : Option(OuterWhileLoop).None,
+            deferred_to_outer_while_loop : Option(bool).None
+          )
+        );
+      }
     );
   }, {
     info_map.set(
@@ -1329,7 +1334,8 @@ generate_while_with_await :: (
         condition_await : Option(bool).None,
         step_await : Option(bool).Some(step_is_awaiting),
         cond_branch_post_while_exprs : Option(CondBranchPostWhileExprs).None,
-        outer_while_loop : Option(OuterWhileLoop).None
+        outer_while_loop : Option(OuterWhileLoop).None,
+        deferred_to_outer_while_loop : Option(bool).None
       )
     );
   });
@@ -2791,7 +2797,6 @@ export(
   expr_contains_return_statement,
   is_or_pattern_expr,
   flatten_or_pattern_expr,
-  body_contains_while_with_await,
   generate_await_expression,
   generate_state_segment_code,
   generate_while_body_with_await,

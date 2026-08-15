@@ -3986,3 +3986,93 @@ test("standalone await as the async body's own result", {
   got := io.await(tail_result(io), IoExn(io : io, exn : exn));
   assert(got == i32(42));
 });
+test("an async while whose body awaits then runs a nested awaiting while", {
+  // The outer loop suspends BEFORE control reaches the inner loop, so the
+  // inner loop is emitted in the outer's resume state and both loops claim the
+  // same await index. The forward that carries the outer loop's chain used to
+  // bail out when the slot was taken, leaving the outer loop with no back-edge
+  // and no exit label: its body ran once and the transition code's
+  // `goto after_while_loop_N` named a label nobody defined (a hard C error
+  // here, a one-iteration silent exit wherever the label happened to exist).
+  // See issues/fixed/nested-await-loop-emits-undefined-label.md.
+  drive := (fn(rio : Io) -> Impl(Future(usize, Io)))(
+    rio.async((aio : Io) => {
+      (count : usize) = usize(0);
+      outer := ArrayList(usize).new();
+      outer.push(usize(1));
+      outer.push(usize(1));
+      outer.push(usize(1));
+      r := usize(0);
+      while(runtime(r < outer.len()), {
+        match(
+          outer.get(r),
+          .None => (),
+          .Some(d) => {
+            aio.await(yield(aio), aio);
+            inner := ArrayList(usize).new();
+            inner.push(d);
+            inner.push(d);
+            i := usize(0);
+            while(runtime(i < inner.len()), {
+              match(
+                inner.get(i),
+                .None => (),
+                .Some(f) => {
+                  aio.await(yield(aio), aio);
+                  count = (count + f);
+                }
+              );
+              i = (i + usize(1));
+            });
+          }
+        );
+        r = (r + usize(1));
+      });
+      count
+    })
+  );
+  assert(
+    io.await(drive(io), io) == usize(6),
+    "3 outer iterations x 2 inner iterations"
+  );
+});
+test("an awaiting match arm keeps its locals alive across a nested awaiting while", {
+  // The arm's scope-end drops belong AFTER the loop it encloses. They used to
+  // be chained as the arm's "remaining code", which the state machine emits at
+  // the TOP of the loop's resume state — so `inner` was dropped during the
+  // FIRST iteration and the condition then re-read freed memory, ending the
+  // loop early (2 expected, 1 observed). Distinct from the outer-loop back-edge
+  // bug above: this needs no enclosing loop at all.
+  // See issues/fixed/nested-await-loop-emits-undefined-label.md.
+  drive := (fn(rio : Io) -> Impl(Future(usize, Io)))(
+    rio.async((aio : Io) => {
+      (count : usize) = usize(0);
+      seed := ArrayList(usize).new();
+      seed.push(usize(1));
+      match(
+        seed.get(usize(0)),
+        .None => (),
+        .Some(d) => {
+          aio.await(yield(aio), aio);
+          inner := ArrayList(usize).new();
+          inner.push(d);
+          inner.push(d);
+          i := usize(0);
+          while(runtime(i < inner.len()), {
+            match(
+              inner.get(i),
+              .None => (),
+              .Some(f) => {
+                aio.await(yield(aio), aio);
+                count = (count + f);
+              }
+            );
+            i = (i + usize(1));
+          });
+        }
+      );
+      count
+    })
+  );
+  assert(io.await(drive(io), io) == usize(2), "both inner iterations ran");
+});

@@ -6,9 +6,16 @@ open(import("std/fmt"));
 { exists } :: import("std/fs/file");
 /// Nested while-with-awaits inside match arms — the shape that made the v0.2.4
 /// seed emit `goto after_while_loop_0` with no such label.
+///
+/// The outer loop awaits BEFORE reaching the inner loop, so the inner loop is
+/// emitted in the outer's resume state and both loops want the same await
+/// index. Counts are 3 outer x 2 inner: a correct lowering visits every pair
+/// and yields 6, while an outer loop that lost its back-edge yields 2.
 probe :: (fn(io : Io, exn : Exception) -> Impl(Future(usize, IoExn)))(
   io.async((e : IoExn) => {
     outer := ArrayList(String).new();
+    outer.push(String.from("."));
+    outer.push(String.from("."));
     outer.push(String.from("."));
     n := usize(0);
     r := usize(0);
@@ -20,6 +27,7 @@ probe :: (fn(io : Io, exn : Exception) -> Impl(Future(usize, IoExn)))(
           got := e.io.await(exists(Path.new(d.clone()), e.io), e.io);
           if(got, {
             inner := ArrayList(String).new();
+            inner.push(String.from("."));
             inner.push(String.from("."));
             i := usize(0);
             while(i < inner.len(), {

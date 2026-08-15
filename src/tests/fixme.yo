@@ -1,50 +1,39 @@
 open(import("std/string"));
 open(import("std/fmt"));
+{ yield } :: import("std/async");
 { ArrayList } :: import("std/collections/array_list");
-{ Exception, IoExn } :: import("std/error");
-{ Path } :: import("std/path");
-{ exists } :: import("std/fs/file");
-/// Nested while-with-awaits inside match arms — the shape that made the v0.2.4
-/// seed emit `goto after_while_loop_0` with no such label.
-probe :: (fn(io : Io, exn : Exception) -> Impl(Future(usize, IoExn)))(
-  io.async((e : IoExn) => {
-    outer := ArrayList(String).new();
-    outer.push(String.from("."));
-    n := usize(0);
-    r := usize(0);
-    while(r < outer.len(), {
-      match(
-        outer.get(r),
-        .None => (),
-        .Some(d) => {
-          got := e.io.await(exists(Path.new(d.clone()), e.io), e.io);
-          if(got, {
-            inner := ArrayList(String).new();
-            inner.push(String.from("."));
-            i := usize(0);
-            while(i < inner.len(), {
-              match(
-                inner.get(i),
-                .None => (),
-                .Some(f) => {
-                  hit := e.io.await(exists(Path.new(f.clone()), e.io), e.io);
-                  if(hit, {
-                    n = (n + usize(1));
-                  });
-                }
-              );
-              i = (i + usize(1));
-            });
-          });
-        }
-      );
-      r = (r + usize(1));
-    });
-    n
+drive :: (fn(rio : Io) -> Impl(Future(usize, Io)))(
+  rio.async((aio : Io) => {
+    (count : usize) = usize(0);
+    seed := ArrayList(usize).new();
+    seed.push(usize(1));
+    match(
+      seed.get(usize(0)),
+      .None => (),
+      .Some(d) => {
+        aio.await(yield(aio), aio);
+        inner := ArrayList(usize).new();
+        inner.push(d);
+        inner.push(d);
+        i := usize(0);
+        while(runtime(i < inner.len()), {
+          match(
+            inner.get(i),
+            .None => (),
+            .Some(f) => {
+              aio.await(yield(aio), aio);
+              count = (count + f);
+            }
+          );
+          i = (i + usize(1));
+        });
+      }
+    );
+    count
   })
 );
-main :: (fn(io : Io, exn : Exception) -> unit)({
-  c := io.await(probe(io, exn), IoExn(io : io, exn : exn));
-  println(`probe=${c.to_string()}`);
+main :: (fn(io : Io) -> unit)({
+  c := io.await(drive(io), io);
+  println(`count=${c.to_string()} expected=2`);
 });
 export(main);

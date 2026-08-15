@@ -364,6 +364,75 @@ export function exprTreeContainsReturn(expr: Expr): boolean {
 }
 
 /**
+ * Checks if an expression contains a `while` loop that itself suspends — a
+ * nested while-with-await, at ANY depth.
+ *
+ * The async state machine gives a loop its own while-loop index, and emits its
+ * `while_loop_N_continue` / `after_while_loop_N` labels, only when it knows the
+ * loop encloses another suspending loop. A shallow scan of the body's top-level
+ * expressions misses the ordinary shapes — the inner loop usually sits inside a
+ * `match` arm or an `if`, and `if(...)` keeps its macro head in the AST, so the
+ * branch structure is only reachable through `$.macroExpansion`. Missing it
+ * makes the outer loop lower as if it were innermost: no back-edge and no exit
+ * label, so its body runs once and control never returns to it.
+ *
+ * Honors the same boundaries as `exprContainsAwait` — an `io.async(...)`
+ * closure or a function definition gets its own state machine, so a loop inside
+ * one is not this loop's nested loop.
+ */
+export function exprContainsWhileWithAwait(expr: Expr): boolean {
+  if (!exprIsFunctionCall(expr)) return false;
+
+  if (
+    exprIsFunctionCallOf(expr, BuiltinKeywords.while) &&
+    exprContainsAwait(expr)
+  ) {
+    return true;
+  }
+
+  if (expr.$?.macroExpansion) {
+    return exprContainsWhileWithAwait(expr.$.macroExpansion);
+  }
+
+  // Handle cond/match explicitly — recurse into branches without treating => as function boundary
+  if (
+    exprIsFunctionCallOf(expr, BuiltinKeywords.cond) ||
+    exprIsFunctionCallOf(expr, BuiltinKeywords.match)
+  ) {
+    return traverseCondMatchBranches(expr, exprContainsWhileWithAwait);
+  }
+
+  if (
+    // Skip io.async(closure) calls — they create new async scopes
+    expr.func.$?.type?.ioBuiltin === "io_async" ||
+    isFunctionBoundaryArrow(expr) ||
+    (isTypeValue(expr.func.$?.value) && isFunctionType(expr.func.$.value.value))
+  ) {
+    return false;
+  }
+
+  if (
+    exprIsFunctionCall(expr.func) &&
+    expr.func.$?.value !== undefined &&
+    isTypeValue(expr.func.$.value) &&
+    typeImplementsFn(expr.func.$.value.value)
+  ) {
+    return false;
+  }
+
+  if (exprContainsWhileWithAwait(expr.func)) {
+    return true;
+  }
+  for (const arg of expr.args) {
+    if (exprContainsWhileWithAwait(arg)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
  * Checks if an expression contains any await expression.
  * Skips function boundaries (closures, async blocks) that create new scopes.
  * Does NOT skip cond/match branch arrows, as those are not function boundaries.

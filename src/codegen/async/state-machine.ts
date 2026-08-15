@@ -29,7 +29,10 @@ import {
   type Expr,
   type FnCallExpr,
 } from "../../expr";
-import { exprContainsAwait } from "../../expr-traversal";
+import {
+  exprContainsAwait,
+  exprContainsWhileWithAwait,
+} from "../../expr-traversal";
 import type {
   DynType,
   SourceNamespaceType,
@@ -933,6 +936,10 @@ export function generateAsyncBlockResumeFunction(
 
                 // Generate remaining expressions, detecting additional awaits
                 let foundAdditionalAwait = false;
+                // The expression that carried the additional await. When it is
+                // a suspending while loop, everything after it must run once
+                // the loop EXITS, not on each of its resumes.
+                let additionalAwaitExpr: Expr | undefined;
                 const additionalRemainingExprs: Expr[] = [];
 
                 // Determine assignment target for the last remaining expression
@@ -957,6 +964,7 @@ export function generateAsyncBlockResumeFunction(
                   // Check if this expression contains an additional await
                   if (hasAdditionalCondAwait && exprContainsAwait(expr)) {
                     foundAdditionalAwait = true;
+                    additionalAwaitExpr = expr;
                     // Store the future for the next await point
                     generateRemainingExprFuture(
                       expr,
@@ -1011,23 +1019,84 @@ export function generateAsyncBlockResumeFunction(
                   // issues/async-while-nested-branch-await-exits-loop.md.
                   const enclosingWhile =
                     functionContext.asyncWhileLoopInfo?.get(prevAwait.index);
-                  if (
-                    enclosingWhile &&
-                    !functionContext.asyncWhileLoopInfo!.has(nextIndex)
-                  ) {
+                  const existingNextWhile =
+                    functionContext.asyncWhileLoopInfo?.get(nextIndex);
+                  if (enclosingWhile && !existingNextWhile) {
                     functionContext.asyncWhileLoopInfo!.set(nextIndex, {
                       ...enclosingWhile,
                       whileLoopOriginIndex:
                         enclosingWhile.whileLoopOriginIndex ?? prevAwait.index,
                       isChainedAwait: true,
                     });
+                  } else if (
+                    enclosingWhile &&
+                    existingNextWhile &&
+                    !existingNextWhile.outerWhileLoop &&
+                    (existingNextWhile.whileLoopOriginIndex ?? nextIndex) !==
+                      (enclosingWhile.whileLoopOriginIndex ?? prevAwait.index)
+                  ) {
+                    // The slot is already claimed by a DIFFERENT loop: a nested
+                    // while-with-await in this branch stored its own entry under
+                    // the same await index. Overwriting it would lose the inner
+                    // loop; skipping (what we used to do) loses US — the outer
+                    // loop then gets no loop-back and no exit label, so its body
+                    // runs once and the `goto after_while_loop_N` emitted by the
+                    // transition code names a label nobody defines.
+                    //
+                    // Record this loop as the inner one's ENCLOSING loop instead.
+                    // The state that finishes the inner loop then emits our
+                    // remaining body, loop-back and exit label right after
+                    // `after_while_loop_<inner>` — which is also the correct
+                    // order, since our post-await body follows the nested loop.
+                    existingNextWhile.outerWhileLoop = {
+                      whileLoopIndex:
+                        enclosingWhile.whileLoopOriginIndex ?? prevAwait.index,
+                      conditionExpr: enclosingWhile.conditionExpr,
+                      stepExpr: enclosingWhile.stepExpr,
+                      bodyExpr: enclosingWhile.bodyExpr,
+                      bodyExprsAfterAwait:
+                        enclosingWhile.bodyExprsAfterAwait ?? [],
+                    };
+                    enclosingWhile.deferredToOuterWhileLoop = true;
                   }
+                  // If the expression that carried the additional await IS a
+                  // suspending while loop, this branch's remaining code sits
+                  // AFTER that loop in the source. Chaining it would emit it at
+                  // the TOP of the loop's resume state — i.e. on every
+                  // iteration — so the branch's scope-end drops would free the
+                  // locals (typically the very collection the loop iterates)
+                  // during the first one: the condition then re-reads freed
+                  // memory and the loop exits early. Defer it to the loop's
+                  // post-exit slot instead, exactly as generateCondWithAwait
+                  // already does when it can see the loop entry itself.
+                  const nestedWhileForPostCode =
+                    additionalAwaitExpr &&
+                    exprContainsWhileWithAwait(additionalAwaitExpr)
+                      ? functionContext.asyncWhileLoopInfo?.get(nextIndex)
+                      : undefined;
+                  let deferredToPostWhile = false;
+                  if (
+                    nestedWhileForPostCode &&
+                    !nestedWhileForPostCode.condBranchPostWhileExprs &&
+                    additionalRemainingExprs.length > 0
+                  ) {
+                    nestedWhileForPostCode.condBranchPostWhileExprs = {
+                      branchIndex: branch.index,
+                      condBranchFieldIndex,
+                      exprs: additionalRemainingExprs,
+                      deferredDropExpressions: branch.deferredDropExpressions,
+                    };
+                    deferredToPostWhile = true;
+                  }
+
                   if (!functionContext.asyncCondBranchInfo) {
                     functionContext.asyncCondBranchInfo = new Map();
                   }
                   const existing =
                     functionContext.asyncCondBranchInfo.get(nextIndex);
-                  if (existing) {
+                  if (deferredToPostWhile) {
+                    // Already routed to the nested loop's post-exit slot above.
+                  } else if (existing) {
                     // Entry already exists (from a nested cond's generateCondWithAwait).
                     // Chain the outer cond's remaining code as a separate layer.
                     if (!existing.chainedBranches) {
@@ -1240,6 +1309,11 @@ export function generateAsyncBlockResumeFunction(
             context as FunctionGenerationContext,
             emitter
           );
+        } else if (whileLoopData?.deferredToOuterWhileLoop) {
+          // This loop handed its remaining body, loop-back and exit label to the
+          // nested while-with-await that shares this await index. Emitting them
+          // here would run our post-await body BEFORE the nested loop finishes
+          // (and loop back before it ever runs a second iteration).
         } else if (whileLoopData) {
           // For chained awaits, use the original while loop's index for all
           // while_loop_N references (active flag, labels, loop-back state).
