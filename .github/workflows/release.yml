@@ -395,14 +395,99 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload "v${{ needs.release.outputs.version }}" "$BUNDLE.tar.gz" --clobber
 
+      # This leg's arm of the single portable `yo.c`
+      # (plans/PORTABLE_C_DISTRIBUTION.md). A SECOND emit rather than reusing
+      # the bundle's `yo-seed.c`, because that one is mimalloc-flavored: its
+      # mimalloc use is behind `#if __has_include(<mimalloc.h>)`, so it is
+      # self-contained on a box WITHOUT mimalloc headers but MIS-LINKS on one
+      # that has the headers and no -lmimalloc. The published file must not
+      # depend on what the user happens to have installed, so it is libc.
+      - name: "Emit this platform's arm of the portable yo.c"
+        shell: bash
+        run: |
+          node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs \
+            compile yo-self/main.yo --release --allocator libc \
+            --skip-c-compiler --emit-c-to "portable-arm/${{ matrix.target }}.c"
+          ls -la "portable-arm/${{ matrix.target }}.c"
+
+      - name: Upload the portable-C arm
+        uses: actions/upload-artifact@v4
+        with:
+          name: portable-c-${{ matrix.target }}
+          path: portable-arm/${{ matrix.target }}.c
+          retention-days: 1
+          if-no-files-found: error
+
   # Flip the draft release public once the seed bundles are in. Runs only
   # when the seed-bundles job succeeded — with the experimental legs on
   # continue-on-error, the job-level result reflects exactly the REQUIRED
   # legs (linux-x64, macos-arm64). A red required leg leaves the release as
   # an invisible draft instead of a published release missing its binaries.
+  # ONE portable `yo.c` for every platform, assembled from the per-leg arms.
+  # plans/PORTABLE_C_DISTRIBUTION.md has the rationale and the measurements;
+  # the short version is that each arm is a complete translation unit under a
+  # preprocessor conditional, so the C compiler selects one and skips the rest
+  # (measured: 568 MB of skipped arms cost 0.7 s on a 69 s compile).
+  portable-c:
+    name: Portable single-file yo.c
+    needs: [release, seed-bundles]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # The BUMP commit, not github.sha: yo-self/version.yo is rewritten by
+          # the release job and is compiled into the emitted C, so a checkout of
+          # github.sha would publish C claiming the previous version.
+          ref: ${{ needs.release.outputs.sha }}
+
+      - name: Download every platform arm
+        uses: actions/download-artifact@v4
+        with:
+          pattern: portable-c-*
+          path: arms-raw
+          merge-multiple: true
+
+      - name: Assemble and publish yo.c
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p arms
+          # download-artifact with merge-multiple flattens each artifact's
+          # contents; the files are already named <target>.c by the emit step.
+          find arms-raw -name '*.c' -exec cp {} arms/ \;
+          ls -la arms/
+          bash scripts/make-portable-c.sh yo.c arms | tee assemble.log
+
+          # An arm that silently failed to upload would ship as an #error arm,
+          # i.e. a yo.c that cannot build on that platform. Required legs are
+          # not allowed to go missing quietly.
+          for required in linux-x64 macos-arm64 windows-x64; do
+            if ! grep -q "arm present: $required" assemble.log; then
+              echo "::error::portable yo.c is missing the $required arm — refusing to publish it"
+              exit 1
+            fi
+          done
+
+          # Sanity-check that the assembled file is at least syntactically a
+          # translation unit for THIS runner's platform before publishing it.
+          gcc -std=c11 -fsyntax-only -w yo.c \
+            || { echo "::error::assembled yo.c does not even parse on linux-x64"; exit 1; }
+
+          gzip -9 -c yo.c > "yo-v${{ needs.release.outputs.version }}.c.gz"
+          ls -la "yo-v${{ needs.release.outputs.version }}.c.gz"
+          gh release upload "v${{ needs.release.outputs.version }}" \
+            "yo-v${{ needs.release.outputs.version }}.c.gz" --clobber
+
   publish-release:
     name: Publish the release
-    needs: [release, seed-bundles]
+    # portable-c is in `needs` so the draft never flips public without the
+    # single-file artifact — the same atomicity invariant the seed bundles
+    # rely on, and the one install.sh's source fallback will depend on.
+    needs: [release, seed-bundles, portable-c]
     runs-on: ubuntu-latest
     permissions:
       contents: write
