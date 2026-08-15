@@ -299,9 +299,20 @@ jobs:
           # at only 3.17 GB — the problem is the sum, not clang.) Filed as
           # issues/compiler-holds-emit-memory-during-cc.md.
           echo Y | sudo tee /sys/module/zswap/parameters/enabled >/dev/null || true
+          # Resolve `yo` to an ABSOLUTE path before sudo. sudo resets PATH via
+          # secure_path, so the $GITHUB_PATH entry install-seed added is gone
+          # inside the scope and a bare `yo` exits 127 instantly (run
+          # 31863256060, with memory still at 1.2 GB — nothing to do with the
+          # OOM this wrapper exists for). bootstrap-fixpoint never hit this
+          # because it invokes /tmp/yo-stage1 by absolute path.
+          YO_BIN="$(command -v yo)"
+          if [ -z "$YO_BIN" ]; then
+            echo "::error::the seed compiler is not on PATH"
+            exit 1
+          fi
           set +e
           sudo systemd-run --scope -p MemoryHigh=11G -p MemoryMax=14G \
-            env YO_MAIN_STACK_MB=4096 nice -n 10 yo build --std-path ./std
+            env YO_MAIN_STACK_MB=4096 nice -n 10 "$YO_BIN" build --std-path ./std
           BUILD_RC=$?
           set -e
           kill "$(cat /tmp/yo-sampler.pid)" 2>/dev/null || true
