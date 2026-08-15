@@ -133,6 +133,24 @@ jobs:
       - name: Run TS unit tests
         run: bun test --timeout 600000
 
+      # The TS compiler must be able to compile the yo-self sources. Until now
+      # `release.yml`'s seed-bundles job was the ONLY place that did, so a
+      # divergence — code the self-hosted compiler accepts and the TS one
+      # rejects — passed every PR check and detonated at release. That is
+      # exactly how `io.await` in a cond condition
+      # (issues/yoself-accepts-await-in-cond-that-ts-rejects.md) landed green in
+      # #128 and then broke every seed-driven job of the v0.2.5 attempt.
+      #
+      # It must be `compile`, NOT `check`: verified red-first, `check ./yo-self`
+      # returns rc=0 with the offending shape reintroduced, because the
+      # restriction is enforced during async state-machine codegen. `compile`
+      # with the same shape fails rc=1 on "must BE the first condition".
+      #
+      # `--skip-c-compiler` stops after emitting C — 187s locally, versus a full
+      # clang build. Dies with src/ in Group E, along with this whole job.
+      - name: TS compiler compiles yo-self (release-divergence gate)
+        run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs compile yo-self/main.yo --skip-c-compiler -o /tmp/ts-yoself-gate
+
   test:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 360
