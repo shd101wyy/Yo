@@ -995,7 +995,16 @@ jobs:
           grep -q "statically linked" file.txt || {
             echo "::error::musl bundle is not statically linked"; exit 1; }
 
-          docker run --rm -v "$PWD:/w" -w /w alpine:3.20 sh -euc '
+          # --security-opt seccomp=unconfined is REQUIRED to run the binary,
+          # not a convenience. Docker's default seccomp profile blocks
+          # io_uring_setup, so a binary with io_uring correctly compiled IN
+          # dies with "io_uring_queue_init failed: Operation not permitted"
+          # (run 31862196401) — i.e. the default profile fails exactly the
+          # binaries this assertion exists to bless, and would pass a
+          # stubbed-out one. Relaxing it here is safe: this container runs our
+          # own freshly built artifact, nothing else.
+          docker run --rm --security-opt seccomp=unconfined \
+            -v "$PWD:/w" -w /w alpine:3.20 sh -euc '
             ./yo-musl check std/assert.yo 2>run.err || { echo "check FAILED"; cat run.err; exit 1; }
             cat run.err
             if grep -q "liburing not available" run.err; then

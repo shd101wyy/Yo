@@ -219,6 +219,32 @@ in normal CI before `release.yml` grows the leg.
 **Not locally testable on this machine** (macOS, no container runtime), so it
 must be iterated in CI.
 
+### Status 2026-08-15 — the pipeline works; three traps found by running it
+
+The PR-CI leg now gets all the way to a **statically linked musl binary with
+io_uring genuinely compiled in**. Three failures had to be cleared, each a real
+trap rather than a typo:
+
+1. **The seed could not start** — exit 127, `yo: error while loading shared
+libraries: liburing.so.2`. The published Linux bundle links liburing
+   dynamically, so the emit host needs it installed even though this job only
+   uses the seed to emit C. Exit 127 reads as "command not found", which sent
+   the first look at PATH. (`issues/fixed/musl-job-seed-needs-host-liburing.md`)
+2. **`liburing-static` does not exist on Alpine.** Debian splits static libs
+   into a `-static` package; Alpine ships `liburing.a` inside `liburing-dev`.
+   The job now asserts `/usr/lib/liburing.a` exists rather than discovering its
+   absence as a link error 140 MB into a compile.
+3. **Docker's default seccomp profile blocks `io_uring_setup`**, so the built
+   binary died with `io_uring_queue_init failed: Operation not permitted`.
+   Note the shape of this one: the default profile fails exactly the binaries
+   this assertion exists to bless, and would happily pass a stubbed-out one.
+   The assert container now runs with `--security-opt seccomp=unconfined`.
+
+What is proven so far: the split-at-the-C-boundary design works (glibc host
+emits, Alpine compiles), the result is `statically linked` per `file`, and
+io_uring is IN rather than stubbed. What remains is one green run of the
+assertion, after which `release.yml` can grow the leg.
+
 ## Item 4 — release hardening (carried from P2 notes)
 
 - **Per-platform fixpoint — DONE 2026-08-15**, as
