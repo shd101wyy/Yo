@@ -126,10 +126,56 @@ corruption, not a wrong answer.
   `state == -2` (abort), and the normal path's drop of `inner` sits in the
   post-while block, which runs once per outer iteration as it should.
 
-Undiagnosed beyond that. The next step is to find which value is freed while
-still live — the per-inner-iteration temps (`Path.new(f.clone())`) and the
-outer continue block's drop of the match scrutinee temp are the two candidates
-visible in the emitted C.
+### Root cause: ONE post-loop slot, TWO clients
+
+Localised with Guard Malloc (`DYLD_INSERT_LIBRARIES=/usr/lib/libgmalloc.dylib`
+under lldb, against the emitted C rebuilt `clang -g -O0`), which traps at the
+offending access instead of downstream in `mfm_alloc`:
+
+```
+frame #0: __yo_decr_rc(ptr=0x340147fe0) at h2crash.c:4957
+frame #1: fn_yodb917980_id_44___drop  (Path)  at h2crash.c:11945 [inlined]
+frame #2: _yo38915498_temp_46221_resume       at h2crash.c:13812
+```
+
+`h2crash.c:13809-13814` is:
+
+```c
+      // Outer cond branch 2 remaining code (chained)
+      if (sm->cond_branch_0 == 2) {
+      if (sm->await_future_0 != NULL) { __yo_decr_rc((void*)sm->await_future_0); };
+      fn_..._drop(sm->var_..._temp_46112);   // the OUTER arm's Path.new(d.clone())
+      fn_..._drop(sm->var_..._temp_46111);   // and its String
+      }
+```
+
+That is the OUTER match arm's scope-end code, emitted inside the INNER loop's
+resume state — so a `Path` built once per OUTER iteration is dropped on every
+INNER iteration. A double-free, hence the timing dependence and the corrupted
+heap.
+
+It is the same defect as Bug B in the fixed issue, reaching the same place by a
+different route: the fix routes a branch's post-loop code into the nested loop's
+`condBranchPostWhileExprs`, but **declines when that slot is already occupied**
+— and here `generateCondWithAwait` has already claimed it for the `if(got, …)`
+layer. Declining falls back to chaining, which emits at the top of the resume
+state. One slot, two legitimate clients.
+
+### The fix
+
+Give the slot room for both layers, in source order: either make
+`condBranchPostWhileExprs` a LIST that clients append to, or add the dedicated
+`postLoopDrops` field (see Hole 1) and route the second client there. A list is
+the more principled of the two — there is nothing special about "two", and the
+consumer already iterates `exprs`.
+
+Do NOT simply overwrite or merge under the existing entry's guard: the two
+layers dispatch on DIFFERENT `cond_branch_N` fields (`cond_branch_0 == 2` here
+versus the inner layer's own), so a merge is only sound when the surviving entry
+is unconditional (`skipCondBranchCheck`). Relying on that is fragile.
+
+Both compilers need it; `yo-self/codegen/functions/context.yo`'s
+`CondBranchPostWhileExprs` is a `ref(struct(...))` in the same single-slot shape.
 
 ## Why these are filed rather than fixed
 
