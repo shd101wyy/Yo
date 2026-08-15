@@ -26,26 +26,77 @@ Requirements as stated by the user (2026-08-15):
 6. `install.sh` detects a platform with no native bundle and falls back to
    downloading the C file for the user to compile.
 
-## Bottom line
+## Bottom line — ONE `yo.c`, built by concatenation (PROVEN 2026-08-15)
 
-**Items 1, 2, 3 and 6 should ship now. Item 4 — one byte-identical C file for
-all platforms — should NOT be attempted, and item 5 must be re-scoped onto
-"the published C compiles and passes tests on each platform" rather than
-cross-OS byte identity.**
+**Ship a single `yo.c`.** The decisive insight is that "one file" and "one
+_merged_ file" are different goals, and only the second one is hard:
 
-> **Two independent adversarial reviews both returned `infeasible` for the
-> one-file goal**, on different grounds, after the staged plan below was
-> drafted. Their objections are recorded in "Why one file is the wrong target"
-> because they are concrete and verifiable, not stylistic — and one of them
-> surfaced a live bug
-> (`issues/liburing-fallback-does-not-compile.md`).
+| design                                                                                                                | verdict                                            |
+| --------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| **B — concatenated arms**: each platform's COMPLETE emission wrapped in `#if defined(_WIN32)` / `__APPLE__` / `#else` | **works today, proven, zero evaluator work**       |
+| **A — merged**: one copy of the shared ~99%, `#if` only at the divergences                                            | infeasible — see "Why MERGING is the wrong target" |
 
-**Ship per-target C files instead.** The five release legs _already_ emit their
-platform's C and throw the sidecar away, so publishing is roughly one
-`gh release upload` line per leg. That delivers 100% of the user-facing value —
-bootstrap a compiler without having a Yo compiler first — at essentially zero
-correctness risk, because each published file is the exact artifact CI already
-builds and tests on that platform.
+Design B satisfies requirement 4 exactly as stated ("use C macro in C file to
+distinguish the platforms") and **every objection to design A evaporates**,
+because each arm stays internally consistent: its Yo half and its C half come
+from the same emitter run, so the shadow constant tables can never decouple,
+and `detect_host()` is correct inside each arm.
+
+### Measured, not assumed
+
+Two experiments, both on this machine:
+
+1. **Correctness** — real macOS-arm64 and Linux-x64 emissions of an async
+   program, concatenated under `#if defined(__APPLE__)/#else/#endif`:
+   compiles clean on macOS (`rc=0`) and the binary runs (`rc=0`).
+2. **Scale** — the real 142 MB `yo-self` self-emit as the live arm plus four
+   copies standing in for the other platform arms:
+
+   | metric  | value                                            |
+   | ------- | ------------------------------------------------ |
+   | file    | **713,346,156 bytes (680 MB), 11,280,738 lines** |
+   | compile | `rc=0`, binary passes `check std/assert.yo`      |
+   | time    | **69.34 s** vs **68.65 s** for one arm alone     |
+
+   **568 MB of skipped arms cost 0.7 s (+1%)**, because the preprocessor skips
+   inactive blocks without tokenizing them. The size objection is dead.
+
+Release asset: **~32 MB gzipped** for five arms (~6.4 MB each), or **~19 MB**
+for three if the arch axis is collapsed (below).
+
+### Gotcha found while proving it
+
+The emitted `.c` does **not end with a newline**, so a naive
+`{ cat a.c; echo '#else'; cat b.c; }` produces `}#else` — not a preprocessor
+directive, since a directive must start a line — and BOTH arms compile,
+yielding a flood of redefinition errors. The concatenation step must emit an
+explicit newline before each directive. (This cost one confusing debugging
+round; it looks exactly like the approach failing.)
+
+### Five arms or three?
+
+Five, initially. For ordinary user programs the arch axis is provably empty,
+but **`yo-self` itself is not**: `yo-self/target.yo:165-184 detect_host()`
+folds `arch ==` as well as `platform ==`, so the x64 and arm64 emissions of the
+compiler differ in that constant. Collapsing to three arms means making
+`detect_host` probe the arch at runtime — a small, independently valuable fix
+(it is also part of what `issues/yo-self-cross-emit-host-constants.md` needs).
+Gate it by emitting both arches and `cmp`-ing: let the measurement decide,
+rather than assuming.
+
+### Prerequisites specific to the one-file artifact
+
+- **`issues/liburing-fallback-does-not-compile.md` must be fixed first.** The
+  Linux arm currently fails to compile on a box without liburing headers, which
+  is precisely the audience for a source distribution.
+- **The Windows arm needs a Windows emission that does not exist yet.** The
+  Windows self-build SEGVs (`issues/windows-no-main-worker-stack-rc139.md`) and
+  cross-emitting it from Linux is blocked by
+  `issues/yo-self-cross-emit-host-constants.md`. Ship with the arms that exist
+  and add Windows when one of those two is fixed — a missing arm degrades to
+  "unsupported platform" at the `#else`, not to a wrong build.
+- Publish the **libc** allocator flavor: mimalloc-flavored C needs
+  `vendor/mimalloc/src/static.c` alongside it, so it is not self-contained.
 
 ### Why the obvious objection is not the real one
 
@@ -62,11 +113,11 @@ scaffolding that `#if` could unify**, and `c_include` (already used by
 compiler.
 
 So a staged migration _looks_ tractable. **The reason not to do it is
-correctness, not volume** — see "Why one file is the wrong target". The same
+correctness, not volume** — see "Why MERGING is the wrong target (design A)". The same
 ~50 constants that look mechanical to migrate are exactly the ones with a
 second, independently-authored copy in the C emitter.
 
-### What "per-target" means concretely
+### Superseded: what "per-target" would have meant
 
 Publish **five** named files, one per release target
 (`yo-v<ver>-<target>.c.gz`), even though the arch axis is provably empty and
@@ -159,7 +210,7 @@ These split into two classes:
   implementations (`GetModuleFileNameW` / `_NSGetExecutablePath` /
   `/proc/self/exe`). This is the hard blocker.
 
-## Why one file is the wrong target
+## Why MERGING is the wrong target (design A)
 
 The staged path below is _technically_ walkable. Two adversarial reviews
 independently concluded it should not be walked. The decisive arguments:

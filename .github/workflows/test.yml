@@ -229,26 +229,30 @@ jobs:
           (command -v gcc && gcc --version | head -1) || true
           echo "::endgroup::"
 
-          # Capture the exit code instead of letting `set -e` abort with no
-          # context. `yo build`'s own output is minimal by design, so the
-          # post-mortem below is the only forensic material a failure leaves.
+          # A memory sampler writing to a FILE, because run 31854687362 proved
+          # an in-step post-mortem cannot work here: the whole step shell dies
+          # with `yo build`, so nothing after it executes — the log went
+          # straight from "Building yo" to the runner's own "exit code 2" with
+          # none of the post-mortem echoes. The sampler's file survives, and
+          # the `if: always()` step below reads it.
+          ( while true; do
+              date -u +%H:%M:%S >> /tmp/yo-mem.log
+              case "$RUNNER_OS" in
+                Linux) free -m | sed -n '2p' >> /tmp/yo-mem.log ;;
+                macOS) vm_stat | sed -n '2p' >> /tmp/yo-mem.log ;;
+                Windows) : ;;
+              esac
+              sleep 20
+            done ) > /dev/null 2>&1 &
+          echo $! > /tmp/yo-sampler.pid
+
           set +e
           yo build --std-path ./std
           BUILD_RC=$?
           set -e
+          kill "$(cat /tmp/yo-sampler.pid)" 2>/dev/null || true
           if [ "$BUILD_RC" -ne 0 ]; then
             echo "::error::yo build failed with exit code ${BUILD_RC}"
-            echo "--- memory after failure ---"
-            case "$RUNNER_OS" in
-              Linux)
-                free -m || true
-                # The OOM killer is the hypothesis this is here to confirm.
-                sudo dmesg 2>/dev/null | grep -iE "out of memory|oom-kill|killed process" | tail -20 || true
-                ;;
-              macOS) vm_stat | head -5 || true ;;
-            esac
-            echo "--- partial yo-out tree (was any C emitted before the failure?) ---"
-            ls -lR yo-out 2>/dev/null | head -40 || true
             exit "$BUILD_RC"
           fi
 
@@ -264,6 +268,30 @@ jobs:
           # Fail fast if the built binary cannot run at all (evaluator, module
           # loading, executable-relative std discovery).
           "$S1" check std/assert.yo
+
+      # MUST be `if: always()`. The stage-1 shell dies together with `yo build`
+      # (proven in run 31854687362), so this is the only place the forensics
+      # can be printed at all.
+      - name: "Stage 1 post-mortem (always runs)"
+        if: always()
+        shell: bash
+        run: |
+          echo "--- memory samples during the build (last 15) ---"
+          tail -30 /tmp/yo-mem.log 2>/dev/null || echo "(no samples)"
+          echo "--- memory now ---"
+          case "$RUNNER_OS" in
+            Linux)
+              free -m || true
+              echo "--- OOM killer? ---"
+              sudo dmesg 2>/dev/null | grep -iE "out of memory|oom-kill|killed process" | tail -20 \
+                || echo "(no OOM lines in dmesg)"
+              ;;
+            macOS) vm_stat | head -5 || true ;;
+          esac
+          echo "--- disk ---"
+          df -h . || true
+          echo "--- partial yo-out tree: was the 142 MB .c emitted before the failure? ---"
+          ls -lR yo-out 2>/dev/null | head -40 || echo "(no yo-out)"
 
       - name: Check the formatted code
         shell: bash
