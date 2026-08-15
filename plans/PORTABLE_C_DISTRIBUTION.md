@@ -47,38 +47,37 @@ bootstrap a compiler without having a Yo compiler first — at essentially zero
 correctness risk, because each published file is the exact artifact CI already
 builds and tests on that platform.
 
-The obstacle is not the C emitter. **81 comptime `platform ==` / `arch ==`
-branch sites across 13 `std/` files and 2 `yo-self/` files** are folded by the
-_evaluator_: `cond` evaluates only the taken branch
-(`src/evaluator/exprs/cond.ts:200`), so the untaken arm never reaches the AST,
-never reaches codegen, and its externs and includes are never collected. **No
-`#if` can recover code that was never generated.**
+### Why the obvious objection is not the real one
 
-But the leakage is far smaller than the raw line-diff suggests, and it is
-enumerable. For a real program exercising `std/path` + `std/fs` + async, of
-the normalized changed lines only **16 of 2141** (linux↔macos) and **14 of
-5184** (linux↔windows) touch evaluated-program symbols. **>99% of the OS diff
-is C runtime scaffolding that `#if` can unify.**
+The obstacle people expect is code volume; it is not. **81 comptime
+`platform ==` / `arch ==` branch sites across 13 `std/` files and 2 `yo-self/`
+files** are folded by the _evaluator_: `cond` evaluates only the taken branch
+(`src/evaluator/exprs/cond.ts:200`), so the untaken arm never reaches the AST
+and no `#if` can recover code that was never generated. Yet the leakage is
+small — for a real program exercising `std/path` + `std/fs` + async, only
+**16 of 2141** normalized changed lines (linux↔macos) and **14 of 5184**
+(linux↔windows) touch evaluated-program symbols. **>99% of the OS diff is C
+scaffolding that `#if` could unify**, and `c_include` (already used by
+`std/libc/fcntl.yo:4-11`) is a proven in-tree way to defer a constant to the C
+compiler.
 
-**A proven fix pattern for the bulk of the rest already exists in-tree.**
-`c_include` binds a constant to its **C macro name** instead of folding it to
-an integer, deferring the platform choice to the C compiler.
-`std/libc/fcntl.yo:4-11` already does this and the emitted C shows
-`((O_RDONLY) | (O_CLOEXEC))` — macro names, no literals. `std/sys/constants.yo`
-does not, which is where the folded per-OS integers come from. Migrating the
-~50 constant-only sites to `c_include` is mechanical and removes most of the
-evaluated-program divergence.
+So a staged migration _looks_ tractable. **The reason not to do it is
+correctness, not volume** — see "Why one file is the wrong target". The same
+~50 constants that look mechanical to migrate are exactly the ones with a
+second, independently-authored copy in the C emitter.
 
-**Recommended instead: publish one C file per OS.** Because the arch axis is
-provably empty (below), that is **three** files — linux, macos, windows — not
-five. This delivers the user's actual goal (download a C file, compile it, get
-a working compiler) at a small fraction of the cost, and it converts item 5
-from an impossible gate into a genuinely useful one: assert
-`linux-x64 C == linux-arm64 C` and `macos-x64 C == macos-arm64 C`, which
-catches any future arch leakage into codegen.
+### What "per-target" means concretely
 
-"One universal C file" stays on the table as a separate, much larger project;
-its cost is sized in "What one file would additionally require" below.
+Publish **five** named files, one per release target
+(`yo-v<ver>-<target>.c.gz`), even though the arch axis is provably empty and
+only **three** are distinct. The naming keeps `install.sh` trivial — it already
+sniffs os/arch to pick a bundle and can pick a `.c` the same way — and the two
+duplicate uploads cost nothing.
+
+The empty arch axis is still worth a gate, just a cheap one: assert
+`linux-x64 C == linux-arm64 C` and `macos-x64 C == macos-arm64 C`. That is a
+real regression check on arch leakage into codegen, and unlike cross-OS
+identity it is true today.
 
 ## Measured baseline (2026-08-15)
 
