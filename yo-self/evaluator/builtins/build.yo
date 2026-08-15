@@ -81,6 +81,11 @@ BuildArtifact :: ref(
     allocator : String,
     sanitize : String,
     /// Redirect the single generated C file here ("" = default sidecar).
+    /// REQUIRED, not defaulted: `?=` needs a compile-time-known value and
+    /// `String.new()` is a runtime call ("Expected compile-time known value
+    /// for default value"). So every BuildArtifact literal must pass it —
+    /// including the one in tests/internal/build_runner.test.yo, which is the
+    /// site the TS build-system tests could not see and CI caught.
     emit_c_to : String,
     link_libraries : ArrayList(String),
     include_paths : ArrayList(String),
