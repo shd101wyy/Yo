@@ -721,124 +721,29 @@ jobs:
   # --parallel 1 is REQUIRED, not conservative: macro_expansion alone peaks at
   # ~6.5 GB, so two concurrent children on a 16 GB box swap, and the swapping
   # trips the runner's own 600 s evaluator deadline — manufacturing failures that
-  # do not reproduce in isolation. The node heap cap is raised from the 4096 MB
-  # used elsewhere for the same reason.
+  # do not reproduce in isolation.
   #
-  # NOW GATES PRs (continue-on-error dropped 2026-08-06). Every job in this workflow
-  # gates. The two Linux-x86_64 parser SEGVs that had kept this job informational are
-  # FIXED (issues/fixed/escape-path-drops-unwound-call-result-temp.md), as is the
-  # node-heap OOM that used to kill the TS arm at ~file 40 of 58, and the 80-byte
-  # conditional-move leak in macro_helpers that kept this job red while it first
-  # gated (issues/fixed/where-constraints-arraylist-96b-leak.md — the dup/drop pair
+  # This tier GATES PRs (continue-on-error dropped 2026-08-06). The two
+  # Linux-x86_64 parser SEGVs that had kept it informational are FIXED
+  # (issues/fixed/escape-path-drops-unwound-call-result-temp.md), as is the
+  # 80-byte conditional-move leak in macro_helpers
+  # (issues/fixed/where-constraints-arraylist-96b-leak.md — the dup/drop pair
   # optimizer cancelled a conditional arm's dup as if unconditional).
   #
-  # SHARDED 2026-08-06: the TS arm runs as a 4-way matrix (wall time ~25-30 min per
-  # shard instead of ~100 min serial). Every file still compiles in its own node
-  # process; each shard gets exactly one of the four heavy macro/reflection files
-  # (each pays a full compiler-sized compile, ~6.5 GB peak) plus a round-robin
-  # stripe of the rest. The self-hosted differential runs as its own job below.
-  compiler-internal-tests:
-    name: Compiler internal tests (tests/internal, TS arm shard ${{ matrix.shard }})
-    runs-on: ubuntu-latest
-    timeout-minutes: 90
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [0, 1, 2, 3]
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Install liburing
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y liburing-dev
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-
-      - name: Install dependencies
-        run: |
-          bun install
-          bun run build
-
-      # NO --bail: every test binary runs under ASan/LeakSanitizer, so a leak fails
-      # one test. Bailing reported exactly ONE leak per ~3-hour run, which made
-      # convergence serial (it took a run each to surface the ref(enum) unit-variant
-      # leak and then the module-global collision). Without it a single run lists
-      # every failure, which is what a scorecard job should do anyway.
-      #
-      # YO_MAIN_STACK_MB matches what the self-hosted arm below already sets. Test
-      # binaries are compiled at -O0 (src/test-runner.ts), where clang gives every
-      # temporary its own stack slot and the big yo-self functions get multi-MB
-      # frames; AGENTS.md documents bumping this env var as the remedy for the
-      # resulting deep-recursion crashes. The TS arm not setting it was an
-      # inconsistency between the two arms, and Linux additionally gets no
-      # equivalent of the macOS-only `-Wl,-stack_size` reserve.
-      # ONE NODE PROCESS PER FILE. The Yo evaluator and codegen run IN-PROCESS —
-      # src/test-runner.ts only spawns the C compiler and the test binary — and
-      # per-file state (e.g. the process-lifetime ExprInfoTable, see
-      # plans/archive/YO_SELF_EXPRINFO_PRUNE.md) is retained across files. A single
-      # process over all 58 files therefore accumulates until V8 dies: run
-      # 31044378627 reported "Ineffective mark-compacts near heap limit" with
-      # 11.7 GB STILL LIVE after a reduce-mark-compact, at quote_macro_eval (~file 40
-      # of 58), 57 minutes in.
-      #
-      # Measured locally (peak RSS, 4 of the lighter files): 1.30 GB for all four
-      # in one process vs 1.166 GB for the heaviest alone — the heap does not
-      # return to baseline between files. Per-file processes bound it to the
-      # single-file peak; the heaviest, macro_expansion, needs ~6.5 GB, which fits.
-      #
-      # Deliberately NOT --bail and NOT one-file-per-step: the job's purpose is a
-      # full scorecard in one run, so every file runs and failures are summarised
-      # at the end.
-      - name: Run tests/internal under the TS compiler (ground truth, shard ${{ matrix.shard }})
-        env:
-          YO_MAIN_STACK_MB: "4096"
-        run: |
-          # Shard selection: the four heavy macro/reflection files (each compiles
-          # the whole self-hosted evaluator, ~6.5 GB peak / ~3 min) go one per
-          # shard; the rest are striped round-robin over the sorted glob order.
-          heavies="tests/internal/ast_reflection.test.yo tests/internal/macro_expansion.test.yo tests/internal/macro_helpers.test.yo tests/internal/quote_macro_eval.test.yo"
-          shard=${{ matrix.shard }}
-          files=$(echo "$heavies" | tr ' ' '\n' | sed -n "$((shard + 1))p")
-          i=0
-          for f in tests/internal/*.test.yo; do
-            case " $heavies " in *" $f "*) continue ;; esac
-            if [ $((i % 4)) -eq "$shard" ]; then
-              files="$files $f"
-            fi
-            i=$((i + 1))
-          done
-          echo "shard $shard files:$files"
-          # `rc_all`, not `status` — `status` is read-only in some shells.
-          rc_all=0
-          failed=""
-          for f in $files; do
-            echo "::group::$f"
-            if node --expose-gc --max-old-space-size=12288 ./out/cjs/yo-cli.cjs test "$f" --parallel 1 --verbose --c-compiler clang; then
-              echo "::endgroup::"
-            else
-              echo "::endgroup::"
-              echo "::error file=$f::tests/internal failure under the TS compiler"
-              rc_all=1
-              failed="$failed $f"
-            fi
-          done
-          if [ -n "$failed" ]; then
-            echo "FAILED FILES:$failed"
-          fi
-          exit $rc_all
+  # THE TS 4-SHARD ARM WAS DELETED 2026-08-15 (P2.5 step 20). It ran these same
+  # 58 files under the TypeScript compiler, which Group E removes entirely, so
+  # it was scaffolding with a known expiry. Its four required contexts
+  # ("… TS arm shard 0..3") were removed from ruleset 13548862 BEFORE this
+  # deletion landed — the reverse order would have blocked every PR in the repo
+  # forever on checks that can never report again.
+  #
+  # The self-hosted differential below is now the SOLE arm for this tier, which
+  # has two consequences worth stating plainly: its 180-minute budget is the
+  # only thing standing between a regression and an unscored tier, and it is
+  # unsharded, so it pays the full ~22 min serially after its stage-1 build.
+  # Sharding it is filed as issues/selfhosted-differential-job-needs-sharding.md
+  # and needs its own required-check update, because sharding RENAMES the
+  # context.
 
   # The same 58 files under the self-hosted binary, as its own job so it runs in
   # parallel with the TS shards. This is the differential that matters: a file
