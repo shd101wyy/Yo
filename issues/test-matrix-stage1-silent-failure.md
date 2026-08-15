@@ -1,6 +1,6 @@
 # The `test` matrix legs fail their seed `yo build` with no diagnostic output
 
-**Status: OPEN** (found 2026-08-15 on PR #126, run 31851051908.)
+**Status: ROOT-CAUSED 2026-08-15** (found on PR #126 run 31851051908; confirmed by the always-on post-mortem in run 31856743929). Linux fix applied; macOS still open.
 
 ## Symptom
 
@@ -44,7 +44,81 @@ The `build-linux-musl-static` job failed the same way at its emit-only step.
 - **Not a job/step timeout.** GitHub reports a real process exit code, not a
   cancellation.
 
-## Leading hypothesis (NOT yet proven)
+## CONFIRMED: memory exhaustion during the Yo->C stage
+
+Run 31856743929, with a background sampler writing to a file and an
+`if: always()` post-mortem step (the only shape that survives the step shell
+dying — see "The diagnostic that did not work" below):
+
+```
+ubuntu-latest, during the build:
+  Mem: 15988 total  14912 used   481 free ...  1075 available
+  Mem: 15988 total  15372 used   347 free ...   615 available
+  Mem: 15988 total  15541 used   242 free ...   447 available   <- plateau, ~4 min
+--- OOM killer? ---
+(no OOM lines in dmesg)
+--- disk ---
+/dev/root  145G  58G  87G  41% /
+--- partial yo-out tree ---
+yo-out/x86_64-linux-gnu/bin        <- EMPTY: no .c was ever written
+```
+
+macOS is the same story: `Pages free: 3562` at 16 KB pages is ~57 MB, and
+~5 GB free immediately after the process died.
+
+Four conclusions:
+
+1. **It is memory**, not disk (87 GB free) and not a timeout.
+2. **The kernel OOM killer never fired.** The process's own allocation failed;
+   it was not reaped. That is why the exit codes were the undramatic 2 (Linux)
+   and 1 (macOS) rather than 137, which is what sent the first investigation
+   looking for a logic error.
+3. **It dies inside the Yo->C stage**, before the 142 MB `.c` is written —
+   so this is the evaluator/codegen peak, not the clang compile.
+4. **Local success was never a contradiction.** The same build passes here on
+   16 GB _because ~10 GB of swap is available and gets used_; the runner has
+   3 GB. 16+11 fits, 16+3 does not.
+
+The contradiction that kept this unproven is also resolved: ThreadSanitizer and
+the hollow sweep passed the same build on the same runner label because the
+hollow sweep **adds a 32 GB swapfile**, and tsan simply got lucky at the edge.
+
+## Fix
+
+**Linux: applied.** The `test` legs now add the same 32 GB `/mnt/swapfile` that
+`bootstrap-fixpoint` and the hollow sweep already use. That is the regression in
+one line: P2.5 step 18 moved a full self-build onto the suite runners without
+the memory provisioning every other self-building job in this repo already had.
+
+**macOS: still open, and may not be fixable this way.** `macos-latest` (arm64)
+has ~7 GB of RAM and no equivalent knob — you cannot `fallocate` a swapfile
+there. It died with 57 MB free, so it hit a wall rather than swapping its way
+through. The next run samples `sysctl vm.swapusage` instead of free pages, to
+settle whether macOS swapped at all.
+
+If macOS cannot host a self-build, the decision below is forced rather than
+optional.
+
+## The design question this forces
+
+These legs need a compiler built from the PR's own sources — running the suite
+under the _seed_ would test the released compiler, not the change — so "just use
+the seed" is not a valid shortcut. The real choice:
+
+- provision every leg on every PR (Linux: done; macOS: no mechanism), or
+- keep the language suite on the legs that can host a build, and rely on
+  `seed-bundles` in release.yml for "it builds natively on all five targets",
+  which it already proves at release time.
+
+## The diagnostic that did not work (worth remembering)
+
+The first attempt put the post-mortem _inside_ the same step, after
+`yo build`. It never ran: the step shell dies together with the build, so the
+log jumped straight from "Building yo" to the runner's own "exit code 2" with
+none of the echoes. Anything that must survive a step's death has to be a
+separate `if: always()` step reading a file written by a background sampler.
+
+## Original hypothesis (kept for the record)
 
 Resource exhaustion. Supporting evidence:
 

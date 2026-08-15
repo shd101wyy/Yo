@@ -166,6 +166,26 @@ jobs:
         with:
           submodules: recursive
 
+      # CONFIRMED root cause of the stage-1 failures (run 31856743929, via the
+      # sampler below): memory. On ubuntu-latest the build climbed to
+      # 15,541 MB of 15,988 and sat at ~300 MB free for four minutes before
+      # dying; dmesg showed NO oom-kill, so it was the process's own allocation
+      # failing, not the kernel reaping it. yo-out/*/bin was empty — it died
+      # inside the Yo->C stage, before the .c was ever written.
+      # Every other self-building job in this file already provisions swap
+      # (bootstrap-fixpoint, the hollow sweep); these legs provisioned nothing,
+      # which is the regression P2.5 step 18 introduced by moving a full
+      # self-build onto the suite runners. Locally the same build succeeds on
+      # 16 GB *because ~10 GB of swap is available*; the runner has 3 GB.
+      - name: Add swap space
+        if: runner.os == 'Linux'
+        run: |
+          sudo fallocate -l 32G /mnt/swapfile
+          sudo chmod 600 /mnt/swapfile
+          sudo mkswap /mnt/swapfile
+          sudo swapon /mnt/swapfile
+          free -h
+
       - name: Install liburing
         if: runner.os == 'Linux'
         run: |
@@ -239,7 +259,11 @@ jobs:
               date -u +%H:%M:%S >> /tmp/yo-mem.log
               case "$RUNNER_OS" in
                 Linux) free -m | sed -n '2p' >> /tmp/yo-mem.log ;;
-                macOS) vm_stat | sed -n '2p' >> /tmp/yo-mem.log ;;
+                # vm.swapusage, not `vm_stat | Pages free`: the question on
+                # macOS is whether the box SWAPPED or hit a hard ceiling, and
+                # free-pages alone cannot distinguish those. The first run
+                # showed 57 MB free with no way to tell which.
+                macOS) sysctl -n vm.swapusage >> /tmp/yo-mem.log ;;
                 Windows) : ;;
               esac
               sleep 20
