@@ -30,7 +30,7 @@ _(env : proc_env) :: import("std/env");
 { Path } :: import("std/path");
 { read_file, write_file, exists } :: import("std/fs/file");
 { metadata } :: import("std/fs/metadata");
-{ read_dir, FileType, remove_file } :: import("std/fs/dir");
+{ read_dir, FileType, remove_file, create_dir_all } :: import("std/fs/dir");
 { Command } :: import("std/process/command");
 { exit } :: import("std/libc/stdlib");
 { ArrayList } :: import("std/collections/array_list");
@@ -957,6 +957,9 @@ run_compile :: (
   (sanitize : String) = String.from(""); // "" / "address" / "leak" / "thread"
   (cflags : String) = String.from("");
   (emit_c : bool) = false;
+  // `--emit-c-to <path>`: write the single generated C file to exactly this
+  // path instead of the `<output>.c` sidecar. "" = unset.
+  (emit_c_to : String) = String.new();
   (skip_cc : bool) = false;
   (skip_codegen : bool) = false;
   (release : bool) = false;
@@ -1100,6 +1103,13 @@ run_compile :: (
       (a_name == "--emit-c") => {
         emit_c = true;
         ai = (ai + usize(1));
+      },
+      // `--emit-c-to <path>` REDIRECTS the sidecar (it does not add a second
+      // copy), so the C compiler consumes this same path. Distinct from
+      // `--emit-c`, which only prints to stdout.
+      (a_name == "--emit-c-to") => {
+        emit_c_to = _opt_value(argv, ai, a_name.clone(), a_val.clone(), exn);
+        ai = (ai + _opt_step(a_val));
       },
       (a_name == "--skip-c-compiler") => {
         skip_cc = true;
@@ -1309,7 +1319,19 @@ run_compile :: (
     },
     true => ()
   );
-  c_path := `${c_base}.c`;
+  // `--emit-c-to` overrides the derived sidecar path entirely, and its parent
+  // directory is created — the point of the flag is to place the file
+  // somewhere deliberate (e.g. `dist/yo.c`) that need not exist yet.
+  c_path := if(emit_c_to.len() > usize(0), emit_c_to.clone(), `${c_base}.c`);
+  if(emit_c_to.len() > usize(0), {
+    match(
+      Path.new(c_path.clone()).parent(),
+      .Some(pdir) => {
+        io.await(create_dir_all(pdir, io), IoExn(io : io, exn : exn));
+      },
+      .None => ()
+    );
+  });
   io.await(write_file(Path.new(c_path.clone()), c_src, io), IoExn(io : io, exn : exn));
   // --skip-c-compiler: write the C and stop.
   if(skip_cc, {
