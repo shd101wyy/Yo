@@ -65,6 +65,24 @@ has to touch both sides anyway.
 | **git**                   | `yo fetch` / `yo install` shell out to `git ls-remote`/`clone`/`fetch`/`checkout` | dependency management fails |
 | liburing **+** pkg-config | async I/O (io_uring) on Linux                                                     | see below                   |
 
+**Stronger than "async I/O is degraded": the published Linux bundle does not
+start at all without `liburing.so.2`.** Measured 2026-08-15 on a CI runner
+that lacked it:
+
+```
+yo: error while loading shared libraries: liburing.so.2:
+    cannot open shared object file: No such file or directory
+```
+
+The bundle is built on a box that HAS liburing, so it links against it
+dynamically; the `#if __has_include` fallback only applies when the C is
+compiled, and by then the choice is baked into the artifact. So liburing is a
+**hard runtime dependency of the release binary**, not merely a feature
+toggle. Note the exit code is **127**, which reads exactly like
+`yo: command not found` and will send an investigation hunting a PATH bug —
+it did; see `issues/fixed/musl-job-seed-needs-host-liburing.md`. This is one
+more argument for item 3: a static binary has no such dependency.
+
 **liburing and pkg-config must be installed as a pair.** The emitted C gates
 its io_uring calls on `#if __has_include(<liburing.h>)`, while `-luring` is
 added only when `pkg-config --exists liburing` succeeds. A box with the header
