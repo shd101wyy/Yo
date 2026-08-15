@@ -11,11 +11,17 @@ Three P3 deliverables are built, committed and CI-verified, and all three are
 inert until a release runs, because each is produced or deployed only by
 `release.yml`:
 
-| Deliverable                | Produced by               | Status until a release runs                  |
-| -------------------------- | ------------------------- | -------------------------------------------- |
-| single-file `yo.c`         | `portable-c` job          | `yo-v*.c.gz` 404s on EVERY published release |
-| static musl bundle         | `musl-bundle` job         | Alpine users get the unusable glibc bundle   |
-| `…github.io/Yo/install.sh` | Pages deploy in `release` | 404 — READMEs must use the raw URL           |
+| Deliverable                | Produced by               | Status until a release runs                         |
+| -------------------------- | ------------------------- | --------------------------------------------------- |
+| single-file `yo.c`         | `portable-c` job          | `yo-v*.c.gz` 404s on EVERY published release        |
+| static musl bundle         | `musl-bundle` job         | Alpine users get the unusable glibc bundle          |
+| `…github.io/Yo/install.sh` | Pages deploy in `release` | 404 — READMEs must use the raw URL                  |
+| Windows big-stack `main`   | a release + SEED bump     | the windows CI leg stays red (crash is in the SEED) |
+
+That last row is a different shape from the other three but the same blocker:
+the fix is in the codegen, so it reaches users only through a binary BUILT by
+the fixed codegen. Same reason a compiler fix cannot fix a CI step running the
+seed — see `issues/compiler-holds-emit-memory-during-cc.md`.
 
 Measured, not assumed: `yo-v0.2.4.c.gz` and `yo-v0.2.3.c.gz` both return 404,
 and `v0.2.4`'s asset list is five platform bundles plus the `.vsix`.
@@ -29,9 +35,23 @@ artifact"), and both READMEs now state the constraint.
 
 None of this is fixable by more code. The next action for P3 is to **cut a
 release**, then verify on it, in order: `portable-c` uploaded `yo.c.gz`;
-`musl-bundle` uploaded and smoked; the Pages site serves `/install.sh`; then
-switch both READMEs to the canonical URL and promote `musl-bundle` off
-`continue-on-error`.
+`musl-bundle` uploaded and smoked; the Pages site serves `/install.sh`; bump
+`SEED_VERSION` and confirm the windows leg goes green; then switch both READMEs
+to the canonical URL and promote `musl-bundle` off `continue-on-error`.
+
+### Scoreboard after 2026-08-15
+
+| item                  | state                                              |
+| --------------------- | -------------------------------------------------- |
+| 1 — install scripts   | LANDED; **installer/cache unification still open** |
+| 2 — `yo version`      | DONE                                               |
+| 3 — static musl       | DONE, proof release-gated                          |
+| 4 — release hardening | DONE, windows leg release-gated                    |
+
+So the ONLY remaining P3 engineering work is the installer/cache unification
+(`install.sh` installs to `<prefix>/lib/yo/<tag>` while `yo version install X`
+uses `~/.cache/yo/versions/<version>`, so `.yo-version` pinning does not see
+script-installed versions). Everything else is waiting on a release.
 
 ## What P2 already delivered that P3 builds on
 
