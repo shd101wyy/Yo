@@ -57,7 +57,43 @@ FAILED: `yo build run` produced `hello-world.html` and then died on
 `Cannot find module .../hello-world.js` — emcc normally emits that shim beside
 the `.html`.
 
-### The fix applied, and the honest caveat
+### ROOT CAUSE FOUND (run 31875845879) — it was NOT the link line
+
+The `ls -lR yo-out` diagnostic answered it in one cycle:
+
+```
+yo-out/wasm32-emscripten/bin:
+-rw-r--r--  hello-world.c      56293
+-rwxr-xr-x  hello-world.html   18312
+```
+
+No `.js`, no `.wasm`, and the `.html` is an **18 KB EXECUTABLE** — a native ELF
+binary, not an Emscripten HTML shell. **emcc was never invoked.** clang built a
+host binary, and the build runner wrapped it in a wasm-shaped path and
+extension (`get_artifact_output_file_name` computes those from the ARTIFACT's
+target, independently of what the child actually compiled).
+
+The bug is in `build_runner.yo`: `--target` was passed only
+
+```yo
+if(effective_target != artifact.target, ...)
+```
+
+and `effective_target` IS `artifact.target` unless the CLI overrides it — so an
+artifact declaring its own target, the normal case, never got one. The child
+`yo compile` saw no target, resolved the host, and auto-selected clang. TS does
+not hit this because it calls codegen IN-PROCESS with `parsedTarget`; we shell
+out, so the target has to travel on the command line.
+
+Fixed by passing `--target` whenever it is not the host (still skipped for
+native builds, so no `--target=<host>` appears on proven link lines), and by
+forcing `--cc emcc` for wasm targets exactly as `build-runner.ts:902-907` does.
+
+**This class of bug is invisible to `yo compile --target wasm32-emscripten`,
+which always passes the target explicitly. Only `yo build` reaches it** — which
+is why the smoke test, not the test suite, is what caught it.
+
+### The earlier hypothesis, which was WRONG
 
 yo-self passed `-lm -pthread` on every non-Windows link, so wasm got them; TS
 gates all platform system libraries on `!isWasm` and passes neither. `-pthread`
