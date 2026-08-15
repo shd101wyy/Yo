@@ -149,7 +149,27 @@ jobs:
       # `--skip-c-compiler` stops after emitting C — 187s locally, versus a full
       # clang build. Dies with src/ in Group E, along with this whole job.
       - name: TS compiler compiles yo-self (release-divergence gate)
-        run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs compile yo-self/main.yo --skip-c-compiler -o /tmp/ts-yoself-gate
+        run: |
+          node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs \
+            compile yo-self/main.yo --skip-c-compiler -o /tmp/ts-yoself-gate
+
+          # `getTypeString` falls back to a LINE comment, `// Unknown type: …`.
+          # Mid-declaration that swallows the rest of the line and merges the
+          # NEXT declaration into it. clang accepts the resulting duplicate
+          # storage-class specifiers silently, so this stayed invisible until
+          # the release job's `gcc -fsyntax-only` on the portable yo.c — GCC
+          # rejects it ("duplicate 'static'"), which blocked v0.2.6 and breaks
+          # `--cc gcc` for users. See issues/comptime-only-prototype-breaks-gcc.md.
+          #
+          # Catch it here instead of at release time.
+          # The marker is fine at the START of a line (the whole line is an
+          # intentionally omitted field) and inside a string literal (yo-self's
+          # own source text, compiled in). Only an appearance after real tokens,
+          # outside quotes, eats a declaration — hence the no-quote-before rule.
+          if grep -nE '^[^"]*[^/"[:space:]][^"]*// Unknown type:' /tmp/ts-yoself-gate.c; then
+            echo "::error::emitted C has a '// Unknown type:' comment mid-declaration — it will eat the following declaration and GCC will reject the file"
+            exit 1
+          fi
 
   test:
     runs-on: ${{ matrix.os }}

@@ -187,13 +187,23 @@ export function generateFunctionDeclarations(
       !isEffectfulFunction &&
       !hasEvidenceParams &&
       !value.isEffectRecordMember &&
-      !isConcreteSpecialization &&
-      ((isFunctionTypeHardGeneric(value.type) && !value.type.isClosure) ||
-        (value.specializedFunctionCaches?.length > 0 &&
-          !value.type.isClosure) ||
-        isComptimeFunction(value) ||
-        isFunctionValueWithOnlyBuiltinYoInlineFunctionCall(value) ||
-        value.isIoAsyncStateMachineClosure)
+      // A comptime function is skipped even when it IS a concrete
+      // specialization. Its return type is comptime-only, so getTypeString
+      // renders it as the `// Unknown type: …` fallback — a LINE comment in the
+      // return-type slot, which swallows the rest of the declaration and merges
+      // the next one into it. clang accepts the resulting duplicate
+      // storage-class specifiers silently; GCC rejects the file outright
+      // ("duplicate 'static'"), so `--cc gcc` and the portable yo.c both break.
+      // The prototype is useless anyway — nothing calls these at runtime.
+      // See issues/comptime-only-prototype-breaks-gcc.md; yo-self has carried
+      // the equivalent guard (`_func_result_is_comptime_only` in its `skip1`).
+      (isComptimeFunction(value) ||
+        (!isConcreteSpecialization &&
+          ((isFunctionTypeHardGeneric(value.type) && !value.type.isClosure) ||
+            (value.specializedFunctionCaches?.length > 0 &&
+              !value.type.isClosure) ||
+            isFunctionValueWithOnlyBuiltinYoInlineFunctionCall(value) ||
+            value.isIoAsyncStateMachineClosure)))
     ) {
       continue;
     }
