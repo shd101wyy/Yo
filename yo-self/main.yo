@@ -60,6 +60,7 @@ _(env : proc_env) :: import("std/env");
   set_std_path_override,
   mm_clear_prelude_env,
   mm_set_shared_expr_info_table,
+  mm_reset,
   mm_resolve_entry_abs,
   mm_eval_entry_exprs,
   mm_load_file,
@@ -1217,6 +1218,35 @@ run_compile :: (
   if((cc == "emcc") && (target_triple == ""), {
     target_triple = String.from("wasm32-emscripten");
   });
+  // Resolve the compilation target: --target <triple> if given, else host.
+  // Placed BEFORE the module is evaluated, matching TS (yo-cli.ts:502-503
+  // parses the target, then :521 calls compileModule, which evaluates). It
+  // also has to precede the evaluate+emit scope below, because that scope must
+  // be free to drop everything it created.
+  target := match(
+    cond(
+      (target_triple == "") => Result(TargetInfo, String).Ok(host_target()),
+      true => parse_target(target_triple)
+    ),
+    .Ok(t) => t,
+    .Err(e) => {
+      exn.throw(dyn(`compile: invalid --target "${target_triple}": ${e}`));
+      return(())
+    }
+  );
+  // Auto-add the output extension when none was given (yo-cli.ts:494-509):
+  // emcc → `.wasm` for standalone WASI, else `.html`; Windows targets → `.exe`.
+  if((cc == "emcc") && !(_path_has_extension(output)), {
+    output = if(is_target_standalone_wasi(target), `${output}.wasm`, `${output}.html`);
+  });
+  if(is_target_windows(target) && !(_path_has_extension(output)), {
+    output = `${output}.exe`;
+  });
+  // mimalloc isn't available on wasm (codegen/index.ts:193-199) — downgrade
+  // BEFORE codegen so the emitted runtime matches the link line.
+  if((allocator == "mimalloc") && is_target_wasm(target), {
+    allocator = String.from("libc");
+  });
   std_path := resolve_std_path();
   // Create the shared ExprInfoTable BEFORE loading the prelude, and publish it
   // via g_shared_expr_info_table now (not after the prelude load). The prelude
@@ -1252,101 +1282,104 @@ run_compile :: (
   // TS needs no equivalent: it stores node info ON the AST node (`expr.$`), so a
   // cached AST carries its annotations, whereas yo-self keys a SIDE TABLE by
   // expr id. `run_check` already clears the module cache for the same reason.
-  clear_module_cache();
-  mm_clear_prelude_env();
-  shared_info_table := expr_info_table_new();
-  mm_set_shared_expr_info_table(shared_info_table);
-  // Ensure the prelude env is cached (provides std types to the evaluator).
-  // Quiet: `compile` has no `check:` chatter.
-  mm_preload_prelude(std_path.clone(), false, io, exn);
-  // Read + parse the input module.
-  src_bytes := io.await(read_file(Path.new(input_path.clone()), io), IoExn(io : io, exn : exn));
-  src := String.from_bytes(src_bytes);
-  exprs := parse(src, input_path.clone(), exn);
-  // Demand-driven module loading. The entry module's eval context reuses the
-  // shared ExprInfoTable (created above, also used by the prelude load and every
-  // demand-loaded module) so codegen has metadata for the bodies of ALL
-  // collected functions — the prelude's, every imported module's, and the entry
-  // module's. `mm_eval_entry_exprs` applies it from the published slot.
-  entry_abs := mm_resolve_entry_abs(input_path.clone(), std_path.clone());
-  outcome := mm_eval_entry_exprs(entry_abs, std_path.clone(), exprs, io, exn);
-  if(!(outcome.ok), {
-    exn.throw(dyn(`compile: failed to evaluate module "${input_path}"`));
-    return(());
-  });
-  module_value := outcome.module_value;
-  env := outcome.env;
-  ctx := outcome.ctx;
-  // Resolve the compilation target: --target <triple> if given, else host.
-  target := match(
+  //
+  // ---------------------------------------------------------------------
+  // EVALUATE + EMIT SCOPE. Everything the evaluator and the code generator
+  // build lives inside this block, so that all of it is DROPPED before the
+  // C compiler is spawned below.
+  //
+  // This is not tidiness, it is the fix for a reproducing CI failure
+  // (issues/compiler-holds-emit-memory-during-cc.md). On run 31864299243
+  // the 140 MB .c was written at 04:36 and the process was STILL holding
+  // its ~12 GB evaluator arena at 04:40:59 when it died — while clang,
+  // which needs only 3.17 GB on its own, ran alongside it. Neither peak is
+  // fatal alone; the SUM on a 16 GB runner is.
+  //
+  // Nothing after the block reads any of it: `c_path` (declared outside so
+  // it survives) and `target` are the only values the link line needs.
+  // ---------------------------------------------------------------------
+  (c_path : String) = String.new();
+  {
+    clear_module_cache();
+    mm_clear_prelude_env();
+    shared_info_table := expr_info_table_new();
+    mm_set_shared_expr_info_table(shared_info_table);
+    // Ensure the prelude env is cached (provides std types to the evaluator).
+    // Quiet: `compile` has no `check:` chatter.
+    mm_preload_prelude(std_path.clone(), false, io, exn);
+    // Read + parse the input module.
+    src_bytes := io.await(read_file(Path.new(input_path.clone()), io), IoExn(io : io, exn : exn));
+    src := String.from_bytes(src_bytes);
+    exprs := parse(src, input_path.clone(), exn);
+    // Demand-driven module loading. The entry module's eval context reuses the
+    // shared ExprInfoTable (created above, also used by the prelude load and every
+    // demand-loaded module) so codegen has metadata for the bodies of ALL
+    // collected functions — the prelude's, every imported module's, and the entry
+    // module's. `mm_eval_entry_exprs` applies it from the published slot.
+    entry_abs := mm_resolve_entry_abs(input_path.clone(), std_path.clone());
+    outcome := mm_eval_entry_exprs(entry_abs, std_path.clone(), exprs, io, exn);
+    if(!(outcome.ok), {
+      exn.throw(dyn(`compile: failed to evaluate module "${input_path}"`));
+      return(());
+    });
+    module_value := outcome.module_value;
+    env := outcome.env;
+    ctx := outcome.ctx;
+    // --skip-codegen: evaluate only (type-check), emit no C.
+    if(skip_codegen, {
+      return(());
+    });
+    // Generate C11 from the evaluated module. A static library has no main()
+    // wrapper (is_library = true). Allocator + debug-logging flags are threaded
+    // through to the code generator (mirrors CodeGeneratorC.compileModule).
+    c_src := compile_module(module_value, ctx.expr_info_table, target, allocator.clone(), debug_gc, debug_parallelism, debug_async_await, static_library, ctx, env, exn);
+    // --emit-c prints the generated C to stdout (module-manager.ts:473-475) —
+    // and compilation continues; only --skip-c-compiler stops before the link.
+    if(emit_c, {
+      println(c_src);
+    });
+    // Strip a target-format extension so `app.html` gets `app.c`, not
+    // `app.html.c` (codegen/index.ts:226-228).
+    (c_base : String) = output.clone();
     cond(
-      (target_triple == "") => Result(TargetInfo, String).Ok(host_target()),
-      true => parse_target(target_triple)
-    ),
-    .Ok(t) => t,
-    .Err(e) => {
-      exn.throw(dyn(`compile: invalid --target "${target_triple}": ${e}`));
-      return(())
-    }
-  );
-  // --skip-codegen: evaluate only (type-check), emit no C.
-  if(skip_codegen, {
-    return(());
-  });
-  // Auto-add the output extension when none was given (yo-cli.ts:494-509):
-  // emcc → `.wasm` for standalone WASI, else `.html`; Windows targets → `.exe`.
-  if((cc == "emcc") && !(_path_has_extension(output)), {
-    output = if(is_target_standalone_wasi(target), `${output}.wasm`, `${output}.html`);
-  });
-  if(is_target_windows(target) && !(_path_has_extension(output)), {
-    output = `${output}.exe`;
-  });
-  // mimalloc isn't available on wasm (codegen/index.ts:193-199) — downgrade
-  // BEFORE codegen so the emitted runtime matches the link line.
-  if((allocator == "mimalloc") && is_target_wasm(target), {
-    allocator = String.from("libc");
-  });
-  // Generate C11 from the evaluated module. A static library has no main()
-  // wrapper (is_library = true). Allocator + debug-logging flags are threaded
-  // through to the code generator (mirrors CodeGeneratorC.compileModule).
-  c_src := compile_module(module_value, ctx.expr_info_table, target, allocator.clone(), debug_gc, debug_parallelism, debug_async_await, static_library, ctx, env, exn);
-  // --emit-c prints the generated C to stdout (module-manager.ts:473-475) —
-  // and compilation continues; only --skip-c-compiler stops before the link.
-  if(emit_c, {
-    println(c_src);
-  });
-  // Strip a target-format extension so `app.html` gets `app.c`, not
-  // `app.html.c` (codegen/index.ts:226-228).
-  (c_base : String) = output.clone();
-  cond(
-    c_base.ends_with(".html") => {
-      c_base = c_base.substring(usize(0), c_base.len() - usize(5));
-    },
-    c_base.ends_with(".wasm") => {
-      c_base = c_base.substring(usize(0), c_base.len() - usize(5));
-    },
-    c_base.ends_with(".exe") => {
-      c_base = c_base.substring(usize(0), c_base.len() - usize(4));
-    },
-    c_base.ends_with(".js") => {
-      c_base = c_base.substring(usize(0), c_base.len() - usize(3));
-    },
-    true => ()
-  );
-  // `--emit-c-to` overrides the derived sidecar path entirely, and its parent
-  // directory is created — the point of the flag is to place the file
-  // somewhere deliberate (e.g. `dist/yo.c`) that need not exist yet.
-  c_path := if(emit_c_to.len() > usize(0), emit_c_to.clone(), `${c_base}.c`);
-  if(emit_c_to.len() > usize(0), {
-    match(
-      Path.new(c_path.clone()).parent(),
-      .Some(pdir) => {
-        io.await(create_dir_all(pdir, io), IoExn(io : io, exn : exn));
+      c_base.ends_with(".html") => {
+        c_base = c_base.substring(usize(0), c_base.len() - usize(5));
       },
-      .None => ()
+      c_base.ends_with(".wasm") => {
+        c_base = c_base.substring(usize(0), c_base.len() - usize(5));
+      },
+      c_base.ends_with(".exe") => {
+        c_base = c_base.substring(usize(0), c_base.len() - usize(4));
+      },
+      c_base.ends_with(".js") => {
+        c_base = c_base.substring(usize(0), c_base.len() - usize(3));
+      },
+      true => ()
     );
-  });
-  io.await(write_file(Path.new(c_path.clone()), c_src, io), IoExn(io : io, exn : exn));
+    // `--emit-c-to` overrides the derived sidecar path entirely, and its parent
+    // directory is created — the point of the flag is to place the file
+    // somewhere deliberate (e.g. `dist/yo.c`) that need not exist yet.
+    c_path = if(emit_c_to.len() > usize(0), emit_c_to.clone(), `${c_base}.c`);
+    if(emit_c_to.len() > usize(0), {
+      match(
+        Path.new(c_path.clone()).parent(),
+        .Some(pdir) => {
+          io.await(create_dir_all(pdir, io), IoExn(io : io, exn : exn));
+        },
+        .None => ()
+      );
+    });
+    io.await(write_file(Path.new(c_path.clone()), c_src, io), IoExn(io : io, exn : exn));
+  };
+  // The scope above has dropped the AST, the evaluated module, the env, the
+  // eval context and the 140 MB C string. The module-manager GLOBALS still
+  // pin the rest of the universe, though, and no scope can reach them: the
+  // module cache (every evaluated module's values, for the whole import
+  // closure), the cached prelude env, and the shared ExprInfoTable. Clearing
+  // them is the other half of the fix — either half alone frees nothing,
+  // because each still holds a reference to what the other drops.
+  // TS equivalent: ModuleManager.resetAllState().
+  mm_reset();
   // --skip-c-compiler: write the C and stop.
   if(skip_cc, {
     return(());
