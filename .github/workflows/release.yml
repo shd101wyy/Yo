@@ -428,6 +428,140 @@ jobs:
   # the short version is that each arm is a complete translation unit under a
   # preprocessor conditional, so the C compiler selects one and skips the rest
   # (measured: 568 MB of skipped arms cost 0.7 s on a 69 s compile).
+  musl-bundle:
+    name: Static musl Linux bundle (linux-x64-musl)
+    needs: release
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: write
+    # EXPERIMENTAL on arrival, exactly as windows-x64 was. The pipeline is
+    # proven end-to-end in PR CI (test.yml's musl leg: static link + io_uring
+    # genuinely compiled in, asserted under seccomp=unconfined), but it has
+    # never produced a PUBLISHED bundle, and a new leg must not be able to
+    # block a release. Promote to `continue-on-error: false` after one green
+    # release run, the same rule the seed-bundle matrix uses.
+    continue-on-error: true
+    # DELIBERATELY ABSENT from publish-release's `needs`, unlike portable-c.
+    # `continue-on-error: true` stops a failure from failing the WORKFLOW, but
+    # the job's result is still `failure`, and a dependent job whose `needs`
+    # resolves to failure is SKIPPED — so listing it there would let a broken
+    # musl leg block publication entirely, the exact opposite of experimental.
+    # The trade is that publication may land shortly before this asset does;
+    # that is safe because install.sh falls back to the glibc bundle, and the
+    # asset attaches to the already-published release when it finishes.
+    # Add it to `needs` in the same commit that flips continue-on-error off.
+    steps:
+      - name: Checkout the released commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release.outputs.sha }}
+          submodules: recursive
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Build the TS compiler
+        run: |
+          bun install
+          bun run build
+
+      # Phase 1 — emit C on the glibc host. Yo cannot cross-compile gnu->musl,
+      # which is exactly why this is split at the C boundary: C is the portable
+      # intermediate. No liburing needed on the host, since only the LINKED
+      # binary uses it and the link happens in Alpine below.
+      - name: "Yo -> C (glibc host)"
+        run: |
+          node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs compile \
+            yo-self/main.yo --release --allocator mimalloc \
+            --emit-c-to yo-musl.c --skip-c-compiler
+          ls -la yo-musl.c
+
+      - name: "C -> static binary, inside Alpine (musl + static liburing)"
+        run: |
+          docker run --rm -v "$PWD:/w" -w /w alpine:3.20 sh -euc '
+            # NOT liburing-static: Alpine has no such package. Debian splits
+            # static libs into a -static package; Alpine ships liburing.a
+            # inside liburing-dev. Assert it rather than discovering its
+            # absence as a link error 140 MB into the compile.
+            apk add --no-cache build-base linux-headers liburing-dev
+            test -f /usr/lib/liburing.a || {
+              echo "::error::liburing-dev did not provide /usr/lib/liburing.a; -static -luring cannot work"
+              exit 1
+            }
+            cc -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
+              yo-musl.c vendor/mimalloc/src/static.c \
+              -I vendor/mimalloc/include \
+              -static -luring -lpthread -lm \
+              -o yo-musl
+          '
+          file yo-musl | tee file.txt
+          grep -q "statically linked" file.txt || {
+            echo "::error::musl bundle is not statically linked"; exit 1; }
+
+      - name: Assemble the bundle
+        run: |
+          BUNDLE="yo-v${{ needs.release.outputs.version }}-linux-x64-musl"
+          mkdir -p "$BUNDLE/bin"
+          cp yo-musl "$BUNDLE/bin/yo"
+          cp -R std "$BUNDLE/std"
+          # vendor/mimalloc must ship as a SIBLING of std: both compilers
+          # resolve it as dirname(std)/vendor, and mimalloc is the DEFAULT
+          # allocator, so a bundle without it cannot compile anything.
+          mkdir -p "$BUNDLE/vendor"
+          cp -R vendor/mimalloc "$BUNDLE/vendor/mimalloc"
+          cp LICENSE.md "$BUNDLE/"
+          tar -czf "$BUNDLE.tar.gz" "$BUNDLE"
+          echo "BUNDLE=$BUNDLE" >> $GITHUB_ENV
+
+      # Smoked ON Alpine, because Alpine is the entire point of this bundle —
+      # a glibc smoke would prove nothing it does not already know. The
+      # container gets build-base + liburing-dev because that is what a real
+      # Alpine user compiling Yo programs has; the BUNDLE itself is static and
+      # needs neither.
+      #
+      # seccomp=unconfined is REQUIRED, not a convenience: Docker's default
+      # profile blocks io_uring_setup, so it fails exactly the binaries that
+      # have io_uring correctly compiled in, and would pass a stubbed-out one.
+      - name: Smoke-test the bundle on Alpine
+        run: |
+          mkdir -p smoke
+          printf '%s\n' 'open(import("std/fmt"));' 'main :: (fn() -> unit)(println("hello from the yo seed"));' 'export(main);' > smoke/hello.yo
+          docker run --rm --security-opt seccomp=unconfined \
+            -v "$PWD:/w" -w /w/smoke -e BUNDLE="$BUNDLE" alpine:3.20 sh -euc '
+              apk add --no-cache build-base liburing-dev
+              YO=/w/$BUNDLE/bin/yo
+              YO_STD=/w/$BUNDLE/std $YO compile hello.yo --release -o hello 2>compile.err || { cat compile.err; exit 1; }
+              cat compile.err
+              # The bundled binary is built with mimalloc, whose diagnostics are
+              # a correctness gate: a cross-allocator free prints
+              # "mimalloc: error" and leaks rather than crashing, so rc=0 hides
+              # it. v0.2.0 and v0.2.1 both shipped that.
+              if grep -q "mimalloc: error" compile.err; then
+                echo "::error::the bundled compiler reported allocator errors on its own stderr — refusing to ship this bundle"
+                exit 1
+              fi
+              if grep -q "liburing not available" compile.err; then
+                echo "::error::async I/O was compiled OUT — this binary cannot read source files"
+                exit 1
+              fi
+              OUT=$(./hello)
+              echo "smoke output: $OUT"
+              test "$OUT" = "hello from the yo seed"
+            '
+
+      - name: Attach the bundle to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "v${{ needs.release.outputs.version }}" "$BUNDLE.tar.gz" --clobber
+
   portable-c:
     name: Portable single-file yo.c
     needs: [release, seed-bundles]

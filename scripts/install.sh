@@ -552,12 +552,50 @@ download_file() {  # <url> <destination>
   fi
 }
 
+# Does <url> exist? Used to choose between bundle flavors WITHOUT downloading
+# either, so an optional bundle can be probed cheaply. Header-only request, and
+# deliberately quiet: a miss here is an expected outcome, not an error.
+download_probe() {  # <url>
+  if has_cmd curl ; then
+    curl -fsSL -I -o /dev/null "$1" 2>/dev/null || return 1
+  elif has_cmd wget ; then
+    wget -q --spider "$1" 2>/dev/null || return 1
+  else
+    return 1
+  fi
+}
+
 #---------------------------------------------------------
 # Install
 #---------------------------------------------------------
 
+# True when the C library is musl rather than glibc (Alpine and friends).
+# `ldd --version` is the reliable probe: musl's prints "musl libc" — on stderr,
+# and with a non-zero exit, so both have to be swallowed. The distro check is a
+# fallback for images with no ldd at all.
+is_musl() {
+  if has_cmd ldd && ldd --version 2>&1 | grep -qi musl; then return 0; fi
+  [ "$OSDISTRO" = "alpine" ]
+}
+
 install_dist() {
+  # On musl, prefer the static musl bundle and fall back to the glibc one.
+  # The fallback matters: the musl bundle is published by an EXPERIMENTAL
+  # release leg, so it can legitimately be missing from a given release, and a
+  # hard failure there would be worse than the loader warning the glibc path
+  # already prints.
   bundle="yo-$VERSION-$OSARCH"
+  if [ "$OSNAME" = "linux" ] && is_musl; then
+    musl_bundle="yo-$VERSION-$OSARCH-musl"
+    if download_probe "$YO_DIST_BASE_URL/$VERSION/$musl_bundle.tar.gz"; then
+      info "musl libc detected — using the static musl bundle."
+      bundle="$musl_bundle"
+    else
+      warn "musl libc detected, but $VERSION publishes no $musl_bundle bundle."
+      warn "Falling back to the glibc bundle, which will NOT run here."
+      warn "Prefer:  --from-source   (compiles yo.c with your own toolchain)"
+    fi
+  fi
   url="$YO_DIST_BASE_URL/$VERSION/$bundle.tar.gz"
   target="$PREFIX/lib/yo/$VERSION"
   bindir="$PREFIX/bin"
@@ -874,7 +912,13 @@ main_install() {
   # /lib64/ld-linux-x86-64.so.2 does not exist). Building from the published
   # yo.c fixes BOTH, because the user's own C compiler links against their own
   # libc and loader — the source path is the real answer there, not a warning.
-  if [ -z "$FROM_SOURCE" ] && ! check_dynamic_loader; then
+  # On musl the STATIC musl bundle needs no loader at all, so install_dist
+  # handles it and this advice would be actively misleading — it would send an
+  # Alpine user to a source build they no longer need. Suppress it there and
+  # let install_dist decide (it warns and falls back on its own if the release
+  # has no musl bundle). NixOS still lands here, which is the case the source
+  # path genuinely fixes.
+  if [ -z "$FROM_SOURCE" ] && ! is_musl && ! check_dynamic_loader; then
     info ""
     info "The prebuilt bundle cannot run on this system, but the published"
     info "single-file yo.c can be compiled here. Re-run with:"
