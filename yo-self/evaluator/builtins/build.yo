@@ -80,6 +80,8 @@ BuildArtifact :: ref(
     optimize : String,
     allocator : String,
     sanitize : String,
+    /// Redirect the single generated C file here ("" = default sidecar).
+    emit_c_to : String,
     link_libraries : ArrayList(String),
     include_paths : ArrayList(String),
     library_paths : ArrayList(String),
@@ -237,6 +239,7 @@ impl(
         optimize : artifact.optimize,
         allocator : artifact.allocator,
         sanitize : artifact.sanitize,
+        emit_c_to : artifact.emit_c_to,
         link_libraries : artifact.link_libraries,
         include_paths : artifact.include_paths,
         library_paths : artifact.library_paths,
@@ -263,6 +266,7 @@ impl(
         optimize : artifact.optimize,
         allocator : artifact.allocator,
         sanitize : artifact.sanitize,
+        emit_c_to : artifact.emit_c_to,
         link_libraries : artifact.link_libraries,
         include_paths : artifact.include_paths,
         library_paths : artifact.library_paths,
@@ -289,6 +293,7 @@ impl(
         optimize : artifact.optimize,
         allocator : artifact.allocator,
         sanitize : artifact.sanitize,
+        emit_c_to : artifact.emit_c_to,
         link_libraries : artifact.link_libraries,
         include_paths : artifact.include_paths,
         library_paths : artifact.library_paths,
@@ -920,7 +925,8 @@ _build_new_artifact :: (
     target : String,
     optimize : String,
     allocator : String,
-    sanitize : String
+    sanitize : String,
+    emit_c_to : String
   ) -> BuildArtifact
 )(
   BuildArtifact(
@@ -931,6 +937,7 @@ _build_new_artifact :: (
     optimize : optimize,
     allocator : allocator,
     sanitize : sanitize,
+    emit_c_to : emit_c_to,
     link_libraries : ArrayList(String).new(),
     include_paths : ArrayList(String).new(),
     library_paths : ArrayList(String).new(),
@@ -1087,7 +1094,8 @@ evaluate_yo_build_functions :: (
         _build_extract_string_or(args, usize(2), "target", host_triple.clone(), expr, ctx, exn),
         _build_extract_string_or(args, usize(3), "optimize", String.from("debug"), expr, ctx, exn),
         _build_extract_string_or(args, usize(4), "allocator", String.from("mimalloc"), expr, ctx, exn),
-        _build_extract_string_or(args, usize(5), "sanitize", String.from("none"), expr, ctx, exn)
+        _build_extract_string_or(args, usize(5), "sanitize", String.from("none"), expr, ctx, exn),
+        _build_extract_string_or(args, usize(6), "emit_c_to", String.new(), expr, ctx, exn)
       ),
       exn
     );
@@ -1102,7 +1110,8 @@ evaluate_yo_build_functions :: (
         _build_extract_string_or(args, usize(2), "target", host_triple.clone(), expr, ctx, exn),
         _build_extract_string_or(args, usize(3), "optimize", String.from("debug"), expr, ctx, exn),
         String.from("libc"),
-        String.from("none")
+        String.from("none"),
+        String.new()
       ),
       exn
     );
@@ -1117,7 +1126,8 @@ evaluate_yo_build_functions :: (
         _build_extract_string_or(args, usize(2), "target", host_triple.clone(), expr, ctx, exn),
         _build_extract_string_or(args, usize(3), "optimize", String.from("debug"), expr, ctx, exn),
         String.from("libc"),
-        String.from("none")
+        String.from("none"),
+        String.new()
       ),
       exn
     );

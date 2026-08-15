@@ -489,6 +489,14 @@ compile_artifact :: (
     });
     cmd.arg(String.from("--allocator"));
     cmd.arg(artifact.allocator.clone());
+    // `emit_c_to` redirects the generated C file. "" means unset (comptime_str
+    // has no None). Resolved against the project dir, matching how `root` is
+    // resolved: a path in build.yo means "relative to the project", not to
+    // whatever cwd the build runs from.
+    if(artifact.emit_c_to.len() > usize(0), {
+      cmd.arg(String.from("--emit-c-to"));
+      cmd.arg(Path.new(ctx.project_dir.clone()).join(Path.new(artifact.emit_c_to.clone())).to_string());
+    });
     if(artifact.sanitize != "none", {
       cmd.arg(String.from("--sanitize"));
       cmd.arg(artifact.sanitize.clone());
