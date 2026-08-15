@@ -131,10 +131,14 @@ On NixOS there is a second, harder problem that no package can fix: see item 3.
 
 ### Still open on item 1
 
-- Hosting at the Pages site root, so the canonical one-liner is
-  `curl -sSL https://shd101wyy.github.io/Yo/install.sh | sh`
-  (`scripts/build-site.ts` grows a copy step). Today the URL is the raw
-  GitHub one.
+- ~~Hosting at the Pages site root~~ **DONE 2026-08-15**:
+  `scripts/build-site.ts` copies `install.sh` + `install.ps1` to the site root
+  (and THROWS if either is missing — a silently absent installer would make the
+  documented one-liner pipe a 404 page into `sh`). **Not live yet**: Pages
+  deploys only from `release.yml`, and
+  `https://shd101wyy.github.io/Yo/install.sh` was verified to 404 today, so
+  both READMEs deliberately use the raw GitHub URL until a release deploys the
+  site. See the critical-path section at the top.
 - The optional `--vscode` flag (`code --install-extension`).
 - Unifying with the version cache (above).
 
