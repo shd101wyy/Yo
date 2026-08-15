@@ -53,21 +53,52 @@ lines 2256/2271/2285/3379/3439/3469/3495, plus the two-fd forms
 `if (olddirfd == -100 && newdirfd == -100)` (rename) and
 `if (newdirfd == -100)` (link).
 
+## This is one instance of a general "shadow constant table" hazard
+
+**Do not fix only the Yo half — that would make things worse.** These platform
+constants are authored **twice**, independently:
+
+| constant              | Yo half (`std/sys/constants.yo`)            | C half (codegen)                                                          |
+| --------------------- | ------------------------------------------- | ------------------------------------------------------------------------- |
+| `AT_FDCWD`            | `:12-15` — `-2` macOS / `-100` otherwise    | `-100` hardcoded (`runtime-io-common.ts:191,774`, `-macos.ts:1104`)       |
+| `AT_REMOVEDIR`        | `:16-19` — `0x80` macOS / `0x200` otherwise | `0x80` hardcoded (`runtime-io-macos.ts:1222`, comment says "macOS value") |
+| `AT_SYMLINK_NOFOLLOW` | `:21-24` — `0x20` macOS / `0x100` otherwise | the **macro** (`runtime-io-macos.ts:1160`), i.e. 0x20 on macOS            |
+
+The two halves agree today **only because a single emitter run selects both
+for the same target**. `AT_FDCWD` is the case where the mismatch is harmless by
+luck; `AT_REMOVEDIR` and `AT_SYMLINK_NOFOLLOW` are not, and they are decided by
+the same coincidence.
+
+Migrating the Yo half to `c_include` (so it emits the macro name and the C
+compiler supplies the value) while leaving the C half's hardcoded literal would
+**convert today's accidental agreement into silent divergence**: the Yo value
+would become the compiling platform's, the C value would stay macOS's.
+
+This matters most for `plans/PORTABLE_C_DISTRIBUTION.md`. Under any `#if`
+merging, the Yo half freezes at emit time while the C half is chosen at
+C-compile time, permanently decoupling them — e.g. emit for Linux, compile on
+macOS, and `0x100 & 0x20 == 0` makes `std/fs/metadata.yo`'s
+`symlink_metadata` call `stat()` instead of `lstat()`, so every symlink
+silently reports its target's metadata. It compiles, links, and runs.
+
 ## Fix
 
-Emit the **C macro name** `AT_FDCWD` instead of a numeric literal, so the C
-compiler's own `<fcntl.h>` supplies the value. The codebase already has the
-mechanism and a working precedent for exactly this: `c_include` binds a
-constant to its C macro name rather than folding it to an integer —
-`std/libc/fcntl.yo:4-11` does this for `O_RDONLY`/`O_WRONLY`/…, and the
-emitted C shows macro names (`((O_RDONLY) | (O_CLOEXEC))`), not literals.
+Single-source each constant, changing **both halves in the same commit**:
 
-`std/sys/constants.yo` does **not** use `c_include` and is where the folded
-`AT_FDCWD` comes from. Migrating it is the same change that
-`PORTABLE_C_DISTRIBUTION.md` needs for its ~50 integer-constant sites, so do
-them together.
+1. Yo half: `c_include` it so the emitted C carries the **macro name**, not a
+   folded integer. The mechanism and a working precedent already exist —
+   `std/libc/fcntl.yo:4-11` does this for `O_RDONLY`/`O_WRONLY`/…, and the
+   emitted C shows `((O_RDONLY) | (O_CLOEXEC))`. `std/sys/constants.yo` does
+   not use it, and is where the folded values come from.
+2. C half: delete the hardcoded literals in
+   `src/codegen/async/runtime-io-{common,macos,linux}.ts` in favour of the same
+   macro names.
 
-Fix in both compilers (`src/codegen/` and `yo-self/codegen/`).
+Do both compilers (`src/codegen/` and `yo-self/codegen/`).
+
+A regression test should assert that no emitted C contains a bare `-100`/`0x80`
+sentinel for these flags — otherwise the next hand-written helper reintroduces
+the shadow table.
 
 ## Reproduce
 

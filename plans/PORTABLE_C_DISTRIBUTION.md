@@ -28,10 +28,24 @@ Requirements as stated by the user (2026-08-15):
 
 ## Bottom line
 
-**Items 1, 2, 3 and 6 are straightforward and should ship now. Item 4 — one
-byte-identical C file for all platforms — is reachable, but NOT by changing
-codegen alone: it needs a staged `std/` migration first. Item 5 should be
-re-scoped in the meantime onto the axis that is achievable today.**
+**Items 1, 2, 3 and 6 should ship now. Item 4 — one byte-identical C file for
+all platforms — should NOT be attempted, and item 5 must be re-scoped onto
+"the published C compiles and passes tests on each platform" rather than
+cross-OS byte identity.**
+
+> **Two independent adversarial reviews both returned `infeasible` for the
+> one-file goal**, on different grounds, after the staged plan below was
+> drafted. Their objections are recorded in "Why one file is the wrong target"
+> because they are concrete and verifiable, not stylistic — and one of them
+> surfaced a live bug
+> (`issues/liburing-fallback-does-not-compile.md`).
+
+**Ship per-target C files instead.** The five release legs _already_ emit their
+platform's C and throw the sidecar away, so publishing is roughly one
+`gh release upload` line per leg. That delivers 100% of the user-facing value —
+bootstrap a compiler without having a Yo compiler first — at essentially zero
+correctness risk, because each published file is the exact artifact CI already
+builds and tests on that platform.
 
 The obstacle is not the C emitter. **81 comptime `platform ==` / `arch ==`
 branch sites across 13 `std/` files and 2 `yo-self/` files** are folded by the
@@ -145,6 +159,81 @@ These split into two classes:
   extern sets and headers. `std/env.yo`'s `current_exe` alone has three
   implementations (`GetModuleFileNameW` / `_NSGetExecutablePath` /
   `/proc/self/exe`). This is the hard blocker.
+
+## Why one file is the wrong target
+
+The staged path below is _technically_ walkable. Two adversarial reviews
+independently concluded it should not be walked. The decisive arguments:
+
+### 1. The shadow constant tables (the correctness killer)
+
+Platform constants are authored **twice**: once in `std/sys/constants.yo` as a
+comptime `cond`, and again as **hardcoded literals in the C runtime emitter**.
+`runtime-io-macos.ts:1222` is literally
+`if (flags & 0x80) {  // AT_REMOVEDIR (macOS value)` while
+`std/sys/constants.yo:16-19` folds `AT_REMOVEDIR` to `0x200` for Linux.
+
+They agree today **only because one emitter run picks both for the same
+target**. `#if` merging decouples them permanently: the Yo half freezes at emit
+time, the C half is selected at C-compile time. Emit for Linux, compile on
+macOS, and `0x100 & 0x20 == 0` makes `symlink_metadata` call `stat()` instead
+of `lstat()` — every symlink silently reports its target's metadata and
+`is_symlink()` is false. `0x200 & 0x80 == 0` makes `remove_dir` pass macOS's
+`AT_REALDEV` instead of `AT_REMOVEDIR`. Socket options are worse: `SOL_SOCKET`
+is 1 on Linux and 0xFFFF on macOS, `setsockopt` errors are discarded, so a
+wrong level is invisible until an intermittent `EADDRINUSE` months later.
+
+**All of this compiles, links, and runs on all five platforms**, and the
+byte-identity gate is green _by construction_ because identity is the goal.
+That is precisely the "compiles everywhere but subtly wrong on one platform"
+outcome the request exists to avoid. `AT_FDCWD` survives the same mismatch
+only by accident — see `issues/emitted-c-hardcodes-linux-at-fdcwd.md`.
+
+### 2. The `detect_host()` fix is circular
+
+Making the host a runtime probe (required, or one published file yields a
+compiler permanently convinced it runs on the emitting OS) un-folds the ~81
+`cond(platform == ...)` sites into **runtime** branches. Those branches call
+symbols that do not exist to link against on the other platforms —
+`std/env.yo:76,208,356` import `GetModuleFileNameW`/`_putenv_s` from
+`./libc/windows`, `:269` imports `_NSGetExecutablePath`. So the fix for the
+blocker reintroduces the blocker at link time. Escaping needs Yo `cond` arms to
+lower into C `#if`/`#else` — a new emitter capability, not a tidy-up.
+
+### 3. It buys no new platform reach
+
+`#if` arms only exist for OSes the emitter already knows, so one file delivers
+exactly the same five platforms that already have prebuilt bundles. The
+distribution effort is identical either way — you ship a tarball regardless,
+because the binary still needs `std/` sources at runtime.
+
+### What the reviews did NOT object to (worth recording)
+
+- **Compile cost is a non-issue.** Measured: `clang -O2` on the real 2.26 M-line
+  / 142 MB self-emit takes **69.5 s / 3.17 GB peak** and yields a working
+  8.7 MB binary. Adding all three OS runtimes is +0.35% of lines and ~0 time,
+  since the preprocessor drops untaken arms.
+- `--emit-c-to` is cheap and parity-safe.
+
+### Work worth doing regardless of the one-file decision
+
+1. `issues/liburing-fallback-does-not-compile.md` — the `#else` arm does not
+   compile for programs using `sleep`. Breaks the "any C compiler" promise on
+   Linux **today**.
+2. Make dispose/dyn type-ids position-independent (key on the dispose function
+   _name_, not emission order). They are a single dense counter shared by four
+   allocators, baked as literals and consumed by a `switch`; an innocuous
+   emitter reordering desynchronizes them into **wrong-dispose-function calls**
+   — type-confused frees, with no compile error.
+3. Strip the absolute checkout path out of emitted identifiers and comments
+   (`yo-self/evaluator/types/struct.yo:83`, `enum.yo:217`) — needed for a
+   credible published artifact regardless of file count. Deterministic and
+   third-party-reproducible are different properties; only the second matters
+   for a published file.
+4. `src/codegen/exprs/async.ts:98` and `:1709` independently recompute
+   `async_block_${Date.now()}` for names that must agree — if that fallback
+   ever fires, the forward declaration and definition disagree and the C is
+   invalid. A correctness bug, not a determinism one.
 
 ## What is genuinely tractable in the C emitter (for reference)
 
