@@ -163,16 +163,30 @@ state. One slot, two legitimate clients.
 
 ### The fix
 
-Give the slot room for both layers, in source order: either make
-`condBranchPostWhileExprs` a LIST that clients append to, or add the dedicated
-`postLoopDrops` field (see Hole 1) and route the second client there. A list is
-the more principled of the two — there is nothing special about "two", and the
-consumer already iterates `exprs`.
+Give the slot room for both layers, in source order — but note that the obvious
+shape is wrong.
 
-Do NOT simply overwrite or merge under the existing entry's guard: the two
-layers dispatch on DIFFERENT `cond_branch_N` fields (`cond_branch_0 == 2` here
-versus the inner layer's own), so a merge is only sound when the surviving entry
-is unconditional (`skipCondBranchCheck`). Relying on that is fragile.
+**A list of ENTRIES, looped over, does not work.** The consumer's body is a
+single pass that stops at the first expression containing an await
+(`foundPostWhileAwait`), hands the rest to the next state via
+`asyncCondBranchInfo`, and only emits `deferredDropExpressions` when it did NOT
+chain. Run that per entry and the ordering breaks the moment entry 1 chains:
+entry 2 (the OUTER arm) would be emitted in THIS state while entry 1's tail runs
+in the next one — outer code before inner code.
+
+**Concatenate instead.** Merge the layers into ONE expression sequence, inner
+layer first then the enclosing arm, and let the existing single pass run over
+the concatenation. Ordering and the chaining semantics then both fall out for
+free — the pass splits at whichever await comes first in the merged sequence,
+which is the correct split point. Merge `deferredDropExpressions` the same way.
+
+The one thing that genuinely needs care is the guard. Layers can carry different
+`branchIndex` / `condBranchFieldIndex` (`cond_branch_0 == 2` here versus the
+inner layer's own field), and one emission cannot test two fields. Set
+`skipCondBranchCheck` whenever the merged layers disagree — which is sound for
+the same reason the existing code already gives for that flag: `after_while_loop_N`
+is reachable only from the branch that ran the loop. Do NOT silently keep one
+layer's guard and drop the other's.
 
 Both compilers need it; `yo-self/codegen/functions/context.yo`'s
 `CondBranchPostWhileExprs` is a `ref(struct(...))` in the same single-slot shape.
