@@ -1,6 +1,6 @@
 # The liburing `#else` fallback does not compile: async sleep is emitted outside the guard
 
-**Status: OPEN** (found 2026-08-15 while sizing
+**Status: FIXED 2026-08-15** (found while sizing
 `plans/PORTABLE_C_DISTRIBUTION.md`; surfaced by an adversarial review and then
 verified end-to-end.)
 
@@ -76,12 +76,42 @@ is never exercised. The `#else` arm is, in effect, untested code.
   (a build failure), but only for sleep — file I/O still degrades silently, so
   BOTH failure modes exist.
 
-## Fix
+## Fix (applied)
 
-Emit the Linux `__yo_async_sleep_start` inside the guard, and give the `#else`
-arm a stub with the same signature (returning an immediately-failed future, in
-keeping with the other stubs). Mirror in `yo-self/codegen/async/`.
+The Linux `__yo_async_sleep_start` is now emitted inside `#ifdef
+__YO_HAS_LIBURING`, with an `#else` stub of the same signature returning an
+immediately-failed future (`-ENOSYS`), matching the other stubs in
+`runtime-io-linux.ts`'s `#else` arm. So a program that only SLEEPS still links
+and reports a runtime error rather than failing to build.
 
-Add a CI job that compiles an emitted Linux C **without** liburing-dev present,
-so the `#else` arm is exercised at all — that is the missing gate that let this
-survive.
+`__YO_HAS_LIBURING` is safe to test here because `generateAsyncRuntimeIOLinux`
+runs BEFORE `generateAsyncRuntimeIOCommon` (`src/codegen/async/runtime.ts:55-67`),
+so the macro is already defined-or-not by the time this block is emitted.
+
+Applied to BOTH compilers: `src/codegen/async/runtime-io-common.ts` and
+`yo-self/codegen/async/runtime_io_common.yo`.
+
+### Verified
+
+A checker walks the emitted C's conditional nesting and reports any io_uring
+symbol reachable when liburing is absent. Validated red-first on the SAME
+program before and after:
+
+```
+pre-fix  emit: 4 ring refs outside a liburing branch
+                 3805: struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
+                 3815: io_uring_prep_read(...)  3816: io_uring_sqe_set_data(...)
+                 3817: __yo_io_ring_submit(future);
+post-fix emit: 0
+```
+
+Plus `check yo-self/codegen/async/runtime_io_common.yo` clean and
+`tests/async_await.test.yo` 164/164 on macOS (unchanged path, guarding against
+collateral damage).
+
+### Still missing: the gate
+
+Nothing in CI compiles an emitted Linux C **without** liburing-dev, which is
+why this survived. The `#else` arm remains untested code. The cheap version is
+the checker above run over an emitted Linux C; the honest version is a job that
+actually compiles one on a box without the headers.
