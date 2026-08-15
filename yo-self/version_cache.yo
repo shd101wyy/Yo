@@ -256,11 +256,20 @@ is_version_cached :: (
     // script-installed version and would offer to re-download it.
     // Install root wins because it is the version the user deliberately
     // installed; the cache is a download side-effect.
-    installed := match(
+    // The await is HOISTED out of the match arm on purpose. Inside an
+    // `io.async` block `io.await` may not sit in a `cond` condition or in a
+    // later branch, and `match`/`if` both lower to `cond` (std/prelude.yo's
+    // `if` macro). The self-hosted compiler accepts the nested form; the TS
+    // compiler rejects it, and TS is what builds the release bundles — so the
+    // nested form passed every PR check and broke the v0.2.5 release run.
+    // Resolving to a path FIRST and awaiting unconditionally is the shape the
+    // rest of this file already uses. An empty path simply does not exist.
+    inst_path := match(
       get_install_version_dir(version.clone()),
-      .Some(d) => e.io.await(exists(Path.new(cached_binary_path(d)), e.io), e.io),
-      .None => false
+      .Some(d) => cached_binary_path(d),
+      .None => String.new()
     );
+    installed := e.io.await(exists(Path.new(inst_path), e.io), e.io);
     if(installed, {
       return(true);
     });
@@ -278,17 +287,20 @@ resolve_version_dir :: (
   ) -> Impl(Future(Option(String), IoExn))
 )(
   io.async((e : IoExn) => {
-    match(
+    // Both awaits hoisted for the same reason as `is_version_cached` above:
+    // no `io.await` in a cond condition or a later branch.
+    inst_dir := match(
       get_install_version_dir(version.clone()),
-      .Some(d) => {
-        if(e.io.await(exists(Path.new(cached_binary_path(d.clone())), e.io), e.io), {
-          return(Option(String).Some(d));
-        });
-      },
-      .None => ()
+      .Some(d) => d,
+      .None => String.new()
     );
+    inst_found := e.io.await(exists(Path.new(cached_binary_path(inst_dir.clone())), e.io), e.io);
+    if(inst_found, {
+      return(Option(String).Some(inst_dir));
+    });
     cached := get_version_cache_dir(version);
-    if(e.io.await(exists(Path.new(cached_binary_path(cached.clone())), e.io), e.io), {
+    cached_found := e.io.await(exists(Path.new(cached_binary_path(cached.clone())), e.io), e.io);
+    if(cached_found, {
       return(Option(String).Some(cached));
     });
     Option(String).None
@@ -313,6 +325,40 @@ _contains_version :: (fn(xs : ArrayList(String), name : String) -> bool)({
 /// List all locally cached Yo versions (directories holding a `bin/yo`).
 /// Returns an ArrayList sorted by semver (ascending). Old npm-shaped cache
 /// entries (package.json + node_modules) are ignored — that channel is dead.
+_scan_versions_root :: (
+  fn(
+    versions_dir : String,
+    out : ArrayList(String),
+    io : Io,
+    exn : Exception
+  ) -> Impl(Future(unit, IoExn))
+)(
+  io.async((e : IoExn) => {
+    root_exists := e.io.await(exists(Path.new(versions_dir.clone()), e.io), e.io);
+    if(!(root_exists), {
+      return(());
+    });
+    entries := e.io.await(read_dir(Path.new(versions_dir.clone()), e.io), e);
+    i := usize(0);
+    while(i < entries.len(), {
+      match(
+        entries.get(i),
+        .None => (),
+        .Some(entry) => {
+          if(match(entry.file_type, .Directory => true, _ => false), {
+            entry_path := `${versions_dir}/${entry.name}`;
+            bin_exists := e.io.await(exists(Path.new(cached_binary_path(entry_path)), e.io), e.io);
+            // A version present in BOTH roots must appear once.
+            if(bin_exists && !(_contains_version(out, entry.name.clone())), {
+              out.push(entry.name);
+            });
+          });
+        }
+      );
+      i = (i + usize(1));
+    });
+  })
+);
 list_cached_versions :: (
   fn(
     io : Io,
@@ -323,48 +369,21 @@ list_cached_versions :: (
     versions := ArrayList(String).new();
     // Scan BOTH roots: the download cache and — when this binary was
     // script-installed — <prefix>/lib/yo. Without the second, `yo version list`
-    // omits the very version the user is running, which reads as "not
-    // installed" (P3 item 1's installer/cache unification).
-    roots := ArrayList(String).new();
-    match(
+    // omits the very version the user is running (P3 item 1's installer/cache
+    // unification). Install root FIRST so it wins on duplicates.
+    //
+    // Each root is scanned by its OWN async function rather than an inner loop.
+    // Nesting a while-with-awaits inside another while-with-awaits made the
+    // v0.2.4 SEED emit `goto after_while_loop_0` with no such label, breaking
+    // stage-1 on every seed-driven job. The seed is a RELEASED binary, so the
+    // only fix available here is to not generate that shape.
+    inst_root := match(
       get_install_versions_dir(),
-      .Some(d) => {
-        roots.push(d);
-      },
-      .None => ()
+      .Some(d) => d,
+      .None => String.new()
     );
-    roots.push(get_global_versions_cache_dir());
-    r := usize(0);
-    while(r < roots.len(), {
-      match(
-        roots.get(r),
-        .None => (),
-        .Some(versions_dir) => {
-          if(e.io.await(exists(Path.new(versions_dir.clone()), e.io), e.io), {
-            entries := e.io.await(read_dir(Path.new(versions_dir.clone()), e.io), e);
-            i := usize(0);
-            while(i < entries.len(), {
-              match(
-                entries.get(i),
-                .None => (),
-                .Some(entry) => {
-                  if(match(entry.file_type, .Directory => true, _ => false), {
-                    entry_path := `${versions_dir}/${entry.name}`;
-                    bin_exists := e.io.await(exists(Path.new(cached_binary_path(entry_path)), e.io), e.io);
-                    // A version present in BOTH roots must appear once.
-                    if(bin_exists && !(_contains_version(versions, entry.name.clone())), {
-                      versions.push(entry.name);
-                    });
-                  });
-                }
-              );
-              i = (i + usize(1));
-            });
-          });
-        }
-      );
-      r = (r + usize(1));
-    });
+    e.io.await(_scan_versions_root(inst_root, versions, e.io, e.exn), e);
+    e.io.await(_scan_versions_root(get_global_versions_cache_dir(), versions, e.io, e.exn), e);
     _sort_by_semver(versions)
   })
 );

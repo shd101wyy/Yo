@@ -34,7 +34,8 @@ open(import("std/string"));
   BK_RETURN,
   BK_COND,
   BK_MATCH,
-  BK_BEGIN
+  BK_BEGIN,
+  BK_WHILE
 } :: import("./expr.yo");
 { lookup_macro_expansion } :: import("./expr_info.yo");
 { is_io_await_call, is_io_async_call } :: import("./evaluator/async/await_analysis.yo");
@@ -365,6 +366,94 @@ expr_contains_await :: (fn(expr : AstExpr) -> bool)(
     }
   )
 );
+/// TRUE when `expr` contains a `while` loop that itself suspends — a nested
+/// while-with-await, at ANY depth.
+///
+/// The async state machine gives a loop its own while-loop index, and emits its
+/// `while_loop_N_continue` / `after_while_loop_N` labels, only when it knows the
+/// loop encloses another suspending loop. A shallow scan of the body's
+/// top-level expressions misses the ordinary shapes — the inner loop usually
+/// sits inside a `match` arm or an `if`, and `if(...)` keeps its macro head in
+/// the AST, so the branch structure is only reachable through the macro
+/// expansion. Missing it makes the outer loop lower as if it were innermost: no
+/// back-edge and no exit label, so its body runs once and control never returns
+/// to it. Honors the same boundaries as `expr_contains_await`.
+///
+/// Mirrors `exprContainsWhileWithAwait` (src/expr-traversal.ts).
+expr_contains_while_with_await :: (fn(expr : AstExpr) -> bool)(
+  match(
+    expr,
+    .Atom(_, _) => false,
+    .FnCall(_, fn_box, args, _, _) => {
+      if(ast_expr_is_fn_call_of(expr, BK_WHILE, Option(usize).None) && expr_contains_await(expr), {
+        return(true);
+      });
+      match(
+        lookup_macro_expansion(ast_expr_id(expr)),
+        .Some(me) => {
+          return(recur(me));
+        },
+        .None => ()
+      );
+      // cond/match: recurse into branch parts directly (bypassing => at arg level).
+      (is_cond_or_match : bool) = (
+        ast_expr_is_fn_call_of(expr, BK_COND, .None) ||
+          ast_expr_is_fn_call_of(expr, BK_MATCH, .None)
+      );
+      if(is_cond_or_match, {
+        if(recur(fn_box), {
+          return(true);
+        });
+        (n_cm : usize) = args.len();
+        (i_cm : usize) = usize(0);
+        while(i_cm < n_cm, {
+          arg := match(args.get(i_cm), .Some(a) => a, .None => make_err_expr());
+          if(ast_expr_is_fn_call_of(arg, "=>", .None), {
+            match(
+              arg,
+              .Atom(_, _) => (),
+              .FnCall(_, _, branch_args, _, _) => {
+                (n_ba : usize) = branch_args.len();
+                (j : usize) = usize(0);
+                while(j < n_ba, {
+                  ba := match(branch_args.get(j), .Some(a) => a, .None => make_err_expr());
+                  if(recur(ba), {
+                    return(true);
+                  });
+                  j = (j + usize(1));
+                });
+              }
+            );
+          }, {
+            if(recur(arg), {
+              return(true);
+            });
+          });
+          i_cm = (i_cm + usize(1));
+        });
+        return(false);
+      });
+      // Skip nested io.async scopes and function/closure boundaries — a loop
+      // inside one gets its own state machine, so it is not OUR nested loop.
+      if(is_io_async_call(expr) || is_function_boundary_arrow(expr), {
+        return(false);
+      });
+      if(recur(fn_box), {
+        return(true);
+      });
+      (n : usize) = args.len();
+      (i : usize) = usize(0);
+      while(i < n, {
+        arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
+        if(recur(arg), {
+          return(true);
+        });
+        i = (i + usize(1));
+      });
+      false
+    }
+  )
+);
 /// TRUE when EVERY control path through the evaluated body terminates in
 /// `unwind(...)` (or a diverging builtin: `__yo_panic` / `abort` /
 /// `unreachable`) — i.e. the caller can never receive a normal return value.
@@ -464,5 +553,6 @@ export(
   expr_tree_contains_return,
   expr_contains_loop_terminator,
   expr_contains_await,
+  expr_contains_while_with_await,
   all_paths_unwind
 );
