@@ -1,0 +1,123 @@
+name: "Build stage-1 with the seed"
+description: >-
+  Build the self-hosted compiler from the current checkout using the previous
+  release (the bootstrap seed), and export it as $S1 with $YO_STD pinned.
+
+# WHY A COMPOSITE ACTION. Six jobs now need "a stage-1 binary built by the
+# seed", and each had its own copy of the recipe. That is how the flag trap in
+# run 31869066863 happened: a change made in one copy (`--emit-c-to`) was not a
+# change the others had, and nothing forced them to agree. One definition means
+# one place to fix the next seed-compatibility problem — and on the evidence of
+# 2026-08-15 there will be one.
+#
+# Existing jobs are deliberately NOT migrated onto this yet: they are green, and
+# rewriting six working jobs in the same change that adds two new ones would mix
+# a refactor into a feature. New callers use it; migrate the rest separately.
+
+inputs:
+  seed-version:
+    description: "Published release tag to use as the bootstrap seed"
+    required: true
+  allocator:
+    description: "Allocator for the stage-1 build (mimalloc | libc)"
+    required: false
+    default: "mimalloc"
+
+runs:
+  using: "composite"
+  steps:
+    # A self-emit peaks well above what a 16 GB runner has free. Every
+    # self-building job provisions swap; /swapfile is taken on GitHub runners,
+    # hence /mnt/swapfile.
+    - name: Add swap space
+      shell: bash
+      run: |
+        if [ ! -e /mnt/swapfile ]; then
+          sudo fallocate -l 32G /mnt/swapfile
+          sudo chmod 600 /mnt/swapfile
+          sudo mkswap /mnt/swapfile
+          sudo swapon /mnt/swapfile
+        fi
+        free -m
+
+    # The published Linux bundle links liburing DYNAMICALLY, so the seed cannot
+    # even start without it — and it fails with exit 127, which reads exactly
+    # like "command not found" and sends you hunting a PATH bug.
+    # (issues/fixed/musl-job-seed-needs-host-liburing.md)
+    - name: Install liburing
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y liburing-dev
+
+    - name: Install the seed compiler (previous release)
+      uses: ./.github/actions/install-seed
+      with:
+        version: ${{ inputs.seed-version }}
+
+    # SPLIT AT THE C BOUNDARY, in two processes.
+    #
+    # `yo build` cannot be used here. It shells out to `yo compile`, and that
+    # ONE child evaluates, emits, AND runs clang while still holding its whole
+    # evaluator arena — two peaks overlapping inside a process the workflow
+    # cannot reach into. Run 31864299243: the 140 MB .c was written at 04:36 and
+    # the process still held ~12 GB at 04:40:59 when it died.
+    #
+    # yo-self now releases that arena before spawning the C compiler, but the
+    # SEED is a released binary predating the fix, so the split has to happen
+    # here: phase 1 emits and EXITS, returning every byte to the OS; phase 2
+    # compiles in a fresh process. Seed-independent, and confirmed working on
+    # run 31869274650.
+    #
+    # SEED-ERA FLAGS ONLY. This is byte-for-byte the flag set the musl leg
+    # proves against the seed. `--emit-c-to` is newer than the seed and made it
+    # treat the flag as a positional: "file or directory not found", 4 s in,
+    # memory at 1.3 GB (run 31869066863). stdout is discarded because
+    # `--emit-c` PRINTS the C and 140 MB would drown the log; stderr is kept.
+    - name: "Stage 1 (phase 1): seed emits C, then exits"
+      shell: bash
+      env:
+        YO_MAIN_STACK_MB: "4096"
+      run: |
+        echo Y | sudo tee /sys/module/zswap/parameters/enabled >/dev/null || true
+        # Resolve `yo` ABSOLUTELY before sudo: sudo resets PATH via secure_path,
+        # so the $GITHUB_PATH entry install-seed added is gone inside the scope
+        # and a bare `yo` exits 127 instantly.
+        YO_BIN="$(command -v yo)"
+        if [ -z "$YO_BIN" ]; then
+          echo "::error::the seed compiler is not on PATH"
+          exit 1
+        fi
+        set +e
+        sudo systemd-run --scope -p MemoryHigh=11G -p MemoryMax=14G \
+          env YO_MAIN_STACK_MB=4096 nice -n 10 "$YO_BIN" compile yo-self/main.yo \
+            --release --allocator ${{ inputs.allocator }} --std-path ./std \
+            --emit-c --skip-c-compiler -o /tmp/stage1 > /dev/null
+        EMIT_RC=$?
+        set -e
+        if [ "$EMIT_RC" -ne 0 ]; then
+          echo "::error::seed failed to emit C for yo-self/main.yo (exit ${EMIT_RC})"
+          exit "$EMIT_RC"
+        fi
+        ls -la /tmp/stage1.c
+
+    - name: "Stage 1 (phase 2): fresh process compiles the C"
+      shell: bash
+      run: |
+        MIMALLOC=""
+        if [ "${{ inputs.allocator }}" = "mimalloc" ]; then
+          MIMALLOC="vendor/mimalloc/src/static.c -I vendor/mimalloc/include"
+        fi
+        # shellcheck disable=SC2086
+        clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
+          /tmp/stage1.c $MIMALLOC \
+          -lpthread -lm -luring \
+          -o /tmp/yo-stage1
+
+        # The binary does not live under yo-out/<triple>/bin/, so the
+        # exe-relative walk-up finds no std — and `./std` stops resolving the
+        # moment a later step cd's into a scratch project. Pin YO_STD.
+        echo "S1=/tmp/yo-stage1" >> "$GITHUB_ENV"
+        echo "YO_STD=$PWD/std" >> "$GITHUB_ENV"
+        # Fail fast if the built binary cannot run at all.
+        YO_STD="$PWD/std" /tmp/yo-stage1 check std/assert.yo
