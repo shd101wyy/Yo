@@ -39,6 +39,16 @@ runs:
           shasum -a 256 "$RUNNER_TEMP/yo-seed.tar.gz"
         fi
         mkdir -p "$RUNNER_TEMP/yo-seed"
-        tar -xzf "$RUNNER_TEMP/yo-seed.tar.gz" -C "$RUNNER_TEMP/yo-seed" --strip-components=1
+        # Extract with BARE RELATIVE paths, from inside $RUNNER_TEMP.
+        # On Windows $RUNNER_TEMP is `D:\a\_temp`, and GNU tar (the one Git
+        # Bash provides) parses an argument to -f containing a colon as a
+        # REMOTE `host:path` spec — so the absolute form made it try to reach a
+        # host named "D:" and die with "tar (child): Cannot connect to D:
+        # resolve failed / tar: Child returned status 128". The download itself
+        # was fine; only extraction broke, which is why the seed looked
+        # "missing" on windows-latest. Keeping both paths relative means no
+        # drive letter ever reaches tar. Do NOT "fix" this with --force-local:
+        # that is GNU-only and would break macOS, where tar is bsdtar.
+        (cd "$RUNNER_TEMP" && tar -xzf yo-seed.tar.gz -C yo-seed --strip-components=1)
         echo "$RUNNER_TEMP/yo-seed/bin" >> "$GITHUB_PATH"
         echo "seed ${T} installed from ${{ inputs.version }}"
