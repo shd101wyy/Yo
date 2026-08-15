@@ -96,6 +96,29 @@ even after the global slot is reassigned.
 So a real fix needs BOTH halves — drop the local handles and clear the globals
 — which is why this is a small design change rather than a one-line edit.
 
+## CONFIRMED WORKING — run 31869274650 (2026-08-15)
+
+`Stage 1: build the self-hosted compiler with the SEED` **passed on both Linux
+legs**, the step that had failed on every previous attempt (15.5 GB uncapped,
+then 12.4 GB under the cgroup cap). The split is what did it, and it works with
+the **unmodified v0.2.4 seed** — no release required.
+
+The diagnosis is therefore confirmed on both halves:
+
+- two peaks overlapping, neither fatal alone; and
+- a compiler-side fix cannot reach a seed-driven step, so the split had to be
+  done at the workflow level.
+
+Had only the compiler fix shipped, this leg would still be red.
+
+Also verified rather than merely asserted: `Build system smoke test` passed,
+which was the build-system coverage claimed as "not lost" when stage 1 stopped
+using `yo build`.
+
+Still NOT exercised: the compiler-side fix itself. It only runs when the
+compiler doing the work is built from this tree — stage-2/stage-3, or stage-1
+once `SEED_VERSION` reaches a release containing it.
+
 ## Status of the fix (2026-08-15)
 
 **Compiler side — DONE** (`2a7af4324`). `yo-self/main.yo` now wraps evaluate+emit
