@@ -867,7 +867,17 @@ jobs:
       - name: "C -> static binary, inside Alpine (musl + static liburing)"
         run: |
           docker run --rm -v "$PWD:/w" -w /w alpine:3.20 sh -euc '
-            apk add --no-cache build-base linux-headers liburing-dev liburing-static
+            # NOT liburing-static: Alpine has no such package ("liburing-static
+            # (no such package): required by: world[liburing-static]", run
+            # 31855893056). Debian splits static libs into a -static package;
+            # Alpine ships liburing.a inside liburing-dev. Assert it is really
+            # there rather than discovering its absence as a link error.
+            apk add --no-cache build-base linux-headers liburing-dev
+            test -f /usr/lib/liburing.a || {
+              echo "::error::liburing-dev did not provide /usr/lib/liburing.a; -static -luring cannot work"
+              find / -name "liburing.a" 2>/dev/null | head
+              exit 1
+            }
             cc -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
               yo-musl.c vendor/mimalloc/src/static.c \
               -I vendor/mimalloc/include \
