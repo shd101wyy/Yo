@@ -1,6 +1,6 @@
 # Windows rc=139: `main` runs on the default 1 MB stack and `YO_MAIN_STACK_MB` is ignored
 
-**Status: OPEN** (root-caused 2026-08-15 on PR #126, run 31854687362.)
+**Status: FIXED 2026-08-15** (root-caused on PR #126 run 31854687362; fix applied the same day). The CI leg stays red until a release ships the fix — see the sequencing note.
 
 ## Symptom
 
@@ -78,7 +78,16 @@ Alternative (weaker): set the PE stack reserve at link time
 it bakes the size in and leaves `YO_MAIN_STACK_MB` a no-op on Windows, so the
 knob keeps lying. Prefer the thread.
 
-Fix in both compilers (`src/codegen/` and `yo-self/codegen/`).
+Applied in both compilers: `src/codegen/functions/generation.ts` and
+`yo-self/codegen/functions/generation.yo`. WASM keeps the direct call (no
+threads there), so the branch is Windows-specific rather than "not POSIX".
+
+Verified by emitting for `x86_64-windows-msvc`: the C now defines
+`static DWORD WINAPI __yo_main_thread_entry(LPVOID)` and an `int main` that
+reads `YO_MAIN_STACK_MB`, calls `CreateThread` with it as `dwStackSize`, and
+`WaitForSingleObject`s. A macOS emit is unchanged (still
+`pthread_attr_setstacksize`, zero `CreateThread`), and
+`tests/async_await.test.yo` is 164/164 locally.
 
 ## The sequencing trap — read before expecting CI to go green
 

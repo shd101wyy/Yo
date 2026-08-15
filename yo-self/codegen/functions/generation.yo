@@ -28,7 +28,7 @@ open(import("std/string"));
 { has_any_control_flow, get_module_level_init_exprs, fid_fully_specialized, expr_info_consumed_variable_drop_expressions, is_module_level_global, module_global_c_suffix } :: import("../../expr_info.yo");
 { is_unit_type } :: import("../../types/guards.yo");
 { is_temp_variable_name } :: import("../../utils.yo");
-{ is_target_posix, is_target_linux } :: import("../../target.yo");
+{ is_target_posix, is_target_linux, is_target_windows } :: import("../../target.yo");
 { get_func_type, is_closure_fn, get_closure_capture_info, is_effect_record_member } :: import("../../function_value.yo");
 { get_type_string, get_variable_type_string, sanitize_for_c_identifier, get_variable_name_for_codegen } :: import("../utils/index.yo");
 { get_shell_redirect } :: import("../../evaluator/values/type_trait_methods.yo");
@@ -968,8 +968,55 @@ int main(int argc, char** argv) {
     em.emit_string(block);
   }, {
     init_call := if(has_module_vars, String.from("  __yo_main_module_init();\n  if (__yo_effect_escaped) return 0;\n"), String.new());
-    block :=
-      `
+    // WINDOWS gets the same configurable worker stack the POSIX arm uses.
+    // Without it `main` runs on the process default stack — 1 MB on Windows —
+    // and YO_MAIN_STACK_MB is silently a no-op there, so the self-hosted
+    // compiler's comptime recursion SEGVs within seconds (rc=139, no C
+    // emitted). See issues/windows-no-main-worker-stack-rc139.md. WASM keeps
+    // the direct call: it has no threads.
+    if(is_target_windows(context.base.target_info), {
+      block :=
+        `
+// Worker entry - DWORD WINAPI, the Windows analogue of POSIX void*(void*).
+static DWORD WINAPI __yo_main_thread_entry(LPVOID __yo_unused_arg) {
+  (void)__yo_unused_arg;
+${init_call}  // Call sync main
+  __yo_user_main${main_call_args};
+  return 0;
+}
+
+// Main wrapper - runs the program body on a worker thread (default 1 GiB
+// stack, overridable via YO_MAIN_STACK_MB), mirroring the POSIX wrapper.
+int main(int argc, char** argv) {
+  __yo_argc = (int32_t)argc;
+  __yo_argv = (uint8_t**)argv;
+  __yo_args = (Slice_uint8_t_u42_){ .data = (uint8_t**)argv, .length = (size_t)argc };
+
+  size_t __yo_main_stack = (size_t)1024 * 1024 * 1024; // 1 GiB
+  {
+    const char* __yo_stack_mb = getenv("YO_MAIN_STACK_MB");
+    if (__yo_stack_mb != NULL) {
+      long __yo_mb = atol(__yo_stack_mb);
+      if (__yo_mb > 0) __yo_main_stack = (size_t)__yo_mb * 1024 * 1024;
+    }
+  }
+  // dwStackSize is the direct analogue of pthread_attr_setstacksize; Windows
+  // RESERVES the address space and commits lazily, as POSIX does.
+  HANDLE __yo_main_thread = CreateThread(
+      NULL, (SIZE_T)__yo_main_stack, __yo_main_thread_entry, NULL, 0, NULL);
+  if (__yo_main_thread != NULL) {
+    WaitForSingleObject(__yo_main_thread, INFINITE);
+    CloseHandle(__yo_main_thread);
+  } else {
+    __yo_main_thread_entry(NULL);
+  }
+  return 0;
+}
+`;
+      em.emit_string(block);
+    }, {
+      block :=
+        `
 // Main wrapper - calls __yo_user_main directly
 int main(int argc, char** argv) {
   __yo_argc = (int32_t)argc;
@@ -980,7 +1027,8 @@ ${init_call}  // Call sync main
   return 0;
 }
 `;
-    em.emit_string(block);
+      em.emit_string(block);
+    });
   });
 });
 export(generate_function_body, generate_function, generate_all_functions, generate_main_wrapper);
