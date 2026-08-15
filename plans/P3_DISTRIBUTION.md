@@ -221,12 +221,35 @@ must be iterated in CI.
 
 ## Item 4 — release hardening (carried from P2 notes)
 
-- Per-platform fixpoint (byte-identity) as a scheduled or release-time job
-  with the linux job's memory tuning — each self-emit holds ~9-11.5 GB, so
-  it cannot ride the 7 GB suite runners (P2_RETIRE_SRC.md §2.2 note).
-- The windows error-path rc=139 follow-up (probe SEGV on a failed child
-  compile) — issues/fixed/windows-native-selfhosted-build-fails.md
-  iteration-3 note.
+- **Per-platform fixpoint — DONE 2026-08-15**, as
+  `.github/workflows/fixpoint-arm64.yml` (weekly + `workflow_dispatch`, not a
+  required check).
+
+  **Scope narrowed by measurement, and the narrowing is the finding.** A
+  self-emit peaks ABOVE 15 GB, not the 9-11.5 GB recorded here: run
+  31856743929 watched ubuntu-latest climb to 15,541 MB of 15,988 and die when
+  its own allocation failed (dmesg showed no oom-kill). macOS runners have
+  ~7 GB and no way to add a swapfile, so **macOS and Windows cannot host a
+  fixpoint on standard runners at all** — the same wall that forced test.yml's
+  `test` matrix to stop self-building there. "Per-platform" therefore means the
+  two Linux arches; x86_64 is already covered per-PR, so the new job covers
+  linux-arm64.
+
+  arm64 earns its own job because the compiler's emit is NOT arch-independent:
+  `yo-self/target.yo:165-184 detect_host()` folds `arch ==` into a comptime
+  constant, so the x64 and arm64 emissions differ by construction, and nothing
+  else in CI checks that the arm64 self-emit reaches a fixpoint.
+
+- **The windows rc=139 follow-up — FIXED 2026-08-15**, and it was not an
+  error-path bug at all. `main` ran on Windows' 1 MB process default stack
+  because the big-stack worker thread was gated on `isTargetPosix`, and
+  `YO_MAIN_STACK_MB` was read only inside that arm — so the knob was silently a
+  no-op on Windows. Now a `CreateThread` worker with `dwStackSize`, in both
+  compilers. See `issues/windows-no-main-worker-stack-rc139.md`.
+
+  **Sequencing:** the CI leg stays red until a release ships this and
+  `SEED_VERSION` bumps, because the crash is in the released SEED, built by the
+  old codegen. That is release ordering, not an outstanding defect.
 
 ## Gate
 
