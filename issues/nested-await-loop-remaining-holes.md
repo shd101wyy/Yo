@@ -125,8 +125,11 @@ getting through CI on their own before more is stacked on them.
 
 ## Verify
 
-Hole 1 (expect 222, currently 111) — the shape is in this repo's history as
-`shapes/a.yo` in the session scratchpad; reconstruct from the snippet above.
+Hole 1 (expect `A=222`, currently `A=111`):
+
+```
+./yo-cli compile issues/repros/nested-await-loop-outer-no-own-await.yo --release -o /tmp/holeA && /tmp/holeA
+```
 
 Hole 2:
 
