@@ -99,7 +99,7 @@ prefix defaulting to `$HOME/.local`. Useful options:
 
 ```bash
 # a specific release, system-wide
-$ curl -sSL https://shd101wyy.github.io/Yo/install.sh | sh -s -- --version=v0.2.5 --prefix=/usr/local
+$ curl -sSL https://shd101wyy.github.io/Yo/install.sh | sh -s -- --version=v0.2.6 --prefix=/usr/local
 
 # build from source with your own toolchain
 $ curl -sSL https://shd101wyy.github.io/Yo/install.sh | sh -s -- -cc=gcc -cflags='-march=native'

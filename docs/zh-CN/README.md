@@ -99,7 +99,7 @@ $ curl -sSL https://shd101wyy.github.io/Yo/install.sh | sh
 
 ```bash
 # 安装指定版本，系统级安装
-$ curl -sSL https://shd101wyy.github.io/Yo/install.sh | sh -s -- --version=v0.2.5 --prefix=/usr/local
+$ curl -sSL https://shd101wyy.github.io/Yo/install.sh | sh -s -- --version=v0.2.6 --prefix=/usr/local
 
 # 使用自己的工具链从源码构建
 $ curl -sSL https://shd101wyy.github.io/Yo/install.sh | sh -s -- -cc=gcc -cflags='-march=native'
