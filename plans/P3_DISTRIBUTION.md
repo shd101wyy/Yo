@@ -5,6 +5,34 @@
 as `P1_CLI_PARITY.md`/`P2_RETIRE_SRC.md`: measured numbers, live status,
 traps recorded as found. Drafted 2026-08-11; **item 1 landed 2026-08-12**.
 
+## CRITICAL PATH 2026-08-15 — cutting a release is now the blocker
+
+Three P3 deliverables are built, committed and CI-verified, and all three are
+inert until a release runs, because each is produced or deployed only by
+`release.yml`:
+
+| Deliverable                | Produced by               | Status until a release runs                  |
+| -------------------------- | ------------------------- | -------------------------------------------- |
+| single-file `yo.c`         | `portable-c` job          | `yo-v*.c.gz` 404s on EVERY published release |
+| static musl bundle         | `musl-bundle` job         | Alpine users get the unusable glibc bundle   |
+| `…github.io/Yo/install.sh` | Pages deploy in `release` | 404 — READMEs must use the raw URL           |
+
+Measured, not assumed: `yo-v0.2.4.c.gz` and `yo-v0.2.3.c.gz` both return 404,
+and `v0.2.4`'s asset list is five platform bundles plus the `.vsix`.
+
+The user-visible consequence is the sharp one: **`--from-source` cannot work
+against any existing release**, and that is precisely the path NixOS and Alpine
+users are told to take, since no prebuilt bundle runs for them. So the platforms
+with no other option are the ones with nothing at all until a release ships.
+`install.sh` at least fails honestly there ("may predate the single-file yo.c
+artifact"), and both READMEs now state the constraint.
+
+None of this is fixable by more code. The next action for P3 is to **cut a
+release**, then verify on it, in order: `portable-c` uploaded `yo.c.gz`;
+`musl-bundle` uploaded and smoked; the Pages site serves `/install.sh`; then
+switch both READMEs to the canonical URL and promote `musl-bundle` off
+`continue-on-error`.
+
 ## What P2 already delivered that P3 builds on
 
 - **Every release since v0.2.1 ships all five native bundles** (linux-x64,
