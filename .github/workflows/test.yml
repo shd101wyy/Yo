@@ -331,8 +331,11 @@ jobs:
           echo "--- partial yo-out tree: was the 142 MB .c emitted before the failure? ---"
           ls -lR yo-out 2>/dev/null | head -40 || echo "(no yo-out)"
 
-      # macOS/Windows: no self-build (see the note above). The seed IS the
-      # compiler under test on these legs, driven against this checkout's std.
+      # macOS/Windows: no self-build (see the note above). These legs run the
+      # checks that do NOT require a current compiler — `fmt --check` and the
+      # build-system smoke test — under the seed, against this checkout's std.
+      # They do NOT run the language suite; see the "Run tests" note for why
+      # that is impossible rather than merely expensive.
       - name: "Stage 1 (macOS/Windows): use the seed as the compiler under test"
         if: runner.os != 'Linux'
         shell: bash
@@ -377,7 +380,23 @@ jobs:
       # sequential), so this is serial: MEASURED at 17.5 min for all 188 files on
       # an M4 (2742 passed / 2742, no `Failed to transpile` markers), i.e. ~20x
       # inside this job's 360-min timeout — no directory sharding needed.
+      # LINUX ONLY, and this is not a cost decision — it is a correctness one.
+      # The language suite contains REGRESSION TESTS for compiler bugs, so it
+      # can only ever be run by the compiler built from THIS checkout. Running
+      # it under the seed fails by construction on every test added since the
+      # seed was released: run 31861036285 died on "standalone await as the
+      # async body's own result" (tests/async_await.test.yo:3974), added by
+      # 15cf7bc4f with the tail-await result-loss codegen fix — a fix v0.2.4
+      # does not have, so the test correctly fails there. Any allowlist for
+      # that would need editing on every compiler fix and would invert the
+      # meaning of the suite.
+      #
+      # Since only Linux can host the stage-1 build (see the note above), the
+      # suite is Linux-only per PR. macOS/Windows compiler coverage is
+      # release-time, via release.yml's seed-bundles, which builds AND
+      # smoke-tests natively on all five targets.
       - name: Run tests
+        if: runner.os == 'Linux'
         shell: bash
         run: |
           "$S1" test ./tests --exclude tests/internal --exclude tests/cli-cases --bail --verbose --c-compiler clang

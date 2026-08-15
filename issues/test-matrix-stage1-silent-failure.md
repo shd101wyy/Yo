@@ -117,6 +117,31 @@ would have tested the RELEASED std while reporting that they tested the PR's.
 Verified red-first against the real v0.2.4 seed: a bogus `YO_STD` fails on
 `/nonexistent/std/prelude.yo`, the correct one passes.
 
+## The seed CANNOT run the language suite (found by CI, 2026-08-15)
+
+The first version of this fix had macOS/Windows run the suite under the seed.
+That is impossible, not merely degraded, and run 31861036285 proved it:
+
+```
+✓ async index binding keeps the element alive (two passes over the list)
+Assertion failed.
+yo-self: error: 1 test(s) failed
+```
+
+The failing test is `"standalone await as the async body's own result"`
+(`tests/async_await.test.yo:3974`), added by commit `15cf7bc4f` **together with
+the tail-await result-loss codegen fix**. v0.2.4 does not contain that fix, so
+the regression test pinning it fails under the seed — correctly.
+
+Generalised: **the language suite contains regression tests for compiler bugs,
+so it can only ever be run by the compiler built from the checkout under test.**
+Every test added since the seed's release is a guaranteed failure. An allowlist
+would need editing on every compiler fix and would invert the suite's meaning.
+
+So the suite is Linux-only per PR (Linux being the only platform that can host
+the stage-1 build). macOS/Windows legs keep the checks that do NOT need a
+current compiler: `fmt --check` and the build-system smoke test.
+
 ## Coverage cost, stated plainly
 
 macOS/Windows legs now cover std changes and platform-specific runtime/codegen
