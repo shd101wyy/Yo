@@ -23,6 +23,8 @@ Yo 的目标是 **简单** 和 **快速**（比 C 语言慢约 0% - 15%）。
 
 - [特性](#特性)
 - [安装](#安装)
+  - [安装脚本（推荐）](#安装脚本推荐)
+  - [npm](#npm)
   - [Linux](#linux)
   - [macOS](#macos)
   - [Windows](#windows)
@@ -68,7 +70,49 @@ Yo 的目标是 **简单** 和 **快速**（比 C 语言慢约 0% - 15%）。
 
 ## 安装
 
-`Yo` 语言目前作为 `npm` 包分发：
+### 安装脚本（推荐）
+
+安装原生预编译的编译器 —— 无需 Node.js 或 npm。
+
+```bash
+# macOS / Linux
+$ curl -sSL https://raw.githubusercontent.com/shd101wyy/Yo/develop/scripts/install.sh | sh
+```
+
+```powershell
+# Windows（PowerShell）
+> irm https://raw.githubusercontent.com/shd101wyy/Yo/develop/scripts/install.ps1 | iex
+```
+
+安装到 `<prefix>/lib/yo/<tag>`，并在 `<prefix>/bin/yo` 创建链接，`prefix` 默认为
+`$HOME/.local`。常用选项：
+
+| 选项                     | 含义                                              |
+| ------------------------ | ------------------------------------------------- |
+| `-v, --version=<tag>`    | 安装指定版本（默认：最新版）                      |
+| `-p, --prefix=<dir>`     | 安装前缀 —— 系统级安装用 `/usr/local`（需 sudo）  |
+| `--from-source`          | 从发布的单文件 `yo.c` 构建                        |
+| `-cc, --c-compiler=<cc>` | 源码构建使用的 C 编译器（隐含 `--from-source`）   |
+| `-cflags, --c-flags=<f>` | 源码构建的额外 C 编译选项（隐含 `--from-source`） |
+| `-u, --uninstall`        | 卸载而非安装                                      |
+| `--dry-run`              | 仅显示将要执行的操作，不做任何改动                |
+
+```bash
+# 安装指定版本，系统级安装
+$ curl -sSL https://raw.githubusercontent.com/shd101wyy/Yo/develop/scripts/install.sh | sh -s -- --version=v0.2.4 --prefix=/usr/local
+
+# 使用自己的工具链从源码构建
+$ curl -sSL https://raw.githubusercontent.com/shd101wyy/Yo/develop/scripts/install.sh | sh -s -- -cc=gcc -cflags='-march=native'
+```
+
+**没有预编译包的平台** —— 使用 `--from-source`。安装脚本会下载该版本的单文件
+`yo.c`，并用你自己的 C 编译器编译，因此它链接的是你自己的 libc 和加载器。这正是
+NixOS 上的解决方案 —— 预编译二进制文件中硬编码的 ELF 解释器路径
+（`/lib64/ld-linux-x86-64.so.2`）在 NixOS 上并不存在。
+
+### npm
+
+编译器同时也作为 `npm` 包发布：
 
 ```bash
 $ npm install -g @shd101wyy/yo         # 全局安装 yo 编译器
