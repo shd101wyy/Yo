@@ -96,6 +96,26 @@ even after the global slot is reassigned.
 So a real fix needs BOTH halves — drop the local handles and clear the globals
 — which is why this is a small design change rather than a one-line edit.
 
+## Status of the fix (2026-08-15)
+
+**Compiler side — DONE** (`2a7af4324`). `yo-self/main.yo` now wraps evaluate+emit
+in a scope and calls `mm_reset()` after the write, so both halves land together.
+
+**But that does NOT fix stage 1 in CI**, and the distinction matters: stage 1
+runs `yo build` under the **seed**, a released binary that predates the fix. The
+overlap therefore still happens, inside a child process the workflow cannot
+reach into. A compiler fix can only take effect once `SEED_VERSION` points at a
+release containing it.
+
+**CI side — DONE** (`d64a84a4b`), and it is seed-independent: stage 1 no longer
+uses `yo build`. It emits C with `--emit-c-to --skip-c-compiler` (process exits,
+returning everything to the OS) and compiles that C in a fresh process. Same
+split the musl leg and `fixpoint-arm64.yml` already use.
+
+Anything else that shells out to a single `yo compile` on a large program has
+the same exposure until the seed advances — worth checking before adding a new
+self-build job.
+
 ## Fix directions
 
 1. **Release before spawning**, both halves together: clear the module cache,

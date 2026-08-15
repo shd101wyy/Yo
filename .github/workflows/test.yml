@@ -310,29 +310,53 @@ jobs:
             echo "::error::the seed compiler is not on PATH"
             exit 1
           fi
+          # SPLIT AT THE C BOUNDARY, in two processes.
+          #
+          # `yo build` cannot work here with today's seed. It shells out to
+          # `yo compile`, and that ONE child does evaluate+emit AND then runs
+          # clang while still holding its whole evaluator arena — the two peaks
+          # overlap inside a process this workflow cannot reach into. Run
+          # 31864299243 is the proof: the 140 MB .c was written at 04:36 and the
+          # process was still holding ~12 GB at 04:40:59 when it died.
+          #
+          # yo-self now releases that arena before spawning the C compiler, but
+          # the SEED is a released binary that predates the fix, so stage 1 has
+          # to do the split itself: phase 1 emits C and EXITS (returning every
+          # byte to the OS), phase 2 compiles that C in a fresh process. Same
+          # design the musl leg already proves, and it is seed-independent.
+          #
+          # Build-system coverage is NOT lost: the "Build system smoke test"
+          # step below still runs `$S1 build run` on a scratch project, where
+          # the memory involved is trivial.
           set +e
           sudo systemd-run --scope -p MemoryHigh=11G -p MemoryMax=14G \
-            env YO_MAIN_STACK_MB=4096 nice -n 10 "$YO_BIN" build --std-path ./std
-          BUILD_RC=$?
+            env YO_MAIN_STACK_MB=4096 nice -n 10 "$YO_BIN" compile yo-self/main.yo \
+              --release --allocator mimalloc --std-path ./std \
+              --emit-c-to /tmp/stage1.c --skip-c-compiler
+          EMIT_RC=$?
           set -e
           kill "$(cat /tmp/yo-sampler.pid)" 2>/dev/null || true
-          if [ "$BUILD_RC" -ne 0 ]; then
-            echo "::error::yo build failed with exit code ${BUILD_RC}"
-            exit "$BUILD_RC"
+          if [ "$EMIT_RC" -ne 0 ]; then
+            echo "::error::seed failed to emit C for yo-self/main.yo (exit ${EMIT_RC})"
+            exit "$EMIT_RC"
           fi
+          ls -la /tmp/stage1.c
 
-          # build.yo emits yo-out/<target-triple>/bin/yo[.exe]; the triple
-          # differs per leg, so resolve it instead of hardcoding five paths.
-          S1="$(ls yo-out/*/bin/yo yo-out/*/bin/yo.exe 2>/dev/null | head -1)"
-          if [ -z "$S1" ]; then
-            echo "::error::yo build produced no binary under yo-out/*/bin/"
-            ls -R yo-out || true
-            exit 1
-          fi
-          echo "S1=$PWD/$S1" >> "$GITHUB_ENV"
+          # Phase 2 — fresh process, so the emit arena is already gone.
+          clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
+            /tmp/stage1.c vendor/mimalloc/src/static.c \
+            -I vendor/mimalloc/include -lpthread -lm -luring \
+            -o /tmp/yo-stage1
+
+          # The binary no longer lives under yo-out/<triple>/bin/, so the
+          # exe-relative walk-up finds no std — and `./std` stops resolving the
+          # moment a later step cd's into the scratch project. Pin YO_STD to the
+          # checkout, exactly as the macOS/Windows leg does.
+          echo "S1=/tmp/yo-stage1" >> "$GITHUB_ENV"
+          echo "YO_STD=$PWD/std" >> "$GITHUB_ENV"
           # Fail fast if the built binary cannot run at all (evaluator, module
-          # loading, executable-relative std discovery).
-          "$S1" check std/assert.yo
+          # loading, std discovery).
+          YO_STD="$PWD/std" /tmp/yo-stage1 check std/assert.yo
 
       # MUST be `if: always()`. The stage-1 shell dies together with `yo build`
       # (proven in run 31854687362), so this is the only place the forensics
