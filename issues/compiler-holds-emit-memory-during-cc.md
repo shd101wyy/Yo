@@ -115,9 +115,29 @@ Also verified rather than merely asserted: `Build system smoke test` passed,
 which was the build-system coverage claimed as "not lost" when stage 1 stopped
 using `yo build`.
 
-Still NOT exercised: the compiler-side fix itself. It only runs when the
-compiler doing the work is built from this tree — stage-2/stage-3, or stage-1
-once `SEED_VERSION` reaches a release containing it.
+### The compiler-side fix is sound too — FIXPOINT_HOLDS
+
+Same run: `Bootstrap fixpoint (yo-self self-compile)` **and**
+`Bootstrap fixpoint stage-3 (byte-identity)` both passed, the latter reporting
+
+```
+FIXPOINT_HOLDS: stage-2 and stage-3 C are byte-identical
+```
+
+Those two stages run under a binary built FROM THIS TREE, so unlike stage 1
+they do exercise the compiler-side change. Byte-identity across generations is
+the strong result: wrapping evaluate+emit in a scope, calling `mm_reset()`, and
+moving target resolution above the eval changed **nothing** about what the
+compiler emits. A restructure of `run_compile` is exactly the kind of change
+that could have perturbed emission order or id numbering, and it did not.
+
+(Checked the actual verdict line rather than the job's green tick — this repo
+has produced hollow passes before, and the script's own `echo` of both branches
+appears in the log listing.)
+
+Still NOT exercised: the compiler-side fix on the stage-1 path. That needs
+`SEED_VERSION` to reach a release containing it — but note stage 1 no longer
+depends on it, because the workflow split is seed-independent.
 
 ## Status of the fix (2026-08-15)
 
