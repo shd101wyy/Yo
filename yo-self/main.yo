@@ -1575,7 +1575,14 @@ run_compile :: (
   // first native-Windows probe smoke) and -pthread is meaningless there.
   // (TS passes neither for native targets; kept on POSIX to avoid touching
   // proven link lines.)
-  if(!(is_target_windows(target)), {
+  //
+  // WASM excluded: TS gates EVERY system library on `!isWasm`
+  // (codegen/index.ts:526), and `-pthread` in particular is not inert for
+  // emcc — it switches Emscripten into pthreads mode, which changes the shape
+  // of the generated output. Passing it unconditionally is why the first
+  // self-hosted wasm smoke test built `hello-world.html` but produced no
+  // `hello-world.js` for the runner to execute (run 31874422392).
+  if(!(is_target_windows(target)) && !(is_target_wasm(target)), {
     cmd.arg(String.from("-lm"));
     cmd.arg(String.from("-pthread"));
   });

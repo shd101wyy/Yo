@@ -1068,7 +1068,20 @@ jobs:
           "$S1" init ./tmp/hello-world --name hello-world
           cd tmp/hello-world
           sed -i 's|exe :: build.executable({ name: "hello-world", root: "./src/main.yo" });|exe :: build.executable({ name: "hello-world", root: "./src/main.yo", target: build.CompilationTarget.Wasm32_Emscripten });|' build.yo
+          # List what emcc actually produced on failure. `build run` executes
+          # node on the .js shim emcc emits beside the .html, so "Cannot find
+          # module ...hello-world.js" says nothing about WHY it is missing —
+          # and each round-trip here costs a stage-1 build. Run 31874422392
+          # burned a cycle on exactly that.
+          set +e
           "$S1" build run
+          RC=$?
+          set -e
+          if [ "$RC" -ne 0 ]; then
+            echo "--- yo-out tree ---"
+            ls -lR yo-out 2>/dev/null || echo "(no yo-out)"
+            exit "$RC"
+          fi
 
       # tests/internal is host-toolchain-only (it compiles the compiler); excluded
       # from the cross-target jobs for the same runtime/memory reason as above.
