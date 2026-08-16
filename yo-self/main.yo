@@ -72,6 +72,7 @@ _(env : proc_env) :: import("std/env");
 { clear_module_cache } :: import("./evaluator/module_loader.yo");
 { format_yo_source, format_yo_files, FormatYoFilesOptions } :: import("./formatter.yo");
 { host_target, set_current_target, parse_target, TargetInfo, is_target_linux, is_target_windows, is_target_macos, is_target_wasm, is_target_standalone_wasi } :: import("./target.yo");
+{ set_target_pointer_size } :: import("./types/utils.yo");
 { compile_module } :: import("./codegen/codegen_c.yo");
 { get_needs_intel_asm_syntax, get_uses_parallelism } :: import("./codegen/utils/index.yo");
 { panic, assert } :: import("std/assert");
@@ -1241,6 +1242,16 @@ run_compile :: (
   // arms in std/ are selected during evaluation, and the untaken arm never
   // reaches the AST.
   set_current_target(target);
+  // The pointer-size global feeds get_size_of_type's sizeof/alignof folding.
+  // TS pairs these two setters at the same spot (codegen/index.ts:194-195);
+  // yo-self had NO caller for this setter, so sizeof folded 64-bit pointer
+  // layouts into wasm32 C — e.g. sizeof(MapNode) = 16 while typed-pointer
+  // `.add()` arithmetic scales by the REAL 8-byte wasm32 element, mixing
+  // strides inside std/imm/map's child arrays (the imm_map wasi unwrap-None
+  // trap; issues/repros/imm-map-wasm32-unwrap-none.yo). The test runner
+  // shells out to `self compile --target ...` per batch, so this one call
+  // covers both the compile and test paths.
+  set_target_pointer_size(target.pointer_size_bits);
   // Auto-add the output extension when none was given (yo-cli.ts:494-509):
   // emcc → `.wasm` for standalone WASI, else `.html`; Windows targets → `.exe`.
   if((cc == "emcc") && !(_path_has_extension(output)), {
