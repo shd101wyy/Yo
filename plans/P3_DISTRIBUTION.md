@@ -41,17 +41,49 @@ to the canonical URL and promote `musl-bundle` off `continue-on-error`.
 
 ### Scoreboard after 2026-08-15
 
-| item                  | state                                              |
-| --------------------- | -------------------------------------------------- |
-| 1 — install scripts   | LANDED; **installer/cache unification still open** |
-| 2 — `yo version`      | DONE                                               |
-| 3 — static musl       | DONE, proof release-gated                          |
-| 4 — release hardening | DONE, windows leg release-gated                    |
+| item                  | state                               |
+| --------------------- | ----------------------------------- |
+| 1 — install scripts   | LANDED; unification DONE 2026-08-15 |
+| 2 — `yo version`      | DONE                                |
+| 3 — static musl       | DONE, proof release-gated           |
+| 4 — release hardening | DONE, windows leg release-gated     |
 
-So the ONLY remaining P3 engineering work is the installer/cache unification
-(`install.sh` installs to `<prefix>/lib/yo/<tag>` while `yo version install X`
-uses `~/.cache/yo/versions/<version>`, so `.yo-version` pinning does not see
-script-installed versions). Everything else is waiting on a release.
+**P3 engineering work is complete.** Everything outstanding is waiting on a
+release, not on code.
+
+### Installer/cache unification — DONE 2026-08-15
+
+The gap: `install.sh` lays versions out at `<prefix>/lib/yo/<tag>` while
+`yo version install X` writes `<cache_root>/versions/<version>`. Both are the
+same shape — a plain bundle extraction — but nothing looked in the installer's
+root, so a `.yo-version` pin could not see a script-installed version and
+`yo version list` omitted the very version the user was running.
+
+Resolved by **deriving** the install root rather than configuring it: a
+script-installed compiler runs from `<prefix>/lib/yo/<tag>/bin/yo`, so it
+recovers its own root by walking up from `current_exe()` and checking the
+`lib/yo` shape. Nothing has to be passed in and it works for any `--prefix`.
+`install.sh` needed no change at all, which is the sign the direction was right.
+
+- `get_install_versions_dir()` / `get_install_version_dir()` (`cache.yo`) —
+  `.None` when the layout does not match (bundle run in place, dev build out of
+  `yo-out/`, binary copied to `/tmp`), so callers fall back to exactly the
+  previous cache-only behaviour.
+- `is_version_cached` consults the install root FIRST, then the cache.
+- `resolve_version_dir` (new) returns whichever holds the version, install
+  root winning.
+- `list_cached_versions` unions both roots, de-duplicated.
+
+**Deliberately NOT the other direction** (installing into the version cache).
+A cache is by definition safe to delete — `yo version clean` removes the whole
+versions tree — so installing there would let a routine cache clean delete the
+user's actual installation.
+
+**Also deliberately unchanged:** `yo version install X` still downloads into the
+cache, not the install root. Writing to the install root can require sudo for a
+system prefix (`--prefix=/usr/local`), and a download command that sometimes
+needs privileges is worse than one that never does. Reading from both roots is
+what users needed; writing to both is not.
 
 ## What P2 already delivered that P3 builds on
 
@@ -95,15 +127,15 @@ hide behind a fallback.
 
 That is what shipped: `<prefix>/lib/yo/<tag>/{bin,std,vendor}` with a
 `<prefix>/bin/yo` symlink (a `.cmd` shim on Windows, where symlinks need admin
-or Developer Mode). So the installer and `yo version install X` are still two
-mechanisms, and `.yo-version` pinning does not yet work for script-installed
-versions.
+or Developer Mode).
 
-The rework is smaller than feared: the layout IS per-version and IS a plain
-bundle extraction — the same shape item 2 specifies — so unification is a
-**re-rooting** (point the installer at the version-cache root, or teach the
-cache about the install root), not a rewrite. Do it as part of item 2, which
-has to touch both sides anyway.
+**RESOLVED 2026-08-15** — see "Installer/cache unification" above. The
+prediction here held exactly: the layout IS per-version and IS a plain bundle
+extraction, so it was a re-rooting rather than a rewrite. Of the two options
+floated, "teach the cache about the install root" was taken; installing into
+the cache was rejected because `yo version clean` may delete a cache and must
+never be able to delete an installation. The root is DERIVED from
+`current_exe()`, so `install.sh` did not change.
 
 ### Dependencies — measured against the shipped compiler, not assumed
 

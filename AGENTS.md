@@ -148,8 +148,14 @@ bun test src/tests/build-system.test.ts --timeout 10000
 ./yo-cli test ./tests --exclude tests/internal --bail
 
 # Self-hosted gate battery (needs a built yo-self binary in $S1). GATE 4 is
-# `check ./yo-self` — the ONLY thing that type-checks build_runner.yo and
-# version_cache.yo, which sit outside main.yo's import closure.
+# `check ./yo-self`, which type-checks the whole tree rather than one import
+# closure. (It USED to be the only thing covering build_runner.yo and
+# version_cache.yo — no longer true as of 2026-08-16: main.yo imports both.)
+# NOTE `check` is evaluator-only. The async state-machine restrictions — e.g.
+# "`io.await` in a cond condition must BE the first condition" — are enforced in
+# CODEGEN, so `check` passes over them. Use `compile yo-self/main.yo
+# --skip-c-compiler` (~3 min) to catch that class; test.yml's ts-unit-tests job
+# now runs it as the TS/yo-self release-divergence gate.
 S1=/tmp/yo-s1 P=local bash scripts/bootstrap/gates_fast.sh
 S1=/tmp/yo-s1 P=local bash scripts/bootstrap/fixpoint_only.sh
 
