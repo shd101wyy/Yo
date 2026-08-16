@@ -196,11 +196,18 @@ On NixOS there is a second, harder problem that no package can fix: see item 3.
 
 ## Item 2 — `yo version` re-pointed at GitHub Releases (URGENT)
 
-Today (`src/version-cache.ts` + `yo-self/version_cache.yo`):
-`~/.cache/yo/versions/<version>/` holds an **npm package** (package.json +
-node_modules) and downloads from the npm registry — dead for ≥ v0.2.0.
+**LANDED in both compilers (discovered already-done 2026-08-17 — the
+paragraph below was stale):** `src/version-cache.ts` and
+`yo-self/version_cache.yo` both implement the redesign (native-bundle cache
+layout `~/.cache/yo/versions/<v>/bin/yo`, GitHub Releases API for `list
+--remote` with the rate-limit 403 message, `MIN_BUNDLE_VERSION = 0.2.1`
+guard for the dead npm era). The last gap — the differential cases this
+item specified — is closed by `tests/cli-cases/version-list-empty`
+(deterministic, no network) and `tests/cli-cases/version-install-pinned`
+(`network=1`: install 0.2.1 → list → clean against the real Releases
+channel).
 
-Redesign:
+The original redesign, for the record:
 
 - Cache layout becomes the native bundle: `~/.cache/yo/versions/<v>/bin/yo`
   - `std/` + `vendor/` (exactly a bundle extraction; self-locating, so no

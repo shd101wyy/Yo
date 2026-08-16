@@ -241,6 +241,15 @@ host_bundle_name :: (fn(version : String, exn : Exception) -> String)({
 });
 /// Check if a specific Yo version is already cached locally.
 /// A cached version is a bundle extraction whose `bin/yo` exists.
+/// A path that can never exist — the placeholder for the hoisted-await
+/// pattern (an `io.await` may not sit in a `cond` condition or a later
+/// branch, so "no path to check" must still be AWAITED as a real path).
+/// `String.new()` was used before, but `Path.new("")` NORMALIZES to `.`,
+/// which exists — so `is_version_cached` reported EVERY version as installed
+/// ("Yo vX is already cached." in a fresh HOME) and `_scan_versions_root`
+/// scanned the CWD (measured 2026-08-17, the version-install-pinned
+/// differential case; issues/fixed/version-cache-empty-path-exists.md).
+_never_path :: (fn() -> String)(String.from("/nonexistent/.yo-version-never"));
 is_version_cached :: (
   fn(
     version : String,
@@ -267,7 +276,7 @@ is_version_cached :: (
     inst_path := match(
       get_install_version_dir(version.clone()),
       .Some(d) => cached_binary_path(d),
-      .None => String.new()
+      .None => _never_path()
     );
     installed := e.io.await(exists(Path.new(inst_path), e.io), e.io);
     if(installed, {
@@ -292,7 +301,7 @@ resolve_version_dir :: (
     inst_dir := match(
       get_install_version_dir(version.clone()),
       .Some(d) => d,
-      .None => String.new()
+      .None => _never_path()
     );
     inst_found := e.io.await(exists(Path.new(cached_binary_path(inst_dir.clone())), e.io), e.io);
     if(inst_found, {
@@ -380,7 +389,7 @@ list_cached_versions :: (
     inst_root := match(
       get_install_versions_dir(),
       .Some(d) => d,
-      .None => String.new()
+      .None => _never_path()
     );
     e.io.await(_scan_versions_root(inst_root, versions, e.io, e.exn), e);
     e.io.await(_scan_versions_root(get_global_versions_cache_dir(), versions, e.io, e.exn), e);
