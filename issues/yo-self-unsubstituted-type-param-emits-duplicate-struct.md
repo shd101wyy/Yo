@@ -247,8 +247,20 @@ Six variants compiled with `--emit-c --skip-c-compiler`, counting
 | E   | **struct** + `Box(Self)` + `derive(Clone)`            | 0     |
 | F   | enum + `Box(i32)` non-recursive + `derive(Clone)`     | 0     |
 
-**All three ingredients are required: ENUM, recursive `Wrapper(Self)`, and a
-derive.** Two consequences:
+**CORRECTION (same day): the derive is NOT an ingredient.** A seventh variant
+settles it:
+
+| #   | shape                                                  | leak  |
+| --- | ------------------------------------------------------ | ----- |
+| H   | **enum** + `Box(Self)` + **hand-written** `Clone` impl | **1** |
+
+No `derive` anywhere, and it still leaks. So the derive machinery is innocent;
+what matters is that SOME `Clone` impl exists whose body calls `.clone()` on a
+match-bound `Box(Self)` payload. Variant C is clean precisely because it has no
+`Clone` impl at all, not because it lacks a derive.
+
+**Required ingredients: ENUM + recursive `Wrapper(Self)` + a `Clone` impl that
+clones the wrapped payload.** Two consequences:
 
 - **B kills the `box()`-inference theory.** The leak reproduces with no `box()`
   call at all, so nothing about that function's forall inference is the cause.
