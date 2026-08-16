@@ -71,3 +71,54 @@ Branch at `main.yo:2052` on the resolved test target: `wasmtime` + the flags
 above for standalone WASI, `node <bin>.js` for Emscripten, direct exec
 otherwise. `is_target_standalone_wasi` and `is_target_wasm` are already
 imported there.
+
+## REPRODUCED LOCALLY 2026-08-16 — and the run command is only half of it
+
+Reproduced off-CI with a develop-built stage-1 and nix emcc 4.0.12/wasmtime,
+running `test ./tests/short_circuit_str_literal_arg.test.yo --parallel 1`.
+Both `--c-compiler emcc` and `--target wasm-wasi` reproduce
+`yo: error: permission denied` exactly as CI does.
+
+Inspecting the artifacts (`YO_KEEP_BATCH=1`) turned up a **second, upstream
+gap that the run-command fix alone would not have closed**:
+
+```
+tests/.yo_selftest_batch_1_0.bin   JavaScript source, ASCII text     <- --target wasm-wasi
+tests/.yo_selftest_batch_1_0.wasm  WebAssembly (wasm) binary module
+```
+
+**With `--target wasm-wasi` the batch artifact is still JavaScript.** emcc
+selects its OUTPUT FORMAT from the output file's extension, and this runner
+names every batch `.bin` unconditionally (`main.yo:1938`). So the standalone
+`.wasm` a WASI leg needs was never emitted at all — `wasmtime <bin>` would have
+been handed JS glue and failed just as informatively as the `execve` did.
+
+TS never hits this because it derives the extension first
+(`test-runner.ts:449-456`): `.wasm` for WASI, `.js` for emcc, `.exe` on
+Windows. The port dropped that line, and the missing run-command branch is
+what made the consequence visible.
+
+### Third defect, found in the same pass: ASan is applied to wasm
+
+The WASI leg selects its compiler with `--target wasm-wasi` and never passes
+`--c-compiler`, so `test_cc` is `""` — and both sanitizer gates
+(`main.yo:2015`, `:2030`) test only the literal string `test_cc != "emcc"`.
+The WASI leg was therefore handing `-fsanitize=address` to emcc and applying a
+LeakSanitizer verdict to an artifact carrying no ASan; the local repro drops a
+`.bin.lsan_supp.txt` next to the batch, which is the visible tell. TS reads
+`isEmcc` off the RESOLVED compiler, not off the flag, so it never diverges.
+
+### Fix as applied
+
+All three, in `run_test`:
+
+1. `run_is_wasi` / `run_is_emcc` resolved once from the existing
+   `wasm_target_kind`, plus `batch_ext` (`.wasm` / `.js` / `.bin`) feeding a
+   new `batch_base` so the batch name and its siblings stay in one place.
+2. The run command branches: `wasmtime -W max-wasm-stack=16777216` with the
+   three `--dir` grants and `--env YO_TEST_INDEX=` for WASI, `node <bin>` for
+   Emscripten, direct exec otherwise.
+3. Both sanitizer gates additionally test `!run_is_wasi`.
+
+Cleanup also removes emcc's sibling `<base>.wasm`, which no existing path
+named (TS tracks it as `testWasmPath`, `test-runner.ts:459`).

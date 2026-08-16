@@ -1776,6 +1776,33 @@ run_test :: (
     (test_cc == "emcc") => String.from("wasm32-emscripten"),
     true => String.from("")
   );
+  // HOW a compiled batch must be built and run. A wasm artifact is NOT a host
+  // executable: exec'ing one fails with `permission denied`, which is exactly
+  // what both converted wasm legs hit (run 31878327019). WASI runs under
+  // wasmtime, Emscripten under node — src/test-runner.ts:448-456 for the
+  // extension and :747-775 for the command.
+  run_is_wasi := cond(
+    (wasm_target_kind == "") => false,
+    true => match(
+      parse_target(wasm_target_kind.clone()),
+      .Ok(wt) => is_target_standalone_wasi(wt),
+      .Err(_) => false
+    )
+  );
+  run_is_emcc := ((wasm_target_kind != "") && !(run_is_wasi));
+  // The extension is LOAD-BEARING, not cosmetic: emcc selects its OUTPUT
+  // FORMAT from it. With the flat `.bin` name this runner used, even
+  // `--target wasm-wasi` produced JS glue and the standalone `.wasm` the leg
+  // needs was never emitted — after which the failure merely LOOKS like a
+  // missing run-command branch. Verified locally with emcc 4.0.12: `-o X.bin`
+  // yields `JavaScript source` for BOTH wasm targets.
+  batch_ext := cond(
+    run_is_wasi => String.from(".wasm"),
+    run_is_emcc => String.from(".js"),
+    true => String.from(".bin")
+  );
+  // Resolved once: wasmtime needs the cwd as an explicit --dir grant below.
+  run_cwd := match(cwd(), .Ok(rc) => rc.to_string(), .Err(_) => String.from("."));
   if(wasm_target_kind != "", {
     wt_parsed := match(
       parse_target(wasm_target_kind.clone()),
@@ -1934,8 +1961,16 @@ run_test :: (
         // The batch index is part of the name so a multi-batch file does not have
         // its batches overwrite each other (and so YO_KEEP_BATCH leaves all of
         // them behind for inspection).
-        tmp_yo := `${batch_dir}/.yo_selftest_batch_${fi.to_string()}_${bi.to_string()}.yo`;
-        tmp_bin := `${batch_dir}/.yo_selftest_batch_${fi.to_string()}_${bi.to_string()}.bin`;
+        batch_base := `${batch_dir}/.yo_selftest_batch_${fi.to_string()}_${bi.to_string()}`;
+        tmp_yo := `${batch_base}.yo`;
+        tmp_bin := `${batch_base}${batch_ext}`;
+        // The C sidecar does NOT simply append `.c`: run_compile STRIPS a
+        // known target-format extension first (`.html`/`.wasm`/`.exe`/`.js`,
+        // main.yo:1341-1358), so `X.js` emits `X.c` while the plain `X.bin`
+        // keeps `X.bin.c`. Cleanup must follow the same rule — deleting a path
+        // that was never written throws `file or directory not found` and
+        // aborts the rest of the cleanup with it.
+        tmp_c := if(run_is_wasi || run_is_emcc, `${batch_base}.c`, `${tmp_bin}.c`);
         io.await(write_file(Path.new(tmp_yo.clone()), prog_src.clone(), io), IoExn(io : io, exn : exn));
         // Compile the batch in a CHILD PROCESS, not in-process.
         //
@@ -1987,7 +2022,12 @@ run_test :: (
           .Some(sv) => sv,
           .None => String.from("address")
         );
-        if((!(no_sanitize)) && ((test_cc != "cl") && (test_cc != "emcc")), {
+        // `run_is_wasi` is part of the emcc test, not just the literal cc
+        // string: the WASI leg selects its compiler with `--target wasm-wasi`
+        // and never sets `--c-compiler`, so `test_cc` is "" and this gate used
+        // to hand `-fsanitize=address` to emcc. TS never does, because it
+        // resolves the cc first and reads `isEmcc` off the RESULT.
+        if((!(no_sanitize)) && (((test_cc != "cl") && (test_cc != "emcc")) && !(run_is_wasi)), {
           ccmd.arg(String.from("--sanitize"));
           ccmd.arg(san_choice.clone());
         });
@@ -2002,7 +2042,10 @@ run_test :: (
         // process reaches every test child — process-wide instead of TS's
         // per-child env object, same observable effect for the children.
         host_ti := host_target();
-        use_asan := ((!(no_sanitize)) && ((san_choice == "address") && ((test_cc != "cl") && (test_cc != "emcc"))));
+        // Same `run_is_wasi` correction as the --sanitize gate above: without
+        // it the WASI leg built an lsan suppression file and applied a
+        // LeakSanitizer verdict to an emcc artifact that carries no ASan.
+        use_asan := ((!(no_sanitize)) && ((san_choice == "address") && (((test_cc != "cl") && (test_cc != "emcc")) && !(run_is_wasi))));
         // YO_TEST_LEAK_VERDICT=0 stages leak checking off entirely: LSan's
         // OWN nonzero exit fails a leaking child regardless of the runner's
         // verdict, so `detect_leaks` itself must follow the flag — ASan's
@@ -2049,7 +2092,40 @@ run_test :: (
           // Capture output (TS stdio:"pipe") — the diagnostics on failure and
           // the LeakSanitizer verdict both need it; the old `.status()` run
           // streamed everything and left a bare `✗ name` undiagnosable.
-          tcmd := Command.new(tmp_bin.clone());
+          // A wasm batch is not a host executable — see run_is_wasi/run_is_emcc.
+          tcmd := cond(
+            run_is_wasi => {
+              wc := Command.new(String.from("wasmtime"));
+              // The guest's default stack is far below what this suite's
+              // recursion needs (test-runner.ts:750-753).
+              wc.arg(String.from("-W"));
+              wc.arg(String.from("max-wasm-stack=16777216"));
+              // WASI is deny-by-default for the filesystem. All three grants
+              // are load-bearing: without them file-I/O tests fail in a way
+              // that reads as a compiler bug rather than a missing capability.
+              wc.arg(String.from("--dir"));
+              wc.arg(batch_dir.clone());
+              wc.arg(String.from("--dir"));
+              wc.arg(String.from("/tmp"));
+              wc.arg(String.from("--dir"));
+              wc.arg(run_cwd.clone());
+              // --env, NOT proc_env.set: a wasmtime guest does not inherit the
+              // host environment, so the process-wide YO_TEST_INDEX set above
+              // would leave EVERY test in the batch running as index 0.
+              wc.arg(String.from("--env"));
+              wc.arg(`YO_TEST_INDEX=${(ri - batch_start).to_string()}`);
+              wc.arg(tmp_bin.clone());
+              wc
+            },
+            // Emscripten emits JS glue plus a sibling .wasm; node runs the
+            // glue, which inherits the process env normally.
+            run_is_emcc => {
+              nc := Command.new(String.from("node"));
+              nc.arg(tmp_bin.clone());
+              nc
+            },
+            true => Command.new(tmp_bin.clone())
+          );
           tout := io.await(tcmd.output(io), IoExn(io : io, exn : exn));
           (combined : String) = String.from_bytes(tout.stdout);
           combined.push_string(String.from_bytes(tout.stderr));
@@ -2117,7 +2193,14 @@ run_test :: (
         if(proc_env.get(`YO_KEEP_BATCH`).is_none(), {
           io.await(remove_file(Path.new(tmp_yo.clone()), io), IoExn(io : io, exn : exn));
           io.await(remove_file(Path.new(tmp_bin.clone()), io), IoExn(io : io, exn : exn));
-          io.await(remove_file(Path.new(`${tmp_bin}.c`), io), IoExn(io : io, exn : exn));
+          io.await(remove_file(Path.new(tmp_c.clone()), io), IoExn(io : io, exn : exn));
+          // Emscripten's second output: the JS glue at `tmp_bin` is paired
+          // with a sibling `<base>.wasm` that no other cleanup path names, so
+          // without this every emcc batch leaks one file into the test tree
+          // (TS tracks it as `testWasmPath`, test-runner.ts:459).
+          if(run_is_emcc, {
+            io.await(remove_file(Path.new(`${batch_base}.wasm`), io), IoExn(io : io, exn : exn));
+          });
         });
         batch_start = batch_end;
         bi = (bi + usize(1));
