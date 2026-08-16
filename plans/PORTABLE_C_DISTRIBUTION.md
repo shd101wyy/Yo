@@ -250,8 +250,14 @@ are five unrelated payloads and the assembly buys nothing at rest.
 zstd wins the ratio decisively and should still **not** become the only
 format. This artifact exists for the reader who has a C compiler and nothing
 else; macOS ships no `zstd` and neither does Windows, so requiring one to
-unpack it defeats its premise. If the ratio is wanted, publish **both** — one
-extra step, `.gz` remains the guaranteed path.
+unpack it defeats its premise.
+
+**DECIDED 2026-08-16 (user): `.gz` only.** Not `.gz` + `.zst`. 33.4 MB is a
+fine download, the second asset would need its own naming, checksum and
+`install.sh` branch, and a format the reader may not be able to open is a
+support burden rather than a feature. `release.yml` already does exactly this;
+no change is needed. Revisit only if the artifact grows enough that 33 MB
+becomes a real obstacle.
 
 ### What the size actually costs: counter ids, quantified
 
