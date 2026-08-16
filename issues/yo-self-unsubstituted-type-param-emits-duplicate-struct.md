@@ -113,6 +113,59 @@ YO_KEEP_BATCH=1 YO_STD=$PWD/std <stage1> test ./tests/derive_clone_complex.test.
 grep -c 'incompatible pointer types' <log>          # 5
 ```
 
+## MEASURED 2026-08-16 — the fix machinery already exists, runs, sees it, and fails to bind
+
+yo-self's own source documents this exact symptom at
+`yo-self/evaluator/types/function.yo:4772-4790`:
+
+> "the gap is only in the MAP, so a forall occurring solely as an instantiation
+> ARGUMENT is never a substitution key … a raw SomeT in an argument slot emits a
+> SECOND C struct with the same layout"
+
+`_collect_type_arg_somes` + `_resolve_type_arg_somes` were written for it and are
+wired into `evaluate_function_return_type_again`'s exit (`function.yo:4976`).
+Reading the collector confirms it _does_ walk `type_arguments` and push SomeTs.
+
+**So the question was: does it not run, or does it run and fail?** Instrumented
+stage-1 (`__DBG_TAS`) on the 16-line repro answers it:
+
+```
+enter count:            1683      _resolve_type_arg_somes DOES run
+collected=1 ty=Box(V)   x13       it DOES collect the type-argument SomeT
+bound_any=YES:          0
+bound_any=NO:           13        every single attempt fails to resolve V
+```
+
+It is therefore **not** a missing call and **not** a blind collector. All three
+documented resolution channels — env by name → the SomeT's own
+`resolved_concrete` cell → the id-keyed `lookup_some_resolved_concrete` registry
+— miss for this `V`, 13 times out of 13. Which channel _should_ have had it is
+the next measurement (a per-channel probe is in flight).
+
+### Corroborating detail from the emitted C
+
+The specialized `box`'s mangled name encodes the **concrete** return
+(`…_ret_R_gs_yo_id_2799_enum_decl_58427_…`), while its declared C type is
+`__yo_t2*` = `Box(V)` (`/tmp/repro_self.c:414`). The specialization KEY resolved;
+the emitted TYPE did not. Whatever populates the key had the concrete type in
+hand at a point where the return TypeValue did not.
+
+## A fix that must NOT be used
+
+Swapping the deep `type_contains_some_type` predicate in at the emission site to
+filter `Box(V)` is **actively harmful here**, not merely inelegant. That
+`Box(V)` is the declared C return type of a real emitted function, so filtering
+it makes `get_type_string` miss, the on-demand alias hook fall through (it
+requires exactly one registered entry sharing the nominal id; this program has
+two), and `_lookup_named_c_type` **panic** —
+`"get_type_string: type not registered in context.types"`
+(`yo-self/codegen/utils/index.yo:810-816`). Five clang diagnostics would become a
+compiler abort.
+
+Unifying the two types' _identity_ so they collapse onto one C struct is
+likewise not the fix: it makes the symptom disappear while leaving a function
+whose declared return type is a type parameter. Fix the resolution.
+
 ## Where to look
 
 The substitution should have replaced `V` before the C type was named. Likely
