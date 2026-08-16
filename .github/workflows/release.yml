@@ -344,9 +344,12 @@ jobs:
       # test.yml: the seed binary's own self-emits are exactly what 2.3's CI
       # will run, and mimalloc is the allocator proven to survive those on
       # 16 GB Linux boxes (glibc malloc inflates the emit's RSS ~72%).
+      # Heap 4096 -> 8192 (2026-08-17), same raise as test.yml's divergence
+      # gate: the rte/rre Self fixes mint per-receiver return instantiations
+      # where the bug shared one, and the yo-self compile now sits past 4 GB.
       - name: Build the native yo binary (TS compiler, one last time)
         shell: bash
-        run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs compile yo-self/main.yo --release --allocator mimalloc -o yo-seed
+        run: node --expose-gc --max-old-space-size=8192 ./out/cjs/yo-cli.cjs compile yo-self/main.yo --release --allocator mimalloc -o yo-seed
 
       - name: Assemble the bundle
         shell: bash
@@ -412,7 +415,7 @@ jobs:
       - name: "Emit this platform's arm of the portable yo.c"
         shell: bash
         run: |
-          node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs \
+          node --expose-gc --max-old-space-size=8192 ./out/cjs/yo-cli.cjs \
             compile yo-self/main.yo --release --allocator libc \
             --skip-c-compiler --emit-c-to "portable-arm/${{ matrix.target }}.c"
           ls -la "portable-arm/${{ matrix.target }}.c"
