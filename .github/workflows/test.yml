@@ -148,9 +148,16 @@ jobs:
       #
       # `--skip-c-compiler` stops after emitting C — 187s locally, versus a full
       # clang build. Dies with src/ in Group E, along with this whole job.
+      # Heap raised 4096 -> 8192 (2026-08-17): the rte/rre `Self` fixes mint
+      # per-receiver return instantiations where the bug SHARED one leaked
+      # instance (issues/fixed/yo-self-rre-adopts-enclosing-impl-self.md) —
+      # correctness costs memory, and this compile now sits just past 4 GB
+      # (run 31977492479 OOM'd at "Reached heap limit" only after the #125
+      # merge tipped it). ubuntu-latest has 16 GB; 8 GB leaves the same
+      # relative headroom 4 GB used to.
       - name: TS compiler compiles yo-self (release-divergence gate)
         run: |
-          node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs \
+          node --expose-gc --max-old-space-size=8192 ./out/cjs/yo-cli.cjs \
             compile yo-self/main.yo --skip-c-compiler -o /tmp/ts-yoself-gate
 
           # `getTypeString` falls back to a LINE comment, `// Unknown type: …`.
