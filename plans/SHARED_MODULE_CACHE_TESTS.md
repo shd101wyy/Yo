@@ -339,12 +339,39 @@ dance)" is **false**. The self-hosted runner parses and walks the RAW parse tree
 
 The whole corpus is green under it, and it runs the `tests/internal` tier in
 22.2 min against TS's 40.5 min. So there is nothing to cache on the yo-self
-side, and the 62.4 s is avoidable OUTRIGHT — no cache, no key, no stale-hit
-risk — by porting the parse-only mechanism into TS. That composes with Phase 1
-instead of cancelling it, and it is the recommended successor to this phase.
+side.
 
-Caveat to weigh first: the benefit is confined to the TS shards, and `src/`
-retires in P2 Groups E/F. Time-box the work against that.
+**But porting parse-only extraction into TS is NOT the 62 s win it looks like,
+and the survey that proposed it overstated the case.** The same argument that
+kills the cache kills this: the closure evaluation has to happen SOMEWHERE,
+because the batch compile needs it. Today extraction pays it and the batch runs
+warm; with parse-only extraction the batch pays it cold. One evaluation either
+way:
+
+```
+today:            62.4 (extract, warms closure) + 10.8 (warm batch) + 17.2 = 95.4 s
+parse-only:       ~0.1 (parse)                  + 73.7 (cold batch) + 17.2 ~= 91 s
+```
+
+The real saving is only extraction's non-closure work — the entry-file parse and
+the swallowed per-test trial evaluation — i.e. the same 0-5 s bound as the cache.
+It does still cut extraction's 3.80 GB peak, which matters on a 16 GB box where
+two concurrent children already swap, so it has value as a MEMORY lever, not a
+wall-clock one. (Derived from this plan's own numbers plus the cold/warm
+measurements above; worth confirming with a direct A/B before anyone builds it.)
+
+### So what IS the remaining lever
+
+Closure evaluation is now paid exactly once per FILE and is irreducible per
+file. The only way to amortize it further is to pay it once per SHARD: run
+several test files in ONE process so the second and later files hit the warm
+universe (measured 33 ms vs 61,232 ms for `macro_expansion.test.yo`). That is
+the "batch a shard's light files into one invocation" lever this plan lists and
+leaves unclaimed — and Phase 1's per-file scrub plus its hermeticity pins are
+exactly the machinery that makes it safe.
+
+Caveat to weigh first for ANY of this: the benefit is confined to the TS shards,
+and `src/` retires in P2 Groups E/F. Time-box the work against that.
 
 ### The other four refutations (each would have shipped a silent bug)
 
