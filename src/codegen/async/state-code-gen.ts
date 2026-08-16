@@ -39,7 +39,10 @@ import {
   containsSuspensionExpr,
   splitBodyAtSuspensionPoints,
 } from "../shared/suspension-codegen";
-import { getStateMachineFieldName } from "./state-machine";
+import {
+  getStateMachineFieldName,
+  mergeCondBranchPostWhileExprs,
+} from "./state-machine";
 import {
   canOptimizeAsNullablePointer,
   canOptimizeAsSimpleEnum,
@@ -1092,13 +1095,16 @@ function generateCondWithAwait(
               (b) =>
                 b.hasAwait && b.remainingExprs && b.remainingExprs.length > 0
             ) ?? false;
-          whileInfo.condBranchPostWhileExprs = {
-            branchIndex: firstNonFalseBranchIndex,
-            condBranchFieldIndex: awaitPoint.index,
-            exprs: remainingExprs,
-            deferredDropExpressions: value.$?.deferredDropExpressions,
-            skipCondBranchCheck: hasNestedCondConflict,
-          };
+          whileInfo.condBranchPostWhileExprs = mergeCondBranchPostWhileExprs(
+            whileInfo.condBranchPostWhileExprs,
+            {
+              branchIndex: firstNonFalseBranchIndex,
+              condBranchFieldIndex: awaitPoint.index,
+              exprs: remainingExprs,
+              deferredDropExpressions: value.$?.deferredDropExpressions,
+              skipCondBranchCheck: hasNestedCondConflict,
+            }
+          );
           branchesWithAwait.push({
             index: firstNonFalseBranchIndex,
             value,
@@ -1316,13 +1322,16 @@ function generateCondWithAwait(
           innerEntry?.branches.some(
             (b) => b.hasAwait && b.remainingExprs && b.remainingExprs.length > 0
           ) ?? false;
-        whileInfo.condBranchPostWhileExprs = {
-          branchIndex: condBranchBase + i,
-          condBranchFieldIndex: awaitPoint.index,
-          exprs: remainingExprs,
-          deferredDropExpressions: value.$?.deferredDropExpressions,
-          skipCondBranchCheck: hasNestedCondConflict,
-        };
+        whileInfo.condBranchPostWhileExprs = mergeCondBranchPostWhileExprs(
+          whileInfo.condBranchPostWhileExprs,
+          {
+            branchIndex: condBranchBase + i,
+            condBranchFieldIndex: awaitPoint.index,
+            exprs: remainingExprs,
+            deferredDropExpressions: value.$?.deferredDropExpressions,
+            skipCondBranchCheck: hasNestedCondConflict,
+          }
+        );
         branchesWithAwait.push({
           index: condBranchBase + i,
           value,
@@ -2174,7 +2183,37 @@ function generateMatchWithAwait(
                 exprIsFunctionCallOf(e, BuiltinKeywords.tuple) &&
                 e.args.length === 0)
           );
-          if (nestedClaimedDispatch && remainingIsTrivial) {
+          // When the arm's await sits inside a WHILE LOOP, a chained layer is
+          // the wrong vehicle: processChainedBranch emits the layer's
+          // scope-end drops at the top of the loop's RESUME state — once per
+          // ITERATION — freeing the arm's per-iteration locals (typically the
+          // collection the loop iterates) during the first one. Route the
+          // layer to the loop's post-exit slot instead, which runs once after
+          // after_while_loop_N. skipCondBranchCheck is forced because the
+          // nested match overwrote the dispatch field (same reason the
+          // chained layer ran unconditionally) — sound because
+          // after_while_loop_N is only reachable from the branch that ran
+          // the loop.
+          const armAwaitWhileInfo = functionContext.asyncWhileLoopInfo?.get(
+            awaitPoint.index
+          );
+          if (
+            nestedClaimedDispatch &&
+            remainingIsTrivial &&
+            armAwaitWhileInfo
+          ) {
+            armAwaitWhileInfo.condBranchPostWhileExprs =
+              mergeCondBranchPostWhileExprs(
+                armAwaitWhileInfo.condBranchPostWhileExprs,
+                {
+                  branchIndex: condBranchBase + i,
+                  condBranchFieldIndex: awaitPoint.index,
+                  exprs: remainingExprs,
+                  deferredDropExpressions: caseBody.$?.deferredDropExpressions,
+                  skipCondBranchCheck: true,
+                }
+              );
+          } else if (nestedClaimedDispatch && remainingIsTrivial) {
             if (!branchData.chainedBranches) {
               branchData.chainedBranches = [];
             }

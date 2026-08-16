@@ -1,6 +1,6 @@
 # Nested await-loops: two holes remaining after the back-edge fix
 
-**Status: OPEN.** Found 2026-08-16 while verifying
+**Status: FIXED 2026-08-17** (both holes, both compilers). Found 2026-08-16 while verifying
 `issues/fixed/nested-await-loop-emits-undefined-label.md`. Both are in the
 shapes that fix newly makes compilable — neither is a regression of code that
 worked before, because **both shapes failed to compile at all** on the pre-fix
@@ -232,3 +232,39 @@ for i in 1 2 3 4 5 6; do /tmp/probe; echo "rc=$?"; done
 ```
 
 Expected once fixed: `probe=6`, rc=0, six times out of six.
+
+## Resolution (2026-08-17)
+
+Both holes were two faces of one defect — an enclosing layer's post-loop code
+(and scope-end drops) emitted inside the inner loop's RESUME state, once per
+iteration — reached by different routes:
+
+- **Hole 2** (real-I/O crash): the routing in the chained-branch handler
+  (state-machine.ts:1078) DECLINED when `condBranchPostWhileExprs` was already
+  claimed by `generateCondWithAwait`, falling back to chaining. Fixed by
+  `mergeCondBranchPostWhileExprs` (state-machine.ts; yo-self:
+  `merge_cond_branch_post_while_exprs` in codegen/functions/context.yo, placed
+  there because Yo's import DAG has no state_machine ← state_code_gen edge):
+  ONE expression sequence, existing (inner) layer first, incoming (enclosing)
+  layer second; drops merged the same way; `skipCondBranchCheck` forced when
+  the layers disagree on guard fields. All three producer sites now merge
+  instead of declining/overwriting.
+- **Hole 1** (count=111): the drop was NOT produced where the earlier
+  DROPSITE tagging looked — an emitter-stack trace (temporary hook in
+  emitLine) showed it comes from `processChainedBranch`'s deferred-drop path
+  via a `generateExpr` side effect: `generateMatchWithAwait`'s
+  `nestedClaimedDispatch` diversion (state-code-gen.ts:2186) attached the
+  outer arm as a CHAINED layer even when the arm's await sits inside a while
+  loop. Fixed: when `asyncWhileLoopInfo` has an entry for the await index,
+  route the layer into the loop's post-exit slot (merged) instead of
+  chaining; the chained-layer placement remains for the no-loop shape.
+  yo-self had never ported the diversion at all (arms became dead cases —
+  drops never ran, a leak); the port now lands with the loop-routing
+  included (`_push_chained_match_arm`, `_remaining_exprs_all_trivial`,
+  `_cond_entry_branch_count` in state_code_gen.yo).
+
+Verified: hole-1 repro 222 (3/3), hole-2 repro `probe=6` rc=0 (6/6, was ~5/6
+crashes), `tests/async_await.test.yo` 168/168 including two new regression
+tests ("an outer non-awaiting while keeps a match arm's locals across a nested
+awaiting while", "nested awaiting whiles over real I/O futures drop outer arm
+locals once per outer iteration").

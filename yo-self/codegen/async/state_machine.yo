@@ -25,7 +25,7 @@ open(import("std/string"));
 { EvalValue } :: import("../../value.yo");
 { Variable, get_variables_from_env, get_variables_from_env_by_filter } :: import("../../env.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
-{ FunctionGenerationContext, EvidenceParameter, WhileLoopInfo, CondBranch, ChainedCondBranches, AsyncCondBranchInfo, InAsyncStateMachine, CondBranchPostWhileExprs, OuterWhileLoop, SmWhileBreakInfo, SmWhileContinueInfo } :: import("../functions/context.yo");
+{ FunctionGenerationContext, EvidenceParameter, WhileLoopInfo, CondBranch, ChainedCondBranches, AsyncCondBranchInfo, InAsyncStateMachine, CondBranchPostWhileExprs, OuterWhileLoop, SmWhileBreakInfo, SmWhileContinueInfo, merge_cond_branch_post_while_exprs } :: import("../functions/context.yo");
 { expr_contains_await, expr_contains_while_with_await } :: import("../../expr_traversal.yo");
 { is_temp_variable_name } :: import("../../utils.yo");
 { get_type_string } :: import("../utils/index.yo");
@@ -2122,14 +2122,22 @@ _emit_cond_branch_remaining :: (
                 context.async_while_loop_info,
                 .Some(pw_map) => match(
                   pw_map.get(ap.base.index),
-                  .Some(nested_while) => if(nested_while.cond_branch_post_while_exprs.is_none() && (additional_remaining.len() > usize(0)), {
+                  // The slot may already be claimed by an inner cond layer
+                  // (generate_cond_with_await) — merge rather than decline;
+                  // declining falls back to chaining, which emits this arm's
+                  // scope-end drops at the top of the loop's resume state,
+                  // once per iteration.
+                  .Some(nested_while) => if(additional_remaining.len() > usize(0), {
                     nested_while.cond_branch_post_while_exprs = Option(CondBranchPostWhileExprs).Some(
-                      CondBranchPostWhileExprs(
-                        branch_index : branch.index,
-                        cond_branch_field_index : cond_field,
-                        exprs : additional_remaining,
-                        deferred_drop_expressions : branch.deferred_drop_expressions,
-                        skip_cond_branch_check : Option(bool).None
+                      merge_cond_branch_post_while_exprs(
+                        nested_while.cond_branch_post_while_exprs,
+                        CondBranchPostWhileExprs(
+                          branch_index : branch.index,
+                          cond_branch_field_index : cond_field,
+                          exprs : additional_remaining,
+                          deferred_drop_expressions : branch.deferred_drop_expressions,
+                          skip_cond_branch_check : Option(bool).None
+                        )
                       )
                     );
                     pw_map.set(ap.base.index, nested_while);

@@ -97,6 +97,103 @@ CondBranchPostWhileExprs :: ref(
     skip_cond_branch_check : Option(bool)
   )
 );
+/// Merges a new client's post-loop code into a while loop's single
+/// `cond_branch_post_while_exprs` slot. The slot has TWO legitimate clients —
+/// an inner cond layer (routed by generate_cond_with_await) and the enclosing
+/// arm's remaining code (routed by the chained-branch handler). Overwriting
+/// loses the earlier layer; declining re-emits the later one at the TOP of the
+/// loop's resume state, i.e. once per ITERATION — the enclosing arm's scope-end
+/// drops then free a once-per-outer-iteration value on every inner iteration
+/// (double-free). Merge instead: ONE expression sequence, existing (inner)
+/// layer first, then the incoming (enclosing) layer — the consumer's single
+/// pass splits at whichever await comes first in the merged sequence, which is
+/// the correct split point. Drops merge the same way. The `sm->cond_branch_N`
+/// guard can only test one field, so when the layers disagree fall back to
+/// `skip_cond_branch_check` (sound: after_while_loop_N is only reachable from
+/// the branch that ran the loop). Mirrors `mergeCondBranchPostWhileExprs`
+/// (state-machine.ts) — placed here because Yo's import DAG has no
+/// state_machine ← state_code_gen edge.
+merge_cond_branch_post_while_exprs :: (
+  fn(existing : Option(CondBranchPostWhileExprs), incoming : CondBranchPostWhileExprs) -> CondBranchPostWhileExprs
+)(
+  match(
+    existing,
+    .None => incoming,
+    .Some(ex) => {
+      guards_disagree := ((!(ex.branch_index == incoming.branch_index)) || (!(ex.cond_branch_field_index == incoming.cond_branch_field_index)));
+      merged_exprs := ArrayList(AstExpr).new();
+      (i : usize) = usize(0);
+      while(i < ex.exprs.len(), {
+        match(
+          ex.exprs.get(i),
+          .Some(e) => {
+            merged_exprs.push(e);
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      i = usize(0);
+      while(i < incoming.exprs.len(), {
+        match(
+          incoming.exprs.get(i),
+          .Some(e) => {
+            merged_exprs.push(e);
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      merged_drops := ArrayList(AstExpr).new();
+      match(
+        ex.deferred_drop_expressions,
+        .Some(dl) => {
+          (j : usize) = usize(0);
+          while(j < dl.len(), {
+            match(
+              dl.get(j),
+              .Some(d) => {
+                merged_drops.push(d);
+              },
+              .None => ()
+            );
+            j = (j + usize(1));
+          });
+        },
+        .None => ()
+      );
+      match(
+        incoming.deferred_drop_expressions,
+        .Some(dl) => {
+          (j : usize) = usize(0);
+          while(j < dl.len(), {
+            match(
+              dl.get(j),
+              .Some(d) => {
+                merged_drops.push(d);
+              },
+              .None => ()
+            );
+            j = (j + usize(1));
+          });
+        },
+        .None => ()
+      );
+      ex_skip := match(ex.skip_cond_branch_check, .Some(b) => b, .None => false);
+      in_skip := match(incoming.skip_cond_branch_check, .Some(b) => b, .None => false);
+      CondBranchPostWhileExprs(
+        branch_index : ex.branch_index,
+        cond_branch_field_index : ex.cond_branch_field_index,
+        exprs : merged_exprs,
+        deferred_drop_expressions : cond(
+          (merged_drops.len() > usize(0)) => Option(ArrayList(AstExpr)).Some(merged_drops),
+          true => Option(ArrayList(AstExpr)).None
+        ),
+        skip_cond_branch_check : Option(bool).Some((ex_skip || in_skip) || guards_disagree)
+      )
+    }
+  )
+);
 /// Info about an OUTER while loop wrapping a while-with-await. Mirrors the
 /// `outerWhileLoop` shape in `asyncWhileLoopInfo`.
 OuterWhileLoop :: ref(
@@ -392,6 +489,7 @@ resolve_var_name_in_context :: (
   )
 });
 export(resolve_var_name_in_context);
+export(merge_cond_branch_post_while_exprs);
 export(
   FunctionGenerationContext,
   SmWhileBreakInfo,

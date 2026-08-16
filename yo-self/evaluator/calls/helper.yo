@@ -3725,6 +3725,9 @@ create_specialized_function_inline :: (
                 .Some(sr_rty) => match(
                   adopt_receiver_struct_instance(spec_result, sr_rty),
                   .Some(sr_adopted) => {
+                    if(helper_dbg_env.get(`YO_DEBUG_RRE`).is_some(), {
+                      eprintln(`[sr-adopt] spec_result=${type_to_string(spec_result)} recv=${type_to_string(sr_rty)} adopted=${type_to_string(sr_adopted)}`);
+                    });
                     spec_result = sr_adopted;
                   },
                   .None => ()
@@ -6121,8 +6124,37 @@ try_to_call_function_with_arguments :: (
               .Some(rte_expr9) => {
                 rte9_prev := ctx.is_evaluating_function_type;
                 ctx.is_evaluating_function_type = true;
+                // `Self` in the return expr must resolve to THIS method's
+                // receiver, not the CALLER's stale ctx.self_type — the same
+                // reconstruction the mint half does (see the rte block
+                // above). Without it, a def-time body eval inside an impl
+                // field loop re-evaluated the pointer-arithmetic `add ->
+                // Self` under the ENCLOSING impl's Self and adopted it
+                // (SomeT-free) as the call result — `children.add(usize(i))`
+                // typed as the outer Dispose receiver, so the following `.*`
+                // deref had no pointer and ___drop failed def-eval
+                // (std/imm/map.yo; issues/yo-self-rre-adopts-enclosing-impl-self.md).
+                rte9_prev_self := ctx.self_type;
+                {
+                  rte9_labels := match(
+                    func_type,
+                    .Func({ meta : __fm9b }) => __fm9b.*.param_labels,
+                    _ => ArrayList(String).new()
+                  );
+                  rte9_p0_is_self := match(rte9_labels.get(usize(0)), .Some(l) => (l == "self"), .None => false);
+                  if(rte9_p0_is_self, {
+                    match(
+                      arg_vals.get(usize(0)),
+                      .Some(rte9_rcv) => {
+                        ctx.self_type = Option(TypeValue).Some(rte9_rcv.arg_type);
+                      },
+                      .None => ()
+                    );
+                  });
+                };
                 rte9_out := ArrayList(TypeValue).new();
                 _trial_eval_ret_type_expr(clone_expr_fresh_ids(rte_expr9), callee_env_m, ctx, rte9_out);
+                ctx.self_type = rte9_prev_self;
                 ctx.is_evaluating_function_type = rte9_prev;
                 match(
                   rte9_out.get(usize(0)),

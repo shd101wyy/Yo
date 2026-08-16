@@ -1,6 +1,6 @@
 # `yo-self check` silently passes an undefined variable that TS's `check` catches
 
-**Status: OPEN, reproduced 2026-08-16.** Found while fixing the wasm legs
+**Status: FIXED 2026-08-17.** Found while fixing the wasm legs
 (PR #127): the missing `set_current_target` import in `yo-self/main.yo` was
 caught by the TypeScript compiler and **not** by the self-hosted one.
 
@@ -63,3 +63,34 @@ reports success without doing the work.
 - Check whether the evaluator hits an error-swallowing path (the
   `swallow/fatal-trial-handler` family) on this route — `keep an un-silenced
 swallow binary` and grep its last `__DBG_F` marker.
+
+## Root cause (2026-08-17): one c_include import suppressed the fatal re-raise for the whole module
+
+Bisecting `main.yo`'s import block (an imports-only probe plus
+`totally_undefined_zzz()` in a fn body, binary search over the 38 import
+statements) converged on a SINGLE statement: `{ exit } ::
+import("std/libc/stdlib");`. Any direct import of a `c_include` module
+reproduces it; the same probe without one is caught (rc=1).
+
+Mechanism (`evaluator/calls/function_type.yo`): def-time body-eval errors are
+swallowed by the capture-free trial handler and re-raised through the FATAL
+channel — EXCEPT when `has_fwd_comptime_fn_cap` is set, because a body that
+captured a valueless forward-declared comptime fn is an expected intermediate
+failure (a bounded re-run refreshes it later). That flag scanned every
+in-scope variable for "compile-time-only + valueless + fn-typed", excluding
+only `__yo_*` synthetics — and `c_include`d extern fns (`exit`, `memcpy`, …)
+are exactly that shape, PERMANENTLY. One libc import therefore set the flag
+for every definition in the importing module, and `check` returned 0 on
+bodies with undefined variables. (`YO_DEBUG_SWALLOW=1` shows it directly:
+`[swallow] Variable "…" not found` followed by `[flow-post] … fwd=true`.)
+
+## Fix
+
+Exclude fn types carrying the FFI marker (`Func` meta `is_extern.is_some()`)
+from the forward-declaration heuristic — extern fns are never user forward
+declarations. yo-self-only (TS has no fwd-cap mechanism; its module-level
+bindings hoist).
+
+Verified: the poisoned probe now rc=1 under the fixed stage-1; the original
+`set_current_target` removal in `main.yo` is the acceptance test — `check
+yo-self/main.yo` must report it.

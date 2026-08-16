@@ -2045,6 +2045,18 @@ run_test :: (
           ccmd.arg(String.from("--cflags"));
           ccmd.arg(String.from("-sSTACK_SIZE=16777216 -sINITIAL_MEMORY=134217728"));
         });
+        // TS's test runner compiles emcc batches at -O2, everything else at
+        // -O0 (test-runner.ts:606, `isEmcc ? "-O2" : "-O0"`). This is
+        // LOAD-BEARING for stack: the batch main inlines every test body, so
+        // at -O0 each multi-KB temp (e.g. a MaybeUninit(Array(u8, 4096))
+        // materialization is THREE 4 KB locals) gets its own slot and the
+        // frame can exceed emcc's 64 KB default stack — LLVM's stack coloring
+        // only runs at -O1+. emcc 4 squeaked under; CI's emcc 6 overflowed on
+        // tests/sys/path.test.yo ("Stack overflow detected", realpath test).
+        if(run_is_wasi || run_is_emcc, {
+          ccmd.arg(String.from("--optimize"));
+          ccmd.arg(String.from("2"));
+        });
         // Default sanitizer is "address"; YO_TEST_SANITIZE overrides (e.g.
         // "thread" for the TSan CI leg) and --disable-sanitize turns it off.
         // MSVC and emcc take no sanitizer, exactly as TS

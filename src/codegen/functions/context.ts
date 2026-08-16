@@ -16,6 +16,25 @@ import type {
 import type { CodeGenContext } from "../utils";
 import type { EvidenceParameter } from "./declarations";
 
+// Post-loop code from an enclosing cond/match branch, deferred to run once
+// after a nested await-loop exits instead of on every resume. One loop has ONE
+// slot but can have several legitimate clients (an inner cond layer and the
+// enclosing arm) — merge them via mergeCondBranchPostWhileExprs, never
+// overwrite or decline.
+export interface CondBranchPostWhileData {
+  branchIndex: number;
+  condBranchFieldIndex: number;
+  exprs: Expr[];
+  deferredDropExpressions?: Expr[];
+  // When true, skip the sm->cond_branch_N guard check. This is needed when
+  // nested conds share the same cond_branch_N field — the innermost cond's
+  // write overwrites the outer cond's value, making the guard always fail —
+  // and when merged layers disagree on the guard fields (one emission cannot
+  // test two). Sound because after_while_loop_N is only reachable from the
+  // branch that ran the loop.
+  skipCondBranchCheck?: boolean;
+}
+
 export interface FunctionGenerationContext extends CodeGenContext {
   functions: Record<
     FuncValueId,
@@ -183,16 +202,7 @@ export interface FunctionGenerationContext extends CodeGenContext {
       stepAwait?: boolean;
       // Expressions from an enclosing cond branch that come after this while loop.
       // These should only be executed after the while loop exits, not on every resume.
-      condBranchPostWhileExprs?: {
-        branchIndex: number;
-        condBranchFieldIndex: number;
-        exprs: Expr[];
-        deferredDropExpressions?: Expr[];
-        // When true, skip the sm->cond_branch_N guard check. This is needed when
-        // nested conds share the same cond_branch_N field — the innermost cond's
-        // write overwrites the outer cond's value, making the guard always fail.
-        skipCondBranchCheck?: boolean;
-      };
+      condBranchPostWhileExprs?: CondBranchPostWhileData;
       outerWhileLoop?: {
         whileLoopIndex: number;
         conditionExpr: Expr;
