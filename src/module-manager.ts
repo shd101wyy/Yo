@@ -377,21 +377,33 @@ export class ModuleManager {
     }
 
     const currentModulePath = modulePath;
-    const evaluator = new Evaluator({
-      modulePath,
-      stdPath: this.stdPath,
-      loadModule: (childModulePath: string) => {
-        return this.loadModule(childModulePath, undefined, currentModulePath);
-      },
-      inputString,
-      allowPartialModule: this.allowPartialModule,
-      registerPartialModule: (mv: StructValue) => {
-        this.loadingModules.set(modulePath, mv);
-      },
-    });
-
-    // Module evaluation complete — remove from loading set
-    this.loadingModules.delete(modulePath);
+    let evaluator: Evaluator;
+    try {
+      evaluator = new Evaluator({
+        modulePath,
+        stdPath: this.stdPath,
+        loadModule: (childModulePath: string) => {
+          return this.loadModule(childModulePath, undefined, currentModulePath);
+        },
+        inputString,
+        allowPartialModule: this.allowPartialModule,
+        registerPartialModule: (mv: StructValue) => {
+          this.loadingModules.set(modulePath, mv);
+        },
+      });
+    } finally {
+      // ALWAYS unregister, error or not. The Evaluator constructor EVALUATES
+      // the module, so a module whose evaluation throws used to leave its
+      // partial StructValue in `loadingModules` forever — and a later load of
+      // the same path then hit that leaked entry and returned the partial
+      // value with NO error, so an import that must fail silently succeeded.
+      // Latent while every compile got a fresh ModuleManager; live as soon as
+      // one is reused (the test runner's shared universe). yo-self already
+      // fixed the same class — see the "ALWAYS unregister" comment in
+      // yo-self/module_manager.yo and
+      // issues/fixed/yo-self-dir-check-state-corruption-after-failure.md.
+      this.loadingModules.delete(modulePath);
+    }
 
     const moduleValue = evaluator.getModuleValue();
     const moduleError = evaluator.getModuleError();
@@ -466,6 +478,11 @@ export class ModuleManager {
   ) {
     // console.log(`= Compiling module ${modulePath}`);
     modulePath = canonicalizeModulePath(modulePath);
+    // Fresh code generator per compile: the instance accumulates emitted
+    // state, and a run-scoped shared ModuleManager (the test runner's
+    // sequential path) compiles many batch programs through one manager.
+    // Single-compile flows are unaffected — they only ever compiled once.
+    this.codeGenratorC = new CodeGeneratorC();
     const { moduleValue, moduleError } = this.loadModule(modulePath);
     if (moduleError) {
       throw moduleError.toString();
@@ -477,8 +494,18 @@ export class ModuleManager {
       throw new Error(`Module data not found for ${modulePath}`);
     }
 
-    // Collect module-level init exprs from ALL loaded modules (not just the main one)
-    // This is needed because imported modules may also have module-level mutable variables
+    // Collect module-level init exprs from ALL cached modules — imported
+    // modules may also have module-level mutable variables, and this must
+    // NOT be narrowed to the entry module's import closure: with a
+    // run-scoped shared ModuleManager (the test runner), codegen emits
+    // specialized functions reached through the process-wide impl
+    // registries, which can come from cached modules the entry never
+    // imports; excluding those modules strips the C declarations their
+    // emitted bodies reference ("use of undeclared identifier g_..."; see
+    // plans/SHARED_MODULE_CACHE_TESTS.md). Each init-expr emission carries
+    // its own declaration, so all-modules collection is self-consistent —
+    // at worst an unreferenced global plus its init lands in a binary that
+    // never reads it.
     const allModuleLevelInitExprs: Expr[] = [];
     for (const [, modData] of this.modules) {
       const mv = modData.moduleValue;

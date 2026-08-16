@@ -54,7 +54,7 @@ Yo source → Lexer → Parser → AST (expr.ts)
 | `yo-self/README.md`                          | Bootstrap status, layout, and test instructions                                                                                                                                                               |
 | `yo-self/lexer.yo`, `token.yo`               | Self-hosted lexer (ports of `src/lexer.ts`, `src/token.ts`)                                                                                                                                                   |
 | `yo-self/parser.yo`                          | Self-hosted parser (port of `src/parser.ts`)                                                                                                                                                                  |
-| `tests/internal/`                            | Tests for the self-hosted compiler (58 files; **was `yo-self/tests/` until 2026-08-05** — translate that path in older docs; see `yo-self/README.md` for tiers & heavy files)                                 |
+| `tests/internal/`                            | Tests for the self-hosted compiler (60 files; **was `yo-self/tests/` until 2026-08-05** — translate that path in older docs; see `yo-self/README.md` for tiers & heavy files)                                 |
 | `std/build.yo`                               | Build system API (Project, Step, Executable, etc.)                                                                                                                                                            |
 | `src/build-runner.ts`                        | Build execution engine — DAG scheduler, artifact compilation                                                                                                                                                  |
 | `src/install-command.ts`                     | `yo install` — add git/path dependencies                                                                                                                                                                      |
@@ -143,9 +143,13 @@ bun test src/tests/build-system.test.ts --timeout 10000
 ./yo-cli test ./tests/internal/parser.test.yo --parallel 1
 ./yo-cli test ./tests/internal --parallel 1
 
-# Fast language suite (~30 min on Mac Mini M4, safe to run locally). The exclude
-# is what keeps it fast — tests/internal compiles the compiler 58 times.
-./yo-cli test ./tests --exclude tests/internal --bail
+# Fast language suite (~30 min on Mac Mini M4, safe to run locally). The
+# tests/internal exclude is what keeps it fast — it compiles the compiler 58
+# times. The tests/cli-cases exclude is CORRECTNESS, not speed: cli-case
+# fixture trees contain .test.yo files that are harness inputs, including one
+# that MUST fail (build-test-exclude's "must never run"), so without it the
+# suite reports ~4 false failures. This mirrors CI (test.yml).
+./yo-cli test ./tests --exclude tests/internal --exclude tests/cli-cases --bail
 
 # Self-hosted gate battery (needs a built yo-self binary in $S1). GATE 4 is
 # `check ./yo-self`, which type-checks the whole tree rather than one import

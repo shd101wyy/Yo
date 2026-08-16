@@ -38,7 +38,26 @@ LSP-style cache invalidation, a vendored second std tree) from a delayed
 "weird method-miss three files later" into an immediate, located error.
 The faithful-port doctrine applies: TS's mechanism in TS's place.
 
-## Fix sketch
+## Fix plan
+
+A researched, adversarially-verified port plan now lives at
+**`plans/YO_SELF_IMPL_REGISTRY_SCRUB.md`** — read that instead of the sketch
+below, which it supersedes. Two findings from it are worth stating here
+because they widen this issue:
+
+- The three per-module clear functions
+  (`clear_impls_from_module`, `clear_generic_impls_from_module`,
+  `clear_all_global_impl_state`) are **literal no-op stubs with zero
+  callers** (`yo-self/evaluator/index.yo:295-302`), and `mm_reset`
+  (`module_manager.yo:249-260`) resets the module cache, prelude env, shared
+  `ExprInfoTable` and loader context but **no impl registry**. So yo-self
+  cannot currently scrub impl state per module OR per process — the checks
+  are only half of what is missing.
+- Module attribution needs no new plumbing: `ctx.current_module_path`
+  already exists and is populated (`yo-self/evaluator/context.yo:263-264`);
+  it is simply an unused field today.
+
+## Fix sketch (superseded — kept for history)
 
 1. Port impl.ts:1074-1114 into `register_generic_impl` — needs an error
    channel (return a violation to the evaluator frame and throw there;

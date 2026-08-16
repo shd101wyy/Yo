@@ -1,0 +1,11 @@
+// Imported ONLY by a_hermetic.test.yo. Its module-level mutable's init
+// expr must appear only in programs whose import closure contains this
+// module — a leak into the sibling file's batch program references a
+// variable that program never declares (shared-eval hermeticity pin,
+// plans/SHARED_MODULE_CACHE_TESTS.md trap 1).
+(g_a_helper_state : i32) = i32(5);
+a_bump :: (fn() -> i32)({
+  g_a_helper_state = (g_a_helper_state + i32(1));
+  g_a_helper_state
+});
+export(a_bump);
