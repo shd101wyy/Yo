@@ -252,6 +252,30 @@ Each step is independently landable and gated by `tests/internal` or a new cli-c
     stage-2-builds-stage-1 pre-release gate, and the Pages step, which stays a
     documented bun island until B7 decides on a Yo rewrite of
     `scripts/build-site.ts`. → **verify:** a `workflow_dispatch` release producing all five bundles, each smoke-tested from outside the checkout. **[CI-only]**
+
+    **PARTIAL 2026-08-17: the musl bundle's Yo->C emit is seed-driven**
+    (bun/node retired from that job), the leg is promoted
+    (`continue-on-error: false` + `publish-release` needs — the "unexplained
+    green" was the GCC comptime-prototype blocker, see
+    `issues/fixed/comptime-only-prototype-breaks-gcc.md`), and release.yml
+    gained the `SEED_VERSION` env. **The seed-bundles matrix flip is BLOCKED
+    on memory, and the step as written cannot land**: a yo-self self-emit
+    holds ~9-11.5 GB (test.yml's Linux-only note, settled run 31856743929),
+    macOS runners have ~7 GB, so a naive flip OOMs 3 of the 5 legs. Options,
+    for a decision before building:
+    (A) **C-boundary fan-out** — the seed emits per-target C on Linux runners
+        (`--target <triple>`, with the 32 GB swapfile), each native runner
+        only compiles the C and smoke-tests. Retires node from seed-bundles
+        entirely; cross-emit is target-deterministic and the per-target smoke
+        gates contain the risk; the cost is that Yo->C no longer runs
+        natively on macOS/Windows (the C->binary compile + smoke still do).
+    (B) keep TS on the macOS/Windows legs — contradicts Group E (deleting
+        `src/` breaks them); recorded for completeness, not a path.
+    (C) paid larger macOS/Windows runners — a money decision.
+    (D) wait for plans/backlog/YO_SELF_ENV_SHARING.md (def-time envs COPY
+        what TS SHARES) to bring the emit under 7 GB.
+    The stage-2-builds-stage-1 pre-release gate is Linux-viable regardless
+    and should ride whichever variant lands.
     24b. **`yo build` becomes the canonical yo-self builder everywhere** (user directive, 2026-08-13; completes what 2.2's root `build.yo` started). Inventory of the raw `compile yo-self/main.yo` builders to convert: - `.github/workflows/test.yml:144` (TS native probe — dies with the job in step 18 anyway), `:240`, `:428`, `:623`-area, `:836`-area (the per-job stage-1 builds) → `yo build` + take the binary from `yo-out/` (or `build.yo` grows an output-path option). Note the CI builds pass `--allocator mimalloc` while root `build.yo`'s `executable` set no allocator (defaulting Libc) — `std/build.yo` already supports `allocator` (`:86-87`, threaded at `build_runner.yo:486`), so this was a one-line `build.yo` fix (landed with this plan edit); without it the conversion would have silently changed the shipped allocator. - `.github/workflows/release.yml:310` (the seed build) → same conversion at step 24. - `scripts/bootstrap/fixpoint_only.sh:7`, `:12` — **keep as `compile --emit-c --skip-c-compiler`**: these are emit-only C byte-comparisons with explicit output paths, not builds; `yo build` has no emit-only mode and imposing one would complicate the build API for a diagnostic script. Record this as the deliberate carve-out. - Local guidance (AGENTS.md build commands, plans/, skills) — sweep in 2.6 to present `yo build` as the way to build the compiler, keeping `yo compile` for one-off artifacts.
     → **verify:** `yo build` from the repo root produces a runnable compiler byte-comparable (same flags) to the `compile --release --allocator mimalloc` build; converted CI legs green; grep shows the fixpoint carve-out is the only surviving raw self-build. **[CI-only]** for the legs, **[local-slow]** for the flag-parity check.
 

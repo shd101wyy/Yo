@@ -1,8 +1,13 @@
 # A comptime-only return type emits `// Unknown type:` as the return type, and GCC rejects the file
 
-**Status: OPEN. Blocks the v0.2.6 release** (release run 31909103188: the
-`portable-c` job failed, so `publish-release` was skipped and the draft never
-went public).
+**Status: FIXED by PR #130 (233b774dd), verified 2026-08-17.** The
+`_func_result_is_comptime_only` skip was ported to the TS declaration
+emitter and the fallback hardened; a fresh emit of `yo-self/main.yo` now has
+ZERO `static inline // Unknown type` prototypes (was 2), and both GCC-family
+consumers are green — the portable-c job AND the musl bundle (whose
+`duplicate 'static'` failures were this same bug: Alpine's `cc` is GCC; the
+v0.2.7 release run 31925643271 passed both, and #130 is the only substantive
+commit between the last red release run 31909103188 and that green).
 
 Not a regression — this has been latent for a long time. It is invisible under
 clang and fatal under GCC, and the portable-`yo.c` job is the first thing in the

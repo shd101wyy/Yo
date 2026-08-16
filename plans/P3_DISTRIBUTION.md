@@ -219,6 +219,20 @@ Redesign:
 
 ## Item 3 — static-musl Linux bundles
 
+**The "unexplained green" at v0.2.7 is EXPLAINED (2026-08-17), and the leg is
+promoted.** Every prior red release run's musl log dies on `duplicate
+'static'` in the emitted C — the GCC comptime-prototype blocker
+(`issues/fixed/comptime-only-prototype-breaks-gcc.md`): Alpine's `cc` is GCC,
+which made this job the SECOND GCC-family consumer after portable-c, and the
+musl job's Yo->C step runs the compiler built from the RELEASED commit (not
+the seed), so PR #130's fix — the only substantive commit between the last
+red run 31909103188 and the first green 31925643271 — took effect at v0.2.7.
+Confirmed by a fresh emit with zero `static inline // Unknown type`
+prototypes and by the PR-side musl leg's consecutive greens. Accordingly the
+release job is `continue-on-error: false` and in `publish-release`'s `needs`
+(the pairing its comment required), and its emit is now SEED-driven (bun/node
+retired from the job).
+
 **Priority raised 2026-08-12: there are now two distinct distros where the
 shipped Linux bundle cannot run, not one.** Measured on the published
 `yo-v0.2.3-linux-x64.tar.gz`:

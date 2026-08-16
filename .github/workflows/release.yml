@@ -12,6 +12,13 @@ on:
           - patch
           - minor
 
+env:
+  # The previous-release seed used by the seed-driven steps below (the musl
+  # bundle's Yo->C emit). Same trust-chain root as test.yml's SEED_VERSION;
+  # bump to the latest PUBLISHED release whose bundle matrix covers the
+  # needed targets.
+  SEED_VERSION: v0.2.7
+
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -435,22 +442,17 @@ jobs:
     timeout-minutes: 90
     permissions:
       contents: write
-    # EXPERIMENTAL on arrival, exactly as windows-x64 was. The pipeline is
-    # proven end-to-end in PR CI (test.yml's musl leg: static link + io_uring
-    # genuinely compiled in, asserted under seccomp=unconfined), but it has
-    # never produced a PUBLISHED bundle, and a new leg must not be able to
-    # block a release. Promote to `continue-on-error: false` after one green
-    # release run, the same rule the seed-bundle matrix uses.
-    continue-on-error: true
-    # DELIBERATELY ABSENT from publish-release's `needs`, unlike portable-c.
-    # `continue-on-error: true` stops a failure from failing the WORKFLOW, but
-    # the job's result is still `failure`, and a dependent job whose `needs`
-    # resolves to failure is SKIPPED — so listing it there would let a broken
-    # musl leg block publication entirely, the exact opposite of experimental.
-    # The trade is that publication may land shortly before this asset does;
-    # that is safe because install.sh falls back to the glibc bundle, and the
-    # asset attaches to the already-published release when it finishes.
-    # Add it to `needs` in the same commit that flips continue-on-error off.
+    # PROMOTED 2026-08-17 per this job's own rule ("after one green release
+    # run"): v0.2.7 (run 31925643271) built, smoked and shipped the bundle.
+    # The earlier failures are root-caused, not mysterious — every red run's
+    # musl log dies on `duplicate 'static'` in the emitted C, the GCC
+    # comptime-prototype blocker (issues/fixed/comptime-only-prototype-breaks-
+    # gcc.md): Alpine's cc is GCC, making this job the second GCC-family
+    # consumer after portable-c, and PR #130 (the only substantive commit
+    # between the last red run 31909103188 and the first green) fixed it.
+    # `needs` on publish-release added in this same commit, per the pairing
+    # rule recorded here previously.
+    continue-on-error: false
     steps:
       - name: Checkout the released commit
         uses: actions/checkout@v4
@@ -458,30 +460,37 @@ jobs:
           ref: ${{ needs.release.outputs.sha }}
           submodules: recursive
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-
-      - name: Build the TS compiler
+      # The SEED needs liburing to RUN even though this job only uses it to
+      # emit C — the published Linux bundle is dynamically linked against
+      # liburing.so.2, so without this the seed dies with exit 127 before
+      # doing any work (same note as test.yml's musl leg, which proved this
+      # exact seed-driven pipeline in PR CI).
+      - name: Install liburing (needed to run the seed)
         run: |
-          bun install
-          bun run build
+          sudo apt-get update
+          sudo apt-get install -y liburing-dev
 
-      # Phase 1 — emit C on the glibc host. Yo cannot cross-compile gnu->musl,
-      # which is exactly why this is split at the C boundary: C is the portable
-      # intermediate. No liburing needed on the host, since only the LINKED
-      # binary uses it and the link happens in Alpine below.
-      - name: "Yo -> C (glibc host)"
+      - name: Install the seed compiler (previous release)
+        uses: ./.github/actions/install-seed
+        with:
+          version: ${{ env.SEED_VERSION }}
+
+      # Phase 1 — emit C on the glibc host, with the SEED (P2.5 step 24:
+      # previous release builds the current compiler; this retires bun/node
+      # from this job). Yo cannot cross-compile gnu->musl, which is exactly
+      # why this is split at the C boundary: C is the portable intermediate.
+      # SEED-ERA FLAGS ONLY: `--emit-c-to` may postdate the seed, so use
+      # `--emit-c --skip-c-compiler -o <base>` (the `<base>.c` sidecar), the
+      # flag set test.yml's musl leg already proves against the seed. stdout
+      # is discarded because `--emit-c` PRINTS the C (140 MB of it); the
+      # sidecar is the artifact. `--std-path ./std` is load-bearing — the
+      # seed would otherwise emit against its OWN bundled std.
+      - name: "Yo -> C (glibc host, seed compiler)"
+        env:
+          YO_MAIN_STACK_MB: "4096"
         run: |
-          node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs compile \
-            yo-self/main.yo --release --allocator mimalloc \
-            --emit-c-to yo-musl.c --skip-c-compiler
+          yo compile yo-self/main.yo --release --allocator mimalloc \
+            --std-path ./std --emit-c --skip-c-compiler -o yo-musl > /dev/null
           ls -la yo-musl.c
 
       - name: "C -> static binary, inside Alpine (musl + static liburing)"
@@ -621,7 +630,11 @@ jobs:
     # portable-c is in `needs` so the draft never flips public without the
     # single-file artifact — the same atomicity invariant the seed bundles
     # rely on, and the one install.sh's source fallback will depend on.
-    needs: [release, seed-bundles, portable-c]
+    # musl-bundle joined `needs` 2026-08-17 in the same commit that flipped
+    # its continue-on-error off (the pairing rule its comment recorded): a
+    # promoted leg's failure must hold publication, or a red musl run ships a
+    # release whose install.sh advertises a bundle that never arrives.
+    needs: [release, seed-bundles, portable-c, musl-bundle]
     runs-on: ubuntu-latest
     permissions:
       contents: write
