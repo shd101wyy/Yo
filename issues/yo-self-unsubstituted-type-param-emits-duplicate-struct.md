@@ -74,7 +74,13 @@ TS resolves `V` correctly. TS is the reference implementation to diff against.
 - **It affects native emission too.** Every native build of this shape already
   emits type-incorrect C; only the toolchain's leniency hides it. As CI images
   move to clang 16+/GCC 14+, previously-green jobs will start failing.
-- The shipped v0.2.7 portable `yo.c` may contain the same shape.
+- **v0.2.7 is NOT affected — verified, not assumed.** Every shipped artifact is
+  emitted by the TypeScript compiler: the seed used for all five bundles
+  (`release.yml:342`), the portable `yo.c` arms (`:408`) and the musl bundle
+  (`:482`) all run `node ./out/cjs/yo-cli.cjs`, and TS emits zero of these
+  diagnostics. **The deadline is Group E**: deleting `src/` makes `yo-self` the
+  release emitter, at which point this bug ships to users. It gates `src/`
+  deletion, not the release already cut.
 
 ## Reproduce — 16 lines, `issues/repros/unsubstituted-box-typaram.yo`
 
