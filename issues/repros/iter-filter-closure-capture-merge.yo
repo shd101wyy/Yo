@@ -1,0 +1,38 @@
+//! Repro: THREE `iter.filter(<closure>)` call sites — yo-self emits ONE
+//! IterFilter `next` spec (keyed to the FIRST closure's capture struct) and
+//! the other two call sites pass THEIR capture-struct pointers to it:
+//! "incompatible pointer types passing '__yo_t19 *' to parameter of type
+//! '__yo_t15 *'" (2 diagnostics). Present on native (clang warning) AND wasm
+//! (emcc 6 error — the test-wasm32 legs' blocker after the sizeof fix).
+//! TS emits three specs. Standalone form of tests/iter_filter_closure.test.yo.
+pragma(Pragma.AllowUnsafe);
+open(import("std/fmt"));
+CountIter :: struct(_count : i32, _max : i32);
+impl(
+  CountIter,
+  Iterator(
+    Item : i32,
+    next : (fn(inout(self) : Self) -> Option(i32))(
+      cond(
+        (self._count >= self._max) => .None,
+        true => {
+          val := self._count;
+          self._count = (self._count + i32(1));
+          .Some(val)
+        }
+      )
+    )
+  )
+);
+main :: (fn() -> unit)({
+  a := CountIter(i32(0), i32(5));
+  fa := a.filter(x => (x.* > i32(2)));
+  match(fa.next(), .Some(v) => println(`a=${v.to_string()}`), .None => println(`a=none`));
+  b := CountIter(i32(7), i32(8));
+  fb := b.filter(x => true);
+  match(fb.next(), .Some(v) => println(`b=${v.to_string()}`), .None => println(`b=none`));
+  c := CountIter(i32(0), i32(3));
+  fc := c.filter(x => false);
+  match(fc.next(), .Some(_) => println(`c=some`), .None => println(`c=none`));
+});
+export(main);

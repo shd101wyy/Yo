@@ -1465,6 +1465,33 @@ _find_specialization_cache :: (
                       }, {
                         if(!(are_types_compatible_exact(cached_ty, current_ty)), {
                           rt_match = false;
+                        }, {
+                          // A nominal instantiation whose type_arguments carry a
+                          // SomeT (`IterFilter(CountIter, F)` — the per-call
+                          // closure-`F` family) compares compat-EQUAL across
+                          // calls: the shared def-era `F` matches by id while the
+                          // per-call resolution lives in its cell chain. codegen's
+                          // type_key resolves that chain (`_tk_resolve_arg_slot`),
+                          // so two receivers with different capture structs get
+                          // DIFFERENT C types — sharing one spec across them
+                          // passes `__yo_t14*` to a `__yo_t2*` param (2 clang
+                          // diagnostics on native, hard errors on emcc 6: the
+                          // iter_filter_closure wasm-leg break; only the blanket
+                          // `next` collapsed — `filter` itself is protected by
+                          // the clfid cache-key extras, which cover closure
+                          // ARGUMENTS but not closures buried in a receiver's
+                          // type arguments). TS cannot collide here: each
+                          // instantiation is a distinct object with a unique
+                          // type id under requireExactMatch (helper.ts:2290).
+                          // Require type_key equality — the exact identity the
+                          // emitted C is keyed by — before reusing the spec.
+                          ck_tyargs := ArrayList(TypeValue).new();
+                          _collect_type_arg_somes(cached_ty, ck_tyargs, ArrayList(String).new());
+                          if(ck_tyargs.len() > usize(0), {
+                            if(!(type_key(cached_ty) == type_key(current_ty)), {
+                              rt_match = false;
+                            });
+                          });
                         });
                       });
                       rti = (rti + usize(1));

@@ -31,7 +31,7 @@ open(import("std/string"));
 } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { is_trait_type, is_concrete_trait_type } :: import("../../types/guards.yo");
-{ generate_some_type_id } :: import("../../types/creators.yo");
+{ generate_some_type_id, t_resolved_cell } :: import("../../types/creators.yo");
 { format_error_message } :: import("../../error.yo");
 { evaluate_expression } :: import("../exprs/expr.yo");
 { Exception } :: import("std/error");
@@ -66,6 +66,10 @@ evaluate_impl_constraint :: (
   required_trait_levels := ArrayList(usize).new();
   negative_trait_types := ArrayList(TypeValue).new();
   negative_trait_levels := ArrayList(usize).new();
+  // `Concrete(T)` specifier — extracted from the marker trait and stamped as
+  // the SomeT's resolved-concrete instead of joining required_trait_types
+  // (TS impl-constraint.ts:104-114, 131-133).
+  (concrete_type : Option(TypeValue)) = Option(TypeValue).None;
   (cur_env : Environment) = env;
   (i : usize) = usize(0);
   while(i < args.len(), {
@@ -146,15 +150,42 @@ evaluate_impl_constraint :: (
             )
           );
         });
-        // Note: is_concrete_trait_type is a stub that returns false.
-        // Concrete(T) support is deferred.
-        if(is_negated, {
+        // `Concrete(T)` marker: record T as the SomeT's resolved-concrete and
+        // keep it OUT of required_trait_types (TS impl-constraint.ts:104-114).
+        // This was "deferred" while is_concrete_trait_type was a stub; the
+        // guard is real since Phase 5. Without it, `IoFuture ::
+        // Impl(Concrete(__yo_io_future_t), Future(i32))` lowered every
+        // wrapper's declared C return to the Future TRAIT-OBJECT struct while
+        // the extern body returns `__yo_io_future_t*` — the fs/sys
+        // incompatible-pointer class (errors on emcc 6 / clang 16+;
+        // issues/yo-self-io-future-return-type-mismatch.md).
+        if(is_concrete_trait_type(trait_tv), {
+          if(concrete_type.is_some(), {
+            exn.throw(
+              dyn(
+                format_error_message(
+                  ast_expr_token(module_expr),
+                  String.from("Impl can only have one Concrete(T) specifier"),
+                  false,
+                  .None
+                )
+              )
+            );
+          });
+          match(
+            trait_tv,
+            .TraitT({ is_concrete : ic_ct }) => {
+              concrete_type = ic_ct;
+            },
+            _ => ()
+          );
+        }, if(is_negated, {
           negative_trait_types.push(trait_tv);
           negative_trait_levels.push(usize(0));
         }, {
           required_trait_types.push(trait_tv);
           required_trait_levels.push(usize(0));
-        });
+        }));
       }
     );
     i = (i + usize(1));
@@ -165,7 +196,9 @@ evaluate_impl_constraint :: (
     true => (cur_env.frame_count() - usize(1)),
     false => usize(0)
   );
-  // Create the SomeT with required and negative trait constraints.
+  // Create the SomeT with required and negative trait constraints. A
+  // `Concrete(T)` specifier seeds the resolved-concrete cell with T (TS:
+  // `someType.resolvedConcreteType = concreteType`).
   some_type := TypeValue.SomeT(
     generate_some_type_id(),
     String.from("Impl"),
@@ -177,7 +210,11 @@ evaluate_impl_constraint :: (
     negative_trait_levels,
     false,
     Option(TypeValue).None,
-    ArrayList(TypeValue).new()
+    match(
+      concrete_type,
+      .Some(ct) => t_resolved_cell(ct),
+      .None => ArrayList(TypeValue).new()
+    )
   );
   type_val := create_type_value(some_type);
   out_info := new_expr_info(cur_env, TypeValue.TypeUni(usize(0)));
