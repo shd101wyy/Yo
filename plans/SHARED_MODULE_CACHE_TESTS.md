@@ -283,7 +283,120 @@ module_manager.yo) — precedent for run-scoped shared state.
 This is the phase that matters long-term: src/ retires (P2), and the
 self-hosted runner is what CI keeps paying for.
 
-## Phase 3 — the data says: cache EXTRACTION on disk
+## Phase 3 — REFUTED 2026-08-16. Do not build it as specified.
+
+Everything below this banner is the ORIGINAL sketch, kept for the reasoning
+trail. A survey of the actual code before implementing refuted six of its
+assumptions; one is fatal to the payoff. Read this section first.
+
+### FATAL — the projected win double-counts Phase 1. A perfect hit is a wash.
+
+The sketch projects "batch + clang ~= 30 s on a warm hit" by adding the WARM
+batch number (10.8 s) to clang. The batch is warm **only because extraction
+already evaluated the import closure into the shared universe**:
+
+- `runTests` builds one empty `ModuleManager` per run (`src/test-runner.ts:1586-1588`).
+- `extractTests` calls `loadModule` (`:299`), demand-loading the whole closure.
+- The post-extraction scrub deletes ONLY the entry module and its dependents
+  (`:272-276`, `:360` -> `src/module-manager.ts:223-247`). The closure stays resident.
+- `compileBatchedBinary` reuses that warm map (`src/test-runner.ts:545`,
+  `src/module-manager.ts:349-356`).
+
+On a cache HIT extraction is skipped, so the batch compile becomes the first
+thing to touch the universe and pays the full cold closure evaluation — this
+plan's own measured 73.7 s.
+
+Measured (two `extractTests` calls on one ModuleManager):
+
+| file                                     | cold extraction | warm extraction |
+| ---------------------------------------- | --------------- | --------------- |
+| `tests/internal/macro_expansion.test.yo` | 61,232 ms       | **33 ms**       |
+| `tests/internal/lexer.test.yo`           | 2,224 ms        | 114 ms          |
+| `tests/basic.test.yo`                    | 1,878 ms        | 256 ms          |
+
+**99.95% of the heavy file's extraction IS closure evaluation.** The 62.4 s
+extraction and the 62.9 s cold-warm batch delta are the same work; exactly one
+of them can be eliminated and Phase 1 already eliminated it. Warm-hit total
+under CI's one-process-per-file shape: `73.7 + 17.2 + ~5 ~= 96 s` vs **95.4 s
+today**. The only recoverable part is extraction's NON-closure work (parsing the
+entry file, the swallowed per-test trial eval, stringification) — bounded by
+roughly 0-5 s on the heavy file.
+
+The cache only pays when the closure is already warm from ANOTHER file in the
+same process — i.e. the "batch a shard's light files into one invocation" lever
+listed separately and still unclaimed. Phase 3 and that lever are complements;
+Phase 3 alone buys ~nothing in the shape this plan targets.
+
+### The real lever: TS should extract WITHOUT evaluating, as yo-self already does
+
+The sketch's "Applies to BOTH runners (yo-self does the same extract-then-compile
+dance)" is **false**. The self-hosted runner parses and walks the RAW parse tree
+— no `loadModule`, no evaluator, no closure:
+
+- `yo-self/main.yo:1732` — `prog := parse(src, file.clone(), exn);`
+- `yo-self/main.yo:1734-1756` — walks `prog`, collecting
+  `TestDecl(name, body_src : ast_expr_to_string(tbody))` and `non_test.push(...)`.
+
+The whole corpus is green under it, and it runs the `tests/internal` tier in
+22.2 min against TS's 40.5 min. So there is nothing to cache on the yo-self
+side, and the 62.4 s is avoidable OUTRIGHT — no cache, no key, no stale-hit
+risk — by porting the parse-only mechanism into TS. That composes with Phase 1
+instead of cancelling it, and it is the recommended successor to this phase.
+
+Caveat to weigh first: the benefit is confined to the TS shards, and `src/`
+retires in P2 Groups E/F. Time-box the work against that.
+
+### The other four refutations (each would have shipped a silent bug)
+
+1. **Output is not strings.** `ExtractTestsResult` is
+   `{tests: TestDeclaration[]; nonTestExprs: Expr[]}` (`src/test-runner.ts:105-108`)
+   and `TestDeclaration.bodyExpr` is a live `Expr` (`:87-92`). Every evaluated
+   Expr carries `$` with REQUIRED `env: Environment` and `type: Type`
+   (`src/expr.ts:179-192`); `JSON.stringify` throws on the cycle. The strings
+   exist only downstream in `runTests` (`:1638-1651`), so the cache boundary
+   would be there, not at `extractTests`.
+2. **Ordering trap — silently runs the wrong tests.** `--test-name-pattern`
+   filters at `:1622-1624`, BEFORE stringification at `:1638-1651`. Caching
+   "exactly what runTests already builds" persists a FILTERED subset; a later
+   unfiltered run then silently runs only those tests. Any implementation must
+   cache the unfiltered extraction and apply the regex after the read.
+3. **`modules.keys()` is not the closure.** Under the shared manager it is the
+   union of every file processed so far in the run (measured 185 entries after
+   `macro_expansion.test.yo` alone), it is missing the entry itself (scrubbed at
+   `:360`), and it OMITS files that were read, evaluated and FAILED, because the
+   map is written only on success (`src/module-manager.ts:408-411`). The repo
+   has a live case: `tests/circular_import.test.yo:26` deliberately imports a
+   failing module — dependency-graph closure 23, `modules` map 22, the two
+   missing entries being exactly the circular-error files. Repair one and the
+   file's verdict flips with the recorded list unchanged: a silent stale hit.
+   The correct source is the private forward-edge `dependencies` map
+   (`src/module-manager.ts:120`), whose edge is added at `:344-347` BEFORE the
+   cache-hit return, the loading-placeholder check and evaluation — and it must
+   be harvested BEFORE the scrub calls `clearDependencies` (`:243`, `:292-304`).
+4. **"A new import can only appear if some closure file changed" is false.**
+   Import resolution reads filesystem SHAPE, not just contents: extensionless
+   imports probe `<p>.yo` vs `<p>/index.yo` and raise "Ambiguous import" when
+   both exist (`src/evaluator/exprs/import.ts:212-238`), the project root is
+   found by probing ancestors for `yo.lock`/`build.yo` (`:284-298`), and
+   dependency names are repointed through `yo.lock` (`:143-186`,
+   `src/fetch.ts:510-536`). Creating `foo/index.yo` beside `foo.yo`, adding an
+   ancestor `build.yo`, retargeting a symlink or deleting a recorded file all
+   change resolution while every recorded file's content hash is unchanged.
+
+Minor: `lineNumber` is listed in the sketch's payload but is dead — assigned
+once (`src/test-runner.ts:349`) and read nowhere; `StringifiedTestData` is
+`{name, bodyString, filePath}` (`:99-103`).
+
+Also note the cached strings would be the RENDERED OUTPUT OF EVALUATION, not
+source text: the evaluator rewrites the AST in place, and `$.originalExpr` is
+written in exactly one place, for test BODIES only
+(`src/evaluator/exprs/test.ts:169`) — `nonTestExprs` never carry it, so
+`nonTestContent` is always the post-evaluation form. A content-hash key cannot
+cover that.
+
+---
+
+## Phase 3 (ORIGINAL SKETCH — refuted above) — the data says: cache EXTRACTION on disk
 
 Measured 2026-08-15 on `macro_expansion.test.yo` with Phase 1 sharing ON.
 Extraction was isolated by asking for a test name that matches nothing
