@@ -66,7 +66,7 @@ _(env : fncall_dbg_env) :: import("std/env");
   capture_env_for
 } :: import("../../env.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
-{ get_func_param_defaults, get_func_param_default_exprs, get_func_param_comptime, register_func_param_comptime, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_return_type_expr, get_func_variadic_param, get_func_param_type_exprs, evaluate_function_parameter_type_again } :: import("../types/function.yo");
+{ get_func_param_defaults, get_func_param_default_exprs, get_func_param_comptime, register_func_param_comptime, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_return_type_expr, get_func_variadic_param, get_func_param_type_exprs, evaluate_function_parameter_type_again, _collect_type_arg_somes } :: import("../types/function.yo");
 { is_io_async_call, is_io_await_call } :: import("../async/await_analysis.yo");
 { subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
 { t_unit, t_type, t_usize, t_comptime_int, t_type_app, t_expr_t, generate_some_type_id, resolve_enum_shell } :: import("../../types/creators.yo");
@@ -1873,7 +1873,26 @@ _evaluate_funcval_runtime_call :: (
   // the substitution just stamped (iter_filter_closure: all three arms'
   // returns collapsed onto one C record while each specialized callee
   // returned its own).
-  (rre_wanted : bool) = (hkt_ret_binder || ((get_all_some_types(resolved_ret).len() > usize(0)) && !(type_somes_all_resolve_concrete(resolved_ret))));
+  // Recursive-instantiation era repair (the Box(Self)+Clone duplicate-struct
+  // class, issues/yo-self-unsubstituted-type-param-emits-duplicate-struct.md):
+  // when the DECLARED return is a nominal instantiation whose type_arguments
+  // carry SomeTs (`fn(forall(V), ...) -> Box(V)`), the s_ret substitution above
+  // rewrites the def-era instance IN PLACE — for a RECURSIVE payload the
+  // substituted copy renders a structurally DIFFERENT type_key than the ctor
+  // memo's canonical instance (measured: `left:R#gs_…` vs `left:R#struct_…`),
+  // so the call site and the callee split onto two C structs with identical
+  // bodies. Only the EXPRESSION re-eval routes through the memo and yields the
+  // canonical identity — force it for exactly this family. The two recorded
+  // adoption hazards stay excluded structurally: `-> Option(V)` carries its V
+  // in ENUM VARIANT FIELDS (no tyarg slots → the collector finds nothing),
+  // and the per-call closure-F family (`IterFilter(Self, F)`) keeps SomeTs
+  // after substitution (nsomes > 0 → the substituted result is not adopted-
+  // over; it still enters via the pre-existing !all_resolve_concrete arm).
+  rre_decl_tyarg_somes := ArrayList(TypeValue).new();
+  _collect_type_arg_somes(ret_type, rre_decl_tyarg_somes, ArrayList(String).new());
+  rre_era_suspect := ((rre_decl_tyarg_somes.len() > usize(0)) && (get_all_some_types(resolved_ret).len() == usize(0)));
+  rre_old_wanted := (hkt_ret_binder || ((get_all_some_types(resolved_ret).len() > usize(0)) && !(type_somes_all_resolve_concrete(resolved_ret))));
+  (rre_wanted : bool) = (rre_old_wanted || rre_era_suspect);
   if(rre_wanted, {
     match(
       get_func_return_type_expr(func_id_fv.clone()),
@@ -1892,7 +1911,16 @@ _evaluate_funcval_runtime_call :: (
           // the result is C-concrete; rejecting it left the caller stamped
           // with the SHARED unresolved `F`, merging every arm's return onto
           // ONE C type while each specialized callee returned its own).
-          .Some(hkt_ty) => if(((get_all_some_types(hkt_ty).len() == usize(0)) || type_somes_all_resolve_concrete(hkt_ty)) && !(is_unit_type(hkt_ty)), {
+          // The cell-resolving arm is admitted ONLY for the pre-existing
+          // triggers: on an era_suspect-ONLY run the substituted result was
+          // already SomeT-free (`box(closure)`'s Box(<capture struct>) via
+          // the declared-param bridge), and the re-eval resolves `V` by NAME
+          // to the SHARED Impl-Fn wrapper — adopting that Box(wrapper)
+          // clobbered the per-call capture identity and leaked raw type_keys
+          // into dyn wrapper C names (`__yo_wrap_unknown_R#gs_…`, the
+          // fn/closure gate C-compile break). Era repair only ever needs the
+          // fully-concrete canonical, so it takes the strict arm.
+          .Some(hkt_ty) => if(((get_all_some_types(hkt_ty).len() == usize(0)) || (rre_old_wanted && type_somes_all_resolve_concrete(hkt_ty))) && !(is_unit_type(hkt_ty)), {
             resolved_ret = hkt_ty;
           }),
           .None => ()

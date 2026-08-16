@@ -158,6 +158,25 @@ test("derive Clone for recursive enum with Box(Self)", {
     .Leaf(_) => assert(false, "expected branch")
   );
 });
+// ===== 9b. Recursive STRUCT with Option(Box(Self)) =====
+// The struct half of the recursive-instantiation era-split class
+// (issues/yo-self-unsubstituted-type-param-emits-duplicate-struct.md): the
+// enum shape above compiled with duplicate Box C structs (incompatible
+// pointers), the struct shape failed C compilation outright. Both are one
+// bug — never enum-specific.
+LinkNode :: struct(v : i32, next : Option(Box(Self)));
+derive(LinkNode, Clone);
+test("derive Clone for recursive struct with Option(Box(Self))", {
+  tail_n := LinkNode(v : i32(2), next : Option(Box(LinkNode)).None);
+  head := LinkNode(v : i32(1), next : Option(Box(LinkNode)).Some(box(tail_n)));
+  c := head.clone();
+  assert(c.v == i32(1), "head v");
+  match(
+    c.next,
+    .Some(b) => assert(b.*.v == i32(2), "tail v"),
+    .None => assert(false, "expected next")
+  );
+});
 // ===== 10. Large enum with 20+ variants =====
 BigEnum :: enum(
   V00(a : i32),

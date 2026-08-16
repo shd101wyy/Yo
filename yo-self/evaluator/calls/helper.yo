@@ -142,7 +142,8 @@ _(env : helper_dbg_env) :: import("std/env");
   get_func_where_clause_exprs,
   apply_where_clause_constraints,
   WhereConstraintEntry,
-  collect_wrapper_trait_somes
+  collect_wrapper_trait_somes,
+  _collect_type_arg_somes
 } :: import("../types/function.yo");
 { evaluate_begin_expression } :: import("../exprs/begin.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
@@ -2478,7 +2479,22 @@ create_specialized_function_inline :: (
               ctx.is_evaluating_function_type = pte_prev_fnty;
             });
           });
-          if(((get_all_some_types(spec_ret_ty).len() > usize(0)) || _type_has_array_len_var(spec_ret_ty)) || rte_has_ct_param, {
+          // Recursive-instantiation era repair, mint half (see the rre_era_suspect
+          // comment in calls/function.yo — same class, same exclusions): a declared
+          // return whose NOMINAL type_arguments carry SomeTs (`-> Box(V)`) that the
+          // occurrence-substitution above rewrote to a SomeT-free result is a
+          // def-era COPY whose type_key diverges from the ctor memo's canonical
+          // instance for recursive payloads. Route it through the return-EXPR
+          // re-eval below so the registered spec return carries the canonical
+          // identity; adoption stays concrete-only.
+          rte_decl_tyarg_somes := ArrayList(TypeValue).new();
+          _collect_type_arg_somes(
+            match(func_type, .Func({ result : zr0 }) => zr0, _ => t_unit()),
+            rte_decl_tyarg_somes,
+            ArrayList(String).new()
+          );
+          rte_era_suspect := ((rte_decl_tyarg_somes.len() > usize(0)) && (get_all_some_types(spec_ret_ty).len() == usize(0)));
+          if((((get_all_some_types(spec_ret_ty).len() > usize(0)) || _type_has_array_len_var(spec_ret_ty)) || rte_has_ct_param) || rte_era_suspect, {
             match(
               get_func_return_type_expr(func_id.clone()),
               .Some(rte_expr) => {

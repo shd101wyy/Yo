@@ -1,8 +1,116 @@
 # yo-self emits a duplicate C struct for an UNSUBSTITUTED type parameter, producing type-incorrect C
 
-**Status: OPEN, root-caused 2026-08-16.** Surfaced by the converted
-`test-wasm32_wasi` leg (PR #127), but it is **neither wasm-specific nor caused
-by that conversion** — see the A/B below.
+**Status: FIXED 2026-08-16** (same day as the root-cause session). Surfaced by
+the converted `test-wasm32_wasi` leg (PR #127), but it is **neither
+wasm-specific nor caused by that conversion** — see the A/B below.
+
+## THE ACTUAL ROOT CAUSE AND FIX (measured, 2026-08-16 second session)
+
+The earlier sections below remain as the investigation record; several of their
+intermediate framings are now superseded by this section.
+
+**Root cause — a substitution-era identity split on a RECURSIVE generic
+instantiation.** For `box :: fn(forall(V), own(value) : V) -> Box(V)` called
+with a recursive payload (`TreeNode` with `Box(Self)` fields):
+
+1. `evaluate_function_return_type_again` cannot resolve `Box(V)`'s
+   type-argument `V` from the callee env: the concrete `V := TreeNode` binding
+   IS in the env (probe: `binds: f1=TreeNode`), but the SomeT's recorded
+   definition frame level (2) is outside the 2-frame mint env, so the
+   ownership check in `_do_chain_resolve` — a FAITHFUL port of TS
+   env-lookup.ts:139-207 — refuses the binding. Not a divergence; TS refuses
+   identically and simply never depends on this lookup here.
+2. The occurrence-substitution fallback (helper.yo, the `zs_ret` loop) then
+   rewrites the def-era `Box(V)` instance in place (`zs_any=true`). For a
+   recursive payload, **the substituted copy renders a structurally different
+   `type_key` than the ctor memo's canonical instance** — measured:
+   `gs_2799_enum…_left:R#gs_yo_id_2799_enum…` (substituted copy) vs
+   `gs_2799_enum…_left:R#struct_yo_id_3043` (canonical). Two keys → two C
+   structs with byte-identical bodies → every assignment between them is an
+   incompatible-pointer diagnostic.
+3. The expression-re-eval fallback (`_trial_eval_ret_type_expr` — TS's actual
+   mechanism, which routes `Box(TreeNode)` through the ctor memo and returns
+   THE canonical instance) never ran, because its gate fired only when SomeTs
+   REMAINED — and the substituted copy is SomeT-free by the fields-only
+   `get_all_some_types` walk.
+
+So the earlier framing "V reaches codegen unsubstituted" was only true of one
+of the two duplicate keys; the deeper problem is that **substitution-based
+return repair can never reproduce the canonical identity of a recursive
+instantiation** — only re-evaluating the return-type EXPRESSION can (TS does
+this unconditionally: helper.ts:2536 runs before the signature at :2571).
+
+**Fix (yo-self only, 39 lines):** extend the expression-re-eval gate at BOTH
+resolution sites with `rre_era_suspect` / `rte_era_suspect`: _declared return
+carries type-argument SomeTs_ (via `_collect_type_arg_somes`, now exported)
+_AND the substituted result is SomeT-free_. Sites:
+
+- `yo-self/evaluator/calls/function.yo` (`rre_wanted`, the plain-call
+  call-site stamp — this is the route `main`'s `box(leaf_a)` takes), and
+- `yo-self/evaluator/calls/helper.yo` (`create_specialized_function_inline`'s
+  rte block — the mint; registration then converges via the existing
+  `rte_adopted → spec_result = spec_ret_ty` hand-off).
+
+Adoption gates are untouched (concrete-only). The two recorded adoption
+hazards are excluded structurally: `-> Option(V)` keeps its `V` in enum
+VARIANT FIELDS (no type-argument slots, collector finds nothing), and the
+per-call closure-`F` family (`IterFilter(Self, F)`) stays SomeT-carrying after
+substitution, so it still enters via the pre-existing
+`!type_somes_all_resolve_concrete` arm and is never adopted over.
+
+**Second regression the canonical propagation surfaced — an UNSTAMPED
+canonical `Box` (silent wrong output, part of the fix).** With the era repair
+in place, `dyn_dispatch_autobox_value` printed a blank instead of `Q` and
+`dyn_error_throw_ioerror` lost the error message. Mechanism: the boxed-dyn
+path keys on `is_boxed_type`, which requires a `Box(`-prefixed struct NAME;
+that name is stamped in comptime_fn.yo **from the callee expr's token**
+(yo-self FuncVals carry no funcName — TS stamps all comptime-fn results from
+funcName, comptime-fn.ts:261-265). `_create_boxed_type` (values/dyn.yo) was
+the ONLY caller passing `Option(AstExpr).None` as the callee, so the canonical
+memoized `Box(T)` instance it minted was UNSTAMPED. Pre-era-repair, consumers
+saw def-era stamped copies and the gap was latent; the canonical propagation
+exposed it: `is_boxed_type(canonical)=false` → the dyn impl was registered
+against the Box POINTER itself and the vtable wrapper passed `&<local
+pointer>` to the method (C compiles; payload garbage). Fix: synthesize a
+`Box` atom as the callee expr at that site, so the canonical is stamped at
+first mint. Both tests then print correctly.
+
+**First cut regressed `fn`/`closure` — the repair is part of the fix.** With
+the call-site acceptance unchanged, an era*suspect-triggered re-eval also
+fired for `box(closure)` (cluster-B): there the substituted return is the
+SomeT-free `Box(<capture struct>)` (via the declared-param bridge), and the
+re-eval resolves `V` by NAME to the SHARED Impl-Fn wrapper — the acceptance's
+`type_somes_all_resolve_concrete` arm then adopted `Box(wrapper)`, clobbering
+the per-call capture identity and leaking raw type_keys into dyn wrapper C
+names (`\_\_yo_wrap_unknown_R#gs*…`—`#`is not a C identifier char, so the
+whole batch failed to compile; gates`fn`+`closure`). Repair: on an
+era_suspect-ONLY trigger, accept a fully SomeT-free result ONLY (the
+cell-resolving arm stays available to the pre-existing triggers via
+`rre_old_wanted`). The mint half was never at risk — its acceptance was
+already strictly concrete.
+
+**Verified (final cut):** both repros emit 0 `Box(V)` structs and run;
+`derive_clone_complex.test.yo` 15/15 with 0 incompatible-pointer diagnostics —
+natively AND under `--target wasm-wasi` AND `--c-compiler emcc`; hazard
+families green (`iter_filter_closure` 3, `where_clause_fn_inference` 2,
+`imm_map` 21, `imm_sorted_map` 17, `collections/hash_map` 61, `dyn` 8,
+`recursive_enum` 4, `str` 3, `fn` 24, `closure` 9); wasm-leg set green
+(`crypto/random` emcc 10, `control_fn_as_regular_call` wasi 3, `str`
+emcc/wasi 3/3); `FIXPOINT_HOLDS` on the intermediate cut and re-verified on
+the final cut with the full gate battery.
+
+**Matrix correction:** variant E (struct + `Box(Self)` + derive) was a FALSE
+NEGATIVE — its `main` never called `.clone()`. With a real call
+(`issues/repros/box-self-struct-field-derive-clone.yo`) the struct shape leaks
+identically, so the bug was never enum-specific. Required ingredients:
+**recursive `Wrapper(Self)` (struct OR enum) + a `Clone` impl call that clones
+the wrapped payload.**
+
+**Probe method note:** the "same SomeT id ⇒ same object" refutation earlier in
+this file compared ids only. In yo-self's value semantics, copies share the id
+but each carries its OWN `resolved_concrete` cell — the field copy's cell gets
+populated while the type-argument copy's stays empty, which is how one C
+struct rendered concrete fields under a `Box(V)` comment.
 
 ## Symptom
 
