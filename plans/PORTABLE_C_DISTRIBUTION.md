@@ -210,6 +210,93 @@ These split into two classes:
   implementations (`GetModuleFileNameW` / `_NSGetExecutablePath` /
   `/proc/self/exe`). This is the hard blocker.
 
+## The ASSEMBLED artifact, measured for the first time (2026-08-16)
+
+The baseline above sizes **one arm**. This sizes what the `portable-c` job
+actually publishes — all five arms through `scripts/make-portable-c.sh`.
+
+Source: the five `portable-c-*` artifacts from release run **31909103188**
+(the failed v0.2.6 attempt), reassembled locally with the real script.
+
+| artifact                                       | bytes       |                       |
+| ---------------------------------------------- | ----------- | --------------------- |
+| `yo.c` assembled (5 arms)                      | 599,555,205 | 571.8 MB, 6,960,701 L |
+| `yo-v0.2.6.c.gz` (`gzip -9`, the shipped form) | 35,073,706  | 33.4 MB               |
+
+**The `.gz` had never been produced before this measurement.** In
+`release.yml` the `gzip -9` step runs _after_ the `gcc -std=c11 -fsyntax-only`
+check, and that check is what failed the job — so no run has ever reached the
+compression step. 33.4 MB is the first real number for the published asset.
+
+### gzip cannot see the arms as related, at all
+
+| compression of the same 5 arms        | bytes      |
+| ------------------------------------- | ---------- |
+| each arm `gzip -9` separately, summed | 35,072,670 |
+| the concatenated `yo.c`, `gzip -9`    | 35,073,706 |
+
+Concatenating costs **1,036 bytes more** than compressing the arms
+independently. gzip's 32 KB window cannot span a 114 MB arm, so the five arms
+are five unrelated payloads and the assembly buys nothing at rest.
+
+### Codec comparison — and why `.gz` should stay
+
+| codec                | size    | vs gz | wall |
+| -------------------- | ------- | ----- | ---- |
+| `gzip -9` (shipped)  | 33.4 MB | —     | 7 s  |
+| `zstd -12`           | 23.6 MB | −30%  | 2 s  |
+| `zstd -19 --long=31` | 17.2 MB | −49%  | 73 s |
+
+zstd wins the ratio decisively and should still **not** become the only
+format. This artifact exists for the reader who has a C compiler and nothing
+else; macOS ships no `zstd` and neither does Windows, so requiring one to
+unpack it defeats its premise. If the ratio is wanted, publish **both** — one
+extra step, `.gz` remains the guaranteed path.
+
+### What the size actually costs: counter ids, quantified
+
+The "Counter ids make diffs fragile" note under Correction 1 is right, and its
+cost is larger than diff legibility. Diffing `linux-x64.c` against
+`linux-arm64.c` over a 400 k-line window: **260,424 lines differ (65%)**. Every
+difference is one shape —
+
+```
+< _yo538951a6_temp_56505_state_t     > _yo538951a6_temp_56512_state_t
+< _yo538951a6_temp_54146_state_t     > _yo538951a6_temp_54153_state_t
+```
+
+— every counter offset by exactly **7**, i.e. one early platform-conditional
+emitted 7 extra temps and renumbered everything after it. Normalize
+`_temp_NNNNN` → `_temp_N` and the same diff falls to **2,748 lines (0.69%)**.
+This confirms the baseline's "identical except label names" for the arch axis
+and puts a number on it.
+
+Alignment-free confirmation across all five arms, since the head-window diff is
+only valid for the line-aligned same-OS pair:
+
+| `zstd -12 --long=31` over the whole `yo.c` | bytes      |
+| ------------------------------------------ | ---------- |
+| as shipped                                 | 23,626,082 |
+| with `_temp_NNNNN` normalized to `_temp_N` | 9,802,040  |
+
+**2.4× smaller from renumbering alone** — and the normalized text is only 3.3%
+smaller, so this is restored matchability, not a smaller input.
+
+**This is a measurement, not a proposal.** Making ids content-derived rather
+than sequential would recover it, but post-hoc id canonicalization has been
+attempted and failed before (dyn keys plus memo duplicates), and the
+correctness hazard in work item 2 above — dispose/dyn type-ids keyed on
+emission order — sits in exactly this machinery. Recorded so the cost is known;
+not sequenced.
+
+### What this does NOT revive
+
+None of the above argues for merging the arms into one `#if`-selected
+translation unit. The shadow-constant-table refutation below is unaffected by
+compression economics: the arms are redundant _at rest_, which is a packaging
+fact, while merging them changes _when_ platform constants are chosen, which is
+a correctness fact. Cheaper bytes are not a reason to reopen it.
+
 ## Why MERGING is the wrong target (design A)
 
 The staged path below is _technically_ walkable. Two adversarial reviews
