@@ -150,7 +150,53 @@ The specialized `box`'s mangled name encodes the **concrete** return
 the emitted TYPE did not. Whatever populates the key had the concrete type in
 hand at a point where the return TypeValue did not.
 
-## Leading hypothesis for the next probe: two DIFFERENT SomeT instances for `V`
+## PROBE RESULT 2026-08-16 — the two-instances hypothesis is REFUTED
+
+Printed the SomeT `id` for the type-argument `V` and the field `V` side by side
+on the 16-line repro:
+
+```
+10x  n=1  ta_id=1138  ft_id=1138  ft=V            ty=Box(V)
+ 3x  n=0  ta_id=-     ft_id=-     ft=TreeNode     ty=Box(V)
+ 1x  n=1  ta_id=1150  ft_id=1150  ft=T : (Clone)  ty=Box(V)
+```
+
+**The ids are identical** (`1138 == 1138`). It is ONE SomeT object, not a copy
+with a stale cell. The hypothesis below is dead; keeping it only so nobody
+re-derives it.
+
+### Two things this turns up instead
+
+**1. `Box(V)` in the emitted C comment is partly a RENDERING artifact.** Three
+cases show `n=0` (no type-argument SomeT at all) and `ft=TreeNode` (the field is
+already concrete) — and `type_to_string` still renders the type as `Box(V)`. So
+the struct comment cannot be trusted as evidence that a type is unresolved; it
+appears to render the declared parameter name rather than the actual argument.
+The _duplicate C struct_ is still real, but "it says `Box(V)`" is not by itself
+proof of an unresolved type.
+
+**2. The surviving explanation is TIMING, not identity.** Both
+`_resolve_type_arg_somes` and `get_type_string` consult the same channels (the
+SomeT's `resolved_concrete` cell and the id-keyed registry — see
+`declarations.yo:416-428`). One fails and the other succeeds on the SAME object
+id. The difference between them is _when they run_:
+
+| consumer                  | phase      | outcome for id 1138       |
+| ------------------------- | ---------- | ------------------------- |
+| `_resolve_type_arg_somes` | evaluation | all channels miss (13/13) |
+| `get_type_string`         | codegen    | resolves (bodies match)   |
+
+That is consistent with the resolution for `1138` being registered **after** the
+return-type re-evaluation and **before** codegen. The struct then gets registered
+under the still-unresolved key, and the later-resolved view mints nothing new —
+leaving two C types for one Yo type.
+
+**Next probe:** call `lookup_some_resolved_concrete(1138)` at both moments and
+compare. If it is empty at evaluation time and populated at codegen time, the fix
+is an ordering one — resolve the return type after the binding is registered, or
+register it earlier — and NOT an identity or filtering change.
+
+## Superseded hypothesis (kept so it is not re-derived): two DIFFERENT SomeT instances for `V`
 
 The measurement above looks self-contradictory at first, and the contradiction is
 the clue:
