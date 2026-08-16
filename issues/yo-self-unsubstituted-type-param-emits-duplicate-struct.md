@@ -233,6 +233,34 @@ dead and the registry population order is the thing to measure instead.
 `Frame level N has different number of values for different cases` — this cost
 two build cycles (see `.github/instructions/yo-syntax.instructions.md`).
 
+## TRIGGER MATRIX (measured 2026-08-16, zero rebuilds)
+
+Six variants compiled with `--emit-c --skip-c-compiler`, counting
+`^struct __yo_t[0-9]+_struct \{ // Box\(V\)`:
+
+| #   | shape                                                 | leak  |
+| --- | ----------------------------------------------------- | ----- |
+| A   | **enum** + `Box(Self)` + `derive(Clone)`, via `box()` | **1** |
+| B   | **enum** + `Box(Self)` + `derive(Clone)`, direct ctor | **1** |
+| C   | enum + `Box(Self)`, NO derive                         | 0     |
+| D   | struct + `Box(i32)` + `derive(Clone)`                 | 0     |
+| E   | **struct** + `Box(Self)` + `derive(Clone)`            | 0     |
+| F   | enum + `Box(i32)` non-recursive + `derive(Clone)`     | 0     |
+
+**All three ingredients are required: ENUM, recursive `Wrapper(Self)`, and a
+derive.** Two consequences:
+
+- **B kills the `box()`-inference theory.** The leak reproduces with no `box()`
+  call at all, so nothing about that function's forall inference is the cause.
+  Any fix aimed at `box`'s binding is aimed at the wrong thing.
+- **E vs A is the sharpest signal available.** Identical shape, struct instead of
+  enum, and the struct is clean. So the divergence lives in the ENUM derive path,
+  not in `Box`, not in recursion handling generally.
+
+`recursive_enum.test.yo:7-12` is one `derive(..., Clone)` line away from being a
+second instance; `std/encoding/json.yo:63` (`JsonValue`) and
+`std/encoding/toml.yo:17` (`TomlValue`) have the shape without a derive today.
+
 ## A fix that must NOT be used
 
 Swapping the deep `type_contains_some_type` predicate in at the emission site to
