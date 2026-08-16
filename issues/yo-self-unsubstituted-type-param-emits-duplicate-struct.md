@@ -76,12 +76,35 @@ TS resolves `V` correctly. TS is the reference implementation to diff against.
   move to clang 16+/GCC 14+, previously-green jobs will start failing.
 - The shipped v0.2.7 portable `yo.c` may contain the same shape.
 
-## Reproduce
+## Reproduce — 16 lines, `issues/repros/unsubstituted-box-typaram.yo`
+
+The trigger is narrower than the whole test file: a **recursive enum with
+`Box(Self)` fields plus `derive(Clone)`**. `Box`'s own type parameter is named
+`V` (`std/prelude.yo:7382`), and that `V` is what leaks.
+
+```rust
+TreeNode :: enum(
+  Leaf(value : i32),
+  Branch(left : Box(Self), right : Box(Self))
+);
+derive(TreeNode, Clone);
+```
+
+```bash
+<stage1> compile issues/repros/unsubstituted-box-typaram.yo --release --emit-c --skip-c-compiler -o /tmp/r
+grep -cE '^struct __yo_t[0-9]+_struct \{ // Box\(V\)' /tmp/r.c
+```
+
+| compiler | Box structs emitted                                                    | `Box(V)` count |
+| -------- | ---------------------------------------------------------------------- | -------------- |
+| TS       | 1 — `Box(enum(Leaf(value: i32)))`, fully substituted                   | **0**          |
+| yo-self  | 2 — the correct `Box(<enum:enum_decl_…>)` **plus** a spurious `Box(V)` | **1**          |
+
+Full-file form (5 diagnostics):
 
 ```bash
 YO_KEEP_BATCH=1 YO_STD=$PWD/std <stage1> test ./tests/derive_clone_complex.test.yo --parallel 1
 grep -c 'incompatible pointer types' <log>          # 5
-grep -nE '^struct __yo_t[0-9]+_struct \{ // Box\(' tests/.yo_selftest_batch_1_0.bin.c
 ```
 
 ## Where to look
