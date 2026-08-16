@@ -71,7 +71,7 @@ _(env : proc_env) :: import("std/env");
 { evaluate_anonymous_module_begin_exprs } :: import("./evaluator/values/anonymous_module.yo");
 { clear_module_cache } :: import("./evaluator/module_loader.yo");
 { format_yo_source, format_yo_files, FormatYoFilesOptions } :: import("./formatter.yo");
-{ host_target, parse_target, TargetInfo, is_target_linux, is_target_windows, is_target_macos, is_target_wasm, is_target_standalone_wasi } :: import("./target.yo");
+{ host_target, set_current_target, parse_target, TargetInfo, is_target_linux, is_target_windows, is_target_macos, is_target_wasm, is_target_standalone_wasi } :: import("./target.yo");
 { compile_module } :: import("./codegen/codegen_c.yo");
 { get_needs_intel_asm_syntax, get_uses_parallelism } :: import("./codegen/utils/index.yo");
 { panic, assert } :: import("std/assert");
@@ -1234,6 +1234,13 @@ run_compile :: (
       return(())
     }
   );
+  // Publish the resolved target BEFORE the module is evaluated, so the
+  // comptime `__yo_process_platform`/`_arch`/`_pointer_size_bits` builtins
+  // fold for the TARGET rather than the emitting host. TS does the same at
+  // codegen/index.ts:194. Must precede evaluation: `cond(platform == ...)`
+  // arms in std/ are selected during evaluation, and the untaken arm never
+  // reaches the AST.
+  set_current_target(target);
   // Auto-add the output extension when none was given (yo-cli.ts:494-509):
   // emcc → `.wasm` for standalone WASI, else `.html`; Windows targets → `.exe`.
   if((cc == "emcc") && !(_path_has_extension(output)), {
@@ -1529,7 +1536,12 @@ run_compile :: (
         cmd.arg(String.from("-sNODERAWFS=1"));
       });
     });
-    if(get_uses_parallelism(), {
+    // `&& !standalone_wasi` — emcc REJECTS the combination outright:
+    // "explicitly setting EXIT_RUNTIME not compatible with STANDALONE_WASM".
+    // TS's test runner carries this same guard (test-runner.ts:667
+    // `usesParallelism && !isWasi`); only its codegen path omits it, and that
+    // is the copy this was ported from, so the bug arrived with the port.
+    if(get_uses_parallelism() && !(is_target_standalone_wasi(target)), {
       cmd.arg(String.from("-pthread"));
       cmd.arg(String.from("-sPTHREAD_POOL_SIZE=4"));
       cmd.arg(String.from("-sEXIT_RUNTIME=1"));
@@ -2011,6 +2023,16 @@ run_test :: (
         if(test_target != "", {
           ccmd.arg(String.from("--target"));
           ccmd.arg(test_target.clone());
+        });
+        // WASI batch binaries embed the whole evaluator, whose `evaluate()`
+        // has 693+ locals; emcc's defaults (64 KB stack, 16 MB initial
+        // memory) cannot hold a frame that size. TS applies these in the TEST
+        // RUNNER only (test-runner.ts:655-663), never in plain `compile`, so
+        // they travel as --cflags rather than becoming a compile-wide default
+        // for every WASI build.
+        if(run_is_wasi, {
+          ccmd.arg(String.from("--cflags"));
+          ccmd.arg(String.from("-sSTACK_SIZE=16777216 -sINITIAL_MEMORY=134217728"));
         });
         // Default sanitizer is "address"; YO_TEST_SANITIZE overrides (e.g.
         // "thread" for the TSan CI leg) and --disable-sanitize turns it off.

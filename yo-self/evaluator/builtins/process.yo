@@ -26,6 +26,7 @@ open(import("std/string"));
   Os,
   HostInfo,
   detect_host,
+  get_current_target,
   arch_to_str,
   os_to_str,
   pointer_size_for_arch
@@ -39,9 +40,14 @@ evaluate_yo_process_functions :: (
   ) -> AstExpr
 )({
   // __yo_process_platform — returns the target OS as a comptime string.
+  // TARGET, not host (TS: `getCurrentTarget()`, builtins/process.ts:41).
+  // Answering from the host made every `cond(platform == ...)` in std/ fold
+  // for the emitting machine, so `--target` produced host constants —
+  // AT_FDCWD=-2 in a linux emission, and the Linux `getrandom` arm of
+  // std/crypto/random.yo under a wasm target.
   if(ast_expr_is_fn_call_of(expr, BF_YO_PROCESS_PLATFORM, .Some(usize(0))), {
-    host := detect_host();
-    os_str := String.from(os_to_str(host.platform));
+    tgt := get_current_target();
+    os_str := String.from(os_to_str(tgt.os));
     raw := ((String.from("\"") + os_str) + String.from("\""));
     val := EvalValue.StrLit(raw);
     info := new_expr_info(env, t_comptime_string());
@@ -50,8 +56,8 @@ evaluate_yo_process_functions :: (
     return(expr);
   });
   if(ast_expr_is_fn_call_of(expr, BF_YO_PROCESS_ARCH, .Some(usize(0))), {
-    host := detect_host();
-    arch_str := String.from(arch_to_str(host.arch));
+    tgt := get_current_target();
+    arch_str := String.from(arch_to_str(tgt.arch));
     raw := ((String.from("\"") + arch_str) + String.from("\""));
     val := EvalValue.StrLit(raw);
     info := new_expr_info(env, t_comptime_string());
@@ -59,9 +65,12 @@ evaluate_yo_process_functions :: (
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
     return(expr);
   });
+  // TS uses `getTargetPointerSizeBits()` here (builtins/process.ts:88), which
+  // is likewise target-derived — wasm32 is 32-bit while the emitting host is
+  // 64-bit, so the host answer was wrong by a factor of two.
   if(ast_expr_is_fn_call_of(expr, BF_YO_POINTER_SIZE_BITS, .Some(usize(0))), {
-    host := detect_host();
-    bits := pointer_size_for_arch(host.arch);
+    tgt := get_current_target();
+    bits := pointer_size_for_arch(tgt.arch);
     val := EvalValue.IntLit(bits.to_string());
     info := new_expr_info(env, t_comptime_int());
     info.value = .Some(val);
