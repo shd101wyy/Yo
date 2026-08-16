@@ -150,6 +150,43 @@ The specialized `box`'s mangled name encodes the **concrete** return
 the emitted TYPE did not. Whatever populates the key had the concrete type in
 hand at a point where the return TypeValue did not.
 
+## Leading hypothesis for the next probe: two DIFFERENT SomeT instances for `V`
+
+The measurement above looks self-contradictory at first, and the contradiction is
+the clue:
+
+- The two structs' **bodies are byte-identical** (`__yo_t0 _u42_` in both). The
+  field's `V` therefore _was_ resolved — `get_type_string` lowers a SomeT through
+  its `resolved_concrete` cell / the id-keyed registry, and
+  `yo-self/codegen/functions/declarations.yo:416-428` documents exactly that
+  ("a RESOLVABLE top-level wrapper SomeT is NOT generic for codegen").
+- Yet `_resolve_type_arg_somes` reports **all three channels missing**, 13/13,
+  for the `V` in the same type's `type_arguments` slot.
+
+Both cannot be true of one object. So the `V` in the **type-argument slot** is
+most likely a _different SomeT instance_ from the `V` in the **field** slot — a
+copy whose own resolution cell was never populated and whose id therefore misses
+in the id-keyed registry. `type_key.yo:127` already warns in this register: "an
+unresolved chain keeps the ORIGINAL slot".
+
+That also explains the env channel missing: `_resolve_type_arg_somes`'s first
+channel is by name (`get_value_of_some_type_from_env`), so if the binding is not
+in the callee env at this point, only the per-instance channels could have
+helped — and they are attached to the _other_ instance.
+
+**Next probe (cheap, one instrumented build):** print the SomeT `id` (and
+name/level) for (a) the type-argument `V` reaching `_resolve_type_arg_somes` and
+(b) the field `V` that `get_type_string` successfully resolves. If the ids
+differ, the fix is to make type-argument resolution consult the same resolution
+the field uses — keying on name+level rather than instance id, or sharing the
+cell at the point the copy is made. If the ids are the SAME, this hypothesis is
+dead and the registry population order is the thing to measure instead.
+
+**Instrumentation note:** put probes at **function-body statement level**. An
+`eprintln` inside a `match` arm whose sibling is a bare `()` fails the build with
+`Frame level N has different number of values for different cases` — this cost
+two build cycles (see `.github/instructions/yo-syntax.instructions.md`).
+
 ## A fix that must NOT be used
 
 Swapping the deep `type_contains_some_type` predicate in at the emission site to
