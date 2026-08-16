@@ -1068,11 +1068,27 @@ Refinement-type aliases live in `std/spec/` (`NonZero`, `Bounded`,
 `Positive`, …); in Phase 0 they are plain aliases for the underlying
 type (the predicate is enforced once the verifier lands).
 
-## `match` arms must introduce the same number of frame values
+## "Frame level N has different number of values for different cases"
 
-Sibling arms of a `match` have to agree on how many values they push onto the
-frame. Turning one arm into a block that declares locals or adds statements,
-while another arm stays a bare `()`, fails evaluation with:
+Observed 2026-08-16 while adding temporary `eprintln` instrumentation. **The
+mechanism below is an inference from a controlled A/B, not a verified rule** —
+treat it as a debugging lead, not a language guarantee.
+
+What was measured, same file, same function, three builds:
+
+| instrumentation                                                | build  |
+| -------------------------------------------------------------- | ------ |
+| 2 × `eprintln` at **function-body** statement level            | **OK** |
+| + 1 × `eprintln` inside one `match` arm (sibling is `_ => ()`) | FAIL   |
+| + 3 × `eprintln` inside that same arm                          | FAIL   |
+
+The passing build included an `if(...)` inside a string interpolation, so
+interpolated conditionals are **not** the trigger. The only varying factor was
+whether the added statement sat **inside a `match` arm whose sibling was empty**.
+
+Inferred rule: sibling arms appear to need to agree on how many values they push
+onto the frame, so adding statements to one arm while another stays a bare `()`
+breaks it:
 
 ```
 Error: Frame level 7 has different number of values for different cases.
