@@ -21,7 +21,10 @@ import {
   exprIsFunctionCallOf,
   type Expr,
 } from "../../expr";
-import { exprContainsAwait } from "../../expr-traversal";
+import {
+  exprContainsAwait,
+  exprContainsWhileWithAwait,
+} from "../../expr-traversal";
 import { TokenType } from "../../token";
 import type { EnumType } from "../../types/definitions";
 import { isEnumType, isUnitType } from "../../types/guards";
@@ -2621,7 +2624,7 @@ function generateWhileWithAwait(
   // Check if the body contains a nested while-with-await.
   // If so, this is an outer while and needs a separate while loop index
   // so labels don't collide with the inner while.
-  const hasNestedWhileWithAwait = bodyContainsWhileWithAwait(bodyExpr);
+  const hasNestedWhileWithAwait = exprContainsWhileWithAwait(bodyExpr);
 
   let whileLoopIndex: number;
   if (hasNestedWhileWithAwait) {
@@ -2714,6 +2717,22 @@ function generateWhileWithAwait(
         bodyExpr,
         bodyExprsAfterAwait,
       };
+    } else {
+      // This outer loop suspends BEFORE control ever reaches the nested loop,
+      // so the nested loop is emitted by the resume state, not by the body
+      // generation above — there is no inner entry to attach to yet. The await
+      // point therefore belongs to THIS loop: store its own entry, and point
+      // the resume state's active flag, loop-back goto and exit label at the
+      // fresh index via whileLoopOriginIndex (they would otherwise default to
+      // awaitPoint.index, which names the inner loop).
+      context.asyncWhileLoopInfo.set(awaitPoint.index, {
+        conditionExpr,
+        stepExpr,
+        bodyExpr,
+        bodyExprsAfterAwait,
+        stepAwait: stepIsAwaiting,
+        whileLoopOriginIndex: whileLoopIndex,
+      });
     }
   } else {
     // Innermost while - store directly
@@ -2906,28 +2925,6 @@ function generateWhileBodyWithAwait(
   }
 
   return remainingExprs;
-}
-
-/**
- * Checks if a while loop body contains a nested while loop that itself contains await.
- * This is used to detect outer whiles that need separate while loop indices.
- */
-function bodyContainsWhileWithAwait(bodyExpr: Expr): boolean {
-  const bodyExprs =
-    bodyExpr.tag === ExprTag.FnCall && exprIsFunctionCallOf(bodyExpr, "begin")
-      ? bodyExpr.args
-      : [bodyExpr];
-
-  for (const expr of bodyExprs) {
-    if (
-      expr.tag === ExprTag.FnCall &&
-      exprIsFunctionCallOf(expr, BuiltinKeywords.while) &&
-      exprContainsAwait(expr)
-    ) {
-      return true;
-    }
-  }
-  return false;
 }
 
 /**

@@ -200,6 +200,12 @@ export interface FunctionGenerationContext extends CodeGenContext {
         bodyExpr: Expr;
         bodyExprsAfterAwait: Expr[];
       };
+      // Set when this loop handed its remaining body, loop-back and exit label
+      // to a nested while-with-await's entry (as that entry's `outerWhileLoop`)
+      // because both loops share one await index. The resume state for THIS
+      // entry must then emit none of them — the state that finishes the nested
+      // loop emits them instead, in the right order.
+      deferredToOuterWhileLoop?: boolean;
     }
   >;
   // Counter for allocating unique while loop indices for nested while-with-await.

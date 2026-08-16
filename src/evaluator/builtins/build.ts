@@ -40,6 +40,12 @@ export interface BuildArtifact {
   optimize: string;
   allocator: string;
   sanitize: string;
+  /**
+   * Redirect the generated C file to this exact path. Absent/empty = the
+   * default `<output>.c` sidecar. Optional so the dozen existing artifact
+   * literals (and test fixtures) stay untouched.
+   */
+  emitCTo?: string;
   linkLibraries: string[];
   includePaths: string[];
   libraryPaths: string[];
@@ -565,7 +571,7 @@ export function evaluateYoBuildFunctions({
 
   const registry = getBuildRegistry();
 
-  // __yo_build_executable(name, root, target, optimize, allocator, sanitize)
+  // __yo_build_executable(name, root, target, optimize, allocator, sanitize, emit_c_to)
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_executable)) {
     if (expr.args.length < 2) {
       throw formatErrorMessage({
@@ -599,6 +605,10 @@ export function evaluateYoBuildFunctions({
       expr.args.length > 5
         ? extractComptimeString(expr.args[5]!.$?.value, "sanitize", expr.token)
         : "none";
+    const emitCTo =
+      expr.args.length > 6
+        ? extractComptimeString(expr.args[6]!.$?.value, "emit_c_to", expr.token)
+        : "";
 
     registry.registerExecutable({
       name,
@@ -607,6 +617,7 @@ export function evaluateYoBuildFunctions({
       optimize,
       allocator,
       sanitize,
+      emitCTo,
       linkLibraries: [],
       includePaths: [],
       libraryPaths: [],

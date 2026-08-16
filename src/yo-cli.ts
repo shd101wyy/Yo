@@ -357,6 +357,12 @@ yo --version                     Show version number
             demandOption: false,
             default: false,
           })
+          .option("emit-c-to", {
+            describe:
+              "Write the generated C to this path instead of <output>.c.",
+            type: "string",
+            demandOption: false,
+          })
           .option("skip-codegen", {
             describe: "Do not compile the code.",
             type: "boolean",
@@ -524,6 +530,7 @@ yo --version                     Show version number
           libraries: (argv.l ?? []) as string[],
           defines: (argv.D ?? []) as string[],
           emitC: argv.emitC as boolean,
+          emitCTo: argv.emitCTo as string | undefined,
           skipCodegen: argv.skipCodegen as boolean,
           skipCCompiler: argv.skipCCompiler as boolean,
           debugGc: argv.debugGc as boolean,

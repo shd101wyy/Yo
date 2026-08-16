@@ -1,0 +1,51 @@
+open(import("std/string"));
+open(import("std/fmt"));
+{ yield } :: import("std/async");
+{ ArrayList } :: import("std/collections/array_list");
+/// Hole 1 of issues/nested-await-loop-remaining-holes.md: the outer loop has NO
+/// await of its own — the only suspension is inside the nested loop, which sits
+/// in a `match` arm. Before the back-edge fix this failed to compile
+/// (`redefinition of label 'while_loop_0_start'`). It now compiles, but the
+/// enclosing arm's scope-end drop of `inner` is emitted at the top of the inner
+/// loop's resume state, so `inner` is freed during the first iteration and the
+/// condition re-reads freed memory: the inner loop runs once per outer
+/// iteration and the total is 111 instead of 222.
+drive :: (fn(rio : Io) -> Impl(Future(usize, Io)))(
+  rio.async((aio : Io) => {
+    (count : usize) = usize(0);
+    outer := ArrayList(usize).new();
+    outer.push(usize(1));
+    outer.push(usize(10));
+    outer.push(usize(100));
+    r := usize(0);
+    while(runtime(r < outer.len()), {
+      match(
+        outer.get(r),
+        .None => (),
+        .Some(d) => {
+          inner := ArrayList(usize).new();
+          inner.push(d);
+          inner.push(d);
+          i := usize(0);
+          while(runtime(i < inner.len()), {
+            match(
+              inner.get(i),
+              .None => (),
+              .Some(f) => {
+                aio.await(yield(aio), aio);
+                count = (count + f);
+              }
+            );
+            i = (i + usize(1));
+          });
+        }
+      );
+      r = (r + usize(1));
+    });
+    count
+  })
+);
+main :: (fn(io : Io) -> unit)({
+  println(`A=${io.await(drive(io), io).to_string()} want=222`);
+});
+export(main);

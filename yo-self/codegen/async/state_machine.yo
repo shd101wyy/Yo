@@ -26,7 +26,7 @@ open(import("std/string"));
 { Variable, get_variables_from_env, get_variables_from_env_by_filter } :: import("../../env.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
 { FunctionGenerationContext, EvidenceParameter, WhileLoopInfo, CondBranch, ChainedCondBranches, AsyncCondBranchInfo, InAsyncStateMachine, CondBranchPostWhileExprs, OuterWhileLoop, SmWhileBreakInfo, SmWhileContinueInfo } :: import("../functions/context.yo");
-{ expr_contains_await } :: import("../../expr_traversal.yo");
+{ expr_contains_await, expr_contains_while_with_await } :: import("../../expr_traversal.yo");
 { is_temp_variable_name } :: import("../../utils.yo");
 { get_type_string } :: import("../utils/index.yo");
 { get_state_machine_field_name } :: import("./state_machine_naming.yo");
@@ -1956,6 +1956,10 @@ _emit_cond_branch_remaining :: (
       context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(pdd);
       context.state_machine_variables = Option(HashMap(String, CapturedVariable)).Some(_build_combined_sm_variables(analysis, capture_type));
       (found_additional : bool) = false;
+      // The expression that carried the additional await. When it is a
+      // suspending while loop, everything after it must run once the loop
+      // EXITS, not on each of its resumes.
+      (additional_await_expr : Option(AstExpr)) = Option(AstExpr).None;
       additional_remaining := ArrayList(AstExpr).new();
       (i : usize) = usize(0);
       while(i < rem.len(), {
@@ -1966,6 +1970,7 @@ _emit_cond_branch_remaining :: (
         }, {
           if(has_additional && expr_contains_await(expr), {
             found_additional = true;
+            additional_await_expr = Option(AstExpr).Some(expr);
             match(segment.await_point, .Some(ap) => generate_remaining_expr_future(expr, ap, analysis, indent.clone(), context), .None => ());
           }, {
             code := _call_generate_expr(expr, indent.clone(), context);
@@ -2029,16 +2034,95 @@ _emit_cond_branch_remaining :: (
                     condition_await : enclosing.condition_await,
                     step_await : enclosing.step_await,
                     cond_branch_post_while_exprs : enclosing.cond_branch_post_while_exprs,
-                    outer_while_loop : enclosing.outer_while_loop
+                    outer_while_loop : enclosing.outer_while_loop,
+                    deferred_to_outer_while_loop : Option(bool).None
                   )
                 );
                 context.async_while_loop_info = Option(HashMap(usize, WhileLoopInfo)).Some(wmap);
+              }, {
+                // The slot is already claimed by a DIFFERENT loop: a nested
+                // while-with-await in this branch stored its own entry under
+                // the same await index. Overwriting it would lose the inner
+                // loop; skipping (what we used to do) loses US — the outer
+                // loop then gets no loop-back and no exit label, so its body
+                // runs once and the `goto after_while_loop_N` emitted by the
+                // transition code names a label nobody defines.
+                //
+                // Record this loop as the inner one's ENCLOSING loop instead.
+                // The state that finishes the inner loop then emits our
+                // remaining body, loop-back and exit label right after
+                // `after_while_loop_<inner>` — which is also the correct order,
+                // since our post-await body follows the nested loop.
+                match(
+                  wmap.get(ap.base.index),
+                  .Some(existing_next) => {
+                    our_index := match(enclosing.while_loop_origin_index, .Some(o) => o, .None => prev_await.base.index);
+                    their_index := match(existing_next.while_loop_origin_index, .Some(o) => o, .None => ap.base.index);
+                    if(existing_next.outer_while_loop.is_none() && (their_index != our_index), {
+                      existing_next.outer_while_loop = Option(OuterWhileLoop).Some(
+                        OuterWhileLoop(
+                          while_loop_index : our_index,
+                          condition_expr : enclosing.condition_expr,
+                          step_expr : enclosing.step_expr,
+                          body_expr : enclosing.body_expr,
+                          body_exprs_after_await : match(enclosing.body_exprs_after_await, .Some(b) => b, .None => ArrayList(AstExpr).new())
+                        )
+                      );
+                      wmap.set(ap.base.index, existing_next);
+                      enclosing.deferred_to_outer_while_loop = Option(bool).Some(true);
+                      wmap.set(prev_await.base.index, enclosing);
+                      context.async_while_loop_info = Option(HashMap(usize, WhileLoopInfo)).Some(wmap);
+                    });
+                  },
+                  .None => ()
+                );
               }),
               .None => ()
             ),
             .None => ()
           );
-          _chain_additional_remaining(context, ap.base.index, branch.index, branch.value, additional_remaining, branch.deferred_drop_expressions, cond_field);
+          // If the expression that carried the additional await IS a
+          // suspending while loop, this branch's remaining code sits AFTER that
+          // loop in the source. Chaining it would emit it at the TOP of the
+          // loop's resume state — i.e. on every iteration — so the branch's
+          // scope-end drops would free the locals (typically the very
+          // collection the loop iterates) during the first one: the condition
+          // then re-reads freed memory and the loop exits early. Defer it to
+          // the loop's post-exit slot instead, exactly as generate_cond_with_await
+          // already does when it can see the loop entry itself.
+          deferred_post_while := match(
+            additional_await_expr,
+            .Some(add_expr) => if(
+              expr_contains_while_with_await(add_expr),
+              match(
+                context.async_while_loop_info,
+                .Some(pw_map) => match(
+                  pw_map.get(ap.base.index),
+                  .Some(nested_while) => if(nested_while.cond_branch_post_while_exprs.is_none() && (additional_remaining.len() > usize(0)), {
+                    nested_while.cond_branch_post_while_exprs = Option(CondBranchPostWhileExprs).Some(
+                      CondBranchPostWhileExprs(
+                        branch_index : branch.index,
+                        cond_branch_field_index : cond_field,
+                        exprs : additional_remaining,
+                        deferred_drop_expressions : branch.deferred_drop_expressions,
+                        skip_cond_branch_check : Option(bool).None
+                      )
+                    );
+                    pw_map.set(ap.base.index, nested_while);
+                    context.async_while_loop_info = Option(HashMap(usize, WhileLoopInfo)).Some(pw_map);
+                    true
+                  }, false),
+                  .None => false
+                ),
+                .None => false
+              ),
+              false
+            ),
+            .None => false
+          );
+          if(!(deferred_post_while), {
+            _chain_additional_remaining(context, ap.base.index, branch.index, branch.value, additional_remaining, branch.deferred_drop_expressions, cond_field);
+          });
           true
         }, false),
         .None => false
@@ -2660,6 +2744,13 @@ _emit_while_continuation :: (
           _emit_while_condition_await_resume(prev_await, while_data, future_type, capture_type, analysis, async_block_id, context);
           return();
         });
+        // This loop handed its remaining body, loop-back and exit label to the
+        // nested while-with-await that shares this await index. Emitting them
+        // here would run our post-await body BEFORE the nested loop finishes
+        // (and loop back before it ever runs a second iteration).
+        if(match(while_data.deferred_to_outer_while_loop, .Some(b) => b, .None => false), {
+          return();
+        });
         wai := match(while_data.while_loop_origin_index, .Some(o) => o, .None => prev_await.base.index);
         wai_s := wai.to_string();
         em.emit_string_line(`      // Execute remaining code from while loop body and continue loop`);
@@ -2739,7 +2830,8 @@ _emit_while_continuation :: (
                       condition_await : while_data.condition_await,
                       step_await : while_data.step_await,
                       cond_branch_post_while_exprs : while_data.cond_branch_post_while_exprs,
-                      outer_while_loop : while_data.outer_while_loop
+                      outer_while_loop : while_data.outer_while_loop,
+                      deferred_to_outer_while_loop : Option(bool).None
                     );
                     wm.set(ap.base.index, new_wi);
                     context.async_while_loop_info = Option(HashMap(usize, WhileLoopInfo)).Some(wm);

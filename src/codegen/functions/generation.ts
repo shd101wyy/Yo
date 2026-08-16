@@ -1083,7 +1083,64 @@ static void __yo_main_module_init(void) {`);
         }
         emitter.emitLine(`}`);
       }
-      emitter.emitLine(`
+      // WINDOWS gets a worker thread with the SAME configurable stack the
+      // POSIX path uses. Without it `main` runs on the process default stack,
+      // which is 1 MB on Windows, and YO_MAIN_STACK_MB is silently a no-op
+      // there — the self-hosted compiler's comptime recursion then SEGVs
+      // almost immediately (rc=139 within 8 seconds, no C emitted). See
+      // issues/windows-no-main-worker-stack-rc139.md. WASM keeps the direct
+      // call: it has no threads.
+      const useWindowsThread = isTargetWindows(context.targetInfo);
+      if (useWindowsThread) {
+        emitter.emitLine(`
+// Worker entry - DWORD WINAPI, the Windows analogue of the POSIX void*(void*).
+static DWORD WINAPI __yo_main_thread_entry(LPVOID __yo_unused_arg) {
+  (void)__yo_unused_arg;
+  ${asyncInit}`);
+        if (moduleLevelVars.length > 0) {
+          emitter.emitLine(`  // Initialize module-level mutable variables
+  __yo_main_module_init();
+  if (__yo_effect_escaped) return 0;`);
+        }
+        emitter.emitLine(`  // Call sync main
+  __yo_user_main${mainCallArgs};
+  ${asyncWait}
+  return 0;
+}
+
+// Main wrapper - runs the program body on a worker thread (default 1 GiB
+// stack, overridable via YO_MAIN_STACK_MB), mirroring the POSIX wrapper.
+int main(int argc, char** argv) {
+  // Store command-line arguments (plain globals, shared with the worker)
+  __yo_argc = (int32_t)argc;
+  __yo_argv = (uint8_t**)argv;
+  __yo_args = (Slice_uint8_t_u42_){ .data = (uint8_t**)argv, .length = (size_t)argc };
+
+  size_t __yo_main_stack = (size_t)1024 * 1024 * 1024; // 1 GiB
+  {
+    const char* __yo_stack_mb = getenv("YO_MAIN_STACK_MB");
+    if (__yo_stack_mb != NULL) {
+      long __yo_mb = atol(__yo_stack_mb);
+      if (__yo_mb > 0) __yo_main_stack = (size_t)__yo_mb * 1024 * 1024;
+    }
+  }
+  // dwStackSize is the direct analogue of pthread_attr_setstacksize. Windows
+  // RESERVES this much address space (committing lazily), matching the POSIX
+  // behaviour, so a large default costs address space rather than RAM.
+  HANDLE __yo_main_thread = CreateThread(
+      NULL, (SIZE_T)__yo_main_stack, __yo_main_thread_entry, NULL, 0, NULL);
+  if (__yo_main_thread != NULL) {
+    WaitForSingleObject(__yo_main_thread, INFINITE);
+    CloseHandle(__yo_main_thread);
+  } else {
+    // Fallback: run directly if thread creation fails, matching POSIX.
+    __yo_main_thread_entry(NULL);
+  }
+  return 0;
+}
+`);
+      } else {
+        emitter.emitLine(`
 // Main wrapper - calls __yo_user_main directly
 int main(int argc, char** argv) {
   // Store command-line arguments
@@ -1092,18 +1149,19 @@ int main(int argc, char** argv) {
   __yo_args = (Slice_uint8_t_u42_){ .data = (uint8_t**)argv, .length = (size_t)argc };
   ${asyncInit}`);
 
-      if (moduleLevelVars.length > 0) {
-        emitter.emitLine(`  // Initialize module-level mutable variables
+        if (moduleLevelVars.length > 0) {
+          emitter.emitLine(`  // Initialize module-level mutable variables
   __yo_main_module_init();
   if (__yo_effect_escaped) return 0;`);
-      }
+        }
 
-      emitter.emitLine(`  // Call sync main
+        emitter.emitLine(`  // Call sync main
   __yo_user_main${mainCallArgs};
   ${asyncWait}
   return 0;
 }
 `);
+      }
     }
   }
 }

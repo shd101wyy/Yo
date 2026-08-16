@@ -86,7 +86,11 @@ Executable :: struct(
   /// Memory allocator.
   (allocator : Allocator) ?= Allocator.Libc,
   /// Runtime sanitizer.
-  (sanitize : Sanitize) ?= Sanitize.None
+  (sanitize : Sanitize) ?= Sanitize.None,
+  /// Write the single generated C file to this path instead of the default
+  /// `<output>.c` sidecar. Empty = default. Redirects rather than duplicates,
+  /// so exactly one C file exists and the C compiler consumes it.
+  (emit_c_to : comptime_str) ?= ""
 );
 export(Executable);
 /// Configuration for building a static library.
@@ -290,7 +294,7 @@ executable :: (fn(comptime(config) : Executable) -> comptime(Step))({
     .Leak => "leak",
     .Thread => "thread"
   );
-  __yo_build_executable(config.name, config.root, config.target, opt_str, alloc_str, san_str);
+  __yo_build_executable(config.name, config.root, config.target, opt_str, alloc_str, san_str, config.emit_c_to);
   Step(name : config.name, kind : StepKind.Executable)
 });
 export(executable);

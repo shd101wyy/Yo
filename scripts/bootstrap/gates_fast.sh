@@ -93,13 +93,44 @@ done
 
 echo "=== T1 GATE 2: corpus diff-test ==="
 YO_SELF_BIN=$S1 scripts/diff-test.sh tests/codegen-bootstrap --release --parallel 4 &> "/tmp/${P}_corpus.log"
+corpus_rc=$?
 corpus=$(tail -1 "/tmp/${P}_corpus.log")
-echo "$corpus"
-echo "$corpus" | grep -qE 'DIFF 0( |$)' || fail "corpus diff-test reported a DIFF: $corpus"
-echo "$corpus" | grep -qE 'SELF-FAIL 0( |$)' || {
-  fail "corpus diff-test reported a SELF-FAIL: $corpus"
+echo "CORPUS_RC=$corpus_rc  $corpus"
+# diff-test.sh prints TWO different scorecards, and this gate has to read both.
+# With a TS arm present it is the DIFFERENTIAL one (DIFF / SELF-FAIL / TS-FAIL);
+# with `out/cjs/yo-cli.cjs` absent it falls back to GOLDEN mode and prints
+# GOLDEN-DIFF / NO-GOLDEN, which contains no SELF-FAIL token at all.
+#
+# The absent TS arm is now the STEADY STATE for this job (P2.5 took bun/node out
+# of it), so the old unconditional `grep SELF-FAIL 0` failed EVERY golden-mode
+# run regardless of the result: runs 31856743929 and 31865473380 both reported
+# "PASS 155 GOLDEN-DIFF 0 NO-GOLDEN 0 (total 155)" — a perfect score — and still
+# failed the gate. The `DIFF 0` check meanwhile passed only by accident, since
+# "GOLDEN-DIFF 0" happens to contain the substring "DIFF 0".
+#
+# The exit code is the mode-agnostic signal (diff-test.sh counts GOLDEN-DIFF and
+# NO-GOLDEN as failures too), so it leads; the token checks stay as
+# defence-in-depth, each matched against the scorecard its own mode emits.
+[ "$corpus_rc" -eq 0 ] || {
+  fail "corpus diff-test rc=$corpus_rc: $corpus"
   dump_log "/tmp/${P}_corpus.log"
 }
+if echo "$corpus" | grep -q 'GOLDEN-DIFF'; then
+  echo "$corpus" | grep -qE 'GOLDEN-DIFF 0( |$)' || {
+    fail "corpus diff-test reported a GOLDEN-DIFF: $corpus"
+    dump_log "/tmp/${P}_corpus.log"
+  }
+  echo "$corpus" | grep -qE 'NO-GOLDEN 0( |$)' || {
+    fail "corpus diff-test has cases with no golden: $corpus"
+    dump_log "/tmp/${P}_corpus.log"
+  }
+else
+  echo "$corpus" | grep -qE ' DIFF 0( |$)' || fail "corpus diff-test reported a DIFF: $corpus"
+  echo "$corpus" | grep -qE 'SELF-FAIL 0( |$)' || {
+    fail "corpus diff-test reported a SELF-FAIL: $corpus"
+    dump_log "/tmp/${P}_corpus.log"
+  }
+fi
 
 echo "=== T1 GATE 2b: corpus golden scoring ==="
 # Same corpus, self arm scored against tests/codegen-bootstrap/goldens/

@@ -97,6 +97,58 @@ jobs:
           if [ -e "$HOME/.yo-test/bin/yo" ]; then echo "shim survived uninstall"; exit 1; fi
           if [ -d "$HOME/.yo-test/lib/yo" ]; then echo "lib/yo survived uninstall"; exit 1; fi
 
+  musl-selection:
+    name: install.sh musl bundle selection (Alpine)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # DRY-RUN only, deliberately. A real install on Alpine cannot succeed until
+    # a release actually publishes a musl bundle, but the SELECTION logic is
+    # what regresses silently, and it is testable today: `is_musl` must detect
+    # musl through `ldd --version` (which prints to stderr and exits non-zero),
+    # the musl bundle must be probed, and its absence must fall back to the
+    # glibc bundle with a warning instead of failing.
+    #
+    # This is the only Alpine coverage anywhere in CI — the posix matrix above
+    # is glibc-only, so without this job every musl branch in install.sh is
+    # dead code that no run ever executes.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Alpine — musl is detected and the bundle choice is sound
+        env:
+          # Resolved OUT here, not inside the docker command: a GitHub
+          # expression needs single-quoted strings, and the shell payload below
+          # is itself single-quoted, so the two cannot nest. Passed in as an
+          # env var instead.
+          WANT_VERSION: ${{ github.event.inputs.version || 'v0.2.4' }}
+        run: |
+          docker run --rm -v "$PWD:/w" -w /w -e WANT_VERSION alpine:3.20 sh -euc '
+            apk add --no-cache curl >/dev/null
+            sh scripts/install.sh --dry-run --no-deps --version="$WANT_VERSION" 2>&1 | tee out.txt
+
+            # musl must be RECOGNISED. If this regresses, an Alpine user
+            # silently downloads a glibc binary that cannot exec.
+            grep -qiE "musl libc detected" out.txt || {
+              echo "::error::install.sh did not detect musl on Alpine"
+              exit 1
+            }
+
+            # And it must still name a bundle to install rather than dying —
+            # whichever flavor it settled on.
+            grep -q "bundle:" out.txt || {
+              echo "::error::install.sh chose no bundle at all on Alpine"
+              exit 1
+            }
+
+            # The NixOS/source-build advice must NOT appear here: on musl the
+            # static bundle needs no loader, so that hint would send an Alpine
+            # user to a source build they do not need.
+            if grep -q "install.sh --from-source" out.txt; then
+              echo "::error::musl path still emits the --from-source advice"
+              exit 1
+            fi
+          '
+
   windows:
     name: install.ps1 (windows-x64)
     runs-on: windows-latest

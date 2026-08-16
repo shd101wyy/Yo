@@ -16,7 +16,7 @@
 //! This mirrors `src/cache.ts`.
 open(import("std/string"));
 { Path } :: import("std/path");
-{ env } :: import("std/env");
+{ env, current_exe } :: import("std/env");
 { platform, Platform } :: import("std/process");
 { home_dir } :: import("std/os/env");
 { create_dir_all } :: import("std/fs/dir");
@@ -84,10 +84,60 @@ get_global_versions_cache_dir :: (fn() -> String)(
 get_version_cache_dir :: (fn(version : String) -> String)(
   get_global_versions_cache_dir().concat(String.from("/")).concat(version)
 );
+/// Return the INSTALL root that `scripts/install.sh` lays versions out under —
+/// `<prefix>/lib/yo` — or `.None` when this binary was not script-installed.
+///
+/// Why this exists (P3 item 1's "installer/cache unification"): the installer
+/// writes `<prefix>/lib/yo/<tag>/{bin,std,vendor}` while `yo version install`
+/// writes `<cache_root>/versions/<version>/`. Both are the SAME shape — a plain
+/// bundle extraction — but nothing looked in the installer's root, so a
+/// `.yo-version` pin could not see a script-installed version and would offer
+/// to re-download a version already on disk.
+///
+/// The re-rooting is derived, not configured: a script-installed compiler runs
+/// from `<prefix>/lib/yo/<tag>/bin/yo`, so the binary can recover its own root
+/// by walking up from `current_exe()`. Nothing has to be passed in, and it
+/// works for any `--prefix` the user chose.
+///
+/// DELIBERATELY NOT the other direction (installing INTO the version cache).
+/// A cache is by definition safe to delete — `yo version clean` removes the
+/// whole versions tree — so installing there would let a routine cache clean
+/// delete the user's actual installation.
+///
+/// Returns `.None` rather than guessing when the layout does not match (a
+/// bundle run in place, a dev build out of `yo-out/`, a binary copied to
+/// `/tmp`), so callers fall back to cache-only behaviour exactly as before.
+get_install_versions_dir :: (fn() -> Option(String))({
+  exe := match(current_exe(), .Ok(p) => p, .Err(_) => return(Option(String).None));
+  // <prefix>/lib/yo/<tag>/bin/yo  ->  walk up bin and <tag>, then require the
+  // grandparent to be `yo` sitting directly inside `lib`. Both names are
+  // checked: `<x>/yo/<tag>/bin/yo` alone is a shape a dev tree could hit.
+  bin_dir := match(exe.parent(), .Some(p) => p, .None => return(Option(String).None));
+  tag_dir := match(bin_dir.parent(), .Some(p) => p, .None => return(Option(String).None));
+  yo_dir := match(tag_dir.parent(), .Some(p) => p, .None => return(Option(String).None));
+  lib_dir := match(yo_dir.parent(), .Some(p) => p, .None => return(Option(String).None));
+  yo_name := match(yo_dir.file_name(), .Some(n) => n, .None => return(Option(String).None));
+  lib_name := match(lib_dir.file_name(), .Some(n) => n, .None => return(Option(String).None));
+  if((yo_name != "yo") || (lib_name != "lib"), {
+    return(Option(String).None);
+  });
+  Option(String).Some(yo_dir.to_string())
+});
+/// Return the install directory for a specific version, when this binary was
+/// script-installed. `.None` otherwise.
+get_install_version_dir :: (fn(version : String) -> Option(String))(
+  match(
+    get_install_versions_dir(),
+    .Some(root) => Option(String).Some(root.concat(String.from("/")).concat(version)),
+    .None => Option(String).None
+  )
+);
 export(
   get_global_cache_dir,
   get_global_deps_cache_dir,
   ensure_global_deps_cache_dir,
   get_global_versions_cache_dir,
-  get_version_cache_dir
+  get_version_cache_dir,
+  get_install_versions_dir,
+  get_install_version_dir
 );

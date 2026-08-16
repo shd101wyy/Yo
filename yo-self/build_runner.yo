@@ -437,6 +437,19 @@ compile_artifact :: (
     cmd.arg(source_path.to_string());
     cmd.arg(String.from("-o"));
     cmd.arg(output_path.to_string());
+    // TS sets the internal `emccEnvironment` to "web" for wasm targets
+    // (build-runner.ts:1017/1891) because it calls codegen in-process. We shell
+    // out to `compile`, so it has to travel as a flag — without it the plain
+    // `compile` default (`-sNODERAWFS=1`) would leak into `yo build` output.
+    eff_ti_emcc := match(
+      parse_target(effective_target.clone()),
+      .Ok(t) => t,
+      .Err(_) => host_target()
+    );
+    if(is_target_wasm(eff_ti_emcc), {
+      cmd.arg(String.from("--emcc-environment"));
+      cmd.arg(String.from("web"));
+    });
     if(effective_target != artifact.target, {
       cmd.arg(String.from("--target"));
       cmd.arg(effective_target);
@@ -489,6 +502,14 @@ compile_artifact :: (
     });
     cmd.arg(String.from("--allocator"));
     cmd.arg(artifact.allocator.clone());
+    // `emit_c_to` redirects the generated C file. "" means unset (comptime_str
+    // has no None). Resolved against the project dir, matching how `root` is
+    // resolved: a path in build.yo means "relative to the project", not to
+    // whatever cwd the build runs from.
+    if(artifact.emit_c_to.len() > usize(0), {
+      cmd.arg(String.from("--emit-c-to"));
+      cmd.arg(Path.new(ctx.project_dir.clone()).join(Path.new(artifact.emit_c_to.clone())).to_string());
+    });
     if(artifact.sanitize != "none", {
       cmd.arg(String.from("--sanitize"));
       cmd.arg(artifact.sanitize.clone());

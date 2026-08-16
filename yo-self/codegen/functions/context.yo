@@ -178,7 +178,13 @@ WhileLoopInfo :: ref(
     /// resume state must NOT re-emit the step, it already ran.
     step_await : Option(bool),
     cond_branch_post_while_exprs : Option(CondBranchPostWhileExprs),
-    outer_while_loop : Option(OuterWhileLoop)
+    outer_while_loop : Option(OuterWhileLoop),
+    /// Set when this loop handed its remaining body, loop-back and exit label
+    /// to a nested while-with-await's entry (as that entry's `outer_while_loop`)
+    /// because both loops share one await index. The resume state for THIS
+    /// entry must then emit none of them — the state that finishes the nested
+    /// loop emits them instead, in the right order.
+    deferred_to_outer_while_loop : Option(bool)
   )
 );
 /// The per-function generation context. See header for the composition note.
