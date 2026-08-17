@@ -31,6 +31,7 @@ import {
 } from "../../types/guards";
 import {
   canTypeFormRcCycle,
+  typeUsesSmallRcHeader,
   typeCanFormCyclicRcReference,
   typeContainsRcType,
   typeContainsSomeType,
@@ -3084,10 +3085,19 @@ export function generateRefStructConstructorFunctions(
         `  obj->header.borrow_count = 0;  // Law-of-Exclusivity: no live interior borrows yet`
       );
       if (context.needsCycleGC && !type.isAtomicRc) {
+        // gc_flags/gc_mark live in the shared packed word and MUST be
+        // initialized for every layout: GC visitors read a CHILD's gc_flags
+        // before deciding to skip it, and small-header objects are visited
+        // as children of tracked parents. The GC list pointers exist only in
+        // the big header.
         emitter.emitLine(`  obj->header.gc_flags = 0;`);
         emitter.emitLine(`  obj->header.gc_mark = __YO_GC_UNMARKED;`);
-        emitter.emitLine(`  obj->header.gc_next = NULL;`);
-        emitter.emitLine(`  obj->header.gc_prev = NULL;`);
+        if (
+          !typeUsesSmallRcHeader(type, context.needsCycleGC ?? false, type.env)
+        ) {
+          emitter.emitLine(`  obj->header.gc_next = NULL;`);
+          emitter.emitLine(`  obj->header.gc_prev = NULL;`);
+        }
       }
       // Set dispose function pointer to ___dispose, which handles both user cleanup and field dropping.
       // ___dispose will call user's dispose() if it exists, then drop all GC-containing fields.
@@ -3138,7 +3148,11 @@ export function generateRefStructConstructorFunctions(
 
       // Set traversal function pointer for GC (only when cycle detection is needed)
       // Atomic objects never participate in cycle GC
-      if (context.needsCycleGC && !type.isAtomicRc) {
+      if (
+        context.needsCycleGC &&
+        !type.isAtomicRc &&
+        !typeUsesSmallRcHeader(type, context.needsCycleGC ?? false, type.env)
+      ) {
         const traversalFunctionName = `__yo_traverse_${cName}`;
         emitter.emitLine(
           `  obj->header.traverse_fn = ${traversalFunctionName};`
@@ -3331,10 +3345,19 @@ export function generateRefEnumConstructorFunctions(
       emitter.emitLine(`  obj->header.ref_count = 1;`);
       emitter.emitLine(`  obj->header.borrow_count = 0;`);
       if (context.needsCycleGC && !type.isAtomicRc) {
+        // gc_flags/gc_mark live in the shared packed word and MUST be
+        // initialized for every layout: GC visitors read a CHILD's gc_flags
+        // before deciding to skip it, and small-header objects are visited
+        // as children of tracked parents. The GC list pointers exist only in
+        // the big header.
         emitter.emitLine(`  obj->header.gc_flags = 0;`);
         emitter.emitLine(`  obj->header.gc_mark = __YO_GC_UNMARKED;`);
-        emitter.emitLine(`  obj->header.gc_next = NULL;`);
-        emitter.emitLine(`  obj->header.gc_prev = NULL;`);
+        if (
+          !typeUsesSmallRcHeader(type, context.needsCycleGC ?? false, type.env)
+        ) {
+          emitter.emitLine(`  obj->header.gc_next = NULL;`);
+          emitter.emitLine(`  obj->header.gc_prev = NULL;`);
+        }
       }
       if (disposeFunctionCName) {
         if (context.needsCycleGC) {
@@ -3351,7 +3374,11 @@ export function generateRefEnumConstructorFunctions(
           emitter.emitLine(`  obj->header.type_id = 0;`);
         }
       }
-      if (context.needsCycleGC && !type.isAtomicRc) {
+      if (
+        context.needsCycleGC &&
+        !type.isAtomicRc &&
+        !typeUsesSmallRcHeader(type, context.needsCycleGC ?? false, type.env)
+      ) {
         emitter.emitLine(`  obj->header.traverse_fn = __yo_traverse_${cName};`);
       }
       emitter.emitLine(
