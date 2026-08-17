@@ -14,7 +14,7 @@ Method: `scripts/bootstrap/live_census_v2`-style injection into the emitted C
 (per-type +1 at each `__yo_new___yo_tN`, −1 at its `dispose_fn` mapped from
 the ctor's `header.dispose_fn = …` assignment; 396 types, 375 disposes, 21
 NODISPOSE overcounted), dump at exit. Job: self-emit of yo-self/main.yo on the
-PR #133 tree. Raw dump: /tmp/census_v2.txt (session-local; top rows below).
+PR #133 tree. Raw dump: issues/repros/census-v2-2026-08-17.tsv (top rows below).
 
 **Exit-live total: 12.36 GB ≈ the 12.21 GB peak footprint — the footprint is
 RETENTION, not transients.** 120M live objects: 88.8M untracked / 31.2M
