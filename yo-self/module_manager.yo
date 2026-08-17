@@ -549,6 +549,32 @@ mm_load_file :: (
       )
     );
   });
+  // ANY already-cached module is a HIT — never re-evaluate it (TS parity:
+  // `check`'s CodeGenerator reuse makes a file already loaded as a DEPENDENCY
+  // of an earlier file "a cache hit on the second pass; we still re-run the
+  // 'evaluator OK' report … but no real work happens", yo-cli.ts). The guard
+  // above covered only the prelude; every other cached module was
+  // re-evaluated, re-registering its impls under fresh type identities — the
+  // re-check of std/string/string.yo then def-evaled its `Eq(String)` impl's
+  // `(!=)` body against the SPLIT registration state and died with "No
+  // matching call found: !(self == other)" (order-dependent: only when the
+  // module was first pulled in as a dependency — GATE 3's `check ./std`).
+  mm_hit_abs := mm_resolve_entry_abs(input_path.clone(), std_path.clone());
+  if(module_cache_has(mm_hit_abs.clone()), {
+    if(verbose, {
+      println(`check: ${input_path} — evaluator OK`);
+    });
+    mm_hit := load_module_from_cache(mm_hit_abs.clone());
+    return(
+      ModuleLoadOutcome(
+        ok : true,
+        module_value : mm_hit.module_value,
+        module_type : mm_hit.module_type,
+        env : match(g_cached_prelude_env, .Some(pe) => pe, .None => Environment.new(input_path.clone())),
+        ctx : eval_context_new(std_path.clone(), input_path.clone())
+      )
+    );
+  });
   if(verbose, {
     println(`check: parsing ${input_path}`);
   });

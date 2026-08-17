@@ -6,6 +6,9 @@ open(import("std/fmt"));
 { yield } :: import("std/async");
 { ArrayList } :: import("std/collections/array_list");
 { Exception, IoExn } :: import("std/error");
+{ Path } :: import("std/path");
+{ exists } :: import("std/fs/file");
+{ arch, Arch } :: import("std/process");
 /// A `bool` future for `while` conditions: true while `v` is under `limit`.
 /// Taken as a top-level helper rather than an inline `io.async` closure — a
 /// closure capturing a mutable local, re-created every iteration, hits a
@@ -4075,4 +4078,115 @@ test("an awaiting match arm keeps its locals alive across a nested awaiting whil
     })
   );
   assert(io.await(drive(io), io) == usize(2), "both inner iterations ran");
+});
+test("an outer non-awaiting while keeps a match arm's locals across a nested awaiting while", {
+  // Hole 1 of issues/fixed/nested-await-loop-remaining-holes.md: the outer
+  // loop has NO await of its own — the only suspension is inside the nested
+  // loop, which sits in a match arm. The arm (with its scope-end drop of
+  // `inner`) was attached as a CHAINED layer, which the state machine emits at
+  // the top of the inner loop's resume state — once per INNER iteration — so
+  // `inner` was freed during the first one and each outer element contributed
+  // one inner iteration instead of two (111 observed, 222 expected). The arm's
+  // post-loop code is now routed to the loop's post-exit slot (merged, since
+  // that slot can already be claimed by another layer).
+  drive := (fn(rio : Io) -> Impl(Future(usize, Io)))(
+    rio.async((aio : Io) => {
+      (count : usize) = usize(0);
+      outer := ArrayList(usize).new();
+      outer.push(usize(1));
+      outer.push(usize(10));
+      outer.push(usize(100));
+      r := usize(0);
+      while(runtime(r < outer.len()), {
+        match(
+          outer.get(r),
+          .None => (),
+          .Some(d) => {
+            inner := ArrayList(usize).new();
+            inner.push(d);
+            inner.push(d);
+            i := usize(0);
+            while(runtime(i < inner.len()), {
+              match(
+                inner.get(i),
+                .None => (),
+                .Some(f) => {
+                  aio.await(yield(aio), aio);
+                  count = (count + f);
+                }
+              );
+              i = (i + usize(1));
+            });
+          }
+        );
+        r = (r + usize(1));
+      });
+      count
+    })
+  );
+  assert(
+    io.await(drive(io), io) == usize(222),
+    "each outer element must contribute BOTH inner iterations"
+  );
+});
+test("nested awaiting whiles over real I/O futures drop outer arm locals once per outer iteration", {
+  // Real fs I/O is the load-bearing ingredient, and wasm32 has none the test
+  // can stand on: `exists(".")` returns false under both compilers on
+  // wasm-wasi (pre-existing platform behavior, wasmtime preopen semantics),
+  // so `got` stays false, the inner loop never runs, and the double-free
+  // path this test guards is unreachable — the assertion would fail on the
+  // platform for reasons unrelated to the bug. Same guard shape as
+  // tests/sync/atomic.test.yo (which the cond-collapse fix keeps honest).
+  if(arch == Arch.Wasm32, return(()));
+  // Hole 2 of issues/fixed/nested-await-loop-remaining-holes.md: with the
+  // post-exit slot already claimed by the `if(got, …)` layer, the enclosing
+  // match arm's post-loop code fell back to chaining and its scope-end drops
+  // (a Path and a String built once per OUTER iteration) ran on every INNER
+  // iteration — a double-free that crashed intermittently (SIGBUS/SIGTRAP,
+  // timing-dependent via the inline fast-path). The slot now merges layers.
+  // Real I/O futures (`exists`) are load-bearing: the same shape over `yield`
+  // never crashed.
+  probe := (fn(io2 : Io, exn2 : Exception) -> Impl(Future(usize, IoExn)))(
+    io2.async((e : IoExn) => {
+      outer := ArrayList(String).new();
+      outer.push(String.from("."));
+      outer.push(String.from("."));
+      outer.push(String.from("."));
+      n := usize(0);
+      r := usize(0);
+      while(r < outer.len(), {
+        match(
+          outer.get(r),
+          .None => (),
+          .Some(d) => {
+            got := e.io.await(exists(Path.new(d.clone()), e.io), e.io);
+            if(got, {
+              inner := ArrayList(String).new();
+              inner.push(String.from("."));
+              inner.push(String.from("."));
+              i := usize(0);
+              while(i < inner.len(), {
+                match(
+                  inner.get(i),
+                  .None => (),
+                  .Some(f) => {
+                    hit := e.io.await(exists(Path.new(f.clone()), e.io), e.io);
+                    if(hit, {
+                      n = (n + usize(1));
+                    });
+                  }
+                );
+                i = (i + usize(1));
+              });
+            });
+          }
+        );
+        r = (r + usize(1));
+      });
+      n
+    })
+  );
+  exn := Exception(throw : ((_err) -> unwind(())));
+  got := io.await(probe(io, exn), IoExn(io : io, exn : exn));
+  assert(got == usize(6), "3 outer x 2 inner, every pair visited exactly once");
 });

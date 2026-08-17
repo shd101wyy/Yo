@@ -624,6 +624,22 @@ generate_cond_expression :: (fn(expr : AstExpr, indent : String, context : Funct
           vargs.get(usize(1)),
           .Some(value) => {
             value_code := _call_generate_expr(value, indent.clone(), context);
+            // A control-flow arm value must be EMITTED even when the cond is
+            // UNIT-typed (or has no result temp): generate_return has already
+            // emitted the early-return DROP PREAMBLE as an emitter side
+            // effect, so discarding the returned "return" string here leaves
+            // drops-without-return — execution falls through and the scope-end
+            // drops release the same RC locals AGAIN (double-decr → panic;
+            // the tests/sync/atomic wasi trap: `if(arch == Arch.Wasm32,
+            // return(()))` folds true only on wasm32, so the loss was
+            // invisible on every native leg).
+            cf_unit := (_is_cf_code(value, value_code.clone(), context) && (value_code.len() > usize(0)));
+            if(cf_unit && (is_unit || temp_var_opt.is_none()), {
+              cf_line := indent.clone();
+              cf_line.push_string(value_code.clone());
+              cf_line.push_str(";");
+              em.emit_string_line(cf_line);
+            });
             match(
               temp_var_opt,
               .Some(tv) => if(!(is_unit), {

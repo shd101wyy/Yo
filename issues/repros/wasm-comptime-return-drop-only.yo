@@ -1,0 +1,25 @@
+//! Repro: a comptime-TRUE `if(cond, return(()))` inside a begin inside a cond
+//! arm (the test-batch dispatch shape) emits the early-return's DROP PREAMBLE
+//! but not the `return;` itself under yo-self — the scope-end drops then
+//! release the same RC local again (double-decr → panic / wasm unreachable).
+//!   TS      + wasm-wasi + YO_TEST_INDEX=11 -> exits clean, no output
+//!   yo-self + wasm-wasi + YO_TEST_INDEX=11 -> trap
+//! Standalone form of tests/sync/atomic.test.yo "AtomicI32 cross-thread
+//! counter" failing ONLY on the converted wasi leg (arch==Wasm32 folds true
+//! there and nowhere else).
+{ arch, Arch } :: import("std/process");
+open(import("std/fmt"));
+__yo_repro_env :: import("std/env");
+main :: (fn() -> unit)({
+  match(
+    __yo_repro_env.env.get(`YO_TEST_INDEX`),
+    .Some(idx) => cond(
+      (idx == `11`) => {
+        begin(if(arch == (Arch.Wasm32), return(())), println(`should not run on wasm32`), ());
+      },
+      true => ()
+    ),
+    .None => ()
+  );
+});
+export(main);

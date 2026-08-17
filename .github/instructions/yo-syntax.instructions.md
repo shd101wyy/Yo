@@ -1067,3 +1067,58 @@ permutation :: ghost_fn((fn(a : ArrayList(i32), b : ArrayList(i32)) -> bool)(/* 
 Refinement-type aliases live in `std/spec/` (`NonZero`, `Bounded`,
 `Positive`, …); in Phase 0 they are plain aliases for the underlying
 type (the predicate is enforced once the verifier lands).
+
+## "Frame level N has different number of values for different cases"
+
+Observed 2026-08-16 while adding temporary `eprintln` instrumentation. **The
+mechanism below is an inference from a controlled A/B, not a verified rule** —
+treat it as a debugging lead, not a language guarantee.
+
+What was measured, same file, same function, three builds:
+
+| instrumentation                                                | build  |
+| -------------------------------------------------------------- | ------ |
+| 2 × `eprintln` at **function-body** statement level            | **OK** |
+| + 1 × `eprintln` inside one `match` arm (sibling is `_ => ()`) | FAIL   |
+| + 3 × `eprintln` inside that same arm                          | FAIL   |
+
+The passing build included an `if(...)` inside a string interpolation, so
+interpolated conditionals are **not** the trigger. The only varying factor was
+whether the added statement sat **inside a `match` arm whose sibling was empty**.
+
+Inferred rule: sibling arms appear to need to agree on how many values they push
+onto the frame, so adding statements to one arm while another stays a bare `()`
+breaks it:
+
+```
+Error: Frame level 7 has different number of values for different cases.
+```
+
+This bites hardest when adding temporary instrumentation, because the edit looks
+completely innocuous:
+
+```rust
+// BEFORE — fine
+match(t, .SomeT({ id : rid }) => match(lookup(rid), .Some(g) => { r = g; }, .None => ()), _ => ());
+
+// AFTER — "Frame level N has different number of values"
+match(
+  t,
+  .SomeT({ id : rid }) => {
+    eprintln(`probe ${rid}`);          // <-- extra frame value in THIS arm only
+    match(lookup(rid), .Some(g) => { r = g; }, .None => ());
+  },
+  _ => ()                               // <-- sibling still empty
+);
+```
+
+Fixes, in order of preference:
+
+1. **Hoist the statement out of the `match` entirely** — put the `eprintln`
+   before or after, on a value the arms have already written. Usually the
+   instrumentation did not need to be inside the arm at all.
+2. Give every sibling arm the same shape (add a matching statement to `_ => {}`).
+
+The error names a frame _level_, not a file or line, so it does not point at the
+arm you edited. If it appears right after you touched a `match`, assume this
+before hunting elsewhere.

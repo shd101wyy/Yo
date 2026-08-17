@@ -148,9 +148,16 @@ jobs:
       #
       # `--skip-c-compiler` stops after emitting C — 187s locally, versus a full
       # clang build. Dies with src/ in Group E, along with this whole job.
+      # Heap raised 4096 -> 8192 (2026-08-17): the rte/rre `Self` fixes mint
+      # per-receiver return instantiations where the bug SHARED one leaked
+      # instance (issues/fixed/yo-self-rre-adopts-enclosing-impl-self.md) —
+      # correctness costs memory, and this compile now sits just past 4 GB
+      # (run 31977492479 OOM'd at "Reached heap limit" only after the #125
+      # merge tipped it). ubuntu-latest has 16 GB; 8 GB leaves the same
+      # relative headroom 4 GB used to.
       - name: TS compiler compiles yo-self (release-divergence gate)
         run: |
-          node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs \
+          node --expose-gc --max-old-space-size=8192 ./out/cjs/yo-cli.cjs \
             compile yo-self/main.yo --skip-c-compiler -o /tmp/ts-yoself-gate
 
           # `getTypeString` falls back to a LINE comment, `// Unknown type: …`.
@@ -1082,33 +1089,51 @@ jobs:
         with:
           version: "6.0.6"
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "24"
           registry-url: "https://registry.npmjs.org"
 
-      - name: Install dependencies
-        run: |
-          bun install
-          bun run build
+      # P2.5 step 22: this leg now drives the SELF-HOSTED compiler. Until now it
+      # ran `node out/cjs/yo-cli.cjs`, so its green measured src/, not yo-self/
+      # — it could not have caught a fault in the wasm backend, which is exactly
+      # what the runtime_io_wasm.yo port needed proving.
+      #
+      # Node stays: `emcc` is itself a node program, so this leg can never be
+      # node-free. What changes is only WHICH Yo compiler drives it. Bun and the
+      # TS build are gone.
+      - name: Build stage-1 with the seed
+        uses: ./.github/actions/build-stage1
+        with:
+          seed-version: ${{ env.SEED_VERSION }}
 
       - name: Build system smoke test (WASM)
         run: |
-          node ./out/cjs/yo-cli.cjs init ./tmp/hello-world --name hello-world
+          "$S1" init ./tmp/hello-world --name hello-world
           cd tmp/hello-world
           sed -i 's|exe :: build.executable({ name: "hello-world", root: "./src/main.yo" });|exe :: build.executable({ name: "hello-world", root: "./src/main.yo", target: build.CompilationTarget.Wasm32_Emscripten });|' build.yo
-          node ../../out/cjs/yo-cli.cjs build run
+          # List what emcc actually produced on failure. `build run` executes
+          # node on the .js shim emcc emits beside the .html, so "Cannot find
+          # module ...hello-world.js" says nothing about WHY it is missing —
+          # and each round-trip here costs a stage-1 build. Run 31874422392
+          # burned a cycle on exactly that.
+          set +e
+          "$S1" build run
+          RC=$?
+          set -e
+          if [ "$RC" -ne 0 ]; then
+            echo "--- yo-out tree ---"
+            ls -lR yo-out 2>/dev/null || echo "(no yo-out)"
+            exit "$RC"
+          fi
 
       # tests/internal is host-toolchain-only (it compiles the compiler); excluded
       # from the cross-target jobs for the same runtime/memory reason as above.
       - name: Run WASM tests
-        run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs test ./tests --exclude tests/internal --exclude tests/cli-cases --parallel 2 --bail --verbose --c-compiler emcc --profile
+        run: |
+          "$S1" test ./tests --exclude tests/internal --exclude tests/cli-cases \
+            --parallel 2 --bail --verbose --c-compiler emcc --profile
 
   test-wasm32_wasi:
     runs-on: ubuntu-latest
@@ -1139,25 +1164,30 @@ jobs:
           curl https://wasmtime.dev/install.sh -sSf | bash -s -- --version v47.0.3
           echo "$HOME/.wasmtime/bin" >> $GITHUB_PATH
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "24"
           registry-url: "https://registry.npmjs.org"
 
-      - name: Install dependencies
-        run: |
-          bun install
-          bun run build
+      # P2.5 step 22: this leg now drives the SELF-HOSTED compiler. Until now it
+      # ran `node out/cjs/yo-cli.cjs`, so its green measured src/, not yo-self/
+      # — it could not have caught a fault in the wasm backend, which is exactly
+      # what the runtime_io_wasm.yo port needed proving.
+      #
+      # Node stays: `emcc` is itself a node program, so this leg can never be
+      # node-free. What changes is only WHICH Yo compiler drives it. Bun and the
+      # TS build are gone.
+      - name: Build stage-1 with the seed
+        uses: ./.github/actions/build-stage1
+        with:
+          seed-version: ${{ env.SEED_VERSION }}
 
       # See the WASM job: tests/internal is host-toolchain-only.
       - name: Run WASI tests
-        run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs test ./tests --exclude tests/internal --exclude tests/cli-cases --parallel 2 --bail --verbose --target wasm-wasi --profile
+        run: |
+          "$S1" test ./tests --exclude tests/internal --exclude tests/cli-cases \
+            --parallel 2 --bail --verbose --target wasm-wasi --profile
 
   # Full-corpus HOLLOW SWEEP under the self-hosted binary.
   #

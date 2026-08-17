@@ -1,0 +1,15 @@
+//! Repro: Map(i32,i32) insert 3 entries then get — panics
+//! "Called unwrap on a None value" ONLY under yo-self + --target wasm-wasi.
+//!   TS      + wasm-wasi -> prints "10 20 30", rc=0
+//!   yo-self + wasm-wasi -> unwrap-None trap
+//!   yo-self + native    -> prints "10 20 30", rc=0
+{ Map } :: import("std/imm/map");
+open(import("std/fmt"));
+main :: (fn() -> unit)({
+  m := Map(i32, i32).new();
+  m = m.insert(i32(1), i32(10));
+  m = m.insert(i32(2), i32(20));
+  m = m.insert(i32(3), i32(30));
+  println(`${m.get(i32(1)).unwrap()} ${m.get(i32(2)).unwrap()} ${m.get(i32(3)).unwrap()}`);
+});
+export(main);

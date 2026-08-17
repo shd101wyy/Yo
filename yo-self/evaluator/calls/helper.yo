@@ -142,7 +142,8 @@ _(env : helper_dbg_env) :: import("std/env");
   get_func_where_clause_exprs,
   apply_where_clause_constraints,
   WhereConstraintEntry,
-  collect_wrapper_trait_somes
+  collect_wrapper_trait_somes,
+  _collect_type_arg_somes
 } :: import("../types/function.yo");
 { evaluate_begin_expression } :: import("../exprs/begin.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
@@ -1464,6 +1465,33 @@ _find_specialization_cache :: (
                       }, {
                         if(!(are_types_compatible_exact(cached_ty, current_ty)), {
                           rt_match = false;
+                        }, {
+                          // A nominal instantiation whose type_arguments carry a
+                          // SomeT (`IterFilter(CountIter, F)` — the per-call
+                          // closure-`F` family) compares compat-EQUAL across
+                          // calls: the shared def-era `F` matches by id while the
+                          // per-call resolution lives in its cell chain. codegen's
+                          // type_key resolves that chain (`_tk_resolve_arg_slot`),
+                          // so two receivers with different capture structs get
+                          // DIFFERENT C types — sharing one spec across them
+                          // passes `__yo_t14*` to a `__yo_t2*` param (2 clang
+                          // diagnostics on native, hard errors on emcc 6: the
+                          // iter_filter_closure wasm-leg break; only the blanket
+                          // `next` collapsed — `filter` itself is protected by
+                          // the clfid cache-key extras, which cover closure
+                          // ARGUMENTS but not closures buried in a receiver's
+                          // type arguments). TS cannot collide here: each
+                          // instantiation is a distinct object with a unique
+                          // type id under requireExactMatch (helper.ts:2290).
+                          // Require type_key equality — the exact identity the
+                          // emitted C is keyed by — before reusing the spec.
+                          ck_tyargs := ArrayList(TypeValue).new();
+                          _collect_type_arg_somes(cached_ty, ck_tyargs, ArrayList(String).new());
+                          if(ck_tyargs.len() > usize(0), {
+                            if(!(type_key(cached_ty) == type_key(current_ty)), {
+                              rt_match = false;
+                            });
+                          });
                         });
                       });
                       rti = (rti + usize(1));
@@ -2478,7 +2506,22 @@ create_specialized_function_inline :: (
               ctx.is_evaluating_function_type = pte_prev_fnty;
             });
           });
-          if(((get_all_some_types(spec_ret_ty).len() > usize(0)) || _type_has_array_len_var(spec_ret_ty)) || rte_has_ct_param, {
+          // Recursive-instantiation era repair, mint half (see the rre_era_suspect
+          // comment in calls/function.yo — same class, same exclusions): a declared
+          // return whose NOMINAL type_arguments carry SomeTs (`-> Box(V)`) that the
+          // occurrence-substitution above rewrote to a SomeT-free result is a
+          // def-era COPY whose type_key diverges from the ctor memo's canonical
+          // instance for recursive payloads. Route it through the return-EXPR
+          // re-eval below so the registered spec return carries the canonical
+          // identity; adoption stays concrete-only.
+          rte_decl_tyarg_somes := ArrayList(TypeValue).new();
+          _collect_type_arg_somes(
+            match(func_type, .Func({ result : zr0 }) => zr0, _ => t_unit()),
+            rte_decl_tyarg_somes,
+            ArrayList(String).new()
+          );
+          rte_era_suspect := ((rte_decl_tyarg_somes.len() > usize(0)) && (get_all_some_types(spec_ret_ty).len() == usize(0)));
+          if((((get_all_some_types(spec_ret_ty).len() > usize(0)) || _type_has_array_len_var(spec_ret_ty)) || rte_has_ct_param) || rte_era_suspect, {
             match(
               get_func_return_type_expr(func_id.clone()),
               .Some(rte_expr) => {
@@ -3682,6 +3725,9 @@ create_specialized_function_inline :: (
                 .Some(sr_rty) => match(
                   adopt_receiver_struct_instance(spec_result, sr_rty),
                   .Some(sr_adopted) => {
+                    if(helper_dbg_env.get(`YO_DEBUG_RRE`).is_some(), {
+                      eprintln(`[sr-adopt] spec_result=${type_to_string(spec_result)} recv=${type_to_string(sr_rty)} adopted=${type_to_string(sr_adopted)}`);
+                    });
                     spec_result = sr_adopted;
                   },
                   .None => ()
@@ -6078,8 +6124,37 @@ try_to_call_function_with_arguments :: (
               .Some(rte_expr9) => {
                 rte9_prev := ctx.is_evaluating_function_type;
                 ctx.is_evaluating_function_type = true;
+                // `Self` in the return expr must resolve to THIS method's
+                // receiver, not the CALLER's stale ctx.self_type — the same
+                // reconstruction the mint half does (see the rte block
+                // above). Without it, a def-time body eval inside an impl
+                // field loop re-evaluated the pointer-arithmetic `add ->
+                // Self` under the ENCLOSING impl's Self and adopted it
+                // (SomeT-free) as the call result — `children.add(usize(i))`
+                // typed as the outer Dispose receiver, so the following `.*`
+                // deref had no pointer and ___drop failed def-eval
+                // (std/imm/map.yo; issues/fixed/yo-self-rre-adopts-enclosing-impl-self.md).
+                rte9_prev_self := ctx.self_type;
+                {
+                  rte9_labels := match(
+                    func_type,
+                    .Func({ meta : __fm9b }) => __fm9b.*.param_labels,
+                    _ => ArrayList(String).new()
+                  );
+                  rte9_p0_is_self := match(rte9_labels.get(usize(0)), .Some(l) => (l == "self"), .None => false);
+                  if(rte9_p0_is_self, {
+                    match(
+                      arg_vals.get(usize(0)),
+                      .Some(rte9_rcv) => {
+                        ctx.self_type = Option(TypeValue).Some(rte9_rcv.arg_type);
+                      },
+                      .None => ()
+                    );
+                  });
+                };
                 rte9_out := ArrayList(TypeValue).new();
                 _trial_eval_ret_type_expr(clone_expr_fresh_ids(rte_expr9), callee_env_m, ctx, rte9_out);
+                ctx.self_type = rte9_prev_self;
                 ctx.is_evaluating_function_type = rte9_prev;
                 match(
                   rte9_out.get(usize(0)),

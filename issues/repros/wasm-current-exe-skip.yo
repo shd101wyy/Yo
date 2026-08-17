@@ -1,0 +1,14 @@
+//! Repro: calling std/env's `current_exe` under a wasm target makes yo-self
+//! emit `.error = /* skip generating value */` inside the Err initializer —
+//! "error: expected expression" from emcc/clang (the env.test.yo emcc-leg
+//! break, PR #127). TS on the same target compiles and runs it.
+{ current_exe } :: import("std/env");
+open(import("std/fmt"));
+main :: (fn() -> unit)({
+  match(
+    current_exe(),
+    .Ok(p) => println(`ok: ${p.to_string()}`),
+    .Err(e) => println(`err: ${e}`)
+  );
+});
+export(main);

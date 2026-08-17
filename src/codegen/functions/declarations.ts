@@ -195,7 +195,7 @@ export function generateFunctionDeclarations(
       // storage-class specifiers silently; GCC rejects the file outright
       // ("duplicate 'static'"), so `--cc gcc` and the portable yo.c both break.
       // The prototype is useless anyway — nothing calls these at runtime.
-      // See issues/comptime-only-prototype-breaks-gcc.md; yo-self has carried
+      // See issues/fixed/comptime-only-prototype-breaks-gcc.md; yo-self has carried
       // the equivalent guard (`_func_result_is_comptime_only` in its `skip1`).
       (isComptimeFunction(value) ||
         (!isConcreteSpecialization &&

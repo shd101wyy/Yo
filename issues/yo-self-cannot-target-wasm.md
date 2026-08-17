@@ -40,6 +40,101 @@ Sequencing: the conversion needs a stage-1 build in each wasm leg, so it should
 land after the stage-1 emit/compile split, otherwise both legs inherit the
 memory failure that split exists to fix.
 
+## First self-hosted run (run 31874422392) — what it proved and what it did not
+
+The converted legs found a bug on their first run, which is the point of
+converting them: #128, whose wasm legs still drive the TS compiler, passed the
+same check on the same day.
+
+PROVED WORKING:
+
+- `Build stage-1 with the seed` passed — the new `build-stage1` composite
+  action is sound.
+- **emcc compiled the C emitted by the ported backend with 3 warnings and no
+  errors.** The port reaches the C compiler intact; this was the open question.
+
+FAILED: `yo build run` produced `hello-world.html` and then died on
+`Cannot find module .../hello-world.js` — emcc normally emits that shim beside
+the `.html`.
+
+### ROOT CAUSE FOUND (run 31875845879) — it was NOT the link line
+
+The `ls -lR yo-out` diagnostic answered it in one cycle:
+
+```
+yo-out/wasm32-emscripten/bin:
+-rw-r--r--  hello-world.c      56293
+-rwxr-xr-x  hello-world.html   18312
+```
+
+No `.js`, no `.wasm`, and the `.html` is an **18 KB EXECUTABLE** — a native ELF
+binary, not an Emscripten HTML shell. **emcc was never invoked.** clang built a
+host binary, and the build runner wrapped it in a wasm-shaped path and
+extension (`get_artifact_output_file_name` computes those from the ARTIFACT's
+target, independently of what the child actually compiled).
+
+The bug is in `build_runner.yo`: `--target` was passed only
+
+```yo
+if(effective_target != artifact.target, ...)
+```
+
+and `effective_target` IS `artifact.target` unless the CLI overrides it — so an
+artifact declaring its own target, the normal case, never got one. The child
+`yo compile` saw no target, resolved the host, and auto-selected clang. TS does
+not hit this because it calls codegen IN-PROCESS with `parsedTarget`; we shell
+out, so the target has to travel on the command line.
+
+Fixed by passing `--target` whenever it is not the host (still skipped for
+native builds, so no `--target=<host>` appears on proven link lines), and by
+forcing `--cc emcc` for wasm targets exactly as `build-runner.ts:902-907` does.
+
+**This class of bug is invisible to `yo compile --target wasm32-emscripten`,
+which always passes the target explicitly. Only `yo build` reaches it** — which
+is why the smoke test, not the test suite, is what caught it.
+
+### Regression coverage, and a broader exposure
+
+**The regression test is the WASM build-system smoke test itself**, and it only
+became one with this conversion. `yo build run` against
+`CompilationTarget.Wasm32_Emscripten`, driven by the stage-1 binary, fails
+exactly when `--target` stops travelling. Before the conversion that step ran
+the TS compiler, which compiles in-process and cannot exhibit the bug — so the
+step existed but was structurally incapable of catching it.
+
+No cheaper test is available: `--dry-run` only names steps
+(`build_runner.yo:1385`), it does not print the compile command, so a
+`tests/cli-cases` entry cannot assert the flag. And `yo compile --target …`
+always passes the target explicitly, so the whole `compile` surface is blind to
+this.
+
+**The bug was never wasm-specific.** `effective_target` is `artifact.target`
+whenever the CLI does not override it, so ANY artifact declaring a non-host
+`target` in `build.yo` — a cross-compile to `aarch64-linux-gnu`, say — was
+silently built for the host, with the cross-shaped output path and extension
+applied around a native binary. wasm is simply where it was visible, because a
+host ELF cannot pretend to be a `.wasm` module. Nothing in CI declares a
+non-host non-wasm target, so that case had no coverage at all and still has
+none; the fix covers it, a test does not.
+
+### The earlier hypothesis, which was WRONG
+
+yo-self passed `-lm -pthread` on every non-Windows link, so wasm got them; TS
+gates all platform system libraries on `!isWasm` and passes neither. `-pthread`
+is not inert for emcc — it switches Emscripten into pthreads mode. That is a
+REAL parity bug and is now fixed.
+
+**But it is not confirmed to be the root cause.** The inference that the link
+never ran came from a 0.2 s gap between the last warning and the node error,
+which is too fast for an Emscripten link — not from seeing what was on disk.
+With `-pthread` emcc still normally emits a `.js` (plus a `.worker.js`), so the
+mechanism is not fully explained.
+
+The smoke test now dumps `ls -lR yo-out` on failure, so the next run answers it
+directly instead of by inference. If the `.js` is present and the runner still
+cannot find it, the bug is in the run path (`build_runner.yo`'s `.html` -> `.js`
+derivation), not the link line.
+
 ## The gap (as originally found — kept for the record; resolved above)
 
 `yo-self/codegen/async/` had `runtime_io_linux.yo`, `runtime_io_macos.yo`,

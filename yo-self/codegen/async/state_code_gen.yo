@@ -10,7 +10,7 @@ open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { codegen_fatal } :: import("../constants.yo");
-{ AstExpr, ast_expr_id, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_is_atom_of, ast_expr_is_atom, ast_expr_token, BK_WHILE, BK_BEGIN, BK_COND, BK_MATCH } :: import("../../expr.yo");
+{ AstExpr, ast_expr_id, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_is_atom_of, ast_expr_is_atom, ast_expr_token, BK_WHILE, BK_BEGIN, BK_COND, BK_MATCH, BK_TUPLE } :: import("../../expr.yo");
 { TokenKind } :: import("../../token.yo");
 { AwaitPoint, CapturedVariable } :: import("../../evaluator/async/await_analysis_types.yo");
 { SuspensionPoint } :: import("../../evaluator/shared/suspension_analysis_types.yo");
@@ -19,7 +19,7 @@ open(import("std/string"));
 { extract_target_variable_id } :: import("../../evaluator/shared/suspension_analysis.yo");
 { expr_contains_await, expr_contains_while_with_await } :: import("../../expr_traversal.yo");
 { expr_info_primitive_pattern_values, expr_info_is_primitive_match, lookup_macro_expansion } :: import("../../expr_info.yo");
-{ FunctionGenerationContext, SmWhileBreakInfo, SmWhileContinueInfo, WhileLoopInfo, OuterWhileLoop, CondBranchPostWhileExprs, CondBranch, ChainedCondBranches, AsyncCondBranchInfo } :: import("../functions/context.yo");
+{ FunctionGenerationContext, SmWhileBreakInfo, SmWhileContinueInfo, WhileLoopInfo, OuterWhileLoop, CondBranchPostWhileExprs, CondBranch, ChainedCondBranches, AsyncCondBranchInfo, merge_cond_branch_post_while_exprs } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("../exprs/_expr.yo");
 { _call_generate_cond_with_await, _call_generate_match_with_await, _call_generate_while_with_await, register_fsm_emitters } :: import("./_fsm.yo");
 { get_variables_from_env } :: import("../../env.yo");
@@ -1745,13 +1745,18 @@ _attach_cond_branch_post_while :: (
       wmap.get(idx),
       .Some(winfo) => {
         ddx := match(context.base.get_expr_info(value), .Some(ei) => ei.deferred_drop_expressions, .None => Option(ArrayList(AstExpr)).None);
+        // Merge, never overwrite: the slot may already hold another layer's
+        // post-loop code (see merge_cond_branch_post_while_exprs).
         winfo.cond_branch_post_while_exprs = Option(CondBranchPostWhileExprs).Some(
-          CondBranchPostWhileExprs(
-            branch_index : branch_index,
-            cond_branch_field_index : idx,
-            exprs : remaining,
-            deferred_drop_expressions : ddx,
-            skip_cond_branch_check : Option(bool).Some(_cond_inner_has_remaining_code(context, idx))
+          merge_cond_branch_post_while_exprs(
+            winfo.cond_branch_post_while_exprs,
+            CondBranchPostWhileExprs(
+              branch_index : branch_index,
+              cond_branch_field_index : idx,
+              exprs : remaining,
+              deferred_drop_expressions : ddx,
+              skip_cond_branch_check : Option(bool).Some(_cond_inner_has_remaining_code(context, idx))
+            )
           )
         );
         wmap.set(idx, winfo);
@@ -2457,6 +2462,75 @@ _extract_variant_name :: (fn(pattern : AstExpr) -> Option(String))({
   });
   Option(String).None
 });
+/// The number of branches currently recorded for the cond/match entry at
+/// `idx` — compared before/after `generate_cond_branch_with_await` to detect
+/// that a NESTED match inside the arm claimed the dispatch slot (its
+/// recursion pushed branches). Mirrors `branchCountBefore` (state-code-gen.ts).
+_cond_entry_branch_count :: (fn(context : FunctionGenerationContext, idx : usize) -> usize)(
+  match(
+    context.async_cond_branch_info,
+    .Some(m) => match(m.get(idx), .Some(e) => e.branches.len(), .None => usize(0)),
+    .None => usize(0)
+  )
+);
+/// True when every remaining expr is a trivial unit — a bare `()` atom or an
+/// empty tuple call. Mirrors `remainingIsTrivial` (state-code-gen.ts).
+_remaining_exprs_all_trivial :: (fn(remaining : ArrayList(AstExpr)) -> bool)({
+  (ri : usize) = usize(0);
+  (all_trivial : bool) = true;
+  while(ri < remaining.len(), {
+    match(
+      remaining.get(ri),
+      .Some(e) => if(!(ast_expr_is_atom_of(e, "()") || ast_expr_is_fn_call_of(e, BK_TUPLE, Option(usize).Some(usize(0)))), {
+        all_trivial = false;
+      }),
+      .None => ()
+    );
+    ri = (ri + usize(1));
+  });
+  all_trivial
+});
+/// Attach a match arm whose dispatch slot was claimed by a NESTED match as a
+/// CHAINED layer on the entry at `idx`: chained layers run AFTER the branch
+/// switch regardless of the dispatch value, which is safe because RC drops are
+/// no-ops on the zeroed slots of arms that never ran. Mirrors the
+/// `branchData.chainedBranches.push` arm of generateMatchWithAwait
+/// (state-code-gen.ts). No `await_target_variable_id` — the arm's await result
+/// (if any) belongs to the nested match's branch.
+_push_chained_match_arm :: (
+  fn(context : FunctionGenerationContext, idx : usize, case_index : usize, case_body : AstExpr, remaining : ArrayList(AstExpr)) -> unit
+)({
+  if(context.async_cond_branch_info.is_none(), {
+    context.async_cond_branch_info = Option(HashMap(usize, AsyncCondBranchInfo)).Some(HashMap(usize, AsyncCondBranchInfo).new());
+  });
+  m := match(context.async_cond_branch_info, .Some(x) => x, .None => HashMap(usize, AsyncCondBranchInfo).new());
+  entry := match(
+    m.get(idx),
+    .Some(e) => e,
+    .None => AsyncCondBranchInfo(
+      branches : ArrayList(CondBranch).new(),
+      target_variable_id : Option(String).None,
+      target_assignment_code : Option(String).None,
+      cond_branch_field_index : Option(usize).None,
+      chained_branches : Option(ArrayList(ChainedCondBranches)).None
+    )
+  );
+  cb := CondBranch(
+    index : case_index,
+    value : case_body,
+    has_await : true,
+    remaining_exprs : Option(ArrayList(AstExpr)).Some(remaining),
+    deferred_drop_expressions : match(context.base.get_expr_info(case_body), .Some(ei) => ei.deferred_drop_expressions, .None => Option(ArrayList(AstExpr)).None),
+    await_target_variable_id : Option(String).None
+  );
+  chained := match(entry.chained_branches, .Some(c) => c, .None => ArrayList(ChainedCondBranches).new());
+  bl := ArrayList(CondBranch).new();
+  bl.push(cb);
+  chained.push(ChainedCondBranches(branches : bl, cond_branch_field_index : idx));
+  entry.chained_branches = Option(ArrayList(ChainedCondBranches)).Some(chained);
+  m.set(idx, entry);
+  context.async_cond_branch_info = Option(HashMap(usize, AsyncCondBranchInfo)).Some(m);
+});
 /// Handle one match case body at `case_index`: a branch with await delegates to
 /// `generate_cond_branch_with_await` (recording remaining exprs); a non-await
 /// branch emits Future completion (if it is the async-body return) or the
@@ -2476,9 +2550,60 @@ _emit_match_case_await_or_value :: (
   ) -> unit
 )({
   if(branch_has_await(case_body), {
+    branch_count_before := _cond_entry_branch_count(context, await_point.base.index);
     remaining := generate_cond_branch_with_await(case_body, await_point, indent, context);
     if(remaining.len() > usize(0), {
-      _push_cond_branch(context, await_point.base.index, _make_cond_branch(case_index, case_body, true, Option(ArrayList(AstExpr)).Some(remaining), context));
+      // A NESTED match inside this arm claims the dispatch slot: its
+      // `sm->cond_branch_N = …` assignment overwrites this arm's, so a `case`
+      // keyed on THIS arm's code is unreachable at resume — its deferred drops
+      // never ran and the nested scrutinee leaked. When the nesting pushed
+      // branches during the recursion above and this arm has nothing left but
+      // trivial unit exprs (drops ride deferred_drop_expressions), the arm
+      // must NOT become a dead case. Two placements, by whether the arm's
+      // await sits inside a WHILE LOOP:
+      //  - inside a loop: route to the loop's post-exit slot (merged — the
+      //    slot may already be claimed), else the arm's scope-end drops would
+      //    run at the top of the loop's resume state once per ITERATION,
+      //    freeing per-outer-iteration locals during the first one.
+      //  - no loop: attach as a chained layer, which runs AFTER the branch
+      //    switch regardless of the dispatch value.
+      // Arms with REAL trailing statements keep the (dead-case) placement —
+      // running them cross-arm would be wrong; that gap is pre-existing.
+      // Mirrors generateMatchWithAwait's nestedClaimedDispatch handling
+      // (state-code-gen.ts).
+      nested_claimed := (_cond_entry_branch_count(context, await_point.base.index) > branch_count_before);
+      if(nested_claimed && _remaining_exprs_all_trivial(remaining), {
+        routed := match(
+          context.async_while_loop_info,
+          .Some(wm) => match(
+            wm.get(await_point.base.index),
+            .Some(winfo) => {
+              winfo.cond_branch_post_while_exprs = Option(CondBranchPostWhileExprs).Some(
+                merge_cond_branch_post_while_exprs(
+                  winfo.cond_branch_post_while_exprs,
+                  CondBranchPostWhileExprs(
+                    branch_index : case_index,
+                    cond_branch_field_index : await_point.base.index,
+                    exprs : remaining,
+                    deferred_drop_expressions : match(context.base.get_expr_info(case_body), .Some(ei) => ei.deferred_drop_expressions, .None => Option(ArrayList(AstExpr)).None),
+                    skip_cond_branch_check : Option(bool).Some(true)
+                  )
+                )
+              );
+              wm.set(await_point.base.index, winfo);
+              context.async_while_loop_info = Option(HashMap(usize, WhileLoopInfo)).Some(wm);
+              true
+            },
+            .None => false
+          ),
+          .None => false
+        );
+        if(!(routed), {
+          _push_chained_match_arm(context, await_point.base.index, case_index, case_body, remaining);
+        });
+      }, {
+        _push_cond_branch(context, await_point.base.index, _make_cond_branch(case_index, case_body, true, Option(ArrayList(AstExpr)).Some(remaining), context));
+      });
     });
     _set_cond_branch_target(context, await_point.base.index, _registration_target_assignment(match_expr, context, target_variable_id.clone(), target_assignment_code.clone()));
   }, {

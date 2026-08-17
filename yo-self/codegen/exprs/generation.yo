@@ -690,7 +690,22 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
       is_runtime_ctor := ((is_struct_val(v) || is_enum_val(v)) && ctor_has_runtime_args);
       if(is_plain_comptime && !(is_runtime_ctor), {
         comptime_code := generate_comptime_value(v, ei.ty, context.base);
-        return(_materialize_owned_rc_comptime_value(ei, v, comptime_code, indent.clone(), context));
+        // A struct/enum value whose rendering carries an UNFILLABLE HOLE
+        // (`/* skip generating value */` from a nested UnknownVal payload)
+        // must fall through to the expression emitters, exactly like the
+        // runtime-args ctor exception above — the third yo-self value shape
+        // TS never produces: a comptime-DECIDED `cond(platform == …)` folds
+        // the taken arm's `.Err(<template with ${platform}>)` to an EnumVal
+        // whose payload template stays Unknown, with NO runtime_arg_exprs.
+        // Returning the hole put a bare comment inside a C initializer
+        // ("error: expected expression" — std/env.yo current_exe on the
+        // wasm legs, issues/repros/wasm-current-exe-skip.yo); the expression
+        // path re-generates the arm (cond → ctor → template) as the same
+        // runtime string-building TS emits.
+        skip_hole := ((is_struct_val(v) || is_enum_val(v)) && comptime_code.contains(String.from("/* skip generating value */")));
+        if(!(skip_hole), {
+          return(_materialize_owned_rc_comptime_value(ei, v, comptime_code, indent.clone(), context));
+        });
       });
     },
     .None => ()

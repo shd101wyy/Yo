@@ -1,0 +1,16 @@
+// Minimal repro: recursive enum with Box(Self) + derive(Clone).
+// Box's own type parameter is named V (std/prelude.yo:7382); the bug is that
+// V reaches codegen unsubstituted and gets its own C struct.
+TreeNode :: enum(
+  Leaf(value : i32),
+  Branch(left : Box(Self), right : Box(Self))
+);
+derive(TreeNode, Clone);
+main :: (fn() -> unit)({
+  leaf_a := TreeNode.Leaf(i32(1));
+  leaf_b := TreeNode.Leaf(i32(2));
+  branch := TreeNode.Branch(left : box(leaf_a), right : box(leaf_b));
+  c := branch.clone();
+  ()
+});
+export(main);

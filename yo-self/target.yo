@@ -197,6 +197,31 @@ host_target :: (fn() -> TargetInfo)({
   );
   _build_target_info(host.arch, host.platform, abi)
 });
+// ── Current compilation target ────────────────────────────────────────
+// The target of the CURRENT compilation, set early in the pipeline
+// (before the evaluator or codegen runs) and read by the comptime
+// `__yo_process_platform` / `__yo_process_arch` / `__yo_pointer_size_bits`
+// builtins. TS: `currentTarget` + `setCurrentTarget`/`getCurrentTarget`,
+// src/target.ts:296-317.
+//
+// WHY THIS EXISTS: those builtins used to answer from `detect_host()`, so
+// every target-conditional `cond(platform == ...)` in std/ folded for the
+// HOST even under `--target`. Cross-emission therefore baked host values —
+// `AT_FDCWD = -2` into a linux target
+// (issues/yo-self-cross-emit-host-constants.md) — and, under
+// `--target wasm-wasi`/`--cc emcc` on Linux, std/crypto/random.yo took its
+// Linux arm and the link failed with `undefined symbol: getrandom`.
+(g_current_target : Option(TargetInfo)) = Option(TargetInfo).None;
+/// Set the target for the current compilation.
+set_current_target :: (fn(t : TargetInfo) -> unit)({
+  g_current_target = Option(TargetInfo).Some(t);
+  ()
+});
+/// The current compilation target, falling back to the host when a caller
+/// (e.g. `check`) never set one — same fallback as TS.
+get_current_target :: (fn() -> TargetInfo)(
+  match(g_current_target, .Some(t) => t, .None => host_target())
+);
 // ── Parse target triple ───────────────────────────────────────────────
 /// Parse a target triple string like "x86_64-linux-gnu" into a TargetInfo.
 /// Returns Err(message) on invalid input.
@@ -347,6 +372,8 @@ export(
   detect_linux_abi,
   detect_host,
   host_target,
+  set_current_target,
+  get_current_target,
   parse_target,
   clang_triple,
   is_target_windows,
