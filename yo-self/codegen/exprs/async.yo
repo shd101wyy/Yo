@@ -195,13 +195,39 @@ _visit_effect_struct_fields :: (
     i = (i + usize(1));
   });
 });
+/// `a` is numerically smaller than `b` for unpadded decimal id strings:
+/// shorter means smaller; same length falls back to byte-lexicographic.
+_numeric_id_less :: (fn(a : String, b : String) -> bool)(
+  cond(
+    (a.len() < b.len()) => true,
+    (a.len() > b.len()) => false,
+    true => (a < b)
+  )
+);
 /// The SM field holding the effect bundle whose struct type matches `target_key`
 /// (a captured local; honoring field aliases). Helper for the nested-bundle path.
+///
+/// DETERMINISM (yo-self divergence, same justified category as the murmur3
+/// h1_hash fix): TS iterates `stateMachineVariables` — an insertion-ordered
+/// JS Map — and takes the FIRST type-matching entry (async.ts:468-477), which
+/// with monotonic variable ids means the first-minted match; when a closure's
+/// bundle PARAM and a same-typed local both match (fs/file.yo's `e`), the
+/// param was minted first, its alias fires, and the mapping targets
+/// `__yo_param_<i>` — the slot the resume body actually reads. yo-self's
+/// `HashMap` iterates in hash order, so a first-match walk picked whichever
+/// entry the ids happened to bucket first — the env-sharing change reseeded
+/// the ids and silently flipped the pick to the dead local slot. Emulate TS:
+/// collect ALL matches, prefer an aliased one (a closure-param slot), tie-break
+/// by smallest id (ids are monotonic, so smallest = first-inserted).
 _find_bundle_var_field :: (
   fn(state_machine_variables : HashMap(String, CapturedVariable), target_key : String, state_machine_field_aliases : Option(HashMap(String, String))) -> Option(String)
 )({
   it := state_machine_variables.into_iter();
   (go : bool) = true;
+  (best_aliased : Option(String)) = Option(String).None;
+  (best_aliased_id : String) = String.new();
+  (best_plain : Option(String)) = Option(String).None;
+  (best_plain_id : String) = String.new();
   while(go, {
     match(
       it.next(),
@@ -209,14 +235,29 @@ _find_bundle_var_field :: (
         sm_var := b.value;
         is_outer := match(sm_var.kind, .Outer => true, .Local => false);
         if(!(is_outer) && (type_key(sm_var.base.ty) == target_key), {
-          match(
+          vid := sm_var.base.id;
+          alias_opt := match(
             state_machine_field_aliases,
-            .Some(al) => match(al.get(sm_var.base.id.to_string()), .Some(a) => return(Option(String).Some(a)), .None => ()),
-            .None => ()
+            .Some(al) => al.get(vid.clone()),
+            .None => Option(String).None
           );
-          f := String.from("var_");
-          f.push_string(sm_var.base.id.to_string());
-          return(Option(String).Some(f));
+          match(
+            alias_opt,
+            .Some(a) => {
+              if(best_aliased.is_none() || _numeric_id_less(vid, best_aliased_id), {
+                best_aliased = Option(String).Some(a);
+                best_aliased_id = vid.clone();
+              });
+            },
+            .None => {
+              if(best_plain.is_none() || _numeric_id_less(vid, best_plain_id), {
+                f := String.from("var_");
+                f.push_string(vid.clone());
+                best_plain = Option(String).Some(f);
+                best_plain_id = vid.clone();
+              });
+            }
+          );
         });
       },
       .None => {
@@ -224,7 +265,7 @@ _find_bundle_var_field :: (
       }
     );
   });
-  Option(String).None
+  if(best_aliased.is_some(), best_aliased, best_plain)
 });
 /// Compute the injectable effect-field mappings for a future's effects: for each
 /// effect on the `FutureTraitT`, a function-typed effect maps to a `__capture`
