@@ -17,7 +17,7 @@ env:
   # bundle's Yo->C emit). Same trust-chain root as test.yml's SEED_VERSION;
   # bump to the latest PUBLISHED release whose bundle matrix covers the
   # needed targets.
-  SEED_VERSION: v0.2.7
+  SEED_VERSION: v0.2.8
 
 jobs:
   release:
@@ -308,10 +308,12 @@ jobs:
           # closure — see issues/fixed/windows-native-selfhosted-build-fails.md);
           # the windows CI job now builds the native compiler non-gating to
           # catch regressions ahead of release time.
+          # windows flipped to seed-built one release after Linux proved the
+          # chain (v0.2.8): 16 GB runners hold the ~12.2 GB self-emit.
           - os: windows-latest
             target: windows-x64
             experimental: false
-            seed_built: false
+            seed_built: true
 
     steps:
       - name: Checkout the released commit
@@ -391,7 +393,8 @@ jobs:
         env:
           YO_MAIN_STACK_MB: "4096"
         run: |
-          ./yo-seed compile yo-self/main.yo --release --allocator mimalloc \
+          if [ -f yo-seed.exe ]; then SEED2=./yo-seed.exe; else SEED2=./yo-seed; fi
+          "$SEED2" compile yo-self/main.yo --release --allocator mimalloc \
             --std-path ./std --emit-c --skip-c-compiler -o gate-stage2 > /dev/null
           test -s gate-stage2.c
           SIZE=$(wc -c < gate-stage2.c)
