@@ -254,6 +254,43 @@ static int32_t __yo_sync_copyfile(const char* src, const char* dst, int32_t flag
 `
       );
     });
+    // The wasm arm was missing from this port while TS has it
+    // (runtime-io-common.ts:269-296): tests/sys' batch calls
+    // __yo_sync_copyfile / __yo_sync_sendfile, so the emcc leg failed with
+    // "call to undeclared function" once the suite ran that far. MEMFS-backed
+    // open/fstat + the read/write fallback copy, exactly as TS emits.
+    if(is_target_wasm(target_info), {
+      emitter.emit_string_line(
+        `
+static int32_t __yo_sync_copyfile(const char* src, const char* dst, int32_t flags) {
+  int src_fd = open(src, O_RDONLY);
+  if (src_fd < 0) return -errno;
+
+  struct stat st;
+  if (fstat(src_fd, &st) < 0) {
+  int err = errno;
+  close(src_fd);
+  return -err;
+  }
+
+  int open_flags = O_WRONLY | O_CREAT | O_TRUNC;
+  if (flags & 1) open_flags |= O_EXCL;
+
+  int dst_fd = open(dst, open_flags, st.st_mode);
+  if (dst_fd < 0) {
+  int err = errno;
+  close(src_fd);
+  return -err;
+  }
+
+  int32_t result = __yo_sendfile_fallback_copy(dst_fd, src_fd, 0, (size_t)st.st_size);
+  close(src_fd);
+  close(dst_fd);
+  return (result < 0) ? result : 0;
+}
+`
+      );
+    });
     // sendfile (platform-specific)
     if(is_target_linux(target_info), {
       emitter.emit_string_line(
@@ -279,6 +316,18 @@ static int32_t __yo_sync_sendfile(int32_t out_fd, int32_t in_fd, int64_t offset,
   return -errno;
   }
   return (int32_t)len;
+}
+`
+      );
+    });
+    // Missing wasm arm, same story as copyfile above (TS
+    // runtime-io-common.ts:323-329): no sendfile syscall on wasm — the
+    // read/write fallback IS the implementation.
+    if(is_target_wasm(target_info), {
+      emitter.emit_string_line(
+        `
+static int32_t __yo_sync_sendfile(int32_t out_fd, int32_t in_fd, int64_t offset, size_t count) {
+  return __yo_sendfile_fallback_copy(out_fd, in_fd, offset, count);
 }
 `
       );

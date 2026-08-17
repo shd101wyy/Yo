@@ -10,7 +10,7 @@ open(import("std/string"));
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
 { TypeValue } :: import("../../types/definitions.yo");
-{ is_some_type, is_concrete_trait_type, is_struct_type, is_function_type, is_dyn_type, is_unit_type } :: import("../../types/guards.yo");
+{ is_some_type, is_concrete_trait_type, is_struct_type, is_function_type, is_dyn_type, is_unit_type, is_extern_type_name } :: import("../../types/guards.yo");
 { type_implements_future, extract_future_trait_from_type } :: import("../../evaluator/trait_checking.yo");
 { lookup_macro_expansion, lookup_some_resolved_concrete } :: import("../../expr_info.yo");
 { AwaitAnalysisResult, AwaitPoint, CapturedVariable, CapturedVariableKind } :: import("../../evaluator/async/await_analysis_types.yo");
@@ -25,7 +25,7 @@ open(import("std/string"));
 { EvalValue } :: import("../../value.yo");
 { Variable, get_variables_from_env, get_variables_from_env_by_filter } :: import("../../env.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
-{ FunctionGenerationContext, EvidenceParameter, WhileLoopInfo, CondBranch, ChainedCondBranches, AsyncCondBranchInfo, InAsyncStateMachine, CondBranchPostWhileExprs, OuterWhileLoop, SmWhileBreakInfo, SmWhileContinueInfo } :: import("../functions/context.yo");
+{ FunctionGenerationContext, EvidenceParameter, WhileLoopInfo, CondBranch, ChainedCondBranches, AsyncCondBranchInfo, InAsyncStateMachine, CondBranchPostWhileExprs, OuterWhileLoop, SmWhileBreakInfo, SmWhileContinueInfo, merge_cond_branch_post_while_exprs } :: import("../functions/context.yo");
 { expr_contains_await, expr_contains_while_with_await } :: import("../../expr_traversal.yo");
 { is_temp_variable_name } :: import("../../utils.yo");
 { get_type_string } :: import("../utils/index.yo");
@@ -51,10 +51,34 @@ is_io_future_type :: (fn(ty : TypeValue) -> bool)({
   if(!(is_some_type(ty)), {
     return(false);
   });
-  // Branch (1): resolved concrete is an extern SomeType — wiring point present,
-  // extern check pending the SomeT `is_extern` model gap (see doc above).
+  // Branch (1): resolved concrete is an extern SomeType (TS
+  // state-machine.ts:521-527, `resolvedConcreteType.isExtern`). No longer a
+  // model gap: an extern opaque type IS a SomeT whose NAME is registered in
+  // the extern-type-name set, so extern-ness is `is_extern_type_name(name)`.
+  // This branch became LOAD-BEARING once Impl's `Concrete(T)` support landed:
+  // the marker now moves into the resolved-concrete cell (as in TS) instead
+  // of sitting in required_trait_types, so branch (2) alone no longer fires
+  // for `IoFuture` — and misclassifying an io future as a lazy sync future
+  // emits a `->__yo_resume_fn` cold-start on `__yo_io_future_t`, which has no
+  // such member (the fs/gc batch C errors).
   some_id := match(ty, .SomeT({ id }) => id, _ => String.from(""));
-  _rc := lookup_some_resolved_concrete(some_id);
+  rc_cell := match(ty, .SomeT({ resolved_concrete : io_src }) => io_src.get(usize(0)), _ => Option(TypeValue).None);
+  rc_final := match(
+    rc_cell,
+    .Some(io_r) => Option(TypeValue).Some(io_r),
+    .None => lookup_some_resolved_concrete(some_id)
+  );
+  match(
+    rc_final,
+    .Some(io_rcv) => match(
+      io_rcv,
+      .SomeT({ name : io_enm }) => if(is_extern_type_name(io_enm), {
+        return(true);
+      }),
+      _ => ()
+    ),
+    .None => ()
+  );
   // Branch (2): any required trait is a `Concrete(...)` trait.
   rts := match(ty, .SomeT({ required_trait_types }) => required_trait_types, _ => ArrayList(TypeValue).new());
   (i : usize) = usize(0);
@@ -2098,14 +2122,22 @@ _emit_cond_branch_remaining :: (
                 context.async_while_loop_info,
                 .Some(pw_map) => match(
                   pw_map.get(ap.base.index),
-                  .Some(nested_while) => if(nested_while.cond_branch_post_while_exprs.is_none() && (additional_remaining.len() > usize(0)), {
+                  // The slot may already be claimed by an inner cond layer
+                  // (generate_cond_with_await) — merge rather than decline;
+                  // declining falls back to chaining, which emits this arm's
+                  // scope-end drops at the top of the loop's resume state,
+                  // once per iteration.
+                  .Some(nested_while) => if(additional_remaining.len() > usize(0), {
                     nested_while.cond_branch_post_while_exprs = Option(CondBranchPostWhileExprs).Some(
-                      CondBranchPostWhileExprs(
-                        branch_index : branch.index,
-                        cond_branch_field_index : cond_field,
-                        exprs : additional_remaining,
-                        deferred_drop_expressions : branch.deferred_drop_expressions,
-                        skip_cond_branch_check : Option(bool).None
+                      merge_cond_branch_post_while_exprs(
+                        nested_while.cond_branch_post_while_exprs,
+                        CondBranchPostWhileExprs(
+                          branch_index : branch.index,
+                          cond_branch_field_index : cond_field,
+                          exprs : additional_remaining,
+                          deferred_drop_expressions : branch.deferred_drop_expressions,
+                          skip_cond_branch_check : Option(bool).None
+                        )
                       )
                     );
                     pw_map.set(ap.base.index, nested_while);

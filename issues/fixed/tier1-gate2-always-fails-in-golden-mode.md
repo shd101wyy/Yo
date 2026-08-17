@@ -1,6 +1,17 @@
 # T1 GATE 2 fails every golden-mode run, however clean
 
-**Status: FIXED in-tree, awaiting CI confirmation.** Found 2026-08-15 while
+**Status: FIXED and CONFIRMED IN CI.** Run 31869274650's tier-1 gates job
+passed, and passed for the RIGHT reason rather than by accident:
+
+```
+=== T1 GATE 2: corpus diff-test ===
+CORPUS_RC=0  PASS 155  GOLDEN-DIFF 0  NO-GOLDEN 0  (total 155)
+=== T1_DONE (ci) failures=0 ===
+```
+
+The new exit-code capture is present (`CORPUS_RC=0`, which the old gate never
+looked at), the golden-mode branch was taken, and the job reports `failures=0`
+where it had reported `failures=1` on an identical 155/155 scorecard. Found 2026-08-15 while
 diagnosing a red `Self-hosted \`test\` subcommand (yo-self tier-1 gates)`.
 
 ## Symptom

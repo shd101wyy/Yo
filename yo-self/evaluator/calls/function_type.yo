@@ -925,7 +925,21 @@ try_to_implement_function_by_function_type :: (
                     // scope (which both registered a useless bounded re-run
                     // for every definition and suppressed the fatal
                     // re-raise below unconditionally).
-                    if(((cv.is_compile_time_only && cv_unfilled) && is_function_type(cv.ty)) && !(cv.name.starts_with("__yo_")), {
+                    // `c_include`d extern fns (`exit`, `memcpy`, …) are the
+                    // same shape — permanently valueless fn-typed comptime
+                    // vars, identifiable by the FFI marker on their Func
+                    // meta. Counting them made ONE `{ exit } ::
+                    // import("std/libc/stdlib")` suppress the fatal re-raise
+                    // for EVERY definition in the importing module: `check`
+                    // then returned 0 on bodies with undefined variables —
+                    // the GATE-4 hole
+                    // (issues/fixed/yo-self-check-misses-undefined-variable.md).
+                    cv_is_extern_fn := match(
+                      cv.ty,
+                      .Func({ meta : __fcxm }) => __fcxm.*.is_extern.is_some(),
+                      _ => false
+                    );
+                    if((((cv.is_compile_time_only && cv_unfilled) && is_function_type(cv.ty)) && !(cv.name.starts_with("__yo_"))) && !(cv_is_extern_fn), {
                       if((!(has_fwd_comptime_fn_cap)) && fnty_env.get(`YO_DEBUG_SWALLOW`).is_some(), {
                         eprintln(`[fwd-cap] name=${cv.name} frame=${cap_fi.to_string()}`);
                       });

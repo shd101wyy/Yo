@@ -450,13 +450,40 @@ compile_artifact :: (
       cmd.arg(String.from("--emcc-environment"));
       cmd.arg(String.from("web"));
     });
-    if(effective_target != artifact.target, {
+    // Pass --target whenever it is not the host. The old condition was
+    // `effective_target != artifact.target`, which meant an artifact declaring
+    // its OWN target — the normal case — never got one: `effective_target`
+    // equals `artifact.target` unless the CLI overrides it. TS does not hit
+    // this because it calls codegen IN-PROCESS with parsedTarget; we shell out,
+    // so the target must travel on the command line or the child silently
+    // builds for the host.
+    //
+    // Run 31875845879 is what that looks like: `yo build` for
+    // Wasm32_Emscripten produced yo-out/wasm32-emscripten/bin/hello-world.html
+    // that was an 18 KB EXECUTABLE ELF — clang building natively, with the
+    // wasm-shaped path and extension applied around it. No .js, no .wasm.
+    //
+    // Still skipped for the native case, deliberately: passing --target there
+    // would add `--target=<host triple>` to the clang line on every ordinary
+    // build, which is a cross-compile flag those proven link lines have never
+    // carried.
+    if((effective_target != "") && (effective_target != host_target().triple), {
       cmd.arg(String.from("--target"));
-      cmd.arg(effective_target);
+      cmd.arg(effective_target.clone());
     });
-    if(ctx.c_compiler != "clang", {
+    // Force emcc for wasm targets (build-runner.ts:902-907). `compile` also
+    // auto-selects it, but only from a target it can SEE — and ctx.c_compiler
+    // defaults to "clang", which would otherwise be passed through explicitly
+    // and defeat that auto-selection.
+    eff_ti_cc := match(parse_target(effective_target.clone()), .Ok(t) => t, .Err(_) => host_target());
+    if(is_target_wasm(eff_ti_cc), {
       cmd.arg(String.from("--cc"));
-      cmd.arg(ctx.c_compiler);
+      cmd.arg(String.from("emcc"));
+    }, {
+      if(ctx.c_compiler != "clang", {
+        cmd.arg(String.from("--cc"));
+        cmd.arg(ctx.c_compiler);
+      });
     });
     match(
       ctx.sysroot,

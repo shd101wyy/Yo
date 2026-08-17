@@ -59,7 +59,10 @@ import {
 import { findBundleFieldName } from "../exprs/async";
 import { getDupFunctionForType } from "../exprs/drop-dup";
 import { generateExpr } from "../exprs/expr";
-import type { FunctionGenerationContext } from "../functions/context";
+import type {
+  CondBranchPostWhileData,
+  FunctionGenerationContext,
+} from "../functions/context";
 import { sanitizeForCIdentifier, quoteCString } from "../utils";
 import { getTypeString } from "../utils/index";
 import {
@@ -584,6 +587,48 @@ export function getStateMachineFieldName(
 }
 
 /**
+ * Merges a new client's post-loop code into a while loop's single
+ * condBranchPostWhileExprs slot. The slot has TWO legitimate clients — an
+ * inner cond layer (routed by generateCondWithAwait) and the enclosing arm's
+ * remaining code (routed by the chained-branch handler). Overwriting loses
+ * the earlier layer; declining re-emits the later one at the TOP of the
+ * loop's resume state, i.e. once per ITERATION — the enclosing arm's
+ * scope-end drops then free a once-per-outer-iteration value on every inner
+ * iteration (double-free). Merge instead: ONE expression sequence, existing
+ * (inner) layer first, then the incoming (enclosing) layer — the consumer's
+ * single pass splits at whichever await comes first in the merged sequence,
+ * which is the correct split point. Drops merge the same way. The
+ * sm->cond_branch_N guard can only test one field, so when the layers
+ * disagree fall back to skipCondBranchCheck (sound: after_while_loop_N is
+ * only reachable from the branch that ran the loop).
+ */
+export function mergeCondBranchPostWhileExprs(
+  existing: CondBranchPostWhileData | undefined,
+  incoming: CondBranchPostWhileData
+): CondBranchPostWhileData {
+  if (!existing) {
+    return incoming;
+  }
+  const guardsDisagree =
+    existing.branchIndex !== incoming.branchIndex ||
+    existing.condBranchFieldIndex !== incoming.condBranchFieldIndex;
+  const mergedDrops = [
+    ...(existing.deferredDropExpressions ?? []),
+    ...(incoming.deferredDropExpressions ?? []),
+  ];
+  return {
+    branchIndex: existing.branchIndex,
+    condBranchFieldIndex: existing.condBranchFieldIndex,
+    exprs: [...existing.exprs, ...incoming.exprs],
+    deferredDropExpressions: mergedDrops.length > 0 ? mergedDrops : undefined,
+    skipCondBranchCheck:
+      (existing.skipCondBranchCheck ?? false) ||
+      (incoming.skipCondBranchCheck ?? false) ||
+      guardsDisagree,
+  };
+}
+
+/**
  * Generates the resume function implementation for an async block state machine.
  * This is the canonical implementation used for all async code (functions are just syntax sugar).
  */
@@ -1077,15 +1122,24 @@ export function generateAsyncBlockResumeFunction(
                   let deferredToPostWhile = false;
                   if (
                     nestedWhileForPostCode &&
-                    !nestedWhileForPostCode.condBranchPostWhileExprs &&
                     additionalRemainingExprs.length > 0
                   ) {
-                    nestedWhileForPostCode.condBranchPostWhileExprs = {
-                      branchIndex: branch.index,
-                      condBranchFieldIndex,
-                      exprs: additionalRemainingExprs,
-                      deferredDropExpressions: branch.deferredDropExpressions,
-                    };
+                    // The slot may already be claimed by an inner cond layer
+                    // (generateCondWithAwait) — merge rather than decline;
+                    // declining falls back to chaining, which emits this arm's
+                    // scope-end drops at the top of the loop's resume state,
+                    // once per iteration.
+                    nestedWhileForPostCode.condBranchPostWhileExprs =
+                      mergeCondBranchPostWhileExprs(
+                        nestedWhileForPostCode.condBranchPostWhileExprs,
+                        {
+                          branchIndex: branch.index,
+                          condBranchFieldIndex,
+                          exprs: additionalRemainingExprs,
+                          deferredDropExpressions:
+                            branch.deferredDropExpressions,
+                        }
+                      );
                     deferredToPostWhile = true;
                   }
 

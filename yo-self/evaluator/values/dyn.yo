@@ -88,7 +88,19 @@ _create_boxed_type :: (fn(inner_type : TypeValue, env : Environment, ctx : EvalC
         implicit_args : Option(ArrayList(ArgEntry)).None,
         variadic_args : ArrayList(VarArgEntry).new()
       );
-      bres := evaluate_comptime_fn_call(Option(AstExpr).None, box_ft, bfv, bav, env, cenv, ctx, exn);
+      // The callee expr must be a synthetic `Box` atom, not `.None`: the
+      // `Box(arg)` display-name stamp in comptime_fn.yo reads the constructor
+      // NAME off the callee expr token (yo-self FuncVals carry no funcName),
+      // and `is_boxed_type` keys off that `Box(`-prefixed name. With `.None`
+      // this site minted the MEMOIZED canonical `Box(T)` instance UNSTAMPED,
+      // so any consumer handed the canonical (the era-repair return re-eval)
+      // failed is_boxed_type and the boxed-dyn path registered the impl
+      // against the Box pointer itself (dyn_dispatch_autobox_value printed
+      // a blank instead of 'Q'). TS stamps ALL comptime-fn results from
+      // funcName (comptime-fn.ts:261-265) and cannot reach this state.
+      b_callee_tok := synthetic_token(String.from("Box"), cenv.module_path);
+      b_callee := AstExpr.Atom(alloc_global_expr_id(), b_callee_tok);
+      bres := evaluate_comptime_fn_call(Option(AstExpr).Some(b_callee), box_ft, bfv, bav, env, cenv, ctx, exn);
       cenv.pop_frame();
       match(bres.value, .TypeVal(bt) => if(is_reference_struct_type(bt), Option(TypeValue).Some(bt), Option(TypeValue).None), _ => Option(TypeValue).None)
     }
