@@ -949,7 +949,18 @@ jobs:
         with:
           ref: ${{ needs.release.outputs.sha }}
 
+      # Flip by RELEASE ID, not tag: `gh release edit <tag>` resolves through
+      # the get-release-by-tag API, which returns 404 for DRAFTS (their tag
+      # ref does not exist until publication) — v0.2.9's first flip attempt
+      # died on exactly that ("release not found" with a complete draft
+      # sitting right there; it was published by hand via the PATCH below).
       - name: Publish
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release edit "v${{ needs.release.outputs.version }}" --draft=false
+        run: |
+          release_id=$(gh api "repos/${GITHUB_REPOSITORY}/releases"             --jq '.[] | select(.tag_name == "v${{ needs.release.outputs.version }}" and .draft) | .id')
+          if [ -z "$release_id" ]; then
+            echo "::error::no draft release found for v${{ needs.release.outputs.version }}"
+            exit 1
+          fi
+          gh api -X PATCH "repos/${GITHUB_REPOSITORY}/releases/${release_id}"             -F draft=false -f make_latest=true --jq .html_url
