@@ -205,7 +205,7 @@ Each step is independently landable and gated by `tests/internal` or a new cli-c
     can never run. Note only three of the five`test (<os>)` legs are required
     (`macos-latest`, `ubuntu-latest`, `windows-latest`); `macos-26-intel`and
     `ubuntu-24.04-arm`are not. Also per
-    `issues/selfhosted-differential-job-needs-sharding.md`, shard the
+    `issues/fixed/selfhosted-differential-job-needs-sharding.md`, shard the
     differential in this SAME change so both job renames land under ONE
     required-check update.
 
@@ -300,7 +300,7 @@ Each step is independently landable and gated by `tests/internal` or a new cli-c
     Step 20 note (same date): the ruleset shard contexts were confirmed
     ALREADY REMOVED from ruleset 13548862 and the TS shard job is already
     deleted from test.yml — step 20 is DONE; the follow-up is only
-    `issues/selfhosted-differential-job-needs-sharding.md`.
+    `issues/fixed/selfhosted-differential-job-needs-sharding.md`.
 
     **VERIFIED 2026-08-15 (the flag-parity check).** `yo build --std-path ./std`
     produces a WORKING compiler at `yo-out/<triple>/bin/yo` (`--version` and
