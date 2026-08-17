@@ -49,10 +49,19 @@ are inflated ~2x by the instrument — compare only tracked numbers.)
 | 64 B class                                 | 18.1M       | 1.08 GB     | 6.1%  |
 | 112 B (Environment) + 80 B (tracked lists) | 15.8M       | 1.39 GB     | 7.8%  |
 
-**Revised lever ranking:** (1) the ≥4 KB buffer pool is the new #1 — 5.11 GB
-that no object-layout work touches; needs call-site attribution
-(`__builtin_return_address` in the shims + atos) to see whether it is HashMap
-tables, ArrayList data arrays, or something else. (2) The 40 B ArrayList army
+**Revised lever ranking:** (1) ~~the ≥4 KB buffer pool~~ **LANDED same day:
+the pool was `_inject_forall_captures`** — ra1 attribution (shims record
+`__builtin_return_address(1)`; arm64 keeps frame pointers) put 3.87 GB /
+167k live copies on that one function; a 150k-call probe measured 99.2%
+duplicate (func_id, bindings) keys (1,259 distinct); memoizing the injection
+erased it: tracked live **19.07 → 14.94 GB (−4.1 GB)**, wall **227 →
+148.5 s (−35%)**, FIXPOINT_HOLDS, gates_fast failures=0 (PR
+perf/inject-forall-captures-memo). Metric reminders re-proven during the
+A/B: footprint is compressor-noise across runs (same memoized binary read
+16.48 GB libc / 18.39 GB mimalloc footprint while tracked live FELL 4.1 GB);
+and a `--allocator mimalloc` build in a tree whose `vendor/mimalloc`
+submodule is uninitialized SILENTLY falls back to libc ("Bundled mimalloc
+not found" on stderr; verify with `nm <bin> | grep -c mi_malloc`). (2) The 40 B ArrayList army
 is now 60% BODY (24 B) — the remaining lever is deleting objects (Variable.value
 inline single-slot), not shrinking headers. (3) ExprInfo diet unchanged
 (~−1.2 GB). Raw dumps: /tmp/peak_hist.txt (libc), /tmp/peak_hist_mi.txt
