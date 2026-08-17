@@ -1,6 +1,10 @@
 # The self-hosted differential CI job needs sharding, not a bigger timeout
 
-**Status: OPEN** (filed 2026-08-15 while unblocking PR #122's merge train.)
+**Status: FIXED 2026-08-17** — sharded 4-way with the retired TS arm's exact
+selection logic (branch `p2/shard-selfhosted-differential`); the ruleset swap
+(single context -> four shard contexts) was executed via `gh api` immediately
+before the merge, per the ordering trap below. (Filed 2026-08-15 while
+unblocking PR #122's merge train.)
 
 ## Why
 

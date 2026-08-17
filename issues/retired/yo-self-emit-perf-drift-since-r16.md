@@ -74,3 +74,13 @@ source-level per-module dedup is NOT the lever; the step-24 memory work, if
 resumed, must census the emission phase (what the specialization machinery
 retains per instantiation — building on plans/archive/YO_SELF_EXPRINFO_PRUNE.md's
 rejected prune and the §4a census in plans/backlog/YO_SELF_ENV_SHARING.md).
+
+## Addendum 2: allocator A/B on macOS (2026-08-17) — no lever
+
+A libc-allocator build of the same tree emits at 262 s / **12.22 GB** vs the
+mimalloc build's 232-283 s / 12.21-12.25 GB: identical footprint, wall within
+noise. The r15-era "mimalloc slower & fatter on Mac" finding does not
+reproduce on the post-env-sharing workload. The remaining sub-7 GB levers are
+the 56 B RC-header shrink (~2-3 GB ceiling over ~53 M objects) and the
+emission-phase census — both P3-era campaigns; neither gates P2 (the macOS
+release legs are cross-emitted per step-24 option A).
