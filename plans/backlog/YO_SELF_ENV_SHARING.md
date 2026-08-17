@@ -1,7 +1,20 @@
 # yo-self memory: the 7.4 M live `Variable`s come from COPYING envs that TS SHARES
 
-**Status: root cause IDENTIFIED and confirmed against TS ground truth (2026-08-05).
-Not yet implemented.** This supersedes the "find the OTHER holder" open question left
+**Status: §3 IMPLEMENTED 2026-08-17** on branch `p2/env-sharing`
+(commits `9dda2a00a` + `dde0bae5d`): the def-time flatten copy is replaced by
+`_share_def_time_frames` — shared `Variable` handles, per-frame FROZEN
+membership (see the implementation-critical addendum at the end of §3, and
+`issues/env-sharing-live-frame-membership-leak.md`). Measured on the
+self-emit: peak footprint 14.55 → 12.21 GB (**−2.34 GB**), wall 678 → 232-283 s
+(**~2.4-2.9×**); attribution beforehand confirmed the copy loop minted
+2,760,212 of the 7.43 M live Variables and `YO_GC_FULL_PCT=130` moved nothing
+(all live data). FIXPOINT_HOLDS with the sharing stage-1; emitted-C multiset
+after id-normalization differs from flatten only by (a) one deduplicated
+duplicate enum typedef (identity restoration — an improvement) and (b) 35
+set_effect machines whose dead-slot arms became correct (the second latent
+bug below). The `capture_env_for` second site (§3 end) remains OPEN.
+
+Original 2026-08-05 analysis follows. This supersedes the "find the OTHER holder" open question left
 by `plans/archive/YO_SELF_EXPRINFO_PRUNE.md`.
 
 | Compiler      | wall    | peak footprint | instructions retired |
@@ -169,6 +182,28 @@ Note yo-self's call sites pass
 (`function_type.yo:864`, `:1092`), the mirror of TS's `isAtModuleLevel`. yo-self has
 no equivalent of TS's _first_ branch (`isInClosureContext ? callerEnv`), so that
 distinction should be checked while porting.
+
+### IMPLEMENTATION-CRITICAL (learned the hard way, 2026-08-17): freeze frame membership
+
+The doc's `snapshot_env`-based sketch below is WRONG as written: TS can share
+live frames only because its `addVariableToEnv` is PERSISTENT (new frame + new
+frames list per add, env.ts:660-688) — captured envs keep point-in-time
+membership. yo-self frames append IN PLACE, so pushing live `Frame` handles
+lets bindings added AFTER a definition leak into its body env and every
+recorded `ExprInfo.env`: std/fs/file.yo's late method `fd` then made codegen's
+`_last_is_compile_time_only(env, "fd")` silently DROP the `fd := self._fd`
+statements (undeclared-identifier C, fixpoint CLANG_RC=1). Share the Variable
+handles but rebuild EVERY frame (frame 0 included) with a fresh variables
+list: `_share_def_time_frames`. Regression test:
+`tests/late_sibling_method_name_shadow.test.yo`. Full record:
+`issues/env-sharing-live-frame-membership-leak.md`. The same rule applies to
+any future sharing lever (capture_env_for included).
+
+The id reseed also exposed a second latent bug — `_find_bundle_var_field`
+picked the set_effect bundle target by HashMap-iteration first-match where TS
+iterates an insertion-ordered Map; 35 of 66 machines in the flatten baseline
+were already writing the dead slot. Fixed deterministically (prefer aliased,
+tie-break numerically-smallest id) in `dde0bae5d`.
 
 ### Two risks specific to this change
 
