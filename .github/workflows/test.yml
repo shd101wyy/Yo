@@ -501,9 +501,13 @@ jobs:
       # meaning of the suite.
       #
       # Since only Linux can host the stage-1 build (see the note above), the
-      # suite is Linux-only per PR. macOS/Windows compiler coverage is
-      # release-time, via release.yml's seed-bundles, which builds AND
-      # smoke-tests natively on all five targets.
+      # suite is Linux-only per PR. macOS/Windows compiler coverage: this
+      # job's own legs run the SEED natively (fmt --check over the whole
+      # tree, init + build run), and release.yml smoke-tests every bundle
+      # natively on its own target. Since P2.5 step-24 option A the macOS
+      # bundles are CROSS-EMITTED (their Yo->C runs on Linux; only the C
+      # compile + smoke are native) — the mac runners cannot hold the
+      # ~12.2 GB self-emit.
       - name: Run tests
         if: runner.os == 'Linux'
         shell: bash
@@ -819,33 +823,34 @@ jobs:
   # deletion landed — the reverse order would have blocked every PR in the repo
   # forever on checks that can never report again.
   #
-  # The self-hosted differential below is now the SOLE arm for this tier, which
-  # has two consequences worth stating plainly: its 180-minute budget is the
-  # only thing standing between a regression and an unscored tier, and it is
-  # unsharded, so it pays the full ~22 min serially after its stage-1 build.
-  # Sharding it is filed as issues/selfhosted-differential-job-needs-sharding.md
-  # and needs its own required-check update, because sharding RENAMES the
-  # context.
+  # The self-hosted differential below is the SOLE arm for this tier, sharded
+  # 4-way (issues/fixed/selfhosted-differential-job-needs-sharding.md).
 
-  # The same 58 files under the self-hosted binary, as its own job so it runs in
-  # parallel with the TS shards. This is the differential that matters: a file
+  # The tier under the self-hosted binary. This is the differential that
+  # matters: a file
   # passing under TS and failing here is a codegen or evaluator divergence in the
   # bootstrap compiler (that is exactly how the effect_analysis unary-operator FTT
   # was found, 2026-08-05). The self-hosted runner is sequential regardless of
   # --parallel ("Accepted for CLI compatibility; v1 runs sequentially",
   # yo-self/main.yo) and takes ~22 min after a ~5 min stage-1 build.
   compiler-internal-tests-selfhosted:
-    name: Compiler internal tests (tests/internal, self-hosted differential)
+    name: Compiler internal tests (tests/internal, self-hosted differential shard ${{ matrix.shard }})
     runs-on: ubuntu-latest
-    # 180, not 90: this job's binaries became ASan-INSTRUMENTED when the
-    # self-hosted runner gained TS's default sanitizer (P2.5 step 4), which
-    # costs both compile and run time on top of the ~89 min this job took
-    # UNinstrumented on develop (run 31708389473: 88m50s of a 90 min budget —
-    # 70 s of headroom). Instrumentation alone blew it. If it creeps again,
-    # shard this job 4-way like the TS arm above rather than raising this
-    # further — see issues/selfhosted-differential-job-needs-sharding.md
-    # (that rename requires updating the branch-protection required checks).
-    timeout-minutes: 180
+    # Sharded 4-way (issues/fixed/selfhosted-differential-job-needs-sharding.md,
+    # closed by this change) with the SAME selection the retired TS arm used:
+    # the four heavy macro/reflection files go one per shard, the rest stripe
+    # round-robin over the sorted glob. The unsharded job hit 88m50s of a
+    # 90 min budget UNinstrumented (run 31708389473), then went ASan-
+    # instrumented (P2.5 step 4) on a 180 min budget; each shard now pays the
+    # ~5 min stage-1 build and runs its quarter of the tier. RENAMING NOTE:
+    # the ruleset's required check changed from the single name to the four
+    # shard names in the same change — the swap must land in the ruleset
+    # BEFORE this merges (see the issue's ordering trap).
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
 
     steps:
       - name: Checkout repository
@@ -907,7 +912,41 @@ jobs:
           # llvm-symbolizer still churning. ASan's crash detection
           # (UAF/double-free) stays fully armed — only detect_leaks is off.
           YO_TEST_LEAK_VERDICT: "0"
-        run: /tmp/yo-stage1 test ./tests/internal --parallel 1 --verbose
+        run: |
+          # Shard selection (same as the retired TS arm): the four heavy
+          # macro/reflection files (each compiles the whole evaluator,
+          # ~6.5 GB peak) go one per shard; the rest stripe round-robin over
+          # the sorted glob order.
+          heavies="tests/internal/ast_reflection.test.yo tests/internal/macro_expansion.test.yo tests/internal/macro_helpers.test.yo tests/internal/quote_macro_eval.test.yo"
+          shard=${{ matrix.shard }}
+          files=$(echo "$heavies" | tr ' ' '\n' | sed -n "$((shard + 1))p")
+          i=0
+          for f in tests/internal/*.test.yo; do
+            case " $heavies " in *" $f "*) continue ;; esac
+            if [ $((i % 4)) -eq "$shard" ]; then
+              files="$files $f"
+            fi
+            i=$((i + 1))
+          done
+          echo "shard $shard files:$files"
+          # `rc_all`, not `status` — `status` is read-only in some shells.
+          rc_all=0
+          failed=""
+          for f in $files; do
+            echo "::group::$f"
+            if /tmp/yo-stage1 test "$f" --parallel 1 --verbose; then
+              echo "::endgroup::"
+            else
+              echo "::endgroup::"
+              echo "::error file=$f::tests/internal failure under the self-hosted binary"
+              rc_all=1
+              failed="$failed $f"
+            fi
+          done
+          if [ -n "$failed" ]; then
+            echo "FAILED FILES:$failed"
+          fi
+          exit $rc_all
 
   # P3 item 3 (plans/P3_DISTRIBUTION.md): prove the static-musl Linux bundle
   # BUILDS and RUNS before release.yml ships one. Two distros cannot run the
