@@ -74,6 +74,7 @@ _(env : impl_dbg_env) :: import("std/env");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { subst_new, subst_add, subst_set_self, substitute } :: import("../../types/substitution.yo");
 { get_all_some_types } :: import("../../types/utils.yo");
+{ type_key } :: import("../../types/type_key.yo");
 { random_id } :: import("../../utils.yo");
 { register_func_type } :: import("../../function_value.yo");
 { EvalValue, FuncValData, create_type_value, create_unknown_val } :: import("../../value.yo");
@@ -1229,6 +1230,14 @@ MethodCandidate :: struct(
   method_value : Option(EvalValue),
   source_trait_id : String
 );
+// Memo for `_inject_forall_captures`: injections are ~99% duplicates (a
+// 150k-call probe saw 1,259 distinct (func_id, bindings) keys), and each
+// miss copies the method's full capture arrays (avg ~600 entries). Keying
+// on func_id + binding type_keys + value-binder raws collapses ~167k
+// RETAINED copies (3.87 GB live in a self-emit) to the distinct set.
+// Sharing the injected FuncVal is also the TS-faithful shape: TS restores
+// the impl's env object (`func.$.env`) at dispatch and copies nothing.
+(g_ifc_memo : HashMap(String, EvalValue)) = HashMap(String, EvalValue).new();
 /// Inject the impl's `generic` type-param bindings into a matched method's
 /// closure captures, so the method body resolves `K`, `V`, … to the
 /// receiver's concrete type arguments. Mirrors TS restoring the impl's
@@ -1262,49 +1271,80 @@ _inject_forall_captures :: (
         cns := __fvm9.*.cap_names;
         cts := __fvm9.*.cap_tys;
         fid := __fvm9.*.func_id;
-        new_cns := ArrayList(String).new();
-        new_cts := ArrayList(TypeValue).new();
-        new_cvs := ArrayList(EvalValue).new();
-        // Copy existing captures (do not mutate the registry's arrays).
-        (ci : usize) = usize(0);
-        while(ci < cns.len(), {
-          _a := new_cns.push(match(cns.get(ci), .Some(x) => x, .None => String.from("")));
-          _b := new_cts.push(match(cts.get(ci), .Some(x) => x, .None => t_unit()));
-          _c := new_cvs.push(match(cvs.get(ci), .Some(x) => x, .None => EvalValue.UnitVal));
-          ci = (ci + usize(1));
-        });
-        // Append one capture per impl generic param (bound to its concrete type).
-        n_fa := forall_names.len();
-        (fi2 : usize) = usize(0);
-        while(fi2 < n_fa, {
-          fa_n := match(forall_names.get(fi2), .Some(n) => n, .None => String.from(""));
-          fa_t := match(bindings.get(fi2), .Some(t) => t, .None => t_unit());
-          _a2 := new_cns.push(fa_n);
-          // VALUE binder (`generic(U : usize)`): inject the VALUE (IntLit)
-          // at its declared type — injecting TypeVal(usize) made the body's
-          // `U` a TYPE (the array-family "expected usize, got Type").
-          (fa_is_val : bool) = false;
-          match(
-            binding_vals.get(fi2),
-            .Some(bv) => match(
-              bv,
-              .IntLit(bv_raw) => {
-                fa_is_val = true;
-                _b2v := new_cts.push(t_usize());
-                _c2v := new_cvs.push(EvalValue.IntLit(bv_raw.clone()));
-              },
-              _ => ()
-            ),
-            .None => ()
-          );
-          if(!(fa_is_val), {
-            _b2 := new_cts.push(t_type());
-            _c2 := new_cvs.push(EvalValue.TypeVal(fa_t));
+        memo_key := fid.clone();
+        {
+          (mk_i : usize) = usize(0);
+          while(mk_i < bindings.len(), {
+            memo_key.push_str("|");
+            memo_key.push_string(type_key(match(bindings.get(mk_i), .Some(t) => t, .None => t_unit())));
+            mk_i = (mk_i + usize(1));
           });
-          fi2 = (fi2 + usize(1));
-        });
-        Option(EvalValue).Some(
-          EvalValue.FuncVal(box(FuncValData(forall_names : fns, params : ps, param_type_names : ptns, evidence_params : evs, body : body, cap_names : new_cns, cap_tys : new_cts, func_id : fid)), new_cvs)
+          (mk_v : usize) = usize(0);
+          while(mk_v < binding_vals.len(), {
+            match(
+              binding_vals.get(mk_v),
+              .Some(bv) => match(
+                bv,
+                .IntLit(bv_r) => {
+                  memo_key.push_str("#");
+                  memo_key.push_string(bv_r.clone());
+                },
+                _ => ()
+              ),
+              .None => ()
+            );
+            mk_v = (mk_v + usize(1));
+          });
+        };
+        match(
+          g_ifc_memo.get(memo_key.clone()),
+          .Some(cached) => Option(EvalValue).Some(cached),
+          .None => {
+            new_cns := ArrayList(String).new();
+            new_cts := ArrayList(TypeValue).new();
+            new_cvs := ArrayList(EvalValue).new();
+            // Copy existing captures (do not mutate the registry's arrays).
+            (ci : usize) = usize(0);
+            while(ci < cns.len(), {
+              _a := new_cns.push(match(cns.get(ci), .Some(x) => x, .None => String.from("")));
+              _b := new_cts.push(match(cts.get(ci), .Some(x) => x, .None => t_unit()));
+              _c := new_cvs.push(match(cvs.get(ci), .Some(x) => x, .None => EvalValue.UnitVal));
+              ci = (ci + usize(1));
+            });
+            // Append one capture per impl generic param (bound to its concrete type).
+            n_fa := forall_names.len();
+            (fi2 : usize) = usize(0);
+            while(fi2 < n_fa, {
+              fa_n := match(forall_names.get(fi2), .Some(n) => n, .None => String.from(""));
+              fa_t := match(bindings.get(fi2), .Some(t) => t, .None => t_unit());
+              _a2 := new_cns.push(fa_n);
+              // VALUE binder (`generic(U : usize)`): inject the VALUE (IntLit)
+              // at its declared type — injecting TypeVal(usize) made the body's
+              // `U` a TYPE (the array-family "expected usize, got Type").
+              (fa_is_val : bool) = false;
+              match(
+                binding_vals.get(fi2),
+                .Some(bv) => match(
+                  bv,
+                  .IntLit(bv_raw) => {
+                    fa_is_val = true;
+                    _b2v := new_cts.push(t_usize());
+                    _c2v := new_cvs.push(EvalValue.IntLit(bv_raw.clone()));
+                  },
+                  _ => ()
+                ),
+                .None => ()
+              );
+              if(!(fa_is_val), {
+                _b2 := new_cts.push(t_type());
+                _c2 := new_cvs.push(EvalValue.TypeVal(fa_t));
+              });
+              fi2 = (fi2 + usize(1));
+            });
+            injected := EvalValue.FuncVal(box(FuncValData(forall_names : fns, params : ps, param_type_names : ptns, evidence_params : evs, body : body, cap_names : new_cns, cap_tys : new_cts, func_id : fid)), new_cvs);
+            _memo := g_ifc_memo.set(memo_key, injected);
+            Option(EvalValue).Some(injected)
+          }
         )
       },
       _ => method_val
