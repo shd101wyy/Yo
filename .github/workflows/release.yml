@@ -347,6 +347,18 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y liburing-dev
 
+      # Same provisioning as seed-cross-emit and every self-building job in
+      # test.yml: the stage-2 gate below is a full self-emit, which does not
+      # fit a swapless 16 GB runner (v0.2.8 attempt 3's linux-x64 leg took the
+      # whole VM down mid-emit — "runner received a shutdown signal").
+      - name: Add swap space
+        if: runner.os == 'Linux'
+        run: |
+          sudo fallocate -l 32G /mnt/swapfile
+          sudo chmod 600 /mnt/swapfile
+          sudo mkswap /mnt/swapfile
+          sudo swapon /mnt/swapfile
+
       - name: Install LLVM/Clang
         if: runner.os == 'Windows'
         run: |
