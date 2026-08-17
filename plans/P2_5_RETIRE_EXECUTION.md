@@ -264,20 +264,43 @@ Each step is independently landable and gated by `tests/internal` or a new cli-c
     macOS runners have ~7 GB, so a naive flip OOMs 3 of the 5 legs. Options,
     for a decision before building:
     (A) **C-boundary fan-out** — the seed emits per-target C on Linux runners
-        (`--target <triple>`, with the 32 GB swapfile), each native runner
-        only compiles the C and smoke-tests. Retires node from seed-bundles
-        entirely; cross-emit is target-deterministic and the per-target smoke
-        gates contain the risk; the cost is that Yo->C no longer runs
-        natively on macOS/Windows (the C->binary compile + smoke still do).
+    (`--target <triple>`, with the 32 GB swapfile), each native runner
+    only compiles the C and smoke-tests. Retires node from seed-bundles
+    entirely; cross-emit is target-deterministic and the per-target smoke
+    gates contain the risk; the cost is that Yo->C no longer runs
+    natively on macOS/Windows (the C->binary compile + smoke still do).
     (B) keep TS on the macOS/Windows legs — contradicts Group E (deleting
-        `src/` breaks them); recorded for completeness, not a path.
+    `src/` breaks them); recorded for completeness, not a path.
     (C) paid larger macOS/Windows runners — a money decision.
     (D) wait for plans/backlog/YO_SELF_ENV_SHARING.md (def-time envs COPY
-        what TS SHARES) to bring the emit under 7 GB.
+    what TS SHARES) to bring the emit under 7 GB.
     The stage-2-builds-stage-1 pre-release gate is Linux-viable regardless
     and should ride whichever variant lands.
     24b. **`yo build` becomes the canonical yo-self builder everywhere** (user directive, 2026-08-13; completes what 2.2's root `build.yo` started). Inventory of the raw `compile yo-self/main.yo` builders to convert: - `.github/workflows/test.yml:144` (TS native probe — dies with the job in step 18 anyway), `:240`, `:428`, `:623`-area, `:836`-area (the per-job stage-1 builds) → `yo build` + take the binary from `yo-out/` (or `build.yo` grows an output-path option). Note the CI builds pass `--allocator mimalloc` while root `build.yo`'s `executable` set no allocator (defaulting Libc) — `std/build.yo` already supports `allocator` (`:86-87`, threaded at `build_runner.yo:486`), so this was a one-line `build.yo` fix (landed with this plan edit); without it the conversion would have silently changed the shipped allocator. - `.github/workflows/release.yml:310` (the seed build) → same conversion at step 24. - `scripts/bootstrap/fixpoint_only.sh:7`, `:12` — **keep as `compile --emit-c --skip-c-compiler`**: these are emit-only C byte-comparisons with explicit output paths, not builds; `yo build` has no emit-only mode and imposing one would complicate the build API for a diagnostic script. Record this as the deliberate carve-out. - Local guidance (AGENTS.md build commands, plans/, skills) — sweep in 2.6 to present `yo build` as the way to build the compiler, keeping `yo compile` for one-off artifacts.
     → **verify:** `yo build` from the repo root produces a runnable compiler byte-comparable (same flags) to the `compile --release --allocator mimalloc` build; converted CI legs green; grep shows the fixpoint carve-out is the only surviving raw self-build. **[CI-only]** for the legs, **[local-slow]** for the flag-parity check.
+
+    **PARTIAL 2026-08-17 (second slice): the LINUX legs are seed-built**
+    (branch `p2/seed-bundles-linux-flip`): matrix gained `seed_built`,
+    linux-x64 + linux-arm64 build `yo-seed` with the PREVIOUS release's seed
+    (seed-era flags only, same rule as the musl job) and gate shipping on a
+    stage-2 self-re-emit (rc=0, size floor, and a line-anchored
+    `// Failed to transpile` comment check — the hollow-emit trap; string
+    literals containing the phrase never sit at line start). Their portable-C
+    arms are seed-emitted too. What unblocked it: env-sharing (PR #133) cut
+    the self-emit to ~12.2 GB, which fits 16 GB Linux runners. STILL OPEN
+    (user decision, recorded 2026-08-17: "do the Linux flip now"): the macOS
+    legs (7 GB runners < 12.2 GB — needs option A cross-emit fan-out or
+    option C larger runners; option D is now SPENT — the remaining footprint
+    is emission-phase specialization structures, see
+    `issues/retired/yo-self-emit-perf-drift-since-r16.md` addendum and the
+    refuted capture-memo record in `plans/backlog/YO_SELF_ENV_SHARING.md`),
+    the windows leg (16 GB — flip a release after Linux proves the chain),
+    and the Pages bun island (B7).
+
+    Step 20 note (same date): the ruleset shard contexts were confirmed
+    ALREADY REMOVED from ruleset 13548862 and the TS shard job is already
+    deleted from test.yml — step 20 is DONE; the follow-up is only
+    `issues/selfhosted-differential-job-needs-sharding.md`.
 
     **VERIFIED 2026-08-15 (the flag-parity check).** `yo build --std-path ./std`
     produces a WORKING compiler at `yo-out/<triple>/bin/yo` (`--version` and

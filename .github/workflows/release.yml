@@ -278,24 +278,30 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # seed_built: true — P2.5 step 24: this leg's bundle is built by the
+          # PREVIOUS release's seed (trust chain: previous-release-builds-next;
+          # escape hatch: bootstrap from an older tag, or the src-attic-final
+          # tag while it exists). Linux first: the seed's self-emit peaks at
+          # ~12.2 GB after env-sharing (PR #133) — it fits the 16 GB Linux
+          # runners but NOT the 7 GB macOS runners, so the macOS legs stay
+          # TS-built until P2_5_RETIRE_EXECUTION.md's step-24 option A
+          # (cross-emit fan-out) or C (larger runners) is picked. Windows
+          # runners have 16 GB, but that leg keeps the proven TS path one
+          # release longer (the windows porting tail is the youngest).
           - os: ubuntu-latest
             target: linux-x64
             experimental: false
+            seed_built: true
           # linux-arm64 promoted: green on its first v0.2.0 run.
           - os: ubuntu-24.04-arm
             target: linux-arm64
             experimental: false
-          - os: macos-latest
-            target: macos-arm64
-            experimental: false
-          # macos-x64 runs on macos-26-intel — the LAST Intel macOS GitHub
-          # offers (macos-13 was retired; the v0.2.0 macos-13 leg sat queued
-          # forever). Experimental until it produces a green bundle; when
-          # GitHub retires this label too, drop the leg (Apple is sunsetting
-          # Intel macOS) and Intel-Mac users build from source.
-          - os: macos-26-intel
-            target: macos-x64
-            experimental: false
+            seed_built: true
+          # The two macOS legs moved to `seed-bundles-macos` (cross-emitted —
+          # P2.5 step-24 option A): the seed's self-emit needs ~12.2 GB and
+          # the free macOS runners have 7 GB, so their C is emitted by the
+          # previous seed ON LINUX and only clang-compiled + smoke-tested
+          # natively here. See the seed-cross-emit job.
           # windows-x64 PROMOTED (v0.2.1 proved it E2E: bundle built, smoked,
           # shipped). History: the v0.2.0 leg surfaced the
           # anticipated porting tail (POSIX-isms in the compiler's own
@@ -305,6 +311,7 @@ jobs:
           - os: windows-latest
             target: windows-x64
             experimental: false
+            seed_built: false
 
     steps:
       - name: Checkout the released commit
@@ -326,16 +333,19 @@ jobs:
           echo "C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Setup Bun
+        if: ${{ !matrix.seed_built }}
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
       - name: Setup Node.js
+        if: ${{ !matrix.seed_built }}
         uses: actions/setup-node@v4
         with:
           node-version: "24"
 
       - name: Build the TS compiler
+        if: ${{ !matrix.seed_built }}
         run: |
           bun install
           bun run build
@@ -345,8 +355,56 @@ jobs:
       # will run, and mimalloc is the allocator proven to survive those on
       # 16 GB Linux boxes (glibc malloc inflates the emit's RSS ~72%).
       - name: Build the native yo binary (TS compiler, one last time)
+        if: ${{ !matrix.seed_built }}
         shell: bash
         run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs compile yo-self/main.yo --release --allocator mimalloc -o yo-seed
+
+      # ----- seed-built legs (P2.5 step 24) --------------------------------
+      - name: Install the seed compiler (previous release)
+        if: ${{ matrix.seed_built }}
+        uses: ./.github/actions/install-seed
+        with:
+          version: ${{ env.SEED_VERSION }}
+
+      # SEED-ERA FLAGS ONLY (same rule as the musl job): the previous release
+      # may predate newer options. `--std-path ./std` pins the CHECKOUT's std
+      # (the seed would otherwise compile against its own bundled std).
+      - name: Build the native yo binary (previous seed)
+        if: ${{ matrix.seed_built }}
+        shell: bash
+        env:
+          YO_MAIN_STACK_MB: "4096"
+        run: yo compile yo-self/main.yo --release --allocator mimalloc --std-path ./std -o yo-seed
+
+      # Pre-release trust-chain gate: the candidate must be able to act as the
+      # NEXT release's seed, so prove it can evaluate + emit its own source.
+      # Emit-only (--skip-c-compiler): the expensive, correctness-bearing half
+      # is the Yo->C generation — C compilability of the same generation's
+      # emit is continuously covered by test.yml's fixpoint jobs. The FTT
+      # check guards the hollow-emit trap: an untranspilable function becomes
+      # a `// Failed to transpile` COMMENT in the C with rc=0 (string
+      # LITERALS containing the phrase live inside emitted print statements,
+      # never at line start — see the hollow-sweep methodology notes).
+      - name: "Pre-release gate: the candidate re-emits itself (stage-2)"
+        if: ${{ matrix.seed_built }}
+        shell: bash
+        env:
+          YO_MAIN_STACK_MB: "4096"
+        run: |
+          ./yo-seed compile yo-self/main.yo --release --allocator mimalloc \
+            --std-path ./std --emit-c --skip-c-compiler -o gate-stage2 > /dev/null
+          test -s gate-stage2.c
+          SIZE=$(wc -c < gate-stage2.c)
+          echo "stage-2 emit: $SIZE bytes"
+          if [ "$SIZE" -lt 100000000 ]; then
+            echo "::error::stage-2 emit is implausibly small ($SIZE bytes) — refusing to ship this seed."
+            exit 1
+          fi
+          if grep -qE '^\s*// (Error: )?Failed to transpile' gate-stage2.c; then
+            echo "::error::stage-2 emit contains Failed-to-transpile comments — the candidate cannot compile itself."
+            exit 1
+          fi
+          rm -f gate-stage2.c
 
       - name: Assemble the bundle
         shell: bash
@@ -410,11 +468,26 @@ jobs:
       # that has the headers and no -lmimalloc. The published file must not
       # depend on what the user happens to have installed, so it is libc.
       - name: "Emit this platform's arm of the portable yo.c"
+        if: ${{ !matrix.seed_built }}
         shell: bash
         run: |
           node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs \
             compile yo-self/main.yo --release --allocator libc \
             --skip-c-compiler --emit-c-to "portable-arm/${{ matrix.target }}.c"
+          ls -la "portable-arm/${{ matrix.target }}.c"
+
+      # Seed-era flags: `--emit-c-to` may postdate the seed, so use the
+      # `-o <base>` sidecar form and move it into place (same as the musl job).
+      - name: "Emit this platform's arm of the portable yo.c (seed)"
+        if: ${{ matrix.seed_built }}
+        shell: bash
+        env:
+          YO_MAIN_STACK_MB: "4096"
+        run: |
+          mkdir -p portable-arm
+          yo compile yo-self/main.yo --release --allocator libc \
+            --std-path ./std --emit-c --skip-c-compiler \
+            -o "portable-arm/${{ matrix.target }}" > /dev/null
           ls -la "portable-arm/${{ matrix.target }}.c"
 
       - name: Upload the portable-C arm
@@ -435,6 +508,183 @@ jobs:
   # the short version is that each arm is a complete translation unit under a
   # preprocessor conditional, so the C compiler selects one and skips the rest
   # (measured: 568 MB of skipped arms cost 0.7 s on a 69 s compile).
+  # P2.5 step-24 option A: the free macOS runners (7 GB) cannot hold the
+  # seed's ~12.2 GB self-emit, so the macOS bundles' C is emitted by the
+  # PREVIOUS release's seed on a Linux runner. Verified 2026-08-17: with the
+  # allocator held constant, an explicit `--target aarch64-macos` emit is
+  # BYTE-IDENTICAL to the native default emit on an arm64 Mac — the emit is
+  # a pure function of the triple. (Host-independence across OSes is the
+  # same property the fixpoint gates exercise continuously; the native smoke
+  # below is the per-release backstop.) The macOS runners then only
+  # clang-compile the C and
+  # smoke-test the bundle natively, which is the same end-to-end proof the
+  # native legs have. Native Yo->C coverage on macOS is not lost: test.yml's
+  # `test` job runs the compiler natively on macOS on every PR.
+  seed-cross-emit:
+    name: Cross-emit macOS C (${{ matrix.target }})
+    needs: release
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: macos-arm64
+            yo_target: aarch64-macos
+          - target: macos-x64
+            yo_target: x86_64-macos
+    steps:
+      - name: Checkout the released commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release.outputs.sha }}
+          submodules: recursive
+
+      - name: Add swap space
+        run: |
+          sudo fallocate -l 32G /mnt/swapfile
+          sudo chmod 600 /mnt/swapfile
+          sudo mkswap /mnt/swapfile
+          sudo swapon /mnt/swapfile
+          free -h
+
+      # The SEED runs on this Linux host, so it needs liburing itself even
+      # though the EMITTED C targets macOS (kqueue backend, no liburing).
+      - name: Install liburing
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y liburing-dev
+
+      - name: Install the seed compiler (previous release)
+        uses: ./.github/actions/install-seed
+        with:
+          version: ${{ env.SEED_VERSION }}
+
+      # SEED-ERA FLAGS ONLY (same rule as the musl job). Two emits: the
+      # mimalloc-flavored C for the bundle binary, and the libc-flavored
+      # portable arm (published as `portable-c-<target>` directly, so the
+      # portable-c assembly job needs nothing from the macOS runners).
+      - name: "Cross-emit the bundle C (mimalloc) and the portable arm (libc)"
+        shell: bash
+        env:
+          YO_MAIN_STACK_MB: "4096"
+        run: |
+          mkdir -p cross portable-arm
+          yo compile yo-self/main.yo --release --allocator mimalloc \
+            --std-path ./std --target ${{ matrix.yo_target }} \
+            --emit-c --skip-c-compiler -o "cross/yo-${{ matrix.target }}" > /dev/null
+          yo compile yo-self/main.yo --release --allocator libc \
+            --std-path ./std --target ${{ matrix.yo_target }} \
+            --emit-c --skip-c-compiler -o "portable-arm/${{ matrix.target }}" > /dev/null
+          ls -la cross/ portable-arm/
+
+      - name: Upload the bundle C
+        uses: actions/upload-artifact@v4
+        with:
+          name: seed-cross-${{ matrix.target }}
+          path: cross/yo-${{ matrix.target }}.c
+          retention-days: 1
+          if-no-files-found: error
+
+      - name: Upload the portable-C arm
+        uses: actions/upload-artifact@v4
+        with:
+          name: portable-c-${{ matrix.target }}
+          path: portable-arm/${{ matrix.target }}.c
+          retention-days: 1
+          if-no-files-found: error
+
+  seed-bundles-macos:
+    name: Seed bundle (${{ matrix.target }}, cross-emitted)
+    needs: [release, seed-cross-emit]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    permissions:
+      contents: write
+    continue-on-error: ${{ matrix.experimental }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: macos-arm64
+            experimental: false
+          # macos-x64 runs on macos-26-intel — the LAST Intel macOS GitHub
+          # offers (macos-13 was retired; the v0.2.0 macos-13 leg sat queued
+          # forever). When GitHub retires this label too, drop the leg (Apple
+          # is sunsetting Intel macOS) and Intel-Mac users build from source.
+          - os: macos-26-intel
+            target: macos-x64
+            experimental: false
+    steps:
+      # The checkout provides std + vendor/mimalloc for the bundle contents;
+      # the compiler C itself arrives as an artifact from seed-cross-emit.
+      - name: Checkout the released commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release.outputs.sha }}
+          submodules: recursive
+
+      - name: Download the cross-emitted C
+        uses: actions/download-artifact@v4
+        with:
+          name: seed-cross-${{ matrix.target }}
+          path: cross
+
+      # The exact flag set the compiler itself passes to clang for a native
+      # macOS mimalloc build (src/codegen/index.ts / yo-self main.yo): no
+      # -luring (Linux-only; the macOS C uses the kqueue backend), no
+      # explicit -lpthread/-lm (libSystem provides both). `-w` matches the
+      # musl job's convention for third-party-sized C.
+      - name: "Compile the cross-emitted C natively"
+        shell: bash
+        run: |
+          clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
+            "cross/yo-${{ matrix.target }}.c" vendor/mimalloc/src/static.c \
+            -I vendor/mimalloc/include \
+            -o yo-seed
+          ./yo-seed --version
+
+      - name: Assemble the bundle
+        shell: bash
+        run: |
+          BUNDLE="yo-v${{ needs.release.outputs.version }}-${{ matrix.target }}"
+          mkdir -p "$BUNDLE/bin"
+          cp yo-seed "$BUNDLE/bin/yo"
+          cp -R std "$BUNDLE/std"
+          # vendor/mimalloc must ship as a SIBLING of std (see the native
+          # legs' comment).
+          mkdir -p "$BUNDLE/vendor"
+          cp -R vendor/mimalloc "$BUNDLE/vendor/mimalloc"
+          cp LICENSE.md "$BUNDLE/"
+          tar -czf "$BUNDLE.tar.gz" "$BUNDLE"
+          echo "BUNDLE=$BUNDLE" >> $GITHUB_ENV
+
+      # Same native smoke as the other legs: the bundle must prove itself
+      # self-sufficient from outside the checkout, on the real target OS.
+      - name: Smoke-test the bundle
+        shell: bash
+        run: |
+          BUNDLE_DIR="$PWD/$BUNDLE"
+          mkdir -p "$RUNNER_TEMP/seed-smoke" && cd "$RUNNER_TEMP/seed-smoke"
+          printf '%s\n' 'open(import("std/fmt"));' 'main :: (fn() -> unit)(println("hello from the yo seed"));' 'export(main);' > hello.yo
+          YO="$BUNDLE_DIR/bin/yo"
+          YO_STD="$BUNDLE_DIR/std" "$YO" compile hello.yo --release -o hello 2>compile.err || { cat compile.err; exit 1; }
+          cat compile.err
+          if grep -q "mimalloc: error" compile.err; then
+            echo "::error::The bundled compiler reported allocator errors on its own stderr — refusing to ship this bundle."
+            exit 1
+          fi
+          OUT=$(./hello)
+          echo "smoke output: $OUT"
+          test "$OUT" = "hello from the yo seed"
+
+      - name: Attach the bundle to the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "v${{ needs.release.outputs.version }}" "$BUNDLE.tar.gz" --clobber
+
   musl-bundle:
     name: Static musl Linux bundle (linux-x64-musl)
     needs: release
@@ -573,7 +823,7 @@ jobs:
 
   portable-c:
     name: Portable single-file yo.c
-    needs: [release, seed-bundles]
+    needs: [release, seed-bundles, seed-cross-emit]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -634,7 +884,7 @@ jobs:
     # its continue-on-error off (the pairing rule its comment recorded): a
     # promoted leg's failure must hold publication, or a red musl run ships a
     # release whose install.sh advertises a bundle that never arrives.
-    needs: [release, seed-bundles, portable-c, musl-bundle]
+    needs: [release, seed-bundles, seed-bundles-macos, portable-c, musl-bundle]
     runs-on: ubuntu-latest
     permissions:
       contents: write
