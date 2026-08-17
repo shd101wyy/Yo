@@ -197,14 +197,35 @@ jobs:
           npm ci
           npm run package
 
+      # NON-FATAL: a Marketplace outage must not kill the release — the seed
+      # bundles are the release's substance, and the .vsix is uploaded as an
+      # artifact below for a manual `vsce publish --packagePath` when the
+      # service recovers. (The 2026-08-17 v0.2.8 attempt died here on
+      # "TF10216: Azure DevOps services are currently unavailable" AFTER the
+      # version-bump commit was already pushed — every such failure burned a
+      # version number.)
       - name: Publish extension to Visual Studio Marketplace
         id: create_vsix
+        continue-on-error: true
         uses: HaaLeo/publish-vscode-extension@v2
         with:
           dryRun: ${{ github.ref != 'refs/heads/develop' }}
           pat: ${{ secrets.VS_MARKETPLACE_TOKEN }}
           packagePath: ./vscode-extension
           registryUrl: https://marketplace.visualstudio.com
+
+      - name: Surface a failed Marketplace publish
+        if: steps.create_vsix.outcome == 'failure'
+        run: |
+          echo "::warning::Marketplace publish FAILED (service outage?). Publish manually when it recovers: cd vscode-extension && vsce publish -p \$VS_MARKETPLACE_TOKEN --packagePath yolang-*.vsix"
+
+      - name: Upload the .vsix as an artifact (manual-publish fallback)
+        uses: actions/upload-artifact@v4
+        with:
+          name: yolang-vsix
+          path: vscode-extension/*.vsix
+          retention-days: 30
+          if-no-files-found: warn
 
       - name: Create GitHub Release (draft — published after the seed bundles land)
         uses: softprops/action-gh-release@v2
