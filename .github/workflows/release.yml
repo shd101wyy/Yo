@@ -278,16 +278,29 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # seed_built: true — P2.5 step 24: this leg's bundle is built by the
+          # PREVIOUS release's seed (trust chain: previous-release-builds-next;
+          # escape hatch: bootstrap from an older tag, or the src-attic-final
+          # tag while it exists). Linux first: the seed's self-emit peaks at
+          # ~12.2 GB after env-sharing (PR #133) — it fits the 16 GB Linux
+          # runners but NOT the 7 GB macOS runners, so the macOS legs stay
+          # TS-built until P2_5_RETIRE_EXECUTION.md's step-24 option A
+          # (cross-emit fan-out) or C (larger runners) is picked. Windows
+          # runners have 16 GB, but that leg keeps the proven TS path one
+          # release longer (the windows porting tail is the youngest).
           - os: ubuntu-latest
             target: linux-x64
             experimental: false
+            seed_built: true
           # linux-arm64 promoted: green on its first v0.2.0 run.
           - os: ubuntu-24.04-arm
             target: linux-arm64
             experimental: false
+            seed_built: true
           - os: macos-latest
             target: macos-arm64
             experimental: false
+            seed_built: false
           # macos-x64 runs on macos-26-intel — the LAST Intel macOS GitHub
           # offers (macos-13 was retired; the v0.2.0 macos-13 leg sat queued
           # forever). Experimental until it produces a green bundle; when
@@ -296,6 +309,7 @@ jobs:
           - os: macos-26-intel
             target: macos-x64
             experimental: false
+            seed_built: false
           # windows-x64 PROMOTED (v0.2.1 proved it E2E: bundle built, smoked,
           # shipped). History: the v0.2.0 leg surfaced the
           # anticipated porting tail (POSIX-isms in the compiler's own
@@ -305,6 +319,7 @@ jobs:
           - os: windows-latest
             target: windows-x64
             experimental: false
+            seed_built: false
 
     steps:
       - name: Checkout the released commit
@@ -326,16 +341,19 @@ jobs:
           echo "C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Setup Bun
+        if: ${{ !matrix.seed_built }}
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
       - name: Setup Node.js
+        if: ${{ !matrix.seed_built }}
         uses: actions/setup-node@v4
         with:
           node-version: "24"
 
       - name: Build the TS compiler
+        if: ${{ !matrix.seed_built }}
         run: |
           bun install
           bun run build
@@ -345,8 +363,56 @@ jobs:
       # will run, and mimalloc is the allocator proven to survive those on
       # 16 GB Linux boxes (glibc malloc inflates the emit's RSS ~72%).
       - name: Build the native yo binary (TS compiler, one last time)
+        if: ${{ !matrix.seed_built }}
         shell: bash
         run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs compile yo-self/main.yo --release --allocator mimalloc -o yo-seed
+
+      # ----- seed-built legs (P2.5 step 24) --------------------------------
+      - name: Install the seed compiler (previous release)
+        if: ${{ matrix.seed_built }}
+        uses: ./.github/actions/install-seed
+        with:
+          version: ${{ env.SEED_VERSION }}
+
+      # SEED-ERA FLAGS ONLY (same rule as the musl job): the previous release
+      # may predate newer options. `--std-path ./std` pins the CHECKOUT's std
+      # (the seed would otherwise compile against its own bundled std).
+      - name: Build the native yo binary (previous seed)
+        if: ${{ matrix.seed_built }}
+        shell: bash
+        env:
+          YO_MAIN_STACK_MB: "4096"
+        run: yo compile yo-self/main.yo --release --allocator mimalloc --std-path ./std -o yo-seed
+
+      # Pre-release trust-chain gate: the candidate must be able to act as the
+      # NEXT release's seed, so prove it can evaluate + emit its own source.
+      # Emit-only (--skip-c-compiler): the expensive, correctness-bearing half
+      # is the Yo->C generation — C compilability of the same generation's
+      # emit is continuously covered by test.yml's fixpoint jobs. The FTT
+      # check guards the hollow-emit trap: an untranspilable function becomes
+      # a `// Failed to transpile` COMMENT in the C with rc=0 (string
+      # LITERALS containing the phrase live inside emitted print statements,
+      # never at line start — see the hollow-sweep methodology notes).
+      - name: "Pre-release gate: the candidate re-emits itself (stage-2)"
+        if: ${{ matrix.seed_built }}
+        shell: bash
+        env:
+          YO_MAIN_STACK_MB: "4096"
+        run: |
+          ./yo-seed compile yo-self/main.yo --release --allocator mimalloc \
+            --std-path ./std --emit-c --skip-c-compiler -o gate-stage2 > /dev/null
+          test -s gate-stage2.c
+          SIZE=$(wc -c < gate-stage2.c)
+          echo "stage-2 emit: $SIZE bytes"
+          if [ "$SIZE" -lt 100000000 ]; then
+            echo "::error::stage-2 emit is implausibly small ($SIZE bytes) — refusing to ship this seed."
+            exit 1
+          fi
+          if grep -qE '^\s*// (Error: )?Failed to transpile' gate-stage2.c; then
+            echo "::error::stage-2 emit contains Failed-to-transpile comments — the candidate cannot compile itself."
+            exit 1
+          fi
+          rm -f gate-stage2.c
 
       - name: Assemble the bundle
         shell: bash
@@ -410,11 +476,26 @@ jobs:
       # that has the headers and no -lmimalloc. The published file must not
       # depend on what the user happens to have installed, so it is libc.
       - name: "Emit this platform's arm of the portable yo.c"
+        if: ${{ !matrix.seed_built }}
         shell: bash
         run: |
           node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs \
             compile yo-self/main.yo --release --allocator libc \
             --skip-c-compiler --emit-c-to "portable-arm/${{ matrix.target }}.c"
+          ls -la "portable-arm/${{ matrix.target }}.c"
+
+      # Seed-era flags: `--emit-c-to` may postdate the seed, so use the
+      # `-o <base>` sidecar form and move it into place (same as the musl job).
+      - name: "Emit this platform's arm of the portable yo.c (seed)"
+        if: ${{ matrix.seed_built }}
+        shell: bash
+        env:
+          YO_MAIN_STACK_MB: "4096"
+        run: |
+          mkdir -p portable-arm
+          yo compile yo-self/main.yo --release --allocator libc \
+            --std-path ./std --emit-c --skip-c-compiler \
+            -o "portable-arm/${{ matrix.target }}" > /dev/null
           ls -la "portable-arm/${{ matrix.target }}.c"
 
       - name: Upload the portable-C arm
