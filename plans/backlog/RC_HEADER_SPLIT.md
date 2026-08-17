@@ -1,6 +1,23 @@
 # RC-header split: the measured path from 12.2 GB to sub-7 GB self-emit
 
-**Status: PLANNED, deliberately sequenced AFTER `src/` retirement (P2 Group E).**
+**Status: PHASE 1 LANDED 2026-08-17** (branch `perf/rc-header-split`,
+user-directed to start before retirement — implemented in BOTH compilers).
+**Measured result: −0.7 GB (12.21 → 11.53 GB), wall 227 s** — real but far
+short of the −3.31 GB projection, because the census below OVERCOUNTS
+liveness: its −1 counters live in dispose FUNCTIONS, but inline RC drops
+(the dup/drop optimizer's inline generators) free objects without calling
+the mapped dispose, so hot-path types' "live at exit" is inflated (that is
+also why "live" appeared to exceed peak, which is impossible for true
+liveness). True peak composition still unknown — next instrument is a
+malloc/free size-class histogram snapshotted at the high-water mark
+(allocator-boundary accounting, immune to the inline-drop blind spot).
+Validation: smoke + ASan clean, 10 canary files green, FIXPOINT_HOLDS
+(also proves both compilers emit identical C), gates_fast T1 failures=0,
+317 of ~396 ref types small in the self-emit.
+
+Original plan (with the now-known-flawed census projection) follows.
+
+**Original status: PLANNED, deliberately sequenced AFTER `src/` retirement (P2 Group E).**
 The change rewrites every emitted object's layout; under the strict-1:1 rule it
 would have to land in BOTH compilers and re-prove fixpoint across both, then
 one copy is deleted. Post-retirement it is a single-codebase change. Nothing
