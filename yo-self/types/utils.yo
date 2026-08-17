@@ -914,6 +914,22 @@ can_type_form_rc_cycle :: (fn(ty : TypeValue) -> bool)(
     true => false
   )
 );
+/// Whether a reference-semantics type uses the SMALL RC header
+/// (`__yo_ref_header_small_t`, 16 B) instead of the full 56 B one. Mirrors
+/// TS `typeUsesSmallRcHeader` (types/utils.ts): cycle-INCAPABLE, non-atomic
+/// types in a cycle-GC program — exactly the ones whose constructors never
+/// `__yo_gc_register`. Call sites are already inside reference-semantics
+/// branches and pass their own atomicity, so this reduces to the predicate
+/// core. See plans/backlog/RC_HEADER_SPLIT.md.
+type_uses_small_rc_header :: (
+  fn(ty : TypeValue, needs_cycle_gc : bool, is_atomic : bool) -> bool
+)(
+  cond(
+    !(needs_cycle_gc) => false,
+    is_atomic => false,
+    true => !(can_type_form_rc_cycle(ty))
+  )
+);
 /// Return `true` if the type needs type-inference to resolve fully
 /// — specifically when an `Array(T, length)` carries an unknown
 /// `length` that the evaluator must compute. Mirrors
@@ -1802,7 +1818,7 @@ export(type_requires_comptime_modifier, type_prohibits_comptime_modifier);
 export(type_implements_runtime_builtin, type_implements_runtime, type_is_comptime_only);
 export(type_contains_rc_type);
 export(type_is_control_bound);
-export(can_type_form_rc_cycle, buffer_element_type, _type_refs_back_to_cyclic);
+export(can_type_form_rc_cycle, type_uses_small_rc_header, buffer_element_type, _type_refs_back_to_cyclic);
 export(type_requires_inference);
 export(type_contains_some_type);
 export(get_all_some_types);

@@ -19,7 +19,7 @@ open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { TypeValue } :: import("../../types/definitions.yo");
 { is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_atomic_reference_enum_type, is_enum_type, is_struct_type, is_newtype_type, is_tuple_type, is_array_type, is_unit_type } :: import("../../types/guards.yo");
-{ type_contains_some_type, type_contains_rc_type, can_type_form_rc_cycle, _type_refs_back_to_cyclic } :: import("../../types/utils.yo");
+{ type_contains_some_type, type_contains_rc_type, can_type_form_rc_cycle, type_uses_small_rc_header, _type_refs_back_to_cyclic } :: import("../../types/utils.yo");
 { get_type_string, get_runtime_struct_fields, sanitize_for_c_identifier, get_enum_variant_c_name, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, RuntimeStructField } :: import("../utils/index.yo");
 { FunctionGenerationContext } :: import("./context.yo");
 { get_dispose_function_for_type, get_trace_function_for_type } :: import("../exprs/drop_dup.yo");
@@ -89,11 +89,19 @@ _generate_one_constructor :: (fn(type : TypeValue, c_name : String, context : Fu
   em.emit_string_line(String.from("  obj->header.ref_count = 1;  // Start with one reference"));
   em.emit_string_line(String.from("  obj->header.borrow_count = 0;  // Law-of-Exclusivity: no live interior borrows yet"));
   is_atomic := is_atomic_reference_struct_type(type);
+  small_header := type_uses_small_rc_header(type, context.base.needs_cycle_gc, is_atomic);
   if(context.base.needs_cycle_gc && !(is_atomic), {
+    // gc_flags/gc_mark live in the shared packed word and MUST be
+    // initialized for every layout: GC visitors read a CHILD's gc_flags
+    // before deciding to skip it, and small-header objects are visited
+    // as children of tracked parents. The GC list pointers exist only in
+    // the big header.
     em.emit_string_line(String.from("  obj->header.gc_flags = 0;"));
     em.emit_string_line(String.from("  obj->header.gc_mark = __YO_GC_UNMARKED;"));
-    em.emit_string_line(String.from("  obj->header.gc_next = NULL;"));
-    em.emit_string_line(String.from("  obj->header.gc_prev = NULL;"));
+    if(!(small_header), {
+      em.emit_string_line(String.from("  obj->header.gc_next = NULL;"));
+      em.emit_string_line(String.from("  obj->header.gc_prev = NULL;"));
+    });
   });
   // Dispose function pointer / type-tag.
   match(
@@ -116,8 +124,10 @@ _generate_one_constructor :: (fn(type : TypeValue, c_name : String, context : Fu
       em.emit_string_line(String.from("  obj->header.type_id = 0;"));
     })
   );
-  // Traversal function pointer (cyclic GC only; atomic never participates).
-  if(context.base.needs_cycle_gc && !(is_atomic), {
+  // Traversal function pointer (cyclic GC only; atomic never participates;
+  // the small header has no traverse_fn — nothing ever reads it on
+  // untracked objects).
+  if((context.base.needs_cycle_gc && !(is_atomic)) && !(small_header), {
     line := String.from("  obj->header.traverse_fn = __yo_traverse_");
     line.push_string(c_name.clone());
     line.push_str(";");
@@ -508,6 +518,7 @@ _generate_one_ref_enum_constructor_set :: (fn(type : TypeValue, c_name : String,
   dispose_opt := get_dispose_function_for_type(type, context);
   is_atomic := is_atomic_reference_enum_type(type);
   registers_with_gc := ((context.base.needs_cycle_gc && !(is_atomic)) && can_type_form_rc_cycle(type));
+  enum_small_header := type_uses_small_rc_header(type, context.base.needs_cycle_gc, is_atomic);
   match(
     type,
     .EnumT({ id : enum_id, variant_names, variant_fields, variant_field_labels }) => {
@@ -566,10 +577,14 @@ _generate_one_ref_enum_constructor_set :: (fn(type : TypeValue, c_name : String,
         em.emit_string_line(`  obj->header.ref_count = 1;  // Start with one reference`);
         em.emit_string_line(`  obj->header.borrow_count = 0;  // Law-of-Exclusivity: no live interior borrows yet`);
         if(context.base.needs_cycle_gc && !(is_atomic), {
+          // Shared packed word always initialized; GC list pointers exist
+          // only in the big header (see the struct ctor's comment).
           em.emit_string_line(`  obj->header.gc_flags = 0;`);
           em.emit_string_line(`  obj->header.gc_mark = __YO_GC_UNMARKED;`);
-          em.emit_string_line(`  obj->header.gc_next = NULL;`);
-          em.emit_string_line(`  obj->header.gc_prev = NULL;`);
+          if(!(enum_small_header), {
+            em.emit_string_line(`  obj->header.gc_next = NULL;`);
+            em.emit_string_line(`  obj->header.gc_prev = NULL;`);
+          });
         });
         // Dispose function pointer (cyclic GC) / type-tag (lightweight path).
         match(
@@ -586,8 +601,9 @@ _generate_one_ref_enum_constructor_set :: (fn(type : TypeValue, c_name : String,
             em.emit_string_line(`  obj->header.type_id = 0;`);
           })
         );
-        // Traversal function pointer (cyclic GC only; atomic never participates).
-        if(context.base.needs_cycle_gc && !(is_atomic), {
+        // Traversal function pointer (cyclic GC only; atomic never
+        // participates; small header has no traverse_fn).
+        if((context.base.needs_cycle_gc && !(is_atomic)) && !(enum_small_header), {
           em.emit_string_line(`  obj->header.traverse_fn = __yo_traverse_${c_name};`);
         });
         // Tag + active variant's non-unit field assignments.
