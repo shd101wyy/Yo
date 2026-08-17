@@ -563,7 +563,7 @@ jobs:
     name: Cross-emit macOS C (${{ matrix.target }})
     needs: release
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -599,20 +599,36 @@ jobs:
         with:
           version: ${{ env.SEED_VERSION }}
 
-      # SEED-ERA FLAGS ONLY (same rule as the musl job). Two emits: the
-      # mimalloc-flavored C for the bundle binary, and the libc-flavored
-      # portable arm (published as `portable-c-<target>` directly, so the
-      # portable-c assembly job needs nothing from the macOS runners).
+      # The CANDIDATE (this release's compiler) must do the cross-emits, not
+      # the seed. v0.2.7 predates f7b5cc460 ("fold comptime platform/arch
+      # from the TARGET"), so a v0.2.7 cross-emit bakes the LINUX host's
+      # platform constants into the macOS binary, which then emits Linux C
+      # on macOS — v0.2.8 attempt 3's smoke test died on
+      # `#include <sys/sendfile.h>` in hello.c. Building the candidate
+      # natively is safe (host == target, seed-era flags), and the
+      # candidate's cross-emits fold from the target. This extra stage also
+      # future-proofs the legs against any seed-era codegen bug: released
+      # bundles are always emitted by the release's own compiler.
+      - name: Build the candidate compiler (previous seed, native)
+        shell: bash
+        env:
+          YO_MAIN_STACK_MB: "4096"
+        run: yo compile yo-self/main.yo --release --allocator mimalloc --std-path ./std -o yo-candidate
+
+      # Two emits by the candidate: the mimalloc-flavored C for the bundle
+      # binary, and the libc-flavored portable arm (published as
+      # `portable-c-<target>` directly, so the portable-c assembly job needs
+      # nothing from the macOS runners).
       - name: "Cross-emit the bundle C (mimalloc) and the portable arm (libc)"
         shell: bash
         env:
           YO_MAIN_STACK_MB: "4096"
         run: |
           mkdir -p cross portable-arm
-          yo compile yo-self/main.yo --release --allocator mimalloc \
+          ./yo-candidate compile yo-self/main.yo --release --allocator mimalloc \
             --std-path ./std --target ${{ matrix.yo_target }} \
             --emit-c --skip-c-compiler -o "cross/yo-${{ matrix.target }}" > /dev/null
-          yo compile yo-self/main.yo --release --allocator libc \
+          ./yo-candidate compile yo-self/main.yo --release --allocator libc \
             --std-path ./std --target ${{ matrix.yo_target }} \
             --emit-c --skip-c-compiler -o "portable-arm/${{ matrix.target }}" > /dev/null
           ls -la cross/ portable-arm/
