@@ -223,7 +223,37 @@ that machinery exists only because a _fresh_ env lost the signature's `SomeT`
 identity. Sharing restores the identity TS has, which is what the comment at
 `function_type.yo:287` says TS gets for free. Verify, then delete.
 
-### Second site (same class)
+### Second site (same class) — MEASURED AND REFUTED 2026-08-17
+
+The remedy sketched below (memoize/share the `capture_env_for` rebuild) was
+built twice and refuted twice; **do not retry memo variants here**:
+
+- The rebuild population: 242,154 rebuilds minting 144,492,981 Variables per
+  self-emit (~597/rebuild), 99% from DERIVED FuncVal creation
+  (specialization, impl shells, ctl-inline) — not `evaluate_anonymous_function`.
+- By-source memo (registered at the anon-fn creation site): 37 hits.
+- Content-fingerprint memo (`len:first:last:module` + full element-wise
+  validation, VarRef-by-name): 587 hits (0.24%) — the lists are genuinely
+  content-unique (specializations bind different concrete types; ctl mints a
+  fresh `create_type_value(...)` wrapper per creation) — and the unbounded
+  table ADDED 2.1 GB retention.
+- The only lever left for this site is the TS-shape live share
+  (`functionValue.env`: frozen-membership frames of live Variables, replacing
+  flat lists + VarRef) — a SEMANTICS change (dup-accounting risk on runtime
+  captures) needing its own campaign.
+
+Related same-day results: the self-emit "perf drift" was attributed (NOT a
+compiler regression — today's compiler is 1.6-1.7× faster than r16's; the
+tree got 2.7× heavier), the full `check` closure peaks at 1.89 GB vs the
+12.2 GB emit (**~85% of footprint is EMISSION-PHASE specialization
+structures** — the next census target, along with the 56 B RC-header shrink),
+and a libc-vs-mimalloc A/B on macOS showed identical footprint (the r15
+"mimalloc fatter" note does not reproduce post-sharing). Records:
+`issues/retired/yo-self-emit-perf-drift-since-r16.md`.
+
+#### Original sketch (superseded)
+
+**Second site (same class)**
 
 `capture_env_for` (`yo-self/env.yo` ~1785) rebuilds the entire flattened lexical
 scope per `FuncVal`, ~660 bindings per build with no TS counterpart. The capture-env
