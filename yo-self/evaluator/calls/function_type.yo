@@ -37,7 +37,16 @@ _(env : fnty_env) :: import("std/env");
   push_active_where_trait_ids,
   pop_active_where_trait_ids
 } :: import("../../expr_info.yo");
-{ Environment, Variable, add_variable_to_env, add_parameter_to_env, synthetic_token, snapshot_env } :: import("../../env.yo");
+{
+  Environment,
+  Variable,
+  Frame,
+  add_variable_to_env,
+  add_parameter_to_env,
+  synthetic_token,
+  snapshot_env,
+  generate_variable_id
+} :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_some_t, t_ptr, resolve_some_binder_kind } :: import("../../types/creators.yo");
 { is_type_0, is_some_type, is_unit_type, is_function_type } :: import("../../types/guards.yo");
@@ -410,6 +419,86 @@ _type_binder_env_value :: (
 /// with the parameters bound (with `is_ref`/`is_parameter` set so the
 /// flow-soundness check recognises them). Mirrors how TS `evaluateFunctionType`
 /// binds params into the env threaded to the body eval (function.ts:711-713).
+/// Build a def-time body env SHARING the caller's `Variable` handles but NOT
+/// its mutable `Frame` objects (plans/backlog/YO_SELF_ENV_SHARING.md §3 +
+/// issues/env-sharing-live-frame-membership-leak.md). Every frame — frame 0
+/// included — is rebuilt as a new `Frame` whose `variables` list holds the
+/// SAME `Variable` handles; with `strip` set, frames 1..n keep only
+/// `is_compile_time_only || is_module_level` bindings (the module-level keep
+/// is a yo-self divergence carried over from the retired flattening copy:
+/// unlike TS, module runtime globals can live outside frame 0 here).
+/// `is_implicit` bindings are NOT dropped — the flattening copy never dropped
+/// them either, and changing that here would be a second behavior change
+/// hiding inside a memory fix.
+///
+/// WHY membership must be frozen per-frame instead of pushing the live Frame
+/// handles (`snapshot_env`): TS's `addVariableToEnv` (env.ts:660-688) is
+/// PERSISTENT — it builds a new frame + new frames list, so an env captured
+/// at definition time keeps point-in-time frame membership forever, which is
+/// what lets TS hand the caller env to a def-time body eval by reference
+/// (function-type.ts:296-304). yo-self frames append IN PLACE, so pushing the
+/// live handles lets bindings added AFTER the definition leak into the def
+/// env and every `ExprInfo.env` recorded from the body eval. Measured cost of
+/// the leak: std/fs/file.yo binds a METHOD named `fd` (line ~218) after the
+/// sibling methods whose bodies bind a local `fd :=` (read/open_with); at
+/// codegen time `generate_initialization_assignment`'s
+/// `_last_is_compile_time_only(lhs_ei.env, "fd")` found the late-bound
+/// comptime method binding (the LHS atom's recorded env predates the local's
+/// own binding, so the method was the ONLY match) and silently skipped the
+/// statement — emitted C referenced an undeclared `fd`.
+_share_def_time_frames :: (fn(env : Environment, strip : bool) -> Environment)({
+  new_frames := ArrayList(Frame).new();
+  n := env.frames.len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    match(
+      env.frames.get(i),
+      .Some(frame) => {
+        new_vars := ArrayList(Variable).new();
+        m := frame.variables.len();
+        (j : usize) = usize(0);
+        while(j < m, {
+          match(
+            frame.variables.get(j),
+            .Some(v) => {
+              keep := cond(
+                !(strip) => true,
+                (i == usize(0)) => true,
+                v.is_compile_time_only => true,
+                v.is_module_level => true,
+                true => false
+              );
+              if(keep, {
+                new_vars.push(v);
+              });
+            },
+            .None => ()
+          );
+          j = (j + usize(1));
+        });
+        new_frames.push(
+          Frame(
+            id : frame.id,
+            variables : new_vars,
+            is_begin_block : frame.is_begin_block,
+            where_clause_constraints : frame.where_clause_constraints,
+            // Fresh key: this rebuilt frame gets its OWN lazy index
+            // entry (see Frame.index_key doc in env.yo).
+            index_key : generate_variable_id(String.from(""), String.from("fidx"))
+          )
+        );
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  Environment(
+    frames : new_frames,
+    module_path : env.module_path,
+    function_declaration_frame_level : env.function_declaration_frame_level,
+    input_string : env.input_string
+  )
+});
 _build_def_time_body_env :: (
   fn(
     caller_env : Environment,
@@ -476,92 +565,144 @@ _build_def_time_body_env :: (
   ) -> Environment
 )({
   module_path := caller_env.module_path;
-  fresh_env := Environment.new(module_path);
-  (cap_fi : usize) = usize(0);
-  while(cap_fi < caller_env.frames.len(), {
+  // ENV SHARING (plans/backlog/YO_SELF_ENV_SHARING.md §3) — the body env
+  // shares the caller env's VARIABLE handles, exactly as TS does
+  // (function-type.ts:297-304: keepTopLevelFrameAndComptimeVariablesFromEnv
+  // when nested, else the caller env itself; TS then evaluates the body
+  // against those same Variable objects, function-type.ts:499). The
+  // per-definition flattening COPY this replaces minted 2,760,212 Variables
+  // per self-compile — 37% of the 7.43 M live-Variable census (measured
+  // 2026-08-17; YO_GC_FULL_PCT=130 confirmed none of it is collectible
+  // garbage). Sharing also makes the copy's three flag-carry patches
+  // (is_reassignable, is_module_level, and the forced is_compile_time_only)
+  // structural: the body sees each Variable's true flags. Frame MEMBERSHIP
+  // is still frozen per-frame (see _share_def_time_frames' doc): pushing the
+  // live mutable Frame handles let later-bound siblings leak into this def's
+  // recorded envs and silently drop statements at codegen.
+  fresh_env := _share_def_time_frames(caller_env, strip_outer_runtime);
+  // Family B re-kind, sharing edition: an impl-level VALUE binder
+  // (`impl(generic(T : Type, N : usize), ...)`) is bound `TypeVal(SomeT)` in
+  // the impl's forall env — load-bearing there for receiver-pattern
+  // evaluation — but a def-time BODY env must see an unknown VALUE of the
+  // declared type (TS createUnknownValue(declaredType)), or `r.end > N`
+  // fails "Cannot unify usize and Type". The kind comes from the NAME-only
+  // side table registered at the impl binder site and resolved PURELY
+  // (builtin scalars, no env) — every env-involved resolution measurably
+  // broke the circular-import order (see resolve_some_binder_kind). The
+  // retired copy loop re-kinded its copies in place; shared Variables must
+  // not be mutated, so the re-kinds become SHADOW bindings in the parameter
+  // frame instead (added after push_frame below; the later forall/parameter
+  // bindings of the same name still win — same frame, last-added wins). The
+  // scan walks frames outer→inner recording the LAST binding per name, so a
+  // name whose innermost visible binding is not a re-kindable SomeT is never
+  // shadowed — the same winner the flattened env's lookup produced.
+  rk_names := ArrayList(String).new();
+  rk_tys := ArrayList(Option(TypeValue)).new();
+  rk_reassign := ArrayList(bool).new();
+  rk_module_level := ArrayList(bool).new();
+  (rk_fi : usize) = usize(0);
+  while(rk_fi < fresh_env.frames.len(), {
     match(
-      caller_env.frames.get(cap_fi),
-      .Some(cap_frame) => {
-        (cap_vi : usize) = usize(0);
-        while(cap_vi < cap_frame.variables.len(), {
+      fresh_env.frames.get(rk_fi),
+      .Some(rk_frame) => {
+        (rk_vi : usize) = usize(0);
+        while(rk_vi < rk_frame.variables.len(), {
           match(
-            cap_frame.variables.get(cap_vi),
-            .Some(cv) => {
-              keep_cv := cond(
-                !(strip_outer_runtime) => true,
-                (cap_fi == usize(0)) => true,
-                cv.is_compile_time_only => true,
-                cv.is_module_level => true,
-                true => false
-              );
-              if(keep_cv && !(cv.name == "__recur_fn"), {
-                cap_value := match(cv.value.get(usize(0)), .Some(actual) => Option(EvalValue).Some(actual), .None => Option(EvalValue).None);
-                // Family B re-kind: an impl-level VALUE binder
-                // (`impl(generic(T : Type, N : usize), ...)`) is bound
-                // `TypeVal(SomeT)` in the impl's forall env — load-bearing
-                // there for receiver-pattern evaluation — but a def-time
-                // BODY env must see an unknown VALUE of the declared type
-                // (TS createUnknownValue(declaredType)), or `r.end > N`
-                // fails "Cannot unify usize and Type". The kind comes from
-                // the NAME-only side table registered at the impl binder
-                // site and resolved PURELY (builtin scalars, no env) —
-                // every env-involved resolution measurably broke the
-                // circular-import order (see resolve_some_binder_kind).
-                (cap_ty_final : TypeValue) = cv.ty;
-                (cap_value_final : Option(EvalValue)) = cap_value;
-                match(
-                  cap_value,
-                  .Some(cv_ev) => match(
-                    cv_ev,
-                    .TypeVal(cv_tv) => match(
-                      cv_tv,
-                      .SomeT(_, cv_sname, cv_slvl, _, _, _, _, _, _, _, _) => match(
-                        resolve_some_binder_kind(cv_sname, cv_slvl),
-                        .Some(cv_bty) => {
-                          cap_ty_final = cv_bty.clone();
-                          cap_value_final = Option(EvalValue).Some(create_unknown_val(cv_bty));
-                        },
-                        .None => ()
-                      ),
-                      _ => ()
-                    ),
-                    _ => ()
+            rk_frame.variables.get(rk_vi),
+            .Some(rv) => {
+              rv_bty := match(
+                rv.value.get(usize(0)),
+                .Some(rv_ev) => match(
+                  rv_ev,
+                  .TypeVal(rv_tv) => match(
+                    rv_tv,
+                    .SomeT(_, rv_sname, rv_slvl, _, _, _, _, _, _, _, _) =>
+                      resolve_some_binder_kind(rv_sname, rv_slvl),
+                    _ => Option(TypeValue).None
                   ),
-                  .None => ()
-                );
-                is_ct := match(cap_value_final, .Some(_) => true, .None => false);
-                // Carry `is_reassignable` — module globals (`(x : T) = v;`)
-                // ARE reassignable from fn bodies; rebinding them read-only
-                // made std/log.yo's `_global_level = level` def-eval fail
-                // "Cannot reassign".
-                copied_var_opt := add_variable_to_env(fresh_env, cv.name, cap_ty_final, cap_value_final, is_ct, cv.is_reassignable, false, false, synthetic_token(cv.name, module_path));
-                // Carry `is_module_level` — TS REUSES the definition env's
-                // Variable objects for def-time body eval (function-type.ts:499),
-                // so every flag survives there. This flattening copy loses
-                // fields add_variable_to_env can't take; the flowability gate
-                // (`require_valid_ref_argument_places`) reads is_module_level
-                // to reject `inout` borrows into module-level roots — without
-                // this the copy reads false and the rejection silently never
-                // fires (tests/ref_field_borrow.test.yo:82).
-                match(
-                  copied_var_opt,
-                  .Some(copied_var) => {
-                    copied_var.is_module_level = cv.is_module_level;
-                  },
-                  .None => ()
-                );
+                  _ => Option(TypeValue).None
+                ),
+                .None => Option(TypeValue).None
+              );
+              (rk_at : Option(usize)) = Option(usize).None;
+              (rk_si : usize) = usize(0);
+              while(rk_si < rk_names.len(), {
+                if(match(rk_names.get(rk_si), .Some(n) => (n == rv.name), .None => false), {
+                  rk_at = Option(usize).Some(rk_si);
+                });
+                rk_si = (rk_si + usize(1));
               });
+              match(
+                rk_at,
+                // An inner (or later same-frame) binding overrides the
+                // recorded one — as a fresh re-kind hit or a cancellation.
+                .Some(at) => {
+                  rk_tys(at) = rv_bty;
+                  rk_reassign(at) = rv.is_reassignable;
+                  rk_module_level(at) = rv.is_module_level;
+                },
+                .None => match(
+                  rv_bty,
+                  .Some(_) => {
+                    rk_names.push(rv.name);
+                    rk_tys.push(rv_bty);
+                    rk_reassign.push(rv.is_reassignable);
+                    rk_module_level.push(rv.is_module_level);
+                  },
+                  // A non-hit with no recorded entry needs no cancellation.
+                  .None => ()
+                )
+              );
             },
             .None => ()
           );
-          cap_vi = (cap_vi + usize(1));
+          rk_vi = (rk_vi + usize(1));
         });
       },
       .None => ()
     );
-    cap_fi = (cap_fi + usize(1));
+    rk_fi = (rk_fi + usize(1));
   });
   ___fr := fresh_env.push_frame(false);
+  // Insert the Family B shadows collected above. `is_reassignable` and
+  // `is_module_level` are carried from the shadowed binding (std/log.yo's
+  // `_global_level = level` and the flowability gate's module-root check —
+  // see the retired copy loop's history in git).
+  (rk_bi : usize) = usize(0);
+  while(rk_bi < rk_names.len(), {
+    match(
+      rk_tys.get(rk_bi),
+      .Some(rk_o) => match(
+        rk_o,
+        .Some(rk_bty) => {
+          rk_n := match(rk_names.get(rk_bi), .Some(n) => n, .None => String.from(""));
+          rk_r := match(rk_reassign.get(rk_bi), .Some(b) => b, .None => false);
+          rk_ml := match(rk_module_level.get(rk_bi), .Some(b) => b, .None => false);
+          rk_var_opt := add_variable_to_env(
+            fresh_env,
+            rk_n.clone(),
+            rk_bty.clone(),
+            Option(EvalValue).Some(create_unknown_val(rk_bty)),
+            true,
+            rk_r,
+            false,
+            false,
+            synthetic_token(rk_n, module_path)
+          );
+          match(
+            rk_var_opt,
+            .Some(rk_var) => {
+              rk_var.is_module_level = rk_ml;
+            },
+            .None => ()
+          );
+        },
+        .None => ()
+      ),
+      .None => ()
+    );
+    rk_bi = (rk_bi + usize(1));
+  });
   // Frame level of the just-pushed parameter frame (for SomeT binding below).
   pf_level := (fresh_env.frames.len() - usize(1));
   // Collect the signature's SomeTs (from param types + result type) so a

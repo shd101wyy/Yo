@@ -1,0 +1,48 @@
+//! Regression: a local binding whose name matches a LATER sibling impl method
+//! must stay a plain runtime local — in the emitted C and in behavior.
+//!
+//! std/fs/file.yo has exactly this shape: `read` binds `fd := self._fd;` and a
+//! method named `fd` is declared AFTER it in the same impl. Yo forbids
+//! shadowing, so the local is legal ONLY because the method binding does not
+//! exist yet when the earlier body is def-evaluated — the def-time env must be
+//! a point-in-time snapshot. The self-hosted compiler's env-sharing rework
+//! briefly broke this: def-time envs shared LIVE frame objects, the later
+//! method binding time-traveled into the recorded envs, and codegen's
+//! by-name comptime check silently dropped the `fd := ...` statement (the C
+//! referenced an undeclared identifier). See
+//! issues/env-sharing-live-frame-membership-leak.md.
+open(import("std/string"));
+open(import("std/fmt"));
+{ assert } :: import("std/assert");
+Gauge :: ref(struct(_fd : i32));
+impl(
+  Gauge,
+  // Declared BEFORE the `fd` method: binds a local of the same name.
+  double : (fn(self : Self) -> i32)({
+    fd := self._fd;
+    fd + fd
+  }),
+  // Same shape through an async closure (the File.read pattern): the local
+  // is captured by the io.async closure.
+  double_async : (fn(self : Self, io : Io) -> Impl(Future(i32, Io)))({
+    fd := self._fd;
+    io.async((io : Io) => (fd + fd))
+  }),
+  // The late same-named sibling. Its binding must NOT leak into the def-time
+  // envs of the two methods above.
+  fd : (fn(self : Self) -> i32)(
+    self._fd
+  )
+);
+
+test("late same-named sibling method does not corrupt earlier locals", {
+  g := Gauge(_fd : i32(21));
+  assert(g.double() == i32(42), "sync local must survive the late sibling binding");
+  assert(g.fd() == i32(21), "the late method itself still works");
+});
+
+test("async-closure capture of the shadow-named local", {
+  g := Gauge(_fd : i32(21));
+  r := io.await(g.double_async(io), io);
+  assert(r == i32(42), "captured local must survive the late sibling binding");
+});
