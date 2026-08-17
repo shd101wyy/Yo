@@ -375,10 +375,14 @@ jobs:
       # test.yml: the seed binary's own self-emits are exactly what 2.3's CI
       # will run, and mimalloc is the allocator proven to survive those on
       # 16 GB Linux boxes (glibc malloc inflates the emit's RSS ~72%).
+      # 12288 MB heap: the 4096 cap predates the tree's growth — the v0.2.8
+      # attempt-3 windows-x64 leg died of "JavaScript heap out of memory" at
+      # 4 GB. 12288 matches local practice for this exact compile and is a
+      # CAP, not a reservation (windows-latest runners have 16 GB).
       - name: Build the native yo binary (TS compiler, one last time)
         if: ${{ !matrix.seed_built }}
         shell: bash
-        run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs compile yo-self/main.yo --release --allocator mimalloc -o yo-seed
+        run: node --expose-gc --max-old-space-size=12288 ./out/cjs/yo-cli.cjs compile yo-self/main.yo --release --allocator mimalloc -o yo-seed
 
       # ----- seed-built legs (P2.5 step 24) --------------------------------
       - name: Install the seed compiler (previous release)
@@ -492,7 +496,9 @@ jobs:
         if: ${{ !matrix.seed_built }}
         shell: bash
         run: |
-          node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs \
+          # 12288: same OOM headroom as the binary build above (emit is the
+          # heavier phase of the two).
+          node --expose-gc --max-old-space-size=12288 ./out/cjs/yo-cli.cjs \
             compile yo-self/main.yo --release --allocator libc \
             --skip-c-compiler --emit-c-to "portable-arm/${{ matrix.target }}.c"
           ls -la "portable-arm/${{ matrix.target }}.c"
