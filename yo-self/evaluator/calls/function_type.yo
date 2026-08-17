@@ -419,19 +419,34 @@ _type_binder_env_value :: (
 /// with the parameters bound (with `is_ref`/`is_parameter` set so the
 /// flow-soundness check recognises them). Mirrors how TS `evaluateFunctionType`
 /// binds params into the env threaded to the body eval (function.ts:711-713).
-/// Strip-case env for a def-time body eval, SHARING edition
-/// (plans/backlog/YO_SELF_ENV_SHARING.md §3): frame 0 is pushed AS-IS (the
-/// same `Frame` handle — the same `Variable` objects), and every other frame
-/// is replaced by a rebuilt `Frame` whose `variables` list holds the SAME
-/// `Variable` handles filtered to the def-time keep predicate. Mirrors TS
-/// `keepTopLevelFrameAndComptimeVariablesFromEnv` (function-type.ts:297-304),
-/// with one yo-self divergence carried over from the retired flattening copy:
-/// `is_module_level` runtime globals are kept too, because unlike TS they can
-/// live OUTSIDE frame 0 here (see the strip_outer_runtime doc on
-/// `_build_def_time_body_env`). `is_implicit` bindings are NOT dropped —
-/// the flattening copy never dropped them either, and changing that here
-/// would be a second behavior change hiding inside a memory fix.
-_keep_frame0_and_comptime_shared :: (fn(env : Environment) -> Environment)({
+/// Build a def-time body env SHARING the caller's `Variable` handles but NOT
+/// its mutable `Frame` objects (plans/backlog/YO_SELF_ENV_SHARING.md §3 +
+/// issues/env-sharing-live-frame-membership-leak.md). Every frame — frame 0
+/// included — is rebuilt as a new `Frame` whose `variables` list holds the
+/// SAME `Variable` handles; with `strip` set, frames 1..n keep only
+/// `is_compile_time_only || is_module_level` bindings (the module-level keep
+/// is a yo-self divergence carried over from the retired flattening copy:
+/// unlike TS, module runtime globals can live outside frame 0 here).
+/// `is_implicit` bindings are NOT dropped — the flattening copy never dropped
+/// them either, and changing that here would be a second behavior change
+/// hiding inside a memory fix.
+///
+/// WHY membership must be frozen per-frame instead of pushing the live Frame
+/// handles (`snapshot_env`): TS's `addVariableToEnv` (env.ts:660-688) is
+/// PERSISTENT — it builds a new frame + new frames list, so an env captured
+/// at definition time keeps point-in-time frame membership forever, which is
+/// what lets TS hand the caller env to a def-time body eval by reference
+/// (function-type.ts:296-304). yo-self frames append IN PLACE, so pushing the
+/// live handles lets bindings added AFTER the definition leak into the def
+/// env and every `ExprInfo.env` recorded from the body eval. Measured cost of
+/// the leak: std/fs/file.yo binds a METHOD named `fd` (line ~218) after the
+/// sibling methods whose bodies bind a local `fd :=` (read/open_with); at
+/// codegen time `generate_initialization_assignment`'s
+/// `_last_is_compile_time_only(lhs_ei.env, "fd")` found the late-bound
+/// comptime method binding (the LHS atom's recorded env predates the local's
+/// own binding, so the method was the ONLY match) and silently skipped the
+/// statement — emitted C referenced an undeclared `fd`.
+_share_def_time_frames :: (fn(env : Environment, strip : bool) -> Environment)({
   new_frames := ArrayList(Frame).new();
   n := env.frames.len();
   (i : usize) = usize(0);
@@ -439,38 +454,38 @@ _keep_frame0_and_comptime_shared :: (fn(env : Environment) -> Environment)({
     match(
       env.frames.get(i),
       .Some(frame) => {
-        cond(
-          (i == usize(0)) => {
-            new_frames.push(frame);
-          },
-          true => {
-            new_vars := ArrayList(Variable).new();
-            m := frame.variables.len();
-            (j : usize) = usize(0);
-            while(j < m, {
-              match(
-                frame.variables.get(j),
-                .Some(v) => {
-                  if(v.is_compile_time_only || v.is_module_level, {
-                    new_vars.push(v);
-                  });
-                },
-                .None => ()
+        new_vars := ArrayList(Variable).new();
+        m := frame.variables.len();
+        (j : usize) = usize(0);
+        while(j < m, {
+          match(
+            frame.variables.get(j),
+            .Some(v) => {
+              keep := cond(
+                !(strip) => true,
+                (i == usize(0)) => true,
+                v.is_compile_time_only => true,
+                v.is_module_level => true,
+                true => false
               );
-              j = (j + usize(1));
-            });
-            new_frames.push(
-              Frame(
-                id : frame.id,
-                variables : new_vars,
-                is_begin_block : frame.is_begin_block,
-                where_clause_constraints : frame.where_clause_constraints,
-                // Fresh key: this rebuilt frame gets its OWN lazy index
-                // entry (see Frame.index_key doc in env.yo).
-                index_key : generate_variable_id(String.from(""), String.from("fidx"))
-              )
-            );
-          }
+              if(keep, {
+                new_vars.push(v);
+              });
+            },
+            .None => ()
+          );
+          j = (j + usize(1));
+        });
+        new_frames.push(
+          Frame(
+            id : frame.id,
+            variables : new_vars,
+            is_begin_block : frame.is_begin_block,
+            where_clause_constraints : frame.where_clause_constraints,
+            // Fresh key: this rebuilt frame gets its OWN lazy index
+            // entry (see Frame.index_key doc in env.yo).
+            index_key : generate_variable_id(String.from(""), String.from("fidx"))
+          )
         );
       },
       .None => ()
@@ -551,7 +566,7 @@ _build_def_time_body_env :: (
 )({
   module_path := caller_env.module_path;
   // ENV SHARING (plans/backlog/YO_SELF_ENV_SHARING.md §3) — the body env
-  // shares the caller env's frames BY REFERENCE, exactly as TS does
+  // shares the caller env's VARIABLE handles, exactly as TS does
   // (function-type.ts:297-304: keepTopLevelFrameAndComptimeVariablesFromEnv
   // when nested, else the caller env itself; TS then evaluates the body
   // against those same Variable objects, function-type.ts:499). The
@@ -560,11 +575,11 @@ _build_def_time_body_env :: (
   // 2026-08-17; YO_GC_FULL_PCT=130 confirmed none of it is collectible
   // garbage). Sharing also makes the copy's three flag-carry patches
   // (is_reassignable, is_module_level, and the forced is_compile_time_only)
-  // structural: the body sees each Variable's true flags.
-  fresh_env := cond(
-    !(strip_outer_runtime) => snapshot_env(caller_env),
-    true => _keep_frame0_and_comptime_shared(caller_env)
-  );
+  // structural: the body sees each Variable's true flags. Frame MEMBERSHIP
+  // is still frozen per-frame (see _share_def_time_frames' doc): pushing the
+  // live mutable Frame handles let later-bound siblings leak into this def's
+  // recorded envs and silently drop statements at codegen.
+  fresh_env := _share_def_time_frames(caller_env, strip_outer_runtime);
   // Family B re-kind, sharing edition: an impl-level VALUE binder
   // (`impl(generic(T : Type, N : usize), ...)`) is bound `TypeVal(SomeT)` in
   // the impl's forall env — load-bearing there for receiver-pattern
