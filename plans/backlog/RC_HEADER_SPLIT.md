@@ -49,6 +49,32 @@ are inflated ~2x by the instrument — compare only tracked numbers.)
 | 64 B class                                 | 18.1M       | 1.08 GB     | 6.1%  |
 | 112 B (Environment) + 80 B (tracked lists) | 15.8M       | 1.39 GB     | 7.8%  |
 
+**ExprInfo diet: REFUTED AS IMPLEMENTED (2026-08-18, branch
+`perf/exprinfo-diet`, kept parked).** The accessor-based diet (15 read/write-cold
+fields into `ExprInfoRare`, write-hot four kept inline per the origin_type
+rule, skip-None setters) produced a compiler that is genuinely better — the
+binary×input matrix (tracked live, mi_usable_size):
+
+| tracked live (GB) | memo tree input | diet tree input |
+| ----------------- | --------------- | --------------- |
+| memo binary       | 14.94           | 18.87           |
+| diet binary       | —               | 17.06           |
+
+— the diet BINARY saves 1.8 GB / ~10% wall on identical input, but the diet
+SOURCE costs +3.9 GB to compile: ~370 field accesses became function calls in
+the hottest evaluator/codegen code, and each call site adds ~10 MB of retained
+evaluation state to a self-compile. Net on the bootstrap loop: +2.1 GB. The
+~10 MB/site figure smells like ONE pathological per-call mechanism
+(specialization/capture machinery), not honest linear cost — finding and
+fixing it would flip the diet to a double win; that investigation is the
+reopening condition. Salvage: the YO_EI_CENSUS occupancy + write-rate probe
+(on the branch), the occupancy data (19/24 fields ≤2.5% at exit), the
+write-rate rule (rare membership requires BOTH read-cold AND write-cold —
+deferred_drop 1.84M writes, runtime_args 1.83M despite ≤2.5% occupancy), and
+issues/assignment-to-call-expression-silently-accepted.md (a half-converted
+write was silently swallowed by check AND runtime). FIXPOINT_HOLDS and
+gates failures=0 on the branch — the refutation is purely the memory matrix.
+
 **Revised lever ranking:** (1) ~~the ≥4 KB buffer pool~~ **LANDED same day:
 the pool was `_inject_forall_captures`** — ra1 attribution (shims record
 `__builtin_return_address(1)`; arm64 keeps frame pointers) put 3.87 GB /
