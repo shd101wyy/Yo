@@ -81,26 +81,12 @@ jobs:
             exit 1
           fi
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "24"
           registry-url: "https://registry.npmjs.org"
 
-      - name: Install dependencies
-        run: |
-          bun install
-
-      # P2.5 step 24 / blocker B5: the version SOURCE OF TRUTH is
-      # `yo-self/version.yo`, not root package.json — which P2.5 Group E
-      # deletes. The bump is computed here in shell (the input offers only
-      # `patch` and `minor`, and anything else fails loudly) so the release
-      # does not depend on npm to know its own version.
       - name: "Compute the next version (source of truth: yo-self/version.yo)"
         id: version
         run: |
@@ -129,17 +115,6 @@ jobs:
         run: |
           cd vscode-extension
           npm version "${{ steps.version.outputs.version }}" --no-git-tag-version --allow-same-version
-
-      # Root package.json is a FOLLOWER until Group E deletes it: keeping it in
-      # sync avoids a confusing mismatch for anything still reading it
-      # (src/version.ts:13 imports it). Skipped automatically once it is gone.
-      - name: Sync root package.json (while it still exists)
-        run: |
-          if [ -f package.json ]; then
-            npm version "${{ steps.version.outputs.version }}" --no-git-tag-version --allow-same-version
-          else
-            echo "package.json is gone (Group E) — nothing to sync."
-          fi
 
       # `yo-self/version.yo` IS the source of truth as of P2.5 step 24 (blocker
       # B5): the step above READ the current version from here, and this step
@@ -381,38 +356,6 @@ jobs:
           choco install llvm -y
           echo "C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
-      - name: Setup Bun
-        if: ${{ !matrix.seed_built }}
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - name: Setup Node.js
-        if: ${{ !matrix.seed_built }}
-        uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-
-      - name: Build the TS compiler
-        if: ${{ !matrix.seed_built }}
-        run: |
-          bun install
-          bun run build
-
-      # --allocator mimalloc matches the bootstrap-fixpoint configuration in
-      # test.yml: the seed binary's own self-emits are exactly what 2.3's CI
-      # will run, and mimalloc is the allocator proven to survive those on
-      # 16 GB Linux boxes (glibc malloc inflates the emit's RSS ~72%).
-      # 12288 MB heap: the 4096 cap predates the tree's growth — the v0.2.8
-      # attempt-3 windows-x64 leg died of "JavaScript heap out of memory" at
-      # 4 GB. 12288 matches local practice for this exact compile and is a
-      # CAP, not a reservation (windows-latest runners have 16 GB).
-      - name: Build the native yo binary (TS compiler, one last time)
-        if: ${{ !matrix.seed_built }}
-        shell: bash
-        run: node --expose-gc --max-old-space-size=12288 ./out/cjs/yo-cli.cjs compile yo-self/main.yo --release --allocator mimalloc -o yo-seed
-
-      # ----- seed-built legs (P2.5 step 24) --------------------------------
       - name: Install the seed compiler (previous release)
         if: ${{ matrix.seed_built }}
         uses: ./.github/actions/install-seed
@@ -521,19 +464,6 @@ jobs:
       # self-contained on a box WITHOUT mimalloc headers but MIS-LINKS on one
       # that has the headers and no -lmimalloc. The published file must not
       # depend on what the user happens to have installed, so it is libc.
-      - name: "Emit this platform's arm of the portable yo.c"
-        if: ${{ !matrix.seed_built }}
-        shell: bash
-        run: |
-          # 12288: same OOM headroom as the binary build above (emit is the
-          # heavier phase of the two).
-          node --expose-gc --max-old-space-size=12288 ./out/cjs/yo-cli.cjs \
-            compile yo-self/main.yo --release --allocator libc \
-            --skip-c-compiler --emit-c-to "portable-arm/${{ matrix.target }}.c"
-          ls -la "portable-arm/${{ matrix.target }}.c"
-
-      # Seed-era flags: `--emit-c-to` may postdate the seed, so use the
-      # `-o <base>` sidecar form and move it into place (same as the musl job).
       - name: "Emit this platform's arm of the portable yo.c (seed)"
         if: ${{ matrix.seed_built }}
         shell: bash

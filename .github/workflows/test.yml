@@ -12,12 +12,21 @@ on:
   # alone still run nothing (the push trigger stays develop-only); a PR's
   # synchronize event covers its branch pushes.
   pull_request:
-  # Merge queue. EVERY workflow that provides a REQUIRED status check must
-  # trigger on `merge_group`, or the queue waits forever on checks that never
-  # run — all 14 required contexts come from this file, so this line is the
-  # whole requirement. It is inert until the queue is enabled on the ruleset,
-  # which is why it lands first: enabling the queue against a workflow that
-  # cannot see `merge_group` hangs every queued PR.
+  # Merge queue support, currently INERT and deliberately kept.
+  #
+  # GitHub gates merge queue to ORGANIZATION-owned repositories; this repo is
+  # owned by a user account, so the option does not appear in the ruleset UI
+  # and the REST API rejects a `merge_queue` rule with an empty error
+  # (measured 2026-08-18). If the repo ever moves to an org, enabling the
+  # queue becomes a settings change only — no workflow edit needed.
+  #
+  # This line has to stay for that to hold: EVERY workflow providing a
+  # REQUIRED status check must trigger on `merge_group`, or the queue waits
+  # forever on checks that never run, and all 14 required contexts come from
+  # this file. Until then the ruleset keeps `strict` (branches must be up to
+  # date), which is the right trade: two individually-green PRs can be broken
+  # together — #147 was green alone and broke every macOS/Windows seed leg
+  # once combined with develop.
   merge_group:
 
 concurrency:
@@ -59,8 +68,8 @@ env:
   SEED_VERSION: v0.2.9
 
 jobs:
-  # The VS Code extension is npm/bun-native BY DESIGN (vsce, vscode-languageclient,
-  # @types/vscode) and survives src/ retirement as a documented island
+  # The VS Code extension is npm-native BY DESIGN (its one devDependency is
+  # @vscode/vsce) and survives src/ retirement as a documented island
   # (P2_RETIRE_SRC.md §2.3). It used to be bundled inside the 5-platform `test`
   # matrix, which meant `npm install -g @vscode/vsce` ran on all five legs to
   # serve one Linux-only packaging concern. Isolated here so the matrix legs can
@@ -103,94 +112,6 @@ jobs:
           pat: ${{ secrets.VS_MARKETPLACE_TOKEN }}
           packagePath: ./vscode-extension
           registryUrl: https://marketplace.visualstudio.com
-
-  # P2.5 step 18 removed `bun test` from the 5-platform matrix — correctly: it
-  # ran the same TS unit tests five times to serve one toolchain. But deleting
-  # it outright would leave the 23 TS test files (466 tests) unrun by ANY job
-  # while src/ still exists, which is a blind window, not a saving: src/ is
-  # still what `./yo-cli` runs locally, and it is still being CHANGED (the
-  # loadingModules leak fix and its pin, PR #125, live there). The plan's
-  # "accepted loss" of TS unit-test ground truth is meant to coincide with
-  # src/'s DELETION, so this job carries it until then and dies WITH src/ in
-  # Group E — one 3-minute Linux job instead of five.
-  ts-unit-tests:
-    name: TS unit tests (dies with src/ in Group E)
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Install liburing
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y liburing-dev
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-
-      - name: Install dependencies
-        run: |
-          bun install
-          bun run build
-
-      - name: Run TS unit tests
-        run: bun test --timeout 600000
-
-      # The TS compiler must be able to compile the yo-self sources. Until now
-      # `release.yml`'s seed-bundles job was the ONLY place that did, so a
-      # divergence — code the self-hosted compiler accepts and the TS one
-      # rejects — passed every PR check and detonated at release. That is
-      # exactly how `io.await` in a cond condition
-      # (issues/yoself-accepts-await-in-cond-that-ts-rejects.md) landed green in
-      # #128 and then broke every seed-driven job of the v0.2.5 attempt.
-      #
-      # It must be `compile`, NOT `check`: verified red-first, `check ./yo-self`
-      # returns rc=0 with the offending shape reintroduced, because the
-      # restriction is enforced during async state-machine codegen. `compile`
-      # with the same shape fails rc=1 on "must BE the first condition".
-      #
-      # `--skip-c-compiler` stops after emitting C — 187s locally, versus a full
-      # clang build. Dies with src/ in Group E, along with this whole job.
-      # Heap raised 4096 -> 8192 (2026-08-17): the rte/rre `Self` fixes mint
-      # per-receiver return instantiations where the bug SHARED one leaked
-      # instance (issues/fixed/yo-self-rre-adopts-enclosing-impl-self.md) —
-      # correctness costs memory, and this compile now sits just past 4 GB
-      # (run 31977492479 OOM'd at "Reached heap limit" only after the #125
-      # merge tipped it). ubuntu-latest has 16 GB; 8 GB leaves the same
-      # relative headroom 4 GB used to.
-      - name: TS compiler compiles yo-self (release-divergence gate)
-        run: |
-          node --expose-gc --max-old-space-size=8192 ./out/cjs/yo-cli.cjs \
-            compile yo-self/main.yo --skip-c-compiler -o /tmp/ts-yoself-gate
-
-          # `getTypeString` falls back to a LINE comment, `// Unknown type: …`.
-          # Mid-declaration that swallows the rest of the line and merges the
-          # NEXT declaration into it. clang accepts the resulting duplicate
-          # storage-class specifiers silently, so this stayed invisible until
-          # the release job's `gcc -fsyntax-only` on the portable yo.c — GCC
-          # rejects it ("duplicate 'static'"), which blocked v0.2.6 and breaks
-          # `--cc gcc` for users. See issues/comptime-only-prototype-breaks-gcc.md.
-          #
-          # Catch it here instead of at release time.
-          # The marker is fine at the START of a line (the whole line is an
-          # intentionally omitted field) and inside a string literal (yo-self's
-          # own source text, compiled in). Only an appearance after real tokens,
-          # outside quotes, eats a declaration — hence the no-quote-before rule.
-          if grep -nE '^[^"]*[^/"[:space:]][^"]*// Unknown type:' /tmp/ts-yoself-gate.c; then
-            echo "::error::emitted C has a '// Unknown type:' comment mid-declaration — it will eat the following declaration and GCC will reject the file"
-            exit 1
-          fi
 
   test:
     runs-on: ${{ matrix.os }}
@@ -630,6 +551,32 @@ jobs:
           echo "stage-2 markers: $markers"
           test "$markers" = "0"
 
+          # RE-HOMED HERE when the TS unit-tests job was deleted with src/.
+          # It is NOT a TypeScript-specific gate: `getTypeString` falls back to
+          # a LINE comment, `// Unknown type: …`, in the self-hosted emitter too
+          # (yo-self/codegen/utils/index.yo:1024 and :1150), so the defect it
+          # catches is reachable from the compiler that ships.
+          #
+          # THE CHECK ABOVE CANNOT COVER IT. That one is LINE-ANCHORED (`^\s*//`)
+          # and so matches only the BENIGN start-of-line form, where the whole
+          # line is an intentionally omitted field. The dangerous form is the
+          # marker appearing mid-declaration: it swallows the rest of the line
+          # and merges the NEXT declaration into it. clang accepts the resulting
+          # duplicate storage-class specifiers silently, so it stayed invisible
+          # until the release job's `gcc -fsyntax-only` on the portable yo.c —
+          # GCC rejects it ("duplicate 'static'"), which blocked v0.2.6 and
+          # breaks `--cc gcc` for users. See issues/comptime-only-prototype-breaks-gcc.md.
+          #
+          # Runs against the ALREADY-EMITTED /tmp/yo-stage2.c, so it costs no
+          # extra compile. The marker is also fine inside a string literal
+          # (yo-self's own source text, compiled in); only an appearance after
+          # real tokens, outside quotes, eats a declaration — hence the
+          # no-quote-before rule.
+          if grep -nE '^[^"]*[^/"[:space:]][^"]*// Unknown type:' /tmp/yo-stage2.c; then
+            echo "::error::emitted C has a '// Unknown type:' comment mid-declaration — it will eat the following declaration and GCC will reject the file"
+            exit 1
+          fi
+
       - name: "Stage 2: compile the emitted C with clang"
         run: nice -n 10 clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 /tmp/yo-stage2.c vendor/mimalloc/src/static.c -Ivendor/mimalloc/include -o /tmp/yo-stage2-bin -luring
 
@@ -700,17 +647,19 @@ jobs:
             exit 1
           fi
 
-  # The self-hosted binary's OWN `test` subcommand. CI already runs `./tests`
-  # through the TypeScript compiler, and the bootstrap-fixpoint jobs run
-  # `<bin> compile`, but nothing ran `<bin> test` — so codegen bugs that only
+  # The self-hosted binary's OWN `test` subcommand. When this job was written CI
+  # ran `./tests` through the TypeScript compiler (deleted with src/ in Group E;
+  # the `test` job now runs the corpus under stage-1), and the bootstrap-fixpoint
+  # jobs run `<bin> compile`, but nothing ran `<bin> test` — so codegen bugs that only
   # surface when the self-hosted compiler builds AND RUNS a test binary were not
   # gated. That is exactly the class `check` cannot see (`check` never evaluates
   # function bodies — see plans/archive/YO_SELF_STAGE2_HANDOFF.md).
   #
   # Runs scripts/bootstrap/gates_fast.sh, the same tier-1 gate used locally on
   # every change: two repro compiles, a 23-file battery via `<bin> test` WITH
-  # HOLLOW DETECTION, the 155-program corpus diff-test (yo-self output vs TS
-  # output, byte-compared), `<bin> check ./std`, `<bin> check ./yo-self` (GATE 4
+  # HOLLOW DETECTION, the 155-program corpus diff-test (byte-compared against the
+  # RECORDED GOLDENS — the TS reference arm it used to diff against is gone with
+  # src/), `<bin> check ./std`, `<bin> check ./yo-self` (GATE 4
   # — the compiler type-checking ITSELF; ~137 s, and the only gate that covers
   # build_runner.yo / version_cache.yo, which sit outside main.yo's import
   # closure and were type-checked by NOTHING). The script exits non-zero if any
@@ -766,8 +715,9 @@ jobs:
       # the TS CLI as the differential's reference side, which is why bun
       # survived here ("bun stays ... until 2.5"). Steps 12-14 (merged) gave
       # both harnesses a golden mode, and each falls back to scoring the self
-      # arm against its recorded goldens when `out/cjs/yo-cli.cjs` is absent —
-      # so the gates keep their coverage with the goldens serving as the
+      # arm against its recorded goldens when the TS CLI is absent — which,
+      # since Group E deleted src/, is now permanent rather than conditional.
+      # So the gates keep their coverage with the goldens serving as the
       # reference side, which is the end state src/ retirement requires anyway.
       # NO-GOLDEN counts as a failure there, so an unscored case cannot
       # masquerade as a pass.
@@ -840,11 +790,14 @@ jobs:
   # The self-hosted differential below is the SOLE arm for this tier, sharded
   # 4-way (issues/fixed/selfhosted-differential-job-needs-sharding.md).
 
-  # The tier under the self-hosted binary. This is the differential that
-  # matters: a file
-  # passing under TS and failing here is a codegen or evaluator divergence in the
+  # The tier under the self-hosted binary. "differential" in the job name is now
+  # HISTORICAL — it named the TS-vs-self comparison, and a file passing under TS
+  # while failing here used to mean a codegen or evaluator divergence in the
   # bootstrap compiler (that is exactly how the effect_analysis unary-operator FTT
-  # was found, 2026-08-05). The self-hosted runner is sequential regardless of
+  # was found, 2026-08-05). With src/ deleted there is only one compiler, so this
+  # is simply the tier's sole arm; the name is FROZEN because it is a required
+  # status check in ruleset 13548862 and is matched by string.
+  # The self-hosted runner is sequential regardless of
   # --parallel ("Accepted for CLI compatibility; v1 runs sequentially",
   # yo-self/main.yo) and takes ~22 min after a ~5 min stage-1 build.
   compiler-internal-tests-selfhosted:
@@ -1047,7 +1000,7 @@ jobs:
 
       # A static binary that merely LINKS is not the deliverable. Without a musl
       # liburing the emitter silently swaps the whole async runtime for stubs
-      # (src/codegen/async/runtime-io-linux.ts:1486) whose init prints
+      # (yo-self/codegen/async/runtime_io_linux.yo:1465) whose init prints
       # "liburing not available, async I/O disabled" — and since the compiler
       # reads every source file through io.await(read_file(...)), such a binary
       # links, ships, and then compiles NOTHING. So io_uring presence is
@@ -1133,13 +1086,13 @@ jobs:
 
       # P2.5 step 21 asked for a vacuity assertion here — grep the leg's log for
       # `-fsanitize=thread`, because an UNinstrumented run passes exactly like a
-      # clean instrumented one. It is NOT implemented, deliberately: NEITHER
-      # runner prints the C compile line on the test path (TS prints
-      # "Compiling with:" only in codegen's `compile` path,
-      # src/codegen/index.ts:646; yo-self prints it nowhere), so the specified
-      # grep would fail every run — a false-red gate is worse than none.
-      # Making it real needs yo-self to gain TS's `Compiling with:` print, which
-      # changes `yo compile` stdout and invalidates the recorded CLI goldens.
+      # clean instrumented one. It is NOT implemented, deliberately: the runner
+      # does not print the C compile line on the test path — yo-self has no
+      # "Compiling with:" print at all (the retired TS compiler emitted one, but
+      # only in codegen's `compile` path, never on `test`) — so the specified
+      # grep would fail every run, and a false-red gate is worse than none.
+      # Making it real needs yo-self to gain that print, which changes
+      # `yo compile` stdout and invalidates the recorded CLI goldens.
       # Tracked in issues/yoself-missing-compiling-with-print.md.
       - name: Run sync tests under ThreadSanitizer
         env:

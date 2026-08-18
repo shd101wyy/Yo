@@ -24,7 +24,6 @@ Yo aims to be **Simple** and **Fast** (around 0% - 15% slower than C).
 - [Features](#features)
 - [Installation](#installation)
   - [Install script (recommended)](#install-script-recommended)
-  - [npm](#npm)
   - [Linux](#linux)
   - [macOS](#macos)
   - [Windows](#windows)
@@ -116,22 +115,14 @@ NixOS, where the prebuilt binary's hardcoded ELF interpreter
 > option only works on releases made after it. The installer says so explicitly
 > rather than failing obscurely.
 
-### npm
+The installer puts the `yo` command on your `PATH`. Run `yo --help` to see the
+available commands.
 
-The compiler is also published as an `npm` package:
-
-```bash
-$ npm install -g @shd101wyy/yo         # Install yo compiler globally
-$ yarn global add @shd101wyy/yo        # Or using yarn
-$ pnpm add -g @shd101wyy/yo            # Or using pnpm
-$ bun install --global @shd101wyy/yo   # Or using bun
-```
-
-It exposes the `yo` command in your terminal.
-
-There is also an alias `yo-cli` for `yo` command in case of naming conflicts.
-
-Run `yo --help` or `yo-cli --help` to see available commands.
+> **The `npm` channel is gone.** Yo used to be published as the
+> `@shd101wyy/yo` npm package, back when the compiler was a TypeScript program.
+> npm publishing stopped at `v0.2.0`; the compiler is now self-hosted and every
+> release since ships as a native bundle from GitHub Releases. Use the install
+> script above.
 
 Yo transpiles to C, so a **C compiler** is required to produce machine code. Follow the instructions for your platform below.
 
@@ -336,7 +327,11 @@ export(main);
 
 ## Contributing
 
-The `Yo` compiler is written in [TypeScript](https://www.typescriptlang.org/) and uses [Bun](https://bun.sh/) as the runtime.
+The `Yo` compiler is **self-hosted**: it is written in Yo and lives in
+[`yo-self/`](./yo-self/). Building it needs an already-installed `yo` binary
+(get one from the [install script](#install-script-recommended)) plus a C
+compiler — there is no TypeScript, Node.js, npm, or bun in the toolchain any
+more.
 
 Yo is primarily developed on the Steam Deck LCD (Linux). The compiler currently transpiles Yo to C; to produce
 machine code you must have a C compiler (for example `gcc`, `clang`, `zig`, `emcc`, etc).
@@ -351,51 +346,60 @@ The dev environment is defined in [shell.nix](./shell.nix). You can also manuall
 $ cd Yo
 $ direnv allow . # Run this command to activate the nix shell.
                  # You only need to run it once.
-$ bun install    # Install necessary dependencies.
 ```
 
-Run the following command to watch for changes and build the project:
+There is no package-manager install step. The only vendored dependencies are git
+submodules:
 
 ```bash
-$ bun run dev
+$ git submodule update --init --recursive
 ```
 
-Run the following command to build the project:
+Type-check the compiler sources (evaluator only, no codegen — this is the fast
+iteration loop):
 
 ```bash
-$ bun run build
+$ yo check ./yo-self
 ```
 
-Test the local yo-cli:
+Build the compiler from source. Always pass `--release`: at `-O0` the big
+evaluator functions have multi-megabyte stack frames and deep compile-time
+recursion exhausts the stack.
 
 ```bash
-$ bun run src/yo-cli.ts compile src/tests/fixme.yo
+$ yo compile yo-self/main.yo --release -o /tmp/yo-self-bin
+```
 
-# There is also a `yo-cli` script in the project root for testing:
-$ ./yo-cli compile src/tests/fixme.yo
+> **There is no watch-and-rebuild loop any more.** `bun run dev` rebuilt the
+> TypeScript compiler on every file change; nothing replaces it. Re-run the
+> `yo compile` above after a change.
+
+Try the compiler you just built on a scratch program (`./tmp/` is gitignored —
+put throwaway `.yo` files there):
+
+```bash
+$ /tmp/yo-self-bin compile ./tmp/fixme.yo --release -o /tmp/fixme && /tmp/fixme
+```
+
+Run the test suites with `yo test`:
+
+```bash
+$ yo test ./tests --exclude tests/internal --exclude tests/cli-cases --bail
+$ yo test ./tests/internal --parallel 1   # the compiler's own tests
 ```
 
 ## Editor Support
 
-- A VS Code extension is available [here](https://marketplace.visualstudio.com/items?itemName=shd101wyy.yolang) with built-in **Language Server Protocol (LSP)** support, providing:
+- A VS Code extension is available [here](https://marketplace.visualstudio.com/items?itemName=shd101wyy.yolang), providing syntax highlighting for `.yo` files.
 
-  - **Hover information** — types, values, and doc comments for any identifier
-  - **Auto-completion** — struct fields, enum variants, module members, impl methods, keywords
-  - **Go to definition** — jump to any symbol's definition
-  - **Find references** — locate all usages of a symbol
-  - **Rename symbol** — rename across all references
-  - **Document symbols** — outline view of top-level declarations
-  - **Signature help** — parameter hints while typing function calls
-  - **Diagnostics** — real-time error reporting
-  - **Code folding** — collapse function bodies, structs, impl blocks
-
-  The LSP server can also be used with other editors via stdio JSON-RPC:
-
-  ```bash
-  node out/cjs/yo-lsp.cjs --stdio
-  ```
-
-  See [docs/en-US/LSP.md](./docs/en-US/LSP.md) for full documentation.
+  **The bundled Language Server Protocol (LSP) support is currently gone.**
+  Hover, auto-completion, go-to-definition, find references, rename, document
+  symbols, signature help, diagnostics and folding were served by a TypeScript
+  LSP server that called the TypeScript evaluator directly, and it was deleted
+  along with the rest of the TypeScript compiler when Yo became self-hosted.
+  Nothing replaces it yet; a Yo-native server is planned.
+  See [docs/en-US/LSP.md](./docs/en-US/LSP.md) for the behaviour it is expected
+  to restore.
 
 - Vim / Neovim: a minimal syntax file and a usage README are available in `vscode-extension/syntaxes/`.
   See [vscode-extension/syntaxes/README.md](./vscode-extension/syntaxes/README.md) for installation steps, `ftdetect` examples and `home-manager` snippets.
@@ -417,7 +421,7 @@ yo version list
 yo version clean
 ```
 
-When a `.yo-version` file exists, the `yo` CLI automatically dispatches to the pinned version — downloading and caching it on first use. The LSP server also reads `.yo-version` to resolve the correct standard library for go-to-definition and completions.
+When a `.yo-version` file exists, the `yo` CLI automatically dispatches to the pinned version — downloading and caching the matching native release bundle on first use.
 
 See [docs/en-US/VERSION_MANAGEMENT.md](./docs/en-US/VERSION_MANAGEMENT.md) for full documentation.
 

@@ -23,7 +23,6 @@ These commands and patterns are aimed at normal Yo projects that use the public 
 | Check Yo formatting       | `yo fmt --check`                                          |
 | Generate docs for project | `yo doc ./src`                                            |
 | Generate docs (custom)    | `yo doc ./src -o docs --title "My Project"`               |
-| Install AI agent skills   | `yo skills install`                                       |
 | Install dependency        | `yo install user/repo`                                    |
 | Install pinned dependency | `yo install user/repo@v1.2.3`                             |
 | Fetch dependency graph    | `yo fetch`                                                |
@@ -247,23 +246,16 @@ yo version pin                  # Pin project to current Yo version
 yo version pin 0.1.12           # Pin to specific version
 yo version install 0.1.13       # Pre-download a version
 yo version list                 # List locally cached versions
-yo version list --remote        # List all available versions on npm
+yo version list --remote        # List all published releases (GitHub Releases)
 yo version clean                # Remove all cached versions
 yo version clean 0.1.12         # Remove specific cached version
 ```
 
 - `.yo-version` file pins a project to a specific Yo version (similar to `.nvmrc`)
 - When `.yo-version` exists with a different version, `yo` auto-dispatches to the cached version
-- The LSP also reads `.yo-version` to resolve the correct `std/` library for go-to-definition
+- Versions are downloaded as native release bundles from GitHub Releases; the old npm channel stopped at v0.2.0
 - Commit `.yo-version` to version control for reproducible builds across the team
-
-## Skills for AI agents
-
-```bash
-yo skills install       # Copy bundled skill files into the current project
-```
-
-`yo skills install` detects which agent config directories exist in the current project (`.github`, `.agents`, `.claude`, `.opencode`, `.openai`, `.cursor`) and copies all Yo skill files into each. Falls back to creating `.agents/skills/` if none exist.
+- There is currently **no language server** — the old TypeScript LSP (which also read `.yo-version` for go-to-definition) was deleted along with the TypeScript compiler, and `yo` has no `lsp` subcommand. The VS Code extension is syntax highlighting only.
 
 ## Dependency management
 
