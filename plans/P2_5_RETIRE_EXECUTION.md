@@ -65,6 +65,30 @@ The §2.5 inventory table additionally has **no row** for: the 5-platform `test 
 
 ---
 
+### Blocker decisions — USER-DECIDED 2026-08-18 (all four; execution in flight)
+
+- **B2 (VS Code extension): syntax-only for now; LSP returns in P4.** Remove
+  the LSP client wiring and `copyLspServer` from the extension build (no
+  silent-degrade path left to guard), ship grammar/snippets only, and note the
+  P4 re-entry in `P4_LSP.md`.
+- **B6 (wasm): PORT `runtime_io_wasm` to yo-self** (~832 lines, mostly C
+  template; the macOS runtime port is precedent). Includes the driver
+  forwarding and emcc flag branch per the B6 prereq chain (the comptime
+  platform/arch fold f7b5cc460 already landed).
+- **B7 (docs site): REWRITE `scripts/build-site.ts` in Yo.** All three pieces
+  exist natively (`yo doc --format html`, vendored `markdown_yo`,
+  `std/process` Command for the tag probe). The Pages steps in both workflows
+  then lose their bun island.
+- **B9 (Windows vcpkg/archiver/stageRuntimeFiles): DOCUMENTED RETIREMENT.**
+  No port; recorded as an accepted loss with the capability list, in
+  `issues/retired-windows-vcpkg-capability.md`. Reopen only on a user report
+  that hits it.
+
+(Stale note, same date: the "seed-bundles matrix flip is BLOCKED on memory"
+paragraph below was resolved by the cross-emit design — P2.5 step-24 option A —
+and v0.2.9 SHIPPED on the full seed/candidate chain. #137 flips the last
+Windows leg.)
+
 ### Hard blockers — resolve BEFORE any deletion
 
 There are no blockers that make retirement _impossible_; every one below has a concrete resolution. But each is a case where deleting `src/` today removes a mechanism with **no replacement and, in six of the nine, no failure signal** — the retirement's characteristic risk is silent hollowness, not red CI.

@@ -954,7 +954,7 @@ run_compile :: (
   (cc : String) = String.from("");
   (target_triple : String) = String.from("");
   (sysroot : String) = String.from("");
-  (allocator : String) = String.from("libc");
+  (allocator : String) = String.from("system");
   (optimize : String) = String.from(""); // "" = unset; "0".."3"
   (sanitize : String) = String.from(""); // "" / "address" / "leak" / "thread"
   (cflags : String) = String.from("");
@@ -1186,8 +1186,15 @@ run_compile :: (
   if(((cc != "") && (((cc != "cc") && (cc != "gcc")) && ((cc != "clang") && (cc != "zig")))) && ((cc != "cl") && (cc != "emcc")), {
     exn.throw(dyn(`compile: invalid --c-compiler "${cc}". Choices: cc, gcc, clang, zig, cl, emcc`));
   });
-  if((allocator != "mimalloc") && (allocator != "libc"), {
-    exn.throw(dyn(`compile: invalid --allocator "${allocator}". Choices: mimalloc, libc`));
+  if(((allocator != "mimalloc") && (allocator != "system")) && (allocator != "libc"), {
+    exn.throw(dyn(`compile: invalid --allocator "${allocator}". Choices: mimalloc, system (deprecated alias: libc)`));
+  });
+  // Collapse the deprecated "libc" alias to the canonical name (TS parity:
+  // codegen/index.ts resolves anything non-mimalloc to "system"). The alias
+  // is REMOVED once the migration window closes (rename release ships +
+  // SEED_VERSION moves past it).
+  if(allocator == "libc", {
+    allocator = String.from("system");
   });
   if((optimize != "") && (((optimize != "0") && (optimize != "1")) && ((optimize != "2") && (optimize != "3"))), {
     exn.throw(dyn(`compile: invalid --optimize "${optimize}". Choices: 0, 1, 2, 3`));
@@ -1263,7 +1270,7 @@ run_compile :: (
   // mimalloc isn't available on wasm (codegen/index.ts:193-199) — downgrade
   // BEFORE codegen so the emitted runtime matches the link line.
   if((allocator == "mimalloc") && is_target_wasm(target), {
-    allocator = String.from("libc");
+    allocator = String.from("system");
   });
   std_path := resolve_std_path();
   // Create the shared ExprInfoTable BEFORE loading the prelude, and publish it
@@ -1503,7 +1510,7 @@ run_compile :: (
       ci = (ci + usize(1));
     });
   });
-  // Bundled mimalloc allocator (else libc): add static.c + its include path,
+  // Bundled mimalloc allocator (else system): add static.c + its include path,
   // guarded by existence with TS's fallback warning (codegen/index.ts:534-555).
   if(allocator == "mimalloc", {
     mim_static := `${std_root}/../vendor/mimalloc/src/static.c`;
@@ -1516,7 +1523,7 @@ run_compile :: (
       eprintln(String.from("Bundled mimalloc not found, falling back to standard malloc"));
     });
   }, {
-    println(String.from("Using libc allocator"));
+    println(String.from("Using system allocator"));
   });
   // Cross-compile target / sysroot pass-through. Skipped entirely for emcc,
   // which handles its own target internally (codegen/index.ts:636-641) — it
