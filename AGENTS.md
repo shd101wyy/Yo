@@ -182,7 +182,7 @@ BIN=/tmp/yo-s1 OUT=/tmp/hsweep bash scripts/bootstrap/hollow_sweep69.sh
 ./yo-cli compile src/tests/fixme.yo --release -o a.out && ./a.out
 
 # Compile with AddressSanitizer
-./yo-cli compile src/tests/fixme.yo --release --sanitize address --allocator libc -o test && ./test
+./yo-cli compile src/tests/fixme.yo --release --sanitize address --allocator system -o test && ./test
 ```
 
 Always save verbose output to a file to avoid terminal truncation:

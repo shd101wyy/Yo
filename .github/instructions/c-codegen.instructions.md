@@ -37,13 +37,13 @@ Each OS thread has its own **single-threaded event loop**. Within a single threa
 ## Memory allocator options
 
 - `--allocator mimalloc` (default) — high-performance allocation
-- `--allocator libc` — standard libc malloc (faster compilation, useful for debugging)
+- `--allocator system` — the platform system allocator (default; `libc` is a deprecated alias)
 
 ## Memory leak detection
 
 - `--sanitize address` — AddressSanitizer for memory error and leak detection
 - `--sanitize leak` — LeakSanitizer for leak detection only
-- Example: `./yo-cli compile src/tests/fixme.yo --release --sanitize address --allocator libc -o test && ./test`
+- Example: `./yo-cli compile src/tests/fixme.yo --release --sanitize address --allocator system -o test && ./test`
 
 ## Debug flags
 

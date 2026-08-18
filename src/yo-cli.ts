@@ -398,11 +398,11 @@ yo --version                     Show version number
           })
           .option("allocator", {
             describe:
-              "Memory allocator to use: 'libc' (default) or 'mimalloc'.",
+              "Memory allocator to use: 'system' (default; the platform allocator) or 'mimalloc'. 'libc' is a deprecated alias of 'system', scheduled for removal.",
             type: "string",
             demandOption: false,
-            default: "libc",
-            choices: ["mimalloc", "libc"],
+            default: "system",
+            choices: ["mimalloc", "system", "libc"],
           })
           .option("release", {
             describe:
@@ -538,7 +538,7 @@ yo --version                     Show version number
           debugAsyncAwait: argv.debugAsyncAwait as boolean,
           release: argv.release as boolean,
           optimize: argv.optimize as "0" | "1" | "2" | "3" | undefined,
-          allocator: argv.allocator as "mimalloc" | "libc",
+          allocator: argv.allocator as "mimalloc" | "system" | "libc",
           sanitize: argv.sanitize as "address" | "leak" | "thread" | undefined,
           debugSymbols: argv.g as boolean,
           strip: argv.s as boolean,
@@ -616,7 +616,7 @@ yo --version                     Show version number
               debugParallelism: false,
               debugAsyncAwait: false,
               release: false,
-              allocator: "libc",
+              allocator: "system",
             });
             console.log(`check: ${file} — evaluator OK`);
           } catch (err) {
