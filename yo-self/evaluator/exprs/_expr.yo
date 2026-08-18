@@ -10,6 +10,7 @@ open(import("std/string"));
 open(import("std/fmt"));
 { ArrayList } :: import("std/collections/array_list");
 { Exception } :: import("std/error");
+{ CLOCK_MONOTONIC, clock_gettime } :: import("std/sys/clock");
 {
   AstExpr,
   ast_expr_is_atom,
@@ -383,6 +384,55 @@ is_comptime_numeric_fn_call :: (fn(e : AstExpr) -> bool)(
     )
   )
 );
+// ---------------------------------------------------------------------------
+// Cooperative evaluation deadline — test-RUNNER infrastructure, not language
+// semantics. 1:1 port of `src/evaluator/exprs/_expr.ts:199-237`.
+//
+// A comptime hang (runaway recursion, a non-converging fixpoint) cannot be
+// interrupted from outside the thread. The runner arms a wall-clock budget
+// before compiling; the dispatch hot path checks it every 16384 calls and
+// throws past it. The throw is NOT one-shot: swallowing layers (trial-eval)
+// may catch it, but every subsequent evaluation re-throws within another
+// 16384 dispatches, so the compile unwinds to completion (as a compile error)
+// instead of hanging forever.
+//
+// DIVERGENCE FROM TS, and why: TS compiles IN-PROCESS, so `src/test-runner.ts`
+// arms the deadline directly around its own compile call. yo-self shells out
+// (`main.yo` spawns `self compile` per batch), so the budget has to travel to
+// the child on the command line — `--compile-timeout-ms`, the same adaptation
+// `--emcc-environment` needed. The clock is MONOTONIC here where TS used
+// `Date.now()`; a wall-clock jump must not fail a compile.
+//
+// SCOPE, same as TS's: this bounds EVALUATION only. A hang in codegen or a
+// stuck C compiler is not covered by it (see plans/P2_5_RETIRE_EXECUTION.md).
+(_g_eval_deadline_ns : i64) = i64(0);
+(_g_eval_deadline_counter : u64) = u64(0);
+_monotonic_ns :: (fn() -> i64)({
+  out_s := i64(0);
+  out_ns := i64(0);
+  clock_gettime(CLOCK_MONOTONIC, &(out_s), &(out_ns));
+  (out_s * i64(1000000000)) + out_ns
+});
+/// Arm the cooperative deadline `budget_ms` from now. `usize(0)` disarms it.
+set_evaluator_deadline :: (fn(budget_ms : usize) -> unit)({
+  _g_eval_deadline_ns = cond(
+    (budget_ms == usize(0)) => i64(0),
+    true => (_monotonic_ns() + (i64(budget_ms) * i64(1000000)))
+  );
+  _g_eval_deadline_counter = u64(0);
+});
+_check_evaluator_deadline :: (fn(exn : Exception) -> unit)(
+  if(_g_eval_deadline_ns != i64(0), {
+    _g_eval_deadline_counter = (_g_eval_deadline_counter + u64(1));
+    if(((_g_eval_deadline_counter & u64(16383)) == u64(0)) && (_monotonic_ns() > _g_eval_deadline_ns), {
+      exn.throw(
+        dyn(
+          `Yo compilation exceeded the configured time limit (possible evaluator hang). See issues/fixed/test-runner-no-compile-timeout.md.`
+        )
+      );
+    });
+  })
+);
 _evaluate_expression :: (
   fn(
     expr : AstExpr,
@@ -390,7 +440,8 @@ _evaluate_expression :: (
     ctx : EvalContext,
     exn : Exception
   ) -> AstExpr
-)(
+)({
+  _check_evaluator_deadline(exn);
   cond(
     ast_expr_is_atom(expr) => {
       tok := ast_expr_token(expr);
@@ -1010,7 +1061,7 @@ _evaluate_expression :: (
       )
     }
   )
-);
+});
 /// Non-capturing wrapper that creates a local exception handler.
 ///
 /// When the underlying `_evaluate_expression` throws, the previous
@@ -1136,4 +1187,4 @@ register_evaluate_expression :: (fn() -> unit)({
   register_rerun_pending_def_evals();
   ()
 });
-export(_evaluate_expression, _evaluate_expression_wrapper, _evaluate_expression_raw_wrapper, register_evaluate_expression);
+export(_evaluate_expression, _evaluate_expression_wrapper, _evaluate_expression_raw_wrapper, register_evaluate_expression, set_evaluator_deadline);

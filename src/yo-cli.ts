@@ -23,6 +23,7 @@ import {
   generatePublicSafeReport,
 } from "./public-safe-report";
 import { ModuleManager, setStdPathOverride } from "./module-manager";
+import { setEvaluatorDeadline } from "./evaluator/exprs/_expr";
 import {
   hostTarget,
   isTargetStandaloneWasi,
@@ -375,6 +376,17 @@ yo --version                     Show version number
             demandOption: false,
             default: false,
           })
+          // Test-runner infrastructure, not a language feature. TS's own
+          // runner arms the deadline in-process (test-runner.ts:544); the
+          // self-hosted runner compiles in a CHILD, so it needs the budget to
+          // travel on the command line. Accepted here too so the two
+          // compilers stay flag-compatible while both exist.
+          .option("compile-timeout-ms", {
+            describe:
+              "Fail the compile if evaluation exceeds this many milliseconds (0 = no limit).",
+            type: "number",
+            demandOption: false,
+          })
           .option("debug-gc", {
             describe:
               "Enable debug logging for GC and reference counting operations.",
@@ -515,6 +527,13 @@ yo --version                     Show version number
           outputPath = `${requestedOutput}.exe`;
         } else {
           outputPath = requestedOutput;
+        }
+
+        // Arm the cooperative evaluator deadline before anything is
+        // evaluated (see the option's definition above).
+        const compileTimeoutMs = argv.compileTimeoutMs as number | undefined;
+        if (compileTimeoutMs !== undefined && compileTimeoutMs > 0) {
+          setEvaluatorDeadline(Date.now() + compileTimeoutMs);
         }
 
         const codeGenerator = new CodeGenerator();

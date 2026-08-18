@@ -67,7 +67,7 @@ _(env : proc_env) :: import("std/env");
   mm_preload_prelude
 } :: import("./module_manager.yo");
 { eval_context_new } :: import("./evaluator/context.yo");
-{ register_evaluate_expression } :: import("./evaluator/exprs/_expr.yo");
+{ register_evaluate_expression, set_evaluator_deadline } :: import("./evaluator/exprs/_expr.yo");
 { evaluate_anonymous_module_begin_exprs } :: import("./evaluator/values/anonymous_module.yo");
 { clear_module_cache } :: import("./evaluator/module_loader.yo");
 { format_yo_source, format_yo_files, FormatYoFilesOptions } :: import("./formatter.yo");
@@ -969,6 +969,10 @@ run_compile :: (
   // `undefined` for the plain `yo compile` path and adds `-sNODERAWFS=1`;
   // build_runner passes `web` for wasm targets, which suppresses it.
   (emcc_environment : String) = String.new();
+  // Cooperative evaluator deadline in milliseconds; empty = disarmed. Set by
+  // the test runner on its batch-compile children (see `set_evaluator_deadline`
+  // in evaluator/exprs/_expr.yo for why this travels as a flag).
+  (compile_timeout_ms : String) = String.new();
   (skip_cc : bool) = false;
   (skip_codegen : bool) = false;
   (release : bool) = false;
@@ -1025,6 +1029,10 @@ run_compile :: (
       },
       (a_name == "--emcc-environment") => {
         emcc_environment = _opt_value(argv, ai, a_name.clone(), a_val.clone(), exn);
+        ai = (ai + _opt_step(a_val));
+      },
+      (a_name == "--compile-timeout-ms") => {
+        compile_timeout_ms = _opt_value(argv, ai, a_name.clone(), a_val.clone(), exn);
         ai = (ai + _opt_step(a_val));
       },
       (a_name == "--allocator") => {
@@ -1225,6 +1233,17 @@ run_compile :: (
   // emcc implies wasm32-emscripten when no target was given (yo-cli.ts:488-490).
   if((cc == "emcc") && (target_triple == ""), {
     target_triple = String.from("wasm32-emscripten");
+  });
+  // Arm the cooperative evaluator deadline before anything is evaluated. A
+  // malformed value disarms rather than failing the compile: this is runner
+  // infrastructure, and refusing to compile because a TIMEOUT was misspelled
+  // would be worse than not enforcing one.
+  if(compile_timeout_ms != "", {
+    match(
+      compile_timeout_ms.parse_u64(),
+      .None => (),
+      .Some(ms) => set_evaluator_deadline(usize(ms))
+    );
   });
   // Resolve the compilation target: --target <triple> if given, else host.
   // Placed BEFORE the module is evaluated, matching TS (yo-cli.ts:502-503
@@ -2042,6 +2061,14 @@ run_test :: (
           ccmd.arg(String.from("--target"));
           ccmd.arg(test_target.clone());
         });
+        // Cooperative compile deadline, ported from TS's test runner
+        // (`src/test-runner.ts:544`, SEQUENTIAL_COMPILE_TIMEOUT_MS). TS arms
+        // it in-process; we compile in a CHILD, so it travels as a flag. A
+        // runaway comptime loop in one batch now fails THAT batch with a
+        // named error instead of hanging until the CI job timeout with no
+        // indication of which file was responsible.
+        ccmd.arg(String.from("--compile-timeout-ms"));
+        ccmd.arg(String.from("600000"));
         // WASI batch binaries embed the whole evaluator, whose `evaluate()`
         // has 693+ locals; emcc's defaults (64 KB stack, 16 MB initial
         // memory) cannot hold a frame that size. TS applies these in the TEST
