@@ -29,7 +29,9 @@ open(import("std/string"));
   lookup_some_resolved_concrete,
   expr_info_set_case_executed,
   expr_info_set_is_primitive_match,
-  expr_info_set_primitive_pattern_values
+  expr_info_set_primitive_pattern_values,
+  expr_info_control_flow,
+  expr_info_set_control_flow
 } :: import("../../expr_info.yo");
 { Environment, Variable, pop_env_frame } :: import("../../env.yo");
 { add_variable_to_env, get_variables_from_env } :: import("../../env.yo");
@@ -375,14 +377,14 @@ evaluate_primitive_match :: (
       // Do NOT null the shared arm-body ExprInfo for an unknown scrutinee — it
       // corrupts the arm body's stored value (see the fieldless-arm note); the
       // match RESULT value is nulled by the post-loop instead.
-      if(has_any_control_flow(body_info_wc.control_flow), {
+      if(has_any_control_flow(expr_info_control_flow(body_info_wc)), {
         cf_wc := match(
-          body_info_wc.control_flow,
+          expr_info_control_flow(body_info_wc),
           .Some(f) => f,
           .None => ControlFlowFlags(return_flag : false, unwind_flag : false, break_flag : false, continue_flag : false)
         );
         control_flows.push(cf_wc);
-        if(has_control_flow(body_info_wc.control_flow, .Return), {
+        if(has_control_flow(expr_info_control_flow(body_info_wc), .Return), {
           return_bodies.push(evaluated_body_wc);
         });
         // Concrete CT match with CF → set info and return
@@ -399,7 +401,7 @@ evaluate_primitive_match :: (
           );
           out_wc_cf := new_expr_info(body_info_wc.env, result_ty_wc);
           out_wc_cf.value = body_info_wc.value;
-          out_wc_cf.control_flow = body_info_wc.control_flow;
+          expr_info_set_control_flow(out_wc_cf, expr_info_control_flow(body_info_wc));
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_wc_cf);
           return(expr);
         }, {
@@ -411,7 +413,7 @@ evaluate_primitive_match :: (
             );
             out_wc_cf2 := new_expr_info(body_info_wc.env, result_ty_wc2);
             out_wc_cf2.value = Option(EvalValue).None;
-            out_wc_cf2.control_flow = body_info_wc.control_flow;
+            expr_info_set_control_flow(out_wc_cf2, expr_info_control_flow(body_info_wc));
             expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_wc_cf2);
           });
         });
@@ -451,7 +453,7 @@ evaluate_primitive_match :: (
               expr_info_table_get(ctx.expr_info_table, ast_expr_id(b_wc)),
               .None => (),
               .Some(bi) => {
-                if(!(has_control_flow(bi.control_flow, .Return)) && !(has_control_flow(bi.control_flow, .Unwind)), {
+                if(!(has_control_flow(expr_info_control_flow(bi), .Return)) && !(has_control_flow(expr_info_control_flow(bi), .Unwind)), {
                   filtered_wc.push(b_wc);
                 });
               }
@@ -474,7 +476,7 @@ evaluate_primitive_match :: (
       });
       case_env = body_info_wc.env;
       bodies.push(evaluated_body_wc);
-      if(!(has_any_control_flow(body_info_wc.control_flow)), {
+      if(!(has_any_control_flow(expr_info_control_flow(body_info_wc))), {
         match(
           result_type_pm,
           .None => {
@@ -666,14 +668,14 @@ evaluate_primitive_match :: (
       // Do NOT null the shared arm-body ExprInfo for an unknown scrutinee — it
       // corrupts the arm body's stored value (see the fieldless-arm note); the
       // match RESULT value is nulled by the post-loop instead.
-      if(has_any_control_flow(body_info_lit.control_flow), {
+      if(has_any_control_flow(expr_info_control_flow(body_info_lit)), {
         cf_lit := match(
-          body_info_lit.control_flow,
+          expr_info_control_flow(body_info_lit),
           .Some(f) => f,
           .None => ControlFlowFlags(return_flag : false, unwind_flag : false, break_flag : false, continue_flag : false)
         );
         control_flows.push(cf_lit);
-        if(has_control_flow(body_info_lit.control_flow, .Return), {
+        if(has_control_flow(expr_info_control_flow(body_info_lit), .Return), {
           return_bodies.push(evaluated_body_lit);
         });
         // CT match + CF → early return
@@ -685,7 +687,7 @@ evaluate_primitive_match :: (
           );
           out_lit_cf := new_expr_info(body_info_lit.env, result_ty_lit_cf);
           out_lit_cf.value = body_info_lit.value;
-          out_lit_cf.control_flow = body_info_lit.control_flow;
+          expr_info_set_control_flow(out_lit_cf, expr_info_control_flow(body_info_lit));
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_lit_cf);
           return(expr);
         }, {
@@ -697,7 +699,7 @@ evaluate_primitive_match :: (
             );
             out_lit_cf2 := new_expr_info(body_info_lit.env, result_ty_lit_cf2);
             out_lit_cf2.value = Option(EvalValue).None;
-            out_lit_cf2.control_flow = body_info_lit.control_flow;
+            expr_info_set_control_flow(out_lit_cf2, expr_info_control_flow(body_info_lit));
             expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_lit_cf2);
           });
         });
@@ -745,7 +747,7 @@ evaluate_primitive_match :: (
       });
       case_env = body_info_lit.env;
       bodies.push(evaluated_body_lit);
-      if(!(has_any_control_flow(body_info_lit.control_flow)), {
+      if(!(has_any_control_flow(expr_info_control_flow(body_info_lit))), {
         match(
           result_type_pm,
           .None => {
@@ -844,7 +846,7 @@ evaluate_primitive_match :: (
         expr_info_table_get(ctx.expr_info_table, ast_expr_id(b_pm)),
         .None => (),
         .Some(bi) => {
-          if(!(has_control_flow(bi.control_flow, .Return)) && !(has_control_flow(bi.control_flow, .Unwind)), {
+          if(!(has_control_flow(expr_info_control_flow(bi), .Return)) && !(has_control_flow(expr_info_control_flow(bi), .Unwind)), {
             non_return_pm.push(b_pm);
           });
         }
@@ -1014,7 +1016,7 @@ evaluate_primitive_match :: (
             );
             out_ret_pm := new_expr_info(env, rt);
             out_ret_pm.value = ret_val_pm;
-            out_ret_pm.control_flow = final_cf_pm;
+            expr_info_set_control_flow(out_ret_pm, final_cf_pm);
             expr_info_set_is_primitive_match(out_ret_pm, Option(bool).Some(true));
             expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_ret_pm);
           }
@@ -1036,7 +1038,7 @@ evaluate_primitive_match :: (
         });
         esc_ty_pm := match(ctx.enclosing_function_return_type, .Some(t) => t, .None => t_unit());
         out_esc_pm := new_expr_info(env, esc_ty_pm);
-        out_esc_pm.control_flow = final_cf_pm;
+        expr_info_set_control_flow(out_esc_pm, final_cf_pm);
         expr_info_set_is_primitive_match(out_esc_pm, Option(bool).Some(true));
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_esc_pm);
       },
@@ -1056,7 +1058,7 @@ evaluate_primitive_match :: (
         });
         out_brk_pm := new_expr_info(env, t_unit());
         out_brk_pm.value = Option(EvalValue).Some(EvalValue.UnitVal);
-        out_brk_pm.control_flow = final_cf_pm;
+        expr_info_set_control_flow(out_brk_pm, final_cf_pm);
         expr_info_set_is_primitive_match(out_brk_pm, Option(bool).Some(true));
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_brk_pm);
       },
@@ -1076,7 +1078,7 @@ evaluate_primitive_match :: (
         });
         out_cnt_pm := new_expr_info(env, t_unit());
         out_cnt_pm.value = Option(EvalValue).Some(EvalValue.UnitVal);
-        out_cnt_pm.control_flow = final_cf_pm;
+        expr_info_set_control_flow(out_cnt_pm, final_cf_pm);
         expr_info_set_is_primitive_match(out_cnt_pm, Option(bool).Some(true));
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_cnt_pm);
       },
@@ -1607,14 +1609,14 @@ evaluate_match :: (
         // (`out_val_em`, scrutinee_val_opt.is_none() branch), so the per-arm
         // nulling was redundant as well as harmful. Each arm's body keeps its
         // own value, which is exactly what codegen emits per switch case.
-        if(has_any_control_flow(body_info_fl.control_flow), {
+        if(has_any_control_flow(expr_info_control_flow(body_info_fl)), {
           cf_fl := match(
-            body_info_fl.control_flow,
+            expr_info_control_flow(body_info_fl),
             .Some(f) => f,
             .None => ControlFlowFlags(return_flag : false, unwind_flag : false, break_flag : false, continue_flag : false)
           );
           control_flows_em.push(cf_fl);
-          if(has_control_flow(body_info_fl.control_flow, .Return), {
+          if(has_control_flow(expr_info_control_flow(body_info_fl), .Return), {
             return_bodies_em.push(evaluated_body_fl);
           });
           // Concrete CT match with CF → set info early
@@ -1631,7 +1633,7 @@ evaluate_match :: (
             );
             out_fl_cf := new_expr_info(body_info_fl.env, result_ty_fl_cf);
             out_fl_cf.value = body_info_fl.value;
-            out_fl_cf.control_flow = body_info_fl.control_flow;
+            expr_info_set_control_flow(out_fl_cf, expr_info_control_flow(body_info_fl));
             expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_fl_cf);
           }, {
             if(scrutinee_val_opt.is_none(), {
@@ -1642,7 +1644,7 @@ evaluate_match :: (
               );
               out_fl_cf2 := new_expr_info(body_info_fl.env, result_ty_fl_cf2);
               out_fl_cf2.value = Option(EvalValue).None;
-              out_fl_cf2.control_flow = body_info_fl.control_flow;
+              expr_info_set_control_flow(out_fl_cf2, expr_info_control_flow(body_info_fl));
               expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_fl_cf2);
             });
           });
@@ -1690,7 +1692,7 @@ evaluate_match :: (
           );
         });
         // Result type consistency
-        if(!(has_any_control_flow(body_info_fl.control_flow)), {
+        if(!(has_any_control_flow(expr_info_control_flow(body_info_fl))), {
           if(is_gadt_match_em, {
             // GADT match (match.ts:646-676): verify each branch body against
             // its GADT-REFINED expected type instead of cross-branch
@@ -2233,14 +2235,14 @@ evaluate_match :: (
           // Do NOT null the shared arm-body ExprInfo for an unknown scrutinee — it
           // corrupts the arm body's stored value (see the fieldless-arm note); the
           // match RESULT value is nulled by the post-loop instead.
-          if(has_any_control_flow(body_info_wf.control_flow), {
+          if(has_any_control_flow(expr_info_control_flow(body_info_wf)), {
             cf_wf := match(
-              body_info_wf.control_flow,
+              expr_info_control_flow(body_info_wf),
               .Some(f) => f,
               .None => ControlFlowFlags(return_flag : false, unwind_flag : false, break_flag : false, continue_flag : false)
             );
             control_flows_em.push(cf_wf);
-            if(has_control_flow(body_info_wf.control_flow, .Return), {
+            if(has_control_flow(expr_info_control_flow(body_info_wf), .Return), {
               return_bodies_em.push(evaluated_body_wf);
             });
             (is_concrete_sv_wf : bool) = match(
@@ -2256,7 +2258,7 @@ evaluate_match :: (
               );
               out_wf_cf := new_expr_info(body_info_wf.env, result_ty_wf_cf);
               out_wf_cf.value = body_info_wf.value;
-              out_wf_cf.control_flow = body_info_wf.control_flow;
+              expr_info_set_control_flow(out_wf_cf, expr_info_control_flow(body_info_wf));
               expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_wf_cf);
             }, {
               if(scrutinee_val_opt.is_none(), {
@@ -2267,7 +2269,7 @@ evaluate_match :: (
                 );
                 out_wf_cf2 := new_expr_info(body_info_wf.env, result_ty_wf_cf2);
                 out_wf_cf2.value = Option(EvalValue).None;
-                out_wf_cf2.control_flow = body_info_wf.control_flow;
+                expr_info_set_control_flow(out_wf_cf2, expr_info_control_flow(body_info_wf));
                 expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_wf_cf2);
               });
             });
@@ -2296,7 +2298,7 @@ evaluate_match :: (
             );
           });
           // Result type consistency
-          if(!(has_any_control_flow(body_info_wf.control_flow)), {
+          if(!(has_any_control_flow(expr_info_control_flow(body_info_wf))), {
             if(is_gadt_match_em, {
               // GADT match (match.ts:1115-1140): verify each branch body
               // against its GADT-REFINED expected type instead of
@@ -2468,7 +2470,7 @@ Supported patterns:
         expr_info_table_get(ctx.expr_info_table, ast_expr_id(b_em)),
         .None => (),
         .Some(bi) => {
-          if(!(has_control_flow(bi.control_flow, .Return)) && !(has_control_flow(bi.control_flow, .Unwind)), {
+          if(!(has_control_flow(expr_info_control_flow(bi), .Return)) && !(has_control_flow(expr_info_control_flow(bi), .Unwind)), {
             non_return_em.push(b_em);
           });
         }
@@ -2686,7 +2688,7 @@ Supported patterns:
             );
             out_ret_em := new_expr_info(env, rt);
             out_ret_em.value = ret_val_em;
-            out_ret_em.control_flow = final_cf_em;
+            expr_info_set_control_flow(out_ret_em, final_cf_em);
             expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_ret_em);
           }
         );
@@ -2707,7 +2709,7 @@ Supported patterns:
         });
         esc_ty_em := match(ctx.enclosing_function_return_type, .Some(t) => t, .None => t_unit());
         out_esc_em := new_expr_info(env, esc_ty_em);
-        out_esc_em.control_flow = final_cf_em;
+        expr_info_set_control_flow(out_esc_em, final_cf_em);
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_esc_em);
       },
       has_control_flow(final_cf_em, .Break) => {
@@ -2726,7 +2728,7 @@ Supported patterns:
         });
         out_brk_em := new_expr_info(env, t_unit());
         out_brk_em.value = Option(EvalValue).Some(EvalValue.UnitVal);
-        out_brk_em.control_flow = final_cf_em;
+        expr_info_set_control_flow(out_brk_em, final_cf_em);
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_brk_em);
       },
       has_control_flow(final_cf_em, .Continue) => {
@@ -2745,7 +2747,7 @@ Supported patterns:
         });
         out_cnt_em := new_expr_info(env, t_unit());
         out_cnt_em.value = Option(EvalValue).Some(EvalValue.UnitVal);
-        out_cnt_em.control_flow = final_cf_em;
+        expr_info_set_control_flow(out_cnt_em, final_cf_em);
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_cnt_em);
       },
       true => ()

@@ -12,7 +12,12 @@ open(import("std/string"));
 { TypeValue } :: import("../../types/definitions.yo");
 { is_some_type, is_concrete_trait_type, is_struct_type, is_function_type, is_dyn_type, is_unit_type, is_extern_type_name } :: import("../../types/guards.yo");
 { type_implements_future, extract_future_trait_from_type } :: import("../../evaluator/trait_checking.yo");
-{ lookup_macro_expansion, lookup_some_resolved_concrete } :: import("../../expr_info.yo");
+{
+  lookup_macro_expansion,
+  lookup_some_resolved_concrete,
+  expr_info_deferred_drop_expressions,
+  expr_info_deferred_dup_expressions
+} :: import("../../expr_info.yo");
 { AwaitAnalysisResult, AwaitPoint, CapturedVariable, CapturedVariableKind } :: import("../../evaluator/async/await_analysis_types.yo");
 { SuspensionCapturedVariable } :: import("../../evaluator/shared/suspension_analysis_types.yo");
 { StateSegment, split_into_state_segments, generate_await_expression, generate_state_segment_code, hoist_non_splittable_awaits, await_is_while_condition } :: import("./state_code_gen.yo");
@@ -321,7 +326,7 @@ collect_variable_refs_in_expr :: (
       match(
         ei_opt,
         .Some(ei) => match(
-          ei.deferred_dup_expressions,
+          expr_info_deferred_dup_expressions(ei),
           .Some(dups) => {
             (di : usize) = usize(0);
             while(di < dups.len(), {
@@ -360,7 +365,7 @@ collect_variable_refs_in_expr :: (
       ei_opt,
       .Some(ei) => {
         match(
-          ei.deferred_drop_expressions,
+          expr_info_deferred_drop_expressions(ei),
           .Some(drops) => {
             (dri : usize) = usize(0);
             while(dri < drops.len(), {
@@ -377,7 +382,7 @@ collect_variable_refs_in_expr :: (
           .None => ()
         );
         match(
-          ei.deferred_dup_expressions,
+          expr_info_deferred_dup_expressions(ei),
           .Some(dups2) => {
             (dui : usize) = usize(0);
             while(dui < dups2.len(), {
@@ -540,7 +545,7 @@ compute_cross_boundary_variables :: (
   match(
     body_ei_opt,
     .Some(body_ei) => match(
-      body_ei.deferred_drop_expressions,
+      expr_info_deferred_drop_expressions(body_ei),
       .Some(body_drops) => {
         body_drop_refs := HashSet(String).new();
         (bi : usize) = usize(0);
@@ -1660,7 +1665,7 @@ _emit_last_segment_completion :: (
     match(
       context.base.get_expr_info(body_expr),
       .Some(ei) => match(
-        ei.deferred_drop_expressions,
+        expr_info_deferred_drop_expressions(ei),
         .Some(drops) => {
           temp := Emitter.new();
           context.base.emitter = temp;
@@ -1971,12 +1976,12 @@ _emit_cond_branch_remaining :: (
         context.async_while_loop_info,
         .Some(wm) => match(
           wm.get(prev_await.base.index),
-          .Some(wi) => match(context.base.get_expr_info(wi.body_expr), .Some(ei) => match(ei.deferred_drop_expressions, .Some(d) => _append_exprs(pdd, d), .None => ()), .None => ()),
+          .Some(wi) => match(context.base.get_expr_info(wi.body_expr), .Some(ei) => match(expr_info_deferred_drop_expressions(ei), .Some(d) => _append_exprs(pdd, d), .None => ()), .None => ()),
           .None => ()
         ),
         .None => ()
       );
-      match(context.base.get_expr_info(body_expr), .Some(ei) => match(ei.deferred_drop_expressions, .Some(d) => _append_exprs(pdd, d), .None => ()), .None => ());
+      match(context.base.get_expr_info(body_expr), .Some(ei) => match(expr_info_deferred_drop_expressions(ei), .Some(d) => _append_exprs(pdd, d), .None => ()), .None => ());
       context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(pdd);
       context.state_machine_variables = Option(HashMap(String, CapturedVariable)).Some(_build_combined_sm_variables(analysis, capture_type));
       (found_additional : bool) = false;
@@ -2431,7 +2436,7 @@ _emit_post_while_cond_branch :: (
       context.in_async_state_machine = Option(InAsyncStateMachine).Some(InAsyncStateMachine(future_type : future_type));
       context.variable_id_remapping = Option(HashMap(String, String)).Some(analysis.variable_id_remapping);
       pdd := ArrayList(AstExpr).new();
-      match(context.base.get_expr_info(body_expr), .Some(ei) => match(ei.deferred_drop_expressions, .Some(d) => _append_exprs(pdd, d), .None => ()), .None => ());
+      match(context.base.get_expr_info(body_expr), .Some(ei) => match(expr_info_deferred_drop_expressions(ei), .Some(d) => _append_exprs(pdd, d), .None => ()), .None => ());
       context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(pdd);
       context.state_machine_variables = Option(HashMap(String, CapturedVariable)).Some(_build_combined_sm_variables(analysis, capture_type));
       has_next := match(segment.await_point, .Some(_) => true, .None => false);
@@ -2535,12 +2540,12 @@ _emit_outer_while_continuation :: (
         context.in_async_state_machine = Option(InAsyncStateMachine).Some(InAsyncStateMachine(future_type : future_type));
         context.variable_id_remapping = Option(HashMap(String, String)).Some(analysis.variable_id_remapping);
         pdd := ArrayList(AstExpr).new();
-        match(context.base.get_expr_info(outer.body_expr), .Some(ei) => match(ei.deferred_drop_expressions, .Some(d) => _append_exprs(pdd, d), .None => ()), .None => ());
-        match(context.base.get_expr_info(body_expr), .Some(ei) => match(ei.deferred_drop_expressions, .Some(d) => _append_exprs(pdd, d), .None => ()), .None => ());
+        match(context.base.get_expr_info(outer.body_expr), .Some(ei) => match(expr_info_deferred_drop_expressions(ei), .Some(d) => _append_exprs(pdd, d), .None => ()), .None => ());
+        match(context.base.get_expr_info(body_expr), .Some(ei) => match(expr_info_deferred_drop_expressions(ei), .Some(d) => _append_exprs(pdd, d), .None => ()), .None => ());
         context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(pdd);
         context.state_machine_variables = Option(HashMap(String, CapturedVariable)).Some(_build_combined_sm_variables(analysis, capture_type));
         obd := ArrayList(AstExpr).new();
-        match(context.base.get_expr_info(outer.body_expr), .Some(ei) => match(ei.deferred_drop_expressions, .Some(d) => _append_exprs(obd, d), .None => ()), .None => ());
+        match(context.base.get_expr_info(outer.body_expr), .Some(ei) => match(expr_info_deferred_drop_expressions(ei), .Some(d) => _append_exprs(obd, d), .None => ()), .None => ());
         context.sm_while_break_info = Option(SmWhileBreakInfo).Some(SmWhileBreakInfo(label : `after_while_loop_${oidx}`, active_index : Option(usize).Some(outer.while_loop_index)));
         context.sm_while_continue_info = Option(SmWhileContinueInfo).Some(SmWhileContinueInfo(label : `while_loop_${oidx}_continue`, emit_drops_before_goto : false, step_expr : Option(AstExpr).None));
         context.sm_while_body_drops = Option(ArrayList(AstExpr)).Some(obd);
@@ -2567,7 +2572,7 @@ _emit_outer_while_continuation :: (
       match(
         context.base.get_expr_info(outer.body_expr),
         .Some(ei0) => match(
-          ei0.deferred_drop_expressions,
+          expr_info_deferred_drop_expressions(ei0),
           .Some(outer_drops) => if(outer_drops.len() > usize(0), {
             p_in2 := context.in_async_state_machine;
             p_smv2 := context.state_machine_variables;
@@ -2821,12 +2826,12 @@ _emit_while_continuation :: (
             context.in_async_state_machine = Option(InAsyncStateMachine).Some(InAsyncStateMachine(future_type : future_type));
             context.variable_id_remapping = Option(HashMap(String, String)).Some(analysis.variable_id_remapping);
             pdd := ArrayList(AstExpr).new();
-            match(context.base.get_expr_info(while_data.body_expr), .Some(ei) => match(ei.deferred_drop_expressions, .Some(d) => _append_exprs(pdd, d), .None => ()), .None => ());
-            match(context.base.get_expr_info(body_expr), .Some(ei) => match(ei.deferred_drop_expressions, .Some(d) => _append_exprs(pdd, d), .None => ()), .None => ());
+            match(context.base.get_expr_info(while_data.body_expr), .Some(ei) => match(expr_info_deferred_drop_expressions(ei), .Some(d) => _append_exprs(pdd, d), .None => ()), .None => ());
+            match(context.base.get_expr_info(body_expr), .Some(ei) => match(expr_info_deferred_drop_expressions(ei), .Some(d) => _append_exprs(pdd, d), .None => ()), .None => ());
             context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(pdd);
             context.state_machine_variables = Option(HashMap(String, CapturedVariable)).Some(_build_combined_sm_variables(analysis, capture_type));
             bdrops := ArrayList(AstExpr).new();
-            match(context.base.get_expr_info(while_data.body_expr), .Some(ei) => match(ei.deferred_drop_expressions, .Some(d) => _append_exprs(bdrops, d), .None => ()), .None => ());
+            match(context.base.get_expr_info(while_data.body_expr), .Some(ei) => match(expr_info_deferred_drop_expressions(ei), .Some(d) => _append_exprs(bdrops, d), .None => ()), .None => ());
             context.sm_while_break_info = Option(SmWhileBreakInfo).Some(SmWhileBreakInfo(label : `after_while_loop_${wai_s}`, active_index : Option(usize).Some(wai)));
             context.sm_while_continue_info = Option(SmWhileContinueInfo).Some(SmWhileContinueInfo(label : `while_loop_${wai_s}_continue`, emit_drops_before_goto : false, step_expr : Option(AstExpr).None));
             context.sm_while_body_drops = Option(ArrayList(AstExpr)).Some(bdrops);
@@ -2899,7 +2904,7 @@ _emit_while_continuation :: (
           match(
             context.base.get_expr_info(while_data.body_expr),
             .Some(ei0) => match(
-              ei0.deferred_drop_expressions,
+              expr_info_deferred_drop_expressions(ei0),
               .Some(wbd) => if(wbd.len() > usize(0), {
                 q_in := context.in_async_state_machine;
                 q_smv := context.state_machine_variables;
@@ -3085,7 +3090,7 @@ generate_async_block_resume_function :: (
         context.state_machine_variables = Option(HashMap(String, CapturedVariable)).Some(_build_combined_sm_variables(analysis, capture_type));
         p_pdd := context.pending_deferred_drops;
         pdd := ArrayList(AstExpr).new();
-        match(context.base.get_expr_info(body_expr), .Some(ei) => match(ei.deferred_drop_expressions, .Some(d) => _append_exprs(pdd, d), .None => ()), .None => ());
+        match(context.base.get_expr_info(body_expr), .Some(ei) => match(expr_info_deferred_drop_expressions(ei), .Some(d) => _append_exprs(pdd, d), .None => ()), .None => ());
         context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(pdd);
         is_last_with_result := ((is_last_segment && !(is_unit_result)) && (segment.expressions.len() > usize(0)));
         seg_last := if(

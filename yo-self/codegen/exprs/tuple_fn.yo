@@ -15,6 +15,7 @@ open(import("std/string"));
 { type_key, get_variable_type_string, get_variable_name_for_codegen } :: import("../utils/index.yo");
 { generate_deferred_dup_expressions } :: import("./drop_dup.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
+{ expr_info_deferred_dup_expressions, expr_info_runtime_arg_exprs_in_order } :: import("../../expr_info.yo");
 /// Args of a FnCall (empty for an Atom).
 _args :: (fn(e : AstExpr) -> ArrayList(AstExpr))(
   match(e, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new())
@@ -44,7 +45,7 @@ _build_tuple :: (fn(arg_exprs : ArrayList(AstExpr), c_name : String, expr : AstE
         match(
           context.base.get_expr_info(arg),
           .Some(arg_ei) => match(
-            arg_ei.deferred_dup_expressions,
+            expr_info_deferred_dup_expressions(arg_ei),
             .Some(arg_dups) => if(arg_dups.len() > usize(0), {
               generate_deferred_dup_expressions(arg, indent.clone(), context);
               match(
@@ -112,7 +113,7 @@ generate_anonymous_tuple :: (fn(expr : AstExpr, indent : String, context : Funct
   ty_key := type_key(ei.ty);
   c_name_opt := context.base.get_type_c_name(ty_key.clone());
   match(
-    ei.runtime_arg_exprs_in_order,
+    expr_info_runtime_arg_exprs_in_order(ei),
     .Some(arg_exprs) => match(
       c_name_opt,
       .Some(c_name) => _build_tuple(arg_exprs, c_name, expr, indent, context),

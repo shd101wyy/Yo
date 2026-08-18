@@ -40,7 +40,9 @@ open(import("std/string"));
   has_any_control_flow,
   path_collection_new,
   expr_info_set_runtime_destructurings,
-  register_module_level_global
+  register_module_level_global,
+  expr_info_control_flow,
+  expr_info_set_is_compile_time_only_assignment
 } :: import("../../expr_info.yo");
 { Environment, Variable, add_variable_to_env, get_variables_from_env, variable_set_doc_comment } :: import("../../env.yo");
 {
@@ -285,9 +287,9 @@ Bound type: ${type_to_string(rhs_info.ty)}`,
   match(
     rhs_info_opt,
     .Some(rhs_info) => {
-      if(has_any_control_flow(rhs_info.control_flow), {
+      if(has_any_control_flow(expr_info_control_flow(rhs_info)), {
         match(
-          rhs_info.control_flow,
+          expr_info_control_flow(rhs_info),
           .Some(cf) => throw_rhs_contains_control_flow_expression_error(rhs, cf, exn),
           .None => ()
         );
@@ -738,7 +740,7 @@ Use \`::\` for compile-time definitions inside impl.`,
     // Set ExprInfo on the whole :: / := expression.
     expr_info := new_expr_info(env, t_unit());
     expr_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
-    expr_info.is_compile_time_only_assignment = Option(bool).Some(effective_is_compile_time_only);
+    expr_info_set_is_compile_time_only_assignment(expr_info, Option(bool).Some(effective_is_compile_time_only));
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), expr_info);
     expr
   }, {
@@ -761,7 +763,7 @@ Use \`::\` for compile-time definitions inside impl.`,
     expr_info := new_expr_info(env, t_unit());
     expr_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
     expr_info_set_runtime_destructurings(expr_info, destr_result.runtime_destructurings);
-    expr_info.is_compile_time_only_assignment = Option(bool).Some(effective_is_compile_time_only);
+    expr_info_set_is_compile_time_only_assignment(expr_info, Option(bool).Some(effective_is_compile_time_only));
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), expr_info);
     expr
   })

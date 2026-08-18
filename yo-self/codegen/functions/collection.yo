@@ -16,7 +16,20 @@ open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, make_err_expr, BK_TEST, BF_DOT, BF_COMPTIME_EXPECT_ERROR } :: import("../../expr.yo");
 { get_type_trait_methods_by_name, type_id_or_empty, register_type_trait_method, MethodEntry } :: import("../../evaluator/values/type_trait_methods.yo");
-{ ExprInfoTable, expr_info_table_get, lookup_method_callee_value, lookup_macro_expansion, expr_info_effect_analysis, expr_info_closure_function_value, expr_info_dyn_call_trait_values } :: import("../../expr_info.yo");
+{
+  ExprInfoTable,
+  expr_info_table_get,
+  lookup_method_callee_value,
+  lookup_macro_expansion,
+  expr_info_effect_analysis,
+  expr_info_closure_function_value,
+  expr_info_dyn_call_trait_values,
+  expr_info_deferred_drop_expressions,
+  expr_info_deferred_dup_expressions,
+  expr_info_index_method_value,
+  expr_info_macro_expansion,
+  expr_info_runtime_arg_exprs_in_order
+} :: import("../../expr_info.yo");
 { EvalValue, is_func_val, is_struct_val, is_type_value, is_unknown_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { is_function_type, is_unit_type, is_dyn_type, is_reference_struct_type, is_reference_enum_type, is_boxed_type, is_expr_type } :: import("../../types/guards.yo");
@@ -134,7 +147,7 @@ expr_contains_unknown_value :: (fn(expr : AstExpr, info : ExprInfoTable) -> bool
   match(
     ei_opt,
     .Some(ei) => match(
-      ei.macro_expansion,
+      expr_info_macro_expansion(ei),
       .Some(me) => {
         if(is_unit_type(ei.ty), {
           return(false);
@@ -152,7 +165,7 @@ expr_contains_unknown_value :: (fn(expr : AstExpr, info : ExprInfoTable) -> bool
     ei_opt,
     .Some(ei) => {
       match(
-        ei.deferred_dup_expressions,
+        expr_info_deferred_dup_expressions(ei),
         .Some(dups) => {
           nd := dups.len();
           (di : usize) = usize(0);
@@ -170,7 +183,7 @@ expr_contains_unknown_value :: (fn(expr : AstExpr, info : ExprInfoTable) -> bool
         .None => ()
       );
       match(
-        ei.deferred_drop_expressions,
+        expr_info_deferred_drop_expressions(ei),
         .Some(drops) => {
           nr := drops.len();
           (ri : usize) = usize(0);
@@ -552,7 +565,7 @@ find_function_calls_in_expr :: (fn(expr : AstExpr, context : CodeGenContext, inf
       // emits "// Failed to transpile" (which corrupts the C line). Mirrors the
       // same fallback in collect_types_from_expr (types/collection.yo).
       match(
-        ei.macro_expansion,
+        expr_info_macro_expansion(ei),
         .Some(me) => recur(me, context, info),
         .None => match(lookup_macro_expansion(ast_expr_id(expr)), .Some(me) => recur(me, context, info), .None => ())
       );
@@ -579,7 +592,7 @@ find_function_calls_in_expr :: (fn(expr : AstExpr, context : CodeGenContext, inf
         .None => ()
       );
       match(
-        ei.index_method_value,
+        expr_info_index_method_value(ei),
         .Some(imv) => if(is_func_val(imv), {
           iid := _func_val_id(imv);
           if(!(context.has_function(iid.clone())), {
@@ -819,7 +832,7 @@ find_function_calls_in_expr :: (fn(expr : AstExpr, context : CodeGenContext, inf
     ei_opt,
     .Some(ei) => {
       match(
-        ei.deferred_dup_expressions,
+        expr_info_deferred_dup_expressions(ei),
         .Some(dups) => {
           nd := dups.len();
           (di : usize) = usize(0);
@@ -831,7 +844,7 @@ find_function_calls_in_expr :: (fn(expr : AstExpr, context : CodeGenContext, inf
         .None => ()
       );
       match(
-        ei.deferred_drop_expressions,
+        expr_info_deferred_drop_expressions(ei),
         .Some(drops) => {
           nr := drops.len();
           (ri : usize) = usize(0);
@@ -867,7 +880,7 @@ find_function_calls_in_expr :: (fn(expr : AstExpr, context : CodeGenContext, inf
             // emitted in the pre-pass (consistent with the new/dispose). Falls back
             // to the source arg for non-auto-boxed dyns.
             varg_opt := match(
-              ei.runtime_arg_exprs_in_order,
+              expr_info_runtime_arg_exprs_in_order(ei),
               .Some(ra) => match(ra.get(usize(0)), .Some(p) => Option(AstExpr).Some(p), .None => match(expr, .FnCall(_, _, cargs, _, _) => cargs.get(usize(0)), .Atom(_, _) => Option(AstExpr).None)),
               .None => match(expr, .FnCall(_, _, cargs, _, _) => cargs.get(usize(0)), .Atom(_, _) => Option(AstExpr).None)
             );

@@ -10,7 +10,11 @@ open(import("std/string"));
 { get_variable_name_for_codegen, get_type_string, get_variable_type_string } :: import("../utils/index.yo");
 { Environment, get_variables_from_env } :: import("../../env.yo");
 { is_unit_type } :: import("../../types/guards.yo");
-{ expr_info_converted_runtime_type } :: import("../../expr_info.yo");
+{
+  expr_info_converted_runtime_type,
+  expr_info_deferred_dup_expressions,
+  expr_info_runtime_arg_exprs_in_order
+} :: import("../../expr_info.yo");
 { generate_deferred_dup_expressions, generate_deferred_drop_expressions } :: import("./drop_dup.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
 /// Emit a recursive self-call `<currentFunctionName>(<args>)`. If the recur
@@ -19,7 +23,7 @@ open(import("std/string"));
 generate_recur :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("No arguments for recur call"))));
   match(
-    ei.runtime_arg_exprs_in_order,
+    expr_info_runtime_arg_exprs_in_order(ei),
     .Some(arg_exprs) => {
       args_list := String.from("");
       n := arg_exprs.len();
@@ -68,7 +72,7 @@ generate_recur :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
             match(
               context.base.get_expr_info(arg),
               .Some(aei2) => match(
-                aei2.deferred_dup_expressions,
+                expr_info_deferred_dup_expressions(aei2),
                 .Some(dups) => if(dups.len() > usize(0), {
                   match(
                     aei2.variable_name,

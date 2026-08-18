@@ -24,7 +24,9 @@ open(import("std/string"));
   new_expr_info,
   expr_info_table_get,
   expr_info_table_set,
-  record_macro_expansion
+  record_macro_expansion,
+  expr_info_set_macro_expansion,
+  expr_info_set_runtime_arg_exprs_in_order
 } :: import("../../expr_info.yo");
 { Environment } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -447,7 +449,7 @@ try_to_convert_to_numeric_type :: (
     // then reused, so both structures owned the one ref → stage-2 UAF). Clone
     // keeps the id (runtime-arg materialization looks up its ExprInfo).
     yo_as_rt.push(evaluated.clone());
-    yo_as_info.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(yo_as_rt);
+    expr_info_set_runtime_arg_exprs_in_order(yo_as_info, Option(ArrayList(AstExpr)).Some(yo_as_rt));
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(yo_as_node), yo_as_info);
     out_info := new_expr_info(env, target_type);
     out_info.value = .None;
@@ -458,7 +460,7 @@ try_to_convert_to_numeric_type :: (
     // the stage-2 conversion cluster). Same durable-table pattern as the
     // if-macro fix (see record_macro_expansion / lookup_macro_expansion).
     record_macro_expansion(ast_expr_id(expr), yo_as_node.clone());
-    out_info.macro_expansion = Option(AstExpr).Some(yo_as_node);
+    expr_info_set_macro_expansion(out_info, Option(AstExpr).Some(yo_as_node));
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
     return(.Some(expr));
   });

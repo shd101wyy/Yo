@@ -16,7 +16,14 @@ open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
 { AstExpr, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_to_string, ast_expr_id, make_err_expr, BF_DOT } :: import("../../expr.yo");
-{ lookup_method_callee_value, ExprInfo, new_expr_info, expr_info_effect_analysis } :: import("../../expr_info.yo");
+{
+  lookup_method_callee_value,
+  ExprInfo,
+  new_expr_info,
+  expr_info_effect_analysis,
+  expr_info_index_trait_ptr_type,
+  expr_info_runtime_arg_exprs_in_order
+} :: import("../../expr_info.yo");
 { EvalValue, is_func_val, is_unknown_val, is_struct_val, is_enum_val } :: import("../../value.yo");
 { get_type_trait_methods_by_name, type_id_or_empty } :: import("../../evaluator/values/type_trait_methods.yo");
 { get_func_type, is_control_fn, is_effect_record_member, is_io_async_sm_closure } :: import("../../function_value.yo");
@@ -306,7 +313,7 @@ _get_interior_ref_container_code :: (fn(arg_expr : AstExpr, param_is_ref : bool,
     match(
       context.base.get_expr_info(arg_expr),
       .Some(ei) => match(
-        ei.index_trait_ptr_type,
+        expr_info_index_trait_ptr_type(ei),
         .Some(_) => if(
           !(ast_expr_is_fn_call(arg_expr)),
           Option(String).None,
@@ -893,7 +900,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
   // so the value-struct constructor branch below emits the compound literal /
   // newtype cast from the runtime arg exprs. Mirrors TS, where such an expr
   // carries an UnknownValue (so the comptime short-cut never fires).
-  oc_has_runtime_args := match(ei.runtime_arg_exprs_in_order, .Some(ra) => (ra.len() > usize(0)), .None => false);
+  oc_has_runtime_args := match(expr_info_runtime_arg_exprs_in_order(ei), .Some(ra) => (ra.len() > usize(0)), .None => false);
   match(
     ei.value,
     .Some(v) => {
@@ -937,7 +944,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
     from_callee := match(expr, .FnCall(_, f, _, _, _) => ast_expr_to_string(f), .Atom(_, _) => String.new());
     variant_raw := if(from_val.len() > usize(0), from_val, if(from_ty.len() > usize(0), from_ty, from_callee));
     if(variant_raw.len() > usize(0), {
-      rt_e := match(ei.runtime_arg_exprs_in_order, .Some(ra) => ra, .None => ArrayList(AstExpr).new());
+      rt_e := match(expr_info_runtime_arg_exprs_in_order(ei), .Some(ra) => ra, .None => ArrayList(AstExpr).new());
       enum_code := _generate_runtime_enum_construct(ei.ty, variant_raw, rt_e, indent.clone(), context);
       match(
         ei.variable_name,
@@ -965,7 +972,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
   // explicit...)`. Mirrors other-fn-call.ts:478+.
   if(ast_expr_is_fn_call_of(func_expr, BF_DOT, Option(usize).Some(usize(2))), {
     dmethod_args := match(func_expr, .FnCall(_, _, da, _, _) => da, .Atom(_, _) => ArrayList(AstExpr).new());
-    dm_runtime := match(ei.runtime_arg_exprs_in_order, .Some(ra) => ra, .None => ArrayList(AstExpr).new());
+    dm_runtime := match(expr_info_runtime_arg_exprs_in_order(ei), .Some(ra) => ra, .None => ArrayList(AstExpr).new());
     // `recv_is_dyn` = is the prepended runtime-arg[0] itself a Dyn? Used ONLY by
     // the concrete-dispatch branch below to exclude a `ctl`-FIELD effect call like
     // `exn.throw(dyn(err))`, whose receiver `exn` is NOT prepended so the dyn
@@ -1295,7 +1302,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
         match(
           _c_func_name(rm_fid.clone(), context),
           .Some(rmcn) => {
-            rm_runtime := match(ei.runtime_arg_exprs_in_order, .Some(ra) => ra, .None => ArrayList(AstExpr).new());
+            rm_runtime := match(expr_info_runtime_arg_exprs_in_order(ei), .Some(ra) => ra, .None => ArrayList(AstExpr).new());
             rm_pir := match(get_func_type(rm_fid.clone()), .Func({ meta : __fmrm }) => __fmrm.*.param_is_ref, _ => ArrayList(bool).new());
             rm_args := ArrayList(String).new();
             rm_n := rm_runtime.len();
@@ -1473,7 +1480,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
           // them from the FnCall's labeled args when empty (ctor inside a
           // specialized body — see _ctor_args_from_labeled).
           ctor_args := match(
-            ei.runtime_arg_exprs_in_order,
+            expr_info_runtime_arg_exprs_in_order(ei),
             .Some(ra) => if(ra.len() > usize(0), ra, _ctor_args_from_labeled(wrapped.clone(), obj_fncall_args)),
             .None => _ctor_args_from_labeled(wrapped.clone(), obj_fncall_args)
           );
@@ -1564,7 +1571,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
           vs_cname := match(context.base.get_type_c_name(type_key(wrapped.clone())), .Some(cn) => cn, .None => String.from("__yo_unknown_struct"));
           vs_is_newtype := match(wrapped, .Struct({ is_newtype : nt }) => nt, _ => false);
           rt_fields := get_runtime_struct_fields(wrapped.clone());
-          vs_args_raw := match(ei.runtime_arg_exprs_in_order, .Some(ra) => ra, .None => ArrayList(AstExpr).new());
+          vs_args_raw := match(expr_info_runtime_arg_exprs_in_order(ei), .Some(ra) => ra, .None => ArrayList(AstExpr).new());
           // `runtime_arg_exprs_in_order` records a slot for EVERY field, including
           // COMPTIME-ONLY ones (`tag :: "..."`); for a struct with a comptime field
           // it has MORE entries than the runtime-field list, so the per-runtime-
@@ -1657,7 +1664,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
   if(!(is_function_type(function_type)) && !(cc_early_hit), {
     return(Option(String).None);
   });
-  (runtime_args : ArrayList(AstExpr)) = match(ei.runtime_arg_exprs_in_order, .Some(ra) => ra, .None => return(Option(String).None));
+  (runtime_args : ArrayList(AstExpr)) = match(expr_info_runtime_arg_exprs_in_order(ei), .Some(ra) => ra, .None => return(Option(String).None));
   // cc_early_hit fallback: a closure-field call inside a SPECIALIZED body can
   // reach codegen with an EMPTY recorded runtime-arg list (the re-evaluated
   // body's call route never populated it — same gap as the reference-struct

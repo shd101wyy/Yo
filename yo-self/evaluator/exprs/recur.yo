@@ -34,7 +34,9 @@ open(import("std/fmt"));
   ExprInfo,
   new_expr_info,
   expr_info_table_get,
-  expr_info_table_set
+  expr_info_table_set,
+  expr_info_set_deferred_drop_expressions,
+  expr_info_set_runtime_arg_exprs_in_order
 } :: import("../../expr_info.yo");
 { Environment, snapshot_env } :: import("../../env.yo");
 {
@@ -215,9 +217,11 @@ evaluate_recur :: (
     // Write ExprInfo for this recur expression.
     out_info := new_expr_info(caller_env, return_type);
     out_info.value = Option(EvalValue).Some(recur_unknown);
-    out_info.runtime_arg_exprs_in_order =
-      Option(ArrayList(AstExpr)).Some(call_result.runtime_arg_exprs_in_order);
-    out_info.deferred_drop_expressions = call_result.deferred_drop_expressions;
+    expr_info_set_runtime_arg_exprs_in_order(
+      out_info,
+      Option(ArrayList(AstExpr)).Some(call_result.runtime_arg_exprs_in_order)
+    );
+    expr_info_set_deferred_drop_expressions(out_info, call_result.deferred_drop_expressions);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
     // Attach a temp variable for RC drop tracking.
     // Phase 2x stub: no-op; full implementation in Phase 3.

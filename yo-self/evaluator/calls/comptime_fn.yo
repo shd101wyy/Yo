@@ -20,7 +20,16 @@ open(import("std/fmt"));
 _(env : ctfe_dbg_env) :: import("std/env");
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_token, ast_expr_id, ast_expr_to_string, make_err_expr, clone_expr_fresh_ids } :: import("../../expr.yo");
-{ ExprInfo, new_expr_info, expr_info_table_get, register_struct_ctor_fid, lookup_struct_ctor_fid, register_trait_ctor_fid, ComptimeRef } :: import("../../expr_info.yo");
+{
+  ExprInfo,
+  new_expr_info,
+  expr_info_table_get,
+  register_struct_ctor_fid,
+  lookup_struct_ctor_fid,
+  register_trait_ctor_fid,
+  ComptimeRef,
+  expr_info_comptime_ref
+} :: import("../../expr_info.yo");
 { Variable, Environment, snapshot_env } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_some_t } :: import("../../types/creators.yo");
@@ -1213,7 +1222,7 @@ evaluate_comptime_fn_call :: (
     caller_env : caller_env,
     callee_env : out_callee_env,
     // TS comptime-fn.ts:297 — comptimeRef: evaluatedFunctionBody.$.comptimeRef.
-    comptime_ref : body_info.comptime_ref
+    comptime_ref : expr_info_comptime_ref(body_info)
   )
 });
 export(evaluate_comptime_fn_call);

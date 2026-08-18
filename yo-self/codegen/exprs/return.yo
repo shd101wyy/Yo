@@ -18,7 +18,12 @@ open(import("std/string"));
 { Token } :: import("../../token.yo");
 { Variable, Environment, get_variables_from_env } :: import("../../env.yo");
 { is_unit_type, is_some_type } :: import("../../types/guards.yo");
-{ lookup_some_resolved_concrete } :: import("../../expr_info.yo");
+{
+  lookup_some_resolved_concrete,
+  expr_info_deferred_drop_expressions,
+  expr_info_deferred_dup_expressions,
+  expr_info_early_return_only_deferred_drop_expressions
+} :: import("../../expr_info.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { FunctionGenerationContext, resolve_var_name_in_context } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
@@ -323,7 +328,7 @@ generate_pending_deferred_drops :: (fn(indent : String, context : FunctionGenera
         match(
           context.base.get_expr_info(expr),
           .Some(ei) => match(
-            ei.deferred_drop_expressions,
+            expr_info_deferred_drop_expressions(ei),
             .Some(drops) => {
               nd := drops.len();
               (di : usize) = usize(0);
@@ -489,7 +494,7 @@ generate_early_return_only_deferred_drop_expressions :: (fn(expr : AstExpr, inde
   match(
     context.base.get_expr_info(expr),
     .Some(ei) => match(
-      ei.early_return_only_deferred_drop_expressions,
+      expr_info_early_return_only_deferred_drop_expressions(ei),
       .Some(early_drops) => {
         em := context.base.emitter;
         (i : usize) = usize(0);
@@ -543,7 +548,7 @@ handle_atom_deferred_dup :: (fn(expr : AstExpr, atom_code : String, indent : Str
   match(
     context.base.get_expr_info(expr),
     .Some(ei) => match(
-      ei.deferred_dup_expressions,
+      expr_info_deferred_dup_expressions(ei),
       .Some(dups) => if(dups.len() > usize(0), {
         generate_deferred_dup_expressions(expr, indent.clone(), context);
         match(dups.get(usize(0)), .Some(dup_expr) => if(ast_expr_is_fn_call(dup_expr), match(context.base.get_expr_info(dup_expr), .Some(dei) => match(dei.variable_name, .Some(dvn) => get_variable_name_for_codegen(dvn, Option(Environment).Some(dei.env)), .None => atom_code), .None => atom_code), atom_code), .None => atom_code)
@@ -557,7 +562,7 @@ handle_atom_deferred_dup :: (fn(expr : AstExpr, atom_code : String, indent : Str
 handle_func_call_deferred_dup :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(_call_generate_expr(expr, indent.clone(), context)));
   match(
-    ei.deferred_dup_expressions,
+    expr_info_deferred_dup_expressions(ei),
     .Some(dups) => if(dups.len() > usize(0), {
       em := context.base.emitter;
       match(
@@ -611,7 +616,7 @@ generate_return :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
         return(codegen_fatal_expr(String.from("return expression missing temporary variable name")));
       });
       arg_ei_opt := context.base.get_expr_info(arg);
-      arg_has_dup := match(arg_ei_opt, .Some(aei) => match(aei.deferred_dup_expressions, .Some(d) => (d.len() > usize(0)), .None => false), .None => false);
+      arg_has_dup := match(arg_ei_opt, .Some(aei) => match(expr_info_deferred_dup_expressions(aei), .Some(d) => (d.len() > usize(0)), .None => false), .None => false);
       // Deferred-dup-with-temp materialization (port of return.ts:556-598):
       // when the arg has BOTH a variableName and deferred `___dup`s (returning
       // a borrowed FIELD, e.g. `return(p.inner)`), declare the arg's eval temp
@@ -674,7 +679,7 @@ generate_return :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
         match(
           arg_ei_opt,
           .Some(aei) => match(
-            aei.deferred_dup_expressions,
+            expr_info_deferred_dup_expressions(aei),
             .Some(dups) => match(
               dups.get(usize(0)),
               .Some(dup_expr) => if(
@@ -792,7 +797,7 @@ generate_return :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
         context.base.get_expr_info(expr),
         .Some(rei) => {
           match(
-            rei.deferred_drop_expressions,
+            expr_info_deferred_drop_expressions(rei),
             .Some(dds) => {
               (ddi : usize) = usize(0);
               while(ddi < dds.len(), {
@@ -813,7 +818,7 @@ generate_return :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
             .None => ()
           );
           match(
-            rei.early_return_only_deferred_drop_expressions,
+            expr_info_early_return_only_deferred_drop_expressions(rei),
             .Some(eds) => {
               (edi : usize) = usize(0);
               while(edi < eds.len(), {

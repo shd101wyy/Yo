@@ -36,7 +36,10 @@ _(env : pa_dbg_env) :: import("std/env");
   expr_info_table_set,
   expr_info_origin_type,
   expr_info_set_origin_type,
-  ComptimeRef
+  ComptimeRef,
+  expr_info_comptime_ref,
+  expr_info_set_comptime_ref,
+  expr_info_set_is_accessing_property
 } :: import("../../expr_info.yo");
 { Environment, Variable, get_variables_from_env } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
@@ -256,7 +259,7 @@ _try_resolve_associated_type :: (
               .Some(spec_tv) => {
                 out_spec := new_expr_info(env, type_of_eval_value(spec_tv));
                 out_spec.value = Option(EvalValue).Some(spec_tv);
-                out_spec.is_accessing_property = Option(bool).Some(true);
+                expr_info_set_is_accessing_property(out_spec, Option(bool).Some(true));
                 expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_spec);
                 expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_spec);
                 return(true);
@@ -300,7 +303,7 @@ _try_resolve_associated_type :: (
           .Some(rmv) => {
             out_rm := new_expr_info(env, rm.ty);
             out_rm.value = Option(EvalValue).Some(rmv);
-            out_rm.is_accessing_property = Option(bool).Some(true);
+            expr_info_set_is_accessing_property(out_rm, Option(bool).Some(true));
             expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_rm);
             expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_rm);
             return(true);
@@ -639,9 +642,9 @@ Raw pointer operations may dereference invalid memory.`,
                   );
                   out_ptr := new_expr_info(env, resolved_base);
                   out_ptr.value = Option(EvalValue).Some(deref_val);
-                  out_ptr.comptime_ref = deref_place;
+                  expr_info_set_comptime_ref(out_ptr, deref_place);
                   expr_info_set_origin_type(out_ptr, Option(TypeValue).Some(ot));
-                  out_ptr.is_accessing_property = Option(bool).Some(true);
+                  expr_info_set_is_accessing_property(out_ptr, Option(bool).Some(true));
                   out_ptr.source_variable = match(
                     obj_info_opt,
                     .Some(oi) => oi.source_variable,
@@ -665,7 +668,7 @@ Raw pointer operations may dereference invalid memory.`,
                     out_unk := new_expr_info(env, resolved_base);
                     out_unk.value = Option(EvalValue).Some(deref_unk);
                     expr_info_set_origin_type(out_unk, Option(TypeValue).Some(ot));
-                    out_unk.is_accessing_property = Option(bool).Some(true);
+                    expr_info_set_is_accessing_property(out_unk, Option(bool).Some(true));
                     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_unk);
                     expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_unk);
                     return(expr);
@@ -679,7 +682,7 @@ Raw pointer operations may dereference invalid memory.`,
           // No compile-time pointer value — runtime dereference.
           out_rt := new_expr_info(env, resolved_base);
           expr_info_set_origin_type(out_rt, Option(TypeValue).Some(ot));
-          out_rt.is_accessing_property = Option(bool).Some(true);
+          expr_info_set_is_accessing_property(out_rt, Option(bool).Some(true));
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_rt);
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_rt);
           attach_temp_variable_to_expr(expr, false, ctx);
@@ -733,7 +736,7 @@ Raw pointer operations may dereference invalid memory.`,
                 .Some(pmv) => {
                   out_prim := new_expr_info(env, pm.ty);
                   out_prim.value = Option(EvalValue).Some(pmv);
-                  out_prim.is_accessing_property = Option(bool).Some(true);
+                  expr_info_set_is_accessing_property(out_prim, Option(bool).Some(true));
                   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_prim);
                   expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_prim);
                   pm_done = true;
@@ -769,7 +772,7 @@ Raw pointer operations may dereference invalid memory.`,
         );
         out_gm_pr := new_expr_info(env, method_pr.method_type);
         out_gm_pr.value = method_pr.method_value;
-        out_gm_pr.is_accessing_property = Option(bool).Some(true);
+        expr_info_set_is_accessing_property(out_gm_pr, Option(bool).Some(true));
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_gm_pr);
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_gm_pr);
         return(expr);
@@ -802,7 +805,7 @@ Raw pointer operations may dereference invalid memory.`,
               // like JsonValue.
               out_wt := new_expr_info(env, t_type());
               out_wt.value = Option(EvalValue).Some(create_type_value(wt_ty));
-              out_wt.is_accessing_property = Option(bool).Some(true);
+              expr_info_set_is_accessing_property(out_wt, Option(bool).Some(true));
               expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_wt);
               expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_wt);
               return(expr);
@@ -866,7 +869,7 @@ Raw pointer operations may dereference invalid memory.`,
                 );
                 out_gm_en := new_expr_info(env, method_en.method_type);
                 out_gm_en.value = method_en.method_value;
-                out_gm_en.is_accessing_property = Option(bool).Some(true);
+                expr_info_set_is_accessing_property(out_gm_en, Option(bool).Some(true));
                 expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_gm_en);
                 expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_gm_en);
                 return(expr);
@@ -908,7 +911,7 @@ Raw pointer operations may dereference invalid memory.`,
                 ev_tv_en := EvalValue.EnumVal(dot_tv_vname, ArrayList(EvalValue).new());
                 out_tv_en := new_expr_info(env, new_en_tv);
                 out_tv_en.value = Option(EvalValue).Some(ev_tv_en);
-                out_tv_en.is_accessing_property = Option(bool).Some(true);
+                expr_info_set_is_accessing_property(out_tv_en, Option(bool).Some(true));
                 expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_tv_en);
                 _attach_owned_temp_for_rc_unit_variant(expr, new_en_tv, ctx);
                 expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_tv_en);
@@ -916,7 +919,7 @@ Raw pointer operations may dereference invalid memory.`,
                 tv_en_type_val := create_type_value(new_en_tv);
                 out_tv_en2 := new_expr_info(env, t_type());
                 out_tv_en2.value = Option(EvalValue).Some(tv_en_type_val);
-                out_tv_en2.is_accessing_property = Option(bool).Some(true);
+                expr_info_set_is_accessing_property(out_tv_en2, Option(bool).Some(true));
                 expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_tv_en2);
                 expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_tv_en2);
               });
@@ -965,7 +968,7 @@ Raw pointer operations may dereference invalid memory.`,
           ft_su := match(su_types.get(fi_su), .Some(t) => t, .None => t_unit());
           out_su := new_expr_info(env, ft_su);
           out_su.value = Option(EvalValue).Some(create_unknown_val(ft_su));
-          out_su.is_accessing_property = Option(bool).Some(true);
+          expr_info_set_is_accessing_property(out_su, Option(bool).Some(true));
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_su);
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_su);
           return(expr);
@@ -987,7 +990,7 @@ Raw pointer operations may dereference invalid memory.`,
         );
         out_gm_su := new_expr_info(env, method_su.method_type);
         out_gm_su.value = method_su.method_value;
-        out_gm_su.is_accessing_property = Option(bool).Some(true);
+        expr_info_set_is_accessing_property(out_gm_su, Option(bool).Some(true));
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_gm_su);
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_gm_su);
         return(expr);
@@ -1008,7 +1011,7 @@ Raw pointer operations may dereference invalid memory.`,
                     spec_tv_ty := type_of_eval_value(spec_tv);
                     out_spec_su := new_expr_info(env, spec_tv_ty);
                     out_spec_su.value = Option(EvalValue).Some(spec_tv);
-                    out_spec_su.is_accessing_property = Option(bool).Some(true);
+                    expr_info_set_is_accessing_property(out_spec_su, Option(bool).Some(true));
                     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_spec_su);
                     expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_spec_su);
                     return(expr);
@@ -1072,7 +1075,7 @@ Raw pointer operations may dereference invalid memory.`,
                     rm_v_ty := type_of_eval_value(rmv);
                     out_rm := new_expr_info(env, rm.ty);
                     out_rm.value = Option(EvalValue).Some(rmv);
-                    out_rm.is_accessing_property = Option(bool).Some(true);
+                    expr_info_set_is_accessing_property(out_rm, Option(bool).Some(true));
                     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_rm);
                     expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_rm);
                     rm_done = true;
@@ -1130,7 +1133,7 @@ Raw pointer operations may dereference invalid memory.`,
           ft_mt := match(mt_types.get(fi_mt), .Some(t) => t, .None => t_unit());
           out_mt := new_expr_info(env, ft_mt);
           out_mt.value = Option(EvalValue).Some(create_unknown_val(ft_mt));
-          out_mt.is_accessing_property = Option(bool).Some(true);
+          expr_info_set_is_accessing_property(out_mt, Option(bool).Some(true));
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_mt);
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_mt);
           return(expr);
@@ -1206,7 +1209,7 @@ Raw pointer operations may dereference invalid memory.`,
                 .Some(tt_km) => if((tt_km.source_trait_id == tt_trait_id) || (tt_km.source_trait_id == tt_trait_key), {
                   out_wc := new_expr_info(env, tt_km.ty);
                   out_wc.value = tt_km.value;
-                  out_wc.is_accessing_property = Option(bool).Some(true);
+                  expr_info_set_is_accessing_property(out_wc, Option(bool).Some(true));
                   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_wc);
                   expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_wc);
                   return(expr);
@@ -1233,7 +1236,7 @@ Raw pointer operations may dereference invalid memory.`,
             if(tt_cand.source_trait_id == tt_trait_key, {
               out_w := new_expr_info(env, tt_cand.method_type);
               out_w.value = tt_cand.method_value;
-              out_w.is_accessing_property = Option(bool).Some(true);
+              expr_info_set_is_accessing_property(out_w, Option(bool).Some(true));
               expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_w);
               expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_w);
               return(expr);
@@ -1260,7 +1263,7 @@ Raw pointer operations may dereference invalid memory.`,
           ft_tt := match(tt_types.get(fi_tt), .Some(t) => t, .None => t_unit());
           out_tt := new_expr_info(env, ft_tt);
           out_tt.value = Option(EvalValue).Some(create_unknown_val(ft_tt));
-          out_tt.is_accessing_property = Option(bool).Some(true);
+          expr_info_set_is_accessing_property(out_tt, Option(bool).Some(true));
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_tt);
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_tt);
           return(expr);
@@ -1384,7 +1387,7 @@ Raw pointer operations may dereference invalid memory.`,
                 );
                 out_st := new_expr_info(env, st_ft);
                 out_st.value = Option(EvalValue).Some(ev_st);
-                out_st.is_accessing_property = Option(bool).Some(true);
+                expr_info_set_is_accessing_property(out_st, Option(bool).Some(true));
                 expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_st);
                 expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_st);
                 st_found = true;
@@ -1514,7 +1517,7 @@ Raw pointer operations may dereference invalid memory.`,
             );
             out_idx := new_expr_info(env, ft_idx);
             expr_info_set_origin_type(out_idx, Option(TypeValue).Some(field_origin_idx));
-            out_idx.is_accessing_property = Option(bool).Some(true);
+            expr_info_set_is_accessing_property(out_idx, Option(bool).Some(true));
             out_idx.path_collection = idx_pc;
             expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_idx);
             expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_idx);
@@ -1589,7 +1592,7 @@ Raw pointer operations may dereference invalid memory.`,
             );
             out_lbl := new_expr_info(env, ft_lbl);
             expr_info_set_origin_type(out_lbl, Option(TypeValue).Some(field_origin_lbl));
-            out_lbl.is_accessing_property = Option(bool).Some(true);
+            expr_info_set_is_accessing_property(out_lbl, Option(bool).Some(true));
             out_lbl.path_collection = lbl_pc;
             expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_lbl);
             expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_lbl);
@@ -1656,8 +1659,11 @@ Raw pointer operations may dereference invalid memory.`,
                         // throws "Function body is not evaluated correctly.
                         // Expected to return a compile-time known value."
                         if(lbl_via_ptr, {
-                          out_lbl.comptime_ref = Option(ComptimeRef).Some(
-                            ComptimeRef.TupleRef(flds_l, fi_lbl)
+                          expr_info_set_comptime_ref(
+                            out_lbl,
+                            Option(ComptimeRef).Some(
+                              ComptimeRef.TupleRef(flds_l, fi_lbl)
+                            )
                           );
                         });
                       },
@@ -1673,8 +1679,11 @@ Raw pointer operations may dereference invalid memory.`,
                         );
                         // See the TupleVal arm above (TS property-access.ts:1084-1090).
                         if(lbl_via_ptr, {
-                          out_lbl.comptime_ref = Option(ComptimeRef).Some(
-                            ComptimeRef.StructRef(sflds_l, fi_lbl)
+                          expr_info_set_comptime_ref(
+                            out_lbl,
+                            Option(ComptimeRef).Some(
+                              ComptimeRef.StructRef(sflds_l, fi_lbl)
+                            )
                           );
                         });
                       },
@@ -1754,7 +1763,7 @@ Raw pointer operations may dereference invalid memory.`,
               mod_label
             );
             out_mod := new_expr_info(env, ft_mod);
-            out_mod.is_accessing_property = Option(bool).Some(true);
+            expr_info_set_is_accessing_property(out_mod, Option(bool).Some(true));
             out_mod.path_collection = mod_pc;
             expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_mod);
             expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_mod);
@@ -1883,7 +1892,7 @@ Raw pointer operations may dereference invalid memory.`,
                       enum_pc.push(ep_path);
                       out_ev := new_expr_info(env, ft_ev);
                       out_ev.path_collection = enum_pc;
-                      out_ev.is_accessing_property = Option(bool).Some(true);
+                      expr_info_set_is_accessing_property(out_ev, Option(bool).Some(true));
                       expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_ev);
                       expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_ev);
                       // Propagate compile-time enum value.
@@ -1959,7 +1968,7 @@ Raw pointer operations may dereference invalid memory.`,
                 dv_pc.push(dv_path);
                 dv_out := new_expr_info(env, dv_ft);
                 dv_out.path_collection = dv_pc;
-                dv_out.is_accessing_property = Option(bool).Some(true);
+                expr_info_set_is_accessing_property(dv_out, Option(bool).Some(true));
                 expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), dv_out);
                 expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), dv_out);
                 match(

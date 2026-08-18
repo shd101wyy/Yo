@@ -21,7 +21,11 @@ open(import("std/string"));
 { _call_generate_expr } :: import("./_expr.yo");
 { get_type_string, get_variable_name_for_codegen, is_function_value_with_only_builtin_yo_inline_function_call } :: import("../utils/index.yo");
 { is_array_type } :: import("../../types/guards.yo");
-{ expr_info_converted_runtime_type } :: import("../../expr_info.yo");
+{
+  expr_info_converted_runtime_type,
+  expr_info_index_method_value,
+  expr_info_is_index_trait_address_of
+} :: import("../../expr_info.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
 /// The C function name for a func id (registered cName, else None).
 _c_function_name_opt :: (fn(context : FunctionGenerationContext, func_id : String) -> Option(String))(
@@ -78,7 +82,7 @@ generate_address_of :: (fn(expr : AstExpr, indent : String, context : FunctionGe
     .None => ()
   );
   // Index-trait address-of: Index.index() already returns a pointer.
-  is_idx := match(ei.is_index_trait_address_of, .Some(b) => b, .None => false);
+  is_idx := match(expr_info_is_index_trait_address_of(ei), .Some(b) => b, .None => false);
   // Array-receiver index address-of: `&(arr(i))` where `arr` is a builtin
   // fixed-size Array (NOT a user `Index` impl). The array index is a BUILTIN
   // (BF_YO_ARRAY_INDEX), so the evaluator records NO `index_method_value`
@@ -87,7 +91,7 @@ generate_address_of :: (fn(expr : AstExpr, indent : String, context : FunctionGe
   // fallback, which copies element 0 into a 1-byte temp and addresses THAT
   // (`uint8_t t = arr.data[0]; &t`). snprintf then overflows the temp → SIGTRAP.
   // Emit the address INTO the array buffer directly: `(&((&arr)->data[i]))`.
-  if(ast_expr_is_fn_call(arg) && match(arg_ei_opt, .Some(aei) => aei.index_method_value.is_none(), .None => true), {
+  if(ast_expr_is_fn_call(arg) && match(arg_ei_opt, .Some(aei) => expr_info_index_method_value(aei).is_none(), .None => true), {
     callee_expr := match(arg, .FnCall(_, func, _, _, _) => func, .Atom(_, _) => arg);
     callee_is_array := match(context.base.get_expr_info(callee_expr), .Some(cei) => is_array_type(cei.ty), .None => false);
     if(callee_is_array, {
@@ -106,7 +110,7 @@ generate_address_of :: (fn(expr : AstExpr, indent : String, context : FunctionGe
     match(
       arg_ei_opt,
       .Some(arg_ei) => match(
-        arg_ei.index_method_value,
+        expr_info_index_method_value(arg_ei),
         .Some(mv) => if(is_func_val(mv), {
           callee_expr := match(arg, .FnCall(_, func, _, _, _) => func, .Atom(_, _) => arg);
           (callee_code : String) = _call_generate_expr(callee_expr, indent.clone(), context);

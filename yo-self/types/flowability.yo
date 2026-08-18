@@ -37,7 +37,17 @@ open(import("std/string"));
   make_err_expr,
   ast_expr_to_string
 } :: import("../expr.yo");
-{ ExprInfo, expr_info_table_get, has_any_control_flow, lookup_method_callee_type, expr_info_closure_function_value }
+{
+  ExprInfo,
+  expr_info_table_get,
+  has_any_control_flow,
+  lookup_method_callee_type,
+  expr_info_closure_function_value,
+  expr_info_capture_type,
+  expr_info_control_flow,
+  expr_info_index_trait_ptr_type,
+  expr_info_is_anonymous_function_definition
+}
 :: import("../expr_info.yo");
 { Variable, Environment, get_variables_from_env } :: import("../env.yo");
 { format_error_message } :: import("../error.yo");
@@ -200,7 +210,7 @@ is_flowable_expr :: (fn(expr_in : AstExpr, ctx : EvalContext, opts : FlowOptions
   });
   // Divergent expressions never yield a value here — accept vacuously.
   info_opt := _info(ctx, expr);
-  has_cf := match(info_opt, .Some(i) => has_any_control_flow(i.control_flow), .None => false);
+  has_cf := match(info_opt, .Some(i) => has_any_control_flow(expr_info_control_flow(i)), .None => false);
   if(has_cf, {
     return(true);
   });
@@ -648,7 +658,7 @@ require_ref_own_argument_exclusivity :: (
           root_atom_opt := match(
             _info(ctx, arg),
             .Some(inf) => {
-              is_idx := match(inf.index_trait_ptr_type, .Some(_) => true, .None => false);
+              is_idx := match(expr_info_index_trait_ptr_type(inf), .Some(_) => true, .None => false);
               cond(
                 (is_idx && ast_expr_is_fn_call(arg)) => match(
                   arg,
@@ -836,8 +846,8 @@ _reject_if_container_reachable :: (
             expr_info_closure_function_value(oi),
             .Some(_) => true,
             .None => (
-              match(oi.is_anonymous_function_definition, .Some(b) => b, .None => false) &&
-                oi.capture_type.is_some()
+              match(expr_info_is_anonymous_function_definition(oi), .Some(b) => b, .None => false) &&
+                expr_info_capture_type(oi).is_some()
             )
           );
           (is_closure || type_contains_rc_type(oi.ty)) || type_representation_contains_raw_ptr(oi.ty)
@@ -884,7 +894,7 @@ require_valid_ref_argument_places :: (
         // heap buffer; reject when the container is reachable.
         arg_is_index_place := match(
           expr_info_table_get(ctx.expr_info_table, ast_expr_id(arg)),
-          .Some(ai_info) => match(ai_info.index_trait_ptr_type, .Some(_) => true, .None => false),
+          .Some(ai_info) => match(expr_info_index_trait_ptr_type(ai_info), .Some(_) => true, .None => false),
           .None => false
         );
         if(arg_is_index_place && ast_expr_is_fn_call(arg), {

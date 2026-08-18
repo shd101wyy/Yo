@@ -29,7 +29,8 @@ open(import("std/string"));
   new_expr_info,
   expr_info_table_set,
   expr_info_table_get,
-  ComptimeRef
+  ComptimeRef,
+  expr_info_set_comptime_ref
 } :: import("../../expr_info.yo");
 { Environment } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
@@ -357,7 +358,7 @@ ci_eval_list_index :: (
               }
             );
             out_info.value = Option(EvalValue).Some(elem_val);
-            out_info.comptime_ref = Option(ComptimeRef).Some(ComptimeRef.ComptimeListRef(list_elems, idx_usize));
+            expr_info_set_comptime_ref(out_info, Option(ComptimeRef).Some(ComptimeRef.ComptimeListRef(list_elems, idx_usize)));
           }, {
             out_info.value = Option(EvalValue).Some(create_unknown_val(elem_ty));
           });
@@ -644,7 +645,7 @@ ci_eval_array_index :: (
                   }
                 );
                 out_info.value = Option(EvalValue).Some(elem_val);
-                out_info.comptime_ref = Option(ComptimeRef).Some(ComptimeRef.ArrayRef(elements, idx_usize));
+                expr_info_set_comptime_ref(out_info, Option(ComptimeRef).Some(ComptimeRef.ArrayRef(elements, idx_usize)));
               }, {
                 out_info.value = Option(EvalValue).Some(create_unknown_val(elem_ty));
               });

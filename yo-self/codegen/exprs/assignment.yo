@@ -28,6 +28,7 @@ open(import("std/string"));
 { emit_deferred_dup_or_code } :: import("./drop_dup.yo");
 { get_type_string, get_variable_type_string } :: import("../utils/index.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
+{ expr_info_is_compile_time_only_assignment } :: import("../../expr_info.yo");
 /// The last binding for `name` is a module-level global.
 _last_is_module_level :: (fn(env : Environment, name : String) -> bool)({
   vars := get_variables_from_env(env, name);
@@ -44,7 +45,7 @@ _last_is_compile_time_only :: (fn(env : Environment, name : String) -> bool)({
 generate_assignment :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("")));
   // Compile-time-only assignment (e.g. `p.* = v` where `p` is comptime).
-  if(match(ei.is_compile_time_only_assignment, .Some(b) => b, .None => false), {
+  if(match(expr_info_is_compile_time_only_assignment(ei), .Some(b) => b, .None => false), {
     return(String.from(""));
   });
   args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());

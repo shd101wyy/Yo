@@ -33,7 +33,8 @@ _(env : tycall_dbg_env) :: import("std/env");
   expr_info_table_get,
   expr_info_table_set,
   path_collection_new,
-  register_some_resolved_concrete
+  register_some_resolved_concrete,
+  expr_info_capture_type
 } :: import("../../expr_info.yo");
 { is_fn_trait_type, is_some_type } :: import("../../types/guards.yo");
 { Environment } :: import("../../env.yo");
@@ -301,7 +302,7 @@ try_to_call_type_with_arguments :: (
         });
         if(fld_has_concrete_fn, {
           match(
-            arg_info.capture_type,
+            expr_info_capture_type(arg_info),
             .Some(fld_cap_t) => register_some_resolved_concrete(fld_sid.clone(), fld_cap_t),
             .None => ()
           );

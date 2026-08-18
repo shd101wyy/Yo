@@ -17,7 +17,8 @@ open(import("std/string"));
   ExprInfo,
   new_expr_info,
   expr_info_table_get,
-  expr_info_table_set
+  expr_info_table_set,
+  expr_info_set_runtime_arg_exprs_in_order
 } :: import("../../expr_info.yo");
 { Environment } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -197,7 +198,7 @@ try_to_implement_array_by_array_type :: (
   if(all_elements_are_comptime, {
     out_info.value = .Some(EvalValue.ArrayVal(elements));
   });
-  out_info.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(runtime_arg_exprs);
+  expr_info_set_runtime_arg_exprs_in_order(out_info, Option(ArrayList(AstExpr)).Some(runtime_arg_exprs));
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   if(!(all_elements_are_comptime), {
     // Runtime construction needs a temp to materialize into, exactly as the

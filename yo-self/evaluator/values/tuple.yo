@@ -31,7 +31,9 @@ open(import("std/fmt"));
 {
   new_expr_info,
   expr_info_table_set,
-  expr_info_table_get
+  expr_info_table_get,
+  expr_info_runtime_arg_exprs_in_order,
+  expr_info_set_runtime_arg_exprs_in_order
 } :: import("../../expr_info.yo");
 { Environment } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
@@ -350,7 +352,7 @@ evaluate_tuple_value :: (
   });
   info := new_expr_info(result.env, tuple_ty);
   info.value = tuple_value_opt;
-  info.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(result.runtime_arg_exprs_in_order);
+  expr_info_set_runtime_arg_exprs_in_order(info, Option(ArrayList(AstExpr)).Some(result.runtime_arg_exprs_in_order));
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
   // attachTempVariableToExpr — Phase 3 stub (no-op).
   expr

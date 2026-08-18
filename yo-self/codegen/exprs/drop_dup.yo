@@ -24,7 +24,14 @@ open(import("std/string"));
 { is_array_type, is_tuple_type, is_dyn_type, is_atomic_reference_struct_type, is_reference_struct_type, is_atomic_reference_enum_type, is_reference_enum_type, is_iso_type, is_struct_type, is_enum_type, is_some_type, is_newtype_type } :: import("../../types/guards.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
 { type_implements_future } :: import("../../evaluator/trait_checking.yo");
-{ expr_info_converted_runtime_type, expr_info_closure_function_value } :: import("../../expr_info.yo");
+{
+  expr_info_converted_runtime_type,
+  expr_info_closure_function_value,
+  expr_info_capture_type,
+  expr_info_deferred_drop_expressions,
+  expr_info_deferred_dup_expressions,
+  expr_info_is_anonymous_function_definition
+} :: import("../../expr_info.yo");
 { random_id, is_temp_variable_name } :: import("../../utils.yo");
 { MethodEntry, get_type_trait_methods_by_name, type_id_or_empty } :: import("../../evaluator/values/type_trait_methods.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
@@ -824,7 +831,7 @@ generate_deferred_drop_expressions :: (
   match(
     context.base.get_expr_info(expr),
     .Some(ei) => match(
-      ei.deferred_drop_expressions,
+      expr_info_deferred_drop_expressions(ei),
       .Some(drops) => {
         em := context.base.emitter;
         n := drops.len();
@@ -891,7 +898,7 @@ generate_deferred_dup_expressions :: (fn(expr : AstExpr, indent : String, contex
   match(
     context.base.get_expr_info(expr),
     .Some(ei) => match(
-      ei.deferred_dup_expressions,
+      expr_info_deferred_dup_expressions(ei),
       .Some(dups) => {
         em := context.base.emitter;
         n := dups.len();
@@ -971,7 +978,7 @@ emit_deferred_dup_or_code :: (fn(expr : AstExpr, fallback_code : String, indent 
   match(
     context.base.get_expr_info(expr),
     .Some(ei) => match(
-      ei.deferred_dup_expressions,
+      expr_info_deferred_dup_expressions(ei),
       .Some(dups) => if(dups.len() > usize(0), {
         em := context.base.emitter;
         // TS declare-first (assignment.ts:184-199, other-fn-call.ts:2277-2292):
@@ -987,7 +994,7 @@ emit_deferred_dup_or_code :: (fn(expr : AstExpr, fallback_code : String, indent 
         // TS's rhsIsClosureConstruction guard).
         src_is_closure_ctor := (
           expr_info_closure_function_value(ei).is_some() ||
-            (match(ei.is_anonymous_function_definition, .Some(b) => b, .None => false) && ei.capture_type.is_some())
+            (match(expr_info_is_anonymous_function_definition(ei), .Some(b) => b, .None => false) && expr_info_capture_type(ei).is_some())
         );
         (fallback_code_2 : String) = fallback_code.clone();
         if(!(src_is_closure_ctor), {

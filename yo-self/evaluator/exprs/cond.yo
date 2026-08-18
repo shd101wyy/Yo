@@ -31,7 +31,10 @@ open(import("std/string"));
   push_branch_group,
   begin_branch_group_arm,
   pop_branch_group,
-  expr_info_set_case_executed
+  expr_info_set_case_executed,
+  expr_info_capture_type,
+  expr_info_control_flow,
+  expr_info_set_control_flow
 } :: import("../../expr_info.yo");
 { Environment } :: import("../../env.yo");
 { Variable } :: import("../../env.yo");
@@ -341,7 +344,7 @@ evaluate_cond :: (
       evaluated_body := evaluate_begin_expression(case_body_true, case_env_true, ctx, ArrayList(Variable).new(), false, exn);
       register_arm_init_range(ast_expr_id(evaluated_body), bir_start_t, branch_init_log_len());
       body_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_body));
-      body_cf := match(body_info_opt, .Some(bi) => bi.control_flow, .None => Option(ControlFlowFlags).None);
+      body_cf := match(body_info_opt, .Some(bi) => expr_info_control_flow(bi), .None => Option(ControlFlowFlags).None);
       if(has_any_control_flow(body_cf), {
         // Body has control flow — propagate without a value.
         body_info := match(
@@ -359,7 +362,7 @@ evaluate_cond :: (
         out_info := new_expr_info(body_info.env, result_ty);
         out_info.value = body_info.value;
         out_info.path_collection = body_info.path_collection;
-        out_info.control_flow = body_info.control_flow;
+        expr_info_set_control_flow(out_info, expr_info_control_flow(body_info));
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
         return(expr);
       }, {
@@ -457,7 +460,7 @@ evaluate_cond :: (
               );
               consume_case_body_temp_var(evaluated_case_body, body_env_for_consume, ctx);
               body_einfo_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_case_body));
-              body_cf2 := match(body_einfo_opt, .Some(bi) => bi.control_flow, .None => Option(ControlFlowFlags).None);
+              body_cf2 := match(body_einfo_opt, .Some(bi) => expr_info_control_flow(bi), .None => Option(ControlFlowFlags).None);
               if(has_any_control_flow(body_cf2), {
                 cf_flags := match(
                   body_cf2,
@@ -605,7 +608,7 @@ evaluate_cond :: (
             body_info_filt_opt,
             .None => (),
             .Some(bi) => {
-              if(!(has_control_flow(bi.control_flow, .Return)) && !(has_control_flow(bi.control_flow, .Unwind)), {
+              if(!(has_control_flow(expr_info_control_flow(bi), .Return)) && !(has_control_flow(expr_info_control_flow(bi), .Unwind)), {
                 filtered_bodies.push(body);
               });
             }
@@ -624,7 +627,7 @@ evaluate_cond :: (
             match(
               expr_info_table_get(ctx.expr_info_table, ast_expr_id(ir_body)),
               .Some(ir_bi) => match(
-                ir_bi.capture_type,
+                expr_info_capture_type(ir_bi),
                 .Some(ir_cap) => {
                   match(
                     ir_first_cap,
@@ -796,7 +799,7 @@ evaluate_cond :: (
                 );
                 out_ret_info := new_expr_info(env, rt);
                 out_ret_info.value = return_val;
-                out_ret_info.control_flow = final_cf;
+                expr_info_set_control_flow(out_ret_info, final_cf);
                 expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_ret_info);
               }
             );
@@ -817,7 +820,7 @@ evaluate_cond :: (
             });
             unwind_ty := match(ctx.enclosing_function_return_type, .Some(t) => t, .None => t_unit());
             out_esc_info := new_expr_info(env, unwind_ty);
-            out_esc_info.control_flow = final_cf;
+            expr_info_set_control_flow(out_esc_info, final_cf);
             expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_esc_info);
           },
           has_control_flow(final_cf, .Break) => {
@@ -836,7 +839,7 @@ evaluate_cond :: (
             });
             out_brk_info := new_expr_info(env, t_unit());
             out_brk_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
-            out_brk_info.control_flow = final_cf;
+            expr_info_set_control_flow(out_brk_info, final_cf);
             expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_brk_info);
           },
           has_control_flow(final_cf, .Continue) => {
@@ -855,7 +858,7 @@ evaluate_cond :: (
             });
             out_cnt_info := new_expr_info(env, t_unit());
             out_cnt_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
-            out_cnt_info.control_flow = final_cf;
+            expr_info_set_control_flow(out_cnt_info, final_cf);
             expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_cnt_info);
           },
           // Should never be reached.

@@ -45,7 +45,12 @@ open(import("std/fmt"));
   new_expr_info,
   expr_info_table_set,
   expr_info_table_get,
-  has_control_flow
+  has_control_flow,
+  expr_info_capture_type,
+  expr_info_control_flow,
+  expr_info_set_capture_type,
+  expr_info_set_deferred_dup_expressions,
+  expr_info_set_is_anonymous_function_definition
 } :: import("../../expr_info.yo");
 { are_types_compatible_exact } :: import("../../types/compatibility.yo");
 {
@@ -1725,7 +1730,7 @@ evaluate_anonymous_function_implementation :: (
         .Some(dgc_body) => match(
           expr_info_table_get(ctx.expr_info_table, ast_expr_id(dgc_body)),
           .Some(dgc_info) => {
-            dgc_skip_cf := (has_control_flow(dgc_info.control_flow, .Unwind) && !(has_control_flow(dgc_info.control_flow, .Return)));
+            dgc_skip_cf := (has_control_flow(expr_info_control_flow(dgc_info), .Unwind) && !(has_control_flow(expr_info_control_flow(dgc_info), .Return)));
             dgc_is_ref := match(function_type, .Func({ meta : __fmd1 }) => __fmd1.*.result_is_ref, _ => false);
             dgc_expected := cond(
               dgc_is_ref => t_ptr(dgc_ret),
@@ -1995,12 +2000,12 @@ evaluate_anonymous_function_implementation :: (
   });
   info := new_expr_info(env, final_lambda_ty);
   info.value = Option(EvalValue).Some(func_val);
-  info.is_anonymous_function_definition = Option(bool).Some(true);
+  expr_info_set_is_anonymous_function_definition(info, Option(bool).Some(true));
   // Phase 3: closure_function_value is not set (EvalValue is not Clone).
   // Downstream code falls back to reading info.value when closure_function_value is None.
   // io.async closures carry the capture-struct type for codegen (see above).
-  info.capture_type = closure_capture_type;
-  info.deferred_dup_expressions = closure_capture_dups;
+  expr_info_set_capture_type(info, closure_capture_type);
+  expr_info_set_deferred_dup_expressions(info, closure_capture_dups);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
   expr
 });

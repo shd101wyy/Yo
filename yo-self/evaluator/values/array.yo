@@ -18,7 +18,8 @@ open(import("std/fmt"));
   ExprInfo,
   new_expr_info,
   expr_info_table_get,
-  expr_info_table_set
+  expr_info_table_set,
+  expr_info_set_runtime_arg_exprs_in_order
 } :: import("../../expr_info.yo");
 { Environment } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
@@ -212,7 +213,7 @@ evaluate_array_value :: (
   // Write ExprInfo into the table.
   info := new_expr_info(env_loop, array_type);
   info.value = array_value_opt;
-  info.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(runtime_arg_exprs);
+  expr_info_set_runtime_arg_exprs_in_order(info, Option(ArrayList(AstExpr)).Some(runtime_arg_exprs));
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
   attach_temp_variable_to_expr(expr, true, ctx);
   expr

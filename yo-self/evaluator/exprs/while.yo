@@ -28,7 +28,10 @@ open(import("std/string"));
   expr_info_table_set,
   ControlFlowFlags,
   has_control_flow,
-  has_any_control_flow
+  has_any_control_flow,
+  expr_info_control_flow,
+  expr_info_set_comptime_unrolled_bodies,
+  expr_info_set_control_flow
 } :: import("../../expr_info.yo");
 { expr_contains_loop_terminator } :: import("../../expr_traversal.yo");
 { Environment } :: import("../../env.yo");
@@ -443,7 +446,7 @@ evaluate_while :: (
     // equivalent degradation is `// Failed to transpile` markers, which the
     // honest-hollow gate counts (basic arm 26's `i :: 10; while(comptime(
     // i < 5), ...)`). Semantically identical: zero iterations.
-    out_info.comptime_unrolled_bodies = Option(ArrayList(AstExpr)).Some(ArrayList(AstExpr).new());
+    expr_info_set_comptime_unrolled_bodies(out_info, Option(ArrayList(AstExpr)).Some(ArrayList(AstExpr).new()));
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
     return(expr);
   });
@@ -475,9 +478,9 @@ evaluate_while :: (
     }
   );
   // Handle control flow produced by the body.
-  if(has_any_control_flow(body_info.control_flow), {
+  if(has_any_control_flow(expr_info_control_flow(body_info)), {
     // --- return / unwind ---
-    if(has_control_flow(body_info.control_flow, .Return) || has_control_flow(body_info.control_flow, .Unwind), {
+    if(has_control_flow(expr_info_control_flow(body_info), .Return) || has_control_flow(expr_info_control_flow(body_info), .Unwind), {
       eff_cond_is_true_re := match(
         effective_condition_value,
         .None => false,
@@ -485,13 +488,13 @@ evaluate_while :: (
       );
       if(eff_cond_is_true_re, {
         // Condition is compile-time true: propagate return/unwind, clear break/continue.
-        cf_ret := has_control_flow(body_info.control_flow, .Return);
-        cf_esc := has_control_flow(body_info.control_flow, .Unwind);
+        cf_ret := has_control_flow(expr_info_control_flow(body_info), .Return);
+        cf_esc := has_control_flow(expr_info_control_flow(body_info), .Unwind);
         prop_cf := ControlFlowFlags(return_flag : cf_ret, unwind_flag : cf_esc, break_flag : false, continue_flag : false);
         out_info := new_expr_info(body_info.env, body_info.ty);
         out_info.value = body_info.value;
         out_info.path_collection = body_info.path_collection;
-        out_info.control_flow = Option(ControlFlowFlags).Some(prop_cf);
+        expr_info_set_control_flow(out_info, Option(ControlFlowFlags).Some(prop_cf));
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
       }, {
         // We might not even enter the loop body — return unit.
@@ -505,7 +508,7 @@ evaluate_while :: (
       return(expr);
     });
     // --- break ---
-    if(has_control_flow(body_info.control_flow, .Break), {
+    if(has_control_flow(expr_info_control_flow(body_info), .Break), {
       // Break exits the loop — result is unit.
       out_info := new_expr_info(body_info.env, t_unit());
       out_info.value = cond(
@@ -516,7 +519,7 @@ evaluate_while :: (
       return(expr);
     });
     // --- continue ---
-    if(has_control_flow(body_info.control_flow, .Continue), {
+    if(has_control_flow(expr_info_control_flow(body_info), .Continue), {
       // Execute the step expression (if any) before re-evaluating the loop.
       (updated_env_cont : Environment) = body_info.env;
       match(
@@ -603,11 +606,11 @@ evaluate_while :: (
     });
   };
   if(is_cond_literal_true, {
-    guaranteed := _body_has_any_terminator_guaranteed(body_info.control_flow);
-    possible := _body_has_any_terminator_possible(body_expr, body_info.control_flow);
+    guaranteed := _body_has_any_terminator_guaranteed(expr_info_control_flow(body_info));
+    possible := _body_has_any_terminator_possible(body_expr, expr_info_control_flow(body_info));
     if(!(guaranteed) && !(possible), {
       // No terminator anywhere — this loop can never end.
-      _throw_max_iterations_error(expr, body_expr, body_info.control_flow, exn);
+      _throw_max_iterations_error(expr, body_expr, expr_info_control_flow(body_info), exn);
     });
     if(!(guaranteed) && possible, {
       // Conditional terminator exists — emit as a runtime loop.
@@ -744,7 +747,7 @@ evaluate_while :: (
                     // what we have and fall back (TS while.ts:607-616).
                     out_rt_u := new_expr_info(current_env, t_unit());
                     out_rt_u.value = Option(EvalValue).None;
-                    out_rt_u.comptime_unrolled_bodies = Option(ArrayList(AstExpr)).Some(unrolled_bodies);
+                    expr_info_set_comptime_unrolled_bodies(out_rt_u, Option(ArrayList(AstExpr)).Some(unrolled_bodies));
                     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_rt_u);
                     return(expr);
                   }
@@ -752,7 +755,7 @@ evaluate_while :: (
                 .None => {
                   out_rt_u2 := new_expr_info(current_env, t_unit());
                   out_rt_u2.value = Option(EvalValue).None;
-                  out_rt_u2.comptime_unrolled_bodies = Option(ArrayList(AstExpr)).Some(unrolled_bodies);
+                  expr_info_set_comptime_unrolled_bodies(out_rt_u2, Option(ArrayList(AstExpr)).Some(unrolled_bodies));
                   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_rt_u2);
                   return(expr);
                 }
@@ -766,21 +769,21 @@ evaluate_while :: (
         // Loop terminates — store unrolled bodies (TS while.ts:619-629).
         out_done_u := new_expr_info(current_env, t_unit());
         out_done_u.value = Option(EvalValue).None;
-        out_done_u.comptime_unrolled_bodies = Option(ArrayList(AstExpr)).Some(unrolled_bodies);
+        expr_info_set_comptime_unrolled_bodies(out_done_u, Option(ArrayList(AstExpr)).Some(unrolled_bodies));
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_done_u);
         return(expr);
       });
     });
     // Unrolling failed: condition stayed comptime true (or a body/step eval
     // lost its info). Mirrors TS while.ts:632-634.
-    _throw_max_iterations_error(expr, body_expr, body_info.control_flow, exn);
+    _throw_max_iterations_error(expr, body_expr, expr_info_control_flow(body_info), exn);
   });
   // If the effective condition is compile-time true (pure-comptime body),
   // recurse to evaluate the next iteration.
   if(eff_cond_is_true_main, {
     next_count := (comptime_iteration_count + usize(1));
     if(next_count >= max_comptime_loop_iterations(), {
-      _throw_max_iterations_error(expr, body_expr, body_info.control_flow, exn);
+      _throw_max_iterations_error(expr, body_expr, expr_info_control_flow(body_info), exn);
     });
     return(recur(expr, env, ctx, next_count, exn));
   }, {

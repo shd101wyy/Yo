@@ -16,7 +16,13 @@
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr } :: import("../../expr.yo");
-{ ExprInfo, has_any_control_flow, expr_info_consumed_variable_drop_expressions } :: import("../../expr_info.yo");
+{
+  ExprInfo,
+  has_any_control_flow,
+  expr_info_consumed_variable_drop_expressions,
+  expr_info_control_flow,
+  expr_info_deferred_drop_expressions
+} :: import("../../expr_info.yo");
 { is_unit_type } :: import("../../types/guards.yo");
 { is_temp_variable_name } :: import("../../utils.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
@@ -102,7 +108,7 @@ _looks_like_minted_temp :: (fn(cn : String) -> bool)({
 });
 _emit_deferred_drops :: (fn(ei : ExprInfo, indent : String, context : FunctionGenerationContext) -> unit)(
   match(
-    ei.deferred_drop_expressions,
+    expr_info_deferred_drop_expressions(ei),
     .Some(drops) => {
       em := context.base.emitter;
       nd := drops.len();
@@ -173,7 +179,7 @@ generate_begin :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
     .Some(temp_var) => {
       // Expression form: begin block that returns a value.
       is_unit := is_unit_type(value_type);
-      has_cf := has_any_control_flow(ei.control_flow);
+      has_cf := has_any_control_flow(expr_info_control_flow(ei));
       is_returning := (!(is_unit) && !(has_cf));
       if(is_returning, {
         d := indent.clone();
@@ -187,7 +193,7 @@ generate_begin :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
       hdr.push_str("{ // begin block");
       em.emit_string_line(hdr);
       prev_pending := context.pending_deferred_drops;
-      context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(ei.deferred_drop_expressions, prev_pending));
+      context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(expr_info_deferred_drop_expressions(ei), prev_pending));
       prev_consumed := context.consumed_var_pending_drops;
       context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(expr_info_consumed_variable_drop_expressions(ei), prev_consumed));
       n := args.len();
@@ -218,7 +224,7 @@ generate_begin :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
                 })
               );
               last_arg_code = result;
-              if(has_any_control_flow(arg_ei.control_flow), {
+              if(has_any_control_flow(expr_info_control_flow(arg_ei)), {
                 stop = true;
               });
             }
@@ -251,7 +257,7 @@ generate_begin :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
       hdr.push_str("{ // begin block");
       em.emit_string_line(hdr);
       prev_pending := context.pending_deferred_drops;
-      context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(ei.deferred_drop_expressions, prev_pending));
+      context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(expr_info_deferred_drop_expressions(ei), prev_pending));
       prev_consumed := context.consumed_var_pending_drops;
       context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(expr_info_consumed_variable_drop_expressions(ei), prev_consumed));
       n := args.len();

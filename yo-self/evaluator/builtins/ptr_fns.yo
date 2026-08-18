@@ -13,7 +13,11 @@ open(import("std/string"));
   ComptimeRef,
   new_expr_info,
   expr_info_table_set,
-  expr_info_table_get
+  expr_info_table_get,
+  expr_info_comptime_ref,
+  expr_info_index_trait_ptr_type,
+  expr_info_set_comptime_ref,
+  expr_info_set_is_index_trait_address_of
 } :: import("../../expr_info.yo");
 { Variable, Environment } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
@@ -143,7 +147,7 @@ evaluate_address_call :: (
   arg_type := arg_info.ty;
   pointer_type := t_ptr(arg_type);
   // Determine compile-time pointer value from comptimeRef.
-  comptime_ref_opt := arg_info.comptime_ref;
+  comptime_ref_opt := expr_info_comptime_ref(arg_info);
   // Each arm wraps the AGGREGATE value in a FRESH single-element cell (TS
   // ptr-fns.ts:141-168 `createPtrValue(ptrType, [comptimeRef.arrayValue],
   // index)`); aliasing is preserved through the aggregate's SHARED inner
@@ -214,11 +218,11 @@ evaluate_address_call :: (
       out_info.value = ptr_place_val_opt;
     },
     .None => match(
-      arg_info.index_trait_ptr_type,
+      expr_info_index_trait_ptr_type(arg_info),
       .Some(itp_ty) => {
         // Use the Index-trait pointer type; value is runtime only.
         out_info.ty = itp_ty;
-        out_info.is_index_trait_address_of = Option(bool).Some(true);
+        expr_info_set_is_index_trait_address_of(out_info, Option(bool).Some(true));
       },
       .None => {
         out_info.value = ptr_unknown_val_opt;
@@ -228,7 +232,7 @@ evaluate_address_call :: (
   // Propagate path_collection from arg.
   out_info.path_collection = arg_info.path_collection;
   // Propagate comptime_ref so callers can mutate through the pointer.
-  out_info.comptime_ref = comptime_ref_opt;
+  expr_info_set_comptime_ref(out_info, comptime_ref_opt);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   // Attach a temp variable name (for ownership tracking / codegen).
   attach_temp_variable_to_expr(expr, false, ctx);

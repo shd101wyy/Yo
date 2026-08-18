@@ -14,7 +14,12 @@ open(import("std/string"));
 { TypeValue } :: import("../../types/definitions.yo");
 { is_some_type, is_dyn_type, is_function_type } :: import("../../types/guards.yo");
 { type_implements_fn, extract_fn_trait_from_type } :: import("../../evaluator/trait_checking.yo");
-{ lookup_some_resolved_concrete, expr_info_closure_function_value } :: import("../../expr_info.yo");
+{
+  lookup_some_resolved_concrete,
+  expr_info_closure_function_value,
+  expr_info_capture_type,
+  expr_info_deferred_dup_expressions
+} :: import("../../expr_info.yo");
 { type_key, get_variable_name_for_codegen, ImplClosureCallInfo, get_type_string, get_deferred_dup_target_atom_name } :: import("../utils/index.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
@@ -125,7 +130,7 @@ is_closure_construction :: (fn(expr : AstExpr, context : FunctionGenerationConte
       (
         expr_info_closure_function_value(ei).is_some()
         || match(ei.value, .Some(v) => is_func_val(v), .None => false)
-      ) && ((type_implements_fn(ei.ty) || is_function_type(ei.ty)) && ei.capture_type.is_some())
+      ) && ((type_implements_fn(ei.ty) || is_function_type(ei.ty)) && expr_info_capture_type(ei).is_some())
     ),
     .None => false
   )
@@ -161,7 +166,7 @@ generate_closure_construction :: (fn(expr : AstExpr, indent : String, context : 
     return(codegen_fatal_expr(String.from("Dyn(Fn(...)) closure construction not yet ported")));
   });
   // Resolve the capture struct + its fields.
-  capture_ty := match(ei.capture_type, .Some(ct) => ct, .None => TypeValue.Unit);
+  capture_ty := match(expr_info_capture_type(ei), .Some(ct) => ct, .None => TypeValue.Unit);
   field_labels := match(capture_ty, .Struct({ field_labels : fl }) => fl, _ => ArrayList(String).new());
   call_type_id := type_key(ei.ty);
   if(field_labels.len() > usize(0), {
@@ -195,7 +200,7 @@ generate_closure_construction :: (fn(expr : AstExpr, indent : String, context : 
       data.push_str(" = ");
       (field_code : Option(String)) = Option(String).None;
       match(
-        ei.deferred_dup_expressions,
+        expr_info_deferred_dup_expressions(ei),
         .Some(dups) => {
           (di : usize) = usize(0);
           while((di < dups.len()) && field_code.is_none(), {

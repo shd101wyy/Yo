@@ -23,7 +23,8 @@ open(import("std/string"));
   ExprInfo,
   new_expr_info,
   expr_info_table_get,
-  expr_info_table_set
+  expr_info_table_set,
+  expr_info_set_runtime_arg_exprs_in_order
 } :: import("../../expr_info.yo");
 { Environment, add_variable_to_env } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -283,7 +284,7 @@ evaluate_anonymous_struct_value :: (
   // Annotate expr: type = struct_ty (instance type), value = struct_val_opt
   out_info := new_expr_info(cur_env, struct_ty);
   out_info.value = struct_val_opt;
-  out_info.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(runtime_arg_exprs);
+  expr_info_set_runtime_arg_exprs_in_order(out_info, Option(ArrayList(AstExpr)).Some(runtime_arg_exprs));
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   // Attach temp variable (no-op stub in Phase 2bk)
   attach_temp_variable_to_expr(expr, true, ctx);

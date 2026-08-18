@@ -43,7 +43,12 @@ open(import("std/string"));
   has_dominating_branch_init,
   lookup_some_resolved_concrete,
   expr_info_paths_for_write,
-  expr_info_set_converted_runtime_type
+  expr_info_set_converted_runtime_type,
+  expr_info_capture_type,
+  expr_info_comptime_ref,
+  expr_info_control_flow,
+  expr_info_index_trait_ptr_type,
+  expr_info_set_is_compile_time_only_assignment
 } :: import("../../expr_info.yo");
 {
   Environment,
@@ -687,7 +692,7 @@ evaluate_assignment :: (
     // Step 6 — Handle comptimeRef: direct in-place mutation of shared ArrayList.
     // Mirrors the `comptimeRef` block in assignment.ts (lines ~982-1001).
     match(
-      lhs_info.comptime_ref,
+      expr_info_comptime_ref(lhs_info),
       .None => (),
       .Some(cr) => {
         match(
@@ -734,14 +739,14 @@ evaluate_assignment :: (
       })
     };
     if(((!(is_comptime_only_prop) && lhs_info.value.is_some()) && prop_rhs_info.value.is_some()) && base_var_is_comptime, {
-      if(lhs_info.index_trait_ptr_type.is_none(), {
+      if(expr_info_index_trait_ptr_type(lhs_info).is_none(), {
         is_comptime_only_prop = true;
       });
     });
     // Step 8 — Write ExprInfo for the whole `=` expression.
     prop_ei := new_expr_info(env, lhs_info.ty);
     prop_ei.value = lhs_info.value;
-    prop_ei.is_compile_time_only_assignment = Option(bool).Some(is_comptime_only_prop);
+    expr_info_set_is_compile_time_only_assignment(prop_ei, Option(bool).Some(is_comptime_only_prop));
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), prop_ei);
     // Step 9 — Attach temp variable (no-op stub in Phase 2x; full impl in Phase 3).
     if(!(is_comptime_only_prop), {
@@ -975,9 +980,9 @@ comptime(${variable_name}) : ${dgc_ty_str}
     .None => ()
   );
   // Check control flow.
-  if(has_any_control_flow(rhs_info.control_flow), {
+  if(has_any_control_flow(expr_info_control_flow(rhs_info)), {
     match(
-      rhs_info.control_flow,
+      expr_info_control_flow(rhs_info),
       .Some(cf) => throw_rhs_contains_control_flow_expression_error(rhs_evaled, cf, exn),
       .None => () // unreachable: has_any_control_flow guarantees .Some
     );
@@ -1135,7 +1140,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
   // stamped initialized by the FIRST arm's eval, so a sibling arm's
   // first-per-branch assignment reads as a "reassignment" here. The merge
   // keeps the LAST record per (arm window, var id).
-  record_branch_init(updated_variable.id, rhs_type, rhs_info.capture_type);
+  record_branch_init(updated_variable.id, rhs_type, expr_info_capture_type(rhs_info));
   // Store the RHS value for comptime-only variables; runtime vars don't carry a value.
   value_to_store := cond(
     (updated_variable.is_compile_time_only) => rhs_info.value,
@@ -1224,13 +1229,13 @@ comptime(${variable_name}) : ${dgc_ty_str}
   if(!(is_mutating_defined_variable) || lhs_consumed_by_rhs, {
     expr_info := new_expr_info(env, t_unit());
     expr_info.value = .Some(EvalValue.UnitVal);
-    expr_info.is_compile_time_only_assignment = .Some(variable.is_compile_time_only);
+    expr_info_set_is_compile_time_only_assignment(expr_info, .Some(variable.is_compile_time_only));
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), expr_info);
   }, {
     // NOTE: This should return the original value of lhs.
     expr_info := new_expr_info(env, variable.ty);
     expr_info.value = variable.value.get(usize(0));
-    expr_info.is_compile_time_only_assignment = .Some(variable.is_compile_time_only);
+    expr_info_set_is_compile_time_only_assignment(expr_info, .Some(variable.is_compile_time_only));
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), expr_info);
     // This temp variable is used to hold the old value of lhs.
     // (yo-self divergence: attach_temp_variable_to_expr takes no

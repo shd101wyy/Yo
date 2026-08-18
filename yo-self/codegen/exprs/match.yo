@@ -23,7 +23,10 @@ open(import("std/string"));
   expr_info_case_executed,
   expr_info_is_primitive_match,
   expr_info_primitive_pattern_values,
-  expr_info_consumed_variable_drop_expressions
+  expr_info_consumed_variable_drop_expressions,
+  expr_info_control_flow,
+  expr_info_deferred_drop_expressions,
+  expr_info_deferred_dup_expressions
 } :: import("../../expr_info.yo");
 { is_unit_type, is_pointer_type, is_reference_struct_type, is_reference_enum_type, is_enum_type } :: import("../../types/guards.yo");
 { Environment, get_variables_from_env } :: import("../../env.yo");
@@ -246,7 +249,7 @@ _concat_drops :: (fn(current : Option(ArrayList(AstExpr)), prev : Option(ArrayLi
 /// round-5 stage-2 `s2 compile parser.yo` ExprInfo-env UAF).
 _arm_value_with_dups :: (fn(body_expr : AstExpr, indent : String, context : FunctionGenerationContext) -> Option(String))({
   bei := match(context.base.get_expr_info(body_expr), .Some(b) => b, .None => return(Option(String).None));
-  bdups := match(bei.deferred_dup_expressions, .Some(d) => d, .None => return(Option(String).None));
+  bdups := match(expr_info_deferred_dup_expressions(bei), .Some(d) => d, .None => return(Option(String).None));
   if(bdups.len() == usize(0), {
     return(Option(String).None);
   });
@@ -332,7 +335,7 @@ generate_case_body :: (fn(body_expr : AstExpr, indent : String, context : Functi
     em := context.base.emitter;
     begin_args := _args(body_expr);
     vei_opt := context.base.get_expr_info(body_expr);
-    cur_drops := match(vei_opt, .Some(vei) => vei.deferred_drop_expressions, .None => Option(ArrayList(AstExpr)).None);
+    cur_drops := match(vei_opt, .Some(vei) => expr_info_deferred_drop_expressions(vei), .None => Option(ArrayList(AstExpr)).None);
     cur_consumed := match(vei_opt, .Some(vei) => expr_info_consumed_variable_drop_expressions(vei), .None => Option(ArrayList(AstExpr)).None);
     prev_pending := context.pending_deferred_drops;
     prev_consumed := context.consumed_var_pending_drops;
@@ -366,7 +369,7 @@ generate_case_body :: (fn(body_expr : AstExpr, indent : String, context : Functi
             });
             match(
               context.base.get_expr_info(arg),
-              .Some(aei) => if(has_any_control_flow(aei.control_flow), {
+              .Some(aei) => if(has_any_control_flow(expr_info_control_flow(aei)), {
                 stop = true;
               }),
               .None => ()
@@ -1179,7 +1182,7 @@ generate_match_expression :: (fn(expr : AstExpr, indent : String, context : Func
       // drift-safe (never trust the recorded atom name; see
       // generate_case_body / cond.yo _emit_value_arm).
       match(
-        subject_ei.deferred_dup_expressions,
+        expr_info_deferred_dup_expressions(subject_ei),
         .Some(sdups) => if(sdups.len() > usize(0), {
           sdline := indent.clone();
           sdline.push_string(generate_dup_code_for_value(matched_value_code.clone(), match_value_type, context));

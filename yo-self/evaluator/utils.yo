@@ -67,7 +67,9 @@ open(import("std/string"));
   expr_info_set_origin_type,
   get_arm_init_range,
   get_branch_init_record,
-  new_expr_info
+  new_expr_info,
+  expr_info_capture_type,
+  expr_info_set_deferred_dup_expressions
 } :: import("../expr_info.yo");
 {
   Environment,
@@ -137,7 +139,7 @@ attach_temp_variable_to_expr :: (
     .Some(info) => {
       // Choose effective type: capture_type for closures with RC captures.
       effective_ty := match(
-        info.capture_type,
+        expr_info_capture_type(info),
         .Some(cap_ty) => cond(
           ((type_contains_rc_type(cap_ty)) && is_owning_the_rc_value) => cap_ty,
           true => info.ty
@@ -756,7 +758,7 @@ set_expr_as_needs_to_call_dup :: (
       // Stash the deferred dup expression on the rhs's ExprInfo (codegen emits it).
       dup_list := ArrayList(AstExpr).new();
       dup_list.push(evaluated_dup);
-      ei.deferred_dup_expressions = Option(ArrayList(AstExpr)).Some(dup_list);
+      expr_info_set_deferred_dup_expressions(ei, Option(ArrayList(AstExpr)).Some(dup_list));
       // Propagate the dup call's env onto the rhs's ExprInfo (mirrors TS
       // `expr.$.env = evaluatedDupCallExpr.$!.env` in expr.ts:2581). The dup
       // eval added the `___dup` temp to that env; the deferred-dup codegen in
@@ -888,7 +890,7 @@ set_expr_as_needs_to_call_dup_for_borrowed_projection :: (
           g_dup_use_site_tokens.set(ast_expr_id(dup_expr), ast_expr_token(rhs));
           dup_list := ArrayList(AstExpr).new();
           dup_list.push(dup_expr);
-          ei.deferred_dup_expressions = Option(ArrayList(AstExpr)).Some(dup_list);
+          expr_info_set_deferred_dup_expressions(ei, Option(ArrayList(AstExpr)).Some(dup_list));
           // Synthesize the balancing `___drop(dup_temp)` for the CALLER to
           // attach to the call node's deferred drops.
           s0_drop_expr := generate_expr_from_code(`${BF_DROP}(${dup_temp})`, exn);

@@ -18,7 +18,12 @@ open(import("std/string"));
 { is_io_async_call, is_io_await_call } :: import("../../evaluator/async/await_analysis.yo");
 { extract_target_variable_id } :: import("../../evaluator/shared/suspension_analysis.yo");
 { expr_contains_await, expr_contains_while_with_await } :: import("../../expr_traversal.yo");
-{ expr_info_primitive_pattern_values, expr_info_is_primitive_match, lookup_macro_expansion } :: import("../../expr_info.yo");
+{
+  expr_info_primitive_pattern_values,
+  expr_info_is_primitive_match,
+  lookup_macro_expansion,
+  expr_info_deferred_drop_expressions
+} :: import("../../expr_info.yo");
 { FunctionGenerationContext, SmWhileBreakInfo, SmWhileContinueInfo, WhileLoopInfo, OuterWhileLoop, CondBranchPostWhileExprs, CondBranch, ChainedCondBranches, AsyncCondBranchInfo, merge_cond_branch_post_while_exprs } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("../exprs/_expr.yo");
 { _call_generate_cond_with_await, _call_generate_match_with_await, _call_generate_while_with_await, register_fsm_emitters } :: import("./_fsm.yo");
@@ -1029,7 +1034,7 @@ generate_while_body_with_await :: (
   );
   body_drops := match(
     context.base.get_expr_info(body_expr),
-    .Some(ei) => match(ei.deferred_drop_expressions, .Some(d) => d, .None => ArrayList(AstExpr).new()),
+    .Some(ei) => match(expr_info_deferred_drop_expressions(ei), .Some(d) => d, .None => ArrayList(AstExpr).new()),
     .None => ArrayList(AstExpr).new()
   );
   context.sm_while_body_drops = Option(ArrayList(AstExpr)).Some(body_drops);
@@ -1534,7 +1539,7 @@ _emit_non_await_branch_async_completion :: (
     match(
       context.base.get_expr_info(value),
       .Some(ei) => match(
-        ei.deferred_drop_expressions,
+        expr_info_deferred_drop_expressions(ei),
         .Some(drops) => {
           (di : usize) = usize(0);
           while(di < drops.len(), {
@@ -1684,7 +1689,7 @@ _emit_branch_value_inline :: (
     match(
       context.base.get_expr_info(value),
       .Some(ei) => match(
-        ei.deferred_drop_expressions,
+        expr_info_deferred_drop_expressions(ei),
         .Some(drops) => {
           (di : usize) = usize(0);
           while(di < drops.len(), {
@@ -1744,7 +1749,7 @@ _attach_cond_branch_post_while :: (
     .Some(wmap) => match(
       wmap.get(idx),
       .Some(winfo) => {
-        ddx := match(context.base.get_expr_info(value), .Some(ei) => ei.deferred_drop_expressions, .None => Option(ArrayList(AstExpr)).None);
+        ddx := match(context.base.get_expr_info(value), .Some(ei) => expr_info_deferred_drop_expressions(ei), .None => Option(ArrayList(AstExpr)).None);
         // Merge, never overwrite: the slot may already hold another layer's
         // post-loop code (see merge_cond_branch_post_while_exprs).
         winfo.cond_branch_post_while_exprs = Option(CondBranchPostWhileExprs).Some(
@@ -1835,7 +1840,7 @@ _make_cond_branch :: (
     value : value,
     has_await : has_await,
     remaining_exprs : remaining,
-    deferred_drop_expressions : match(context.base.get_expr_info(value), .Some(ei) => ei.deferred_drop_expressions, .None => Option(ArrayList(AstExpr)).None),
+    deferred_drop_expressions : match(context.base.get_expr_info(value), .Some(ei) => expr_info_deferred_drop_expressions(ei), .None => Option(ArrayList(AstExpr)).None),
     await_target_variable_id : cond(
       has_await => _find_branch_await_target_variable_id(value.clone(), context),
       true => Option(String).None
@@ -2520,7 +2525,7 @@ _push_chained_match_arm :: (
     value : case_body,
     has_await : true,
     remaining_exprs : Option(ArrayList(AstExpr)).Some(remaining),
-    deferred_drop_expressions : match(context.base.get_expr_info(case_body), .Some(ei) => ei.deferred_drop_expressions, .None => Option(ArrayList(AstExpr)).None),
+    deferred_drop_expressions : match(context.base.get_expr_info(case_body), .Some(ei) => expr_info_deferred_drop_expressions(ei), .None => Option(ArrayList(AstExpr)).None),
     await_target_variable_id : Option(String).None
   );
   chained := match(entry.chained_branches, .Some(c) => c, .None => ArrayList(ChainedCondBranches).new());
@@ -2585,7 +2590,7 @@ _emit_match_case_await_or_value :: (
                     branch_index : case_index,
                     cond_branch_field_index : await_point.base.index,
                     exprs : remaining,
-                    deferred_drop_expressions : match(context.base.get_expr_info(case_body), .Some(ei) => ei.deferred_drop_expressions, .None => Option(ArrayList(AstExpr)).None),
+                    deferred_drop_expressions : match(context.base.get_expr_info(case_body), .Some(ei) => expr_info_deferred_drop_expressions(ei), .None => Option(ArrayList(AstExpr)).None),
                     skip_cond_branch_check : Option(bool).Some(true)
                   )
                 )

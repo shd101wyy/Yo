@@ -115,7 +115,9 @@ _(env : helper_dbg_env) :: import("std/env");
   unregister_some_resolved_concrete,
   adopt_receiver_struct_instance,
   push_active_where_trait_ids,
-  pop_active_where_trait_ids
+  pop_active_where_trait_ids,
+  expr_info_capture_type,
+  expr_info_set_deferred_dup_expressions
 } :: import("../../expr_info.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 {
@@ -6691,7 +6693,7 @@ try_to_call_function_with_arguments :: (
               .Some(s1_ma) => match(
                 expr_info_table_get(ctx.expr_info_table, ast_expr_id(s1_ma)),
                 .Some(s1_mai) => {
-                  s1_mai.deferred_dup_expressions = Option(ArrayList(AstExpr)).None;
+                  expr_info_set_deferred_dup_expressions(s1_mai, Option(ArrayList(AstExpr)).None);
                 },
                 .None => {
                 }

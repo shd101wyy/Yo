@@ -35,7 +35,8 @@ _(env : fnty_env) :: import("std/env");
   lookup_some_resolved_concrete,
   has_control_flow,
   push_active_where_trait_ids,
-  pop_active_where_trait_ids
+  pop_active_where_trait_ids,
+  expr_info_control_flow
 } :: import("../../expr_info.yo");
 {
   Environment,
@@ -1621,7 +1622,7 @@ try_to_implement_function_by_function_type :: (
                 .Some(dg_info) => {
                   // Pure-unwind bodies are control functions discarding the
                   // continuation — no return type to check.
-                  dg_skip_cf := (has_control_flow(dg_info.control_flow, .Unwind) && !(has_control_flow(dg_info.control_flow, .Return)));
+                  dg_skip_cf := (has_control_flow(expr_info_control_flow(dg_info), .Unwind) && !(has_control_flow(expr_info_control_flow(dg_info), .Return)));
                   dg_expected := cond(
                     result_is_ref => t_ptr(result_box),
                     true => result_box

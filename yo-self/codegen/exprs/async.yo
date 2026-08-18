@@ -62,7 +62,11 @@ open(import("std/string"));
   expr_info_table_set,
   expr_info_closure_function_value,
   expr_info_async_state_machine_struct_name,
-  expr_info_set_async_state_machine_struct_name
+  expr_info_set_async_state_machine_struct_name,
+  expr_info_capture_type,
+  expr_info_deferred_dup_expressions,
+  expr_info_runtime_arg_exprs_in_order,
+  expr_info_set_deferred_dup_expressions
 } :: import("../../expr_info.yo");
 {
   extract_future_trait_from_type,
@@ -1556,7 +1560,7 @@ _build_async_capture_struct_literal :: (
 io_async_await_analysis :: (fn(expr : AstExpr, context : FunctionGenerationContext) -> Option(AwaitAnalysisResult))({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(Option(AwaitAnalysisResult).None));
   closure_arg := match(
-    ei.runtime_arg_exprs_in_order,
+    expr_info_runtime_arg_exprs_in_order(ei),
     .Some(rargs) => match(rargs.get(usize(0)), .Some(c) => c, .None => return(Option(AwaitAnalysisResult).None)),
     .None => return(Option(AwaitAnalysisResult).None)
   );
@@ -1620,7 +1624,7 @@ io_async_await_analysis :: (fn(expr : AstExpr, context : FunctionGenerationConte
 io_async_closure_body :: (fn(expr : AstExpr, context : FunctionGenerationContext) -> Option(AstExpr))({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(Option(AstExpr).None));
   match(
-    ei.runtime_arg_exprs_in_order,
+    expr_info_runtime_arg_exprs_in_order(ei),
     .Some(rargs) => match(
       rargs.get(usize(0)),
       .Some(carg) => match(
@@ -1699,24 +1703,24 @@ generate_async_block :: (fn(expr : AstExpr, io_async_body : Option(AstExpr), ana
   // stamps the call expr, so resolve here — without this the FSM constructor
   // takes no capture and every outer variable field reads NULL (the batch
   // repro's rc=139 on `sm->var_<id>-><field>`).
-  (fsm_capture_type : Option(TypeValue)) = ei.capture_type;
-  (fsm_capture_dups : Option(ArrayList(AstExpr))) = ei.deferred_dup_expressions;
+  (fsm_capture_type : Option(TypeValue)) = expr_info_capture_type(ei);
+  (fsm_capture_dups : Option(ArrayList(AstExpr))) = expr_info_deferred_dup_expressions(ei);
   if(is_io_async, {
     match(
-      ei.runtime_arg_exprs_in_order,
+      expr_info_runtime_arg_exprs_in_order(ei),
       .Some(rargs) => match(
         rargs.get(usize(0)),
         .Some(carg) => match(
           context.base.get_expr_info(carg),
           .Some(cei) => {
             if(fsm_capture_type.is_none(), {
-              fsm_capture_type = cei.capture_type;
+              fsm_capture_type = expr_info_capture_type(cei);
             });
             if(fsm_capture_dups.is_none(), {
-              taken := cei.deferred_dup_expressions;
+              taken := expr_info_deferred_dup_expressions(cei);
               if(taken.is_some(), {
                 fsm_capture_dups = taken;
-                cei.deferred_dup_expressions = Option(ArrayList(AstExpr)).None;
+                expr_info_set_deferred_dup_expressions(cei, Option(ArrayList(AstExpr)).None);
                 expr_info_table_set(context.base.info_table, ast_expr_id(carg), cei);
               });
             });
@@ -2330,7 +2334,7 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
   future_trait_type := match(extract_future_trait_from_type(future_type), .Some(ft) => ft, .None => return(String.from("/* Error: Could not extract Future trait type */")));
   // Closure argument expression + its info.
   closure_arg := match(
-    ei.runtime_arg_exprs_in_order,
+    expr_info_runtime_arg_exprs_in_order(ei),
     .Some(rargs) => match(rargs.get(usize(0)), .Some(c) => c, .None => return(String.from("/* Error: Missing closure argument for io.async */"))),
     .None => return(String.from("/* Error: Missing closure argument for io.async */"))
   );
@@ -2463,9 +2467,9 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
     .None => Option(String).None
   );
   eff_capture_type := match(
-    cei.capture_type,
+    expr_info_capture_type(cei),
     .Some(c) => Option(TypeValue).Some(c),
-    .None => match(orig_closure_ei, .Some(oe) => oe.capture_type, .None => Option(TypeValue).None)
+    .None => match(orig_closure_ei, .Some(oe) => expr_info_capture_type(oe), .None => Option(TypeValue).None)
   );
   capture_c_name := match(eff_capture_type, .Some(cap_ty) => Option(String).Some(_find_capture_type_c_name(cap_ty, context)), .None => Option(String).None);
   capture_field_count := match(eff_capture_type, .Some(cap_ty) => match(cap_ty, .Struct({ field_labels : fl }) => fl.len(), _ => usize(0)), .None => usize(0));

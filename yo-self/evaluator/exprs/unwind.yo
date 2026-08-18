@@ -28,7 +28,8 @@ open(import("std/fmt"));
   expr_info_table_get,
   expr_info_table_set,
   ControlFlowKind,
-  control_flow_of
+  control_flow_of,
+  expr_info_set_control_flow
 } :: import("../../expr_info.yo");
 { Environment } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
@@ -121,7 +122,7 @@ evaluate_unwind :: (
       );
     });
     unit_info := new_expr_info(env, t_unit());
-    unit_info.control_flow = .Some(control_flow_of(.Unwind));
+    expr_info_set_control_flow(unit_info, .Some(control_flow_of(.Unwind)));
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), unit_info);
     return(expr);
   });
@@ -178,7 +179,7 @@ evaluate_unwind :: (
   });
   // Emit ExprInfo: type = arg type, value = .None, control_flow = unwind.
   out_info := new_expr_info(env, arg_info.ty);
-  out_info.control_flow = .Some(control_flow_of(.Unwind));
+  expr_info_set_control_flow(out_info, .Some(control_flow_of(.Unwind)));
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   expr
 });

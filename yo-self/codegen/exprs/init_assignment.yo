@@ -16,7 +16,12 @@
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_is_fn_call_of, ast_expr_token, BK_COMPTIME, BK_ARRAY_VAL, BF_DOT } :: import("../../expr.yo");
-{ RuntimeDestructuring, expr_info_converted_runtime_type, expr_info_runtime_destructurings } :: import("../../expr_info.yo");
+{
+  RuntimeDestructuring,
+  expr_info_converted_runtime_type,
+  expr_info_runtime_destructurings,
+  expr_info_deferred_dup_expressions
+} :: import("../../expr_info.yo");
 { Environment, get_variables_from_env } :: import("../../env.yo");
 { is_array_type, is_unit_type, is_struct_type, is_reference_struct_type, is_tuple_type, is_newtype_type } :: import("../../types/guards.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -343,7 +348,7 @@ generate_initialization_assignment :: (fn(expr : AstExpr, indent : String, conte
       // the map's own key+value on every probe hit — the round-6
       // `s2 compile main.yo` UAF; see issues/fixed/yo-self-dyn-throw-double-drop.md).
       rhs_is_deref := (ast_expr_is_fn_call_of(rhs, BF_DOT, Option(usize).Some(usize(2))) && match(rhs, .FnCall(_, _, dargs, _, _) => match(dargs.get(usize(1)), .Some(pe) => ast_expr_is_atom_of(pe, "*"), .None => false), .Atom(_, _) => false));
-      rhs_has_dup := match(context.base.get_expr_info(rhs), .Some(r2) => match(r2.deferred_dup_expressions, .Some(d2) => (d2.len() > usize(0)), .None => false), .None => false);
+      rhs_has_dup := match(context.base.get_expr_info(rhs), .Some(r2) => match(expr_info_deferred_dup_expressions(r2), .Some(d2) => (d2.len() > usize(0)), .None => false), .None => false);
       if(!(is_unit_type(lhs_type)), {
         // get_variable_type_string (not get_type_string + manual name append)
         // so the scalar binding's C name is REGISTERED in declared_c_var_names

@@ -30,7 +30,12 @@ open(import("std/fmt"));
   BK_CONST,
   BK_ASSIGN
 } :: import("../../expr.yo");
-{ new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr_info.yo");
+{
+  new_expr_info,
+  expr_info_table_get,
+  expr_info_table_set,
+  expr_info_set_doc_comment
+} :: import("../../expr_info.yo");
 { Environment } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 { EvalValue } :: import("../../value.yo");
@@ -547,7 +552,7 @@ evaluate_type_field :: (
     );
     le_info := new_expr_info(env, final_type);
     le_info.value = le_val;
-    le_info.doc_comment = field_doc_comment;
+    expr_info_set_doc_comment(le_info, field_doc_comment);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(le), le_info);
   });
   // --- Annotate expr itself (if different from type_expr) ---

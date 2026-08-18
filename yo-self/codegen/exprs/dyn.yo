@@ -27,7 +27,11 @@ open(import("std/string"));
 { _call_generate_expr } :: import("./_expr.yo");
 { generate_deferred_dup_expressions } :: import("./drop_dup.yo");
 { resolve_some_type_to_concrete } :: import("./closures.yo");
-{ expr_info_dyn_call_trait_values } :: import("../../expr_info.yo");
+{
+  expr_info_dyn_call_trait_values,
+  expr_info_deferred_dup_expressions,
+  expr_info_runtime_arg_exprs_in_order
+} :: import("../../expr_info.yo");
 /// For a BOXED dyn payload (`Box(Sq)`), the impl concrete type is the UNDERLYING
 /// type (`Sq`, the box's single `*` field) while the runtime data type stays
 /// `Box(Sq)`. Mirrors TS `dyn.ts:66` (`concreteType = isBoxedType(v) ?
@@ -92,7 +96,7 @@ generate_dyn_call :: (fn(expr : AstExpr, indent : String, context : FunctionGene
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("/* Error: dyn() not evaluated */")));
   trait_values := match(expr_info_dyn_call_trait_values(ei), .Some(tv) => if(tv.len() == usize(0), return(String.from("/* Error: dyn() call missing trait values */")), tv), .None => return(String.from("/* Error: dyn() call missing trait values */")));
   args0 := match(expr, .FnCall(_, _, a, _, _) => a.get(usize(0)), .Atom(_, _) => Option(AstExpr).None);
-  value_expr := match(ei.runtime_arg_exprs_in_order, .Some(rargs) => match(rargs.get(usize(0)), .Some(v) => v, .None => match(args0, .Some(a) => a, .None => return(String.from("/* Error: dyn() requires a value argument */")))), .None => match(args0, .Some(a) => a, .None => return(String.from("/* Error: dyn() requires a value argument */"))));
+  value_expr := match(expr_info_runtime_arg_exprs_in_order(ei), .Some(rargs) => match(rargs.get(usize(0)), .Some(v) => v, .None => match(args0, .Some(a) => a, .None => return(String.from("/* Error: dyn() requires a value argument */")))), .None => match(args0, .Some(a) => a, .None => return(String.from("/* Error: dyn() requires a value argument */"))));
   dyn_type := ei.ty;
   if(!(is_dyn_type(dyn_type)), {
     return(String.from("/* Error: dyn() result type is not DynType */"));
@@ -157,7 +161,7 @@ generate_dyn_call :: (fn(expr : AstExpr, indent : String, context : FunctionGene
   );
   // Dup the inner value (Dyn wrapper holds a reference too).
   match(
-    value_ei.deferred_dup_expressions,
+    expr_info_deferred_dup_expressions(value_ei),
     .Some(dups) => if(dups.len() > usize(0), {
       generate_deferred_dup_expressions(value_expr, indent.clone(), context);
       match(

@@ -50,7 +50,23 @@ _(env : fncall_dbg_env) :: import("std/env");
   lookup_struct_ctor_fid,
   struct_effective_ctor_fid,
   struct_fully_concrete_instance,
-  adopt_receiver_struct_instance
+  adopt_receiver_struct_instance,
+  expr_info_capture_type,
+  expr_info_comptime_ref,
+  expr_info_control_flow,
+  expr_info_deferred_drop_expressions,
+  expr_info_index_method_type,
+  expr_info_index_method_value,
+  expr_info_runtime_arg_exprs_in_order,
+  expr_info_set_comptime_ref,
+  expr_info_set_control_flow,
+  expr_info_set_deferred_drop_expressions,
+  expr_info_set_deferred_dup_expressions,
+  expr_info_set_index_method_type,
+  expr_info_set_index_method_value,
+  expr_info_set_index_trait_ptr_type,
+  expr_info_set_macro_expansion,
+  expr_info_set_runtime_arg_exprs_in_order
 } :: import("../../expr_info.yo");
 {
   Variable,
@@ -1757,7 +1773,7 @@ _evaluate_funcval_runtime_call :: (
           match(
             evaled_arg_infos.get(_ac_i),
             .Some(_ac_ai) => {
-              _ac_aty := match(_ac_ai.capture_type, .Some(_ac_ct) => _ac_ct, .None => _ac_ai.ty);
+              _ac_aty := match(expr_info_capture_type(_ac_ai), .Some(_ac_ct) => _ac_ct, .None => _ac_ai.ty);
               match(
                 _ac_pts.get(_ac_i),
                 .Some(_ac_pty) => {
@@ -2071,7 +2087,7 @@ _evaluate_funcval_runtime_call :: (
   out_rt.value = Option(EvalValue).Some(_call_result_unknown(resolved_ret, env));
   // Runtime arg exprs for codegen (this is the runtime-call / no-CTFE
   // path — the body is NOT executed, so it returns before the 2341 site).
-  out_rt.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(runtime_arg_exprs);
+  expr_info_set_runtime_arg_exprs_in_order(out_rt, Option(ArrayList(AstExpr)).Some(runtime_arg_exprs));
   // Aliasing Stage 1: the summary target is decided AFTER the Gap-6
   // specialization below (a generic callee's raw body is unevaluated —
   // only the minted specialization's body is walkable).
@@ -2301,7 +2317,7 @@ _evaluate_funcval_runtime_call :: (
       // Send)`) lowers to its concrete capture struct in the specialized C
       // function — the same concretion TS achieves via the SomeType's
       // resolvedConcreteType (helper.ts:2245-2252).
-      (arg_ty_spec : TypeValue) = match(ainfo.capture_type, .Some(ct) => ct, .None => ainfo.ty);
+      (arg_ty_spec : TypeValue) = match(expr_info_capture_type(ainfo), .Some(ct) => ct, .None => ainfo.ty);
       // Lower a comptime-only ARG type (comptime_int/float/str) to its
       // runtime equivalent when the param is a RUNTIME param — the inline
       // arm's mirror of check_if_function_parameter_matches_argument's
@@ -2490,7 +2506,7 @@ _evaluate_funcval_runtime_call :: (
           .Some(rt_s1_ma) => match(
             expr_info_table_get(ctx.expr_info_table, ast_expr_id(rt_s1_ma)),
             .Some(rt_s1_mai) => {
-              rt_s1_mai.deferred_dup_expressions = Option(ArrayList(AstExpr)).None;
+              expr_info_set_deferred_dup_expressions(rt_s1_mai, Option(ArrayList(AstExpr)).None);
             },
             .None => ()
           ),
@@ -2507,7 +2523,7 @@ _evaluate_funcval_runtime_call :: (
       // is where most ordinary calls land) leaked its +1 from the day Stage 0
       // shipped. Leak-direction only — the borrow stayed valid — but it kept
       // an allocation alive per call.
-      out_rt.deferred_drop_expressions = Option(ArrayList(AstExpr)).Some(fv_s0_drops);
+      expr_info_set_deferred_drop_expressions(out_rt, Option(ArrayList(AstExpr)).Some(fv_s0_drops));
     });
   });
   expr
@@ -2947,8 +2963,8 @@ evaluate_function_call :: (
       // and the value emits "// Failed to transpile". Gate to the runtime case
       // (comptime scalars are unaffected — they never hit is_runtime_ctor).
       if(op_result_is_runtime, {
-        out_op.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_op.runtime_arg_exprs_in_order);
-        out_op.deferred_drop_expressions = call_result_op.deferred_drop_expressions;
+        expr_info_set_runtime_arg_exprs_in_order(out_op, Option(ArrayList(AstExpr)).Some(call_result_op.runtime_arg_exprs_in_order));
+        expr_info_set_deferred_drop_expressions(out_op, call_result_op.deferred_drop_expressions);
       });
       expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_op);
       // RUNTIME operator on a non-primitive type (e.g. derived `==`/`<` on an
@@ -3570,7 +3586,7 @@ Fix: wrap the call:
             });
             out_s := new_expr_info(call_result_s.caller_env, func_type);
             out_s.value = struct_val;
-            out_s.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_s.runtime_arg_exprs_in_order);
+            expr_info_set_runtime_arg_exprs_in_order(out_s, Option(ArrayList(AstExpr)).Some(call_result_s.runtime_arg_exprs_in_order));
             expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_s);
             // Set temp variable holding the struct-construction result so an
             // owned RC struct (ref-struct) is materialized into a caller-frame
@@ -3706,7 +3722,7 @@ Fix: wrap the call:
             }, Option(EvalValue).None);
             out_e := new_expr_info(call_result_e.caller_env, func_type);
             out_e.value = enum_val;
-            out_e.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_e.runtime_arg_exprs_in_order);
+            expr_info_set_runtime_arg_exprs_in_order(out_e, Option(ArrayList(AstExpr)).Some(call_result_e.runtime_arg_exprs_in_order));
             expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_e);
             // Materialize the enum-construction result into an owning temp so a
             // ref-enum value is dropped at scope end. Mirrors TS function.ts:2527.
@@ -3738,7 +3754,7 @@ Fix: wrap the call:
             call_result_u := try_to_call_type_with_arguments(tf_u, func_expr, args, callee_env, ctx, true, exn);
             out_u := new_expr_info(call_result_u.caller_env, func_type);
             out_u.value = Option(EvalValue).None;
-            out_u.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_u.runtime_arg_exprs_in_order);
+            expr_info_set_runtime_arg_exprs_in_order(out_u, Option(ArrayList(AstExpr)).Some(call_result_u.runtime_arg_exprs_in_order));
             expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_u);
             // Materialize the union-construction result into an owning temp.
             // Mirrors TS function.ts:2567.
@@ -5540,9 +5556,9 @@ Fix: wrap the call:
                 // so statement sequencing + early-return detection still work.
                 call_macro_info := new_expr_info(exp_info.env, exp_info.ty);
                 call_macro_info.value = exp_info.value;
-                call_macro_info.control_flow = exp_info.control_flow;
+                expr_info_set_control_flow(call_macro_info, expr_info_control_flow(exp_info));
                 call_macro_info.variable_name = exp_info.variable_name;
-                call_macro_info.macro_expansion = Option(AstExpr).Some(expanded_expr);
+                expr_info_set_macro_expansion(call_macro_info, Option(AstExpr).Some(expanded_expr));
                 expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), call_macro_info);
                 // Durably record the expansion keyed by call id: the per-pass
                 // ExprInfo above can be overwritten by a later eval of the same
@@ -5830,7 +5846,7 @@ Fix: wrap the call:
         out := new_expr_info(env, ret_type);
         out.value = body_info.value;
         // Runtime arg exprs for codegen (the call's C-argument materialization).
-        out.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(runtime_arg_exprs);
+        expr_info_set_runtime_arg_exprs_in_order(out, Option(ArrayList(AstExpr)).Some(runtime_arg_exprs));
         // Aliasing Stage 1 (mutation summaries): a READ-ONLY callee cannot
         // reassign the aliased storage mid-call — remove this call's Stage-0
         // dups and discard the balancing drops (twin of the
@@ -5851,7 +5867,7 @@ Fix: wrap the call:
                 .Some(fv_s1_ma) => match(
                   expr_info_table_get(ctx.expr_info_table, ast_expr_id(fv_s1_ma)),
                   .Some(fv_s1_mai) => {
-                    fv_s1_mai.deferred_dup_expressions = Option(ArrayList(AstExpr)).None;
+                    expr_info_set_deferred_dup_expressions(fv_s1_mai, Option(ArrayList(AstExpr)).None);
                   },
                   .None => ()
                 ),
@@ -5862,7 +5878,7 @@ Fix: wrap the call:
           });
         });
         if((fv_s0_drops.len() > usize(0)) && !(fv_s1_elided), {
-          out.deferred_drop_expressions = Option(ArrayList(AstExpr)).Some(fv_s0_drops);
+          expr_info_set_deferred_drop_expressions(out, Option(ArrayList(AstExpr)).Some(fv_s0_drops));
         });
         // control_flow is intentionally NOT propagated (Return is consumed here).
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
@@ -5916,17 +5932,17 @@ Fix: wrap the call:
           // Record the `*(T)` the index method returns (before auto-deref)
           // so the ref-argument place gate recognizes `xs(i)` as a pointer
           // into the container's buffer. Mirrors TS function.ts:2788.
-          out_idx_rt.index_trait_ptr_type = Option(TypeValue).Some(idx_result_rt.ptr_type);
+          expr_info_set_index_trait_ptr_type(out_idx_rt, Option(TypeValue).Some(idx_result_rt.ptr_type));
           // Also record the specialized index() method type + value so codegen
           // can emit `*index_fn(&recv, i)` (generation.yo's index-trait branch).
           // Mirrors TS function.ts:2790-2791.
-          out_idx_rt.index_method_type = match(idx_result_rt.index_method_type, .Some(imt) => Option(TypeValue).Some(imt), .None => Option(TypeValue).None);
-          out_idx_rt.index_method_value = idx_result_rt.index_method_value;
+          expr_info_set_index_method_type(out_idx_rt, match(idx_result_rt.index_method_type, .Some(imt) => Option(TypeValue).Some(imt), .None => Option(TypeValue).None));
+          expr_info_set_index_method_value(out_idx_rt, idx_result_rt.index_method_value);
           // ComptimeIndex place-reference (mirrors TS function.ts:2793
           // `comptimeRef,` in the index-result `expr.$`): lets
           // `p(0) = v` write the struct field and `&(p(0))` build a comptime
           // pointer.
-          out_idx_rt.comptime_ref = idx_result_rt.comptime_ref;
+          expr_info_set_comptime_ref(out_idx_rt, idx_result_rt.comptime_ref);
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_idx_rt);
           // Attach a NON-owning temp to the index result (TS function.ts:2810
           // `attachTempVariableToExpr(expr, false)`): the element is a borrow
@@ -6027,8 +6043,8 @@ Fix: wrap the call:
         });
         out_rt := new_expr_info(call_result_rt.caller_env, ret_type_rt);
         out_rt.value = Option(EvalValue).Some(_call_result_unknown(ret_type_rt, env));
-        out_rt.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_rt.runtime_arg_exprs_in_order);
-        out_rt.deferred_drop_expressions = call_result_rt.deferred_drop_expressions;
+        expr_info_set_runtime_arg_exprs_in_order(out_rt, Option(ArrayList(AstExpr)).Some(call_result_rt.runtime_arg_exprs_in_order));
+        expr_info_set_deferred_drop_expressions(out_rt, call_result_rt.deferred_drop_expressions);
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_rt);
         // Same temp attachment as the method + valueless-callee arms (TS
         // function.ts:2263 attaches for EVERY runtime call). Without it, an
@@ -6370,8 +6386,8 @@ Fix: wrap the call:
           );
           out_m := new_expr_info(call_result_m.caller_env, m_out_ty);
           out_m.value = m_result_val;
-          out_m.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_m.runtime_arg_exprs_in_order);
-          out_m.deferred_drop_expressions = call_result_m.deferred_drop_expressions;
+          expr_info_set_runtime_arg_exprs_in_order(out_m, Option(ArrayList(AstExpr)).Some(call_result_m.runtime_arg_exprs_in_order));
+          expr_info_set_deferred_drop_expressions(out_m, call_result_m.deferred_drop_expressions);
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_m);
           // Attach the call-result temp (TS function.ts:2263 does this for
           // EVERY runtime call, methods included). Without it a method call's
@@ -6421,15 +6437,15 @@ Fix: wrap the call:
             out_idx.value = idx_result.value;
             // Record the index method's `*(T)` so the ref-argument place
             // gate recognizes `xs(i)` as a buffer pointer (TS function.ts:2788).
-            out_idx.index_trait_ptr_type = Option(TypeValue).Some(idx_result.ptr_type);
+            expr_info_set_index_trait_ptr_type(out_idx, Option(TypeValue).Some(idx_result.ptr_type));
             // Also record the specialized index() method type + value so codegen
             // can emit `*index_fn(&recv, i)` (generation.yo's index-trait branch).
             // Mirrors TS function.ts:2790-2791.
-            out_idx.index_method_type = match(idx_result.index_method_type, .Some(imt) => Option(TypeValue).Some(imt), .None => Option(TypeValue).None);
-            out_idx.index_method_value = idx_result.index_method_value;
+            expr_info_set_index_method_type(out_idx, match(idx_result.index_method_type, .Some(imt) => Option(TypeValue).Some(imt), .None => Option(TypeValue).None));
+            expr_info_set_index_method_value(out_idx, idx_result.index_method_value);
             // ComptimeIndex place-reference — see the FuncVal-callee index arm
             // above (TS function.ts:2820).
-            out_idx.comptime_ref = idx_result.comptime_ref;
+            expr_info_set_comptime_ref(out_idx, idx_result.comptime_ref);
             expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_idx);
             // Attach a NON-owning temp (TS function.ts:2810) — see the
             // FuncVal-callee index arm above for the full rationale.
@@ -6583,8 +6599,8 @@ ${ast_expr_to_string(expr)}`,
           });
           out_none := new_expr_info(call_result_none.caller_env, ret_type_none);
           out_none.value = Option(EvalValue).Some(_call_result_unknown(ret_type_none, callee_env));
-          out_none.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_none.runtime_arg_exprs_in_order);
-          out_none.deferred_drop_expressions = call_result_none.deferred_drop_expressions;
+          expr_info_set_runtime_arg_exprs_in_order(out_none, Option(ArrayList(AstExpr)).Some(call_result_none.runtime_arg_exprs_in_order));
+          expr_info_set_deferred_drop_expressions(out_none, call_result_none.deferred_drop_expressions);
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_none);
           // Same temp attachment as the method arm (TS function.ts:2263).
           attach_temp_variable_to_expr(expr, true, ctx);

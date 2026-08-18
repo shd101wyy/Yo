@@ -17,7 +17,9 @@ open(import("std/string"));
   new_expr_info,
   expr_info_table_set,
   expr_info_table_get,
-  expr_info_set_dyn_call_trait_values
+  expr_info_set_dyn_call_trait_values,
+  expr_info_capture_type,
+  expr_info_set_runtime_arg_exprs_in_order
 } :: import("../../expr_info.yo");
 { Environment, synthetic_token, get_variables_from_env, add_variable_to_env } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, ArgEntry, ArgValues, VarArgEntry } :: import("../context.yo");
@@ -520,7 +522,7 @@ evaluate_dyn_value :: (
     set_expr_as_needs_to_call_dup(ne_final_expr, ctx, exn);
     rt_args_ne := ArrayList(AstExpr).new();
     rt_args_ne.push(ne_final_expr);
-    out_info.runtime_arg_exprs_in_order = .Some(rt_args_ne);
+    expr_info_set_runtime_arg_exprs_in_order(out_info, .Some(rt_args_ne));
     if(is_dyn_type(ret_type.clone()), {
       expr_info_set_dyn_call_trait_values(out_info, Option(ArrayList(EvalValue)).Some(_resolve_dyn_trait_values(ret_type, ne_value_type, ctx, env, exn)));
     });

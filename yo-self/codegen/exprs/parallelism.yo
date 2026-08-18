@@ -28,7 +28,11 @@ open(import("std/string"));
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { get_type_string, get_variable_name_for_codegen, type_key } :: import("../utils/index.yo");
 { resolve_some_type_to_concrete } :: import("./closures.yo");
-{ expr_info_closure_function_value } :: import("../../expr_info.yo");
+{
+  expr_info_closure_function_value,
+  expr_info_capture_type,
+  expr_info_runtime_arg_exprs_in_order
+} :: import("../../expr_info.yo");
 { get_dup_function_for_type, get_drop_function_for_type } :: import("./drop_dup.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 /// C name of the capture struct for `capture_type`: the registered type-entry
@@ -157,7 +161,7 @@ _generate_spawn_wrapper :: (fn(closure_fn_c_name : String, capture_struct_c_name
 _generate_spawn_call :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext, is_worker : bool) -> Option(String))({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(Option(String).None));
   cb := match(
-    ei.runtime_arg_exprs_in_order,
+    expr_info_runtime_arg_exprs_in_order(ei),
     .Some(ra) => if(ra.len() == usize(1), match(ra.get(usize(0)), .Some(c) => c, .None => return(Option(String).None)), return(Option(String).None)),
     .None => return(Option(String).None)
   );
@@ -171,7 +175,7 @@ _generate_spawn_call :: (fn(expr : AstExpr, indent : String, context : FunctionG
   // the param was bound to (callable) — resolve it to the concrete capture struct
   // (via g_some_resolved_concrete) so the map key matches what the construction /
   // pre-pass registered (the capture-struct id, not the SomeT id).
-  capture_type := resolve_some_type_to_concrete(match(cei.capture_type, .Some(c) => c, .None => cei.ty));
+  capture_type := resolve_some_type_to_concrete(match(expr_info_capture_type(cei), .Some(c) => c, .None => cei.ty));
   // The impl_closure_call_map is keyed by the BARE capture-struct id at every
   // set site (closures.yo — capture-struct sids are unique per closure), NOT
   // by type_key: type_key of a cfid-empty struct with field types is now

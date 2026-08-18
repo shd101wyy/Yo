@@ -32,7 +32,9 @@ open(import("std/string"));
   expr_info_table_set,
   expr_info_table_get,
   register_some_resolved_concrete,
-  expr_info_set_closure_function_value
+  expr_info_set_closure_function_value,
+  expr_info_capture_type,
+  expr_info_set_capture_type
 } :: import("../../expr_info.yo");
 { Token } :: import("../../token.yo");
 {
@@ -336,7 +338,7 @@ try_to_implement_closure_by_fn_module_type :: (
   final_ty := wrapper_type;
   // Build the ExprInfo for this closure expression.
   info := new_expr_info(env, final_ty);
-  info.capture_type = capture_ty;
+  expr_info_set_capture_type(info, capture_ty);
   expr_info_set_closure_function_value(info, Option(EvalValue).Some(func_val_pre));
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
   Option(AstExpr).Some(expr)

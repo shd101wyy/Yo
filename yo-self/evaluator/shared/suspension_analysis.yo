@@ -41,7 +41,13 @@ open(import("std/string"));
 { HashMap } :: import("std/collections/hash_map");
 { TokenKind } :: import("../../token.yo");
 { AstExpr, ast_expr_id, ast_expr_is_fn_call_of } :: import("../../expr.yo");
-{ ExprInfo, lookup_macro_expansion } :: import("../../expr_info.yo");
+{
+  ExprInfo,
+  lookup_macro_expansion,
+  expr_info_deferred_drop_expressions,
+  expr_info_deferred_dup_expressions,
+  expr_info_macro_expansion
+} :: import("../../expr_info.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { Variable, Environment, get_variables_from_env } :: import("../../env.yo");
 {
@@ -378,7 +384,7 @@ walk_expr_ :: (
           .Some(me) => Option(AstExpr).Some(me),
           .None => match(
             get_info(expr_cloned.clone()),
-            .Some(iinfo) => iinfo.macro_expansion,
+            .Some(iinfo) => expr_info_macro_expansion(iinfo),
             .None => Option(AstExpr).None
           )
         );
@@ -602,7 +608,7 @@ walk_expr_ :: (
               .None => (),
               .Some(info2) => {
                 match(
-                  info2.deferred_dup_expressions,
+                  expr_info_deferred_dup_expressions(info2),
                   .None => (),
                   .Some(dup_exprs) => {
                     (di : usize) = usize(0);
@@ -647,7 +653,7 @@ walk_expr_ :: (
             .None => (),
             .Some(info3) => {
               match(
-                info3.deferred_drop_expressions,
+                expr_info_deferred_drop_expressions(info3),
                 .None => (),
                 .Some(drop_exprs) => {
                   (di2 : usize) = usize(0);
@@ -712,7 +718,7 @@ analyze_suspension_points :: (
     .None => (),
     .Some(body_info) => {
       match(
-        body_info.deferred_drop_expressions,
+        expr_info_deferred_drop_expressions(body_info),
         .None => (),
         .Some(drop_exprs) => {
           n_drops := drop_exprs.len();

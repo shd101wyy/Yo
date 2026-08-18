@@ -35,7 +35,7 @@ _(env : proc_env) :: import("std/env");
 { exit } :: import("std/libc/stdlib");
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, BK_OPEN, BK_IMPORT, BK_TEST, ast_expr_is_fn_call_of, ast_expr_to_string, make_err_expr } :: import("./expr.yo");
-{ ExprInfoTable, expr_info_table_new } :: import("./expr_info.yo");
+{ ExprInfoTable, expr_info_table_new, expr_info_census } :: import("./expr_info.yo");
 { TokenKind } :: import("./token.yo");
 { parse } :: import("./parser.yo");
 { InitOptions, init_project } :: import("./init.yo");
@@ -1351,6 +1351,11 @@ run_compile :: (
     // wrapper (is_library = true). Allocator + debug-logging flags are threaded
     // through to the code generator (mirrors CodeGeneratorC.compileModule).
     c_src := compile_module(module_value, ctx.expr_info_table, target, allocator.clone(), debug_gc, debug_parallelism, debug_async_await, static_library, ctx, env, exn);
+    // TEMP CENSUS (YO_EI_CENSUS): per-field occupancy of the ExprInfo table
+    // after codegen — scopes the next diet round.
+    if(proc_env.get(`YO_EI_CENSUS`).is_some(), {
+      expr_info_census(ctx.expr_info_table);
+    });
     // --emit-c prints the generated C to stdout (module-manager.ts:473-475) —
     // and compilation continues; only --skip-c-compiler stops before the link.
     if(emit_c, {

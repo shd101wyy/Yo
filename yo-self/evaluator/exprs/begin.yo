@@ -50,7 +50,24 @@ open(import("std/string"));
   ControlFlowFlags,
   control_flow_of,
   has_control_flow,
-  has_any_control_flow
+  has_any_control_flow,
+  expr_info_capture_type,
+  expr_info_comptime_ref,
+  expr_info_control_flow,
+  expr_info_deferred_dup_expressions,
+  expr_info_early_return_only_deferred_drop_expressions,
+  expr_info_is_compile_time_only_assignment,
+  expr_info_macro_expansion,
+  expr_info_set_capture_type,
+  expr_info_set_comptime_ref,
+  expr_info_set_control_flow,
+  expr_info_set_deferred_drop_expressions,
+  expr_info_set_early_return_only_deferred_drop_expressions,
+  expr_info_set_index_method_type,
+  expr_info_set_index_method_value,
+  expr_info_set_index_trait_ptr_type,
+  expr_info_set_runtime_arg_exprs_in_order,
+  expr_info_set_deferred_dup_expressions
 } :: import("../../expr_info.yo");
 { Environment, Variable, Frame, add_variable_to_env, get_variables_from_env } :: import("../../env.yo");
 {
@@ -233,7 +250,7 @@ _search_dup_calls :: (fn(expr : AstExpr, res : DupCallsResult, ctx : EvalContext
     ei_opt,
     .Some(ei) => {
       match(
-        ei.deferred_dup_expressions,
+        expr_info_deferred_dup_expressions(ei),
         .Some(dl) => {
           (ddi : usize) = usize(0);
           while(ddi < dl.len(), {
@@ -260,7 +277,7 @@ _search_dup_calls :: (fn(expr : AstExpr, res : DupCallsResult, ctx : EvalContext
   match(
     ei_opt,
     .Some(ei_mx) => match(
-      ei_mx.macro_expansion,
+      expr_info_macro_expansion(ei_mx),
       .Some(mx) => {
         recur(mx, res, ctx);
         return(());
@@ -740,7 +757,7 @@ _attach_if_cleanup_needs_drop :: (fn(expr : AstExpr, cleanup_point : Token, vari
       latest := match(vars.get(vars.len() - usize(1)), .Some(v) => v, .None => return(()));
       match(latest.initialized_at_token, .None => return(()), .Some(_) => ());
       if(_m3_token_is_at_or_before(init_tok, cleanup_point) && _m3_token_is_before(cleanup_point, consumed_tok), {
-        existing := match(ei.early_return_only_deferred_drop_expressions, .Some(l) => l, .None => ArrayList(AstExpr).new());
+        existing := match(expr_info_early_return_only_deferred_drop_expressions(ei), .Some(l) => l, .None => ArrayList(AstExpr).new());
         (found : bool) = false;
         (fi : usize) = usize(0);
         while(fi < existing.len(), {
@@ -755,7 +772,7 @@ _attach_if_cleanup_needs_drop :: (fn(expr : AstExpr, cleanup_point : Token, vari
         });
         if(!(found), {
           _p := existing.push(drop_expr);
-          ei.early_return_only_deferred_drop_expressions = Option(ArrayList(AstExpr)).Some(existing);
+          expr_info_set_early_return_only_deferred_drop_expressions(ei, Option(ArrayList(AstExpr)).Some(existing));
         });
       });
     }
@@ -782,7 +799,7 @@ _attach_early_return_only_drop_to_returns :: (fn(expr : AstExpr, variable : Vari
       });
       match(
         expr_info_table_get(ctx.expr_info_table, ast_expr_id(expr)),
-        .Some(ei) => match(ei.macro_expansion, .Some(mx) => recur(mx, variable, drop_expr, ctx), .None => ()),
+        .Some(ei) => match(expr_info_macro_expansion(ei), .Some(mx) => recur(mx, variable, drop_expr, ctx), .None => ()),
         .None => ()
       );
       if(ast_expr_is_fn_call_of(expr, BK_COND, Option(usize).None) || ast_expr_is_fn_call_of(expr, BK_MATCH, Option(usize).None), {
@@ -843,7 +860,7 @@ _contains_return_for_opt :: (fn(e : AstExpr, ctx : EvalContext) -> bool)({
       match(
         expr_info_table_get(ctx.expr_info_table, ast_expr_id(e)),
         .Some(ei) => match(
-          ei.macro_expansion,
+          expr_info_macro_expansion(ei),
           .Some(mx) => if(recur(mx, ctx), {
             return(true);
           }),
@@ -882,7 +899,7 @@ _remove_dup_calls_from_tree :: (fn(expr : AstExpr, remove_ids : HashSet(usize), 
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(expr)),
     .Some(ei) => {
       match(
-        ei.deferred_dup_expressions,
+        expr_info_deferred_dup_expressions(ei),
         .Some(dl) => {
           kept := ArrayList(AstExpr).new();
           (i : usize) = usize(0);
@@ -896,16 +913,19 @@ _remove_dup_calls_from_tree :: (fn(expr : AstExpr, remove_ids : HashSet(usize), 
             );
             i = (i + usize(1));
           });
-          ei.deferred_dup_expressions = if(
-            kept.len() == usize(0),
-            Option(ArrayList(AstExpr)).None,
-            Option(ArrayList(AstExpr)).Some(kept)
+          expr_info_set_deferred_dup_expressions(
+            ei,
+            if(
+              kept.len() == usize(0),
+              Option(ArrayList(AstExpr)).None,
+              Option(ArrayList(AstExpr)).Some(kept)
+            )
           );
         },
         .None => ()
       );
       match(
-        ei.macro_expansion,
+        expr_info_macro_expansion(ei),
         .Some(mx) => recur(mx, remove_ids, ctx),
         .None => ()
       );
@@ -1477,7 +1497,7 @@ evaluate_begin_expression :: (
           // `return` / `return()` with no argument → unit return.
           out := new_expr_info(env, TypeValue.Unit);
           out.value = Option(EvalValue).Some(EvalValue.UnitVal);
-          out.control_flow = Option(ControlFlowFlags).Some(control_flow_of(.Return));
+          expr_info_set_control_flow(out, Option(ControlFlowFlags).Some(control_flow_of(.Return)));
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr_to_eval), out);
           last_expr = expr_to_eval;
         }, {
@@ -1666,7 +1686,7 @@ evaluate_begin_expression :: (
           });
           out := new_expr_info(env, ret_info.ty);
           out.value = ret_info.value;
-          out.control_flow = Option(ControlFlowFlags).Some(control_flow_of(.Return));
+          expr_info_set_control_flow(out, Option(ControlFlowFlags).Some(control_flow_of(.Return)));
           out.path_collection = ret_info.path_collection;
           out.variable_name = ret_info.variable_name;
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr_to_eval), out);
@@ -1693,7 +1713,7 @@ evaluate_begin_expression :: (
         });
         out := new_expr_info(env, TypeValue.Unit);
         out.value = Option(EvalValue).Some(EvalValue.UnitVal);
-        out.control_flow = Option(ControlFlowFlags).Some(control_flow_of(.Break));
+        expr_info_set_control_flow(out, Option(ControlFlowFlags).Some(control_flow_of(.Break)));
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr_to_eval), out);
         last_expr = expr_to_eval;
         done = true;
@@ -1717,7 +1737,7 @@ evaluate_begin_expression :: (
         });
         out := new_expr_info(env, TypeValue.Unit);
         out.value = Option(EvalValue).Some(EvalValue.UnitVal);
-        out.control_flow = Option(ControlFlowFlags).Some(control_flow_of(.Continue));
+        expr_info_set_control_flow(out, Option(ControlFlowFlags).Some(control_flow_of(.Continue)));
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr_to_eval), out);
         last_expr = expr_to_eval;
         done = true;
@@ -1786,7 +1806,7 @@ evaluate_begin_expression :: (
             );
           });
           out_esc0 := new_expr_info(env, TypeValue.Unit);
-          out_esc0.control_flow = Option(ControlFlowFlags).Some(control_flow_of(.Unwind));
+          expr_info_set_control_flow(out_esc0, Option(ControlFlowFlags).Some(control_flow_of(.Unwind)));
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr_to_eval), out_esc0);
           last_expr = expr_to_eval;
           done = true;
@@ -1840,7 +1860,7 @@ evaluate_begin_expression :: (
           );
           out := new_expr_info(env, esc_info.ty);
           out.value = esc_info.value;
-          out.control_flow = Option(ControlFlowFlags).Some(control_flow_of(.Unwind));
+          expr_info_set_control_flow(out, Option(ControlFlowFlags).Some(control_flow_of(.Unwind)));
           out.path_collection = esc_info.path_collection;
           out.variable_name = esc_info.variable_name;
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr_to_eval), out);
@@ -1885,7 +1905,7 @@ evaluate_begin_expression :: (
           is_either_assign := (is_assign_expr || is_init_assign_expr);
           ct_only_assign := match(
             ev_info_opt,
-            .Some(ei) => match(ei.is_compile_time_only_assignment, .Some(b) => b, .None => false),
+            .Some(ei) => match(expr_info_is_compile_time_only_assignment(ei), .Some(b) => b, .None => false),
             .None => false
           );
           // For NON-assignment statements, only a CONCRETELY known value
@@ -1914,7 +1934,7 @@ evaluate_begin_expression :: (
         // If this expression carries control flow, it becomes the last expression.
         has_cf := match(
           ev_info_opt,
-          .Some(ei) => has_any_control_flow(ei.control_flow),
+          .Some(ei) => has_any_control_flow(expr_info_control_flow(ei)),
           .None => false
         );
         last_expr = evaluated;
@@ -1955,7 +1975,7 @@ evaluate_begin_expression :: (
   // the mismatch error. NOTE: this alone does NOT fix the io.async
   // `return(<binop>)` void-result bug — there the GIVEN side is already the
   // same bare SomeT (see issues/yo-self-io-async-return-binop-void.md).
-  is_return_ctrl := has_control_flow(last_info.control_flow, .Return);
+  is_return_ctrl := has_control_flow(expr_info_control_flow(last_info), .Return);
   if(is_return_ctrl, {
     match(
       ctx.is_evaluating_function_body_or_async_block,
@@ -2324,11 +2344,11 @@ evaluate_begin_expression :: (
     clone_expr_info_for_shared_begin_result(last_info, env, return_type),
     new_expr_info(env, return_type)
   );
-  out_info.deferred_drop_expressions = scope_end_drops;
+  expr_info_set_deferred_drop_expressions(out_info, scope_end_drops);
   out_info.value = cond(has_runtime_side_effects => Option(EvalValue).None, true => last_info.value);
-  out_info.control_flow = last_info.control_flow;
-  out_info.comptime_ref = last_info.comptime_ref;
-  out_info.capture_type = last_info.capture_type;
+  expr_info_set_control_flow(out_info, expr_info_control_flow(last_info));
+  expr_info_set_comptime_ref(out_info, expr_info_comptime_ref(last_info));
+  expr_info_set_capture_type(out_info, expr_info_capture_type(last_info));
   // NOTE: `out_info.popped_env_frame = current_frame_opt` REMOVED. The field is
   // WRITE-ONLY DEAD STATE — nothing in yo-self ever reads popped_env_frame (grep:
   // only the field def + this former write). Storing every block's popped frame
@@ -2348,10 +2368,10 @@ evaluate_begin_expression :: (
     .Some(v) => match(v, .UnitVal => true, _ => _value_contains_unknown(v))
   );
   if(shared_with_tail && !(carry_runtime_args), {
-    out_info.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).None;
-    out_info.index_trait_ptr_type = Option(TypeValue).None;
-    out_info.index_method_type = Option(TypeValue).None;
-    out_info.index_method_value = Option(EvalValue).None;
+    expr_info_set_runtime_arg_exprs_in_order(out_info, Option(ArrayList(AstExpr)).None);
+    expr_info_set_index_trait_ptr_type(out_info, Option(TypeValue).None);
+    expr_info_set_index_method_type(out_info, Option(TypeValue).None);
+    expr_info_set_index_method_value(out_info, Option(EvalValue).None);
   });
   if(shared_with_tail && !(is_evaluating_function_body_begin_block && carry_runtime_args), {
     out_info.variable_name = Option(String).None;

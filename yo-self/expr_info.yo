@@ -384,7 +384,87 @@ ExprInfoRare :: ref(
     /// Effect-analysis result for effectful function calls.
     effect_analysis : Option(EffectAnalysisResult),
     /// FunctionValue implementing the closure body.
-    closure_function_value : Option(EvalValue)
+    closure_function_value : Option(EvalValue),
+    // --- P3 diet (2026-08-18): moved from ExprInfo inline — measured
+    // occupancy <=2.5% each over a 7.71M-entry self-emit table (census in
+    // plans/backlog/RC_HEADER_SPLIT.md). Access ONLY via the accessor pairs.
+    doc_comment : Option(String),
+    deferred_dup_expressions : Option(ArrayList(AstExpr)),
+    capture_type : Option(TypeValue),
+    macro_expansion : Option(AstExpr),
+    popped_env_frame : Option(Frame),
+    original_expr : Option(AstExpr),
+    comptime_ref : Option(ComptimeRef),
+    index_trait_ptr_type : Option(TypeValue),
+    index_method_type : Option(TypeValue),
+    index_method_value : Option(EvalValue),
+    is_index_trait_address_of : Option(bool),
+    is_compile_time_only_assignment : Option(bool),
+    is_anonymous_function_definition : Option(bool),
+    comptime_unrolled_bodies : Option(ArrayList(AstExpr)),
+    early_return_only_deferred_drop_expressions : Option(ArrayList(AstExpr))
+  )
+);
+// Per-setter write counters (printed by expr_info_census under YO_EI_CENSUS).
+(g_ei_w_is_accessing_property : u64) = u64(0);
+(g_ei_w_runtime_arg_exprs_in_order : u64) = u64(0);
+(g_ei_w_control_flow : u64) = u64(0);
+(g_ei_w_doc_comment : u64) = u64(0);
+(g_ei_w_deferred_dup_expressions : u64) = u64(0);
+(g_ei_w_deferred_drop_expressions : u64) = u64(0);
+(g_ei_w_capture_type : u64) = u64(0);
+(g_ei_w_macro_expansion : u64) = u64(0);
+(g_ei_w_popped_env_frame : u64) = u64(0);
+(g_ei_w_original_expr : u64) = u64(0);
+(g_ei_w_comptime_ref : u64) = u64(0);
+(g_ei_w_index_trait_ptr_type : u64) = u64(0);
+(g_ei_w_index_method_type : u64) = u64(0);
+(g_ei_w_index_method_value : u64) = u64(0);
+(g_ei_w_is_index_trait_address_of : u64) = u64(0);
+(g_ei_w_is_compile_time_only_assignment : u64) = u64(0);
+(g_ei_w_is_anonymous_function_definition : u64) = u64(0);
+(g_ei_w_comptime_unrolled_bodies : u64) = u64(0);
+(g_ei_w_early_return_only_deferred_drop_expressions : u64) = u64(0);
+/// Clone the rare group for a shared-id begin copy: independent Option slots
+/// (payload refs shared) so begin-level CLEARS on the copy cannot mutate the
+/// source's group — the exact pre-diet semantics, when every field was an
+/// inline slot. `popped_env_frame` is forced to `.None` here (the copier's
+/// eval-phase-leak rule; see the doc on `clone_expr_info_for_shared_begin_result`).
+_clone_rare_for_shared_begin :: (fn(src : Option(ExprInfoRare)) -> Option(ExprInfoRare))(
+  match(
+    src,
+    .None => Option(ExprInfoRare).None,
+    .Some(r) => Option(ExprInfoRare).Some(
+      ExprInfoRare(
+        converted_runtime_type : r.converted_runtime_type,
+        runtime_destructurings : r.runtime_destructurings,
+        dyn_call_trait_values : r.dyn_call_trait_values,
+        case_executed : r.case_executed,
+        is_primitive_match : r.is_primitive_match,
+        primitive_pattern_values : r.primitive_pattern_values,
+        consumed_variable_drop_expressions : r.consumed_variable_drop_expressions,
+        async_stack_size : r.async_stack_size,
+        async_state_machine_struct_name : r.async_state_machine_struct_name,
+        await_analysis : r.await_analysis,
+        effect_analysis : r.effect_analysis,
+        closure_function_value : r.closure_function_value,
+        doc_comment : r.doc_comment,
+        deferred_dup_expressions : r.deferred_dup_expressions,
+        capture_type : r.capture_type,
+        macro_expansion : r.macro_expansion,
+        popped_env_frame : Option(Frame).None,
+        original_expr : r.original_expr,
+        comptime_ref : r.comptime_ref,
+        index_trait_ptr_type : r.index_trait_ptr_type,
+        index_method_type : r.index_method_type,
+        index_method_value : r.index_method_value,
+        is_index_trait_address_of : r.is_index_trait_address_of,
+        is_compile_time_only_assignment : r.is_compile_time_only_assignment,
+        is_anonymous_function_definition : r.is_anonymous_function_definition,
+        comptime_unrolled_bodies : r.comptime_unrolled_bodies,
+        early_return_only_deferred_drop_expressions : r.early_return_only_deferred_drop_expressions
+      )
+    )
   )
 );
 ExprInfo :: ref(
@@ -398,20 +478,13 @@ ExprInfo :: ref(
     value : Option(EvalValue),
     /// Name of the temporary variable holding the value in `env`.
     variable_name : Option(String),
-    /// True when this expression is a property-access dereference (`p.*`).
+    /// WRITE-HOT (kept inline — the origin_type rule): 1.84M/1.83M/392k/141k
+    /// writes per self-emit; moving them into `rare` allocated groups for
+    /// clears and put accessor churn on the evaluator's hottest reads.
     is_accessing_property : Option(bool),
-    /// Runtime arguments in call order (used by codegen).
     runtime_arg_exprs_in_order : Option(ArrayList(AstExpr)),
-    /// Control-flow flags (return, unwind, break, continue).
     control_flow : Option(ControlFlowFlags),
-    /// Doc comment preceding this declaration.
-    doc_comment : Option(String),
-    /// `___dup` call expressions for RC variables captured by a closure.
-    deferred_dup_expressions : Option(ArrayList(AstExpr)),
-    /// `___drop` call expressions for variables needing cleanup at scope exit.
     deferred_drop_expressions : Option(ArrayList(AstExpr)),
-    /// Capture struct type for closures / async blocks that close over RC vars.
-    capture_type : Option(TypeValue),
     /// Root object type in a property-access chain (used for mutability analysis).
     // INLINE ON PURPOSE, and it must stay that way: a measured self-emit calls
     // `expr_info_set_origin_type` 3,073,159 times out of 3,339,110 total
@@ -422,38 +495,8 @@ ExprInfo :: ref(
     origin_type : Option(TypeValue),
     /// The rarely-set fields, allocated on first write. See `ExprInfoRare`.
     rare : Option(ExprInfoRare),
-    /// Evaluated macro-expanded expression.
-    macro_expansion : Option(AstExpr),
-    /// Environment frame popped after a begin block.
-    popped_env_frame : Option(Frame),
-    /// Original un-evaluated expression (used for test codegen).
-    original_expr : Option(AstExpr),
     /// Variable object for identifier expressions (used by compile-time pointer creation).
-    source_variable : Option(Variable),
-    /// Compile-time element/field reference for mutation (`arr(0) = v`, `&(arr(0))`).
-    comptime_ref : Option(ComptimeRef),
-    /// Pointer type returned by the Index trait `index()` method (before auto-deref).
-    // `Box`ed (P2): only set on Index-trait dispatch exprs.
-    index_trait_ptr_type : Option(TypeValue),
-    /// Specialised FunctionType of the Index trait `index()` method.
-    // `Box`ed (P2): only set on Index-trait dispatch exprs.
-    index_method_type : Option(TypeValue),
-    /// Specialised FunctionValue of the Index trait `index()` method.
-    index_method_value : Option(EvalValue),
-    /// True when `&(value(i))` skips the auto-deref and uses the pointer directly.
-    is_index_trait_address_of : Option(bool),
-    /// True when the assignment is compile-time only (no C code emitted).
-    is_compile_time_only_assignment : Option(bool),
-    /// True when `->` / `=>` defines an anonymous function (new function boundary).
-    is_anonymous_function_definition : Option(bool),
-    /// Unrolled loop bodies for comptime-terminated while loops.
-    comptime_unrolled_bodies : Option(ArrayList(AstExpr)),
-    /// M3 (early-return-only drops): `___drop` expressions attached to THIS
-    /// return/unwind node that must fire ONLY on this early-return path — for a
-    /// local that is initialized before this exit but consumed (moved out) after
-    /// it, so the block's normal scope-end drop would miss it. Mirrors TS
-    /// `earlyReturnOnlyDeferredDropExpressions` (src/expr.ts / begin.ts:130-238).
-    early_return_only_deferred_drop_expressions : Option(ArrayList(AstExpr))
+    source_variable : Option(Variable)
   )
 );
 /// Create an ExprInfo with the three required fields and all optional fields set to `.None`.
@@ -475,25 +518,10 @@ new_expr_info :: (fn(env : Environment, ty : TypeValue) -> ExprInfo)(
     is_accessing_property : Option(bool).None,
     runtime_arg_exprs_in_order : Option(ArrayList(AstExpr)).None,
     control_flow : Option(ControlFlowFlags).None,
-    doc_comment : Option(String).None,
-    deferred_dup_expressions : Option(ArrayList(AstExpr)).None,
     deferred_drop_expressions : Option(ArrayList(AstExpr)).None,
-    capture_type : Option(TypeValue).None,
     origin_type : Option(TypeValue).None,
     rare : Option(ExprInfoRare).None,
-    macro_expansion : Option(AstExpr).None,
-    popped_env_frame : Option(Frame).None,
-    original_expr : Option(AstExpr).None,
-    source_variable : Option(Variable).None,
-    comptime_ref : Option(ComptimeRef).None,
-    index_trait_ptr_type : Option(TypeValue).None,
-    index_method_type : Option(TypeValue).None,
-    index_method_value : Option(EvalValue).None,
-    is_index_trait_address_of : Option(bool).None,
-    is_compile_time_only_assignment : Option(bool).None,
-    is_anonymous_function_definition : Option(bool).None,
-    comptime_unrolled_bodies : Option(ArrayList(AstExpr)).None,
-    early_return_only_deferred_drop_expressions : Option(ArrayList(AstExpr)).None
+    source_variable : Option(Variable).None
   )
 );
 /// ExprInfo for a SHARED-id begin result — `evaluate_begin_expression` on a
@@ -524,25 +552,10 @@ clone_expr_info_for_shared_begin_result :: (fn(src : ExprInfo, env : Environment
     is_accessing_property : src.is_accessing_property,
     runtime_arg_exprs_in_order : src.runtime_arg_exprs_in_order,
     control_flow : src.control_flow,
-    doc_comment : src.doc_comment,
-    deferred_dup_expressions : src.deferred_dup_expressions,
     deferred_drop_expressions : src.deferred_drop_expressions,
-    capture_type : src.capture_type,
     origin_type : src.origin_type,
-    rare : src.rare,
-    macro_expansion : src.macro_expansion,
-    popped_env_frame : Option(Frame).None,
-    original_expr : src.original_expr,
-    source_variable : src.source_variable,
-    comptime_ref : src.comptime_ref,
-    index_trait_ptr_type : src.index_trait_ptr_type,
-    index_method_type : src.index_method_type,
-    index_method_value : src.index_method_value,
-    is_index_trait_address_of : src.is_index_trait_address_of,
-    is_compile_time_only_assignment : src.is_compile_time_only_assignment,
-    is_anonymous_function_definition : src.is_anonymous_function_definition,
-    comptime_unrolled_bodies : src.comptime_unrolled_bodies,
-    early_return_only_deferred_drop_expressions : src.early_return_only_deferred_drop_expressions
+    rare : _clone_rare_for_shared_begin(src.rare),
+    source_variable : src.source_variable
   )
 );
 // ---------------------------------------------------------------------------
@@ -567,13 +580,270 @@ _expr_info_rare_for_write :: (fn(info : ExprInfo) -> ExprInfoRare)(
         async_state_machine_struct_name : Option(String).None,
         await_analysis : Option(AwaitAnalysisResult).None,
         effect_analysis : Option(EffectAnalysisResult).None,
-        closure_function_value : Option(EvalValue).None
+        closure_function_value : Option(EvalValue).None,
+        doc_comment : Option(String).None,
+        deferred_dup_expressions : Option(ArrayList(AstExpr)).None,
+        capture_type : Option(TypeValue).None,
+        macro_expansion : Option(AstExpr).None,
+        popped_env_frame : Option(Frame).None,
+        original_expr : Option(AstExpr).None,
+        comptime_ref : Option(ComptimeRef).None,
+        index_trait_ptr_type : Option(TypeValue).None,
+        index_method_type : Option(TypeValue).None,
+        index_method_value : Option(EvalValue).None,
+        is_index_trait_address_of : Option(bool).None,
+        is_compile_time_only_assignment : Option(bool).None,
+        is_anonymous_function_definition : Option(bool).None,
+        comptime_unrolled_bodies : Option(ArrayList(AstExpr)).None,
+        early_return_only_deferred_drop_expressions : Option(ArrayList(AstExpr)).None
       );
       info.rare = Option(ExprInfoRare).Some(fresh);
       fresh
     }
   )
 );
+expr_info_is_accessing_property :: (fn(info : ExprInfo) -> Option(bool))(info.is_accessing_property);
+expr_info_set_is_accessing_property :: (fn(info : ExprInfo, v : Option(bool)) -> unit)({
+  g_ei_w_is_accessing_property = (g_ei_w_is_accessing_property + u64(1));
+  info.is_accessing_property = v;
+  ()
+});
+export(expr_info_is_accessing_property);
+export(expr_info_set_is_accessing_property);
+expr_info_runtime_arg_exprs_in_order :: (fn(info : ExprInfo) -> Option(ArrayList(AstExpr)))(info.runtime_arg_exprs_in_order);
+expr_info_set_runtime_arg_exprs_in_order :: (fn(info : ExprInfo, v : Option(ArrayList(AstExpr))) -> unit)({
+  g_ei_w_runtime_arg_exprs_in_order = (g_ei_w_runtime_arg_exprs_in_order + u64(1));
+  info.runtime_arg_exprs_in_order = v;
+  ()
+});
+export(expr_info_runtime_arg_exprs_in_order);
+export(expr_info_set_runtime_arg_exprs_in_order);
+expr_info_control_flow :: (fn(info : ExprInfo) -> Option(ControlFlowFlags))(info.control_flow);
+expr_info_set_control_flow :: (fn(info : ExprInfo, v : Option(ControlFlowFlags)) -> unit)({
+  g_ei_w_control_flow = (g_ei_w_control_flow + u64(1));
+  info.control_flow = v;
+  ()
+});
+export(expr_info_control_flow);
+export(expr_info_set_control_flow);
+expr_info_doc_comment :: (fn(info : ExprInfo) -> Option(String))(
+  match(info.rare, .Some(r) => r.doc_comment, .None => Option(String).None)
+);
+expr_info_set_doc_comment :: (fn(info : ExprInfo, v : Option(String)) -> unit)({
+  g_ei_w_doc_comment = (g_ei_w_doc_comment + u64(1));
+  // Writing None to an absent group is a no-op — never allocate for a clear.
+  if(!(v.is_none() && info.rare.is_none()), {
+    r := _expr_info_rare_for_write(info);
+    r.doc_comment = v;
+  });
+  ()
+});
+export(expr_info_doc_comment);
+export(expr_info_set_doc_comment);
+expr_info_deferred_dup_expressions :: (fn(info : ExprInfo) -> Option(ArrayList(AstExpr)))(
+  match(info.rare, .Some(r) => r.deferred_dup_expressions, .None => Option(ArrayList(AstExpr)).None)
+);
+expr_info_set_deferred_dup_expressions :: (fn(info : ExprInfo, v : Option(ArrayList(AstExpr))) -> unit)({
+  g_ei_w_deferred_dup_expressions = (g_ei_w_deferred_dup_expressions + u64(1));
+  // Writing None to an absent group is a no-op — never allocate for a clear.
+  if(!(v.is_none() && info.rare.is_none()), {
+    r := _expr_info_rare_for_write(info);
+    r.deferred_dup_expressions = v;
+  });
+  ()
+});
+export(expr_info_deferred_dup_expressions);
+export(expr_info_set_deferred_dup_expressions);
+expr_info_deferred_drop_expressions :: (fn(info : ExprInfo) -> Option(ArrayList(AstExpr)))(info.deferred_drop_expressions);
+expr_info_set_deferred_drop_expressions :: (fn(info : ExprInfo, v : Option(ArrayList(AstExpr))) -> unit)({
+  g_ei_w_deferred_drop_expressions = (g_ei_w_deferred_drop_expressions + u64(1));
+  info.deferred_drop_expressions = v;
+  ()
+});
+export(expr_info_deferred_drop_expressions);
+export(expr_info_set_deferred_drop_expressions);
+expr_info_capture_type :: (fn(info : ExprInfo) -> Option(TypeValue))(
+  match(info.rare, .Some(r) => r.capture_type, .None => Option(TypeValue).None)
+);
+expr_info_set_capture_type :: (fn(info : ExprInfo, v : Option(TypeValue)) -> unit)({
+  g_ei_w_capture_type = (g_ei_w_capture_type + u64(1));
+  // Writing None to an absent group is a no-op — never allocate for a clear.
+  if(!(v.is_none() && info.rare.is_none()), {
+    r := _expr_info_rare_for_write(info);
+    r.capture_type = v;
+  });
+  ()
+});
+export(expr_info_capture_type);
+export(expr_info_set_capture_type);
+expr_info_macro_expansion :: (fn(info : ExprInfo) -> Option(AstExpr))(
+  match(info.rare, .Some(r) => r.macro_expansion, .None => Option(AstExpr).None)
+);
+expr_info_set_macro_expansion :: (fn(info : ExprInfo, v : Option(AstExpr)) -> unit)({
+  g_ei_w_macro_expansion = (g_ei_w_macro_expansion + u64(1));
+  // Writing None to an absent group is a no-op — never allocate for a clear.
+  if(!(v.is_none() && info.rare.is_none()), {
+    r := _expr_info_rare_for_write(info);
+    r.macro_expansion = v;
+  });
+  ()
+});
+export(expr_info_macro_expansion);
+export(expr_info_set_macro_expansion);
+expr_info_popped_env_frame :: (fn(info : ExprInfo) -> Option(Frame))(
+  match(info.rare, .Some(r) => r.popped_env_frame, .None => Option(Frame).None)
+);
+expr_info_set_popped_env_frame :: (fn(info : ExprInfo, v : Option(Frame)) -> unit)({
+  g_ei_w_popped_env_frame = (g_ei_w_popped_env_frame + u64(1));
+  // Writing None to an absent group is a no-op — never allocate for a clear.
+  if(!(v.is_none() && info.rare.is_none()), {
+    r := _expr_info_rare_for_write(info);
+    r.popped_env_frame = v;
+  });
+  ()
+});
+export(expr_info_popped_env_frame);
+export(expr_info_set_popped_env_frame);
+expr_info_original_expr :: (fn(info : ExprInfo) -> Option(AstExpr))(
+  match(info.rare, .Some(r) => r.original_expr, .None => Option(AstExpr).None)
+);
+expr_info_set_original_expr :: (fn(info : ExprInfo, v : Option(AstExpr)) -> unit)({
+  g_ei_w_original_expr = (g_ei_w_original_expr + u64(1));
+  // Writing None to an absent group is a no-op — never allocate for a clear.
+  if(!(v.is_none() && info.rare.is_none()), {
+    r := _expr_info_rare_for_write(info);
+    r.original_expr = v;
+  });
+  ()
+});
+export(expr_info_original_expr);
+export(expr_info_set_original_expr);
+expr_info_comptime_ref :: (fn(info : ExprInfo) -> Option(ComptimeRef))(
+  match(info.rare, .Some(r) => r.comptime_ref, .None => Option(ComptimeRef).None)
+);
+expr_info_set_comptime_ref :: (fn(info : ExprInfo, v : Option(ComptimeRef)) -> unit)({
+  g_ei_w_comptime_ref = (g_ei_w_comptime_ref + u64(1));
+  // Writing None to an absent group is a no-op — never allocate for a clear.
+  if(!(v.is_none() && info.rare.is_none()), {
+    r := _expr_info_rare_for_write(info);
+    r.comptime_ref = v;
+  });
+  ()
+});
+export(expr_info_comptime_ref);
+export(expr_info_set_comptime_ref);
+expr_info_index_trait_ptr_type :: (fn(info : ExprInfo) -> Option(TypeValue))(
+  match(info.rare, .Some(r) => r.index_trait_ptr_type, .None => Option(TypeValue).None)
+);
+expr_info_set_index_trait_ptr_type :: (fn(info : ExprInfo, v : Option(TypeValue)) -> unit)({
+  g_ei_w_index_trait_ptr_type = (g_ei_w_index_trait_ptr_type + u64(1));
+  // Writing None to an absent group is a no-op — never allocate for a clear.
+  if(!(v.is_none() && info.rare.is_none()), {
+    r := _expr_info_rare_for_write(info);
+    r.index_trait_ptr_type = v;
+  });
+  ()
+});
+export(expr_info_index_trait_ptr_type);
+export(expr_info_set_index_trait_ptr_type);
+expr_info_index_method_type :: (fn(info : ExprInfo) -> Option(TypeValue))(
+  match(info.rare, .Some(r) => r.index_method_type, .None => Option(TypeValue).None)
+);
+expr_info_set_index_method_type :: (fn(info : ExprInfo, v : Option(TypeValue)) -> unit)({
+  g_ei_w_index_method_type = (g_ei_w_index_method_type + u64(1));
+  // Writing None to an absent group is a no-op — never allocate for a clear.
+  if(!(v.is_none() && info.rare.is_none()), {
+    r := _expr_info_rare_for_write(info);
+    r.index_method_type = v;
+  });
+  ()
+});
+export(expr_info_index_method_type);
+export(expr_info_set_index_method_type);
+expr_info_index_method_value :: (fn(info : ExprInfo) -> Option(EvalValue))(
+  match(info.rare, .Some(r) => r.index_method_value, .None => Option(EvalValue).None)
+);
+expr_info_set_index_method_value :: (fn(info : ExprInfo, v : Option(EvalValue)) -> unit)({
+  g_ei_w_index_method_value = (g_ei_w_index_method_value + u64(1));
+  // Writing None to an absent group is a no-op — never allocate for a clear.
+  if(!(v.is_none() && info.rare.is_none()), {
+    r := _expr_info_rare_for_write(info);
+    r.index_method_value = v;
+  });
+  ()
+});
+export(expr_info_index_method_value);
+export(expr_info_set_index_method_value);
+expr_info_is_index_trait_address_of :: (fn(info : ExprInfo) -> Option(bool))(
+  match(info.rare, .Some(r) => r.is_index_trait_address_of, .None => Option(bool).None)
+);
+expr_info_set_is_index_trait_address_of :: (fn(info : ExprInfo, v : Option(bool)) -> unit)({
+  g_ei_w_is_index_trait_address_of = (g_ei_w_is_index_trait_address_of + u64(1));
+  // Writing None to an absent group is a no-op — never allocate for a clear.
+  if(!(v.is_none() && info.rare.is_none()), {
+    r := _expr_info_rare_for_write(info);
+    r.is_index_trait_address_of = v;
+  });
+  ()
+});
+export(expr_info_is_index_trait_address_of);
+export(expr_info_set_is_index_trait_address_of);
+expr_info_is_compile_time_only_assignment :: (fn(info : ExprInfo) -> Option(bool))(
+  match(info.rare, .Some(r) => r.is_compile_time_only_assignment, .None => Option(bool).None)
+);
+expr_info_set_is_compile_time_only_assignment :: (fn(info : ExprInfo, v : Option(bool)) -> unit)({
+  g_ei_w_is_compile_time_only_assignment = (g_ei_w_is_compile_time_only_assignment + u64(1));
+  // Writing None to an absent group is a no-op — never allocate for a clear.
+  if(!(v.is_none() && info.rare.is_none()), {
+    r := _expr_info_rare_for_write(info);
+    r.is_compile_time_only_assignment = v;
+  });
+  ()
+});
+export(expr_info_is_compile_time_only_assignment);
+export(expr_info_set_is_compile_time_only_assignment);
+expr_info_is_anonymous_function_definition :: (fn(info : ExprInfo) -> Option(bool))(
+  match(info.rare, .Some(r) => r.is_anonymous_function_definition, .None => Option(bool).None)
+);
+expr_info_set_is_anonymous_function_definition :: (fn(info : ExprInfo, v : Option(bool)) -> unit)({
+  g_ei_w_is_anonymous_function_definition = (g_ei_w_is_anonymous_function_definition + u64(1));
+  // Writing None to an absent group is a no-op — never allocate for a clear.
+  if(!(v.is_none() && info.rare.is_none()), {
+    r := _expr_info_rare_for_write(info);
+    r.is_anonymous_function_definition = v;
+  });
+  ()
+});
+export(expr_info_is_anonymous_function_definition);
+export(expr_info_set_is_anonymous_function_definition);
+expr_info_comptime_unrolled_bodies :: (fn(info : ExprInfo) -> Option(ArrayList(AstExpr)))(
+  match(info.rare, .Some(r) => r.comptime_unrolled_bodies, .None => Option(ArrayList(AstExpr)).None)
+);
+expr_info_set_comptime_unrolled_bodies :: (fn(info : ExprInfo, v : Option(ArrayList(AstExpr))) -> unit)({
+  g_ei_w_comptime_unrolled_bodies = (g_ei_w_comptime_unrolled_bodies + u64(1));
+  // Writing None to an absent group is a no-op — never allocate for a clear.
+  if(!(v.is_none() && info.rare.is_none()), {
+    r := _expr_info_rare_for_write(info);
+    r.comptime_unrolled_bodies = v;
+  });
+  ()
+});
+export(expr_info_comptime_unrolled_bodies);
+export(expr_info_set_comptime_unrolled_bodies);
+expr_info_early_return_only_deferred_drop_expressions :: (fn(info : ExprInfo) -> Option(ArrayList(AstExpr)))(
+  match(info.rare, .Some(r) => r.early_return_only_deferred_drop_expressions, .None => Option(ArrayList(AstExpr)).None)
+);
+expr_info_set_early_return_only_deferred_drop_expressions :: (fn(info : ExprInfo, v : Option(ArrayList(AstExpr))) -> unit)({
+  g_ei_w_early_return_only_deferred_drop_expressions = (g_ei_w_early_return_only_deferred_drop_expressions + u64(1));
+  // Writing None to an absent group is a no-op — never allocate for a clear.
+  if(!(v.is_none() && info.rare.is_none()), {
+    r := _expr_info_rare_for_write(info);
+    r.early_return_only_deferred_drop_expressions = v;
+  });
+  ()
+});
+export(expr_info_early_return_only_deferred_drop_expressions);
+export(expr_info_set_early_return_only_deferred_drop_expressions);
 expr_info_converted_runtime_type :: (fn(info : ExprInfo) -> Option(TypeValue))(
   match(info.rare, .Some(r) => r.converted_runtime_type, .None => Option(TypeValue).None)
 );
@@ -751,6 +1021,136 @@ expr_info_table_set :: (fn(table : ExprInfoTable, id : ExprId, info : ExprInfo) 
 expr_info_table_get :: (fn(table : ExprInfoTable, id : ExprId) -> Option(ExprInfo))(
   table.data.get(id)
 );
+/// TEMP CENSUS (YO_EI_CENSUS): per-field occupancy of the live ExprInfo table
+/// at end of compile — scopes the next diet round (which inline optionals are
+/// rare enough for the `rare` group). Occupancy, not write-rate: retained
+/// bytes are what the diet recovers.
+expr_info_census :: (fn(table : ExprInfoTable) -> unit)({
+  (n : u64) = u64(0);
+  (c_value : u64) = u64(0);
+  (c_variable_name : u64) = u64(0);
+  (c_is_accessing_property : u64) = u64(0);
+  (c_runtime_args : u64) = u64(0);
+  (c_control_flow : u64) = u64(0);
+  (c_doc_comment : u64) = u64(0);
+  (c_dup : u64) = u64(0);
+  (c_drop : u64) = u64(0);
+  (c_capture_type : u64) = u64(0);
+  (c_origin_type : u64) = u64(0);
+  (c_rare : u64) = u64(0);
+  (c_macro_expansion : u64) = u64(0);
+  (c_popped_frame : u64) = u64(0);
+  (c_original_expr : u64) = u64(0);
+  (c_source_variable : u64) = u64(0);
+  (c_comptime_ref : u64) = u64(0);
+  (c_idx_ptr : u64) = u64(0);
+  (c_idx_mtype : u64) = u64(0);
+  (c_idx_mval : u64) = u64(0);
+  (c_idx_addr : u64) = u64(0);
+  (c_ct_only_assign : u64) = u64(0);
+  (c_anon_fn : u64) = u64(0);
+  (c_unrolled : u64) = u64(0);
+  (c_early_drop : u64) = u64(0);
+  (c_paths : u64) = u64(0);
+  vs := table.data.values();
+  (running : bool) = true;
+  while(running, {
+    match(
+      vs.next(),
+      .Some(info) => {
+        n = (n + u64(1));
+        if(info.value.is_some(), {
+          c_value = (c_value + u64(1));
+        });
+        if(info.variable_name.is_some(), {
+          c_variable_name = (c_variable_name + u64(1));
+        });
+        if(expr_info_is_accessing_property(info).is_some(), {
+          c_is_accessing_property = (c_is_accessing_property + u64(1));
+        });
+        if(expr_info_runtime_arg_exprs_in_order(info).is_some(), {
+          c_runtime_args = (c_runtime_args + u64(1));
+        });
+        if(expr_info_control_flow(info).is_some(), {
+          c_control_flow = (c_control_flow + u64(1));
+        });
+        if(expr_info_doc_comment(info).is_some(), {
+          c_doc_comment = (c_doc_comment + u64(1));
+        });
+        if(expr_info_deferred_dup_expressions(info).is_some(), {
+          c_dup = (c_dup + u64(1));
+        });
+        if(expr_info_deferred_drop_expressions(info).is_some(), {
+          c_drop = (c_drop + u64(1));
+        });
+        if(expr_info_capture_type(info).is_some(), {
+          c_capture_type = (c_capture_type + u64(1));
+        });
+        if(info.origin_type.is_some(), {
+          c_origin_type = (c_origin_type + u64(1));
+        });
+        if(info.rare.is_some(), {
+          c_rare = (c_rare + u64(1));
+        });
+        if(expr_info_macro_expansion(info).is_some(), {
+          c_macro_expansion = (c_macro_expansion + u64(1));
+        });
+        if(expr_info_popped_env_frame(info).is_some(), {
+          c_popped_frame = (c_popped_frame + u64(1));
+        });
+        if(expr_info_original_expr(info).is_some(), {
+          c_original_expr = (c_original_expr + u64(1));
+        });
+        if(info.source_variable.is_some(), {
+          c_source_variable = (c_source_variable + u64(1));
+        });
+        if(expr_info_comptime_ref(info).is_some(), {
+          c_comptime_ref = (c_comptime_ref + u64(1));
+        });
+        if(expr_info_index_trait_ptr_type(info).is_some(), {
+          c_idx_ptr = (c_idx_ptr + u64(1));
+        });
+        if(expr_info_index_method_type(info).is_some(), {
+          c_idx_mtype = (c_idx_mtype + u64(1));
+        });
+        if(expr_info_index_method_value(info).is_some(), {
+          c_idx_mval = (c_idx_mval + u64(1));
+        });
+        if(expr_info_is_index_trait_address_of(info).is_some(), {
+          c_idx_addr = (c_idx_addr + u64(1));
+        });
+        if(expr_info_is_compile_time_only_assignment(info).is_some(), {
+          c_ct_only_assign = (c_ct_only_assign + u64(1));
+        });
+        if(expr_info_is_anonymous_function_definition(info).is_some(), {
+          c_anon_fn = (c_anon_fn + u64(1));
+        });
+        if(expr_info_comptime_unrolled_bodies(info).is_some(), {
+          c_unrolled = (c_unrolled + u64(1));
+        });
+        if(expr_info_early_return_only_deferred_drop_expressions(info).is_some(), {
+          c_early_drop = (c_early_drop + u64(1));
+        });
+        if(!(unsafe(__yo_ptr_eq(info.path_collection, g_empty_path_collection))), {
+          c_paths = (c_paths + u64(1));
+        });
+      },
+      .None => {
+        running = false;
+      }
+    );
+  });
+  eprintln(`[ei-census] total=${n.to_string()}`);
+  eprintln(`[ei-census] value=${c_value.to_string()} variable_name=${c_variable_name.to_string()} is_accessing_property=${c_is_accessing_property.to_string()} runtime_args=${c_runtime_args.to_string()} control_flow=${c_control_flow.to_string()}`);
+  eprintln(`[ei-census] doc_comment=${c_doc_comment.to_string()} dup=${c_dup.to_string()} drop=${c_drop.to_string()} capture_type=${c_capture_type.to_string()} origin_type=${c_origin_type.to_string()} rare=${c_rare.to_string()}`);
+  eprintln(`[ei-census] macro_expansion=${c_macro_expansion.to_string()} popped_frame=${c_popped_frame.to_string()} original_expr=${c_original_expr.to_string()} source_variable=${c_source_variable.to_string()} comptime_ref=${c_comptime_ref.to_string()}`);
+  eprintln(`[ei-census-writes] is_accessing_property=${g_ei_w_is_accessing_property.to_string()} runtime_arg_exprs_in_order=${g_ei_w_runtime_arg_exprs_in_order.to_string()} control_flow=${g_ei_w_control_flow.to_string()} doc_comment=${g_ei_w_doc_comment.to_string()} deferred_dup_expressions=${g_ei_w_deferred_dup_expressions.to_string()} deferred_drop_expressions=${g_ei_w_deferred_drop_expressions.to_string()} capture_type=${g_ei_w_capture_type.to_string()}`);
+  eprintln(`[ei-census-writes] macro_expansion=${g_ei_w_macro_expansion.to_string()} popped_env_frame=${g_ei_w_popped_env_frame.to_string()} original_expr=${g_ei_w_original_expr.to_string()} comptime_ref=${g_ei_w_comptime_ref.to_string()} index_trait_ptr_type=${g_ei_w_index_trait_ptr_type.to_string()} index_method_type=${g_ei_w_index_method_type.to_string()} index_method_value=${g_ei_w_index_method_value.to_string()}`);
+  eprintln(`[ei-census-writes] is_index_trait_address_of=${g_ei_w_is_index_trait_address_of.to_string()} is_compile_time_only_assignment=${g_ei_w_is_compile_time_only_assignment.to_string()} is_anonymous_function_definition=${g_ei_w_is_anonymous_function_definition.to_string()} comptime_unrolled_bodies=${g_ei_w_comptime_unrolled_bodies.to_string()} early_return_only_deferred_drop_expressions=${g_ei_w_early_return_only_deferred_drop_expressions.to_string()}`);
+  eprintln(`[ei-census] idx_ptr=${c_idx_ptr.to_string()} idx_mtype=${c_idx_mtype.to_string()} idx_mval=${c_idx_mval.to_string()} idx_addr=${c_idx_addr.to_string()} ct_only_assign=${c_ct_only_assign.to_string()} anon_fn=${c_anon_fn.to_string()} unrolled=${c_unrolled.to_string()} early_drop=${c_early_drop.to_string()} paths=${c_paths.to_string()}`);
+  ()
+});
+export(expr_info_census);
 // ---------------------------------------------------------------------------
 // Method-call callee-type side-table.
 //

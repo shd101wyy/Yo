@@ -35,7 +35,9 @@ open(import("std/string"));
   expr_info_case_executed,
   expr_info_closure_function_value,
   lookup_method_callee_value,
-  lookup_method_callee_type
+  lookup_method_callee_type,
+  expr_info_is_anonymous_function_definition,
+  expr_info_macro_expansion
 } :: import("../../expr_info.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue, is_unknown_val } :: import("../../value.yo");
@@ -304,7 +306,7 @@ impl(
       .Some(info) => {
         // A macro call's raw arguments are not what executes — the expansion is.
         match(
-          info.macro_expansion,
+          expr_info_macro_expansion(info),
           .Some(mx) => {
             return(_MsW.walk(mx, ctx, touched));
           },
@@ -320,7 +322,7 @@ impl(
         );
         // A function/closure DEFINITION does not run its body here.
         match(
-          info.is_anonymous_function_definition,
+          expr_info_is_anonymous_function_definition(info),
           .Some(an) => if(an, {
             return(false);
           }),

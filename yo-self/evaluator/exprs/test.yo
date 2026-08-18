@@ -28,7 +28,8 @@ open(import("std/string"));
   ExprInfo,
   new_expr_info,
   expr_info_table_set,
-  expr_info_table_get
+  expr_info_table_get,
+  expr_info_set_original_expr
 } :: import("../../expr_info.yo");
 {
   Environment,
@@ -88,7 +89,7 @@ _trial_eval_test_body :: (
     body_info_opt,
     .Some(body_info) => {
       if(is_unit_type(body_info.ty), {
-        body_info.original_expr = Option(AstExpr).Some(original_body);
+        expr_info_set_original_expr(body_info, Option(AstExpr).Some(original_body));
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(evaluated), body_info);
       });
     },
