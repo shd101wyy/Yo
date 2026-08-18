@@ -169,17 +169,18 @@ Shared libraries compile with `-shared -fPIC` and produce `.so` (Linux), `.dylib
 
 `CompilationTarget` provides symbolic names for supported target triples. Use these instead of hardcoding target strings:
 
-| Value                                   | Target Triple         | Notes                         |
-| --------------------------------------- | --------------------- | ----------------------------- |
-| `CompilationTarget.X86_64_Linux_Gnu`    | `x86_64-linux-gnu`    | Linux x86-64 (glibc)          |
-| `CompilationTarget.X86_64_Linux_Musl`   | `x86_64-linux-musl`   | Linux x86-64 (musl, native)   |
-| `CompilationTarget.Aarch64_Linux_Gnu`   | `aarch64-linux-gnu`   | Linux ARM64                   |
-| `CompilationTarget.Aarch64_Linux_Musl`  | `aarch64-linux-musl`  | Linux ARM64 (musl, native)    |
-| `CompilationTarget.Aarch64_Macos`       | `aarch64-macos`       | macOS Apple Silicon           |
-| `CompilationTarget.X86_64_Macos`        | `x86_64-macos`        | macOS Intel                   |
-| `CompilationTarget.X86_64_Windows_Msvc` | `x86_64-windows-msvc` | Windows x86-64                |
-| `CompilationTarget.Wasm32_Emscripten`   | `wasm32-emscripten`   | WebAssembly (Emscripten)      |
-| `CompilationTarget.Wasm32_Wasi`         | `wasm32-wasi`         | WebAssembly (standalone WASI) |
+| Value                                    | Target Triple          | Notes                         |
+| ---------------------------------------- | ---------------------- | ----------------------------- |
+| `CompilationTarget.X86_64_Linux_Gnu`     | `x86_64-linux-gnu`     | Linux x86-64 (glibc)          |
+| `CompilationTarget.X86_64_Linux_Musl`    | `x86_64-linux-musl`    | Linux x86-64 (musl, native)   |
+| `CompilationTarget.Aarch64_Linux_Gnu`    | `aarch64-linux-gnu`    | Linux ARM64                   |
+| `CompilationTarget.Aarch64_Linux_Musl`   | `aarch64-linux-musl`   | Linux ARM64 (musl, native)    |
+| `CompilationTarget.Aarch64_Macos`        | `aarch64-macos`        | macOS Apple Silicon           |
+| `CompilationTarget.X86_64_Macos`         | `x86_64-macos`         | macOS Intel                   |
+| `CompilationTarget.X86_64_Windows_Msvc`  | `x86_64-windows-msvc`  | Windows x86-64                |
+| `CompilationTarget.Aarch64_Windows_Msvc` | `aarch64-windows-msvc` | Windows ARM64                 |
+| `CompilationTarget.Wasm32_Emscripten`    | `wasm32-emscripten`    | WebAssembly (Emscripten)      |
+| `CompilationTarget.Wasm32_Wasi`          | `wasm32-wasi`          | WebAssembly (standalone WASI) |
 
 The host target is also available as `build.target_host`.
 
@@ -583,17 +584,18 @@ yo build --target wasm-emscripten
 
 ### Supported Targets
 
-| Target Triple         | Notes                         |
-| --------------------- | ----------------------------- |
-| `x86_64-linux-gnu`    | Linux x86-64 (glibc)          |
-| `x86_64-linux-musl`   | Linux x86-64 (musl, native)   |
-| `aarch64-linux-gnu`   | Linux ARM64                   |
-| `aarch64-linux-musl`  | Linux ARM64 (musl, native)    |
-| `aarch64-macos`       | macOS Apple Silicon           |
-| `x86_64-macos`        | macOS Intel                   |
-| `x86_64-windows-msvc` | Windows x86-64                |
-| `wasm32-emscripten`   | WebAssembly (Emscripten)      |
-| `wasm32-wasi`         | WebAssembly (standalone WASI) |
+| Target Triple          | Notes                         |
+| ---------------------- | ----------------------------- |
+| `x86_64-linux-gnu`     | Linux x86-64 (glibc)          |
+| `x86_64-linux-musl`    | Linux x86-64 (musl, native)   |
+| `aarch64-linux-gnu`    | Linux ARM64                   |
+| `aarch64-linux-musl`   | Linux ARM64 (musl, native)    |
+| `aarch64-macos`        | macOS Apple Silicon           |
+| `x86_64-macos`         | macOS Intel                   |
+| `x86_64-windows-msvc`  | Windows x86-64                |
+| `aarch64-windows-msvc` | Windows ARM64                 |
+| `wasm32-emscripten`    | WebAssembly (Emscripten)      |
+| `wasm32-wasi`          | WebAssembly (standalone WASI) |
 
 Shorthand aliases: `wasm-emscripten` → `wasm32-emscripten`, `wasm-wasi` → `wasm32-wasi`.
 

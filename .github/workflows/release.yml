@@ -601,6 +601,12 @@ jobs:
             # mimalloc. Changing the allocator and the emit route in one step
             # would make a regression impossible to attribute.
             bundle_allocator: mimalloc
+          # windows-arm64 is NEW: no arm64-Windows bundle has ever shipped, so
+          # there is no native seed for it either — cross-emit is the only
+          # route, not merely the cheaper one.
+          - target: windows-arm64
+            yo_target: aarch64-windows-msvc
+            bundle_allocator: mimalloc
     steps:
       - name: Checkout the released commit
         uses: actions/checkout@v4
@@ -713,7 +719,16 @@ jobs:
           - os: windows-latest
             target: windows-x64
             clang_target: x86_64-pc-windows-msvc
+            pe_machine: "8664"
             experimental: false
+          # experimental: this leg has never produced an artifact, so it must
+          # not be able to block a release. Promote after one green bundle, the
+          # way windows-x64 was promoted at v0.2.1.
+          - os: windows-11-arm
+            target: windows-arm64
+            clang_target: aarch64-pc-windows-msvc
+            pe_machine: "AA64"
+            experimental: true
     steps:
       # The checkout provides std + vendor/mimalloc for the bundle contents;
       # the compiler C itself arrives as an artifact from seed-cross-emit.
@@ -781,8 +796,9 @@ jobs:
           $peOffset = [BitConverter]::ToInt32($bytes, 0x3C)
           $machine = [BitConverter]::ToUInt16($bytes, $peOffset + 4)
           Write-Host ("PE machine type: 0x{0:X4}" -f $machine)
-          if ($machine -ne 0x8664) {
-            Write-Error "yo-seed.exe is not x86-64 (machine 0x$('{0:X4}' -f $machine)) — refusing to ship it as windows-x64."
+          $expected = [Convert]::ToUInt16("${{ matrix.pe_machine }}", 16)
+          if ($machine -ne $expected) {
+            Write-Error "yo-seed.exe is machine 0x$('{0:X4}' -f $machine), expected 0x${{ matrix.pe_machine }} — refusing to ship it as ${{ matrix.target }}."
             exit 1
           }
 
