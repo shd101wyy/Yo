@@ -131,7 +131,7 @@ function Install-Dependencies {
 }
 
 function Check-Dependencies {
-  if (-not (Has-Cmd 'clang') -and -not (Has-Cmd 'gcc') -and -not (Has-Cmd 'cl')) {
+  if (-not (Has-Cmd 'clang') -and -not (Has-Cmd 'gcc')) {
     Warn @'
 No C compiler found on PATH. Yo compiles to C, so 'yo compile' will fail.
 Install LLVM (winget install LLVM.LLVM) and reopen your terminal.

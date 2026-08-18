@@ -666,7 +666,7 @@ Options:
   --build-file <path>    Path to build file (default: ./build.yo)
   --target <triple>      Override target for all artifacts
   --sysroot <path>       Sysroot directory for cross-compilation
-  --cc <compiler>        C compiler: clang, gcc, zig, cc, cl
+  --cc <compiler>        C compiler: clang, gcc, zig, cc, emcc
   --verbose, -v          Verbose build output
   --dry-run              Show what would be built
   --list-steps           List available build steps
