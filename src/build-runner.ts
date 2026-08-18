@@ -994,7 +994,7 @@ async function compileArtifact(
     defines: artifact.defines,
     release,
     optimize,
-    allocator: artifact.allocator as "mimalloc" | "libc",
+    allocator: artifact.allocator as "mimalloc" | "system" | "libc",
     // "" means "not set" on the Yo side (comptime_str has no None), so an
     // empty string must fall through to the default sidecar rather than
     // redirecting the C file to a path of "".
@@ -1874,7 +1874,7 @@ async function compileDependencyArtifact(
     defines: artifact.defines,
     release,
     optimize,
-    allocator: artifact.allocator as "mimalloc" | "libc",
+    allocator: artifact.allocator as "mimalloc" | "system" | "libc",
     // As above, but dependency artifacts are rooted at depDir.
     emitCTo: artifact.emitCTo
       ? path.resolve(depDir, artifact.emitCTo)
