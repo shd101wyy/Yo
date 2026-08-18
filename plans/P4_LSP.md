@@ -3,6 +3,12 @@
 **Status: SCOPED 2026-08-12, not started.** Measured sizing, two feasibility
 spikes (one green, one red), and the slice order. Nothing is ported yet.
 
+**Interim decision landed 2026-08-18 (P2.5 B2, user-decided):** the extension
+went syntax-only — LSP client wiring, `src/`, `build.js`, and the
+`vscode-languageclient` dependency removed; purely declarative (grammar +
+language config), `vsce package` with no build step. P4's re-entry point is
+restoring a client here against the Yo-native server this plan scopes.
+
 This also settles one of P2.5's four open questions — _"keep `src/lsp` as an
 island, or ship a syntax-only extension"_. Neither: the LSP gets rewritten in
 Yo, so `src/` can go without losing language features. Until then, deleting
