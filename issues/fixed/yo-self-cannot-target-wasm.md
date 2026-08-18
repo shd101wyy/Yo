@@ -1,7 +1,13 @@
 # yo-self cannot target wasm — `src/` retirement would silently drop two targets
 
-**Status: PORT DONE, NOT YET PROVEN.** Found 2026-08-15 while executing P2.5
-step 22; option 1 (port) chosen and implemented the same day.
+**Status: CLOSED 2026-08-18 — PORTED AND PROVEN.** Found 2026-08-15 while
+executing P2.5 step 22; option 1 (port) chosen (re-confirmed by user decision
+2026-08-18, P2.5 blocker B6) and implemented the same day. Both wasm CI legs
+now drive the stage-1 SELF-HOSTED binary (`$S1 build run` +
+`$S1 test … --c-compiler emcc`), are REQUIRED checks, and are green on every
+develop run — including the run that gated the v0.2.9 release. The
+"NOT YET PROVEN" caveat below is retained for the record; it was discharged
+by the leg conversion described in this file.
 
 ## What landed (2026-08-15)
 
