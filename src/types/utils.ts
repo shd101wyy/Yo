@@ -1946,6 +1946,36 @@ export function bufferElementType(fieldType: Type): Type | undefined {
   return undefined;
 }
 
+/**
+ * Whether a reference-semantics type uses the SMALL RC header
+ * (`__yo_ref_header_small_t`, 16 B: the packed count word + `dispose_fn`)
+ * instead of the full 56 B header. Eligible: cycle-INCAPABLE, non-atomic
+ * types in a cycle-GC program — exactly the types whose constructors never
+ * call `__yo_gc_register`. Every GC visitor early-returns on
+ * `!(gc_flags & __YO_GC_TRACKED)`, so an untracked object's `traverse_fn`
+ * and GC list pointers are never read; the small header drops them (40 B on
+ * 88.8M of 120M live objects in a self-emit — the measured −3.31 GB of
+ * plans/backlog/RC_HEADER_SPLIT.md). The small header is a strict PREFIX of
+ * the big one (the big header puts dispose_fn immediately after the packed
+ * word), so `__yo_incr_rc`/`__yo_decr_rc`/borrow checks are layout-agnostic.
+ * Atomic-RC types keep the big header in phase 1 (their ctors skip the
+ * gc_flags init, so nothing may ever read past their packed word — but the
+ * atomic paths were not audited for prefix-safety; they are rare).
+ * In a no-cycle-GC program the header is already the 8 B type_id form.
+ */
+export function typeUsesSmallRcHeader(
+  type: Type,
+  needsCycleGC: boolean,
+  env: Environment
+): boolean {
+  if (!needsCycleGC) return false;
+  const isRefStruct = isReferenceStructType(type);
+  const isRefEnumRoot = isEnumType(type) && type.isReferenceSemantics;
+  if (!isRefStruct && !isRefEnumRoot) return false;
+  if ((type as StructType | EnumType).isAtomicRc) return false;
+  return !canTypeFormRcCycle(type, new Set(), env);
+}
+
 export function canTypeFormRcCycle(
   type: Type,
   visitedTypes: Set<string>,
