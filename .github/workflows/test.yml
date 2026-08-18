@@ -969,6 +969,17 @@ jobs:
     timeout-minutes: 60
 
     steps:
+      # Same provisioning as every other self-building job: the v0.2.9 seed's
+      # stage-1 build does not fit a swapless 16 GB runner (the v0.2.7 seed was
+      # borderline; the SEED_VERSION bump tipped both this job and tsan into
+      # runner-VM death — "runner has received a shutdown signal").
+      - name: Add swap space
+        run: |
+          sudo fallocate -l 32G /mnt/swapfile
+          sudo chmod 600 /mnt/swapfile
+          sudo mkswap /mnt/swapfile
+          sudo swapon /mnt/swapfile
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
@@ -1068,6 +1079,17 @@ jobs:
     # original comment set for removing the flag.
 
     steps:
+      # Same provisioning as every other self-building job: the v0.2.9 seed's
+      # stage-1 build does not fit a swapless 16 GB runner (the v0.2.7 seed was
+      # borderline; the SEED_VERSION bump tipped both this job and tsan into
+      # runner-VM death — "runner has received a shutdown signal").
+      - name: Add swap space
+        run: |
+          sudo fallocate -l 32G /mnt/swapfile
+          sudo chmod 600 /mnt/swapfile
+          sudo mkswap /mnt/swapfile
+          sudo swapon /mnt/swapfile
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
