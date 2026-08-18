@@ -12,6 +12,13 @@ on:
   # alone still run nothing (the push trigger stays develop-only); a PR's
   # synchronize event covers its branch pushes.
   pull_request:
+  # Merge queue. EVERY workflow that provides a REQUIRED status check must
+  # trigger on `merge_group`, or the queue waits forever on checks that never
+  # run — all 14 required contexts come from this file, so this line is the
+  # whole requirement. It is inert until the queue is enabled on the ruleset,
+  # which is why it lands first: enabling the queue against a workflow that
+  # cannot see `merge_group` hangs every queued PR.
+  merge_group:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
