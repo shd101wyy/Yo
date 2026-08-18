@@ -257,10 +257,19 @@ jobs:
           prerelease: false
           files: ${{ steps.create_vsix.outputs.vsixPath }}
 
+      # Yo-native as of P2.5 B7 (user decision 2026-08-18): the site builder
+      # is scripts/build_site.yo, compiled and run by the SEED compiler — no
+      # bun/node in this step. Verified byte-identical to the TS original
+      # (160 files, homepage md5 equal) before the swap.
+      - name: Install the seed compiler (for the site build)
+        uses: ./.github/actions/install-seed
+        with:
+          version: ${{ env.SEED_VERSION }}
+
       - name: Generate documentation website
         run: |
-          bun run build
-          bun run scripts/build-site.ts --output yo-out/site --version "v${{ steps.version.outputs.version }}"
+          yo compile scripts/build_site.yo --release -o /tmp/build-site
+          /tmp/build-site --output yo-out/site --version "v${{ steps.version.outputs.version }}" --yo yo
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
