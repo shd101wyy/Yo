@@ -77,7 +77,7 @@ export function checkCompilerAvailable(compiler: string): boolean {
  * @returns
  */
 export function findAvailableCompiler(): string | null {
-  const compilers = ["clang", "cc", "gcc", "zig", "cl"];
+  const compilers = ["clang", "cc", "gcc", "zig"];
   for (const compiler of compilers) {
     if (checkCompilerAvailable(compiler)) {
       return compiler;

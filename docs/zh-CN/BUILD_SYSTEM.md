@@ -664,7 +664,7 @@ Options:
   --build-file <path>    构建文件路径（默认：./build.yo）
   --target <triple>      为所有产物覆盖目标
   --sysroot <path>       交叉编译的 sysroot 目录
-  --cc <compiler>        C 编译器：clang, gcc, zig, cc, cl
+  --cc <compiler>        C 编译器：clang, gcc, zig, cc, emcc
   --verbose, -v          详细构建输出
   --dry-run              显示将要构建的内容
   --list-steps           列出可用的构建步骤

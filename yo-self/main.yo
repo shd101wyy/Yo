@@ -747,7 +747,6 @@ _find_available_compiler :: (fn(io : Io) -> Option(String))({
   candidates.push(String.from("cc"));
   candidates.push(String.from("gcc"));
   candidates.push(String.from("zig"));
-  candidates.push(String.from("cl"));
   (fci : usize) = usize(0);
   while(fci < candidates.len(), {
     c := match(candidates.get(fci), .Some(x) => x, .None => String.from(""));
@@ -1183,8 +1182,8 @@ run_compile :: (
     );
   });
   // ----- choices validation (yargs `choices:` parity, src/yo-cli.ts) -------
-  if(((cc != "") && (((cc != "cc") && (cc != "gcc")) && ((cc != "clang") && (cc != "zig")))) && ((cc != "cl") && (cc != "emcc")), {
-    exn.throw(dyn(`compile: invalid --c-compiler "${cc}". Choices: cc, gcc, clang, zig, cl, emcc`));
+  if(((cc != "") && (((cc != "cc") && (cc != "gcc")) && ((cc != "clang") && (cc != "zig")))) && (cc != "emcc"), {
+    exn.throw(dyn(`compile: invalid --c-compiler "${cc}". Choices: cc, gcc, clang, zig, emcc`));
   });
   if(((allocator != "mimalloc") && (allocator != "system")) && (allocator != "libc"), {
     exn.throw(dyn(`compile: invalid --allocator "${allocator}". Choices: mimalloc, system (deprecated alias: libc)`));
@@ -1218,7 +1217,7 @@ run_compile :: (
         cc = found_cc;
       },
       .None => {
-        exn.throw(dyn(String.from("Error: No C compiler found. Please install a C compiler (cc, gcc, clang, zig, or cl) or specify one using the -cc/--c-compiler flag.")));
+        exn.throw(dyn(String.from("Error: No C compiler found. Please install a C compiler (cc, gcc, clang, or zig) or specify one using the -cc/--c-compiler flag.")));
       }
     );
   });
@@ -2079,7 +2078,7 @@ run_test :: (
         // and never sets `--c-compiler`, so `test_cc` is "" and this gate used
         // to hand `-fsanitize=address` to emcc. TS never does, because it
         // resolves the cc first and reads `isEmcc` off the RESULT.
-        if((!(no_sanitize)) && (((test_cc != "cl") && (test_cc != "emcc")) && !(run_is_wasi)), {
+        if((!(no_sanitize)) && ((test_cc != "emcc") && !(run_is_wasi)), {
           ccmd.arg(String.from("--sanitize"));
           ccmd.arg(san_choice.clone());
         });
@@ -2097,7 +2096,7 @@ run_test :: (
         // Same `run_is_wasi` correction as the --sanitize gate above: without
         // it the WASI leg built an lsan suppression file and applied a
         // LeakSanitizer verdict to an emcc artifact that carries no ASan.
-        use_asan := ((!(no_sanitize)) && ((san_choice == "address") && (((test_cc != "cl") && (test_cc != "emcc")) && !(run_is_wasi))));
+        use_asan := ((!(no_sanitize)) && ((san_choice == "address") && ((test_cc != "emcc") && !(run_is_wasi))));
         // YO_TEST_LEAK_VERDICT=0 stages leak checking off entirely: LSan's
         // OWN nonzero exit fails a leaking child regardless of the runner's
         // verdict, so `detect_leaks` itself must follow the flag — ASan's
