@@ -339,7 +339,7 @@ export(main);
 The `Yo` compiler is written in [TypeScript](https://www.typescriptlang.org/) and uses [Bun](https://bun.sh/) as the runtime.
 
 Yo is primarily developed on the Steam Deck LCD (Linux). The compiler currently transpiles Yo to C; to produce
-machine code you must have a C compiler (for example `gcc`, `clang`, `zig`, `cl`, `emcc`, etc).
+machine code you must have a C compiler (for example `gcc`, `clang`, `zig`, `emcc`, etc).
 
 Please install [nix](https://nixos.org/download.html) and [direnv](https://direnv.net/) before proceeding.
 
