@@ -35,7 +35,12 @@ export(Optimize);
 Allocator :: enum(
   /// High-performance allocator (mimalloc).
   Mimalloc,
-  /// Standard C library malloc.
+  /// The platform's system allocator (macOS malloc zones, Windows CRT heap,
+  /// glibc/musl malloc on Linux).
+  System,
+  /// Deprecated alias of `System`, TO BE REMOVED once the migration window
+  /// closes (first release with the rename ships + SEED_VERSION moves past
+  /// it). The system allocator is not libc's on macOS or Windows.
   Libc
 );
 export(Allocator);
@@ -84,7 +89,7 @@ Executable :: struct(
   /// Optimization level.
   (optimize : Optimize) ?= Optimize.Debug,
   /// Memory allocator.
-  (allocator : Allocator) ?= Allocator.Libc,
+  (allocator : Allocator) ?= Allocator.System,
   /// Runtime sanitizer.
   (sanitize : Sanitize) ?= Sanitize.None,
   /// Write the single generated C file to this path instead of the default
@@ -285,7 +290,8 @@ executable :: (fn(comptime(config) : Executable) -> comptime(Step))({
   alloc_str :: match(
     config.allocator,
     .Mimalloc => "mimalloc",
-    .Libc => "libc"
+    .System => "system",
+    .Libc => "system"
   );
   san_str :: match(
     config.sanitize,

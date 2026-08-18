@@ -147,7 +147,7 @@ export class CodeGenerator {
       /**
        * Memory allocator to use: 'mimalloc' (default) or 'libc'.
        */
-      allocator?: "mimalloc" | "libc";
+      allocator?: "mimalloc" | "system" | "libc";
       /**
        * Enable sanitizer for memory error detection.
        * 'address' - Full AddressSanitizer (memory errors + leaks)
@@ -196,14 +196,19 @@ export class CodeGenerator {
 
     const isLibrary = !!(options.staticLibrary || options.shared);
     const isWasm = isTargetWasm(targetInfo);
-    const requestedAllocator = options.allocator ?? "libc";
+    // "libc" is a deprecated alias of "system" (the platform allocator is
+    // not libc on macOS or Windows); anything non-mimalloc resolves to system.
+    // The alias is REMOVED once the migration window closes (rename release
+    // ships + SEED_VERSION moves past it) — workflows drive SEED binaries
+    // that predate the rename until then.
+    const requestedAllocator = options.allocator ?? "system";
     // mimalloc isn't available on WASM (no malloc implementation
     // strategy that fits the WASM target). On every other target —
     // including Windows now that the bundled submodule has been
     // updated past the prior crash — mimalloc is used when
     // requested.
     const effectiveAllocator =
-      requestedAllocator === "mimalloc" && !isWasm ? "mimalloc" : "libc";
+      requestedAllocator === "mimalloc" && !isWasm ? "mimalloc" : "system";
 
     if (!options.skipCodegen) {
       this.moduleManager.compileModule(modulePath, {
@@ -569,7 +574,7 @@ export class CodeGenerator {
             );
           }
         } else {
-          console.log("Using libc allocator");
+          console.log("Using system allocator");
         }
 
         // Add liburing on Linux for async I/O. Since only native targets are

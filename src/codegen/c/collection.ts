@@ -135,7 +135,7 @@ export function emitCIncludes(context: CodeGenContext): void {
     }
     context.emitter.emitHeaderLine(`#endif`);
   } else {
-    context.emitter.emitHeaderLine(`// Using libc allocator`);
+    context.emitter.emitHeaderLine(`// Using system allocator`);
     context.emitter.emitHeaderLine(`#define __yo_malloc malloc`);
     context.emitter.emitHeaderLine(`#define __yo_calloc calloc`);
     context.emitter.emitHeaderLine(`#define __yo_realloc realloc`);

@@ -96,46 +96,46 @@ Build artifacts use struct types with default field values (like Zig's options p
 
 ### `BuildModule`
 
-| Field  | Type              | Default      | Description                                  |
-| ------ | ----------------- | ------------ | -------------------------------------------- |
+| Field  | Type           | Default      | Description                                  |
+| ------ | -------------- | ------------ | -------------------------------------------- |
 | `name` | `comptime_str` | _(required)_ | Module name (importable as `"name"`)         |
 | `root` | `comptime_str` | _(required)_ | Path to root source file (e.g. `src/lib.yo`) |
 
 ### `Executable`
 
-| Field       | Type              | Default              | Description                                |
-| ----------- | ----------------- | -------------------- | ------------------------------------------ |
-| `name`      | `comptime_str` | _(required)_         | Artifact name                              |
-| `root`      | `comptime_str` | _(required)_         | Path to main source file                   |
-| `target`    | `comptime_str` | `target_host`        | Target triple (e.g. `"wasm32-emscripten"`) |
-| `optimize`  | `Optimize`        | `Optimize.Debug`     | Optimization level                         |
-| `allocator` | `Allocator`       | `Allocator.Mimalloc` | Memory allocator                           |
-| `sanitize`  | `Sanitize`        | `Sanitize.None`      | Sanitizer                                  |
+| Field       | Type           | Default            | Description                                |
+| ----------- | -------------- | ------------------ | ------------------------------------------ |
+| `name`      | `comptime_str` | _(required)_       | Artifact name                              |
+| `root`      | `comptime_str` | _(required)_       | Path to main source file                   |
+| `target`    | `comptime_str` | `target_host`      | Target triple (e.g. `"wasm32-emscripten"`) |
+| `optimize`  | `Optimize`     | `Optimize.Debug`   | Optimization level                         |
+| `allocator` | `Allocator`    | `Allocator.System` | Memory allocator                           |
+| `sanitize`  | `Sanitize`     | `Sanitize.None`    | Sanitizer                                  |
 
 ### `StaticLibrary`
 
-| Field      | Type              | Default          | Description                 |
-| ---------- | ----------------- | ---------------- | --------------------------- |
+| Field      | Type           | Default          | Description                 |
+| ---------- | -------------- | ---------------- | --------------------------- |
 | `name`     | `comptime_str` | _(required)_     | Artifact name               |
 | `root`     | `comptime_str` | _(required)_     | Path to library source file |
 | `target`   | `comptime_str` | `target_host`    | Target triple               |
-| `optimize` | `Optimize`        | `Optimize.Debug` | Optimization level          |
+| `optimize` | `Optimize`     | `Optimize.Debug` | Optimization level          |
 
 ### `SharedLibrary`
 
-| Field      | Type              | Default          | Description                 |
-| ---------- | ----------------- | ---------------- | --------------------------- |
+| Field      | Type           | Default          | Description                 |
+| ---------- | -------------- | ---------------- | --------------------------- |
 | `name`     | `comptime_str` | _(required)_     | Artifact name               |
 | `root`     | `comptime_str` | _(required)_     | Path to library source file |
 | `target`   | `comptime_str` | `target_host`    | Target triple               |
-| `optimize` | `Optimize`        | `Optimize.Debug` | Optimization level          |
+| `optimize` | `Optimize`     | `Optimize.Debug` | Optimization level          |
 
 Shared libraries compile with `-shared -fPIC` and produce `.so` (Linux), `.dylib` (macOS), or `.dll` (Windows).
 
 ### `TestSuite`
 
-| Field    | Type              | Default       | Description                    |
-| -------- | ----------------- | ------------- | ------------------------------ |
+| Field    | Type           | Default       | Description                    |
+| -------- | -------------- | ------------- | ------------------------------ |
 | `name`   | `comptime_str` | _(required)_  | Test suite name                |
 | `root`   | `comptime_str` | _(required)_  | Path to test file or directory |
 | `target` | `comptime_str` | `target_host` | Target triple                  |
@@ -151,10 +151,11 @@ Shared libraries compile with `-shared -fPIC` and produce `.so` (Linux), `.dylib
 
 ### Allocators
 
-| Value                | Description                          |
-| -------------------- | ------------------------------------ |
-| `Allocator.Mimalloc` | High-performance allocator (default) |
-| `Allocator.Libc`     | Standard libc malloc                 |
+| Value                | Description                               |
+| -------------------- | ----------------------------------------- |
+| `Allocator.Mimalloc` | High-performance allocator (mimalloc)     |
+| `Allocator.System`   | The platform's system allocator (default) |
+| `Allocator.Libc`     | Deprecated alias of `Allocator.System`    |
 
 ### Sanitizers
 
@@ -225,10 +226,10 @@ Level 2: install                (depends on app, tests)
 
 ### `Step`
 
-| Field  | Type              | Description                                                                                              |
-| ------ | ----------------- | -------------------------------------------------------------------------------------------------------- |
+| Field  | Type           | Description                                                                                              |
+| ------ | -------------- | -------------------------------------------------------------------------------------------------------- |
 | `name` | `comptime_str` | Step name (artifact name, or custom name for `build.step`)                                               |
-| `kind` | `StepKind`        | Step kind: `Executable`, `StaticLibrary`, `SharedLibrary`, `SystemLibrary`, `TestSuite`, `Run`, `Custom` |
+| `kind` | `StepKind`     | Step kind: `Executable`, `StaticLibrary`, `SharedLibrary`, `SystemLibrary`, `TestSuite`, `Run`, `Custom` |
 
 ### Step Methods
 
@@ -320,8 +321,8 @@ Returned by `build.module()`. Has one method:
 
 ### `ModuleConfig`
 
-| Field  | Type              | Default      | Description           |
-| ------ | ----------------- | ------------ | --------------------- |
+| Field  | Type           | Default      | Description           |
+| ------ | -------------- | ------------ | --------------------- |
 | `name` | `comptime_str` | _(required)_ | Module name           |
 | `root` | `comptime_str` | _(required)_ | Root source file path |
 
@@ -366,10 +367,10 @@ exe.add_import_list(import_list);
 
 ### `ImportEntry`
 
-| Field    | Type              | Description                            |
-| -------- | ----------------- | -------------------------------------- |
+| Field    | Type           | Description                            |
+| -------- | -------------- | -------------------------------------- |
 | `name`   | `comptime_str` | Import name (used in `import "name"`)  |
-| `module` | `BuildModule`     | Module to import (from `dep.module()`) |
+| `module` | `BuildModule`  | Module to import (from `dep.module()`) |
 
 ### How It Works
 
@@ -533,8 +534,8 @@ Run `yo build --help` to see all available project-specific options alongside st
 
 ### `BuildOption`
 
-| Field         | Type              | Default      | Description              |
-| ------------- | ----------------- | ------------ | ------------------------ |
+| Field         | Type           | Default      | Description              |
+| ------------- | -------------- | ------------ | ------------------------ |
 | `name`        | `comptime_str` | _(required)_ | Option name              |
 | `description` | `comptime_str` | _(required)_ | Help text                |
 | `default`     | `comptime_str` | `""`         | Default value if not set |
@@ -715,7 +716,7 @@ wasm :: build.executable({
   root: "./src/main.yo",
   target: build.CompilationTarget.Wasm32_Emscripten,
   optimize: build.Optimize.ReleaseSmall,
-  allocator: build.Allocator.Libc
+  allocator: build.Allocator.System
 });
 
 // Per-artifact C flags — useful for Emscripten-specific linker settings
