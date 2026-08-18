@@ -73,12 +73,13 @@ jobs:
         run: npm install -g @vscode/vsce
 
       # npm-only by contract: package-lock.json is committed and there is no
-      # bun.lock here (AGENTS.md's toolchain rule).
-      - name: Build and package the extension
+      # bun.lock here (AGENTS.md's toolchain rule). Syntax-only as of P2.5
+      # blocker B2 (user decision 2026-08-18): no build step — the extension
+      # is declarative (grammar + language config); the LSP returns in P4.
+      - name: Package the extension
         run: |
           cd vscode-extension
           npm ci
-          npm run build
           npm run package
 
       - name: Publish extension to Visual Studio Marketplace
