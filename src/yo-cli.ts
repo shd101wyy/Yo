@@ -305,7 +305,7 @@ yo --version                     Show version number
               "C Compiler to use: 'cc', 'gcc', 'clang', 'zig', 'cl' (MSVC), or 'emcc' (Emscripten/WASM)",
             type: "string",
             demandOption: false,
-            choices: ["cc", "gcc", "clang", "zig", "cl", "emcc"],
+            choices: ["cc", "gcc", "clang", "zig", "emcc"],
           })
           .option("t", {
             alias: "target",
@@ -715,7 +715,7 @@ yo --version                     Show version number
             describe:
               "C Compiler to use: 'cc', 'gcc', 'clang', 'zig', 'cl' (MSVC), or 'emcc' (Emscripten/WASM)",
             type: "string",
-            choices: ["cc", "gcc", "clang", "zig", "cl", "emcc"],
+            choices: ["cc", "gcc", "clang", "zig", "emcc"],
           })
           .option("target", {
             describe:
@@ -959,7 +959,7 @@ yo --version                     Show version number
             describe:
               "C Compiler to use: 'cc', 'gcc', 'clang', 'zig', 'cl' (MSVC), or 'emcc' (Emscripten/WASM)",
             type: "string",
-            choices: ["cc", "gcc", "clang", "zig", "cl", "emcc"],
+            choices: ["cc", "gcc", "clang", "zig", "emcc"],
           })
           .option("t", {
             alias: "target",

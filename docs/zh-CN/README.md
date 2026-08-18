@@ -336,7 +336,7 @@ export(main);
 
 `Yo` 编译器用 [TypeScript](https://www.typescriptlang.org/) 编写，使用 [Bun](https://bun.sh/) 作为运行时。
 
-Yo 主要在 Steam Deck LCD（Linux）上开发。编译器目前将 Yo 转换为 C；要生成机器码，你必须有一个 C 编译器（例如 `gcc`、`clang`、`zig`、`cl`、`emcc` 等）。
+Yo 主要在 Steam Deck LCD（Linux）上开发。编译器目前将 Yo 转换为 C；要生成机器码，你必须有一个 C 编译器（例如 `gcc`、`clang`、`zig`、`emcc` 等）。
 
 请继续之前安装 [nix](https://nixos.org/download.html) 和 [direnv](https://direnv.net/)。
 

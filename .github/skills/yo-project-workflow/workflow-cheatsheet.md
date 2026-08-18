@@ -162,7 +162,7 @@ yo compile main.yo --cc emcc --release -o app
 yo test ./tests/main.test.yo --target wasm-wasi
 ```
 
-- Common C compilers: `clang`, `gcc`, `zig`, `cl`, `emcc`
+- Common C compilers: `clang`, `gcc`, `zig`, `emcc`
 - `--cc emcc` targets Emscripten-based WebAssembly
 - `--target wasm-wasi` targets standalone WASI
 - Prefer the host target for routine development unless the task is explicitly cross-platform
