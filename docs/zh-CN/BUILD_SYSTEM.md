@@ -96,46 +96,46 @@ test_step.depend_on(tests);
 
 ### `BuildModule`
 
-| 字段   | 类型              | 默认值     | 描述                             |
-| ------ | ----------------- | ---------- | -------------------------------- |
+| 字段   | 类型           | 默认值     | 描述                             |
+| ------ | -------------- | ---------- | -------------------------------- |
 | `name` | `comptime_str` | _（必填）_ | 模块名称（可通过 `"name"` 导入） |
 | `root` | `comptime_str` | _（必填）_ | 根源文件路径（如 `src/lib.yo`）  |
 
 ### `Executable`
 
-| 字段        | 类型              | 默认值               | 描述                                   |
-| ----------- | ----------------- | -------------------- | -------------------------------------- |
-| `name`      | `comptime_str` | _（必填）_           | 产物名称                               |
-| `root`      | `comptime_str` | _（必填）_           | 主源文件路径                           |
-| `target`    | `comptime_str` | `target_host`        | 目标三元组（如 `"wasm32-emscripten"`） |
-| `optimize`  | `Optimize`        | `Optimize.Debug`     | 优化级别                               |
-| `allocator` | `Allocator`       | `Allocator.Mimalloc` | 内存分配器                             |
-| `sanitize`  | `Sanitize`        | `Sanitize.None`      | 检测器                                 |
+| 字段        | 类型           | 默认值             | 描述                                   |
+| ----------- | -------------- | ------------------ | -------------------------------------- |
+| `name`      | `comptime_str` | _（必填）_         | 产物名称                               |
+| `root`      | `comptime_str` | _（必填）_         | 主源文件路径                           |
+| `target`    | `comptime_str` | `target_host`      | 目标三元组（如 `"wasm32-emscripten"`） |
+| `optimize`  | `Optimize`     | `Optimize.Debug`   | 优化级别                               |
+| `allocator` | `Allocator`    | `Allocator.System` | 内存分配器                             |
+| `sanitize`  | `Sanitize`     | `Sanitize.None`    | 检测器                                 |
 
 ### `StaticLibrary`
 
-| 字段       | 类型              | 默认值           | 描述         |
-| ---------- | ----------------- | ---------------- | ------------ |
+| 字段       | 类型           | 默认值           | 描述         |
+| ---------- | -------------- | ---------------- | ------------ |
 | `name`     | `comptime_str` | _（必填）_       | 产物名称     |
 | `root`     | `comptime_str` | _（必填）_       | 库源文件路径 |
 | `target`   | `comptime_str` | `target_host`    | 目标三元组   |
-| `optimize` | `Optimize`        | `Optimize.Debug` | 优化级别     |
+| `optimize` | `Optimize`     | `Optimize.Debug` | 优化级别     |
 
 ### `SharedLibrary`
 
-| 字段       | 类型              | 默认值           | 描述         |
-| ---------- | ----------------- | ---------------- | ------------ |
+| 字段       | 类型           | 默认值           | 描述         |
+| ---------- | -------------- | ---------------- | ------------ |
 | `name`     | `comptime_str` | _（必填）_       | 产物名称     |
 | `root`     | `comptime_str` | _（必填）_       | 库源文件路径 |
 | `target`   | `comptime_str` | `target_host`    | 目标三元组   |
-| `optimize` | `Optimize`        | `Optimize.Debug` | 优化级别     |
+| `optimize` | `Optimize`     | `Optimize.Debug` | 优化级别     |
 
 共享库使用 `-shared -fPIC` 编译，生成 `.so`（Linux）、`.dylib`（macOS）或 `.dll`（Windows）。
 
 ### `TestSuite`
 
-| 字段     | 类型              | 默认值        | 描述               |
-| -------- | ----------------- | ------------- | ------------------ |
+| 字段     | 类型           | 默认值        | 描述               |
+| -------- | -------------- | ------------- | ------------------ |
 | `name`   | `comptime_str` | _（必填）_    | 测试套件名称       |
 | `root`   | `comptime_str` | _（必填）_    | 测试文件或目录路径 |
 | `target` | `comptime_str` | `target_host` | 目标三元组         |
@@ -151,10 +151,11 @@ test_step.depend_on(tests);
 
 ### 分配器
 
-| 值                   | 描述                 |
-| -------------------- | -------------------- |
-| `Allocator.Mimalloc` | 高性能分配器（默认） |
-| `Allocator.Libc`     | 标准 libc malloc     |
+| 值                   | 描述                          |
+| -------------------- | ----------------------------- |
+| `Allocator.Mimalloc` | 高性能分配器（mimalloc）      |
+| `Allocator.System`   | 平台系统分配器（默认）        |
+| `Allocator.Libc`     | `Allocator.System` 的废弃别名 |
 
 ### 检测器
 
@@ -225,10 +226,10 @@ Level 2: install                （依赖 app, tests）
 
 ### `Step`
 
-| 字段   | 类型              | 描述                                                                                                    |
-| ------ | ----------------- | ------------------------------------------------------------------------------------------------------- |
+| 字段   | 类型           | 描述                                                                                                    |
+| ------ | -------------- | ------------------------------------------------------------------------------------------------------- |
 | `name` | `comptime_str` | 步骤名称（产物名称，或 `build.step` 的自定义名称）                                                      |
-| `kind` | `StepKind`        | 步骤类型：`Executable`、`StaticLibrary`、`SharedLibrary`、`SystemLibrary`、`TestSuite`、`Run`、`Custom` |
+| `kind` | `StepKind`     | 步骤类型：`Executable`、`StaticLibrary`、`SharedLibrary`、`SystemLibrary`、`TestSuite`、`Run`、`Custom` |
 
 ### Step 方法
 
@@ -320,8 +321,8 @@ install.depend_on(exe);
 
 ### `ModuleConfig`
 
-| 字段   | 类型              | 默认值     | 描述         |
-| ------ | ----------------- | ---------- | ------------ |
+| 字段   | 类型           | 默认值     | 描述         |
+| ------ | -------------- | ---------- | ------------ |
 | `name` | `comptime_str` | _（必填）_ | 模块名称     |
 | `root` | `comptime_str` | _（必填）_ | 根源文件路径 |
 
@@ -366,10 +367,10 @@ exe.add_import_list(import_list);
 
 ### `ImportEntry`
 
-| 字段     | 类型              | 描述                                |
-| -------- | ----------------- | ----------------------------------- |
+| 字段     | 类型           | 描述                                |
+| -------- | -------------- | ----------------------------------- |
 | `name`   | `comptime_str` | 导入名称（用于 `import "name"`）    |
-| `module` | `BuildModule`     | 要导入的模块（来自 `dep.module()`） |
+| `module` | `BuildModule`  | 要导入的模块（来自 `dep.module()`） |
 
 ### 工作原理
 
@@ -533,8 +534,8 @@ yo build -Dstrip       # 等同于 -Dstrip=true
 
 ### `BuildOption`
 
-| 字段          | 类型              | 默认值     | 描述             |
-| ------------- | ----------------- | ---------- | ---------------- |
+| 字段          | 类型           | 默认值     | 描述             |
+| ------------- | -------------- | ---------- | ---------------- |
 | `name`        | `comptime_str` | _（必填）_ | 选项名称         |
 | `description` | `comptime_str` | _（必填）_ | 帮助文本         |
 | `default`     | `comptime_str` | `""`       | 未设置时的默认值 |
@@ -713,7 +714,7 @@ wasm :: build.executable({
   root: "./src/main.yo",
   target: build.CompilationTarget.Wasm32_Emscripten,
   optimize: build.Optimize.ReleaseSmall,
-  allocator: build.Allocator.Libc
+  allocator: build.Allocator.System
 });
 
 // 每个产物的 C 标志——适用于 Emscripten 特定的链接器设置

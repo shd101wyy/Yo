@@ -472,7 +472,7 @@ export class ModuleManager {
       debugGc?: boolean;
       debugParallelism?: boolean;
       debugAsyncAwait?: boolean;
-      allocator?: "mimalloc" | "libc";
+      allocator?: "mimalloc" | "system" | "libc";
       isLibrary?: boolean;
     } = {}
   ) {

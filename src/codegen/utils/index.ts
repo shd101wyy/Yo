@@ -205,9 +205,10 @@ export interface CodeGenContext {
   targetInfo: TargetInfo;
 
   /**
-   * Memory allocator to use: 'mimalloc' (default) or 'libc'
+   * Memory allocator, already resolved: 'mimalloc' or 'system'
+   * (the CLI's deprecated 'libc' alias collapses to 'system' upstream)
    */
-  allocator: "mimalloc" | "libc";
+  allocator: "mimalloc" | "system";
 
   /**
    * Track dyn() usage for generating box types, wrappers, and vtables
