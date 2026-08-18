@@ -328,23 +328,20 @@ jobs:
             target: linux-arm64
             experimental: false
             seed_built: true
-          # The two macOS legs moved to `seed-bundles-macos` (cross-emitted —
+          # The two macOS legs moved to `seed-bundles-cross` (cross-emitted —
           # P2.5 step-24 option A): the seed's self-emit needs ~12.2 GB and
           # the free macOS runners have 7 GB, so their C is emitted by the
           # previous seed ON LINUX and only clang-compiled + smoke-tested
           # natively here. See the seed-cross-emit job.
-          # windows-x64 PROMOTED (v0.2.1 proved it E2E: bundle built, smoked,
-          # shipped). History: the v0.2.0 leg surfaced the
-          # anticipated porting tail (POSIX-isms in the compiler's own
-          # closure — see issues/fixed/windows-native-selfhosted-build-fails.md);
-          # the windows CI job now builds the native compiler non-gating to
-          # catch regressions ahead of release time.
-          # windows flipped to seed-built one release after Linux proved the
-          # chain (v0.2.8): 16 GB runners hold the ~12.2 GB self-emit.
-          - os: windows-latest
-            target: windows-x64
-            experimental: false
-            seed_built: true
+          # windows-x64 ALSO moved to the cross-emit job, for a MEMORY reason
+          # rather than the macOS 7 GB one. A seed-built native leg runs THREE
+          # self-compile phases (candidate build, stage-2 re-emit gate,
+          # portable-c arm) at ~12.2 GB each, and the 32 GB swapfile that makes
+          # that survivable is `if: runner.os == 'Linux'` — `fallocate`/`mkswap`
+          # do not exist on a Windows runner. This file already records that a
+          # swapless 16 GB runner dies of it ("runner has received a shutdown
+          # signal"). Cross-emitting keeps the heavy phase on Linux, where the
+          # swap is, and leaves Windows only a clang compile + smoke test.
 
     steps:
       - name: Checkout the released commit
@@ -573,7 +570,7 @@ jobs:
   # native legs have. Native Yo->C coverage on macOS is not lost: test.yml's
   # `test` job runs the compiler natively on macOS on every PR.
   seed-cross-emit:
-    name: Cross-emit macOS C (${{ matrix.target }})
+    name: Cross-emit C (${{ matrix.target }})
     needs: release
     runs-on: ubuntu-latest
     timeout-minutes: 90
@@ -583,8 +580,20 @@ jobs:
         include:
           - target: macos-arm64
             yo_target: aarch64-macos
+            bundle_allocator: system
           - target: macos-x64
             yo_target: x86_64-macos
+            bundle_allocator: system
+          # windows-x64 needs its portable-c arm from here too, now that no
+          # native windows leg emits one — `scripts/make-portable-c.sh` treats
+          # a missing windows-x64 arm as a hard failure.
+          - target: windows-x64
+            yo_target: x86_64-windows-msvc
+            # windows keeps MIMALLOC: the system-allocator switch was measured
+            # on macOS only, and the native windows bundle has always shipped
+            # mimalloc. Changing the allocator and the emit route in one step
+            # would make a regression impossible to attribute.
+            bundle_allocator: mimalloc
     steps:
       - name: Checkout the released commit
         uses: actions/checkout@v4
@@ -632,7 +641,7 @@ jobs:
       # binary, and the libc-flavored portable arm (published as
       # `portable-c-<target>` directly, so the portable-c assembly job needs
       # nothing from the macOS runners).
-      - name: "Cross-emit the bundle C (mimalloc) and the portable arm (libc)"
+      - name: "Cross-emit the bundle C and the portable arm (libc)"
         shell: bash
         env:
           YO_MAIN_STACK_MB: "4096"
@@ -643,7 +652,7 @@ jobs:
           # (369.8s vs 418-429s wall on equal input) and needs no vendored
           # mimalloc in the assemble job's clang line. Linux/CI stay mimalloc
           # (glibc malloc inflates the emit's RSS ~72%).
-          ./yo-candidate compile yo-self/main.yo --release --allocator system \
+          ./yo-candidate compile yo-self/main.yo --release --allocator ${{ matrix.bundle_allocator }} \
             --std-path ./std --target ${{ matrix.yo_target }} \
             --emit-c --skip-c-compiler -o "cross/yo-${{ matrix.target }}" > /dev/null
           ./yo-candidate compile yo-self/main.yo --release --allocator libc \
@@ -667,7 +676,7 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
-  seed-bundles-macos:
+  seed-bundles-cross:
     name: Seed bundle (${{ matrix.target }}, cross-emitted)
     needs: [release, seed-cross-emit]
     runs-on: ${{ matrix.os }}
@@ -689,6 +698,15 @@ jobs:
           - os: macos-26-intel
             target: macos-x64
             experimental: false
+          # windows-x64: the C is cross-emitted on Linux (see the comment on
+          # the seed-bundles matrix); this leg only compiles and smoke-tests it
+          # natively. `experimental: false` because the bundle itself is not
+          # new — windows-x64 has shipped since v0.2.1 — only the route the C
+          # takes to get here has changed.
+          - os: windows-latest
+            target: windows-x64
+            clang_target: x86_64-pc-windows-msvc
+            experimental: false
     steps:
       # The checkout provides std + vendor/mimalloc for the bundle contents;
       # the compiler C itself arrives as an artifact from seed-cross-emit.
@@ -704,12 +722,19 @@ jobs:
           name: seed-cross-${{ matrix.target }}
           path: cross
 
+      - name: Install LLVM/Clang
+        if: runner.os == 'Windows'
+        run: |
+          choco install llvm -y
+          echo "C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
       # The exact flag set the compiler itself passes to clang for a native
       # macOS mimalloc build (src/codegen/index.ts / yo-self main.yo): no
       # -luring (Linux-only; the macOS C uses the kqueue backend), no
       # explicit -lpthread/-lm (libSystem provides both). `-w` matches the
       # musl job's convention for third-party-sized C.
-      - name: "Compile the cross-emitted C natively"
+      - name: "Compile the cross-emitted C natively (macOS)"
+        if: runner.os == 'macOS'
         shell: bash
         run: |
           # System-allocator flavor (see the cross-emit step): no vendored
@@ -719,12 +744,47 @@ jobs:
             -o yo-seed
           ./yo-seed --version
 
+      # Windows: mimalloc flavor, so the vendored allocator IS in the link
+      # line, plus the three system libraries the compiler itself passes for a
+      # windows-msvc target (ws2_32/bcrypt/advapi32).
+      #
+      # `--target=` is passed EXPLICITLY and is not redundant: chocolatey's
+      # llvm package can install a clang whose default target is not this
+      # runner's, and a bundle named windows-x64 containing the wrong
+      # architecture would install and run while emitting for the wrong one.
+      # The PE assertion below is what actually proves it.
+      - name: "Compile the cross-emitted C natively (Windows)"
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
+            --target=${{ matrix.clang_target }} \
+            "cross/yo-${{ matrix.target }}.c" vendor/mimalloc/src/static.c \
+            -I vendor/mimalloc/include \
+            -lws2_32 -lbcrypt -ladvapi32 \
+            -o yo-seed.exe
+          ./yo-seed.exe --version
+
+      # PE machine type: 0x8664 == IMAGE_FILE_MACHINE_AMD64.
+      - name: "Assert the binary's architecture"
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $bytes = [System.IO.File]::ReadAllBytes("yo-seed.exe")
+          $peOffset = [BitConverter]::ToInt32($bytes, 0x3C)
+          $machine = [BitConverter]::ToUInt16($bytes, $peOffset + 4)
+          Write-Host ("PE machine type: 0x{0:X4}" -f $machine)
+          if ($machine -ne 0x8664) {
+            Write-Error "yo-seed.exe is not x86-64 (machine 0x$('{0:X4}' -f $machine)) — refusing to ship it as windows-x64."
+            exit 1
+          }
+
       - name: Assemble the bundle
         shell: bash
         run: |
           BUNDLE="yo-v${{ needs.release.outputs.version }}-${{ matrix.target }}"
           mkdir -p "$BUNDLE/bin"
-          cp yo-seed "$BUNDLE/bin/yo"
+          if [ -f yo-seed.exe ]; then cp yo-seed.exe "$BUNDLE/bin/yo.exe"; else cp yo-seed "$BUNDLE/bin/yo"; fi
           cp -R std "$BUNDLE/std"
           # vendor/mimalloc must ship as a SIBLING of std (see the native
           # legs' comment).
@@ -742,14 +802,14 @@ jobs:
           BUNDLE_DIR="$PWD/$BUNDLE"
           mkdir -p "$RUNNER_TEMP/seed-smoke" && cd "$RUNNER_TEMP/seed-smoke"
           printf '%s\n' 'open(import("std/fmt"));' 'main :: (fn() -> unit)(println("hello from the yo seed"));' 'export(main);' > hello.yo
-          YO="$BUNDLE_DIR/bin/yo"
+          if [ -f "$BUNDLE_DIR/bin/yo.exe" ]; then YO="$BUNDLE_DIR/bin/yo.exe"; else YO="$BUNDLE_DIR/bin/yo"; fi
           YO_STD="$BUNDLE_DIR/std" "$YO" compile hello.yo --release -o hello 2>compile.err || { cat compile.err; exit 1; }
           cat compile.err
           if grep -q "mimalloc: error" compile.err; then
             echo "::error::The bundled compiler reported allocator errors on its own stderr — refusing to ship this bundle."
             exit 1
           fi
-          OUT=$(./hello)
+          if [ -f hello.exe ]; then OUT=$(./hello.exe); else OUT=$(./hello); fi
           echo "smoke output: $OUT"
           test "$OUT" = "hello from the yo seed"
 
@@ -885,7 +945,7 @@ jobs:
                 echo "::error::async I/O was compiled OUT — this binary cannot read source files"
                 exit 1
               fi
-              OUT=$(./hello)
+              if [ -f hello.exe ]; then OUT=$(./hello.exe); else OUT=$(./hello); fi
               echo "smoke output: $OUT"
               test "$OUT" = "hello from the yo seed"
             '
@@ -958,7 +1018,7 @@ jobs:
     # its continue-on-error off (the pairing rule its comment recorded): a
     # promoted leg's failure must hold publication, or a red musl run ships a
     # release whose install.sh advertises a bundle that never arrives.
-    needs: [release, seed-bundles, seed-bundles-macos, portable-c, musl-bundle]
+    needs: [release, seed-bundles, seed-bundles-cross, portable-c, musl-bundle]
     runs-on: ubuntu-latest
     permissions:
       contents: write
