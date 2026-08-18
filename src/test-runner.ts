@@ -547,7 +547,7 @@ function compileBatchedBinary(
         debugGc: false,
         debugParallelism: false,
         debugAsyncAwait: false,
-        allocator: "libc",
+        allocator: "system",
       });
     } catch (compileError) {
       moduleManager = null;

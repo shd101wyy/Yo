@@ -66,7 +66,7 @@ export class CodeGeneratorC {
       debugGc?: boolean;
       debugParallelism?: boolean;
       debugAsyncAwait?: boolean;
-      allocator?: "mimalloc" | "libc";
+      allocator?: "mimalloc" | "system" | "libc";
       isLibrary?: boolean;
       allModuleLevelInitExprs?: Expr[];
     } = {}
@@ -107,7 +107,9 @@ export class CodeGeneratorC {
       debugAsyncAwait: options.debugAsyncAwait ?? false,
       targetInfo: getCurrentTarget(),
       deferredAsyncBlocks: [], // Initialize deferred async blocks array
-      allocator: options.allocator ?? "libc",
+      // Collapse the deprecated "libc" alias — the resolved context is
+      // two-valued (same resolution as codegen/index.ts).
+      allocator: options.allocator === "mimalloc" ? "mimalloc" : "system",
       isLibrary: options.isLibrary ?? false,
       currentModuleId: generateModuleId(modulePath),
       moduleLevelInitExprs:
