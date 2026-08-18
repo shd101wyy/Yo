@@ -1,0 +1,22 @@
+# The scaffold `yo init` produces must actually RUN, not merely exist.
+#
+# This case exists because the corpus already pinned the scaffold byte-for-byte
+# and still shipped a broken one: init/init-cwd/init-existing record a sha256
+# of every scaffolded file, and GATE 5 asserts the artifacts — but nothing ever
+# executed them. The scaffolded `tests/main.test.yo` called `assert` without
+# importing `std/assert` (the prelude deliberately does not provide it), so a
+# new user's first `yo build test` failed on a batch-compile error. The goldens
+# passed throughout, because a content hash proves stability, not correctness.
+# See issues/fixed/init-scaffold-test-cannot-compile.md.
+#
+# `cmd` runs one argv per line in order (README:21), so this inits a project
+# and then runs its tests in the same sandbox.
+timeout=900
+# `build test` compiles with a C compiler, so clang diagnostics and emitted-C
+# paths are not comparable across compilers or runs. What IS comparable, and
+# what this case asserts, is that the scaffolded suite compiled and passed.
+# `N total` is deliberately NOT kept: the TS runner appends a duration to it
+# (`1 total (<TIME>)`) and the self-hosted one does not. That is a cosmetic
+# formatting divergence, not what this case is about — `N passed` already
+# asserts the scaffolded suite ran and succeeded.
+stdout_keep=^(Test Summary|[0-9]+ passed|[0-9]+ failed|Error|error:)
