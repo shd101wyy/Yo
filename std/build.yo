@@ -35,7 +35,12 @@ export(Optimize);
 Allocator :: enum(
   /// High-performance allocator (mimalloc).
   Mimalloc,
-  /// Standard C library malloc.
+  /// The platform's system allocator (macOS malloc zones, Windows CRT heap,
+  /// glibc/musl malloc on Linux).
+  System,
+  /// Deprecated alias of `System`, TO BE REMOVED once the migration window
+  /// closes (first release with the rename ships + SEED_VERSION moves past
+  /// it). The system allocator is not libc's on macOS or Windows.
   Libc
 );
 export(Allocator);
@@ -84,7 +89,7 @@ Executable :: struct(
   /// Optimization level.
   (optimize : Optimize) ?= Optimize.Debug,
   /// Memory allocator.
-  (allocator : Allocator) ?= Allocator.Libc,
+  (allocator : Allocator) ?= Allocator.System,
   /// Runtime sanitizer.
   (sanitize : Sanitize) ?= Sanitize.None,
   /// Write the single generated C file to this path instead of the default
@@ -282,9 +287,16 @@ executable :: (fn(comptime(config) : Executable) -> comptime(Step))({
     .ReleaseFast => "release-fast",
     .ReleaseSmall => "release-small"
   );
+  // MIGRATION WINDOW (seed-era flags): `.System` must SPELL itself "libc"
+  // until SEED_VERSION reaches a release that accepts "system" — this string
+  // is handed to whichever compiler binary runs the build, and the seeds
+  // (v0.2.9 and older) reject "system" ("invalid --allocator"). "libc" is
+  // the permanent-until-deletion alias, so NEW compilers treat it as system.
+  // Flip both arms to "system" in the alias-deletion change, not before.
   alloc_str :: match(
     config.allocator,
     .Mimalloc => "mimalloc",
+    .System => "libc",
     .Libc => "libc"
   );
   san_str :: match(

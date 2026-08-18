@@ -182,7 +182,7 @@ BIN=/tmp/yo-s1 OUT=/tmp/hsweep bash scripts/bootstrap/hollow_sweep69.sh
 ./yo-cli compile src/tests/fixme.yo --release -o a.out && ./a.out
 
 # Compile with AddressSanitizer
-./yo-cli compile src/tests/fixme.yo --release --sanitize address --allocator libc -o test && ./test
+./yo-cli compile src/tests/fixme.yo --release --sanitize address --allocator system -o test && ./test
 ```
 
 Always save verbose output to a file to avoid terminal truncation:
@@ -252,12 +252,12 @@ TypeScript test files that shell out to `yo-cli` (`comptime-ref-gate.test.ts`,
 
 - Always run `bun run build && ...` to ensure no TypeScript errors before running other `bun` or `./yo-cli` commands.
 - Do not use `npm` at the repo root — only use `bun`. **Exception:
-  `vscode-extension/` is npm-only** (`npm ci`, `npm run build`,
-  `npm run package`), with `package-lock.json` committed and no `bun.lock`. It
-  is a VS Code client, so its whole toolchain — `vsce`, `vscode-languageclient`,
-  `@types/vscode` — is Node/npm-native, and `npm version` was already what
-  bumped its version at release time. Keeping it there means bun is needed
-  NOWHERE once `src/` retires, instead of surviving for one job.
+  `vscode-extension/` is npm-only** (`npm ci`, `npm run package`), with
+  `package-lock.json` committed and no `bun.lock`. It is a VS Code client and
+  `vsce` is npm-native; `npm version` was already what bumped its version at
+  release time. Syntax-only as of P2.5 B2 (2026-08-18): purely declarative
+  (grammar + language config), no build step, no LSP client — the LSP returns
+  in P4. Keeping it npm means bun is needed NOWHERE once `src/` retires.
 - Make sure commands run successfully. Don't ask the user to run — run them yourself. Don't end the conversation until the command succeeds.
 - Never hardcode any TypeScript or Yo when solving a problem. Always go with a proper implementation. No shortcuts. Don't simplify the problem.
 - While implementing the evaluator or codegen, no shortcuts or simplifications!
@@ -291,7 +291,7 @@ TypeScript test files that shell out to `yo-cli` (`comptime-ref-gate.test.ts`,
 - **`./yo-cli compile` cannot be used on `*.test.yo` files.** Extract the failing test case into a standalone `.yo` file with a `main` function and `export main;`.
 - **`index.ts` barrel files cause circular imports.** Never create them in `src/`.
 - **Algebraic effect `unwind` vs C `abort()`**: They are completely different. The Yo keyword `unwind` discards a continuation; C's `abort()` terminates the process. (`unwind` was previously named `escape`, renamed in commit `a3510d20`.)
-- **VS Code extension errors for `.yo` files** are often stale — the extension may not reflect the latest evaluator. Rebuild with `cd vscode-extension && npm run package` if needed (the extension is npm-based, not bun — see the toolchain rule above).
+- **The VS Code extension is syntax-only** (P2.5 B2): it ships no LSP, so it never reports evaluator diagnostics. Any in-editor `.yo` error squiggles come from something else. The LSP returns in P4 (`plans/P4_LSP.md`).
 - **`outdated/` markdown files are stale.** Do not use them for design decisions.
 - **yargs `.scriptName("yo")`** is set in `yo-cli.ts` so help text shows `yo` instead of `bun`. Don't remove it.
 - **`yo fetch` auto-prunes stale lock entries.** When a dep is removed from `build.yo`, running `yo fetch` removes it from `yo.lock`. Global cache is not auto-cleaned.

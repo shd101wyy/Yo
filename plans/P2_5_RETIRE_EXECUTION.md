@@ -65,6 +65,30 @@ The §2.5 inventory table additionally has **no row** for: the 5-platform `test 
 
 ---
 
+### Blocker decisions — USER-DECIDED 2026-08-18 (all four; execution in flight)
+
+- **B2 (VS Code extension): syntax-only for now; LSP returns in P4.** Remove
+  the LSP client wiring and `copyLspServer` from the extension build (no
+  silent-degrade path left to guard), ship grammar/snippets only, and note the
+  P4 re-entry in `P4_LSP.md`.
+- **B6 (wasm): PORT `runtime_io_wasm` to yo-self** (~832 lines, mostly C
+  template; the macOS runtime port is precedent). Includes the driver
+  forwarding and emcc flag branch per the B6 prereq chain (the comptime
+  platform/arch fold f7b5cc460 already landed).
+- **B7 (docs site): REWRITE `scripts/build-site.ts` in Yo.** All three pieces
+  exist natively (`yo doc --format html`, vendored `markdown_yo`,
+  `std/process` Command for the tag probe). The Pages steps in both workflows
+  then lose their bun island.
+- **B9 (Windows vcpkg/archiver/stageRuntimeFiles): DOCUMENTED RETIREMENT.**
+  No port; recorded as an accepted loss with the capability list, in
+  `issues/retired-windows-vcpkg-capability.md`. Reopen only on a user report
+  that hits it.
+
+(Stale note, same date: the "seed-bundles matrix flip is BLOCKED on memory"
+paragraph below was resolved by the cross-emit design — P2.5 step-24 option A —
+and v0.2.9 SHIPPED on the full seed/candidate chain. #137 flips the last
+Windows leg.)
+
 ### Hard blockers — resolve BEFORE any deletion
 
 There are no blockers that make retirement _impossible_; every one below has a concrete resolution. But each is a case where deleting `src/` today removes a mechanism with **no replacement and, in six of the nine, no failure signal** — the retirement's characteristic risk is silent hollowness, not red CI.
@@ -232,7 +256,7 @@ Each step is independently landable and gated by `tests/internal` or a new cli-c
 
     Historical record of the original finding:
 
-    **RESOLVED 2026-08-15: neither, and this is not a Group D item.** "Converted" is impossible — `yo-self/codegen/async/` has no `runtime_io_wasm.yo` and `runtime.yo:40-42` PANICS on a wasm target ("WASM async I/O runtime is a Phase-5 follow-up"). "Deleted" would silently drop `wasm32-emscripten` + `wasm32-wasi`, which are supported targets with green, REQUIRED legs. Since these legs can never be node-free anyway, Group D has nothing to do here: they stay on the TS compiler. The forcing function is **Group E** (deleting `src/`), at which point the TS compiler they invoke ceases to exist. Filed with measured port scope (832 lines, 7 emit calls, mostly C template; macOS precedent 1779→1746) as `issues/yo-self-cannot-target-wasm.md`. It needs a product decision — port, or retire wasm support explicitly — and must not be settled implicitly by the `src/` deletion PR.
+    **RESOLVED 2026-08-15: neither, and this is not a Group D item.** "Converted" is impossible — `yo-self/codegen/async/` has no `runtime_io_wasm.yo` and `runtime.yo:40-42` PANICS on a wasm target ("WASM async I/O runtime is a Phase-5 follow-up"). "Deleted" would silently drop `wasm32-emscripten` + `wasm32-wasi`, which are supported targets with green, REQUIRED legs. Since these legs can never be node-free anyway, Group D has nothing to do here: they stay on the TS compiler. The forcing function is **Group E** (deleting `src/`), at which point the TS compiler they invoke ceases to exist. Filed with measured port scope (832 lines, 7 emit calls, mostly C template; macOS precedent 1779→1746) as `issues/fixed/yo-self-cannot-target-wasm.md`. It needs a product decision — port, or retire wasm support explicitly — and must not be settled implicitly by the `src/` deletion PR.
 
 23. `bootstrap-self-test` → drop bun once steps 12-14 land; `gates_fast.sh` gains a `SEED=` env alongside `S1=`/`P=` for whatever reference side survives. → **verify:** `S1=… SEED=… P=ci bash scripts/bootstrap/gates_fast.sh` with `failures=0`. **[CI-only]**
 24. `release.yml` (B5, B7): move the version source of truth off root `package.json`; keep a bumper for `vscode-extension/package.json`; flip `seed-bundles` to previous-seed-built with the stage-2-builds-stage-1 pre-release gate; re-point or rewrite the Pages step. Land **after** #98 — #98 already edits release.yml:47-62 and will conflict.
