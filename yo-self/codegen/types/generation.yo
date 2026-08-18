@@ -13,7 +13,7 @@ open(import("std/string"));
 { HashMap } :: import("std/collections/hash_map");
 { TypeValue } :: import("../../types/definitions.yo");
 { is_unit_type, is_struct_type, is_enum_type, is_tuple_type, is_reference_struct_type, is_newtype_type, is_dyn_type, is_union_type, is_future_trait_type, is_function_type, is_fn_trait_type, is_some_type } :: import("../../types/guards.yo");
-{ type_contains_some_type } :: import("../../types/utils.yo");
+{ type_contains_some_type, type_uses_small_rc_header } :: import("../../types/utils.yo");
 { lookup_some_resolved_concrete } :: import("../../expr_info.yo");
 { type_to_string } :: import("../../types/string.yo");
 { is_target_windows, is_target_macos } :: import("../../target.yo");
@@ -150,7 +150,11 @@ generate_struct_declaration :: (fn(struct_type : TypeValue, c_name : String, con
           atomic_word := if(is_atomic_rc, "atomic ", "");
           header_word := if(is_atomic_rc, "Atomic r", "R");
           context.emitter.emit_declaration_string_line(`struct ${c_name}_struct { // ${name} : ${type_to_string(struct_type)} (${atomic_word}reference counted)`);
-          context.emitter.emit_declaration_string_line(`  __yo_ref_header_t header; // ${header_word}eference count header`);
+          if(type_uses_small_rc_header(struct_type, context.needs_cycle_gc, is_atomic_rc), {
+            context.emitter.emit_declaration_line("  __yo_ref_header_small_t header; // Small RC header (cycle-incapable type)");
+          }, {
+            context.emitter.emit_declaration_string_line(`  __yo_ref_header_t header; // ${header_word}eference count header`);
+          });
           _emit_runtime_fields(runtime_fields, context);
           context.emitter.emit_declaration_line("};");
         },
@@ -337,7 +341,11 @@ generate_enum_declaration :: (fn(enum_type : TypeValue, c_name : String, context
         atomic_tag := if(is_atomic_rc, String.from("atomic "), String.from(""));
         header_tag := if(is_atomic_rc, String.from("Atomic r"), String.from("R"));
         context.emitter.emit_declaration_string_line(`struct ${c_name}_struct { // ${name} : ${type_to_string(enum_type)} (${atomic_tag}reference counted)`);
-        context.emitter.emit_declaration_string_line(`  __yo_ref_header_t header; // ${header_tag}eference count header`);
+        if(type_uses_small_rc_header(enum_type, context.needs_cycle_gc, is_atomic_rc), {
+          context.emitter.emit_declaration_line("  __yo_ref_header_small_t header; // Small RC header (cycle-incapable type)");
+        }, {
+          context.emitter.emit_declaration_string_line(`  __yo_ref_header_t header; // ${header_tag}eference count header`);
+        });
         context.emitter.emit_declaration_string_line(`  ${tag_enum_name} tag;`);
         context.emitter.emit_declaration_string_line(`  ${variant_union_name} data;`);
         context.emitter.emit_declaration_line("};");
@@ -662,13 +670,32 @@ typedef struct __yo_ref_header_t {
   uint8_t gc_flags;
   uint8_t gc_mark;
   uint16_t borrow_count;
+  // dispose_fn sits IMMEDIATELY after the packed word so the small header
+  // below is a strict PREFIX of this one: __yo_decr_rc reads flags and
+  // dispose_fn at the same offsets for both layouts, branch-free.
+  void (*dispose_fn)(void*);
+  void (*traverse_fn)(void*, void (*visit)(void*));
   struct __yo_ref_header_t* gc_next;
   struct __yo_ref_header_t* gc_prev;
   struct __yo_ref_header_t* roots_next;  // Bacon-Rajan possible-roots intrusive list (O(1) unlink at free)
   struct __yo_ref_header_t* roots_prev;
-  void (*dispose_fn)(void*);
-  void (*traverse_fn)(void*, void (*visit)(void*));
 } __yo_ref_header_t;
+
+// Small RC header (16 B) for cycle-INCAPABLE, non-atomic types — the ones
+// whose constructors never __yo_gc_register. Every GC visitor early-returns
+// on !(gc_flags & __YO_GC_TRACKED), so these objects' traverse_fn and GC
+// list pointers were never read; this drops them (56 -> 16 B on the
+// majority class — see plans/backlog/RC_HEADER_SPLIT.md). A strict prefix
+// of __yo_ref_header_t: generic code (__yo_incr_rc/__yo_decr_rc, borrow
+// checks, visitor flag reads) casts every object to __yo_ref_header_t* and
+// touches only the shared prefix on untracked objects.
+typedef struct __yo_ref_header_small_t {
+  uint32_t ref_count;
+  uint8_t gc_flags;
+  uint8_t gc_mark;
+  uint16_t borrow_count;
+  void (*dispose_fn)(void*);
+} __yo_ref_header_small_t;
 
 // Per-thread GC state
 struct __yo_thread_gc_state {

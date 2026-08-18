@@ -1,6 +1,75 @@
 # RC-header split: the measured path from 12.2 GB to sub-7 GB self-emit
 
-**Status: PLANNED, deliberately sequenced AFTER `src/` retirement (P2 Group E).**
+**Status: PHASE 1 LANDED 2026-08-17** (branch `perf/rc-header-split`,
+user-directed to start before retirement — implemented in BOTH compilers).
+**Measured result: −0.7 GB footprint (12.21 → 11.53 GB), wall 227 s** — which
+looked far short of the −3.31 GB projection, but the post-mortem below shows
+the projection was RIGHT in live bytes and the FOOTPRINT METRIC hid the win
+(macOS compression accounting). The census still overcounts per-type liveness
+(its −1 counters live in dispose FUNCTIONS; inline RC drops bypass them),
+so per-type rows are ceilings — the histogram below is the trustworthy total.
+Validation: smoke + ASan clean, 10 canary files green, FIXPOINT_HOLDS
+(also proves both compilers emit identical C), gates_fast T1 failures=0,
+317 of ~396 ref types small in the self-emit.
+
+## POST-MORTEM 2026-08-17: the peak-composition histogram (allocator-boundary)
+
+The promised follow-up instrument ran the same day and REVERSED the "−0.7 GB"
+verdict. Method: retarget the emitted `#define __yo_malloc/calloc/realloc/free`
+macros at accounting shims (`malloc_size`/`mi_usable_size` per block), keep a
+per-16B-size-class histogram (bytes + counts), snapshot at every >1/128
+high-water growth. Shims unit-tested exact (delta=0 on a 1M-block mixed
+pattern); every runtime free (RC, GC sweep, async) goes through the macros, so
+there is no asymmetry. Scripts: scratchpad `peak_histogram.py` (libc) /
+`peak_histogram_mi.py` (mimalloc); NOTE `__yo_malloc` is a MACRO — instrument
+by retargeting the defines, never by renaming functions.
+
+**Finding 1 — the footprint metric was lying, not the census math.** Tracked
+live at peak is **~19 GB and allocator-independent** (libc 19.1–20.5 GB,
+mimalloc 19.07 GB; gap = bin rounding), yet the uninstrumented mimalloc run
+reports 11.53 GB "peak memory footprint". macOS charges compressed pages at
+COMPRESSED size in phys_footprint, and this heap is zero-heavy. The header
+split really did delete its ~2.6 GB of live bytes — but they were mostly NULL
+pointer fields the compressor already stored at near-zero cost, so footprint
+only moved −0.7 GB. Consequences: (a) A/B memory levers in TRACKED LIVE BYTES
+(this instrument), not footprint; (b) footprint remains the right number only
+for "does it fit runner RAM"; (c) zero-heavy savings are still real wins on
+Linux CI and under real memory pressure. (The instrumented runs' own footprints
+are inflated ~2x by the instrument — compare only tracked numbers.)
+
+**Finding 2 — true peak composition (mimalloc bins, 17.76 GB snapshot /
+19.07 GB peak, 217M live blocks):**
+
+| pool                                       | live blocks | live bytes  | share |
+| ------------------------------------------ | ----------- | ----------- | ----- |
+| 40 B class (small-header ArrayLists)       | 114.3M      | 4.01 GB     | 22.6% |
+| **buffers ≥4 KB (16 KB + 8 KB classes)**   | ~0.4M       | **5.11 GB** | 29%   |
+| 448 B class (ExprInfo)                     | 5.65M       | 2.40 GB     | 13.5% |
+| 176+192 B classes (Variable et al.)        | 15.2M       | 2.61 GB     | 14.7% |
+| 64 B class                                 | 18.1M       | 1.08 GB     | 6.1%  |
+| 112 B (Environment) + 80 B (tracked lists) | 15.8M       | 1.39 GB     | 7.8%  |
+
+**Revised lever ranking:** (1) ~~the ≥4 KB buffer pool~~ **LANDED same day:
+the pool was `_inject_forall_captures`** — ra1 attribution (shims record
+`__builtin_return_address(1)`; arm64 keeps frame pointers) put 3.87 GB /
+167k live copies on that one function; a 150k-call probe measured 99.2%
+duplicate (func_id, bindings) keys (1,259 distinct); memoizing the injection
+erased it: tracked live **19.07 → 14.94 GB (−4.1 GB)**, wall **227 →
+148.5 s (−35%)**, FIXPOINT_HOLDS, gates_fast failures=0 (PR
+perf/inject-forall-captures-memo). Metric reminders re-proven during the
+A/B: footprint is compressor-noise across runs (same memoized binary read
+16.48 GB libc / 18.39 GB mimalloc footprint while tracked live FELL 4.1 GB);
+and a `--allocator mimalloc` build in a tree whose `vendor/mimalloc`
+submodule is uninitialized SILENTLY falls back to libc ("Bundled mimalloc
+not found" on stderr; verify with `nm <bin> | grep -c mi_malloc`). (2) The 40 B ArrayList army
+is now 60% BODY (24 B) — the remaining lever is deleting objects (Variable.value
+inline single-slot), not shrinking headers. (3) ExprInfo diet unchanged
+(~−1.2 GB). Raw dumps: /tmp/peak_hist.txt (libc), /tmp/peak_hist_mi.txt
+(mimalloc) — regenerate with the scratchpad pipeline scripts.
+
+Original plan (with the now-known-flawed census projection) follows.
+
+**Original status: PLANNED, deliberately sequenced AFTER `src/` retirement (P2 Group E).**
 The change rewrites every emitted object's layout; under the strict-1:1 rule it
 would have to land in BOTH compilers and re-prove fixpoint across both, then
 one copy is deleted. Post-retirement it is a single-codebase change. Nothing

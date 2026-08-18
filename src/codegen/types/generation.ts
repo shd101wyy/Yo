@@ -22,7 +22,11 @@ import {
   isUnionType,
   isUnitType,
 } from "../../types/guards";
-import { typeContainsSomeType, typeToString } from "../../types/utils";
+import {
+  typeContainsSomeType,
+  typeToString,
+  typeUsesSmallRcHeader,
+} from "../../types/utils";
 
 /**
  * Local helper: struct whose only SomeType content lives inside function-typed
@@ -418,13 +422,32 @@ typedef struct __yo_ref_header_t {
   uint8_t gc_flags;
   uint8_t gc_mark;
   uint16_t borrow_count;  // Law-of-Exclusivity flag: # of live interior refs into this object
+  // dispose_fn sits IMMEDIATELY after the packed word so the small header
+  // below is a strict PREFIX of this one: __yo_decr_rc reads flags and
+  // dispose_fn at the same offsets for both layouts, branch-free.
+  void (*dispose_fn)(void*);
+  void (*traverse_fn)(void*, void (*visit)(void*));
   struct __yo_ref_header_t* gc_next;
   struct __yo_ref_header_t* gc_prev;
   struct __yo_ref_header_t* roots_next;  // Bacon-Rajan possible-roots intrusive list (O(1) unlink at free)
   struct __yo_ref_header_t* roots_prev;
-  void (*dispose_fn)(void*);
-  void (*traverse_fn)(void*, void (*visit)(void*));
 } __yo_ref_header_t;
+
+// Small RC header (16 B) for cycle-INCAPABLE, non-atomic types — the ones
+// whose constructors never __yo_gc_register. Every GC visitor early-returns
+// on !(gc_flags & __YO_GC_TRACKED), so these objects' traverse_fn and GC
+// list pointers were never read; this drops them (56 -> 16 B on the
+// majority class — see plans/backlog/RC_HEADER_SPLIT.md). A strict prefix
+// of __yo_ref_header_t: generic code (__yo_incr_rc/__yo_decr_rc, borrow
+// checks, visitor flag reads) casts every object to __yo_ref_header_t* and
+// touches only the shared prefix on untracked objects.
+typedef struct __yo_ref_header_small_t {
+  uint32_t ref_count;
+  uint8_t gc_flags;
+  uint8_t gc_mark;
+  uint16_t borrow_count;
+  void (*dispose_fn)(void*);
+} __yo_ref_header_small_t;
 
 // Per-thread GC state
 struct __yo_thread_gc_state {
@@ -1327,9 +1350,21 @@ export function generateStructDeclaration(
     emitter.emitDeclarationLine(
       `struct ${cName}_struct { // ${structType.typeName} : ${typeToString(structType)} (${atomicTag ? "atomic " : ""}reference counted)`
     );
-    emitter.emitDeclarationLine(
-      `  __yo_ref_header_t header; // ${atomicTag ? "Atomic r" : "R"}eference count header`
-    );
+    if (
+      typeUsesSmallRcHeader(
+        structType,
+        context.needsCycleGC ?? false,
+        structType.env
+      )
+    ) {
+      emitter.emitDeclarationLine(
+        `  __yo_ref_header_small_t header; // Small RC header (cycle-incapable type)`
+      );
+    } else {
+      emitter.emitDeclarationLine(
+        `  __yo_ref_header_t header; // ${atomicTag ? "Atomic r" : "R"}eference count header`
+      );
+    }
 
     for (const field of runtimeFields) {
       const fieldTypeStr = getTypeString(field.type, context);
@@ -1518,9 +1553,21 @@ export function generateEnumDeclaration(
     emitter.emitDeclarationLine(
       `struct ${cName}_struct { // ${enumType.typeName} : ${typeToString(enumType)} (${atomicTag}reference counted)`
     );
-    emitter.emitDeclarationLine(
-      `  __yo_ref_header_t header; // ${enumType.isAtomicRc ? "Atomic r" : "R"}eference count header`
-    );
+    if (
+      typeUsesSmallRcHeader(
+        enumType,
+        context.needsCycleGC ?? false,
+        enumType.env
+      )
+    ) {
+      emitter.emitDeclarationLine(
+        `  __yo_ref_header_small_t header; // Small RC header (cycle-incapable type)`
+      );
+    } else {
+      emitter.emitDeclarationLine(
+        `  __yo_ref_header_t header; // ${enumType.isAtomicRc ? "Atomic r" : "R"}eference count header`
+      );
+    }
     emitter.emitDeclarationLine(`  ${tagEnumName} tag;`);
     emitter.emitDeclarationLine(`  ${variantUnionName} data;`);
     emitter.emitDeclarationLine(`};`);
