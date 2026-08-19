@@ -161,7 +161,9 @@ export(add);
 }
 
 function generateTestFile(): string {
-  return `test("it works", {
+  return `{ assert } :: import("std/assert");
+
+test("it works", {
   assert(((1 + 1) == 2), "math is broken");
 });
 `;
