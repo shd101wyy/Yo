@@ -1,0 +1,19 @@
+# The cooperative evaluator deadline must FAIL the compile, under both
+# compilers, with the same diagnostic.
+#
+# Why this case exists: yo-self had no compile deadline at all. TS armed one in
+# its test runner (`src/test-runner.ts:544`, 600 s) so a runaway comptime loop
+# failed one file with a named error; the self-hosted runner had nothing, so a
+# hang burned the whole CI job's budget with no indication of which file caused
+# it. That gap became load-bearing at P2.5 Group E, when TS stops existing.
+#
+# Determinism: the deadline is checked every 16384 dispatches, so a fixture too
+# small to reach that count would never check and the case would pass
+# vacuously. It does not happen here — a budget of 1 ms trips during PRELUDE
+# evaluation, long before this fixture's own body is reached, which is also why
+# the fixture can stay trivial.
+#
+# stdout_keep_match: asserts THE failure, not just A failure — without it any
+# compile error at all would satisfy rc=1.
+stdout_keep_match=exceeded the configured time limit
+timeout=120
