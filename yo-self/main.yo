@@ -3134,8 +3134,18 @@ main :: (fn(io : Io) -> unit)({
     println(`yo ${String.from(CURRENT_YO_VERSION)}`);
     return(());
   });
+  // A bare `yo` prints the FULL help to stderr and exits 1, matching TS
+  // (yargs `.demandCommand()`, src/yo-cli.ts). The one-line "no subcommand
+  // given" error this replaced was a porting gap: it named the subcommands but
+  // taught nothing about them, so the first thing a newly-installed user saw
+  // was a scold rather than the usage text they were about to ask for.
+  //
+  // stderr + rc=1, not stdout + rc=0: no action was performed, so a script
+  // that runs `yo` with no arguments should still see a failure — the same
+  // reasoning as `git`. Explicit `--help` remains stdout + rc=0.
   if(argv.len() < usize(2), {
-    exn.throw(dyn(`no subcommand given. Usage: yo <compile|test|fmt|check|init|build|fetch|install|cache|doc|version|unsafe-report|public-safe-report> ...`));
+    eprintln(_top_level_help_text());
+    unsafe(exit(int(1)));
   });
   subcmd := argv(usize(1));
   // .yo-version PRE-DISPATCH (src/yo-cli.ts:118-195 parity): before any
