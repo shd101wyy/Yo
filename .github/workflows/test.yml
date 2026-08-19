@@ -1526,6 +1526,60 @@ jobs:
               echo "::error::musl arm failed"; tail -30 /tmp/musl.log; exit 1; }
           grep -E "Elapsed \(wall|Maximum resident" /tmp/musl.log
 
+      # Worker-thread stack sizing under musl — the last unvalidated item on
+      # SELF_HOSTING_COMPLETION.md's musl-only checklist, and the one with a
+      # silent failure mode.
+      #
+      # Compiled Yo programs run `main` on a worker thread requested at 1 GiB
+      # (__yo_main_stack, YO_MAIN_STACK_MB-overridable). musl's DEFAULT thread
+      # stack is ~128 KB against glibc's 8 MB, so the request matters more here
+      # — and codegen falls back to `__yo_main_thread_entry(NULL)` on the
+      # PROCESS stack if pthread_create fails, with no diagnostic. A musl build
+      # that quietly ignored the size would therefore pass small workloads and
+      # SIGSEGV (rc=139, no message) on deep comptime recursion, which is
+      # precisely the Windows bug in issues/windows-no-main-worker-stack-rc139.md.
+      #
+      # `check ./yo-self` is the deepest comptime recursion in the tree (it is
+      # gates_fast's GATE 4, and the workload that exposed the -O0 stack
+      # ceiling), so it is the right stressor.
+      #
+      # One run proves nothing on its own: if the knob were ignored, a pass
+      # would just mean 8 MB of process stack happened to be enough. The tiny-
+      # stack runs are the control — they must behave DIFFERENTLY from the
+      # default, or the size is not being honoured.
+      - name: "musl: worker-thread stack sizing (deep comptime recursion)"
+        run: |
+          # Each run is allowed to fail — the rc IS the measurement — so the
+          # step's default `bash -e` has to be off around them.
+          set +e
+          YO_MAIN_STACK_MB=1024 /tmp/seed-musl/bin/yo check ./yo-self > /tmp/musl-default.log 2>&1
+          RC_MUSL_DEFAULT=$?
+          YO_MAIN_STACK_MB=8 /tmp/seed-musl/bin/yo check ./yo-self > /tmp/musl-tiny.log 2>&1
+          RC_MUSL_TINY=$?
+          YO_MAIN_STACK_MB=8 /tmp/seed/bin/yo check ./yo-self > /tmp/glibc-tiny.log 2>&1
+          RC_GLIBC_TINY=$?
+          set -e
+
+          echo "==================== stack sizing ===================="
+          echo "musl  1024 MB : rc=$RC_MUSL_DEFAULT"
+          echo "musl     8 MB : rc=$RC_MUSL_TINY"
+          echo "glibc    8 MB : rc=$RC_GLIBC_TINY"
+          echo "====================================================="
+
+          if [ "$RC_MUSL_DEFAULT" -ne 0 ]; then
+            echo "::error::the static musl seed cannot check ./yo-self at the default 1 GiB stack (rc=$RC_MUSL_DEFAULT) — musl-only is BLOCKED"
+            tail -25 /tmp/musl-default.log
+            exit 1
+          fi
+
+          if [ "$RC_MUSL_TINY" -eq 0 ] && [ "$RC_GLIBC_TINY" -eq 0 ]; then
+            echo "::warning::8 MB sufficed for BOTH libcs, so this run does not prove the stack request is honoured under musl — the workload is shallower than the knob's range. Not a failure, but the check is inconclusive."
+          elif [ "$RC_MUSL_TINY" -ne 0 ]; then
+            echo "knob is live under musl: 8 MB fails (rc=$RC_MUSL_TINY), 1 GiB succeeds"
+          else
+            echo "::warning::musl survived 8 MB where glibc did not (musl rc=0, glibc rc=$RC_GLIBC_TINY) — worth a look before trusting the sizing"
+          fi
+
       # The decisive correctness check, not just a curiosity: if both seeds emit
       # byte-identical C then the musl bundle is a drop-in replacement and the
       # only remaining question is cost. If they differ, musl-only is off the
