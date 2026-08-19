@@ -321,7 +321,13 @@ jobs:
     # times out burns a version number, so the budget is sized for the
     # measured cost, not the old one. See
     # issues/seed-v0.2.9-memory-growth-slows-every-self-build.md.
-    timeout-minutes: 180
+    #
+    # 180 -> 360 (2026-08-19): the v0.2.10 attempt was KILLED at 180 with the
+    # candidate build alone taking 159 min, against 18 min for the same step
+    # one release earlier. Root cause was the missing memory treatment below,
+    # not the budget — but the budget is what turned a slow job into a dead
+    # release, so it gets headroom too. The arm64 leg, same steps, took 32 min.
+    timeout-minutes: 360
     permissions:
       contents: write
     # Only the CI-runner platforms (linux-x64, macos-arm64, windows-x64) are
@@ -395,6 +401,47 @@ jobs:
           sudo chmod 600 /mnt/swapfile
           sudo mkswap /mnt/swapfile
           sudo swapon /mnt/swapfile
+
+      # SWAP ALONE IS NOT ENOUGH — the v0.2.10 release proved it expensively.
+      # This job's linux-x64 leg spent 159 minutes on the candidate build and
+      # was killed at the budget, taking the release with it.
+      #
+      # zswap is the knob, and the comparison is unusually well controlled:
+      # test.yml's bootstrap-fixpoint "Stage 1" runs the SAME operation — the
+      # v0.2.9 seed building the compiler — on the same commit, the same
+      # ubuntu-latest runner class, with the same 32 GB swapfile. The only
+      # difference was that it turns zswap on and this job did not.
+      #
+      #     test.yml   Stage 1     zswap ON      16 min
+      #     release.yml            zswap OFF    159 min
+      #
+      # A 10x difference from one sysctl. Once the seed no longer fits in RAM
+      # (v0.2.9 peaks ~28 GB — see the issue below), every reclaimed page goes
+      # to disk; zswap keeps a compressed copy in RAM (~3x) and turns disk
+      # thrash back into memory traffic. The arm64 leg needed only 32 min
+      # without it, which is why this first looked arch-specific rather than
+      # configuration-specific.
+      #
+      # THP off for the reason test.yml sets it on its heavier emit: huge pages
+      # must be split and compacted before they can be swapped at all.
+      #
+      # DELIBERATELY NOT copied from test.yml: its `systemd-run --scope -p
+      # MemoryHigh/MemoryMax` wrapper. It is unmeasured for these steps, it
+      # would newly OOM-kill anything that legitimately exceeds the cap, and
+      # `sudo` resets PATH to secure_path — which does not contain the seed's
+      # bin/ — so wrapping the steps that invoke a bare `yo` would break them
+      # outright. release.yml gets no PR CI, so an untested change here is only
+      # discoverable by burning a release. The measurement says zswap is what
+      # mattered; that is what this applies.
+      #
+      # See issues/seed-v0.2.9-memory-growth-slows-every-self-build.md.
+      - name: Tune the kernel for a swap-heavy self-emit
+        if: runner.os == 'Linux'
+        run: |
+          echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled || true
+          echo never | sudo tee /sys/kernel/mm/transparent_hugepage/defrag || true
+          echo Y | sudo tee /sys/module/zswap/parameters/enabled || true
+          free -h
 
       - name: Install LLVM/Clang
         if: runner.os == 'Windows'
@@ -601,7 +648,7 @@ jobs:
     name: Cross-emit C (${{ matrix.target }})
     needs: release
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 360
     strategy:
       fail-fast: false
       matrix:
@@ -636,6 +683,16 @@ jobs:
           sudo mkswap /mnt/swapfile
           sudo swapon /mnt/swapfile
           free -h
+
+      # See the identical step in seed-bundles for why swap alone is not
+      # enough. This job survived the v0.2.10 attempt at 64-69 min, but it runs
+      # the same seed-driven self-emit on the same runner class, so it gets the
+      # same treatment rather than waiting to be the next leg that collapses.
+      - name: Tune the kernel for a swap-heavy self-emit
+        run: |
+          echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled || true
+          echo never | sudo tee /sys/kernel/mm/transparent_hugepage/defrag || true
+          echo Y | sudo tee /sys/module/zswap/parameters/enabled || true
 
       # The SEED runs on this Linux host, so it needs liburing itself even
       # though the EMITTED C targets macOS (kqueue backend, no liburing).
@@ -893,6 +950,15 @@ jobs:
           sudo mkswap /mnt/swapfile
           sudo swapon /mnt/swapfile
           free -h
+
+      # The swapfile above (added in #166) is what this job was missing
+      # entirely; zswap is what keeps the resulting swap traffic from becoming
+      # thrash. See the identical step in seed-bundles for the measurement.
+      - name: Tune the kernel for a swap-heavy self-emit
+        run: |
+          echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled || true
+          echo never | sudo tee /sys/kernel/mm/transparent_hugepage/defrag || true
+          echo Y | sudo tee /sys/module/zswap/parameters/enabled || true
 
       - name: Checkout the released commit
         uses: actions/checkout@v4
