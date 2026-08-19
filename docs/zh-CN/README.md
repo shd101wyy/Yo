@@ -24,7 +24,6 @@ Yo 的目标是 **简单** 和 **快速**（比 C 语言慢约 0% - 15%）。
 - [特性](#特性)
 - [安装](#安装)
   - [安装脚本（推荐）](#安装脚本推荐)
-  - [npm](#npm)
   - [Linux](#linux)
   - [macOS](#macos)
   - [Windows](#windows)
@@ -114,22 +113,12 @@ NixOS 上的解决方案 —— 预编译二进制文件中硬编码的 ELF 解�
 > 版本都早于该产物，因此该选项仅适用于此后发布的版本。安装脚本会明确提示这一点，
 > 而不会以晦涩的方式失败。
 
-### npm
+安装脚本会把 `yo` 命令放到你的 `PATH` 中。运行 `yo --help` 查看可用命令。
 
-编译器同时也作为 `npm` 包发布：
-
-```bash
-$ npm install -g @shd101wyy/yo         # 全局安装 yo 编译器
-$ yarn global add @shd101wyy/yo        # 或使用 yarn
-$ pnpm add -g @shd101wyy/yo            # 或使用 pnpm
-$ bun install --global @shd101wyy/yo   # 或使用 bun
-```
-
-它会在终端中暴露 `yo` 命令。
-
-还有一个别名 `yo-cli`，用于避免命名冲突。
-
-运行 `yo --help` 或 `yo-cli --help` 查看可用命令。
+> **`npm` 渠道已经废弃。** 在编译器还是 TypeScript 程序的年代，Yo 曾以
+> `@shd101wyy/yo` 这个 npm 包发布。npm 发布在 `v0.2.0` 之后就停止了；编译器现在
+> 是自举的，此后的每个版本都以原生预编译包的形式发布在 GitHub Releases 上。请使用
+> 上面的安装脚本。
 
 Yo 将代码转换为 C，因此需要一个 **C 编译器**来生成机器码。请按照以下平台说明操作。
 
@@ -334,7 +323,9 @@ export(main);
 
 ## 贡献
 
-`Yo` 编译器用 [TypeScript](https://www.typescriptlang.org/) 编写，使用 [Bun](https://bun.sh/) 作为运行时。
+`Yo` 编译器是**自举**的：它用 Yo 自身编写，代码位于 [`yo-self/`](../../yo-self/)。
+构建它需要一个已经安装好的 `yo` 二进制（可以用[安装脚本](#安装脚本推荐)获取）以及一个
+C 编译器 —— 工具链中已经不再有 TypeScript、Node.js、npm 或 bun。
 
 Yo 主要在 Steam Deck LCD（Linux）上开发。编译器目前将 Yo 转换为 C；要生成机器码，你必须有一个 C 编译器（例如 `gcc`、`clang`、`zig`、`emcc` 等）。
 
@@ -348,51 +339,53 @@ Yo 主要在 Steam Deck LCD（Linux）上开发。编译器目前将 Yo 转换�
 $ cd Yo
 $ direnv allow . # 运行此命令激活 nix shell。
                   # 只需运行一次。
-$ bun install    # 安装必要的依赖项。
 ```
 
-运行以下命令监视更改并构建项目：
+没有包管理器的安装步骤。唯一的第三方依赖是 git 子模块：
 
 ```bash
-$ bun run dev
+$ git submodule update --init --recursive
 ```
 
-运行以下命令构建项目：
+对编译器源码做类型检查（只跑求值器，不生成代码 —— 这是最快的迭代循环）：
 
 ```bash
-$ bun run build
+$ yo check ./yo-self
 ```
 
-测试本地 yo-cli：
+从源码构建编译器。务必加上 `--release`：在 `-O0` 下，求值器中那些大函数的栈帧有好几
+兆字节，编译期的深度递归会耗尽栈空间。
 
 ```bash
-$ bun run src/yo-cli.ts compile src/tests/fixme.yo
+$ yo compile yo-self/main.yo --release -o /tmp/yo-self-bin
+```
 
-# 项目中还有一个 `yo-cli` 脚本用于测试：
-$ ./yo-cli compile src/tests/fixme.yo
+> **监视重建的循环已经没有了。** `bun run dev` 会在文件变更时重新构建 TypeScript
+> 编译器；它没有任何替代品。改动之后请重新运行上面的 `yo compile`。
+
+用刚构建出来的编译器试跑一个临时程序（`./tmp/` 已被 gitignore —— 请把一次性的 `.yo`
+文件放在那里）：
+
+```bash
+$ /tmp/yo-self-bin compile ./tmp/fixme.yo --release -o /tmp/fixme && /tmp/fixme
+```
+
+用 `yo test` 运行测试套件：
+
+```bash
+$ yo test ./tests --exclude tests/internal --exclude tests/cli-cases --bail
+$ yo test ./tests/internal --parallel 1   # 编译器自身的测试
 ```
 
 ## 编辑器支持
 
-- VS Code 扩展可在 [这里](https://marketplace.visualstudio.com/items?itemName=shd101wyy.yolang) 获取，内置 **语言服务器协议（LSP）** 支持，提供：
+- VS Code 扩展可在 [这里](https://marketplace.visualstudio.com/items?itemName=shd101wyy.yolang) 获取，为 `.yo` 文件提供语法高亮。
 
-  - **悬停信息** —— 任意标识符的类型、值和文档注释
-  - **自动补全** —— 结构体字段、枚举变体、模块成员、impl 方法、关键字
-  - **跳转到定义** —— 跳转到任意符号的定义处
-  - **查找引用** —— 定位符号的所有使用位置
-  - **重命名符号** —— 跨所有引用重命名
-  - **文档符号** —— 顶层声明的大纲视图
-  - **签名帮助** —— 输入函数调用时的参数提示
-  - **诊断** —— 实时错误报告
-  - **代码折叠** —— 折叠函数体、结构体、impl 块
-
-  LSP 服务器也可以通过 stdio JSON-RPC 在其他编辑器中使用：
-
-  ```bash
-  node out/cjs/yo-lsp.cjs --stdio
-  ```
-
-  完整文档请参阅 [docs/zh-CN/LSP.md](./LSP.md)。
+  **扩展内置的语言服务器协议（LSP）支持目前已经没有了。** 悬停信息、自动补全、跳转到
+  定义、查找引用、重命名符号、文档符号、签名帮助、诊断和代码折叠都由一个 TypeScript
+  编写的 LSP 服务器提供，它直接调用 TypeScript 求值器；Yo 转为自举之后，它与整个
+  TypeScript 编译器一起被删除了。目前还没有替代品，Yo 原生的服务器正在计划中。
+  它需要恢复的行为记录在 [docs/zh-CN/LSP.md](./LSP.md)。
 
 - Vim / Neovim：最小化的语法文件和使用说明位于 `vscode-extension/syntaxes/`。
   详见 [vscode-extension/syntaxes/README.md](../../vscode-extension/syntaxes/README.md) 了解安装步骤、`ftdetect` 示例和 `home-manager` 片段。
@@ -414,7 +407,7 @@ yo version list
 yo version clean
 ```
 
-当 `.yo-version` 文件存在时，`yo` CLI 会自动分发到固定的版本 —— 首次使用时下载并缓存。LSP 服务器也会读取 `.yo-version`，为跳转到定义和补全解析正确的标准库。
+当 `.yo-version` 文件存在时，`yo` CLI 会自动分发到固定的版本 —— 首次使用时下载并缓存对应的原生发布包。
 
 完整文档请参阅 [docs/zh-CN/VERSION_MANAGEMENT.md](./VERSION_MANAGEMENT.md)。
 

@@ -1,5 +1,6 @@
 /// Tests for format_yo_source (formatter.yo) — the source formatter had no
-/// dedicated test (only the indirect scripts/validate-yo-self-fmt.ts sweep).
+/// dedicated test (only an indirect whole-tree sweep, now `yo fmt --check`
+/// plus the write-idempotence check in gates_fast.sh GATE 6).
 /// Pin the cheap invariants: idempotency (format(format(x)) == format(x)),
 /// stability of already-formatted input, and comment preservation.
 open(import("std/string"));
@@ -48,9 +49,9 @@ test("format_yo_source: idempotent on nested calls and match", {
 // NON-canonical source (the suffix is not .yo so GATE 6's `fmt --check
 // ./tests` skips them); the .expected next to it is the canonical output the
 // TS formatter produced and pinned. This is the coverage GATE 6 cannot give:
-// the 808-file differential only proves both compilers agree on
-// already-canonical text, never that messy input NORMALIZES correctly.
-// Assumes the runner's cwd is the repo root (how `./yo-cli test` and CI run).
+// a whole-tree `fmt --check` only proves already-canonical text stays
+// canonical, never that messy input NORMALIZES correctly.
+// Assumes the runner's cwd is the repo root (how `yo test` and CI run).
 // ---------------------------------------------------------------------------
 { Path } :: import("std/path");
 fs_dir :: import("std/fs/dir");

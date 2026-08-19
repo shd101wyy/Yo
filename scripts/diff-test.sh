@@ -1,39 +1,49 @@
 #!/usr/bin/env bash
 #
-# diff-test.sh — differential test harness for the codegen bootstrap.
+# diff-test.sh — golden test harness for the codegen corpus.
 # See plans/archive/BOOTSTRAPPING_CODEGEN.md (Phase 0).
 #
-# Compiles/runs a .yo file (or every .yo under a directory) with BOTH compilers:
-#   * the TypeScript reference compiler  (node out/cjs/yo-cli.cjs)
-#   * the self-hosted binary             (yo-self-bin)
-# then compares BEHAVIOR — stdout + exit code (for runnable programs) or the
-# test-runner pass/total summary + exit code (for *.test.yo files).
+# Compiles/runs a .yo file (or every .yo under a directory) with the self-hosted
+# binary (yo-self-bin) and compares BEHAVIOR against a recorded golden — stdout
+# + exit code (for runnable programs) or the test-runner pass/total summary +
+# exit code (for *.test.yo files).
 #
 # This is the `check`-equivalent for the whole codegen phase: run it after every
 # porting batch. Equivalence is judged by RUN BEHAVIOR, never C-text equality.
 #
-# Per-file verdicts:
-#   PASS       both compiled+ran and behavior matched
-#   DIFF       both compiled+ran but stdout / exit-code / test-summary differ
-#   SELF-FAIL  the self-hosted compiler failed to compile/run (TS succeeded)
-#              — fails the harness; pass --allow-self-fail for a mid-port sweep
-#   TS-FAIL    the TS reference compiler failed (flags a broken test/baseline)
-#   BOTH-FAIL  both compilers failed (e.g. the circular_error_{a,b} baseline)
+# It began as a TWO-COMPILER differential against the TypeScript reference
+# (`node out/cjs/yo-cli.cjs`) and the name is from that era. That compiler was
+# deleted with `src/` (P2.5), so the goldens are now the only reference — which
+# is exactly the post-retirement form the golden mode was built for while both
+# arms still existed (plans/P2_5_RETIRE_EXECUTION.md step 13).
 #
-# ── Golden mode (the TS arm is optional) ────────────────────────────────────
-# When `out/cjs/yo-cli.cjs` is missing — or `--golden` is passed — the harness
-# scores the self-hosted arm against per-file goldens under
-# <target>/goldens/<file>.golden instead of against the TS reference
-# (plans/P2_5_RETIRE_EXECUTION.md step 13). A golden pins exactly what the
-# differential asserts: for a *.test.yo, the runner's pass/total summary + rc;
-# for a runnable program, the compile rc, the run rc and the full stdout.
-# Record with --record (self arm). A file with no golden is NO-GOLDEN and
-# fails the run. Golden-mode verdicts: PASS / GOLDEN-DIFF / NO-GOLDEN.
+# ── Goldens are the reference ───────────────────────────────────────────────
+# Per-file goldens live under <dir-of-file>/goldens/<basename>.golden. A golden
+# pins exactly what the harness asserts: for a *.test.yo, the runner's
+# pass/total summary + rc; for a runnable program, the compile rc, the run rc
+# and the full stdout. Record with --record; re-record ONLY for an intended
+# behavior change, in the same commit as the change that caused it. The corpus
+# is run-deterministic by construction.
+#
+# Per-file verdicts:
+#   PASS         the run matches the recorded golden
+#   GOLDEN-DIFF  it does not (compile rc, run rc, summary, or stdout). A
+#                self-hosted compile failure lands here too — the golden
+#                records the successful compile rc it no longer produces.
+#   NO-GOLDEN    the file has no golden — record it, or drop the file. A file
+#                that scores nothing is indistinguishable from a passing one,
+#                so this FAILS the run rather than skipping.
+#   RECORDED     (--record only) the golden was written from this run
 #
 # Usage:
 #   scripts/diff-test.sh <path> [--parallel N] [--cc clang|gcc|zig]
 #                               [--release] [--filter SUBSTR] [-v]
-#                               [--allow-self-fail] [--golden] [--record]
+#                               [--golden] [--record]
+#
+# `--golden` is accepted and ignored: golden scoring is the only mode now that
+# the TS reference is gone. It is kept so existing callers keep working.
+# `--cc` / `--release` are behavior-affecting for the compile-and-run files, so
+# score with the same flags the goldens were recorded with.
 #
 # Env:
 #   YO_SELF_BIN        path to the self-hosted binary (default /tmp/yo-self-bin)
@@ -46,7 +56,6 @@ cd "$REPO_ROOT" || exit 2
 
 YO_SELF_BIN="${YO_SELF_BIN:-/tmp/yo-self-bin}"
 export YO_MAIN_STACK_MB="${YO_MAIN_STACK_MB:-4096}"
-TS_CLI=(node "$REPO_ROOT/out/cjs/yo-cli.cjs")
 
 PARALLEL=1
 CC=clang
@@ -54,12 +63,10 @@ RELEASE=""
 FILTER=""
 VERBOSE=0
 TARGET=""
-ALLOW_SELF_FAIL=0   # 1 = tolerate SELF-FAIL/BOTH-FAIL (mid-port sweeps only)
 RUN_TIMEOUT=120     # seconds per compiled-program run
-MODE=diff           # diff | golden
 RECORD=0
 
-usage() { sed -n '2,45p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '2,50p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -68,8 +75,7 @@ while [[ $# -gt 0 ]]; do
     --release)  RELEASE="--release"; shift ;;
     --filter)   FILTER="$2"; shift 2 ;;
     -v|--verbose) VERBOSE=1; shift ;;
-    --allow-self-fail) ALLOW_SELF_FAIL=1; shift ;;
-    --golden)   MODE=golden; shift ;;
+    --golden)   shift ;;   # no-op: golden scoring is the only mode
     --record)   RECORD=1; shift ;;
     -h|--help)  usage 0 ;;
     -*)         echo "unknown flag: $1" >&2; usage 2 ;;
@@ -79,13 +85,7 @@ done
 
 [[ -z "$TARGET" ]] && { echo "error: no target path given" >&2; usage 2; }
 [[ -e "$TARGET" ]] || { echo "error: target not found: $TARGET" >&2; exit 2; }
-[[ -x "$YO_SELF_BIN" ]] || echo "warning: YO_SELF_BIN not found/executable: $YO_SELF_BIN (self side will all SELF-FAIL)" >&2
-# The TS arm is optional: without it the harness scores the self arm against
-# the recorded goldens instead of failing every file (what outlives src/).
-if [[ "$MODE" == "diff" && $RECORD -eq 0 && ! -f "$REPO_ROOT/out/cjs/yo-cli.cjs" ]]; then
-  echo "note: out/cjs/yo-cli.cjs missing — no TS arm, falling back to golden mode" >&2
-  MODE=golden
-fi
+[[ -x "$YO_SELF_BIN" ]] || echo "warning: YO_SELF_BIN not found/executable: $YO_SELF_BIN (every file will GOLDEN-DIFF)" >&2
 
 # Goldens live beside the corpus: <dir-of-file>/goldens/<basename>.golden.
 golden_path() {
@@ -141,101 +141,42 @@ process_file() {
   local out_line verdict detail
   local work; work="$(mktemp -d)"
 
-  # ── golden mode / recording: the self arm only ─────────────────────────────
-  if [[ $RECORD -eq 1 || "$MODE" == "golden" ]]; then
-    local gfile head body=""
-    gfile="$(golden_path "$f")"
-    if [[ "$f" == *.test.yo ]]; then
-      local self_out self_rc self_sum
-      self_out="$("$YO_SELF_BIN" test "$f" 2>&1 | strip_ansi)"; self_rc=${PIPESTATUS[0]}
-      self_sum="$(test_summary "$self_out")"
-      head="mode=test rc=$self_rc summary=$self_sum"
-    else
-      local self_crc self_rrc=-
-      "$YO_SELF_BIN" compile "$f" --c-compiler "$CC" $RELEASE -o "$work/self.out" >"$work/self.compile" 2>&1; self_crc=$?
-      if [[ $self_crc -eq 0 ]]; then
-        body="$(run_with_timeout "$RUN_TIMEOUT" "$work/self.out" 2>&1)"; self_rrc=$?
-      fi
-      head="mode=run compile_rc=$self_crc rc=$self_rrc"
+  local gfile head body=""
+  gfile="$(golden_path "$f")"
+  if [[ "$f" == *.test.yo ]]; then
+    local run_out run_rc run_sum
+    run_out="$("$YO_SELF_BIN" test "$f" 2>&1 | strip_ansi)"; run_rc=${PIPESTATUS[0]}
+    run_sum="$(test_summary "$run_out")"
+    head="mode=test rc=$run_rc summary=$run_sum"
+  else
+    local crc rrc=-
+    "$YO_SELF_BIN" compile "$f" --c-compiler "$CC" $RELEASE -o "$work/self.out" >"$work/self.compile" 2>&1; crc=$?
+    if [[ $crc -eq 0 ]]; then
+      body="$(run_with_timeout "$RUN_TIMEOUT" "$work/self.out" 2>&1)"; rrc=$?
     fi
-
-    if [[ $RECORD -eq 1 ]]; then
-      mkdir -p "$(dirname "$gfile")"
-      { printf '%s\n' "$head"; [[ -n "$body" ]] && printf '%s\n' "$body"; } > "$gfile"
-      verdict=RECORDED; detail="$head"
-    elif [[ ! -f "$gfile" ]]; then
-      verdict=NO-GOLDEN; detail="no golden — record with --record"
-    else
-      local exp_head exp_body got
-      exp_head="$(head -1 "$gfile")"
-      exp_body="$(tail -n +2 "$gfile")"
-      got="$head"
-      if [[ "$exp_head" != "$got" ]]; then
-        verdict=GOLDEN-DIFF; detail="golden($exp_head) self($got)"
-      elif [[ "$exp_body" != "$body" ]]; then
-        verdict=GOLDEN-DIFF; detail="stdout differs from golden"
-        if [[ $VERBOSE -eq 1 ]]; then
-          diff <(printf '%s\n' "$exp_body") <(printf '%s\n' "$body") | head -20 | sed 's/^/      /' >&2
-        fi
-      else
-        verdict=PASS; detail="$head"
-      fi
-    fi
-
-    printf '%s\t%s\t%s\n' "$verdict" "$f" "$detail" > "$RESULT_DIR/$slot"
-    rm -rf "$work"
-    [[ $VERBOSE -eq 1 ]] && printf '  %-10s %s  (%s)\n' "$verdict" "$f" "$detail" >&2
-    return
+    head="mode=run compile_rc=$crc rc=$rrc"
   fi
 
-  if [[ "$f" == *.test.yo ]]; then
-    # ---- test mode -----------------------------------------------------
-    local ts_out ts_rc self_out self_rc ts_sum self_sum
-    ts_out="$("${TS_CLI[@]}" test "$f" --parallel 1 --c-compiler "$CC" $RELEASE 2>&1 | strip_ansi)"; ts_rc=${PIPESTATUS[0]}
-    if [[ -x "$YO_SELF_BIN" ]]; then
-      self_out="$("$YO_SELF_BIN" test "$f" 2>&1 | strip_ansi)"; self_rc=${PIPESTATUS[0]}
-    else
-      self_out=""; self_rc=127
-    fi
-    ts_sum="$(test_summary "$ts_out")"
-    self_sum="$(test_summary "$self_out")"
-    local ts_ok=0 self_ok=0
-    [[ $ts_rc -eq 0 ]] && ts_ok=1
-    [[ $self_rc -eq 0 ]] && self_ok=1
-    if [[ $ts_ok -eq 1 && $self_ok -eq 1 ]]; then
-      if [[ "$ts_sum" == "$self_sum" ]]; then verdict=PASS; else verdict=DIFF; fi
-      detail="ts=$ts_sum self=$self_sum"
-    elif [[ $ts_ok -eq 0 && $self_ok -eq 0 ]]; then
-      verdict=BOTH-FAIL; detail="ts_rc=$ts_rc self_rc=$self_rc"
-    elif [[ $self_ok -eq 0 ]]; then
-      verdict=SELF-FAIL; detail="ts=$ts_sum(rc0) self_rc=$self_rc"
-    else
-      verdict=TS-FAIL;   detail="ts_rc=$ts_rc self=$self_sum(rc0)"
-    fi
+  if [[ $RECORD -eq 1 ]]; then
+    mkdir -p "$(dirname "$gfile")"
+    { printf '%s\n' "$head"; [[ -n "$body" ]] && printf '%s\n' "$body"; } > "$gfile"
+    verdict=RECORDED; detail="$head"
+  elif [[ ! -f "$gfile" ]]; then
+    verdict=NO-GOLDEN; detail="no golden — record with --record"
   else
-    # ---- compile-and-run mode -----------------------------------------
-    local ts_crc self_crc
-    "${TS_CLI[@]}" compile "$f" --c-compiler "$CC" $RELEASE -o "$work/ts.out" >"$work/ts.compile" 2>&1; ts_crc=$?
-    if [[ -x "$YO_SELF_BIN" ]]; then
-      "$YO_SELF_BIN" compile "$f" --c-compiler "$CC" $RELEASE -o "$work/self.out" >"$work/self.compile" 2>&1; self_crc=$?
-    else
-      self_crc=127
-    fi
-    if [[ $ts_crc -ne 0 && $self_crc -ne 0 ]]; then
-      verdict=BOTH-FAIL; detail="ts/self compile failed"
-    elif [[ $ts_crc -ne 0 ]]; then
-      verdict=TS-FAIL; detail="ts compile failed"
-    elif [[ $self_crc -ne 0 ]]; then
-      verdict=SELF-FAIL; detail="self compile failed"
-    else
-      local ts_run ts_rrc self_run self_rrc
-      ts_run="$(run_with_timeout "$RUN_TIMEOUT" "$work/ts.out" 2>&1)"; ts_rrc=$?
-      self_run="$(run_with_timeout "$RUN_TIMEOUT" "$work/self.out" 2>&1)"; self_rrc=$?
-      if [[ "$ts_run" == "$self_run" && $ts_rrc -eq $self_rrc ]]; then
-        verdict=PASS; detail="rc=$ts_rrc"
-      else
-        verdict=DIFF; detail="ts_rc=$ts_rrc self_rc=$self_rrc"
+    local exp_head exp_body got
+    exp_head="$(head -1 "$gfile")"
+    exp_body="$(tail -n +2 "$gfile")"
+    got="$head"
+    if [[ "$exp_head" != "$got" ]]; then
+      verdict=GOLDEN-DIFF; detail="golden($exp_head) run($got)"
+    elif [[ "$exp_body" != "$body" ]]; then
+      verdict=GOLDEN-DIFF; detail="stdout differs from golden"
+      if [[ $VERBOSE -eq 1 ]]; then
+        diff <(printf '%s\n' "$exp_body") <(printf '%s\n' "$body") | head -20 | sed 's/^/      /' >&2
       fi
+    else
+      verdict=PASS; detail="$head"
     fi
   fi
 
@@ -257,11 +198,10 @@ done
 wait
 
 # ---- aggregate -------------------------------------------------------------
-declare -A COUNT=( [PASS]=0 [DIFF]=0 [SELF-FAIL]=0 [TS-FAIL]=0 [BOTH-FAIL]=0
-                   [GOLDEN-DIFF]=0 [NO-GOLDEN]=0 [RECORDED]=0 )
+declare -A COUNT=( [PASS]=0 [GOLDEN-DIFF]=0 [NO-GOLDEN]=0 [RECORDED]=0 )
 total=0
 echo
-echo "Differential scorecard"
+echo "Golden scorecard"
 echo "──────────────────────────────────────────────"
 for i in $(seq 0 $((slot - 1))); do
   [[ -f "$RESULT_DIR/$i" ]] || continue
@@ -275,26 +215,19 @@ done
 echo "──────────────────────────────────────────────"
 if [[ $RECORD -eq 1 ]]; then
   printf 'RECORDED %d  (total %d)\n' "${COUNT[RECORDED]}" "$total"
-elif [[ "$MODE" == "golden" ]]; then
+else
+  # Keep this line's shape: gates_fast.sh GATE 2 greps it for `GOLDEN-DIFF 0`
+  # and `NO-GOLDEN 0` as defence-in-depth behind the exit code.
   printf 'PASS %d  GOLDEN-DIFF %d  NO-GOLDEN %d  (total %d)\n' \
     "${COUNT[PASS]}" "${COUNT[GOLDEN-DIFF]}" "${COUNT[NO-GOLDEN]}" "$total"
-else
-  printf 'PASS %d  DIFF %d  SELF-FAIL %d  TS-FAIL %d  BOTH-FAIL %d  (total %d)\n' \
-    "${COUNT[PASS]}" "${COUNT[DIFF]}" "${COUNT[SELF-FAIL]}" "${COUNT[TS-FAIL]}" "${COUNT[BOTH-FAIL]}" "$total"
 fi
 
-# Exit non-zero on any verdict that means the self-hosted compiler is wrong or
-# broken. SELF-FAIL/BOTH-FAIL used to be tolerated here ("expected during the
-# port") — that stopped being true when the bootstrap completed, and the silent
-# exit-0 meant any caller other than gates_fast.sh (which greps the scorecard
-# line for `SELF-FAIL 0`) would go GREEN over a compiler that cannot compile the
-# corpus at all. Pass --allow-self-fail to restore the old behavior for a
-# genuine mid-port sweep.
-FAILED=$(( ${COUNT[DIFF]} + ${COUNT[TS-FAIL]} + ${COUNT[GOLDEN-DIFF]} + ${COUNT[NO-GOLDEN]} ))
-if [[ $ALLOW_SELF_FAIL -eq 0 ]]; then
-  FAILED=$(( FAILED + ${COUNT[SELF-FAIL]} + ${COUNT[BOTH-FAIL]} ))
-elif [[ ${COUNT[SELF-FAIL]} -gt 0 || ${COUNT[BOTH-FAIL]} -gt 0 ]]; then
-  echo "note: --allow-self-fail tolerated ${COUNT[SELF-FAIL]} SELF-FAIL + ${COUNT[BOTH-FAIL]} BOTH-FAIL"
-fi
+# Exit non-zero on any verdict that means the compiler is wrong or broken. A
+# self-hosted compile failure is a GOLDEN-DIFF (the golden records the compile
+# rc it no longer produces), and NO-GOLDEN counts too: a file that scores
+# nothing is indistinguishable from a passing one, so it must never be a silent
+# skip. The old `--allow-self-fail` escape hatch is gone with the two-compiler
+# mode it belonged to.
+FAILED=$(( ${COUNT[GOLDEN-DIFF]} + ${COUNT[NO-GOLDEN]} ))
 if [[ $FAILED -gt 0 ]]; then exit 1; fi
 exit 0

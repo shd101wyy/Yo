@@ -98,6 +98,8 @@ function Get-OsArch {
 #     compiler can be selected with --cc).
 #   * git — REQUIRED for `yo fetch` / `yo install`, which resolve dependencies
 #     by shelling out to git. Compiling works without it.
+#   * the Windows SDK — REQUIRED, and NOT installable from here. See
+#     Test-CToolchain below for why this cannot be a package in the list above.
 #
 # There is no liburing on Windows (io_uring is Linux-only), and mimalloc is
 # compiled from the vendored sources shipped in the bundle, so there is no
@@ -144,6 +146,61 @@ git was not found on PATH. 'yo compile' works without it, but 'yo fetch' and
 Install it with: winget install Git.Git
 '@
   }
+  Test-CToolchain
+}
+
+# `clang` on PATH is NOT the same as a working C toolchain on Windows, and this
+# is the one prerequisite the installer cannot satisfy for the user.
+#
+# Clang here targets MSVC. It ships its own compiler headers but NOT the C
+# runtime: <stdio.h> lives in the Windows SDK's UCRT, and the import libraries
+# Yo links against (-lws2_32 -lbcrypt -ladvapi32, see yo-self/main.yo) are SDK
+# libraries too. `winget install LLVM.LLVM` installs clang alone, so a machine
+# with no Visual Studio ends up with a clang that cannot build anything.
+#
+# It is not added to Install-Dependencies because the Build Tools are a
+# multi-gigabyte install; a script piped from the internet should not start one
+# unasked. Naming it precisely is the useful thing.
+#
+# Why this was missed until now: install-scripts.yml exercises install.ps1 on
+# `windows-latest`, which ships Visual Studio — so CI has always had an SDK and
+# has never once run the configuration a new user actually has. The repo README
+# documents the requirement (both languages); nothing in the install path did.
+#
+# The probe is a real compile-and-link rather than a registry or path check,
+# for the same reason Verify-Install compiles a hello world: it is the only
+# check that cannot be fooled by a partial install.
+function Test-CToolchain {
+  if (-not (Has-Cmd 'clang')) { return }   # already reported above
+  # New-TempDir hands back the SHARED script-scoped directory, so this does not
+  # clean up after itself — Verify-Install compiles into the same place for the
+  # same reason, and the single Remove-TempDir at the end of the run covers it.
+  $tmp = New-TempDir
+  $src = Join-Path $tmp 'probe.c'
+  "#include <stdio.h>`nint main(void) { return 0; }" | Set-Content -Path $src -Encoding UTF8
+  $out = Join-Path $tmp 'probe.exe'
+  $log = & clang $src -o $out 2>&1
+  if ($LASTEXITCODE -eq 0) { return }
+  Warn @"
+clang is on PATH but cannot build a C program on this machine, so 'yo compile'
+will fail.
+
+Clang on Windows targets MSVC: the C runtime headers (stdio.h) and the import
+libraries Yo links against (ws2_32, bcrypt, advapi32) come from the WINDOWS SDK,
+which the LLVM package does not include.
+
+Install the "Desktop development with C++" workload — it provides MSVC, the
+Windows SDK and the linker:
+
+    winget install Microsoft.VisualStudio.2022.BuildTools --override "--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended --quiet"
+
+or download Visual Studio (Community edition is free) from
+https://visualstudio.microsoft.com/downloads/ and select that workload. Then
+reopen your terminal and re-run this installer.
+
+clang reported:
+$(($log | Out-String).Trim())
+"@
 }
 
 # ---------------------------------------------------------------------------

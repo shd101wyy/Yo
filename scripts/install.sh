@@ -716,10 +716,36 @@ install_from_source() {
 
   # -w: the emitted C is machine-generated and warns freely; warnings here are
   # noise, not signal, and would bury a real error.
+  # -luring is REQUIRED whenever <liburing.h> is present, and must be decided
+  # here rather than assumed. The emitted C opens its Linux async runtime with
+  # `#if __has_include(<liburing.h>)` — a check made on THIS machine at this
+  # moment — and the runtime it then compiles in calls real liburing symbols
+  # (io_uring_queue_init/_submit/_wait_cqe), not just the header's static
+  # inlines. So the header alone flips on code that cannot link without the
+  # library, which is the exact trap check_liburing_consistency warns about;
+  # this line simply has to obey it.
+  #
+  # Getting it wrong is worse than a link error in one direction: with NO
+  # header the file compiles happily and the async runtime is silently
+  # replaced by stubs, producing a `yo` that cannot read source files at all
+  # (test.yml's musl leg asserts against exactly that outcome).
+  #
+  # pkg-config is the same oracle the compiler itself consults before adding
+  # -luring, so this stays consistent with a bundle-built compiler.
+  uring_libs=""
+  if [ "$OSNAME" = "linux" ] && has_cmd pkg-config && pkg-config --exists liburing 2>/dev/null; then
+    uring_libs="$(pkg-config --libs liburing 2>/dev/null || echo -luring)"
+    info "  liburing: $uring_libs (async I/O compiled in)"
+  elif [ "$OSNAME" = "linux" ]; then
+    warn "liburing is not visible to pkg-config, so async I/O will be compiled OUT"
+    warn "and the resulting compiler cannot read source files. Install it first"
+    warn "(e.g. 'apt-get install pkg-config liburing-dev') and re-run."
+  fi
+
   info "Compiling yo.c (this takes a minute).."
-  # shellcheck disable=SC2086  # CFLAGS_OVERRIDE is intentionally word-split
+  # shellcheck disable=SC2086  # CFLAGS_OVERRIDE and uring_libs are intentionally word-split
   "$CC_BIN" -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
-    "$YO_TEMP_DIR/yo.c" -o "$YO_TEMP_DIR/yo" $CFLAGS_OVERRIDE -lpthread -lm \
+    "$YO_TEMP_DIR/yo.c" -o "$YO_TEMP_DIR/yo" $CFLAGS_OVERRIDE -lpthread -lm $uring_libs \
     || stop "Failed to compile yo.c with $CC_BIN.
   On Linux, install the liburing development headers first (see --help)."
 

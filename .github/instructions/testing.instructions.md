@@ -1,20 +1,25 @@
 ---
-description: "Use when running tests, setting up test files, or debugging test failures in the Yo compiler. Covers yo-cli test, bun test, sanitizers, and test file constraints."
+description: "Use when running tests, setting up test files, or debugging test failures in the Yo compiler. Covers yo test, sanitizers, and test file constraints."
 ---
 
 # Testing Workflows
 
-## Evaluator tests (TypeScript)
+> Every command here is the self-hosted compiler `yo`, a native binary from a
+> release bundle on your `PATH`. The `./yo-cli` bash shim, the TypeScript
+> compiler under `src/`, and the `bun test` suites that exercised it are all
+> deleted — there is no bun, npm, or node in this repo outside
+> `vscode-extension/`.
 
-- Run: `bun test src/tests/fixme.test.ts --timeout 10000`
-- Tests the `fixme.yo` file with the Yo evaluator.
-- Usually don't modify `fixme.yo` unless told to do so.
-- You can comment out existing code in `src/tests/fixme.yo` and create new code there.
+## Scratch experiments
+
+- `tmp/fixme.yo` is the scratch file for one-off experiments (`tmp*` is gitignored). It replaces the old `src/tests/fixme.yo`.
+- Type-check it with `yo check tmp/fixme.yo`; compile and run it with `yo compile tmp/fixme.yo --release -o a.out && ./a.out`.
+- Its contents are disposable — there is no need to restore them after modifying it.
 
 ## C codegen tests
 
-- Run specific test: `./yo-cli test ./tests/XXX.test.yo` (add `-v` for verbose)
-- The **full test suite** (`./yo-cli test --bail`) takes ~30 minutes on a Mac Mini M4 and is safe to run locally. Use it for broad regression checks after significant changes.
+- Run specific test: `yo test ./tests/XXX.test.yo` (add `-v` for verbose)
+- The **full test suite** (`yo test --bail`) takes ~30 minutes on a Mac Mini M4 and is safe to run locally. Use it for broad regression checks after significant changes.
 - `--bail` or `-b` — stop after first failure
 - `-v` or `--verbose` — show detailed errors
 - `--test-name-pattern "Test XXX"` — run specific test by name
@@ -22,16 +27,17 @@ description: "Use when running tests, setting up test files, or debugging test f
 
 ## Evaluator-only check (no codegen)
 
-- `./yo-cli check <file-or-dir>` — runs the evaluator on a single `.yo` file or every `.yo` under a directory and prints any type / evaluator errors. No C generation, no C compile.
+- `yo check <file-or-dir>` — runs the evaluator on a single `.yo` file or every `.yo` under a directory and prints any type / evaluator errors. No C generation, no C compile.
 - Much faster than `compile` for "does this still type-check?" iteration during refactors or migrations.
-- Useful as a bulk sanity pass after touching many files: `./yo-cli check std/` to confirm std still type-checks before running any test.
+- Useful as a bulk sanity pass after touching many files: `yo check ./yo-self` or `yo check std/` before running any test.
+- **`check` is evaluator-only.** The async state-machine restrictions are enforced in CODEGEN, so `check` passes straight over them. Use `yo compile yo-self/main.yo --skip-c-compiler` (~3 min) to catch that class.
 
 ## Build system tests
 
-- Run: `bun test src/tests/build-system.test.ts --timeout 10000`
-- Tests cover: BuildRegistry, artifacts, steps, DAG, dependencies, lock file, target parsing, path deps, transitive deps
-- Currently 86+ tests
-- These are TypeScript unit tests, not `.yo` integration tests
+- The build system is covered by `.yo` tests in `tests/internal/`: `build_runner.test.yo`, `lock_file.test.yo`, `target.test.yo`, `fetch.test.yo`, `install_command.test.yo`, `cache.test.yo`, `init.test.yo`, `version.test.yo`.
+- Tests cover: build registry, artifacts, steps, DAG, dependencies, lock file, target parsing, path deps, transitive deps.
+- Run them like any other internal test: `yo test ./tests/internal/build_runner.test.yo --parallel 1`.
+- End-to-end CLI subcommand behaviour is covered separately by the `tests/cli-cases/` corpus.
 
 ## A fixpoint run's stage-1 must come from the SAME tree it compiles
 
@@ -59,34 +65,35 @@ anything that changes `std/` shifts every program that links it.
 
 These are the self-hosted compiler's own tests. **They lived at `yo-self/tests/`
 until 2026-08-05**; translate that path when reading older `issues/` and `plans/`
-documents. They moved because `src/` (TypeScript) will eventually be retired and
-`yo-self/` will become `src/`, so the tests belong under `tests/` now rather than
+documents. They moved because the TypeScript `src/` was going to be retired and
+`yo-self/` renamed to `src/`, so the tests belong under `tests/` rather than
 being shuffled again later.
 
 ```bash
-./yo-cli test ./tests/internal --parallel 1        # all 58 files
-./yo-cli test ./tests/internal/lexer.test.yo --parallel 1
-./yo-cli test ./tests/internal/parser.test.yo --parallel 1
+yo test ./tests/internal --parallel 1        # the whole directory
+yo test ./tests/internal/lexer.test.yo --parallel 1
+yo test ./tests/internal/parser.test.yo --parallel 1
 ```
 
-- 58 files. They import `yo-self/` internals via `../../yo-self/...`, so every file
+- They import `yo-self/` internals via `../../yo-self/...`, so every file
   that reaches `evaluator/index.yo` pays a full compiler-sized Yo compile.
-- **MEASURED 2026-08-05, M4, `--parallel 1`:** 40.5 min under the TS compiler,
-  22.2 min under the self-hosted binary (which is ~2x faster), 63 min for a
-  both-compilers differential.
-- **Use `--parallel 1`, and run one compiler at a time.** `macro_expansion` alone
+- **MEASURED 2026-08-05, M4, `--parallel 1`, 58 files:** 22.2 min under the
+  self-hosted binary. (The same sweep took 40.5 min under the since-deleted TS
+  compiler, and 63 min as a both-compilers differential — historical, no longer
+  runnable.)
+- **Use `--parallel 1`, and run one at a time.** `macro_expansion` alone
   peaks at ~6.5 GB, so two concurrent children on a 16 GB machine swap — and the
   swapping trips the runner's own 600 s evaluator deadline, MANUFACTURING failures
-  that do not reproduce in isolation. (The self-hosted runner ignores `--parallel`
+  that do not reproduce in isolation. (The runner ignores `--parallel`
   regardless: "Accepted for CLI compatibility; v1 runs sequentially".)
-- The fast language suite excludes them: `./yo-cli test ./tests --exclude tests/internal`.
-  CI does the same, and runs `tests/internal` as its own informational job under
-  both compilers (`compiler-internal-tests` in `.github/workflows/test.yml`).
+- The fast language suite excludes them: `yo test ./tests --exclude tests/internal`.
+  CI does the same, and runs `tests/internal` as its own informational job
+  (`compiler-internal-tests` in `.github/workflows/test.yml`).
 - Run them whenever modifying `yo-self/` source or these tests.
 - No WASM directives needed (pure logic, no I/O syscalls) — but they are
   host-toolchain-only in CI, excluded from the emcc and wasm-wasi jobs.
 - Large `.test.yo` files are batch-compiled in chunks of 100 tests by default. Use `--test-batch-size N` to tune this when a generated C batch is too large or when you need tighter failure isolation. Smaller batches reduce C size but repeat Yo compilation, so avoid lowering this unless needed.
-- Do not run multiple `./yo-self/yo-self-bin test ...` commands concurrently. The self-hosted test path currently writes shared scratch files such as `/tmp/yo_self_out.c`, so concurrent runs can collide and produce misleading compile errors or skipped-test counts.
+- Do not run multiple `yo test ...` commands concurrently. The test path currently writes shared scratch files such as `/tmp/yo_self_out.c`, so concurrent runs can collide and produce misleading compile errors or skipped-test counts.
 
 #### A hollow batch voids EVERY test in it, not one
 
@@ -126,8 +133,8 @@ affects ALL branches and ALL test files, including a trivial `assert(true)`.
 **Workaround**: pass `--disable-sanitize` to skip AddressSanitizer linkage:
 
 ```bash
-./yo-cli test ./tests/basic.test.yo --disable-sanitize --parallel 1
-./yo-cli test ./tests/internal --disable-sanitize --parallel 1
+yo test ./tests/basic.test.yo --disable-sanitize --parallel 1
+yo test ./tests/internal --disable-sanitize --parallel 1
 ```
 
 This disables leak detection on macOS, but tests still validate logic.
@@ -137,7 +144,7 @@ See `issues/retired/macos-26-asan-blocked-by-amfi.md` for the kernel-log evidenc
 `--target wasm-wasi` to run via `wasmtime`:
 
 ```bash
-./yo-cli test ./tests/internal --target wasm-wasi --parallel 1
+yo test ./tests/internal --target wasm-wasi --parallel 1
 ```
 
 > Note: no file in `tests/internal` carries a `SkipWasm32*` pragma (verified
@@ -156,11 +163,19 @@ skipped via `pragma(Pragma.SkipWasm32Wasi);` and are not required for CI on affe
 
 > **HISTORICAL (2026-08-05).** The specific function measured below,
 > `evaluate()` in `yo-self/evaluator/eval.yo`, was RETIRED along with that whole
-> legacy proto-evaluator file. The **mechanism and the platform numbers still
-> apply** to the other large evaluator frames (`evaluate_match` ~9 MB,
-> `evaluate_function_call` ~8 MB at `-O0`), and the stack reserve in
-> `src/test-runner.ts` is still required because of them — so this section is kept
-> as the explanation for why that reserve exists.
+> legacy proto-evaluator file, and the linker-level stack reserves quoted below
+> lived in the since-deleted TypeScript test runner. The **mechanism and the
+> platform numbers still apply** to the other large evaluator frames
+> (`evaluate_match` ~9 MB, `evaluate_function_call` ~8 MB at `-O0`) — this
+> section is kept as the explanation for why deep comptime recursion needs a big
+> stack.
+>
+> **What provides that stack today:** every emitted binary runs its program body
+> on a worker thread with a **1 GiB stack by default**, overridable at runtime
+> via the `YO_MAIN_STACK_MB` env var (`__yo_main_stack`, emitted by
+> `yo-self/codegen/functions/generation.yo`, on both the POSIX and Windows arms).
+> WASM keeps a direct call and has no worker stack, so `YO_MAIN_STACK_MB` is a
+> no-op there. Nothing sets a linker `-stack_size` / `/STACK:` reserve any more.
 
 The `evaluate()` function in `yo-self/evaluator/eval.yo` had ~2482 local variables
 (grown from ~693 in early phases) and occupied **~1.5 MB of stack space per frame**
@@ -175,8 +190,7 @@ and adding redzones around every variable.
   separate heap allocation, reducing the real C-stack portion)
 - Windows x86_64: ~1.1MB per `evaluate()` frame with ASAN
 
-**macOS ARM64 native (256MB reserve set via `-Wl,-stack_size,0x10000000` in
-`src/test-runner.ts`):**
+**macOS ARM64 native (measured against a 256MB reserve, `-Wl,-stack_size,0x10000000`):**
 
 - Safe: countdown(1) needs ~5 frames × 1.5MB ≈ 7.5MB (was SIGSEGV at 8MB default)
 - Safe: countdown(10) needs ~50 frames × 1.5MB ≈ 75MB → ✓ with 256MB reserve
@@ -194,7 +208,7 @@ and adding redzones around every variable.
 Note: Frame sizes grew significantly after Phase 3a (ExprId added to AstExpr) and Phase 2az
 (TraitT extended with new fields). See `issues/asan-eval-frame-size-after-expr-id.md`.
 
-**Windows x86_64 (16MB reserve set via `-Wl,/STACK:16777216` in `src/test-runner.ts`):**
+**Windows x86_64 (measured against a 16MB reserve, `-Wl,/STACK:16777216`):**
 
 - Safe: countdown(2) needs ~7 frames × 1.1MB ≈ 7.7MB → ✓
 - Safe: fact(2) needs ~8 frames × 1.1MB ≈ 8.8MB → ✓
@@ -205,14 +219,14 @@ Do NOT use `ASAN_OPTIONS=stack_size=N` — that sets the fake stack, not the rea
 
 ## Important constraints
 
-- You **cannot** `./yo-cli compile` on a `*.test.yo` file. To test a failing test, move the code into a separate `.yo` file with a `main` function and `export(main);` at the end.
-- Always save test log output: `./yo-cli test src/tests/fixme.test.yo --bail --verbose &> test_output.txt`
+- You **cannot** `yo compile` on a `*.test.yo` file. To test a failing test, move the code into a separate `.yo` file with a `main` function and `export(main);` at the end.
+- Always save test log output: `yo test ./tests/XXX.test.yo --bail --verbose &> test_output.txt`
 - If a `main` linker error appears (`undefined reference to 'main'`), add `export(main);` at the end of the `.yo` file.
 
 ## File creation rules
 
-- Do not create new `.js`, or `.ts` files unless told to do so.
-- You can comment out existing code in `src/tests/fixme.yo` and create new test code there.
+- Do not create new `.js`, or `.ts` files unless told to do so — the repo has no JS/TS toolchain outside `vscode-extension/`.
+- You can comment out existing code in `tmp/fixme.yo` and create new test code there.
 - If you want to create new `.yo` files, create them in `./tmp` directory under this workspace, not `/tmp`.
 
 ## Test syntax
@@ -274,7 +288,7 @@ test("my test", {
 });
 ```
 
-This is the standard pattern from `yo-self/tests/parser.test.yo`. The struct
+This is the standard pattern from `tests/internal/parser.test.yo`. The struct
 constructor `Exception(...)` pins the binding's type, so no annotation is needed
 on the LHS.
 
@@ -287,18 +301,20 @@ Partial application tests live in `tests/fn.test.yo`. Key facts:
 - Partial application with `_` only works on **comptime functions** (return type must be `comptime(...)`)
 - It does NOT work on runtime functions or `generic` parameters — use `comptime` parameters instead
 - Type constructors like `Result`, `Option` use comptime params and work with `_`
-- `fn(generic(A, B, C)) -> comptime(Type)` does NOT support `_` — the partial application checks `origFuncType.parameters.length` which excludes generic params
+- `fn(generic(A, B, C)) -> comptime(Type)` does NOT support `_` — the partial application counts the original function type's `parameters`, which excludes generic params
 - Use `fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type)` for custom type constructors that need `_`
 
-## Linting and formatting
+## Formatting
 
-- Lint: `bun run lint`
-- Format check: `bun run format`
-- Fix lint/format issues before committing.
-- **Always run `./yo-cli fmt <files>` on any `.yo` files you create or modify before committing.**
-  - To check: `./yo-cli fmt --check path/to/file.yo`
-  - To fix: `./yo-cli fmt path/to/file.yo`
-  - Example: `./yo-cli fmt yo-self/tests/eval_5v_1.test.yo`
+`yo fmt` is the only formatter in the repo — the JS/TS lint and format scripts
+(`bun run lint`, `bun run format`, eslint, prettier) went with the TypeScript
+tree. The one exception is `vscode-extension/`, which keeps its own npm
+toolchain.
+
+- **Always run `yo fmt <files>` on any `.yo` files you create or modify before committing.**
+  - To check: `yo fmt --check path/to/file.yo`
+  - To fix: `yo fmt path/to/file.yo`
+  - Example: `yo fmt tests/internal/formatter.test.yo`
 
 ## Slow test files
 
@@ -307,14 +323,14 @@ Some test files contain hundreds of tests and take a long time on their own:
 - `tests/string/string.test.yo` — 246 tests, ~8 minutes
 - Other large test files may take several minutes
 
-When running a single large file, use `--test-name-pattern` to target individual tests for faster iteration. The full suite (`./yo-cli test --bail`) runs these in parallel and finishes in ~30 minutes total on a Mac Mini M4.
+When running a single large file, use `--test-name-pattern` to target individual tests for faster iteration. The full suite (`yo test --bail`) finishes in ~30 minutes total on a Mac Mini M4.
 
 For large generated test binaries, use `--test-batch-size N` to split one `.test.yo` file into smaller generated C binaries. The default is 100 tests per batch.
 
 ## WASM testing
 
-- Run a test on Emscripten: `./yo-cli test ./tests/XXX.test.yo --cc emcc` (auto-targets `wasm32-emscripten`)
-- Run a test on standalone WASI: `./yo-cli test ./tests/XXX.test.yo --target wasm-wasi` (runs via `wasmtime`)
+- Run a test on Emscripten: `yo test ./tests/XXX.test.yo --cc emcc` (auto-targets `wasm32-emscripten`)
+- Run a test on standalone WASI: `yo test ./tests/XXX.test.yo --target wasm-wasi` (runs via `wasmtime`)
 - Use `pragma(Pragma.SkipWasm32Emscripten);` to skip a test file on the Emscripten target.
 - Use `pragma(Pragma.SkipWasm32Wasi);` to skip a test file on the standalone WASI target.
 - Use `pragma(Pragma.SkipWasm);` to skip a test file on ALL WASM targets (generic catch-all).
@@ -322,5 +338,5 @@ For large generated test binaries, use `--test-batch-size N` to split one `.test
 - For per-test skips, add `{ arch, Arch } :: import("std/process");` and use `if((arch == Arch.Wasm32), return())` at the top of the test body.
 - See `plans/WASM_SUPPORT.md` for the full list of WASM-skipped tests and limitations.
 - **Errno values differ on WASM** (WASI numbering). Always use constants from `std/libc/errno`, never hardcode errno numbers.
-- When adding new tests, verify they pass on native (`./yo-cli test ...`), Emscripten (`./yo-cli test ... --cc emcc`), and WASI (`./yo-cli test ... --target wasm-wasi`), or add appropriate `pragma(Pragma.SkipWasm*);` calls.
+- When adding new tests, verify they pass on native (`yo test ...`), Emscripten (`yo test ... --cc emcc`), and WASI (`yo test ... --target wasm-wasi`), or add appropriate `pragma(Pragma.SkipWasm*);` calls.
 - `process.platform` returns `"emscripten"` or `"wasi"` depending on target.

@@ -9,18 +9,18 @@ Yo 支持通过 `.yo-version` 文件实现项目级别的版本固定，类似�
 yo version pin
 
 # 固定到特定版本
-yo version pin 0.1.12
+yo version pin 0.2.4
 
 # 显示当前版本和固定版本
 yo version
 
 # 安装特定版本（不固定）
-yo version install 0.1.13
+yo version install 0.2.9
 
 # 列出本地缓存的版本
 yo version list
 
-# 列出 npm 上所有可用版本
+# 列出所有已发布的版本
 yo version list --remote
 ```
 
@@ -29,7 +29,7 @@ yo version list --remote
 `.yo-version` 文件包含一行 semver 版本号：
 
 ```
-0.1.14
+0.2.9
 ```
 
 `v` 前缀是可选的，会被自动去除：
@@ -69,8 +69,8 @@ my-project/
 
 ```
 $ yo version
-Yo 0.1.14
-.yo-version: 0.1.12 (current: 0.1.14)
+Yo 0.2.9
+.yo-version: 0.2.4 (current: 0.2.9)
 ```
 
 ### `yo version pin [version]`
@@ -78,18 +78,18 @@ Yo 0.1.14
 创建或更新 `.yo-version` 文件。不带版本参数时，固定到当前安装的版本：
 
 ```bash
-yo version pin           # 固定到当前版本（如 0.1.14）
-yo version pin 0.1.12    # 固定到特定版本
+yo version pin           # 固定到当前版本（如 0.2.9）
+yo version pin 0.2.4    # 固定到特定版本
 ```
 
-指定的版本会在写入前通过 npm 注册表验证。
+指定的版本会在写入前通过已发布的 GitHub Releases 验证。
 
 ### `yo version install <version>`
 
 下载并缓存特定版本，不进行固定：
 
 ```bash
-yo version install 0.1.13
+yo version install 0.2.9
 ```
 
 这对于在切换项目前预获取版本很有用。
@@ -101,11 +101,11 @@ yo version install 0.1.13
 ```
 $ yo version list
 Cached versions:
-  0.1.12
-  0.1.13
+  0.2.4
+  0.2.9
 ```
 
-使用 `--remote` 列出 npm 上所有可用版本：
+使用 `--remote` 列出 GitHub Releases 上发布的所有版本：
 
 ```
 $ yo version list --remote
@@ -113,7 +113,7 @@ Available versions:
   0.0.2
   0.0.3
   ...
-  0.1.14
+  0.2.9
 ```
 
 ### `yo version clean [version]`
@@ -121,7 +121,7 @@ Available versions:
 删除缓存的版本：
 
 ```bash
-yo version clean 0.1.12   # 删除特定版本
+yo version clean 0.2.4   # 删除特定版本
 yo version clean           # 删除所有缓存版本
 ```
 
@@ -137,31 +137,29 @@ yo version pin
 
 ## LSP 集成
 
-Yo LSP 服务器会读取 `.yo-version` 来解析正确的 `std/` 标准库路径。当你的项目固定到特定版本且该版本已在本地缓存时，LSP 会使用缓存版本的标准库来提供：
+Yo LSP 服务器过去会读取 `.yo-version` 来解析正确的 `std/` 标准库路径，从而让跳转到定义、悬停信息和补全都来自项目实际固定的那个版本。
 
-- **跳转到定义** — 跳转到正确版本的 `std/` 文件
-- **悬停信息** — 显示固定版本标准库中的类型
-- **补全** — 建议固定版本中的符号
-
-这确保了你的 IDE 体验与项目实际使用的版本一致。
+**目前没有 LSP 服务器。** 它是一个 TypeScript 程序，已经随 TypeScript 编译器一起被删除；等到 Yo 原生的服务器出现时，这套 `.yo-version` 解析也会回来。详见 [LSP.md](./LSP.md)。
 
 ## 版本缓存
 
-下载的版本存储在全局 Yo 缓存目录中：
+下载的版本存储在全局 Yo 缓存目录中，每一个都是该版本原生发布包的直接解压结果 —— 与 `scripts/install.sh` 安装出来的布局完全一致：
 
 ```
 ~/.cache/yo/versions/
-├── 0.1.12/
-│   ├── out/cjs/yo-cli.cjs
+├── 0.2.4/
+│   ├── bin/yo
 │   ├── std/
 │   ├── vendor/
-│   └── package.json
-└── 0.1.13/
-    ├── out/cjs/yo-cli.cjs
+│   └── LICENSE.md
+└── 0.2.9/
+    ├── bin/yo
     ├── std/
     ├── vendor/
-    └── package.json
+    └── LICENSE.md
 ```
+
+`vendor/` 必须与 `std/` 保持同级 —— 二进制文件通过从可执行文件向上查找来定位标准库，并按 `<std>/../vendor` 定位 mimalloc。
 
 缓存位置可通过环境变量自定义：
 
@@ -171,6 +169,7 @@ Yo LSP 服务器会读取 `.yo-version` 来解析正确的 `std/` 标准库路�
 ## 注意事项
 
 - `.yo-version` 中**不支持** `latest` 关键字，请始终使用具体的版本号。
-- `yo version`、`yo lsp`、`--help` 和 `--version` 命令会跳过版本调度。
-- 版本从 [`@shd101wyy/yo`](https://www.npmjs.com/package/@shd101wyy/yo) npm 包下载。
-- 下载需要系统上安装 Node.js 或 Bun。
+- `yo version` 子命令以及 `--help` / `--version` 会跳过版本调度。
+- 版本以对应宿主平台的原生发布包形式从 [GitHub Releases](https://github.com/shd101wyy/Yo/releases) 下载。设置 `$YO_REPO` 可以指向某个 fork。
+- 早于 `0.2.1` 的版本发布于原生包之前，已经无法安装 —— npm 发布在 `0.2.0` 之后就停止了，该渠道已废弃。
+- 下载需要 `PATH` 中有 `curl` 和 `tar`。**不再需要** Node.js 或 Bun —— 只有当年 Yo 以 npm 包形式发布时才需要它们。

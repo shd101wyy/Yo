@@ -470,24 +470,30 @@ Key semantics:
 
 ## Standard library module organization (`std/`)
 
-## reEvaluateFunctionType — impl specialization
+## Function-type re-evaluation during impl specialization
 
-`reEvaluateFunctionType` in `src/evaluator/values/impl.ts` re-evaluates a function type's parameter/return type expressions with concrete substitutions during generic impl specialization.
+> **Provenance: these invariants were derived on the retired TypeScript
+> evaluator**, where the pass was a single function called
+> `reEvaluateFunctionType`. The self-hosted evaluator has no function by that
+> name (older `plans/` and `issues/` docs still use it); the work happens inside
+> generic-impl specialization in `yo-self/evaluator/values/impl.yo`. The
+> invariants themselves still hold, because the frame-level check they protect
+> is live in `yo-self/evaluator/exprs/assignment.yo` (~line 1075).
 
-Key invariants:
+Re-evaluating a function type's parameter/return type expressions with concrete substitutions during generic impl specialization has to preserve these:
 
-- The **returned `env`** must have the same frame count as `specializedEnv` (the caller's specialization env). Using `functionType.env` (the original definition scope) adds extra frames from impl field list evaluation, breaking the frame-level check in `assignment.ts`.
-- The **re-evaluation env** (`reEvalEnv`) can differ from the returned env — it's used only for evaluating type expressions and can include extra scope (HKT variables like `F`).
-- Variables from `functionType.env` that don't exist in `specializedEnv` (e.g., `F` from HKT trait scopes) must be merged into the returned env because `exprs.typeExpr` still references original expressions.
-- The `exprs.typeExpr` on parameters retains the **original** source expressions (e.g., `F(A)` from a trait definition), so every re-evaluation needs the same variables available.
+- The **returned env** must have the same frame count as the specialization env. Using the function type's own captured env (the original definition scope) adds extra frames from impl field list evaluation, breaking the "defined outside the function body" frame-level check in `assignment.yo`.
+- The **re-evaluation env** can differ from the returned env — it's used only for evaluating type expressions and can include extra scope (HKT variables like `F`).
+- Variables from the captured env that don't exist in the specialization env (e.g., `F` from HKT trait scopes) must be merged into the returned env, because the parameters' stored type expressions still reference the original expressions.
+- Parameters retain their **original** source type expressions (e.g., `F(A)` from a trait definition), so every re-evaluation needs the same variables available.
 
-### When to use `specializedEnv` vs `functionType.env`
+### Which env goes where
 
-| Purpose                                                        | Use                                                             |
-| -------------------------------------------------------------- | --------------------------------------------------------------- |
-| Returned function type's `env` field                           | `specializedEnv` (correct frame count) + merged missing vars    |
-| Re-evaluating type expressions inside `reEvaluateFunctionType` | `reEvalEnv` (built from `functionType.env`, has all scope vars) |
-| Frame-level checks in `assignment.ts`                          | Compared against `functionType.env.frames.length`               |
+| Purpose                                     | Use                                                                     |
+| ------------------------------------------- | ----------------------------------------------------------------------- |
+| Returned function type's captured env       | the specialization env (correct frame count) + merged missing vars      |
+| Re-evaluating the stored type expressions   | an env built from the function type's captured env (has all scope vars) |
+| Frame-level checks in `assignment.yo`       | compared against the captured env's frame count                         |
 
 ### Standard library module organization (`std/`)
 
@@ -589,21 +595,25 @@ Builtins: `__yo_comptime_string_index`, `__yo_comptime_string_index_range`, `__y
 
 When a type has multiple Index impls (e.g., `Index(usize)` and `Index(Range(usize))`), `Self.Output` is resolved by:
 
-1. `extractTraitTypeArgsFromImplExpr` extracts associated type field expressions from impl body args (e.g., `Output : T`)
-2. The re-evaluation loop in `findMethodsFromGenericImpls` evaluates these expressions with concrete substitutions
-3. `property-access.ts` checks the env for `Output` before calling `findAssociatedTypeFromGenericImpls` (which would be ambiguous)
+1. The associated-type field expressions are extracted from the impl body args (e.g., `Output : T`)
+2. The re-evaluation loop in `find_methods_from_generic_impls` (`yo-self/evaluator/values/impl.yo`) evaluates these expressions with concrete substitutions
+3. `yo-self/evaluator/exprs/property_access.yo` checks the env for `Output` before calling `find_associated_type_from_generic_impls` (which would be ambiguous)
 
-### arrayElementRef for comptime mutation
+### Comptime element pointers for comptime mutation
 
-Comptime array indexing returns an `arrayElementRef` that enables:
+Comptime array indexing returns a comptime element pointer —
+`EvalValue.PtrVal(target_value, target_index)` in `yo-self/value.yo`, where
+`target_value(0)` is the backing `ArrayVal` and `target_index` is the element
+index. That enables:
 
-- `arr(0) = val` — compile-time mutation via `assignment.ts`
-- `&(arr(0))` — compile-time pointer creation via `ptr-fns.ts`
+- `arr(0) = val` — compile-time mutation via `yo-self/evaluator/exprs/assignment.yo`
+- `&(arr(0))` — compile-time pointer creation via `yo-self/evaluator/builtins/ptr_fns.yo`
 
-## Self-hosted compiler porting pitfalls
+## Compiler-source (`yo-self/`) pitfalls
 
-When porting `src/*.ts` → `yo-self/*.yo`, these patterns cause silent drift
-that `yo-cli check` will catch:
+These patterns bite when writing or editing the compiler's own Yo source.
+They were catalogued during the TypeScript → Yo port (hence the TS-vs-Yo
+contrasts below); `yo check ./yo-self` is what catches them:
 
 ### Reference-semantics parameters: never use `&()` for Environment/EvalContext
 
@@ -680,17 +690,16 @@ io.async((io : Io) => {
 
 ### Exception threading: always add `exn` to calls
 
-The self-hosted evaluator threads `Exception` explicitly as the last
-parameter of every function that may error. When porting from TS (where
-`throw` is built-in), add `exn : Exception` as the last parameter and
-pass it to all callees:
+The evaluator threads `Exception` explicitly as the last parameter of every
+function that may error — Yo has no ambient `throw`. Any new fallible helper
+needs `exn : Exception` as its last parameter, passed on to all callees:
 
 ```rust
-// TS: throw format_error_message(...)
-// Yo: exn.throw(dyn(format_error_message(...)))
+// Raise an error:
+exn.throw(dyn(format_error_message(...)));
 
-// TS: evaluateTypeAnnotation(expr, env, ctx)
-// Yo: evaluate_type_annotation(expr, env, ctx, exn)
+// Call a fallible helper — exn goes last:
+evaluate_type_annotation(expr, env, ctx, exn);
 ```
 
 ### `.*` pointer dereference in check mode

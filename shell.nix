@@ -13,9 +13,10 @@ mkShell rec {
   buildInputs = [
     bash # Hack for running "copilot" CLI in the shell
          # https://github.com/github/copilot-cli/issues/1428
-    bun
+    # Node stays although the compiler no longer uses it: `emscripten` below is
+    # itself a node program, and `vsce` packages the npm-only vscode-extension/.
     nodejs_24
-    # python3
+    python3 # scripts/*.py + scripts/bootstrap/*.py instrumentation
     # llvmPackages_14.llvm
     clang
     gdb
