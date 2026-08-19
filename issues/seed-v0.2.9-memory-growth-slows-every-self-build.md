@@ -154,3 +154,48 @@ website already advertising it — the ordering defect fixed separately in #165.
 needs the 32 GB swapfile, and the check belongs in review of every new such
 job. The demand is ~28 GB peak footprint under the v0.2.9 seed (table above);
 16 GB of RAM is not a question of tuning.
+
+## The swapfile is only half of it: zswap is worth 10x (2026-08-19)
+
+The same release run failed a second, independent way, and this one is the
+more valuable finding. `release.yml`'s `seed-bundles` linux-x64 leg spent **159
+minutes** on "Build the native yo binary (previous seed)" and was killed at the
+180-minute budget. The same step took 18 minutes one release earlier, and 32
+minutes on the arm64 leg of the same run.
+
+The controlled comparison is unusually clean, because `test.yml` runs the same
+operation on the same commit:
+
+| job                                         | zswap | wall        |
+| ------------------------------------------- | ----- | ----------- |
+| `test.yml` bootstrap-fixpoint, **Stage 1**  | ON    | **16 min**  |
+| `release.yml` seed-bundles, candidate build | OFF   | **159 min** |
+
+Same commit, same `ubuntu-latest` runner class, same v0.2.9 seed, same 32 GB
+swapfile, same `--release --allocator mimalloc` self-build. **The only
+difference is one sysctl**, and it is worth a factor of ten.
+
+The mechanism follows from the measurement above: at ~28 GB peak against 16 GB
+of RAM the seed cannot avoid reclaim, so every reclaimed page is a disk round
+trip. zswap keeps a compressed copy in RAM (~3x), which converts most of that
+disk thrash back into memory traffic. The arm64 leg degraded to only 32 min
+without it, which is why the failure first read as arch-specific rather than
+configuration-specific — a reminder to compare the CONFIGURATION of a fast job
+against a slow one before concluding anything about the hardware.
+
+Fixed by giving every seed-driven Linux job in `release.yml` the zswap + THP-off
+step `test.yml` already had.
+
+**Not adopted:** test.yml's `systemd-run --scope -p MemoryHigh=11G
+-p MemoryMax=14G` wrapper. It is unmeasured for these steps, it would newly
+OOM-kill anything legitimately exceeding the cap, and `sudo` resets PATH to
+`secure_path` — which does not contain the seed's `bin/` — so wrapping a step
+that invokes a bare `yo` breaks it outright. Since `release.yml` gets no PR CI,
+an untested change there is only discoverable by burning a release.
+
+**Method note.** Three failures in one run had three different causes (no
+swapfile; no zswap; a genuinely degraded macOS runner). The macOS one was
+excluded by measuring the same `clang -O2` locally on the exact CI input —
+**68 s, 2.38 GB peak** — and by a re-run that passed in 3 min. Do that before
+"fixing" anything: two of these three symptoms were identical
+("lost communication with the server") and only one of them was our bug.
