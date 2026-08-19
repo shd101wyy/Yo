@@ -24,8 +24,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      pages: write
-      id-token: write
       # For the version-bump fallback's `gh pr create` (v0.2.0's silently
       # failed under `|| true` — the branch was pushed but no PR appeared).
       # NOTE: the repo setting "Allow GitHub Actions to create and approve
@@ -295,13 +293,12 @@ jobs:
           yo compile scripts/build_site.yo --release -o /tmp/build-site
           /tmp/build-site --output yo-out/site --version "v${{ steps.version.outputs.version }}" --yo yo
 
+      # Uploaded here, DEPLOYED by the deploy-site job at the bottom of this
+      # file — see the invariant recorded there.
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: yo-out/site
-
-      - name: Deploy to GitHub Pages
-        uses: actions/deploy-pages@v4
 
   # Bootstrap seed bundles — plans/SELF_HOSTING_COMPLETION.md Phase 2 (task 2.1)
   # and plans/P2_RETIRE_SRC.md. The TypeScript compiler builds the native
@@ -1074,3 +1071,36 @@ jobs:
             exit 1
           fi
           gh api -X PATCH "repos/${GITHUB_REPOSITORY}/releases/${release_id}"             -F draft=false -f make_latest=true --jq .html_url
+
+  # The site deploy waits for publish-release ON PURPOSE.
+  #
+  # It used to sit in the `release` job, firing immediately after the site
+  # build — i.e. while the GitHub Release was still a DRAFT and not one bundle
+  # had been built. Measured live during the v0.2.10 release: the public site
+  # already advertised v0.2.10 while the API reported `draft=true` with a
+  # single asset. A draft's assets 404 on the public download URL, so every
+  # download link that site published pointed at nothing; and had a required
+  # bundle leg then failed, the site would have gone on advertising a version
+  # that never shipped, with no way to notice from the outside.
+  #
+  # publish-release is the moment the release becomes real — it flips the
+  # draft public only once every required bundle leg has uploaded. Deploying
+  # after it means the website and the release always announce the same
+  # thing, which is the same atomicity invariant the draft-until-bundles-land
+  # design already buys on the release side.
+  #
+  # Failure mode is deliberately conservative: if publication does not happen,
+  # the site simply stays on the previous version.
+  deploy-site:
+    name: Deploy the documentation website
+    needs: publish-release
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    steps:
+      # Deploys the `github-pages` artifact uploaded by the `release` job
+      # earlier in this same run — no rebuild, so the bytes published are
+      # exactly the ones the release built.
+      - name: Deploy to GitHub Pages
+        uses: actions/deploy-pages@v4
