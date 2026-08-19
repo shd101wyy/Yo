@@ -104,6 +104,76 @@ jobs:
           packagePath: ./vscode-extension
           registryUrl: https://marketplace.visualstudio.com
 
+  # The release's documentation-website step, rehearsed on every PR.
+  #
+  # scripts/build_site.yo is 24.7 KB of Yo that, until this job existed, was
+  # referenced by exactly ONE place in the repo — release.yml. So it ran for
+  # the first time each release, AFTER the version bump had been pushed to
+  # develop and the tag created. That is precisely how the first v0.2.10
+  # attempt died: the release job installed no liburing, so the seed `yo`
+  # could not even START at this step ("error while loading shared libraries:
+  # liburing.so.2") — and the version number was already spent. Every failure
+  # in a release-only step burns a version; v0.2.8 went the same way on the
+  # Marketplace publish.
+  #
+  # The doc-html / doc-json / doc-markdown cli-cases cover the `yo doc`
+  # SUBCOMMAND. They do not cover build_site.yo, which shells out to `yo doc`
+  # and then does its own git metadata, HTML templating and index assembly —
+  # all of it release-only until now.
+  #
+  # SEED-driven on purpose, mirroring release.yml rather than using a
+  # freshly-built binary: the seed evaluates the CHECKOUT's std, so a std
+  # change the pinned seed cannot evaluate is a break that shows up at the
+  # release and nowhere else. Build only — the Pages deploy stays in
+  # release.yml, gated on the release actually publishing.
+  docs-site:
+    name: Documentation website (build only, no deploy)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # The seed links liburing dynamically and cannot start without it.
+      - name: Install liburing
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y liburing-dev
+
+      - name: Install the seed compiler (previous release)
+        uses: ./.github/actions/install-seed
+        with:
+          version: ${{ env.SEED_VERSION }}
+
+      # The same two commands release.yml runs, with the version read from the
+      # same source of truth the release computes its bump from.
+      - name: Generate documentation website
+        run: |
+          VERSION=$(perl -ne 'print $1 if /^CURRENT_YO_VERSION :: "([^"]+)";/' yo-self/version.yo)
+          [ -n "$VERSION" ] || { echo "::error::could not read CURRENT_YO_VERSION from yo-self/version.yo"; exit 1; }
+          yo compile scripts/build_site.yo --release -o /tmp/build-site
+          /tmp/build-site --output yo-out/site --version "v$VERSION" --yo yo
+
+      # A site build that emits nothing exits 0 exactly as happily as one that
+      # works, so assert substance rather than exit status — the same lesson
+      # the hollow-batch detection elsewhere in this file encodes.
+      - name: Assert the site has substance
+        run: |
+          test -f yo-out/site/index.html || { echo "::error::build_site produced no index.html"; exit 1; }
+          COUNT=$(find yo-out/site -type f | wc -l)
+          echo "site files: $COUNT"
+          [ "$COUNT" -ge 100 ] || { echo "::error::only $COUNT site files — std alone documents ~160"; exit 1; }
+
+      - name: Upload the site for inspection
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-site
+          path: yo-out/site
+          retention-days: 7
+
   # P2.5 step 18 removed `bun test` from the 5-platform matrix — correctly: it
   # ran the same TS unit tests five times to serve one toolchain. But deleting
   # it outright would leave the 23 TS test files (466 tests) unrun by ANY job
