@@ -261,6 +261,18 @@ jobs:
       # is scripts/build_site.yo, compiled and run by the SEED compiler — no
       # bun/node in this step. Verified byte-identical to the TS original
       # (160 files, homepage md5 equal) before the swap.
+      # The seed is a dynamically linked Linux binary and the async runtime
+      # links liburing, so it cannot even START without it — `yo: error while
+      # loading shared libraries: liburing.so.2`. Every other Linux job in this
+      # file installs it; this job did not, because until the docs site moved
+      # off bun (#151) it never RAN a Yo compiler. That is what failed v0.2.10:
+      # exit 127 at the site build, AFTER the version bump had been committed
+      # and the extension published.
+      - name: Install liburing
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y liburing-dev
+
       - name: Install the seed compiler (for the site build)
         uses: ./.github/actions/install-seed
         with:
