@@ -866,6 +866,34 @@ jobs:
     # rule recorded here previously.
     continue-on-error: false
     steps:
+      # The one seed-driven self-emit in this file that had NO swapfile, while
+      # seed-bundles, seed-cross-emit and test.yml's musl leg all provision
+      # one. That asymmetry killed the v0.2.10 release: this job ran the same
+      # `yo compile yo-self/main.yo --release --allocator mimalloc` its test.yml
+      # twin runs, on a bare 16 GB runner, and the runner DIED at 50 min —
+      # "The hosted runner lost communication with the server ... starves it
+      # for CPU/Memory", the documented starvation signature. The identical
+      # emit had passed in the gate run an hour earlier, because THAT job has
+      # a swapfile.
+      #
+      # This is exactly the failure the v0.2.9 seed bump was warned to cause:
+      # a seed-driven job sitting just under the 16 GB line goes over it, and
+      # the ones already swapping only get slower (see
+      # issues/seed-v0.2.9-memory-growth-slows-every-self-build.md). musl-bundle
+      # was the release-side job with no swapfile, so it did not get slower —
+      # it died.
+      #
+      # `needs: release` means the version bump and the tag are ALREADY pushed
+      # by the time this runs, so its failure holds publication with the
+      # release half-committed.
+      - name: Add swap space
+        run: |
+          sudo fallocate -l 32G /mnt/swapfile
+          sudo chmod 600 /mnt/swapfile
+          sudo mkswap /mnt/swapfile
+          sudo swapon /mnt/swapfile
+          free -h
+
       - name: Checkout the released commit
         uses: actions/checkout@v4
         with:
