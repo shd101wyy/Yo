@@ -1,9 +1,11 @@
 # The v0.2.9 seed no longer fits 16 GB, and every seed-driven job pays for it
 
-**Status: OPEN.** Found 2026-08-19 while landing #137 (which bumps
-`SEED_VERSION` v0.2.4 → v0.2.9 in `test.yml` and v0.2.7 → v0.2.9 in
-`release.yml`). The timeouts were raised to match the measured cost; the
-underlying growth is not fixed and is what this issue tracks.
+**Status: ANSWERED, closes with the next `SEED_VERSION` bump.** Found
+2026-08-19 while landing #137 (which bumps `SEED_VERSION` v0.2.4 → v0.2.9 in
+`test.yml` and v0.2.7 → v0.2.9 in `release.yml`). Timeouts were raised to match
+the measured cost; the cause is now measured too — v0.2.9 was cut eight hours
+before the memo that halves the footprint, so bumping the pin past it removes
+the problem. See "ANSWERED" below.
 
 ## Measurement
 
@@ -43,7 +45,45 @@ Timeouts raised to the measured reality, in #137:
 - `test.yml`: ThreadSanitizer 60 → 120, static-musl 60 → 120 (also seed-driven).
 - `release.yml`: the four heavy jobs 90 → 180.
 
-## What is NOT done
+## ANSWERED 2026-08-19 — v0.2.9 predates the memo by 8 hours
+
+Measured directly, same tree, same 16 GB machine (the runners' size), only the
+compiler differing. `--emit-c --skip-c-compiler`, so this is evaluation +
+codegen without clang:
+
+| binary | its own allocator | wall | peak footprint |
+| --- | --- | --- | --- |
+| v0.2.4 bundle | mimalloc | 447 s | 14.49 GB |
+| v0.2.9 bundle | mimalloc | 475 s | **28.36 GB** |
+| current tree | mimalloc | 373 s | 12.67 GB |
+| current tree | system | 186 s | 11.42 GB |
+
+Two independent effects, separable because the first two rows hold the
+allocator constant:
+
+1. **Code, not allocator.** v0.2.4 -> v0.2.9 doubles peak footprint with both
+   built mimalloc, so the growth is real. And v0.2.9 -> current, still at
+   mimalloc, drops it 28.36 -> 12.67 GB — a 2.2x reduction.
+2. **The cause is timing, not a regression.** `#145` (memoize
+   `_inject_forall_captures`, live 19.07 -> 14.94 GB) was committed
+   2026-08-18 00:30 UTC. v0.2.9 was cut 2026-08-17 15:56 UTC. **The seed
+   predates the biggest memory win by about eight hours.** Nothing regressed;
+   we pinned CI to the last build before the fix.
+
+So this is self-correcting: bumping `SEED_VERSION` to the next release removes
+it. The raised timeouts (#137) then become headroom rather than necessity, and
+should NOT be lowered again on that basis alone — the cliff is what they guard.
+
+### Also measured: mimalloc costs 2x wall-clock on macOS
+
+Rows 3 and 4 hold the CODE constant and vary only the allocator: 373 s
+(mimalloc) vs 186 s (system), for ~11% less memory. That independently
+justifies #152's macOS flip by a wider margin than the 369.8 s vs 418-429 s it
+was argued with. It does NOT transfer to Linux, where glibc inflates the emit's
+RSS ~72% and mimalloc remains correct — which is why CI's fix is the seed, not
+the allocator.
+
+## Remaining
 
 Why v0.2.9 needs materially more memory than v0.2.4 to compile the same tree.
 This is worth understanding rather than absorbing:
