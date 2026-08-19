@@ -168,10 +168,22 @@ jobs:
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          # Group E deletes root package.json; `git add` of a missing path is a
-          # hard error, so stage only what exists.
-          for f in package.json vscode-extension/package.json vscode-extension/package-lock.json yo-self/version.yo; do
+          # OPTIONAL — Group E deletes root package.json, and `git add` of a
+          # missing path is a hard error, so this one is skipped when absent.
+          for f in package.json; do
             [ -f "$f" ] && git add "$f"
+          done
+          # REQUIRED. These must exist, and a blanket `[ -f ] &&` over them is
+          # a silent-failure trap: if a path MOVES (e.g. yo-self/ -> src/ in
+          # P2.5 Group F), the guard quietly skips it and the release commits
+          # WITHOUT the version bump — no error, after the release is already
+          # tagged and the extension published. Fail loudly instead.
+          for f in vscode-extension/package.json vscode-extension/package-lock.json yo-self/version.yo; do
+            if [ ! -f "$f" ]; then
+              echo "::error::$f is missing, so the version bump would not land. Did a path move? Update this list in the same change."
+              exit 1
+            fi
+            git add "$f"
           done
           git commit -m "chore: bump version to ${{ steps.version.outputs.version }} [skip ci]"
           # The checkout used RELEASE_PAT (repository-admin ruleset bypass),
