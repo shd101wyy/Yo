@@ -1,9 +1,10 @@
 //! Build the Yo compiler with its own build system.
 //!
 //! P2.2 of `plans/SELF_HOSTING_COMPLETION.md`: this file makes `yo build` the
-//! canonical way to build the compiler — replacing both `bun run build` (the
-//! TS reference) and the raw `yo-cli compile yo-self/main.yo --release`
-//! invocation — and doubles as the P1 build-system parity acceptance test.
+//! canonical way to build the compiler — it replaced both `bun run build` (the
+//! retired TypeScript reference) and the raw `yo compile yo-self/main.yo
+//! --release` invocation — and doubles as the P1 build-system parity
+//! acceptance test.
 //!
 //! Steps:
 //!   yo build            → compile the self-hosted compiler (install step)
@@ -16,11 +17,11 @@
 build :: import("std/build");
 
 // ReleaseSmall maps to plain `-O2` — byte-for-byte the flags of today's
-// canonical `yo-cli compile yo-self/main.yo --release` build (release mode +
-// -O2; see `mapOptimize` in src/build-runner.ts — release-small → "2", and
-// release-safe would instead drop the release flag). NOT Debug: a -O0
-// compiler binary hits the 1 GiB main-stack ceiling on deep comptime
-// recursion (AGENTS.md "Common Pitfalls").
+// canonical `yo compile yo-self/main.yo --release` build (release mode +
+// -O2; see the `optimize_num` mapping in yo-self/build_runner.yo —
+// release-small → "2", and release-safe would instead drop the release flag).
+// NOT Debug: a -O0 compiler binary hits the 1 GiB main-stack ceiling on deep
+// comptime recursion (AGENTS.md "Common Pitfalls").
 yo_exe :: build.executable({
   name : "yo",
   root : "./yo-self/main.yo",

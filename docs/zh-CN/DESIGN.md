@@ -2786,16 +2786,16 @@ test("With effects", {
 
 ```bash
 # 运行文件中的所有测试
-$ ./yo-cli test path/to/file.test.yo
+$ yo test path/to/file.test.yo
 
 # 按模式运行特定测试
-$ ./yo-cli test path/to/file.test.yo --test-name-pattern "Test addition"
+$ yo test path/to/file.test.yo --test-name-pattern "Test addition"
 
 # 首次失败时停止
-$ ./yo-cli test path/to/file.test.yo --bail
+$ yo test path/to/file.test.yo --bail
 
 # 详细输出
-$ ./yo-cli test path/to/file.test.yo -v
+$ yo test path/to/file.test.yo -v
 ```
 
 ### 断言

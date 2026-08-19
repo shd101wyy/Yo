@@ -1,5 +1,5 @@
 ---
-applyTo: "docs/**,src/doc/**"
+applyTo: "docs/**,yo-self/doc/**,src/doc/**"
 description: "Use when writing or editing documentation files, or working on the doc generation system. Covers bilingual requirements, code block formatting, yo doc CLI, and the doc pipeline."
 ---
 
@@ -81,26 +81,27 @@ Then run: `yo build doc`
 ```
 Source .yo files
   → Lexer (tokenize)
-  → Extractor (src/doc/extractor.ts) — extracts /// and //! comments
-  → Builder (src/doc/builder.ts) — combines comments + evaluator type info → DocModel
+  → Extractor (yo-self/doc/extractor.yo) — extracts /// and //! comments
+  → Builder (yo-self/doc/builder.yo) — combines comments + evaluator type info → DocModel
   → Renderer — converts DocModel to output:
-      render-html.ts   → static HTML site
-      render-markdown.ts → Markdown files
-      render-json.ts   → JSON export
+      render_html.yo     → static HTML site
+      render_markdown.yo → Markdown files
+      render_json.yo     → JSON export
 ```
 
 ### Key files
 
-| File                         | Role                                             |
-| ---------------------------- | ------------------------------------------------ |
-| `src/doc-command.ts`         | `yo doc` CLI entry point                         |
-| `src/doc/extractor.ts`       | Extracts doc comments from source tokens         |
-| `src/doc/builder.ts`         | Builds DocModel from comments + evaluator output |
-| `src/doc/model.ts`           | DocModel TypeScript interfaces                   |
-| `src/doc/sections.ts`        | Parses ## Returns, ## Examples, etc.             |
-| `src/doc/render-html.ts`     | Renders DocModel to static HTML site             |
-| `src/doc/render-markdown.ts` | Renders DocModel to Markdown                     |
-| `src/doc/render-json.ts`     | Exports DocModel as JSON                         |
+| File                              | Role                                             |
+| --------------------------------- | ------------------------------------------------ |
+| `yo-self/doc_command.yo`          | `yo doc` CLI entry point                         |
+| `yo-self/doc/extractor.yo`        | Extracts doc comments from source tokens         |
+| `yo-self/doc/builder.yo`          | Builds DocModel from comments + evaluator output |
+| `yo-self/doc/model.yo`            | DocModel type definitions                        |
+| `yo-self/doc/sections.yo`         | Parses ## Returns, ## Examples, etc.             |
+| `yo-self/doc/render_html.yo`      | Renders DocModel to static HTML site             |
+| `yo-self/doc/render_html_assets.yo` | Inlined CSS/JS assets for the HTML site        |
+| `yo-self/doc/render_markdown.yo`  | Renders DocModel to Markdown                     |
+| `yo-self/doc/render_json.yo`      | Exports DocModel as JSON                         |
 
 ### Internal symbol filtering
 

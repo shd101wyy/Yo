@@ -195,7 +195,7 @@ Non-`_`-prefixed fields (like `arc.*`, `box.*`) are readable but not writable in
 - **`Sync` trait** — cross-thread shared references. Deferred; cross-thread sharing always goes through `Arc + Mutex / Atomic / Channel`.
 - **`AtomicPtr(T)`** — generic atomic pointer for lock-free data structures. Deferred since safe code cannot construct or deref raw pointers, so the primitive would only be usable from pragma'd code. Will be added when a concrete `std/` consumer surfaces.
 - **`Sender(T)` / `Receiver(T)` split** — currently `Channel(T)` exposes both send and receive ends on the same handle. Rust-style split halves are a future ergonomic refinement.
-- **TSan empirical validation on CI** — `--sanitize thread` is plumbed and the Linux/Clang CI job runs `./yo-cli test ./tests/sync`. The job is informational (`continue-on-error: true`) until we have a first green Linux run; the codegen pin tests in `src/tests/thread-safety-codegen.test.ts` are the primary regression guard today.
+- **TSan empirical validation on CI** — `--sanitize thread` is plumbed and the Linux/Clang CI job runs `yo test ./tests/sync`. The job GATES pull requests — it is one of the required status checks (it was informational until 2026-08-06). The primary regression guard today is `tests/thread_safety.test.yo`, which pins the Send/atomic-field/negative-impl/field-visibility rules in Yo itself, plus the `tests/sync/` suite the TSan job runs; the old codegen pin tests (`src/tests/thread-safety-codegen.test.ts`) were retired with the TypeScript compiler tree and have no self-hosted successor.
 
 ## See Also
 

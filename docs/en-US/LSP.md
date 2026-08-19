@@ -1,15 +1,23 @@
 # Language Server Protocol (LSP) Support
 
-Yo includes a built-in LSP server that provides rich editor support for `.yo` files. The server is implemented in TypeScript, reusing the Yo evaluator for accurate type information.
+> **Not currently shipping.** The server described here was a TypeScript
+> program that called the TypeScript evaluator directly, and it was deleted
+> together with the rest of the TypeScript compiler when Yo became
+> self-hosted. The VS Code extension is syntax highlighting only today, and
+> there is no `yo lsp` subcommand. A Yo-native replacement built on the
+> self-hosted evaluator is planned; this document is kept as the specification
+> of the behaviour it has to restore.
+
+Yo's LSP server gives `.yo` files rich editor support. It reuses the Yo evaluator rather than a separate parser, so the types and values it reports are exactly the compiler's.
 
 ## Architecture
 
 ```
 VS Code Extension (thin client)
   ↕ stdio JSON-RPC
-LSP Server (src/lsp/)
+LSP Server
   ↕ direct function calls
-Yo Evaluator (src/evaluator/)
+Yo Evaluator
 ```
 
 The VS Code extension is a thin `LanguageClient` wrapper (~80 lines). All intelligence lives in the LSP server, which calls the evaluator directly for type resolution, completion, and diagnostics.
@@ -96,33 +104,9 @@ Real-time error reporting as you type, powered by the Yo evaluator.
 
 ## Setup
 
-### VS Code
+There is nothing to set up at the moment — no server binary exists to point an editor at.
 
-1. Install the Yo extension from the VS Code marketplace (or build from source)
-2. The LSP server starts automatically when you open a `.yo` file
-3. No additional configuration is needed
-
-### Building from Source
-
-```bash
-# Build the LSP server
-bun run build
-
-# Build the VS Code extension
-cd vscode-extension
-bun install
-bun package
-```
-
-The LSP server is bundled into `out/cjs/yo-lsp.cjs` and included in the VS Code extension package.
-
-### Other Editors
-
-The LSP server communicates via stdio JSON-RPC and can be used with any editor that supports the Language Server Protocol. Start the server with:
-
-```bash
-node out/cjs/yo-lsp.cjs --stdio
-```
+Installing the Yo extension from the VS Code marketplace still gives you syntax highlighting, and the extension is built with `npm run package` inside `vscode-extension/` (it is a deliberate npm-only carve-out). But it no longer bundles a language client, and the old stdio entry point — `node out/cjs/yo-lsp.cjs --stdio`, for editors other than VS Code — went away with the TypeScript build.
 
 ## Implementation Details
 
@@ -159,12 +143,7 @@ Doc comments (`///`) are extracted during lexing, associated with declarations v
 
 ## Testing
 
-```bash
-# Run LSP tests
-bun test src/tests/lsp.test.ts --timeout 60000
-```
-
-The test suite covers:
+The LSP test suite lived in `src/tests/lsp.test.ts` and was deleted with the TypeScript tree; nothing covers this surface today. The cases below are the coverage a replacement has to reproduce:
 
 - Struct field completion
 - Enum variant completion (value and type level, with snippet insertions)
