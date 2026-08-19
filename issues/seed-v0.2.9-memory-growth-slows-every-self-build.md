@@ -12,11 +12,11 @@ the problem. See "ANSWERED" below.
 Same commit, same runner class (`ubuntu-latest`, 16 GB), same step — only the
 seed differs:
 
-| job | v0.2.4 seed (develop) | v0.2.9 seed (#137) |
-| --- | --- | --- |
-| ThreadSanitizer | 16 min | **>60 min — killed by `timeout-minutes: 60`** |
-| Bootstrap fixpoint (yo-self self-compile) | 39 min | 53 min |
-| Compiler internal tests, shard 0 | 55 min | 56 min |
+| job                                       | v0.2.4 seed (develop) | v0.2.9 seed (#137)                            |
+| ----------------------------------------- | --------------------- | --------------------------------------------- |
+| ThreadSanitizer                           | 16 min                | **>60 min — killed by `timeout-minutes: 60`** |
+| Bootstrap fixpoint (yo-self self-compile) | 39 min                | 53 min                                        |
+| Compiler internal tests, shard 0          | 55 min                | 56 min                                        |
 
 The pattern explains itself: the jobs that ALREADY provisioned the 32 GB
 swapfile moved modestly (+36 %, +2 %), because they were already swapping. TSan
@@ -51,12 +51,12 @@ Measured directly, same tree, same 16 GB machine (the runners' size), only the
 compiler differing. `--emit-c --skip-c-compiler`, so this is evaluation +
 codegen without clang:
 
-| binary | its own allocator | wall | peak footprint |
-| --- | --- | --- | --- |
-| v0.2.4 bundle | mimalloc | 447 s | 14.49 GB |
-| v0.2.9 bundle | mimalloc | 475 s | **28.36 GB** |
-| current tree | mimalloc | 373 s | 12.67 GB |
-| current tree | system | 186 s | 11.42 GB |
+| binary        | its own allocator | wall  | peak footprint |
+| ------------- | ----------------- | ----- | -------------- |
+| v0.2.4 bundle | mimalloc          | 447 s | 14.49 GB       |
+| v0.2.9 bundle | mimalloc          | 475 s | **28.36 GB**   |
+| current tree  | mimalloc          | 373 s | 12.67 GB       |
+| current tree  | system            | 186 s | 11.42 GB       |
 
 Two independent effects, separable because the first two rows hold the
 allocator constant:
@@ -105,3 +105,52 @@ This is worth understanding rather than absorbing:
 
 Until that is understood, every `SEED_VERSION` bump should be treated as a
 potential CI-wall-clock change and the affected job budgets re-checked.
+
+## The prediction came true, and it cost a release (2026-08-19)
+
+The section above says the jobs already swapping only got _slower_, while the
+one with no swapfile (TSan) was the one pushed over the line. That generalises,
+and the v0.2.10 release found the release-side instance of it.
+
+`release.yml`'s `musl-bundle` ran the same full self-emit its `test.yml` twin
+runs —
+
+```
+yo compile yo-self/main.yo --release --allocator mimalloc --std-path ./std ...
+```
+
+— on a bare 16 GB `ubuntu-latest` with **no swapfile**, while `seed-bundles`,
+`seed-cross-emit` and test.yml's musl leg all provision 32 GB. It died at 50
+minutes (of a 180-minute budget, so NOT a timeout) with the runner-death
+annotation:
+
+> The hosted runner lost communication with the server. Anything in your
+> workflow that terminates the runner process, **starves it for CPU/Memory**,
+> or blocks its network access can cause this error.
+
+Diagnostic notes, since this signature is easy to misread:
+
+- **A timeout kill and a starvation death look different.** `timeout-minutes`
+  reports the job as CANCELLED at exactly the budget; this was a FAILURE at 50
+  of 180 minutes, with the running step left `in_progress` and **no log blob at
+  all** (the runner died before uploading). The reason lives in the job's
+  _annotations_, not its log:
+  `gh api repos/<o>/<r>/check-runs/<job-id>/annotations`.
+- **The identical emit had passed an hour earlier** in the gate run, which is
+  what makes the asymmetry the whole story rather than the seed alone.
+
+Fixed by giving `musl-bundle` the same swapfile its siblings have. A sweep of
+every heavy self-building job in both workflows found no other gap: the only
+other heavy-without-swap job is `ts-unit-tests`, which is the TypeScript
+compiler under an explicit `--max-old-space-size` V8 cap — a different failure
+mode, and deleted with `src/` in Group E.
+
+**Cost.** `musl-bundle` has `needs: release`, so the version bump and the tag
+were already pushed when it died. Publication is held (it is in
+`publish-release`'s `needs`, deliberately), so v0.2.10 sat as a draft with the
+website already advertising it — the ordering defect fixed separately in #165.
+
+**The general rule this yields:** any job that runs a seed-driven self-emit
+needs the 32 GB swapfile, and the check belongs in review of every new such
+job. The demand is ~28 GB peak footprint under the v0.2.9 seed (table above);
+16 GB of RAM is not a question of tuning.
