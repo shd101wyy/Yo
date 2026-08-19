@@ -905,12 +905,29 @@ jobs:
         run: gh release upload "v${{ needs.release.outputs.version }}" "$BUNDLE.tar.gz" --clobber
 
   musl-bundle:
-    name: Static musl Linux bundle (linux-x64-musl)
+    name: Static musl Linux bundle (${{ matrix.target }})
     needs: release
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 180
     permissions:
       contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux-x64-musl
+          # arm64 added 2026-08-19. Until then this job was hardcoded to x64,
+          # so `yo-v<x>-linux-arm64-musl` had never existed — and an Alpine or
+          # NixOS arm64 user hit install.sh's fallback path, which correctly
+          # warns and points at `--from-source` but leaves them building the
+          # compiler themselves for want of a 24-minute release leg.
+          #
+          # The Alpine image is multi-arch, so the container step needs no
+          # change: `alpine:3.20` resolves to arm64 on an arm64 host, which is
+          # the whole reason this cross-compiles nothing.
+          - os: ubuntu-24.04-arm
+            target: linux-arm64-musl
     # PROMOTED 2026-08-17 per this job's own rule ("after one green release
     # run"): v0.2.7 (run 31925643271) built, smoked and shipped the bundle.
     # The earlier failures are root-caused, not mysterious — every red run's
@@ -1023,7 +1040,7 @@ jobs:
 
       - name: Assemble the bundle
         run: |
-          BUNDLE="yo-v${{ needs.release.outputs.version }}-linux-x64-musl"
+          BUNDLE="yo-v${{ needs.release.outputs.version }}-${{ matrix.target }}"
           mkdir -p "$BUNDLE/bin"
           cp yo-musl "$BUNDLE/bin/yo"
           cp -R std "$BUNDLE/std"

@@ -580,10 +580,11 @@ is_musl() {
 
 install_dist() {
   # On musl, prefer the static musl bundle and fall back to the glibc one.
-  # The fallback matters: the musl bundle is published by an EXPERIMENTAL
-  # release leg, so it can legitimately be missing from a given release, and a
-  # hard failure there would be worse than the loader warning the glibc path
-  # already prints.
+  # The fallback still matters even though the musl leg is no longer
+  # experimental (promoted 2026-08-17; it gates publication) and now covers
+  # arm64 as well as x64 (2026-08-19): a release older than either change
+  # legitimately lacks the bundle for this arch, and a hard failure would be
+  # worse than the loader warning the glibc path already prints.
   bundle="yo-$VERSION-$OSARCH"
   if [ "$OSNAME" = "linux" ] && is_musl; then
     musl_bundle="yo-$VERSION-$OSARCH-musl"
