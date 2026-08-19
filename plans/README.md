@@ -31,7 +31,10 @@ Its per-phase working docs, in order:
   when a codegen fix can reach a seed-built CI job.
 - [`P2_5_RETIRE_EXECUTION.md`](P2_5_RETIRE_EXECUTION.md) — the audited
   deletion plan for `src/`: 9 blockers, 28 steps, the deletion manifest, and
-  the scope decisions still open for the maintainer.
+  the scope decisions still open for the maintainer. **The deletion has
+  LANDED**: the TypeScript compiler, the bun/npm toolchain and the `./yo-cli`
+  shims are gone, frozen at the `src-attic-final` tag, and `yo-self/` is now
+  the only compiler (its rename to `src/` is the one step still pending).
 - [`P3_DISTRIBUTION.md`](P3_DISTRIBUTION.md) — installers (landed), `yo
 version` on GitHub Releases (urgent — npm publishing stopped at v0.2.0), and
   static-musl Linux bundles.

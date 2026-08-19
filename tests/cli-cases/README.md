@@ -1,9 +1,13 @@
-# `tests/cli-cases/` — the CLI differential corpus
+# `tests/cli-cases/` — the CLI case corpus
 
 One directory per case, consumed by [`scripts/cli-diff-test.sh`](../../scripts/cli-diff-test.sh).
-Each case runs under BOTH compilers in two isolated sandboxes (own project dir,
-own `HOME`) and the harness compares exit code, normalized stdout, the project
-tree and the `HOME` tree.
+Each case runs in an isolated sandbox (own project dir, own `HOME`) and the
+harness scores exit code, normalized stdout, the project tree and the `HOME`
+tree against the case's recorded goldens.
+
+It was a two-compiler differential until the TypeScript compiler was deleted
+with `src/` — hence the harness's name. The goldens, recorded from the
+self-hosted arm while both still existed, are the reference now.
 
 This corpus exists because `check` proves a subcommand type-checks, not that
 anything ever calls it — `init_project` shipped as 239 complete, type-checking
@@ -18,33 +22,34 @@ lines wired to no subcommand and SIGSEGV'd the first time it ran. See
 | `fixture/`           | no       | copied into the sandbox project dir before the first command                                                                                          |
 | `ignore`             | no       | one path glob per line, dropped from the tree comparison                                                                                              |
 | `opts`               | no       | `stdout=strict\|ignore`, `stdout_keep=<ERE>`, `network=1`, `timeout=<seconds>`, `env=K=V` (repeatable; `<PROJ>`/`<HOME>` expand to the sandbox paths) |
-| `expected_rc`        | no       | golden files, recorded from the self-hosted arm via `--record` — see Golden mode below.                                                               |
-| `expected_stdout`    | no       | (absent for `stdout=ignore` cases)                                                                                                                    |
-| `expected_tree`      | no       | project-tree manifest (`<relpath>\t<sha256>`)                                                                                                         |
-| `expected_home_tree` | no       | `HOME`-tree manifest, same format                                                                                                                     |
+| `expected_rc`        | yes      | golden files, recorded via `--record` — see Goldens below. A case without `expected_rc` fails as `NO-GOLDEN`.                                         |
+| `expected_stdout`    | yes      | (absent for `stdout=ignore` cases — those score rc + trees only)                                                                                      |
+| `expected_tree`      | yes      | project-tree manifest (`<relpath>\t<sha256>`)                                                                                                         |
+| `expected_home_tree` | yes      | `HOME`-tree manifest, same format                                                                                                                     |
 
 A run stops at the first non-zero exit code, so a `cmd` file may assert an error
 path by putting the failing command last.
 
-## Golden mode — what outlives `src/`
+## Goldens — the corpus's post-retirement form
 
-When `out/cjs/yo-cli.cjs` is missing (or `--golden` is passed), the harness
-scores the self-hosted arm against each case's recorded golden files instead of
-against the TS reference — this is the corpus's post-retirement form
-(`plans/P2_5_RETIRE_EXECUTION.md` step 12). Goldens are recorded **from the
-self arm** (`--record`): the harness injects `YO_STD` on the self side only, so
-the surviving arm is the one whose environment was always explicit. A case with
-no goldens scores `NO-GOLDEN` and fails the run — a silently unscored case is
+The harness scores the run against each case's recorded golden files
+(`plans/P2_5_RETIRE_EXECUTION.md` step 12). Goldens were recorded **from the
+self-hosted arm** (`--record`): the harness injects `YO_STD`, so the surviving
+arm is the one whose environment was always explicit. A case with no goldens
+scores `NO-GOLDEN` and fails the run — a silently unscored case is
 indistinguishable from a passing one.
 
 ```bash
-YO_SELF_BIN=/tmp/yo-s1 scripts/cli-diff-test.sh --golden          # score against goldens
+YO_SELF_BIN=/tmp/yo-s1 scripts/cli-diff-test.sh                   # score against goldens
 YO_SELF_BIN=/tmp/yo-s1 scripts/cli-diff-test.sh --record <case>   # re-record after an intended behavior change
 ```
 
 Re-record only when a behavior change is intended, and review the golden diff
 in the same commit as the change that caused it — the diff IS the review
-surface once the TS arm is gone.
+surface now that there is no second compiler to disagree.
+
+(`--golden` is still accepted and does nothing; golden scoring is the only
+mode.)
 
 ## Running
 
@@ -57,13 +62,13 @@ YO_SELF_BIN=/tmp/yo-s1 scripts/cli-diff-test.sh --network    # include network c
 ## `stdout=ignore` is a debt marker, not a convenience
 
 Prefer `stdout_keep_match=<ERE>` — it keeps only the matched substring of
-matching lines, so a case can assert the shared diagnostic even when the two
-binaries wrap it differently (TS an uncaught throw with a stack, the
-self-hosted one a `yo: error:` line). A pattern that matches nothing on either
-side fails the case (`keep-match-vacuous`), so the assertion cannot rot into
-"any failure passes". `stdout=ignore` survives only where there is NO shared
-substring — as of P2.5 step 15 that is exactly one case (`std-path-flag`,
-whose opts file documents why); say so in the `opts` file if you add another.
+matching lines, so a case can pin the diagnostic itself while discarding a
+wrapper whose remainder is environment-specific. A pattern that matches nothing
+fails the case (`NO-GOLDEN`, "matched nothing — vacuous"), so the assertion
+cannot rot into "any failure passes". `stdout=ignore` survives only where there
+is no such substring — as of P2.5 step 15 that is exactly one case
+(`std-path-flag`, whose opts file documents why); say so in the `opts` file if
+you add another.
 
 Fixtures that must be misformatted `.yo` (the fmt cases) ship as
 `fixture/*.yo.fixture` — the suffix is stripped on sandbox copy — so the
@@ -75,8 +80,8 @@ There is no `pending/` directory right now, and there should not be one unless a
 subcommand is written before it is dispatched.
 
 It existed while `build`, `fetch` and `install` were written but undispatched in
-`yo-self/main.yo`: their cases would have reported `SELF-FAIL` every run, so they
-sat one directory down where the harness does not pick them up (it only treats a
+`yo-self/main.yo`: their cases would have failed every run, so they sat one
+directory down where the harness does not pick them up (it only treats a
 directory containing a `cmd` file as a case). All three are dispatched now and
 their cases have moved up.
 

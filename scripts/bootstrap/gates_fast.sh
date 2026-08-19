@@ -58,10 +58,9 @@ for t in tests/comptime.test.yo tests/prelude.test.yo tests/arc.test.yo tests/as
   # SELF-HOSTED runner (yo-self/main.yo:1522), which otherwise DELETES its
   # .yo_selftest_batch_<index>.{yo,bin,bin.c} artifacts next to the test file.
   # The hollow check below needs the .bin.c to exist; without this var every
-  # file reports hollow=NA and the gate fails 20/20. (It is deliberately absent
-  # from src/ — the TS runner has no counterpart — so grepping only src/ makes
-  # it look dead. It is not. measure_one.sh and hollow_sweep69.sh set it for
-  # the same reason.)
+  # file reports hollow=NA and the gate fails 20/20. (The retired TypeScript
+  # runner had no counterpart for it, which is why older notes call it dead. It
+  # is not. measure_one.sh and hollow_sweep69.sh set it for the same reason.)
   YO_KEEP_BATCH=1 timeout 1200 "$S1" test "$t" &> "/tmp/${P}_${name}.log"
   rc=$?
   # Check EVERY batch, not a hardcoded `.yo_selftest_batch_1.bin.c`: the runner
@@ -91,61 +90,40 @@ for t in tests/comptime.test.yo tests/prelude.test.yo tests/arc.test.yo tests/as
   [ "$hollow" = "NA" ] && fail "battery $name produced no batch .c — hollow state unknown"
 done
 
-echo "=== T1 GATE 2: corpus diff-test ==="
+echo "=== T1 GATE 2: corpus golden scoring ==="
+# The codegen corpus, scored against tests/codegen-bootstrap/goldens/. This was
+# a differential against the TypeScript compiler until that compiler was deleted
+# with src/ (P2.5 step 13); diff-test.sh is golden-only now, so this gate
+# ABSORBED the former GATE 2b, which ran the identical command with --golden.
+#
+# The goldens were recorded with THIS GATE'S OWN FLAGS (--release) — they are
+# behavior-affecting, so score with the same ones. An intended behavior change
+# re-records in the same commit:
+#   scripts/diff-test.sh tests/codegen-bootstrap --release --parallel 4 --record
 YO_SELF_BIN=$S1 scripts/diff-test.sh tests/codegen-bootstrap --release --parallel 4 &> "/tmp/${P}_corpus.log"
 corpus_rc=$?
 corpus=$(tail -1 "/tmp/${P}_corpus.log")
 echo "CORPUS_RC=$corpus_rc  $corpus"
-# diff-test.sh prints TWO different scorecards, and this gate has to read both.
-# With a TS arm present it is the DIFFERENTIAL one (DIFF / SELF-FAIL / TS-FAIL);
-# with `out/cjs/yo-cli.cjs` absent it falls back to GOLDEN mode and prints
-# GOLDEN-DIFF / NO-GOLDEN, which contains no SELF-FAIL token at all.
+# The exit code is the signal (diff-test.sh counts GOLDEN-DIFF and NO-GOLDEN as
+# failures), so it leads; the token checks stay as defence-in-depth.
 #
-# The absent TS arm is now the STEADY STATE for this job (P2.5 took bun/node out
-# of it), so the old unconditional `grep SELF-FAIL 0` failed EVERY golden-mode
-# run regardless of the result: runs 31856743929 and 31865473380 both reported
-# "PASS 155 GOLDEN-DIFF 0 NO-GOLDEN 0 (total 155)" — a perfect score — and still
-# failed the gate. The `DIFF 0` check meanwhile passed only by accident, since
-# "GOLDEN-DIFF 0" happens to contain the substring "DIFF 0".
-#
-# The exit code is the mode-agnostic signal (diff-test.sh counts GOLDEN-DIFF and
-# NO-GOLDEN as failures too), so it leads; the token checks stay as
-# defence-in-depth, each matched against the scorecard its own mode emits.
+# Do NOT reinstate a bare `grep ' DIFF 0'` here: "GOLDEN-DIFF 0" contains that
+# substring, so it used to pass by accident, while an unconditional
+# `grep 'SELF-FAIL 0'` failed EVERY golden run however clean — runs 31856743929
+# and 31865473380 both scored "PASS 155 GOLDEN-DIFF 0 NO-GOLDEN 0 (total 155)"
+# and still failed the gate (issues/fixed/tier1-gate2-always-fails-in-golden-mode.md).
 [ "$corpus_rc" -eq 0 ] || {
-  fail "corpus diff-test rc=$corpus_rc: $corpus"
+  fail "corpus golden scoring rc=$corpus_rc: $corpus (re-record with --record if the change is intended)"
   dump_log "/tmp/${P}_corpus.log"
 }
-if echo "$corpus" | grep -q 'GOLDEN-DIFF'; then
-  echo "$corpus" | grep -qE 'GOLDEN-DIFF 0( |$)' || {
-    fail "corpus diff-test reported a GOLDEN-DIFF: $corpus"
-    dump_log "/tmp/${P}_corpus.log"
-  }
-  echo "$corpus" | grep -qE 'NO-GOLDEN 0( |$)' || {
-    fail "corpus diff-test has cases with no golden: $corpus"
-    dump_log "/tmp/${P}_corpus.log"
-  }
-else
-  echo "$corpus" | grep -qE ' DIFF 0( |$)' || fail "corpus diff-test reported a DIFF: $corpus"
-  echo "$corpus" | grep -qE 'SELF-FAIL 0( |$)' || {
-    fail "corpus diff-test reported a SELF-FAIL: $corpus"
-    dump_log "/tmp/${P}_corpus.log"
-  }
-fi
-
-echo "=== T1 GATE 2b: corpus golden scoring ==="
-# Same corpus, self arm scored against tests/codegen-bootstrap/goldens/
-# (recorded with GATE 2's own flags — they are behavior-affecting). While both
-# compilers exist this is the drift ratchet keeping the goldens honest; after
-# src/ retirement it replaces GATE 2 (plans/P2_5_RETIRE_EXECUTION.md step 13).
-# An intended behavior change re-records in the same commit:
-#   scripts/diff-test.sh tests/codegen-bootstrap --release --parallel 4 --record
-YO_SELF_BIN=$S1 scripts/diff-test.sh tests/codegen-bootstrap --release --parallel 4 --golden &> "/tmp/${P}_corpus_golden.log"
-corpus_golden_rc=$?
-echo "CORPUS_GOLDEN_RC=$corpus_golden_rc  $(tail -1 "/tmp/${P}_corpus_golden.log")"
-if [ "$corpus_golden_rc" != "0" ]; then
-  fail "corpus golden scoring failed (re-record with --record if the change is intended)"
-  dump_log "/tmp/${P}_corpus_golden.log"
-fi
+echo "$corpus" | grep -qE 'GOLDEN-DIFF 0( |$)' || {
+  fail "corpus golden scoring reported a GOLDEN-DIFF: $corpus"
+  dump_log "/tmp/${P}_corpus.log"
+}
+echo "$corpus" | grep -qE 'NO-GOLDEN 0( |$)' || {
+  fail "corpus golden scoring has files with no golden: $corpus"
+  dump_log "/tmp/${P}_corpus.log"
+}
 
 echo "=== T1 GATE 3: check ./std ==="
 YO_MAIN_STACK_MB=4096 "$S1" check ./std &> "/tmp/${P}_std.log"
@@ -204,7 +182,7 @@ echo "=== T1 GATE 6: fmt (self-hosted check + write idempotence) ==="
 # what replaces the differential's value is (a) the tree must be
 # self-fmt-clean, and (b) write mode must be a NO-OP on a check-clean tree —
 # a diff there is a check/write divergence, the class --check alone can't see.
-# The fmt-check/fmt-write cli-cases (GATE 7/7b) pin the formatter's OUTPUT.
+# The fmt-check/fmt-write cli-cases (GATE 7) pin the formatter's OUTPUT.
 #
 # Clear GATE 1's leftovers first. It runs with YO_KEEP_BATCH=1 (the hollow check
 # needs the emitted .c), which leaves generated `.yo_selftest_batch_*.yo` next to
@@ -238,34 +216,36 @@ else
   fi
 fi
 
-echo "=== T1 GATE 7: CLI subcommand differential ==="
-# GATE 5 runs `init` and asserts its artifacts. This runs the whole corpus under
-# BOTH compilers in isolated sandboxes (own project dir, own HOME) and diffs
-# exit code, stdout, the project tree and the HOME tree. See
-# tests/cli-cases/README.md; cases for not-yet-dispatched subcommands live in
-# tests/cli-cases/pending/ and are not picked up here.
+echo "=== T1 GATE 7: CLI subcommand cases (golden scoring) ==="
+# GATE 5 runs `init` and asserts its artifacts. This runs the whole cli-cases
+# corpus in isolated sandboxes (own project dir, own HOME) and scores exit code,
+# stdout, the project tree and the HOME tree against each case's recorded
+# goldens (expected_rc / expected_stdout / expected_tree / expected_home_tree).
+# See tests/cli-cases/README.md. Every case under tests/cli-cases/ is live;
+# there is no pending/ holding area.
+#
+# This was a differential against the TypeScript CLI until that arm went with
+# src/ (P2.5 step 12); cli-diff-test.sh is golden-only now, so this gate
+# ABSORBED the former GATE 7b, which ran the identical command with --golden. A
+# case with no goldens scores NO-GOLDEN and fails, so nothing goes unscored, and
+# an intended behavior change must re-record in the same commit
+# (scripts/cli-diff-test.sh --record <case>).
 YO_SELF_BIN=$S1 scripts/cli-diff-test.sh &> "/tmp/${P}_clidiff.log"
 clidiff_rc=$?
 echo "CLIDIFF_RC=$clidiff_rc  $(tail -1 "/tmp/${P}_clidiff.log")"
 if [ "$clidiff_rc" != "0" ]; then
-  fail "CLI subcommand differential failed"
+  fail "CLI golden scoring failed (re-record with scripts/cli-diff-test.sh --record if the change is intended)"
   dump_log "/tmp/${P}_clidiff.log"
 fi
-
-echo "=== T1 GATE 7b: CLI golden scoring ==="
-# Same corpus, scored against the per-case recorded goldens (expected_rc /
-# expected_stdout / expected_tree / expected_home_tree). While both compilers
-# exist this is the drift ratchet that keeps the goldens honest — an intended
-# behavior change must re-record its goldens in the same commit
-# (scripts/cli-diff-test.sh --record). After src/ retirement it is the
-# differential's replacement (plans/P2_5_RETIRE_EXECUTION.md step 12).
-YO_SELF_BIN=$S1 scripts/cli-diff-test.sh --golden &> "/tmp/${P}_cligolden.log"
-cligolden_rc=$?
-echo "CLIGOLDEN_RC=$cligolden_rc  $(tail -1 "/tmp/${P}_cligolden.log")"
-if [ "$cligolden_rc" != "0" ]; then
-  fail "CLI golden scoring failed (re-record with scripts/cli-diff-test.sh --record if the change is intended)"
-  dump_log "/tmp/${P}_cligolden.log"
-fi
+# Defence in depth behind the exit code, which cli-diff-test.sh's own summary
+# line advertises: if a refactor ever breaks the rc plumbing, a nonzero
+# GOLDEN-DIFF or NO-GOLDEN still fails this gate rather than scoring silently.
+clidiff_tail=$(tail -1 "/tmp/${P}_clidiff.log")
+case "$clidiff_tail" in
+  *"GOLDEN-DIFF 0"*"NO-GOLDEN 0"*) ;;
+  *) fail "CLI golden scorecard is not clean: $clidiff_tail"
+     dump_log "/tmp/${P}_clidiff.log" ;;
+esac
 
 echo "=== T1_DONE (${P}) failures=${fails} ==="
 [ "$fails" = "0" ] || exit 1

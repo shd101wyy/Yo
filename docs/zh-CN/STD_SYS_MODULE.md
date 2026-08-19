@@ -167,16 +167,16 @@ timer  :: import "std/sys/timer";
 
 ## C 运行时架构
 
-C 运行时被拆分为 `src/codegen/async/` 下的多个专注模块：
+C 运行时被拆分为 `yo-self/codegen/async/` 下的多个专注模块：
 
 | 文件                    | 职责                                                                       |
 | ----------------------- | -------------------------------------------------------------------------- |
-| `runtime.ts`            | 轻量协调器——调用其他运行时模块                                             |
-| `runtime-core.ts`       | 核心调度器：continuation 队列、spawn、wait、并发辅助函数                   |
-| `runtime-io-linux.ts`   | Linux io_uring 异步 I/O                                                    |
-| `runtime-io-macos.ts`   | macOS kqueue 异步 I/O（socket/pipe 非阻塞，常规文件同步 pread/pwrite）     |
-| `runtime-io-windows.ts` | Windows IOCP 异步 I/O                                                      |
-| `runtime-io-common.ts`  | 跨平台：stat 辅助函数、定时器、文件扩展功能、DNS、信号、TTY、FS 事件、poll |
+| `runtime.yo`            | 轻量协调器——调用其他运行时模块                                             |
+| `runtime_core.yo`       | 核心调度器：continuation 队列、spawn、wait、并发辅助函数                   |
+| `runtime_io_linux.yo`   | Linux io_uring 异步 I/O                                                    |
+| `runtime_io_macos.yo`   | macOS kqueue 异步 I/O（socket/pipe 非阻塞，常规文件同步 pread/pwrite）     |
+| `runtime_io_windows.yo` | Windows IOCP 异步 I/O                                                      |
+| `runtime_io_common.yo`  | 跨平台：stat 辅助函数、定时器、文件扩展功能、DNS、信号、TTY、FS 事件、poll |
 
 ### 各平台功能矩阵
 

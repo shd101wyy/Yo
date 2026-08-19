@@ -20,7 +20,6 @@ Use this skill when you need to:
 - format source with `yo fmt`
 - manage dependencies with `yo install` or `yo fetch`
 - pin or manage Yo versions with `yo version`
-- install AI agent skill files with `yo skills install`
 - generate API documentation with `yo doc` or `build.doc()`
 - reason about targets, compilers, or cross-platform setup
 
@@ -42,7 +41,6 @@ Use this skill when you need to:
 - `yo fmt` applies the fixed Yo style with 2-space indentation; there are no formatter options.
 - Use `yo install` and `yo fetch` for git or path dependencies.
 - Use `yo version pin` to create a `.yo-version` file for reproducible builds.
-- Use `yo skills install` to copy Yo skill files into all agent config directories in the project.
 - Prefer symbolic build APIs and target constants in `build.yo` instead of ad-hoc shell logic.
 
 ## Resource

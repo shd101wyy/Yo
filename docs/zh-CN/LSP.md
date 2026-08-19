@@ -1,15 +1,20 @@
 # 语言服务器协议 (LSP) 支持
 
-Yo 内置了一个 LSP 服务器，为 `.yo` 文件提供丰富的编辑器支持。该服务器使用 TypeScript 实现，复用 Yo 求值器以获取精确的类型信息。
+> **目前并未随 Yo 一起发布。** 这里描述的服务器是一个 TypeScript 程序，直接调用
+> TypeScript 求值器；Yo 转为自举之后，它与整个 TypeScript 编译器一起被删除了。
+> 现在 VS Code 扩展只提供语法高亮，也没有 `yo lsp` 子命令。基于自举求值器的 Yo
+> 原生替代品正在计划中；本文档作为它需要恢复的行为规格保留下来。
+
+Yo 的 LSP 服务器为 `.yo` 文件提供丰富的编辑器支持。它复用 Yo 求值器而不是另写一个解析器，因此它报告的类型和值与编译器完全一致。
 
 ## 架构
 
 ```
 VS Code 扩展（轻量客户端）
   ↕ stdio JSON-RPC
-LSP 服务器（src/lsp/）
+LSP 服务器
   ↕ 直接函数调用
-Yo 求值器（src/evaluator/）
+Yo 求值器
 ```
 
 VS Code 扩展是一个轻量的 `LanguageClient` 包装（约 80 行代码）。所有智能逻辑都在 LSP 服务器中，它直接调用求值器进行类型解析、补全和诊断。
@@ -96,33 +101,9 @@ match(color,
 
 ## 设置
 
-### VS Code
+目前没有任何需要设置的东西 —— 没有可供编辑器连接的服务器程序。
 
-1. 从 VS Code 市场安装 Yo 扩展（或从源码构建）
-2. 打开 `.yo` 文件时 LSP 服务器会自动启动
-3. 无需额外配置
-
-### 从源码构建
-
-```bash
-# 构建 LSP 服务器
-bun run build
-
-# 构建 VS Code 扩展
-cd vscode-extension
-bun install
-bun package
-```
-
-LSP 服务器会被打包到 `out/cjs/yo-lsp.cjs` 中，并包含在 VS Code 扩展包内。
-
-### 其他编辑器
-
-LSP 服务器通过 stdio JSON-RPC 通信，可以与任何支持语言服务器协议的编辑器配合使用。启动服务器：
-
-```bash
-node out/cjs/yo-lsp.cjs --stdio
-```
+从 VS Code 市场安装 Yo 扩展依然可以获得语法高亮，扩展本身在 `vscode-extension/` 目录下用 `npm run package` 构建（这是有意保留的 npm 专属部分）。但它不再内置语言客户端，供 VS Code 之外的编辑器使用的那个 stdio 入口 —— `node out/cjs/yo-lsp.cjs --stdio` —— 也随 TypeScript 构建一起消失了。
 
 ## 实现细节
 
@@ -159,12 +140,7 @@ LSP 维护一个"最后成功模块"缓存。当用户正在输入时（如 `p2.
 
 ## 测试
 
-```bash
-# 运行 LSP 测试
-bun test src/tests/lsp.test.ts --timeout 60000
-```
-
-测试套件覆盖：
+LSP 测试套件原本位于 `src/tests/lsp.test.ts`，已随 TypeScript 代码树一起删除；目前没有任何测试覆盖这一部分。下面这些用例就是替代实现需要重新覆盖的范围：
 
 - 结构体字段补全
 - 枚举变体补全（值级和类型级，含代码片段插入）

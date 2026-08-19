@@ -2798,16 +2798,16 @@ Tests can be run using the Yo CLI:
 
 ```bash
 # Run all tests in a file
-$ ./yo-cli test path/to/file.test.yo
+$ yo test path/to/file.test.yo
 
 # Run specific test by pattern
-$ ./yo-cli test path/to/file.test.yo --test-name-pattern "Test addition"
+$ yo test path/to/file.test.yo --test-name-pattern "Test addition"
 
 # Stop on first failure
-$ ./yo-cli test path/to/file.test.yo --bail
+$ yo test path/to/file.test.yo --bail
 
 # Verbose output
-$ ./yo-cli test path/to/file.test.yo -v
+$ yo test path/to/file.test.yo -v
 ```
 
 ### Assertions

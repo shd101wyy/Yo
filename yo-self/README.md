@@ -1,8 +1,17 @@
 # yo-self — Self-Hosted Yo Compiler
 
-This directory holds the **Yo-in-Yo** port of the compiler. The goal is to replace
-the TypeScript implementation in `src/` with a Yo implementation that compiles to
+This directory holds the **Yo-in-Yo** compiler — the only compiler. It compiles to
 a single C file, which can be redistributed as `yo.c` plus a small driver.
+
+It **replaced** the TypeScript implementation that used to live in `src/`: that
+tree, its bun/npm toolchain and the `./yo-cli` shims were deleted with P2.5 and
+are frozen at the annotated tag **`src-attic-final`** (`git show src-attic-final`
+— it is the last commit that still contains them). Every `./yo-cli <args>` in an
+older document is `yo <args>` today, `yo` being the native binary a release
+bundle puts on `PATH`.
+
+**Still pending:** this directory is to be renamed `yo-self/` → `src/` (P2.5
+Group F). It has not happened yet — paths below are the live ones.
 
 ## Current status (2026-08-03)
 
@@ -28,25 +37,25 @@ See **[`../plans/BOOTSTRAPPING.md`](../plans/BOOTSTRAPPING.md)** for:
 ## Quick start
 
 ```bash
-# Run all the compiler's own tests (40.5 min under TS, 22.2 min self-hosted —
-# measured 2026-08-05, --parallel 1; see "Test suite layout" below)
-./yo-cli test ./tests/internal --parallel 1
+# Run all the compiler's own tests (22.2 min — measured 2026-08-05, --parallel 1;
+# the retired TS compiler took 40.5 min on the same set. See "Test suite layout")
+yo test ./tests/internal --parallel 1
 
 # Run a single test file
-./yo-cli test ./tests/internal/lexer.test.yo --parallel 1
+yo test ./tests/internal/lexer.test.yo --parallel 1
 
 # Run a specific test by name
-./yo-cli test ./tests/internal/lexer.test.yo --test-name-pattern "tokenize" --parallel 1
+yo test ./tests/internal/lexer.test.yo --test-name-pattern "tokenize" --parallel 1
 ```
 
 ## Test suite layout
 
 The compiler's own tests live in **`tests/internal/`** — 58 files compiled and run
-by the TypeScript `yo-cli`. They were at `yo-self/tests/` until 2026-08-05 (moved
-because `src/` will eventually be retired and `yo-self/` will become `src/`, so
-they belong under `tests/` now rather than being shuffled twice); translate the old
-path when reading older `issues/` and `plans/` documents. They fall into two live
-tiers, plus a third that was retired:
+by `yo`. They were at `yo-self/tests/` until 2026-08-05 (moved because `src/` was
+going to be retired and `yo-self/` renamed to `src/`, so they belong under
+`tests/` rather than being shuffled twice — the retirement has since happened,
+the rename has not); translate the old path when reading older `issues/` and
+`plans/` documents. They fall into two live tiers, plus a third that was retired:
 
 1. **Fast unit tests** (seconds–1 min each): lexer, parser, token/env/value,
    `types_*` (tags, guards, utils, compound, string-compat, value),
@@ -82,7 +91,7 @@ The strongest evaluator gate is not the unit suite but the self-hosted
 binary itself:
 
 ```bash
-./yo-cli compile yo-self/main.yo --release -o /tmp/yo-self-bin   # ~6 min (always --release; -O0 hits stack ceilings)
+yo compile yo-self/main.yo --release -o /tmp/yo-self-bin         # ~6 min (always --release; -O0 hits stack ceilings)
 /tmp/yo-self-bin check ./std                                     # 153/153
 /tmp/yo-self-bin test ./tests --exclude tests/internal --parallel 1   # fast language suite
 # Stage-2 self-compile + fixpoint (the strongest gate of all):

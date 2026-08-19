@@ -24,8 +24,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      pages: write
-      id-token: write
       # For the version-bump fallback's `gh pr create` (v0.2.0's silently
       # failed under `|| true` — the branch was pushed but no PR appeared).
       # NOTE: the repo setting "Allow GitHub Actions to create and approve
@@ -81,26 +79,12 @@ jobs:
             exit 1
           fi
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "24"
           registry-url: "https://registry.npmjs.org"
 
-      - name: Install dependencies
-        run: |
-          bun install
-
-      # P2.5 step 24 / blocker B5: the version SOURCE OF TRUTH is
-      # `yo-self/version.yo`, not root package.json — which P2.5 Group E
-      # deletes. The bump is computed here in shell (the input offers only
-      # `patch` and `minor`, and anything else fails loudly) so the release
-      # does not depend on npm to know its own version.
       - name: "Compute the next version (source of truth: yo-self/version.yo)"
         id: version
         run: |
@@ -129,17 +113,6 @@ jobs:
         run: |
           cd vscode-extension
           npm version "${{ steps.version.outputs.version }}" --no-git-tag-version --allow-same-version
-
-      # Root package.json is a FOLLOWER until Group E deletes it: keeping it in
-      # sync avoids a confusing mismatch for anything still reading it
-      # (src/version.ts:13 imports it). Skipped automatically once it is gone.
-      - name: Sync root package.json (while it still exists)
-        run: |
-          if [ -f package.json ]; then
-            npm version "${{ steps.version.outputs.version }}" --no-git-tag-version --allow-same-version
-          else
-            echo "package.json is gone (Group E) — nothing to sync."
-          fi
 
       # `yo-self/version.yo` IS the source of truth as of P2.5 step 24 (blocker
       # B5): the step above READ the current version from here, and this step
@@ -170,10 +143,22 @@ jobs:
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          # Group E deletes root package.json; `git add` of a missing path is a
-          # hard error, so stage only what exists.
-          for f in package.json vscode-extension/package.json vscode-extension/package-lock.json yo-self/version.yo; do
+          # OPTIONAL — Group E deletes root package.json, and `git add` of a
+          # missing path is a hard error, so this one is skipped when absent.
+          for f in package.json; do
             [ -f "$f" ] && git add "$f"
+          done
+          # REQUIRED. These must exist, and a blanket `[ -f ] &&` over them is
+          # a silent-failure trap: if a path MOVES (e.g. yo-self/ -> src/ in
+          # P2.5 Group F), the guard quietly skips it and the release commits
+          # WITHOUT the version bump — no error, after the release is already
+          # tagged and the extension published. Fail loudly instead.
+          for f in vscode-extension/package.json vscode-extension/package-lock.json yo-self/version.yo; do
+            if [ ! -f "$f" ]; then
+              echo "::error::$f is missing, so the version bump would not land. Did a path move? Update this list in the same change."
+              exit 1
+            fi
+            git add "$f"
           done
           git commit -m "chore: bump version to ${{ steps.version.outputs.version }} [skip ci]"
           # The checkout used RELEASE_PAT (repository-admin ruleset bypass),
@@ -261,6 +246,18 @@ jobs:
       # is scripts/build_site.yo, compiled and run by the SEED compiler — no
       # bun/node in this step. Verified byte-identical to the TS original
       # (160 files, homepage md5 equal) before the swap.
+      # The seed is a dynamically linked Linux binary and the async runtime
+      # links liburing, so it cannot even START without it — `yo: error while
+      # loading shared libraries: liburing.so.2`. Every other Linux job in this
+      # file installs it; this job did not, because until the docs site moved
+      # off bun (#151) it never RAN a Yo compiler. That is what failed v0.2.10:
+      # exit 127 at the site build, AFTER the version bump had been committed
+      # and the extension published.
+      - name: Install liburing
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y liburing-dev
+
       - name: Install the seed compiler (for the site build)
         uses: ./.github/actions/install-seed
         with:
@@ -271,13 +268,12 @@ jobs:
           yo compile scripts/build_site.yo --release -o /tmp/build-site
           /tmp/build-site --output yo-out/site --version "v${{ steps.version.outputs.version }}" --yo yo
 
+      # Uploaded here, DEPLOYED by the deploy-site job at the bottom of this
+      # file — see the invariant recorded there.
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: yo-out/site
-
-      - name: Deploy to GitHub Pages
-        uses: actions/deploy-pages@v4
 
   # Bootstrap seed bundles — plans/SELF_HOSTING_COMPLETION.md Phase 2 (task 2.1)
   # and plans/P2_RETIRE_SRC.md. The TypeScript compiler builds the native
@@ -300,7 +296,13 @@ jobs:
     # times out burns a version number, so the budget is sized for the
     # measured cost, not the old one. See
     # issues/seed-v0.2.9-memory-growth-slows-every-self-build.md.
-    timeout-minutes: 180
+    #
+    # 180 -> 360 (2026-08-19): the v0.2.10 attempt was KILLED at 180 with the
+    # candidate build alone taking 159 min, against 18 min for the same step
+    # one release earlier. Root cause was the missing memory treatment below,
+    # not the budget — but the budget is what turned a slow job into a dead
+    # release, so it gets headroom too. The arm64 leg, same steps, took 32 min.
+    timeout-minutes: 360
     permissions:
       contents: write
     # Only the CI-runner platforms (linux-x64, macos-arm64, windows-x64) are
@@ -375,44 +377,53 @@ jobs:
           sudo mkswap /mnt/swapfile
           sudo swapon /mnt/swapfile
 
+      # SWAP ALONE IS NOT ENOUGH — the v0.2.10 release proved it expensively.
+      # This job's linux-x64 leg spent 159 minutes on the candidate build and
+      # was killed at the budget, taking the release with it.
+      #
+      # zswap is the knob, and the comparison is unusually well controlled:
+      # test.yml's bootstrap-fixpoint "Stage 1" runs the SAME operation — the
+      # v0.2.9 seed building the compiler — on the same commit, the same
+      # ubuntu-latest runner class, with the same 32 GB swapfile. The only
+      # difference was that it turns zswap on and this job did not.
+      #
+      #     test.yml   Stage 1     zswap ON      16 min
+      #     release.yml            zswap OFF    159 min
+      #
+      # A 10x difference from one sysctl. Once the seed no longer fits in RAM
+      # (v0.2.9 peaks ~28 GB — see the issue below), every reclaimed page goes
+      # to disk; zswap keeps a compressed copy in RAM (~3x) and turns disk
+      # thrash back into memory traffic. The arm64 leg needed only 32 min
+      # without it, which is why this first looked arch-specific rather than
+      # configuration-specific.
+      #
+      # THP off for the reason test.yml sets it on its heavier emit: huge pages
+      # must be split and compacted before they can be swapped at all.
+      #
+      # DELIBERATELY NOT copied from test.yml: its `systemd-run --scope -p
+      # MemoryHigh/MemoryMax` wrapper. It is unmeasured for these steps, it
+      # would newly OOM-kill anything that legitimately exceeds the cap, and
+      # `sudo` resets PATH to secure_path — which does not contain the seed's
+      # bin/ — so wrapping the steps that invoke a bare `yo` would break them
+      # outright. release.yml gets no PR CI, so an untested change here is only
+      # discoverable by burning a release. The measurement says zswap is what
+      # mattered; that is what this applies.
+      #
+      # See issues/seed-v0.2.9-memory-growth-slows-every-self-build.md.
+      - name: Tune the kernel for a swap-heavy self-emit
+        if: runner.os == 'Linux'
+        run: |
+          echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled || true
+          echo never | sudo tee /sys/kernel/mm/transparent_hugepage/defrag || true
+          echo Y | sudo tee /sys/module/zswap/parameters/enabled || true
+          free -h
+
       - name: Install LLVM/Clang
         if: runner.os == 'Windows'
         run: |
           choco install llvm -y
           echo "C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
-      - name: Setup Bun
-        if: ${{ !matrix.seed_built }}
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - name: Setup Node.js
-        if: ${{ !matrix.seed_built }}
-        uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-
-      - name: Build the TS compiler
-        if: ${{ !matrix.seed_built }}
-        run: |
-          bun install
-          bun run build
-
-      # --allocator mimalloc matches the bootstrap-fixpoint configuration in
-      # test.yml: the seed binary's own self-emits are exactly what 2.3's CI
-      # will run, and mimalloc is the allocator proven to survive those on
-      # 16 GB Linux boxes (glibc malloc inflates the emit's RSS ~72%).
-      # 12288 MB heap: the 4096 cap predates the tree's growth — the v0.2.8
-      # attempt-3 windows-x64 leg died of "JavaScript heap out of memory" at
-      # 4 GB. 12288 matches local practice for this exact compile and is a
-      # CAP, not a reservation (windows-latest runners have 16 GB).
-      - name: Build the native yo binary (TS compiler, one last time)
-        if: ${{ !matrix.seed_built }}
-        shell: bash
-        run: node --expose-gc --max-old-space-size=12288 ./out/cjs/yo-cli.cjs compile yo-self/main.yo --release --allocator mimalloc -o yo-seed
-
-      # ----- seed-built legs (P2.5 step 24) --------------------------------
       - name: Install the seed compiler (previous release)
         if: ${{ matrix.seed_built }}
         uses: ./.github/actions/install-seed
@@ -521,19 +532,6 @@ jobs:
       # self-contained on a box WITHOUT mimalloc headers but MIS-LINKS on one
       # that has the headers and no -lmimalloc. The published file must not
       # depend on what the user happens to have installed, so it is libc.
-      - name: "Emit this platform's arm of the portable yo.c"
-        if: ${{ !matrix.seed_built }}
-        shell: bash
-        run: |
-          # 12288: same OOM headroom as the binary build above (emit is the
-          # heavier phase of the two).
-          node --expose-gc --max-old-space-size=12288 ./out/cjs/yo-cli.cjs \
-            compile yo-self/main.yo --release --allocator libc \
-            --skip-c-compiler --emit-c-to "portable-arm/${{ matrix.target }}.c"
-          ls -la "portable-arm/${{ matrix.target }}.c"
-
-      # Seed-era flags: `--emit-c-to` may postdate the seed, so use the
-      # `-o <base>` sidecar form and move it into place (same as the musl job).
       - name: "Emit this platform's arm of the portable yo.c (seed)"
         if: ${{ matrix.seed_built }}
         shell: bash
@@ -580,7 +578,7 @@ jobs:
     name: Cross-emit C (${{ matrix.target }})
     needs: release
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 360
     strategy:
       fail-fast: false
       matrix:
@@ -621,6 +619,16 @@ jobs:
           sudo mkswap /mnt/swapfile
           sudo swapon /mnt/swapfile
           free -h
+
+      # See the identical step in seed-bundles for why swap alone is not
+      # enough. This job survived the v0.2.10 attempt at 64-69 min, but it runs
+      # the same seed-driven self-emit on the same runner class, so it gets the
+      # same treatment rather than waiting to be the next leg that collapses.
+      - name: Tune the kernel for a swap-heavy self-emit
+        run: |
+          echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled || true
+          echo never | sudo tee /sys/kernel/mm/transparent_hugepage/defrag || true
+          echo Y | sudo tee /sys/module/zswap/parameters/enabled || true
 
       # The SEED runs on this Linux host, so it needs liburing itself even
       # though the EMITTED C targets macOS (kqueue backend, no liburing).
@@ -861,6 +869,43 @@ jobs:
     # rule recorded here previously.
     continue-on-error: false
     steps:
+      # The one seed-driven self-emit in this file that had NO swapfile, while
+      # seed-bundles, seed-cross-emit and test.yml's musl leg all provision
+      # one. That asymmetry killed the v0.2.10 release: this job ran the same
+      # `yo compile yo-self/main.yo --release --allocator mimalloc` its test.yml
+      # twin runs, on a bare 16 GB runner, and the runner DIED at 50 min —
+      # "The hosted runner lost communication with the server ... starves it
+      # for CPU/Memory", the documented starvation signature. The identical
+      # emit had passed in the gate run an hour earlier, because THAT job has
+      # a swapfile.
+      #
+      # This is exactly the failure the v0.2.9 seed bump was warned to cause:
+      # a seed-driven job sitting just under the 16 GB line goes over it, and
+      # the ones already swapping only get slower (see
+      # issues/seed-v0.2.9-memory-growth-slows-every-self-build.md). musl-bundle
+      # was the release-side job with no swapfile, so it did not get slower —
+      # it died.
+      #
+      # `needs: release` means the version bump and the tag are ALREADY pushed
+      # by the time this runs, so its failure holds publication with the
+      # release half-committed.
+      - name: Add swap space
+        run: |
+          sudo fallocate -l 32G /mnt/swapfile
+          sudo chmod 600 /mnt/swapfile
+          sudo mkswap /mnt/swapfile
+          sudo swapon /mnt/swapfile
+          free -h
+
+      # The swapfile above (added in #166) is what this job was missing
+      # entirely; zswap is what keeps the resulting swap traffic from becoming
+      # thrash. See the identical step in seed-bundles for the measurement.
+      - name: Tune the kernel for a swap-heavy self-emit
+        run: |
+          echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled || true
+          echo never | sudo tee /sys/kernel/mm/transparent_hugepage/defrag || true
+          echo Y | sudo tee /sys/module/zswap/parameters/enabled || true
+
       - name: Checkout the released commit
         uses: actions/checkout@v4
         with:
@@ -1066,3 +1111,36 @@ jobs:
             exit 1
           fi
           gh api -X PATCH "repos/${GITHUB_REPOSITORY}/releases/${release_id}"             -F draft=false -f make_latest=true --jq .html_url
+
+  # The site deploy waits for publish-release ON PURPOSE.
+  #
+  # It used to sit in the `release` job, firing immediately after the site
+  # build — i.e. while the GitHub Release was still a DRAFT and not one bundle
+  # had been built. Measured live during the v0.2.10 release: the public site
+  # already advertised v0.2.10 while the API reported `draft=true` with a
+  # single asset. A draft's assets 404 on the public download URL, so every
+  # download link that site published pointed at nothing; and had a required
+  # bundle leg then failed, the site would have gone on advertising a version
+  # that never shipped, with no way to notice from the outside.
+  #
+  # publish-release is the moment the release becomes real — it flips the
+  # draft public only once every required bundle leg has uploaded. Deploying
+  # after it means the website and the release always announce the same
+  # thing, which is the same atomicity invariant the draft-until-bundles-land
+  # design already buys on the release side.
+  #
+  # Failure mode is deliberately conservative: if publication does not happen,
+  # the site simply stays on the previous version.
+  deploy-site:
+    name: Deploy the documentation website
+    needs: publish-release
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    steps:
+      # Deploys the `github-pages` artifact uploaded by the `release` job
+      # earlier in this same run — no rebuild, so the bytes published are
+      # exactly the ones the release built.
+      - name: Deploy to GitHub Pages
+        uses: actions/deploy-pages@v4
