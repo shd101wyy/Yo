@@ -293,7 +293,14 @@ jobs:
     name: Seed bundle (${{ matrix.target }})
     needs: release
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 90
+    # 90 was sized for the v0.2.7 seed. With v0.2.9 a single seed-driven
+    # self-build measures ~53 min on a 16 GB runner (it no longer fits in
+    # RAM and runs on the swapfile), and this job does THREE of them —
+    # candidate build, stage-2 re-emit gate, portable-c arm. A release that
+    # times out burns a version number, so the budget is sized for the
+    # measured cost, not the old one. See
+    # issues/seed-v0.2.9-memory-growth-slows-every-self-build.md.
+    timeout-minutes: 180
     permissions:
       contents: write
     # Only the CI-runner platforms (linux-x64, macos-arm64, windows-x64) are
@@ -573,7 +580,7 @@ jobs:
     name: Cross-emit C (${{ matrix.target }})
     needs: release
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 180
     strategy:
       fail-fast: false
       matrix:
@@ -680,7 +687,7 @@ jobs:
     name: Seed bundle (${{ matrix.target }}, cross-emitted)
     needs: [release, seed-cross-emit]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 90
+    timeout-minutes: 180
     permissions:
       contents: write
     continue-on-error: ${{ matrix.experimental }}
@@ -823,7 +830,7 @@ jobs:
     name: Static musl Linux bundle (linux-x64-musl)
     needs: release
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 180
     permissions:
       contents: write
     # PROMOTED 2026-08-17 per this job's own rule ("after one green release

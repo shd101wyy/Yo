@@ -974,7 +974,8 @@ jobs:
   build-linux-musl-static:
     name: Static musl Linux bundle (build + run, no publish)
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # Also seed-driven, so the same v0.2.9 slowdown applies (see the TSan job).
+    timeout-minutes: 120
 
     steps:
       # Same provisioning as every other self-building job: the v0.2.9 seed's
@@ -1079,7 +1080,14 @@ jobs:
   test-tsan:
     name: ThreadSanitizer (sync primitives — Linux/Clang)
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # 60 was enough while this job's stage-1 fitted in RAM (16 min on the
+    # v0.2.4 seed). The SEED_VERSION bump below pushes it over 16 GB, so it now
+    # runs on the swapfile added above — correct, but swap-thrashing makes the
+    # build ~4x slower and it hit exactly 60:00 and was killed. Measured on the
+    # same commit: fixpoint 39->53 min, internal shard 55->56 min (both already
+    # swapping, so barely moved), TSan 16 -> >60. See
+    # issues/seed-v0.2.9-memory-growth-slows-every-self-build.md.
+    timeout-minutes: 120
     # NOW GATES PRs (continue-on-error dropped 2026-08-06). This was informational
     # while TSan + the Yo runtime was unvalidated on Linux clang — local macOS arm64
     # runs crashed on TSan startup, suspected runtime-init / TSan-init ordering. The
