@@ -161,11 +161,16 @@ jobs:
       - name: Assert the two arms really differ
         shell: bash
         run: |
-          MI=$(llvm-nm yo-mimalloc.exe 2>/dev/null | grep -c "mi_malloc\|mi_heap_malloc" || true)
-          SY=$(llvm-nm yo-system.exe   2>/dev/null | grep -c "mi_malloc\|mi_heap_malloc" || true)
-          echo "mimalloc arm mi_* hits: $MI"
-          echo "system   arm mi_* hits: $SY"
-          [ "$MI" -gt 0 ] || { echo "::error::mimalloc arm has no mi_* symbols — arms are identical, experiment void"; exit 1; }
+          # STRING LITERALS, NOT SYMBOLS — a linked PE has no COFF symbol
+          # table, so llvm-nm reads 0 for BOTH arms and cannot tell "mimalloc
+          # absent" from "symbols unreadable". That is exactly how the first
+          # dispatch of this workflow aborted. mimalloc's unconditional
+          # _mi_fputs literals survive in .rdata in any format.
+          MI=$(grep -a -c "mimalloc: " yo-mimalloc.exe || true)
+          SY=$(grep -a -c "mimalloc: " yo-system.exe   || true)
+          echo "mimalloc arm: $MI literal hits, $(wc -c < yo-mimalloc.exe) bytes"
+          echo "system   arm: $SY literal hits, $(wc -c < yo-system.exe) bytes"
+          [ "$MI" -gt 0 ] || { echo "::error::mimalloc arm carries no mimalloc literals — arms are identical, experiment void"; exit 1; }
           [ "$SY" -eq 0 ] || { echo "::error::system arm picked up mimalloc anyway (a <mimalloc.h> on the default include path?) — experiment void"; exit 1; }
           ./yo-mimalloc.exe --version
           ./yo-system.exe --version
@@ -284,10 +289,9 @@ jobs:
       - name: Verify the C++ route produced a real mimalloc arm64 binary
         shell: bash
         run: |
-          command -v llvm-nm >/dev/null || { echo "::error::llvm-nm missing"; exit 1; }
-          MI=$(llvm-nm yo-arm-cxx.exe 2>/dev/null | grep -c "mi_malloc\|mi_heap_malloc" || true)
-          echo "mi_* symbol hits: $MI"
-          [ "$MI" -gt 0 ] || { echo "::error::linked, but no mi_* symbols — the __has_include guard fell back to the CRT heap"; exit 1; }
+          MI=$(grep -a -c "mimalloc: " yo-arm-cxx.exe || true)
+          echo "mimalloc literal hits: $MI, $(wc -c < yo-arm-cxx.exe) bytes"
+          [ "$MI" -gt 0 ] || { echo "::error::linked, but carries no mimalloc literals — the __has_include guard fell back to the CRT heap"; exit 1; }
           MACHINE=$(llvm-readobj --file-headers yo-arm-cxx.exe | grep -i "Machine" | head -1)
           echo "$MACHINE"
           echo "$MACHINE" | grep -qi "ARM64\|AA64" || { echo "::error::not an ARM64 binary"; exit 1; }
