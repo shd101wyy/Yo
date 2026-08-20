@@ -17,7 +17,19 @@ env:
   # bundle's Yo->C emit). Same trust-chain root as test.yml's SEED_VERSION;
   # bump to the latest PUBLISHED release whose bundle matrix covers the
   # needed targets.
-  SEED_VERSION: v0.2.9
+  #
+  # v0.2.9 -> v0.2.11 (2026-08-20). v0.2.9 was cut eight hours BEFORE #145
+  # (memoize _inject_forall_captures), so it peaks at ~28.4 GB compiling this
+  # tree against v0.2.4's 14.5 GB — measured, not inferred. On 16 GB runners
+  # that put every seed-driven job onto the swapfile and made CI wall-clock a
+  # cliff function of memory; it is what turned seed-bundles' linux-x64 leg into
+  # a 159-minute job during the v0.2.10 release. v0.2.11 carries the fix in its
+  # OWN codegen, which is the generation that matters — see
+  # issues/seed-v0.2.9-memory-growth-slows-every-self-build.md.
+  #
+  # The raised timeouts (#137, #167) stay. They now buy headroom rather than
+  # bare survival, and the cliff they guard is still there for the next seed.
+  SEED_VERSION: v0.2.11
 
   # apt-get waits on /var/lib/dpkg/lock-frontend FOREVER by default, and the
   # runner images run unattended-upgrades / apt-daily timers in the background.

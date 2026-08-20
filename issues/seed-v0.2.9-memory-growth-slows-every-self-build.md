@@ -1,6 +1,11 @@
 # The v0.2.9 seed no longer fits 16 GB, and every seed-driven job pays for it
 
-**Status: ANSWERED, closes with the next `SEED_VERSION` bump.** Found
+**Status: CLOSED 2026-08-20** — all three `SEED_VERSION` pins moved to
+v0.2.11, which carries #145 in its own codegen. Kept in `issues/` (not
+`fixed/`) because release.yml's comments cite this path; the diagnosis below is
+still the reference for the next seed bump.
+
+**Was: ANSWERED, closes with the next `SEED_VERSION` bump.** Found
 2026-08-19 while landing #137 (which bumps `SEED_VERSION` v0.2.4 → v0.2.9 in
 `test.yml` and v0.2.7 → v0.2.9 in `release.yml`). Timeouts were raised to match
 the measured cost; the cause is now measured too — v0.2.9 was cut eight hours

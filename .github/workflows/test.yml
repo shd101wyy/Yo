@@ -60,12 +60,24 @@ env:
   # seed-driven jobs at the download, which is exactly what happened on the
   # first push of this pin.
   #
-  # Keep this pin in lockstep with release.yml's SEED_VERSION: bump BOTH as
+  # Keep this pin in lockstep with release.yml AND fixpoint-arm64.yml: bump ALL THREE as
   # part of each release's follow-up (the deliberate-pin rationale — chain
   # auditability, bad-release containment, reproducible re-runs — is recorded
   # in plans/P2_5_RETIRE_EXECUTION.md step 24). This one had silently drifted
   # to v0.2.4 while release.yml advanced to v0.2.7.
-  SEED_VERSION: v0.2.9
+  #
+  # v0.2.9 -> v0.2.11 (2026-08-20). v0.2.9 was cut eight hours BEFORE #145
+  # (memoize _inject_forall_captures), so it peaks at ~28.4 GB compiling this
+  # tree against v0.2.4's 14.5 GB — measured, not inferred. On 16 GB runners
+  # that put every seed-driven job onto the swapfile and made CI wall-clock a
+  # cliff function of memory; it is what turned seed-bundles' linux-x64 leg into
+  # a 159-minute job during the v0.2.10 release. v0.2.11 carries the fix in its
+  # OWN codegen, which is the generation that matters — see
+  # issues/seed-v0.2.9-memory-growth-slows-every-self-build.md.
+  #
+  # The raised timeouts (#137, #167) stay. They now buy headroom rather than
+  # bare survival, and the cliff they guard is still there for the next seed.
+  SEED_VERSION: v0.2.11
 
   # apt-get waits on /var/lib/dpkg/lock-frontend FOREVER by default, and the
   # runner images run unattended-upgrades / apt-daily timers in the background.
@@ -1520,20 +1532,37 @@ jobs:
         run: |
           # Each run is allowed to fail — the rc IS the measurement — so the
           # step's default `bash -e` has to be off around them.
+          #
+          # A single small-stack probe cannot discriminate, which the first
+          # version of this check discovered the honest way: 8 MB succeeded for
+          # BOTH libcs and it reported itself inconclusive. 8 MB is also what
+          # the FALLBACK yields (codegen drops to __yo_main_thread_entry on the
+          # process stack when pthread_create fails), so any value at or above
+          # it proves nothing.
+          #
+          # So sweep DOWNWARD past the fallback and compare the two libcs'
+          # failure THRESHOLDS. glibc unquestionably honours
+          # pthread_attr_setstacksize, so it is the reference: if musl breaks at
+          # the same size, musl honours it too. If musl instead survives sizes
+          # where glibc dies, the request is being ignored and musl is quietly
+          # running on 8 MB of process stack.
           set +e
+          sweep() {   # <seed-dir> <label>
+            for mb in 1 2 4 8; do
+              YO_MAIN_STACK_MB=$mb "$1/bin/yo" check ./yo-self > "/tmp/$2-$mb.log" 2>&1
+              echo "  $2 ${mb} MB : rc=$?"
+            done
+          }
+
           YO_MAIN_STACK_MB=1024 /tmp/seed-musl/bin/yo check ./yo-self > /tmp/musl-default.log 2>&1
           RC_MUSL_DEFAULT=$?
-          YO_MAIN_STACK_MB=8 /tmp/seed-musl/bin/yo check ./yo-self > /tmp/musl-tiny.log 2>&1
-          RC_MUSL_TINY=$?
-          YO_MAIN_STACK_MB=8 /tmp/seed/bin/yo check ./yo-self > /tmp/glibc-tiny.log 2>&1
-          RC_GLIBC_TINY=$?
-          set -e
 
           echo "==================== stack sizing ===================="
-          echo "musl  1024 MB : rc=$RC_MUSL_DEFAULT"
-          echo "musl     8 MB : rc=$RC_MUSL_TINY"
-          echo "glibc    8 MB : rc=$RC_GLIBC_TINY"
+          echo "  musl 1024 MB : rc=$RC_MUSL_DEFAULT   (the shipped default)"
+          sweep /tmp/seed-musl musl  | tee /tmp/sweep-musl.txt
+          sweep /tmp/seed       glibc | tee /tmp/sweep-glibc.txt
           echo "====================================================="
+          set -e
 
           if [ "$RC_MUSL_DEFAULT" -ne 0 ]; then
             echo "::error::the static musl seed cannot check ./yo-self at the default 1 GiB stack (rc=$RC_MUSL_DEFAULT) — musl-only is BLOCKED"
@@ -1541,12 +1570,19 @@ jobs:
             exit 1
           fi
 
-          if [ "$RC_MUSL_TINY" -eq 0 ] && [ "$RC_GLIBC_TINY" -eq 0 ]; then
-            echo "::warning::8 MB sufficed for BOTH libcs, so this run does not prove the stack request is honoured under musl — the workload is shallower than the knob's range. Not a failure, but the check is inconclusive."
-          elif [ "$RC_MUSL_TINY" -ne 0 ]; then
-            echo "knob is live under musl: 8 MB fails (rc=$RC_MUSL_TINY), 1 GiB succeeds"
+          # Compare the two profiles rather than any single rc.
+          m=$(sed 's/.*rc=//' /tmp/sweep-musl.txt  | tr '\n' ' ')
+          g=$(sed 's/.*rc=//' /tmp/sweep-glibc.txt | tr '\n' ' ')
+          echo "musl  rc profile over 1/2/4/8 MB: $m"
+          echo "glibc rc profile over 1/2/4/8 MB: $g"
+          if [ "$m" = "$g" ]; then
+            if echo "$m" | grep -qv '^0 0 0 0 $'; then
+              echo "musl and glibc fail at the SAME sizes — the stack request is honoured under musl"
+            else
+              echo "::warning::even 1 MB sufficed for both libcs; `check ./yo-self` is too shallow to probe the knob at all. Needs a deeper workload to close this."
+            fi
           else
-            echo "::warning::musl survived 8 MB where glibc did not (musl rc=0, glibc rc=$RC_GLIBC_TINY) — worth a look before trusting the sizing"
+            echo "::warning::musl and glibc have DIFFERENT stack profiles (musl: $m / glibc: $g) — inspect before trusting the sizing under musl"
           fi
 
       # The decisive correctness check, not just a curiosity: if both seeds emit
