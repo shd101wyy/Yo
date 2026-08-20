@@ -95,13 +95,13 @@ runs:
         fi
         set +e
         sudo systemd-run --scope -p MemoryHigh=11G -p MemoryMax=14G \
-          env YO_MAIN_STACK_MB=4096 nice -n 10 "$YO_BIN" compile yo-self/main.yo \
+          env YO_MAIN_STACK_MB=4096 nice -n 10 "$YO_BIN" compile src/main.yo \
             --release --allocator ${{ inputs.allocator }} --std-path ./std \
             --emit-c --skip-c-compiler -o /tmp/stage1 > /dev/null
         EMIT_RC=$?
         set -e
         if [ "$EMIT_RC" -ne 0 ]; then
-          echo "::error::seed failed to emit C for yo-self/main.yo (exit ${EMIT_RC})"
+          echo "::error::seed failed to emit C for src/main.yo (exit ${EMIT_RC})"
           exit "$EMIT_RC"
         fi
         ls -la /tmp/stage1.c

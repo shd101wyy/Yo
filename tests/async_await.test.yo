@@ -2890,7 +2890,7 @@ test("Test await inside both cond branches", {
 });
 test("Test hoisted await used as a cond condition", {
   // The supported spelling of `cond(io.await(...) => ...)`: bind first, branch
-  // second. This is what yo-self/init.yo now does.
+  // second. This is what src/init.yo now does.
   task := io.async((io : Io) => {
     v := io.await(future_with_returned_state(i32(41), io), io);
     acc := Box(i32)(0);
@@ -3403,7 +3403,7 @@ test("Test await inside nested match arms under a payload-free scrutinee", {
 // zero-initialised struct field. Unlike the rest of this cluster the C
 // COMPILED and the program RAN, it just answered `false`/`0`.
 //
-// `execute_node` in yo-self/build_runner.yo is exactly this shape, which is
+// `execute_node` in src/build_runner.yo is exactly this shape, which is
 // what kept `build`/`fetch`/`install` from being dispatched.
 // See issues/fixed/async-await-in-nested-match-arms.md.
 // ---------------------------------------------------------------------------
@@ -3544,7 +3544,7 @@ test("Test a match arm early-returning a freshly built value before an await", {
 // bare-temp-name gate, so the "old value saved for deferred drop" temp was
 // emitted under its source name — not a declared C identifier in the resume
 // function, where that temp lives as `sm->var_<id>`. `execute_node` in
-// yo-self/build_runner.yo is this shape (`.Doc` only reassigns; `.Run` awaits).
+// src/build_runner.yo is this shape (`.Doc` only reassigns; `.Run` awaits).
 // yo-self's `codegen/exprs/match.yo` already had the gate; only `src/` lacked it.
 // See issues/fixed/async-sibling-arm-same-named-locals.md.
 // ---------------------------------------------------------------------------
@@ -3590,7 +3590,7 @@ test("Test a reassignment in an awaitless nested arm beside an awaiting arm", {
 // dispatcher matched `cond` and `match` but not `if`, so the loop body emitted
 // NOTHING AT ALL — no branch code, no `sm->cond_branch_N`. The loop ran, did
 // nothing, and the program exited 0. `run_build`'s `--dry-run` loop in
-// yo-self/build_runner.yo is this shape.
+// src/build_runner.yo is this shape.
 // See issues/fixed/async-if-with-await-in-while-body-emits-nothing.md.
 // ---------------------------------------------------------------------------
 test("Test an if whose branch awaits as a while loop body", {
@@ -3625,7 +3625,7 @@ test("Test an if whose branch awaits as a while loop body", {
 // name match, so the second arm stored into the FIRST arm's field — while the
 // argument READ resolved by id to the second arm's own field, calloc-zeroed,
 // NULL for a ref type. The callee captured NULL and the program SIGSEGVed on
-// the future's first poll. `execute_node` in yo-self/build_runner.yo is this
+// the future's first poll. `execute_node` in src/build_runner.yo is this
 // shape (its .Artifact and .Run arms both bind `artifact`), which crashed
 // `yo build run`.
 // See issues/fixed/async-sibling-arm-match-bindings-store-to-wrong-slot.md.
@@ -3685,7 +3685,7 @@ test("Test same-named pattern bindings in sibling match arms passed to a capturi
 // ---------------------------------------------------------------------------
 // A bare `if` whose branch awaits and then EARLY-RETURNS, in an async body.
 //
-// `yo fetch`'s prune-stale-lock path (yo-self/fetch.yo run_fetch) is this
+// `yo fetch`'s prune-stale-lock path (src/fetch.yo run_fetch) is this
 // shape. Two independent miscompiles hid here, one per compiler:
 //
 //  - TS: the branch's remaining code after its first await hit

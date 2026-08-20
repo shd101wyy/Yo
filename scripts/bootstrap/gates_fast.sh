@@ -55,7 +55,7 @@ for t in tests/comptime.test.yo tests/prelude.test.yo tests/arc.test.yo tests/as
   name=$(basename "$t" .test.yo); d=$(dirname "$t")
   rm -f "$d"/.yo_selftest_batch_*
   # YO_KEEP_BATCH=1 is LOAD-BEARING — do not remove it. It is read by the
-  # SELF-HOSTED runner (yo-self/main.yo:1522), which otherwise DELETES its
+  # SELF-HOSTED runner (src/main.yo:1522), which otherwise DELETES its
   # .yo_selftest_batch_<index>.{yo,bin,bin.c} artifacts next to the test file.
   # The hollow check below needs the .bin.c to exist; without this var every
   # file reports hollow=NA and the gate fails 20/20. (The retired TypeScript
@@ -134,18 +134,18 @@ if [ "$std_rc" != "0" ]; then
   dump_log "/tmp/${P}_std.log"
 fi
 
-echo "=== T1 GATE 4: check ./yo-self ==="
+echo "=== T1 GATE 4: check ./src ==="
 # The compiler type-checking ITSELF. GATE 3 only covers ./std, which left two
 # ported-but-unwired libraries (build_runner.yo, version_cache.yo — ~1600 lines)
 # type-checked by nothing at all: they are outside main.yo's import closure, so
 # the stage-2/stage-3 compiles never touch them either. This is also the
 # workload that exposed the -O0 stack-exhaustion class (AGENTS.md), hence the
 # explicit stack bump.
-YO_MAIN_STACK_MB=4096 "$S1" check ./yo-self &> "/tmp/${P}_yoself.log"
+YO_MAIN_STACK_MB=4096 "$S1" check ./src &> "/tmp/${P}_yoself.log"
 yoself_rc=$?
 echo "YOSELF_RC=$yoself_rc  $(tail -1 "/tmp/${P}_yoself.log")"
 if [ "$yoself_rc" != "0" ]; then
-  fail "check ./yo-self rc=$yoself_rc"
+  fail "check ./src rc=$yoself_rc"
   dump_log "/tmp/${P}_yoself.log"
 fi
 
@@ -190,7 +190,7 @@ echo "=== T1 GATE 6: fmt (self-hosted check + write idempotence) ==="
 # would report them and this gate would fail on its own debris.
 find ./tests -name '.yo_selftest_batch_*' -delete 2>/dev/null
 
-YO_MAIN_STACK_MB=4096 "$S1" fmt --check ./std ./tests ./yo-self &> "/tmp/${P}_fmt_self.log"
+YO_MAIN_STACK_MB=4096 "$S1" fmt --check ./std ./tests ./src &> "/tmp/${P}_fmt_self.log"
 fmt_self_rc=$?
 echo "FMT_SELF_RC=$fmt_self_rc"
 if [ "$fmt_self_rc" != "0" ]; then
@@ -202,7 +202,7 @@ else
   # would destroy them. Files already dirty before the gate are never restored.
   fmt_pre_diff="$(git diff -- std tests yo-self | shasum -a 256)"
   fmt_pre_dirty="$(git diff --name-only -- std tests yo-self)"
-  YO_MAIN_STACK_MB=4096 "$S1" fmt ./std ./tests ./yo-self &> "/tmp/${P}_fmt_write.log"
+  YO_MAIN_STACK_MB=4096 "$S1" fmt ./std ./tests ./src &> "/tmp/${P}_fmt_write.log"
   fmt_post_diff="$(git diff -- std tests yo-self | shasum -a 256)"
   if [ "$fmt_pre_diff" = "$fmt_post_diff" ]; then
     echo "FMT_IDEMPOTENT=1"

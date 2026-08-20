@@ -5,7 +5,7 @@
 // `return .Some(idx)` path — so every probe hit stole/leaked the map's own
 // reference. Since the compiler's `expr_info_table_set` overwrites the same
 // expr-ids millions of times during def-time re-eval, that per-overwrite leak
-// is what ballooned `s2 compile yo-self/main.yo` until it OOM-killed.
+// is what ballooned `s2 compile src/main.yo` until it OOM-killed.
 //
 // Fix (codegen/exprs/init_assignment.yo): register the scalar `:=` local's C
 // name via `get_variable_type_string` (so its scope/early-return drop is not

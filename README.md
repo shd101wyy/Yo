@@ -328,7 +328,7 @@ export(main);
 ## Contributing
 
 The `Yo` compiler is **self-hosted**: it is written in Yo and lives in
-[`yo-self/`](./yo-self/). Building it needs an already-installed `yo` binary
+[`src/`](./src/). Building it needs an already-installed `yo` binary
 (get one from the [install script](#install-script-recommended)) plus a C
 compiler — there is no TypeScript, Node.js, npm, or bun in the toolchain any
 more.
@@ -359,7 +359,7 @@ Type-check the compiler sources (evaluator only, no codegen — this is the fast
 iteration loop):
 
 ```bash
-$ yo check ./yo-self
+$ yo check ./src
 ```
 
 Build the compiler from source. Always pass `--release`: at `-O0` the big
@@ -367,7 +367,7 @@ evaluator functions have multi-megabyte stack frames and deep compile-time
 recursion exhausts the stack.
 
 ```bash
-$ yo compile yo-self/main.yo --release -o /tmp/yo-self-bin
+$ yo compile src/main.yo --release -o /tmp/yo-self-bin
 ```
 
 > **There is no watch-and-rebuild loop any more.** `bun run dev` rebuilt the

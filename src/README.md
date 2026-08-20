@@ -10,8 +10,10 @@ are frozen at the annotated tag **`src-attic-final`** (`git show src-attic-final
 older document is `yo <args>` today, `yo` being the native binary a release
 bundle puts on `PATH`.
 
-**Still pending:** this directory is to be renamed `yo-self/` → `src/` (P2.5
-Group F). It has not happened yet — paths below are the live ones.
+**Done (P2.5 Group F, 2026-08-20):** this directory was renamed `yo-self/` →
+`src/`, the name freed by the TypeScript compiler's deletion. Older `plans/` and
+`issues/` documents still say `yo-self/` for this tree — and `src/` for the
+RETIRED TypeScript one. See the translation note in AGENTS.md.
 
 ## Current status (2026-08-03)
 
@@ -51,10 +53,10 @@ yo test ./tests/internal/lexer.test.yo --test-name-pattern "tokenize" --parallel
 ## Test suite layout
 
 The compiler's own tests live in **`tests/internal/`** — 58 files compiled and run
-by `yo`. They were at `yo-self/tests/` until 2026-08-05 (moved because `src/` was
-going to be retired and `yo-self/` renamed to `src/`, so they belong under
-`tests/` rather than being shuffled twice — the retirement has since happened,
-the rename has not); translate the old path when reading older `issues/` and
+by `yo`. They were at `yo-self/tests/` until 2026-08-05 (moved because the
+TypeScript `src/` was going to be retired and `yo-self/` renamed to `src/`, so
+they belong under `tests/` rather than being shuffled twice — both have since
+happened); translate the old path when reading older `issues/` and
 `plans/` documents. They fall into two live tiers, plus a third that was retired:
 
 1. **Fast unit tests** (seconds–1 min each): lexer, parser, token/env/value,
@@ -70,7 +72,7 @@ the rename has not); translate the old path when reading older `issues/` and
    the four macro/reflection (macro + reflection, end-to-end through `Evaluator.new`).
 3. ~~**End-to-end evaluator tests** — `eval_basics` / `eval_tail_1` /
    `eval_tail_2`~~ **RETIRED 2026-08-05** together with their subject,
-   `yo-self/evaluator/eval.yo`. Those three files (337 tests) were the only
+   `src/evaluator/eval.yo`. Those three files (337 tests) were the only
    coverage of the legacy "bootstrap proto-evaluator" — an explicit
    bootstrap-only divergence with **no `src/` counterpart**, superseded by
    `evaluator/exprs/*.yo` (23 files mirroring `src/evaluator/exprs/*.ts`) and
@@ -83,7 +85,7 @@ the rename has not); translate the old path when reading older `issues/` and
 
 Tests that need macro **dispatch** (executing macro bodies at expansion
 time) are gated on `MACRO_DISPATCH_ENABLED` in
-`yo-self/evaluator/calls/function.yo`. The flag is **`true`** (dispatch was
+`src/evaluator/calls/function.yo`. The flag is **`true`** (dispatch was
 re-enabled 2026-06-11 after the heap-corruption fix — see `issues/fixed/`),
 so the `macro_expansion/ast_reflection/macro_helpers` macro tests run for real.
 
@@ -91,7 +93,7 @@ The strongest evaluator gate is not the unit suite but the self-hosted
 binary itself:
 
 ```bash
-yo compile yo-self/main.yo --release -o /tmp/yo-self-bin         # ~6 min (always --release; -O0 hits stack ceilings)
+yo compile src/main.yo --release -o /tmp/yo-self-bin         # ~6 min (always --release; -O0 hits stack ceilings)
 /tmp/yo-self-bin check ./std                                     # 153/153
 /tmp/yo-self-bin test ./tests --exclude tests/internal --parallel 1   # fast language suite
 # Stage-2 self-compile + fixpoint (the strongest gate of all):
@@ -108,5 +110,5 @@ multi-MB frames and deep compile-time recursion exhausts the stack
 crashes a `--release` binary, raise the stack:
 
 ```bash
-YO_MAIN_STACK_MB=4096 /tmp/yo-self-bin check ./yo-self
+YO_MAIN_STACK_MB=4096 /tmp/yo-self-bin check ./src
 ```

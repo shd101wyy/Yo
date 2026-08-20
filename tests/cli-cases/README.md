@@ -80,7 +80,7 @@ There is no `pending/` directory right now, and there should not be one unless a
 subcommand is written before it is dispatched.
 
 It existed while `build`, `fetch` and `install` were written but undispatched in
-`yo-self/main.yo`: their cases would have failed every run, so they sat one
+`src/main.yo`: their cases would have failed every run, so they sat one
 directory down where the harness does not pick them up (it only treats a
 directory containing a `cmd` file as a case). All three are dispatched now and
 their cases have moved up.

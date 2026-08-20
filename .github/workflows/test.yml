@@ -189,8 +189,8 @@ jobs:
       # same source of truth the release computes its bump from.
       - name: Generate documentation website
         run: |
-          VERSION=$(perl -ne 'print $1 if /^CURRENT_YO_VERSION :: "([^"]+)";/' yo-self/version.yo)
-          [ -n "$VERSION" ] || { echo "::error::could not read CURRENT_YO_VERSION from yo-self/version.yo"; exit 1; }
+          VERSION=$(perl -ne 'print $1 if /^CURRENT_YO_VERSION :: "([^"]+)";/' src/version.yo)
+          [ -n "$VERSION" ] || { echo "::error::could not read CURRENT_YO_VERSION from src/version.yo"; exit 1; }
           yo compile scripts/build_site.yo --release -o /tmp/build-site
           /tmp/build-site --output yo-out/site --version "v$VERSION" --yo yo
 
@@ -421,14 +421,14 @@ jobs:
           # actually want, and stderr is kept so failures still surface.
           set +e
           sudo systemd-run --scope -p MemoryHigh=11G -p MemoryMax=14G \
-            env YO_MAIN_STACK_MB=4096 nice -n 10 "$YO_BIN" compile yo-self/main.yo \
+            env YO_MAIN_STACK_MB=4096 nice -n 10 "$YO_BIN" compile src/main.yo \
               --release --allocator mimalloc --std-path ./std \
               --emit-c --skip-c-compiler -o /tmp/stage1 > /dev/null
           EMIT_RC=$?
           set -e
           kill "$(cat /tmp/yo-sampler.pid)" 2>/dev/null || true
           if [ "$EMIT_RC" -ne 0 ]; then
-            echo "::error::seed failed to emit C for yo-self/main.yo (exit ${EMIT_RC})"
+            echo "::error::seed failed to emit C for src/main.yo (exit ${EMIT_RC})"
             exit "$EMIT_RC"
           fi
           ls -la /tmp/stage1.c
@@ -503,7 +503,7 @@ jobs:
       - name: Check the formatted code
         shell: bash
         run: |
-          "$S1" fmt --check ./std ./tests ./yo-self
+          "$S1" fmt --check ./std ./tests ./src
 
       - name: Build system smoke test
         shell: bash
@@ -512,7 +512,7 @@ jobs:
           cd tmp/hello-world
           "$S1" build run
 
-      # `tests/internal` (the compiler's own tests — they import yo-self/ evaluator
+      # `tests/internal` (the compiler's own tests — they import src/ evaluator
       # and codegen internals) is excluded here and runs as its own job below.
       # Without the exclude this step would pull in files that each cost minutes
       # and gigabytes to compile, and the ~30 min fast suite would become ~70.
@@ -643,16 +643,16 @@ jobs:
           SAMPLER=$!
           sudo systemd-run --scope -p MemoryHigh=11G -p MemoryMax=14G \
             env YO_MAIN_STACK_MB=4096 nice -n 10 /usr/bin/time -v \
-            /tmp/yo-stage1 compile yo-self/main.yo --release --emit-c --skip-c-compiler --allocator mimalloc -o /tmp/yo-stage2
+            /tmp/yo-stage1 compile src/main.yo --release --emit-c --skip-c-compiler --allocator mimalloc -o /tmp/yo-stage2
           kill $SAMPLER || true
           markers=$(grep -cE '^\s*// (Failed to transpile|Unknown type:)' /tmp/yo-stage2.c || true)
           echo "stage-2 markers: $markers"
           test "$markers" = "0"
 
-          # RE-HOMED HERE when the TS unit-tests job was deleted with src/.
+          # RE-HOMED HERE when the TS unit-tests job was deleted with the TypeScript src/.
           # It is NOT a TypeScript-specific gate: `getTypeString` falls back to
           # a LINE comment, `// Unknown type: …`, in the self-hosted emitter too
-          # (yo-self/codegen/utils/index.yo:1024 and :1150), so the defect it
+          # (src/codegen/utils/index.yo:1024 and :1150), so the defect it
           # catches is reachable from the compiler that ships.
           #
           # THE CHECK ABOVE CANNOT COVER IT. That one is LINE-ANCHORED (`^\s*//`)
@@ -735,7 +735,7 @@ jobs:
           SAMPLER=$!
           sudo systemd-run --scope -p MemoryHigh=11G -p MemoryMax=14G \
             env YO_MAIN_STACK_MB=4096 nice -n 10 /usr/bin/time -v \
-            /tmp/stage2/yo-stage2-bin compile yo-self/main.yo --release --emit-c --skip-c-compiler --allocator mimalloc -o /tmp/yo-stage3
+            /tmp/stage2/yo-stage2-bin compile src/main.yo --release --emit-c --skip-c-compiler --allocator mimalloc -o /tmp/yo-stage3
           kill $SAMPLER || true
           if cmp -s /tmp/stage2/yo-stage2.c /tmp/yo-stage3.c; then
             echo "FIXPOINT_HOLDS: stage-2 and stage-3 C are byte-identical"
@@ -746,7 +746,7 @@ jobs:
           fi
 
   # The self-hosted binary's OWN `test` subcommand. When this job was written CI
-  # ran `./tests` through the TypeScript compiler (deleted with src/ in Group E;
+  # ran `./tests` through the TypeScript compiler (deleted with the TS src/ in Group E;
   # the `test` job now runs the corpus under stage-1), and the bootstrap-fixpoint
   # jobs run `<bin> compile`, but nothing ran `<bin> test` — so codegen bugs that only
   # surface when the self-hosted compiler builds AND RUNS a test binary were not
@@ -757,7 +757,7 @@ jobs:
   # every change: two repro compiles, a 23-file battery via `<bin> test` WITH
   # HOLLOW DETECTION, the 155-program corpus diff-test (byte-compared against the
   # RECORDED GOLDENS — the TS reference arm it used to diff against is gone with
-  # src/), `<bin> check ./std`, `<bin> check ./yo-self` (GATE 4
+  # src/), `<bin> check ./std`, `<bin> check ./src` (GATE 4
   # — the compiler type-checking ITSELF; ~137 s, and the only gate that covers
   # build_runner.yo / version_cache.yo, which sit outside main.yo's import
   # closure and were type-checked by NOTHING). The script exits non-zero if any
@@ -814,7 +814,7 @@ jobs:
       # survived here ("bun stays ... until 2.5"). Steps 12-14 (merged) gave
       # both harnesses a golden mode, and each falls back to scoring the self
       # arm against its recorded goldens when the TS CLI is absent — which,
-      # since Group E deleted src/, is now permanent rather than conditional.
+      # since Group E deleted the TypeScript src/, is now permanent rather than conditional.
       # So the gates keep their coverage with the goldens serving as the
       # reference side, which is the end state src/ retirement requires anyway.
       # NO-GOLDEN counts as a failure there, so an unscored case cannot
@@ -859,7 +859,7 @@ jobs:
           if-no-files-found: warn
 
   # The compiler's own tests (`tests/internal`, formerly `yo-self/tests`): 58 files
-  # that import yo-self/ evaluator + codegen internals, so each one pays a full
+  # that import src/ evaluator + codegen internals, so each one pays a full
   # compiler-sized Yo compile. Kept out of the main `test ./tests` job (which
   # excludes them) and given its own box because of runtime and memory:
   #
@@ -892,12 +892,12 @@ jobs:
   # HISTORICAL — it named the TS-vs-self comparison, and a file passing under TS
   # while failing here used to mean a codegen or evaluator divergence in the
   # bootstrap compiler (that is exactly how the effect_analysis unary-operator FTT
-  # was found, 2026-08-05). With src/ deleted there is only one compiler, so this
+  # was found, 2026-08-05). With the TypeScript src/ deleted there is only one compiler, so this
   # is simply the tier's sole arm; the name is FROZEN because it is a required
   # status check in ruleset 13548862 and is matched by string.
   # The self-hosted runner is sequential regardless of
   # --parallel ("Accepted for CLI compatibility; v1 runs sequentially",
-  # yo-self/main.yo) and takes ~22 min after a ~5 min stage-1 build.
+  # src/main.yo) and takes ~22 min after a ~5 min stage-1 build.
   compiler-internal-tests-selfhosted:
     name: Compiler internal tests (tests/internal, self-hosted differential shard ${{ matrix.shard }})
     runs-on: ubuntu-latest
@@ -1071,7 +1071,7 @@ jobs:
         env:
           YO_MAIN_STACK_MB: "4096"
         run: |
-          yo compile yo-self/main.yo --release --allocator mimalloc --std-path ./std \
+          yo compile src/main.yo --release --allocator mimalloc --std-path ./std \
             --emit-c --skip-c-compiler -o yo-musl
           ls -la yo-musl.c
 
@@ -1098,7 +1098,7 @@ jobs:
 
       # A static binary that merely LINKS is not the deliverable. Without a musl
       # liburing the emitter silently swaps the whole async runtime for stubs
-      # (yo-self/codegen/async/runtime_io_linux.yo:1465) whose init prints
+      # (src/codegen/async/runtime_io_linux.yo:1465) whose init prints
       # "liburing not available, async I/O disabled" — and since the compiler
       # reads every source file through io.await(read_file(...)), such a binary
       # links, ships, and then compiles NOTHING. So io_uring presence is
@@ -1230,7 +1230,7 @@ jobs:
           registry-url: "https://registry.npmjs.org"
 
       # P2.5 step 22: this leg now drives the SELF-HOSTED compiler. Until now it
-      # ran `node out/cjs/yo-cli.cjs`, so its green measured src/, not yo-self/
+      # ran `node out/cjs/yo-cli.cjs`, so its green measured src/, not src/
       # — it could not have caught a fault in the wasm backend, which is exactly
       # what the runtime_io_wasm.yo port needed proving.
       #
@@ -1305,7 +1305,7 @@ jobs:
           registry-url: "https://registry.npmjs.org"
 
       # P2.5 step 22: this leg now drives the SELF-HOSTED compiler. Until now it
-      # ran `node out/cjs/yo-cli.cjs`, so its green measured src/, not yo-self/
+      # ran `node out/cjs/yo-cli.cjs`, so its green measured src/, not src/
       # — it could not have caught a fault in the wasm backend, which is exactly
       # what the runtime_io_wasm.yo port needed proving.
       #

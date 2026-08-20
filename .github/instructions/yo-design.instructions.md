@@ -476,9 +476,9 @@ Key semantics:
 > evaluator**, where the pass was a single function called
 > `reEvaluateFunctionType`. The self-hosted evaluator has no function by that
 > name (older `plans/` and `issues/` docs still use it); the work happens inside
-> generic-impl specialization in `yo-self/evaluator/values/impl.yo`. The
+> generic-impl specialization in `src/evaluator/values/impl.yo`. The
 > invariants themselves still hold, because the frame-level check they protect
-> is live in `yo-self/evaluator/exprs/assignment.yo` (~line 1075).
+> is live in `src/evaluator/exprs/assignment.yo` (~line 1075).
 
 Re-evaluating a function type's parameter/return type expressions with concrete substitutions during generic impl specialization has to preserve these:
 
@@ -596,24 +596,24 @@ Builtins: `__yo_comptime_string_index`, `__yo_comptime_string_index_range`, `__y
 When a type has multiple Index impls (e.g., `Index(usize)` and `Index(Range(usize))`), `Self.Output` is resolved by:
 
 1. The associated-type field expressions are extracted from the impl body args (e.g., `Output : T`)
-2. The re-evaluation loop in `find_methods_from_generic_impls` (`yo-self/evaluator/values/impl.yo`) evaluates these expressions with concrete substitutions
-3. `yo-self/evaluator/exprs/property_access.yo` checks the env for `Output` before calling `find_associated_type_from_generic_impls` (which would be ambiguous)
+2. The re-evaluation loop in `find_methods_from_generic_impls` (`src/evaluator/values/impl.yo`) evaluates these expressions with concrete substitutions
+3. `src/evaluator/exprs/property_access.yo` checks the env for `Output` before calling `find_associated_type_from_generic_impls` (which would be ambiguous)
 
 ### Comptime element pointers for comptime mutation
 
 Comptime array indexing returns a comptime element pointer —
-`EvalValue.PtrVal(target_value, target_index)` in `yo-self/value.yo`, where
+`EvalValue.PtrVal(target_value, target_index)` in `src/value.yo`, where
 `target_value(0)` is the backing `ArrayVal` and `target_index` is the element
 index. That enables:
 
-- `arr(0) = val` — compile-time mutation via `yo-self/evaluator/exprs/assignment.yo`
-- `&(arr(0))` — compile-time pointer creation via `yo-self/evaluator/builtins/ptr_fns.yo`
+- `arr(0) = val` — compile-time mutation via `src/evaluator/exprs/assignment.yo`
+- `&(arr(0))` — compile-time pointer creation via `src/evaluator/builtins/ptr_fns.yo`
 
-## Compiler-source (`yo-self/`) pitfalls
+## Compiler-source (`src/`) pitfalls
 
 These patterns bite when writing or editing the compiler's own Yo source.
 They were catalogued during the TypeScript → Yo port (hence the TS-vs-Yo
-contrasts below); `yo check ./yo-self` is what catches them:
+contrasts below); `yo check ./src` is what catches them:
 
 ### Reference-semantics parameters: never use `&()` for Environment/EvalContext
 

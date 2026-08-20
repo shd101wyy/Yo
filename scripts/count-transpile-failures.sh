@@ -5,7 +5,7 @@
 # a fixed floor of 2. When the self-hosted compiler emits an unhandled expression
 # it writes a COMMENT LINE `// Failed to transpile <expr>` into its output. But the
 # codegen's own fallback branches DEFINE that message as a string literal —
-# `out := String.from("// Failed to transpile ")` at yo-self/codegen/exprs/
+# `out := String.from("// Failed to transpile ")` at src/codegen/exprs/
 # generation.yo:409 (value-emit) and :577 (ref-emit). When yo-self compiles
 # yo-self, those two source strings become two C string literals
 # (`(const uint8_t*)"// Failed to transpile "`) baked into stage2.c — matched by a

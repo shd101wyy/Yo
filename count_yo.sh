@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-dirs=("./std" "./yo-self" "./tests")
+dirs=("./std" "./src" "./tests")
 
 for dir in "${dirs[@]}"; do
   if [ ! -d "$dir" ]; then

@@ -323,7 +323,7 @@ export(main);
 
 ## 贡献
 
-`Yo` 编译器是**自举**的：它用 Yo 自身编写，代码位于 [`yo-self/`](../../yo-self/)。
+`Yo` 编译器是**自举**的：它用 Yo 自身编写，代码位于 [`src/`](../../src/)。
 构建它需要一个已经安装好的 `yo` 二进制（可以用[安装脚本](#安装脚本推荐)获取）以及一个
 C 编译器 —— 工具链中已经不再有 TypeScript、Node.js、npm 或 bun。
 
@@ -350,14 +350,14 @@ $ git submodule update --init --recursive
 对编译器源码做类型检查（只跑求值器，不生成代码 —— 这是最快的迭代循环）：
 
 ```bash
-$ yo check ./yo-self
+$ yo check ./src
 ```
 
 从源码构建编译器。务必加上 `--release`：在 `-O0` 下，求值器中那些大函数的栈帧有好几
 兆字节，编译期的深度递归会耗尽栈空间。
 
 ```bash
-$ yo compile yo-self/main.yo --release -o /tmp/yo-self-bin
+$ yo compile src/main.yo --release -o /tmp/yo-self-bin
 ```
 
 > **监视重建的循环已经没有了。** `bun run dev` 会在文件变更时重新构建 TypeScript

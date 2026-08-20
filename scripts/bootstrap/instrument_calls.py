@@ -16,7 +16,7 @@ Usage:
         --ctor 'ArrayList(u8)' --ctor Variable --fn add_variable_to_env
 
     clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 /tmp/re/s1prof.c -o /tmp/re/s1prof
-    <binary> compile yo-self/main.yo --release --emit-c --skip-c-compiler -o /tmp/x
+    <binary> compile src/main.yo --release --emit-c --skip-c-compiler -o /tmp/x
     python3 scripts/bootstrap/report_calls.py            # joins counts + map
 
 `--ctor NAME` matches the Yo type name in the struct's trailing comment, so it
