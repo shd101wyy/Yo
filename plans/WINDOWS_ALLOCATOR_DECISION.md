@@ -125,7 +125,7 @@ Reopen this if any of the following changes:
 ## Related
 
 - `issues/windows-arm64-mimalloc-msvc-arm-intrinsics.md` — the original arm64 break
-- `issues/async-cond-shared-await-point-only-models-representative-branch.md` — a SEPARATE
+- `issues/fixed/async-cond-shared-await-point-only-models-representative-branch.md` — a SEPARATE
   defect in Yo's own emitted C. windows-arm64 stays `experimental: true` because
   of it; the allocator change does not touch it.
 - `issues/fixed/mimalloc-performance-regression.md` — the macOS measurements
