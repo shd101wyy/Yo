@@ -331,7 +331,7 @@ and `=64`, and requires the outcomes to DIFFER. Every compiled Yo program runs
 `main` on the same worker thread, so this exercises the identical codegen path
 in seconds rather than the 76 minutes the A/B cost.
 
-Measured on macOS/arm64 with the v0.2.9 bundle:
+Measured on macOS/arm64 with the **v0.2.11** bundle:
 
 | `YO_MAIN_STACK_MB` | rc |
 | --- | --- |
