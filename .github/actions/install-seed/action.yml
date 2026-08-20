@@ -13,8 +13,13 @@ runs:
       shell: bash
       run: |
         case "${{ runner.os }}-${{ runner.arch }}" in
-          Linux-X64) T=linux-x64 ;;
-          Linux-ARM64) T=linux-arm64 ;;
+          # Musl-only Linux (2026-08-20): the static musl bundles ARE the
+          # Linux bundles — they run on glibc hosts too, which is what these
+          # runners are. Seeds older than the musl legs (x64: v0.2.7+,
+          # arm64: v0.2.12+) would need the removed glibc names; SEED_VERSION
+          # is pinned well past both.
+          Linux-X64) T=linux-x64-musl ;;
+          Linux-ARM64) T=linux-arm64-musl ;;
           macOS-ARM64) T=macos-arm64 ;;
           macOS-X64) T=macos-x64 ;;
           Windows-X64) T=windows-x64 ;;

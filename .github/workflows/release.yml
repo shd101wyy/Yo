@@ -375,278 +375,6 @@ jobs:
   # CI consumers extract it, put bin/ on PATH, and set YO_STD to the bundled
   # std/. The Linux bundle is glibc + liburing dynamic for now — the
   # static-musl user-facing story is Phase 3 (distribution), not the seed.
-  seed-bundles:
-    name: Seed bundle (${{ matrix.target }})
-    needs: release
-    runs-on: ${{ matrix.os }}
-    # 90 was sized for the v0.2.7 seed. With v0.2.9 a single seed-driven
-    # self-build measures ~53 min on a 16 GB runner (it no longer fits in
-    # RAM and runs on the swapfile), and this job does THREE of them —
-    # candidate build, stage-2 re-emit gate, portable-c arm. A release that
-    # times out burns a version number, so the budget is sized for the
-    # measured cost, not the old one. See
-    # issues/seed-v0.2.9-memory-growth-slows-every-self-build.md.
-    #
-    # 180 -> 360 (2026-08-19): the v0.2.10 attempt was KILLED at 180 with the
-    # candidate build alone taking 159 min, against 18 min for the same step
-    # one release earlier. Root cause was the missing memory treatment below,
-    # not the budget — but the budget is what turned a slow job into a dead
-    # release, so it gets headroom too. The arm64 leg, same steps, took 32 min.
-    timeout-minutes: 360
-    permissions:
-      contents: write
-    # Only the CI-runner platforms (linux-x64, macos-arm64, windows-x64) are
-    # required for the 2.3 seed; the rest are Phase-3 coverage. Experimental
-    # legs must not block the seed: windows-x64 is the first native-Windows
-    # build of the self-hosted compiler (the plan flags a porting-tail risk),
-    # and macos-x64/linux-arm64 have never been exercised in CI. Promote a
-    # leg to experimental: false once it has produced a green bundle.
-    # linux-arm64 is glibc like linux-x64 — the static-musl story
-    # (SELF_HOSTING_COMPLETION.md Phase 3) replaces both Linux legs later.
-    continue-on-error: ${{ matrix.experimental }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # seed_built: true — P2.5 step 24: this leg's bundle is built by the
-          # PREVIOUS release's seed (trust chain: previous-release-builds-next;
-          # escape hatch: bootstrap from an older tag, or the src-attic-final
-          # tag while it exists). Linux first: the seed's self-emit peaks at
-          # ~12.2 GB after env-sharing (PR #133) — it fits the 16 GB Linux
-          # runners but NOT the 7 GB macOS runners, so the macOS legs stay
-          # TS-built until P2_5_RETIRE_EXECUTION.md's step-24 option A
-          # (cross-emit fan-out) or C (larger runners) is picked. Windows
-          # runners have 16 GB, but that leg keeps the proven TS path one
-          # release longer (the windows porting tail is the youngest).
-          - os: ubuntu-latest
-            target: linux-x64
-            experimental: false
-            seed_built: true
-          # linux-arm64 promoted: green on its first v0.2.0 run.
-          - os: ubuntu-24.04-arm
-            target: linux-arm64
-            experimental: false
-            seed_built: true
-          # The two macOS legs moved to `seed-bundles-cross` (cross-emitted —
-          # P2.5 step-24 option A): the seed's self-emit needs ~12.2 GB and
-          # the free macOS runners have 7 GB, so their C is emitted by the
-          # previous seed ON LINUX and only clang-compiled + smoke-tested
-          # natively here. See the seed-cross-emit job.
-          # windows-x64 ALSO moved to the cross-emit job, for a MEMORY reason
-          # rather than the macOS 7 GB one. A seed-built native leg runs THREE
-          # self-compile phases (candidate build, stage-2 re-emit gate,
-          # portable-c arm) at ~12.2 GB each, and the 32 GB swapfile that makes
-          # that survivable is `if: runner.os == 'Linux'` — `fallocate`/`mkswap`
-          # do not exist on a Windows runner. This file already records that a
-          # swapless 16 GB runner dies of it ("runner has received a shutdown
-          # signal"). Cross-emitting keeps the heavy phase on Linux, where the
-          # swap is, and leaves Windows only a clang compile + smoke test.
-
-    steps:
-      - name: Checkout the released commit
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.release.outputs.sha }}
-          submodules: recursive
-
-      - name: Install liburing
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get $APT_OPTS update
-          sudo apt-get $APT_OPTS install -y liburing-dev
-
-      # Same provisioning as seed-cross-emit and every self-building job in
-      # test.yml: the stage-2 gate below is a full self-emit, which does not
-      # fit a swapless 16 GB runner (v0.2.8 attempt 3's linux-x64 leg took the
-      # whole VM down mid-emit — "runner received a shutdown signal").
-      - name: Add swap space
-        if: runner.os == 'Linux'
-        run: |
-          sudo fallocate -l 32G /mnt/swapfile
-          sudo chmod 600 /mnt/swapfile
-          sudo mkswap /mnt/swapfile
-          sudo swapon /mnt/swapfile
-
-      # SWAP ALONE IS NOT ENOUGH — the v0.2.10 release proved it expensively.
-      # This job's linux-x64 leg spent 159 minutes on the candidate build and
-      # was killed at the budget, taking the release with it.
-      #
-      # zswap is the knob, and the comparison is unusually well controlled:
-      # test.yml's bootstrap-fixpoint "Stage 1" runs the SAME operation — the
-      # v0.2.9 seed building the compiler — on the same commit, the same
-      # ubuntu-latest runner class, with the same 32 GB swapfile. The only
-      # difference was that it turns zswap on and this job did not.
-      #
-      #     test.yml   Stage 1     zswap ON      16 min
-      #     release.yml            zswap OFF    159 min
-      #
-      # A 10x difference from one sysctl. Once the seed no longer fits in RAM
-      # (v0.2.9 peaks ~28 GB — see the issue below), every reclaimed page goes
-      # to disk; zswap keeps a compressed copy in RAM (~3x) and turns disk
-      # thrash back into memory traffic. The arm64 leg needed only 32 min
-      # without it, which is why this first looked arch-specific rather than
-      # configuration-specific.
-      #
-      # THP off for the reason test.yml sets it on its heavier emit: huge pages
-      # must be split and compacted before they can be swapped at all.
-      #
-      # DELIBERATELY NOT copied from test.yml: its `systemd-run --scope -p
-      # MemoryHigh/MemoryMax` wrapper. It is unmeasured for these steps, it
-      # would newly OOM-kill anything that legitimately exceeds the cap, and
-      # `sudo` resets PATH to secure_path — which does not contain the seed's
-      # bin/ — so wrapping the steps that invoke a bare `yo` would break them
-      # outright. release.yml gets no PR CI, so an untested change here is only
-      # discoverable by burning a release. The measurement says zswap is what
-      # mattered; that is what this applies.
-      #
-      # See issues/seed-v0.2.9-memory-growth-slows-every-self-build.md.
-      - name: Tune the kernel for a swap-heavy self-emit
-        if: runner.os == 'Linux'
-        run: |
-          echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled || true
-          echo never | sudo tee /sys/kernel/mm/transparent_hugepage/defrag || true
-          echo Y | sudo tee /sys/module/zswap/parameters/enabled || true
-          free -h
-
-      - name: Install LLVM/Clang
-        if: runner.os == 'Windows'
-        run: |
-          choco install llvm -y
-          echo "C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-
-      - name: Install the seed compiler (previous release)
-        if: ${{ matrix.seed_built }}
-        uses: ./.github/actions/install-seed
-        with:
-          version: ${{ env.SEED_VERSION }}
-
-      # SEED-ERA FLAGS ONLY (same rule as the musl job): the previous release
-      # may predate newer options. `--std-path ./std` pins the CHECKOUT's std
-      # (the seed would otherwise compile against its own bundled std).
-      - name: Build the native yo binary (previous seed)
-        if: ${{ matrix.seed_built }}
-        shell: bash
-        env:
-          YO_MAIN_STACK_MB: "4096"
-        run: yo compile src/main.yo --release --allocator mimalloc --std-path ./std -o yo-seed
-
-      # Pre-release trust-chain gate: the candidate must be able to act as the
-      # NEXT release's seed, so prove it can evaluate + emit its own source.
-      # Emit-only (--skip-c-compiler): the expensive, correctness-bearing half
-      # is the Yo->C generation — C compilability of the same generation's
-      # emit is continuously covered by test.yml's fixpoint jobs. The FTT
-      # check guards the hollow-emit trap: an untranspilable function becomes
-      # a `// Failed to transpile` COMMENT in the C with rc=0 (string
-      # LITERALS containing the phrase live inside emitted print statements,
-      # never at line start — see the hollow-sweep methodology notes).
-      - name: "Pre-release gate: the candidate re-emits itself (stage-2)"
-        if: ${{ matrix.seed_built }}
-        shell: bash
-        env:
-          YO_MAIN_STACK_MB: "4096"
-        run: |
-          if [ -f yo-seed.exe ]; then SEED2=./yo-seed.exe; else SEED2=./yo-seed; fi
-          "$SEED2" compile src/main.yo --release --allocator mimalloc \
-            --std-path ./std --emit-c --skip-c-compiler -o gate-stage2 > /dev/null
-          test -s gate-stage2.c
-          SIZE=$(wc -c < gate-stage2.c)
-          echo "stage-2 emit: $SIZE bytes"
-          if [ "$SIZE" -lt 100000000 ]; then
-            echo "::error::stage-2 emit is implausibly small ($SIZE bytes) — refusing to ship this seed."
-            exit 1
-          fi
-          if grep -qE '^\s*// (Error: )?Failed to transpile' gate-stage2.c; then
-            echo "::error::stage-2 emit contains Failed-to-transpile comments — the candidate cannot compile itself."
-            exit 1
-          fi
-          rm -f gate-stage2.c
-
-      - name: Assemble the bundle
-        shell: bash
-        run: |
-          BUNDLE="yo-v${{ needs.release.outputs.version }}-${{ matrix.target }}"
-          mkdir -p "$BUNDLE/bin"
-          if [ -f yo-seed.exe ]; then cp yo-seed.exe "$BUNDLE/bin/yo.exe"; else cp yo-seed "$BUNDLE/bin/yo"; fi
-          cp -R std "$BUNDLE/std"
-          # vendor/mimalloc must ship as a SIBLING of std: both compilers
-          # resolve it as dirname(std)/vendor, and mimalloc is the DEFAULT
-          # allocator — the self-hosted binary passes the vendor paths to
-          # clang unconditionally, so a bundle without it cannot compile
-          # anything with the default allocator.
-          mkdir -p "$BUNDLE/vendor"
-          cp -R vendor/mimalloc "$BUNDLE/vendor/mimalloc"
-          cp LICENSE.md "$BUNDLE/"
-          tar -czf "$BUNDLE.tar.gz" "$BUNDLE"
-          echo "BUNDLE=$BUNDLE" >> $GITHUB_ENV
-
-      # Compile and run a hello program with the bundled binary + bundled std,
-      # from a directory OUTSIDE the repo checkout, so the bundle is proven
-      # self-sufficient before it is published.
-      - name: Smoke-test the bundle
-        shell: bash
-        run: |
-          BUNDLE_DIR="$PWD/$BUNDLE"
-          mkdir -p "$RUNNER_TEMP/seed-smoke" && cd "$RUNNER_TEMP/seed-smoke"
-          printf '%s\n' 'open(import("std/fmt"));' 'main :: (fn() -> unit)(println("hello from the yo seed"));' 'export(main);' > hello.yo
-          if [ -f "$BUNDLE_DIR/bin/yo.exe" ]; then YO="$BUNDLE_DIR/bin/yo.exe"; else YO="$BUNDLE_DIR/bin/yo"; fi
-          # `pwd -W` yields a Windows-style path under git-bash (the native
-          # binary cannot resolve an MSYS /c/... path); elsewhere it fails and
-          # plain pwd is used.
-          YO_STD=$(cd "$BUNDLE_DIR/std" && (pwd -W 2>/dev/null || pwd))
-          YO_STD="$YO_STD" "$YO" compile hello.yo --release -o hello 2>compile.err || { cat compile.err; exit 1; }
-          cat compile.err
-          # The bundle's binary is built with mimalloc, whose diagnostics are a
-          # correctness gate the release should not ship past: a pointer that
-          # crossed allocators inside the compiler's own std usage prints
-          # "mi_free: invalid pointer" and leaks rather than crashing, so rc=0
-          # hides it. v0.2.0 and v0.2.1 both shipped that (two per compile) —
-          # issues/fixed/current-exe-realpath-cross-allocator-free.md.
-          if grep -q "mimalloc: error" compile.err; then
-            echo "::error::The bundled compiler reported allocator errors on its own stderr — refusing to ship this bundle."
-            exit 1
-          fi
-          if [ -f hello.exe ]; then OUT=$(./hello.exe); else OUT=$(./hello); fi
-          echo "smoke output: $OUT"
-          test "$OUT" = "hello from the yo seed"
-
-      - name: Attach the bundle to the release
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "v${{ needs.release.outputs.version }}" "$BUNDLE.tar.gz" --clobber
-
-      # This leg's arm of the single portable `yo.c`
-      # (plans/PORTABLE_C_DISTRIBUTION.md). A SECOND emit rather than reusing
-      # the bundle's `yo-seed.c`, because that one is mimalloc-flavored: its
-      # mimalloc use is behind `#if __has_include(<mimalloc.h>)`, so it is
-      # self-contained on a box WITHOUT mimalloc headers but MIS-LINKS on one
-      # that has the headers and no -lmimalloc. The published file must not
-      # depend on what the user happens to have installed, so it is libc.
-      - name: "Emit this platform's arm of the portable yo.c (seed)"
-        if: ${{ matrix.seed_built }}
-        shell: bash
-        env:
-          YO_MAIN_STACK_MB: "4096"
-        run: |
-          mkdir -p portable-arm
-          yo compile src/main.yo --release --allocator system \
-            --std-path ./std --emit-c --skip-c-compiler \
-            -o "portable-arm/${{ matrix.target }}" > /dev/null
-          ls -la "portable-arm/${{ matrix.target }}.c"
-
-      - name: Upload the portable-C arm
-        uses: actions/upload-artifact@v4
-        with:
-          name: portable-c-${{ matrix.target }}
-          path: portable-arm/${{ matrix.target }}.c
-          retention-days: 1
-          if-no-files-found: error
-
-  # Flip the draft release public once the seed bundles are in. Runs only
-  # when the seed-bundles job succeeded — with the experimental legs on
-  # continue-on-error, the job-level result reflects exactly the REQUIRED
-  # legs (linux-x64, macos-arm64). A red required leg leaves the release as
-  # an invisible draft instead of a published release missing its binaries.
   # ONE portable `yo.c` for every platform, assembled from the per-leg arms.
   # plans/PORTABLE_C_DISTRIBUTION.md has the rationale and the measurements;
   # the short version is that each arm is a complete translation unit under a
@@ -767,7 +495,7 @@ jobs:
           sudo swapon /mnt/swapfile
           free -h
 
-      # See the identical step in seed-bundles for why swap alone is not
+      # See the musl-bundle steps for why swap alone is not
       # enough. This job survived the v0.2.10 attempt at 64-69 min, but it runs
       # the same seed-driven self-emit on the same runner class, so it gets the
       # same treatment rather than waiting to be the next leg that collapses.
@@ -876,7 +604,7 @@ jobs:
             target: macos-x64
             experimental: false
           # windows-x64: the C is cross-emitted on Linux (see the comment on
-          # the seed-bundles matrix); this leg only compiles and smoke-tests it
+          # the removed glibc seed-bundles matrix); this leg only compiles and smoke-tests it
           # natively. `experimental: false` because the bundle itself is not
           # new — windows-x64 has shipped since v0.2.1 — only the route the C
           # takes to get here has changed.
@@ -1060,6 +788,15 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload "v${{ needs.release.outputs.version }}" "$BUNDLE.tar.gz" --clobber
 
+  # THE Linux release legs (musl-only, 2026-08-20). The glibc seed-bundles
+  # legs were REMOVED, not renamed: the static musl bundles run on glibc and
+  # musl systems alike (measured perf delta is inside run-to-run noise and the
+  # emit is byte-identical — plans/P3_DISTRIBUTION.md), so publishing both
+  # doubled the release cost for no coverage. What the glibc legs used to
+  # carry moved here: the stage-2 re-emit gate runs against the static
+  # candidate below, and the portable-c arms are emitted at the end of this
+  # job (system-allocator flavored, same as before — the published yo.c must
+  # not depend on mimalloc headers being installed).
   musl-bundle:
     name: Static musl Linux bundle (${{ matrix.target }})
     needs: release
@@ -1073,6 +810,7 @@ jobs:
         include:
           - os: ubuntu-latest
             target: linux-x64-musl
+            portable_target: linux-x64
           # arm64 added 2026-08-19. Until then this job was hardcoded to x64,
           # so `yo-v<x>-linux-arm64-musl` had never existed — and an Alpine or
           # NixOS arm64 user hit install.sh's fallback path, which correctly
@@ -1084,6 +822,7 @@ jobs:
           # the whole reason this cross-compiles nothing.
           - os: ubuntu-24.04-arm
             target: linux-arm64-musl
+            portable_target: linux-arm64
     # PROMOTED 2026-08-17 per this job's own rule ("after one green release
     # run"): v0.2.7 (run 31925643271) built, smoked and shipped the bundle.
     # The earlier failures are root-caused, not mysterious — every red run's
@@ -1097,7 +836,7 @@ jobs:
     continue-on-error: false
     steps:
       # The one seed-driven self-emit in this file that had NO swapfile, while
-      # seed-bundles, seed-cross-emit and test.yml's musl leg all provision
+      # seed-cross-emit and test.yml's musl leg all provision
       # one. That asymmetry killed the v0.2.10 release: this job ran the same
       # `yo compile src/main.yo --release --allocator mimalloc` its test.yml
       # twin runs, on a bare 16 GB runner, and the runner DIED at 50 min —
@@ -1126,7 +865,7 @@ jobs:
 
       # The swapfile above (added in #166) is what this job was missing
       # entirely; zswap is what keeps the resulting swap traffic from becoming
-      # thrash. See the identical step in seed-bundles for the measurement.
+      # thrash. See the identical step in seed-cross-emit for the measurement.
       - name: Tune the kernel for a swap-heavy self-emit
         run: |
           echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled || true
@@ -1194,6 +933,32 @@ jobs:
           grep -q "statically linked" file.txt || {
             echo "::error::musl bundle is not statically linked"; exit 1; }
 
+      # Pre-release trust-chain gate, rehomed from the removed glibc legs: the
+      # candidate (the static binary above IS the candidate — the seed emitted
+      # this tree's compiler) must be able to act as the NEXT release's seed,
+      # so prove it can evaluate + emit its own source. Static means it runs
+      # on this glibc host as-is. Emit-only; the FTT check guards the
+      # hollow-emit trap (an untranspilable function becomes a
+      # `// Failed to transpile` COMMENT with rc=0).
+      - name: "Pre-release gate: the candidate re-emits itself (stage-2)"
+        env:
+          YO_MAIN_STACK_MB: "4096"
+        run: |
+          ./yo-musl compile src/main.yo --release --allocator mimalloc \
+            --std-path ./std --emit-c --skip-c-compiler -o gate-stage2 > /dev/null
+          test -s gate-stage2.c
+          SIZE=$(wc -c < gate-stage2.c)
+          echo "stage-2 emit: $SIZE bytes"
+          if [ "$SIZE" -lt 100000000 ]; then
+            echo "::error::stage-2 emit is implausibly small ($SIZE bytes) — refusing to ship this seed."
+            exit 1
+          fi
+          if grep -qE '^\s*// (Error: )?Failed to transpile' gate-stage2.c; then
+            echo "::error::stage-2 emit contains Failed-to-transpile comments — the candidate cannot compile itself."
+            exit 1
+          fi
+          rm -f gate-stage2.c
+
       - name: Assemble the bundle
         run: |
           BUNDLE="yo-v${{ needs.release.outputs.version }}-${{ matrix.target }}"
@@ -1245,14 +1010,57 @@ jobs:
               test "$OUT" = "hello from the yo seed"
             '
 
+      # With the glibc legs gone this bundle is what every Linux user
+      # installs, so prove it on a glibc host too — from a directory OUTSIDE
+      # the checkout, same self-sufficiency bar the removed legs applied.
+      - name: Smoke-test the bundle on the glibc host
+        run: |
+          BUNDLE_DIR="$PWD/$BUNDLE"
+          mkdir -p "$RUNNER_TEMP/musl-smoke" && cd "$RUNNER_TEMP/musl-smoke"
+          printf '%s\n' 'open(import("std/fmt"));' 'main :: (fn() -> unit)(println("hello from the yo seed"));' 'export(main);' > hello.yo
+          YO_STD="$BUNDLE_DIR/std" "$BUNDLE_DIR/bin/yo" compile hello.yo --release -o hello 2>compile.err || { cat compile.err; exit 1; }
+          cat compile.err
+          if grep -q "mimalloc: error" compile.err; then
+            echo "::error::the bundled compiler reported allocator errors on its own stderr — refusing to ship this bundle"
+            exit 1
+          fi
+          OUT=$(./hello)
+          echo "smoke output: $OUT"
+          test "$OUT" = "hello from the yo seed"
+
       - name: Attach the bundle to the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload "v${{ needs.release.outputs.version }}" "$BUNDLE.tar.gz" --clobber
 
+      # This leg's arm of the single portable `yo.c`, rehomed from the removed
+      # glibc legs (plans/PORTABLE_C_DISTRIBUTION.md). A SEPARATE emit rather
+      # than reusing yo-musl.c, because that one is mimalloc-flavored: its
+      # mimalloc use is behind `#if __has_include(<mimalloc.h>)`, so it
+      # MIS-LINKS on a box that has the headers and no -lmimalloc. The
+      # published file must not depend on what the user happens to have
+      # installed, so the arm is libc-flavored (--allocator system).
+      - name: "Emit this platform's arm of the portable yo.c (seed)"
+        env:
+          YO_MAIN_STACK_MB: "4096"
+        run: |
+          mkdir -p portable-arm
+          yo compile src/main.yo --release --allocator system \
+            --std-path ./std --emit-c --skip-c-compiler \
+            -o "portable-arm/${{ matrix.portable_target }}" > /dev/null
+          ls -la "portable-arm/${{ matrix.portable_target }}.c"
+
+      - name: Upload the portable-C arm
+        uses: actions/upload-artifact@v4
+        with:
+          name: portable-c-${{ matrix.portable_target }}
+          path: portable-arm/${{ matrix.portable_target }}.c
+          retention-days: 1
+          if-no-files-found: error
+
   portable-c:
     name: Portable single-file yo.c
-    needs: [release, seed-bundles, seed-cross-emit]
+    needs: [release, musl-bundle, seed-cross-emit]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -1313,7 +1121,7 @@ jobs:
     # its continue-on-error off (the pairing rule its comment recorded): a
     # promoted leg's failure must hold publication, or a red musl run ships a
     # release whose install.sh advertises a bundle that never arrives.
-    needs: [release, seed-bundles, seed-bundles-cross, portable-c, musl-bundle]
+    needs: [release, seed-bundles-cross, portable-c, musl-bundle]
     runs-on: ubuntu-latest
     permissions:
       contents: write
