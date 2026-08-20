@@ -964,23 +964,30 @@ jobs:
         if: runner.os == 'Windows'
         shell: bash
         run: |
-          # The tool must be a HARD requirement. Without this check a missing
-          # llvm-nm yields SYMS=0, which would fail the mimalloc arm with a
-          # misleading message and — far worse — silently "confirm" the system
-          # arm, turning this assertion into a rubber stamp.
-          command -v llvm-nm >/dev/null || {
-            echo "::error::llvm-nm not on PATH; cannot verify the linked allocator"
-            exit 1; }
-          SYMS=$(llvm-nm yo-seed.exe 2>/dev/null | grep -c "mi_malloc\|mi_heap_malloc" || true)
-          echo "requested=$ALLOC  mi_* symbol hits=$SYMS"
+          # DETECT VIA STRING LITERALS, NOT SYMBOLS. A linked PE carries no
+          # COFF symbol table (debug info goes to a PDB), so `llvm-nm` on a
+          # release .exe reports nothing for EITHER allocator — measured, and
+          # it is what made the first A/B dispatch abort: both arms read 0.
+          # A symbol-based check therefore cannot distinguish "mimalloc absent"
+          # from "symbols unreadable", which is the one distinction it exists
+          # to make.
+          #
+          # mimalloc emits unconditional message literals ("mimalloc: ",
+          # "mimalloc: warning: ", "mimalloc: error: ") from its _mi_fputs
+          # path. Those land in .rdata in any object format. Verified locally:
+          # 0 hits for a system-linked binary, 4 for a mimalloc-linked one,
+          # with sizes 33 KB vs 315 KB.
+          HITS=$(grep -a -c "mimalloc: " yo-seed.exe || true)
+          BYTES=$(wc -c < yo-seed.exe)
+          echo "requested=$ALLOC  'mimalloc: ' literal hits=$HITS  size=$BYTES bytes"
           if [ "$ALLOC" = "mimalloc" ]; then
-            [ "$SYMS" -gt 0 ] || {
-              echo "::error::asked for mimalloc but the binary has no mi_* symbols — the __has_include guard silently fell back to the CRT heap"
+            [ "$HITS" -gt 0 ] || {
+              echo "::error::asked for mimalloc but the binary carries no mimalloc literals — the __has_include guard silently fell back to the CRT heap"
               exit 1; }
             echo "mimalloc confirmed linked in."
           else
-            [ "$SYMS" -eq 0 ] || {
-              echo "::error::asked for the system allocator but found $SYMS mi_* symbols"
+            [ "$HITS" -eq 0 ] || {
+              echo "::error::asked for the system allocator but found $HITS mimalloc literals"
               exit 1; }
             echo "system allocator confirmed (no mimalloc linked)."
           fi
