@@ -1,0 +1,95 @@
+name: Probe — which mimalloc builds as C11 on Windows
+
+# Answers one narrow question across several candidate versions: can clang
+# compile mimalloc's static.c AS PLAIN C11 for a Windows target?
+#
+# That is the only build route Yo will use. Compiling mimalloc as C++ (upstream's
+# MI_USE_CXX) is ruled out by policy: it would drag in the MSVC C++ runtime and
+# break the portable single-file yo.c, which exists so a user with nothing but a
+# C compiler can bootstrap.
+#
+# DELIBERATELY DOES NOT BUILD YO. Earlier attempts answered this question by way
+# of a full ~45-minute cross-emit, which made each iteration cost an hour and
+# coupled the answer to unrelated codegen failures. Compiling mimalloc needs
+# neither Yo nor the emitted C, so this runs in ~2 minutes and fails for exactly
+# one reason.
+#
+# Known going in (from run 32353054544):
+#   v3.3.2  x64   OK      arm64  FAILS (__ldar64/__stlr64)
+#   v3.5.0  x64   FAILS   arm64  FAILS (adds internal.h:792 page->self)
+# The open question is v2, whose page->self does not exist but whose
+# MI_MSC_XX(__ldar) does.
+
+on:
+  workflow_dispatch:
+    inputs:
+      refs:
+        description: "Comma-separated mimalloc refs to try"
+        required: true
+        default: "v2.3.2,v2.5.0,v3.3.2,v3.5.0"
+
+jobs:
+  probe:
+    name: mimalloc as C11 (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    # A failing VERSION is the expected finding, not a broken workflow; the job
+    # records outcomes and only fails if the harness itself cannot run.
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: windows-x64
+            clang_target: x86_64-pc-windows-msvc
+          - os: windows-11-arm
+            target: windows-arm64
+            clang_target: aarch64-pc-windows-msvc
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install LLVM/Clang
+        run: |
+          choco install llvm -y
+          echo "C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Try each ref
+        shell: bash
+        run: |
+          clang --version | head -2
+          echo
+          git -C vendor/mimalloc fetch --tags --quiet origin || true
+
+          IFS=',' read -ra REFS <<< "${{ inputs.refs }}"
+          printf '%-10s %-8s %s\n' "REF" "RESULT" "FIRST ERROR"
+          printf '%-10s %-8s %s\n' "---" "------" "-----------"
+          FAILED_HARNESS=0
+          for REF in "${REFS[@]}"; do
+            if ! git -C vendor/mimalloc checkout -q "$REF" 2>/dev/null; then
+              printf '%-10s %-8s %s\n' "$REF" "NO-REF" "tag not found in the submodule clone"
+              continue
+            fi
+            # -fsyntax-only: this question is about the C front end accepting the
+            # source, not about linking. It also keeps the probe independent of
+            # whether the runner has a usable Windows SDK link environment, which
+            # is a separate failure mode that would otherwise be confounded here.
+            if OUT=$(clang -std=c11 -fsyntax-only -w \
+                      --target=${{ matrix.clang_target }} \
+                      -I vendor/mimalloc/include \
+                      vendor/mimalloc/src/static.c 2>&1); then
+              printf '%-10s %-8s %s\n' "$REF" "OK" "-"
+            else
+              FIRST=$(echo "$OUT" | grep -m1 "error:" | sed 's/.*error: //' | cut -c1-90)
+              COUNT=$(echo "$OUT" | grep -c "error:" || true)
+              printf '%-10s %-8s %s\n' "$REF" "FAIL($COUNT)" "$FIRST"
+            fi
+          done
+
+          # Leave the submodule where the repo expects it, so a later step or a
+          # cached workspace never sees a stray pointer.
+          git -C vendor/mimalloc checkout -q "$(git ls-tree HEAD vendor/mimalloc | awk '{print $3}')" 2>/dev/null || true
+          exit $FAILED_HARNESS
