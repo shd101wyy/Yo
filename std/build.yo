@@ -37,11 +37,7 @@ Allocator :: enum(
   Mimalloc,
   /// The platform's system allocator (macOS malloc zones, Windows CRT heap,
   /// glibc/musl malloc on Linux).
-  System,
-  /// Deprecated alias of `System`, TO BE REMOVED once the migration window
-  /// closes (first release with the rename ships + SEED_VERSION moves past
-  /// it). The system allocator is not libc's on macOS or Windows.
-  Libc
+  System
 );
 export(Allocator);
 // ── Sanitizers ───────────────────────────────────────────────────────
@@ -287,17 +283,16 @@ executable :: (fn(comptime(config) : Executable) -> comptime(Step))({
     .ReleaseFast => "release-fast",
     .ReleaseSmall => "release-small"
   );
-  // MIGRATION WINDOW (seed-era flags): `.System` must SPELL itself "libc"
-  // until SEED_VERSION reaches a release that accepts "system" — this string
-  // is handed to whichever compiler binary runs the build, and the seeds
-  // (v0.2.9 and older) reject "system" ("invalid --allocator"). "libc" is
-  // the permanent-until-deletion alias, so NEW compilers treat it as system.
-  // Flip both arms to "system" in the alias-deletion change, not before.
+  // This string is handed to whichever compiler binary runs the build. It
+  // spelled itself "libc" through the migration window, because seeds v0.2.9
+  // and older rejected "system" ("invalid --allocator"). SEED_VERSION reached
+  // v0.2.11 in #169 and v0.2.11 accepts "system", so the window is closed and
+  // the alias is gone. A pre-v0.2.10 `yo` can no longer build this tree — that
+  // is the intended consequence, and CI already requires v0.2.11.
   alloc_str :: match(
     config.allocator,
     .Mimalloc => "mimalloc",
-    .System => "libc",
-    .Libc => "libc"
+    .System => "system"
   );
   san_str :: match(
     config.sanitize,

@@ -96,7 +96,7 @@ wasm_api :: build.executable({
   root: "./src/wasm_api.yo",
   target: build.CompilationTarget.Wasm32_Emscripten,
   optimize: build.Optimize.ReleaseSmall,
-  allocator: build.Allocator.Libc
+  allocator: build.Allocator.System
 });
 wasm_api.add_c_flags("-O3 -flto -mbulk-memory -sALLOW_MEMORY_GROWTH -sENVIRONMENT=web,node -sMODULARIZE=1 -sEXPORT_NAME=createModule -sEXPORTED_FUNCTIONS=_wasm_alloc,_wasm_free,_render -sEXPORTED_RUNTIME_METHODS=HEAPU8");
 
@@ -106,7 +106,7 @@ install.depend_on(wasm_api);
 
 Available targets: `Wasm32_Emscripten`, `Wasm32_Wasi`, `X86_64_Linux_Gnu`, `Aarch64_Macos`, etc.
 Available optimizations: `Debug`, `ReleaseSafe`, `ReleaseFast`, `ReleaseSmall`.
-Available allocators: `Mimalloc` (default), `Libc`.
+Available allocators: `Mimalloc` (default), `System`.
 
 ## npm package structure
 

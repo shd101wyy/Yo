@@ -567,7 +567,7 @@ jobs:
           YO_MAIN_STACK_MB: "4096"
         run: |
           mkdir -p portable-arm
-          yo compile src/main.yo --release --allocator libc \
+          yo compile src/main.yo --release --allocator system \
             --std-path ./std --emit-c --skip-c-compiler \
             -o "portable-arm/${{ matrix.target }}" > /dev/null
           ls -la "portable-arm/${{ matrix.target }}.c"
@@ -704,7 +704,7 @@ jobs:
           ./yo-candidate compile src/main.yo --release --allocator ${{ matrix.bundle_allocator }} \
             --std-path ./std --target ${{ matrix.yo_target }} \
             --emit-c --skip-c-compiler -o "cross/yo-${{ matrix.target }}" > /dev/null
-          ./yo-candidate compile src/main.yo --release --allocator libc \
+          ./yo-candidate compile src/main.yo --release --allocator system \
             --std-path ./std --target ${{ matrix.yo_target }} \
             --emit-c --skip-c-compiler -o "portable-arm/${{ matrix.target }}" > /dev/null
           ls -la cross/ portable-arm/

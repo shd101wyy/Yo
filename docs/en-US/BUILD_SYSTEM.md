@@ -155,7 +155,6 @@ Shared libraries compile with `-shared -fPIC` and produce `.so` (Linux), `.dylib
 | -------------------- | ----------------------------------------- |
 | `Allocator.Mimalloc` | High-performance allocator (mimalloc)     |
 | `Allocator.System`   | The platform's system allocator (default) |
-| `Allocator.Libc`     | Deprecated alias of `Allocator.System`    |
 
 ### Sanitizers
 
