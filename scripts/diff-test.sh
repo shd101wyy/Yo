@@ -13,7 +13,7 @@
 #
 # It began as a TWO-COMPILER differential against the TypeScript reference
 # (`node out/cjs/yo-cli.cjs`) and the name is from that era. That compiler was
-# deleted with `src/` (P2.5), so the goldens are now the only reference — which
+# deleted with the TypeScript `src/` (P2.5), so the goldens are now the only reference — which
 # is exactly the post-retirement form the golden mode was built for while both
 # arms still existed (plans/P2_5_RETIRE_EXECUTION.md step 13).
 #

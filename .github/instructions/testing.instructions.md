@@ -6,8 +6,8 @@ description: "Use when running tests, setting up test files, or debugging test f
 
 > Every command here is the self-hosted compiler `yo`, a native binary from a
 > release bundle on your `PATH`. The `./yo-cli` bash shim, the TypeScript
-> compiler under `src/`, and the `bun test` suites that exercised it are all
-> deleted — there is no bun, npm, or node in this repo outside
+> compiler that USED TO live at `src/`, and the `bun test` suites that exercised
+> it are all deleted (`src/` is now the Yo compiler — see AGENTS.md's note) — there is no bun, npm, or node in this repo outside
 > `vscode-extension/`.
 
 ## Scratch experiments

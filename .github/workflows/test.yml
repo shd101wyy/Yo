@@ -649,7 +649,7 @@ jobs:
           echo "stage-2 markers: $markers"
           test "$markers" = "0"
 
-          # RE-HOMED HERE when the TS unit-tests job was deleted with src/.
+          # RE-HOMED HERE when the TS unit-tests job was deleted with the TypeScript src/.
           # It is NOT a TypeScript-specific gate: `getTypeString` falls back to
           # a LINE comment, `// Unknown type: …`, in the self-hosted emitter too
           # (src/codegen/utils/index.yo:1024 and :1150), so the defect it
@@ -746,7 +746,7 @@ jobs:
           fi
 
   # The self-hosted binary's OWN `test` subcommand. When this job was written CI
-  # ran `./tests` through the TypeScript compiler (deleted with src/ in Group E;
+  # ran `./tests` through the TypeScript compiler (deleted with the TS src/ in Group E;
   # the `test` job now runs the corpus under stage-1), and the bootstrap-fixpoint
   # jobs run `<bin> compile`, but nothing ran `<bin> test` — so codegen bugs that only
   # surface when the self-hosted compiler builds AND RUNS a test binary were not
@@ -814,7 +814,7 @@ jobs:
       # survived here ("bun stays ... until 2.5"). Steps 12-14 (merged) gave
       # both harnesses a golden mode, and each falls back to scoring the self
       # arm against its recorded goldens when the TS CLI is absent — which,
-      # since Group E deleted src/, is now permanent rather than conditional.
+      # since Group E deleted the TypeScript src/, is now permanent rather than conditional.
       # So the gates keep their coverage with the goldens serving as the
       # reference side, which is the end state src/ retirement requires anyway.
       # NO-GOLDEN counts as a failure there, so an unscored case cannot
@@ -892,7 +892,7 @@ jobs:
   # HISTORICAL — it named the TS-vs-self comparison, and a file passing under TS
   # while failing here used to mean a codegen or evaluator divergence in the
   # bootstrap compiler (that is exactly how the effect_analysis unary-operator FTT
-  # was found, 2026-08-05). With src/ deleted there is only one compiler, so this
+  # was found, 2026-08-05). With the TypeScript src/ deleted there is only one compiler, so this
   # is simply the tier's sole arm; the name is FROZEN because it is a required
   # status check in ruleset 13548862 and is matched by string.
   # The self-hosted runner is sequential regardless of
