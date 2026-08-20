@@ -1,10 +1,22 @@
 # async cond/match shared await point only models its REPRESENTATIVE branch
 
 **Status:** FIX IMPLEMENTED 2026-08-20 (branch
-`fix/async-cond-heterogeneous-await-slots`) — all eight shapes verified fixed
-at runtime, 178/178 `tests/async_await.test.yo` green (10 new regression
-tests), emitted C clean of the incompatible-pointer class. Awaiting full-suite
-+ fixpoint validation before moving to `issues/fixed/`.
+`fix/async-cond-heterogeneous-await-slots`, commit 41592a403) — all shapes
+verified fixed at runtime, 181/181 `tests/async_await.test.yo` green (15 new
+regression tests incl. heterogeneous MATCH arms, NESTED cond arms, and the
+reverse named/anonymous mix), 74/74 effects, emitted C clean of the
+incompatible-pointer class (native strict-clang: 0). Awaiting full-suite +
+fixpoint validation before moving to `issues/fixed/`.
+
+Two more members surfaced while validating (same root, now also fixed):
+- a MATCH arm whose value IS the await recorded no branch info at all
+  (`remaining.len() > 0` gate), so even uniform tail-await match arms lost
+  their value;
+- NESTED cond/match arms: the outer `_store_cond_branch_info` overwrote the
+  nested arms' records, leaving their (globally unique) dispatch codes caseless
+  — the switch's `default:` then skipped the await entirely. Dispatch points
+  now UNION branch records, and anonymous cases carry a NULL-slot guard so
+  dead/outer codes and never-stored paths skip cleanly.
 Supersedes `issues/windows-arm64-emitted-c-state-machine-pointer-mismatch.md`
 (the Windows-arm64 sighting was one symptom of this; the defect is in the
 emitter and affects EVERY target).
