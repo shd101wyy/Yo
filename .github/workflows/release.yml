@@ -29,7 +29,7 @@ env:
   #
   # The raised timeouts (#137, #167) stay. They now buy headroom rather than
   # bare survival, and the cliff they guard is still there for the next seed.
-  SEED_VERSION: v0.2.12
+  SEED_VERSION: v0.2.13
 
   # apt-get waits on /var/lib/dpkg/lock-frontend FOREVER by default, and the
   # runner images run unattended-upgrades / apt-daily timers in the background.
@@ -398,7 +398,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 360
     # Mirrors seed-bundles / seed-bundles-cross. Every leg here is REQUIRED
-    # (experimental: false) except windows-arm64 — see its entry for why this
+    # (experimental: false), windows-arm64 included since v0.2.13 — the
     # job needing the flag at all was a latent release-killer.
     continue-on-error: ${{ matrix.experimental }}
     strategy:
@@ -476,10 +476,12 @@ jobs:
             # portable-c, which feeds publish-release, so a failure here leaves
             # the release an unpublished draft. v0.2.12 survived only because
             # the failure landed in the protected native-compile leg instead.
-            # Safe to skip: scripts/make-portable-c.sh requires only
-            # linux-x64, linux-arm64, macos-x64, macos-arm64 and windows-x64 —
-            # windows-arm64 is not one of its arms.
-            experimental: true
+            # PROMOTED 2026-08-21: v0.2.13 (run 32389196493) was the first
+            # release where this leg went green end-to-end and shipped
+            # yo-v0.2.13-windows-arm64.tar.gz — the emitted-C blocker was the
+            # async shared-await-point family (#187,
+            # issues/fixed/async-cond-shared-await-point-only-models-representative-branch.md).
+            experimental: false
     steps:
       - name: Checkout the released commit
         uses: actions/checkout@v4
@@ -613,14 +615,18 @@ jobs:
             clang_target: x86_64-pc-windows-msvc
             pe_machine: "8664"
             experimental: false
-          # experimental: this leg has never produced an artifact, so it must
-          # not be able to block a release. Promote after one green bundle, the
-          # way windows-x64 was promoted at v0.2.1.
+          # PROMOTED 2026-08-21 per this entry's own rule ("after one green
+          # bundle, the way windows-x64 was promoted at v0.2.1"): v0.2.13
+          # shipped yo-v0.2.13-windows-arm64.tar.gz from this leg's first
+          # green run. Its runner installs clang 22 (no pre-installed LLVM,
+          # unlike windows-latest's 20), where -Wincompatible-pointer-types is
+          # a default ERROR — making this leg the strictest C-conformance
+          # check in the release; that is a feature.
           - os: windows-11-arm
             target: windows-arm64
             clang_target: aarch64-pc-windows-msvc
             pe_machine: "AA64"
-            experimental: true
+            experimental: false
     steps:
       # The checkout provides std + vendor/mimalloc for the bundle contents;
       # the compiler C itself arrives as an artifact from seed-cross-emit.
