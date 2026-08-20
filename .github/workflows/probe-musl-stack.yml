@@ -1,0 +1,86 @@
+name: Probe the musl worker-stack request
+
+# Answers the ONE question still gating the musl-only migration: does a
+# musl-linked Yo binary actually GET the worker stack codegen asks for?
+#
+# src/codegen/functions/generation.yo requests 1 GiB and falls back SILENTLY to
+# `__yo_main_thread_entry(NULL)` on the ~8 MB process stack if pthread_create
+# fails. musl's DEFAULT thread stack is ~128 KB against glibc's 8 MB, so a musl
+# build that ignored the request would pass ordinary workloads and SIGSEGV
+# (rc=139, no message) only on deep comptime recursion.
+#
+# WHY THIS IS A SEPARATE WORKFLOW rather than a step in test.yml's musl job:
+# that job's assertion is `./yo-musl check std/assert.yo`, a workload needing
+# far under 1 MB at -O2, so it passes identically whether the request was
+# honoured or silently downgraded. It cannot answer this. This probe compiles a
+# 500,000-deep recursion (~12 MB of frames) and requires the 1 MB and 64 MB
+# outcomes to DIFFER — see scripts/bootstrap/probe-stack-sizing.sh for the
+# LLVM-accumulator-TRE trap it encodes.
+#
+# Dispatch-only: the property changes when the musl toolchain or the stack
+# wrapper changes, not per-PR.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release tag whose musl bundle to probe"
+        required: true
+        default: "v0.2.12"
+      target:
+        description: "Which musl bundle"
+        required: true
+        default: linux-x64-musl
+        type: choice
+        options:
+          - linux-x64-musl
+          - linux-arm64-musl
+
+jobs:
+  probe:
+    name: Probe ${{ inputs.target }} (${{ inputs.version }})
+    # arm64 bundles need an arm64 host: the bundle binary is native, not
+    # emulated, and qemu would change exactly the thread/stack behaviour under
+    # test.
+    runs-on: ${{ inputs.target == 'linux-arm64-musl' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Download the musl bundle
+        run: |
+          URL="https://github.com/${{ github.repository }}/releases/download/${{ inputs.version }}/yo-${{ inputs.version }}-${{ inputs.target }}.tar.gz"
+          echo "Fetching $URL"
+          mkdir -p seed
+          curl -fsSL "$URL" | tar -xz -C seed --strip-components=1
+          ls -la seed/bin/
+          file seed/bin/yo
+
+      # The bundle's `yo` is a STATIC musl binary, so it runs in Alpine
+      # natively. Alpine's `cc` (build-base) is musl gcc, which is the point:
+      # the probe program it compiles is musl-linked, so this exercises musl's
+      # pthread_attr_setstacksize rather than the host's glibc.
+      #
+      # seccomp=unconfined is REQUIRED, not a convenience — Docker's default
+      # profile blocks io_uring_setup, so a binary with io_uring correctly
+      # compiled IN dies with "Operation not permitted" while a stubbed-out one
+      # would pass. Same reasoning as test.yml's musl job.
+      - name: Run the probe against musl
+        run: |
+          docker run --rm --security-opt seccomp=unconfined \
+            -v "$PWD:/w" -w /w alpine:3.20 sh -euc '
+            apk add --no-cache bash build-base linux-headers liburing-dev
+            export YO_STD=/w/std
+            echo "=== bundle identity ==="
+            ./seed/bin/yo --version || true
+            echo "=== probe ==="
+            bash scripts/bootstrap/probe-stack-sizing.sh /w/seed/bin/yo
+          '
+
+      - name: Verdict
+        if: success()
+        run: |
+          echo "::notice::${{ inputs.target }} HONOURS the worker-stack request — the musl-only migration is unblocked on this target."
