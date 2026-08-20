@@ -692,8 +692,16 @@ pick_c_compiler() {
 }
 
 install_from_source() {
-  cfile="yo-$VERSION.c.gz"
+  # Per-target split (2026-08-21): releases publish one ~6 MiB
+  # yo-<v>-<target>.c.gz per platform instead of the ~30 MiB merged file.
+  # Older releases only have the merged yo-<v>.c.gz — probe, then fall back.
+  cfile="yo-$VERSION-$OSARCH.c.gz"
   curl_url="$YO_DIST_BASE_URL/$VERSION/$cfile"
+  if ! download_probe "$curl_url"; then
+    info "$VERSION predates the per-target yo.c split — using the merged file."
+    cfile="yo-$VERSION.c.gz"
+    curl_url="$YO_DIST_BASE_URL/$VERSION/$cfile"
+  fi
   src_url="https://github.com/$YO_REPO/archive/refs/tags/$VERSION.tar.gz"
   target="$PREFIX/lib/yo/$VERSION"
   bindir="$PREFIX/bin"

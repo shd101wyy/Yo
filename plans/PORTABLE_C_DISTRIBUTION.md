@@ -492,3 +492,18 @@ fallback.
 4. **D** (arch-identity ratchet) any time after A.
 5. "One universal C file" — only if it is ever worth the evaluator work; the
    codegen half is well understood and cheap, the evaluator half is not.
+
+## Per-target split — EXECUTED 2026-08-21 (item C, branch `release/portable-c-per-target`)
+
+Releases now publish **one `yo-<v>-<target>.c.gz` per platform** (six of them,
+windows-arm64 included since its v0.2.13 promotion) instead of the merged
+`yo-<v>.c.gz`. The win is download/disk — ~6 MiB per user instead of ~30 —
+against a measured ~1% compile-time delta; the merged-file OBJECTION above
+(decoupled platform constants) never applied to splitting, since each arm is a
+complete translation unit from one emitter run.
+
+The merged assembly is NOT gone: `scripts/make-portable-c.sh` still runs in
+the `portable-c` job as the publish GATE (arm presence + a gcc parse of the
+merged file), it just stops being uploaded. `install.sh --from-source` prefers
+the per-target file and probes back to the merged name on releases that
+predate the split.

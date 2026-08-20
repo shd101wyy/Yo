@@ -375,7 +375,8 @@ jobs:
   # CI consumers extract it, put bin/ on PATH, and set YO_STD to the bundled
   # std/. The Linux bundle is glibc + liburing dynamic for now — the
   # static-musl user-facing story is Phase 3 (distribution), not the seed.
-  # ONE portable `yo.c` for every platform, assembled from the per-leg arms.
+  # The portable-C artifacts: ONE .c.gz per platform (per-target split), with
+  # the merged assembly kept as a publish gate only.
   # plans/PORTABLE_C_DISTRIBUTION.md has the rationale and the measurements;
   # the short version is that each arm is a complete translation unit under a
   # preprocessor conditional, so the C compiler selects one and skips the rest
@@ -1113,10 +1114,23 @@ jobs:
           gcc -std=c11 -fsyntax-only -w yo.c \
             || { echo "::error::assembled yo.c does not even parse on linux-x64"; exit 1; }
 
-          gzip -9 -c yo.c > "yo-v${{ needs.release.outputs.version }}.c.gz"
-          ls -la "yo-v${{ needs.release.outputs.version }}.c.gz"
-          gh release upload "v${{ needs.release.outputs.version }}" \
-            "yo-v${{ needs.release.outputs.version }}.c.gz" --clobber
+          # PER-TARGET SPLIT (plans/PORTABLE_C_DISTRIBUTION.md): each arm is a
+          # complete translation unit, so it ships as its own artifact — a
+          # user downloads ~6 MiB instead of the ~30 MiB merged file, for a
+          # measured ~1% compile-time difference. The merged yo.c above stays
+          # as the ASSEMBLY GATE (arm presence + parse check) but is no longer
+          # published; install.sh prefers the per-target file and falls back
+          # to the merged name on releases that predate the split.
+          for required in linux-x64 linux-arm64 macos-x64 macos-arm64 windows-x64 windows-arm64; do
+            test -s "arms/$required.c" || { echo "::error::missing portable arm $required — refusing to publish a partial set"; exit 1; }
+          done
+          VER="${{ needs.release.outputs.version }}"
+          for arm in arms/*.c; do
+            t=$(basename "$arm" .c)
+            gzip -9 -c "$arm" > "yo-v${VER}-${t}.c.gz"
+          done
+          ls -la yo-v*.c.gz
+          gh release upload "v${VER}" yo-v${VER}-*.c.gz --clobber
 
   publish-release:
     name: Publish the release
