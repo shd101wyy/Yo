@@ -67,6 +67,22 @@ env:
   # to v0.2.4 while release.yml advanced to v0.2.7.
   SEED_VERSION: v0.2.9
 
+  # apt-get waits on /var/lib/dpkg/lock-frontend FOREVER by default, and the
+  # runner images run unattended-upgrades / apt-daily timers in the background.
+  # Whether one is holding the lock when a job starts is pure luck of the
+  # runner — which is exactly what it looked like on 2026-08-20 run
+  # 32303656711, where this same step took 11-263 s on nine runners and hung
+  # past the 120-minute timeout on four, at the same moment, against a mirror
+  # that was answering in under a second. A mirror outage cannot do that; an
+  # indefinite lock wait can.
+  #
+  # DPkg::Lock::Timeout turns that infinite hang into a bounded, diagnosable
+  # failure. Acquire::Retries covers ordinary mirror flakiness.
+  #
+  # EVERY apt-get call in this file must use these — a bare one reintroduces
+  # the hang. See issues/ci-apt-hangs-on-dpkg-lock.md.
+  APT_OPTS: "-o DPkg::Lock::Timeout=600 -o Acquire::Retries=3"
+
 jobs:
   # The VS Code extension is npm-native BY DESIGN (its one devDependency is
   # @vscode/vsce) and survives src/ retirement as a documented island
@@ -149,8 +165,8 @@ jobs:
       # The seed links liburing dynamically and cannot start without it.
       - name: Install liburing
         run: |
-          sudo apt-get update
-          sudo apt-get install -y liburing-dev
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y liburing-dev
 
       - name: Install the seed compiler (previous release)
         uses: ./.github/actions/install-seed
@@ -239,8 +255,8 @@ jobs:
       - name: Install liburing
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y liburing-dev
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y liburing-dev
 
       - name: Install LLVM/Clang
         if: runner.os == 'Windows'
@@ -555,8 +571,8 @@ jobs:
 
       - name: Install liburing and GNU time
         run: |
-          sudo apt-get update
-          sudo apt-get install -y liburing-dev time
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y liburing-dev time
 
       # 2.3 CI migration (P2_RETIRE_SRC.md §2.3): NO bun/node in this job —
       # the SEED (previous release) builds stage-1. The trust chain becomes
@@ -683,8 +699,8 @@ jobs:
 
       - name: Install liburing and GNU time
         run: |
-          sudo apt-get update
-          sudo apt-get install -y liburing-dev time
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y liburing-dev time
 
       - name: Download stage-2 artifacts
         uses: actions/download-artifact@v4
@@ -778,8 +794,8 @@ jobs:
 
       - name: Install liburing
         run: |
-          sudo apt-get update
-          sudo apt-get install -y liburing-dev
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y liburing-dev
 
       # P2.5 step 23: bun/node are GONE from this job. GATE 2 and GATE 7 used
       # the TS CLI as the differential's reference side, which is why bun
@@ -913,8 +929,8 @@ jobs:
 
       - name: Install liburing
         run: |
-          sudo apt-get update
-          sudo apt-get install -y liburing-dev
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y liburing-dev
 
       # 2.3: NO bun/node — this job runs only the self-hosted binary; the
       # SEED builds stage-1. (The Setup Bun / Setup Node.js steps that used to
@@ -1028,8 +1044,8 @@ jobs:
       # the Alpine stage links into the artifact below.
       - name: Install liburing (needed to run the seed)
         run: |
-          sudo apt-get update
-          sudo apt-get install -y liburing-dev
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y liburing-dev
 
       - name: Install the seed compiler (previous release)
         uses: ./.github/actions/install-seed
@@ -1136,8 +1152,8 @@ jobs:
 
       - name: Install liburing
         run: |
-          sudo apt-get update
-          sudo apt-get install -y liburing-dev
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y liburing-dev
 
       - name: Install the seed compiler (previous release)
         uses: ./.github/actions/install-seed
@@ -1348,8 +1364,8 @@ jobs:
 
       - name: Install liburing
         run: |
-          sudo apt-get update
-          sudo apt-get install -y liburing-dev
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y liburing-dev
 
       # 2.3: NO bun/node — the sweep scores only the self-hosted binary; the
       # SEED builds stage-1.
@@ -1439,8 +1455,8 @@ jobs:
       # it, which is precisely one of the properties under evaluation.
       - name: Install liburing and GNU time
         run: |
-          sudo apt-get update
-          sudo apt-get install -y liburing-dev time
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y liburing-dev time
 
       - name: Download both v0.2.11 bundles
         run: |

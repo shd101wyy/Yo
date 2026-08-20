@@ -41,6 +41,9 @@ concurrency:
 
 env:
   SEED_VERSION: v0.2.4
+  # See test.yml's APT_OPTS comment: a bare apt-get can hang forever on the
+  # dpkg lock held by the runner's unattended-upgrades timer.
+  APT_OPTS: "-o DPkg::Lock::Timeout=600 -o Acquire::Retries=3"
 
 jobs:
   fixpoint-arm64:
@@ -66,8 +69,8 @@ jobs:
 
       - name: Install liburing and GNU time
         run: |
-          sudo apt-get update
-          sudo apt-get install -y liburing-dev time
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y liburing-dev time
 
       - name: Install the seed compiler (previous release)
         uses: ./.github/actions/install-seed

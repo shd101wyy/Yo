@@ -304,10 +304,20 @@ apt_get_install() {
     fi
   done
   if [ -n "$missing" ]; then
+    # DPkg::Lock::Timeout because apt-get otherwise waits on
+    # /var/lib/dpkg/lock-frontend FOREVER, with no output. That is not a corner
+    # case here: a freshly installed Ubuntu runs unattended-upgrades on first
+    # boot, which is exactly when somebody curls this script — so the installer
+    # would appear to hang on the very machines it is written for. Ten minutes,
+    # then a real error message. (Same fix as CI's APT_OPTS; see
+    # issues/ci-apt-hangs-on-dpkg-lock.md for the measurement that identified
+    # it.)
     # shellcheck disable=SC2086
-    if ! sudocmd apt-get install -y $missing; then
+    if ! sudocmd apt-get -o DPkg::Lock::Timeout=600 install -y $missing; then
       warn "Installing apt packages failed ($missing)."
-      warn "Run 'apt-get update' and try again, or re-run with --no-deps."
+      warn "If it timed out waiting for the package lock, another package"
+      warn "manager (often unattended-upgrades on a new install) holds it —"
+      warn "wait for it to finish and re-run, or re-run with --no-deps."
       return 1
     fi
   fi

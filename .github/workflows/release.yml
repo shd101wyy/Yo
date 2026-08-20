@@ -19,6 +19,22 @@ env:
   # needed targets.
   SEED_VERSION: v0.2.9
 
+  # apt-get waits on /var/lib/dpkg/lock-frontend FOREVER by default, and the
+  # runner images run unattended-upgrades / apt-daily timers in the background.
+  # Whether one is holding the lock when a job starts is pure luck of the
+  # runner — which is exactly what it looked like on 2026-08-20 run
+  # 32303656711, where this same step took 11-263 s on nine runners and hung
+  # past the 120-minute timeout on four, at the same moment, against a mirror
+  # that was answering in under a second. A mirror outage cannot do that; an
+  # indefinite lock wait can.
+  #
+  # DPkg::Lock::Timeout turns that infinite hang into a bounded, diagnosable
+  # failure. Acquire::Retries covers ordinary mirror flakiness.
+  #
+  # EVERY apt-get call in this file must use these — a bare one reintroduces
+  # the hang. See issues/ci-apt-hangs-on-dpkg-lock.md.
+  APT_OPTS: "-o DPkg::Lock::Timeout=600 -o Acquire::Retries=3"
+
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -255,8 +271,8 @@ jobs:
       # and the extension published.
       - name: Install liburing
         run: |
-          sudo apt-get update
-          sudo apt-get install -y liburing-dev
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y liburing-dev
 
       - name: Install the seed compiler (for the site build)
         uses: ./.github/actions/install-seed
@@ -362,8 +378,8 @@ jobs:
       - name: Install liburing
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y liburing-dev
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y liburing-dev
 
       # Same provisioning as seed-cross-emit and every self-building job in
       # test.yml: the stage-2 gate below is a full self-emit, which does not
@@ -628,8 +644,8 @@ jobs:
       # though the EMITTED C targets macOS (kqueue backend, no liburing).
       - name: Install liburing
         run: |
-          sudo apt-get update
-          sudo apt-get install -y liburing-dev
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y liburing-dev
 
       - name: Install the seed compiler (previous release)
         uses: ./.github/actions/install-seed
@@ -920,8 +936,8 @@ jobs:
       # exact seed-driven pipeline in PR CI).
       - name: Install liburing (needed to run the seed)
         run: |
-          sudo apt-get update
-          sudo apt-get install -y liburing-dev
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y liburing-dev
 
       - name: Install the seed compiler (previous release)
         uses: ./.github/actions/install-seed
