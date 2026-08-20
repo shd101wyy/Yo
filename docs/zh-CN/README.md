@@ -24,10 +24,6 @@ Yo 的目标是 **简单** 和 **快速**（比 C 语言慢约 0% - 15%）。
 - [特性](#特性)
 - [安装](#安装)
   - [安装脚本（推荐）](#安装脚本推荐)
-  - [Linux](#linux)
-  - [macOS](#macos)
-  - [Windows](#windows)
-  - [WebAssembly (WASM)](#webassembly-wasm)
 - [快速开始](#快速开始)
 - [预导入模块（Prelude）](#预导入模块prelude)
 - [标准库](#标准库)
@@ -40,7 +36,6 @@ Yo 的目标是 **简单** 和 **快速**（比 C 语言慢约 0% - 15%）。
 - [版本管理](#版本管理)
 - [AI Agent 技能包](#ai-agent-技能包)
   - [在自己的项目中使用](#在自己的项目中使用)
-- [Star 历史](#star-历史)
 - [许可证](#许可证)
 
 <!-- /code_chunk_output -->
@@ -71,7 +66,7 @@ Yo 的目标是 **简单** 和 **快速**（比 C 语言慢约 0% - 15%）。
 
 ### 安装脚本（推荐）
 
-安装原生预编译的编译器 —— 无需 Node.js 或 npm。
+安装原生预编译的编译器。
 
 ```bash
 # macOS / Linux
@@ -115,109 +110,15 @@ NixOS 上的解决方案 —— 预编译二进制文件中硬编码的 ELF 解�
 
 安装脚本会把 `yo` 命令放到你的 `PATH` 中。运行 `yo --help` 查看可用命令。
 
-> **`npm` 渠道已经废弃。** 在编译器还是 TypeScript 程序的年代，Yo 曾以
-> `@shd101wyy/yo` 这个 npm 包发布。npm 发布在 `v0.2.0` 之后就停止了；编译器现在
-> 是自举的，此后的每个版本都以原生预编译包的形式发布在 GitHub Releases 上。请使用
-> 上面的安装脚本。
+Yo 将代码转换为 C，因此需要一个 **C 编译器**来生成机器码。上面的安装脚本会替你
+准备好；下面的指南用于手动配置工具链，或排查安装失败的问题。
 
-Yo 将代码转换为 C，因此需要一个 **C 编译器**来生成机器码。请按照以下平台说明操作。
+- **[Linux](./INSTALL_LINUX.md)**
+- **[macOS](./INSTALL_MACOS.md)**
+- **[Windows](./INSTALL_WINDOWS.md)**
 
-### Linux
-
-安装 **Clang**（推荐）、**liburing**（用于异步 I/O）和 **pkg-config**（用于系统库发现）：
-
-```bash
-# Ubuntu/Debian
-$ sudo apt-get update
-$ sudo apt-get install clang liburing-dev pkg-config
-
-# Fedora/RHEL
-$ sudo dnf install clang liburing-devel pkgconf-pkg-config
-
-# Arch Linux
-$ sudo pacman -S clang liburing pkgconf
-```
-
-你也可以通过传递 `--cc gcc` 或 `--cc zig` 使用 `gcc` 或 `zig` 代替 `clang`。
-
-### macOS
-
-Clang 包含在 Xcode 命令行工具中：
-
-```bash
-$ xcode-select --install
-
-# 同时安装 pkgconf 用于系统库发现
-$ brew install pkgconf
-```
-
-或者通过 Homebrew 安装 LLVM：
-
-```bash
-$ brew install llvm pkgconf
-```
-
-### Windows
-
-Windows 上的 Clang 需要链接器和 Windows SDK 头文件。安装 **Visual Studio**（社区版免费）或带有"Desktop development with C++"工作负载的 **Build Tools for Visual Studio**：
-
-1. 从 [https://visualstudio.microsoft.com/downloads/](https://visualstudio.microsoft.com/downloads/) 下载
-2. 在安装程序中选择 **"Desktop development with C++"**（包含 MSVC、Windows SDK 和链接器）
-3. 然后安装 LLVM/Clang：
-
-```bash
-# 使用 Chocolatey
-$ choco install llvm
-
-# 使用 Scoop
-$ scoop install llvm
-
-# 或从 https://releases.llvm.org/ 下载
-```
-
-或者，你可以使用 `zig` 作为 C 编译器（无需 Visual Studio）：
-
-```bash
-$ choco install zig
-$ yo compile main.yo --cc zig --release -o main
-```
-
-对于系统库发现，安装 **vcpkg**：
-
-```bash
-$ git clone https://github.com/microsoft/vcpkg.git
-$ .\vcpkg\bootstrap-vcpkg.bat
-# 然后将 VCPKG_ROOT 环境变量设置为 vcpkg 目录
-
-# 或使用 Scoop
-$ scoop install vcpkg
-```
-
-更多信息，请参阅 [vcpkg 文档](https://learn.microsoft.com/en-us/vcpkg/get_started/get-started)。
-
-### WebAssembly (WASM)
-
-Yo 可以使用 [Emscripten](https://emscripten.org/) 编译到 WebAssembly：
-
-```bash
-# 安装 Emscripten（https://emscripten.org/docs/getting_started/downloads.html）
-$ git clone https://github.com/emscripten-core/emsdk.git
-$ cd emsdk
-$ ./emsdk install latest
-$ ./emsdk activate latest
-$ source ./emsdk_env.sh
-
-# 将 Yo 程序编译为 WASM
-$ yo compile main.yo --cc emcc --release -o app
-
-# 生成：app.html + app.js + app.wasm
-# 使用 Node.js 运行：
-$ node app.js
-
-# 或在浏览器中打开 app.html
-```
-
-使用 `--cc emcc` 时，Yo 自动针对 `wasm32-emscripten` 目标并使用 `libc` 分配器。你也可以使用 `--target wasm-emscripten`（会自动选择 `emcc`）。Emscripten 生成一个 `.html` 文件（浏览器外壳）、一个 `.js` 文件（运行时胶水代码）和一个 `.wasm` 文件（编译后的二进制文件）。
+以 WebAssembly 为目标还需要 Emscripten —— 参见
+**[WASM 配置](./INSTALL_WASM.md)**。
 
 ## 快速开始
 
@@ -440,10 +341,6 @@ cp -r .github/skills /path/to/your-yo-project/.github/
 ```
 
 之后在任意 AI Agent 会话中，通过技能名称（例如 `@yo-syntax`）调用该技能，即可为 Agent 提供关于 Yo 语言的上下文知识。
-
-## Star 历史
-
-[![Star History Chart](https://api.star-history.com/svg?repos=shd101wyy/Yo&type=date&legend=top-left)](https://www.star-history.com/#shd101wyy/Yo&type=date&legend=top-left)
 
 ## 许可证
 
