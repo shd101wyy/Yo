@@ -134,9 +134,59 @@ jobs:
           echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
           echo "$CURRENT -> $NEW_VERSION"
 
+      # Republishing a byte-identical extension burns a Marketplace version for
+      # no diff — v0.2.12 did exactly that, shipping an extension whose diff
+      # against v0.2.11 was EMPTY.
+      #
+      # MUST RUN BEFORE the version bump below, and that ordering is what makes
+      # the check need no normalization: the previous release's tag captured
+      # `package.json` at the previous version and pre-bump HEAD still holds
+      # that same version, so the one field that changes every release cancels
+      # out. Move this step after the bump and it reports "changed" forever.
+      #
+      # The baseline is the MARKETPLACE's own current version, not the last git
+      # tag, and that choice is load-bearing. The publish step below is
+      # `continue-on-error` (a service outage must not kill a release), so the
+      # Marketplace can legitimately sit behind the newest tag. Baselining on
+      # the tag would then see "no change since the last release" and skip
+      # forever, stranding the extension. Asking the Marketplace what it
+      # actually has makes the check self-healing: whatever the reason it is
+      # behind, the diff reappears and we publish.
+      - name: Decide whether the extension needs publishing
+        id: ext
+        run: |
+          set -o pipefail
+          LIVE=$(npx --yes @vscode/vsce show shd101wyy.yolang --json 2>/dev/null \
+                 | jq -r '.versions[0].version' 2>/dev/null || true)
+          if [ -z "$LIVE" ] || [ "$LIVE" = "null" ]; then
+            echo "::warning::Could not read the Marketplace version — publishing unconditionally."
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "Marketplace currently has $LIVE"
+          if ! git rev-parse -q --verify "v$LIVE^{commit}" >/dev/null; then
+            echo "::warning::No local tag v$LIVE to diff against — publishing unconditionally."
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          CHANGED=$(git diff --name-only "v$LIVE" HEAD -- vscode-extension/)
+          if [ -z "$CHANGED" ]; then
+            echo "Extension is byte-identical to v$LIVE — SKIPPING the Marketplace publish."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Extension changed since v$LIVE:"
+            printf '%s\n' "$CHANGED" | sed 's/^/  /'
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
       # The extension keeps its own package.json (npm-only island, §2.3), so it
       # is SET to the computed version rather than bumped independently — two
       # independent bumpers is how they drift apart.
+      #
+      # Bumped even when the publish is skipped, so the repo's two version
+      # fields never disagree. The Marketplace then simply skips that number,
+      # which is why the step above baselines on the Marketplace rather than on
+      # `package.json`.
       - name: Set version in vscode-extension package.json
         run: |
           cd vscode-extension
@@ -220,6 +270,7 @@ jobs:
       # version number.)
       - name: Publish extension to Visual Studio Marketplace
         id: create_vsix
+        if: steps.ext.outputs.changed == 'true'
         continue-on-error: true
         uses: HaaLeo/publish-vscode-extension@v2
         with:
@@ -227,6 +278,11 @@ jobs:
           pat: ${{ secrets.VS_MARKETPLACE_TOKEN }}
           packagePath: ./vscode-extension
           registryUrl: https://marketplace.visualstudio.com
+
+      - name: Note the skipped Marketplace publish
+        if: steps.ext.outputs.changed != 'true'
+        run: |
+          echo "::notice::Marketplace publish SKIPPED — the extension is unchanged since the version already live there. The .vsix is still built and attached to this release."
 
       - name: Surface a failed Marketplace publish
         if: steps.create_vsix.outcome == 'failure'
@@ -268,7 +324,13 @@ jobs:
             (`bin/yo` + `std/` + `vendor/mimalloc/` + LICENSE). See
             `plans/SELF_HOSTING_COMPLETION.md` Phase 2 for the trust chain.
           prerelease: false
-          files: ${{ steps.create_vsix.outputs.vsixPath }}
+          # The freshly packaged .vsix, NOT the publish step's output. That
+          # output is empty whenever the publish did not run — which was
+          # already true for a `continue-on-error` Marketplace outage, silently
+          # dropping the .vsix from the GitHub release, and would now also be
+          # true for a deliberate skip. `*.vsix` is gitignored, so a fresh
+          # checkout holds exactly the one file `npm run package` just built.
+          files: vscode-extension/*.vsix
 
       # Yo-native as of P2.5 B7 (user decision 2026-08-18): the site builder
       # is scripts/build_site.yo, compiled and run by the SEED compiler — no
