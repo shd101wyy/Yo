@@ -15,7 +15,7 @@
 //! key — yo-self `Func` types carry no `.id`).
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
-{ await_is_while_condition } :: import("../async/state_code_gen.yo");
+{ await_is_while_condition, cond_await_point_needs_dispatch } :: import("../async/state_code_gen.yo");
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
 {
@@ -734,7 +734,19 @@ emit_async_block_struct_definition :: (
     while(ai2 < aps.len(), {
       match(
         aps.get(ai2),
-        .Some(ap) => match(
+        // Dispatch-mode cond point: branches store differently-shaped futures
+        // into ONE slot, so it is declared type-erased and every access casts
+        // to the running branch's exact type (dispatched on cond_branch_N).
+        // Declared even when the REPRESENTATIVE awaited a named variable —
+        // other branches may be anonymous (shape 6). See
+        // issues/async-cond-shared-await-point-only-models-representative-branch.md.
+        .Some(ap) => if(cond_await_point_needs_dispatch(ap, context), {
+          if(!(emitted_header), {
+            em.emit_declaration_line("  // Future references for awaits");
+            emitted_header = true;
+          });
+          em.emit_declaration_string_line(`  void* await_future_${ap.base.index.to_string()};  // erased: cond branches await differently-shaped futures`);
+        }, match(
           ap.future_variable_id,
           .Some(_) => (),
           .None => {
@@ -761,7 +773,7 @@ emit_async_block_struct_definition :: (
               );
             });
           }
-        ),
+        )),
         .None => ()
       );
       ai2 = (ai2 + usize(1));

@@ -82,18 +82,26 @@ decaying rather than stabilising: v3.3.2 broke arm64, v3.5.0 broke x64 as well.
 Keeping mimalloc on Windows therefore meant pinning it indefinitely and
 absorbing each new break.
 
-## The cost, stated honestly
+## The cost: measured, and it is not a cost
 
-**Unmeasured on Windows, and knowingly accepted.** There has never been an
-allocator A/B on a Windows runner, and until 2026-08-20 there was no
-peak-memory measurement of any kind there — the sampler's Windows arm in
-`test.yml` was literally `Windows) : ;;`, inside a step gated
-`if: runner.os == 'Linux'`.
+The A/B finally ran clean on 2026-08-20 (run 32355228818, `windows-latest`,
+`check ./std`, 3 reps per arm, min-of-reps):
 
-`.github/workflows/ab-windows-allocator.yml` and
-`scripts/bootstrap/measure-windows.ps1` now exist and can quantify what was
-given up. That measurement is no longer a blocker for anything — it is
-informational.
+| arm | min wall | spread | min peak |
+| --- | --- | --- | --- |
+| mimalloc | 31.96 s | 0.26 s | 1,657 MB |
+| system | 32.74 s | 2.78 s | 1,566 MB |
+
+Wall: −2.4% for mimalloc, but the 0.78 s delta sits INSIDE the system arm's
+own 2.78 s run-to-run spread — the workflow's own guard refuses to call a wall
+winner. Peak: mimalloc is **+5.8% fatter** (91 MB). So on Windows the switch
+to the system allocator gave up nothing measurable and saved memory — nothing
+like Linux glibc's 72% peak inflation, which remains the only platform where
+mimalloc pays its way.
+
+(Before this run there had NEVER been a peak-memory measurement on a Windows
+runner — the sampler's Windows arm in `test.yml` was literally `Windows) : ;;`
+inside a step gated `if: runner.os == 'Linux'`.)
 
 The other cost of the alternative is worth restating: keeping mimalloc on x64
 would have pinned the submodule to v3.3.2, since v3.5.0 does not compile there.
@@ -117,7 +125,7 @@ Reopen this if any of the following changes:
 ## Related
 
 - `issues/windows-arm64-mimalloc-msvc-arm-intrinsics.md` — the original arm64 break
-- `issues/windows-arm64-emitted-c-state-machine-pointer-mismatch.md` — a SEPARATE
+- `issues/async-cond-shared-await-point-only-models-representative-branch.md` — a SEPARATE
   defect in Yo's own emitted C. windows-arm64 stays `experimental: true` because
   of it; the allocator change does not touch it.
 - `issues/fixed/mimalloc-performance-regression.md` — the macOS measurements

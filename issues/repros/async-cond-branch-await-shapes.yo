@@ -1,0 +1,150 @@
+// Reproducers for issues/async-cond-shared-await-point-only-models-representative-branch.md
+// Six shapes of "a cond whose branches await differently", all sharing one
+// await point. Expected output (post-fix): every line prints its wanted value.
+// Pre-fix (2026-08-20): shape1/shape4 print 0, shape2 corrupts or deadlocks,
+// shape3 prints 0 for the bound branch, shape5/shape6 fail to C-compile.
+open(import("std/string"));
+open(import("std/fmt"));
+{ yield } :: import("std/async");
+
+mk_ten :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    io.await(yield(io), io);
+    return(i32(10))
+  })
+);
+mk_twenty :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    io.await(yield(io), io);
+    io.await(yield(io), io);
+    return(i32(20))
+  })
+);
+mk_str :: (fn(io : Io) -> Impl(Future(String, Io)))(
+  io.async((io : Io) => {
+    io.await(yield(io), io);
+    return(`hello`)
+  })
+);
+mk_unit :: (fn(io : Io) -> Impl(Future(unit, Io)))(
+  io.async((io : Io) => {
+    io.await(yield(io), io);
+    return(())
+  })
+);
+mk_val :: (fn(v : i32, io : Io) -> Impl(Future(i32, Io)))({
+  b := Box(i32)(v);
+  io.async((io : Io) => {
+    io.await(yield(io), io);
+    return(b.*)
+  })
+});
+
+// Shape 1: same result type, heterogeneous future types, tail awaits.
+shape1 :: (fn(flag : bool, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    r := cond(
+      flag => io.await(mk_ten(io), io),
+      true => io.await(mk_twenty(io), io)
+    );
+    return(r)
+  })
+);
+
+// Shape 2: String-result representative, unit-result other branch.
+shape2 :: (fn(flag : bool, io : Io) -> Impl(Future(usize, Io)))(
+  io.async((io : Io) => {
+    r := cond(
+      flag => {
+        s := io.await(mk_str(io), io);
+        s.len()
+      },
+      true => {
+        io.await(mk_unit(io), io);
+        usize(0)
+      }
+    );
+    return(r)
+  })
+);
+
+// Shape 3: unit representative; the OTHER branch binds a non-unit result.
+shape3 :: (fn(flag : bool, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    r := cond(
+      flag => {
+        io.await(mk_unit(io), io);
+        i32(0)
+      },
+      true => {
+        x := io.await(mk_ten(io), io);
+        x + i32(1)
+      }
+    );
+    return(r)
+  })
+);
+
+// Shape 4: single awaiting branch whose VALUE IS the await. No heterogeneity.
+shape4 :: (fn(flag : bool, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    r := cond(
+      flag => io.await(mk_ten(io), io),
+      true => i32(7)
+    );
+    return(r)
+  })
+);
+
+// Shape 5: branches await DIFFERENT named future variables.
+shape5 :: (fn(flag : bool, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    f1 := mk_val(i32(100), io);
+    f2 := mk_val(i32(200), io);
+    r := cond(
+      flag => {
+        x := io.await(f1, io);
+        x + i32(1)
+      },
+      true => {
+        y := io.await(f2, io);
+        y + i32(2)
+      }
+    );
+    return(r)
+  })
+);
+
+// Shape 6: one branch awaits a NAMED future, the other an anonymous call.
+shape6 :: (fn(flag : bool, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    f1 := mk_val(i32(100), io);
+    r := cond(
+      flag => {
+        x := io.await(f1, io);
+        x + i32(1)
+      },
+      true => {
+        y := io.await(mk_val(i32(200), io), io);
+        y + i32(2)
+      }
+    );
+    return(r)
+  })
+);
+
+main :: (fn(io : Io) -> unit)({
+  println(`shape1(true)  = ${io.await(shape1(true, io), io).to_string()} (want 10)`);
+  println(`shape1(false) = ${io.await(shape1(false, io), io).to_string()} (want 20)`);
+  println(`shape2(true)  = ${io.await(shape2(true, io), io).to_string()} (want 5)`);
+  println(`shape2(false) = ${io.await(shape2(false, io), io).to_string()} (want 0)`);
+  println(`shape3(true)  = ${io.await(shape3(true, io), io).to_string()} (want 0)`);
+  println(`shape3(false) = ${io.await(shape3(false, io), io).to_string()} (want 11)`);
+  println(`shape4(true)  = ${io.await(shape4(true, io), io).to_string()} (want 10)`);
+  println(`shape4(false) = ${io.await(shape4(false, io), io).to_string()} (want 7)`);
+  println(`shape5(true)  = ${io.await(shape5(true, io), io).to_string()} (want 101)`);
+  println(`shape5(false) = ${io.await(shape5(false, io), io).to_string()} (want 202)`);
+  println(`shape6(true)  = ${io.await(shape6(true, io), io).to_string()} (want 101)`);
+  println(`shape6(false) = ${io.await(shape6(false, io), io).to_string()} (want 202)`);
+});
+export(main);

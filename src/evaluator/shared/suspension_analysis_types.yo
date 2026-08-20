@@ -58,7 +58,15 @@ SuspensionPoint :: ref(
     needs_own_cond_branch_field : Option(bool),
     /// The enclosing while loop expression.
     /// TypeScript uses `unknown` to avoid circular import; we use `AstExpr`.
-    enclosing_while_expr : Option(AstExpr)
+    enclosing_while_expr : Option(AstExpr),
+    /// Set on a merged cond/match representative: EVERY branch's suspension
+    /// expr at this depth position, in branch order. A shared cond await point
+    /// stands in for one suspension per awaiting branch, and those can await
+    /// futures of different C types, mix named and anonymous futures, or mix
+    /// io/state-machine future kinds — everything downstream that used to
+    /// assume the representative's shape consults this list instead. See
+    /// issues/async-cond-shared-await-point-only-models-representative-branch.md.
+    cond_branch_suspension_exprs : Option(ArrayList(AstExpr))
   )
 );
 // ---------------------------------------------------------------------------

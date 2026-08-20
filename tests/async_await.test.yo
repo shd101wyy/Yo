@@ -4192,3 +4192,276 @@ test("nested awaiting whiles over real I/O futures drop outer arm locals once pe
   got := io.await(probe(io, exn), IoExn(io : io, exn : exn));
   assert(got == usize(6), "3 outer x 2 inner, every pair visited exactly once");
 });
+// ─── shared cond await point: branches awaiting differently-shaped futures ───
+// Regression: a cond/match whose branches await shares ONE await point, and
+// everything hung off it (slot type, registration, extraction, target copy)
+// came from the REPRESENTATIVE branch only. Eight defect shapes catalogued in
+// issues/async-cond-shared-await-point-only-models-representative-branch.md;
+// the tests below pin each one. The helper futures are top-level so each gets
+// its own C state-machine type (that heterogeneity IS the point).
+shape_ten :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    io.await(yield(io), io);
+    return(i32(10))
+  })
+);
+shape_twenty :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    io.await(yield(io), io);
+    io.await(yield(io), io);
+    return(i32(20))
+  })
+);
+shape_str :: (fn(io : Io) -> Impl(Future(String, Io)))(
+  io.async((io : Io) => {
+    io.await(yield(io), io);
+    return(`hello`)
+  })
+);
+shape_unit :: (fn(io : Io) -> Impl(Future(unit, Io)))(
+  io.async((io : Io) => {
+    io.await(yield(io), io);
+    return(())
+  })
+);
+shape_val :: (fn(v : i32, io : Io) -> Impl(Future(i32, Io)))({
+  b := Box(i32)(v);
+  io.async((io : Io) => {
+    io.await(yield(io), io);
+    return(b.*)
+  })
+});
+test("cond branches tail-await two DIFFERENT async fns (same result type)", {
+  drive := (fn(flag : bool, rio : Io) -> Impl(Future(i32, Io)))(
+    rio.async((aio : Io) => {
+      r := cond(
+        flag => aio.await(shape_ten(aio), aio),
+        true => aio.await(shape_twenty(aio), aio)
+      );
+      return(r)
+    })
+  );
+  assert(io.await(drive(true, io), io) == i32(10), "first-branch future value survives");
+  assert(io.await(drive(false, io), io) == i32(20), "second-branch (differently-typed) future value survives");
+});
+test("cond branches await String-result and unit-result futures", {
+  drive := (fn(flag : bool, rio : Io) -> Impl(Future(usize, Io)))(
+    rio.async((aio : Io) => {
+      r := cond(
+        flag => {
+          s := aio.await(shape_str(aio), aio);
+          s.len()
+        },
+        true => {
+          aio.await(shape_unit(aio), aio);
+          usize(0)
+        }
+      );
+      return(r)
+    })
+  );
+  assert(io.await(drive(true, io), io) == usize(5), "String-result branch extracts through its own layout");
+  assert(io.await(drive(false, io), io) == usize(0), "unit-result branch neither corrupts nor deadlocks");
+});
+test("cond unit-result representative does not skip the other branch's binding", {
+  drive := (fn(flag : bool, rio : Io) -> Impl(Future(i32, Io)))(
+    rio.async((aio : Io) => {
+      r := cond(
+        flag => {
+          aio.await(shape_unit(aio), aio);
+          i32(0)
+        },
+        true => {
+          x := aio.await(shape_ten(aio), aio);
+          x + i32(1)
+        }
+      );
+      return(r)
+    })
+  );
+  assert(io.await(drive(true, io), io) == i32(0), "unit representative branch");
+  assert(io.await(drive(false, io), io) == i32(11), "bound branch's variable is written despite unit representative");
+});
+test("cond branch value IS the await (no remaining exprs)", {
+  drive := (fn(flag : bool, rio : Io) -> Impl(Future(i32, Io)))(
+    rio.async((aio : Io) => {
+      r := cond(
+        flag => aio.await(shape_ten(aio), aio),
+        true => i32(7)
+      );
+      return(r)
+    })
+  );
+  assert(io.await(drive(true, io), io) == i32(10), "await-as-branch-value reaches the bound target");
+  assert(io.await(drive(false, io), io) == i32(7), "plain branch unaffected");
+});
+test("cond branches await two DIFFERENT named futures", {
+  drive := (fn(flag : bool, rio : Io) -> Impl(Future(i32, Io)))(
+    rio.async((aio : Io) => {
+      f1 := shape_val(i32(100), aio);
+      f2 := shape_val(i32(200), aio);
+      r := cond(
+        flag => {
+          x := aio.await(f1, aio);
+          x + i32(1)
+        },
+        true => {
+          y := aio.await(f2, aio);
+          y + i32(2)
+        }
+      );
+      return(r)
+    })
+  );
+  assert(io.await(drive(true, io), io) == i32(101), "first named future awaited, not the representative's");
+  assert(io.await(drive(false, io), io) == i32(202), "second named future awaited, not the representative's");
+});
+test("cond mixes a named future branch with an anonymous one", {
+  drive := (fn(flag : bool, rio : Io) -> Impl(Future(i32, Io)))(
+    rio.async((aio : Io) => {
+      f1 := shape_val(i32(100), aio);
+      r := cond(
+        flag => {
+          x := aio.await(f1, aio);
+          x + i32(1)
+        },
+        true => {
+          y := aio.await(shape_val(i32(200), aio), aio);
+          y + i32(2)
+        }
+      );
+      return(r)
+    })
+  );
+  assert(io.await(drive(true, io), io) == i32(101), "named branch");
+  assert(io.await(drive(false, io), io) == i32(202), "anonymous branch");
+});
+test("cond single branch binds from a named future", {
+  drive := (fn(flag : bool, rio : Io) -> Impl(Future(i32, Io)))(
+    rio.async((aio : Io) => {
+      f1 := shape_val(i32(100), aio);
+      r := cond(
+        flag => {
+          x := aio.await(f1, aio);
+          x + i32(1)
+        },
+        true => i32(7)
+      );
+      return(r)
+    })
+  );
+  assert(io.await(drive(true, io), io) == i32(101), "named-future binding inside a cond branch compiles and runs");
+  assert(io.await(drive(false, io), io) == i32(7), "plain branch");
+});
+// Top-level like the other helpers: a LOCAL fn value creating the future hits
+// the separate, pre-existing capture divergence documented at the top of this
+// file (issues/await-in-branch-positions-matrix.md) — unrelated to the shared
+// await point.
+shape_started :: (fn(marker : Box(i32), io : Io) -> Impl(Future(unit, Io)))(
+  io.async((io : Io) => {
+    marker.* = (marker.* + 1);
+    io.await(yield(io), io);
+    return(())
+  })
+);
+test("not-taken branch's lazy named future is neither started nor awaited", {
+  drive := (fn(flag : bool, m : Box(i32), rio : Io) -> Impl(Future(i32, Io)))(
+    rio.async((aio : Io) => {
+      f1 := shape_started(m, aio);
+      r := cond(
+        flag => {
+          aio.await(f1, aio);
+          i32(1)
+        },
+        true => i32(2)
+      );
+      return(r)
+    })
+  );
+  m1 := Box(i32)(0);
+  assert(io.await(drive(true, m1, io), io) == i32(1), "awaiting branch value");
+  assert(m1.* == i32(1), "future ran when its branch was taken");
+  m2 := Box(i32)(0);
+  assert(io.await(drive(false, m2, io), io) == i32(2), "plain branch value");
+  assert(m2.* == i32(0), "lazy future must NOT be started when its branch was not taken");
+});
+test("tail cond (async body result) with await-as-branch-value", {
+  drive := (fn(flag : bool, rio : Io) -> Impl(Future(i32, Io)))(
+    rio.async(
+      (aio : Io) => cond(
+        flag => aio.await(shape_ten(aio), aio),
+        true => i32(7)
+      )
+    )
+  );
+  assert(io.await(drive(true, io), io) == i32(10), "await-as-value feeds sm->result");
+  assert(io.await(drive(false, io), io) == i32(7), "plain branch feeds sm->result");
+});
+test("tail cond with branches tail-awaiting two DIFFERENT async fns", {
+  drive := (fn(flag : bool, rio : Io) -> Impl(Future(i32, Io)))(
+    rio.async(
+      (aio : Io) => cond(
+        flag => aio.await(shape_ten(aio), aio),
+        true => aio.await(shape_twenty(aio), aio)
+      )
+    )
+  );
+  assert(io.await(drive(true, io), io) == i32(10), "first branch");
+  assert(io.await(drive(false, io), io) == i32(20), "second, differently-typed branch");
+});
+test("match arms tail-await two DIFFERENT async fns", {
+  drive := (fn(o : Option(i32), rio : Io) -> Impl(Future(i32, Io)))(
+    rio.async((aio : Io) => {
+      r := match(
+        o,
+        .Some => aio.await(shape_ten(aio), aio),
+        .None => aio.await(shape_twenty(aio), aio)
+      );
+      return(r)
+    })
+  );
+  assert(io.await(drive(Option(i32).Some(i32(1)), io), io) == i32(10), "Some arm's future value survives");
+  assert(io.await(drive(Option(i32).None, io), io) == i32(20), "None arm's differently-typed future value survives");
+});
+test("nested cond arms await two DIFFERENT async fns", {
+  // The nested-branch shape that escaped the first classifier: the OUTER
+  // merge records one representative per outer branch, so the inner arms'
+  // heterogeneity is only visible via the flattened nested expr lists.
+  drive := (fn(n : usize, rio : Io) -> Impl(Future(i32, Io)))(
+    rio.async((aio : Io) => {
+      r := cond(
+        (n == usize(0)) => i32(1),
+        true => cond(
+          (n == usize(1)) => aio.await(shape_ten(aio), aio),
+          true => aio.await(shape_twenty(aio), aio)
+        )
+      );
+      return(r)
+    })
+  );
+  assert(io.await(drive(usize(0), io), io) == i32(1), "plain outer branch");
+  assert(io.await(drive(usize(1), io), io) == i32(10), "nested first arm");
+  assert(io.await(drive(usize(2), io), io) == i32(20), "nested second, differently-typed arm");
+});
+test("cond mixes an anonymous branch with a named future branch (reverse order)", {
+  // The representative here is the ANONYMOUS branch, so the old
+  // representative-keyed slot guard would skip the NAMED branch's extraction.
+  drive := (fn(flag : bool, rio : Io) -> Impl(Future(i32, Io)))(
+    rio.async((aio : Io) => {
+      f2 := shape_val(i32(200), aio);
+      r := cond(
+        flag => {
+          x := aio.await(shape_val(i32(100), aio), aio);
+          x + i32(1)
+        },
+        true => {
+          y := aio.await(f2, aio);
+          y + i32(2)
+        }
+      );
+      return(r)
+    })
+  );
+  assert(io.await(drive(true, io), io) == i32(101), "anonymous branch");
+  assert(io.await(drive(false, io), io) == i32(202), "named branch extracted despite anonymous representative");
+});

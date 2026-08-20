@@ -45,7 +45,8 @@ test("SuspensionPoint constructor sets all fields", {
     while_nesting_depth : Option(usize).Some(usize(1)),
     cond_branch_source_index : Option(usize).None,
     needs_own_cond_branch_field : Option(bool).Some(true),
-    enclosing_while_expr : Option(AstExpr).None
+    enclosing_while_expr : Option(AstExpr).None,
+    cond_branch_suspension_exprs : Option(ArrayList(AstExpr)).None
   );
   assert(sp.index == usize(0), "index");
   result := match(sp.target_variable_id, .Some(id) => id, .None => String.from(""));
@@ -68,7 +69,8 @@ test("SuspensionPoint optional fields default to None", {
     while_nesting_depth : Option(usize).None,
     cond_branch_source_index : Option(usize).None,
     needs_own_cond_branch_field : Option(bool).None,
-    enclosing_while_expr : Option(AstExpr).None
+    enclosing_while_expr : Option(AstExpr).None,
+    cond_branch_suspension_exprs : Option(ArrayList(AstExpr)).None
   );
   has_target := match(sp.target_variable_id, .Some(_) => true, .None => false);
   assert(!(has_target), "target_variable_id should be None");
@@ -120,7 +122,8 @@ test("SuspensionAnalysisResult can hold suspension points", {
     while_nesting_depth : Option(usize).None,
     cond_branch_source_index : Option(usize).None,
     needs_own_cond_branch_field : Option(bool).None,
-    enclosing_while_expr : Option(AstExpr).None
+    enclosing_while_expr : Option(AstExpr).None,
+    cond_branch_suspension_exprs : Option(ArrayList(AstExpr)).None
   );
   r.suspension_points.push(sp);
   assert(r.suspension_points.len() == usize(1), "one suspension point");

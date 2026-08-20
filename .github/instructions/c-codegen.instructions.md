@@ -26,6 +26,33 @@ Each OS thread has its own **single-threaded event loop**. Within a single threa
 - Process-global state (signal handlers, WSA init, TTY/console settings, umask) stays `static` — it is shared across all threads.
 - The **parallelism** runtime (`src/codegen/parallelism/`) is a separate concern with actual multi-threading — do not confuse it with async/await.
 
+## Shared cond/match await points — consult the dispatch predicate
+
+A `cond`/`match` whose branches await shares ONE await point (one suspension
+state — only one branch runs). Branches can await futures of DIFFERENT C
+types, mix named and anonymous futures, or mix io/state-machine kinds, so any
+emission touching that point's future (slot declaration, branch stores,
+readiness/registration, result extraction, branch continuation) MUST route
+through `cond_await_point_needs_dispatch` (`src/codegen/async/state_code_gen.yo`):
+
+- **uniform-anonymous** (all awaiting branches anonymous, same future C name):
+  the classic single-slot emission, unchanged.
+- **dispatch** (any named-future branch, or any type mismatch): the slot is a
+  type-erased `void*`; registration and extraction are emitted inside
+  `switch (sm->cond_branch_N)`, each case accessing the future through ITS
+  branch's exact type (`cond_branch_future_access`).
+
+Mixing the two modes at different sites emits ill-typed C. Full defect history
+(eight shapes, two silently wrong at runtime in released compilers):
+`issues/async-cond-shared-await-point-only-models-representative-branch.md`.
+
+Related CI trap: `-Wincompatible-pointer-types` is a **default error in clang
+22+ that `-w` does not downgrade**, and the two Windows runners carry different
+clang majors (`windows-latest` pre-installs LLVM 20 so `choco install llvm`
+no-ops; `windows-11-arm` gets the latest from choco). An "arm64-only" C failure
+may be a clang VERSION difference, not an architecture one — check the
+versions in the job logs first.
+
 ## Compilation commands
 
 - Emit C only: `yo compile tmp/fixme.yo --emit-c --skip-c-compiler --release`

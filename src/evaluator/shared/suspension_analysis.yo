@@ -583,6 +583,60 @@ walk_expr_ :: (
                   if(pos > usize(0), {
                     rep.cond_branch_source_index = Option(usize).Some(first_index_b);
                   });
+                  // Record EVERY branch's suspension expr at this position —
+                  // the representative alone cannot type the shared slot or
+                  // drive per-branch registration/extraction when branches
+                  // suspend on differently-shaped futures. See
+                  // issues/async-cond-shared-await-point-only-models-representative-branch.md.
+                  branch_exprs := ArrayList(AstExpr).new();
+                  (bpi3 : usize) = usize(0);
+                  while(bpi3 < n_branches, {
+                    branch3 := match(
+                      per_branch_points.get(bpi3),
+                      .None => {
+                        bpi3 = n_branches;
+                        return(());
+                      },
+                      .Some(b) => b
+                    );
+                    if(pos < branch3.len(), {
+                      match(
+                        branch3.get(pos),
+                        .Some(p3) => {
+                          // A branch whose point at this position is ITSELF a
+                          // merged representative (a nested cond/match with
+                          // awaiting arms) stands in for all of its arms'
+                          // suspensions — flatten its list, or a nested match
+                          // whose arms await different futures classifies as
+                          // uniform and keeps a concretely-typed shared slot.
+                          // Inner merges run before outer ones, so the nested
+                          // list is already fully flattened.
+                          match(
+                            p3.cond_branch_suspension_exprs,
+                            .Some(nested) => {
+                              (ni : usize) = usize(0);
+                              while(ni < nested.len(), {
+                                match(
+                                  nested.get(ni),
+                                  .Some(ne) => {
+                                    branch_exprs.push(ne);
+                                  },
+                                  .None => ()
+                                );
+                                ni = (ni + usize(1));
+                              });
+                            },
+                            .None => {
+                              branch_exprs.push(p3.expr);
+                            }
+                          );
+                        },
+                        .None => ()
+                      );
+                    });
+                    bpi3 = (bpi3 + usize(1));
+                  });
+                  rep.cond_branch_suspension_exprs = Option(ArrayList(AstExpr)).Some(branch_exprs);
                   points.push(rep);
                 }
               );
