@@ -150,7 +150,7 @@ await_call_future_arg :: (fn(await_expr : AstExpr) -> Option(AstExpr))(
 /// registration and extraction historically came from the point's
 /// REPRESENTATIVE branch only, which miscompiles every branch shaped
 /// differently from it (eight shapes catalogued in
-/// issues/async-cond-shared-await-point-only-models-representative-branch.md).
+/// issues/fixed/async-cond-shared-await-point-only-models-representative-branch.md).
 ///
 /// Returns true when the branches do NOT all await a same-typed ANONYMOUS
 /// future — any named-future branch (shapes 5-8: the "was the await branch
@@ -1736,7 +1736,7 @@ generate_cond_branch_with_await :: (
               s_args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
               // In dispatch mode the named/anonymous decision is PER BRANCH —
               // the representative's future_variable_id says nothing about
-              // this branch (issues/async-cond-shared-await-point-only-models-representative-branch.md).
+              // this branch (issues/fixed/async-cond-shared-await-point-only-models-representative-branch.md).
               branch_named := (dispatch_mode && _branch_future_is_named(expr, await_point, context));
               match(
                 s_args.get(usize(0)),

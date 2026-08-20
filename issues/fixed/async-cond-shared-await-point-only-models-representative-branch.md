@@ -1,12 +1,12 @@
 # async cond/match shared await point only models its REPRESENTATIVE branch
 
-**Status:** FIX IMPLEMENTED 2026-08-20 (branch
-`fix/async-cond-heterogeneous-await-slots`, commit 41592a403) — all shapes
-verified fixed at runtime, 181/181 `tests/async_await.test.yo` green (15 new
+**Status:** FIXED — merged to develop 2026-08-20 as #187 (8b7914c1d). All
+shapes verified at runtime; 181/181 `tests/async_await.test.yo` (15 new
 regression tests incl. heterogeneous MATCH arms, NESTED cond arms, and the
-reverse named/anonymous mix), 74/74 effects, emitted C clean of the
-incompatible-pointer class (native strict-clang: 0). Awaiting full-suite +
-fixpoint validation before moving to `issues/fixed/`.
+reverse named/anonymous mix), 74/74 effects, full language suite 2762/2762,
+bootstrap fixpoint + stage-3 byte-identity, all four internal-test shards,
+emitted C clean of the incompatible-pointer class on native and windows-arm64
+cross-emits.
 
 Two more members surfaced while validating (same root, now also fixed):
 - a MATCH arm whose value IS the await recorded no branch info at all

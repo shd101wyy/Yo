@@ -44,7 +44,7 @@ through `cond_await_point_needs_dispatch` (`src/codegen/async/state_code_gen.yo`
 
 Mixing the two modes at different sites emits ill-typed C. Full defect history
 (eight shapes, two silently wrong at runtime in released compilers):
-`issues/async-cond-shared-await-point-only-models-representative-branch.md`.
+`issues/fixed/async-cond-shared-await-point-only-models-representative-branch.md`.
 
 Related CI trap: `-Wincompatible-pointer-types` is a **default error in clang
 22+ that `-w` does not downgrade**, and the two Windows runners carry different

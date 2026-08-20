@@ -231,6 +231,6 @@ RSS ~72%, which is a measured, platform-specific reason that does not transfer.
 
 ### Still open, and NOT fixed by this
 
-`issues/async-cond-shared-await-point-only-models-representative-branch.md`. The arm64
+`issues/fixed/async-cond-shared-await-point-only-models-representative-branch.md`. The arm64
 leg has a second, unrelated defect in Yo's OWN emitted C. Switching allocator
 does not touch it, so windows-arm64 stays `experimental: true`.
