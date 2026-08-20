@@ -31,6 +31,7 @@ _(env : proc_env) :: import("std/env");
 { read_file, write_file, exists } :: import("std/fs/file");
 { metadata } :: import("std/fs/metadata");
 { read_dir, FileType, remove_file, create_dir_all } :: import("std/fs/dir");
+{ sleep } :: import("std/time/sleep");
 { Command } :: import("std/process/command");
 { exit } :: import("std/libc/stdlib");
 { ArrayList } :: import("std/collections/array_list");
@@ -838,6 +839,48 @@ _path_has_extension :: (fn(p : String) -> bool)({
   // A dot counts only after the last slash and not as the basename's first
   // character (path.extname(".bashrc") === "" in Node).
   last_dot > (last_slash + isize(1))
+});
+/// One removal attempt under a swallowing handler (the `unwind` needs its own
+/// fn boundary, same pattern as `_probe_liburing`). Success is signalled by
+/// the push; a throw of any kind leaves `ok` empty.
+_try_remove_once :: (fn(path : String, io : Io, ok : ArrayList(bool)) -> unit)({
+  try_exn := Exception(
+    throw : (
+      (_e) -> {
+        unwind(());
+      }
+    )
+  );
+  io.await(remove_file(Path.new(path.clone()), io), IoExn(io : io, exn : try_exn));
+  ok.push(true);
+});
+/// Remove a test-batch artifact, tolerating Windows's just-exited-executable
+/// lock. Deleting a batch `.exe` ~40 ms after its last test child exits can
+/// return "permission denied" while the process object (or a Defender scan)
+/// still holds the file — first hit on the windows-arm64 suite run
+/// 32402145272, where the raw `remove_file` throw aborted the whole run two
+/// files in. Retries with a growing pause (~3 s total budget); a FINAL
+/// failure downgrades to a warning, because a leaked temp artifact must
+/// never abort a test run. (The TS runner's cleanup was equally non-fatal
+/// only by never having run the suite on Windows.)
+_remove_batch_artifact :: (fn(path : String, io : Io) -> unit)({
+  (attempt : usize) = usize(0);
+  (removed : bool) = false;
+  (pause_ms : usize) = usize(25);
+  while(!(removed) && (attempt < usize(8)), {
+    ok := ArrayList(bool).new();
+    _try_remove_once(path.clone(), io, ok);
+    removed = (ok.len() > usize(0));
+    attempt = (attempt + usize(1));
+    // No pause after the FINAL failed attempt — it would only delay the warning.
+    if(!(removed) && (attempt < usize(8)), {
+      sleep(pause_ms);
+      pause_ms = (pause_ms * usize(2));
+    });
+  });
+  if(!(removed), {
+    println(`  warning: could not remove batch artifact ${path} (still locked?) — leaving it behind`);
+  });
 });
 /// Is liburing available for linking? Mirrors `isLiburingAvailable` in
 /// `src/compiler-utils.ts`: probe `pkg-config --exists liburing`.
@@ -2262,15 +2305,19 @@ run_test :: (
         // failing batch's .yo/.c can be inspected — batch-only miscompiles
         // (the collections residuals) are unreproducible otherwise.
         if(proc_env.get(`YO_KEEP_BATCH`).is_none(), {
-          io.await(remove_file(Path.new(tmp_yo.clone()), io), IoExn(io : io, exn : exn));
-          io.await(remove_file(Path.new(tmp_bin.clone()), io), IoExn(io : io, exn : exn));
-          io.await(remove_file(Path.new(tmp_c.clone()), io), IoExn(io : io, exn : exn));
+          // Tolerant removal (retry + warn), NOT a raw remove_file: Windows
+          // holds a just-exited batch .exe for a few ms (process reaping /
+          // Defender), and the raw throw aborted the whole suite — see
+          // _remove_batch_artifact.
+          _remove_batch_artifact(tmp_yo.clone(), io);
+          _remove_batch_artifact(tmp_bin.clone(), io);
+          _remove_batch_artifact(tmp_c.clone(), io);
           // Emscripten's second output: the JS glue at `tmp_bin` is paired
           // with a sibling `<base>.wasm` that no other cleanup path names, so
           // without this every emcc batch leaks one file into the test tree
           // (TS tracks it as `testWasmPath`, test-runner.ts:459).
           if(run_is_emcc, {
-            io.await(remove_file(Path.new(`${batch_base}.wasm`), io), IoExn(io : io, exn : exn));
+            _remove_batch_artifact(`${batch_base}.wasm`, io);
           });
         });
         batch_start = batch_end;
