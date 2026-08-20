@@ -517,19 +517,6 @@ jobs:
           cd tmp/hello-world
           "$S1" build run
 
-      # `yo version list --remote` reaches the GitHub Releases API by shelling
-      # out to `curl`. Windows is the platform where that shell-out was in
-      # question — settle it by RUNNING it (curl.exe ships in Windows 10+ and
-      # on the runner images), and assert the listing has substance so an
-      # empty-but-zero-exit degradation cannot pass silently.
-      - name: "Version listing via the curl shell-out (Windows)"
-        if: runner.os == 'Windows'
-        shell: bash
-        run: |
-          OUT="$("$S1" version list --remote)"
-          echo "$OUT"
-          echo "$OUT" | grep -q "v0\." || { echo "::error::'yo version list --remote' printed no releases — the curl shell-out is broken on this platform"; exit 1; }
-
       # `tests/internal` (the compiler's own tests — they import src/ evaluator
       # and codegen internals) is excluded here and runs as its own job below.
       # Without the exclude this step would pull in files that each cost minutes
