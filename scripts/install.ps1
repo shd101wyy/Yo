@@ -75,9 +75,11 @@ examples:
 # ---------------------------------------------------------------------------
 # Platform
 #
-# Only x64 bundles are published for Windows. An arm64 device running the x64
-# bundle under emulation would produce x64 binaries, so refuse rather than
-# install something subtly wrong.
+# PROCESSOR_ARCHITECTURE reports the architecture of the CURRENT PROCESS, so an
+# x64 PowerShell emulated on an arm64 device reports AMD64. PROCESSOR_ARCHITEW6432
+# is set only in that emulated case and names the NATIVE architecture, so it wins
+# when present — installing the x64 bundle on an arm64 machine would produce a
+# compiler that defaults to emitting x64 binaries.
 # ---------------------------------------------------------------------------
 
 function Get-OsArch {
@@ -85,8 +87,9 @@ function Get-OsArch {
   if ($env:PROCESSOR_ARCHITEW6432) { $arch = $env:PROCESSOR_ARCHITEW6432 }
   switch ($arch) {
     'AMD64' { return 'windows-x64' }
+    'ARM64' { return 'windows-arm64' }
     default {
-      Fail "Unsupported CPU architecture: $arch. Yo publishes a windows-x64 bundle only."
+      Fail "Unsupported CPU architecture: $arch. Yo publishes windows-x64 and windows-arm64 bundles."
     }
   }
 }
