@@ -185,8 +185,14 @@ assertion will fail it. That is a true positive worth having.
 
 ## CLOSED 2026-08-20: Windows uses the system allocator on both targets
 
-**User decision.** Rather than fix mimalloc for arm64, Windows stops using
-mimalloc at all — `bundle_allocator: system` for windows-x64 and windows-arm64.
+**User decision. Full record: `plans/WINDOWS_ALLOCATOR_DECISION.md`** — read that
+rather than this section for the reasoning, the rejected alternatives, and the
+conditions for revisiting.
+
+Rather than fix mimalloc for arm64, Windows stops using mimalloc at all —
+`bundle_allocator: system` for windows-x64 and windows-arm64. Note x64 was a
+WORKING configuration that was given up for consistency, not a broken one that
+was fixed; the plan doc has the measured evidence.
 
 ### Why fixing it was the worse option
 
