@@ -72,7 +72,7 @@ _(env : proc_env) :: import("std/env");
 { evaluate_anonymous_module_begin_exprs } :: import("./evaluator/values/anonymous_module.yo");
 { clear_module_cache } :: import("./evaluator/module_loader.yo");
 { format_yo_source, format_yo_files, FormatYoFilesOptions } :: import("./formatter.yo");
-{ host_target, set_current_target, parse_target, TargetInfo, is_target_linux, is_target_windows, is_target_macos, is_target_wasm, is_target_standalone_wasi } :: import("./target.yo");
+{ host_target, set_current_target, parse_target, TargetInfo, clang_triple, is_target_linux, is_target_windows, is_target_macos, is_target_wasm, is_target_standalone_wasi } :: import("./target.yo");
 { set_target_pointer_size } :: import("./types/utils.yo");
 { compile_module } :: import("./codegen/codegen_c.yo");
 { get_needs_intel_asm_syntax, get_uses_parallelism } :: import("./codegen/utils/index.yo");
@@ -1585,6 +1585,19 @@ run_compile :: (
   if(cc != "emcc", {
     if(target_triple != "", {
       cmd.arg(`--target=${target_triple}`);
+    }, {
+      // Native compiles trust the C compiler's DEFAULT triple to equal the
+      // host. On Windows that trust is misplaced: an x86_64 LLVM build runs
+      // transparently under Windows-on-ARM emulation and defaults to
+      // x86_64-pc-windows-msvc, so a native compile on an arm64 host would
+      // silently produce an x64 binary while every comptime platform/arch
+      // constant had already folded for arm64 (first hit: suite run
+      // 32413596987, where tests/asm.test.yo's aarch64 inline-asm templates
+      // reached an x64-targeting clang). Pin the resolved host triple
+      // explicitly — clang only; gcc has no --target flag.
+      if(is_target_windows(target) && cc.contains("clang"), {
+        cmd.arg(`--target=${clang_triple(target)}`);
+      });
     });
     if(sysroot != "", {
       cmd.arg(`--sysroot=${sysroot}`);
