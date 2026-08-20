@@ -47,8 +47,13 @@ runs:
     - name: Install liburing
       shell: bash
       run: |
-        sudo apt-get update
-        sudo apt-get install -y liburing-dev
+        # Flags spelled out rather than taken from the caller's $APT_OPTS: a
+        # composite action must not depend on an env var the CALLER happens to
+        # define, or it silently loses the protection when reused elsewhere.
+        # See test.yml's APT_OPTS comment — a bare apt-get can hang forever on
+        # the dpkg lock held by the runner's unattended-upgrades timer.
+        sudo apt-get -o DPkg::Lock::Timeout=600 -o Acquire::Retries=3 update
+        sudo apt-get -o DPkg::Lock::Timeout=600 -o Acquire::Retries=3 install -y liburing-dev
 
     - name: Install the seed compiler (previous release)
       uses: ./.github/actions/install-seed

@@ -17,7 +17,35 @@ env:
   # bundle's Yo->C emit). Same trust-chain root as test.yml's SEED_VERSION;
   # bump to the latest PUBLISHED release whose bundle matrix covers the
   # needed targets.
-  SEED_VERSION: v0.2.9
+  #
+  # v0.2.9 -> v0.2.11 (2026-08-20). v0.2.9 was cut eight hours BEFORE #145
+  # (memoize _inject_forall_captures), so it peaks at ~28.4 GB compiling this
+  # tree against v0.2.4's 14.5 GB — measured, not inferred. On 16 GB runners
+  # that put every seed-driven job onto the swapfile and made CI wall-clock a
+  # cliff function of memory; it is what turned seed-bundles' linux-x64 leg into
+  # a 159-minute job during the v0.2.10 release. v0.2.11 carries the fix in its
+  # OWN codegen, which is the generation that matters — see
+  # issues/seed-v0.2.9-memory-growth-slows-every-self-build.md.
+  #
+  # The raised timeouts (#137, #167) stay. They now buy headroom rather than
+  # bare survival, and the cliff they guard is still there for the next seed.
+  SEED_VERSION: v0.2.11
+
+  # apt-get waits on /var/lib/dpkg/lock-frontend FOREVER by default, and the
+  # runner images run unattended-upgrades / apt-daily timers in the background.
+  # Whether one is holding the lock when a job starts is pure luck of the
+  # runner — which is exactly what it looked like on 2026-08-20 run
+  # 32303656711, where this same step took 11-263 s on nine runners and hung
+  # past the 120-minute timeout on four, at the same moment, against a mirror
+  # that was answering in under a second. A mirror outage cannot do that; an
+  # indefinite lock wait can.
+  #
+  # DPkg::Lock::Timeout turns that infinite hang into a bounded, diagnosable
+  # failure. Acquire::Retries covers ordinary mirror flakiness.
+  #
+  # EVERY apt-get call in this file must use these — a bare one reintroduces
+  # the hang. See issues/ci-apt-hangs-on-dpkg-lock.md.
+  APT_OPTS: "-o DPkg::Lock::Timeout=600 -o Acquire::Retries=3"
 
 jobs:
   release:
@@ -255,8 +283,8 @@ jobs:
       # and the extension published.
       - name: Install liburing
         run: |
-          sudo apt-get update
-          sudo apt-get install -y liburing-dev
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y liburing-dev
 
       - name: Install the seed compiler (for the site build)
         uses: ./.github/actions/install-seed
@@ -362,8 +390,8 @@ jobs:
       - name: Install liburing
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y liburing-dev
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y liburing-dev
 
       # Same provisioning as seed-cross-emit and every self-building job in
       # test.yml: the stage-2 gate below is a full self-emit, which does not
@@ -634,8 +662,8 @@ jobs:
       # though the EMITTED C targets macOS (kqueue backend, no liburing).
       - name: Install liburing
         run: |
-          sudo apt-get update
-          sudo apt-get install -y liburing-dev
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y liburing-dev
 
       - name: Install the seed compiler (previous release)
         uses: ./.github/actions/install-seed
@@ -851,12 +879,29 @@ jobs:
         run: gh release upload "v${{ needs.release.outputs.version }}" "$BUNDLE.tar.gz" --clobber
 
   musl-bundle:
-    name: Static musl Linux bundle (linux-x64-musl)
+    name: Static musl Linux bundle (${{ matrix.target }})
     needs: release
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 180
     permissions:
       contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux-x64-musl
+          # arm64 added 2026-08-19. Until then this job was hardcoded to x64,
+          # so `yo-v<x>-linux-arm64-musl` had never existed — and an Alpine or
+          # NixOS arm64 user hit install.sh's fallback path, which correctly
+          # warns and points at `--from-source` but leaves them building the
+          # compiler themselves for want of a 24-minute release leg.
+          #
+          # The Alpine image is multi-arch, so the container step needs no
+          # change: `alpine:3.20` resolves to arm64 on an arm64 host, which is
+          # the whole reason this cross-compiles nothing.
+          - os: ubuntu-24.04-arm
+            target: linux-arm64-musl
     # PROMOTED 2026-08-17 per this job's own rule ("after one green release
     # run"): v0.2.7 (run 31925643271) built, smoked and shipped the bundle.
     # The earlier failures are root-caused, not mysterious — every red run's
@@ -919,8 +964,8 @@ jobs:
       # exact seed-driven pipeline in PR CI).
       - name: Install liburing (needed to run the seed)
         run: |
-          sudo apt-get update
-          sudo apt-get install -y liburing-dev
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y liburing-dev
 
       - name: Install the seed compiler (previous release)
         uses: ./.github/actions/install-seed
@@ -969,7 +1014,7 @@ jobs:
 
       - name: Assemble the bundle
         run: |
-          BUNDLE="yo-v${{ needs.release.outputs.version }}-linux-x64-musl"
+          BUNDLE="yo-v${{ needs.release.outputs.version }}-${{ matrix.target }}"
           mkdir -p "$BUNDLE/bin"
           cp yo-musl "$BUNDLE/bin/yo"
           cp -R std "$BUNDLE/std"

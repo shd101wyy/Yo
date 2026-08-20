@@ -60,12 +60,40 @@ env:
   # seed-driven jobs at the download, which is exactly what happened on the
   # first push of this pin.
   #
-  # Keep this pin in lockstep with release.yml's SEED_VERSION: bump BOTH as
+  # Keep this pin in lockstep with release.yml AND fixpoint-arm64.yml: bump ALL THREE as
   # part of each release's follow-up (the deliberate-pin rationale — chain
   # auditability, bad-release containment, reproducible re-runs — is recorded
   # in plans/P2_5_RETIRE_EXECUTION.md step 24). This one had silently drifted
   # to v0.2.4 while release.yml advanced to v0.2.7.
-  SEED_VERSION: v0.2.9
+  #
+  # v0.2.9 -> v0.2.11 (2026-08-20). v0.2.9 was cut eight hours BEFORE #145
+  # (memoize _inject_forall_captures), so it peaks at ~28.4 GB compiling this
+  # tree against v0.2.4's 14.5 GB — measured, not inferred. On 16 GB runners
+  # that put every seed-driven job onto the swapfile and made CI wall-clock a
+  # cliff function of memory; it is what turned seed-bundles' linux-x64 leg into
+  # a 159-minute job during the v0.2.10 release. v0.2.11 carries the fix in its
+  # OWN codegen, which is the generation that matters — see
+  # issues/seed-v0.2.9-memory-growth-slows-every-self-build.md.
+  #
+  # The raised timeouts (#137, #167) stay. They now buy headroom rather than
+  # bare survival, and the cliff they guard is still there for the next seed.
+  SEED_VERSION: v0.2.11
+
+  # apt-get waits on /var/lib/dpkg/lock-frontend FOREVER by default, and the
+  # runner images run unattended-upgrades / apt-daily timers in the background.
+  # Whether one is holding the lock when a job starts is pure luck of the
+  # runner — which is exactly what it looked like on 2026-08-20 run
+  # 32303656711, where this same step took 11-263 s on nine runners and hung
+  # past the 120-minute timeout on four, at the same moment, against a mirror
+  # that was answering in under a second. A mirror outage cannot do that; an
+  # indefinite lock wait can.
+  #
+  # DPkg::Lock::Timeout turns that infinite hang into a bounded, diagnosable
+  # failure. Acquire::Retries covers ordinary mirror flakiness.
+  #
+  # EVERY apt-get call in this file must use these — a bare one reintroduces
+  # the hang. See issues/ci-apt-hangs-on-dpkg-lock.md.
+  APT_OPTS: "-o DPkg::Lock::Timeout=600 -o Acquire::Retries=3"
 
 jobs:
   # The VS Code extension is npm-native BY DESIGN (its one devDependency is
@@ -149,8 +177,8 @@ jobs:
       # The seed links liburing dynamically and cannot start without it.
       - name: Install liburing
         run: |
-          sudo apt-get update
-          sudo apt-get install -y liburing-dev
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y liburing-dev
 
       - name: Install the seed compiler (previous release)
         uses: ./.github/actions/install-seed
@@ -239,8 +267,8 @@ jobs:
       - name: Install liburing
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y liburing-dev
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y liburing-dev
 
       - name: Install LLVM/Clang
         if: runner.os == 'Windows'
@@ -555,8 +583,8 @@ jobs:
 
       - name: Install liburing and GNU time
         run: |
-          sudo apt-get update
-          sudo apt-get install -y liburing-dev time
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y liburing-dev time
 
       # 2.3 CI migration (P2_RETIRE_SRC.md §2.3): NO bun/node in this job —
       # the SEED (previous release) builds stage-1. The trust chain becomes
@@ -683,8 +711,8 @@ jobs:
 
       - name: Install liburing and GNU time
         run: |
-          sudo apt-get update
-          sudo apt-get install -y liburing-dev time
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y liburing-dev time
 
       - name: Download stage-2 artifacts
         uses: actions/download-artifact@v4
@@ -778,8 +806,8 @@ jobs:
 
       - name: Install liburing
         run: |
-          sudo apt-get update
-          sudo apt-get install -y liburing-dev
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y liburing-dev
 
       # P2.5 step 23: bun/node are GONE from this job. GATE 2 and GATE 7 used
       # the TS CLI as the differential's reference side, which is why bun
@@ -913,8 +941,8 @@ jobs:
 
       - name: Install liburing
         run: |
-          sudo apt-get update
-          sudo apt-get install -y liburing-dev
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y liburing-dev
 
       # 2.3: NO bun/node — this job runs only the self-hosted binary; the
       # SEED builds stage-1. (The Setup Bun / Setup Node.js steps that used to
@@ -1028,8 +1056,8 @@ jobs:
       # the Alpine stage links into the artifact below.
       - name: Install liburing (needed to run the seed)
         run: |
-          sudo apt-get update
-          sudo apt-get install -y liburing-dev
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y liburing-dev
 
       - name: Install the seed compiler (previous release)
         uses: ./.github/actions/install-seed
@@ -1136,8 +1164,8 @@ jobs:
 
       - name: Install liburing
         run: |
-          sudo apt-get update
-          sudo apt-get install -y liburing-dev
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y liburing-dev
 
       - name: Install the seed compiler (previous release)
         uses: ./.github/actions/install-seed
@@ -1348,8 +1376,8 @@ jobs:
 
       - name: Install liburing
         run: |
-          sudo apt-get update
-          sudo apt-get install -y liburing-dev
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y liburing-dev
 
       # 2.3: NO bun/node — the sweep scores only the self-hosted binary; the
       # SEED builds stage-1.
