@@ -60,12 +60,40 @@ env:
   # seed-driven jobs at the download, which is exactly what happened on the
   # first push of this pin.
   #
-  # Keep this pin in lockstep with release.yml's SEED_VERSION: bump BOTH as
+  # Keep this pin in lockstep with release.yml AND fixpoint-arm64.yml: bump ALL THREE as
   # part of each release's follow-up (the deliberate-pin rationale — chain
   # auditability, bad-release containment, reproducible re-runs — is recorded
   # in plans/P2_5_RETIRE_EXECUTION.md step 24). This one had silently drifted
   # to v0.2.4 while release.yml advanced to v0.2.7.
-  SEED_VERSION: v0.2.9
+  #
+  # v0.2.9 -> v0.2.11 (2026-08-20). v0.2.9 was cut eight hours BEFORE #145
+  # (memoize _inject_forall_captures), so it peaks at ~28.4 GB compiling this
+  # tree against v0.2.4's 14.5 GB — measured, not inferred. On 16 GB runners
+  # that put every seed-driven job onto the swapfile and made CI wall-clock a
+  # cliff function of memory; it is what turned seed-bundles' linux-x64 leg into
+  # a 159-minute job during the v0.2.10 release. v0.2.11 carries the fix in its
+  # OWN codegen, which is the generation that matters — see
+  # issues/seed-v0.2.9-memory-growth-slows-every-self-build.md.
+  #
+  # The raised timeouts (#137, #167) stay. They now buy headroom rather than
+  # bare survival, and the cliff they guard is still there for the next seed.
+  SEED_VERSION: v0.2.11
+
+  # apt-get waits on /var/lib/dpkg/lock-frontend FOREVER by default, and the
+  # runner images run unattended-upgrades / apt-daily timers in the background.
+  # Whether one is holding the lock when a job starts is pure luck of the
+  # runner — which is exactly what it looked like on 2026-08-20 run
+  # 32303656711, where this same step took 11-263 s on nine runners and hung
+  # past the 120-minute timeout on four, at the same moment, against a mirror
+  # that was answering in under a second. A mirror outage cannot do that; an
+  # indefinite lock wait can.
+  #
+  # DPkg::Lock::Timeout turns that infinite hang into a bounded, diagnosable
+  # failure. Acquire::Retries covers ordinary mirror flakiness.
+  #
+  # EVERY apt-get call in this file must use these — a bare one reintroduces
+  # the hang. See issues/ci-apt-hangs-on-dpkg-lock.md.
+  APT_OPTS: "-o DPkg::Lock::Timeout=600 -o Acquire::Retries=3"
 
 jobs:
   # The VS Code extension is npm-native BY DESIGN (its one devDependency is
@@ -149,8 +177,8 @@ jobs:
       # The seed links liburing dynamically and cannot start without it.
       - name: Install liburing
         run: |
-          sudo apt-get update
-          sudo apt-get install -y liburing-dev
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y liburing-dev
 
       - name: Install the seed compiler (previous release)
         uses: ./.github/actions/install-seed
@@ -239,8 +267,8 @@ jobs:
       - name: Install liburing
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y liburing-dev
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y liburing-dev
 
       - name: Install LLVM/Clang
         if: runner.os == 'Windows'
@@ -555,8 +583,8 @@ jobs:
 
       - name: Install liburing and GNU time
         run: |
-          sudo apt-get update
-          sudo apt-get install -y liburing-dev time
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y liburing-dev time
 
       # 2.3 CI migration (P2_RETIRE_SRC.md §2.3): NO bun/node in this job —
       # the SEED (previous release) builds stage-1. The trust chain becomes
@@ -683,8 +711,8 @@ jobs:
 
       - name: Install liburing and GNU time
         run: |
-          sudo apt-get update
-          sudo apt-get install -y liburing-dev time
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y liburing-dev time
 
       - name: Download stage-2 artifacts
         uses: actions/download-artifact@v4
@@ -778,8 +806,8 @@ jobs:
 
       - name: Install liburing
         run: |
-          sudo apt-get update
-          sudo apt-get install -y liburing-dev
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y liburing-dev
 
       # P2.5 step 23: bun/node are GONE from this job. GATE 2 and GATE 7 used
       # the TS CLI as the differential's reference side, which is why bun
@@ -913,8 +941,8 @@ jobs:
 
       - name: Install liburing
         run: |
-          sudo apt-get update
-          sudo apt-get install -y liburing-dev
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y liburing-dev
 
       # 2.3: NO bun/node — this job runs only the self-hosted binary; the
       # SEED builds stage-1. (The Setup Bun / Setup Node.js steps that used to
@@ -1028,8 +1056,8 @@ jobs:
       # the Alpine stage links into the artifact below.
       - name: Install liburing (needed to run the seed)
         run: |
-          sudo apt-get update
-          sudo apt-get install -y liburing-dev
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y liburing-dev
 
       - name: Install the seed compiler (previous release)
         uses: ./.github/actions/install-seed
@@ -1136,8 +1164,8 @@ jobs:
 
       - name: Install liburing
         run: |
-          sudo apt-get update
-          sudo apt-get install -y liburing-dev
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y liburing-dev
 
       - name: Install the seed compiler (previous release)
         uses: ./.github/actions/install-seed
@@ -1348,8 +1376,8 @@ jobs:
 
       - name: Install liburing
         run: |
-          sudo apt-get update
-          sudo apt-get install -y liburing-dev
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y liburing-dev
 
       # 2.3: NO bun/node — the sweep scores only the self-hosted binary; the
       # SEED builds stage-1.
@@ -1387,3 +1415,193 @@ jobs:
             /tmp/hsweep/results.txt
             /tmp/hsweep/*.log
           if-no-files-found: ignore
+
+  # TEMPORARY (added 2026-08-19) — DELETE once the numbers land in
+  # issues/musl-vs-glibc-seed.md.
+  #
+  # Question: can the glibc Linux bundles be retired in favour of musl-only?
+  # The case for it is strong — one static binary runs on every Linux (no glibc
+  # version floor, no NixOS loader problem, Alpine included) and it links
+  # liburing statically, so it needs no liburing to START. That last property
+  # is what killed the v0.2.10 release job and is a step in ~8 jobs here.
+  #
+  # The case against is one unmeasured number: musl's string/memory routines
+  # are slower than glibc's SIMD-optimised ones, and this compiler is
+  # memory- and string-bound. The bundle uses mimalloc so ALLOCATION is
+  # neutral, but memcpy/strlen are not. Since SEED_VERSION drives ~10 jobs,
+  # several already 45+ minutes, a musl seed that costs 20% would be paid
+  # forever. Measure it rather than guess.
+  #
+  # A PR job rather than workflow_dispatch because a workflow that is not yet
+  # on the default branch cannot be dispatched.
+  seed-libc-ab:
+    name: "TEMP: glibc vs musl seed A/B (self-emit)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      AB_VERSION: v0.2.11
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Add swap space
+        run: |
+          sudo fallocate -l 32G /mnt/swapfile
+          sudo chmod 600 /mnt/swapfile
+          sudo mkswap /mnt/swapfile
+          sudo swapon /mnt/swapfile
+
+      # Both arms get the identical treatment, or the comparison measures the
+      # treatment instead of the libc — see release.yml's seed-bundles for what
+      # leaving zswap off costs (16 min -> 159 min on this same workload).
+      - name: Tune the kernel for a swap-heavy self-emit
+        run: |
+          echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled || true
+          echo never | sudo tee /sys/kernel/mm/transparent_hugepage/defrag || true
+          echo Y | sudo tee /sys/module/zswap/parameters/enabled || true
+
+      # liburing is needed to RUN the glibc seed. The musl seed does not need
+      # it, which is precisely one of the properties under evaluation.
+      - name: Install liburing and GNU time
+        run: |
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y liburing-dev time
+
+      - name: Download both v0.2.11 bundles
+        run: |
+          base="https://github.com/${{ github.repository }}/releases/download/$AB_VERSION"
+          for flavor in "" "-musl"; do
+            name="yo-$AB_VERSION-linux-x64$flavor"
+            curl -fsSL -o "/tmp/$name.tar.gz" "$base/$name.tar.gz"
+            mkdir -p "/tmp/seed$flavor"
+            tar -xzf "/tmp/$name.tar.gz" -C "/tmp/seed$flavor" --strip-components=1
+            chmod +x "/tmp/seed$flavor/bin/yo"
+          done
+          echo "--- linkage ---"
+          file /tmp/seed/bin/yo /tmp/seed-musl/bin/yo
+
+      # Identical command, identical input, identical machine — only the libc
+      # of the compiler binary differs. `--emit-c --skip-c-compiler` keeps
+      # clang out of the measurement: this times evaluation + codegen, which is
+      # where a libc difference would actually show.
+      - name: "Arm A: glibc seed"
+        env:
+          YO_MAIN_STACK_MB: "4096"
+        run: |
+          /usr/bin/time -v /tmp/seed/bin/yo compile yo-self/main.yo \
+            --release --allocator mimalloc --std-path ./std \
+            --emit-c --skip-c-compiler -o /tmp/emit-glibc > /dev/null 2> /tmp/glibc.log || {
+              echo "::error::glibc arm failed"; tail -30 /tmp/glibc.log; exit 1; }
+          grep -E "Elapsed \(wall|Maximum resident" /tmp/glibc.log
+
+      - name: "Arm B: musl seed"
+        env:
+          YO_MAIN_STACK_MB: "4096"
+        run: |
+          /usr/bin/time -v /tmp/seed-musl/bin/yo compile yo-self/main.yo \
+            --release --allocator mimalloc --std-path ./std \
+            --emit-c --skip-c-compiler -o /tmp/emit-musl > /dev/null 2> /tmp/musl.log || {
+              echo "::error::musl arm failed"; tail -30 /tmp/musl.log; exit 1; }
+          grep -E "Elapsed \(wall|Maximum resident" /tmp/musl.log
+
+      # Worker-thread stack sizing under musl — the last unvalidated item on
+      # SELF_HOSTING_COMPLETION.md's musl-only checklist, and the one with a
+      # silent failure mode.
+      #
+      # Compiled Yo programs run `main` on a worker thread requested at 1 GiB
+      # (__yo_main_stack, YO_MAIN_STACK_MB-overridable). musl's DEFAULT thread
+      # stack is ~128 KB against glibc's 8 MB, so the request matters more here
+      # — and codegen falls back to `__yo_main_thread_entry(NULL)` on the
+      # PROCESS stack if pthread_create fails, with no diagnostic. A musl build
+      # that quietly ignored the size would therefore pass small workloads and
+      # SIGSEGV (rc=139, no message) on deep comptime recursion, which is
+      # precisely the Windows bug in issues/windows-no-main-worker-stack-rc139.md.
+      #
+      # `check ./yo-self` is the deepest comptime recursion in the tree (it is
+      # gates_fast's GATE 4, and the workload that exposed the -O0 stack
+      # ceiling), so it is the right stressor.
+      #
+      # One run proves nothing on its own: if the knob were ignored, a pass
+      # would just mean 8 MB of process stack happened to be enough. The tiny-
+      # stack runs are the control — they must behave DIFFERENTLY from the
+      # default, or the size is not being honoured.
+      - name: "musl: worker-thread stack sizing (deep comptime recursion)"
+        run: |
+          # Each run is allowed to fail — the rc IS the measurement — so the
+          # step's default `bash -e` has to be off around them.
+          #
+          # A single small-stack probe cannot discriminate, which the first
+          # version of this check discovered the honest way: 8 MB succeeded for
+          # BOTH libcs and it reported itself inconclusive. 8 MB is also what
+          # the FALLBACK yields (codegen drops to __yo_main_thread_entry on the
+          # process stack when pthread_create fails), so any value at or above
+          # it proves nothing.
+          #
+          # So sweep DOWNWARD past the fallback and compare the two libcs'
+          # failure THRESHOLDS. glibc unquestionably honours
+          # pthread_attr_setstacksize, so it is the reference: if musl breaks at
+          # the same size, musl honours it too. If musl instead survives sizes
+          # where glibc dies, the request is being ignored and musl is quietly
+          # running on 8 MB of process stack.
+          set +e
+          sweep() {   # <seed-dir> <label>
+            for mb in 1 2 4 8; do
+              YO_MAIN_STACK_MB=$mb "$1/bin/yo" check ./yo-self > "/tmp/$2-$mb.log" 2>&1
+              echo "  $2 ${mb} MB : rc=$?"
+            done
+          }
+
+          YO_MAIN_STACK_MB=1024 /tmp/seed-musl/bin/yo check ./yo-self > /tmp/musl-default.log 2>&1
+          RC_MUSL_DEFAULT=$?
+
+          echo "==================== stack sizing ===================="
+          echo "  musl 1024 MB : rc=$RC_MUSL_DEFAULT   (the shipped default)"
+          sweep /tmp/seed-musl musl  | tee /tmp/sweep-musl.txt
+          sweep /tmp/seed       glibc | tee /tmp/sweep-glibc.txt
+          echo "====================================================="
+          set -e
+
+          if [ "$RC_MUSL_DEFAULT" -ne 0 ]; then
+            echo "::error::the static musl seed cannot check ./yo-self at the default 1 GiB stack (rc=$RC_MUSL_DEFAULT) — musl-only is BLOCKED"
+            tail -25 /tmp/musl-default.log
+            exit 1
+          fi
+
+          # Compare the two profiles rather than any single rc.
+          m=$(sed 's/.*rc=//' /tmp/sweep-musl.txt  | tr '\n' ' ')
+          g=$(sed 's/.*rc=//' /tmp/sweep-glibc.txt | tr '\n' ' ')
+          echo "musl  rc profile over 1/2/4/8 MB: $m"
+          echo "glibc rc profile over 1/2/4/8 MB: $g"
+          if [ "$m" = "$g" ]; then
+            if echo "$m" | grep -qv '^0 0 0 0 $'; then
+              echo "musl and glibc fail at the SAME sizes — the stack request is honoured under musl"
+            else
+              echo "::warning::even 1 MB sufficed for both libcs; `check ./yo-self` is too shallow to probe the knob at all. Needs a deeper workload to close this."
+            fi
+          else
+            echo "::warning::musl and glibc have DIFFERENT stack profiles (musl: $m / glibc: $g) — inspect before trusting the sizing under musl"
+          fi
+
+      # The decisive correctness check, not just a curiosity: if both seeds emit
+      # byte-identical C then the musl bundle is a drop-in replacement and the
+      # only remaining question is cost. If they differ, musl-only is off the
+      # table regardless of how fast it is.
+      - name: Compare
+        run: |
+          echo "=============== glibc vs musl seed, same tree ==============="
+          for f in glibc musl; do
+            printf '%-6s wall=%s  peakRSS=%s KB\n' "$f" \
+              "$(grep -oP '(?<=Elapsed \(wall clock\) time \(h:mm:ss or m:ss\): ).*' /tmp/$f.log)" \
+              "$(grep -oP '(?<=Maximum resident set size \(kbytes\): ).*' /tmp/$f.log)"
+          done
+          echo "------------------------------------------------------------"
+          if cmp -s /tmp/emit-glibc.c /tmp/emit-musl.c; then
+            echo "EMIT IDENTICAL: the musl seed is a drop-in replacement"
+          else
+            echo "::error::EMIT DIFFERS between glibc and musl seeds — musl-only is not viable as-is"
+            cmp /tmp/emit-glibc.c /tmp/emit-musl.c | head -3
+            exit 1
+          fi

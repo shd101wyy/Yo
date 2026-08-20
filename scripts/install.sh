@@ -304,10 +304,20 @@ apt_get_install() {
     fi
   done
   if [ -n "$missing" ]; then
+    # DPkg::Lock::Timeout because apt-get otherwise waits on
+    # /var/lib/dpkg/lock-frontend FOREVER, with no output. That is not a corner
+    # case here: a freshly installed Ubuntu runs unattended-upgrades on first
+    # boot, which is exactly when somebody curls this script — so the installer
+    # would appear to hang on the very machines it is written for. Ten minutes,
+    # then a real error message. (Same fix as CI's APT_OPTS; see
+    # issues/ci-apt-hangs-on-dpkg-lock.md for the measurement that identified
+    # it.)
     # shellcheck disable=SC2086
-    if ! sudocmd apt-get install -y $missing; then
+    if ! sudocmd apt-get -o DPkg::Lock::Timeout=600 install -y $missing; then
       warn "Installing apt packages failed ($missing)."
-      warn "Run 'apt-get update' and try again, or re-run with --no-deps."
+      warn "If it timed out waiting for the package lock, another package"
+      warn "manager (often unattended-upgrades on a new install) holds it —"
+      warn "wait for it to finish and re-run, or re-run with --no-deps."
       return 1
     fi
   fi
@@ -580,10 +590,11 @@ is_musl() {
 
 install_dist() {
   # On musl, prefer the static musl bundle and fall back to the glibc one.
-  # The fallback matters: the musl bundle is published by an EXPERIMENTAL
-  # release leg, so it can legitimately be missing from a given release, and a
-  # hard failure there would be worse than the loader warning the glibc path
-  # already prints.
+  # The fallback still matters even though the musl leg is no longer
+  # experimental (promoted 2026-08-17; it gates publication) and now covers
+  # arm64 as well as x64 (2026-08-19): a release older than either change
+  # legitimately lacks the bundle for this arch, and a hard failure would be
+  # worse than the loader warning the glibc path already prints.
   bundle="yo-$VERSION-$OSARCH"
   if [ "$OSNAME" = "linux" ] && is_musl; then
     musl_bundle="yo-$VERSION-$OSARCH-musl"
