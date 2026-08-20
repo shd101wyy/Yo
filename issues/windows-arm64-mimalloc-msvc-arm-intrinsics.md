@@ -1,6 +1,6 @@
 # windows-arm64 bundle fails: vendored mimalloc uses MSVC-only ARM64 intrinsics under clang
 
-**Status:** OPEN. Found by the first release that exercised the leg (v0.2.12,
+**Status:** RESOLVED BY DECISION 2026-08-20 — Windows drops mimalloc on BOTH targets and uses the system allocator. See the closing section. Originally filed as: Found by the first release that exercised the leg (v0.2.12,
 run 32336959494, job 96335309059). The leg is `experimental: true`, so the
 release still concluded `success` and published — this is why that flag exists.
 
@@ -179,3 +179,52 @@ fails if they disagree with what was requested.
 
 **Watch the next release:** if windows-x64 has been silently falling back, that
 assertion will fail it. That is a true positive worth having.
+
+
+---
+
+## CLOSED 2026-08-20: Windows uses the system allocator on both targets
+
+**User decision.** Rather than fix mimalloc for arm64, Windows stops using
+mimalloc at all — `bundle_allocator: system` for windows-x64 and windows-arm64.
+
+### Why fixing it was the worse option
+
+Every available fix was blocked or rejected:
+
+| option | verdict |
+| --- | --- |
+| patch `atomic.h`'s guard | 4 call sites, and 2 sit under an `#elif` whose `#else` is a relaxed load mislabelled acquire — trades a build error for a memory-ordering bug |
+| upgrade mimalloc | **makes it worse**: v3.5.0 breaks windows-**x64** too (`internal.h:792` `page->self`), which v3.3.2 does not |
+| compile `static.c` as C++ (upstream's `MI_USE_CXX`) | WORKS — measured: it removes the `__ldar64`/`__stlr64` errors — but **rejected by policy**. It pulls in the MSVC C++ runtime and would break the portable single-file `yo.c`, whose whole purpose is bootstrapping with only a C compiler. C11 stays the only build route. |
+| use `cl.exe` | rejected: the bundle pipeline is clang end to end |
+
+### The underlying mismatch, stated plainly
+
+Yo compiles mimalloc as plain C11. Clang defines `_MSC_VER` and `_M_ARM64` for
+MSVC source compatibility, so it takes mimalloc's **MSVC-C** path — which
+upstream does not exercise under clang, because upstream's CMake compiles
+mimalloc as C++ for clang. We are using a route upstream does not support, and
+the evidence is that the route is decaying rather than stabilising: v3.3.2 broke
+arm64, v3.5.0 broke x64 as well.
+
+`system` removes Windows from that dependency's blast radius entirely: no arm64
+patch, no version pin, no C++ toolchain, and mimalloc upgrades stop being
+Windows-blocked.
+
+### Accepted cost
+
+Unmeasured on Windows, knowingly. The only platform where the two were ever
+compared is macOS, where mimalloc measured **slower and fatter** and macOS
+flipped to `system` for that reason. A Windows A/B exists
+(`.github/workflows/ab-windows-allocator.yml`) and can quantify what was given
+up, but it is no longer a blocker.
+
+**Linux is unaffected** and keeps mimalloc — glibc malloc inflates the emit's
+RSS ~72%, which is a measured, platform-specific reason that does not transfer.
+
+### Still open, and NOT fixed by this
+
+`issues/windows-arm64-emitted-c-state-machine-pointer-mismatch.md`. The arm64
+leg has a second, unrelated defect in Yo's OWN emitted C. Switching allocator
+does not touch it, so windows-arm64 stays `experimental: true`.
