@@ -690,15 +690,28 @@ jobs:
           # a missing windows-x64 arm as a hard failure.
           - target: windows-x64
             yo_target: x86_64-windows-msvc
-            # windows-x64 keeps MIMALLOC: the system-allocator switch was
-            # measured on macOS only, and the native windows bundle has always
-            # shipped mimalloc. Changing the allocator and the emit route in
-            # one step would make a regression impossible to attribute.
-            # UNMEASURED on this platform — there has never been an allocator
-            # A/B on a Windows runner, nor any peak-memory measurement at all
-            # there. Revisit once one exists; arm64 uses `system` because
-            # mimalloc does not COMPILE there, which is a different reason.
-            bundle_allocator: mimalloc
+            # SYSTEM as of 2026-08-20 (user decision): Windows drops mimalloc
+            # entirely, on BOTH targets.
+            #
+            # Yo compiles mimalloc as plain C11, and mimalloc's MSVC-C path —
+            # which clang takes, because it defines _MSC_VER and _M_ARM64 for
+            # MSVC compatibility — is not one upstream exercises under clang;
+            # its own CMake builds mimalloc as C++ for clang (MI_USE_CXX). The
+            # C++ route is REJECTED here: it would pull in the MSVC C++ runtime
+            # and break the portable single-file yo.c, whose entire purpose is
+            # bootstrapping with nothing but a C compiler.
+            #
+            # That mismatch has cost repeatedly and is getting worse, not
+            # better:
+            #   v3.3.2  x64 builds, arm64 FAILS (__ldar64/__stlr64)
+            #   v3.5.0  x64 ALSO FAILS (internal.h:792 page->self)
+            # so it already blocks arm64 AND blocks upgrading mimalloc at all.
+            # `system` removes Windows from that dependency's blast radius.
+            #
+            # Cost is unmeasured on Windows and knowingly accepted. The one
+            # platform where the two WERE compared, macOS, measured mimalloc
+            # slower AND fatter and flipped to `system` for that reason.
+            bundle_allocator: system
             experimental: false
           # windows-arm64 is NEW: no arm64-Windows bundle has ever shipped, so
           # there is no native seed for it either — cross-emit is the only
