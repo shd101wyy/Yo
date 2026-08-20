@@ -273,6 +273,64 @@ glibc Linux legs. Constraints (from `BUILD_SYSTEM.md` + the plan):
 - Fallback if musl validation surfaces real problems: Koka-style separate
   `-gnu`/`-musl` bundles + distro sniffing in install.sh.
 
+### Validation results (PR #169, 2026-08-19/20) — musl-only is VIABLE
+
+Measured by a temporary CI job that ran the same self-emit with both v0.2.11
+bundles on one runner, with identical swap/zswap/THP treatment on both arms (or
+the experiment measures the treatment, not the libc). **The job has since been
+deleted — it cost 76 minutes on every PR, which is only worth paying to answer a
+question once.** These are its results.
+
+| run | glibc wall | musl wall | glibc peak RSS | musl peak RSS |
+| --- | --- | --- | --- | --- |
+| 1 | 11:25.11 | 11:44.68 | 15,336,652 KB | 15,616,880 KB |
+| 2 | 8:18.57 | **7:56.17** | 15,359,036 KB | 15,413,364 KB |
+
+**The two runs disagree on the SIGN**, so the libc difference is smaller than
+runner-to-runner variance on GitHub hosted runners. Do not quote either delta as
+"musl costs N%" — n=1 is not a measurement here. What both runs agree on:
+
+- **`EMIT IDENTICAL`** — the two seeds produce byte-identical C. This is the
+  decisive check: identical output means the musl bundle is a drop-in
+  replacement, and only cost was ever left to argue about.
+- Peak RSS within ~2%.
+- `file` confirms the shapes: musl `statically linked`; glibc
+  `dynamically linked, interpreter /lib64/ld-linux-x86-64.so.2` — the NixOS
+  failure in one line.
+
+Checklist status, against the three items named above:
+
+| check | status |
+| --- | --- |
+| io_uring under musl | DONE — the musl smoke test greps for `liburing not available` |
+| mimalloc under musl | DONE — the smoke test greps for `mimalloc: error` |
+| `std/sys/dns` NSS | MOOT — the compiler shells out to `curl` (`version_cache.yo:439`) and `git`; its own `getaddrinfo` reference comes from the codegen runtime template emitted into USER programs, which use their own libc |
+| worker-thread stack sizing | **STILL OPEN — see below** |
+
+### Still open: is the stack request honoured under musl?
+
+Codegen requests a 1 GiB worker stack and **falls back silently** to
+`__yo_main_thread_entry(NULL)` on the ~8 MB process stack when `pthread_create`
+fails. A musl build that ignored the request would therefore pass ordinary
+workloads and SIGSEGV (rc=139, no message) on deep comptime recursion — the
+Windows failure in `issues/windows-no-main-worker-stack-rc139.md`.
+
+Two attempts failed to probe it, both reporting themselves inconclusive rather
+than passing green:
+
+1. A single 8 MB run: useless, because 8 MB is also what the fallback yields.
+2. A downward sweep (1/2/4/8 MB) comparing both libcs' failure thresholds:
+   `0 0 0 0` for BOTH. `check ./yo-self` needs under 1 MB at `-O2` — LLVM stack
+   coloring shrinks frames ~100x versus the `-O0` case that originally exposed
+   the stack ceiling — so no threshold hunt with this workload can discriminate.
+
+**What would close it:** a direct probe rather than a threshold hunt. Compile a
+small program that recurses to a fixed depth needing a few MB, run it at
+`YO_MAIN_STACK_MB=1` and `=64`, and check the outcomes differ. Every compiled Yo
+program runs `main` on that same worker thread, so it exercises the identical
+codegen path in seconds. This matters more under musl-only than today: the
+static binary becomes the compiler everyone runs.
+
 ### The trap: no musl liburing ⇒ a binary that links fine and cannot work
 
 **Established 2026-08-15 by reading the emitter, not by guessing.** The Linux
