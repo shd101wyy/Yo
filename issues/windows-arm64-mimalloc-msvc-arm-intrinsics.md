@@ -74,3 +74,85 @@ cross-emit. That stays BLOCKED until this leg produces an artifact — the
 sequencing already agreed (promote only after one green run, per the
 windows-x64 precedent at v0.2.1) is exactly right, and this failure is the
 evidence for it.
+
+---
+
+## RESOLUTION (2026-08-20): `--allocator system` for windows-arm64
+
+Fix option 1 was taken, and the investigation upgraded it from "cheapest" to
+"the only correct one". Options 2 and 3 are now positively ruled out, not merely
+deprioritised.
+
+### Upstream has NO source fix, and will not
+
+The vendored mimalloc is upstream tag **v3.3.2**
+(`30b2d9d89099bee08e9f67a1ffb3e12e7ba45227`, `MI_MALLOC_VERSION 30302`), clean,
+no local modifications. The `_M_ARM64` blocks in `include/mimalloc/atomic.h` are
+**byte-identical** at the newest tag (v3.5.0) and at the tips of `origin/main`,
+`origin/dev` and `origin/dev3` (tip `604c252a`, 2026-08-19). `__clang__` appears
+**zero** times in that file.
+
+Upstream's mitigation is not a source guard at all but a BUILD-SYSTEM one:
+commit `d767dbfb` sets `MI_USE_CXX=ON` for clang-cl in CMakeLists.txt, routing
+clang to the `#if defined(__cplusplus)` `std::atomic` path and skipping the MSVC
+C wrapper entirely. **That commit is already in v3.3.2** — but Yo bypasses
+mimalloc's CMake, handing `vendor/mimalloc/src/static.c` to clang as plain C
+(`src/main.yo:1527`, `release.yml` `-std=c11`), so the mitigation never engages.
+
+### A one-line guard fix is NOT sufficient
+
+There are **four** `__ldar64`/`__stlr64` call sites, not the two visible at
+:277/:302 — `MI_MSC_XX(f)` is `f##64` on `_WIN64`, so :234 and :256 expand to the
+same missing symbols. (4 intrinsic sites + `init.c:446` reconciles exactly with
+the "5 errors generated" in the log.) Worse, those two sit under an `#elif`
+whose `#else` fallback is a **relaxed load mislabelled as acquire** — so they
+cannot simply be excluded without introducing a memory-ordering bug. Patching
+this correctly means either the C11-stdatomic route (3 edits, unverified on
+Windows ARM64) or compiling `static.c` as C++ (pulls in msvcprt, which the
+current link line does not provide).
+
+Carrying such a patch also has no precedent here: the only vendored-dependency
+pin in the repo is `markdown_yo`, a Yo-source dep the maintainer controls.
+
+### Why `system` is a good outcome regardless
+
+`system` is the compiler's own CLI default (`src/main.yo:956`), and the one
+platform where the two allocators were ever measured — macOS — flipped to
+`system` because mimalloc was **slower and fatter** (3.3x on markdown_it_yo,
++53% wall on the r15 self-emit).
+
+## Two further defects found while fixing this
+
+### 1. `seed-cross-emit` was UNPROTECTED — a latent release-killer
+
+windows-arm64 is built by TWO legs, and only one was guarded:
+
+| job | protection |
+| --- | --- |
+| `seed-bundles-cross` (native compile) | `continue-on-error: ${{ matrix.experimental }}` |
+| `seed-cross-emit` (Yo -> C) | **none** |
+
+`seed-cross-emit` feeds `portable-c`, which feeds `publish-release`. A failure
+in the windows-arm64 cross-emit leg would therefore have left the release an
+**unpublished draft**. v0.2.12 survived only because the failure happened to land
+in the protected native-compile leg. Fixed by giving that job the same
+`experimental` flag. Safe: `scripts/make-portable-c.sh` requires only
+`linux-x64`, `linux-arm64`, `macos-x64`, `macos-arm64`, `windows-x64` —
+windows-arm64 is not one of its arms.
+
+### 2. Nothing ever verified the Windows bundle LINKS mimalloc
+
+The emitted mimalloc block is `#if __has_include(<mimalloc.h>)` with a
+malloc/free `#else`. A build that asks for mimalloc but is compiled without the
+include path therefore **compiles, links, runs and smoke-tests green while
+quietly using the CRT heap** — the mis-link degrades silently instead of
+failing. No Windows leg has ever asserted otherwise, so whether the shipped
+windows-x64 bundle actually contains mimalloc is **unverified to date**.
+
+Two changes close this: the allocator now travels WITH the C as
+`cross/allocator-<target>.txt` (one source of truth, so the emit and the link
+cannot drift), and a new assertion greps the built `.exe` for `mi_*` symbols and
+fails if they disagree with what was requested.
+
+**Watch the next release:** if windows-x64 has been silently falling back, that
+assertion will fail it. That is a true positive worth having.

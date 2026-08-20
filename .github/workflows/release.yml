@@ -669,6 +669,10 @@ jobs:
     needs: release
     runs-on: ubuntu-latest
     timeout-minutes: 360
+    # Mirrors seed-bundles / seed-bundles-cross. Every leg here is REQUIRED
+    # (experimental: false) except windows-arm64 — see its entry for why this
+    # job needing the flag at all was a latent release-killer.
+    continue-on-error: ${{ matrix.experimental }}
     strategy:
       fail-fast: false
       matrix:
@@ -676,25 +680,56 @@ jobs:
           - target: macos-arm64
             yo_target: aarch64-macos
             bundle_allocator: system
+            experimental: false
           - target: macos-x64
             yo_target: x86_64-macos
             bundle_allocator: system
+            experimental: false
           # windows-x64 needs its portable-c arm from here too, now that no
           # native windows leg emits one — `scripts/make-portable-c.sh` treats
           # a missing windows-x64 arm as a hard failure.
           - target: windows-x64
             yo_target: x86_64-windows-msvc
-            # windows keeps MIMALLOC: the system-allocator switch was measured
-            # on macOS only, and the native windows bundle has always shipped
-            # mimalloc. Changing the allocator and the emit route in one step
-            # would make a regression impossible to attribute.
+            # windows-x64 keeps MIMALLOC: the system-allocator switch was
+            # measured on macOS only, and the native windows bundle has always
+            # shipped mimalloc. Changing the allocator and the emit route in
+            # one step would make a regression impossible to attribute.
+            # UNMEASURED on this platform — there has never been an allocator
+            # A/B on a Windows runner, nor any peak-memory measurement at all
+            # there. Revisit once one exists; arm64 uses `system` because
+            # mimalloc does not COMPILE there, which is a different reason.
             bundle_allocator: mimalloc
+            experimental: false
           # windows-arm64 is NEW: no arm64-Windows bundle has ever shipped, so
           # there is no native seed for it either — cross-emit is the only
           # route, not merely the cheaper one.
+          #
+          # SYSTEM, not mimalloc, and this is a fix rather than a preference:
+          # vendored mimalloc cannot be compiled for arm64-Windows by clang at
+          # all. `include/mimalloc/atomic.h` picks its intrinsic family by
+          # ARCHITECTURE (`_M_ARM64`) with no compiler discriminator, and clang
+          # targeting aarch64-windows-msvc defines `_M_ARM64` for MSVC source
+          # compatibility while implementing neither `__ldar64` nor `__stlr64`.
+          # v0.2.12 died exactly there — see
+          # issues/windows-arm64-mimalloc-msvc-arm-intrinsics.md. Upstream has
+          # no source fix (the guards are byte-identical at v3.5.0 and on
+          # main/dev/dev3; `__clang__` appears zero times in that file); its
+          # mitigation is MI_USE_CXX via CMake, which Yo bypasses by handing
+          # static.c to clang as plain C. `system` is also the compiler's own
+          # default, and the one platform where the two were ever measured
+          # (macOS) flipped to `system` because mimalloc was slower AND fatter.
           - target: windows-arm64
             yo_target: aarch64-windows-msvc
-            bundle_allocator: mimalloc
+            bundle_allocator: system
+            # This leg must not be able to block a release. Unlike
+            # seed-bundles-cross, THIS job had no protection at all: it feeds
+            # portable-c, which feeds publish-release, so a failure here leaves
+            # the release an unpublished draft. v0.2.12 survived only because
+            # the failure landed in the protected native-compile leg instead.
+            # Safe to skip: scripts/make-portable-c.sh requires only
+            # linux-x64, linux-arm64, macos-x64, macos-arm64 and windows-x64 —
+            # windows-arm64 is not one of its arms.
+            experimental: true
     steps:
       - name: Checkout the released commit
         uses: actions/checkout@v4
@@ -769,13 +804,22 @@ jobs:
           ./yo-candidate compile src/main.yo --release --allocator system \
             --std-path ./std --target ${{ matrix.yo_target }} \
             --emit-c --skip-c-compiler -o "portable-arm/${{ matrix.target }}" > /dev/null
+          # Travel the allocator WITH the C rather than repeating it in the
+          # seed-bundles-cross matrix. The link line must match the emit, and
+          # a mismatch does not fail loudly: the emitted mimalloc block is
+          # `#if __has_include(<mimalloc.h>)` with a malloc/free `#else`, so a
+          # drifted pair silently ships the wrong heap. One source of truth
+          # cannot drift.
+          echo -n "${{ matrix.bundle_allocator }}" > "cross/allocator-${{ matrix.target }}.txt"
           ls -la cross/ portable-arm/
 
       - name: Upload the bundle C
         uses: actions/upload-artifact@v4
         with:
           name: seed-cross-${{ matrix.target }}
-          path: cross/yo-${{ matrix.target }}.c
+          path: |
+            cross/yo-${{ matrix.target }}.c
+            cross/allocator-${{ matrix.target }}.txt
           retention-days: 1
           if-no-files-found: error
 
@@ -873,17 +917,64 @@ jobs:
       # runner's, and a bundle named windows-x64 containing the wrong
       # architecture would install and run while emitting for the wrong one.
       # The PE assertion below is what actually proves it.
+      # The allocator is matrix-driven rather than hardcoded: windows-arm64
+      # CANNOT link mimalloc (clang lacks the `_M_ARM64` MSVC intrinsics
+      # mimalloc's atomic.h selects on architecture alone), so the two Windows
+      # legs must differ here. It has to match the `bundle_allocator` this
+      # target was EMITTED with in seed-cross-emit: the emitted C guards its
+      # mimalloc block behind `#if __has_include(<mimalloc.h>)`, so a mimalloc
+      # emit compiled without the include path silently degrades to malloc
+      # instead of failing — which is precisely the outcome an assertion has to
+      # catch rather than a link error.
       - name: "Compile the cross-emitted C natively (Windows)"
         if: runner.os == 'Windows'
         shell: bash
         run: |
+          ALLOC=$(cat "cross/allocator-${{ matrix.target }}.txt")
+          echo "emitted with allocator: $ALLOC"
+          echo "ALLOC=$ALLOC" >> "$GITHUB_ENV"
+          if [ "$ALLOC" = "mimalloc" ]; then
+            ALLOC_ARGS=(vendor/mimalloc/src/static.c -I vendor/mimalloc/include)
+          else
+            ALLOC_ARGS=()
+          fi
           clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
             --target=${{ matrix.clang_target }} \
-            "cross/yo-${{ matrix.target }}.c" vendor/mimalloc/src/static.c \
-            -I vendor/mimalloc/include \
+            "cross/yo-${{ matrix.target }}.c" "${ALLOC_ARGS[@]}" \
             -lws2_32 -lbcrypt -ladvapi32 \
             -o yo-seed.exe
           ./yo-seed.exe --version
+
+      # Assert the binary got the allocator it ASKED for. The emitted mimalloc
+      # block is `#if __has_include(<mimalloc.h>)` with a malloc/free `#else`,
+      # so a mis-linked mimalloc build compiles, links, runs and smoke-tests
+      # green while quietly using the CRT heap. Nothing on any Windows leg has
+      # ever checked this, so whether the shipped windows-x64 bundle actually
+      # contains mimalloc is, as of this commit, unverified.
+      - name: "Assert the bundle got the allocator it asked for (Windows)"
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          # The tool must be a HARD requirement. Without this check a missing
+          # llvm-nm yields SYMS=0, which would fail the mimalloc arm with a
+          # misleading message and — far worse — silently "confirm" the system
+          # arm, turning this assertion into a rubber stamp.
+          command -v llvm-nm >/dev/null || {
+            echo "::error::llvm-nm not on PATH; cannot verify the linked allocator"
+            exit 1; }
+          SYMS=$(llvm-nm yo-seed.exe 2>/dev/null | grep -c "mi_malloc\|mi_heap_malloc" || true)
+          echo "requested=$ALLOC  mi_* symbol hits=$SYMS"
+          if [ "$ALLOC" = "mimalloc" ]; then
+            [ "$SYMS" -gt 0 ] || {
+              echo "::error::asked for mimalloc but the binary has no mi_* symbols — the __has_include guard silently fell back to the CRT heap"
+              exit 1; }
+            echo "mimalloc confirmed linked in."
+          else
+            [ "$SYMS" -eq 0 ] || {
+              echo "::error::asked for the system allocator but found $SYMS mi_* symbols"
+              exit 1; }
+            echo "system allocator confirmed (no mimalloc linked)."
+          fi
 
       # PE machine type: 0x8664 == IMAGE_FILE_MACHINE_AMD64.
       - name: "Assert the binary's architecture"
