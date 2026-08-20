@@ -332,6 +332,31 @@ A/B runs disagree on sign), the emitted C is byte-identical, and static-linking
 caveats do not apply because the compiler shells out to `curl` rather than
 linking a resolver. Nothing remains to measure.
 
+### Musl-only migration — EXECUTED 2026-08-20 (branch `release/musl-only-linux`)
+
+The migration is a REMOVAL, not a rename — the musl bundles keep their `-musl`
+suffix and the glibc bundles stop being published:
+
+- `release.yml`: the glibc `seed-bundles` job (its only two legs were
+  linux-x64/linux-arm64) is DELETED. What it carried moved into `musl-bundle`,
+  which is now THE Linux release leg pair: the stage-2 re-emit gate runs
+  against the static candidate, and the portable-c arms (`linux-x64`,
+  `linux-arm64`, system-allocator flavored as before) are emitted at the end
+  of that job. `portable-c` and `publish-release` needs rewired.
+- `install.sh`: musl-first on EVERY Linux (the static bundle runs on glibc
+  hosts too), with the glibc name as a fallback for releases that predate the
+  musl legs (x64: v0.2.7+, arm64: v0.2.12+).
+- `src/version_cache.yo`: `host_bundle_name` appends `-musl` on Linux;
+  `download_version` falls back to the pre-musl name on 404 so old versions
+  stay installable.
+- `install-seed` action: Linux seeds are the musl bundles (static — no
+  liburing.so needed to run them).
+- `test.yml` musl job: the stack-sizing probe
+  (`scripts/bootstrap/probe-stack-sizing.sh`) now runs per PR inside Alpine —
+  the gate this section answered, kept honest continuously.
+
+First release with no glibc Linux bundles: the one cut after this lands.
+
 ### The question, and the two attempts that failed to answer it (historical)
 
 Codegen requests a 1 GiB worker stack and **falls back silently** to

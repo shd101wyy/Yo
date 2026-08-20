@@ -589,22 +589,24 @@ is_musl() {
 }
 
 install_dist() {
-  # On musl, prefer the static musl bundle and fall back to the glibc one.
-  # The fallback still matters even though the musl leg is no longer
-  # experimental (promoted 2026-08-17; it gates publication) and now covers
-  # arm64 as well as x64 (2026-08-19): a release older than either change
-  # legitimately lacks the bundle for this arch, and a hard failure would be
-  # worse than the loader warning the glibc path already prints.
+  # Linux is musl-only (2026-08-20): the static musl bundle is THE Linux
+  # bundle — it runs on glibc and musl systems alike, so it is preferred on
+  # EVERY Linux, not just detected-musl ones. The probe + glibc fallback
+  # stays for releases that predate the musl legs (x64: v0.2.7+,
+  # arm64: v0.2.12+); on a glibc host that fallback is fully functional,
+  # on a musl host it will not run — hence the differentiated warning.
   bundle="yo-$VERSION-$OSARCH"
-  if [ "$OSNAME" = "linux" ] && is_musl; then
+  if [ "$OSNAME" = "linux" ]; then
     musl_bundle="yo-$VERSION-$OSARCH-musl"
     if download_probe "$YO_DIST_BASE_URL/$VERSION/$musl_bundle.tar.gz"; then
-      info "musl libc detected — using the static musl bundle."
+      info "Using the static musl Linux bundle (runs on glibc and musl alike)."
       bundle="$musl_bundle"
-    else
+    elif is_musl; then
       warn "musl libc detected, but $VERSION publishes no $musl_bundle bundle."
       warn "Falling back to the glibc bundle, which will NOT run here."
       warn "Prefer:  --from-source   (compiles yo.c with your own toolchain)"
+    else
+      info "$VERSION predates the static musl bundles — using its glibc bundle."
     fi
   fi
   url="$YO_DIST_BASE_URL/$VERSION/$bundle.tar.gz"
@@ -629,7 +631,7 @@ install_dist() {
     if ! download_file "$url" "$YO_TEMP_DIR/$bundle.tar.gz"; then
       stop "Unable to download: $url
   There may be no bundle for this platform ($OSARCH) at $VERSION.
-  Available targets: linux-x64, linux-arm64, macos-arm64, macos-x64.
+  Available targets: linux-x64-musl, linux-arm64-musl, macos-arm64, macos-x64, windows-x64.
   Pick another release with --version=<tag>, or build from source."
     fi
 

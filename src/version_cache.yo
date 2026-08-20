@@ -9,7 +9,8 @@
 //! mechanisms share one shape and the bundle self-locates its std.
 //!
 //! Download flow:
-//!   1. Resolve the host platform's bundle name (yo-v<v>-<os>-<arch>).
+//!   1. Resolve the host platform's bundle name (yo-v<v>-<os>-<arch>,
+//!      with a `-musl` suffix on Linux — musl-only since 2026-08-20).
 //!   2. Download `https://github.com/<repo>/releases/download/v<v>/<bundle>.tar.gz`.
 //!   3. Extract; the tarball root is a `<bundle>/` directory — move it to the
 //!      version cache directory.
@@ -207,9 +208,10 @@ cached_binary_path :: (fn(version_dir : String) -> String)({
   );
   `${version_dir}/bin/${bin_name}`
 });
-/// The release-bundle basename for a version on the HOST platform,
-/// e.g. `yo-v0.2.4-macos-arm64`. Mirrors scripts/install.sh's detect_osarch.
-host_bundle_name :: (fn(version : String, exn : Exception) -> String)({
+/// The PRE-MUSL release-bundle basename (`yo-v<v>-<os>-<arch>`, no suffix).
+/// Only the Linux glibc-era fallback in `download_version` should use this
+/// directly — everything else goes through `host_bundle_name`.
+_host_bundle_name_base :: (fn(version : String, exn : Exception) -> String)({
   target := host_target();
   os_name := cond(
     is_target_macos(target) => `macos`,
@@ -219,7 +221,7 @@ host_bundle_name :: (fn(version : String, exn : Exception) -> String)({
       platform_str := String.from(os_to_str(target.os));
       exn.throw(
         dyn(
-          `Unsupported platform for Yo release bundles: ${platform_str}. Available targets: linux-x64, linux-arm64, macos-arm64, macos-x64, windows-x64.`
+          `Unsupported platform for Yo release bundles: ${platform_str}. Available targets: linux-x64-musl, linux-arm64-musl, macos-arm64, macos-x64, windows-x64.`
         )
       );
       String.new()
@@ -238,6 +240,19 @@ host_bundle_name :: (fn(version : String, exn : Exception) -> String)({
     }
   );
   `yo-v${version}-${os_name}-${arch_name}`
+});
+/// The release-bundle basename for a version on the HOST platform,
+/// e.g. `yo-v0.2.13-linux-x64-musl` / `yo-v0.2.13-macos-arm64`. Mirrors
+/// scripts/install.sh. Linux is musl-only (2026-08-20): the static musl
+/// bundle is THE Linux bundle and runs on glibc and musl systems alike; the
+/// glibc names exist only on releases that predate the musl legs (x64:
+/// v0.2.7+, arm64: v0.2.12+), which `download_version` falls back to.
+host_bundle_name :: (fn(version : String, exn : Exception) -> String)({
+  base := _host_bundle_name_base(version, exn);
+  cond(
+    is_target_linux(host_target()) => `${base}-musl`,
+    true => base
+  )
 });
 /// Check if a specific Yo version is already cached locally.
 /// A cached version is a bundle extraction whose `bin/yo` exists.
@@ -629,16 +644,29 @@ download_version :: (
         )
       );
     });
-    bundle_name := host_bundle_name(version, e.exn);
-    url := `${_releases_download_url()}/v${version}/${bundle_name}.tar.gz`;
+    (bundle_name : String) = host_bundle_name(version, e.exn);
     version_dir := get_version_cache_dir(version);
     // 1. Download the tarball to a temp directory.
     tmp_dir := e.io.await(TempDir.new(e.io), e);
     tmp_path_str := tmp_dir.path().to_string();
-    tarball_path := `${tmp_path_str}/${bundle_name}.tar.gz`;
+    (url : String) = `${_releases_download_url()}/v${version}/${bundle_name}.tar.gz`;
+    (tarball_path : String) = `${tmp_path_str}/${bundle_name}.tar.gz`;
     println(`Downloading Yo v${version} (${bundle_name}) from GitHub Releases...`);
     code_str := e.io.await(_download_file(url, tarball_path, e.io, e.exn), e);
-    code := match(code_str.parse_i64(), .None => i64(0), .Some(c) => c);
+    (code : i64) = match(code_str.parse_i64(), .None => i64(0), .Some(c) => c);
+    // Linux glibc-era fallback: releases that predate the musl legs only
+    // published `yo-v<v>-linux-<arch>` bundles. On a glibc host that bundle
+    // is fully functional; on a musl host it will not run, but a download
+    // that exists beats a hard 404 (install.sh makes the same call).
+    if((code == i64(404)) && is_target_linux(host_target()), {
+      legacy := _host_bundle_name_base(version, e.exn);
+      println(`No ${bundle_name}.tar.gz on v${version} — retrying the pre-musl bundle name (${legacy})...`);
+      bundle_name = legacy;
+      url = `${_releases_download_url()}/v${version}/${bundle_name}.tar.gz`;
+      tarball_path = `${tmp_path_str}/${bundle_name}.tar.gz`;
+      legacy_code_str := e.io.await(_download_file(url, tarball_path, e.io, e.exn), e);
+      code = match(legacy_code_str.parse_i64(), .None => i64(0), .Some(c2) => c2);
+    });
     if(code == i64(404), {
       e.io.await(_cleanup_failed_download(version_dir, tmp_dir.path(), e.io, e.exn), e);
       msg := `Yo v${version} has no ${bundle_name}.tar.gz release asset.`;
@@ -648,7 +676,7 @@ download_version :: (
     });
     if(code >= i64(400), {
       e.io.await(_cleanup_failed_download(version_dir, tmp_dir.path(), e.io, e.exn), e);
-      e.exn.throw(dyn(`HTTP ${code_str} downloading ${url}`));
+      e.exn.throw(dyn(`HTTP ${code.to_string()} downloading ${url}`));
     });
     // 2. Extract; the tarball root is a `<bundleName>/` directory holding
     // bin/, std/ and vendor/ as SIBLINGS (the compiler resolves its std by
