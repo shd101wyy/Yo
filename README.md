@@ -24,10 +24,6 @@ Yo aims to be **Simple** and **Fast** (around 0% - 15% slower than C).
 - [Features](#features)
 - [Installation](#installation)
   - [Install script (recommended)](#install-script-recommended)
-  - [Linux](#linux)
-  - [macOS](#macos)
-  - [Windows](#windows)
-  - [WebAssembly (WASM)](#webassembly-wasm)
 - [Quick Start](#quick-start)
 - [Prelude](#prelude)
 - [Standard Library](#standard-library)
@@ -35,12 +31,10 @@ Yo aims to be **Simple** and **Fast** (around 0% - 15% slower than C).
   - [Hello World](#hello-world)
   - [Example Projects](#example-projects)
 - [Contributing](#contributing)
-  - [Setup](#setup)
 - [Editor Support](#editor-support)
 - [Version Management](#version-management)
 - [AI Agent Skills](#ai-agent-skills)
   - [Using in your own project](#using-in-your-own-project)
-- [Star History](#star-history)
 - [License](#license)
 
 <!-- /code_chunk_output -->
@@ -71,7 +65,7 @@ Below is a non-exhaustive list of features that Yo supports:
 
 ### Install script (recommended)
 
-Installs a native prebuilt compiler — no Node.js or npm required.
+Installs a native prebuilt compiler.
 
 ```bash
 # macOS / Linux
@@ -118,110 +112,16 @@ NixOS, where the prebuilt binary's hardcoded ELF interpreter
 The installer puts the `yo` command on your `PATH`. Run `yo --help` to see the
 available commands.
 
-> **The `npm` channel is gone.** Yo used to be published as the
-> `@shd101wyy/yo` npm package, back when the compiler was a TypeScript program.
-> npm publishing stopped at `v0.2.0`; the compiler is now self-hosted and every
-> release since ships as a native bundle from GitHub Releases. Use the install
-> script above.
+Yo transpiles to C, so a **C compiler** is required to produce machine code. The
+install script above sets one up for you — these guides are for configuring the
+toolchain by hand, or for diagnosing a failed install.
 
-Yo transpiles to C, so a **C compiler** is required to produce machine code. Follow the instructions for your platform below.
+- **[Linux](./docs/en-US/INSTALL_LINUX.md)**
+- **[macOS](./docs/en-US/INSTALL_MACOS.md)**
+- **[Windows](./docs/en-US/INSTALL_WINDOWS.md)**
 
-### Linux
-
-Install **Clang** (recommended), **liburing** (for async I/O), and **pkg-config** (for system library discovery):
-
-```bash
-# Ubuntu/Debian
-$ sudo apt-get update
-$ sudo apt-get install clang liburing-dev pkg-config
-
-# Fedora/RHEL
-$ sudo dnf install clang liburing-devel pkgconf-pkg-config
-
-# Arch Linux
-$ sudo pacman -S clang liburing pkgconf
-```
-
-You can also use `gcc` or `zig` instead of `clang` by passing `--cc gcc` or `--cc zig`.
-
-### macOS
-
-Clang is included with Xcode Command Line Tools:
-
-```bash
-$ xcode-select --install
-
-# Also install pkgconf for system library discovery
-$ brew install pkgconf
-```
-
-Or install LLVM via Homebrew:
-
-```bash
-$ brew install llvm pkgconf
-```
-
-### Windows
-
-Clang on Windows requires a linker and Windows SDK headers. Install **Visual Studio** (Community edition is free) or the **Build Tools for Visual Studio** with the "Desktop development with C++" workload:
-
-1. Download from [https://visualstudio.microsoft.com/downloads/](https://visualstudio.microsoft.com/downloads/)
-2. In the installer, select **"Desktop development with C++"** (this includes MSVC, Windows SDK, and the linker)
-3. Then install LLVM/Clang:
-
-```bash
-# Using Chocolatey
-$ choco install llvm
-
-# Using Scoop
-$ scoop install llvm
-
-# Or download from https://releases.llvm.org/
-```
-
-Alternatively, you can use `zig` as the C compiler (no Visual Studio needed):
-
-```bash
-$ choco install zig
-$ yo compile main.yo --cc zig --release -o main
-```
-
-For system library discovery, install **vcpkg**:
-
-```bash
-$ git clone https://github.com/microsoft/vcpkg.git
-$ .\vcpkg\bootstrap-vcpkg.bat
-# Then set the VCPKG_ROOT environment variable to the vcpkg directory
-
-# Or using Scoop
-$ scoop install vcpkg
-```
-
-For more information, see the [vcpkg documentation](https://learn.microsoft.com/en-us/vcpkg/get_started/get-started).
-
-### WebAssembly (WASM)
-
-Yo can compile to WebAssembly using [Emscripten](https://emscripten.org/):
-
-```bash
-# Install Emscripten (https://emscripten.org/docs/getting_started/downloads.html)
-$ git clone https://github.com/emscripten-core/emsdk.git
-$ cd emsdk
-$ ./emsdk install latest
-$ ./emsdk activate latest
-$ source ./emsdk_env.sh
-
-# Compile a Yo program to WASM
-$ yo compile main.yo --cc emcc --release -o app
-
-# This produces: app.html + app.js + app.wasm
-# Run with Node.js:
-$ node app.js
-
-# Or open app.html in a browser
-```
-
-When using `--cc emcc`, Yo automatically targets `wasm32-emscripten` and uses the `libc` allocator. You can also use `--target wasm-emscripten` (which auto-selects `emcc`). Emscripten produces an `.html` file (browser shell), a `.js` file (runtime glue), and a `.wasm` file (compiled binary).
+Targeting WebAssembly needs Emscripten as well —
+**[WASM setup](./docs/en-US/INSTALL_WASM.md)**.
 
 ## Quick Start
 
@@ -327,66 +227,9 @@ export(main);
 
 ## Contributing
 
-The `Yo` compiler is **self-hosted**: it is written in Yo and lives in
-[`src/`](./src/). Building it needs an already-installed `yo` binary
-(get one from the [install script](#install-script-recommended)) plus a C
-compiler — there is no TypeScript, Node.js, npm, or bun in the toolchain any
-more.
-
-Yo is primarily developed on the Steam Deck LCD (Linux). The compiler currently transpiles Yo to C; to produce
-machine code you must have a C compiler (for example `gcc`, `clang`, `zig`, `emcc`, etc).
-
-Please install [nix](https://nixos.org/download.html) and [direnv](https://direnv.net/) before proceeding.
-
-The dev environment is defined in [shell.nix](./shell.nix). You can also manually install the dependencies listed in the file.
-
-### Setup
-
-```bash
-$ cd Yo
-$ direnv allow . # Run this command to activate the nix shell.
-                 # You only need to run it once.
-```
-
-There is no package-manager install step. The only vendored dependencies are git
-submodules:
-
-```bash
-$ git submodule update --init --recursive
-```
-
-Type-check the compiler sources (evaluator only, no codegen — this is the fast
-iteration loop):
-
-```bash
-$ yo check ./src
-```
-
-Build the compiler from source. Always pass `--release`: at `-O0` the big
-evaluator functions have multi-megabyte stack frames and deep compile-time
-recursion exhausts the stack.
-
-```bash
-$ yo compile src/main.yo --release -o /tmp/yo-self-bin
-```
-
-> **There is no watch-and-rebuild loop any more.** `bun run dev` rebuilt the
-> TypeScript compiler on every file change; nothing replaces it. Re-run the
-> `yo compile` above after a change.
-
-Try the compiler you just built on a scratch program (`./tmp/` is gitignored —
-put throwaway `.yo` files there):
-
-```bash
-$ /tmp/yo-self-bin compile ./tmp/fixme.yo --release -o /tmp/fixme && /tmp/fixme
-```
-
-Run the test suites with `yo test`:
-
-```bash
-$ yo test ./tests --exclude tests/internal --exclude tests/cli-cases --bail
-$ yo test ./tests/internal --parallel 1   # the compiler's own tests
-```
+The compiler is written in Yo and builds itself. See
+**[CONTRIBUTING.md](./CONTRIBUTING.md)** for the dev environment, the build loop,
+and how to run the test suites — LLM-assisted contributions included.
 
 ## Editor Support
 
@@ -454,10 +297,6 @@ cp -r .github/skills /path/to/your-yo-project/.github/
 ```
 
 Then in any AI agent session, invoke a skill by name (e.g. `@yo-syntax`) to give the agent contextual knowledge about the Yo language.
-
-## Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=shd101wyy/Yo&type=date&legend=top-left)](https://www.star-history.com/#shd101wyy/Yo&type=date&legend=top-left)
 
 ## License
 
