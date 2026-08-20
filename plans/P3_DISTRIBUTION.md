@@ -305,9 +305,34 @@ Checklist status, against the three items named above:
 | io_uring under musl | DONE — the musl smoke test greps for `liburing not available` |
 | mimalloc under musl | DONE — the smoke test greps for `mimalloc: error` |
 | `std/sys/dns` NSS | MOOT — the compiler shells out to `curl` (`version_cache.yo:439`) and `git`; its own `getaddrinfo` reference comes from the codegen runtime template emitted into USER programs, which use their own libc |
-| worker-thread stack sizing | **STILL OPEN — see below** |
+| worker-thread stack sizing | **ANSWERED 2026-08-20 — HONOURED on both arches, see below** |
 
-### Still open: is the stack request honoured under musl?
+### ANSWERED: the stack request IS honoured under musl
+
+Measured against the **shipped v0.2.12 bundles** by
+`.github/workflows/probe-musl-stack.yml` (dispatch-only; runs 32340613649 and
+32340649947). Both bundles were confirmed `statically linked` before the probe
+ran:
+
+| target | `YO_MAIN_STACK_MB=1` | `=64` | verdict |
+| --- | --- | --- | --- |
+| `linux-x64-musl` | rc=139 | rc=0 | HONOURED |
+| `linux-arm64-musl` | rc=139 | rc=0 | HONOURED |
+
+The discrimination is real — 1 MB genuinely SIGSEGVs and 64 MB genuinely passes
+— which is exactly what the two earlier attempts below could not produce.
+
+**METHOD NOTE, and it is load-bearing:** the probe must run INSIDE Alpine, where
+`cc` is musl gcc. Running the same static musl `yo` on the Ubuntu host would
+compile the probe program against the host's GLIBC, measuring the wrong libc and
+reporting a confident, meaningless pass.
+
+**This was the last open gate on the musl-only migration.** Perf is noise (two
+A/B runs disagree on sign), the emitted C is byte-identical, and static-linking
+caveats do not apply because the compiler shells out to `curl` rather than
+linking a resolver. Nothing remains to measure.
+
+### The question, and the two attempts that failed to answer it (historical)
 
 Codegen requests a 1 GiB worker stack and **falls back silently** to
 `__yo_main_thread_entry(NULL)` on the ~8 MB process stack when `pthread_create`
@@ -340,10 +365,9 @@ Measured on macOS/arm64 with the **v0.2.11** bundle:
 | 16 / 64 / 256 | 0 |
 
 Threshold between 4 and 16 MB, consistent with 500k frames at ~24 bytes. **The
-request is honoured there.** What remains is running the same probe against the
-STATIC MUSL bundle on Linux, which is the actual open question — that belongs in
-the musl-only migration PR, since it is the evidence required before dropping
-the glibc legs.
+request is honoured there.** The same probe has since been run against the
+STATIC MUSL bundles on Linux — the actual open question — and it is honoured on
+both arches; see the answered section above.
 
 **The trap the script encodes**, because the first two attempts at this both
 failed: "non-tail recursion" is not sufficient. `n + recur(n - 1)` is linearised
