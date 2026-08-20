@@ -1,3 +1,10 @@
+> **RETIRED 2026-08-20.** Root-caused and superseded by
+> `issues/async-cond-shared-await-point-only-models-representative-branch.md`.
+> Two claims below did not survive: the defect is NOT arm64-specific (the x64
+> emit carries the byte-identical class — arm64 merely compiles with clang 22,
+> where the diagnostic is a default error), and v0.2.12's arm64 emit was NOT
+> clean of it (its log died at mimalloc before reaching these sites).
+
 # windows-arm64 emitted C: async state-machine pointer types crossed between temp-file modules
 
 **Status:** OPEN, not yet root-caused. Surfaced 2026-08-20 by

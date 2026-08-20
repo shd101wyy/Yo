@@ -223,7 +223,14 @@ CondBranch :: ref(
     /// — every other arm's binding was left unassigned and read a
     /// zero-initialised field. Recorded per branch and assigned inside that
     /// branch's `case`. See issues/fixed/async-await-in-nested-match-arms.md.
-    await_target_variable_id : Option(String)
+    await_target_variable_id : Option(String),
+    /// THIS branch's own `io.await` call exprs, in source order. A shared cond
+    /// await point stands in for one await per awaiting branch, and those can
+    /// await futures of different C types or named vs anonymous futures — the
+    /// dispatch-mode emitters access each branch's future through its own
+    /// exact shape instead of the representative's. See
+    /// issues/async-cond-shared-await-point-only-models-representative-branch.md.
+    await_exprs : Option(ArrayList(AstExpr))
   )
 );
 /// A chained cond/match continuation: an outer cond's remaining code that shares

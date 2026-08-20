@@ -388,7 +388,8 @@ detect_await_expr_ :: (
         while_nesting_depth : Option(usize).None,
         cond_branch_source_index : Option(usize).None,
         needs_own_cond_branch_field : Option(bool).None,
-        enclosing_while_expr : Option(AstExpr).None
+        enclosing_while_expr : Option(AstExpr).None,
+        cond_branch_suspension_exprs : Option(ArrayList(AstExpr)).None
       );
       points.push(sp);
     }
@@ -710,6 +711,9 @@ export(
   is_io_state_call,
   is_io_spawn_call,
   is_join_handle_await_call,
+  // Named-future resolution (codegen's dispatch-mode cond awaits resolve each
+  // BRANCH's future the same way the analysis resolved the representative's)
+  get_future_variable_id_,
   // Main analysis entry points
   analyze_await_points,
   get_local_variables_from_body

@@ -10,12 +10,12 @@ open(import("std/string"));
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
 { TypeValue } :: import("../../types/definitions.yo");
-{ is_some_type, is_concrete_trait_type, is_struct_type, is_function_type, is_dyn_type, is_unit_type, is_extern_type_name } :: import("../../types/guards.yo");
+{ is_some_type, is_struct_type, is_function_type, is_dyn_type, is_unit_type } :: import("../../types/guards.yo");
 { type_implements_future, extract_future_trait_from_type } :: import("../../evaluator/trait_checking.yo");
 { lookup_macro_expansion, lookup_some_resolved_concrete } :: import("../../expr_info.yo");
 { AwaitAnalysisResult, AwaitPoint, CapturedVariable, CapturedVariableKind } :: import("../../evaluator/async/await_analysis_types.yo");
 { SuspensionCapturedVariable } :: import("../../evaluator/shared/suspension_analysis_types.yo");
-{ StateSegment, split_into_state_segments, generate_await_expression, generate_state_segment_code, hoist_non_splittable_awaits, await_is_while_condition } :: import("./state_code_gen.yo");
+{ StateSegment, split_into_state_segments, generate_await_expression, generate_state_segment_code, hoist_non_splittable_awaits, await_is_while_condition, is_io_future_type, cond_await_point_needs_dispatch, cond_branch_future_access, CondBranchFutureAccess, collect_branch_await_exprs } :: import("./state_code_gen.yo");
 { is_io_async_call, is_io_await_call } :: import("../../evaluator/async/await_analysis.yo");
 { AstExpr, ast_expr_id, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, BK_COND, BK_MATCH, BK_WHILE, BK_BEGIN } :: import("../../expr.yo");
 { _call_generate_expr } :: import("../exprs/_expr.yo");
@@ -28,69 +28,12 @@ open(import("std/string"));
 { FunctionGenerationContext, EvidenceParameter, WhileLoopInfo, CondBranch, ChainedCondBranches, AsyncCondBranchInfo, InAsyncStateMachine, CondBranchPostWhileExprs, OuterWhileLoop, SmWhileBreakInfo, SmWhileContinueInfo, merge_cond_branch_post_while_exprs } :: import("../functions/context.yo");
 { expr_contains_await, expr_contains_while_with_await } :: import("../../expr_traversal.yo");
 { is_temp_variable_name } :: import("../../utils.yo");
+{ codegen_fatal } :: import("../constants.yo");
 { get_type_string } :: import("../utils/index.yo");
 { get_state_machine_field_name } :: import("./state_machine_naming.yo");
 { Emitter } :: import("../../emitter.yo");
 { emit_async_future_completion, emit_async_future_escape } :: import("../exprs/async_completion.yo");
 { get_dup_function_for_type, generate_dup_code_for_value } :: import("../exprs/drop_dup.yo");
-/// True when `ty` is an io.async/io.await Future SomeType (vs an extern
-/// `__yo_io_future_t`). Mirrors `isIoFutureType` (state-machine.ts:496).
-///
-/// TS has TWO signals:
-///   (1) `resolvedConcreteType` is itself an EXTERN SomeType — an extern C type
-///       like `__yo_io_future_t` (so NOT a state-machine Future).
-///   (2) any required trait is a `Concrete(...)` trait.
-/// Branch (2) is ported faithfully. Branch (1) is a DOCUMENTED GAP: yo-self's
-/// `SomeT` has no `is_extern` field, so although the resolved concrete type is
-/// available via `g_some_resolved_concrete`, its extern-ness is unrepresentable
-/// (a second SomeT model gap alongside resolved-concrete; see
-/// plans/archive/BOOTSTRAPPING_CODEGEN.md Phase 5 #3 — needs a `g_some_is_extern`
-/// side-table or a SomeT field). The `lookup_some_resolved_concrete` read is kept
-/// to mark the wiring point. Inert until the FSM emitters call this.
-is_io_future_type :: (fn(ty : TypeValue) -> bool)({
-  if(!(is_some_type(ty)), {
-    return(false);
-  });
-  // Branch (1): resolved concrete is an extern SomeType (TS
-  // state-machine.ts:521-527, `resolvedConcreteType.isExtern`). No longer a
-  // model gap: an extern opaque type IS a SomeT whose NAME is registered in
-  // the extern-type-name set, so extern-ness is `is_extern_type_name(name)`.
-  // This branch became LOAD-BEARING once Impl's `Concrete(T)` support landed:
-  // the marker now moves into the resolved-concrete cell (as in TS) instead
-  // of sitting in required_trait_types, so branch (2) alone no longer fires
-  // for `IoFuture` — and misclassifying an io future as a lazy sync future
-  // emits a `->__yo_resume_fn` cold-start on `__yo_io_future_t`, which has no
-  // such member (the fs/gc batch C errors).
-  some_id := match(ty, .SomeT({ id }) => id, _ => String.from(""));
-  rc_cell := match(ty, .SomeT({ resolved_concrete : io_src }) => io_src.get(usize(0)), _ => Option(TypeValue).None);
-  rc_final := match(
-    rc_cell,
-    .Some(io_r) => Option(TypeValue).Some(io_r),
-    .None => lookup_some_resolved_concrete(some_id)
-  );
-  match(
-    rc_final,
-    .Some(io_rcv) => match(
-      io_rcv,
-      .SomeT({ name : io_enm }) => if(is_extern_type_name(io_enm), {
-        return(true);
-      }),
-      _ => ()
-    ),
-    .None => ()
-  );
-  // Branch (2): any required trait is a `Concrete(...)` trait.
-  rts := match(ty, .SomeT({ required_trait_types }) => required_trait_types, _ => ArrayList(TypeValue).new());
-  (i : usize) = usize(0);
-  while(i < rts.len(), {
-    rt := match(rts.get(i), .Some(t) => t, .None => TypeValue.Unit);
-    if(is_concrete_trait_type(rt), {
-      return(true);
-    });
-    i = (i + usize(1));
-  });
-  false
-});
 /// Information about a generated state machine. Mirrors `StateMachineInfo`
 /// (state-machine.ts:516).
 StateMachineInfo :: ref(
@@ -1457,21 +1400,31 @@ generate_remaining_expr_future :: (
   fn(expr : AstExpr, await_point : AwaitPoint, analysis : AwaitAnalysisResult, indent : String, context : FunctionGenerationContext) -> unit
 )({
   em := context.base.emitter;
-  future_field_name := get_future_field_name(await_point, analysis);
+  // Dispatch-mode point: the store target is the point's own erased slot
+  // (never the REPRESENTATIVE's named field), and a branch awaiting a NAMED
+  // future does not store at all — it is read through its own field.
+  dispatch_mode := cond_await_point_needs_dispatch(await_point, context);
+  future_field_name := cond(
+    dispatch_mode => `await_future_${await_point.base.index.to_string()}`,
+    true => get_future_field_name(await_point, analysis)
+  );
   // varName := await(futureExpr)
   if(ast_expr_is_fn_call(expr) && ast_expr_is_fn_call_of(expr, ":=", Option(usize).None), {
     args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
     match(
       args.get(usize(1)),
       .Some(value_expr) => if(ast_expr_is_fn_call(value_expr) && is_io_await_call(value_expr), {
+        branch_named := (dispatch_mode && match(cond_branch_future_access(value_expr, await_point, context), .Some(a) => a.is_named, .None => false));
         v_args := match(value_expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
         match(
           v_args.get(usize(0)),
-          .Some(future_expr) => {
+          .Some(future_expr) => if(branch_named, {
+            em.emit_string_line(`${indent}// Await will use this branch's named Future (dispatch)`);
+          }, {
             fc := _call_generate_expr(future_expr, indent, context);
             em.emit_string_line(`${indent}// Store Future for additional await in cond branch`);
             em.emit_string_line(`${indent}sm->${future_field_name} = ${fc};`);
-          },
+          }),
           .None => ()
         );
       }),
@@ -1481,14 +1434,17 @@ generate_remaining_expr_future :: (
   });
   // Standalone io.await(futureExpr)
   if(ast_expr_is_fn_call(expr) && is_io_await_call(expr), {
+    branch_named2 := (dispatch_mode && match(cond_branch_future_access(expr, await_point, context), .Some(a) => a.is_named, .None => false));
     args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
     match(
       args.get(usize(0)),
-      .Some(future_expr) => {
+      .Some(future_expr) => if(branch_named2, {
+        em.emit_string_line(`${indent}// Await will use this branch's named Future (dispatch)`);
+      }, {
         fc := _call_generate_expr(future_expr, indent, context);
         em.emit_string_line(`${indent}// Store Future for additional await in cond branch`);
         em.emit_string_line(`${indent}sm->${future_field_name} = ${fc};`);
-      },
+      }),
       .None => ()
     );
     return();
@@ -1514,6 +1470,188 @@ generate_remaining_expr_future :: (
     return();
   });
   em.emit_string_line(`${indent}// Warning: unhandled await pattern in remaining expressions`);
+});
+/// The branch-info record a dispatch-mode await point dispatches on: the entry
+/// stored at the point's own index, else at its cond-source index.
+_dispatch_cbd :: (
+  fn(ap : AwaitPoint, context : FunctionGenerationContext) -> Option(AsyncCondBranchInfo)
+)({
+  source := match(ap.base.cond_branch_source_index, .Some(s) => s, .None => ap.base.index);
+  match(
+    context.async_cond_branch_info,
+    .Some(m) => match(
+      m.get(ap.base.index),
+      .Some(e) => Option(AsyncCondBranchInfo).Some(e),
+      .None => match(m.get(source), .Some(e2) => Option(AsyncCondBranchInfo).Some(e2), .None => Option(AsyncCondBranchInfo).None)
+    ),
+    .None => Option(AsyncCondBranchInfo).None
+  )
+});
+/// The suspension core for ONE future access path: state transition, readiness
+/// fast-path, cold-start (non-io futures), continuation registration, return.
+/// `acc` is the C expression reaching the future (e.g. `sm->await_future_2` or
+/// `((T*)sm->await_future_2)` or `sm->var_9`); `effect_expr` is the await call
+/// whose effect bundle gets injected on cold start. Extracted from
+/// `_emit_await_suspension` so dispatch-mode cond points can emit it once per
+/// awaiting branch with that branch's own access/type. Indentation is
+/// parameterized so the uniform path stays byte-identical (`ind` = 6 spaces).
+_emit_await_suspension_core :: (
+  fn(
+    acc : String,
+    is_io_future : bool,
+    next_s : String,
+    resume_function_name : String,
+    effect_expr : AstExpr,
+    ind : String,
+    context : FunctionGenerationContext
+  ) -> unit
+)({
+  em := context.base.emitter;
+  em.emit_string_line(`${ind}// Transition to next state after await`);
+  em.emit_string_line(`${ind}sm->state = ${next_s};`);
+  em.emit_string_line(``);
+  em.emit_string_line(`${ind}// Check if future is ready`);
+  em.emit_string_line(`${ind}int future_state = ${acc}->state;`);
+  em.emit_string_line(`${ind}if (future_state == -1 || future_state == -2) {  // -1 = completed, -2 = aborted`);
+  em.emit_string_line(`${ind}  // Already complete — bounded inline fast-path to avoid scheduler round-trip`);
+  em.emit_string_line(`${ind}  if (__yo_inline_budget > 0) {`);
+  em.emit_string_line(`${ind}    __yo_inline_budget--;`);
+  em.emit_string_line(`${ind}    goto state_${next_s};`);
+  em.emit_string_line(`${ind}  }`);
+  em.emit_string_line(`${ind}  // Budget exhausted — yield once for fairness (microtask yield)`);
+  em.emit_string_line(`${ind}  __yo_async_spawn_task((void (*)(void*))${resume_function_name}, (void*)sm);`);
+  em.emit_string_line(`${ind}  return;`);
+  em.emit_string_line(`${ind}}`);
+  em.emit_string_line(``);
+  if(!(is_io_future), {
+    em.emit_string_line(`${ind}// Future not complete — take event loop reference and start if cold`);
+    em.emit_string_line(`${ind}__yo_incr_rc((void*)${acc});  // event loop reference`);
+  }, {
+    em.emit_string_line(`${ind}// Io future: no extra ref needed (completion handler does not decr_rc)`);
+  });
+  if(!(is_io_future), {
+    em.emit_string_line(`${ind}if (future_state == 0) {  // 0 = cold (not started)`);
+    inner := ind.clone();
+    inner.push_str("  ");
+    emit_effect_injection_for_sm(effect_expr, acc.clone(), inner, context);
+    em.emit_string_line(`${ind}  // Cold future — start it via stored resume function pointer`);
+    em.emit_string_line(`${ind}  ${acc}->__yo_resume_fn((void*)${acc});`);
+    em.emit_string_line(``);
+    em.emit_string_line(`${ind}  // Re-check: may have completed synchronously`);
+    em.emit_string_line(`${ind}  future_state = ${acc}->state;`);
+    em.emit_string_line(`${ind}  if (future_state == -1 || future_state == -2) {`);
+    em.emit_string_line(`${ind}    // Completed or aborted synchronously — yield for fairness`);
+    em.emit_string_line(`${ind}    __yo_async_spawn_task((void (*)(void*))${resume_function_name}, (void*)sm);`);
+    em.emit_string_line(`${ind}    return;`);
+    em.emit_string_line(`${ind}  }`);
+    em.emit_string_line(`${ind}}`);
+  });
+  em.emit_string_line(``);
+  em.emit_string_line(`${ind}// Still pending — register continuation and suspend`);
+  em.emit_string_line(`${ind}${acc}->continuation_fn = (void (*)(void*))${resume_function_name};`);
+  em.emit_string_line(`${ind}${acc}->continuation_sm = (void*)sm;`);
+  em.emit_string_line(`${ind}return;`);
+});
+/// Dispatch-mode suspension for a shared cond/match await point whose branches
+/// await differently-shaped futures: one `case` per awaiting branch, each
+/// running the suspension core against THAT branch's future access; `default`
+/// covers "a non-await branch ran" (including the calloc-zero never-written
+/// value) by skipping straight to the next state. Replaces the uniform path's
+/// `if (sm->await_future_N != NULL)` guard, which is meaningless for a named
+/// future (a bound variable is never NULL — shape 8's wrong cold-start). See
+/// issues/async-cond-shared-await-point-only-models-representative-branch.md.
+_emit_await_suspension_dispatch :: (
+  fn(
+    ap : AwaitPoint,
+    next_s : String,
+    resume_function_name : String,
+    while_info : Option(WhileLoopInfo),
+    context : FunctionGenerationContext
+  ) -> unit
+)({
+  em := context.base.emitter;
+  source := match(ap.base.cond_branch_source_index, .Some(s) => s, .None => ap.base.index);
+  cbd := match(
+    _dispatch_cbd(ap, context),
+    .Some(e3) => e3,
+    .None => {
+      codegen_fatal(`internal: dispatch-mode await point ${ap.base.index.to_string()} has no cond branch info`);
+      return(());
+    }
+  );
+  cond_field := match(cbd.cond_branch_field_index, .Some(x) => x, .None => source);
+  if(cond_field == usize.MAX, {
+    codegen_fatal(`internal: dispatch-mode await point ${ap.base.index.to_string()} has no dispatch field`);
+    return(());
+  });
+  depth := (ap.base.index - source);
+  cf_s := cond_field.to_string();
+  em.emit_string_line(`      // Await per branch — branches await differently-shaped futures (dispatch)`);
+  em.emit_string_line(`      switch (sm->cond_branch_${cf_s}) {`);
+  (bi : usize) = usize(0);
+  while(bi < cbd.branches.len(), {
+    match(
+      cbd.branches.get(bi),
+      .Some(branch) => if(branch.has_await, {
+        ae_opt := match(
+          branch.await_exprs,
+          .Some(aes) => aes.get(depth),
+          .None => Option(AstExpr).None
+        );
+        match(
+          ae_opt,
+          // A branch with fewer awaits than this depth never reaches this
+          // state — no case; the default skips.
+          .None => (),
+          .Some(ae) => match(
+            cond_branch_future_access(ae, ap, context),
+            .None => {
+              bt := ast_expr_token(ae);
+              codegen_fatal(`internal: dispatch-mode await point ${ap.base.index.to_string()} branch ${branch.index.to_string()} future access unresolvable (${bt.module_path}:${(bt.row + usize(1)).to_string()}:${(bt.column + usize(1)).to_string()})`);
+            },
+            .Some(acc_info) => {
+              em.emit_string_line(`        case ${branch.index.to_string()}: {`);
+              if(!(acc_info.is_named), {
+                // A live code with a NULL slot means this arm's own store
+                // never ran (e.g. a nested plain arm kept the code, or this
+                // record is a dead outer layer) — nothing to await.
+                em.emit_string_line(`          if (sm->await_future_${ap.base.index.to_string()} == NULL) {`);
+                em.emit_string_line(`            sm->state = ${next_s};`);
+                em.emit_string_line(`            goto state_${next_s};`);
+                em.emit_string_line(`          }`);
+              });
+              match(
+                while_info,
+                .Some(wi) => {
+                  wli := match(wi.while_loop_origin_index, .Some(o) => o, .None => ap.base.index);
+                  em.emit_string_line(`          // Only await if while loop is still active (not broken)`);
+                  em.emit_string_line(`          if (sm->while_loop_${wli.to_string()}_active) {`);
+                  _emit_await_suspension_core(acc_info.access.clone(), acc_info.is_io_future, next_s.clone(), resume_function_name.clone(), ae, String.from("            "), context);
+                  em.emit_string_line(`          } else {`);
+                  em.emit_string_line(`            // While loop was broken, jump to code after loop`);
+                  em.emit_string_line(`            goto after_while_loop_${wli.to_string()};`);
+                  em.emit_string_line(`          }`);
+                },
+                .None => {
+                  _emit_await_suspension_core(acc_info.access.clone(), acc_info.is_io_future, next_s.clone(), resume_function_name.clone(), ae, String.from("          "), context);
+                }
+              );
+              em.emit_string_line(`          break;`);
+              em.emit_string_line(`        }`);
+            }
+          )
+        );
+      }),
+      .None => ()
+    );
+    bi = (bi + usize(1));
+  });
+  em.emit_string_line(`        default: {`);
+  em.emit_string_line(`          // Non-await cond branch was taken, skip directly to next state`);
+  em.emit_string_line(`          sm->state = ${next_s};`);
+  em.emit_string_line(`          goto state_${next_s};`);
+  em.emit_string_line(`        }`);
+  em.emit_string_line(`      }`);
 });
 /// Emit the await suspension for a segment ending at an await: transition to the
 /// next state, the bounded inline fast-path for an already-complete future, the
@@ -1549,16 +1687,23 @@ _emit_await_suspension :: (
       );
       is_io_future := match(fut_expr_ty, .Some(t) => is_io_future_type(t), .None => false);
       in_cond := match(ap.base.is_inside_cond, .Some(b) => b, .None => false);
-      if(in_cond, {
-        em.emit_string_line(`      // Only await if the cond branch with await was taken`);
-        em.emit_string_line(`      if (sm->${ffn} != NULL) {`);
-      });
       in_while := match(ap.base.is_inside_while, .Some(b) => b, .None => false);
       while_info := if(
         in_while,
         match(context.async_while_loop_info, .Some(m) => m.get(ap.base.index), .None => Option(WhileLoopInfo).None),
         Option(WhileLoopInfo).None
       );
+      // A dispatch-mode cond point: each branch's future has its own shape, so
+      // the readiness/registration block is emitted per branch, switched on
+      // the branch actually taken.
+      if(in_cond && cond_await_point_needs_dispatch(ap, context), {
+        _emit_await_suspension_dispatch(ap, next_s, resume_function_name, while_info, context);
+        return(());
+      });
+      if(in_cond, {
+        em.emit_string_line(`      // Only await if the cond branch with await was taken`);
+        em.emit_string_line(`      if (sm->${ffn} != NULL) {`);
+      });
       match(
         while_info,
         .Some(wi) => {
@@ -1568,50 +1713,9 @@ _emit_await_suspension :: (
         },
         .None => ()
       );
-      em.emit_string_line(`      // Transition to next state after await`);
-      em.emit_string_line(`      sm->state = ${next_s};`);
-      em.emit_string_line(``);
-      em.emit_string_line(`      // Check if future is ready`);
-      em.emit_string_line(`      int future_state = sm->${ffn}->state;`);
-      em.emit_string_line(`      if (future_state == -1 || future_state == -2) {  // -1 = completed, -2 = aborted`);
-      em.emit_string_line(`        // Already complete — bounded inline fast-path to avoid scheduler round-trip`);
-      em.emit_string_line(`        if (__yo_inline_budget > 0) {`);
-      em.emit_string_line(`          __yo_inline_budget--;`);
-      em.emit_string_line(`          goto state_${next_s};`);
-      em.emit_string_line(`        }`);
-      em.emit_string_line(`        // Budget exhausted — yield once for fairness (microtask yield)`);
-      em.emit_string_line(`        __yo_async_spawn_task((void (*)(void*))${resume_function_name}, (void*)sm);`);
-      em.emit_string_line(`        return;`);
-      em.emit_string_line(`      }`);
-      em.emit_string_line(``);
-      if(!(is_io_future), {
-        em.emit_string_line(`      // Future not complete — take event loop reference and start if cold`);
-        em.emit_string_line(`      __yo_incr_rc((void*)sm->${ffn});  // event loop reference`);
-      }, {
-        em.emit_string_line(`      // Io future: no extra ref needed (completion handler does not decr_rc)`);
-      });
-      if(!(is_io_future), {
-        em.emit_string_line(`      if (future_state == 0) {  // 0 = cold (not started)`);
-        ffn_access := String.from("sm->");
-        ffn_access.push_string(ffn.clone());
-        emit_effect_injection_for_sm(ap.base.expr, ffn_access, `        `, context);
-        em.emit_string_line(`        // Cold future — start it via stored resume function pointer`);
-        em.emit_string_line(`        sm->${ffn}->__yo_resume_fn((void*)sm->${ffn});`);
-        em.emit_string_line(``);
-        em.emit_string_line(`        // Re-check: may have completed synchronously`);
-        em.emit_string_line(`        future_state = sm->${ffn}->state;`);
-        em.emit_string_line(`        if (future_state == -1 || future_state == -2) {`);
-        em.emit_string_line(`          // Completed or aborted synchronously — yield for fairness`);
-        em.emit_string_line(`          __yo_async_spawn_task((void (*)(void*))${resume_function_name}, (void*)sm);`);
-        em.emit_string_line(`          return;`);
-        em.emit_string_line(`        }`);
-        em.emit_string_line(`      }`);
-      });
-      em.emit_string_line(``);
-      em.emit_string_line(`      // Still pending — register continuation and suspend`);
-      em.emit_string_line(`      sm->${ffn}->continuation_fn = (void (*)(void*))${resume_function_name};`);
-      em.emit_string_line(`      sm->${ffn}->continuation_sm = (void*)sm;`);
-      em.emit_string_line(`      return;`);
+      ffn_access := String.from("sm->");
+      ffn_access.push_string(ffn.clone());
+      _emit_await_suspension_core(ffn_access, is_io_future, next_s.clone(), resume_function_name.clone(), ap.base.expr, String.from("      "), context);
       match(
         while_info,
         .Some(wi) => {
@@ -1741,6 +1845,141 @@ _await_target_has_struct_field :: (
   });
   match(context.state_machine_field_aliases, .Some(a) => a.contains_key(target_variable_id), .None => false)
 });
+/// Dispatch-mode result extraction for a shared cond/match await point: the
+/// abort check, result copy and slot release are emitted once per awaiting
+/// branch, each against THAT branch's future access and result type. The
+/// uniform path's single representative-typed extraction reads the wrong
+/// offsets (or is skipped outright when the representative's result is unit)
+/// for every differently-shaped branch. Destinations, per branch: its own
+/// bound variable's field; else the cond's registered target when the branch
+/// VALUE is the await itself; else nothing (a discarded await result stays
+/// owned by the future and is released with it).
+_emit_prev_await_result_extraction_dispatch :: (
+  fn(
+    async_block_id : String,
+    prev_await : AwaitPoint,
+    cbd : AsyncCondBranchInfo,
+    context : FunctionGenerationContext,
+    cross_boundary_ids : Option(HashSet(String))
+  ) -> unit
+)({
+  em := context.base.emitter;
+  source := match(prev_await.base.cond_branch_source_index, .Some(s) => s, .None => prev_await.base.index);
+  cond_field := match(cbd.cond_branch_field_index, .Some(x) => x, .None => source);
+  depth := (prev_await.base.index - source);
+  prev_idx_s := prev_await.base.index.to_string();
+  slot := `sm->await_future_${prev_idx_s}`;
+  em.emit_string_line(`      // Extract per branch — branches await differently-shaped futures (dispatch)`);
+  em.emit_string_line(`      switch (sm->cond_branch_${cond_field.to_string()}) {`);
+  (bi : usize) = usize(0);
+  while(bi < cbd.branches.len(), {
+    match(
+      cbd.branches.get(bi),
+      .Some(branch) => if(branch.has_await, {
+        ae_opt := match(
+          branch.await_exprs,
+          .Some(aes) => aes.get(depth),
+          .None => Option(AstExpr).None
+        );
+        match(
+          ae_opt,
+          .None => (),
+          .Some(ae) => match(
+            cond_branch_future_access(ae, prev_await, context),
+            .None => {
+              bt2 := ast_expr_token(ae);
+              codegen_fatal(`internal: dispatch-mode await point ${prev_idx_s} branch ${branch.index.to_string()} future access unresolvable at extraction (${bt2.module_path}:${(bt2.row + usize(1)).to_string()}:${(bt2.column + usize(1)).to_string()})`);
+            },
+            .Some(acc_info) => {
+              acc := acc_info.access;
+              em.emit_string_line(`        case ${branch.index.to_string()}: {`);
+              if(!(acc_info.is_named), {
+                // NULL slot: this arm's own store never ran (nested plain arm
+                // kept the code / dead outer layer) — nothing to extract.
+                em.emit_string_line(`          if (${slot} != NULL) {`);
+              });
+              // Abort check. A named future stays owned by its binding (the
+              // dispose drops it); the anonymous slot ref is released here.
+              em.emit_string_line(`          // Check if the awaited Future was aborted`);
+              em.emit_string_line(`          if (${acc}->state == -2) {`);
+              if(!(acc_info.is_named), {
+                em.emit_string_line(`            __yo_decr_rc((void*)${slot});`);
+                em.emit_string_line(`            ${slot} = NULL;`);
+              });
+              emit_async_future_escape(em, `            `, Option(String).None, Option(String).Some(async_block_id.clone()));
+              em.emit_string_line(`          }`);
+              // This branch's result copy.
+              rt_opt := acc_info.result_type;
+              is_unit_result := match(
+                rt_opt,
+                .Some(rt) => (
+                  is_unit_type(rt) || (
+                    is_some_type(rt) && match(rt, .SomeT({ id }) => lookup_some_resolved_concrete(id).is_none(), _ => false)
+                  )
+                ),
+                .None => true
+              );
+              (dest : Option(String)) = Option(String).None;
+              match(
+                branch.await_target_variable_id,
+                .Some(btvid) => if(_await_target_has_struct_field(btvid.clone(), cross_boundary_ids, context), {
+                  fname := get_state_machine_field_name(btvid, Option(String).Some(String.from("local")), context.state_machine_field_aliases);
+                  d := String.from("sm->");
+                  d.push_string(fname);
+                  dest = Option(String).Some(d);
+                }),
+                // The branch VALUE is the await itself (no binding, nothing
+                // after it) — its result IS the cond's value.
+                .None => if(match(branch.remaining_exprs, .Some(r) => (r.len() == usize(0)), .None => true), {
+                  match(
+                    cbd.target_assignment_code,
+                    .Some(tac) => {
+                      dest = Option(String).Some(tac.clone());
+                    },
+                    .None => ()
+                  );
+                })
+              );
+              if(!(is_unit_result), {
+                match(
+                  dest,
+                  .Some(d) => {
+                    rt := match(rt_opt, .Some(t) => t, .None => TypeValue.Unit);
+                    em.emit_string_line(`          // Extract result from await ${prev_idx_s} (branch ${branch.index.to_string()})`);
+                    if(type_contains_rc_type(rt), {
+                      match(
+                        get_dup_function_for_type(rt, context),
+                        .Some(dup) => em.emit_string_line(`          ${d} = ${dup}(${acc}->result);`),
+                        .None => {
+                          dup_code := generate_dup_code_for_value(`${acc}->result`, rt, context);
+                          em.emit_string_line(`          ${d} = ${dup_code};`);
+                        }
+                      );
+                    }, {
+                      em.emit_string_line(`          ${d} = ${acc}->result;`);
+                    });
+                  },
+                  .None => ()
+                );
+              });
+              if(!(acc_info.is_named), {
+                em.emit_string_line(`          if (${slot} != NULL) { __yo_decr_rc((void*)${slot}); ${slot} = NULL; }`);
+                em.emit_string_line(`          }`);
+              });
+              em.emit_string_line(`          break;`);
+              em.emit_string_line(`        }`);
+            }
+          )
+        );
+      }),
+      .None => ()
+    );
+    bi = (bi + usize(1));
+  });
+  em.emit_string_line(`        default: break;`);
+  em.emit_string_line(`      }`);
+  em.emit_string_line(String.from(""));
+});
 /// Emit the previous-await result extraction at the top of a resume state: the
 /// abort check (Future state == -2 → escape), the result copy (into
 /// `await_result_N` for cond awaits, or directly into the target SM var for
@@ -1754,6 +1993,22 @@ _emit_prev_await_result_extraction :: (
   em := context.base.emitter;
   pffn := get_future_field_name(prev_await, analysis);
   prev_idx_s := (state_number - usize(1)).to_string();
+  // Dispatch-mode cond point: extraction is per branch (each branch's own
+  // future shape, result type and destination) — the single
+  // representative-typed extraction below would read the wrong offsets.
+  if(match(prev_await.base.is_inside_cond, .Some(b) => b, .None => false) && cond_await_point_needs_dispatch(prev_await, context), {
+    match(
+      _dispatch_cbd(prev_await, context),
+      .Some(cbd) => {
+        _emit_prev_await_result_extraction_dispatch(async_block_id.clone(), prev_await, cbd, context, cross_boundary_ids);
+        return(());
+      },
+      .None => {
+        codegen_fatal(`internal: dispatch-mode await point ${prev_await.base.index.to_string()} has no cond branch info at extraction`);
+        return(());
+      }
+    );
+  });
   // Abort check.
   em.emit_string_line(`      // Check if the awaited Future was aborted`);
   em.emit_string_line(`      if (sm->${pffn}->state == -2) {`);
@@ -1891,6 +2146,10 @@ _chain_additional_remaining :: (
   ) -> unit
 )({
   has_await := (additional_remaining.len() > usize(0));
+  chained_awaits := ArrayList(AstExpr).new();
+  if(has_await, {
+    collect_branch_await_exprs(branch_value.clone(), chained_awaits);
+  });
   cb := CondBranch(
     index : branch_index,
     value : branch_value,
@@ -1899,7 +2158,11 @@ _chain_additional_remaining :: (
     deferred_drop_expressions : deferred_drops,
     // A chained OUTER-cond continuation, not an arm with its own `x := await`
     // binding — its await result (if any) belongs to the inner cond's branch.
-    await_target_variable_id : Option(String).None
+    await_target_variable_id : Option(String).None,
+    await_exprs : cond(
+      has_await => Option(ArrayList(AstExpr)).Some(chained_awaits),
+      true => Option(ArrayList(AstExpr)).None
+    )
   );
   if(context.async_cond_branch_info.is_none(), {
     context.async_cond_branch_info = Option(HashMap(usize, AsyncCondBranchInfo)).Some(HashMap(usize, AsyncCondBranchInfo).new());
@@ -2214,6 +2477,13 @@ _emit_cond_branch_continuation :: (
     .Some(cbi_map) => match(
       cbi_map.get(prev_await.base.index),
       .Some(cbd) => {
+        // Dispatch-mode point: the per-branch extraction already wrote each
+        // branch's own destination — the representative-driven copies below
+        // (bfield copy, post-switch target copy) must not run.
+        dispatch_mode := (
+          match(prev_await.base.is_inside_cond, .Some(b) => b, .None => false)
+          && cond_await_point_needs_dispatch(prev_await, context)
+        );
         (any_await : bool) = false;
         (bi : usize) = usize(0);
         while((bi < cbd.branches.len()) && !(any_await), {
@@ -2249,24 +2519,41 @@ _emit_cond_branch_continuation :: (
                 // binding — every other arm read a zero-initialised field and
                 // the program silently produced `false`/`0`. Skip the arm the
                 // pre-switch copy already covers, so it is not written twice.
-                match(
-                  branch.await_target_variable_id,
-                  // Emit only when this is NOT the arm the pre-switch copy
-                  // already covers, AND the binding really lives in the state
-                  // struct (a segment-local optimized out of it has no field to
-                  // write), AND it has THIS await point's result type — an arm
-                  // may hold a SECOND await that suspends into a later state,
-                  // and its binding is that state's business.
-                  .Some(btvid) => if((
-                    match(prev_await.base.target_variable_id, .Some(ptv) => !(ptv == btvid), .None => true)
-                    && _await_target_has_struct_field(btvid.clone(), cross_boundary_ids, context)
-                  )
-                  && _branch_target_matches_await_type(btvid.clone(), prev_await.result_type, context), {
-                    bfield := get_state_machine_field_name(btvid, Option(String).Some(String.from("local")), context.state_machine_field_aliases);
-                    em.emit_string_line(`          sm->${bfield} = sm->await_result_${prev_await.base.index.to_string()};`);
-                  }),
-                  .None => ()
-                );
+                if(!(dispatch_mode), {
+                  match(
+                    branch.await_target_variable_id,
+                    // Emit only when this is NOT the arm the pre-switch copy
+                    // already covers, AND the binding really lives in the state
+                    // struct (a segment-local optimized out of it has no field to
+                    // write), AND it has THIS await point's result type — an arm
+                    // may hold a SECOND await that suspends into a later state,
+                    // and its binding is that state's business.
+                    .Some(btvid) => if((
+                      match(prev_await.base.target_variable_id, .Some(ptv) => !(ptv == btvid), .None => true)
+                      && _await_target_has_struct_field(btvid.clone(), cross_boundary_ids, context)
+                    )
+                    && _branch_target_matches_await_type(btvid.clone(), prev_await.result_type, context), {
+                      bfield := get_state_machine_field_name(btvid, Option(String).Some(String.from("local")), context.state_machine_field_aliases);
+                      em.emit_string_line(`          sm->${bfield} = sm->await_result_${prev_await.base.index.to_string()};`);
+                    }),
+                    // The branch VALUE is the await itself (no binding, nothing
+                    // after it): nothing else ever assigns the registered
+                    // target — the extraction filled `await_result_N`, so hand
+                    // it over here (shape 4:
+                    // `r := cond(flag => io.await(f, io), true => v)` returned
+                    // a zeroed r). Ownership transfers, matching the
+                    // no-target-assignment fallback below.
+                    .None => if(match(branch.remaining_exprs, .Some(r) => (r.len() == usize(0)), .None => true), {
+                      match(
+                        cbd.target_assignment_code,
+                        .Some(tac) => {
+                          em.emit_string_line(`          ${tac} = sm->await_result_${prev_await.base.index.to_string()};`);
+                        },
+                        .None => ()
+                      );
+                    })
+                  );
+                });
                 _emit_cond_branch_remaining(branch, prev_await, segment, body_expr, future_type, capture_type, analysis, cond_field, cbd.target_assignment_code, `          `, context);
                 if(!(skip_switch), {
                   em.emit_string_line(`          break;`);
@@ -2318,7 +2605,7 @@ _emit_cond_branch_continuation :: (
           // is emitted AFTER the branch switch, so with target_assignment_code
           // present it would overwrite the branch value (computed after the
           // await) with the raw await result. Mirrors state-machine.ts.
-          if(cbd.target_assignment_code.is_none(), {
+          if(cbd.target_assignment_code.is_none() && !(dispatch_mode), {
             match(
               cbd.target_variable_id,
               .Some(tvid) => {
@@ -3063,12 +3350,17 @@ generate_async_block_resume_function :: (
             .Some(prev_await) => {
               pffn := get_future_field_name(prev_await, analysis);
               in_cond := match(prev_await.base.is_inside_cond, .Some(b) => b, .None => false);
-              if(in_cond, {
+              // Dispatch-mode points guard PER CASE (a named arm never stores,
+              // so this representative-keyed slot guard would skip its
+              // extraction entirely); the case switches default to no-ops when
+              // no awaiting arm ran.
+              guard_slot := (in_cond && !(cond_await_point_needs_dispatch(prev_await, context)));
+              if(guard_slot, {
                 em.emit_string_line(`      if (sm->${pffn} != NULL) {`);
               });
               _emit_prev_await_result_extraction(async_block_id, segment.state_number, prev_await, analysis, context, cross_boundary_ids);
               _emit_cond_branch_continuation(async_block_id, prev_await, segment, body_expr, future_type, capture_type, analysis, context, cross_boundary_ids);
-              if(in_cond, {
+              if(guard_slot, {
                 em.emit_string_line(`      }`);
               });
               _emit_outer_chained_branch_layers(prev_await, segment, body_expr, future_type, capture_type, analysis, context);
