@@ -108,9 +108,13 @@ mimalloc is impossible here.
 
 ### Upstream has no source fix (but has a BUILD-SYSTEM one)
 
-The vendored mimalloc is upstream tag **v3.3.2**
-(`30b2d9d89099bee08e9f67a1ffb3e12e7ba45227`, `MI_MALLOC_VERSION 30302`), clean,
-no local modifications. The `_M_ARM64` blocks in `include/mimalloc/atomic.h` are
+The vendored mimalloc was upstream tag **v3.3.2**
+(`30b2d9d89099bee08e9f67a1ffb3e12e7ba45227`, `MI_MALLOC_VERSION 30302`) when
+this was investigated, clean and unmodified. **It is now v3.5.0**
+(`18b08671c9302247bfb682286e6bf3cc1773f801`, `MI_MALLOC_VERSION 30500`), and the
+bump changes NOTHING here — the `_M_ARM64` guard blocks are byte-identical
+between the two tags, which is precisely why the bump was not treated as a fix
+for this. The `_M_ARM64` blocks in `include/mimalloc/atomic.h` are
 **byte-identical** at the newest tag (v3.5.0) and at the tips of `origin/main`,
 `origin/dev` and `origin/dev3` (tip `604c252a`, 2026-08-19). `__clang__` appears
 **zero** times in that file.
