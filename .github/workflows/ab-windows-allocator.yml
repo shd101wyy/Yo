@@ -1,0 +1,287 @@
+name: A/B — Windows allocator (mimalloc vs system)
+
+# Answers two questions the tree has never had evidence for.
+#
+# Q1 (windows-x64): is mimalloc actually better than the system allocator
+#     THERE? windows-x64 ships mimalloc purely because the system-allocator
+#     switch "was measured on macOS only" — never because Windows was measured.
+#     On macOS mimalloc lost on BOTH axes (3.3x on markdown_it_yo, +53% wall on
+#     the r15 self-emit), which is why macOS flipped.
+#
+# Q2 (windows-arm64): mimalloc DOES support Windows ARM64 upstream. What fails
+#     is narrower — clang compiling static.c as plain C11 for
+#     aarch64-windows-msvc, because atomic.h picks intrinsics on _M_ARM64 alone
+#     and clang defines that for MSVC compat without providing __ldar64 /
+#     __stlr64. Upstream's own mitigation is MI_USE_CXX (the C++ std::atomic
+#     path) via CMake, which Yo bypasses. So: does compiling static.c as C++
+#     make mimalloc work on arm64? Untested assertion until this job runs.
+#
+# WHY THE MEASUREMENT IS CHEAP: the allocator changes only a preprocessor block
+# in the emitted C, and that block is `#if __has_include(<mimalloc.h>)` with a
+# malloc/free `#else`. So ONE mimalloc-flavored emit links BOTH ways — with the
+# include path for the mimalloc arm, without it for the system arm — and the two
+# translation units are byte-identical after preprocessing (verified by md5).
+# The arms therefore differ in the allocator and nothing else.
+
+on:
+  workflow_dispatch:
+    inputs:
+      workload:
+        description: "Workload for the timed arms"
+        required: true
+        default: "check-std"
+        type: choice
+        options:
+          - check-std
+          - check-src
+      reps:
+        description: "Repetitions per arm (min is reported; n=1 is not a measurement)"
+        required: true
+        default: "3"
+
+env:
+  SEED_VERSION: v0.2.12
+  APT_OPTS: "-o DPkg::Lock::Timeout=600 -o Acquire::Retries=3"
+
+jobs:
+  emit:
+    name: Cross-emit Windows C (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: windows-x64
+            yo_target: x86_64-windows-msvc
+          - target: windows-arm64
+            yo_target: aarch64-windows-msvc
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Add swap space
+        run: |
+          sudo fallocate -l 32G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          free -h
+
+      - name: Tune the kernel for a swap-heavy emit
+        run: |
+          sudo modprobe zswap 2>/dev/null || true
+          echo 1 | sudo tee /sys/module/zswap/parameters/enabled >/dev/null 2>&1 || true
+          echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled >/dev/null 2>&1 || true
+
+      - name: Install liburing
+        run: sudo apt-get $APT_OPTS update && sudo apt-get $APT_OPTS install -y liburing-dev
+
+      - name: Install the seed compiler
+        uses: ./.github/actions/install-seed
+        with:
+          version: ${{ env.SEED_VERSION }}
+
+      # ALWAYS mimalloc-flavored, for BOTH arms. The `__has_include` guard is
+      # what lets the system arm fall out of the same file: compiled without
+      # -I vendor/mimalloc/include, this C preprocesses identically to an
+      # `--allocator system` emit. Emitting twice would introduce a second
+      # variable (two compiler runs) into a one-variable experiment.
+      - name: Cross-emit the C (mimalloc-flavored)
+        env:
+          YO_MAIN_STACK_MB: "4096"
+        run: |
+          mkdir -p cross
+          yo compile src/main.yo --release --allocator mimalloc \
+            --std-path ./std --target ${{ matrix.yo_target }} \
+            --emit-c --skip-c-compiler -o "cross/yo-${{ matrix.target }}" > /dev/null
+          ls -la cross/
+
+      - name: Upload the C
+        uses: actions/upload-artifact@v4
+        with:
+          name: ab-c-${{ matrix.target }}
+          path: cross/yo-${{ matrix.target }}.c
+          retention-days: 1
+          if-no-files-found: error
+
+  measure-x64:
+    name: "Q1: measure mimalloc vs system (windows-x64)"
+    needs: emit
+    runs-on: windows-latest
+    timeout-minutes: 240
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install LLVM/Clang
+        run: |
+          choco install llvm -y
+          echo "C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ab-c-windows-x64
+          path: cross
+
+      # ONE source, TWO links. The only difference is whether mimalloc is on
+      # the include path and in the TU list.
+      - name: Link both arms
+        shell: bash
+        run: |
+          set -x
+          clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
+            --target=x86_64-pc-windows-msvc \
+            cross/yo-windows-x64.c vendor/mimalloc/src/static.c \
+            -I vendor/mimalloc/include \
+            -lws2_32 -lbcrypt -ladvapi32 -o yo-mimalloc.exe
+          clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
+            --target=x86_64-pc-windows-msvc \
+            cross/yo-windows-x64.c \
+            -lws2_32 -lbcrypt -ladvapi32 -o yo-system.exe
+
+      # Prove the arms are what they claim BEFORE timing them. Without this the
+      # experiment silently degenerates: if the mimalloc arm failed to pick up
+      # the include path it would run on the CRT heap too, and the A/B would
+      # confidently report "no difference" — which is also the result a real
+      # null would produce. Indistinguishable failure and success is the worst
+      # property a measurement can have.
+      - name: Assert the two arms really differ
+        shell: bash
+        run: |
+          MI=$(llvm-nm yo-mimalloc.exe 2>/dev/null | grep -c "mi_malloc\|mi_heap_malloc" || true)
+          SY=$(llvm-nm yo-system.exe   2>/dev/null | grep -c "mi_malloc\|mi_heap_malloc" || true)
+          echo "mimalloc arm mi_* hits: $MI"
+          echo "system   arm mi_* hits: $SY"
+          [ "$MI" -gt 0 ] || { echo "::error::mimalloc arm has no mi_* symbols — arms are identical, experiment void"; exit 1; }
+          [ "$SY" -eq 0 ] || { echo "::error::system arm picked up mimalloc anyway (a <mimalloc.h> on the default include path?) — experiment void"; exit 1; }
+          ./yo-mimalloc.exe --version
+          ./yo-system.exe --version
+
+      - name: Measure both arms
+        shell: pwsh
+        env:
+          YO_MAIN_STACK_MB: "4096"
+        run: |
+          $target = if ('${{ inputs.workload }}' -eq 'check-src') { './src' } else { './std' }
+          $reps = [int]'${{ inputs.reps }}'
+          $env:YO_STD = "$PWD/std"
+
+          # Warm the filesystem cache once with each binary so the FIRST timed
+          # rep of arm A is not paying for cold I/O that arm B then benefits
+          # from. Ordering effects are the classic way a two-arm CI benchmark
+          # invents a winner.
+          Write-Host "warming..."
+          & ./yo-mimalloc.exe check $target *> $null
+          & ./yo-system.exe   check $target *> $null
+
+          Write-Host "`n=== mimalloc ==="
+          ./scripts/bootstrap/measure-windows.ps1 -Exe ./yo-mimalloc.exe `
+            -Arguments check,$target -Reps $reps -Label mimalloc -JsonOut mimalloc.json
+          Write-Host "`n=== system ==="
+          ./scripts/bootstrap/measure-windows.ps1 -Exe ./yo-system.exe `
+            -Arguments check,$target -Reps $reps -Label system -JsonOut system.json
+
+      - name: Compare
+        shell: pwsh
+        run: |
+          $m = Get-Content mimalloc.json | ConvertFrom-Json
+          $s = Get-Content system.json   | ConvertFrom-Json
+          $wallPct = (($m.wallMinSec - $s.wallMinSec) / $s.wallMinSec) * 100
+          $peakPct = (($m.peakMinB   - $s.peakMinB)   / $s.peakMinB)   * 100
+
+          Write-Host ""
+          Write-Host ("{0,-10} {1,12} {2,14}" -f 'arm', 'min wall (s)', 'min peak (MB)')
+          Write-Host ("{0,-10} {1,12:N2} {2,14:N0}" -f 'mimalloc', $m.wallMinSec, ($m.peakMinB/1MB))
+          Write-Host ("{0,-10} {1,12:N2} {2,14:N0}" -f 'system',   $s.wallMinSec, ($s.peakMinB/1MB))
+          Write-Host ("mimalloc vs system: wall {0:+0.0;-0.0}%  peak {1:+0.0;-0.0}%" -f $wallPct, $peakPct)
+
+          # Refuse to call a winner inside the noise. The musl A/B in this repo
+          # produced +2.9% then -4.5% on consecutive single runs — it could not
+          # agree on the SIGN — and that number was quoted as fact for a while.
+          # The guard: a wall delta smaller than the larger arm's own
+          # run-to-run spread is not a result.
+          $noise = [Math]::Max($m.wallSpread, $s.wallSpread)
+          $delta = [Math]::Abs($m.wallMinSec - $s.wallMinSec)
+          Write-Host ("wall delta {0:N2}s vs within-arm spread {1:N2}s" -f $delta, $noise)
+          if ($delta -lt $noise) {
+            Write-Host "::warning::wall-clock difference is INSIDE run-to-run noise — do not quote a wall winner from this run. Peak memory may still be conclusive; it is far less noisy."
+          }
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ab-windows-x64-results
+          path: "*.json"
+
+  probe-arm64-cxx:
+    name: "Q2: can mimalloc build on windows-arm64 via the C++ route?"
+    needs: emit
+    runs-on: windows-11-arm
+    timeout-minutes: 120
+    # Exploratory: a NO here is a valid, useful answer and must not read as a
+    # broken workflow.
+    continue-on-error: true
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install LLVM/Clang
+        run: |
+          choco install llvm -y
+          echo "C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ab-c-windows-arm64
+          path: cross
+
+      - name: "Route A (baseline): static.c as plain C11 — expected to FAIL"
+        shell: bash
+        continue-on-error: true
+        run: |
+          clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
+            --target=aarch64-pc-windows-msvc \
+            cross/yo-windows-arm64.c vendor/mimalloc/src/static.c \
+            -I vendor/mimalloc/include \
+            -lws2_32 -lbcrypt -ladvapi32 -o yo-arm-c.exe 2>&1 | tail -30
+          echo "route A rc=${PIPESTATUS[0]}"
+
+      # THE QUESTION. Upstream's own mitigation for clang on ARM64 is
+      # MI_USE_CXX=ON, which routes to the `#if defined(__cplusplus)`
+      # std::atomic path and skips the MSVC-C intrinsic wrapper entirely. Yo
+      # bypasses mimalloc's CMake, so this does by hand what that flag does.
+      # The open risk is the link, not the compile: C++ pulls in the MSVC C++
+      # runtime, which the current link line does not provide.
+      - name: "Route B: compile static.c as C++ (upstream's MI_USE_CXX, by hand)"
+        id: route_b
+        shell: bash
+        run: |
+          clang -w -O2 --target=aarch64-pc-windows-msvc \
+            -c -x c++ vendor/mimalloc/src/static.c \
+            -I vendor/mimalloc/include -o mimalloc_cxx.o 2>&1 | tail -30
+          echo "--- compiled; now linking ---"
+          clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
+            --target=aarch64-pc-windows-msvc \
+            cross/yo-windows-arm64.c mimalloc_cxx.o \
+            -I vendor/mimalloc/include \
+            -lws2_32 -lbcrypt -ladvapi32 -o yo-arm-cxx.exe 2>&1 | tail -30
+
+      - name: Verify the C++ route produced a real mimalloc arm64 binary
+        shell: bash
+        run: |
+          command -v llvm-nm >/dev/null || { echo "::error::llvm-nm missing"; exit 1; }
+          MI=$(llvm-nm yo-arm-cxx.exe 2>/dev/null | grep -c "mi_malloc\|mi_heap_malloc" || true)
+          echo "mi_* symbol hits: $MI"
+          [ "$MI" -gt 0 ] || { echo "::error::linked, but no mi_* symbols — the __has_include guard fell back to the CRT heap"; exit 1; }
+          MACHINE=$(llvm-readobj --file-headers yo-arm-cxx.exe | grep -i "Machine" | head -1)
+          echo "$MACHINE"
+          echo "$MACHINE" | grep -qi "ARM64\|AA64" || { echo "::error::not an ARM64 binary"; exit 1; }
+          ./yo-arm-cxx.exe --version
+          echo "ROUTE B WORKS: mimalloc builds, links and runs on windows-arm64 via the C++ route."
