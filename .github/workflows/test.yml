@@ -77,7 +77,7 @@ env:
   #
   # The raised timeouts (#137, #167) stay. They now buy headroom rather than
   # bare survival, and the cliff they guard is still there for the next seed.
-  SEED_VERSION: v0.2.12
+  SEED_VERSION: v0.2.13
 
   # apt-get waits on /var/lib/dpkg/lock-frontend FOREVER by default, and the
   # runner images run unattended-upgrades / apt-daily timers in the background.
@@ -299,13 +299,13 @@ jobs:
     strategy:
       fail-fast: false
       # One leg per release-bundle target (see release.yml's seed matrix):
-      # linux-x64, linux-arm64, macos-arm64, macos-x64 (macos-26-intel is
-      # the last Intel label GitHub offers), windows-x64. NOT yet covered
-      # here: windows-arm64 (no published seed bundle exists — v0.2.12's
-      # release leg died before uploading one; add a windows-11-arm leg the
-      # release after a windows-arm64 bundle first ships) and
-      # linux-arm64-musl (exercised by the static-musl job and the
-      # musl-only migration, plans/backlog — not a separate leg here).
+      # linux-x64/linux-arm64 (musl bundles — Linux is musl-only), macos-arm64,
+      # macos-x64 (macos-26-intel is the last Intel label GitHub offers),
+      # windows-x64, and windows-arm64 (added once v0.2.13 shipped the first
+      # windows-arm64 seed bundle). windows-11-arm doubles as the strictest
+      # C-conformance runner: it installs clang 22 (no pre-installed LLVM,
+      # unlike windows-latest's 20), where -Wincompatible-pointer-types is a
+      # default ERROR.
       matrix:
         os:
           - ubuntu-latest
@@ -313,6 +313,7 @@ jobs:
           - macos-latest
           - macos-26-intel
           - windows-latest
+          - windows-11-arm
 
     steps:
       - name: Checkout repository
