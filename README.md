@@ -31,7 +31,6 @@ Yo aims to be **Simple** and **Fast** (around 0% - 15% slower than C).
   - [Hello World](#hello-world)
   - [Example Projects](#example-projects)
 - [Contributing](#contributing)
-  - [Setup](#setup)
 - [Editor Support](#editor-support)
 - [Version Management](#version-management)
 - [AI Agent Skills](#ai-agent-skills)
@@ -228,66 +227,9 @@ export(main);
 
 ## Contributing
 
-The `Yo` compiler is **self-hosted**: it is written in Yo and lives in
-[`src/`](./src/). Building it needs an already-installed `yo` binary
-(get one from the [install script](#install-script-recommended)) plus a C
-compiler — there is no TypeScript, Node.js, npm, or bun in the toolchain any
-more.
-
-Yo is primarily developed on the Steam Deck LCD (Linux). The compiler currently transpiles Yo to C; to produce
-machine code you must have a C compiler (for example `gcc`, `clang`, `zig`, `emcc`, etc).
-
-Please install [nix](https://nixos.org/download.html) and [direnv](https://direnv.net/) before proceeding.
-
-The dev environment is defined in [shell.nix](./shell.nix). You can also manually install the dependencies listed in the file.
-
-### Setup
-
-```bash
-$ cd Yo
-$ direnv allow . # Run this command to activate the nix shell.
-                 # You only need to run it once.
-```
-
-There is no package-manager install step. The only vendored dependencies are git
-submodules:
-
-```bash
-$ git submodule update --init --recursive
-```
-
-Type-check the compiler sources (evaluator only, no codegen — this is the fast
-iteration loop):
-
-```bash
-$ yo check ./src
-```
-
-Build the compiler from source. Always pass `--release`: at `-O0` the big
-evaluator functions have multi-megabyte stack frames and deep compile-time
-recursion exhausts the stack.
-
-```bash
-$ yo compile src/main.yo --release -o /tmp/yo-self-bin
-```
-
-> **There is no watch-and-rebuild loop any more.** `bun run dev` rebuilt the
-> TypeScript compiler on every file change; nothing replaces it. Re-run the
-> `yo compile` above after a change.
-
-Try the compiler you just built on a scratch program (`./tmp/` is gitignored —
-put throwaway `.yo` files there):
-
-```bash
-$ /tmp/yo-self-bin compile ./tmp/fixme.yo --release -o /tmp/fixme && /tmp/fixme
-```
-
-Run the test suites with `yo test`:
-
-```bash
-$ yo test ./tests --exclude tests/internal --exclude tests/cli-cases --bail
-$ yo test ./tests/internal --parallel 1   # the compiler's own tests
-```
+The compiler is written in Yo and builds itself. See
+**[CONTRIBUTING.md](./CONTRIBUTING.md)** for the dev environment, the build loop,
+and how to run the test suites — LLM-assisted contributions included.
 
 ## Editor Support
 

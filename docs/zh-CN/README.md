@@ -31,7 +31,6 @@ Yo 的目标是 **简单** 和 **快速**（比 C 语言慢约 0% - 15%）。
   - [Hello World](#hello-world)
   - [示例项目](#示例项目)
 - [贡献](#贡献)
-  - [环境设置](#环境设置)
 - [编辑器支持](#编辑器支持)
 - [版本管理](#版本管理)
 - [AI Agent 技能包](#ai-agent-技能包)
@@ -224,59 +223,8 @@ export(main);
 
 ## 贡献
 
-`Yo` 编译器是**自举**的：它用 Yo 自身编写，代码位于 [`src/`](../../src/)。
-构建它需要一个已经安装好的 `yo` 二进制（可以用[安装脚本](#安装脚本推荐)获取）以及一个
-C 编译器 —— 工具链中已经不再有 TypeScript、Node.js、npm 或 bun。
-
-Yo 主要在 Steam Deck LCD（Linux）上开发。编译器目前将 Yo 转换为 C；要生成机器码，你必须有一个 C 编译器（例如 `gcc`、`clang`、`zig`、`emcc` 等）。
-
-请继续之前安装 [nix](https://nixos.org/download.html) 和 [direnv](https://direnv.net/)。
-
-开发环境定义在 [shell.nix](../../shell.nix) 中。你也可以手动安装文件中列出的依赖项。
-
-### 环境设置
-
-```bash
-$ cd Yo
-$ direnv allow . # 运行此命令激活 nix shell。
-                  # 只需运行一次。
-```
-
-没有包管理器的安装步骤。唯一的第三方依赖是 git 子模块：
-
-```bash
-$ git submodule update --init --recursive
-```
-
-对编译器源码做类型检查（只跑求值器，不生成代码 —— 这是最快的迭代循环）：
-
-```bash
-$ yo check ./src
-```
-
-从源码构建编译器。务必加上 `--release`：在 `-O0` 下，求值器中那些大函数的栈帧有好几
-兆字节，编译期的深度递归会耗尽栈空间。
-
-```bash
-$ yo compile src/main.yo --release -o /tmp/yo-self-bin
-```
-
-> **监视重建的循环已经没有了。** `bun run dev` 会在文件变更时重新构建 TypeScript
-> 编译器；它没有任何替代品。改动之后请重新运行上面的 `yo compile`。
-
-用刚构建出来的编译器试跑一个临时程序（`./tmp/` 已被 gitignore —— 请把一次性的 `.yo`
-文件放在那里）：
-
-```bash
-$ /tmp/yo-self-bin compile ./tmp/fixme.yo --release -o /tmp/fixme && /tmp/fixme
-```
-
-用 `yo test` 运行测试套件：
-
-```bash
-$ yo test ./tests --exclude tests/internal --exclude tests/cli-cases --bail
-$ yo test ./tests/internal --parallel 1   # 编译器自身的测试
-```
+编译器用 Yo 编写并自举。开发环境、构建流程与测试运行方式见
+**[CONTRIBUTING.md](./CONTRIBUTING.md)** —— 也欢迎借助 LLM 完成的贡献。
 
 ## 编辑器支持
 
