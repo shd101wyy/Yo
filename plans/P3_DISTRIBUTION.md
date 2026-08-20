@@ -324,12 +324,34 @@ than passing green:
    coloring shrinks frames ~100x versus the `-O0` case that originally exposed
    the stack ceiling — so no threshold hunt with this workload can discriminate.
 
-**What would close it:** a direct probe rather than a threshold hunt. Compile a
-small program that recurses to a fixed depth needing a few MB, run it at
-`YO_MAIN_STACK_MB=1` and `=64`, and check the outcomes differ. Every compiled Yo
-program runs `main` on that same worker thread, so it exercises the identical
-codegen path in seconds. This matters more under musl-only than today: the
-static binary becomes the compiler everyone runs.
+**The probe now exists and is validated:**
+`scripts/bootstrap/probe-stack-sizing.sh <path-to-yo>`. It compiles a program
+that recurses 500,000 deep (~12 MB of frames), runs it at `YO_MAIN_STACK_MB=1`
+and `=64`, and requires the outcomes to DIFFER. Every compiled Yo program runs
+`main` on the same worker thread, so this exercises the identical codegen path
+in seconds rather than the 76 minutes the A/B cost.
+
+Measured on macOS/arm64 with the v0.2.9 bundle:
+
+| `YO_MAIN_STACK_MB` | rc |
+| --- | --- |
+| 1 | 138 (crash) |
+| 4 | 138 (crash) |
+| 16 / 64 / 256 | 0 |
+
+Threshold between 4 and 16 MB, consistent with 500k frames at ~24 bytes. **The
+request is honoured there.** What remains is running the same probe against the
+STATIC MUSL bundle on Linux, which is the actual open question — that belongs in
+the musl-only migration PR, since it is the evidence required before dropping
+the glibc legs.
+
+**The trap the script encodes**, because the first two attempts at this both
+failed: "non-tail recursion" is not sufficient. `n + recur(n - 1)` is linearised
+by LLVM's accumulator tail-call transform (addition is associative), and the
+probe then reports 500,000 frames fitting in 1 MB — 2 bytes per frame, i.e. no
+recursion happened at all. The fix is an `inout` local whose address escapes,
+which pins one real frame per level. A probe that cannot fail proves nothing;
+check the arithmetic of bytes-per-frame before believing a green result.
 
 ### The trap: no musl liburing ⇒ a binary that links fine and cannot work
 
