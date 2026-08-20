@@ -77,7 +77,7 @@ env:
   #
   # The raised timeouts (#137, #167) stay. They now buy headroom rather than
   # bare survival, and the cliff they guard is still there for the next seed.
-  SEED_VERSION: v0.2.11
+  SEED_VERSION: v0.2.12
 
   # apt-get waits on /var/lib/dpkg/lock-frontend FOREVER by default, and the
   # runner images run unattended-upgrades / apt-daily timers in the background.
@@ -229,7 +229,12 @@ jobs:
       fail-fast: false
       # One leg per release-bundle target (see release.yml's seed matrix):
       # linux-x64, linux-arm64, macos-arm64, macos-x64 (macos-26-intel is
-      # the last Intel label GitHub offers), windows-x64.
+      # the last Intel label GitHub offers), windows-x64. NOT yet covered
+      # here: windows-arm64 (no published seed bundle exists — v0.2.12's
+      # release leg died before uploading one; add a windows-11-arm leg the
+      # release after a windows-arm64 bundle first ships) and
+      # linux-arm64-musl (exercised by the static-musl job and the
+      # musl-only migration, plans/backlog — not a separate leg here).
       matrix:
         os:
           - ubuntu-latest
