@@ -102,6 +102,75 @@ jobs:
   # matrix, which meant `npm install -g @vscode/vsce` ran on all five legs to
   # serve one Linux-only packaging concern. Isolated here so the matrix legs can
   # become toolchain-free (P2.5 steps 17-19).
+  # Docs-only fast path. A PR (or develop push) whose diff is confined to
+  # Markdown and docs/ cannot change compiler behavior, so the heavy jobs
+  # below skip themselves — SKIPPED satisfies branch-protection required
+  # checks, so docs-only PRs merge green in minutes instead of an hour (or,
+  # worse, getting admin-merged past CI, which is what raced the release
+  # green-gate on 2026-08-20). This is deliberately NOT `paths-ignore` on the
+  # workflow trigger: a workflow that never runs leaves its required checks
+  # "expected" forever and blocks the merge outright.
+  #
+  # The classification is CONSERVATIVE: any failure to compute the diff (no
+  # usable base after a force-push, compare API error, or a diff so large the
+  # file list may be truncated) counts as a code change and runs everything.
+  # docs-site and vscode-extension stay unconditional — docs are exactly the
+  # site job's input, and both are cheap.
+  changes:
+    name: Classify the diff (docs-only fast path)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.classify.outputs.code }}
+    steps:
+      - id: classify
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          case "${{ github.event_name }}" in
+            pull_request)
+              BASE="${{ github.event.pull_request.base.sha }}"
+              HEAD="${{ github.event.pull_request.head.sha }}"
+              ;;
+            push)
+              BASE="${{ github.event.before }}"
+              HEAD="${{ github.sha }}"
+              ;;
+            *)
+              echo "event ${{ github.event_name }} — running everything"
+              echo "code=true" >> "$GITHUB_OUTPUT"
+              exit 0
+              ;;
+          esac
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            echo "no usable base — running everything"
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if ! FILES=$(gh api --paginate "repos/${{ github.repository }}/compare/${BASE}...${HEAD}" --jq '.files[].filename'); then
+            echo "compare API failed — running everything"
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "changed files:"; echo "$FILES"
+          # The compare API caps the per-response file list; a list this long
+          # may be incomplete, so it cannot prove docs-only.
+          if [ "$(printf '%s\n' "$FILES" | wc -l)" -ge 3000 ]; then
+            echo "diff too large to classify — running everything"
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          CODE=false
+          for f in $FILES; do
+            case "$f" in
+              *.md|docs/*) ;;
+              *) CODE=true; break ;;
+            esac
+          done
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+          echo "classification: code=$CODE"
+
   vscode-extension:
     name: VS Code extension (package + Marketplace dry-run)
     runs-on: ubuntu-latest
@@ -212,6 +281,8 @@ jobs:
           retention-days: 7
 
   test:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 360
     env:
@@ -565,6 +636,8 @@ jobs:
   # byte-identical, first held at 65ebcdbb2.
   bootstrap-fixpoint:
     name: Bootstrap fixpoint (yo-self self-compile)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 360
 
@@ -784,6 +857,8 @@ jobs:
   # batch reporting passes while running nothing.
   bootstrap-self-test:
     name: Self-hosted `test` subcommand (yo-self tier-1 gates)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 180
 
@@ -905,6 +980,8 @@ jobs:
   # src/main.yo) and takes ~22 min after a ~5 min stage-1 build.
   compiler-internal-tests-selfhosted:
     name: Compiler internal tests (tests/internal, self-hosted differential shard ${{ matrix.shard }})
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     # Sharded 4-way (issues/fixed/selfhosted-differential-job-needs-sharding.md,
     # closed by this change) with the SAME selection the retired TS arm used:
@@ -1029,6 +1106,8 @@ jobs:
   # only does C->binary. That avoids gcompat entirely.
   build-linux-musl-static:
     name: Static musl Linux bundle (build + run, no publish)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     # Also seed-driven, so the same v0.2.9 slowdown applies (see the TSan job).
     timeout-minutes: 120
@@ -1135,6 +1214,8 @@ jobs:
 
   test-tsan:
     name: ThreadSanitizer (sync primitives — Linux/Clang)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     # 60 was enough while this job's stage-1 fitted in RAM (16 min on the
     # v0.2.4 seed). The SEED_VERSION bump below pushes it over 16 GB, so it now
@@ -1209,6 +1290,8 @@ jobs:
         run: /tmp/yo-stage1 test ./tests/sync --parallel 1 --bail --verbose --c-compiler clang
 
   test-wasm32_emscripten:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 360
 
@@ -1275,6 +1358,8 @@ jobs:
             --parallel 2 --bail --verbose --c-compiler emcc --profile
 
   test-wasm32_wasi:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 360
 
@@ -1354,6 +1439,8 @@ jobs:
   # battery. They are allowlisted with that note.
   hollow-sweep:
     name: Full-corpus hollow sweep (all 188 language files, self-hosted)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 180
 
