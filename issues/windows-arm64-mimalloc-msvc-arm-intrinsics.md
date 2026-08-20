@@ -83,7 +83,30 @@ Fix option 1 was taken, and the investigation upgraded it from "cheapest" to
 "the only correct one". Options 2 and 3 are now positively ruled out, not merely
 deprioritised.
 
-### Upstream has NO source fix, and will not
+### IMPORTANT correction: mimalloc DOES support Windows ARM64
+
+An earlier revision of this doc and of the release.yml comment said mimalloc
+"cannot be compiled for arm64-Windows by clang at all". That is **wrong** and is
+corrected here. Upstream supports the platform. The failure is narrower:
+
+| route | works? |
+| --- | --- |
+| MSVC (`cl.exe`) | YES — the `__ldar64`/`__stlr64` intrinsics exist there |
+| clang-cl with `MI_USE_CXX=ON` | YES — upstream's own mitigation |
+| clang, `static.c` as C++ (`-x c++`) | PLAUSIBLE, untested — the same thing by hand |
+| **clang, `static.c` as plain C11** | **NO — this is Yo's route, and what broke** |
+
+The open risk on the C++ route is the LINK, not the compile: C++ pulls in the
+MSVC C++ runtime, which the current `-lws2_32 -lbcrypt -ladvapi32` line does not
+provide. `.github/workflows/ab-windows-allocator.yml` probes it directly
+(job `probe-arm64-cxx`, Route B).
+
+`system` remains the right immediate choice because it is the only route PROVEN
+to build today, it is the compiler's own default, and macOS measured mimalloc
+slower and fatter. But it is an unblock pending evidence, not a verdict that
+mimalloc is impossible here.
+
+### Upstream has no source fix (but has a BUILD-SYSTEM one)
 
 The vendored mimalloc is upstream tag **v3.3.2**
 (`30b2d9d89099bee08e9f67a1ffb3e12e7ba45227`, `MI_MALLOC_VERSION 30302`), clean,

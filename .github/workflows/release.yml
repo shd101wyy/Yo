@@ -704,20 +704,29 @@ jobs:
           # there is no native seed for it either — cross-emit is the only
           # route, not merely the cheaper one.
           #
-          # SYSTEM, not mimalloc, and this is a fix rather than a preference:
-          # vendored mimalloc cannot be compiled for arm64-Windows by clang at
-          # all. `include/mimalloc/atomic.h` picks its intrinsic family by
+          # SYSTEM, not mimalloc — but NOT because "mimalloc does not work on
+          # arm64-Windows". It does; upstream supports that platform. The
+          # failure is narrower: clang compiling `static.c` as PLAIN C11 for
+          # aarch64-windows-msvc. `include/mimalloc/atomic.h` picks its
+          # intrinsic family by
           # ARCHITECTURE (`_M_ARM64`) with no compiler discriminator, and clang
           # targeting aarch64-windows-msvc defines `_M_ARM64` for MSVC source
           # compatibility while implementing neither `__ldar64` nor `__stlr64`.
           # v0.2.12 died exactly there — see
           # issues/windows-arm64-mimalloc-msvc-arm-intrinsics.md. Upstream has
-          # no source fix (the guards are byte-identical at v3.5.0 and on
+          # no SOURCE fix (the guards are byte-identical at v3.5.0 and on
           # main/dev/dev3; `__clang__` appears zero times in that file); its
-          # mitigation is MI_USE_CXX via CMake, which Yo bypasses by handing
-          # static.c to clang as plain C. `system` is also the compiler's own
-          # default, and the one platform where the two were ever measured
-          # (macOS) flipped to `system` because mimalloc was slower AND fatter.
+          # mitigation is MI_USE_CXX via CMake — i.e. compile it as C++ — which
+          # Yo bypasses by handing static.c to clang as plain C.
+          #
+          # So a C++ route (`-x c++`) plausibly WOULD work here and is not ruled
+          # out; it is merely untested, the open risk being the link rather than
+          # the compile (C++ pulls in the MSVC C++ runtime that this link line
+          # does not provide). `.github/workflows/ab-windows-allocator.yml`
+          # probes exactly that. Until it reports, `system` is the only route
+          # PROVEN to build — and it is also the compiler's own default, and
+          # what the one platform where the two were ever measured (macOS)
+          # flipped to, mimalloc having been slower AND fatter there.
           - target: windows-arm64
             yo_target: aarch64-windows-msvc
             bundle_allocator: system
