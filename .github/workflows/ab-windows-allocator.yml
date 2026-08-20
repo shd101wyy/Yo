@@ -62,19 +62,27 @@ jobs:
         with:
           submodules: recursive
 
+      # /mnt, NOT /. `/mnt` is the runner's large ephemeral disk; the root
+      # filesystem has nowhere near 32 GB free, so `fallocate -l 32G /swapfile`
+      # fails outright — which is exactly how the first dispatch of this
+      # workflow died. Copied verbatim from release.yml rather than
+      # paraphrased, because that is the version known to work.
       - name: Add swap space
         run: |
-          sudo fallocate -l 32G /swapfile
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
-          free -h
+          sudo fallocate -l 32G /mnt/swapfile
+          sudo chmod 600 /mnt/swapfile
+          sudo mkswap /mnt/swapfile
+          sudo swapon /mnt/swapfile
 
+      # Swap alone is not enough: release.yml measured zswap ON at 16 min
+      # against OFF at 159 min for the same seed-driven build. THP off because
+      # huge pages must be split and compacted before they can be swapped.
       - name: Tune the kernel for a swap-heavy emit
         run: |
-          sudo modprobe zswap 2>/dev/null || true
-          echo 1 | sudo tee /sys/module/zswap/parameters/enabled >/dev/null 2>&1 || true
-          echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled >/dev/null 2>&1 || true
+          echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled || true
+          echo never | sudo tee /sys/kernel/mm/transparent_hugepage/defrag || true
+          echo Y | sudo tee /sys/module/zswap/parameters/enabled || true
+          free -h
 
       - name: Install liburing
         run: sudo apt-get $APT_OPTS update && sudo apt-get $APT_OPTS install -y liburing-dev
