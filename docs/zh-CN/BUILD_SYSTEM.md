@@ -155,7 +155,6 @@ test_step.depend_on(tests);
 | -------------------- | ----------------------------- |
 | `Allocator.Mimalloc` | 高性能分配器（mimalloc）      |
 | `Allocator.System`   | 平台系统分配器（默认）        |
-| `Allocator.Libc`     | `Allocator.System` 的废弃别名 |
 
 ### 检测器
 
