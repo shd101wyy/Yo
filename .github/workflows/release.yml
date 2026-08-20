@@ -113,12 +113,12 @@ jobs:
           node-version: "24"
           registry-url: "https://registry.npmjs.org"
 
-      - name: "Compute the next version (source of truth: yo-self/version.yo)"
+      - name: "Compute the next version (source of truth: src/version.yo)"
         id: version
         run: |
-          CURRENT=$(perl -ne 'print $1 if /^CURRENT_YO_VERSION :: "([^"]+)";/' yo-self/version.yo)
+          CURRENT=$(perl -ne 'print $1 if /^CURRENT_YO_VERSION :: "([^"]+)";/' src/version.yo)
           if [ -z "$CURRENT" ]; then
-            echo "::error::could not read CURRENT_YO_VERSION from yo-self/version.yo"
+            echo "::error::could not read CURRENT_YO_VERSION from src/version.yo"
             exit 1
           fi
           MA=${CURRENT%%.*}
@@ -142,19 +142,19 @@ jobs:
           cd vscode-extension
           npm version "${{ steps.version.outputs.version }}" --no-git-tag-version --allow-same-version
 
-      # `yo-self/version.yo` IS the source of truth as of P2.5 step 24 (blocker
+      # `src/version.yo` IS the source of truth as of P2.5 step 24 (blocker
       # B5): the step above READ the current version from here, and this step
       # writes the bumped one back. yo-self cannot read a JSON file at build
       # time, so the version is hardcoded here; when package.json was the
       # source this copy drifted a whole minor series behind (0.1.23 while
       # package.json said 0.2.1), which showed up in the `.yo-version`
       # diagnostics that quote the current version as their example.
-      - name: Bump version in yo-self/version.yo
+      - name: Bump version in src/version.yo
         run: |
           NEW_VERSION="${{ steps.version.outputs.version }}"
-          perl -pi -e "s/^CURRENT_YO_VERSION :: \".*\";/CURRENT_YO_VERSION :: \"$NEW_VERSION\";/" yo-self/version.yo
-          grep -q "CURRENT_YO_VERSION :: \"$NEW_VERSION\";" yo-self/version.yo
-          echo "yo-self/version.yo now pins $NEW_VERSION"
+          perl -pi -e "s/^CURRENT_YO_VERSION :: \".*\";/CURRENT_YO_VERSION :: \"$NEW_VERSION\";/" src/version.yo
+          grep -q "CURRENT_YO_VERSION :: \"$NEW_VERSION\";" src/version.yo
+          echo "src/version.yo now pins $NEW_VERSION"
 
       - name: Get last commit message
         id: last_commit
@@ -177,11 +177,11 @@ jobs:
             [ -f "$f" ] && git add "$f"
           done
           # REQUIRED. These must exist, and a blanket `[ -f ] &&` over them is
-          # a silent-failure trap: if a path MOVES (e.g. yo-self/ -> src/ in
+          # a silent-failure trap: if a path MOVES (as yo-self/ -> src/ did in
           # P2.5 Group F), the guard quietly skips it and the release commits
           # WITHOUT the version bump — no error, after the release is already
           # tagged and the extension published. Fail loudly instead.
-          for f in vscode-extension/package.json vscode-extension/package-lock.json yo-self/version.yo; do
+          for f in vscode-extension/package.json vscode-extension/package-lock.json src/version.yo; do
             if [ ! -f "$f" ]; then
               echo "::error::$f is missing, so the version bump would not land. Did a path move? Update this list in the same change."
               exit 1
@@ -466,7 +466,7 @@ jobs:
         shell: bash
         env:
           YO_MAIN_STACK_MB: "4096"
-        run: yo compile yo-self/main.yo --release --allocator mimalloc --std-path ./std -o yo-seed
+        run: yo compile src/main.yo --release --allocator mimalloc --std-path ./std -o yo-seed
 
       # Pre-release trust-chain gate: the candidate must be able to act as the
       # NEXT release's seed, so prove it can evaluate + emit its own source.
@@ -484,7 +484,7 @@ jobs:
           YO_MAIN_STACK_MB: "4096"
         run: |
           if [ -f yo-seed.exe ]; then SEED2=./yo-seed.exe; else SEED2=./yo-seed; fi
-          "$SEED2" compile yo-self/main.yo --release --allocator mimalloc \
+          "$SEED2" compile src/main.yo --release --allocator mimalloc \
             --std-path ./std --emit-c --skip-c-compiler -o gate-stage2 > /dev/null
           test -s gate-stage2.c
           SIZE=$(wc -c < gate-stage2.c)
@@ -567,7 +567,7 @@ jobs:
           YO_MAIN_STACK_MB: "4096"
         run: |
           mkdir -p portable-arm
-          yo compile yo-self/main.yo --release --allocator libc \
+          yo compile src/main.yo --release --allocator libc \
             --std-path ./std --emit-c --skip-c-compiler \
             -o "portable-arm/${{ matrix.target }}" > /dev/null
           ls -la "portable-arm/${{ matrix.target }}.c"
@@ -684,7 +684,7 @@ jobs:
         shell: bash
         env:
           YO_MAIN_STACK_MB: "4096"
-        run: yo compile yo-self/main.yo --release --allocator mimalloc --std-path ./std -o yo-candidate
+        run: yo compile src/main.yo --release --allocator mimalloc --std-path ./std -o yo-candidate
 
       # Two emits by the candidate: the mimalloc-flavored C for the bundle
       # binary, and the libc-flavored portable arm (published as
@@ -701,10 +701,10 @@ jobs:
           # (369.8s vs 418-429s wall on equal input) and needs no vendored
           # mimalloc in the assemble job's clang line. Linux/CI stay mimalloc
           # (glibc malloc inflates the emit's RSS ~72%).
-          ./yo-candidate compile yo-self/main.yo --release --allocator ${{ matrix.bundle_allocator }} \
+          ./yo-candidate compile src/main.yo --release --allocator ${{ matrix.bundle_allocator }} \
             --std-path ./std --target ${{ matrix.yo_target }} \
             --emit-c --skip-c-compiler -o "cross/yo-${{ matrix.target }}" > /dev/null
-          ./yo-candidate compile yo-self/main.yo --release --allocator libc \
+          ./yo-candidate compile src/main.yo --release --allocator libc \
             --std-path ./std --target ${{ matrix.yo_target }} \
             --emit-c --skip-c-compiler -o "portable-arm/${{ matrix.target }}" > /dev/null
           ls -la cross/ portable-arm/
@@ -917,7 +917,7 @@ jobs:
       # The one seed-driven self-emit in this file that had NO swapfile, while
       # seed-bundles, seed-cross-emit and test.yml's musl leg all provision
       # one. That asymmetry killed the v0.2.10 release: this job ran the same
-      # `yo compile yo-self/main.yo --release --allocator mimalloc` its test.yml
+      # `yo compile src/main.yo --release --allocator mimalloc` its test.yml
       # twin runs, on a bare 16 GB runner, and the runner DIED at 50 min —
       # "The hosted runner lost communication with the server ... starves it
       # for CPU/Memory", the documented starvation signature. The identical
@@ -986,7 +986,7 @@ jobs:
         env:
           YO_MAIN_STACK_MB: "4096"
         run: |
-          yo compile yo-self/main.yo --release --allocator mimalloc \
+          yo compile src/main.yo --release --allocator mimalloc \
             --std-path ./std --emit-c --skip-c-compiler -o yo-musl > /dev/null
           ls -la yo-musl.c
 
@@ -1079,7 +1079,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          # The BUMP commit, not github.sha: yo-self/version.yo is rewritten by
+          # The BUMP commit, not github.sha: src/version.yo is rewritten by
           # the release job and is compiled into the emitted C, so a checkout of
           # github.sha would publish C claiming the previous version.
           ref: ${{ needs.release.outputs.sha }}

@@ -29,8 +29,8 @@ description: "Use when running tests, setting up test files, or debugging test f
 
 - `yo check <file-or-dir>` — runs the evaluator on a single `.yo` file or every `.yo` under a directory and prints any type / evaluator errors. No C generation, no C compile.
 - Much faster than `compile` for "does this still type-check?" iteration during refactors or migrations.
-- Useful as a bulk sanity pass after touching many files: `yo check ./yo-self` or `yo check std/` before running any test.
-- **`check` is evaluator-only.** The async state-machine restrictions are enforced in CODEGEN, so `check` passes straight over them. Use `yo compile yo-self/main.yo --skip-c-compiler` (~3 min) to catch that class.
+- Useful as a bulk sanity pass after touching many files: `yo check ./src` or `yo check std/` before running any test.
+- **`check` is evaluator-only.** The async state-machine restrictions are enforced in CODEGEN, so `check` passes straight over them. Use `yo compile src/main.yo --skip-c-compiler` (~3 min) to catch that class.
 
 ## Build system tests
 
@@ -67,7 +67,7 @@ These are the self-hosted compiler's own tests. **They lived at `yo-self/tests/`
 until 2026-08-05**; translate that path when reading older `issues/` and `plans/`
 documents. They moved because the TypeScript `src/` was going to be retired and
 `yo-self/` renamed to `src/`, so the tests belong under `tests/` rather than
-being shuffled again later.
+being shuffled again later. BOTH have since happened.
 
 ```bash
 yo test ./tests/internal --parallel 1        # the whole directory
@@ -75,7 +75,7 @@ yo test ./tests/internal/lexer.test.yo --parallel 1
 yo test ./tests/internal/parser.test.yo --parallel 1
 ```
 
-- They import `yo-self/` internals via `../../yo-self/...`, so every file
+- They import `src/` internals via `../../src/...`, so every file
   that reaches `evaluator/index.yo` pays a full compiler-sized Yo compile.
 - **MEASURED 2026-08-05, M4, `--parallel 1`, 58 files:** 22.2 min under the
   self-hosted binary. (The same sweep took 40.5 min under the since-deleted TS
@@ -89,7 +89,7 @@ yo test ./tests/internal/parser.test.yo --parallel 1
 - The fast language suite excludes them: `yo test ./tests --exclude tests/internal`.
   CI does the same, and runs `tests/internal` as its own informational job
   (`compiler-internal-tests` in `.github/workflows/test.yml`).
-- Run them whenever modifying `yo-self/` source or these tests.
+- Run them whenever modifying `src/` source or these tests.
 - No WASM directives needed (pure logic, no I/O syscalls) — but they are
   host-toolchain-only in CI, excluded from the emcc and wasm-wasi jobs.
 - Large `.test.yo` files are batch-compiled in chunks of 100 tests by default. Use `--test-batch-size N` to tune this when a generated C batch is too large or when you need tighter failure isolation. Smaller batches reduce C size but repeat Yo compilation, so avoid lowering this unless needed.
@@ -98,7 +98,7 @@ yo test ./tests/internal/parser.test.yo --parallel 1
 #### A hollow batch voids EVERY test in it, not one
 
 The self-hosted runner inlines **all test bodies of a batch into a single
-`__yo_user_main`** (`yo-self/main.yo:1328-1349`, `cond` arms keyed on
+`__yo_user_main`** (`src/main.yo:1328-1349`, `cond` arms keyed on
 `YO_TEST_INDEX`). So one expression codegen cannot transpile turns that whole
 function into a `// Failed to transpile` **C comment** — the C compiler skips
 it, the binary runs nothing, and the runner reports **every test in the batch as
@@ -106,7 +106,7 @@ passing**. Measured 2026-08-12: 23 vacuous tests in
 `tests/internal/expr_info.test.yo`, with the CI job green the whole time
 (`issues/fixed/yo-self-option-eq-ref-enum-not-specialized.md`).
 
-The `__yo_user_main` marker gate in `yo-self/codegen/functions/generation.yo`
+The `__yo_user_main` marker gate in `src/codegen/functions/generation.yo`
 turns this into a hard error. **Never weaken that gate to get a job green.**
 
 Debugging one:
@@ -162,7 +162,7 @@ skipped via `pragma(Pragma.SkipWasm32Wasi);` and are not required for CI on affe
 ### Stack depth limit for yo-self evaluator tests
 
 > **HISTORICAL (2026-08-05).** The specific function measured below,
-> `evaluate()` in `yo-self/evaluator/eval.yo`, was RETIRED along with that whole
+> `evaluate()` in `src/evaluator/eval.yo`, was RETIRED along with that whole
 > legacy proto-evaluator file, and the linker-level stack reserves quoted below
 > lived in the since-deleted TypeScript test runner. The **mechanism and the
 > platform numbers still apply** to the other large evaluator frames
@@ -173,11 +173,11 @@ skipped via `pragma(Pragma.SkipWasm32Wasi);` and are not required for CI on affe
 > **What provides that stack today:** every emitted binary runs its program body
 > on a worker thread with a **1 GiB stack by default**, overridable at runtime
 > via the `YO_MAIN_STACK_MB` env var (`__yo_main_stack`, emitted by
-> `yo-self/codegen/functions/generation.yo`, on both the POSIX and Windows arms).
+> `src/codegen/functions/generation.yo`, on both the POSIX and Windows arms).
 > WASM keeps a direct call and has no worker stack, so `YO_MAIN_STACK_MB` is a
 > no-op there. Nothing sets a linker `-stack_size` / `/STACK:` reserve any more.
 
-The `evaluate()` function in `yo-self/evaluator/eval.yo` had ~2482 local variables
+The `evaluate()` function in `src/evaluator/eval.yo` had ~2482 local variables
 (grown from ~693 in early phases) and occupied **~1.5 MB of stack space per frame**
 at `-O0` without ASAN, due to the large `EvalValue`/`TypeValue` enum types stored
 directly on the stack. ASAN inflates this further by disabling stack frame reuse

@@ -88,7 +88,7 @@ _(env : pa_dbg_env) :: import("std/env");
 /// `(x : Option(String)) ?= Option(String).None` fail the not-consumed gate.
 ///
 /// The "some variant has fields" conjunct mirrors `can_optimize_as_simple_enum`
-/// (`yo-self/codegen/utils/index.yo`): an all-payload-free enum collapses to a
+/// (`src/codegen/utils/index.yo`): an all-payload-free enum collapses to a
 /// plain C enum constant and also allocates nothing.
 ///
 /// Mirrors `attachOwnedTempForRcUnitVariant` in
@@ -576,7 +576,7 @@ evaluate_property_access :: (
       .Some(ot) => {
         if(is_pointer_type(ot), {
           // Memory-safety gate: pointer dereference requires `unsafe(...)`.
-          // Files under std/ and yo-self/ are implicitly unsafe-capable.
+          // Files under std/ and src/ are implicitly unsafe-capable.
           // Mirrors `property-access.ts:298-310`.
           if((!(ctx.unsafe_context)) && (!(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(property_expr).module_path.clone())))), {
             exn.throw(

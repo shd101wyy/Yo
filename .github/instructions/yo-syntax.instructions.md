@@ -329,7 +329,7 @@ The same applies at call sites: don't wrap reference-semantics arguments with `&
 When choosing between `inout(self) : Self` and `self : Self` for a method receiver:
 
 - If the receiver type is fundamentally a value type (anything other than `ref(struct(...))` / `ref(enum(...))`), use `inout(self) : Self` for mutators.
-- If the receiver type is a reference-semantics type (`ref(struct(...))` / `ref(enum(...))`), plain `self : Self` is the idiom — the methods documented in `yo-self/env.yo`, `yo-self/emitter.yo`, etc. follow this.
+- If the receiver type is a reference-semantics type (`ref(struct(...))` / `ref(enum(...))`), plain `self : Self` is the idiom — the methods documented in `src/env.yo`, `src/emitter.yo`, etc. follow this.
 - Trait declarations should match the dominant case of their impl targets. Existing widely-implemented traits (`Hash`, `Clone`, `ToString`, `Iterator`, `Index`) use `inout(self) : Self` for the reasons above; new traits that are reference-semantics-specific can use plain `self : Self`.
 
 ## Recursion requires `recur`
@@ -596,7 +596,7 @@ The builtin `Slice(T)` and the view methods `String.as_str()` /
 | `-> inout(T)`, `-> (inout(name) : T)`, `-> (name : inout(T))`     | ❌ rejected — functions cannot return `inout` |
 | `-> (name : comptime(T))`                                         | ❌ rejected — modifier goes on the label      |
 
-Enforced at function-type evaluation (`yo-self/evaluator/types/function.yo`). See `tests/ref_return_ban.test.yo`.
+Enforced at function-type evaluation (`src/evaluator/types/function.yo`). See `tests/ref_return_ban.test.yo`.
 
 ### Signed-integer overflow is defined (wrap-around)
 
@@ -649,7 +649,7 @@ Rules:
 
 Every public top-level `fn(...)` in `std/` should take and return value or `inout`-bound types. Raw `*(T)` in a public signature is allowed only when (a) the function lives in an FFI directory (`libc/`, `linux/`, `darwin/`, `cuda/`, `sys/`, `sync/`), or (b) the function name signals raw-pointer use by contract (`*_cstr`, `*_ptr`, `from_raw_parts`, `as_ptr`, names starting with `raw_`). Anything else is a leak — migrate to owned collections (`ArrayList(u8)`/`String`) for buffers, `inout(name) : T` for in-place mutation, or a higher-level safe type (`RawSlice(T)` for pragma'd internals).
 
-Verify with `yo public-safe-report ./std` (or `./yo-self`). It scans every top-level public `fn(...)` declaration, skips `extern(...)` blocks and the directories/name patterns above, and reports any remaining raw-pointer leak. Source: `yo-self/public_safe_report.yo`. Currently reports 0 findings; keep it that way when adding new stdlib surface.
+Verify with `yo public-safe-report ./std` (or `./src`). It scans every top-level public `fn(...)` declaration, skips `extern(...)` blocks and the directories/name patterns above, and reports any remaining raw-pointer leak. Source: `src/public_safe_report.yo`. Currently reports 0 findings; keep it that way when adding new stdlib surface.
 
 ## `for` loop macro — correct form
 

@@ -8,10 +8,10 @@ description: "Use when debugging the Yo evaluator, C codegen output, or runtime 
 
 Use these functions to print debug information:
 
-- `type_to_string` (`yo-self/types/string.yo`) — print types
-- `ast_expr_to_string` (`yo-self/expr.yo`) — print expressions
-- `value_to_string` (`yo-self/value.yo`) — print values
-- `are_types_compatible` (`yo-self/types/compatibility.yo`) — check type compatibility
+- `type_to_string` (`src/types/string.yo`) — print types
+- `ast_expr_to_string` (`src/expr.yo`) — print expressions
+- `value_to_string` (`src/value.yo`) — print values
+- `are_types_compatible` (`src/types/compatibility.yo`) — check type compatibility
 
 Key facts:
 
@@ -30,7 +30,7 @@ Key facts:
 
 ## Evaluator-only checking
 
-When you only need to surface evaluator/type errors (no codegen, no C compile), use `yo check <path>`. It runs the evaluator on a single file or every `.yo` file in a directory and prints any errors. Much faster than `compile` for "does this still type-check?" loops, and it's the right tool for bulk sanity passes (`yo check ./yo-self` or `yo check std/` after touching a swathe of files).
+When you only need to surface evaluator/type errors (no codegen, no C compile), use `yo check <path>`. It runs the evaluator on a single file or every `.yo` file in a directory and prints any errors. Much faster than `compile` for "does this still type-check?" loops, and it's the right tool for bulk sanity passes (`yo check ./src` or `yo check std/` after touching a swathe of files).
 
 ## Memory-leak debugging (macOS has no LeakSanitizer)
 
@@ -80,7 +80,7 @@ The evaluator uses frame-based environments. Key debugging facts:
 - `env.frames.len()` = total number of frames in the environment
 - a function type's captured env is the env at the function's **definition site** (minus parameters frame)
 - an impl's definition env is captured AFTER the generic frame is popped
-- The check in `yo-self/evaluator/exprs/assignment.yo` (~line 1075) compares `updated_variable.frame_level < eval_env.frames.len()` to detect "variable defined outside the function body"
+- The check in `src/evaluator/exprs/assignment.yo` (~line 1075) compares `updated_variable.frame_level < eval_env.frames.len()` to detect "variable defined outside the function body"
 - Frame count mismatches between the function type's captured env and the actual evaluation env cause false positives in this check
 
 ## Test file conventions

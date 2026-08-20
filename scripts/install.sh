@@ -283,7 +283,7 @@ sudocmd() {
 #   * a C compiler (clang or gcc) — REQUIRED; `yo compile` invokes it.
 #   * git — REQUIRED for `yo fetch` / `yo install`, which resolve and download
 #     dependencies by shelling out to `git ls-remote`, `git clone`,
-#     `git fetch` and `git checkout` (yo-self/fetch.yo, install_command.yo).
+#     `git fetch` and `git checkout` (src/fetch.yo, install_command.yo).
 #     Compiling works without it; dependency management does not.
 #   * liburing + pkg-config on Linux — for async I/O (io_uring). pkg-config is
 #     also how a project's declared system libraries are resolved.

@@ -1,5 +1,5 @@
 // Regression: the self-hosted evaluator's struct / enum / union constructor
-// paths (yo-self/evaluator/calls/function.yo) must call
+// paths (src/evaluator/calls/function.yo) must call
 // `attach_temp_variable_to_expr(expr, true, ctx)` so a constructed reference
 // (ref-struct / ref-enum) result is materialized into an owning caller-frame
 // temp and dropped at scope end — mirroring TS function.ts:2461/2527/2567.
@@ -7,7 +7,7 @@
 // Before the fix, yo-self emitted the constructor call INLINE with no temp and
 // no scope-end drop, so every constructed reference leaked (RC never reaching
 // 0). This was the ~9x under-free that ballooned the self-compiled compiler to
-// 26G on yo-self/main.yo; TS always materialized+dropped.
+// 26G on src/main.yo; TS always materialized+dropped.
 //
 // Observable: `Gc.tracked_count()`. `Node` is self-referential (`Option(Self)`)
 // and therefore CYCLABLE, so each live instance is registered with the cycle

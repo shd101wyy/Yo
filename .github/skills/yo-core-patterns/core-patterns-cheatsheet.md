@@ -502,7 +502,7 @@ result := my_module.helper(i32(5));
 
 ## yo-self API: String vs str parameter gotchas
 
-Several `yo-self/` APIs take `String` (not `str`) parameters even when the argument is conceptually a name:
+Several `src/` APIs take `String` (not `str`) parameters even when the argument is conceptually a name:
 
 - `get_variables_from_env(env, name: String)` — pass the `String` directly
 - Most other env/value/type lookup functions follow the same convention

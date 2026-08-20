@@ -13,7 +13,7 @@ name: Bootstrap fixpoint (linux-arm64)
 # and -stage3 jobs, which leaves linux-arm64 as the genuinely uncovered arch.
 #
 # Why arm64 is worth covering separately: the compiler's own emit is NOT
-# arch-independent. `yo-self/target.yo:165-184 detect_host()` folds `arch ==`
+# arch-independent. `src/target.yo:165-184 detect_host()` folds `arch ==`
 # into a comptime constant, so the x64 and arm64 emissions of the compiler
 # differ by construction. Nothing else in CI checks that the arm64 self-emit
 # reaches a fixpoint.
@@ -99,7 +99,7 @@ jobs:
           echo Y | sudo tee /sys/module/zswap/parameters/enabled || true
           sudo systemd-run --scope -p MemoryHigh=11G -p MemoryMax=14G \
             env YO_MAIN_STACK_MB=4096 nice -n 10 /usr/bin/time -v \
-            /tmp/yo-stage1 compile yo-self/main.yo --release --allocator mimalloc \
+            /tmp/yo-stage1 compile src/main.yo --release --allocator mimalloc \
               --std-path ./std --emit-c-to /tmp/yo-stage2.c --skip-c-compiler
           ls -la /tmp/yo-stage2.c
 
@@ -116,7 +116,7 @@ jobs:
           echo Y | sudo tee /sys/module/zswap/parameters/enabled || true
           sudo systemd-run --scope -p MemoryHigh=11G -p MemoryMax=14G \
             env YO_MAIN_STACK_MB=4096 nice -n 10 /usr/bin/time -v \
-            /tmp/yo-stage2 compile yo-self/main.yo --release --allocator mimalloc \
+            /tmp/yo-stage2 compile src/main.yo --release --allocator mimalloc \
               --std-path ./std --emit-c-to /tmp/yo-stage3.c --skip-c-compiler
           ls -la /tmp/yo-stage3.c
 

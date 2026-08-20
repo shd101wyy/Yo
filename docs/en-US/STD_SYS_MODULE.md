@@ -167,7 +167,7 @@ timer  :: import "std/sys/timer";
 
 ## C Runtime Architecture
 
-The C runtime is split into focused modules under `yo-self/codegen/async/`:
+The C runtime is split into focused modules under `src/codegen/async/`:
 
 | File                    | Responsibility                                                                           |
 | ----------------------- | ---------------------------------------------------------------------------------------- |
