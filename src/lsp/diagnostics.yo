@@ -204,6 +204,47 @@ parse_error_text :: (
 });
 export(parse_error_text);
 
+/// Prelude bootstrap, once per process. A separate fn so its swallowing
+/// handler's `unwind(())` exits THIS unit-typed frame — `unwind` exits the
+/// function that BOUND the ctl value, and a value/frame type mismatch is a
+/// codegen-level error `check` cannot see (the handler transpiles hollow;
+/// plans/P4_LSP.md slice 0 notes — this bit this very file's first draft,
+/// caught by the stage-2 hollow count).
+_ensure_prelude :: (fn(std_path : String, io : Io) -> unit)({
+  if(mm_has_prelude_env(), {
+    return(());
+  });
+  pre_exn := Exception(
+    throw : (
+      (err) -> {
+        _stash_parse_error(err.to_string());
+        unwind(())
+      }
+    )
+  );
+  mm_preload_prelude(std_path.clone(), false, io, pre_exn);
+});
+
+/// Parse + evaluate the document text under a swallowing handler. The
+/// handler's `unwind(false)` exits THIS bool-typed frame (see
+/// _ensure_prelude's note). Mirrors module_manager's
+/// _eval_module_exprs_capturing_error structure.
+_analyze_eval :: (
+  fn(entry_abs : String, text : String, std_path : String, io : Io) -> bool
+)({
+  local_exn := Exception(
+    throw : (
+      (err) -> {
+        _stash_parse_error(err.to_string());
+        unwind(false)
+      }
+    )
+  );
+  exprs := parse(text, entry_abs.clone(), local_exn);
+  _outcome := mm_eval_entry_exprs(entry_abs.clone(), std_path.clone(), exprs, io, local_exn);
+  true
+});
+
 /// Evaluate `text` as the module at `doc_fs_path` and return diagnostics.
 /// Empty result = clean file.
 analyze_document :: (
@@ -214,35 +255,9 @@ analyze_document :: (
     io : Io
   ) -> ArrayList(LspDiag)
 )({
-  // Prelude bootstrap, once per process. Uses a swallowing handler: a std
-  // installation problem must surface as a diagnostic, not kill the server.
-  if(!(mm_has_prelude_env()), {
-    pre_exn := Exception(
-      throw : (
-        (err) -> {
-          _stash_parse_error(err.to_string());
-          unwind(())
-        }
-      )
-    );
-    mm_preload_prelude(std_path.clone(), false, io, pre_exn);
-  });
+  _ensure_prelude(std_path.clone(), io);
   entry_abs := mm_resolve_entry_abs(doc_fs_path.clone(), std_path.clone());
-  local_exn := Exception(
-    throw : (
-      (err) -> {
-        _stash_parse_error(err.to_string());
-        unwind(false)
-      }
-    )
-  );
-  _ok := (
-    (fn(abs2 : String, text2 : String, std2 : String, io2 : Io, exn2 : Exception) -> bool)({
-      exprs := parse(text2, abs2.clone(), exn2);
-      _outcome := mm_eval_entry_exprs(abs2, std2, exprs, io2, exn2);
-      true
-    })
-  )(entry_abs.clone(), text.clone(), std_path.clone(), io, local_exn);
+  _ok := _analyze_eval(entry_abs.clone(), text.clone(), std_path.clone(), io);
   diags := ArrayList(LspDiag).new();
   match(
     _take_parse_error(),

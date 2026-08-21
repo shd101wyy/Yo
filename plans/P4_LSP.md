@@ -1,7 +1,36 @@
 # P4 — the LSP in Yo
 
-**Status: SCOPED 2026-08-12, not started.** Measured sizing, two feasibility
-spikes (one green, one red), and the slice order. Nothing is ported yet.
+**Status: IN PROGRESS — kickoff 2026-08-22 (branch `p4/lsp-transport`).**
+Slices 1 and 2 are LANDED: `yo lsp` speaks LSP over stdio (framing,
+JSON-RPC dispatch, initialize, full-document sync) and pushes diagnostics
+on open/change, gated by the `lsp-handshake` cli-case (a scripted client:
+broken doc → diagnostic at the exact range, fix → cleared, unknown request
+→ MethodNotFound, clean shutdown). The VS Code extension gained a plain-JS
+LSP client (`yo.binPath` setting, default `yo`; `yo.lsp.enabled`) — still
+no build step. Server: `src/lsp/` (transport/protocol/diagnostics/server).
+
+**Kickoff decisions (2026-08-22, maintainer-approved direction):**
+- Slice order adjusted: transport FIRST (slice 1+2 together) — most
+  evaluator errors already carry row/column through `YoError`, so
+  diagnostics work day one by parsing the formatted text
+  (`src/lsp/diagnostics.yo` extracts `path:row:col:` anchors). Slice 0
+  (the structured-diagnostic channel + def-time re-raise) is now a
+  QUALITY upgrade on a working pipeline, not a blocker.
+- Analysis rides `module_manager` exactly like `check`: prelude env
+  cached per process, imports demand-loaded and cached, the DOCUMENT
+  evaluated fresh from editor text per change. Known MVP limits (recorded
+  in diagnostics.yo): imported-file edits invisible until restart, and
+  per-edit re-registration leaks registry entries — both are the
+  incremental-compilation arc
+  (plans/backlog/INCREMENTAL_COMPILATION.md, reopened by this kickoff).
+- `json_parse_string`/`json_parse_bytes` were added to std
+  (std/encoding/json.yo generalized to bytes — `json_parse` took the
+  STATIC `str` view, unusable on runtime input).
+- The cli-diff-test harness pipes a case's `stdin` file to the binary,
+  which is how the LSP case drives the real server (plans/P4_LSP.md's
+  "test the way the CLI is tested" rule).
+
+Original scoping (2026-08-12) below.
 
 **Interim decision landed 2026-08-18 (P2.5 B2, user-decided):** the extension
 went syntax-only — LSP client wiring, `src/`, `build.js`, and the

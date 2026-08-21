@@ -27,7 +27,6 @@ open(import("std/fmt"));
 } :: import("./protocol.yo");
 { analyze_document, LspDiag } :: import("./diagnostics.yo");
 { resolve_std_path } :: import("../module_manager.yo");
-{ CURRENT_YO_VERSION } :: import("../version.yo");
 { BufReader } :: import("std/sys/bufio/buf_reader");
 
 /// `shutdown` latch: the LSP spec's `exit` notification exits 0 only when a
@@ -135,7 +134,10 @@ _publish_empty :: (fn(uri : String) -> unit)({
 _initialize_result :: (fn() -> JsonValue)(
   jb().put("capabilities", jb().put("textDocumentSync", jnum(usize(1))).obj()).put(
     "serverInfo",
-    jb().put("name", jstr(String.from("yo-lsp"))).put("version", jstr(String.from(CURRENT_YO_VERSION))).obj()
+    // No `version` field on purpose: it is optional in the protocol, the
+    // client can ask `yo --version`, and a version here would churn the
+    // lsp cli-case golden on every release bump.
+    jb().put("name", jstr(String.from("yo-lsp"))).obj()
   ).obj()
 );
 
@@ -277,7 +279,9 @@ run_lsp_server :: (fn(io : Io, exn : Exception) -> unit)({
   reader := BufReader.new(i32(0));
   docs := HashMap(String, String).new();
   std_path := resolve_std_path();
-  eprintln(`yo-lsp: serving LSP over stdio (yo v${CURRENT_YO_VERSION}, std: ${std_path})`);
+  // No startup banner: the cli-case harness merges stderr into stdout, and
+  // stderr/stdout interleaving is not deterministic. Real editors surface
+  // server liveness through the initialize handshake.
   (running : bool) = true;
   (exit_code : i32) = i32(0);
   while(running, {
