@@ -939,8 +939,11 @@ _probe_liburing_flags :: (fn(io : Io, out : ArrayList(String)) -> unit)({
     (pi : usize) = usize(0);
     while(pi < parts.len(), {
       match(parts.get(pi), .Some(p) => {
-        if(p.len() > usize(0), {
-          out.push(p.clone());
+        // pkg-config ends its output with a newline, so the last part would
+        // otherwise carry a trailing "\n" into the C compiler's argv.
+        pt := p.trim();
+        if(pt.len() > usize(0), {
+          out.push(pt.clone());
         });
       }, .None => ());
       pi = (pi + usize(1));
