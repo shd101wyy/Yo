@@ -51,11 +51,12 @@ Affected emitters (all in the async state machine):
   3272).
 
 The emitted C already uses the null-statement idiom elsewhere
-(`loop_yo_id_N:;`), so the fix follows the existing precedent.
+(plain-while lowering in `src/codegen/exprs/while_loop.yo` emits
+`loop_<id>:;`), so the fix follows the existing precedent.
 
 ## Fix
 
-Append a null statement to every emitted loop label (`label: ;`). The affected
+Append a null statement to every emitted loop label (`label:;`). The affected
 user programs are any program with an awaiting while loop, so this is a
 user-visible codegen fix, not just an installer concern: on HarmonyOS every
 `yo compile` invokes the strict clang.

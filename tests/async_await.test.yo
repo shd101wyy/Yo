@@ -4088,7 +4088,8 @@ test("async while loops emit C11-legal labels: post-loop locals, await-in-condit
   // the emitted C ill-formed. GCC tolerates it as an extension, and so do
   // modern clangs, but the HarmonyOS OHOS clang (strict C11) rejects it with
   // "expected expression" — which is how this surfaced. The emitters now
-  // append a null statement (`label: ;`, same as `loop_yo_id_N:;`), and this
+  // append a null statement (`label:;`, same as the plain-while lowering in
+  // codegen/exprs/while_loop.yo), and this
   // test pins the shapes that used to break: an awaiting WHILE CONDITION (the
   // hoisted-store path emits `while_loop_N_end:` straight into declarations)
   // and post-loop code starting with fresh locals (which sit directly after
