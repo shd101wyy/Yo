@@ -84,13 +84,13 @@ The installer:
   — which is why the fixes above live in the codegen, not the installer.
 - **The OHOS loader is strict about runtime library paths.** Measured on a
   HarmonyOS PC (HongMeng kernel, ohos-sdk 26.0.0.18): the loader resolves
-  libraries from the musl search paths (`/etc/ld-musl-aarch64.path`), and the
-  SDK's bundled `llvm/lib/libxml2.so.16` cannot be symbol-resolved, so
-  clang's linker `ld.lld` fails with `Error relocating ... xmlFreeDoc:
-  symbol not found`. Workaround that works: preload the harmonybrew libxml2 —
-  `export LD_PRELOAD=$(brew --prefix)/lib/libxml2.so.16` — and note that
-  setting `LD_LIBRARY_PATH` to a brew directory makes the loader ignore
-  `LD_PRELOAD` (secure-mode behavior), so preload-only for compiles, and put
-  brew's `lib` on the loader path file (or accept `LD_LIBRARY_PATH` only when
-  *running* binaries, not when compiling). A fixed `ohos-sdk` bottle will
-  make this moot.
+  libraries from the musl search paths (`/etc/ld-musl-aarch64.path`), so
+  brew's `lib` dir is invisible unless it is added there. Worse, setting
+  `LD_LIBRARY_PATH` to the brew prefix makes the loader refuse to resolve
+  lld's own bundled `libxml2` dependency — clang's linker then dies with
+  `Error relocating ... xmlFreeDoc: symbol not found`, and no `LD_PRELOAD`
+  workaround survives that environment either. Yo sidesteps all of it by
+  **statically linking liburing**: the compiler binary and every program it
+  builds only depend on the system libc (verified: the only `DT_NEEDED` is
+  `libc.so`). So: keep `LD_LIBRARY_PATH` out of your shell profile. If a
+  brew-linked tool needs it, scope it to that command instead.

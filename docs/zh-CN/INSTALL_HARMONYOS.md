@@ -77,11 +77,11 @@ $ curl -sSL https://raw.githubusercontent.com/shd101wyy/Yo/develop/scripts/insta
   codegen 里而不是在安装脚本里。
 - **OHOS 加载器对运行库路径非常严格。** 实测于 HarmonyOS PC（鸿蒙内核、
   ohos-sdk 26.0.0.18）：加载器按 musl 搜索路径（`/etc/ld-musl-aarch64.path`）
-  解析库文件，而 SDK 自带的 `llvm/lib/libxml2.so.16` 无法被加载器解析符号，
-  导致 clang 的链接器 `ld.lld` 报 `Error relocating ... xmlFreeDoc:
-  symbol not found`。有效的规避方法是预加载 harmonybrew 的 libxml2 ——
-  `export LD_PRELOAD=$(brew --prefix)/lib/libxml2.so.16` —— 另外注意：一旦
-  把 `LD_LIBRARY_PATH` 指向 brew 目录，加载器就会忽略 `LD_PRELOAD`
-  （安全模式行为），所以编译时只用 preload，运行编译产物时再用
-  `LD_LIBRARY_PATH`（或把 brew 的 `lib` 目录加入加载器路径文件）。
-  修复后的 `ohos-sdk` bottle 会消除此问题。
+  解析库文件，brew 的 `lib` 目录不在其中；更糟的是，一旦把
+  `LD_LIBRARY_PATH` 指向 brew 前缀，加载器会拒绝解析 lld 自带的
+  `libxml2` 依赖 —— clang 的链接器随即报 `Error relocating ... xmlFreeDoc:
+  symbol not found`，此时任何 `LD_PRELOAD` 变通方案也无效。Yo 通过
+  **静态链接 liburing** 绕开了这一切：编译器二进制和它构建的每个程序
+  都只依赖系统 libc（实测 `DT_NEEDED` 只有 `libc.so`）。所以：不要把
+  `LD_LIBRARY_PATH` 写进 shell 配置文件；如果某个依赖 brew 库的工具需要
+  它，只在该命令上临时设置。

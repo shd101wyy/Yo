@@ -635,6 +635,21 @@ through io_uring, and the async runtime `exit(1)`s if `io_uring_queue_init`
 fails — a HarmonyOS kernel without io_uring cannot run Yo at all (blocking-I/O
 fallback would be a separate project).
 
+**OHOS loader facts (measured on the box, deterministic env matrix):** the
+loader resolves libs from `/etc/ld-musl-aarch64.path` (brew's lib dir not
+listed), and ANY `LD_LIBRARY_PATH` pointing into the brew prefix makes it
+refuse to resolve the ohos-sdk's bundled libxml2 that lld needs — clang's
+linker dies with `Error relocating ... xmlFreeDoc: symbol not found`, and
+`LD_PRELOAD` of brew's libxml2 does NOT survive that environment either
+(preload-only works, preload+brew-libpath fails). The fix is to need no
+brew directory at runtime: `install.sh` static-links liburing into `yo`
+(verified: the only `DT_NEEDED` left is `libc.so`), and `yo compile` now
+does the same for user programs on HarmonyOS (`_is_harmonyos` uname probe in
+main.yo wraps the liburing flags in `-Wl,-Bstatic`/`-Wl,-Bdynamic`), plus
+forwards `pkg-config --cflags` so `__has_include(<liburing.h>)` fires at
+all. install.sh also drops a poisoned `LD_LIBRARY_PATH` for its run with a
+warning (the compile needs no runtime lib paths).
+
 Also fixed on the way: `install.sh --from-source` now passes
 `pkg-config --cflags liburing` (not just `--libs`) to the C compiler — the
 include path is required for brew-style prefixes and harmless elsewhere.

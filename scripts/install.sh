@@ -1046,6 +1046,26 @@ main_install() {
     # No HarmonyOS bundles are published; the linux-<arch> single-file yo.c
     # compiles with the OHOS clang, so the source path is the only path.
     FROM_SOURCE="yes"
+
+    # The OHOS loader cannot symbol-resolve the ohos-sdk's bundled libxml2
+    # that clang's linker (lld) needs, and an LD_LIBRARY_PATH pointing into
+    # the brew prefix makes that failure CERTAIN (the loader then refuses
+    # the resolution entirely, even with LD_PRELOAD). Nothing in this
+    # installer needs the variable: liburing is statically linked and the
+    # -L flags come from pkg-config, so drop it for the run and say why.
+    # (The compiler also static-links liburing into user programs, so Yo
+    # never needs brew lib dirs at runtime either.)
+    if [ -n "${LD_LIBRARY_PATH:-}" ]; then
+      warn ""
+      warn "WARNING: LD_LIBRARY_PATH=$LD_LIBRARY_PATH"
+      warn "points into the brew prefix, which breaks the OHOS clang's"
+      warn "linker (lld cannot load its libxml2 dependency). Yo does not"
+      warn "need it — liburing is statically linked into yo and your"
+      warn "programs. Unsetting it for this run; consider removing it from"
+      warn "your shell profile."
+      warn ""
+      unset LD_LIBRARY_PATH
+    fi
   fi
   resolve_version
   install_dependencies

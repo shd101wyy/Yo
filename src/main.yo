@@ -947,6 +947,37 @@ _probe_liburing_flags :: (fn(io : Io, out : ArrayList(String)) -> unit)({
     });
   });
 });
+/// Is the host HarmonyOS? `uname -s` reports "HarmonyOS" there (HongMeng
+/// kernel; musl; harmonybrew provides packages). Needed because the OHOS
+/// toolchain differences in the link line below are loader/runtime
+/// properties, not visible through the compile-time platform constants —
+/// the OHOS clang defines `__linux__`, so the host folds to Linux at the
+/// compiler's own build. Cached process-wide (one spawn), same pattern as
+/// `g_asan_usable`.
+(g_is_harmonyos : Option(bool)) = Option(bool).None;
+_is_harmonyos :: (fn(io : Io) -> bool)({
+  match(
+    g_is_harmonyos,
+    .Some(b) => {
+      return(b);
+    },
+    .None => ()
+  );
+  inner_exn := Exception(
+    throw : (
+      (_e) -> {
+        unwind(false);
+      }
+    )
+  );
+  urn := Command.new(String.from("uname"));
+  urn.arg(String.from("-s"));
+  uout := io.await(urn.output(io), IoExn(io : io, exn : inner_exn));
+  utxt := String.from_bytes(uout.stdout);
+  _is_harmonyos_helper_result := utxt.contains(String.from("HarmonyOS"));
+  g_is_harmonyos = Option(bool).Some(_is_harmonyos_helper_result);
+  _is_harmonyos_helper_result
+});
 /// AddressSanitizer functionality probe — faithful port of TS
 /// `asanRuntimeIsUsable` (src/compiler-utils.ts): compile a trivial C program
 /// with `-fsanitize=address` via the SYSTEM `cc` (matching TS, which probes
@@ -1736,10 +1767,25 @@ run_compile :: (
       if(flags.len() == usize(0), {
         flags.push(String.from("-luring"));
       });
+      // On HarmonyOS, link liburing STATICALLY. Two loader facts force this:
+      // (1) brew's lib dir is not on the musl loader path file
+      // (`/etc/ld-musl-aarch64.path`), so a dynamically linked liburing cannot
+      // be found at runtime; (2) setting `LD_LIBRARY_PATH` to the brew prefix
+      // makes the loader refuse to resolve lld's own bundled libxml2 —
+      // clang's linker then dies with "Error relocating ... xmlFreeDoc:
+      // symbol not found". Statically linking liburing makes both the
+      // compiler and every program it builds self-contained (verified: the
+      // only DT_NEEDED left is libc.so), so no brew directory is ever needed.
+      if(_is_harmonyos(io), {
+        cmd.arg(String.from("-Wl,-Bstatic"));
+      });
       (fi : usize) = usize(0);
       while(fi < flags.len(), {
         match(flags.get(fi), .Some(f) => cmd.arg(f.clone()), .None => ());
         fi = (fi + usize(1));
+      });
+      if(_is_harmonyos(io), {
+        cmd.arg(String.from("-Wl,-Bdynamic"));
       });
     });
   });
