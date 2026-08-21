@@ -67,9 +67,16 @@ now includes it under `#if defined(__OHOS__)`.
 
 ## Validation
 
-On the HarmonyOS box: patched `yo.c` (labels + statx include) compiles with
+Verified ON a real HarmonyOS box (HongMeng Kernel 1.13.0, ohos-sdk clang
+15.0.4): the patched `yo.c` (labels + statx include) compiles with
 `clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2` + `pkg-config --cflags/--libs liburing`,
-the built `yo` runs, and `yo compile` produces working binaries (hello world,
-while loops, async programs). The regression test
-`tests/async_await.test.yo::async while loops emit C11-legal labels...` pins
-the shape.
+and the built `yo` starts. What could NOT be exercised there: a full
+`yo compile` of a user program — the environment's sandbox seccomp kills
+the `io_uring_enter` syscall (SIGSYS, rc=159), and the compiler reads every
+source file through io_uring (the stub fallback abort()s; see
+`runtime_io_linux.yo` `#else` arm). The emitted-C label shape itself was
+verified by the successful full compile of the compiler's own `yo.c`, which
+contains thousands of these state-machine labels. CI (normal Linux, no
+seccomp block on io_uring) exercises user-program compiles on every PR; the
+regression test `tests/async_await.test.yo::async while loops emit C11-legal
+labels...` pins the shape there.

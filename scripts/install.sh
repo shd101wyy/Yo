@@ -835,10 +835,11 @@ install_from_source() {
     # and the async runtime is silently stubbed out. Harmless elsewhere.
     uring_cflags="$(pkg-config --cflags liburing 2>/dev/null || true)"
     if is_harmonyos; then
-      # The OHOS loader does not search brew's lib dir, and LD_LIBRARY_PATH
-      # makes it ignore LD_PRELOAD (which clang's linker needs for its own
-      # bundled libxml2). Linking liburing STATICALLY keeps `yo` runnable
-      # without any of that: the async runtime comes out of liburing.a.
+      # The OHOS loader does not search brew's lib dir, and any
+      # LD_LIBRARY_PATH pointing into the brew prefix breaks clang's linker
+      # entirely (the loader refuses lld's bundled libxml2). Linking liburing
+      # STATICALLY keeps `yo` runnable without any of that: the async runtime
+      # comes out of liburing.a and the only DT_NEEDED left is libc.so.
       uring_libs="-Wl,-Bstatic $uring_libs -Wl,-Bdynamic"
     fi
     info "  liburing: $uring_libs (async I/O compiled in)"
