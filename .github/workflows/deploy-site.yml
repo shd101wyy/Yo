@@ -22,6 +22,11 @@ on:
         description: "Published release tag to build and deploy the site for (e.g. v0.2.15)"
         required: true
         type: string
+      builder:
+        description: "Release tag of the compiler that BUILDS the site (defaults to `version`). Use an older release when the target release's binary cannot fit the runner — e.g. v0.2.15's evaluator regression (issues/desugar-token-clones-evaluator-regression.md) OOMs 7 GB runners on the site build."
+        required: false
+        type: string
+        default: ""
 
 env:
   # See test.yml's APT_OPTS comment: a bare apt-get can hang forever on the
@@ -54,10 +59,10 @@ jobs:
           sudo apt-get $APT_OPTS update
           sudo apt-get $APT_OPTS install -y liburing-dev
 
-      - name: Install the released compiler
+      - name: Install the site-builder compiler
         uses: ./.github/actions/install-seed
         with:
-          version: ${{ inputs.version }}
+          version: ${{ inputs.builder != '' && inputs.builder || inputs.version }}
 
       - name: Generate documentation website
         run: |
