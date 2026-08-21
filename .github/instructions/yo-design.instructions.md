@@ -303,11 +303,11 @@ use_t2 :: (fn(generic(T : Type), self : T, where(T <: T2)) -> i32)({
 
 ## Comptime/runtime function specialization
 
-Yo does **not** support function overloading. To provide comptime variants of functions, use explicit naming with a `comptime_` prefix (e.g., `comptime_unwrap` alongside `unwrap`). For operators, the `Call :: (runtime_fn, comptime_fn)` tuple pattern inside a module provides dispatch.
+Yo does **not** support function overloading — same stance as Rust, and ENFORCED since 2026-08-21 (`plans/FUNCTION_OVERLOADING_POLICY.md`): an exported `Call` holding a tuple of two or more candidates is rejected everywhere except std/prelude.yo, whose runtime/comptime operator modules (`(-)`/`(!)`/`(~)`, `Call :: (neg, comptime_neg)`) are the single sanctioned overload sets (`is_overload_set_capable_file` in `src/evaluator/memory_safety.yo`, gated at the export choke point in `src/evaluator/values/anonymous_module.yo`). A single-function `Call` — a callable module — is not an overload set and stays allowed. To provide comptime variants of functions, use explicit naming with a `comptime_` prefix (e.g., `comptime_unwrap` alongside `unwrap`).
 
 Use separate `impl` blocks with `where(Self <: Comptime)` constraints for comptime method variants on generic types like `Option(T)` and `Result(T, E)`.
 
-**Duplicate method names across impl blocks are disallowed.** Defining `unwrap` in two separate impl blocks for the same type produces an error. Use distinct names (e.g., `comptime_unwrap`) instead. This ensures unambiguous method extraction via `Type.method_name`.
+**Duplicate method names across impl blocks are disallowed** — as policy; the compiler does not yet enforce it. Today a second same-name inherent impl is silently accepted (identical signature: first wins; different arity: both dispatch) — `issues/duplicate-inherent-method-impls-not-rejected.md`. Use distinct names (e.g., `comptime_unwrap`) instead. This ensures unambiguous method extraction via `Type.method_name`.
 
 **Enum type method extraction** works: `Option(i32).unwrap` returns the method as a callable function value, matching struct type behavior.
 

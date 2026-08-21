@@ -54,6 +54,7 @@ open(import("std/string"));
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { is_valid_variable_name } :: import("../utils.yo");
 { format_error_message } :: import("../../error.yo");
+{ is_overload_set_capable_file } :: import("../memory_safety.yo");
 { Exception } :: import("std/error");
 { panic, assert } :: import("std/assert");
 /// Result type for `evaluate_anonymous_module_begin_exprs`.
@@ -513,6 +514,42 @@ evaluate_anonymous_module_begin_exprs :: (
                       );
                     });
                     the_val := match(the_var.value.get(usize(0)), .Some(v) => v, .None => EvalValue.UnitVal);
+                    // Overload-set gate: an exported `Call` holding a TUPLE of
+                    // two or more candidates is function overloading (the
+                    // `_try_expand_call_overload` dispatch trial-calls every
+                    // tuple entry). Yo follows Rust — no overloading — with one
+                    // sanctioned exception: std/prelude.yo's runtime/comptime
+                    // operator pairs. A single-function `Call` (a callable
+                    // module) is not an overload set and stays allowed.
+                    // This export loop is the choke point: BOTH `impl({...})`
+                    // modules and file modules flow through here, and dispatch
+                    // only ever reads the exported struct field.
+                    // See plans/FUNCTION_OVERLOADING_POLICY.md.
+                    if(variable_name == "Call", {
+                      match(
+                        the_val,
+                        .TupleVal(cand_fns) => if(cand_fns.len() >= usize(2), {
+                          if(!(
+                            is_overload_set_capable_file(
+                              Option(String).Some(ast_expr_token(export_expr).module_path.clone()),
+                              ctx.std_path.clone()
+                            )
+                          ), {
+                            exn.throw(
+                              dyn(
+                                format_error_message(
+                                  ast_expr_token(export_expr),
+                                  `Function overloading is not supported: "Call" here is a tuple of ${cand_fns.len()} candidates. Bind exactly one function to "Call" (the runtime/comptime operator pairs in std/prelude.yo are the only sanctioned overload sets — plans/FUNCTION_OVERLOADING_POLICY.md).`,
+                                  false,
+                                  .None
+                                )
+                              )
+                            );
+                          });
+                        }),
+                        _ => ()
+                      );
+                    });
                     field_labels.push(variable_name.clone());
                     field_types.push(the_var.ty);
                     module_names.push(variable_name.clone());

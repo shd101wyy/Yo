@@ -265,11 +265,19 @@ impl(generic(T), where(T <: ToString), Box(T),
 - `generic(T)` + `where(T <: Trait)` for generic impls
 - Trait impls: `impl(MyType, MyTrait(args), : trait_field_bindings...)`
 
-### Method overloading: inherent NO, trait YES
+### Overloading: functions NO, inherent methods NO (policy), trait YES
 
-Inherent methods cannot be overloaded — a second same-name inherent method is
-rejected ("Method already defined" across impl blocks, "variable shadowing"
-within one). But **trait-provided methods may share a name** with an inherent
+Function overloading does not exist (Rust stance,
+plans/FUNCTION_OVERLOADING_POLICY.md): rebinding a name is rejected
+everywhere, and an exported `Call` tuple of ≥2 candidates (an overload set)
+is rejected outside std/prelude.yo — the prelude's runtime/comptime operator
+pairs (`Call :: (neg, comptime_neg)`) are the ONLY sanctioned overload sets.
+A single-function `Call` (callable module) is fine. Duplicate same-name
+inherent methods are disallowed as POLICY but not yet enforced — today the
+compiler silently accepts them (same signature: first wins; different arity:
+both dispatch) — so never rely on it either way
+(issues/duplicate-inherent-method-impls-not-rejected.md). But
+**trait-provided methods may share a name** with an inherent
 method and with same-name methods from other traits; dispatch picks by
 argument types. This is how std gives `String` both `contains(String)`
 (inherent) and `contains(str)` (via the `StrPattern` trait), and both

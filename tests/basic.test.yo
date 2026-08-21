@@ -2086,15 +2086,28 @@ test("Test type availability", {
     );
   };
 });
-test("Test 'comptime_fn' function call and function overloading", {
+test("Test 'comptime_fn' function call and overload-set rejection", {
+  // A runtime/comptime `Call` PAIR is an overload set — sanctioned only in
+  // std/prelude.yo (plans/FUNCTION_OVERLOADING_POLICY.md), rejected in user
+  // code like any other overloading.
+  comptime_expect_error(
+    add_pair :: impl({
+      _add2 :: (fn(x : i32, y : i32) -> i32)({
+        return(x + y);
+      });
+      comptime_add2 :: comptime_fn(_add2);
+      Call :: (_add2, comptime_add2);
+      export(Call);
+    })
+  );
   add :: impl({
     _add :: (fn(x : i32, y : i32) -> i32)({
       return(x + y);
     });
-    comptime_add :: comptime_fn(_add); // Convert `add` to a comptime function.
+    comptime_add :: comptime_fn(_add); // Convert `_add` to a comptime function.
     // Panic if fails to convert.
-    Call :: (_add, comptime_add);
-    export(Call);
+    Call :: _add; // Single-function Call: a callable module, NOT an overload set.
+    export(Call, comptime_add);
   });
   MyOption :: (fn(comptime(T) : Type) -> comptime(Type))(
     enum(
@@ -2132,9 +2145,9 @@ test("Test 'comptime_fn' function call and function overloading", {
       assert(true);
     },
     .None => {
-      x :: add(3, 4); // compile-time function call
+      x :: add.comptime_add(3, 4); // compile-time function call
       comptime_assert(x == 7);
-      y := add(4, 5); // run-time function call
+      y := add(4, 5); // run-time call through the single-function Call
       assert(y == 9);
       assert(false, "Expected Some, got None");
     }
