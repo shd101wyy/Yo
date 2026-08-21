@@ -1,0 +1,307 @@
+//! lsp/server — the `yo lsp` language server (plans/P4_LSP.md slice 1 + 2).
+//!
+//! Speaks LSP over stdio: base-protocol framing (transport.yo), JSON-RPC
+//! dispatch, the initialize handshake, FULL text-document sync, and push
+//! diagnostics on open/change (diagnostics.yo). One message is handled at a
+//! time — the protocol methods served so far are all sequential-safe.
+//!
+//! Every message is handled inside `_handle_message`, whose LOCAL exception
+//! handler turns a malformed frame or JSON body into a skipped message
+//! instead of a dead server (`unwind` exits the INSTALLING function, so the
+//! handler must live in the per-message helper, not the loop).
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
+open(import("std/error"));
+open(import("std/fmt"));
+{ JsonValue, json_parse_string, json_stringify } :: import("std/encoding/json");
+{ read_lsp_message, write_lsp_message } :: import("./transport.yo");
+{
+  jb,
+  jstr,
+  jnum,
+  j_diagnostic,
+  j_response,
+  j_error_response,
+  j_notification
+} :: import("./protocol.yo");
+{ analyze_document, LspDiag } :: import("./diagnostics.yo");
+{ resolve_std_path } :: import("../module_manager.yo");
+{ CURRENT_YO_VERSION } :: import("../version.yo");
+{ BufReader } :: import("std/sys/bufio/buf_reader");
+
+/// `shutdown` latch: the LSP spec's `exit` notification exits 0 only when a
+/// `shutdown` request preceded it. Module-level because it must survive
+/// across `_handle_message` calls.
+(g_shutdown_requested : bool) = false;
+
+/// Decode one %XX escape byte value; `.None` when the two chars after `%`
+/// are not hex.
+_hex_val :: (fn(b : u8) -> Option(u8))(
+  cond(
+    ((b >= u8(48)) && (b <= u8(57))) => Option(u8).Some(b - u8(48)),
+    ((b >= u8(97)) && (b <= u8(102))) => Option(u8).Some((b - u8(97)) + u8(10)),
+    ((b >= u8(65)) && (b <= u8(70))) => Option(u8).Some((b - u8(65)) + u8(10)),
+    true => Option(u8).None
+  )
+);
+
+/// file:// URI → filesystem path: strip the scheme and percent-decode
+/// (editors escape spaces and non-ASCII in document URIs).
+uri_to_fs_path :: (fn(uri : String) -> String)({
+  (s : String) = uri.clone();
+  if(s.starts_with(String.from("file://")), {
+    s = s.substring(usize(7), s.len());
+  });
+  bytes := s.as_bytes();
+  out := ArrayList(u8).new();
+  n := bytes.len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    b := bytes(i);
+    cond(
+      ((b == u8(37)) && ((i + usize(2)) < n)) => {
+        h1 := _hex_val(bytes(i + usize(1)));
+        h2 := _hex_val(bytes(i + usize(2)));
+        match(
+          h1,
+          .Some(v1) => match(
+            h2,
+            .Some(v2) => {
+              out.push((v1 * u8(16)) + v2);
+              i = (i + usize(3));
+            },
+            .None => {
+              out.push(b);
+              i = (i + usize(1));
+            }
+          ),
+          .None => {
+            out.push(b);
+            i = (i + usize(1));
+          }
+        );
+      },
+      true => {
+        out.push(b);
+        i = (i + usize(1));
+      }
+    );
+  });
+  String.from_bytes(out)
+});
+export(uri_to_fs_path);
+
+/// Read a string field out of a JSON object; empty string when absent.
+_jfield_str :: (fn(v : JsonValue, key : str) -> String)(
+  match(
+    v.get(String.from(key)),
+    .Some(f) => match(f, .Str(x) => x, _ => String.new()),
+    .None => String.new()
+  )
+);
+
+/// Analyze `text` as the document at `uri` and push publishDiagnostics.
+_analyze_and_publish :: (
+  fn(uri : String, text : String, std_path : String, io : Io) -> unit
+)({
+  fs_path := uri_to_fs_path(uri.clone());
+  diags := analyze_document(fs_path, text, std_path, io);
+  items := ArrayList(JsonValue).new();
+  (i : usize) = usize(0);
+  while(i < diags.len(), {
+    match(
+      diags.get(i),
+      .Some(d) => {
+        items.push(j_diagnostic(d.row, d.col, d.row, d.end_col, d.message));
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  params := jb().put("uri", jstr(uri)).put("diagnostics", JsonValue.Array(items : items)).obj();
+  write_lsp_message(json_stringify(j_notification("textDocument/publishDiagnostics", params)));
+});
+
+/// Send an empty diagnostics list for `uri` (clears squiggles on close).
+_publish_empty :: (fn(uri : String) -> unit)({
+  params := jb().put("uri", jstr(uri)).put("diagnostics", JsonValue.Array(items : ArrayList(JsonValue).new())).obj();
+  write_lsp_message(json_stringify(j_notification("textDocument/publishDiagnostics", params)));
+});
+
+/// The `initialize` response: full-document sync; push diagnostics carry no
+/// capability flag. Feature providers (hover, completion, …) arrive with
+/// their P4 slices.
+_initialize_result :: (fn() -> JsonValue)(
+  jb().put("capabilities", jb().put("textDocumentSync", jnum(usize(1))).obj()).put(
+    "serverInfo",
+    jb().put("name", jstr(String.from("yo-lsp"))).put("version", jstr(String.from(CURRENT_YO_VERSION))).obj()
+  ).obj()
+);
+
+/// Handle one JSON-RPC message. Returns 0 = keep serving, 10 = exit(0),
+/// 11 = exit(1) (`exit` without a preceding `shutdown`).
+_handle_message :: (
+  fn(
+    body : String,
+    docs : HashMap(String, String),
+    std_path : String,
+    io : Io
+  ) -> i32
+)({
+  local_exn := Exception(
+    throw : (
+      (err) -> {
+        eprintln(`yo-lsp: skipping malformed message: ${err.to_string()}`);
+        unwind(i32(0))
+      }
+    )
+  );
+  v := json_parse_string(body, local_exn);
+  method := _jfield_str(v, "method");
+  id_opt := v.get(String.from("id"));
+  cond(
+    (method == String.from("initialize")) => {
+      match(
+        id_opt,
+        .Some(id) => write_lsp_message(json_stringify(j_response(id, _initialize_result()))),
+        .None => ()
+      );
+    },
+    (method == String.from("initialized")) => (),
+    (method == String.from("shutdown")) => {
+      g_shutdown_requested = true;
+      match(
+        id_opt,
+        .Some(id) => write_lsp_message(json_stringify(j_response(id, JsonValue.Null))),
+        .None => ()
+      );
+    },
+    (method == String.from("exit")) => {
+      return(cond(g_shutdown_requested => i32(10), true => i32(11)));
+    },
+    (method == String.from("textDocument/didOpen")) => {
+      match(
+        v.get(String.from("params")),
+        .Some(params) => match(
+          params.get(String.from("textDocument")),
+          .Some(td) => {
+            uri := _jfield_str(td, "uri");
+            text := _jfield_str(td, "text");
+            if(uri.len() > usize(0), {
+              _s1 := docs.set(uri.clone(), text.clone());
+              _analyze_and_publish(uri, text, std_path.clone(), io);
+            });
+          },
+          .None => ()
+        ),
+        .None => ()
+      );
+    },
+    (method == String.from("textDocument/didChange")) => {
+      match(
+        v.get(String.from("params")),
+        .Some(params) => {
+          uri := match(
+            params.get(String.from("textDocument")),
+            .Some(td) => _jfield_str(td, "uri"),
+            .None => String.new()
+          );
+          // Full sync: the last contentChanges entry's `text` is the whole
+          // document (we advertise TextDocumentSyncKind.Full).
+          text_opt := match(
+            params.get(String.from("contentChanges")),
+            .Some(changes) => match(
+              changes,
+              .Array(items) => cond(
+                (items.len() > usize(0)) => match(
+                  items.get(items.len() - usize(1)),
+                  .Some(last) => Option(String).Some(_jfield_str(last, "text")),
+                  .None => Option(String).None
+                ),
+                true => Option(String).None
+              ),
+              _ => Option(String).None
+            ),
+            .None => Option(String).None
+          );
+          match(
+            text_opt,
+            .Some(text) => if(uri.len() > usize(0), {
+              _s2 := docs.set(uri.clone(), text.clone());
+              _analyze_and_publish(uri, text, std_path.clone(), io);
+            }),
+            .None => ()
+          );
+        },
+        .None => ()
+      );
+    },
+    (method == String.from("textDocument/didClose")) => {
+      match(
+        v.get(String.from("params")),
+        .Some(params) => match(
+          params.get(String.from("textDocument")),
+          .Some(td) => {
+            uri := _jfield_str(td, "uri");
+            if(uri.len() > usize(0), {
+              _r := docs.remove(uri.clone());
+              _publish_empty(uri);
+            });
+          },
+          .None => ()
+        ),
+        .None => ()
+      );
+    },
+    (method.starts_with(String.from("$/"))) => (),
+    true => {
+      // Unknown REQUESTS get MethodNotFound; unknown notifications are
+      // ignored per the JSON-RPC spec.
+      match(
+        id_opt,
+        .Some(id) => write_lsp_message(
+          json_stringify(
+            j_error_response(id, i64(0) - i64(32601), `method not found: ${method}`)
+          )
+        ),
+        .None => ()
+      );
+    }
+  );
+  i32(0)
+});
+
+/// `yo lsp` entry: serve LSP over stdio until `exit` or EOF.
+run_lsp_server :: (fn(io : Io, exn : Exception) -> unit)({
+  reader := BufReader.new(i32(0));
+  docs := HashMap(String, String).new();
+  std_path := resolve_std_path();
+  eprintln(`yo-lsp: serving LSP over stdio (yo v${CURRENT_YO_VERSION}, std: ${std_path})`);
+  (running : bool) = true;
+  (exit_code : i32) = i32(0);
+  while(running, {
+    msg_opt := read_lsp_message(reader, io, exn);
+    match(
+      msg_opt,
+      .None => {
+        // Clean EOF: client is gone.
+        running = false;
+      },
+      .Some(body) => {
+        action := _handle_message(body, docs, std_path.clone(), io);
+        if(action == i32(10), {
+          running = false;
+        });
+        if(action == i32(11), {
+          running = false;
+          exit_code = i32(1);
+        });
+      }
+    );
+  });
+  if(exit_code != i32(0), {
+    exn.throw(dyn(`lsp: exit notification received without a shutdown request`));
+  });
+});
+export(run_lsp_server);

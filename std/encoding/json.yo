@@ -214,18 +214,22 @@ export(JsonValue, JsonKV);
 // ============================================================================
 _Parser :: ref(
   struct(
-    src : str,
+    // BYTES, not `str`: `str` is the STATIC string view and a runtime
+    // String cannot become one (plans/archive/SLICE_REWORK.md), so a
+    // str-typed parser could never parse runtime input — an HTTP body, an
+    // LSP frame. Both public entry points funnel into bytes.
+    src : ArrayList(u8),
     pos : usize
   )
 );
 impl(
   _Parser,
-  new : (fn(src : str) -> Self)(
+  new : (fn(src : ArrayList(u8)) -> Self)(
     Self(src : src, pos : usize(0))
   ),
   peek : (fn(self : Self) -> Option(u8))(
     cond(
-      (self.pos < self.src.len()) => .Some(self.src.bytes(self.pos)),
+      (self.pos < self.src.len()) => .Some(self.src(self.pos)),
       true => .None
     )
   ),
@@ -412,7 +416,7 @@ impl(
     num_buf := ArrayList(u8).with_capacity(num_len + usize(1));
     j := usize(0);
     while(j < num_len, j = (j + usize(1)), {
-      num_buf.push(self.src.bytes(start + j));
+      num_buf.push(self.src(start + j));
     });
     num_buf.push(u8(0));
     num_ptr := *(char)(num_buf.ptr().unwrap());
@@ -605,16 +609,33 @@ _parse_value :: (fn(p : _Parser) -> Result(JsonValue, JsonError))({
 // ============================================================================
 // Public API
 // ============================================================================
-/// Parse a JSON string into a `JsonValue` tree. Throws via `Exception` on invalid input.
-json_parse :: (fn(s : str, exn : Exception) -> JsonValue)({
-  p := _Parser.new(s);
+/// Parse JSON bytes into a `JsonValue` tree. Throws via `Exception` on invalid input.
+json_parse_bytes :: (fn(bytes : ArrayList(u8), exn : Exception) -> JsonValue)({
+  p := _Parser.new(bytes);
   match(
     _parse_value(p),
     .Ok(v) => v,
     .Err(e) => exn.throw(dyn(e))
   )
 });
-export(json_parse);
+/// Parse a JSON string into a `JsonValue` tree. Throws via `Exception` on invalid input.
+json_parse :: (fn(s : str, exn : Exception) -> JsonValue)({
+  bytes := ArrayList(u8).new();
+  n := s.len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    bytes.push(s.bytes(i));
+    i = (i + usize(1));
+  });
+  json_parse_bytes(bytes, exn)
+});
+/// Parse a runtime `String` of JSON into a `JsonValue` tree. Throws via
+/// `Exception` on invalid input. (`json_parse` takes the STATIC `str` view;
+/// runtime input — an HTTP body, an LSP frame — arrives as `String`.)
+json_parse_string :: (fn(s : String, exn : Exception) -> JsonValue)(
+  json_parse_bytes(s.as_bytes(), exn)
+);
+export(json_parse, json_parse_bytes, json_parse_string);
 // ============================================================================
 // Serialisation
 // ============================================================================
