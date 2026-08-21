@@ -63,6 +63,44 @@ io.async((io : Io) =>
 - The parentheses are **required** and must not be omitted.
 - Always write `cond(condition => result, true => default)`
 
+## Don't write unnecessary parentheses
+
+`yo fmt` deliberately preserves every parenthesis you write (the gofmt
+position — see `plans/archive/FMT_PAREN_CANONICALIZATION.md`), so paren
+hygiene is on the author. The rule of thumb: **a comma or a closing paren
+already delimits the expression — don't wrap it again.**
+
+```rust
+// WRONG — redundant parens around comma-delimited call arguments:
+if((x == y), { ... });
+assert((a == b), "msg");
+while((i < n), { ... });
+
+// CORRECT — the comma is the delimiter:
+if(x == y, { ... });
+assert(a == b, "msg");
+while(i < n, { ... });
+```
+
+But keep the parens the GRAMMAR needs — these are NOT unnecessary:
+
+- **`cond`/`match` arm conditions that are infix expressions**:
+  `cond((x == y) => a, true => b)` — `==` next to `=>` is two adjacent
+  different operators, so the parens are required.
+- **Mixed-operator chains**: `(a + b) * c` — no precedence; required.
+- **Struct-literal field values with infix**: `{ x : (1 + 2), y : 3 }`.
+- **Prefix-operator INFIX operands**: `-(1 + 2)` — a prefix operator
+  binds exactly ONE postfix expression
+  (plans/PREFIX_OPERATOR_OPERAND_RULE.md Rule 1, landed 2026-08-21), so
+  an infix-chain operand needs parens. Bare-primary operands do NOT:
+  `-1`, `!x`, `~m`, `&v`, `?*T` (= `?(*(T))`), `**T`, and `3 - -3` are
+  all valid and preferred in NEW user code. **Seed constraint: `src/`
+  and `std/` must keep the parenthesized spellings (`-(1)`, `!(x)`)
+  until a release with this rule becomes the seed** — the seed binary
+  still rejects paren-less prefix calls.
+
+Same-operator chains never need parens: `a + b + c`, `a && b && c`.
+
 ## `if` is sugar for `cond`
 
 `if(...)` calls are desugared to `cond(...)` at parse time (`desugar_if_calls` in `src/expr.yo`), so every pass after parsing sees a real `cond` node. The equivalent macro definition is kept in `prelude.yo` as the spec and as a fallback for dynamically built ASTs (plans/MACRO_POLICY.md Part 3.2):
@@ -75,7 +113,7 @@ if(condition, then_body, else)  // → cond(condition => then_body, true => else
 Use `if` for simple two-branch conditionals — especially for comptime early-return guards:
 
 ```rust
-if((arch == Arch.Wasm32), {
+if(arch == Arch.Wasm32, {
   printf("  skipped on wasm32\n");
   return();
 });
@@ -183,27 +221,27 @@ name as a variant field (for example, prefer `struct_field_types` over
 `field_types`). Some self-hosted codegen paths can currently emit invalid C for
 those shadowing-shaped bindings.
 
-## All function, keyword, and prefix-operator calls require immediate `(...)`
+## All function and keyword calls require immediate `(...)`
 
 - Write `func(arg1, arg2)`, not `func arg1, arg2`.
 - Do not insert whitespace before call parentheses: `func(arg)`, not `func (arg)`.
 - Control-flow keywords follow the same rule: `return(value)`, `return()`, `unwind(value)`, `unwind()`.
 - In `(exn : Exception) = Exception(throw: ((err) -> { ... }))` handlers, add `unwind(...)` / `unwind()` when the handler does not resume normally. Calls like `exit(int(1))` return `unit`; they do not satisfy the handler's `ResumeType` by themselves. (`unwind` requires the handler's lambda to be typed as `ctl(...) -> R`, which it is when bound to a `ctl`-typed field like `Exception.throw`.)
-- Prefix operators follow the same rule: `&(x)`, `!(ready)`, `-(value)`, `~(bits)`.
+- Prefix operators may use the call form (`&(x)`, `!(ready)`) or bind one bare postfix expression (`&x`, `!ready`, `-value` — plans/PREFIX_OPERATOR_OPERAND_RULE.md Rule 1; see "Unary (prefix) operators" below, including the src/std seed constraint). A no-whitespace `(` after the operator is always the call form.
 - Macro unquote syntax is also tight: use `#(expr)` and `...#(exprs)`.
+- **The operator token set is CLOSED** (plans/OPERATOR_SET_AND_PRECEDENCE.md): a run of operator characters is split greedily against the fixed table in `src/lexer.yo` (`_is_two_char_operator`/`_is_one_char_operator`); an unknown run is a lex error, and `**x` lexes as `*`,`*`,`x`. Reserved operators (`= := :: : => -> <: ?= && || # ...#`, ranges) can never be bound or overloaded (`is_reserved_operator_name` in `src/token.yo`, gated in `evaluator/exprs/binding.yo`). Adding a new operator = editing the lexer table deliberately, like a keyword.
 - **DEFINING a macro (a `quote(...)` parameter or `unquote(...)` return type) requires `pragma(Pragma.AllowMacroDef);` at the top of the file** (plans/MACRO_POLICY.md). Calling macros and working with quoted `Expr` values (the derive-rule mechanism) is ungated. std is exempt this generation (seed-bootstrap constraint — see `is_macro_def_capable_file` in `src/evaluator/memory_safety.yo`). The std `try` macro was REMOVED — match on the `Result`, or define a local equivalent under the pragma.
 - Dynamic field access with unquote requires grouping after the dot: `value.(#(field_expr))`, not `value.#(field_expr)`.
 
-This avoids ambiguous parses such as `&x, y`:
+Note how the prefix rule disambiguates `&x, y`: a bare `&` binds ONE
+postfix expression, so `call(&x, y)` passes a pointer to `x` plus `y`.
+Taking the address of a tuple needs the call form:
 
 ```rust
-// WRONG:
-call(&x, y)
+// Pointer to x, plus y (bare prefix binds one postfix expression):
+call(&x, y)      // same as call(&(x), y)
 
-// CORRECT — pass a pointer and another argument:
-call(&(x), y)
-
-// CORRECT — take the address of a tuple:
+// Address of the tuple (x, y) — call form required:
 call(&(x, y))
 ```
 
@@ -262,33 +300,44 @@ Formatter-specific syntax preservation:
 - Canonical pointer dereference is `ptr.*`; format legacy `ptr.(*)` as `ptr.*`.
 - Keep compact collection and tuple literals compact when they are single-line, even inside a multiline call: `[1, 2, 3]`, `(1, 2, 3)`.
 
-Special tight syntaxes must stay immediate: macro splices `#(expr)`, optional pointer types `?*(T)`, and negated trait constraints `T <: !(Runtime)` must not be formatted as `# (expr)`, `?* (T)`, or `T <: !(Runtime)`.
+Special tight syntaxes must stay immediate: macro splices `#(expr)`, Option sugar `?(T)` / nullable pointers `?(*(T))`, and negated trait constraints `T <: !(Runtime)` must not be formatted as `# (expr)`, `? (T)`, or `T <: !(Runtime)`.
 
 Example: `((value <= 0x10FFFF) && ((value < 0xD800) || (value > 0xDFFF)))`
 
-## Unary operators need parentheses around their operand
+## Unary (prefix) operators bind exactly ONE postfix expression
 
-Unary operators (`!`, `&`, `-`, `~`) are prefix calls, so they **require parentheses around their operand**. A bare `!x` / `&s` / `-n` is a _"Paren-less function and operator calls are not supported"_ error (the same rule that rejects `func arg`).
+Since 2026-08-21 (plans/PREFIX_OPERATOR_OPERAND_RULE.md Rule 1), a bare
+prefix operator (`-` `!` `~` `&` `*` `?` `^`) followed by a primary is
+valid: it binds exactly one postfix expression — the primary plus its
+dot-chains and calls — and nothing more.
 
 ```rust
-// WRONG — paren-less unary operand:
-assert(!d.is_empty(), "should not be empty");
-func(&s, label, extra);
+// Valid, and preferred in NEW user code:
+x := -1;
+assert(!d.is_empty(), "bare prefix binds the whole call chain");
+p := &x;
+t :: ?*u8;      // = ?(*(u8)) — Option of raw pointer
+y := 3 - -3;    // infix minus, then prefix minus
 
-// CORRECT — wrap the operand:
-assert(!(d.is_empty()), "should not be empty");
-func(&(s), label, extra);
+// An INFIX operand still needs parens (one postfix expression only):
+-(1 + 2)        // NOT -1 + 2, which is (-1) + 2
 ```
 
-This applies to **all** unary operators: `!`, `&`, `-`, `~`.
+**Seed constraint: `src/` and `std/` must keep the parenthesized
+spellings (`-(1)`, `!(x)`, `&(s)`) until a release with this rule becomes
+the seed** — the seed binary still rejects paren-less prefix calls. The
+formatter emits bare prefix forms tight (`-1`, `!x`, `?*i32`), keeps
+`- -1` spaced (a tight `--1` reads as a C decrement), and never tightens
+a pair that would re-lex as one token (`& &x` stays spaced — `&&` is a
+token).
 
-**`!x && y` is invalid** because `!x` is a paren-less unary. Since unary and infix
-are _different operators with no precedence_, you must parenthesize — and the two
-groupings mean different things, so choose by intent:
+**`!x && y` groups as `(!x) && y`** — the prefix operator binds only the
+one postfix expression. Since unary and infix are _different operators
+with no precedence_, write the other intent with parens:
 
 ```rust
 // (NOT x) AND y:
-!(x) && y
+!x && y
 
 // NOT (x AND y):
 !(x && y)

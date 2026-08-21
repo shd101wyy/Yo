@@ -48,10 +48,10 @@ pragma(Pragma.AllowUnsafe);
 // node: hostname or IP string (e.g. "localhost", "example.com")
 // service: service name or port string (e.g. "http", "80"), or .None
 // hints: pointer to an addrinfo struct for filtering, or .None
-// result: pointer to a ?*(u8) that will receive the head of the result list
+// result: pointer to a ?(*(u8)) that will receive the head of the result list
 // Returns 0 on success, non-zero gai_error on failure.
 // Caller must call freeaddrinfo() on the result when done.
-getaddrinfo :: (fn(node : *(u8), service : ?*(u8), hints : ?*(u8), result : *(?*(u8))) -> IoFuture)(
+getaddrinfo :: (fn(node : *(u8), service : ?(*(u8)), hints : ?(*(u8)), result : *(?(*(u8)))) -> IoFuture)(
   __yo_async_getaddrinfo_start(node, service, hints, result)
 );
 // Reverse lookup: convert a socket address to hostname and service strings.
@@ -73,20 +73,20 @@ freeaddrinfo :: (fn(res : *(u8)) -> unit)(
 // ============================================================================
 // Result Pointer Helpers
 // ============================================================================
-// Allocate a *(?*(u8)) to hold the getaddrinfo result pointer.
+// Allocate a *(?(*(u8))) to hold the getaddrinfo result pointer.
 // Initialized to .None. Caller must free with free_result() after use.
-alloc_result :: (fn() -> *(?*(u8)))({
-  ptr := *(?*(u8))(malloc(usize(8)).unwrap());
+alloc_result :: (fn() -> *(?(*(u8))))({
+  ptr := *(?(*(u8)))(malloc(usize(8)).unwrap());
   ptr.* = .None;
   ptr
 });
 // Read the addrinfo head pointer from the result slot.
 // Returns .Some(ai) if the result is non-null, .None otherwise.
-get_result :: (fn(result : *(?*(u8))) -> ?*(u8))(
+get_result :: (fn(result : *(?(*(u8)))) -> ?(*(u8)))(
   result.*
 );
 // Free the result pointer slot (not the addrinfo list itself).
-free_result :: (fn(result : *(?*(u8))) -> unit)(
+free_result :: (fn(result : *(?(*(u8)))) -> unit)(
   free(.Some(*(void)(result)))
 );
 // ============================================================================
@@ -121,11 +121,11 @@ addrinfo_addr :: (fn(ai : *(u8)) -> *(u8))(
   __yo_addrinfo_addr(ai)
 );
 // Get the ai_canonname string (may be .None).
-addrinfo_canonname :: (fn(ai : *(u8)) -> ?*(u8))(
+addrinfo_canonname :: (fn(ai : *(u8)) -> ?(*(u8)))(
   __yo_addrinfo_canonname(ai)
 );
 // Get the next addrinfo in the linked list (.None if end of list).
-addrinfo_next :: (fn(ai : *(u8)) -> ?*(u8))(
+addrinfo_next :: (fn(ai : *(u8)) -> ?(*(u8)))(
   __yo_addrinfo_next(ai)
 );
 // ============================================================================

@@ -66,6 +66,7 @@ open(import("std/string"));
 { type_to_string } :: import("../../types/string.yo");
 { is_function_type_and_returns_comptime_value } :: import("../../types/guards.yo");
 { format_error_message, format_error_messages, TokenAndError } :: import("../../error.yo");
+{ TokenKind, is_reserved_operator_name } :: import("../../token.yo");
 { type_implements_comptime, type_implements_runtime_full } :: import("../trait_checking.yo");
 { evaluate_expression_raw } :: import("./expr.yo");
 { is_valid_variable_name } :: import("../utils.yo");
@@ -327,6 +328,22 @@ Bound type: ${type_to_string(rhs_info.ty)}`,
           format_error_message(
             ast_expr_token(actual_lhs),
             `Invalid assignment to ${lhs_tok_val}, expected identifier or operator`,
+            false,
+            .None
+          )
+        )
+      );
+    });
+    // Reserved operators cannot be bound or overloaded
+    // (plans/OPERATOR_SET_AND_PRECEDENCE.md Part 1). Twin gate:
+    // `name : Type` bindings are checked in binding.yo.
+    res_tok := ast_expr_token(actual_lhs);
+    if((res_tok.kind == TokenKind.Operator) && is_reserved_operator_name(res_tok.value.clone()), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            res_tok,
+            `Operator "${res_tok.value}" is reserved and cannot be bound or overloaded (plans/OPERATOR_SET_AND_PRECEDENCE.md).`,
             false,
             .None
           )

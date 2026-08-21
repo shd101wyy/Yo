@@ -26,6 +26,24 @@ intern_token_str :: (fn(s : String) -> String)(
     }
   )
 );
+/// The CLOSED operator token set (plans/OPERATOR_SET_AND_PRECEDENCE.md).
+/// A run of operator characters is split greedily against these two tables
+/// (longest match first) instead of becoming one arbitrary token — so
+/// `**i32` lexes as `*`,`*`,`i32` (there is no `**` token), and an unknown
+/// run is a LEX error instead of a phantom user-operator. The dot family
+/// (`.` `..` `..=` `...` `...#`) has its own branch in `tokenize` and never
+/// reaches this split. New operators are added HERE, deliberately, like
+/// keywords. The retired pointer-arithmetic family (`&+`/`&-`/`&/`,
+/// plans/archive/POINTER_OPERATORS_TO_TRAITS_AND_METHODS.md) is NOT in the
+/// table — the last writers were migrated to `.add`/`.sub` 2026-08-21, so
+/// `p &+ n` now lexes as `p`,`&`,`+`,`n` and fails loudly at parse
+/// (mixed adjacent operators need parens).
+_is_two_char_operator :: (fn(s : String) -> bool)(
+  (s == "!=") || ((s == "&&") || ((s == "->") || ((s == "::") || ((s == ":=") || ((s == "<:") || ((s == "<<") || ((s == "<=") || ((s == "==") || ((s == "=>") || ((s == ">=") || ((s == ">>") || ((s == "?=") || (s == "||")))))))))))))
+);
+_is_one_char_operator :: (fn(s : String) -> bool)(
+  (s == "!") || ((s == "#") || ((s == "%") || ((s == "&") || ((s == "*") || ((s == "+") || ((s == "-") || ((s == "/") || ((s == ":") || ((s == "<") || ((s == "=") || ((s == ">") || ((s == "?") || ((s == "^") || ((s == "|") || (s == "~")))))))))))))))
+);
 /// An error produced by the lexer during tokenization.
 LexerError :: ref(
   struct(
@@ -129,7 +147,39 @@ tokenize :: (
           j = (j + usize(1));
         });
         op_str := op_sb.to_string();
-        tokens.push(Token(kind : TokenKind.Operator, value : intern_token_str(op_str), row : line, column : col, character : char_idx, module_path : module_path, input : input));
+        // Closed-set split (see _is_two_char_operator above): greedy
+        // longest-match over the run; operator chars are all ASCII so byte
+        // offsets equal rune offsets for the column/character adjustment.
+        (k : usize) = usize(0);
+        run_len := op_str.len();
+        while(k < run_len, {
+          (tok_len : usize) = usize(0);
+          if((k + usize(2)) <= run_len, {
+            if(_is_two_char_operator(op_str.slice_copy(k .. (k + usize(2)))), {
+              tok_len = usize(2);
+            });
+          });
+          if(tok_len == usize(0), {
+            if(_is_one_char_operator(op_str.slice_copy(k .. (k + usize(1)))), {
+              tok_len = usize(1);
+            });
+          });
+          if(tok_len == usize(0), {
+            exn.throw(
+              dyn(
+                LexerError(
+                  message : `unknown operator in '${op_str}': Yo has a closed operator set (plans/OPERATOR_SET_AND_PRECEDENCE.md); separate the operators with spaces or parentheses`,
+                  row : line,
+                  column : (col + k),
+                  character : (char_idx + k)
+                )
+              )
+            );
+            break;
+          });
+          tokens.push(Token(kind : TokenKind.Operator, value : intern_token_str(op_str.slice_copy(k .. (k + tok_len))), row : line, column : (col + k), character : (char_idx + k), module_path : module_path, input : input));
+          k = (k + tok_len);
+        });
         i = j;
       },
       // Whitespace
@@ -673,4 +723,9 @@ tokenize :: (
   });
   tokens
 });
-export(LexerError, tokenize);
+// _is_two_char_operator is exported for the formatter: with the closed
+// operator set, two adjacent operator tokens re-lex differently ONLY when
+// their concatenation is in this table, so the formatter's prefix-chain
+// tightening (`?*i32`, `**i32`) consults it instead of assuming every
+// operator pair would merge (the retired maximal-munch behavior).
+export(LexerError, tokenize, _is_two_char_operator);

@@ -126,9 +126,12 @@ builds itself (`yo build`).
 | `plans/P3_DISTRIBUTION.md`                   | Release bundles, install scripts, `yo version` against GitHub Releases                                                                                                                                        |
 | `plans/P4_LSP.md`                            | The LSP + VS Code phase — where the language server returns (the extension is syntax-only until then)                                                                                                         |
 | `plans/MACRO_POLICY.md`                      | Macro keep-vs-delete audit + decision (LANDED 2026-08-21): keep macros, gate definitions behind `Pragma.AllowMacroDef`, remove std `try`, desugar `if`→`cond` at parse time (prelude `if` kept as seed fallback) |
+| `plans/OPERATOR_SET_AND_PRECEDENCE.md`      | Closed operator token set (fixes `**i32` maximal-munch ambiguity) + reserved-operator list; no-precedence stance AFFIRMED 2026-08-21, consensus-core alternative documented as deferred                        |
+| `plans/archive/FMT_PAREN_CANONICALIZATION.md` | REJECTED fmt paren removal (2026-08-21): fmt stays paren-preserving like gofmt; "don't write unnecessary parens" is authoring guidance in yo-syntax.instructions.md instead                                |
 | `plans/archive/YO_SELF_EXPRINFO_PRUNE.md`    | REJECTED `yo-self` memory lever: pruning the process-lifetime `ExprInfoTable` (built, measured, refuted)                                                                                                      |
 | `plans/backlog/YO_SELF_ENV_SHARING.md`       | The real `yo-self` memory root cause: def-time body envs COPY what TS SHARES (7.4 M live `Variable`s), plus the remaining ranked levers                                                                       |
 | `plans/backlog/RC_POLICY_MECHANISM_SPLIT.md` | RC dup/drop architecture: policy (evaluator) vs mechanism (codegen), the codegen-side policy-patch inventory, and why full evaluator-only generation is impossible                                            |
+| `plans/backlog/SEED_VERSION_AUTOMATION.md`  | BACKLOG (2026-08-21): SEED_VERSION consistency guard across the 3 workflows + release-time direct bump push via RELEASE_PAT (no [skip ci], so the new seed is exercised immediately); scheduling point for seed-gated follow-ups |
 
 **Renamed 2026-08-06 — translate these in older docs.** The `phase6*` prefix named an
 internal porting-plan phase and meant nothing to a reader, so the four macro/reflection

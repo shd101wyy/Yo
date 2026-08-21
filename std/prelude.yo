@@ -452,18 +452,24 @@ ComptimeBitRightShift :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime)) -> co
   )
 );
 export(ComptimeBitRightShift);
-/// Exponentiation trait — enables `lhs ** rhs` operator.
+/// Exponentiation trait — enables `lhs.pow(rhs)`.
+///
+/// The `**` OPERATOR spelling was removed 2026-08-21
+/// (plans/OPERATOR_SET_AND_PRECEDENCE.md): it had zero impls and zero call
+/// sites, and dropping the token lets `**i32` lex as `*`,`*`,`i32`
+/// (double deref) instead of a phantom power operator. Word method only,
+/// like `Negate`'s `(neg)`.
 Exponentiation :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
   trait(
     Output : Type,
-    (**) : (fn(lhs : Self, rhs : Rhs) -> Self.Output)
+    (pow) : (fn(lhs : Self, rhs : Rhs) -> Self.Output)
   )
 );
 export(Exponentiation);
 ComptimeExponentiation :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime)) -> comptime(Trait))(
   trait(
     Output : Type,
-    (**) : (fn(comptime(lhs) : Self, comptime(rhs) : Rhs) -> comptime(Self.Output)),
+    (pow) : (fn(comptime(lhs) : Self, comptime(rhs) : Rhs) -> comptime(Self.Output)),
     where(Self <: Comptime, Self.Output <: Comptime)
   )
 );
@@ -6520,12 +6526,12 @@ impl(
 );
 /// `?` is a shorthand alias for `Option`.
 ? :: Option;
-/// `?*(T)` is a nullable pointer — equivalent to `Option(*(T))`.
-(?*) :: (fn(comptime(T) : Type) -> comptime(Type))(Option(*(T)));
+// The `(?*)` nullable-pointer alias was REMOVED 2026-08-21
+// (plans/OPERATOR_SET_AND_PRECEDENCE.md): `?*` is no longer an operator
+// token — write the composition `?(*(T))` (i.e. `Option(*(T))`) instead.
 export(
   Option,
-  ?,
-  ?*
+  ?
 );
 /// DeriveContext — context passed to derive rule functions (needs Option).
 /// Used by the `derive` macro to generate trait implementations.
@@ -7549,7 +7555,7 @@ extern(
 /// ```rust
 /// extern "C",
 ///   time_t : Type,
-///   time : fn(timer: ?*(time_t)) -> time_t
+///   time : fn(timer: ?(*(time_t))) -> time_t
 /// ;
 ///
 /// uninitialized_timer := MaybeUninit(time_t).new();

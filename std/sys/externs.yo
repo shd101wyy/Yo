@@ -69,7 +69,7 @@ extern(
   // ========================================================================
   // Process Operations
   // ========================================================================
-  __yo_async_spawn_start : (fn(file : *(u8), argv : *(?*(u8)), envp : ?*(?*(u8)), stdin_fd : i32, stdout_fd : i32, stderr_fd : i32) -> IoFuture),
+  __yo_async_spawn_start : (fn(file : *(u8), argv : *(?(*(u8))), envp : ?(*(?(*(u8)))), stdin_fd : i32, stdout_fd : i32, stderr_fd : i32) -> IoFuture),
   __yo_async_waitpid_start : (fn(pid : i32, options : i32) -> IoFuture),
   __yo_process_exit_status : (fn(status : i32) -> i32),
   __yo_process_term_signal : (fn(status : i32) -> i32),
@@ -151,7 +151,7 @@ extern(
   // ========================================================================
   // DNS Operations
   // ========================================================================
-  __yo_async_getaddrinfo_start : (fn(node : *(u8), service : ?*(u8), hints : ?*(u8), result : *(?*(u8))) -> IoFuture),
+  __yo_async_getaddrinfo_start : (fn(node : *(u8), service : ?(*(u8)), hints : ?(*(u8)), result : *(?(*(u8)))) -> IoFuture),
   __yo_async_getnameinfo_start : (fn(addr : *(u8), addrlen : u32, host : *(u8), hostlen : usize, service : *(u8), servlen : usize, flags : i32) -> IoFuture),
   __yo_freeaddrinfo : (fn(res : *(u8)) -> unit),
   __yo_addrinfo_size : (fn() -> usize),
@@ -161,8 +161,8 @@ extern(
   __yo_addrinfo_protocol : (fn(ai : *(u8)) -> i32),
   __yo_addrinfo_addrlen : (fn(ai : *(u8)) -> u32),
   __yo_addrinfo_addr : (fn(ai : *(u8)) -> *(u8)),
-  __yo_addrinfo_canonname : (fn(ai : *(u8)) -> ?*(u8)),
-  __yo_addrinfo_next : (fn(ai : *(u8)) -> ?*(u8)),
+  __yo_addrinfo_canonname : (fn(ai : *(u8)) -> ?(*(u8))),
+  __yo_addrinfo_next : (fn(ai : *(u8)) -> ?(*(u8))),
   // ========================================================================
   // Signal Operations
   // ========================================================================
@@ -212,9 +212,9 @@ extern(
   __yo_sync_futime : (fn(fd : i32, atime_sec : i64, atime_nsec : i64, mtime_sec : i64, mtime_nsec : i64) -> i32),
   __yo_sync_lutime : (fn(path : *(u8), atime_sec : i64, atime_nsec : i64, mtime_sec : i64, mtime_nsec : i64) -> i32),
   __yo_sync_statfs : (fn(path : *(u8), statfsbuf : *(u8)) -> i32),
-  __yo_sync_mmap : (fn(addr : ?*(u8), length : usize, prot : i32, flags : i32, fd : i32, offset : i64) -> ?*(u8)),
-  __yo_sync_mmap_is_error : (fn(addr : ?*(u8)) -> bool),
-  __yo_sync_mmap_errno : (fn(addr : ?*(u8)) -> i32),
+  __yo_sync_mmap : (fn(addr : ?(*(u8)), length : usize, prot : i32, flags : i32, fd : i32, offset : i64) -> ?(*(u8))),
+  __yo_sync_mmap_is_error : (fn(addr : ?(*(u8))) -> bool),
+  __yo_sync_mmap_errno : (fn(addr : ?(*(u8))) -> i32),
   __yo_sync_munmap : (fn(addr : *(u8), length : usize) -> i32),
   __yo_sync_mprotect : (fn(addr : *(u8), length : usize, prot : i32) -> i32),
   __yo_sync_msync : (fn(addr : *(u8), length : usize, flags : i32) -> i32),

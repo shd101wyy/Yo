@@ -812,3 +812,103 @@ test("generic tokenizes as a plain identifier (the binder survives)", {
     }
   );
 });
+// ─── Closed operator set (plans/OPERATOR_SET_AND_PRECEDENCE.md) ─────────────
+test("closed operator set: ** splits into two * tokens", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected error");
+        unwind(());
+      }
+    )
+  );
+  toks := non_ws(lex_or_panic(`a ** b`, exn));
+  assert(toks.len() == usize(4), "expected 4 tokens: a * * b");
+  (first_star_col : usize) = usize(0);
+  match(
+    toks.get(usize(1)),
+    .None => assert(false, "no token at 1"),
+    .Some(tok) => {
+      assert(tok.kind == TokenKind.Operator, "expected Operator");
+      assert(tok.value == `*`, "first * of the split");
+      first_star_col = tok.column;
+    }
+  );
+  match(
+    toks.get(usize(2)),
+    .None => assert(false, "no token at 2"),
+    .Some(tok) => {
+      assert(tok.value == `*`, "second * of the split");
+      assert(tok.column == (first_star_col + usize(1)), "split pieces keep their own columns");
+    }
+  );
+});
+test("closed operator set: greedy longest match splits <<= into << and =", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected error");
+        unwind(());
+      }
+    )
+  );
+  toks := non_ws(lex_or_panic(`a <<= b`, exn));
+  assert(toks.len() == usize(4), "expected 4 tokens: a << = b");
+  match(
+    toks.get(usize(1)),
+    .None => assert(false, "no token at 1"),
+    .Some(tok) => assert(tok.value == `<<`, "greedy 2-char match first")
+  );
+  match(
+    toks.get(usize(2)),
+    .None => assert(false, "no token at 2"),
+    .Some(tok) => assert(tok.value == `=`, "then the 1-char remainder")
+  );
+});
+test("closed operator set: ?* splits into ? and * (Option of pointer)", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected error");
+        unwind(());
+      }
+    )
+  );
+  toks := non_ws(lex_or_panic(`?*`, exn));
+  assert(toks.len() == usize(2), "?* splits into ? *");
+  match(
+    toks.get(usize(0)),
+    .None => assert(false, "no token at 0"),
+    .Some(tok) => assert(tok.value == `?`, "? is the Option alias")
+  );
+  toks2 := non_ws(lex_or_panic(`??`, exn));
+  assert(toks2.len() == usize(2), "?? splits into ? ?");
+});
+test("closed operator set: retired &+ splits into & and +", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected error");
+        unwind(());
+      }
+    )
+  );
+  toks := non_ws(lex_or_panic(`p &+ n`, exn));
+  assert(toks.len() == usize(4), "expected 4 tokens: p & + n");
+  match(
+    toks.get(usize(1)),
+    .None => assert(false, "no token at 1"),
+    .Some(tok) => assert(tok.value == `&`, "retired &+ is no single token")
+  );
+});
+test("closed operator set: unknown operator run is a lex error", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        unwind(());
+      }
+    )
+  );
+  _toks := tokenize(`a @@ b`, `test.yo`, exn);
+  assert(false, "expected a LexerError for '@@'");
+});

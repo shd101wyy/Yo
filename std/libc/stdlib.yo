@@ -22,15 +22,15 @@ c_include(
     (fn(func : (fn() -> unit)) -> int),
   // Memory management
   malloc :
-    (fn(size : usize) -> ?*(void)),
+    (fn(size : usize) -> ?(*(void))),
   calloc :
-    (fn(nmemb : usize, size : usize) -> ?*(void)),
+    (fn(nmemb : usize, size : usize) -> ?(*(void))),
   realloc :
-    (fn(ptr : ?*(void), size : usize) -> ?*(void)),
+    (fn(ptr : ?(*(void)), size : usize) -> ?(*(void))),
   free :
-    (fn(ptr : ?*(void)) -> unit),
+    (fn(ptr : ?(*(void))) -> unit),
   aligned_alloc :
-    (fn(alignment : usize, size : usize) -> ?*(void)),
+    (fn(alignment : usize, size : usize) -> ?(*(void))),
   // String to number conversion
   atof :
     (fn(nptr : *(char)) -> f64),
@@ -41,19 +41,19 @@ c_include(
   atoll :
     (fn(nptr : *(char)) -> longlong),
   strtol :
-    (fn(nptr : *(char), endptr : ?*(?*(char)), base : int) -> long),
+    (fn(nptr : *(char), endptr : ?(*(?(*(char)))), base : int) -> long),
   strtoll :
-    (fn(nptr : *(char), endptr : ?*(?*(char)), base : int) -> longlong),
+    (fn(nptr : *(char), endptr : ?(*(?(*(char)))), base : int) -> longlong),
   strtoul :
-    (fn(nptr : *(char), endptr : ?*(?*(char)), base : int) -> ulong),
+    (fn(nptr : *(char), endptr : ?(*(?(*(char)))), base : int) -> ulong),
   strtoull :
-    (fn(nptr : *(char), endptr : ?*(?*(char)), base : int) -> ulonglong),
+    (fn(nptr : *(char), endptr : ?(*(?(*(char)))), base : int) -> ulonglong),
   strtof :
-    (fn(nptr : *(char), endptr : ?*(?*(char))) -> f32),
+    (fn(nptr : *(char), endptr : ?(*(?(*(char))))) -> f32),
   strtod :
-    (fn(nptr : *(char), endptr : ?*(?*(char))) -> f64),
+    (fn(nptr : *(char), endptr : ?(*(?(*(char))))) -> f64),
   strtold :
-    (fn(nptr : *(char), endptr : ?*(?*(char))) -> longdouble),
+    (fn(nptr : *(char), endptr : ?(*(?(*(char))))) -> longdouble),
   // Pseudo-random sequence generation
   rand :
     (fn() -> int),
@@ -71,7 +71,7 @@ c_include(
         nmemb : usize,
         size : usize,
         compar : (fn(a : *(void), b : *(void)) -> int)
-      ) -> ?*(void)
+      ) -> ?(*(void))
     ),
   qsort :
     (
@@ -97,37 +97,37 @@ c_include(
     (fn(numer : longlong, denom : longlong) -> lldiv_t),
   // Environment functions
   getenv :
-    (fn(name : *(char)) -> ?*(char)),
+    (fn(name : *(char)) -> ?(*(char))),
   setenv :
     (fn(name : *(char), value : *(char), overwrite : int) -> int),
   // POSIX (declared in <stdlib.h> on POSIX systems, like setenv — callers
   // must guard usage behind non-Windows platform branches). With a NULL
   // `resolved_path`, returns a malloc'd canonical path the caller frees.
   realpath :
-    (fn(path : *(char), resolved_path : ?*(char)) -> ?*(char)),
+    (fn(path : *(char), resolved_path : ?(*(char))) -> ?(*(char))),
   system :
-    (fn(command : ?*(char)) -> int),
+    (fn(command : ?(*(char))) -> int),
   // C11 Annex K - Bounds-checking interfaces
   getenv_s :
-    (fn(len : ?*(usize), value : *(char), maxsize : usize, name : *(char)) -> int),
+    (fn(len : ?(*(usize)), value : *(char), maxsize : usize, name : *(char)) -> int),
   // Multibyte/wide character conversion
   mblen :
-    (fn(s : ?*(char), n : usize) -> int),
+    (fn(s : ?(*(char)), n : usize) -> int),
   mbtowc :
-    (fn(pwc : ?*(wchar_t), s : ?*(char), n : usize) -> int),
+    (fn(pwc : ?(*(wchar_t)), s : ?(*(char)), n : usize) -> int),
   wctomb :
-    (fn(s : ?*(char), wc : wchar_t) -> int),
+    (fn(s : ?(*(char)), wc : wchar_t) -> int),
   // Multibyte/wide string conversion
   mbstowcs :
-    (fn(dest : ?*(wchar_t), src : *(char), n : usize) -> usize),
+    (fn(dest : ?(*(wchar_t)), src : *(char), n : usize) -> usize),
   wcstombs :
-    (fn(dest : ?*(char), src : *(wchar_t), n : usize) -> usize),
+    (fn(dest : ?(*(char)), src : *(wchar_t), n : usize) -> usize),
   // C11 Annex K - Safe multibyte functions
   mbstowcs_s :
     (
       fn(
-        retval : ?*(usize),
-        dest : ?*(wchar_t),
+        retval : ?(*(usize)),
+        dest : ?(*(wchar_t)),
         destsz : usize,
         src : *(char),
         len : usize
@@ -136,8 +136,8 @@ c_include(
   wcstombs_s :
     (
       fn(
-        retval : ?*(usize),
-        dest : ?*(char),
+        retval : ?(*(usize)),
+        dest : ?(*(char)),
         destsz : usize,
         src : *(wchar_t),
         len : usize

@@ -282,8 +282,8 @@ test("Test Send on pointer-bearing types is conditional on the pointee", {
   // Array(T, N): Send iff T: Send.
   comptime_assert(Type.impls(Array(i32, 4), Send) == true);
   comptime_assert(Type.impls(Array(NonSendCarrier, 4), Send) == false);
-  // Nullable pointer ?*(T): same as *(T) via Option(*(T)) desugar.
-  comptime_assert(Type.impls(?*(i32), Send) == true);
+  // Nullable pointer ?(*(T)): same as *(T) via Option(*(T)) desugar.
+  comptime_assert(Type.impls(?(*(i32)), Send) == true);
 });
 test("Test type auto derive Acyclic", {
   // Primitive types are Acyclic

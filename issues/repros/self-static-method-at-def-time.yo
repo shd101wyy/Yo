@@ -12,7 +12,7 @@
 //!   - remove `out := Self.new();` (keep `new` declared) -> CLEAN
 //!   - instance dispatch `self.len()` -> always fine, before or after declaration
 //!   - a plain `impl(M, ...)` (non-generic) -> CLEAN
-//!   - `?*(T)` field / `pragma(AllowUnsafe)` / a Range param -> none of them matter
+//!   - `?(*(T))` field / `pragma(AllowUnsafe)` / a Range param -> none of them matter
 //!
 //! ROOT, and it is DELIBERATE: `evaluator/values/impl.yo:3110-3114` makes only
 //! TYPE-valued fields visible to later fields' `Self.X`, because "`Self.X` never
@@ -30,7 +30,7 @@ pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 open(import("std/fmt"));
 
-G :: (fn(comptime(T) : Type) -> comptime(Type))(ref(struct(_ptr : ?*(T), _length : usize)));
+G :: (fn(comptime(T) : Type) -> comptime(Type))(ref(struct(_ptr : ?(*(T)), _length : usize)));
 
 impl(
   generic(T : Type),

@@ -3418,8 +3418,8 @@ Fix: wrap the call:
             );
             // Faithful port of TS function.ts:1020 (`typeFields: value.value.fields`):
             // the struct VALUE's `field_types` carry the CONCRETE type arguments
-            // (e.g. `HashSet(String)` → `data : ?*(String)`), whereas the registry
-            // template from `get_struct_fields(struct_id)` keeps the generic `?*(T)`.
+            // (e.g. `HashSet(String)` → `data : ?(*(String))`), whereas the registry
+            // template from `get_struct_fields(struct_id)` keeps the generic `?(*(T))`.
             // yo-self splits field METADATA (defaults — in the registry) from field
             // TYPES (on the `TypeValue.Struct` value), so take each registry field
             // but OVERRIDE its `ty` with the value's substituted type (matched by
@@ -5144,7 +5144,7 @@ Fix: wrap the call:
           // Narrow guard — only comptime_str args against a concrete,
           // non-comptime-string, non-`SomeT` declared param. This avoids
           // touching comptime type-parameter args (e.g.
-          // `(?*) :: (fn(comptime(T):Type)->…)(Option(*(T)))`), which must keep
+          // a `(fn(comptime(T):Type)->…)(Option(*(T)))`-style alias), which must keep
           // their `Type` value so `*(T)` resolves.
           bind_decl_pt := match(fv_param_types.get(pi), .Some(t) => t, .None => t_unit());
           // Resolve a generic-`SomeT` declared param type to its concrete binding

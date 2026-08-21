@@ -14,7 +14,7 @@ c_include(
   // GetCurrentDirectoryW - Gets the current directory (Unicode version)
   // Returns the length of the string copied to the buffer (excluding null terminator)
   // If the buffer is too small, returns the required size (including null terminator)
-  GetCurrentDirectoryW : (fn(nBufferLength : DWORD, lpBuffer : ?*(WCHAR)) -> DWORD),
+  GetCurrentDirectoryW : (fn(nBufferLength : DWORD, lpBuffer : ?(*(WCHAR))) -> DWORD),
   // SetCurrentDirectoryA - Sets the current directory (ANSI version)
   // Returns nonzero if successful, zero on failure
   SetCurrentDirectoryA : (fn(lpPathName : *(char)) -> BOOL),
@@ -23,12 +23,12 @@ c_include(
     fn(
       CodePage : u32,
       dwFlags : DWORD,
-      lpWideCharStr : ?*(WCHAR),
+      lpWideCharStr : ?(*(WCHAR)),
       cchWideChar : i32,
-      lpMultiByteStr : ?*(u8),
+      lpMultiByteStr : ?(*(u8)),
       cbMultiByte : i32,
-      lpDefaultChar : ?*(u8),
-      lpUsedDefaultChar : ?*(i32)
+      lpDefaultChar : ?(*(u8)),
+      lpUsedDefaultChar : ?(*(i32))
     ) -> i32
   ),
   // _putenv_s - Sets environment variable (Windows-specific)
@@ -38,7 +38,7 @@ c_include(
   // version; hModule = NULL means "the .exe of the current process").
   // Returns the number of WCHARs copied excluding the null terminator, or 0
   // on failure; a return value equal to nSize means the buffer was too small.
-  GetModuleFileNameW : (fn(hModule : ?*(void), lpFilename : *(WCHAR), nSize : DWORD) -> DWORD),
+  GetModuleFileNameW : (fn(hModule : ?(*(void)), lpFilename : *(WCHAR), nSize : DWORD) -> DWORD),
   // Code page constants
   CP_UTF8 : u32
 );

@@ -77,6 +77,7 @@ if(done, println("done"), println("pending"));
 - Always write `cond(...)`, never bare `cond ...`
 - Always write `match(...)`, never bare `match ...`
 - `if(a, b)` and `if(a, b, c)` are sugar over `cond` (desugared at parse time; the prelude macro remains as spec/fallback)
+- **The operator set is CLOSED** (plans/OPERATOR_SET_AND_PRECEDENCE.md): operator-char runs split greedily against a fixed table (`src/lexer.yo`), so `**x` = `*`,`*`,`x` (no `**` token — `Exponentiation` is the word method `pow`), and an unknown run (`@@`) is a lex error. Reserved (never bindable/overloadable): `= := :: : => -> <: ?= && || # ...#` and ranges. The retired pointer-arithmetic operators (`&+`/`&-`/`&/`) are NOT tokens any more — use `.add`/`.sub`.
 - Defining a macro (`quote(...)` param / `unquote(...)` return) needs `pragma(Pragma.AllowMacroDef);` at the top of the file; CALLING macros needs nothing. The std `try` macro was removed — match on the `Result` instead.
 - Write `return(value)` or `return()`; `return value` is invalid.
 - Write `unwind(value)` or `unwind()`; `unwind value` is invalid.
@@ -124,8 +125,9 @@ masked := ((A | B) | C);
 - Yo has no operator precedence: a chain of the SAME operator left-associates (`a + b + c` ⇒ `(a + b) + c`, no parens needed); adjacent DIFFERENT operators require parentheses (`(a + b) * c`, not `a + b * c`)
 - An operator RHS that itself contains a different top-level operator must be parenthesized: `true => (x / y)`, `value := (x + y)`, `(x : T) = ((v) -> { ... })`, `next : (fn(...) -> T)`
 - Source layout does NOT affect grouping — there is no newline-based associativity
-- Prefix operators (`!`, `&`, `-`, `~`) require parenthesized operands: `func(&(s), a, b)`, `!(ready)`, `-(value)`.
-- Tight special forms also require immediate parentheses: `#(expr)`, `?*(u8)`, `T <: !(Runtime)`
+- Prefix operators (`-` `!` `~` `&` `*` `?` `^`) bind ONE postfix expression (plans/PREFIX_OPERATOR_OPERAND_RULE.md): `-1`, `!ready`, `&s`, `?*T`, `3 - -3` are valid; an INFIX operand still needs parens (`-(1 + 2)`). SEED CONSTRAINT: keep parenthesized forms (`-(1)`, `!(x)`) in `src/` and `std/` until a rule-bearing release becomes the seed.
+- Tight special forms also require immediate parentheses: `#(expr)`, `?(*(u8))`, `T <: !(Runtime)`
+- **Don't write unnecessary parens** — commas already delimit call args: `if(x == y, ...)`, `assert(a == b, "msg")`, NOT `if((x == y), ...)`. Parens stay where grammar needs them: infix arm conditions `(x == y) => a`, mixed-op chains `(a + b) * c`, struct fields `{ x : (1 + 2) }`, prefix INFIX operands `-(1 + 2)`. Bare-primary prefix operands need none (`-1`/`!x`/`?*T` — Rule 1 landed 2026-08-21; src/ and std/ keep parens until the seed catches up). `yo fmt` preserves whatever you write — it never removes parens.
 - Dynamic field access with unquote must keep grouping after the dot: `value.(#(field_expr))`, not `value.#(field_expr)`.
 - Unquote splicing is the tight operator `...#(exprs)`; do not insert a space between `...` and `#`.
 - Canonical pointer dereference is `ptr.*`; formatter should canonicalize legacy `ptr.(*)` to `ptr.*`.
@@ -142,8 +144,8 @@ masked := ((A | B) | C);
 - **`// SAFETY:` comment convention.** Every non-obvious `unsafe(...)` site in stdlib should have a `// SAFETY:` comment in the previous ~8 lines explaining the contract. `yo unsafe-report` picks them up and shows them inline under each finding.
 - **User-facing memory-safety guide:** `docs/en-US/MEMORY_SAFETY.md` (English) and `docs/zh-CN/MEMORY_SAFETY.md` (Chinese). Refer users there instead of `plans/MEMORY_SAFETY.md` (which is the design document — not shipped via npm).
 - Keep single-line array and tuple literals compact during formatting: `[1, 2, 3]`, `(1, 2, 3)`.
-- Parenthesize other unary operands too: `!(ready)`, `-(value)`
-- **`!x && y` is invalid** — `!x` is a paren-less unary. Unary and infix are different operators (no precedence), so parenthesize by intent: `!(x) && y` (= `(NOT x) AND y`) or `!(x && y)` (= `NOT (x AND y)`).
+- Bare prefix operators bind ONE postfix expression (Rule 1, plans/PREFIX_OPERATOR_OPERAND_RULE.md, 2026-08-21): `-1`, `!ready`, `&v`, `?*u8`, `3 - -3` are valid and preferred in NEW user code; an INFIX operand still needs parens (`-(1 + 2)`). **Seed constraint: `src/` and `std/` keep the call forms (`!(x)`, `-(value)`) until a release with the rule becomes the seed.**
+- **`!x && y` groups as `(!x) && y`** — the prefix op binds only one postfix expression. Unary and infix are different operators (no precedence), so write the other intent as `!(x && y)` (= `NOT (x AND y)`).
 
 ## Functions and methods
 
@@ -861,13 +863,15 @@ match(r,
 );
 ```
 
-Unary `!` requires parentheses around its operand — a bare `!cond` is a paren-less error:
+Bare unary `!` binds one postfix expression (Rule 1, 2026-08-21) — both
+spellings are valid; NEW user code prefers the bare form, while `src/` and
+`std/` keep the call form until a rule-bearing release becomes the seed:
 
 ```rust
-// WRONG — paren-less unary operand:
+// Preferred in new user code:
 if(!cond, { do_thing(); });
 
-// CORRECT — wrap the operand:
+// Call form — required inside src/ and std/ this generation:
 if(!(cond), { do_thing(); });
 ```
 

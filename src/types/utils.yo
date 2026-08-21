@@ -642,7 +642,7 @@ _id_already_visited :: (fn(visited : ArrayList(String), id : String) -> bool)({
 /// itself pushed onto `visited`), so no separate mutually-recursive entry is
 /// needed. The enum branch carries the same visited guard the struct path has
 /// (a recursive `ref(enum(… Self …))` would otherwise loop forever).
-/// Extract the element type a container holds behind its `?*(E)` heap buffer field
+/// Extract the element type a container holds behind its `?(*(E))` heap buffer field
 /// — the pointee `E` of the Option-wrapped pointer. Mirrors `bufferElementType` in
 /// src/types/utils.ts. Used to see through a container to its elements both for
 /// cycle detection and for the Acyclic auto-derive. A bare `*(E)` is intentionally
@@ -709,7 +709,7 @@ _type_refs_back_to_cyclic :: (
             );
             i = (i + usize(1));
           });
-          // Container buffer-walk: a `?*(E)` field holds elements the field walk
+          // Container buffer-walk: a `?(*(E))` field holds elements the field walk
           // above cannot see (raw pointer); trace the element type so element cycles
           // (`ArrayList(Self)` etc.) are detected.
           if(!(found), {
@@ -853,7 +853,7 @@ can_type_form_rc_cycle :: (fn(ty : TypeValue) -> bool)(
           );
           i = (i + usize(1));
         });
-        // Container buffer-walk: a `?*(E)` field holds elements the field walk
+        // Container buffer-walk: a `?(*(E))` field holds elements the field walk
         // above cannot see (raw pointer); trace the element type so element cycles
         // (`ArrayList(Self)` etc.) are detected.
         if(!(found), {
@@ -1275,7 +1275,7 @@ type_somes_all_resolve_concrete :: (fn(ty : TypeValue) -> bool)({
 /// structure, so a SomeT nested under `Option`/`Ptr`/a field is detected.
 ///
 /// That difference is not cosmetic: an `ArrayList(E)` left generic has field
-/// `?*(E)`, which the top-level test calls concrete. `compute_needs_cycle_gc`
+/// `?(*(E))`, which the top-level test calls concrete. `compute_needs_cycle_gc`
 /// then accepts the generic ArrayList as a CYCLE ROOT and switches the whole
 /// program to the heavy Bacon-Rajan runtime, where TS stays on the lightweight
 /// RC path — which in turn stamps `dispose_fn` with a bare generic id that is

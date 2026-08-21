@@ -7,12 +7,12 @@ open(import("std/string"));
 c_include(
   "<string.h>",
   memcpy_probe :
-    (fn(dst : ?*(void), src : ?*(void), n : usize) -> ?*(void)),
+    (fn(dst : ?(*(void)), src : ?(*(void)), n : usize) -> ?(*(void))),
   strlen_probe :
     (fn(s : *(u8)) -> usize)
 );
 // SAFETY: caller guarantees both buffers are live and n-sized.
-copy_n :: (fn(dst : ?*(void), src : ?*(void), n : usize) -> ?*(void))({
+copy_n :: (fn(dst : ?(*(void)), src : ?(*(void)), n : usize) -> ?(*(void)))({
   r := unsafe(memcpy_probe(dst, src, n));
   r
 });
@@ -23,7 +23,7 @@ len_of :: (fn(s : *(u8)) -> usize)({
 });
 // SAFETY: caller guarantees p+n stays inside the allocation.
 advance :: (fn(p : *(u8), n : usize) -> *(u8))({
-  q := unsafe(p &+ n);
+  q := unsafe(p.add(n));
   q
 });
 export(copy_n, len_of, advance);
