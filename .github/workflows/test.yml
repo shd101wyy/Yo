@@ -298,22 +298,16 @@ jobs:
       YO_TEST_LEAK_VERDICT: "0"
     strategy:
       fail-fast: false
-      # One leg per release-bundle target (see release.yml's seed matrix):
-      # linux-x64/linux-arm64 (musl bundles — Linux is musl-only), macos-arm64,
-      # macos-x64 (macos-26-intel is the last Intel label GitHub offers),
-      # windows-x64, and windows-arm64 (added once v0.2.13 shipped the first
-      # windows-arm64 seed bundle). windows-11-arm doubles as the strictest
-      # C-conformance runner: it installs clang 22 (no pre-installed LLVM,
-      # unlike windows-latest's 20), where -Wincompatible-pointer-types is a
-      # default ERROR.
+      # The two LINUX release-bundle targets (musl bundles — Linux is
+      # musl-only). These are the only runners that can host the ~15 GB
+      # stage-1 self-build (32 GB swapfile). The other four release targets —
+      # macos-arm64, macos-x64, windows-x64, windows-arm64 — run the SAME
+      # suite in the `test-native` job below, under a tree-built compiler
+      # delivered by cross-emit (suite-candidate -> suite-cross-emit).
       matrix:
         os:
           - ubuntu-latest
           - ubuntu-24.04-arm
-          - macos-latest
-          - macos-26-intel
-          - windows-latest
-          - windows-11-arm
 
     steps:
       - name: Checkout repository
@@ -333,7 +327,6 @@ jobs:
       # self-build onto the suite runners. Locally the same build succeeds on
       # 16 GB *because ~10 GB of swap is available*; the runner has 3 GB.
       - name: Add swap space
-        if: runner.os == 'Linux'
         run: |
           sudo fallocate -l 32G /mnt/swapfile
           sudo chmod 600 /mnt/swapfile
@@ -342,23 +335,16 @@ jobs:
           free -h
 
       - name: Install liburing
-        if: runner.os == 'Linux'
         run: |
           sudo apt-get $APT_OPTS update
           sudo apt-get $APT_OPTS install -y liburing-dev
-
-      - name: Install LLVM/Clang
-        if: runner.os == 'Windows'
-        run: |
-          choco install llvm -y
-          echo "C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       # P2.5 step 18: the matrix legs are now bun/node-FREE. The previous
       # release (the bootstrap seed) builds stage-1 from THIS checkout, and
       # stage-1 — the compiler these sources describe — does every remaining
       # job: fmt, the build-system smoke, and the language corpus. That is the
       # same trust chain the other self-hosted jobs use ("previous release
-      # builds current compiler"), now extended to all five release targets.
+      # builds current compiler").
       - name: Install the seed compiler (previous release)
         uses: ./.github/actions/install-seed
         with:
@@ -379,7 +365,7 @@ jobs:
       # it is path noise, not a route difference.
       # `--std-path ./std` stays load-bearing and IS forwarded to the child
       # compile (build_runner.yo:426-432).
-      # WHY THIS IS LINUX-ONLY (settled 2026-08-15, run 31856743929).
+      # WHY THE SELF-BUILD IS LINUX-ONLY (settled 2026-08-15, run 31856743929).
       # The self-build peaks above 15 GB: on ubuntu-latest it climbed to
       # 15,541 MB of 15,988 and sat at ~300 MB free for four minutes before its
       # own allocation failed (dmesg showed NO oom-kill), dying inside the
@@ -390,22 +376,10 @@ jobs:
       # Making the heavy build Linux-only is not a concession, it is this
       # repo's existing architecture. EVERY other self-building job here is
       # ubuntu-latest — bootstrap-fixpoint, -stage3, bootstrap-self-test, the
-      # self-hosted differential, the musl leg, tsan and the hollow sweep. This
-      # matrix was the ONLY job attempting a self-build on macOS/Windows, and
-      # the only one failing.
-      #
-      # COVERAGE COST, stated plainly: on macOS/Windows the suite now runs
-      # under the SEED against THIS checkout's std (--std-path ./std). That
-      # covers std changes and platform-specific runtime/codegen behaviour, but
-      # NOT a PR's own compiler changes on those platforms — those are proven
-      # at release time by release.yml's seed-bundles, which builds natively on
-      # all five targets. Restoring per-PR macOS compiler coverage needs either
-      # the emit's memory footprint brought down (plans/backlog/
-      # YO_SELF_ENV_SHARING.md: def-time envs COPY what TS SHARES, 7.4 M live
-      # Variables) or paid larger runners. Both are out of scope here and are
-      # recorded in issues/test-matrix-stage1-silent-failure.md.
+      # self-hosted differential, the musl leg, tsan and the hollow sweep.
+      # macOS/Windows get a tree-built compiler anyway, via cross-emit — see
+      # `suite-candidate` / `suite-cross-emit` / `test-native` below.
       - name: "Stage 1: build the self-hosted compiler with the SEED (`yo build`)"
-        if: runner.os == 'Linux'
         shell: bash
         run: |
           echo "::group::pre-build environment"
@@ -530,7 +504,7 @@ jobs:
       # (proven in run 31854687362), so this is the only place the forensics
       # can be printed at all.
       - name: "Stage 1 post-mortem (always runs)"
-        if: always() && runner.os == 'Linux'
+        if: always()
         shell: bash
         run: |
           echo "--- memory samples during the build (last 15) ---"
@@ -550,39 +524,8 @@ jobs:
           echo "--- partial yo-out tree: was the 142 MB .c emitted before the failure? ---"
           ls -lR yo-out 2>/dev/null | head -40 || echo "(no yo-out)"
 
-      # macOS/Windows: no self-build (see the note above). These legs run the
-      # checks that do NOT require a current compiler — `fmt --check` and the
-      # build-system smoke test — under the seed, against this checkout's std.
-      # They do NOT run the language suite; see the "Run tests" note for why
-      # that is impossible rather than merely expensive.
-      - name: "Stage 1 (macOS/Windows): use the seed as the compiler under test"
-        if: runner.os != 'Linux'
-        shell: bash
-        run: |
-          SEED="$(command -v yo || true)"
-          if [ -z "$SEED" ]; then
-            echo "::error::the seed compiler is not on PATH"
-            exit 1
-          fi
-          echo "S1=$SEED" >> "$GITHUB_ENV"
-          # LOAD-BEARING. std resolution is --std-path -> YO_STD -> a walk-up
-          # from the executable -> ./std. A stage-1 binary lives at
-          # yo-out/<triple>/bin/yo, so its walk-up lands on THIS checkout's std
-          # for free. The seed lives at $RUNNER_TEMP/yo-seed/bin/yo, so its
-          # walk-up finds the seed's OWN bundled std instead — and the suite
-          # would then silently test the released std, not the PR's, making the
-          # stated coverage of these legs a lie. YO_STD (rather than adding
-          # --std-path to each invocation) covers every subcommand, including
-          # the child compiles that `yo build run` spawns in the smoke test.
-          echo "YO_STD=$PWD/std" >> "$GITHUB_ENV"
-          YO_STD="$PWD/std" "$SEED" check std/assert.yo
-
-      # ubuntu-latest ONLY, and not just to avoid running it six times: the
-      # verdict is only meaningful where $S1 is the TREE-BUILT compiler. On
-      # the macOS/Windows legs $S1 is the SEED, so a PR that intentionally
-      # changes formatter behavior would fail those legs spuriously (the old
-      # formatter re-judging files formatted by the new one). Formatting is
-      # platform- and arch-independent, so one stage-1 leg settles it.
+      # ubuntu-latest ONLY: formatting is platform- and arch-independent, so
+      # one tree-built-formatter verdict settles it for every leg.
       - name: Check the formatted code
         if: matrix.os == 'ubuntu-latest'
         shell: bash
@@ -606,30 +549,267 @@ jobs:
       # sequential), so this is serial: MEASURED at 17.5 min for all 188 files on
       # an M4 (2742 passed / 2742, no `Failed to transpile` markers), i.e. ~20x
       # inside this job's 360-min timeout — no directory sharding needed.
-      # LINUX ONLY, and this is not a cost decision — it is a correctness one.
-      # The language suite contains REGRESSION TESTS for compiler bugs, so it
-      # can only ever be run by the compiler built from THIS checkout. Running
-      # it under the seed fails by construction on every test added since the
-      # seed was released: run 31861036285 died on "standalone await as the
-      # async body's own result" (tests/async_await.test.yo:3974), added by
-      # 15cf7bc4f with the tail-await result-loss codegen fix — a fix v0.2.4
-      # does not have, so the test correctly fails there. Any allowlist for
-      # that would need editing on every compiler fix and would invert the
-      # meaning of the suite.
-      #
-      # Since only Linux can host the stage-1 build (see the note above), the
-      # suite is Linux-only per PR. macOS/Windows compiler coverage: this
-      # job's own legs run the SEED natively (fmt --check over the whole
-      # tree, init + build run), and release.yml smoke-tests every bundle
-      # natively on its own target. Since P2.5 step-24 option A the macOS
-      # bundles are CROSS-EMITTED (their Yo->C runs on Linux; only the C
-      # compile + smoke are native) — the mac runners cannot hold the
-      # ~12.2 GB self-emit.
+      # The suite MUST run under a compiler built from THIS checkout — it
+      # contains REGRESSION TESTS for compiler bugs, so the seed fails it by
+      # construction on every test newer than the seed (run 31861036285 died
+      # on "standalone await as the async body's own result",
+      # tests/async_await.test.yo:3974 — a fix the seed does not have). Any
+      # allowlist would need editing on every compiler fix and would invert
+      # the meaning of the suite. The four macOS/Windows targets run this
+      # same invocation in `test-native` below, under the cross-emitted
+      # tree-built compiler.
       - name: Run tests
-        if: runner.os == 'Linux'
         shell: bash
         run: |
           "$S1" test ./tests --exclude tests/internal --exclude tests/cli-cases --bail --verbose --c-compiler clang
+
+  # ---------------------------------------------------------------------
+  # The four NON-LINUX release targets: full language suite per PR, under a
+  # TREE-BUILT compiler, via cross-emit (promoted 2026-08-21 from the weekly
+  # suite-cross-targets.yml, which this chain replaced — three consecutive
+  # all-green runs, having first surfaced the exe-lock cleanup bug #195 and
+  # the x64-clang-under-WoA default-triple bug #196).
+  #
+  # Why cross-emit: the suite contains regression tests coupled to THIS
+  # tree's compiler, so the seed cannot run it — and the macOS runners
+  # (~7 GB) cannot host the ~15 GB self-build that would produce a
+  # tree-built compiler natively. So Linux (with the swapfile) builds the
+  # CANDIDATE once, four Linux legs cross-emit per-target C with it, and
+  # each target runner compiles that C natively and runs the FULL suite
+  # against this checkout's std. This exercises the per-platform async
+  # runtimes (~5,900 lines of macOS/Windows io backends) at suite depth.
+  #
+  # The CANDIDATE does the cross-emit, not the seed — same rule and reason
+  # as release.yml's seed-cross-emit (a pre-f7b5cc460 seed would bake the
+  # HOST's platform constants into the target's C), and it means the C that
+  # reaches the native runners was emitted by the PR's OWN codegen.
+  suite-candidate:
+    name: Build the suite candidate (Linux, shared by the cross-emits)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # Same memory treatment as every self-emitting job (see release.yml's
+      # seed-cross-emit for the 16 min vs 159 min zswap measurement).
+      - name: Add swap space
+        run: |
+          sudo fallocate -l 32G /mnt/swapfile
+          sudo chmod 600 /mnt/swapfile
+          sudo mkswap /mnt/swapfile
+          sudo swapon /mnt/swapfile
+
+      - name: Tune the kernel for a swap-heavy self-emit
+        run: |
+          echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled || true
+          echo never | sudo tee /sys/kernel/mm/transparent_hugepage/defrag || true
+          echo Y | sudo tee /sys/module/zswap/parameters/enabled || true
+
+      - name: Install liburing (needed to run the seed's compiled children)
+        run: |
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y liburing-dev
+
+      - name: Install the seed compiler (previous release)
+        uses: ./.github/actions/install-seed
+        with:
+          version: ${{ env.SEED_VERSION }}
+
+      - name: Build the candidate compiler (previous seed, native)
+        env:
+          YO_MAIN_STACK_MB: "4096"
+        run: yo compile src/main.yo --release --allocator mimalloc --std-path ./std -o yo-candidate
+
+      # Built ONCE and shared: the retired weekly workflow rebuilt the
+      # candidate inside each of its four cross-emit legs — at per-PR
+      # frequency that is three redundant ~50-minute self-builds.
+      - name: Upload the candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: suite-candidate
+          path: yo-candidate
+          retention-days: 1
+          if-no-files-found: error
+
+  suite-cross-emit:
+    name: Cross-emit suite compiler (${{ matrix.target }})
+    needs: [changes, suite-candidate]
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: macos-arm64
+            yo_target: aarch64-macos
+          - target: macos-x64
+            yo_target: x86_64-macos
+          - target: windows-x64
+            yo_target: x86_64-windows-msvc
+          - target: windows-arm64
+            yo_target: aarch64-windows-msvc
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # The cross-emit itself is a full-tree emit (~12-15 GB peak) — same
+      # memory treatment as the candidate build above.
+      - name: Add swap space
+        run: |
+          sudo fallocate -l 32G /mnt/swapfile
+          sudo chmod 600 /mnt/swapfile
+          sudo mkswap /mnt/swapfile
+          sudo swapon /mnt/swapfile
+
+      - name: Tune the kernel for a swap-heavy self-emit
+        run: |
+          echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled || true
+          echo never | sudo tee /sys/kernel/mm/transparent_hugepage/defrag || true
+          echo Y | sudo tee /sys/module/zswap/parameters/enabled || true
+
+      - name: Install liburing (needed to run the candidate)
+        run: |
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y liburing-dev
+
+      - name: Download the candidate
+        uses: actions/download-artifact@v4
+        with:
+          name: suite-candidate
+
+      # --allocator system so the native leg needs no vendored-mimalloc link
+      # line: this binary exists to RUN the suite, not to be measured.
+      - name: "Cross-emit the suite compiler C (${{ matrix.yo_target }})"
+        env:
+          YO_MAIN_STACK_MB: "4096"
+        run: |
+          chmod +x yo-candidate
+          mkdir -p cross
+          ./yo-candidate compile src/main.yo --release --allocator system \
+            --std-path ./std --target ${{ matrix.yo_target }} \
+            --emit-c --skip-c-compiler -o "cross/yo-${{ matrix.target }}" > /dev/null
+          ls -la "cross/yo-${{ matrix.target }}.c"
+
+      - name: Upload the emitted C
+        uses: actions/upload-artifact@v4
+        with:
+          name: suite-c-${{ matrix.target }}
+          path: cross/yo-${{ matrix.target }}.c
+          retention-days: 1
+          if-no-files-found: error
+
+  # Job NAME is `test (<os>)` on purpose: these four legs carry the required
+  # status-check contexts "test (macos-latest)" and "test (windows-latest)"
+  # (ruleset 13548862) that the `test` matrix carried before it went
+  # Linux-only — renaming them would silently drop two required checks.
+  #
+  # `!cancelled()` is LOAD-BEARING: with a plain `if`, an upstream cross-emit
+  # failure would SKIP these legs, and a skipped required check SATISFIES the
+  # ruleset — a red emit would become a mergeable PR. Instead the legs always
+  # run (for code PRs) and fail fast in the artifact download when their C
+  # never arrived.
+  test-native:
+    name: test (${{ matrix.os }})
+    needs: [changes, suite-cross-emit]
+    if: ${{ !cancelled() && needs.changes.outputs.code == 'true' }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 240
+    env:
+      YO_MAIN_STACK_MB: "4096"
+      # Same staging ratchet as the Linux legs: leak verdicts stay off, ASan
+      # crash detection stays armed.
+      YO_TEST_LEAK_VERDICT: "0"
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: macos-arm64
+          - os: macos-26-intel
+            target: macos-x64
+          - os: windows-latest
+            target: windows-x64
+          # windows-11-arm doubles as the strictest C-conformance runner: it
+          # installs clang 22 (no pre-installed LLVM, unlike windows-latest's
+          # 20), where -Wincompatible-pointer-types is a default ERROR.
+          - os: windows-11-arm
+            target: windows-arm64
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Download the cross-emitted C
+        uses: actions/download-artifact@v4
+        with:
+          name: suite-c-${{ matrix.target }}
+          path: cross
+
+      - name: Install LLVM/Clang
+        if: runner.os == 'Windows'
+        run: |
+          choco install llvm -y
+          echo "C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      # Same flag set as release.yml's native legs. `--target=` is explicit on
+      # Windows for the same reason it is there: chocolatey's clang default
+      # target is not guaranteed to be this runner's (windows-11-arm installs
+      # an x86_64 LLVM build that runs under WoA emulation and defaults to
+      # x86_64-pc-windows-msvc — issues/fixed/
+      # native-windows-compile-trusts-clang-default-triple.md).
+      - name: Compile the suite compiler natively
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            case "${{ matrix.target }}" in
+              windows-x64)   CT=x86_64-pc-windows-msvc ;;
+              windows-arm64) CT=aarch64-pc-windows-msvc ;;
+            esac
+            clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
+              --target=$CT \
+              "cross/yo-${{ matrix.target }}.c" \
+              -lws2_32 -lbcrypt -ladvapi32 \
+              -o yo-suite.exe
+            ./yo-suite.exe --version
+          else
+            clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
+              "cross/yo-${{ matrix.target }}.c" \
+              -o yo-suite
+            ./yo-suite --version
+          fi
+          # YO_STD pins this checkout's std for every later step (the binary
+          # sits in the repo root, so its walk-up would find ./std anyway; the
+          # pin makes it explicit and survives cd).
+          echo "YO_STD=$PWD/std" >> "$GITHUB_ENV"
+
+      # Under the TREE-BUILT compiler — strictly stronger than the seed-based
+      # smoke these legs ran before 2026-08-21: it exercises the PR's build
+      # runner and codegen natively, including the child compiles `build run`
+      # spawns.
+      - name: Build system smoke test
+        shell: bash
+        run: |
+          if [ -f yo-suite.exe ]; then YO="$PWD/yo-suite.exe"; else YO="$PWD/yo-suite"; fi
+          "$YO" init ./tmp/hello-world --name hello-world
+          cd tmp/hello-world
+          "$YO" build run
+
+      # The full language corpus, natively, under the TREE-BUILT compiler —
+      # the same invocation as the Linux "Run tests" step.
+      - name: Run tests
+        shell: bash
+        run: |
+          if [ -f yo-suite.exe ]; then YO=./yo-suite.exe; else YO=./yo-suite; fi
+          "$YO" test ./tests --exclude tests/internal --exclude tests/cli-cases --bail --verbose --c-compiler clang
 
   # Bootstrap fixpoint, split into TWO jobs so each self-emit gets a fresh
   # 16 GB box (a single job's stage-3 starved the runner agent after the

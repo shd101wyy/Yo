@@ -20,11 +20,15 @@ machinery, and every leg was green on the first dispatch:**
 - **windows-arm64** is a full, non-experimental leg (first bundle shipped in
   v0.2.13; second in v0.2.14).
 
-**The language suite now runs on ALL SIX targets** — Linux both arches per-PR
-(test.yml), and macos-arm64/macos-x64/windows-x64/windows-arm64 weekly via
-`.github/workflows/suite-cross-targets.yml` (#194: candidate cross-emits
-per-target C, native runners compile and run the full corpus). Its first three
-runs surfaced and then gated two real Windows bugs:
+**The language suite now runs on ALL SIX targets, per PR** — Linux both
+arches natively, and macos-arm64/macos-x64/windows-x64/windows-arm64 via the
+cross-emit chain in test.yml (`suite-candidate` → `suite-cross-emit` →
+`test-native`; the candidate cross-emits per-target C, native runners compile
+and run the full corpus). The route landed as the weekly
+`suite-cross-targets.yml` (#194) and was promoted into test.yml per-PR on
+2026-08-21 after three consecutive all-green runs (the weekly workflow is
+deleted as superseded). Its first runs surfaced and then gated two real
+Windows bugs:
 `issues/fixed/test-runner-windows-batch-cleanup-exe-lock.md` (#195) and
 `issues/fixed/native-windows-compile-trusts-clang-default-triple.md` (#196 —
 an x64 LLVM under Windows-on-ARM emulation defaults to x86_64, so native
