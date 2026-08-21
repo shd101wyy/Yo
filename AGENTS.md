@@ -131,6 +131,7 @@ builds itself (`yo build`).
 | `plans/archive/YO_SELF_EXPRINFO_PRUNE.md`    | REJECTED `yo-self` memory lever: pruning the process-lifetime `ExprInfoTable` (built, measured, refuted)                                                                                                      |
 | `plans/backlog/YO_SELF_ENV_SHARING.md`       | The real `yo-self` memory root cause: def-time body envs COPY what TS SHARES (7.4 M live `Variable`s), plus the remaining ranked levers                                                                       |
 | `plans/backlog/RC_POLICY_MECHANISM_SPLIT.md` | RC dup/drop architecture: policy (evaluator) vs mechanism (codegen), the codegen-side policy-patch inventory, and why full evaluator-only generation is impossible                                            |
+| `plans/backlog/SEED_VERSION_AUTOMATION.md`  | BACKLOG (2026-08-21): SEED_VERSION consistency guard across the 3 workflows + release-time direct bump push via RELEASE_PAT (no [skip ci], so the new seed is exercised immediately); scheduling point for seed-gated follow-ups |
 
 **Renamed 2026-08-06 — translate these in older docs.** The `phase6*` prefix named an
 internal porting-plan phase and meant nothing to a reader, so the four macro/reflection
