@@ -41,6 +41,10 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ inputs.version }}
+          # build_site.yo imports vendor/markdown_yo — without submodules the
+          # compile dies with "file or directory not found" (first dispatch,
+          # 2026-08-22). Recursive, matching release.yml's checkouts.
+          submodules: recursive
 
       # The seed is a dynamically linked Linux binary whose async runtime
       # links liburing — it cannot start without it (release.yml's site-build
