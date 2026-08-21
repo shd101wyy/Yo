@@ -64,6 +64,13 @@ The installer:
   blocking-I/O fallback, and a build *without* liburing compiles to stubs that
   cannot read files at all. On kernels where `io_uring_setup` is unavailable
   the compiler exits with `[Yo] io_uring_queue_init failed: ...` at startup.
+  Measured on a sandboxed HarmonyOS image: `io_uring_setup` succeeds but
+  **`io_uring_enter` (submit) is seccomp-blocked**, killing the process with
+  SIGSYS (rc=159) on the first file read — the same Docker-seccomp pattern the
+  repo hit in CI (`--security-opt seccomp=unconfined` fixed it there). Real
+  host kernels normally allow io_uring; if a HarmonyOS PC policy blocks it,
+  Yo currently cannot run there (a blocking-I/O fallback would be a separate
+  project).
 - **Releases before the C11-compatibility fixes cannot build here.** The OHOS
   clang is strict C11: it rejects labels standing directly before a
   declaration, and the OHOS sysroot does not expose `struct statx` through

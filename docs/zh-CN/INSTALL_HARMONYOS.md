@@ -59,6 +59,12 @@ $ curl -sSL https://raw.githubusercontent.com/shd101wyy/Yo/develop/scripts/insta
   使用 io_uring —— 没有阻塞式 I/O 回退；不带 liburing 构建则会编译成桩
   实现，连源文件都无法读取。在内核不支持 `io_uring_setup` 的机器上，编译器
   启动时输出 `[Yo] io_uring_queue_init failed: ...` 并退出。
+  实测于沙箱化的 HarmonyOS 镜像：`io_uring_setup` 成功，但 `io_uring_enter`
+  （提交阶段）被 seccomp 拦截，首次文件读取就被 SIGSYS（rc=159）杀死 ——
+  与仓库 CI 曾遇到的 Docker seccomp 拦截 io_uring 是同一模式（当时用
+  `--security-opt seccomp=unconfined` 解决）。真实主机内核通常允许 io_uring；
+  若某台 HarmonyOS PC 的策略禁止它，Yo 目前无法在那台机器上运行（阻塞式
+  I/O 回退属于另一个项目）。
 - **C11 兼容性修复之前的版本无法在此构建。** OHOS clang 严格遵循 C11：
   它拒绝标签直接位于声明之前（label-before-declaration），且 OHOS sysroot
   不在 `<sys/stat.h>` 中提供 `struct statx`。这两点都已在生成的 C 中修复

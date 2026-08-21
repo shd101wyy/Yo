@@ -604,9 +604,16 @@ Watch that job, and promote it off `continue-on-error` once it is green.
 installs `git curl pkgconf liburing ohos-sdk` through it, and builds the
 published `yo-v<tag>-linux-<arch>.c.gz` with the OHOS clang (liburing
 compiled in via `pkg-config --cflags` — the brew prefix is not a default
-include path). Verified end-to-end on a real HarmonyOS box (HongMeng Kernel
-1.13.0, ohos-sdk clang 15.0.4, harmonybrew): the compiled `yo` runs and
-compiles+links+executes user programs.
+include path; linked STATICALLY on harmonyos so no loader-path tricks are
+needed to run `yo`). Verified on a real HarmonyOS box (HongMeng Kernel
+1.13.0, ohos-sdk clang 15.0.4, harmonybrew): the fixed `yo.c` compiles with
+the OHOS clang, the built `yo` runs (`--version`), and the emit pipeline
+works. A full user-program compile could NOT be completed in that
+environment: its sandbox seccomp blocks `io_uring_enter` (SIGSYS, rc=159)
+and the compiler reads every source file through io_uring — the Docker
+seccomp precedent from item 3 (`--security-opt seccomp=unconfined`). On
+real (unseccomp'd) HarmonyOS hardware the remaining question is simply
+whether the HongMeng kernel allows `io_uring_enter`.
 
 Two codegen fixes were required for the OHOS toolchain — both are strict-C11
 compliance, so they are user-visible for every `yo compile` there, not just
