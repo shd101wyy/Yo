@@ -886,8 +886,18 @@ _synth_desugar_tok :: (fn(kind : TokenKind, value : str, ref_tok : Token) -> Tok
     row : ref_tok.row,
     column : ref_tok.column,
     character : ref_tok.character,
-    module_path : ref_tok.module_path.clone(),
-    input : ref_tok.input.clone()
+    // SHARE module_path and input — never .clone() them. String.clone()
+    // deep-copies the buffer, and `input` is the ENTIRE SOURCE FILE: the
+    // original desugar cloned it into every synthesized (and, worse, every
+    // REBUILT) node's token, giving each AST node a private copy of the
+    // file. Measured on `yo check` of the vendor/markdown_yo closure:
+    // 16.5s/3.1GB -> 60s/7.0GB — the v0.2.15 evaluator regression. Sharing
+    // also restores the __yo_ptr_eq fast path in String's Eq, which
+    // begin.yo's _m3_tokens_comparable (`left.input == right.input`) relies
+    // on — with per-node copies every comparability check memcmp'd the
+    // whole file (issues/desugar-token-clones-evaluator-regression.md).
+    module_path : ref_tok.module_path,
+    input : ref_tok.input
   )
 );
 /// Unwrap an optional `label : value` wrapper on an `if` argument.
@@ -945,12 +955,56 @@ _unwrap_if_label :: (fn(arg : AstExpr, label : str) -> Option(AstExpr))({
 /// The rewritten node KEEPS the original call's ExprId (the rewrite runs
 /// before any ExprInfo for the node is written, and the `if` node it
 /// replaces is discarded); synthesized inner nodes mint fresh ids.
+/// Allocation-free pre-scan: does `e` contain a 2- or 3-arg `if(...)` call
+/// anywhere outside quote(...)? The desugar rebuild only pays for itself on
+/// trees that actually carry one — an if-free subtree is returned unchanged
+/// by the copy-on-write check below, so parsing a module with no `if` costs
+/// one read-only walk instead of a full AST reconstruction.
+_contains_if_call :: (fn(e : AstExpr) -> bool)(
+  match(
+    e,
+    .Atom(_, _) => false,
+    .FnCall(_, func_box, args, _, _) => {
+      if(ast_expr_is_fn_call_of(e, BK_QUOTE, .None), {
+        return(false);
+      });
+      n_args := args.len();
+      if(ast_expr_is_fn_call_of(e, "if", .None) && ((n_args == usize(2)) || (n_args == usize(3))), {
+        return(true);
+      });
+      if(recur(func_box), {
+        return(true);
+      });
+      (ci : usize) = usize(0);
+      while(ci < n_args, {
+        match(
+          args.get(ci),
+          .Some(a) => if(recur(a), {
+            return(true);
+          }),
+          .None => ()
+        );
+        ci = (ci + usize(1));
+      });
+      false
+    }
+  )
+);
 desugar_if_calls :: (fn(e : AstExpr) -> AstExpr)(
   match(
     e,
     .Atom(_, _) => e,
     .FnCall(id, func_box, args, is_infix, tok) => {
       if(ast_expr_is_fn_call_of(e, BK_QUOTE, .None), {
+        return(e);
+      });
+      // COPY-ON-WRITE: an if-free subtree is returned UNCHANGED instead of
+      // being reconstructed node by node (fresh ArrayList + FnCall + token
+      // per node, for every module ever parsed). Paired with the token-
+      // sharing fix in _synth_desugar_tok — the two together close the
+      // v0.2.15 evaluator regression
+      // (issues/desugar-token-clones-evaluator-regression.md).
+      if(!(_contains_if_call(e)), {
         return(e);
       });
       n_args := args.len();
@@ -979,7 +1033,7 @@ desugar_if_calls :: (fn(e : AstExpr) -> AstExpr)(
             AstExpr.Atom(alloc_global_expr_id(), _synth_desugar_tok(TokenKind.Operator, "=>", tok)),
             arrow1_args,
             true,
-            tok.clone()
+            tok
           );
           else_expr := match(
             else_opt,
@@ -988,7 +1042,7 @@ desugar_if_calls :: (fn(e : AstExpr) -> AstExpr)(
               unit_tok := _synth_desugar_tok(TokenKind.Identifier, BK_TUPLE, tok);
               AstExpr.FnCall(
                 alloc_global_expr_id(),
-                AstExpr.Atom(alloc_global_expr_id(), unit_tok.clone()),
+                AstExpr.Atom(alloc_global_expr_id(), unit_tok),
                 ArrayList(AstExpr).new(),
                 false,
                 unit_tok
@@ -1003,7 +1057,7 @@ desugar_if_calls :: (fn(e : AstExpr) -> AstExpr)(
             AstExpr.Atom(alloc_global_expr_id(), _synth_desugar_tok(TokenKind.Operator, "=>", tok)),
             arrow2_args,
             true,
-            tok.clone()
+            tok
           );
           cond_args := ArrayList(AstExpr).new();
           cond_args.push(arrow1);
@@ -1014,7 +1068,7 @@ desugar_if_calls :: (fn(e : AstExpr) -> AstExpr)(
               AstExpr.Atom(alloc_global_expr_id(), _synth_desugar_tok(TokenKind.Identifier, BK_COND, tok)),
               cond_args,
               false,
-              tok.clone()
+              tok
             )
           );
         });
@@ -1032,7 +1086,7 @@ desugar_if_calls :: (fn(e : AstExpr) -> AstExpr)(
         );
         di = (di + usize(1));
       });
-      AstExpr.FnCall(id, recur(func_box), new_args, is_infix, tok.clone())
+      AstExpr.FnCall(id, recur(func_box), new_args, is_infix, tok)
     }
   )
 );
