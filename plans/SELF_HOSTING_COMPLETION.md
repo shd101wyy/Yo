@@ -362,7 +362,7 @@ from its merge.
 | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | P1 CLI parity    | **COMPLETE** 2026-08-10                                                                                                                               |
 | P2 retire `src/` | 2.1/2.2/2.4 **DONE**; 2.3 **in review** (needs a v0.2.4 seed); 2.5 planned, 2.6 after it                                                              |
-| P3 distribution  | five bundles **shipping**; installers **landed**; `yo version` on Releases and static-musl **open** — and musl now has a second reason (NixOS/Alpine) |
+| P3 distribution  | **PROVEN by v0.2.14 (2026-08-21)**: six bundles (musl-only Linux, windows-arm64 included) + six per-target `yo.c`; installers landed; `yo version` on Releases; suite runs on all six targets — only the fresh-VM gate run remains (`P3_DISTRIBUTION.md`) |
 | P4 LSP           | **scoped**, blocked on the def-eval swallow                                                                                                           |
 
 The strict phase order has held with one exception worth noting: P3's
