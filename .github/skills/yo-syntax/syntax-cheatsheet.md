@@ -144,8 +144,8 @@ masked := ((A | B) | C);
 - **`// SAFETY:` comment convention.** Every non-obvious `unsafe(...)` site in stdlib should have a `// SAFETY:` comment in the previous ~8 lines explaining the contract. `yo unsafe-report` picks them up and shows them inline under each finding.
 - **User-facing memory-safety guide:** `docs/en-US/MEMORY_SAFETY.md` (English) and `docs/zh-CN/MEMORY_SAFETY.md` (Chinese). Refer users there instead of `plans/MEMORY_SAFETY.md` (which is the design document — not shipped via npm).
 - Keep single-line array and tuple literals compact during formatting: `[1, 2, 3]`, `(1, 2, 3)`.
-- Parenthesize other unary operands too: `!(ready)`, `-(value)`
-- **`!x && y` is invalid** — `!x` is a paren-less unary. Unary and infix are different operators (no precedence), so parenthesize by intent: `!(x) && y` (= `(NOT x) AND y`) or `!(x && y)` (= `NOT (x AND y)`).
+- Bare prefix operators bind ONE postfix expression (Rule 1, plans/PREFIX_OPERATOR_OPERAND_RULE.md, 2026-08-21): `-1`, `!ready`, `&v`, `?*u8`, `3 - -3` are valid and preferred in NEW user code; an INFIX operand still needs parens (`-(1 + 2)`). **Seed constraint: `src/` and `std/` keep the call forms (`!(x)`, `-(value)`) until a release with the rule becomes the seed.**
+- **`!x && y` groups as `(!x) && y`** — the prefix op binds only one postfix expression. Unary and infix are different operators (no precedence), so write the other intent as `!(x && y)` (= `NOT (x AND y)`).
 
 ## Functions and methods
 
@@ -863,13 +863,15 @@ match(r,
 );
 ```
 
-Unary `!` requires parentheses around its operand — a bare `!cond` is a paren-less error:
+Bare unary `!` binds one postfix expression (Rule 1, 2026-08-21) — both
+spellings are valid; NEW user code prefers the bare form, while `src/` and
+`std/` keep the call form until a rule-bearing release becomes the seed:
 
 ```rust
-// WRONG — paren-less unary operand:
+// Preferred in new user code:
 if(!cond, { do_thing(); });
 
-// CORRECT — wrap the operand:
+// Call form — required inside src/ and std/ this generation:
 if(!(cond), { do_thing(); });
 ```
 

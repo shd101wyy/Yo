@@ -19,7 +19,7 @@ open(import("std/fmt"));
 { DirEntry, FileType, read_dir } :: import("std/fs/dir");
 { HashMap } :: import("std/collections/hash_map");
 { Token, TokenKind } :: import("./token.yo");
-{ tokenize } :: import("./lexer.yo");
+{ tokenize, _is_two_char_operator } :: import("./lexer.yo");
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -159,19 +159,54 @@ needs_space_before_atom :: (fn(previous : Option(Token)) -> bool)(
 /// True iff `token` (a prefix operator like `!`, `-`, `&`, `~`) needs a
 /// leading space to separate from `previous`. Specifically:
 ///   * After a comma — yes.
-///   * After another operator (except `.`) — yes, otherwise the lexer would
-///     merge them into one token (e.g. `||!` or `+!`).
+///   * After another operator (except `.`) — yes, UNLESS the pair is a
+///     prefix CHAIN that stays two tokens when concatenated (closed
+///     operator set: only `_is_two_char_operator` pairs merge), so
+///     `?*i32`, `**i32`, `?*(u8)`, `!!x` emit tight while `& &x` keeps its
+///     space (`&&` IS a token) and `- -1` keeps its space deliberately
+///     (`--1` reads as a C decrement). A chain requires the PREVIOUS
+///     operator to itself be in prefix position — judged via `prev_prev`
+///     exactly like `is_tightly_bound_operator` — because the no-space
+///     path TRIMS the buffer, and trimming after an INFIX operator would
+///     corrupt `x & *p` into `x &*p`.
 ///   * Exception: `...` followed by `#` does not need a space.
 ///
-/// Mirrors `prefixOperatorNeedsLeadingSpace`.
-prefix_operator_needs_leading_space :: (fn(token : Token, previous : Option(Token)) -> bool)(
+/// Mirrors `prefixOperatorNeedsLeadingSpace` (the unconditional
+/// after-any-operator rule dated from the retired maximal-munch lexer,
+/// where any operator pair could merge).
+prefix_operator_needs_leading_space :: (
+  fn(token : Token, previous : Option(Token), prev_prev : Option(Token)) -> bool
+)(
   match(
     previous,
     .None => false,
     .Some(p) => cond(
       (((p.kind == TokenKind.Operator) && (p.value == "...")) && (token.value == "#")) => false,
       (p.kind == TokenKind.Comma) => true,
-      ((p.kind == TokenKind.Operator) && (p.value != ".")) => true,
+      ((p.kind == TokenKind.Operator) && (p.value != ".")) => {
+        prev_is_prefix_capable := (
+          (p.value == "-") || ((p.value == "!") || ((p.value == "~") || ((p.value == "&") || ((p.value == "*") || ((p.value == "?") || (p.value == "^"))))))
+        );
+        // `prev` is a postfix deref (`.` then `*`/`&`) when prev_prev is a
+        // Dot — that ends an rvalue, never starts a chain.
+        prev_prev_ends_rvalue := match(
+          prev_prev,
+          .None => false,
+          .Some(pp) => (
+            (is_atom_like_token(pp.kind) || (pp.kind == TokenKind.Dot)) || (
+              (pp.kind == TokenKind.RParen) ||
+                ((pp.kind == TokenKind.RBracket) || (pp.kind == TokenKind.RCurlyBracket))
+            )
+          )
+        );
+        cond(
+          !(prev_is_prefix_capable) => true,
+          prev_prev_ends_rvalue => true,
+          ((p.value == "-") && (token.value == "-")) => true,
+          _is_two_char_operator(`${p.value}${token.value}`) => true,
+          true => false
+        )
+      },
       true => false
     )
   )
@@ -2361,7 +2396,7 @@ format_yo_source :: (
                       },
                       is_tightly_bound_operator(token, previous, previous_previous_token, next) => {
                         cond(
-                          prefix_operator_needs_leading_space(token, previous) => {
+                          prefix_operator_needs_leading_space(token, previous, previous_previous_token) => {
                             if((!(at_line_start)) && (!(result.ends_with(String.from(" ")))), {
                               result.push_str(" ");
                             });

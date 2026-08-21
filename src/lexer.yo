@@ -723,4 +723,9 @@ tokenize :: (
   });
   tokens
 });
-export(LexerError, tokenize);
+// _is_two_char_operator is exported for the formatter: with the closed
+// operator set, two adjacent operator tokens re-lex differently ONLY when
+// their concatenation is in this table, so the formatter's prefix-chain
+// tightening (`?*i32`, `**i32`) consults it instead of assuming every
+// operator pair would merge (the retired maximal-munch behavior).
+export(LexerError, tokenize, _is_two_char_operator);
