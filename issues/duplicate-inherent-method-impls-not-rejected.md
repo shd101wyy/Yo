@@ -67,6 +67,13 @@ explicitly: "duplicates by `(label, source_trait_id)` are not deduplicated
 by the registry — callers responsible" — and no caller takes the
 responsibility for the inherent (no-source-trait) case.
 
+## Scheduled
+
+Maintainer decision 2026-08-21: fix as the follow-up branch after the
+function-overloading-policy branch lands —
+`plans/backlog/DUPLICATE_INHERENT_METHOD_REJECTION.md` (design, idempotency
+key, validation requirements).
+
 ## Why not fixed in the overloading-policy branch
 
 The fix is not a one-line throw: the module loader re-evaluates files (and
