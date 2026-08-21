@@ -624,7 +624,7 @@ the build:
    statement after a label (C23 relaxed it). GCC and modern clangs tolerate
    it as an extension — the portable-C gate (`gcc -std=c11 -fsyntax-only`,
    release.yml) is exactly why it shipped — but the OHOS clang 15 hard-rejects
-   it. Emitters now append a null statement (`: ;`).
+   it. Emitters now append a null statement (`:;`).
    Record: `issues/async-while-labels-strict-c11.md`.
 2. **`struct statx`.** The OHOS musl sysroot does not define it in
    `<sys/stat.h>`; the Linux runtime template now includes `<linux/stat.h>`
