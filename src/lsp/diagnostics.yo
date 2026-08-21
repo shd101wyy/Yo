@@ -22,6 +22,8 @@ open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 open(import("std/error"));
 { parse } :: import("../parser.yo");
+{ AstExpr } :: import("../expr.yo");
+{ ExprInfoTable, expr_info_table_new } :: import("../expr_info.yo");
 {
   mm_resolve_entry_abs,
   mm_eval_entry_exprs,
@@ -225,24 +227,42 @@ _ensure_prelude :: (fn(std_path : String, io : Io) -> unit)({
   mm_preload_prelude(std_path.clone(), false, io, pre_exn);
 });
 
+/// The retained result of one document analysis: the parsed program and
+/// the ExprInfo side table the evaluation filled in. Hover / definition /
+/// symbols read these between edits (plans/P4_LSP.md slice 3+).
+AnalyzeOutcome :: ref(
+  struct(
+    ok : bool,
+    exprs : ArrayList(AstExpr),
+    info_table : ExprInfoTable
+  )
+);
+export(AnalyzeOutcome);
 /// Parse + evaluate the document text under a swallowing handler. The
-/// handler's `unwind(false)` exits THIS bool-typed frame (see
-/// _ensure_prelude's note). Mirrors module_manager's
+/// handler's `unwind` exits THIS AnalyzeOutcome-typed frame (see
+/// _ensure_prelude's note — the unwind value must match the frame the
+/// Exception was bound in). Mirrors module_manager's
 /// _eval_module_exprs_capturing_error structure.
 _analyze_eval :: (
-  fn(entry_abs : String, text : String, std_path : String, io : Io) -> bool
+  fn(entry_abs : String, text : String, std_path : String, io : Io) -> AnalyzeOutcome
 )({
   local_exn := Exception(
     throw : (
       (err) -> {
         _stash_parse_error(err.to_string());
-        unwind(false)
+        unwind(
+          AnalyzeOutcome(
+            ok : false,
+            exprs : ArrayList(AstExpr).new(),
+            info_table : expr_info_table_new()
+          )
+        )
       }
     )
   );
   exprs := parse(text, entry_abs.clone(), local_exn);
-  _outcome := mm_eval_entry_exprs(entry_abs.clone(), std_path.clone(), exprs, io, local_exn);
-  true
+  outcome := mm_eval_entry_exprs(entry_abs.clone(), std_path.clone(), exprs, io, local_exn);
+  AnalyzeOutcome(ok : outcome.ok, exprs : exprs, info_table : outcome.ctx.expr_info_table)
 });
 
 /// Evaluate `text` as the module at `doc_fs_path` and return diagnostics.
@@ -252,12 +272,14 @@ analyze_document :: (
     doc_fs_path : String,
     text : String,
     std_path : String,
-    io : Io
+    io : Io,
+    out_state : ArrayList(AnalyzeOutcome)
   ) -> ArrayList(LspDiag)
 )({
   _ensure_prelude(std_path.clone(), io);
   entry_abs := mm_resolve_entry_abs(doc_fs_path.clone(), std_path.clone());
-  _ok := _analyze_eval(entry_abs.clone(), text.clone(), std_path.clone(), io);
+  outcome := _analyze_eval(entry_abs.clone(), text.clone(), std_path.clone(), io);
+  out_state.push(outcome);
   diags := ArrayList(LspDiag).new();
   match(
     _take_parse_error(),
