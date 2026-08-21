@@ -34,7 +34,7 @@ Use this skill when you need to:
 - Prefer `print`/`println` from `std/fmt` over `printf`.
 - `Option(T)` and `Result(T, E)` are the default nullable/error carriers.
 - Use `rune` for Unicode code points, not `Char`.
-- Model nullable pointers with `Option(*(T))` or `?*(T)`.
+- Model nullable pointers with `Option(*(T))` or `?(*(T))`.
 - Use `struct` for value types, `newtype` for single-field wrappers, `object` for reference-counted types.
 - Use `generic` + `where` for generic impls; use `_` placeholder for partial application of comptime functions.
 - Use `derive(Type, Eq, Hash, Clone, Ord, ToString)` to auto-generate common trait impls.

@@ -25,6 +25,7 @@ open(import("std/fmt"));
   BK_COLON,
   make_err_expr
 } :: import("../../expr.yo");
+{ TokenKind, is_reserved_operator_name } :: import("../../token.yo");
 { ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, expr_info_paths_for_write, register_module_level_global } :: import("../../expr_info.yo");
 { Environment, add_variable_to_env, get_variables_from_env } :: import("../../env.yo");
 { EvalContext, FuncOrAsyncBlockKind, in_def_time_trial } :: import("../context.yo");
@@ -282,6 +283,21 @@ evaluate_binding :: (
         format_error_message(
           ast_expr_token(lhs),
           `Invalid binding to "${lhs_tok_val}", expected identifier or operator`,
+          false,
+          .None
+        )
+      )
+    );
+  });
+  // Reserved operators cannot be bound or overloaded
+  // (plans/OPERATOR_SET_AND_PRECEDENCE.md Part 1).
+  res_tok := ast_expr_token(lhs);
+  if((res_tok.kind == TokenKind.Operator) && is_reserved_operator_name(res_tok.value.clone()), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          res_tok,
+          `Operator "${res_tok.value}" is reserved and cannot be bound or overloaded (plans/OPERATOR_SET_AND_PRECEDENCE.md).`,
           false,
           .None
         )

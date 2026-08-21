@@ -32,23 +32,23 @@ MS_SYNC :: cond(
 // For anonymous mappings, pass flags including MAP_ANONYMOUS and fd = -1.
 mmap :: (
   fn(
-    addr : ?*(u8),
+    addr : ?(*(u8)),
     length : usize,
     prot : i32,
     flags : i32,
     fd : i32,
     offset : i64
-  ) -> ?*(u8)
+  ) -> ?(*(u8))
 )(
   __yo_sync_mmap(addr, length, prot, flags, fd, offset)
 );
 // Returns true if mmap returned an encoded error pointer.
-is_error :: (fn(addr : ?*(u8)) -> bool)(
+is_error :: (fn(addr : ?(*(u8))) -> bool)(
   __yo_sync_mmap_is_error(addr)
 );
 // Decode errno from an encoded mmap error pointer.
 // Returns 0 if addr is not an encoded error pointer.
-error_code :: (fn(addr : ?*(u8)) -> i32)(
+error_code :: (fn(addr : ?(*(u8))) -> i32)(
   __yo_sync_mmap_errno(addr)
 );
 // Unmap a previously mapped region.

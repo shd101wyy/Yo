@@ -146,7 +146,7 @@ _build_cstr_storage :: (fn(self : Command) -> ArrayList(ArrayList(u8)))({
   return(storage);
 });
 // Spawn the child with the given inherited/redirected fds and return the pid.
-// Builds argv as a fixed `?*(u8)` array on the heap. Caller is responsible for
+// Builds argv as a fixed `?(*(u8))` array on the heap. Caller is responsible for
 // freeing `argv_buf` AND keeping `storage` alive until after `__yo_async_spawn_start`
 // returns the pid (since the kernel reads argv synchronously inside the syscall).
 _spawn_with_fds :: (
@@ -176,16 +176,16 @@ _spawn_with_fds :: (
   // doc-json and doc-markdown all reported `rc=0; stdout` DIFFs whose line SETS
   // were identical and only the interleaving differed — the compiler's own lines
   // vs a child `git`/compiler process's.
-  // `fflush` takes `?*(FILE)` (C's `fflush(NULL)` flushes every stream), so the
+  // `fflush` takes `?(*(FILE))` (C's `fflush(NULL)` flushes every stream), so the
   // non-optional `stdout` needs wrapping. Only stdout is flushed — the measured
   // defect — rather than passing `.None` to flush all streams.
   unsafe(fflush(.Some(stdout)));
   io.async((e) => {
     argc := storage.len();
     // Allocate argv buffer: argc entries + 1 null terminator.
-    argv_bytes := (sizeof(?*(u8)) * (argc + usize(1)));
+    argv_bytes := (sizeof(?(*(u8))) * (argc + usize(1)));
     argv_raw := malloc(argv_bytes).unwrap();
-    argv_buf := *(?*(u8))(argv_raw);
+    argv_buf := *(?(*(u8)))(argv_raw);
     // Fill argv pointers from each owning ArrayList(u8) in storage.
     j := usize(0);
     while(runtime(j < argc), {

@@ -119,6 +119,15 @@ make_parse_error_raw :: (fn(module_path : String, message : String) -> ParseErro
 // over by the first-parsed file's matching-id expression — observed as
 // `import("./rune.yo")` resolving to `i32` at export-spread time).
 // Global expr-id counter moved to expr.yo (shared with synthesized nodes).
+/// The PREFIX-capable operators (plans/PREFIX_OPERATOR_OPERAND_RULE.md
+/// Rule 1): a BARE one of these in expression position, followed by a
+/// primary-starter, is a prefix CALL binding exactly one postfix
+/// expression — `-1`, `!x`, `&v`, `~m`, `*T`, `?T`, `^v`, and chains like
+/// `**i32` = `*(*(i32))`. `+` and the rest stay infix-only. The prefix
+/// dot (`.Variant`) has its own branch in parse_primary_end.
+_is_prefix_op_token :: (fn(t : Token) -> bool)(
+  (t.kind == TokenKind.Operator) && ((t.value == "-") || ((t.value == "!") || ((t.value == "~") || ((t.value == "&") || ((t.value == "*") || ((t.value == "?") || (t.value == "^")))))))
+);
 Parser :: struct(
   input_string : String,
   module_path : String,
@@ -1295,9 +1304,121 @@ impl(
       }
     )
   }),
+  /// True if the token at `idx` can start a prefix operand (a primary or
+  /// another prefix operator). Terminators/commas/infix-only operators
+  /// return false, so `(!)` in `(not) :: (!)` stays an operator ATOM.
+  token_starts_prefix_operand : (fn(inout(self) : Self, idx : usize) -> bool)(
+    match(
+      self.tokens.get(idx),
+      .None => false,
+      .Some(t) => cond(
+        ((((((((((t.kind == TokenKind.Identifier) || (t.kind == TokenKind.Integer)) || (t.kind == TokenKind.Float)) || (t.kind == TokenKind.Bool)) || (t.kind == TokenKind.StringLit)) || (t.kind == TokenKind.CharLit)) || (t.kind == TokenKind.TemplateString)) || (t.kind == TokenKind.LParen)) || (t.kind == TokenKind.LBracket)) || ((t.kind == TokenKind.LCurlyBracket) || (t.kind == TokenKind.Dot))) => true,
+        true => _is_prefix_op_token(t)
+      )
+    )
+  ),
+  /// Parse ONE prefix operand (plans/PREFIX_OPERATOR_OPERAND_RULE.md
+  /// Rule 1): a primary plus its TIGHT postfix ends (no-whitespace calls
+  /// and immediate dot-chains) — never an infix chain, so `-a.b(c) + d`
+  /// binds `a.b(c)` and `+ d` applies to the prefix result. A nested bare
+  /// prefix operator recurses: `**i32` = `*(*(i32))`, `- -1` = `-(-(1))`.
+  parse_prefix_operand : (fn(inout(self) : Self, index : usize, exn : Exception) -> ParseResult)({
+    idx := self.skip_ws_fwd(index);
+    pr := self.parse_primary(idx, exn);
+    (cur_expr : AstExpr) = pr.expr;
+    (cur_idx : usize) = pr.index;
+    started_at_op := match(
+      self.tokens.get(idx),
+      .Some(t) => _is_prefix_op_token(t),
+      .None => false
+    );
+    prim_is_op_atom := match(
+      cur_expr,
+      .Atom(_, at) => _is_prefix_op_token(at),
+      .FnCall(_, _, _, _, _) => false
+    );
+    if(started_at_op && prim_is_op_atom, {
+      // A no-whitespace `(` is the operator-CALL form — the postfix loop
+      // below consumes it (`- -(1)` ends up identical either way).
+      nxt_is_immediate_lparen := match(
+        self.tokens.get(cur_idx),
+        .Some(t) => (t.kind == TokenKind.LParen),
+        .None => false
+      );
+      if(!(nxt_is_immediate_lparen) && self.token_starts_prefix_operand(self.skip_ws_fwd(cur_idx)), {
+        op_tok := match(cur_expr, .Atom(_, at) => at, .FnCall(_, _, _, _, ft) => ft);
+        inner := self.parse_prefix_operand(cur_idx, exn);
+        cur_expr = .FnCall(self.alloc_id(), cur_expr, array_list(inner.expr), false, op_tok);
+        cur_idx = inner.index;
+      });
+    });
+    // Tight postfix ends: no-whitespace calls and immediate dot-chains.
+    while(true, {
+      t := match(
+        self.tokens.get(cur_idx),
+        .Some(x) => x,
+        .None => {
+          break;
+        }
+      );
+      cond(
+        (t.kind == TokenKind.LParen) => {
+          fn_pr := self.parse_fn_call(cur_expr, cur_idx + usize(1), false, exn);
+          cur_expr = fn_pr.expr;
+          cur_idx = fn_pr.index;
+        },
+        (t.kind == TokenKind.Dot) => {
+          nk := match(
+            self.tokens.get(cur_idx + usize(1)),
+            .Some(x) => x.kind,
+            .None => TokenKind.Whitespace
+          );
+          if(nk == TokenKind.Whitespace, {
+            break;
+          });
+          rhs_pr := self.parse_primary(cur_idx + usize(1), exn);
+          cur_expr = .FnCall(self.alloc_id(), .Atom(self.alloc_id(), t), array_list(cur_expr, rhs_pr.expr), true, t);
+          cur_idx = rhs_pr.index;
+        },
+        true => {
+          break;
+        }
+      );
+    });
+    ParseResult(expr : cur_expr, index : cur_idx)
+  }),
   parse_expression : (fn(inout(self) : Self, index : usize, exn : Exception) -> ParseResult)({
     idx := self.skip_ws_fwd(index);
     pr := self.parse_primary(idx, exn);
+    // PREFIX_OPERATOR_OPERAND_RULE.md Rule 1: a BARE prefix-capable
+    // operator atom followed by a primary-starter is a prefix CALL —
+    // `-1`, `!x`, `?*T`, `3 - -3`. Bare = the primary began at the
+    // operator token itself; a PARENTHESIZED operator atom (`(not) :: (!)`,
+    // `(!) == y`) keeps today's meaning. The no-whitespace `(` form stays
+    // the operator-call path in parse_primary_end (`-(a)`, multi-arg
+    // `-(a, b)`).
+    started_at_op := match(
+      self.tokens.get(idx),
+      .Some(t) => _is_prefix_op_token(t),
+      .None => false
+    );
+    prim_is_op_atom := match(
+      pr.expr,
+      .Atom(_, at) => _is_prefix_op_token(at),
+      .FnCall(_, _, _, _, _) => false
+    );
+    if(started_at_op && prim_is_op_atom, {
+      immediate_lparen := match(
+        self.tokens.get(pr.index),
+        .Some(t) => (t.kind == TokenKind.LParen),
+        .None => false
+      );
+      if(!(immediate_lparen) && self.token_starts_prefix_operand(self.skip_ws_fwd(pr.index)), {
+        op_tok := match(pr.expr, .Atom(_, at) => at, .FnCall(_, _, _, _, ft) => ft);
+        operand := self.parse_prefix_operand(pr.index, exn);
+        return(self.parse_primary_end(.FnCall(self.alloc_id(), pr.expr, array_list(operand.expr), false, op_tok), operand.index, exn));
+      });
+    });
     self.parse_primary_end(pr.expr, pr.index, exn)
   }),
   do_parse : (fn(inout(self) : Self, exn : Exception) -> unit)({

@@ -383,9 +383,9 @@ collect_type :: (fn(type_in : TypeValue, context : CodeGenContext) -> unit)({
   });
 });
 /// Collect any pointer POINTEE found directly in `ft` or one level inside an
-/// enum variant of `ft`. Covers `*(T)` and the nullable-pointer `?*(T)` (=
+/// enum variant of `ft`. Covers `*(T)` and the nullable-pointer `?(*(T))` (=
 /// `Option(*(T))`) shapes used by container `data` fields. One level only (no
-/// deep enum recursion) — sufficient for `data : ?*(Bucket)` / `?*(T)` and
+/// deep enum recursion) — sufficient for `data : ?(*(Bucket))` / `?(*(T))` and
 /// guaranteed terminating; `collect_type`'s already-collected guard handles the
 /// rest. (Defined before collect_pointer_pointees — Yo has no forward refs.)
 _collect_field_pointees :: (fn(ft : TypeValue, context : CodeGenContext) -> unit)(
@@ -416,8 +416,8 @@ _collect_field_pointees :: (fn(ft : TypeValue, context : CodeGenContext) -> unit
 );
 /// SECOND PASS (run after collect_required_types, before generate_type_
 /// declarations): register the pointee types behind pointer FIELDS of
-/// already-registered structs. A container like `HashMap.data : ?*(Bucket(K,V))`
-/// or `ArrayList.data : ?*(T)` lowers to `T*`, so emitting the OWNER struct's
+/// already-registered structs. A container like `HashMap.data : ?(*(Bucket(K,V)))`
+/// or `ArrayList.data : ?(*(T))` lowers to `T*`, so emitting the OWNER struct's
 /// typedef calls get_type_string(T) and REQUIRES `T` registered. The main
 /// collection reaches `T` only via the container's generated dup/drop bodies; for
 /// the async/effect-codegen value types whose dup/drop involve recursive members

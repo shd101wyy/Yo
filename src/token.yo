@@ -82,6 +82,16 @@ is_operator_char :: (fn(c : rune) -> bool)(
     true => false
   )
 );
+/// Operators that can NEVER be bound or overloaded
+/// (plans/OPERATOR_SET_AND_PRECEDENCE.md): `&&`/`||` must stay lazy
+/// builtins (an overload would silently lose short-circuiting), and the
+/// rest are structural grammar — binding forms, arms, labels, type syntax,
+/// and the quote-layer splice markers. (Trait declarations are not gated:
+/// operator dispatch resolves these as builtins before any trait lookup,
+/// so a trait field named e.g. `(&&)` is unreachable, not unsound.)
+is_reserved_operator_name :: (fn(name : String) -> bool)(
+  (name == "=") || ((name == ":=") || ((name == "::") || ((name == ":") || ((name == "=>") || ((name == "->") || ((name == "<:") || ((name == "?=") || ((name == "&&") || ((name == "||") || ((name == "#") || ((name == "...#") || ((name == "..") || ((name == "..=") || (name == "..."))))))))))))))
+);
 is_identifier_start :: (fn(c : rune) -> bool)(
   ((c.char == u32(95)) || c.is_alphabetic()) || (c.char >= u32(0xA0))
 );
@@ -278,6 +288,7 @@ export(
   TokenKind,
   Token,
   is_operator_char,
+  is_reserved_operator_name,
   is_identifier_start,
   is_identifier_continue,
   string_is_operator,

@@ -6,9 +6,9 @@ Scanned 3 .yo file(s); 2 declare pragma(Pragma.AllowUnsafe);.
   unsafe(...) sites: 6
     extern-call: 2
     deref:       2
-    arith:       1
+    arith:       0
     addr-of:     0
-    other:       1
+    other:       2
   asm(...) sites:    0
   extern(...) sites: 0
 
@@ -23,7 +23,7 @@ Findings (file:line:col):
   audit_me.yo:9:8: unsafe(deref) — s := unsafe(r.*);
   ffi_calls.yo:16:8: unsafe(extern-call:memcpy_probe) — r := unsafe(memcpy_probe(dst, src, n));
   ffi_calls.yo:21:8: unsafe(extern-call:strlen_probe) — r := unsafe(strlen_probe(s));
-  ffi_calls.yo:26:8: unsafe(arith) — q := unsafe(p &+ n);
+  ffi_calls.yo:26:8: unsafe(other) — q := unsafe(p.add(n));
 
 Privileged files (declare pragma):
   audit_me.yo
@@ -84,8 +84,8 @@ $ yo unsafe-report . --json
       "line": 26,
       "column": 8,
       "kind": "unsafe",
-      "subKind": "arith",
-      "snippet": "q := unsafe(p &+ n);"
+      "subKind": "other",
+      "snippet": "q := unsafe(p.add(n));"
     }
   ],
   "totals": {
@@ -95,9 +95,9 @@ $ yo unsafe-report . --json
     "unsafeBySubKind": {
       "extern-call": 2,
       "deref": 2,
-      "arith": 1,
+      "arith": 0,
       "addr-of": 0,
-      "other": 1
+      "other": 2
     },
     "asmSites": 0,
     "externSites": 0

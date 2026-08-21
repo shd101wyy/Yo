@@ -1,7 +1,7 @@
 # Operator set & precedence — close the token set, stay precedence-free
 
-**Status:** PROPOSED (drafted 2026-08-21). Two decisions are recorded here:
-the **closed operator token set** is proposed for implementation; the
+**Status:** Part 1 (closed operator set) **IMPLEMENTED 2026-08-21** (same
+day it was drafted — see "What landed" at the bottom). Part 2: the
 **no-precedence** stance was re-examined and **AFFIRMED by the maintainer
 (2026-08-21)** — Yo keeps no operator precedence, and the considered
 alternative is documented below as deferred.
@@ -28,10 +28,11 @@ Two related holes, both surfaced 2026-08-21:
    Combined with user-definable operators ("operators are just bindings" —
    e.g. `(^) ::` and `(?*) ::` in `std/prelude.yo`), this means `**i32`
    lexes as the single (nonexistent) operator `**` applied to `i32`, not as
-   `*(*(i32))`. Since unary calls no longer require parentheses
-   (`*i32` is now valid alongside `*(i32)`), users WILL write `**i32` and
-   get "unknown operator `**`" at best — or, worse, silently pick up a
-   user-defined `**` from scope. Every mainstream language avoids the whole
+   `*(*(i32))`. (History: at drafting time paren-less prefix calls were
+   still banned wholesale, so the hazard was the phantom `**` token a user
+   binding could silently claim. Later the same day
+   PREFIX_OPERATOR_OPERAND_RULE.md Rule 1 landed on this branch, so
+   `**i32` now genuinely parses as `*(*(i32))`.) Every mainstream language avoids the whole
    class by lexing against a **closed table of known operators**: in Rust,
    `**x` is `*`,`*`,`x` because `**` is not a token.
 2. **Nothing GUARANTEES the structural operators are unoverloadable.**
@@ -84,7 +85,7 @@ streams (zero diffs expected).
 | Binding / assignment | `=` `:=` `::` `?=` |
 | Arrows / structure | `->` `=>` `:` `<:` |
 | Dot family (own token kinds) | `.` `..` `..=` `...` |
-| Pointer / option types | `*` `?` `?*` |
+| Pointer / option types | `*` `?` (the `?*` token was REMOVED 2026-08-21: `?` is the Option alias, so `?(*(T))` composes — 138 corpus sites migrated) |
 | Splices (macro/derive layer) | `#` `...#` |
 | Iso sugar | `^` (prefix use of the bitwise token) |
 | Word alias | `not` (identifier-alias of `!`, `std/prelude.yo:569`) |
@@ -120,7 +121,7 @@ Notes:
   existing operator-binding path (where `(^) ::` / `(!) ::` are handled) —
   turning today's dispatch-order accident into a guarantee.
 - Everything else in the table stays bindable/overloadable exactly as
-  today (`Add`…`BitXor` traits, `(^)`, `(?*)`, `(not)`).
+  today (`Add`…`BitXor` traits, `(^)`, `(not)`).
 
 ## Part 2 — Precedence: NONE (AFFIRMED 2026-08-21)
 
@@ -181,6 +182,56 @@ priors conflict.
 5. **Docs**: GRAMMAR.md gets the normative operator table; DESIGN.md
    (en+zh) documents the closed set and the reserved list;
    yo-syntax.instructions.md + cheatsheet updated.
+
+## What landed (2026-08-21)
+
+- **Lexer table** (`src/lexer.yo` `_is_two_char_operator` /
+  `_is_one_char_operator`): the operator-char run is still collected as
+  before, then split greedily (2-char match first, then 1-char); each
+  piece gets its own column/character position; a position with no table
+  match throws a `LexerError` naming the run and suggesting
+  spaces/parentheses. The dot family kept its bespoke branch.
+- **Corpus verification passed**: token-stream dump of every tracked
+  `.yo` file (1.73M semantic tokens, 949 files not touched by this
+  change) is byte-identical before/after the lexer swap.
+- **Exponentiation sigil removed**: `Exponentiation` /
+  `ComptimeExponentiation` declared a `(**)` method with ZERO impls and
+  ZERO call sites; renamed to `(pow)` (the `Negate`/`(neg)` word-method
+  precedent). `**i32` therefore lexes as `*`,`*`,`i32`, and — with
+  PREFIX_OPERATOR_OPERAND_RULE.md Rule 1, which landed later the same day
+  on this branch (step 4 of the sketch) — parses as `*(*(i32))`.
+- **Retired pointer-arithmetic trio REMOVED from the table** (maintainer
+  decision, 2026-08-21). History: the draft first kept `&+`/`&-`/`&/` as
+  legacy tokens (and wrongly claimed the evaluator rejects them — in fact
+  `unsafe(p &+ 1)` still evaluated). The maintainer then confirmed the
+  2026-07-27 retirement should be completed at the token level: the last
+  writers were migrated to `.add()` (`issues/repros/io-async-bufio-read-partial-slot-alias.yo`,
+  `tests/cli-cases/unsafe-report/fixture/ffi_calls.yo` + golden
+  re-record), so `p &+ n` now lexes as `p`,`&`,`+`,`n` and fails loudly at
+  parse. The evaluator's `&+` dispatch support is now unreachable dead
+  code (left in place; remove opportunistically).
+- **Reserved gate** (`is_reserved_operator_name` in `src/token.yo`):
+  enforced at BOTH definition paths — `::`/`:=` defs in
+  `evaluator/exprs/initialization_assignment.yo` (the path module-level
+  `(op) :: ...` actually takes) and `name : Type` bindings in
+  `evaluator/exprs/binding.yo`. Trait declarations are deliberately not
+  gated: reserved operators dispatch as builtins before any trait lookup,
+  so a trait field named `(&&)` is unreachable, not unsound.
+- **Tests**: closed-set cases in `tests/internal/lexer.test.yo` (`**`
+  split with per-piece columns, greedy `<<=` split, `?*`/`??`/`&+` splits,
+  unknown-run `@@` lex error) + `tests/reserved_operators.test.yo`
+  (binding `(&&)`/`(=>)`/`(#)` is a compile error).
+- **Docs**: GRAMMAR.md (en+zh) normative operator table + reserved list;
+  syntax cheatsheet + instructions.
+- **Vendored dependency**: `vendor/markdown_yo` migrated its 3 `?*(` sites
+  (submodule commit `00bfa42`, pushed to `migrate-to-latest-yo`); its
+  shipped sources had no `&+`.
+- **Recurring re-record**: `tests/cli-cases/compile-timeout`'s golden is
+  sensitive to ANY change in per-`if`/per-token evaluation counts (the
+  1 ms deadline trips at the 16,384th eval and the cascade depth depends
+  on where that lands) — both this change and the macro-policy PR had to
+  re-record it. If it diffs again on an unrelated PR, re-record; consider
+  a count-insensitive golden later.
 
 ## Non-goals
 

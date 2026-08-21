@@ -1,0 +1,28 @@
+// Reserved operators cannot be bound or overloaded
+// (plans/OPERATOR_SET_AND_PRECEDENCE.md Part 1): `&&`/`||` must stay lazy
+// builtins, and the structural forms (`=`, `:=`, `::`, `:`, `=>`, `->`,
+// `<:`, `?=`, `#`, `...#`, ranges) are grammar, not values. Overloadable
+// table operators are unaffected — the prelude itself binds `(!)`, `(~)`,
+// `(-)`, `(^)`, and every arithmetic trait.
+{ assert } :: import("std/assert");
+
+test("binding (&&) is a compile error — short-circuit must stay builtin", {
+  comptime_expect_error({
+    (&&) :: (fn(a : bool, b : bool) -> bool)(a);
+    ()
+  });
+});
+
+test("binding (=>) is a compile error — structural operator", {
+  comptime_expect_error({
+    (=>) :: (fn(a : i32, b : i32) -> i32)(a);
+    ()
+  });
+});
+
+test("binding (#) is a compile error — quote-layer splice marker", {
+  comptime_expect_error({
+    (#) :: (fn(a : i32) -> i32)(a);
+    ()
+  });
+});

@@ -1147,12 +1147,54 @@ find_multiline_paren_indices :: (
 /// following `(` — i.e. should render as a prefix operator without a space
 /// before the paren (e.g. `*(T)`, `!(x)`). Mirrors `isTightlyBoundOperator`.
 is_tightly_bound_operator :: (
-  fn(token : Token, previous : Option(Token), next : Option(Token)) -> bool
+  fn(token : Token, previous : Option(Token), prev_prev : Option(Token), next : Option(Token)) -> bool
 )({
   // After a dot, always tight (e.g. ptr.*(x), ptr.&(x))
   prev_is_dot := match(previous, .None => false, .Some(p) => (p.kind == TokenKind.Dot));
+  // PREFIX-PRIMARY tightness (plans/PREFIX_OPERATOR_OPERAND_RULE.md
+  // Rule 1): a prefix-capable operator in PREFIX POSITION (previous is not
+  // an rvalue-end) followed by an atom-like token or another prefix
+  // operator emits tight — `-1`, `!x`, `?*i32`, `x := -1` (the space
+  // before comes from prefix_operator_needs_leading_space). Canonicalizes
+  // regardless of source spacing: `- 1` and `-1` are the same tokens.
+  is_prefix_capable := (
+    (token.value == "-") || ((token.value == "!") || ((token.value == "~") || ((token.value == "&") || ((token.value == "*") || ((token.value == "?") || (token.value == "^"))))))
+  );
+  // A postfix DEREF (`.*` / `.&` — a `*`/`&` operator directly after a
+  // Dot) ENDS an rvalue, so an operator following it is INFIX, not prefix:
+  // `p.* * i32(2)` must keep its infix spacing.
+  prev_is_postfix_deref := match(
+    previous,
+    .None => false,
+    .Some(p) => (
+      ((p.kind == TokenKind.Operator) && ((p.value == "*") || (p.value == "&"))) &&
+        match(prev_prev, .None => false, .Some(pp) => (pp.kind == TokenKind.Dot))
+    )
+  );
+  prefix_position := match(
+    previous,
+    .None => true,
+    .Some(p) => !(
+      (is_atom_like_token(p.kind) || prev_is_postfix_deref) || (
+        (p.kind == TokenKind.RParen) ||
+          ((p.kind == TokenKind.RBracket) || (p.kind == TokenKind.RCurlyBracket))
+      )
+    )
+  );
+  next_starts_prefix_operand := match(
+    next,
+    .None => false,
+    .Some(n) => (
+      is_atom_like_token(n.kind) || (
+        (n.kind == TokenKind.Operator) && (
+          (n.value == "-") || ((n.value == "!") || ((n.value == "~") || ((n.value == "&") || ((n.value == "*") || ((n.value == "?") || (n.value == "^"))))))
+        )
+      )
+    )
+  );
   cond(
     prev_is_dot => true,
+    ((is_prefix_capable && prefix_position) && next_starts_prefix_operand) => true,
     true => {
       next_is_lparen := match(next, .None => false, .Some(n) => (n.kind == TokenKind.LParen));
       cond(
@@ -1580,6 +1622,7 @@ format_yo_source :: (
       (inline_curly_depth : usize) = usize(0);
       (at_line_start : bool) = true;
       (previous_token : Option(Token)) = Option(Token).None;
+      (previous_previous_token : Option(Token)) = Option(Token).None;
       // Stacks (parallel ArrayLists since Yo struct ArrayLists are awkward).
       paren_stack_indices := ArrayList(usize).new();
       paren_stack_multiline := ArrayList(bool).new();
@@ -1747,6 +1790,7 @@ format_yo_source :: (
                     );
                   }
                 );
+                previous_previous_token = previous_token;
                 previous_token = Option(Token).Some(token);
                 index = (index + usize(1));
               },
@@ -2315,7 +2359,7 @@ format_yo_source :: (
                           }
                         );
                       },
-                      is_tightly_bound_operator(token, previous, next) => {
+                      is_tightly_bound_operator(token, previous, previous_previous_token, next) => {
                         cond(
                           prefix_operator_needs_leading_space(token, previous) => {
                             if((!(at_line_start)) && (!(result.ends_with(String.from(" ")))), {
@@ -2413,6 +2457,7 @@ format_yo_source :: (
                   },
                   true => () // Whitespace already filtered; unreachable
                 );
+                previous_previous_token = previous_token;
                 previous_token = Option(Token).Some(token);
                 index = (index + usize(1));
               }

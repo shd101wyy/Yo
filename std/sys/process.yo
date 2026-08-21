@@ -6,7 +6,7 @@
 //! - Negative value: -errno on failure
 //!
 //! `argv`/`envp` are NULL-terminated arrays of C strings.
-// Use `?*(u8)` for entries so .None can be used as the terminator.
+// Use `?(*(u8))` for entries so .None can be used as the terminator.
 pragma(Pragma.AllowUnsafe);
 { IoFuture } :: import("./future.yo");
 { __yo_async_spawn_start, __yo_async_waitpid_start, __yo_process_exit_status, __yo_process_term_signal, __yo_kill } :: import("./externs.yo");
@@ -18,8 +18,8 @@ pragma(Pragma.AllowUnsafe);
 spawn :: (
   fn(
     file : *(u8),
-    argv : *(?*(u8)),
-    envp : ?*(?*(u8)),
+    argv : *(?(*(u8))),
+    envp : ?(*(?(*(u8)))),
     stdin_fd : i32,
     stdout_fd : i32,
     stderr_fd : i32

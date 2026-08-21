@@ -89,13 +89,15 @@ But keep the parens the GRAMMAR needs — these are NOT unnecessary:
   different operators, so the parens are required.
 - **Mixed-operator chains**: `(a + b) * c` — no precedence; required.
 - **Struct-literal field values with infix**: `{ x : (1 + 2), y : 3 }`.
-- **Prefix-operator operands — TODAY**: `-(1)`, `!(ready)`, `*(T)`,
-  `?(*(T))` — the current compiler bans paren-less prefix calls
-  wholesale (`-1`, `!x`, `3 - -3` all reject). This is transitional, not
-  design intent: when `plans/PREFIX_OPERATOR_OPERAND_RULE.md` lands (a
-  prefix operator binds exactly one postfix expression), `-1`, `!x`,
-  `?*T` (= `?(*(T))`), and `3 - -3` become valid and preferred; only an
-  INFIX operand keeps parens (`-(1 + 2)`). Update this bullet then.
+- **Prefix-operator INFIX operands**: `-(1 + 2)` — a prefix operator
+  binds exactly ONE postfix expression
+  (plans/PREFIX_OPERATOR_OPERAND_RULE.md Rule 1, landed 2026-08-21), so
+  an infix-chain operand needs parens. Bare-primary operands do NOT:
+  `-1`, `!x`, `~m`, `&v`, `?*T` (= `?(*(T))`), `**T`, and `3 - -3` are
+  all valid and preferred in NEW user code. **Seed constraint: `src/`
+  and `std/` must keep the parenthesized spellings (`-(1)`, `!(x)`)
+  until a release with this rule becomes the seed** — the seed binary
+  still rejects paren-less prefix calls.
 
 Same-operator chains never need parens: `a + b + c`, `a && b && c`.
 

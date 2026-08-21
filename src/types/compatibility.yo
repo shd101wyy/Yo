@@ -638,7 +638,7 @@ _compat_impl :: (
     // `""`), so name-only would treat ALL anonymous structs as equal — that
     // caused a comptime-fn cache collision where `(?*)(Bucket(String,
     // ArrayList(ME)))` hit a cached `(?*)(ME)` entry (both name=""), collapsing
-    // HashMap's `data` field to `?*(ME)`. Structural exact comparison
+    // HashMap's `data` field to `?(*(ME))`. Structural exact comparison
     // distinguishes them (e.g. labels `[key, value]` vs `[name, kind]`).
     .Struct({ id : aid, name : aname, field_labels : alabels, field_types : atypes, is_reference_semantics : aref, is_atomic_rc : aatomic, is_newtype : anew, constructor_func_id : acfid, type_arguments : ata }) => match(
       expected,

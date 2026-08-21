@@ -1,6 +1,24 @@
 # Prefix operators bind one postfix expression — and the dot is whitespace-insensitive
 
-**Proposed 2026-08-09.** Design decision, not yet implemented. Companion to
+**Rule 1 IMPLEMENTED 2026-08-21** (`parse_prefix_operand` /
+`parse_expression` in `src/parser.yo`, on the closed-operator-set branch —
+see `plans/OPERATOR_SET_AND_PRECEDENCE.md`): a bare prefix-capable
+operator (`-` `!` `~` `&` `*` `?` `^`) binds one postfix expression;
+parenthesized operator atoms (`(!)`) stay values; the no-whitespace `(`
+form stays the operator-call path (`-(a)`, multi-arg `-(a, b)`); nested
+bare prefixes chain (`**i32` = `*(*(i32))`, `- -1`). Verified by a
+whole-corpus AST diff (20,757 statements — only parser.yo's own edit
+differs) plus `tests/prefix_operators.test.yo`. NOTE the doc's `--`
+paragraph is superseded: under the closed operator set `--` is not a
+token, so even tight `3--3` splits and parses. **Rule 2 (whitespace-
+insensitive dot) and the formatter spacing canonicalization remain
+UNIMPLEMENTED** — their "TS is still the referee" premise predates the
+P2.5 retirement, so that half needs re-planning before it lands.
+**Seed constraint:** `src/` and `std/` must keep PARENTHESIZED prefix
+calls until a release with this rule becomes the seed — the seed binary
+rejects paren-less forms.
+
+Originally proposed 2026-08-09. Companion to
 [`OPERATOR_ASSOCIATIVITY.md`](OPERATOR_ASSOCIATIVITY.md) (Yo's no-precedence
 philosophy) and [`P1_CLI_PARITY.md`](P1_CLI_PARITY.md) §6 (the `fmt`
 divergence, whose "space before `.`" class this rule resolves).

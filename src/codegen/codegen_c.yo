@@ -157,7 +157,7 @@ _struct_has_generic_field :: (fn(ty : TypeValue) -> bool)(
           field_types.get(i),
           // RECURSIVE: TS's needs-cycle-GC pre-scan uses `typeContainsSomeType`,
           // which walks the whole type. A generic `ArrayList(E)` has field
-          // `?*(E)` — a SomeT nested under Option/Ptr — which the top-level
+          // `?(*(E))` — a SomeT nested under Option/Ptr — which the top-level
           // test misses, so the generic instantiation was accepted as a
           // concrete CYCLE ROOT and forced the heavy GC runtime for the entire
           // program. See issues/repros/toplevel-some-type-check-forces-cycle-gc.yo.
@@ -325,7 +325,7 @@ compile_module :: (fn(module_value : EvalValue, info : ExprInfoTable, target : T
   collect_required_functions(module_value, base, info, true);
   collect_required_types(module_value, base, info);
   // Pointer-field pointees missed by the dup/drop walk (e.g. HashMap/ArrayList
-  // element types behind `data : ?*(T)`); a separate pass so the main collection
+  // element types behind `data : ?(*(T))`); a separate pass so the main collection
   // order — which the lazy array-struct registration depends on — is untouched.
   // See issues/fixed/yo-self-p1-uncollected-pointee.md.
   collect_pointer_pointees(base);
