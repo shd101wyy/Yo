@@ -5,6 +5,37 @@
 as `P1_CLI_PARITY.md`/`P2_RETIRE_SRC.md`: measured numbers, live status,
 traps recorded as found. Drafted 2026-08-11; **item 1 landed 2026-08-12**.
 
+## Status 2026-08-21 — every item PROVEN by shipped releases; only the gate run remains
+
+**v0.2.14 (2026-08-21) is the first release through the fully reworked
+machinery, and every leg was green on the first dispatch:**
+
+- **musl-only Linux** (#190): `linux-x64-musl` + `linux-arm64-musl` are the
+  ONLY Linux bundles — the glibc `seed-bundles` job is deleted. `install.sh`
+  is musl-first with a pre-musl fallback; `version_cache` retries the pre-musl
+  name on 404 (x64: v0.2.7+, arm64: v0.2.12+ have musl assets).
+- **Per-target portable `yo.c`** (#193): six `yo-v0.2.14-<target>.c.gz`
+  assets published; the merged assembly is kept as a gate but no longer
+  uploaded (download/disk win 30→6 MiB — compile time measured at 1%).
+- **windows-arm64** is a full, non-experimental leg (first bundle shipped in
+  v0.2.13; second in v0.2.14).
+
+**The language suite now runs on ALL SIX targets** — Linux both arches per-PR
+(test.yml), and macos-arm64/macos-x64/windows-x64/windows-arm64 weekly via
+`.github/workflows/suite-cross-targets.yml` (#194: candidate cross-emits
+per-target C, native runners compile and run the full corpus). Its first three
+runs surfaced and then gated two real Windows bugs:
+`issues/fixed/test-runner-windows-batch-cleanup-exe-lock.md` (#195) and
+`issues/fixed/native-windows-compile-trusts-clang-default-triple.md` (#196 —
+an x64 LLVM under Windows-on-ARM emulation defaults to x86_64, so native
+Windows compiles now pin `--target=` explicitly). Run 3 (32421399142): all
+four native legs green.
+
+Still open before this doc can close: the **Gate** below (fresh-VM
+`curl … | sh` → `yo init && yo build test` per platform, Alpine included) has
+not been executed in its literal form, and item 1's optional `--vscode` flag
+remains unbuilt.
+
 ## CRITICAL PATH 2026-08-15 — cutting a release is now the blocker
 
 Four P3 deliverables are built, committed and CI-verified, and every one of them
