@@ -307,7 +307,7 @@ Yo does **not** support function overloading — same stance as Rust, and ENFORC
 
 Use separate `impl` blocks with `where(Self <: Comptime)` constraints for comptime method variants on generic types like `Option(T)` and `Result(T, E)`.
 
-**Duplicate method names across impl blocks are disallowed** — as policy; the compiler does not yet enforce it. Today a second same-name inherent impl is silently accepted (identical signature: first wins; different arity: both dispatch) — `issues/duplicate-inherent-method-impls-not-rejected.md`. Use distinct names (e.g., `comptime_unwrap`) instead. This ensures unambiguous method extraction via `Type.method_name`.
+**Duplicate method names across impl blocks are disallowed** — ENFORCED since 2026-08-21: a second same-name INHERENT impl for the same type errors with `Method "X" is already defined for this type` (gated at inherent registration in `src/evaluator/values/impl.yo`, keyed on the defining site so loader re-evaluation and per-instantiation generic re-registration stay legal — `plans/backlog/DUPLICATE_INHERENT_METHOD_REJECTION.md`). Trait-provided methods sharing a name remain legal by design. Use distinct names (e.g., `comptime_unwrap`) for variants. This ensures unambiguous method extraction via `Type.method_name`.
 
 **Enum type method extraction** works: `Option(i32).unwrap` returns the method as a callable function value, matching struct type behavior.
 

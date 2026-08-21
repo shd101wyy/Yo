@@ -1,8 +1,8 @@
 # Reject duplicate inherent method impls (make the documented model real)
 
-**Status:** BACKLOG (agreed with maintainer 2026-08-21). Scheduled as the
-follow-up branch after the function-overloading-policy branch
-(`plans/FUNCTION_OVERLOADING_POLICY.md`) lands.
+**Status:** IMPLEMENTED 2026-08-21 (branch `reject-duplicate-inherent-methods`,
+stacked on the function-overloading-policy branch). Implementation notes below
+the original plan.
 
 ## Problem
 
@@ -67,3 +67,38 @@ false positives are the risk, not the mechanics:
 - No change to the `Call` overload-set gate (already landed).
 - No signature-based "compatible overload" carve-outs — the model is
   Rust's: one inherent name, one definition.
+
+## Implementation notes (2026-08-21)
+
+- **Single gate site — at the member-loop HEAD, not at registration.** The
+  first attempt gated the colon-pair fresh-registration branch
+  (`register_type_trait_method` with `current_trait_ty` `.None`) and was
+  refuted by its own red-first tests: registration FORKS — the pre-pass
+  creates `__forward_shell` entries that the member loop UPDATES in place,
+  so shelled methods (every ordinary `impl(T, m : fn...)`) never reach the
+  fresh branch. The gate therefore lives at the top of
+  `evaluate_module_value`'s per-member loop in
+  `src/evaluator/values/impl.yo` — right after `method_name`/`name_tok`
+  are extracted, before the body is even evaluated — where every colon-pair
+  member passes exactly once per evaluation regardless of shell state.
+  Trait-tagged registrations (deferred assoc types, `?=` defaults) and
+  codegen-time synthetic registrations (`codegen/functions/collection.yo`)
+  do not participate.
+- **Site registry, not a MethodEntry field.** `MethodEntry` has ~14
+  construction sites; instead of widening the struct, a separate
+  `_inherent_method_sites` map in `type_trait_methods.yo` keys
+  `type_id \n label` → `module_path:row:column` of the defining name token
+  (`note_inherent_method_site`, cleared with the main registry). Same site ⇒
+  idempotent replay (loader re-evaluation, per-instantiation generic
+  re-registration), allowed; different site ⇒
+  `Method "X" is already defined for this type (first definition: ...)`.
+- **Red-first verified**: the two new `comptime_expect_error` arms in
+  `tests/impl.test.yo` FAIL against the ungated compiler
+  ("Expected compile error, but the expression was evaluated successfully"),
+  plus a positive arm proving a generic impl instantiated at two types still
+  registers cleanly.
+- **Relation to `plans/backlog/OVERLOADING_REDESIGN.md`**: that redesign
+  (owner decision 2026-06-22) removed std's `StrPattern` arg-type overloading
+  and landed inherent-first resolution (§6). This gate enforces the
+  "inherent NO" half both documents assume; the redesign's remaining
+  trait-bound-generics migration is orthogonal.

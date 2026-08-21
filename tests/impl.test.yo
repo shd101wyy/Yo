@@ -272,3 +272,39 @@ test("Test inherent method shadows a same-name trait method (inherent-first)", {
   // not match it, and resolution must NOT fall through to `DelegatePickStr.pick(str)`.
   comptime_expect_error(v.pick("s"));
 });
+// Duplicate INHERENT method impls are rejected (plans/FUNCTION_OVERLOADING_POLICY.md,
+// issues/duplicate-inherent-method-impls-not-rejected.md): a second
+// `impl(T, m : ...)` for the same (type, name) from a different source site is
+// an error — before the gate the first silently won (identical signature) or
+// both dispatched by arity. Trait-provided names (arm above) stay legal.
+test("Test duplicate inherent method impl is rejected (same signature)", {
+  comptime_expect_error({
+    DupSameSig :: struct(x : i32);
+    impl(DupSameSig, get : (fn(self : Self) -> i32)(self.x));
+    impl(DupSameSig, get : (fn(self : Self) -> i32)(self.x + i32(1)));
+    ()
+  });
+});
+test("Test duplicate inherent method impl is rejected (different arity)", {
+  comptime_expect_error({
+    DupArity :: struct(x : i32);
+    impl(DupArity, get : (fn(self : Self) -> i32)(self.x));
+    impl(DupArity, get : (fn(self : Self, y : i32) -> i32)(self.x + y));
+    ()
+  });
+});
+// A generic impl registering the same method PER INSTANTIATION replays the
+// same defining site — that must stay legal (the loader's idempotent
+// re-registration works the same way).
+GenBox :: (fn(comptime(T) : Type) -> comptime(Type))(struct(v : T));
+impl(
+  generic(T : Type),
+  GenBox(T),
+  first : (fn(self : Self) -> T)(self.v)
+);
+test("Test generic impl instantiated twice registers cleanly", {
+  a := GenBox(i32)(v : i32(7));
+  b := GenBox(bool)(v : true);
+  assert(a.first() == i32(7), "GenBox(i32) instantiation");
+  assert(b.first() == true, "GenBox(bool) instantiation");
+});

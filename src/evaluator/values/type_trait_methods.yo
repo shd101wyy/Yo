@@ -272,12 +272,45 @@ get_type_trait_methods_by_name :: (
   });
   result
 });
+/// INHERENT-method definition sites, keyed by `type_id` + NUL-free
+/// separator + `label`, valued by the defining token's
+/// `module_path:row:column`. This is how the duplicate-inherent-method
+/// rejection (plans/FUNCTION_OVERLOADING_POLICY.md,
+/// issues/duplicate-inherent-method-impls-not-rejected.md) tells a GENUINE
+/// second definition (different source site) from the loader's idempotent
+/// re-evaluation and from a generic impl re-registering per instantiation
+/// (both replay the SAME site). Keyed separately from `_type_trait_methods`
+/// so codegen-time synthetic registrations (codegen/functions/collection.yo)
+/// never participate.
+(_inherent_method_sites : HashMap(String, String)) = HashMap(String, String).new();
 /// Drop all registered methods. Used by test harnesses to reset
 /// global state between runs. Mirrors the cleanup helpers in
 /// `evaluator/values/impl.yo` for the generic-impl registry.
 clear_type_trait_methods :: (fn() -> unit)({
   fresh := HashMap(String, ArrayList(MethodEntry)).new();
   _type_trait_methods = fresh;
+  fresh_sites := HashMap(String, String).new();
+  _inherent_method_sites = fresh_sites;
+});
+/// Record `site` as the defining site of inherent method `label` on
+/// `type_id`. Returns `.Some(previous_site)` when the pair was already
+/// defined at a DIFFERENT site — a genuine duplicate the caller must
+/// reject — and `.None` for a fresh definition or a same-site replay.
+note_inherent_method_site :: (
+  fn(type_id : String, label : String, site : String) -> Option(String)
+)({
+  key := `${type_id}\n${label}`;
+  match(
+    _inherent_method_sites.get(key.clone()),
+    .Some(prev) => cond(
+      (prev == site) => Option(String).None,
+      true => Option(String).Some(prev)
+    ),
+    .None => {
+      ___ins := _inherent_method_sites.set(key, site);
+      Option(String).None
+    }
+  )
 });
 /// Trait-method DEFAULT values (`?=` defaults). yo-self's `TraitT` does not store
 /// per-field default values (divergence — trait_type.yo:6-8), so the trait
@@ -315,6 +348,7 @@ export(
   register_shell_redirect,
   get_shell_redirect,
   register_type_trait_method,
+  note_inherent_method_site,
   get_type_trait_methods_for_type,
   get_type_trait_methods_by_name,
   clear_type_trait_methods,

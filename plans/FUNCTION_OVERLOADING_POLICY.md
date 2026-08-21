@@ -76,6 +76,16 @@ three `Call` pairs, which the gate itself sanctions.
 - Prelude exception's continued function is covered by the whole suite
   (every `-x` / `!x` / `~x` fold) and `tests/operator_grouping.test.yo`.
 
+## Relation to `plans/backlog/OVERLOADING_REDESIGN.md`
+
+That earlier redesign (owner decision 2026-06-22) covers METHOD-level
+arg-type overloading: it already removed std's `StrPattern` overload
+pattern and landed inherent-first resolution (§6,
+`issues/fixed/yo-inherent-first-resolution.md`). This policy enforces the
+function-level and definition-level bans both documents assume; the
+redesign's remaining trait-bound-generics migration is orthogonal and
+stays in its own backlog.
+
 ## Rejected alternatives
 
 - **A `Pragma.AllowOverload` opt-in** (mirroring `AllowMacroDef`): rejected
