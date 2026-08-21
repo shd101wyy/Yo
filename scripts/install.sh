@@ -932,6 +932,12 @@ YOEOF
   if ! "$PREFIX/lib/yo/$VERSION/bin/yo" compile "$YO_TEMP_DIR/hello.yo" -o "$YO_TEMP_DIR/hello" > "$YO_TEMP_DIR/verify.log" 2>&1 ; then
     warn "Verification FAILED. Compiler output:"
     warn "$(cat "$YO_TEMP_DIR/verify.log")"
+    if is_harmonyos; then
+      warn "On HarmonyOS, an immediate 'Bad system call' (rc=159/SIGSYS) usually"
+      warn "means a sandbox/seccomp policy blocks io_uring — the compiler reads"
+      warn "every source file through io_uring and cannot fall back to blocking"
+      warn "I/O. Check for seccomp/container restrictions on this device."
+    fi
     stop "The install is present but cannot compile. See the output above."
   fi
   out="$("$YO_TEMP_DIR/hello" 2>&1 || true)"
