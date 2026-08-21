@@ -132,6 +132,8 @@ builds itself (`yo build`).
 | `plans/backlog/YO_SELF_ENV_SHARING.md`       | The real `yo-self` memory root cause: def-time body envs COPY what TS SHARES (7.4 M live `Variable`s), plus the remaining ranked levers                                                                       |
 | `plans/backlog/RC_POLICY_MECHANISM_SPLIT.md` | RC dup/drop architecture: policy (evaluator) vs mechanism (codegen), the codegen-side policy-patch inventory, and why full evaluator-only generation is impossible                                            |
 | `plans/backlog/SEED_VERSION_AUTOMATION.md`  | BACKLOG (2026-08-21): SEED_VERSION consistency guard across the 3 workflows + release-time direct bump push via RELEASE_PAT (no [skip ci], so the new seed is exercised immediately); scheduling point for seed-gated follow-ups |
+| `plans/FUNCTION_OVERLOADING_POLICY.md`      | No function overloading (Rust stance, 2026-08-21): exported `Call` tuples of ≥2 candidates are prelude-only (the runtime/comptime operator pairs); single-function `Call` (callable module) stays; audit of every overloading channel |
+| `plans/backlog/DUPLICATE_INHERENT_METHOD_REJECTION.md` | BACKLOG (2026-08-21): reject duplicate inherent method impls (today silently accepted, first-wins/arity-dispatch — issues/duplicate-inherent-method-impls-not-rejected.md); keyed on defining-expr identity so loader re-registration stays legal |
 
 **Renamed 2026-08-06 — translate these in older docs.** The `phase6*` prefix named an
 internal porting-plan phase and meant nothing to a reader, so the four macro/reflection

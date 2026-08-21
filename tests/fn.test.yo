@@ -606,20 +606,29 @@ test("Test comptime function", {
     p4 :: comptime_add_points(p1, p2); // allowed, comptime
   };
 });
-test("Test function overloading using module Call", {
+test("Test function overloading using module Call is rejected", {
+  // Function overloading is not supported (Rust stance): an exported `Call`
+  // holding a TUPLE of two or more candidates is an overload set, and only
+  // std/prelude.yo's runtime/comptime operator pairs may define one
+  // (plans/FUNCTION_OVERLOADING_POLICY.md).
+  comptime_expect_error(
+    add_overloaded :: impl({
+      add1 :: (fn(x : i32) -> i32)(x);
+      add2 :: (fn(x : i32, y : i32) -> i32)(x + y);
+      Call :: (add1, add2);
+      export(Call);
+    })
+  );
+  // A SINGLE-function `Call` is not an overload set: calling the module
+  // like a function stays supported.
   add :: impl({
-    add1 :: (fn(x : i32) -> i32)(x);
     add2 :: (fn(x : i32, y : i32) -> i32)(x + y);
-    add3 :: (fn(x : i32, y : i32, z : i32) -> i32)((x + y) + z);
-    add4 :: (fn(x : i32, y : i32, z : i32, w : i32) -> i32)(((x + y) + z) + w);
-    Call :: (add1, add2, add3); // Allow calling the module like a function
+    Call :: add2;
     export(Call);
   });
-  assert(add(1) == 1);
   assert(add(2, 3) == 5);
-  assert(add(3, 4, 5) == 12);
   comptime_expect_error(
-    add(4, 5, 6, 7) // This will not work because add4 is not used in "Call".
+    add(4, 5, 6) // Wrong arity for the single Call function.
   );
 });
 test("Test mutual recursion", {
