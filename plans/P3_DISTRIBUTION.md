@@ -342,7 +342,8 @@ Checklist status, against the three items named above:
 
 Measured against the **shipped v0.2.12 bundles** by
 `.github/workflows/probe-musl-stack.yml` (dispatch-only; runs 32340613649 and
-32340649947). Both bundles were confirmed `statically linked` before the probe
+32340649947; the workflow was removed 2026-08-21 after the same probe script
+became a per-PR step in test.yml's musl job — the results stand recorded here). Both bundles were confirmed `statically linked` before the probe
 ran:
 
 | target | `YO_MAIN_STACK_MB=1` | `=64` | verdict |

@@ -461,14 +461,10 @@ jobs:
           # mitigation is MI_USE_CXX via CMake — i.e. compile it as C++ — which
           # Yo bypasses by handing static.c to clang as plain C.
           #
-          # So a C++ route (`-x c++`) plausibly WOULD work here and is not ruled
-          # out; it is merely untested, the open risk being the link rather than
-          # the compile (C++ pulls in the MSVC C++ runtime that this link line
-          # does not provide). `.github/workflows/ab-windows-allocator.yml`
-          # probes exactly that. Until it reports, `system` is the only route
-          # PROVEN to build — and it is also the compiler's own default, and
-          # what the one platform where the two were ever measured (macOS)
-          # flipped to, mimalloc having been slower AND fatter there.
+          # The question is SETTLED: Windows uses the system allocator on both
+          # targets by decision, not by breakage — the full record (including
+          # the A/B that answered it; its dispatch workflow has been removed)
+          # is plans/WINDOWS_ALLOCATOR_DECISION.md.
           - target: windows-arm64
             yo_target: aarch64-windows-msvc
             bundle_allocator: system

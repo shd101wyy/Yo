@@ -577,7 +577,14 @@ jobs:
           echo "YO_STD=$PWD/std" >> "$GITHUB_ENV"
           YO_STD="$PWD/std" "$SEED" check std/assert.yo
 
+      # ubuntu-latest ONLY, and not just to avoid running it six times: the
+      # verdict is only meaningful where $S1 is the TREE-BUILT compiler. On
+      # the macOS/Windows legs $S1 is the SEED, so a PR that intentionally
+      # changes formatter behavior would fail those legs spuriously (the old
+      # formatter re-judging files formatted by the new one). Formatting is
+      # platform- and arch-independent, so one stage-1 leg settles it.
       - name: Check the formatted code
+        if: matrix.os == 'ubuntu-latest'
         shell: bash
         run: |
           "$S1" fmt --check ./std ./tests ./src
