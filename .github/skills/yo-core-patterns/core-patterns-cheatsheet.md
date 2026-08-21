@@ -273,10 +273,10 @@ everywhere, and an exported `Call` tuple of ≥2 candidates (an overload set)
 is rejected outside std/prelude.yo — the prelude's runtime/comptime operator
 pairs (`Call :: (neg, comptime_neg)`) are the ONLY sanctioned overload sets.
 A single-function `Call` (callable module) is fine. Duplicate same-name
-inherent methods are disallowed as POLICY but not yet enforced — today the
-compiler silently accepts them (same signature: first wins; different arity:
-both dispatch) — so never rely on it either way
-(issues/duplicate-inherent-method-impls-not-rejected.md). But
+inherent methods are REJECTED (2026-08-21): a second `impl(T, m : ...)` for
+the same (type, name) from a different source site errors with
+`Method "X" is already defined for this type`
+(plans/backlog/DUPLICATE_INHERENT_METHOD_REJECTION.md). But
 **trait-provided methods may share a name** with an inherent
 method and with same-name methods from other traits; dispatch picks by
 argument types. This is how std gives `String` both `contains(String)`

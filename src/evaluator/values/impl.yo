@@ -59,6 +59,7 @@ _(env : impl_dbg_env) :: import("std/env");
 {
   MethodEntry,
   register_type_trait_method,
+  note_inherent_method_site,
   register_shell_redirect,
   get_type_trait_methods_by_name,
   get_trait_default,
@@ -3587,6 +3588,45 @@ evaluate_module_value :: (
               name_tok := ast_expr_token(name_expr);
               method_name := name_tok.value.clone();
               qualified := `${receiver_name}.${method_name}`;
+              // Duplicate-INHERENT-method rejection
+              // (plans/FUNCTION_OVERLOADING_POLICY.md,
+              // issues/duplicate-inherent-method-impls-not-rejected.md):
+              // a second `impl(T, m : ...)` for the same (type, name) from a
+              // DIFFERENT source site is a genuine second definition — before
+              // this gate the first silently won (same signature) or both
+              // dispatched by arity. Keyed on the defining token's site so
+              // the loader's idempotent re-evaluation and a generic impl's
+              // per-instantiation re-registration (both replay the SAME
+              // site) stay legal. Trait-provided methods (current_trait_ty
+              // Some) may share names BY DESIGN and are not gated. Placed
+              // HERE — before the method body is even evaluated — because
+              // registration itself forks (a `__forward_shell` pre-pass
+              // entry is UPDATED in place; only shell-less members take the
+              // fresh-registration branch), so a registration-side gate
+              // misses every shelled method.
+              if(current_trait_ty.is_none() && (receiver_type_id != ""), {
+                __dup_site := note_inherent_method_site(
+                  receiver_type_id.clone(),
+                  method_name.clone(),
+                  `${name_tok.module_path}:${name_tok.row}:${name_tok.column}`
+                );
+                match(
+                  __dup_site,
+                  .Some(__prev_site) => {
+                    exn.throw(
+                      dyn(
+                        format_error_message(
+                          name_tok,
+                          `Method "${method_name}" is already defined for this type (first definition: ${__prev_site}). Duplicate inherent method impls are not allowed — use a distinct name (e.g. a comptime_ prefix), or provide the second signature via a trait (plans/FUNCTION_OVERLOADING_POLICY.md).`,
+                          false,
+                          .None
+                        )
+                      )
+                    );
+                  },
+                  .None => ()
+                );
+              });
               // Compute the expected type for this method from the trait's
               // field-by-label. This lets anonymous lambdas (e.g. the body
               // of an impl method) see the function type the trait expects.
