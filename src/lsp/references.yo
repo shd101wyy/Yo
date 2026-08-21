@@ -1,0 +1,108 @@
+//! lsp/references — textDocument/references (plans/P4_LSP.md slice 5).
+//!
+//! Port of the attic `references.ts`: same-file references by NAME — walk
+//! the program for Atom expressions matching the symbol under the cursor,
+//! falling back to a raw token scan when the AST walk finds nothing (the
+//! attic's own fallback for references the walk can miss, e.g. inside
+//! quote bodies).
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+open(import("std/error"));
+{ Token, TokenKind } :: import("../token.yo");
+{ tokenize } :: import("../lexer.yo");
+{ AstExpr } :: import("../expr.yo");
+{ JsonValue } :: import("std/encoding/json");
+{ jb, jstr, j_range } :: import("./protocol.yo");
+{ _find_token_at } :: import("./hover.yo");
+
+_push_location :: (
+  fn(out : ArrayList(JsonValue), uri : String, row : usize, col : usize, len : usize) -> unit
+)({
+  out.push(
+    jb().put("uri", jstr(uri)).put("range", j_range(row, col, row, col + len)).obj()
+  );
+});
+
+/// Walk `e` collecting Atom expressions whose token value matches `name`.
+_collect_refs :: (
+  fn(e : AstExpr, name : String, uri : String, out : ArrayList(JsonValue)) -> unit
+)({
+  match(
+    e,
+    .Atom(_, tok) => {
+      if(tok.value == name, {
+        _push_location(out, uri.clone(), tok.row, tok.column, tok.value.len());
+      });
+    },
+    .FnCall(_, func_box, args, _, _) => {
+      recur(func_box, name, uri, out);
+      (i : usize) = usize(0);
+      while(i < args.len(), {
+        match(
+          args.get(i),
+          .Some(a) => recur(a, name, uri, out),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    }
+  );
+});
+
+/// All same-file references to the symbol at (line, character).
+handle_references :: (
+  fn(
+    text : String,
+    doc_abs : String,
+    uri : String,
+    exprs : ArrayList(AstExpr),
+    line : usize,
+    character : usize
+  ) -> JsonValue
+)({
+  empty := ArrayList(JsonValue).new();
+  lex_exn := Exception(
+    throw : (
+      (_err) -> unwind(JsonValue.Array(items : ArrayList(JsonValue).new()))
+    )
+  );
+  tokens := tokenize(text.clone(), doc_abs.clone(), lex_exn);
+  target := match(
+    _find_token_at(tokens, line, character),
+    .Some(t) => t,
+    .None => {
+      return(JsonValue.Array(items : empty));
+    }
+  );
+  if(target.kind != TokenKind.Identifier, {
+    return(JsonValue.Array(items : empty));
+  });
+  out := ArrayList(JsonValue).new();
+  (ei : usize) = usize(0);
+  while(ei < exprs.len(), {
+    match(
+      exprs.get(ei),
+      .Some(e) => _collect_refs(e, target.value.clone(), uri.clone(), out),
+      .None => ()
+    );
+    ei = (ei + usize(1));
+  });
+  // Fallback: raw token scan (references inside quote bodies etc.).
+  if(out.len() == usize(0), {
+    (ti : usize) = usize(0);
+    while(ti < tokens.len(), {
+      match(
+        tokens.get(ti),
+        .Some(tk) => {
+          if((tk.value == target.value) && (tk.kind == TokenKind.Identifier), {
+            _push_location(out, uri.clone(), tk.row, tk.column, tk.value.len());
+          });
+        },
+        .None => ()
+      );
+      ti = (ti + usize(1));
+    });
+  });
+  JsonValue.Array(items : out)
+});
+export(handle_references);
