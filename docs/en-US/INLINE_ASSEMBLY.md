@@ -1087,7 +1087,7 @@ naked_fn :: asm_fn(fn(a: u64, b: u64) -> u64,
 
 | Decision                       | Choice                      | Rationale                                                                                  |
 | ------------------------------ | --------------------------- | ------------------------------------------------------------------------------------------ |
-| Builtin function, not macro    | `asm(...)`                  | Yo has no macro system; builtins are the extension mechanism                               |
+| Builtin function, not macro    | `asm(...)`                  | Builtins are Yo's primary extension mechanism; macros are a gated, prelude-level sugar layer |
 | Named operands via string      | `in("name", ...)`           | Works with existing parser; no new syntax needed                                           |
 | Output via return type         | `x := asm(...)`             | Functional style, no mutable output parameters                                             |
 | Variable-target outputs        | `out(reg, var)`             | Supports uninitialized variables; initialization tracking                                  |

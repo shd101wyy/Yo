@@ -28,7 +28,8 @@ _(env : fncall_dbg_env) :: import("std/env");
   ast_expr_is_atom,
   ast_expr_is_atom_of,
   BF_DOT,
-  is_function_boundary_arrow
+  is_function_boundary_arrow,
+  desugar_if_calls
 } :: import("../../expr.yo");
 { is_auto_generated_expansion } :: import("../memory_safety.yo");
 {
@@ -5524,7 +5525,10 @@ Fix: wrap the call:
                 // CTFE result still references the tree, and id-preserving
                 // copies alias ExprInfo-table entries (see the
                 // template-clone comment in builtins/quote.yo).
-                expanded_expr := evaluate_expression_raw(clone_expr_fresh_ids(expanded_box), ct_result.caller_env, ctx, exn);
+                // Desugar `if(...)` calls the expansion may contain (from a
+                // quote template — load-time desugaring skips quote bodies —
+                // or from a cons-built tree) so codegen sees `cond` here too.
+                expanded_expr := evaluate_expression_raw(desugar_if_calls(clone_expr_fresh_ids(expanded_box)), ct_result.caller_env, ctx, exn);
                 exp_info := match(
                   expr_info_table_get(ctx.expr_info_table, ast_expr_id(expanded_expr)),
                   .Some(i) => i,

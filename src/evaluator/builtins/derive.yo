@@ -18,7 +18,8 @@ open(import("std/string"));
   ast_expr_is_fn_call_of,
   make_err_expr,
   BK_GENERIC,
-  BK_WHERE
+  BK_WHERE,
+  desugar_if_calls
 } :: import("../../expr.yo");
 {
   Environment,
@@ -254,7 +255,9 @@ call_registered_derive_rule :: (
   // (TS uses `forceCompileTimeBindings: false` for this final evaluation).
   ctx.force_compile_time_bindings = old_force_ct;
   pop_env_frame(caller_env);
-  evaled_result := evaluate_expression(result_expr, caller_env, ctx);
+  // Desugar `if(...)` calls in the rule-built impl Expr (quote templates
+  // skip load-time desugaring) so the emitted impl carries `cond` nodes.
+  evaled_result := evaluate_expression(desugar_if_calls(result_expr), caller_env, ctx);
   result_info := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaled_result)),
     .Some(i) => i,

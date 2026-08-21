@@ -63,9 +63,9 @@ io.async((io : Io) =>
 - The parentheses are **required** and must not be omitted.
 - Always write `cond(condition => result, true => default)`
 
-## `if` is a macro for `cond`
+## `if` is sugar for `cond`
 
-`if` is defined in `prelude.yo` as a macro that expands to `cond`:
+`if(...)` calls are desugared to `cond(...)` at parse time (`desugar_if_calls` in `src/expr.yo`), so every pass after parsing sees a real `cond` node. The equivalent macro definition is kept in `prelude.yo` as the spec and as a fallback for dynamically built ASTs (plans/MACRO_POLICY.md Part 3.2):
 
 ```rust
 if(condition, then_body)        // → cond(condition => then_body, true => ())
@@ -191,6 +191,7 @@ those shadowing-shaped bindings.
 - In `(exn : Exception) = Exception(throw: ((err) -> { ... }))` handlers, add `unwind(...)` / `unwind()` when the handler does not resume normally. Calls like `exit(int(1))` return `unit`; they do not satisfy the handler's `ResumeType` by themselves. (`unwind` requires the handler's lambda to be typed as `ctl(...) -> R`, which it is when bound to a `ctl`-typed field like `Exception.throw`.)
 - Prefix operators follow the same rule: `&(x)`, `!(ready)`, `-(value)`, `~(bits)`.
 - Macro unquote syntax is also tight: use `#(expr)` and `...#(exprs)`.
+- **DEFINING a macro (a `quote(...)` parameter or `unquote(...)` return type) requires `pragma(Pragma.AllowMacroDef);` at the top of the file** (plans/MACRO_POLICY.md). Calling macros and working with quoted `Expr` values (the derive-rule mechanism) is ungated. std is exempt this generation (seed-bootstrap constraint — see `is_macro_def_capable_file` in `src/evaluator/memory_safety.yo`). The std `try` macro was REMOVED — match on the `Result`, or define a local equivalent under the pragma.
 - Dynamic field access with unquote requires grouping after the dot: `value.(#(field_expr))`, not `value.#(field_expr)`.
 
 This avoids ambiguous parses such as `&x, y`:

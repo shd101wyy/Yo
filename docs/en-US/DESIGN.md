@@ -1250,10 +1250,15 @@ use_cond :: (fn(x: i32) -> unit)(
 
 `if(condition, then, else)`
 
-The `if` in Yo is actually a macro function (see `std/prelude.yo`):
+`if` is sugar for `cond`: the compiler desugars every `if(...)` call to
+`cond(condition => then, true => else)` at parse time, so downstream
+passes (including the async state machine) see a real `cond` node. The
+prelude still carries the equivalent macro definition as the
+specification and as a fallback for dynamically constructed ASTs (see
+`std/prelude.yo` and `plans/MACRO_POLICY.md`):
 
 ```rust
-// Definition in prelude.yo
+// Definition in prelude.yo (spec/fallback — normally desugared at parse time)
 if :: (fn(
         quote(condition): Expr,
         quote(then): Expr,
@@ -2959,7 +2964,12 @@ quote((0, unquote_splicing(list.get_args()), 4)); // tuple (0, 1, 2, 3, 4)
 
 ### Macro functions
 
-Macro functions use `quote` and `unquote` for code generation. See `std/prelude.yo` for real examples like the `if` macro.
+Macro functions use `quote` and `unquote` for code generation. A macro is
+an ordinary comptime function with one or both of two signature flags: a
+`quote(name) : Expr` parameter (the caller's raw AST is bound without
+being evaluated) and an `-> unquote(Expr)` return type (the returned AST
+is spliced into the call site). See `std/prelude.yo` for real examples
+like the `if` macro.
 
 - `quote(...)` : Quote an expression
 - `unquote(...)` : Unquote within a quoted expression
@@ -2967,10 +2977,30 @@ Macro functions use `quote` and `unquote` for code generation. See `std/prelude.
 
 `unquote` can only be used within `quote`.
 
-Example from `std/prelude.yo`:
+**Defining a macro requires `pragma(Pragma.AllowMacroDef);`** at the top
+of the file — like `Pragma.AllowUnsafe` for pointer ops, macro definition
+is a per-file opt-in (macros are unhygienic and splice code into their
+callers, so the ability to define them is gated; see
+`plans/MACRO_POLICY.md`). *Calling* macros (`if`, `for`, collection
+literals) never needs the pragma, and neither does working with quoted
+`Expr` values in comptime functions (the mechanism `derive_rule` uses).
 
 ```rust
-// The `if` macro function
+pragma(Pragma.AllowMacroDef);
+
+// Custom macro example — a lazy-body `unless`
+unless :: (fn(quote(condition): Expr, quote(do): Expr) -> unquote(Expr))(
+  quote(
+    cond(unquote(condition) => (), true => unquote(do))
+  )
+);
+```
+
+The prelude's `if` macro is the canonical example (current compilers
+desugar `if(...)` calls to `cond(...)` at parse time, keeping this
+definition as the spec/fallback):
+
+```rust
 if :: (fn(quote(condition): Expr,
         quote(then): Expr,
         (quote(else): Expr) ?= quote(())
@@ -2987,28 +3017,13 @@ if :: (fn(quote(condition): Expr,
 if(true, {
   println("true");
 });
-
-// The `try` macro for Result types
-try :: (fn(quote(expr_to_try): Expr) -> unquote(Expr))({
-  temp :: gensym("try");
-  quote {
-    unquote(temp) := unquote(expr_to_try);
-    match(unquote(temp),
-      .Ok => unquote(temp).value,
-      .Error => {
-        return(unquote(temp).error);
-      }
-    )
-  }
-});
-
-// Custom macro example
-unless :: (fn(quote(condition): Expr, quote(do): Expr) -> unquote(Expr))(
-  quote(
-    if(not(unquote(condition)), unquote(do))
-  )
-);
 ```
+
+> The std `try` macro was removed (it hid a caller-frame `return` and
+> collided conceptually with algebraic effects). Match on the `Result`
+> instead, or define an equivalent macro locally under
+> `pragma(Pragma.AllowMacroDef);` —
+> `tests/codegen-bootstrap/try_macro_assign.yo` keeps a working version.
 
 ## Derive Traits
 
@@ -3034,30 +3049,31 @@ export(main);
 
 ### User-defined derive rules with `derive_rule`
 
-Trait authors can register custom derive rules using `derive_rule`. This uses Yo's quote/unquote macro system to generate `impl` blocks at compile time:
+Trait authors can register custom derive rules using `derive_rule`. A derive rule is **not a macro** — it is a regular comptime function returning `comptime(Expr)` that builds the `impl` block with `quote`/`unquote`; the `derive` builtin evaluates the returned Expr explicitly (so no `Pragma.AllowMacroDef` is needed):
 
 ```rust
-MyEq :: (fn(comptime(T) : Type) -> comptime(Type))(
-  trait(eq : (fn(self : T, other : T) -> bool))
+MyEq :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
+  trait(my_eq : (fn(self : Self, other : Rhs) -> bool))
 );
 
-derive_rule(MyEq, (fn(comptime(T) : Type, quote(target) : Expr) -> unquote(Expr))({
-  eq_body :: __yo_type_join_fields(
+my_derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr))({
+  eq_body :: Type.join_fields(
     T,
-    (fn(comptime(field) : FieldInfo) -> unquote(Expr))(
-      quote(self.(unquote(field.name.to_expr())).eq(other.(unquote(field.name.to_expr()))))
+    (fn(comptime(field) : FieldInfo) -> comptime(Expr))(
+      quote(self.(#(field.name.to_expr())).my_eq(other.(#(field.name.to_expr()))))
     ),
     quote(&&)
   );
-  quote(
-    impl(unquote(target), MyEq(unquote(target))(
-      eq : ((self, other) => unquote(eq_body))
-    ))
-  )
+  ctx.make_impl(quote(
+    MyEq(...#(trait_params))(
+      my_eq : ((self, other) -> #(eq_body))
+    )
+  ))
 });
+derive_rule(MyEq, my_derive_eq);
 
 Point :: struct(x : i32, y : i32);
-derive(Point, MyEq);  // Uses the registered derive_rule
+derive(Point, MyEq(Point));  // Uses the registered derive_rule
 ```
 
 ## Type Reflection

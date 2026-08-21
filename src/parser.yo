@@ -27,7 +27,8 @@ open(import("std/error"));
   ast_expr_is_fn_call,
   ast_expr_is_atom_and_operator,
   ast_expr_is_infix_op_fn_call,
-  ast_expr_token
+  ast_expr_token,
+  desugar_program_if_calls
 } :: import("./expr.yo");
 /// Result of parsing one expression: the expression and the next token index.
 ParseResult :: struct(
@@ -1405,7 +1406,11 @@ parse :: (
   ) -> ArrayList(AstExpr)
 )({
   p := Parser.new(input_string, module_path, exn);
-  p.get_program(exn)
+  // Desugar `if(...)` calls to `cond(...)` on the fresh parse — every
+  // consumer of `parse` (module loads, compile entries, the test runner)
+  // gets a macro-head-free tree. The formatter does NOT go through here
+  // (it works on the token stream), so `yo fmt` round-trips `if` intact.
+  desugar_program_if_calls(p.get_program(exn))
 });
 /// Parse a single Yo expression from a code string and return it.
 /// Expects exactly one expression in `code`.

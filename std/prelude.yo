@@ -50,6 +50,12 @@ Pragma :: enum(
   /// `asm(...)`, and `extern(...)`. Without this, those constructs
   /// produce compile errors.
   AllowUnsafe,
+  /// File is permitted to DEFINE macro functions — `quote(...)`
+  /// parameters and `unquote(...)` return types. CALLING macros (`if`,
+  /// `for`, collection literals, …) needs no pragma. Recognized at the
+  /// AST level so it also works in `SkipPrelude` files. See
+  /// plans/MACRO_POLICY.md.
+  AllowMacroDef,
   /// Disable the auto-import of `std/prelude`. Used by the prelude
   /// itself, and by any tool/test that wants to bootstrap manually.
   /// Recognized at the AST level before the prelude loads.
@@ -7652,6 +7658,15 @@ export(TryInto);
 /// ```rust
 /// if(x > 0, println("positive"), println("non-positive"));
 /// ```
+///
+/// NOTE (plans/MACRO_POLICY.md Part 3.2): current compilers desugar
+/// `if(...)` calls to `cond(...)` at parse time (`desugar_if_calls` in
+/// src/expr.yo), so this macro is normally never dispatched. It is KEPT
+/// for (a) seed-generation bootstrap compatibility — the seed binary has
+/// no desugar pass and needs this definition to compile the tree — and
+/// (b) as the fallback for `if` calls the desugar leaves alone (odd
+/// arity, mismatched labels, dynamically built ASTs). Do not delete until
+/// the seed release ships the desugar pass.
 if :: (
   fn(
     quote(condition) : Expr,
@@ -7667,26 +7682,13 @@ if :: (
   )
 );
 export(if);
-/// `try` macro — unwrap a `Result`, returning early on `Err`.
-///
-/// # Example
-/// ```rust
-/// value := try(might_fail());
-/// ```
-try :: (fn(quote(expr_to_try) : Expr) -> unquote(Expr))({
-  temp :: gensym("try");
-  quote({
-    unquote(temp) := unquote(expr_to_try);
-    match(
-      unquote(temp),
-      .Ok(value) => value,
-      .Err(error) => {
-        return(.Err(error));
-      }
-    )
-  })
-});
-export(try);
+// The `try` macro (unwrap a `Result`, returning early on `Err`) was
+// REMOVED 2026-08-21 (plans/MACRO_POLICY.md Part 3.1): it had zero call
+// sites outside its own test file, it was the only std macro that
+// injected a hidden caller-frame `return`, and its name invited confusion
+// with the algebraic-effects system. Match on the `Result` instead, or
+// define an equivalent macro locally under `pragma(Pragma.AllowMacroDef);`
+// (tests/macro_def_pragma.test.yo keeps a working three-line version).
 /// `for` macro — iterate over a collection.
 ///
 ///   `for(coll, (x) => body)` — calls `coll.into_iter()` and binds `x`

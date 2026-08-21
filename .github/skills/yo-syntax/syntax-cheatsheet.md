@@ -76,7 +76,8 @@ if(done, println("done"), println("pending"));
 
 - Always write `cond(...)`, never bare `cond ...`
 - Always write `match(...)`, never bare `match ...`
-- `if(a, b)` and `if(a, b, c)` are macro forms over `cond`
+- `if(a, b)` and `if(a, b, c)` are sugar over `cond` (desugared at parse time; the prelude macro remains as spec/fallback)
+- Defining a macro (`quote(...)` param / `unquote(...)` return) needs `pragma(Pragma.AllowMacroDef);` at the top of the file; CALLING macros needs nothing. The std `try` macro was removed — match on the `Result` instead.
 - Write `return(value)` or `return()`; `return value` is invalid.
 - Write `unwind(value)` or `unwind()`; `unwind value` is invalid.
 - If a `match`/`cond` branch returns an enum variant and inference fails, qualify
