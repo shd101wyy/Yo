@@ -1,0 +1,300 @@
+//! lsp/diagnostics — evaluate a document's text and turn evaluator errors
+//! into LSP diagnostics.
+//!
+//! Analysis rides the same module_manager service `check` uses: the prelude
+//! env is process-cached, imports demand-load and cache, and the document
+//! itself is evaluated FRESH per call from its in-editor text (never from
+//! disk, never registered in the module cache). Errors arrive as
+//! `YoError.to_string()` text — a structured (token, message) channel is
+//! slice 0 of plans/P4_LSP.md; until then the stable
+//! `<path>:<row>:<col>:` anchors in the formatted text are parsed back out,
+//! and the underline length is recovered from the document text by
+//! extending over identifier characters.
+//!
+//! KNOWN MVP LIMITS (plans/P4_LSP.md kickoff notes):
+//!   - Imports are cached for the process lifetime: an edit to an imported
+//!     file is not seen until the server restarts. Invalidation is the
+//!     incremental-compilation arc (plans/backlog/INCREMENTAL_COMPILATION.md).
+//!   - Re-analysis re-registers the document's impls under fresh type ids;
+//!     the stale entries leak (bounded by edit count). The site-keyed
+//!     duplicate-inherent-method gate is replay-safe by construction.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+open(import("std/error"));
+{ parse } :: import("../parser.yo");
+{
+  mm_resolve_entry_abs,
+  mm_eval_entry_exprs,
+  mm_preload_prelude,
+  mm_has_prelude_env,
+  _take_load_error
+} :: import("../module_manager.yo");
+
+/// One analysis finding, 0-based positions (LSP convention; Token.row and
+/// Token.column are already 0-based internally — the +1 lives only in the
+/// display formatting, which is why the parser below subtracts 1).
+LspDiag :: struct(
+  row : usize,
+  col : usize,
+  end_col : usize,
+  message : String
+);
+export(LspDiag);
+
+/// Parse-error stash: effect handlers cannot capture outer runtime
+/// variables, so the analyzer's local exception handler records the thrown
+/// error here (the same pattern as module_manager's load-error stash).
+(g_parse_error : Option(String)) = Option(String).None;
+_stash_parse_error :: (fn(msg : String) -> unit)({
+  if(g_parse_error.is_none(), {
+    g_parse_error = Option(String).Some(msg);
+  });
+});
+_take_parse_error :: (fn() -> Option(String))({
+  taken := g_parse_error;
+  g_parse_error = Option(String).None;
+  taken
+});
+
+/// True iff byte `b` continues an identifier (the underline-length
+/// heuristic used when recovering a range from formatted error text).
+_is_ident_byte :: (fn(b : u8) -> bool)(
+  ((b >= u8(97)) && (b <= u8(122))) ||
+    (
+      ((b >= u8(65)) && (b <= u8(90))) ||
+        (((b >= u8(48)) && (b <= u8(57))) || (b == u8(95)))
+    )
+);
+
+/// Length of the identifier starting at (row, col) in `text`, minimum 1.
+_ident_len_at :: (fn(text : String, row : usize, col : usize) -> usize)({
+  lines := text.split(String.from("\n"));
+  line := match(lines.get(row), .Some(l) => l, .None => return(usize(1)));
+  bytes := line.as_bytes();
+  if(col >= bytes.len(), {
+    return(usize(1));
+  });
+  (n : usize) = usize(0);
+  (i : usize) = col;
+  while(i < bytes.len(), {
+    b := match(bytes.get(i), .Some(x) => x, .None => u8(0));
+    if(_is_ident_byte(b), {
+      n = (n + usize(1));
+      i = (i + usize(1));
+    }, {
+      i = bytes.len();
+    });
+  });
+  cond((n == usize(0)) => usize(1), true => n)
+});
+
+/// Extract `<path>:<row>:<col>:`-anchored diagnostics from a formatted
+/// YoError string. Entries whose path is the analyzed document map to
+/// precise ranges; entries in OTHER files (a broken import) surface at
+/// 0:0 with the full message so the user still sees them. Duplicate
+/// (row, col, message-head) anchors — the formatter prints the location
+/// twice per entry — collapse to one diagnostic.
+parse_error_text :: (
+  fn(err_text : String, doc_abs : String, doc_text : String) -> ArrayList(LspDiag)
+)({
+  out := ArrayList(LspDiag).new();
+  lines := err_text.split(String.from("\n"));
+  // Message accumulator: lines since the last caret/location group.
+  msg_parts := ArrayList(String).new();
+  (li : usize) = usize(0);
+  n := lines.len();
+  while(li < n, {
+    line := match(lines.get(li), .Some(l) => l, .None => String.new());
+    // A location anchor is `<path>:<digits>:<digits>:` — split from the
+    // RIGHT so paths containing ':' cannot confuse it.
+    (is_anchor : bool) = false;
+    (a_row : usize) = usize(0);
+    (a_col : usize) = usize(0);
+    (a_path : String) = String.new();
+    if(line.ends_with(String.from(":")), {
+      body := line.substring(usize(0), line.len() - usize(1));
+      segs := body.split(String.from(":"));
+      if(segs.len() >= usize(3), {
+        col_s := match(segs.get(segs.len() - usize(1)), .Some(s) => s, .None => String.new());
+        row_s := match(segs.get(segs.len() - usize(2)), .Some(s) => s, .None => String.new());
+        match(
+          row_s.parse_u64(),
+          .Some(r1) => match(
+            col_s.parse_u64(),
+            .Some(c1) => {
+              if((r1 >= u64(1)) && (c1 >= u64(1)), {
+                is_anchor = true;
+                a_row = (usize(r1) - usize(1));
+                a_col = (usize(c1) - usize(1));
+                // path = body minus ":row:col"
+                tail_len := ((row_s.len() + col_s.len()) + usize(2));
+                a_path = body.substring(usize(0), body.len() - tail_len);
+              });
+            },
+            .None => ()
+          ),
+          .None => ()
+        );
+      });
+    });
+    if(is_anchor, {
+      message := String.from("\n").join(msg_parts).trim();
+      if(message.starts_with(String.from("Error:")), {
+        message = message.substring(usize(6), message.len()).trim();
+      });
+      if(message.len() > usize(0), {
+        same_file := ((a_path == doc_abs) || a_path.ends_with(doc_abs.clone()));
+        cond(
+          same_file => {
+            end_col := (a_col + _ident_len_at(doc_text, a_row, a_col));
+            // Dedup: the formatter prints each entry's location twice.
+            (dup : bool) = false;
+            (di : usize) = usize(0);
+            while(di < out.len(), {
+              d := match(
+                out.get(di),
+                .Some(x) => x,
+                .None => {
+                  di = out.len();
+                  return(out);
+                }
+              );
+              if(((d.row == a_row) && (d.col == a_col)) && (d.message == message), {
+                dup = true;
+              });
+              di = (di + usize(1));
+            });
+            if(!(dup), {
+              out.push(LspDiag(row : a_row, col : a_col, end_col : end_col, message : message));
+            });
+          },
+          true => {
+            out.push(
+              LspDiag(
+                row : usize(0),
+                col : usize(0),
+                end_col : usize(1),
+                message : `${message} (in ${a_path}:${(a_row + usize(1))}:${(a_col + usize(1))})`
+              )
+            );
+          }
+        );
+      });
+      // Skip the source line + caret line that follow an anchor.
+      msg_parts = ArrayList(String).new();
+      li = (li + usize(3));
+    }, {
+      msg_parts.push(line);
+      li = (li + usize(1));
+    });
+  });
+  // Nothing anchored (a LexerError or a bare string throw): one
+  // whole-message diagnostic at 0:0.
+  if((out.len() == usize(0)) && (err_text.trim().len() > usize(0)), {
+    out.push(
+      LspDiag(
+        row : usize(0),
+        col : usize(0),
+        end_col : usize(1),
+        message : err_text.trim()
+      )
+    );
+  });
+  out
+});
+export(parse_error_text);
+
+/// Prelude bootstrap, once per process. A separate fn so its swallowing
+/// handler's `unwind(())` exits THIS unit-typed frame — `unwind` exits the
+/// function that BOUND the ctl value, and a value/frame type mismatch is a
+/// codegen-level error `check` cannot see (the handler transpiles hollow;
+/// plans/P4_LSP.md slice 0 notes — this bit this very file's first draft,
+/// caught by the stage-2 hollow count).
+_ensure_prelude :: (fn(std_path : String, io : Io) -> unit)({
+  if(mm_has_prelude_env(), {
+    return(());
+  });
+  pre_exn := Exception(
+    throw : (
+      (err) -> {
+        _stash_parse_error(err.to_string());
+        unwind(())
+      }
+    )
+  );
+  mm_preload_prelude(std_path.clone(), false, io, pre_exn);
+});
+
+/// Parse + evaluate the document text under a swallowing handler. The
+/// handler's `unwind(false)` exits THIS bool-typed frame (see
+/// _ensure_prelude's note). Mirrors module_manager's
+/// _eval_module_exprs_capturing_error structure.
+_analyze_eval :: (
+  fn(entry_abs : String, text : String, std_path : String, io : Io) -> bool
+)({
+  local_exn := Exception(
+    throw : (
+      (err) -> {
+        _stash_parse_error(err.to_string());
+        unwind(false)
+      }
+    )
+  );
+  exprs := parse(text, entry_abs.clone(), local_exn);
+  _outcome := mm_eval_entry_exprs(entry_abs.clone(), std_path.clone(), exprs, io, local_exn);
+  true
+});
+
+/// Evaluate `text` as the module at `doc_fs_path` and return diagnostics.
+/// Empty result = clean file.
+analyze_document :: (
+  fn(
+    doc_fs_path : String,
+    text : String,
+    std_path : String,
+    io : Io
+  ) -> ArrayList(LspDiag)
+)({
+  _ensure_prelude(std_path.clone(), io);
+  entry_abs := mm_resolve_entry_abs(doc_fs_path.clone(), std_path.clone());
+  _ok := _analyze_eval(entry_abs.clone(), text.clone(), std_path.clone(), io);
+  diags := ArrayList(LspDiag).new();
+  match(
+    _take_parse_error(),
+    .Some(pe) => {
+      pds := parse_error_text(pe, entry_abs.clone(), text.clone());
+      (pi : usize) = usize(0);
+      while(pi < pds.len(), {
+        match(
+          pds.get(pi),
+          .Some(d) => {
+            diags.push(d);
+          },
+          .None => ()
+        );
+        pi = (pi + usize(1));
+      });
+    },
+    .None => ()
+  );
+  match(
+    _take_load_error(),
+    .Some(le) => {
+      lds := parse_error_text(le, entry_abs.clone(), text.clone());
+      (ei : usize) = usize(0);
+      while(ei < lds.len(), {
+        match(
+          lds.get(ei),
+          .Some(d2) => {
+            diags.push(d2);
+          },
+          .None => ()
+        );
+        ei = (ei + usize(1));
+      });
+    },
+    .None => ()
+  );
+  diags
+});
+export(analyze_document);

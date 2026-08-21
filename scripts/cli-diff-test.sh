@@ -301,8 +301,12 @@ run_case() {
     eval "argv=($line)"
     {
       echo "\$ yo ${argv[*]}"
+      # A case may provide a `stdin` file (raw bytes, e.g. framed LSP
+      # messages for `yo lsp`); commands read /dev/null otherwise so an
+      # accidentally interactive subcommand can never hang the harness.
       ( cd "$proj" && HOME="$home" YO_ORIGINAL_CWD="$proj" YO_STD="$REPO_ROOT/std" \
-          run_with_timeout "$tmo" env ${envkv[@]+"${envkv[@]}"} "$YO_SELF_BIN" "${argv[@]}" 2>&1 )
+          run_with_timeout "$tmo" env ${envkv[@]+"${envkv[@]}"} "$YO_SELF_BIN" "${argv[@]}" 2>&1 \
+          < "$( [[ -f "$cdir/stdin" ]] && echo "$cdir/stdin" || echo /dev/null )" )
       rc=$?
       echo "rc=$rc"
     } >> "$sand/stdout.raw"
