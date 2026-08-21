@@ -19,7 +19,7 @@ env:
   # lockstep by the auto-bump in publish-release below and the consistency
   # guard in test.yml's `changes` job
   # (plans/backlog/SEED_VERSION_AUTOMATION.md).
-  SEED_VERSION: v0.2.14
+  SEED_VERSION: v0.2.15
 
   # apt-get waits on /var/lib/dpkg/lock-frontend FOREVER by default, and the
   # runner images run unattended-upgrades / apt-daily timers in the background.
@@ -1148,29 +1148,53 @@ jobs:
         run: |
           release_id=$(gh api "repos/${GITHUB_REPOSITORY}/releases"             --jq '.[] | select(.tag_name == "v${{ needs.release.outputs.version }}" and .draft) | .id')
           if [ -z "$release_id" ]; then
-            echo "::error::no draft release found for v${{ needs.release.outputs.version }}"
+            # IDEMPOTENT on rerun: the v0.2.15 run failed in a LATER step of
+            # this job after the flip had already happened, and rerunning the
+            # job then died HERE ("no draft release found") because the draft
+            # no longer existed — blocking the still-skipped deploy-site
+            # forever. If the tag is already public, that is this step's goal
+            # state: continue instead of failing.
+            published_id=$(gh api "repos/${GITHUB_REPOSITORY}/releases"             --jq '.[] | select(.tag_name == "v${{ needs.release.outputs.version }}" and (.draft | not)) | .id')
+            if [ -n "$published_id" ]; then
+              echo "Release v${{ needs.release.outputs.version }} is already published (id ${published_id}) — continuing."
+              exit 0
+            fi
+            echo "::error::no release (draft or published) found for v${{ needs.release.outputs.version }}"
             exit 1
           fi
           gh api -X PATCH "repos/${GITHUB_REPOSITORY}/releases/${release_id}"             -F draft=false -f make_latest=true --jq .html_url
 
-      # Seed auto-bump (plans/backlog/SEED_VERSION_AUTOMATION.md): the release
-      # is public with a complete bundle matrix (every artifact job is in this
-      # job's `needs`), so the just-published version becomes the new bootstrap
-      # seed in all three workflows. Pushed DIRECTLY to develop with
-      # RELEASE_PAT — the same mechanism and trust level as the release job's
-      # version-bump push — and deliberately WITHOUT [skip ci]: the push
-      # exercises the new seed on develop immediately, so a bad seed is a
-      # visible red plus a one-line revert, not a latent trap for the next PR.
-      # Runs only on this job's success path by step order: the Publish step
-      # above has already exited non-zero on any failure.
-      - name: Checkout develop for the seed bump
+  # Seed auto-bump (plans/backlog/SEED_VERSION_AUTOMATION.md): once the
+  # release is public with a complete bundle matrix, the just-published
+  # version becomes the new bootstrap seed in all three workflows, pushed
+  # DIRECTLY to develop with RELEASE_PAT and deliberately WITHOUT
+  # [skip ci] — the push exercises the new seed on develop immediately, so
+  # a bad seed is a visible red plus a one-line revert.
+  #
+  # A SEPARATE JOB (2026-08-22), not a tail step of publish-release: its
+  # first live firing failed and, because it shared a job with the publish
+  # flip, took deploy-site down with it (needs: publish-release saw
+  # `failure`). A bump failure must never block the site deploy.
+  #
+  # REQUIREMENT the first firing discovered (GH013): RELEASE_PAT must be a
+  # fine-grained PAT with BOTH "Contents: read and write" AND "Workflows:
+  # read and write" — this push modifies .github/workflows/*, which GitHub
+  # refuses for any token without the workflow permission
+  # (issues/release-seed-bump-needs-workflow-scope-pat.md).
+  seed-bump:
+    name: Bump SEED_VERSION on develop
+    # `release` is in needs only for its `version` output; publish-release is
+    # the actual gate.
+    needs: [release, publish-release]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout develop
         uses: actions/checkout@v4
         with:
           ref: develop
           token: ${{ secrets.RELEASE_PAT || secrets.GITHUB_TOKEN }}
-          path: seed-bump
+
       - name: Bump SEED_VERSION to this release on develop
-        working-directory: seed-bump
         run: |
           set -euo pipefail
           new="v${{ needs.release.outputs.version }}"
@@ -1191,7 +1215,7 @@ jobs:
           git config --local user.name "github-actions[bot]"
           git add .github/workflows/test.yml .github/workflows/release.yml .github/workflows/fixpoint-arm64.yml
           git commit -m "ci: bump SEED_VERSION to ${new} (release-pipeline auto-bump)"
-          git push || { echo "::error::Seed-bump push to develop failed — is the RELEASE_PAT secret set and unexpired (fine-grained, Contents: read/write)?"; exit 1; }
+          git push || { echo "::error::Seed-bump push to develop failed — RELEASE_PAT must be fine-grained with Contents AND Workflows read/write (this push modifies .github/workflows/*, refused as GH013 without the workflow permission), and unexpired."; exit 1; }
           echo "SEED_VERSION ${old} -> ${new} pushed to develop."
 
   # The site deploy waits for publish-release ON PURPOSE.

@@ -53,3 +53,16 @@ paren-less prefix calls inside `src/`/`std/`
 (`plans/PREFIX_OPERATOR_OPERAND_RULE.md`) — each unlocks only once a
 release CONTAINING those features becomes the seed, i.e. typically the
 bump after next.
+
+## Status addendum (2026-08-22)
+
+Landed in #200; guard live in test.yml's `changes` job. The auto-bump's
+FIRST live firing (v0.2.15 release) was rejected — GH013: `RELEASE_PAT`
+lacked the fine-grained "Workflows: read and write" permission, which any
+push touching `.github/workflows/` requires — and, because the bump ran as
+a tail step of `publish-release`, the failure also skipped `deploy-site`.
+Full record: `issues/release-seed-bump-needs-workflow-scope-pat.md`.
+Hardening (branch `ci/release-tail-hardening`): bump moved to its own
+`seed-bump` job, Publish made rerun-idempotent, manual `deploy-site.yml`
+lever added, v0.2.14→v0.2.15 pins bumped manually via PR. Remaining USER
+ACTION: add the Workflows permission to `RELEASE_PAT`.
