@@ -14,22 +14,12 @@ on:
 
 env:
   # The previous-release seed used by the seed-driven steps below (the musl
-  # bundle's Yo->C emit). Same trust-chain root as test.yml's SEED_VERSION;
-  # bump to the latest PUBLISHED release whose bundle matrix covers the
-  # needed targets.
-  #
-  # v0.2.9 -> v0.2.11 (2026-08-20). v0.2.9 was cut eight hours BEFORE #145
-  # (memoize _inject_forall_captures), so it peaks at ~28.4 GB compiling this
-  # tree against v0.2.4's 14.5 GB — measured, not inferred. On 16 GB runners
-  # that put every seed-driven job onto the swapfile and made CI wall-clock a
-  # cliff function of memory; it is what turned seed-bundles' linux-x64 leg into
-  # a 159-minute job during the v0.2.10 release. v0.2.11 carries the fix in its
-  # OWN codegen, which is the generation that matters — see
-  # issues/seed-v0.2.9-memory-growth-slows-every-self-build.md.
-  #
-  # The raised timeouts (#137, #167) stay. They now buy headroom rather than
-  # bare survival, and the cliff they guard is still there for the next seed.
-  SEED_VERSION: v0.2.13
+  # bundle's Yo->C emit). Same trust-chain root as test.yml's SEED_VERSION —
+  # the full rationale and seed history live THERE. This pin is kept in
+  # lockstep by the auto-bump in publish-release below and the consistency
+  # guard in test.yml's `changes` job
+  # (plans/backlog/SEED_VERSION_AUTOMATION.md).
+  SEED_VERSION: v0.2.14
 
   # apt-get waits on /var/lib/dpkg/lock-frontend FOREVER by default, and the
   # runner images run unattended-upgrades / apt-daily timers in the background.
@@ -1162,6 +1152,47 @@ jobs:
             exit 1
           fi
           gh api -X PATCH "repos/${GITHUB_REPOSITORY}/releases/${release_id}"             -F draft=false -f make_latest=true --jq .html_url
+
+      # Seed auto-bump (plans/backlog/SEED_VERSION_AUTOMATION.md): the release
+      # is public with a complete bundle matrix (every artifact job is in this
+      # job's `needs`), so the just-published version becomes the new bootstrap
+      # seed in all three workflows. Pushed DIRECTLY to develop with
+      # RELEASE_PAT — the same mechanism and trust level as the release job's
+      # version-bump push — and deliberately WITHOUT [skip ci]: the push
+      # exercises the new seed on develop immediately, so a bad seed is a
+      # visible red plus a one-line revert, not a latent trap for the next PR.
+      # Runs only on this job's success path by step order: the Publish step
+      # above has already exited non-zero on any failure.
+      - name: Checkout develop for the seed bump
+        uses: actions/checkout@v4
+        with:
+          ref: develop
+          token: ${{ secrets.RELEASE_PAT || secrets.GITHUB_TOKEN }}
+          path: seed-bump
+      - name: Bump SEED_VERSION to this release on develop
+        working-directory: seed-bump
+        run: |
+          set -euo pipefail
+          new="v${{ needs.release.outputs.version }}"
+          old=$(grep -hE '^[[:space:]]*SEED_VERSION: v' .github/workflows/test.yml | awk '{print $2}')
+          if [ "$old" = "$new" ]; then
+            echo "SEED_VERSION is already ${new} — nothing to bump."
+            exit 0
+          fi
+          for f in test.yml release.yml fixpoint-arm64.yml; do
+            sed -i "s|^\([[:space:]]*SEED_VERSION:\) ${old}\$|\1 ${new}|" ".github/workflows/$f"
+          done
+          changed=$(git diff --name-only | wc -l)
+          if [ "$changed" -ne 3 ]; then
+            echo "::error::seed bump expected to touch exactly 3 workflows, touched ${changed} — did a pin move or diverge? Bump manually (see test.yml's SEED_VERSION comment)."
+            exit 1
+          fi
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add .github/workflows/test.yml .github/workflows/release.yml .github/workflows/fixpoint-arm64.yml
+          git commit -m "ci: bump SEED_VERSION to ${new} (release-pipeline auto-bump)"
+          git push || { echo "::error::Seed-bump push to develop failed — is the RELEASE_PAT secret set and unexpired (fine-grained, Contents: read/write)?"; exit 1; }
+          echo "SEED_VERSION ${old} -> ${new} pushed to develop."
 
   # The site deploy waits for publish-release ON PURPOSE.
   #

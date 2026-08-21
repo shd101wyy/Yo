@@ -60,11 +60,15 @@ env:
   # seed-driven jobs at the download, which is exactly what happened on the
   # first push of this pin.
   #
-  # Keep this pin in lockstep with release.yml AND fixpoint-arm64.yml: bump ALL THREE as
-  # part of each release's follow-up (the deliberate-pin rationale — chain
-  # auditability, bad-release containment, reproducible re-runs — is recorded
-  # in plans/P2_5_RETIRE_EXECUTION.md step 24). This one had silently drifted
-  # to v0.2.4 while release.yml advanced to v0.2.7.
+  # Keep this pin in lockstep with release.yml AND fixpoint-arm64.yml (the
+  # deliberate-pin rationale — chain auditability, bad-release containment,
+  # reproducible re-runs — is recorded in plans/P2_5_RETIRE_EXECUTION.md
+  # step 24). This one had silently drifted to v0.2.4 while release.yml
+  # advanced to v0.2.7. Since 2026-08-21 the lockstep is AUTOMATED: the
+  # `changes` job above guards the three pins against divergence, and
+  # release.yml's publish-release pushes the bump for every published
+  # release (plans/backlog/SEED_VERSION_AUTOMATION.md). Manual edits remain
+  # for ROLLING BACK a bad seed.
   #
   # v0.2.9 -> v0.2.11 (2026-08-20). v0.2.9 was cut eight hours BEFORE #145
   # (memoize _inject_forall_captures), so it peaks at ~28.4 GB compiling this
@@ -77,7 +81,10 @@ env:
   #
   # The raised timeouts (#137, #167) stay. They now buy headroom rather than
   # bare survival, and the cliff they guard is still there for the next seed.
-  SEED_VERSION: v0.2.13
+  #
+  # v0.2.13 -> v0.2.14 (2026-08-21): first payload of the release-time
+  # auto-bump; v0.2.14's bundle matrix is complete on all six targets.
+  SEED_VERSION: v0.2.14
 
   # apt-get waits on /var/lib/dpkg/lock-frontend FOREVER by default, and the
   # runner images run unattended-upgrades / apt-daily timers in the background.
@@ -123,6 +130,33 @@ jobs:
     outputs:
       code: ${{ steps.classify.outputs.code }}
     steps:
+      # SEED_VERSION consistency guard (plans/backlog/SEED_VERSION_AUTOMATION.md):
+      # the pin is hand-duplicated in THREE workflows, and divergence silently
+      # splits the trust chain (PRs validated against one seed, release
+      # artifacts built from another — it HAS happened: fixpoint-arm64 sat on
+      # v0.2.4 while the others moved to v0.2.9). This job is the earliest
+      # always-running gate, so the guard lives here as a STEP — deliberately
+      # not a new job, because the branch-protection required-checks list is
+      # maintained by hand and a new job would need a manual edit there.
+      - name: Checkout workflows (SEED_VERSION guard)
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/workflows
+          sparse-checkout-cone-mode: false
+      - name: SEED_VERSION consistency guard
+        run: |
+          set -euo pipefail
+          pins=$(grep -hE '^[[:space:]]*SEED_VERSION: v' \
+            .github/workflows/test.yml \
+            .github/workflows/release.yml \
+            .github/workflows/fixpoint-arm64.yml | awk '{print $2}')
+          count=$(printf '%s\n' "$pins" | wc -l)
+          uniq_count=$(printf '%s\n' "$pins" | sort -u | wc -l)
+          if [ "$count" -ne 3 ] || [ "$uniq_count" -ne 1 ]; then
+            echo "::error::SEED_VERSION pins diverge or are missing (found: $(printf '%s ' $pins)) — the three workflows must carry the SAME pin. See test.yml's SEED_VERSION comment and plans/backlog/SEED_VERSION_AUTOMATION.md."
+            exit 1
+          fi
+          echo "SEED_VERSION consistent across the three workflows: $(printf '%s' "$pins" | head -1)"
       - id: classify
         env:
           GH_TOKEN: ${{ github.token }}
