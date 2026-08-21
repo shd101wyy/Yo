@@ -80,3 +80,21 @@ contains thousands of these state-machine labels. CI (normal Linux, no
 seccomp block on io_uring) exercises user-program compiles on every PR; the
 regression test `tests/async_await.test.yo::async while loops emit C11-legal
 labels...` pins the shape there.
+
+## What CI must verify when this lands
+
+The HarmonyOS box cannot run the compiler's full suite, so these gates run
+only on standard CI (normal Linux, where io_uring is not seccomp-blocked):
+
+- `yo check ./src` — type-checks the `main.yo` link-line changes
+  (`_probe_liburing_flags`, `_is_harmonyos`); the emit-side edits are
+  string-literal only.
+- `yo fmt --check` on `src/main.yo`, `src/codegen/async/state_machine.yo`,
+  `src/codegen/async/state_code_gen.yo`, `tests/async_await.test.yo`.
+- The async/await language suite (`yo test ./tests --exclude tests/internal
+  --exclude tests/cli-cases --bail`) — the `:;` label change alters every
+  emitted while-loop state machine, so the whole suite is the regression net.
+- The self-host fixpoint gates (stage-2 vs stage-3 emits come from the SAME
+  new codegen, so they must remain byte-identical to each other).
+- `scripts/install.sh`'s `-h`/`--dry-run` on the existing matrix legs
+  (harmonyos branches are inert there by construction).
