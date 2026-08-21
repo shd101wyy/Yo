@@ -27,6 +27,8 @@ open(import("std/fmt"));
 } :: import("./protocol.yo");
 { analyze_document, LspDiag, AnalyzeOutcome } :: import("./diagnostics.yo");
 { handle_hover } :: import("./hover.yo");
+{ handle_definition } :: import("./definition.yo");
+{ handle_document_symbols } :: import("./symbols.yo");
 { resolve_std_path } :: import("../module_manager.yo");
 { BufReader } :: import("std/sys/bufio/buf_reader");
 
@@ -155,7 +157,7 @@ _publish_empty :: (fn(uri : String) -> unit)({
 /// capability flag. Feature providers (hover, completion, …) arrive with
 /// their P4 slices.
 _initialize_result :: (fn() -> JsonValue)(
-  jb().put("capabilities", jb().put("textDocumentSync", jnum(usize(1))).put("hoverProvider", JsonValue.Bool(value : true)).obj()).put(
+  jb().put("capabilities", jb().put("textDocumentSync", jnum(usize(1))).put("hoverProvider", JsonValue.Bool(value : true)).put("definitionProvider", JsonValue.Bool(value : true)).put("documentSymbolProvider", JsonValue.Bool(value : true)).obj()).put(
     "serverInfo",
     // No `version` field on purpose: it is optional in the protocol, the
     // client can ask `yo --version`, and a version here would churn the
@@ -262,6 +264,92 @@ _handle_message :: (
       match(
         id_opt,
         .Some(id) => write_lsp_message(json_stringify(j_response(id, hover_result))),
+        .None => ()
+      );
+    },
+    (method == String.from("textDocument/definition")) => {
+      (def_result : JsonValue) = JsonValue.Null;
+      match(
+        v.get(String.from("params")),
+        .Some(params) => {
+          uri := match(
+            params.get(String.from("textDocument")),
+            .Some(td) => _jfield_str(td, "uri"),
+            .None => String.new()
+          );
+          (line : usize) = usize(0);
+          (character : usize) = usize(0);
+          match(
+            params.get(String.from("position")),
+            .Some(pos) => {
+              match(
+                pos.get(String.from("line")),
+                .Some(lv) => match(
+                  lv,
+                  .Number(ln) => {
+                    line = usize(ln);
+                  },
+                  _ => ()
+                ),
+                .None => ()
+              );
+              match(
+                pos.get(String.from("character")),
+                .Some(cv) => match(
+                  cv,
+                  .Number(cn) => {
+                    character = usize(cn);
+                  },
+                  _ => ()
+                ),
+                .None => ()
+              );
+            },
+            .None => ()
+          );
+          match(
+            docs.get(uri.clone()),
+            .Some(st) => match(
+              handle_definition(st.text, st.entry_abs, st.outcome.exprs, st.outcome.info_table, line, character),
+              .Some(loc) => {
+                def_result = loc;
+              },
+              .None => ()
+            ),
+            .None => ()
+          );
+        },
+        .None => ()
+      );
+      match(
+        id_opt,
+        .Some(id) => write_lsp_message(json_stringify(j_response(id, def_result))),
+        .None => ()
+      );
+    },
+    (method == String.from("textDocument/documentSymbol")) => {
+      (sym_result : JsonValue) = JsonValue.Array(items : ArrayList(JsonValue).new());
+      match(
+        v.get(String.from("params")),
+        .Some(params) => {
+          uri := match(
+            params.get(String.from("textDocument")),
+            .Some(td) => _jfield_str(td, "uri"),
+            .None => String.new()
+          );
+          match(
+            docs.get(uri.clone()),
+            .Some(st) => {
+              sym_result = handle_document_symbols(st.outcome.exprs);
+            },
+            .None => ()
+          );
+        },
+        .None => ()
+      );
+      match(
+        id_opt,
+        .Some(id) => write_lsp_message(json_stringify(j_response(id, sym_result))),
         .None => ()
       );
     },
