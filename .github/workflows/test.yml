@@ -288,10 +288,17 @@ jobs:
           sudo apt-get $APT_OPTS update
           sudo apt-get $APT_OPTS install -y liburing-dev
 
-      - name: Install the seed compiler (previous release)
+      # PINNED to v0.2.14, NOT env.SEED_VERSION (revert at the next seed
+      # bump): v0.2.15's evaluator deep-clones the source into every AST
+      # node while compiling the markdown_yo closure this site build needs
+      # (issues/desugar-token-clones-evaluator-regression.md, fixed in #207
+      # but the fix only reaches a BINARY at the next release) — with the
+      # v0.2.15 seed this job sits at the 7 GB runner's OOM boundary and
+      # dies as "runner received a shutdown signal" on most runs.
+      - name: Install the seed compiler (site builder)
         uses: ./.github/actions/install-seed
         with:
-          version: ${{ env.SEED_VERSION }}
+          version: v0.2.14
 
       # The same two commands release.yml runs, with the version read from the
       # same source of truth the release computes its bump from.
