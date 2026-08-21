@@ -77,6 +77,7 @@ if(done, println("done"), println("pending"));
 - Always write `cond(...)`, never bare `cond ...`
 - Always write `match(...)`, never bare `match ...`
 - `if(a, b)` and `if(a, b, c)` are sugar over `cond` (desugared at parse time; the prelude macro remains as spec/fallback)
+- **The operator set is CLOSED** (plans/OPERATOR_SET_AND_PRECEDENCE.md): operator-char runs split greedily against a fixed table (`src/lexer.yo`), so `**x` = `*`,`*`,`x` (no `**` token — `Exponentiation` is the word method `pow`), and an unknown run (`@@`) is a lex error. Reserved (never bindable/overloadable): `= := :: : => -> <: ?= && || # ...#` and ranges. The retired pointer-arithmetic operators (`&+`/`&-`/`&/`) are NOT tokens any more — use `.add`/`.sub`.
 - Defining a macro (`quote(...)` param / `unquote(...)` return) needs `pragma(Pragma.AllowMacroDef);` at the top of the file; CALLING macros needs nothing. The std `try` macro was removed — match on the `Result` instead.
 - Write `return(value)` or `return()`; `return value` is invalid.
 - Write `unwind(value)` or `unwind()`; `unwind value` is invalid.
@@ -125,7 +126,8 @@ masked := ((A | B) | C);
 - An operator RHS that itself contains a different top-level operator must be parenthesized: `true => (x / y)`, `value := (x + y)`, `(x : T) = ((v) -> { ... })`, `next : (fn(...) -> T)`
 - Source layout does NOT affect grouping — there is no newline-based associativity
 - Prefix operators (`!`, `&`, `-`, `~`) require parenthesized operands: `func(&(s), a, b)`, `!(ready)`, `-(value)`.
-- Tight special forms also require immediate parentheses: `#(expr)`, `?*(u8)`, `T <: !(Runtime)`
+- Tight special forms also require immediate parentheses: `#(expr)`, `?(*(u8))`, `T <: !(Runtime)`
+- **Don't write unnecessary parens** — commas already delimit call args: `if(x == y, ...)`, `assert(a == b, "msg")`, NOT `if((x == y), ...)`. Parens stay where grammar needs them: infix arm conditions `(x == y) => a`, mixed-op chains `(a + b) * c`, struct fields `{ x : (1 + 2) }`, prefix calls `-(1)`/`!(x)` (required by TODAY's compiler; lifts when plans/PREFIX_OPERATOR_OPERAND_RULE.md lands, after which `-1`/`!x`/`?*T` are preferred). `yo fmt` preserves whatever you write — it never removes parens.
 - Dynamic field access with unquote must keep grouping after the dot: `value.(#(field_expr))`, not `value.#(field_expr)`.
 - Unquote splicing is the tight operator `...#(exprs)`; do not insert a space between `...` and `#`.
 - Canonical pointer dereference is `ptr.*`; formatter should canonicalize legacy `ptr.(*)` to `ptr.*`.
