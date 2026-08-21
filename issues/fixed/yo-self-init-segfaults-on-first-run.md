@@ -122,4 +122,4 @@ self-hosted templates are the _more current_ ones: `src/init.ts` still emits
 pre-call syntax (`test "it works", {`, `import "./deps.yo"`). Tracked separately.
 
 Adjacent gaps found while measuring this, none of them regressions from it:
-`issues/await-in-branch-positions-matrix.md`.
+`issues/fixed/await-in-branch-positions-matrix.md`.

@@ -1244,10 +1244,14 @@ use_cond :: (fn(x: i32) -> unit)(
 
 `if(condition, then, else)`
 
-Yo 中的 `if` 实际上是一个宏函数（参见 `std/prelude.yo`）：
+`if` 是 `cond` 的语法糖：编译器在解析阶段将每个 `if(...)` 调用脱糖为
+`cond(condition => then, true => else)`，因此后续所有编译阶段（包括
+async 状态机）看到的是真正的 `cond` 节点。prelude 中仍保留等价的宏定义，
+作为语义规范以及动态构造 AST 的回退路径（参见 `std/prelude.yo` 与
+`plans/MACRO_POLICY.md`）：
 
 ```rust
-// prelude.yo 中的定义
+// prelude.yo 中的定义（规范/回退 —— 正常情况下在解析阶段脱糖）
 if :: (fn(
         quote(condition): Expr,
         quote(then): Expr,
@@ -2947,7 +2951,10 @@ quote((0, unquote_splicing(list.get_args()), 4)); // 元组 (0, 1, 2, 3, 4)
 
 ### 宏函数
 
-宏函数使用 `quote` 和 `unquote` 进行代码生成。实际示例请参阅 `std/prelude.yo`，例如 `if` 宏。
+宏函数使用 `quote` 和 `unquote` 进行代码生成。宏就是带有两个签名标记之一
+（或两者）的普通 comptime 函数：`quote(name) : Expr` 参数（调用方的原始
+AST 不经求值直接绑定）和 `-> unquote(Expr)` 返回类型（返回的 AST 拼接回
+调用点）。实际示例请参阅 `std/prelude.yo`，例如 `if` 宏。
 
 - `quote(...)` : 引用一个表达式
 - `unquote(...)` : 在引用的表达式中取消引用
@@ -2955,10 +2962,28 @@ quote((0, unquote_splicing(list.get_args()), 4)); // 元组 (0, 1, 2, 3, 4)
 
 `unquote` 只能在 `quote` 内部使用。
 
-来自 `std/prelude.yo` 的示例：
+**定义宏需要在文件顶部声明 `pragma(Pragma.AllowMacroDef);`** —— 与指针
+操作的 `Pragma.AllowUnsafe` 一样，定义宏是按文件粒度的显式选择（宏不
+卫生、且会向调用方拼接代码，因此定义能力受门控；参见
+`plans/MACRO_POLICY.md`）。*调用*宏（`if`、`for`、集合字面量）不需要该
+pragma；在 comptime 函数中操作引用的 `Expr` 值（`derive_rule` 使用的机
+制）同样不需要。
 
 ```rust
-// `if` 宏函数
+pragma(Pragma.AllowMacroDef);
+
+// 自定义宏示例 —— 惰性求值 body 的 `unless`
+unless :: (fn(quote(condition): Expr, quote(do): Expr) -> unquote(Expr))(
+  quote(
+    cond(unquote(condition) => (), true => unquote(do))
+  )
+);
+```
+
+prelude 的 `if` 宏是标准示例（当前编译器在解析阶段将 `if(...)` 调用脱糖
+为 `cond(...)`，该定义作为规范/回退保留）：
+
+```rust
 if :: (fn(quote(condition): Expr,
         quote(then): Expr,
         (quote(else): Expr) ?= quote(())
@@ -2975,28 +3000,12 @@ if :: (fn(quote(condition): Expr,
 if(true, {
   println("true");
 });
-
-// 用于 Result 类型的 `try` 宏
-try :: (fn(quote(expr_to_try): Expr) -> unquote(Expr))({
-  temp :: gensym("try");
-  quote {
-    unquote(temp) := unquote(expr_to_try);
-    match(unquote(temp),
-      .Ok => unquote(temp).value,
-      .Error => {
-        return(unquote(temp).error);
-      }
-    )
-  }
-});
-
-// 自定义宏示例
-unless :: (fn(quote(condition): Expr, quote(do): Expr) -> unquote(Expr))(
-  quote(
-    if(not(unquote(condition)), unquote(do))
-  )
-);
 ```
+
+> std 的 `try` 宏已移除（它隐藏了调用方栈帧内的 `return`，且在概念上与
+> 代数效应系统冲突）。请改用对 `Result` 的 `match`，或在
+> `pragma(Pragma.AllowMacroDef);` 下在本地定义等价宏 ——
+> `tests/codegen-bootstrap/try_macro_assign.yo` 保留了一个可用版本。
 
 ## 派生特征（Derive Traits）
 
@@ -3022,30 +3031,34 @@ export(main);
 
 ### 用户自定义派生规则（`derive_rule`）
 
-特征作者可以使用 `derive_rule` 注册自定义派生规则。这利用 Yo 的 quote/unquote 宏系统在编译时生成 `impl` 块：
+特征作者可以使用 `derive_rule` 注册自定义派生规则。派生规则**不是宏** ——
+它是返回 `comptime(Expr)` 的普通 comptime 函数，用 `quote`/`unquote` 构
+造 `impl` 块，由 `derive` 内建函数显式求值（因此不需要
+`Pragma.AllowMacroDef`）：
 
 ```rust
-MyEq :: (fn(comptime(T) : Type) -> comptime(Type))(
-  trait(eq : (fn(self : T, other : T) -> bool))
+MyEq :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
+  trait(my_eq : (fn(self : Self, other : Rhs) -> bool))
 );
 
-derive_rule(MyEq, (fn(comptime(T) : Type, quote(target) : Expr) -> unquote(Expr))({
-  eq_body :: __yo_type_join_fields(
+my_derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr))({
+  eq_body :: Type.join_fields(
     T,
-    (fn(comptime(field) : FieldInfo) -> unquote(Expr))(
-      quote(self.(unquote(field.name.to_expr())).eq(other.(unquote(field.name.to_expr()))))
+    (fn(comptime(field) : FieldInfo) -> comptime(Expr))(
+      quote(self.(#(field.name.to_expr())).my_eq(other.(#(field.name.to_expr()))))
     ),
     quote(&&)
   );
-  quote(
-    impl(unquote(target), MyEq(unquote(target))(
-      eq : ((self, other) => unquote(eq_body))
-    ))
-  )
+  ctx.make_impl(quote(
+    MyEq(...#(trait_params))(
+      my_eq : ((self, other) -> #(eq_body))
+    )
+  ))
 });
+derive_rule(MyEq, my_derive_eq);
 
 Point :: struct(x : i32, y : i32);
-derive(Point, MyEq);  // 使用注册的 derive_rule
+derive(Point, MyEq(Point));  // 使用注册的 derive_rule
 ```
 
 ## 类型反射（Type Reflection）

@@ -226,7 +226,7 @@ process_dir :: (fn(root: Path, ctx : WalkCtx) -> Impl(Future(unit, WalkCtx)))(
   Historically the unsupported shapes were a **silent** miscompile: `rc=0` and
   a segfaulting binary with the branch body dropped. See
   `issues/fixed/yo-self-init-segfaults-on-first-run.md` and
-  `issues/await-in-branch-positions-matrix.md`.
+  `issues/fixed/await-in-branch-positions-matrix.md`.
 
 ## Exception (non-resumable)
 

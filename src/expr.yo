@@ -877,8 +877,186 @@ expect_expr_to_be_fn_call_of_any :: (
     .None => ()
   )
 });
+/// Synthesize a token for a desugared node, inheriting position and
+/// provenance from `ref_tok` so errors keep pointing at the source site.
+_synth_desugar_tok :: (fn(kind : TokenKind, value : str, ref_tok : Token) -> Token)(
+  Token(
+    kind : kind,
+    value : String.from(value),
+    row : ref_tok.row,
+    column : ref_tok.column,
+    character : ref_tok.character,
+    module_path : ref_tok.module_path.clone(),
+    input : ref_tok.input.clone()
+  )
+);
+/// Unwrap an optional `label : value` wrapper on an `if` argument.
+/// `.Some(value)` when the arg is unlabeled or carries the expected label;
+/// `.None` when it carries a DIFFERENT label — the caller then bails out of
+/// the rewrite and the prelude `if` macro path reports the proper
+/// label-mismatch error.
+_unwrap_if_label :: (fn(arg : AstExpr, label : str) -> Option(AstExpr))({
+  if(!(ast_expr_is_fn_call_of(arg, ":", .Some(usize(2)))), {
+    return(Option(AstExpr).Some(arg));
+  });
+  pair_args := match(
+    arg,
+    .FnCall(_, _, pa, _, _) => pa,
+    .Atom(_, _) => ArrayList(AstExpr).new()
+  );
+  label_matches := match(
+    pair_args.get(usize(0)),
+    .Some(label_expr) => match(
+      label_expr,
+      .Atom(_, ltok) => (ltok.value == label),
+      .FnCall(_, _, _, _, _) => false
+    ),
+    .None => false
+  );
+  cond(
+    label_matches => match(
+      pair_args.get(usize(1)),
+      .Some(v) => Option(AstExpr).Some(v),
+      .None => Option(AstExpr).None
+    ),
+    true => Option(AstExpr).None
+  )
+});
+/// Desugar `if(c, t)` / `if(c, t, e)` / labeled `if(c, then : t, else : e)`
+/// calls into the builtin `cond(c => t, true => e)` form, recursively,
+/// WITHOUT descending into `quote(...)` subtrees (quoted ASTs are
+/// user-visible comptime values; code spliced OUT of them is desugared at
+/// the splice sites in evaluator/calls/function.yo and
+/// evaluator/builtins/derive.yo instead).
+///
+/// This runs on every freshly parsed program (parser.yo `parse`,
+/// evaluator/index.yo `Evaluator.new`), so downstream passes — codegen,
+/// the async state machine, the dup/drop optimizer — see a real `cond`
+/// node instead of an `if` macro head and never need the
+/// `ExprInfo.macro_expansion` side-table for `if` (plans/MACRO_POLICY.md
+/// Part 3.2).
+///
+/// Anything this walk does NOT rewrite (odd arity, mismatched labels,
+/// dynamically constructed `if` calls that reach evaluation without a
+/// splice hook) falls back to the prelude's `if` macro, which is retained
+/// for seed-generation compatibility — the failure mode is the previous
+/// behavior, never a new error.
+///
+/// The rewritten node KEEPS the original call's ExprId (the rewrite runs
+/// before any ExprInfo for the node is written, and the `if` node it
+/// replaces is discarded); synthesized inner nodes mint fresh ids.
+desugar_if_calls :: (fn(e : AstExpr) -> AstExpr)(
+  match(
+    e,
+    .Atom(_, _) => e,
+    .FnCall(id, func_box, args, is_infix, tok) => {
+      if(ast_expr_is_fn_call_of(e, BK_QUOTE, .None), {
+        return(e);
+      });
+      n_args := args.len();
+      if(ast_expr_is_fn_call_of(e, "if", .None) && ((n_args == usize(2)) || (n_args == usize(3))), {
+        cond_arg := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+        then_opt := _unwrap_if_label(
+          match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr()),
+          "then"
+        );
+        (else_opt : Option(AstExpr)) = Option(AstExpr).None;
+        (labels_ok : bool) = then_opt.is_some();
+        if(n_args == usize(3), {
+          else_opt = _unwrap_if_label(
+            match(args.get(usize(2)), .Some(a) => a, .None => make_err_expr()),
+            "else"
+          );
+          labels_ok = (labels_ok && else_opt.is_some());
+        });
+        if(labels_ok, {
+          then_expr := match(then_opt, .Some(t) => t, .None => make_err_expr());
+          arrow1_args := ArrayList(AstExpr).new();
+          arrow1_args.push(recur(cond_arg));
+          arrow1_args.push(recur(then_expr));
+          arrow1 := AstExpr.FnCall(
+            alloc_global_expr_id(),
+            AstExpr.Atom(alloc_global_expr_id(), _synth_desugar_tok(TokenKind.Operator, "=>", tok)),
+            arrow1_args,
+            true,
+            tok.clone()
+          );
+          else_expr := match(
+            else_opt,
+            .Some(ee) => recur(ee),
+            .None => {
+              unit_tok := _synth_desugar_tok(TokenKind.Identifier, BK_TUPLE, tok);
+              AstExpr.FnCall(
+                alloc_global_expr_id(),
+                AstExpr.Atom(alloc_global_expr_id(), unit_tok.clone()),
+                ArrayList(AstExpr).new(),
+                false,
+                unit_tok
+              )
+            }
+          );
+          arrow2_args := ArrayList(AstExpr).new();
+          arrow2_args.push(AstExpr.Atom(alloc_global_expr_id(), _synth_desugar_tok(TokenKind.Bool, "true", tok)));
+          arrow2_args.push(else_expr);
+          arrow2 := AstExpr.FnCall(
+            alloc_global_expr_id(),
+            AstExpr.Atom(alloc_global_expr_id(), _synth_desugar_tok(TokenKind.Operator, "=>", tok)),
+            arrow2_args,
+            true,
+            tok.clone()
+          );
+          cond_args := ArrayList(AstExpr).new();
+          cond_args.push(arrow1);
+          cond_args.push(arrow2);
+          return(
+            AstExpr.FnCall(
+              id,
+              AstExpr.Atom(alloc_global_expr_id(), _synth_desugar_tok(TokenKind.Identifier, BK_COND, tok)),
+              cond_args,
+              false,
+              tok.clone()
+            )
+          );
+        });
+      });
+      new_args := ArrayList(AstExpr).new();
+      (di : usize) = usize(0);
+      dn := args.len();
+      while(di < dn, {
+        match(
+          args.get(di),
+          .Some(a) => {
+            new_args.push(recur(a));
+          },
+          .None => ()
+        );
+        di = (di + usize(1));
+      });
+      AstExpr.FnCall(id, recur(func_box), new_args, is_infix, tok.clone())
+    }
+  )
+);
+/// Desugar every top-level statement of a freshly parsed program.
+/// Returns a new statement list (ArrayList has no in-place `set`).
+desugar_program_if_calls :: (fn(program : ArrayList(AstExpr)) -> ArrayList(AstExpr))({
+  out := ArrayList(AstExpr).new();
+  (pi : usize) = usize(0);
+  pn := program.len();
+  while(pi < pn, {
+    match(
+      program.get(pi),
+      .Some(s) => {
+        out.push(desugar_if_calls(s));
+      },
+      .None => ()
+    );
+    pi = (pi + usize(1));
+  });
+  out
+});
 export(ast_expr_is_atom_of, ast_expr_is_atom_of_any);
 export(ast_expr_is_fn_call_of, ast_expr_is_fn_call_of_any);
+export(desugar_if_calls, desugar_program_if_calls);
 export(exprs_are_equal);
 export(expect_expr_to_be_fn_call_of, expect_expr_to_be_fn_call_of_any);
 export(is_function_boundary_arrow);

@@ -138,7 +138,7 @@ The first full-CI run over the P1 work failed 7 jobs; all triaged:
    `sm->var_N = ;`). Six-part fix across both compilers, kept 1:1 — see
    [the bare-if issue](../issues/fixed/ts-bare-if-await-early-return-silently-skipped.md)
    and the updated
-   [await-position matrix](../issues/await-in-branch-positions-matrix.md).
+   [await-position matrix](../issues/fixed/await-in-branch-positions-matrix.md).
    Wave 3 (the byte-diff layer the clang errors had masked): the C
    `i64.MIN` literal — `-9223372036854775808LL` is ULL-typed in C, so
    yo-self's inlined overflow-check comparisons went unsigned and every

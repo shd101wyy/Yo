@@ -1,0 +1,26 @@
+// The AllowMacroDef gate (plans/MACRO_POLICY.md Part 2): DEFINING a macro
+// — a `quote(...)` parameter or an `unquote(...)` return type — without
+// `pragma(Pragma.AllowMacroDef);` is a compile error. This file
+// deliberately does NOT declare the pragma. Working with quoted `Expr`
+// VALUES stays ungated (the comptime AST layer derive is built on).
+{ assert } :: import("std/assert");
+
+test("defining a macro without AllowMacroDef is a compile error", {
+  comptime_expect_error({
+    bad_macro :: (fn(quote(e) : Expr) -> unquote(Expr))(quote(unquote(e)));
+    ()
+  });
+});
+
+test("an unquote(...) return type alone is also gated", {
+  comptime_expect_error({
+    bad_unquote_only :: (fn() -> unquote(Expr))(quote(1));
+    ()
+  });
+});
+
+test("quote/Expr values stay ungated without the pragma", {
+  q :: quote(1 + 2);
+  assert(q.is_fn_call(), "quote works without the pragma");
+  assert(q.get_callee() == quote(+), "AST reflection works without the pragma");
+});

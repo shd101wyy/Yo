@@ -41,6 +41,7 @@ open(import("std/string"));
 pragma_kind_from_variant_name :: (fn(name : String) -> Option(Pragma))(
   cond(
     (name == "AllowUnsafe") => Option(Pragma).Some(.AllowUnsafe),
+    (name == "AllowMacroDef") => Option(Pragma).Some(.AllowMacroDef),
     (name == "SkipPrelude") => Option(Pragma).Some(.SkipPrelude),
     (name == "SkipWasm") => Option(Pragma).Some(.SkipWasm),
     (name == "SkipWasm32Emscripten") => Option(Pragma).Some(.SkipWasm32Emscripten),
@@ -195,9 +196,21 @@ evaluate_pragma :: (
   arg := match(args.get(usize(0)), .Some(a) => a, .None => expr);
   // Fast path: the pre-scan already recognized and registered
   // `pragma(Pragma.SkipPrelude);` by AST shape — skip evaluation entirely.
+  // `AllowMacroDef` is ALSO handled by AST shape (registered here): it must
+  // work inside `SkipPrelude` files (the internal evaluator tests define
+  // macros in prelude-less snippets), where evaluating the argument cannot
+  // resolve `Pragma`.
   skip_fast := match(
     recognize_pragma_arg(arg),
-    .Some(k) => match(k, .SkipPrelude => true, _ => false),
+    .Some(k) => match(
+      k,
+      .SkipPrelude => true,
+      .AllowMacroDef => {
+        register_file_pragma(ast_expr_token(expr).module_path.clone(), Pragma.AllowMacroDef);
+        true
+      },
+      _ => false
+    ),
     .None => false
   );
   if(skip_fast, {

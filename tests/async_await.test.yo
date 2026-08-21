@@ -13,7 +13,7 @@ open(import("std/fmt"));
 /// Taken as a top-level helper rather than an inline `io.async` closure — a
 /// closure capturing a mutable local, re-created every iteration, hits a
 /// separate capture/dup divergence in the self-hosted compiler
-/// (issues/await-in-branch-positions-matrix.md).
+/// (issues/fixed/await-in-branch-positions-matrix.md).
 future_lt :: (fn(v : i32, limit : i32, io : Io) -> Impl(Future(bool, Io)))({
   a := Box(i32)(v);
   b := Box(i32)(limit);
@@ -4355,7 +4355,7 @@ test("cond single branch binds from a named future", {
 });
 // Top-level like the other helpers: a LOCAL fn value creating the future hits
 // the separate, pre-existing capture divergence documented at the top of this
-// file (issues/await-in-branch-positions-matrix.md) — unrelated to the shared
+// file (issues/fixed/await-in-branch-positions-matrix.md) — unrelated to the shared
 // await point.
 shape_started :: (fn(marker : Box(i32), io : Io) -> Impl(Future(unit, Io)))(
   io.async((io : Io) => {

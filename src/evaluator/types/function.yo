@@ -56,7 +56,7 @@ open(import("std/fmt"));
   get_all_some_types
 }
 :: import("../../types/utils.yo");
-{ is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
+{ is_implicitly_unsafe_capable_file, is_macro_def_capable_file } :: import("../memory_safety.yo");
 { subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
 {
   get_value_of_some_type_from_env,
@@ -4284,6 +4284,24 @@ evaluate_function_type :: (
       params_result.variadic_param.label.clone(),
       params_result.variadic_param.ty
     );
+  });
+  // Gate macro DEFINITIONS behind `pragma(Pragma.AllowMacroDef);`
+  // (plans/MACRO_POLICY.md Part 2). CALLING macros is ungated; std is
+  // exempt this generation (see is_macro_def_capable_file) and
+  // `auto-generated://` expansions inherit their caller's policy.
+  if((quoted_param_indices.len() > usize(0)) || is_return_unquote, {
+    if(!(is_macro_def_capable_file(Option(String).Some(ast_expr_token(expr).module_path.clone()), ctx.std_path.clone())), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(expr),
+            String.from("Defining a macro (a 'quote(...)' parameter or an 'unquote(...)' return type) requires 'pragma(Pragma.AllowMacroDef);' at the top of the file. See plans/MACRO_POLICY.md."),
+            false,
+            .None
+          )
+        )
+      );
+    });
   });
   // Register macro-ness (quoted param indices + unquote return), keyed by
   // this `fn(...)` type-expression id and re-keyed under the FuncVal id by

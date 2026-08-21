@@ -306,12 +306,13 @@ comptime_assert((describe(Point) == "struct type"), "Point description");
 `TypeInfo` 专为 `derive_rule` 设计，实现强大的编译时代码生成：
 
 ```rust
-// 在 derive 规则中使用 TypeInfo 检查类型种类
-derive_rule(MyTrait, (fn(comptime(T) : Type, quote(target) : Expr) -> unquote(Expr)) {
+// 在 derive 规则中使用 TypeInfo 检查类型种类（派生规则是返回
+// comptime(Expr) 的普通 comptime 函数 —— 不是宏）
+derive_rule(MyTrait, (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr))({
   info :: Type.get_info(T);
   comptime_assert(info.is_struct(), "MyTrait can only be derived for structs");
-  // ... 使用 info 生成 impl
-});
+  // ... 使用 info 生成 impl 的 Expr，然后 ctx.make_impl(...)
+}));
 ```
 
 完整的 derive 系统文档，请参阅 [DERIVE_TRAITS.md](./DERIVE_TRAITS.md)。

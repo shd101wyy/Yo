@@ -32,7 +32,7 @@ test("macro expansion: identity macro expands correctly", {
         }
       )
     );
-    src := String.from("pragma(Pragma.SkipPrelude);\nid_macro :: (fn(quote(e) : Expr) -> unquote(Expr))(quote(unquote(e)));\ny :: id_macro(42);\nexport(y);\n");
+    src := String.from("pragma(Pragma.SkipPrelude);\npragma(Pragma.AllowMacroDef);\nid_macro :: (fn(quote(e) : Expr) -> unquote(Expr))(quote(unquote(e)));\ny :: id_macro(42);\nexport(y);\n");
     eval := Evaluator.new(
       String.from("<phase6c1>"),
       String.from("<no-std>"),
@@ -115,7 +115,7 @@ test("macro expansion: two-arg macro builds sum AST", {
     // it — `+` needs the prelude, and TS rejects evaluating the old
     // `unquote(Expr)` expansion under SkipPrelude (the real module evaluator
     // matches TS; the legacy walker never truly evaluated it).
-    src := String.from("pragma(Pragma.SkipPrelude);\nadd_macro :: (fn(quote(a) : Expr, quote(b) : Expr) -> comptime(Expr))(quote((unquote(a) + unquote(b))));\nz :: __yo_expr_eq(add_macro(3, 4), quote((3 + 4)));\nexport(z);\n");
+    src := String.from("pragma(Pragma.SkipPrelude);\npragma(Pragma.AllowMacroDef);\nadd_macro :: (fn(quote(a) : Expr, quote(b) : Expr) -> comptime(Expr))(quote((unquote(a) + unquote(b))));\nz :: __yo_expr_eq(add_macro(3, 4), quote((3 + 4)));\nexport(z);\n");
     eval := Evaluator.new(
       String.from("<phase6c2>"),
       String.from("<no-std>"),

@@ -306,12 +306,13 @@ comptime_assert((describe(Point) == "struct type"), "Point description");
 `TypeInfo` is designed to work with `derive_rule` for powerful compile-time code generation:
 
 ```rust
-// Using TypeInfo to check type kind in a derive rule
-derive_rule(MyTrait, (fn(comptime(T) : Type, quote(target) : Expr) -> unquote(Expr)) {
+// Using TypeInfo to check type kind in a derive rule (a derive rule is a
+// plain comptime function returning comptime(Expr) — not a macro)
+derive_rule(MyTrait, (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr))({
   info :: Type.get_info(T);
   comptime_assert(info.is_struct(), "MyTrait can only be derived for structs");
-  // ... generate impl using info
-});
+  // ... generate the impl Expr using info, then ctx.make_impl(...)
+}));
 ```
 
 For the full derive system documentation, see [DERIVE_TRAITS.md](./DERIVE_TRAITS.md).
