@@ -6,7 +6,7 @@ the original plan.
 
 ## Problem
 
-`issues/duplicate-inherent-method-impls-not-rejected.md` (reproducers
+`issues/fixed/duplicate-inherent-method-impls-not-rejected.md` (reproducers
 there): registering the same inherent method name on one type via two
 separate `impl(...)` calls is silently accepted —
 
