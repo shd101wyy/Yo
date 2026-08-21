@@ -1,13 +1,16 @@
 #!/bin/sh -e
 
 #-----------------------------------------------------------------------------
-# Installation script for Yo on Linux and macOS; use -h to see options.
+# Installation script for Yo on Linux, macOS and HarmonyOS; use -h to see options.
 #
 #   curl -fsSL https://raw.githubusercontent.com/shd101wyy/Yo/develop/scripts/install.sh | sh
 #
-# Installs a prebuilt release bundle. Yo is self-hosted: the bundle carries the
-# native compiler plus the standard library and the vendored mimalloc sources,
-# so there is no toolchain to build and nothing to compile at install time.
+# Installs a prebuilt release bundle, or on platforms with no bundle (NixOS,
+# Alpine-of-old, HarmonyOS) builds the published single-file yo.c with the
+# local C compiler. Yo is self-hosted: the bundle carries the native compiler
+# plus the standard library and the vendored mimalloc sources, so there is no
+# toolchain to build and nothing to compile at install time — except on the
+# source path, which compiles exactly that one file.
 #-----------------------------------------------------------------------------
 
 VERSION=""              # empty => resolve the latest release tag
@@ -98,11 +101,20 @@ detect_osarch() {
   case "$(uname)" in
     [Ll]inux)  OSNAME="linux";;
     [Dd]arwin) OSNAME="macos";;
-    *) stop "Unsupported OS: $(uname). This installer supports Linux and macOS.
+    [Hh]armony[Oo][Ss]) OSNAME="harmonyos";;
+    *) stop "Unsupported OS: $(uname). This installer supports Linux, macOS and HarmonyOS.
   On Windows use scripts/install.ps1 instead.";;
   esac
 
-  OSARCH="$OSNAME-$arch"
+  if [ "$OSNAME" = "harmonyos" ]; then
+    # HarmonyOS compiles the published single-file yo.c: the release has no
+    # HarmonyOS bundles, but the per-target linux-<arch> artifact builds with
+    # the OHOS toolchain (a musl system on a Linux-derived kernel).
+    OSDISTRO="harmonyos"
+    OSARCH="linux-$arch"
+  else
+    OSARCH="$OSNAME-$arch"
+  fi
 
   if [ "$OSNAME" = "linux" ]; then
     distrocfg=""
@@ -147,6 +159,10 @@ is_immutable_distro() {
     nixos|steamos|ostree|microos) return 0;;
     *) return 1;;
   esac
+}
+
+is_harmonyos() {
+  [ "$OSDISTRO" = "harmonyos" ]
 }
 
 immutable_distro_advice() {
@@ -355,7 +371,7 @@ compute_missing_deps() {
   MISSING_CC=""; MISSING_GIT=""; MISSING_PKGCONFIG=""; MISSING_LIBURING=""
   if ! has_cmd clang && ! has_cmd gcc && ! has_cmd cc; then MISSING_CC="yes"; fi
   if ! has_cmd git; then MISSING_GIT="yes"; fi
-  if [ "$OSNAME" = "linux" ]; then
+  if [ "$OSNAME" = "linux" ] || is_harmonyos; then
     if ! has_cmd pkg-config && ! has_cmd pkgconf; then MISSING_PKGCONFIG="yes"; fi
     # "Installed" for liburing means pkg-config can SEE it, since that is
     # exactly the test the compiler makes before adding -luring.
@@ -401,6 +417,59 @@ install_dependencies() {
       warn "Missing developer tools. Install Apple's Command Line Tools:"
       warn "    xcode-select --install"
       warn "That provides both clang and git. Then re-run this installer."
+    fi
+    return 0
+  fi
+
+  if is_harmonyos; then
+    # HarmonyOS has no apt/dnf/pacman; package management is harmonybrew —
+    # a Homebrew reimplementation whose 'brew' works like macOS's, provided
+    # by https://harmonybrew.atomgit.com/. It likewise CANNOT be installed
+    # from inside this script (it needs its own installer), so ask first.
+    if ! has_cmd brew; then
+      warn ""
+      warn "HarmonyOS detected, but 'brew' is not on PATH."
+      warn "Install harmonybrew first — a Homebrew reimplementation for"
+      warn "HarmonyOS that provides the 'brew' command like macOS:"
+      warn "    https://harmonybrew.atomgit.com/"
+      warn "Then re-run this installer."
+      warn ""
+      return 1
+    fi
+
+    # brew installs into <prefix>/bin; make that visible for the rest of the
+    # script even when the user has not added it to their shell profile.
+    brew_bin="$(brew --prefix 2>/dev/null)/bin"
+    if [ -d "$brew_bin" ] && ! on_path "$brew_bin"; then
+      PATH="$brew_bin:$PATH"
+      info "Added $brew_bin to PATH for this run."
+    fi
+
+    # Install only the absent formulas; brew list --formula is the check.
+    brew_install_if_missing() {  # <formula...>
+      missing=""
+      for f in "$@"; do
+        if ! brew list --formula "$f" >/dev/null 2>&1; then
+          missing="$missing $f"
+        fi
+      done
+      if [ -n "$missing" ]; then
+        info "Installing:$missing"
+        # shellcheck disable=SC2086
+        brew install $missing || return 1
+      fi
+      return 0
+    }
+
+    brew_install_if_missing ohos-sdk || true   # the OHOS clang/llvm toolchain
+    if [ -n "$MISSING_GIT" ]; then brew_install_if_missing git || true; fi
+    if ! has_cmd curl; then brew_install_if_missing curl || true; fi
+    # pkgconf pairs with liburing EXACTLY as on Linux: the compiler adds
+    # -luring only when `pkg-config --exists liburing` succeeds, so a box
+    # with the header but no pkg-config emits io_uring calls that cannot
+    # link (the header-without-pkg-config trap).
+    if [ -n "$MISSING_PKGCONFIG$MISSING_LIBURING" ]; then
+      brew_install_if_missing pkgconf liburing || true
     fi
     return 0
   fi
@@ -458,6 +527,8 @@ check_git() {
   warn "dependencies with 'git ls-remote' and 'git clone' and will fail."
   if [ "$OSNAME" = "macos" ]; then
     warn "    xcode-select --install"
+  elif is_harmonyos; then
+    warn "    brew install git"
   else
     warn "    e.g. 'apt-get install git' or 'dnf install git'"
   fi
@@ -474,6 +545,8 @@ check_c_compiler() {
   warn "Yo compiles to C, so 'yo compile' will fail until you install one."
   if [ "$OSNAME" = "macos" ]; then
     warn "    xcode-select --install"
+  elif is_harmonyos; then
+    warn "    brew install ohos-sdk   # provides clang and llvm"
   else
     warn "    e.g. 'apt-get install clang' or 'dnf install clang'"
   fi
@@ -753,21 +826,37 @@ install_from_source() {
   # pkg-config is the same oracle the compiler itself consults before adding
   # -luring, so this stays consistent with a bundle-built compiler.
   uring_libs=""
-  if [ "$OSNAME" = "linux" ] && has_cmd pkg-config && pkg-config --exists liburing 2>/dev/null; then
+  uring_cflags=""
+  if { [ "$OSNAME" = "linux" ] || is_harmonyos; } && has_cmd pkg-config && pkg-config --exists liburing 2>/dev/null; then
     uring_libs="$(pkg-config --libs liburing 2>/dev/null || echo -luring)"
+    # The brew prefix is not a default include path (unlike /usr/include on
+    # Linux), so the -I that locates liburing.h must come from pkg-config too.
+    # Without it __has_include(<liburing.h>) is false at the user's compile
+    # and the async runtime is silently stubbed out. Harmless elsewhere.
+    uring_cflags="$(pkg-config --cflags liburing 2>/dev/null || true)"
+    if is_harmonyos; then
+      # The OHOS loader does not search brew's lib dir, and LD_LIBRARY_PATH
+      # makes it ignore LD_PRELOAD (which clang's linker needs for its own
+      # bundled libxml2). Linking liburing STATICALLY keeps `yo` runnable
+      # without any of that: the async runtime comes out of liburing.a.
+      uring_libs="-Wl,-Bstatic $uring_libs -Wl,-Bdynamic"
+    fi
     info "  liburing: $uring_libs (async I/O compiled in)"
-  elif [ "$OSNAME" = "linux" ]; then
+  elif is_harmonyos || [ "$OSNAME" = "linux" ]; then
     warn "liburing is not visible to pkg-config, so async I/O will be compiled OUT"
     warn "and the resulting compiler cannot read source files. Install it first"
-    warn "(e.g. 'apt-get install pkg-config liburing-dev') and re-run."
+    warn "(e.g. 'apt-get install pkg-config liburing-dev', or on HarmonyOS"
+    warn "'brew install pkgconf liburing') and re-run."
   fi
 
   info "Compiling yo.c (this takes a minute).."
-  # shellcheck disable=SC2086  # CFLAGS_OVERRIDE and uring_libs are intentionally word-split
+  # shellcheck disable=SC2086  # CFLAGS_OVERRIDE, uring_cflags and uring_libs are intentionally word-split
   "$CC_BIN" -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
-    "$YO_TEMP_DIR/yo.c" -o "$YO_TEMP_DIR/yo" $CFLAGS_OVERRIDE -lpthread -lm $uring_libs \
+    "$YO_TEMP_DIR/yo.c" -o "$YO_TEMP_DIR/yo" $CFLAGS_OVERRIDE $uring_cflags -lpthread -lm $uring_libs \
     || stop "Failed to compile yo.c with $CC_BIN.
-  On Linux, install the liburing development headers first (see --help)."
+  On Linux, install the liburing development headers first (see --help).$(if is_harmonyos; then echo "
+  On HarmonyOS the OHOS clang (ohos-sdk) is strict C11: releases before the
+  label/statx compatibility fixes cannot build here — try a newer release."; fi)"
 
   info "Installing.."
   stage="$YO_TEMP_DIR/stage"
@@ -946,12 +1035,18 @@ main_help() {
   echo "  install.sh --from-source                    # compile yo.c locally"
   echo "  install.sh -cc=gcc -cflags='-march=native'  # source build, chosen toolchain"
   echo ""
-  echo "The source build works where no bundle can run - notably Alpine/musl and"
-  echo "NixOS, whose loaders the prebuilt glibc binary cannot use."
+  echo "The source build works where no bundle can run - notably Alpine/musl,"
+  echo "NixOS, whose loaders the prebuilt glibc binary cannot use, and"
+  echo "HarmonyOS, which has no bundles (dependencies come from harmonybrew)."
 }
 
 main_install() {
   detect_osarch
+  if is_harmonyos; then
+    # No HarmonyOS bundles are published; the linux-<arch> single-file yo.c
+    # compiles with the OHOS clang, so the source path is the only path.
+    FROM_SOURCE="yes"
+  fi
   resolve_version
   install_dependencies
   # check_dynamic_loader detects the two distros where the published Linux

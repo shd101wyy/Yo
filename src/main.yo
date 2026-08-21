@@ -913,6 +913,40 @@ _probe_liburing :: (fn(io : Io, out : ArrayList(bool)) -> unit)({
   st := io.await(probe.status(io), IoExn(io : io, exn : probe_exn));
   out.push(st.raw == i32(0));
 });
+/// The full link flags for liburing: `pkg-config --cflags --libs liburing`,
+/// word-split. `--cflags` is included because the emitted C gates its io_uring
+/// runtime on `#if __has_include(<liburing.h>)` — on brew-style prefixes the
+/// header is NOT on the compiler's default include path, so without the -I the
+/// runtime silently compiles to stubs. Same swallowing-probe shape as
+/// `_probe_liburing`; a missing or failing pkg-config leaves `out` empty and
+/// the caller falls back to the bare `-luring` flag.
+_probe_liburing_flags :: (fn(io : Io, out : ArrayList(String)) -> unit)({
+  probe_exn := Exception(
+    throw : (
+      (_e) -> {
+        unwind(());
+      }
+    )
+  );
+  probe := Command.new(String.from("pkg-config"));
+  probe.arg(String.from("--cflags"));
+  probe.arg(String.from("--libs"));
+  probe.arg(String.from("liburing"));
+  res := io.await(probe.output(io), IoExn(io : io, exn : probe_exn));
+  if(res.status.raw == i32(0), {
+    txt := String.from_bytes(res.stdout);
+    parts := txt.split(" ");
+    (pi : usize) = usize(0);
+    while(pi < parts.len(), {
+      match(parts.get(pi), .Some(p) => {
+        if(p.len() > usize(0), {
+          out.push(p.clone());
+        });
+      }, .None => ());
+      pi = (pi + usize(1));
+    });
+  });
+});
 /// AddressSanitizer functionality probe — faithful port of TS
 /// `asanRuntimeIsUsable` (src/compiler-utils.ts): compile a trivial C program
 /// with `-fsanitize=address` via the SYSTEM `cc` (matching TS, which probes
@@ -1683,13 +1717,30 @@ run_compile :: (
     cmd.arg(String.from("-lm"));
     cmd.arg(String.from("-pthread"));
   });
-  // liburing for async I/O (io_uring) on Linux — see `_probe_liburing`. Without
-  // it every emitted `io_uring_*` reference is an undefined symbol at link time.
+  // liburing for async I/O (io_uring) on Linux — see `_probe_liburing` and
+  // `_probe_liburing_flags`. Without it every emitted `io_uring_*` reference
+  // is an undefined symbol at link time.
   if(is_target_linux(target), {
     ur := ArrayList(bool).new();
     _probe_liburing(io, ur);
     if(match(ur.get(usize(0)), .Some(b) => b, .None => false), {
-      cmd.arg(String.from("-luring"));
+      // Full `pkg-config --cflags --libs liburing` output: on ordinary Linux
+      // distros the header and library live in default paths and this is just
+      // `-luring` (the historical behavior); on brew-style prefixes (the
+      // harmonybrew toolchain on HarmonyOS, Homebrew-on-Linux) the `-I` and
+      // `-L` are load-bearing — without the `-I`, `__has_include(<liburing.h>)`
+      // is false in the emitted C and the async runtime silently compiles to
+      // stubs, and without the `-L` the link cannot find the library at all.
+      flags := ArrayList(String).new();
+      _probe_liburing_flags(io, flags);
+      if(flags.len() == usize(0), {
+        flags.push(String.from("-luring"));
+      });
+      (fi : usize) = usize(0);
+      while(fi < flags.len(), {
+        match(flags.get(fi), .Some(f) => cmd.arg(f.clone()), .None => ());
+        fi = (fi + usize(1));
+      });
     });
   });
   (xi : usize) = usize(0);

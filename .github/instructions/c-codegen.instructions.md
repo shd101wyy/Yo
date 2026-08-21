@@ -6,6 +6,21 @@ description: "Use when working on C code generation, the codegen transpiler, emi
 # C Codegen Conventions
 
 - Stick with **C11 standard**. Do not use GNU extensions — we target multiple C compilers.
+- **A label must be followed by a statement, never a declaration** (C11 6.8.1;
+  declarations only became valid after labels in C23/N2508). GCC tolerates the
+  violation as an extension and modern clangs too, which is exactly why it
+  shipped: the portable-C gate uses `gcc -std=c11 -fsyntax-only` (release.yml),
+  and no CI leg compiles the emitted C with a strict front end. The OHOS SDK
+  clang 15 rejects it (`error: expected expression`), breaking every emitted
+  while-loop state machine there. Rule: any emitted label line ends with
+  `: ;` (a null statement) — the `loop_yo_id_N:;` idiom. If the codebase ever
+  gains a new label emitter, apply it there too. Record:
+  `issues/async-while-labels-strict-c11.md`.
+- **HarmonyOS (OHOS) specifics**: the OHOS clang defines `__OHOS__`; its musl
+  sysroot does not expose `struct statx` through `<sys/stat.h>` (it lives in
+  `<linux/stat.h>` — include it under `#if defined(__OHOS__)` when emitting
+  statx accessors), and the SDK clang is 15.x with no label-before-declaration
+  leniency. Everything `yo compile` emits must stay strict-C11-valid for it.
 - No `setjmp`/`longjmp` for state machine generation (async/await).
 - Do not call `emitter.emitLine` multiple times when you can use `emitter.emitLine(multi-line string)`.
 

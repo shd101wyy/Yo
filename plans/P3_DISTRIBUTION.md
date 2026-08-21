@@ -7,6 +7,12 @@ traps recorded as found. Drafted 2026-08-11; **item 1 landed 2026-08-12**.
 
 ## Status 2026-08-21 — every item PROVEN by shipped releases; only the gate run remains
 
+**Open 2026-08-22 — HarmonyOS (new item 5, see below).** The codegen fixes it
+needs are in `develop`; they reach users on the next release (`yo.c` plus
+everything `yo compile` emits). No CI leg can exercise HarmonyOS (no GitHub
+hosted HongMeng runner); the route was developed and verified ON a real
+HarmonyOS box.
+
 **v0.2.14 (2026-08-21) is the first release through the fully reworked
 machinery, and every leg was green on the first dispatch:**
 
@@ -590,6 +596,44 @@ Watch that job, and promote it off `continue-on-error` once it is green.
   **Sequencing:** the CI leg stays red until a release ships this and
   `SEED_VERSION` bumps, because the crash is in the released SEED, built by the
   old codegen. That is release ordering, not an outstanding defect.
+
+## Item 5 — HarmonyOS: source-build route via harmonybrew
+
+**Open 2026-08-22.** HarmonyOS PC has no bundles and no apt/dnf/pacman.
+`install.sh` now detects it (`uname -s` = `HarmonyOS`), requires harmonybrew,
+installs `git curl pkgconf liburing ohos-sdk` through it, and builds the
+published `yo-v<tag>-linux-<arch>.c.gz` with the OHOS clang (liburing
+compiled in via `pkg-config --cflags` — the brew prefix is not a default
+include path). Verified end-to-end on a real HarmonyOS box (HongMeng Kernel
+1.13.0, ohos-sdk clang 15.0.4, harmonybrew): the compiled `yo` runs and
+compiles+links+executes user programs.
+
+Two codegen fixes were required for the OHOS toolchain — both are strict-C11
+compliance, so they are user-visible for every `yo compile` there, not just
+the build:
+
+1. **Labels before declarations.** The async state machine emitted
+   `while_loop_N_start:/_end:` and `after_while_loop_N:` bare; C11 requires a
+   statement after a label (C23 relaxed it). GCC and modern clangs tolerate
+   it as an extension — the portable-C gate (`gcc -std=c11 -fsyntax-only`,
+   release.yml) is exactly why it shipped — but the OHOS clang 15 hard-rejects
+   it. Emitters now append a null statement (`: ;`).
+   Record: `issues/async-while-labels-strict-c11.md`.
+2. **`struct statx`.** The OHOS musl sysroot does not define it in
+   `<sys/stat.h>`; the Linux runtime template now includes `<linux/stat.h>`
+   under `#if defined(__OHOS__)`.
+
+Runtime constraint worth recording: the compiler reads every source file
+through io_uring, and the async runtime `exit(1)`s if `io_uring_queue_init`
+fails — a HarmonyOS kernel without io_uring cannot run Yo at all (blocking-I/O
+fallback would be a separate project).
+
+Also fixed on the way: `install.sh --from-source` now passes
+`pkg-config --cflags liburing` (not just `--libs`) to the C compiler — the
+include path is required for brew-style prefixes and harmless elsewhere.
+
+**Untestable in CI** — no hosted runner exists; the HarmonyOS branches of
+`install.sh` are exercised only by hand on the real platform.
 
 ## Gate
 
