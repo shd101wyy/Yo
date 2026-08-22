@@ -72,6 +72,7 @@ _(env : proc_env) :: import("std/env");
 { register_evaluate_expression, set_evaluator_deadline } :: import("./evaluator/exprs/_expr.yo");
 { evaluate_anonymous_module_begin_exprs } :: import("./evaluator/values/anonymous_module.yo");
 { clear_module_cache } :: import("./evaluator/module_loader.yo");
+{ run_check_watch, run_watch_once, watch_snapshot, wait_for_change } :: import("./check_watch.yo");
 { format_yo_source, format_yo_files, FormatYoFilesOptions } :: import("./formatter.yo");
 { host_target, set_current_target, parse_target, TargetInfo, clang_triple, is_target_linux, is_target_windows, is_target_macos, is_target_wasm, is_target_standalone_wasi } :: import("./target.yo");
 { set_target_pointer_size } :: import("./types/utils.yo");
@@ -615,6 +616,23 @@ check_single_file :: (
 )(
   mm_load_file(input_path, std_path, true, io, exn).ok
 );
+/// The argv entry following index `i` (the value of a `--flag value` pair), or
+/// "" if `i` is the last argument. Used by the `compile` flag parser.
+_arg_val :: (fn(argv : ArrayList(String), i : usize) -> String)(
+  if((i + usize(1)) < argv.len(), argv(i + usize(1)), String.from(""))
+);
+/// Like `_arg_val`, but a MISSING trailing value is an error instead of `""`
+/// (mirrors yargs `requiresArg` behavior — `yo compile -o` with nothing after
+/// silently produced an empty output name and a `.c` sidecar named `.c`).
+_arg_val_req :: (
+  fn(argv : ArrayList(String), i : usize, flag : String, exn : Exception) -> String
+)({
+  if((i + usize(1)) < argv.len(), {
+    return(argv(i + usize(1)));
+  });
+  exn.throw(dyn(`compile: option '${flag}' requires a value`));
+  String.from("")
+});
 /// Run the `check` subcommand — evaluator-only.
 ///
 /// Accepts either a single `.yo` file or a directory. For a directory
@@ -639,6 +657,9 @@ run_check :: (
   // options are errors — TS's yargs is .strict() (yo-cli.ts:1348).
   (target_path : String) = String.new();
   excludes := ArrayList(String).new();
+  (watch : bool) = false;
+  (watch_once : bool) = false;
+  (poll_ms : u64) = u64(200);
   (ai : usize) = usize(2);
   while(ai < argv.len(), {
     a := argv(ai);
@@ -652,8 +673,21 @@ run_check :: (
           ai = (ai + usize(1));
         });
       },
+      (a == "--watch") => {
+        watch = true;
+        ai = (ai + usize(1));
+      },
+      (a == "--watch-once") => {
+        watch_once = true;
+        ai = (ai + usize(1));
+      },
+      (a == "--poll-ms") => {
+        pv := _arg_val_req(argv, ai, String.from("--poll-ms"), exn);
+        poll_ms = match(pv.parse_u64(), .Some(n) => n, .None => u64(200));
+        ai = (ai + usize(2));
+      },
       a.starts_with(String.from("-")) => {
-        exn.throw(dyn(`check: unknown option '${a}'. Usage: yo check <input.yo | dir> [--exclude PATH]`));
+        exn.throw(dyn(`check: unknown option '${a}'. Usage: yo check <input.yo | dir> [--exclude PATH] [--watch | --watch-once] [--poll-ms N]`));
       },
       true => {
         target_path = a.clone();
@@ -697,26 +731,17 @@ run_check :: (
     passed := (total - failed);
     println(`check: ${passed.to_string()}/${total.to_string()} file(s) passed`);
   });
+  // Watch modes survive a failing initial pass — that is their whole point.
+  // (Phase C, plans/INCREMENTAL_COMPILATION.md; src/check_watch.yo.)
+  if(watch_once, {
+    run_watch_once(files, std_path.clone(), io, exn);
+  });
+  if(watch, {
+    run_check_watch(files, std_path.clone(), poll_ms, io, exn);
+  });
   if(failed > usize(0), {
     exn.throw(dyn(`check: ${failed.to_string()} file(s) failed evaluator coverage`));
   });
-});
-/// The argv entry following index `i` (the value of a `--flag value` pair), or
-/// "" if `i` is the last argument. Used by the `compile` flag parser.
-_arg_val :: (fn(argv : ArrayList(String), i : usize) -> String)(
-  if((i + usize(1)) < argv.len(), argv(i + usize(1)), String.from(""))
-);
-/// Like `_arg_val`, but a MISSING trailing value is an error instead of `""`
-/// (mirrors yargs `requiresArg` behavior — `yo compile -o` with nothing after
-/// silently produced an empty output name and a `.c` sidecar named `.c`).
-_arg_val_req :: (
-  fn(argv : ArrayList(String), i : usize, flag : String, exn : Exception) -> String
-)({
-  if((i + usize(1)) < argv.len(), {
-    return(argv(i + usize(1)));
-  });
-  exn.throw(dyn(`compile: option '${flag}' requires a value`));
-  String.from("")
 });
 /// How far the arg cursor advances for a value option: 1 when the value was
 /// attached (`--flag=value`), 2 for the space form.
@@ -2630,6 +2655,20 @@ run_install_cmd :: (
 /// Flag contract mirrors `src/yo-cli.ts:927-…`:
 ///   yo build [steps..] [--cc <c>] [-t|--target <triple>] [--sysroot <dir>]
 ///            [--build-file <path>] [--list-steps] [--dry-run] [--verbose|-v]
+/// One watch-mode build round: a full `run_build` whose failure is reported
+/// but never exits the loop (`unwind` returns `false` from THIS fn).
+_build_round_watch :: (fn(opts : BuildOptions, io : Io) -> bool)({
+  swallow := Exception(
+    throw : (
+      (err) -> {
+        eprintln(`build: FAILED — ${err.to_string()}`);
+        unwind(false)
+      }
+    )
+  );
+  io.await(run_build(opts, io, swallow), IoExn(io : io, exn : swallow));
+  true
+});
 ///            [--summary] [-D<name>=<value>]
 run_build_cmd :: (
   fn(
@@ -2648,6 +2687,8 @@ run_build_cmd :: (
   (dry_run : bool) = false;
   (verbose : bool) = false;
   (summary : bool) = false;
+  (watch : bool) = false;
+  (poll_ms : u64) = u64(200);
   (ai : usize) = usize(2);
   while(ai < argv.len(), {
     arg := argv(ai);
@@ -2695,6 +2736,14 @@ run_build_cmd :: (
       (arg == "--summary") => {
         summary = true;
       },
+      (arg == "--watch") => {
+        watch = true;
+      },
+      (arg == "--poll-ms") => {
+        pv := _arg_val_req(argv, ai, String.from("--poll-ms"), exn);
+        poll_ms = match(pv.parse_u64(), .Some(n) => n, .None => u64(200));
+        ai = (ai + usize(1));
+      },
       // `-Dname=value` sets a build option declared by `build.option(...)`.
       (arg.starts_with(String.from("-D")) && (arg.len() > usize(2))) => {
         body := arg.substring(usize(2), arg.len());
@@ -2717,25 +2766,40 @@ run_build_cmd :: (
     );
     ai = (ai + usize(1));
   });
-  io.await(
-    run_build(
-      BuildOptions(
-        steps : steps,
-        c_compiler : c_compiler,
-        target_triple : target_triple,
-        sysroot : sysroot,
-        build_file : build_file,
-        list_steps : list_steps,
-        dry_run : dry_run,
-        verbose : verbose,
-        summary : summary,
-        defines : defines
-      ),
-      io,
-      exn
-    ),
-    IoExn(io : io, exn : exn)
+  opts := BuildOptions(
+    steps : steps,
+    c_compiler : c_compiler,
+    target_triple : target_triple,
+    sysroot : sysroot,
+    build_file : build_file,
+    list_steps : list_steps,
+    dry_run : dry_run,
+    verbose : verbose,
+    summary : summary,
+    defines : defines
   );
+  if(!(watch), {
+    io.await(run_build(opts, io, exn), IoExn(io : io, exn : exn));
+    return(());
+  });
+  // `yo build --watch` (Phase C, plans/INCREMENTAL_COMPILATION.md): a thin
+  // loop — every round is a full `run_build`, and the Phase A inputs-sha256
+  // artifact cache makes unchanged artifacts a no-op. Evaluator state is NOT
+  // kept warm across rounds: artifacts compile in child processes anyway,
+  // and `run_compile`'s self-containment invariant (fresh ExprInfoTable per
+  // compile) is exactly what a warm parent would violate. A failing round
+  // does not exit the loop.
+  _first := _build_round_watch(opts, io);
+  watch_files := collect_check_files(String.from("."), ArrayList(String).new(), io, exn);
+  stats := HashMap(String, String).new();
+  watch_snapshot(watch_files, stats, io);
+  println(`build: watching ${watch_files.len().to_string()} file(s), polling every ${poll_ms.to_string()}ms — Ctrl-C to exit`);
+  while(true, {
+    changed := wait_for_change(watch_files, stats, poll_ms, io);
+    println(`build: ${changed.len().to_string()} file(s) changed — rebuilding`);
+    _ok := _build_round_watch(opts, io);
+    ()
+  });
 });
 /// Parse `yo doc [path] [options]` argv and run the doc command. Flag
 /// surface mirrors the yargs definition in `src/yo-cli.ts` ("doc [path]"):
