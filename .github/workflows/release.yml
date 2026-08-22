@@ -374,14 +374,11 @@ jobs:
       - name: Install the seed compiler (for the site build)
         uses: ./.github/actions/install-seed
         with:
-          # PINNED to v0.2.14, NOT env.SEED_VERSION — the same pin (and the
-          # same reason) as test.yml's docs-site job: the v0.2.15 seed's
-          # memory regression OOMs the hosted runner compiling
-          # scripts/build_site.yo. v0.2.16's first attempt died exactly here:
-          # 44 s of silence, then "runner has received a shutdown signal"
-          # (run 32567883597). Revert BOTH pins to env.SEED_VERSION at the
-          # next seed bump.
-          version: v0.2.14
+          # Back on env.SEED_VERSION as of the v0.2.16 seed. Pinned to
+          # v0.2.14 while v0.2.15 was the seed (its memory regression OOM'd
+          # the hosted runner compiling scripts/build_site.yo — v0.2.16's
+          # first attempt died exactly here, run 32567883597).
+          version: ${{ env.SEED_VERSION }}
 
       - name: Generate documentation website
         run: |
@@ -1220,7 +1217,7 @@ jobs:
   # fine-grained PAT with BOTH "Contents: read and write" AND "Workflows:
   # read and write" — this push modifies .github/workflows/*, which GitHub
   # refuses for any token without the workflow permission
-  # (issues/release-seed-bump-needs-workflow-scope-pat.md).
+  # (issues/fixed/release-seed-bump-needs-workflow-scope-pat.md).
   seed-bump:
     name: Bump SEED_VERSION on develop
     # `release` is in needs only for its `version` output; publish-release is

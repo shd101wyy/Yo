@@ -88,7 +88,7 @@ env:
   # v0.2.14 -> v0.2.15 (2026-08-22, MANUAL): the auto-bump's first live
   # firing was rejected by GH013 — RELEASE_PAT lacked the fine-grained
   # "Workflows: read and write" permission, which any push touching
-  # .github/workflows/ requires (issues/release-seed-bump-needs-workflow-scope-pat.md).
+  # .github/workflows/ requires (issues/fixed/release-seed-bump-needs-workflow-scope-pat.md).
   SEED_VERSION: v0.2.16
 
   # apt-get waits on /var/lib/dpkg/lock-frontend FOREVER by default, and the
@@ -288,17 +288,15 @@ jobs:
           sudo apt-get $APT_OPTS update
           sudo apt-get $APT_OPTS install -y liburing-dev
 
-      # PINNED to v0.2.14, NOT env.SEED_VERSION (revert at the next seed
-      # bump): v0.2.15's evaluator deep-clones the source into every AST
-      # node while compiling the markdown_yo closure this site build needs
-      # (issues/desugar-token-clones-evaluator-regression.md, fixed in #207
-      # but the fix only reaches a BINARY at the next release) — with the
-      # v0.2.15 seed this job sits at the 7 GB runner's OOM boundary and
-      # dies as "runner received a shutdown signal" on most runs.
+      # Back on env.SEED_VERSION as of the v0.2.16 seed. This was pinned to
+      # v0.2.14 while v0.2.15 was the seed: that seed's evaluator deep-cloned
+      # the source into every AST node (fixed in #207, but a fix only reaches
+      # a BINARY at the next release) and OOM'd the 7 GB runner on the
+      # markdown_yo closure this site build compiles.
       - name: Install the seed compiler (site builder)
         uses: ./.github/actions/install-seed
         with:
-          version: v0.2.14
+          version: ${{ env.SEED_VERSION }}
 
       # The same two commands release.yml runs, with the version read from the
       # same source of truth the release computes its bump from.
