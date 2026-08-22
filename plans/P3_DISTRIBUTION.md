@@ -599,6 +599,17 @@ Watch that job, and promote it off `continue-on-error` once it is green.
 
 ## Item 5 — HarmonyOS: source-build route via harmonybrew
 
+**CI-COMPLETE 2026-08-22 — the PR's full gate battery is green** (fmt,
+language suite incl. the async-labels regression test, bootstrap fixpoint
+`check ./src`, stage-3 byte-identity, static musl bundle, hollow sweep,
+internal-test shards, TSan, wasm legs, cross-emit legs, and the
+install-scripts matrix + harmonyos-simulation). Device finding: on real
+HarmonyOS 7 hardware (MateBook W24) the `io_uring_enter` block comes from
+the TERMINAL APP's sandbox context (`u:r:hishell_hap:s0`, Seccomp:2), not
+the kernel — `hdc shell` from a PC provides a system context with real
+io_uring, so true async is preserved there; a blocking-I/O fallback in the
+runtime remains the documented plan B for fully sandboxed contexts.
+
 **Open 2026-08-22.** HarmonyOS PC has no bundles and no apt/dnf/pacman.
 `install.sh` now detects it (`uname -s` = `HarmonyOS`), requires harmonybrew,
 installs `git curl pkgconf liburing ohos-sdk` through it, and builds the

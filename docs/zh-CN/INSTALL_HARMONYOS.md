@@ -73,12 +73,16 @@ C 做一次 clang 编译，请按几十分钟而不是几秒来预计。实测�
   实测于沙箱化的 HarmonyOS 镜像：`io_uring_setup` 成功，但 `io_uring_enter`
   （提交阶段）被 seccomp 拦截，首次文件读取就被 SIGSYS（rc=159）杀死 ——
   与仓库 CI 曾遇到的 Docker seccomp 拦截 io_uring 是同一模式（当时用
-  `--security-opt seccomp=unconfined` 解决）。在该镜像上这种拦截是**系统级**
-  的（所有进程和 shell 都受影响，不只是某个工具的沙箱），且安装 SIGSYS
-  处理器也无济于事：系统调用根本不会执行（submit 看似成功但没有完成事件，
-  即使带超时的等待也会挂起）。真实主机内核通常允许 io_uring；若某台
-  HarmonyOS PC 的策略禁止它，Yo 目前无法在那台机器上运行（阻塞式 I/O
-  回退属于另一个项目）。
+  `--security-opt seccomp=unconfined` 解决）。在真实 HarmonyOS 7 硬件
+  （MateBook W24）上确认：拦截来自**终端应用的沙箱上下文**
+  （华为 hishell 应用的 `u:r:hishell_hap:s0`、`Seccomp: 2`）—— 内核本身
+  实现了 io_uring。安装 SIGSYS 处理器也无济于事（系统调用不会执行：
+  submit 看似成功但没有完成事件）。**在系统 shell 中运行 `yo` 可以保留
+  真正的异步 I/O**：从 PC 连接 `hdc`（USB-C，或在设备上 `hdc -s 8710`
+  后用 WiFi），在 MateBook 上确认配对对话框，然后 `hdc shell` —— 系统
+  上下文没有 hap 应用的过滤。只有实在无法获得这种 shell 时，才应考虑
+  阻塞式 I/O 回退（它以真正的异步为代价换取可用的编译器：底层是同步
+  读取，没有重叠 I/O）。
 - **旧版本会自动打补丁。** OHOS clang 严格遵循 C11：它拒绝标签直接位于
   声明之前（label-before-declaration），且 OHOS sysroot 不在 `<sys/stat.h>`
   中提供 `struct statx`。在 codegen 修复之前发布的版本（v0.2.14/v0.2.15

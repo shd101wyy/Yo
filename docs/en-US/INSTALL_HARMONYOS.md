@@ -80,13 +80,17 @@ shortcut: each version install recompiles the whole file.
   Measured on a sandboxed HarmonyOS image: `io_uring_setup` succeeds but
   **`io_uring_enter` (submit) is seccomp-blocked**, killing the process with
   SIGSYS (rc=159) on the first file read — the same Docker-seccomp pattern the
-  repo hit in CI (`--security-opt seccomp=unconfined` fixed it there). On that
-  image the block is SYSTEM-WIDE (every process and shell, not just one tool's
-  sandbox), and a SIGSYS handler does not help: the syscall never executes
-  (submits report success but completions never arrive, and even bounded
-  waits hang). Real host kernels normally allow io_uring; if a HarmonyOS PC
-  policy blocks it, Yo currently cannot run there (a blocking-I/O fallback
-  would be a separate project).
+  repo hit in CI (`--security-opt seccomp=unconfined` fixed it there). On real
+  HarmonyOS 7 hardware (MateBook W24) the block was confirmed to come from the
+  **terminal app's sandbox context** (`u:r:hishell_hap:s0`, `Seccomp: 2` on
+  Huawei's hishell app) — the kernel itself implements io_uring. A SIGSYS
+  handler does not help (the syscall never executes; submits report success
+  but completions never arrive). **Running `yo` in a system shell preserves
+  real async I/O**: from a PC, connect `hdc` (USB-C, or WiFi after `hdc -s
+  8710` on the device), confirm the pairing dialog, then `hdc shell` — the
+  system context has no hap-app filter. Only where no such shell exists
+  should a blocking-I/O fallback be considered (it trades true async for a
+  working compiler: synchronous reads underneath, no overlapping I/O).
 - **Older releases are patched automatically.** The OHOS clang is strict
   C11: it rejects labels standing directly before a declaration, and the
   OHOS sysroot does not expose `struct statx` through `<sys/stat.h>`.
