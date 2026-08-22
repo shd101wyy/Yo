@@ -196,20 +196,71 @@ impl(
   DateTime,
   ToString(
     to_string : (fn(inout(self) : Self) -> String)({
-      buf := Array(u8, usize(32)).fill(u8(0));
+      // RFC3339 offset rendering: "Z" only for UTC; a non-zero
+      // `utc_offset_secs` renders as ±HH:MM. This used to hardcode "Z" for
+      // EVERY value, stringifying offset datetimes as if they were UTC
+      // (plans/STD_API_AUDIT.md C4).
+      buf := Array(u8, usize(48)).fill(u8(0));
       buf_ptr := &(buf(usize(0)));
-      unsafe(
-        snprintf(
-          *(char)(buf_ptr),
-          usize(32),
-          "%04d-%02u-%02uT%02u:%02u:%02uZ",
-          self.year,
-          self.month,
-          self.day,
-          self.hour,
-          self.minute,
-          self.second
-        )
+      cond(
+        (self.utc_offset_secs == i32(0)) => {
+          unsafe(
+            snprintf(
+              *(char)(buf_ptr),
+              usize(48),
+              "%04d-%02u-%02uT%02u:%02u:%02uZ",
+              self.year,
+              self.month,
+              self.day,
+              self.hour,
+              self.minute,
+              self.second
+            )
+          );
+        },
+        true => {
+          off := self.utc_offset_secs;
+          is_neg := (off < i32(0));
+          abs_off := cond(is_neg => (i32(0) - off), true => off);
+          off_h := (abs_off / i32(3600));
+          off_m := ((abs_off % i32(3600)) / i32(60));
+          cond(
+            is_neg => {
+              unsafe(
+                snprintf(
+                  *(char)(buf_ptr),
+                  usize(48),
+                  "%04d-%02u-%02uT%02u:%02u:%02u-%02d:%02d",
+                  self.year,
+                  self.month,
+                  self.day,
+                  self.hour,
+                  self.minute,
+                  self.second,
+                  off_h,
+                  off_m
+                )
+              );
+            },
+            true => {
+              unsafe(
+                snprintf(
+                  *(char)(buf_ptr),
+                  usize(48),
+                  "%04d-%02u-%02uT%02u:%02u:%02u+%02d:%02d",
+                  self.year,
+                  self.month,
+                  self.day,
+                  self.hour,
+                  self.minute,
+                  self.second,
+                  off_h,
+                  off_m
+                )
+              );
+            }
+          );
+        }
       );
       String.from_cstr(buf_ptr).unwrap()
     })

@@ -252,3 +252,68 @@ test("TCP read_bytes gets all data", {
   io.await(client.close(io), IoExn(io : io, exn : exn));
   io.await(listener.close(io), IoExn(io : io, exn : exn));
 });
+test("bind to a non-local IPv6 address must fail (was: sockaddr hardcoded ::1)", {
+  // plans/STD_API_AUDIT.md C2: _make_sockaddr used to map EVERY V6 address to
+  // ::1, so binding the documentation address 2001:db8::1 SUCCEEDED (it bound
+  // the loopback instead). Post-fix the real address reaches bind(2), which
+  // refuses a non-local address (EADDRNOTAVAIL) — and on a host with no IPv6
+  // stack it fails as well, so this holds either way.
+  segs := Array(u16, usize(8)).fill(u16(0));
+  segs(usize(0)) = u16(8193);
+  // 0x2001
+  segs(usize(1)) = u16(3512);
+  // 0x0db8
+  segs(usize(7)) = u16(1);
+  doc_addr := SocketAddr.new(IpAddr.V6(segs), u16(0));
+  exn := Exception(
+    throw : (
+      (err) -> {
+        msg := err.to_string();
+        unsafe(printf("  bind(2001:db8::1) correctly failed: %s\n", msg.to_cstr().ptr().unwrap()));
+        unwind(());
+      }
+    )
+  );
+  listener := io.await(TcpListener.bind(doc_addr, io), IoExn(io : io, exn : exn));
+  io.await(listener.close(io), IoExn(io : io, exn : exn));
+  assert(false, "bind to non-local 2001:db8::1 must fail — the sockaddr was hardcoded to ::1");
+});
+test("ephemeral bind reports the real port via local_addr", {
+  // plans/STD_API_AUDIT.md C2: local_addr echoed the BIND argument, so a
+  // port-0 bind reported port 0 instead of the kernel-assigned port.
+  exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  listener := io.await(TcpListener.bind(SocketAddr.loopback(u16(0)), io), IoExn(io : io, exn : exn));
+  la := listener.local_addr();
+  unsafe(printf("  local_addr = %s\n", la.to_string().to_cstr().ptr().unwrap()));
+  assert(la.port != u16(0), "port-0 bind must report the kernel-assigned port, not echo 0");
+  io.await(listener.close(io), IoExn(io : io, exn : exn));
+});
+test("accept reports the real peer address", {
+  // plans/STD_API_AUDIT.md C2: accept fabricated the peer as 0.0.0.0 (it read
+  // only the port out of the sockaddr the kernel filled in).
+  exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  addr := SocketAddr.loopback(u16(19910));
+  listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
+  client := io.await(TcpStream.connect(addr, io), IoExn(io : io, exn : exn));
+  server_stream := io.await(listener.accept(io), IoExn(io : io, exn : exn));
+  pa := server_stream.peer_addr();
+  unsafe(printf("  peer_addr = %s\n", pa.to_string().to_cstr().ptr().unwrap()));
+  assert(pa.ip.is_loopback(), "accepted peer must be 127.0.0.1, not a fabricated 0.0.0.0");
+  io.await(client.close(io), IoExn(io : io, exn : exn));
+  io.await(server_stream.close(io), IoExn(io : io, exn : exn));
+  io.await(listener.close(io), IoExn(io : io, exn : exn));
+});

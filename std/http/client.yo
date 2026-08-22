@@ -37,7 +37,10 @@ HttpError :: enum(
   Timeout,
   /// Too many HTTP redirects.
   TooManyRedirects,
-  /// The URL scheme is not supported (only http/https).
+  /// The URL scheme is not supported. Only `http` is supported — `https`
+  /// is REFUSED (not downgraded) until std has TLS: the client used to
+  /// accept it, connect to :443, and speak plaintext HTTP
+  /// (plans/STD_API_AUDIT.md C1).
   UnsupportedScheme(scheme : String),
   /// The response body exceeds the size limit.
   ResponseTooLarge,
@@ -254,9 +257,12 @@ fetch_with :: (
     // Validate scheme
     scheme := url.scheme();
     is_http := (scheme == `http`);
-    is_https := (scheme == `https`);
+    // `https` is deliberately NOT accepted: there is no TLS in std yet, and
+    // accepting the scheme meant silently speaking PLAINTEXT to port 443 —
+    // worse than refusing (plans/STD_API_AUDIT.md C1). Throw BEFORE any DNS
+    // or socket work.
     cond(
-      (is_http || is_https) => (),
+      is_http => (),
       true => {
         e.exn.throw(dyn(HttpError.UnsupportedScheme(scheme)));
       }
@@ -270,15 +276,8 @@ fetch_with :: (
         `_` // unreachable
       }
     );
-    // Determine port (default: 80 for http, 443 for https)
-    port := match(
-      url.port(),
-      .Some(p) => p,
-      .None => cond(
-        (scheme == `https`) => u16(443),
-        true => u16(80)
-      )
-    );
+    // Determine port (default: 80)
+    port := match(url.port(), .Some(p) => p, .None => u16(80));
     // Resolve hostname to IP
     addrs := e.io.await(lookup_host(host, e.io), e);
     cond(
@@ -359,7 +358,10 @@ fetch :: (
     Impl(Future(HttpResponse, IoExn))
 )(
   io.async((e) => {
-    return(e.io.await(fetch_with(url_str, FetchOptions.new(), e.io), e));
+    // Hoisted: `io.await` directly inside `return(...)` is rejected by the
+    // async state-machine codegen (a restriction `yo check` cannot see).
+    resp := e.io.await(fetch_with(url_str, FetchOptions.new(), e.io), e);
+    return(resp);
   })
 );
 export(fetch);

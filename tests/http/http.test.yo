@@ -1,6 +1,9 @@
 { assert } :: import("std/assert");
 { HttpMethod, HttpRequest, HttpResponse, parse_response } :: import("std/http/http");
 { HttpHeader, http_status_text } :: import("std/http/http");
+{ fetch } :: import("std/http/client");
+{ Exception, IoExn } :: import("std/error");
+{ println } :: import("std/fmt");
 open(import("std/string"));
 test("HttpRequest build GET request", {
   req := HttpRequest.new(HttpMethod.GET, `/index.html`);
@@ -90,4 +93,28 @@ test("HttpMethod enum values", {
   assert(m_del.to_string() == `DELETE`, "DELETE to_string");
   assert(m_head.to_string() == `HEAD`, "HEAD to_string");
   assert(m_patch.to_string() == `PATCH`, "PATCH to_string");
+});
+test("fetch refuses https until TLS exists (no silent cleartext downgrade)", {
+  // SECURITY GATE (plans/STD_API_AUDIT.md C1): the client used to ACCEPT
+  // `https`, default to port 443, and then speak PLAINTEXT HTTP to it. Until
+  // std has TLS, an https URL must throw UnsupportedScheme BEFORE any DNS or
+  // socket work. The target is 127.0.0.1:1 so the pre-fix failure mode is a
+  // deterministic, instant connection-refused (a DIFFERENT error) rather
+  // than real network traffic.
+  exn := Exception(
+    throw : (
+      (err) -> {
+        msg := err.to_string();
+        println(`  fetch(https) threw: ${msg}`);
+        assert(
+          msg.contains(`Unsupported scheme`),
+          `expected UnsupportedScheme (thrown before any connect), got: ${msg}`
+        );
+        unwind(());
+      }
+    )
+  );
+  resp := io.await(fetch(`https://127.0.0.1:1/`, io), IoExn(io : io, exn : exn));
+  println(`  unexpectedly got status ${resp.status_code}`);
+  assert(false, "fetch(https) must throw UnsupportedScheme until TLS exists");
 });

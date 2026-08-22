@@ -39,8 +39,14 @@ _make_sockaddr :: (fn(addr : SocketAddr) -> IO_tcp.SockAddr)(
       unsafe(snprintf(*(char)(&(buf(usize(0)))), usize(16), "%d.%d.%d.%d", i32(a), i32(b), i32(c), i32(d)));
       IO_tcp.make_sockaddr_in(&(buf(usize(0))), addr.port)
     },
-    .V6(_) =>
-      IO_tcp.make_sockaddr_in6(*(u8)("::1"), addr.port)
+    .V6(_) => {
+      // Render the real address text (full uncompressed hex form — valid
+      // inet_pton input). This used to hardcode "::1" for EVERY V6 address
+      // (plans/STD_API_AUDIT.md C2).
+      ip_txt := addr.ip.to_string();
+      ip_c := ip_txt.to_cstr();
+      IO_tcp.make_sockaddr_in6(ip_c.ptr().unwrap(), addr.port)
+    }
   )
 );
 _throw_net_io :: (fn(errno_val : i32, exn : Exception) -> unit)(

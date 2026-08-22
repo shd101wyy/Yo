@@ -6,6 +6,15 @@
 //!
 //! All elements must implement `Send` to guarantee thread safety.
 //!
+//! # Cycle warning
+//!
+//! `Vec` uses ATOMIC reference counting, and the cycle collector does not
+//! scan atomic objects (the Arc pattern). A reference cycle routed through a
+//! `Vec` is never reclaimed. Unlike `Arc(V)` (which requires `V <: Acyclic`),
+//! elements here are only required to be `Send` — storing a cycle-capable
+//! type is allowed today but LEAKS if a cycle forms
+//! (plans/STD_API_AUDIT.md O7).
+//!
 //! # Examples
 //!
 //! ```rust

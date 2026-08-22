@@ -79,3 +79,35 @@ test("resolve localhost returns socket addresses", {
     i = (i + usize(1));
   });
 });
+test("lookup_host returns IPv6 results (was: AAAA records dropped)", {
+  // plans/STD_API_AUDIT.md C3: the result walk imported AF_INET6 and then
+  // silently skipped every non-AF_INET entry, so all IPv6 results vanished.
+  // The "::1" literal resolves numerically (no resolver query) and is
+  // AF_INET6-only, so pre-fix this returned an EMPTY list.
+  exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "lookup_host(::1) should succeed");
+        unwind(());
+      }
+    )
+  );
+  addrs := io.await(lookup_host(`::1`, io), IoExn(io : io, exn : exn));
+  unsafe(printf("  addrs.len = %zu\n", addrs.len()));
+  assert(addrs.len() > usize(0), "the ::1 literal must yield at least one address");
+  found_v6 := false;
+  i := usize(0);
+  while(runtime(i < addrs.len()), {
+    addr := addrs(i);
+    unsafe(printf("  addr[%zu] = %s\n", i, addr.to_string().to_cstr().ptr().unwrap()));
+    cond(
+      addr.is_v6() => {
+        found_v6 = true;
+        assert(addr.is_loopback(), "::1 must parse as the V6 loopback");
+      },
+      true => ()
+    );
+    i = (i + usize(1));
+  });
+  assert(found_v6, "::1 must come back as a V6 address, not be silently dropped");
+});

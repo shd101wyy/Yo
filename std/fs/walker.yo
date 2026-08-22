@@ -17,8 +17,20 @@
 //! ```
 pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("../collections/array_list");
+{ HashSet } :: import("../collections/hash_set");
 open(import("../string"));
 { Path } :: import("../path");
+_file :: import("./file");
+/// follow_symlinks support gate. On Windows the follow path's
+/// canonical/is_dir through a DIRECTORY symlink dies with an unknown I/O
+/// error at the runtime layer (observed on the windows-latest CI leg), so
+/// following is disabled there until the primitives are verified —
+/// issues/walker-follow-symlinks-windows-unsupported.md. Symlink entries
+/// are still REPORTED on every platform; only the descent is gated.
+_FOLLOW_SUPPORTED :: cond(
+  (__yo_process_platform() == "windows") => false,
+  true => true
+);
 { IoError } :: import("../sys/errors");
 { Error, AnyError, Exception, IoExn } :: import("../error");
 { FileType } :: import("./dir");
@@ -58,6 +70,24 @@ _join_path :: (fn(base : String, name : String) -> String)(
     true => `${base}/${name}`
   )
 );
+// Resolve a followed symlink: the canonical path of `lp`'s target when the
+// target is a directory, or "" otherwise (dangling links included). Its own
+// async fn so the walker's loops keep a SINGLE top-level await per body —
+// awaits nested in cond arms inside its while-in-while trip
+// issues/async-nested-cond-await-duplicate-while-labels.md.
+_canon_dir_target :: (fn(lp : String, io : Io) -> Impl(Future(String, IoExn)))(
+  io.async((e) => {
+    is_d := e.io.await(_file.is_dir(Path.new(lp), e.io), e.io);
+    cond(
+      is_d => {
+        canon := e.io.await(_file.canonical(Path.new(lp), e.io), e);
+        return(canon.to_string());
+      },
+      true => ()
+    );
+    return(String.new());
+  })
+);
 // ============================================================================
 // Walk functions
 // ============================================================================
@@ -66,6 +96,13 @@ walk_with :: (fn(root : Path, options : WalkOptions, io : Io) -> Impl(Future(Arr
   root_s := root.to_string();
   io.async((e) => {
     results := ArrayList(WalkEntry).new();
+    // Canonical paths of directories entered VIA a followed symlink — the
+    // cycle guard for follow_symlinks (a link to an ancestor would otherwise
+    // recurse forever; the second traversal of any followed link is skipped).
+    followed := HashSet(String).new();
+    // Symlink entries of the CURRENT directory awaiting the follow decision
+    // (stat + canonicalize need awaits; see the .Symlink arm's note).
+    pending_links := ArrayList(String).new();
     // Stack of (path, depth) pairs to process
     stack := ArrayList(struct(path : String, depth : u32)).new();
     stack.push({ path : root_s, depth : u32(0) });
@@ -105,6 +142,27 @@ walk_with :: (fn(root : Path, options : WalkOptions, io : Io) -> Impl(Future(Arr
                 // Push subdirectory for processing
                 stack.push({ path : entry_path, depth : (cur_depth + u32(1)) });
               },
+              .Symlink => {
+                // WalkOptions.follow_symlinks was declared and never read
+                // (plans/STD_API_AUDIT.md C9). Record the entry; the follow
+                // decision needs awaits, which are deferred to the
+                // pending-links pass below (awaits nested this deep trip
+                // issues/async-nested-cond-await-duplicate-while-labels.md).
+                results.push(
+                  WalkEntry(
+                    path : Path.new(entry_path),
+                    name : entry.name,
+                    depth : cur_depth,
+                    file_type : .Symlink
+                  )
+                );
+                cond(
+                  (options.follow_symlinks && _FOLLOW_SUPPORTED) => {
+                    pending_links.push(entry_path);
+                  },
+                  true => ()
+                );
+              },
               _ => {
                 results.push(
                   WalkEntry(
@@ -118,6 +176,23 @@ walk_with :: (fn(root : Path, options : WalkOptions, io : Io) -> Impl(Future(Arr
             );
             i = (i + usize(1));
           });
+          // Follow-symlink pass for this directory's pending links: stat the
+          // target (is_dir follows links; a dangling link is simply false)
+          // and descend when it is a directory not already entered.
+          j := usize(0);
+          while(runtime(j < pending_links.len()), {
+            lp := pending_links(j);
+            canon_s := e.io.await(_canon_dir_target(lp, e.io), e);
+            cond(
+              ((!(canon_s.is_empty())) && (!(followed.contains(canon_s)))) => {
+                match(followed.add(canon_s), .Ok(_) => (), .Err(_) => ());
+                stack.push({ path : lp, depth : (cur_depth + u32(1)) });
+              },
+              true => ()
+            );
+            j = (j + usize(1));
+          });
+          pending_links.clear();
         },
         true => ()
       );
