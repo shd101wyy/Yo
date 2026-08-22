@@ -1,0 +1,1100 @@
+//! lsp/completion — textDocument/completion (plans/P4_LSP.md slice 4).
+//!
+//! The attic `completion.ts` (1541 lines) is the feature map here, not the
+//! spec — it predates the self-hosted compiler and its heuristics lean on
+//! data the TS evaluator hung directly on expressions (`$.env`, `$.type`).
+//! The Yo server reads the same facts from the `ExprInfo` side table and
+//! the evaluator's method registries:
+//!
+//!   - import-path completion: `import("std/…` / `import("./…` → directory
+//!     listing rooted at the std path or the document's directory.
+//!   - dot completion: the identifier token ending at the `.` → its
+//!     ExprInfo type (TypeVal unwrap for type-valued exprs, env refinement
+//!     like hover, pointer auto-deref) → struct fields / enum variants /
+//!     union fields / module members / trait methods, plus the per-type
+//!     method registry and matching generic impls
+//!     (`get_generic_impl_doc_entries` — the same enumeration `yo doc` uses).
+//!   - enum dot-prefix (`.Some` typed after `=`, `(`, `,`, `{`, `;`, `=>`,
+//!     `:=` or `return`): the expected enum is inferred from a typed
+//!     declaration or a `match` subject near the cursor line.
+//!   - identifier completion: identifiers already in the document before the
+//!     cursor + the deepest visible env's bindings (prelude names arrive
+//!     through this) + a keyword list.
+//!
+//! Deliberate v1 divergences from the attic (it was itself incomplete):
+//! no last-good-module fallback (the server keeps one outcome per doc), no
+//! text-based type re-parse fallback, and `foo().`/`)`-receivers answer
+//! nothing rather than guessing.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
+{ HashSet } :: import("std/collections/hash_set");
+open(import("std/error"));
+{ Path } :: import("std/path");
+{ read_dir, FileType } :: import("std/fs/dir");
+{ Token, TokenKind } :: import("../token.yo");
+{ tokenize } :: import("../lexer.yo");
+{ AstExpr, ast_expr_id, ast_expr_token } :: import("../expr.yo");
+{ ExprInfoTable, expr_info_table_get } :: import("../expr_info.yo");
+{ Environment, Variable, get_variables_from_env } :: import("../env.yo");
+{ TypeValue } :: import("../types/definitions.yo");
+{ type_to_string } :: import("../types/string.yo");
+{ EvalValue } :: import("../value.yo");
+{ type_id_or_empty, get_type_trait_methods_for_type } :: import("../evaluator/values/type_trait_methods.yo");
+{ get_generic_impl_doc_entries } :: import("../evaluator/values/impl.yo");
+{ JsonValue } :: import("std/encoding/json");
+{ jb, jstr, jnum } :: import("./protocol.yo");
+{ _find_token_at, _collect_candidates, _best_candidate, _select_best_variable } :: import("./hover.yo");
+
+// LSP CompletionItemKind constants (the protocol's numeric encoding).
+K_METHOD :: usize(2);
+K_FUNCTION :: usize(3);
+K_FIELD :: usize(5);
+K_VARIABLE :: usize(6);
+K_MODULE :: usize(9);
+K_PROPERTY :: usize(10);
+K_KEYWORD :: usize(14);
+K_FILE :: usize(17);
+K_FOLDER :: usize(19);
+K_ENUM_MEMBER :: usize(20);
+
+_is_word_byte :: (fn(b : u8) -> bool)(
+  (((b >= u8(97)) && (b <= u8(122))) || ((b >= u8(65)) && (b <= u8(90)))) ||
+    (((b >= u8(48)) && (b <= u8(57))) || (b == u8(95)))
+);
+
+/// Identifier-shaped name: starts with a letter or `_`, word bytes after.
+/// Filters operator method names (`+`, `==`) out of dot completion — they
+/// cannot be typed after a `.`.
+_is_ident_name :: (fn(name : String) -> bool)({
+  bytes := name.as_bytes();
+  if(bytes.len() == usize(0), {
+    return(false);
+  });
+  first := match(bytes.get(usize(0)), .Some(b) => b, .None => u8(0));
+  digit := ((first >= u8(48)) && (first <= u8(57)));
+  if(!(_is_word_byte(first)) || digit, {
+    return(false);
+  });
+  (i : usize) = usize(1);
+  while(i < bytes.len(), {
+    b2 := match(bytes.get(i), .Some(x) => x, .None => u8(0));
+    if(!(_is_word_byte(b2)), {
+      return(false);
+    });
+    i = (i + usize(1));
+  });
+  true
+});
+
+/// The language keyword list offered alongside identifier completion.
+/// Hand-curated from `expr.yo`'s BK_* constants (word-shaped entries only —
+/// operators are not completion material).
+_keywords :: (fn() -> ArrayList(String))({
+  ks := ArrayList(String).new();
+  ks.push(String.from("comptime"));
+  ks.push(String.from("given"));
+  ks.push(String.from("generic"));
+  ks.push(String.from("cond"));
+  ks.push(String.from("match"));
+  ks.push(String.from("while"));
+  ks.push(String.from("return"));
+  ks.push(String.from("break"));
+  ks.push(String.from("continue"));
+  ks.push(String.from("test"));
+  ks.push(String.from("extern"));
+  ks.push(String.from("c_include"));
+  ks.push(String.from("exists"));
+  ks.push(String.from("where"));
+  ks.push(String.from("fn"));
+  ks.push(String.from("unsafe_fn"));
+  ks.push(String.from("ctl"));
+  ks.push(String.from("Fn"));
+  ks.push(String.from("atomic"));
+  ks.push(String.from("struct"));
+  ks.push(String.from("newtype"));
+  ks.push(String.from("enum"));
+  ks.push(String.from("union"));
+  ks.push(String.from("trait"));
+  ks.push(String.from("Impl"));
+  ks.push(String.from("impl"));
+  ks.push(String.from("Iso"));
+  ks.push(String.from("ComptimeList"));
+  ks.push(String.from("Future"));
+  ks.push(String.from("Concrete"));
+  ks.push(String.from("Dyn"));
+  ks.push(String.from("dyn"));
+  ks.push(String.from("quote"));
+  ks.push(String.from("gensym"));
+  ks.push(String.from("comptime_list"));
+  ks.push(String.from("ref"));
+  ks.push(String.from("inout"));
+  ks.push(String.from("import"));
+  ks.push(String.from("open"));
+  ks.push(String.from("export"));
+  ks.push(String.from("recur"));
+  ks.push(String.from("unwind"));
+  ks.push(String.from("if"));
+  ks.push(String.from("derive"));
+  ks.push(String.from("panic"));
+  ks.push(String.from("assert"));
+  ks.push(String.from("unsafe"));
+  ks.push(String.from("own"));
+  ks.push(String.from("using"));
+  ks.push(String.from("true"));
+  ks.push(String.from("false"));
+  ks
+});
+
+/// Hidden-name rule shared by every completion mode: compiler internals
+/// (`___`, `__yo_`) and single-underscore-private names (a struct's `_ptr`
+/// internals, `_helper` bindings) stay out.
+_hidden_name :: (fn(name : String) -> bool)(
+  (name.starts_with(String.from("___")) || name.starts_with(String.from("__yo_"))) ||
+    ((name.starts_with(String.from("_")) && !(name.starts_with(String.from("__")))) && (name.len() > usize(1)))
+);
+
+/// One CompletionItem. `detail` and `insert` are omitted when empty;
+/// a non-empty `insert` is emitted as a snippet (insertTextFormat 2).
+_ci :: (
+  fn(label : String, kind : usize, detail : String, sort : String, insert : String) -> JsonValue
+)({
+  b := jb().put("label", jstr(label.clone())).put("kind", jnum(kind)).put("sortText", jstr(sort.clone()));
+  if(detail.len() > usize(0), {
+    _d := b.put("detail", jstr(detail.clone()));
+  });
+  if(insert.len() > usize(0), {
+    _i := b.put("insertText", jstr(insert.clone()));
+    _f := b.put("insertTextFormat", jnum(usize(2)));
+  });
+  b.obj()
+});
+
+/// `${N:label}` placeholder list for a snippet, e.g. `add(${1:x}, ${2:y})`.
+/// Built by concatenation — inside a backtick template `${` is
+/// interpolation, so the literal snippet syntax cannot be templated.
+_placeholder :: (fn(n : usize, label : String) -> String)(
+  (((String.from("${") + n.to_string()) + String.from(":")) + label) + String.from("}")
+);
+
+/// Call snippet for a method/function: parameter placeholders from
+/// `FuncMeta.param_labels`, skipping the receiver-bound `self`.
+/// "" when `ty` is not a Func (caller omits insertText).
+_func_snippet :: (fn(name : String, ty : TypeValue) -> String)(
+  match(
+    ty,
+    .Func(
+      _,
+      param_types,
+      _,
+      _,
+      _,
+      meta,
+      _
+    ) => {
+      (parts : String) = String.new();
+      (n : usize) = usize(0);
+      (i : usize) = usize(0);
+      while(i < param_types.len(), {
+        label := match(meta.*.param_labels.get(i), .Some(l) => l, .None => `arg${i}`);
+        if(label != "self", {
+          n = (n + usize(1));
+          if(n > usize(1), {
+            parts = (parts + String.from(", "));
+          });
+          parts = (parts + _placeholder(n, label));
+        });
+        i = (i + usize(1));
+      });
+      ((name.clone() + String.from("(")) + parts) + String.from(")")
+    },
+    _ => String.new()
+  )
+);
+
+/// Push one enum variant item. `dot_prefix` renders the label as `.Name`
+/// (the `.` is already typed in prefix position; insertText stays `Name`).
+_push_variant :: (
+  fn(
+    name : String,
+    fields : ArrayList(TypeValue),
+    labels : ArrayList(String),
+    dot_prefix : bool,
+    out : ArrayList(JsonValue),
+    seen : HashSet(String)
+  ) -> unit
+)({
+  if(seen.contains(name.clone()), {
+    return(());
+  });
+  _a := seen.add(name.clone());
+  (detail : String) = String.new();
+  (insert : String) = String.new();
+  if(fields.len() > usize(0), {
+    (dparts : String) = String.new();
+    (sparts : String) = String.new();
+    (i : usize) = usize(0);
+    while(i < fields.len(), {
+      ft := match(fields.get(i), .Some(t) => t, .None => TypeValue.Unit);
+      flabel := match(labels.get(i), .Some(l) => l, .None => String.new());
+      ph := cond(
+        (flabel.len() > usize(0)) => flabel.clone(),
+        true => type_to_string(ft)
+      );
+      if(i > usize(0), {
+        dparts = (dparts + String.from(", "));
+        sparts = (sparts + String.from(", "));
+      });
+      dparts = (dparts + type_to_string(ft));
+      sparts = (sparts + _placeholder(i + usize(1), ph));
+      i = (i + usize(1));
+    });
+    detail = ((String.from("(") + dparts) + String.from(")"));
+    insert = (((name.clone() + String.from("(")) + sparts) + String.from(")"));
+  });
+  label := cond(dot_prefix => (String.from(".") + name.clone()), true => name.clone());
+  out.push(_ci(label, K_ENUM_MEMBER, detail, String.from("0_") + name.clone(), insert));
+});
+
+/// Direct members of a receiver type: struct/module fields, enum variants,
+/// union fields, trait methods.
+_type_member_items :: (
+  fn(ty : TypeValue, out : ArrayList(JsonValue), seen : HashSet(String)) -> unit
+)({
+  match(
+    ty,
+    .Struct({ field_labels, field_types, is_source_namespace }) => {
+      (i : usize) = usize(0);
+      while(i < field_labels.len(), {
+        label := match(field_labels.get(i), .Some(l) => l, .None => String.new());
+        fty := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
+        hidden := ((label.len() == usize(0)) || _hidden_name(label.clone()));
+        if(!(hidden) && !(seen.contains(label.clone())), {
+          _a := seen.add(label.clone());
+          is_fn := match(fty, .Func(_, _, _, _, _, _, _) => true, _ => false);
+          is_mod := match(fty, .Struct({ is_source_namespace : ns }) => ns, _ => false);
+          kind := cond(
+            is_fn => cond(is_source_namespace => K_FUNCTION, true => K_METHOD),
+            is_mod => K_MODULE,
+            true => K_FIELD
+          );
+          insert := cond(is_fn => _func_snippet(label.clone(), fty), true => String.new());
+          out.push(_ci(label.clone(), kind, type_to_string(fty), String.from("0_") + label.clone(), insert));
+        });
+        i = (i + usize(1));
+      });
+    },
+    .EnumT({ variant_names, variant_fields, variant_field_labels }) => {
+      (i : usize) = usize(0);
+      while(i < variant_names.len(), {
+        vname := match(variant_names.get(i), .Some(n) => n, .None => String.new());
+        vfields := match(variant_fields.get(i), .Some(f) => f, .None => ArrayList(TypeValue).new());
+        vlabels := match(variant_field_labels.get(i), .Some(l) => l, .None => ArrayList(String).new());
+        if(vname.len() > usize(0), {
+          _push_variant(vname, vfields, vlabels, false, out, seen);
+        });
+        i = (i + usize(1));
+      });
+    },
+    .Union({ field_labels : u_labels, field_types : u_types }) => {
+      (i : usize) = usize(0);
+      while(i < u_labels.len(), {
+        label := match(u_labels.get(i), .Some(l) => l, .None => String.new());
+        fty := match(u_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
+        if((label.len() > usize(0)) && !(seen.contains(label.clone())), {
+          _a := seen.add(label.clone());
+          out.push(_ci(label.clone(), K_FIELD, type_to_string(fty), String.from("0_") + label.clone(), String.new()));
+        });
+        i = (i + usize(1));
+      });
+    },
+    .TraitT({ field_labels : t_labels, field_types : t_types }) => {
+      (i : usize) = usize(0);
+      while(i < t_labels.len(), {
+        label := match(t_labels.get(i), .Some(l) => l, .None => String.new());
+        fty := match(t_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
+        keep := ((label.len() > usize(0)) && _is_ident_name(label.clone()));
+        if((keep && !(_hidden_name(label.clone()))) && !(seen.contains(label.clone())), {
+          _a := seen.add(label.clone());
+          is_fn := match(fty, .Func(_, _, _, _, _, _, _) => true, _ => false);
+          kind := cond(is_fn => K_METHOD, true => K_PROPERTY);
+          insert := cond(is_fn => _func_snippet(label.clone(), fty), true => String.new());
+          out.push(_ci(label.clone(), kind, type_to_string(fty), String.from("0_") + label.clone(), insert));
+        });
+        i = (i + usize(1));
+      });
+    },
+    _ => ()
+  );
+});
+
+_push_method :: (
+  fn(name : String, ty : TypeValue, out : ArrayList(JsonValue), seen : HashSet(String)) -> unit
+)({
+  bad := (!(_is_ident_name(name.clone())) || _hidden_name(name.clone()));
+  if(bad || seen.contains(name.clone()), {
+    return(());
+  });
+  _a := seen.add(name.clone());
+  out.push(_ci(name.clone(), K_METHOD, type_to_string(ty), String.from("0_") + name.clone(), _func_snippet(name.clone(), ty)));
+});
+
+/// Registered methods for one type id (inherent + trait impls). Entries
+/// the registry stores with `label == ""` (inline-imported trait values)
+/// are skipped — expanding them needs TraitVal introspection, and the
+/// generic-impl enumeration in `_add_methods` surfaces those methods for
+/// matched impls anyway.
+_push_registry_methods :: (
+  fn(type_id : String, out : ArrayList(JsonValue), seen : HashSet(String)) -> unit
+)({
+  if(type_id.len() > usize(0), {
+    entries := get_type_trait_methods_for_type(type_id);
+    (i : usize) = usize(0);
+    while(i < entries.len(), {
+      match(
+        entries.get(i),
+        .Some(en) => _push_method(en.label.clone(), en.ty, out, seen),
+        .None => ()
+      );
+      i = (i + usize(1));
+    });
+  });
+});
+
+/// Methods on a receiver type, from the per-type registry (both the
+/// receiver as written and the pointer-deref'd type) and from matching
+/// generic impl blocks.
+_add_methods :: (
+  fn(
+    recv : TypeValue,
+    deref : TypeValue,
+    env : Environment,
+    out : ArrayList(JsonValue),
+    seen : HashSet(String)
+  ) -> unit
+)({
+  recv_id := type_id_or_empty(recv);
+  deref_id := type_id_or_empty(deref);
+  _push_registry_methods(recv_id.clone(), out, seen);
+  if(deref_id != recv_id, {
+    _push_registry_methods(deref_id, out, seen);
+  });
+  gentries := get_generic_impl_doc_entries(deref, env, String.new());
+  (gi : usize) = usize(0);
+  while(gi < gentries.len(), {
+    match(
+      gentries.get(gi),
+      .Some(ge) => {
+        (mi : usize) = usize(0);
+        while(mi < ge.method_names.len(), {
+          mname := match(ge.method_names.get(mi), .Some(n) => n, .None => String.new());
+          mty := match(ge.method_types.get(mi), .Some(t) => t, .None => TypeValue.Unit);
+          if(mname.len() > usize(0), {
+            _push_method(mname, mty, out, seen);
+          });
+          mi = (mi + usize(1));
+        });
+      },
+      .None => ()
+    );
+    gi = (gi + usize(1));
+  });
+});
+
+/// Resolve the receiver type for dot completion from the token before the
+/// dot: best AST candidate's ExprInfo, TypeVal-unwrapped (type-valued exprs
+/// like `Point.` / `Option(i32).`), refined through the env's variable list
+/// like hover, then pointer-deref'd. Pushes (type, deref'd type, env) into
+/// the out lists on success.
+_receiver_at :: (
+  fn(
+    target : Token,
+    exprs : ArrayList(AstExpr),
+    info_table : ExprInfoTable,
+    out_recv : ArrayList(TypeValue),
+    out_deref : ArrayList(TypeValue),
+    out_env : ArrayList(Environment)
+  ) -> unit
+)({
+  cands := ArrayList(AstExpr).new();
+  (ei : usize) = usize(0);
+  while(ei < exprs.len(), {
+    match(
+      exprs.get(ei),
+      .Some(e) => _collect_candidates(e, target, cands),
+      .None => ()
+    );
+    ei = (ei + usize(1));
+  });
+  expr := match(
+    _best_candidate(cands, info_table),
+    .Some(x) => x,
+    .None => {
+      return(());
+    }
+  );
+  info := match(
+    expr_info_table_get(info_table, ast_expr_id(expr)),
+    .Some(i) => i,
+    .None => {
+      return(());
+    }
+  );
+  (recv : TypeValue) = info.ty;
+  (unwrapped : bool) = false;
+  match(
+    info.value,
+    .Some(v) => match(
+      v,
+      .TypeVal(t) => {
+        recv = t;
+        unwrapped = true;
+      },
+      _ => ()
+    ),
+    .None => ()
+  );
+  // Env refinement (hover's shape): several bindings can share the name;
+  // the nearest declaration wins, and a type-valued binding unwraps to the
+  // type it names.
+  if(!(unwrapped) && (target.kind == TokenKind.Identifier), {
+    vars := get_variables_from_env(info.env, target.value.clone());
+    if(vars.len() > usize(0), {
+      match(
+        _select_best_variable(vars, target),
+        .Some(sv) => {
+          (var_unwrapped : bool) = false;
+          match(
+            sv.value.get(usize(0)),
+            .Some(vv) => match(
+              vv,
+              .TypeVal(t2) => {
+                recv = t2;
+                var_unwrapped = true;
+              },
+              _ => ()
+            ),
+            .None => ()
+          );
+          if(!(var_unwrapped), {
+            recv = sv.ty;
+          });
+        },
+        .None => ()
+      );
+    });
+  });
+  (deref : TypeValue) = recv;
+  (guard : usize) = usize(0);
+  while(guard < usize(8), {
+    match(
+      deref,
+      .Pointer(p) => {
+        deref = p;
+      },
+      _ => {
+        guard = usize(8);
+      }
+    );
+    guard = (guard + usize(1));
+  });
+  out_recv.push(recv);
+  out_deref.push(deref);
+  out_env.push(info.env);
+});
+
+_expr_near_line :: (fn(e : AstExpr, line : usize) -> bool)(
+  match(
+    e,
+    .Atom(
+      _,
+      tok
+    ) => (tok.row == line),
+    .FnCall(
+      _,
+      func_box,
+      args,
+      _,
+      tok2
+    ) => {
+      if(tok2.row == line, {
+        return(true);
+      });
+      if(recur(func_box, line), {
+        return(true);
+      });
+      (i : usize) = usize(0);
+      while(i < args.len(), {
+        match(
+          args.get(i),
+          .Some(a) => if(recur(a, line), {
+            return(true);
+          }),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      false
+    }
+  )
+);
+
+/// Expected enum type for `.Variant` prefix completion: a typed declaration
+/// `(x : SomeEnum) = …` whose RHS is near the cursor line, or a `match`
+/// whose subject is enum-typed and whose branches reach the line.
+_expected_enum_at :: (
+  fn(e : AstExpr, info_table : ExprInfoTable, line : usize, out : ArrayList(TypeValue)) -> unit
+)({
+  if(out.len() > usize(0), {
+    return(());
+  });
+  match(
+    e,
+    .Atom(_, _) => (),
+    .FnCall(_, func_box, args, _, _) => {
+      head := match(func_box, .Atom(_, ht) => ht.value.clone(), _ => String.new());
+      if((head == "=") && (args.len() >= usize(2)), {
+        near := (
+          match(args.get(usize(1)), .Some(r) => _expr_near_line(r, line), .None => false) ||
+            match(args.get(usize(0)), .Some(l) => _expr_near_line(l, line), .None => false)
+        );
+        if(near, {
+          match(
+            args.get(usize(0)),
+            .Some(lhs) => match(
+              lhs,
+              .FnCall(_, lhs_func, lhs_args, _, _) => {
+                lhs_head := match(lhs_func, .Atom(_, lt) => lt.value.clone(), _ => String.new());
+                if((lhs_head == ":") && (lhs_args.len() >= usize(2)), {
+                  match(
+                    lhs_args.get(usize(1)),
+                    .Some(ty_expr) => match(
+                      expr_info_table_get(info_table, ast_expr_id(ty_expr)),
+                      .Some(tinfo) => {
+                        (found : TypeValue) = tinfo.ty;
+                        match(
+                          tinfo.value,
+                          .Some(tv) => match(
+                            tv,
+                            .TypeVal(t) => {
+                              found = t;
+                            },
+                            _ => ()
+                          ),
+                          .None => ()
+                        );
+                        match(
+                          found,
+                          .EnumT(_, _, _, _, _, _, _, _, _) => {
+                            out.push(found);
+                          },
+                          _ => ()
+                        );
+                      },
+                      .None => ()
+                    ),
+                    .None => ()
+                  );
+                });
+              },
+              _ => ()
+            ),
+            .None => ()
+          );
+        });
+      });
+      if(((head == "match") && (args.len() >= usize(2))) && (out.len() == usize(0)), {
+        (bi : usize) = usize(1);
+        (branch_near : bool) = false;
+        while(bi < args.len(), {
+          match(
+            args.get(bi),
+            .Some(b) => if(_expr_near_line(b, line), {
+              branch_near = true;
+            }),
+            .None => ()
+          );
+          bi = (bi + usize(1));
+        });
+        if(branch_near, {
+          match(
+            args.get(usize(0)),
+            .Some(subject) => match(
+              expr_info_table_get(info_table, ast_expr_id(subject)),
+              .Some(sinfo) => match(
+                sinfo.ty,
+                .EnumT(_, _, _, _, _, _, _, _, _) => {
+                  out.push(sinfo.ty);
+                },
+                _ => ()
+              ),
+              .None => ()
+            ),
+            .None => ()
+          );
+        });
+      });
+      recur(func_box, info_table, line, out);
+      (i : usize) = usize(0);
+      while(i < args.len(), {
+        match(
+          args.get(i),
+          .Some(a) => recur(a, info_table, line, out),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    }
+  );
+});
+
+/// Identifier scan: every identifier atom strictly before the cursor becomes
+/// a candidate (latest occurrence wins), and the deepest ExprInfo env at or
+/// before the cursor is captured for env-based completion.
+_scan_idents :: (
+  fn(
+    e : AstExpr,
+    info_table : ExprInfoTable,
+    line : usize,
+    character : usize,
+    names : ArrayList(String),
+    name_rows : ArrayList(usize),
+    name_cols : ArrayList(usize),
+    name_expr_ids : ArrayList(usize),
+    name_index : HashMap(String, usize),
+    env_holder : ArrayList(Environment),
+    env_depth : ArrayList(usize)
+  ) -> unit
+)({
+  match(
+    e,
+    .Atom(_, tok) => {
+      at_or_before := ((tok.row < line) || ((tok.row == line) && (tok.column <= character)));
+      match(
+        expr_info_table_get(info_table, ast_expr_id(e)),
+        .Some(info) => if(at_or_before, {
+          depth := info.env.frames.len();
+          best := match(env_depth.get(usize(0)), .Some(d) => d, .None => usize(0));
+          if((env_holder.len() == usize(0)) || (depth >= best), {
+            if(env_holder.len() == usize(0), {
+              env_holder.push(info.env);
+              env_depth.push(depth);
+            }, {
+              env_holder(usize(0)) = info.env;
+              env_depth(usize(0)) = depth;
+            });
+          });
+        }),
+        .None => ()
+      );
+      before := ((tok.row < line) || ((tok.row == line) && (tok.column < character)));
+      if((tok.kind == TokenKind.Identifier) && before, {
+        name := tok.value.clone();
+        match(
+          name_index.get(name.clone()),
+          .Some(idx) => {
+            old_row := match(name_rows.get(idx), .Some(r) => r, .None => usize(0));
+            old_col := match(name_cols.get(idx), .Some(c) => c, .None => usize(0));
+            later := ((tok.row > old_row) || ((tok.row == old_row) && (tok.column > old_col)));
+            if(later, {
+              name_rows(idx) = tok.row;
+              name_cols(idx) = tok.column;
+              name_expr_ids(idx) = ast_expr_id(e);
+            });
+          },
+          .None => {
+            names.push(name.clone());
+            name_rows.push(tok.row);
+            name_cols.push(tok.column);
+            name_expr_ids.push(ast_expr_id(e));
+            _s := name_index.set(name, names.len() - usize(1));
+          }
+        );
+      });
+    },
+    .FnCall(_, func_box, args, _, _) => {
+      recur(func_box, info_table, line, character, names, name_rows, name_cols, name_expr_ids, name_index, env_holder, env_depth);
+      (i : usize) = usize(0);
+      while(i < args.len(), {
+        match(
+          args.get(i),
+          .Some(a) => recur(a, info_table, line, character, names, name_rows, name_cols, name_expr_ids, name_index, env_holder, env_depth),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    }
+  );
+});
+
+_matches_prefix :: (fn(name : String, prefix_lower : String) -> bool)(
+  cond(
+    (prefix_lower.len() == usize(0)) => true,
+    true => name.to_lowercase().contains(prefix_lower.clone())
+  )
+);
+
+_sort_key :: (fn(name : String, prefix_lower : String) -> String)(
+  cond(
+    ((prefix_lower.len() > usize(0)) && name.to_lowercase().starts_with(prefix_lower.clone())) => (String.from("0_") + name.clone()),
+    true => (String.from("1_") + name.clone())
+  )
+);
+
+/// Import-path completion: when the cursor sits inside an unterminated
+/// `import("…` string, list the base directory's subdirectories and `.yo`
+/// modules. Only `std/…` and document-relative (`./…`, `../…`) prefixes
+/// resolve; anything else answers nothing.
+_import_items :: (
+  fn(up_to_cursor : String, doc_abs : String, std_path : String, io : Io) -> ArrayList(JsonValue)
+)({
+  items := ArrayList(JsonValue).new();
+  start := match(
+    up_to_cursor.last_index_of(String.from("import(\"")),
+    .Some(s) => s,
+    .None => {
+      return(items);
+    }
+  );
+  full_path := up_to_cursor.substring(start + usize(8), up_to_cursor.len());
+  if(full_path.contains(String.from("\"")), {
+    return(items);
+  });
+  (dir_part : String) = String.new();
+  (prefix : String) = full_path.clone();
+  match(
+    full_path.last_index_of(String.from("/")),
+    .Some(slash) => {
+      dir_part = full_path.substring(usize(0), slash);
+      prefix = full_path.substring(slash + usize(1), full_path.len());
+    },
+    .None => ()
+  );
+  (base : String) = String.new();
+  cond(
+    full_path.starts_with(String.from("std/")) => {
+      sub := cond(
+        (dir_part.len() > usize(3)) => dir_part.substring(usize(4), dir_part.len()),
+        true => String.new()
+      );
+      base = cond(
+        (sub.len() > usize(0)) => Path.new(std_path.clone()).join(Path.new(sub)).to_string(),
+        true => std_path.clone()
+      );
+    },
+    (full_path.starts_with(String.from("./")) || full_path.starts_with(String.from("../"))) => {
+      doc_dir := match(
+        Path.new(doc_abs.clone()).parent(),
+        .Some(p) => p.to_string(),
+        .None => String.from(".")
+      );
+      base = cond(
+        (dir_part.len() > usize(0)) => Path.new(doc_dir.clone()).join(Path.new(dir_part.clone())).to_string(),
+        true => doc_dir
+      );
+    },
+    true => {
+      return(items);
+    }
+  );
+  ls_exn := Exception(throw : ((_e) -> unwind(ArrayList(JsonValue).new())));
+  entries := io.await(read_dir(Path.new(base), io), IoExn(io : io, exn : ls_exn));
+  prefix_lower := prefix.to_lowercase();
+  // Sorted for a deterministic answer — read_dir order is platform-dependent
+  // (the readdir-order lesson).
+  names := ArrayList(String).new();
+  dirs := HashSet(String).new();
+  (i : usize) = usize(0);
+  while(i < entries.len(), {
+    match(
+      entries.get(i),
+      .Some(en) => {
+        names.push(en.name.clone());
+        match(
+          en.file_type,
+          .Directory => {
+            _d := dirs.add(en.name.clone());
+          },
+          _ => ()
+        );
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  names.sort();
+  (j : usize) = usize(0);
+  while(j < names.len(), {
+    name := names(j);
+    if(!(name.starts_with(String.from("."))), {
+      cond(
+        dirs.contains(name.clone()) => {
+          if(name.to_lowercase().starts_with(prefix_lower.clone()), {
+            items.push(_ci(name.clone(), K_FOLDER, String.new(), String.from("0_") + name.clone(), String.new()));
+          });
+        },
+        (name.ends_with(String.from(".yo")) && (name != "index.yo")) => {
+          stem := name.substring(usize(0), name.len() - usize(3));
+          if(stem.to_lowercase().starts_with(prefix_lower.clone()), {
+            items.push(_ci(stem.clone(), K_FILE, String.new(), String.from("1_") + stem.clone(), String.new()));
+          });
+        },
+        true => ()
+      );
+    });
+    j = (j + usize(1));
+  });
+  items
+});
+
+/// Answer textDocument/completion at (line, character). Always returns a
+/// JSON array (possibly empty).
+handle_completion :: (
+  fn(
+    text : String,
+    doc_abs : String,
+    std_path : String,
+    exprs : ArrayList(AstExpr),
+    info_table : ExprInfoTable,
+    line : usize,
+    character : usize,
+    io : Io
+  ) -> JsonValue
+)({
+  items := ArrayList(JsonValue).new();
+  lines := text.split(String.from("\n"));
+  line_text := match(lines.get(line), .Some(l) => l, .None => String.new());
+  bytes := line_text.as_bytes();
+  (cur : usize) = character;
+  if(cur > bytes.len(), {
+    cur = bytes.len();
+  });
+  up_to := line_text.substring(usize(0), cur);
+  // 1. Import-path completion (works even while the document fails analysis
+  //    — typing inside the string literal usually breaks the parse).
+  imp := _import_items(up_to, doc_abs, std_path, io);
+  if(imp.len() > usize(0), {
+    return(JsonValue.Array(items : imp));
+  });
+  // Word prefix at the cursor.
+  (ws : usize) = cur;
+  (scanning : bool) = true;
+  while(scanning && (ws > usize(0)), {
+    b := match(bytes.get(ws - usize(1)), .Some(x) => x, .None => u8(0));
+    if(_is_word_byte(b), {
+      ws = (ws - usize(1));
+    }, {
+      scanning = false;
+    });
+  });
+  dot_before := cond(
+    (ws > usize(0)) => (match(bytes.get(ws - usize(1)), .Some(x) => x, .None => u8(0)) == u8(46)),
+    true => false
+  );
+  if(dot_before, {
+    dot_col := (ws - usize(1));
+    lex_exn := Exception(
+      throw : (
+        (_err) -> unwind(JsonValue.Array(items : ArrayList(JsonValue).new()))
+      )
+    );
+    tokens := tokenize(text.clone(), doc_abs.clone(), lex_exn);
+    // Receiver mode: a non-trivia token ends exactly at the dot.
+    (receiver : Option(Token)) = Option(Token).None;
+    // Enum-prefix mode context: the latest non-trivia token BEFORE the dot
+    // (any line), for the `= ( , { ; => := return` trigger check.
+    (prev_tok : Option(Token)) = Option(Token).None;
+    (prev_row : usize) = usize(0);
+    (prev_col : usize) = usize(0);
+    (ti : usize) = usize(0);
+    while(ti < tokens.len(), {
+      t := match(
+        tokens.get(ti),
+        .Some(x) => x,
+        .None => {
+          return(JsonValue.Array(items : items));
+        }
+      );
+      trivia := (
+        (t.kind == TokenKind.Whitespace) ||
+          ((t.kind == TokenKind.SingleLineComment) || (t.kind == TokenKind.MultiLineComment))
+      );
+      if(!(trivia), {
+        ends_at_dot := ((t.row == line) && ((t.column + t.value.len()) == dot_col));
+        if(ends_at_dot && (t.kind == TokenKind.Identifier), {
+          receiver = Option(Token).Some(t);
+        });
+        before_dot := ((t.row < line) || ((t.row == line) && ((t.column + t.value.len()) <= dot_col)));
+        if(before_dot, {
+          later := (
+            prev_tok.is_none() ||
+              ((t.row > prev_row) || ((t.row == prev_row) && (t.column >= prev_col)))
+          );
+          if(later, {
+            prev_tok = Option(Token).Some(t);
+            prev_row = t.row;
+            prev_col = t.column;
+          });
+        });
+      });
+      ti = (ti + usize(1));
+    });
+    match(
+      receiver,
+      .Some(rt) => {
+        out_recv := ArrayList(TypeValue).new();
+        out_deref := ArrayList(TypeValue).new();
+        out_env := ArrayList(Environment).new();
+        _receiver_at(rt, exprs, info_table, out_recv, out_deref, out_env);
+        if(out_recv.len() > usize(0), {
+          recv := out_recv(usize(0));
+          deref := out_deref(usize(0));
+          env := out_env(usize(0));
+          seen := HashSet(String).new();
+          _type_member_items(deref, items, seen);
+          _add_methods(recv, deref, env, items, seen);
+        });
+      },
+      .None => {
+        trigger := match(
+          prev_tok,
+          .Some(pt) => (
+            ((pt.value == "=") || ((pt.value == "(") || (pt.value == ","))) ||
+              (
+                ((pt.value == "{") || (pt.value == ";")) ||
+                  (((pt.value == "=>") || (pt.value == ":=")) || (pt.value == "return"))
+              )
+          ),
+          .None => true
+        );
+        if(trigger, {
+          expected := ArrayList(TypeValue).new();
+          (xi : usize) = usize(0);
+          while(xi < exprs.len(), {
+            match(
+              exprs.get(xi),
+              .Some(e) => _expected_enum_at(e, info_table, line, expected),
+              .None => ()
+            );
+            xi = (xi + usize(1));
+          });
+          if(expected.len() > usize(0), {
+            match(
+              expected(usize(0)),
+              .EnumT({ variant_names, variant_fields, variant_field_labels }) => {
+                seen2 := HashSet(String).new();
+                (vi : usize) = usize(0);
+                while(vi < variant_names.len(), {
+                  vname := match(variant_names.get(vi), .Some(n) => n, .None => String.new());
+                  vfields := match(variant_fields.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
+                  vlabels := match(variant_field_labels.get(vi), .Some(l) => l, .None => ArrayList(String).new());
+                  if(vname.len() > usize(0), {
+                    _push_variant(vname, vfields, vlabels, true, items, seen2);
+                  });
+                  vi = (vi + usize(1));
+                });
+              },
+              _ => ()
+            );
+          });
+        });
+      }
+    );
+    return(JsonValue.Array(items : items));
+  });
+  // Identifier completion: document identifiers + deepest-env bindings +
+  // keywords, filtered by the word prefix.
+  prefix := line_text.substring(ws, cur);
+  prefix_lower := prefix.to_lowercase();
+  names := ArrayList(String).new();
+  name_rows := ArrayList(usize).new();
+  name_cols := ArrayList(usize).new();
+  name_expr_ids := ArrayList(usize).new();
+  name_index := HashMap(String, usize).new();
+  env_holder := ArrayList(Environment).new();
+  env_depth := ArrayList(usize).new();
+  (si : usize) = usize(0);
+  while(si < exprs.len(), {
+    match(
+      exprs.get(si),
+      .Some(e) => _scan_idents(e, info_table, line, character, names, name_rows, name_cols, name_expr_ids, name_index, env_holder, env_depth),
+      .None => ()
+    );
+    si = (si + usize(1));
+  });
+  emitted := HashSet(String).new();
+  (ni : usize) = usize(0);
+  while(ni < names.len(), {
+    name := names(ni);
+    if(!(_hidden_name(name.clone())) && _matches_prefix(name.clone(), prefix_lower.clone()), {
+      _e := emitted.add(name.clone());
+      (detail : String) = String.new();
+      (kind : usize) = K_VARIABLE;
+      eid := match(name_expr_ids.get(ni), .Some(x) => x, .None => usize(0));
+      match(
+        expr_info_table_get(info_table, eid),
+        .Some(info) => {
+          detail = type_to_string(info.ty);
+          match(
+            info.ty,
+            .Func(_, _, _, _, _, _, _) => {
+              kind = K_FUNCTION;
+            },
+            _ => ()
+          );
+        },
+        .None => ()
+      );
+      items.push(_ci(name.clone(), kind, detail, _sort_key(name.clone(), prefix_lower.clone()), String.new()));
+    });
+    ni = (ni + usize(1));
+  });
+  // Env bindings not already emitted: prelude types (Option, Result, …) and
+  // imports the document has not referenced yet.
+  if(env_holder.len() > usize(0), {
+    env := env_holder(usize(0));
+    (fi : usize) = usize(0);
+    while(fi < env.frames.len(), {
+      match(
+        env.frames.get(fi),
+        .Some(frame) => {
+          (vi2 : usize) = usize(0);
+          while(vi2 < frame.variables.len(), {
+            match(
+              frame.variables.get(vi2),
+              .Some(v) => {
+                vname := v.name.clone();
+                fresh := (
+                  ((vname.len() > usize(0)) && !(emitted.contains(vname.clone()))) &&
+                    (!(_hidden_name(vname.clone())) && _matches_prefix(vname.clone(), prefix_lower.clone()))
+                );
+                if(fresh, {
+                  _e2 := emitted.add(vname.clone());
+                  is_fn := match(v.ty, .Func(_, _, _, _, _, _, _) => true, _ => false);
+                  kind2 := cond(is_fn => K_FUNCTION, true => K_VARIABLE);
+                  items.push(_ci(vname.clone(), kind2, type_to_string(v.ty), _sort_key(vname.clone(), prefix_lower.clone()), String.new()));
+                });
+              },
+              .None => ()
+            );
+            vi2 = (vi2 + usize(1));
+          });
+        },
+        .None => ()
+      );
+      fi = (fi + usize(1));
+    });
+  });
+  kws := _keywords();
+  (ki : usize) = usize(0);
+  while(ki < kws.len(), {
+    kw := kws(ki);
+    if(!(emitted.contains(kw.clone())) && _matches_prefix(kw.clone(), prefix_lower.clone()), {
+      _e3 := emitted.add(kw.clone());
+      items.push(_ci(kw.clone(), K_KEYWORD, String.new(), _sort_key(kw.clone(), prefix_lower.clone()), String.new()));
+    });
+    ki = (ki + usize(1));
+  });
+  JsonValue.Array(items : items)
+});
+export(handle_completion);
