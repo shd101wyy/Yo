@@ -36,3 +36,15 @@ Any USER project (which by definition has a build.yo) hits this shape while
 typing — methods vanish from completion until the buffer parses again. Not
 a P1/P2 gate blocker, but a real editor-UX regression to fix in the LSP
 work.
+
+---
+
+**RETIRED 2026-08-22.** This snapshot describes the retired TypeScript
+server's mechanics (`LspDocumentManager.ensureBuildImportsResolved`,
+`lastGoodModules` + trait-field snapshots) — all deleted with `src/` in
+P2.5. The Yo-native server (`src/lsp/`, P4) never evaluates the project's
+build.yo during analysis: `analyze_document` rides `module_manager`
+directly (cached prelude env + demand-loaded imports only), so the
+degradation mechanism does not exist. If build.yo-aware analysis is ever
+added (project-level import roots), guard against re-introducing this
+shape.
