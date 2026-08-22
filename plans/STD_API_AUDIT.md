@@ -49,7 +49,7 @@ Ranked by severity; none of these are API-design questions.
 | C4 | `DateTime.to_string` always emits `Z`, ignoring the struct's own `utc_offset_secs` — non-UTC values stringify as UTC | `std/time/datetime.yo` |
 | C5 | `crypto.random_range` is modulo-biased (no rejection sampling) — a bias defect in a module advertising crypto security; `random_f64` returns closed `[0,1]` not `[0,1)` | `std/crypto/random.yo` |
 | C6 | `f32`/`f64` implement `BitAnd/BitOr/BitXor/BitNot` (C rejects float bitwise — likely doesn't even codegen); `bool` implements `Add/Sub/Mul/Div/Mod/Negate/shifts` (~290 lines); unsigned ints implement `Negate` | `std/prelude.yo` (impl blocks) |
-| C7 | **GC `Trace` gaps in `imm/`**: `Vec` (`_ptr : *(T)`), `MapBranch` (`_children_ptr`), `MapCollision` (`_pairs_ptr`) hold managed values in raw buffers with NO `Trace` impl — same shape ArrayList/HashMap explicitly hand-trace | `std/imm/vec.yo`, `std/imm/map.yo` |
+| C7 | ~~GC `Trace` gaps in `imm/`~~ **RECLASSIFIED 2026-08-22 (wrong premise):** the imm family is ATOMIC RC, and `__yo_decr_rc_atomic` does no cycle bookkeeping by design (Arc pattern — atomic objects are never GC-tracked), so a `Trace` impl there would be dead code; the ArrayList analogy does not transfer (ArrayList is thread-local RC). The REAL issue: `Arc(V)` requires `V <: (Send, Acyclic)` while imm types require only `Send`, so a cycle routed through an imm structure leaks silently and unavoidably. → S2 decision (new **O7**): require `Acyclic` on imm element types like Arc does (breaking), or keep `Send`-only and document the leak. Module docs now warn either way. | `std/imm/*` |
 | C8 | `Channel.send` DROPS the value on failure (`Result(unit, unit)`); Rust returns `SendError(T)` | `std/sync/channel.yo` |
 | C9 | `walker.WalkOptions.follow_symlinks` is declared and never read | `std/fs/walker.yo` |
 | C10 | `Instant.now()`/`DateTime.now_utc()` discard `clock_gettime`'s return code — a failing clock silently yields epoch | `std/time/instant.yo`, `datetime.yo` |
@@ -301,6 +301,10 @@ mmap/file-lock/statfs wrappers; `gc.stats`; DNS SRV/TXT/reverse
   package until it has real consumers?
 - **O5**: `Debug`/`Display` split vs single `ToString` (recommended: single)?
 - **O6**: does `CustomAllocator` ever plumb into collections, or delete?
+- **O7**: imm family element bounds — require `Acyclic` like `Arc` (breaking;
+  makes the no-cycle-collection design sound) vs keep `Send`-only with the
+  documented leak (see the C7 reclassification: atomic RC objects are never
+  GC-tracked, so cycles through imm structures cannot be reclaimed)?
 
 ## 9. Phasing
 
