@@ -97,7 +97,10 @@ test("random_f64 in range 0 to 1", {
   while(i < usize(100), i = (i + usize(1)), {
     v := random_f64(exn);
     assert(v >= f64(0.0), "random_f64 should be >= 0");
-    assert(v <= f64(1.0), "random_f64 should be <= 1");
+    // Half-open [0,1): 1.0 is unreachable by construction (53-bit grid,
+    // plans/STD_API_AUDIT.md C5). Statistical bias itself is not
+    // red-testable; the fix is verified by construction + review.
+    assert(v < f64(1.0), "random_f64 must be strictly < 1 (half-open range)");
   });
 });
 // ===== random_range tests =====
@@ -175,4 +178,24 @@ test("uuid_v4 uniqueness", {
   id1 := uuid_v4(exn);
   id2 := uuid_v4(exn);
   assert(id1 != id2, "two UUIDs should be unique");
+});
+test("random_range stays in-bounds across many draws (rejection sampling)", {
+  // plans/STD_API_AUDIT.md C5: the old `r % span` mapping was modulo-biased.
+  // Bias is statistical and not red-testable in a unit test; this guards the
+  // rejection-sampling rewrite's bounds and its retry loop's termination
+  // (an awkward span near a power of two exercises the reject path).
+  exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  i := usize(0);
+  while(i < usize(2000), i = (i + usize(1)), {
+    v := random_range(i64(-(7)), i64(6), exn);
+    assert(v >= i64(-(7)), "random_range lower bound");
+    assert(v < i64(6), "random_range upper bound (exclusive)");
+  });
 });

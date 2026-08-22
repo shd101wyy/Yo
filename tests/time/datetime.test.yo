@@ -131,3 +131,41 @@ test("DateTime.to_string ISO 8601 format", {
   unsafe(printf("  epoch string = %s\n", s.to_cstr().ptr().unwrap()));
   assert(s == `1970-01-01T00:00:00Z`, "epoch should format as ISO 8601");
 });
+test("to_string renders the UTC offset instead of lying with Z", {
+  // plans/STD_API_AUDIT.md C4: to_string hardcoded the "Z" suffix, so a
+  // DateTime carrying a non-zero utc_offset_secs stringified as if it were
+  // UTC. RFC3339: "Z" only when the offset is zero, ±HH:MM otherwise.
+  dt_utc := DateTime(
+    year : i32(2026),
+    month : u8(8),
+    day : u8(22),
+    hour : u8(10),
+    minute : u8(30),
+    second : u8(0),
+    nanosecond : u32(0),
+    utc_offset_secs : i32(0)
+  );
+  assert(dt_utc.to_string() == `2026-08-22T10:30:00Z`, "zero offset keeps the Z suffix");
+  dt_plus := DateTime(
+    year : i32(2026),
+    month : u8(8),
+    day : u8(22),
+    hour : u8(18),
+    minute : u8(30),
+    second : u8(0),
+    nanosecond : u32(0),
+    utc_offset_secs : i32(28800)
+  );
+  assert(dt_plus.to_string() == `2026-08-22T18:30:00+08:00`, "positive offset renders +HH:MM");
+  dt_minus := DateTime(
+    year : i32(2026),
+    month : u8(8),
+    day : u8(22),
+    hour : u8(4),
+    minute : u8(0),
+    second : u8(0),
+    nanosecond : u32(0),
+    utc_offset_secs : i32(-(16200))
+  );
+  assert(dt_minus.to_string() == `2026-08-22T04:00:00-04:30`, "negative offset renders -HH:MM incl. minutes");
+});
