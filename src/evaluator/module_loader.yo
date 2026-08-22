@@ -30,6 +30,7 @@ open(import("std/string"));
 { TypeValue } :: import("../types/definitions.yo");
 { Environment } :: import("../env.yo");
 { LoadModuleResult } :: import("./context.yo");
+{ set_registration_owner } :: import("./values/type_trait_methods.yo");
 // ---------------------------------------------------------------------------
 // In-progress (currently-loading) registry — enables CIRCULAR imports under
 // demand-driven loading (main.yo `demand_load_module`). When module A is mid-
@@ -40,10 +41,22 @@ open(import("std/string"));
 // ---------------------------------------------------------------------------
 (g_loading_keys : ArrayList(String)) = ArrayList(String).new();
 (g_loading_envs : ArrayList(Environment)) = ArrayList(Environment).new();
+/// Keep the registries' owner tag in sync with the loading-stack top
+/// (Phase B2, plans/INCREMENTAL_COMPILATION.md). The tag lives in
+/// type_trait_methods.yo — see `set_registration_owner`'s doc there.
+_sync_registration_owner :: (fn() -> unit)({
+  n := g_loading_keys.len();
+  owner := cond(
+    (n > usize(0)) => match(g_loading_keys.get(n - usize(1)), .Some(k) => k.clone(), .None => String.new()),
+    true => String.new()
+  );
+  set_registration_owner(owner);
+});
 /// Register `path` as currently-loading with its live evaluation `env`.
 register_loading :: (fn(path : String, env : Environment) -> unit)({
   g_loading_keys.push(path);
   g_loading_envs.push(env);
+  _sync_registration_owner();
 });
 /// Remove the most-recent loading entry for `path` (LIFO — nested loads).
 unregister_loading :: (fn(path : String) -> unit)({
@@ -55,12 +68,22 @@ unregister_loading :: (fn(path : String) -> unit)({
       .Some(k) => if(k == path, {
         g_loading_keys.remove(i, usize(1));
         g_loading_envs.remove(i, usize(1));
+        _sync_registration_owner();
         return(());
       }),
       .None => ()
     );
   });
 });
+/// The abs path of the module currently being evaluated (top of the
+/// loading stack), or `.None` outside any module evaluation. The demand
+/// loader uses it to attribute import-graph edges to their importer.
+current_loading_module :: (fn() -> Option(String))(
+  cond(
+    (g_loading_keys.len() > usize(0)) => g_loading_keys.get(g_loading_keys.len() - usize(1)),
+    true => Option(String).None
+  )
+);
 /// The live env of a currently-loading module, or `.None`.
 loading_env :: (fn(path : String) -> Option(Environment))({
   (i : usize) = g_loading_keys.len();
@@ -83,6 +106,44 @@ loading_env :: (fn(path : String) -> Option(Environment))({
 (g_module_cache_keys : ArrayList(String)) = ArrayList(String).new();
 (g_module_cache_vals : ArrayList(EvalValue)) = ArrayList(EvalValue).new();
 (g_module_cache_types : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
+// Import graph, as parallel edge arrays: `g_import_edge_importers(i)`
+// imported `g_import_edge_imports(i)` (both `file://…` abs paths). Fed by
+// the demand loader on EVERY import request — cache hits included, since a
+// hit is still a dependency. Consumed by `invalidate_module`'s
+// reverse-closure walk (plans/INCREMENTAL_COMPILATION.md Phase B1).
+(g_import_edge_importers : ArrayList(String)) = ArrayList(String).new();
+(g_import_edge_imports : ArrayList(String)) = ArrayList(String).new();
+/// Record that `importer` imports `imported`. Exact-pair duplicates are
+/// dropped (a module importing the same dep from several sites is one edge).
+record_import_edge :: (fn(importer : String, imported : String) -> unit)({
+  (i : usize) = usize(0);
+  n := g_import_edge_importers.len();
+  while(i < n, {
+    same := (
+      match(g_import_edge_importers.get(i), .Some(a) => (a == importer), .None => false) &&
+        match(g_import_edge_imports.get(i), .Some(b) => (b == imported), .None => false)
+    );
+    if(same, {
+      return(());
+    });
+    i = (i + usize(1));
+  });
+  g_import_edge_importers.push(importer);
+  g_import_edge_imports.push(imported);
+});
+/// Drop every outgoing edge of `importer`. Called when a module is
+/// invalidated: its re-evaluation re-records its (possibly changed) edges.
+_drop_edges_from :: (fn(importer : String) -> unit)({
+  (i : usize) = g_import_edge_importers.len();
+  while(i > usize(0), {
+    i = (i - usize(1));
+    same := match(g_import_edge_importers.get(i), .Some(a) => (a == importer), .None => false);
+    if(same, {
+      g_import_edge_importers.remove(i, usize(1));
+      g_import_edge_imports.remove(i, usize(1));
+    });
+  });
+});
 /// Reset the cache. Call between independent `check` runs so module
 /// values from a previous file don't leak into the next.
 clear_module_cache :: (fn() -> unit)({
@@ -91,6 +152,9 @@ clear_module_cache :: (fn() -> unit)({
   g_module_cache_types = ArrayList(TypeValue).new();
   g_loading_keys = ArrayList(String).new();
   g_loading_envs = ArrayList(Environment).new();
+  g_import_edge_importers = ArrayList(String).new();
+  g_import_edge_imports = ArrayList(String).new();
+  set_registration_owner(String.new());
   ()
 });
 /// Find the cache index for `path`, or `.None`.
@@ -151,6 +215,74 @@ load_module_from_cache :: (fn(path : String) -> LoadModuleResult)(
     )
   )
 );
+/// Drop one module's cache entry (no-op when absent). Its dependencies
+/// stay cached; its own outgoing import edges are dropped so the
+/// re-evaluation records them fresh.
+remove_module :: (fn(path : String) -> unit)({
+  match(
+    _module_cache_index(path.clone()),
+    .Some(i) => {
+      g_module_cache_keys.remove(i, usize(1));
+      g_module_cache_vals.remove(i, usize(1));
+      g_module_cache_types.remove(i, usize(1));
+    },
+    .None => ()
+  );
+  _drop_edges_from(path);
+});
+/// Invalidate `path`: remove it AND every transitive DEPENDENT (reverse
+/// edge closure) from the cache, so no cached module keeps exports built
+/// against the old version. Dependencies of the removed set stay cached —
+/// they are unchanged. Returns the removed abs paths (the Phase B2 registry
+/// purge consumes this). plans/INCREMENTAL_COMPILATION.md Phase B1.
+invalidate_module :: (fn(path : String) -> ArrayList(String))({
+  removed := ArrayList(String).new();
+  worklist := ArrayList(String).new();
+  worklist.push(path);
+  while(worklist.len() > usize(0), {
+    p := match(
+      worklist.pop(),
+      .Some(x) => x,
+      .None => {
+        return(removed);
+      }
+    );
+    (already : bool) = false;
+    (ri : usize) = usize(0);
+    while(ri < removed.len(), {
+      match(
+        removed.get(ri),
+        .Some(r) => if(r == p, {
+          already = true;
+        }),
+        .None => ()
+      );
+      ri = (ri + usize(1));
+    });
+    if(!(already), {
+      removed.push(p.clone());
+      // Collect p's dependents BEFORE remove_module drops p's own edges
+      // (dependents are INCOMING edges — unaffected — but keep the order
+      // obvious anyway).
+      (ei : usize) = usize(0);
+      while(ei < g_import_edge_imports.len(), {
+        hits := match(g_import_edge_imports.get(ei), .Some(t) => (t == p), .None => false);
+        if(hits, {
+          match(
+            g_import_edge_importers.get(ei),
+            .Some(dep) => {
+              worklist.push(dep);
+            },
+            .None => ()
+          );
+        });
+        ei = (ei + usize(1));
+      });
+      remove_module(p);
+    });
+  });
+  removed
+});
 export(
   clear_module_cache,
   module_cache_has,
@@ -158,5 +290,9 @@ export(
   load_module_from_cache,
   register_loading,
   unregister_loading,
-  loading_env
+  loading_env,
+  current_loading_module,
+  record_import_edge,
+  remove_module,
+  invalidate_module
 );

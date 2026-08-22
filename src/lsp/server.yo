@@ -36,7 +36,7 @@ open(import("std/fmt"));
 { handle_signature_help } :: import("./signature_help.yo");
 { handle_completion } :: import("./completion.yo");
 { format_yo_source } :: import("../formatter.yo");
-{ resolve_std_path } :: import("../module_manager.yo");
+{ resolve_std_path, mm_invalidate_document, mm_set_open_document, mm_forget_open_document } :: import("../module_manager.yo");
 { BufReader } :: import("std/sys/bufio/buf_reader");
 
 /// Per-document retained analysis: editor text + the last evaluation's
@@ -126,6 +126,14 @@ _analyze_and_publish :: (
   fn(uri : String, text : String, std_path : String, docs : HashMap(String, DocState), io : Io) -> unit
 )({
   fs_path := uri_to_fs_path(uri.clone());
+  // Phase B1 (plans/INCREMENTAL_COMPILATION.md): the editor holds this
+  // file's newest text — record it as the loader's open-buffer overlay,
+  // then drop any cached module built from an older version PLUS every
+  // transitive dependent. Together these make an edit to an IMPORTED file
+  // visible to the next analysis of any importing document (previously:
+  // invisible until the server restarted).
+  mm_set_open_document(fs_path.clone(), text.clone());
+  _inv := mm_invalidate_document(fs_path.clone());
   out_state := ArrayList(AnalyzeOutcome).new();
   diags := analyze_document(fs_path.clone(), text.clone(), std_path, io, out_state);
   match(
@@ -748,6 +756,11 @@ _handle_message :: (
             uri := _jfield_str(td, "uri");
             if(uri.len() > usize(0), {
               _r := docs.remove(uri.clone());
+              // Phase B1: the disk becomes this file's truth again — drop
+              // the open-buffer overlay and anything cached from it.
+              closed_fs := uri_to_fs_path(uri.clone());
+              mm_forget_open_document(closed_fs.clone());
+              _inv2 := mm_invalidate_document(closed_fs);
               _publish_empty(uri);
             });
           },
