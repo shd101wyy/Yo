@@ -193,6 +193,14 @@ get_addr_in :: (fn(addr : *(u8)) -> u32)(
 get_family :: (fn(addr : *(u8)) -> u16)(
   __yo_sockaddr_get_family(addr)
 );
+// Get the port number from an IPv6 socket address buffer (host byte order).
+get_port_in6 :: (fn(addr : *(u8)) -> u16)(
+  __yo_sockaddr_in6_get_port(addr)
+);
+// Copy the 16-byte IPv6 address (network byte order) out of a sockaddr_in6.
+get_addr_in6 :: (fn(addr : *(u8), out : *(u8)) -> unit)(
+  __yo_sockaddr_in6_get_addr(addr, out)
+);
 // ============================================================================
 // Byte Order Helpers
 // ============================================================================
@@ -220,6 +228,8 @@ export(
   get_port_in,
   get_addr_in,
   get_family,
+  get_port_in6,
+  get_addr_in6,
   htons,
   ntohs,
   htonl,

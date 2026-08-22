@@ -26,6 +26,7 @@ open(import("../fmt"));
 { IpAddr, SocketAddr } :: import("./addr");
 { Error, AnyError, Exception, IoExn } :: import("../error");
 IO_tcp :: import("../sys/tcp");
+SockInfo :: import("../sys/sockinfo");
 { AF_INET, AF_INET6, SOCK_STREAM, SOL_SOCKET, SO_REUSEADDR, IPPROTO_TCP, TCP_NODELAY, SO_KEEPALIVE } :: import("../sys/socket");
 // ============================================================================
 // Internal helpers
@@ -41,11 +42,47 @@ _make_sockaddr :: (fn(addr : SocketAddr) -> IO_tcp.SockAddr)(
       unsafe(snprintf(*(char)(&(buf(usize(0)))), usize(16), "%d.%d.%d.%d", i32(a), i32(b), i32(c), i32(d)));
       IO_tcp.make_sockaddr_in(&(buf(usize(0))), addr.port)
     },
-    .V6(_) =>
-      // For V6, create loopback for now
-      IO_tcp.make_sockaddr_in6(*(u8)("::1"), addr.port)
+    .V6(_) => {
+      // Render the real address text (full uncompressed hex form — valid
+      // inet_pton input). This used to hardcode "::1" for EVERY V6 address
+      // (plans/STD_API_AUDIT.md C2).
+      ip_txt := addr.ip.to_string();
+      ip_c := ip_txt.to_cstr();
+      IO_tcp.make_sockaddr_in6(ip_c.ptr().unwrap(), addr.port)
+    }
   )
 );
+// Parse a low-level sockaddr buffer (as filled in by accept/getsockname)
+// back into a SocketAddr. Unknown families fall back to 0.0.0.0:0.
+_sockaddr_to_socket_addr :: (fn(buf : *(u8)) -> SocketAddr)({
+  fam := IO_tcp.get_family(buf);
+  cond(
+    (fam == u16(AF_INET)) => {
+      v := IO_tcp.ntohl(IO_tcp.get_addr_in(buf));
+      ip := IpAddr.V4(
+        u8((v >> u32(24)) & u32(255)),
+        u8((v >> u32(16)) & u32(255)),
+        u8((v >> u32(8)) & u32(255)),
+        u8(v & u32(255))
+      );
+      SocketAddr.new(ip, IO_tcp.get_port_in(buf))
+    },
+    (fam == u16(AF_INET6)) => {
+      bytes := Array(u8, usize(16)).fill(u8(0));
+      IO_tcp.get_addr_in6(buf, &(bytes(usize(0))));
+      segs := Array(u16, usize(8)).fill(u16(0));
+      i := usize(0);
+      while(runtime(i < usize(8)), {
+        hi := u16(bytes(i * usize(2)));
+        lo := u16(bytes((i * usize(2)) + usize(1)));
+        segs(i) = ((hi << u16(8)) | lo);
+        i = (i + usize(1));
+      });
+      SocketAddr.new(IpAddr.V6(segs), IO_tcp.get_port_in6(buf))
+    },
+    true => SocketAddr.new(IpAddr.any_v4(), u16(0))
+  )
+});
 _throw_io :: (fn(errno_val : i32, exn : Exception) -> unit)(
   exn.throw(dyn(NetError.from_io(IoError.from_errno(errno_val))))
 );
@@ -107,7 +144,20 @@ impl(
         },
         true => ()
       );
-      return(TcpListener(_fd : fd, _local_addr : addr, _is_closed : false));
+      // Read back the ACTUAL bound address — a port-0 bind gets its port
+      // from the kernel; echoing the bind argument reported port 0
+      // (plans/STD_API_AUDIT.md C2).
+      la_buf := *(u8)(malloc(usize(128)).unwrap());
+      la_len := *(u32)(malloc(usize(4)).unwrap());
+      la_len.* = u32(128);
+      gsn := SockInfo.getsockname(fd, la_buf, la_len);
+      local := cond(
+        (gsn == i32(0)) => _sockaddr_to_socket_addr(la_buf),
+        true => addr
+      );
+      free(.Some(*(void)(la_buf)));
+      free(.Some(*(void)(la_len)));
+      return(TcpListener(_fd : fd, _local_addr : local, _is_closed : false));
     })
   ),
   /// Accept an incoming connection, returning a new `TcpStream`.
@@ -127,11 +177,11 @@ impl(
         },
         true => ()
       );
-      // Extract peer address info
-      peer_port := IO_tcp.get_port_in(addr_buf);
+      // Parse the peer address the kernel filled in. This used to read only
+      // the port and fabricate 0.0.0.0 as the IP (plans/STD_API_AUDIT.md C2).
+      peer_addr := _sockaddr_to_socket_addr(addr_buf);
       free(.Some(*(void)(addr_buf)));
       free(.Some(*(void)(addr_len)));
-      peer_addr := SocketAddr.new(IpAddr.any_v4(), peer_port);
       return(
         TcpStream(
           _fd : client_fd,

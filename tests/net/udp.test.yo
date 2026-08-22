@@ -138,3 +138,26 @@ test("UdpSocket set_broadcast", {
   unsafe(printf("  broadcast ok\n"));
   io.await(sock.close(io), IoExn(io : io, exn : exn));
 });
+test("UDP bind to a non-local IPv6 address must fail (was: sockaddr hardcoded ::1)", {
+  // plans/STD_API_AUDIT.md C2: udp's _make_sockaddr had the same hardcoded
+  // "::1" as tcp's, so binding 2001:db8::1 silently bound the loopback.
+  segs := Array(u16, usize(8)).fill(u16(0));
+  segs(usize(0)) = u16(8193);
+  // 0x2001
+  segs(usize(1)) = u16(3512);
+  // 0x0db8
+  segs(usize(7)) = u16(1);
+  doc_addr := SocketAddr.new(IpAddr.V6(segs), u16(0));
+  exn := Exception(
+    throw : (
+      (err) -> {
+        msg := err.to_string();
+        unsafe(printf("  bind(2001:db8::1) correctly failed: %s\n", msg.to_cstr().ptr().unwrap()));
+        unwind(());
+      }
+    )
+  );
+  sock := io.await(UdpSocket.bind(doc_addr, io), IoExn(io : io, exn : exn));
+  io.await(sock.close(io), IoExn(io : io, exn : exn));
+  assert(false, "UDP bind to non-local 2001:db8::1 must fail — the sockaddr was hardcoded to ::1");
+});
