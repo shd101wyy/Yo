@@ -330,10 +330,15 @@ After the macOS system-allocator flip
 show memory management is STILL ~40% of remaining CPU:
 
 - **`__yo_decr_rc` ≈ 16% self time** — the single biggest named cost, stable
-  across early/late phases. Lever: inline the non-final fast path
-  (decrement + branch) at the drop site in emitted C and call the runtime
-  only on hitting zero / GC bookkeeping. Campaign-sized (touches every drop
-  in the emitted C; fixpoint + UAF-history gates apply).
+  across early/late phases. NOT an inlining opportunity: it is already
+  `static inline` with a TLS-free untracked fast path (the earlier campaign
+  that cut it from a measured 54% — see the comment at
+  `src/codegen/functions/gc_runtime.yo:328-335`). The remaining cost is
+  (a) the header cache miss every drop takes touching `gc_flags`/`ref_count`
+  across ~50 M live headers and (b) the tracked-object slow path
+  (add_root/recolor). Levers are therefore the same two as for allocation
+  volume: FEWER objects (capture_env_for share) and SMALLER headers (§4's
+  56→24 B diet — density = fewer misses), not decr_rc itself.
 - **libsystem malloc/free ≈ 16% + memset/memmove/memcmp ≈ 7%** — allocation
   VOLUME. Levers, in order: the open `capture_env_for` share (§3 second
   site), the String-identity plumbing below, then §4's RC-header diet
