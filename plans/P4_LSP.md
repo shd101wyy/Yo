@@ -21,7 +21,7 @@ anchors — works, but a typed channel is cleaner); doc-comment plumbing
 (`Variable.doc_comment` has a single producer, so hover misses many doc
 comments); inlay hints deliberately dropped (attic shipped them disabled);
 and the incremental-compilation arc for the two documented invalidation
-gaps (`plans/backlog/INCREMENTAL_COMPILATION.md`).
+gaps (`plans/INCREMENTAL_COMPILATION.md`).
 
 **Kickoff decisions (2026-08-22, maintainer-approved direction):**
 - Slice order adjusted: transport FIRST (slice 1+2 together) — most
@@ -36,7 +36,7 @@ gaps (`plans/backlog/INCREMENTAL_COMPILATION.md`).
   in diagnostics.yo): imported-file edits invisible until restart, and
   per-edit re-registration leaks registry entries — both are the
   incremental-compilation arc
-  (plans/backlog/INCREMENTAL_COMPILATION.md, reopened by this kickoff).
+  (plans/INCREMENTAL_COMPILATION.md, reopened by this kickoff).
 - `json_parse_string`/`json_parse_bytes` were added to std
   (std/encoding/json.yo generalized to bytes — `json_parse` took the
   STATIC `str` view, unusable on runtime input).
