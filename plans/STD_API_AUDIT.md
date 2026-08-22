@@ -53,7 +53,7 @@ Ranked by severity; none of these are API-design questions.
 | C8 | `Channel.send` DROPS the value on failure (`Result(unit, unit)`); Rust returns `SendError(T)` | `std/sync/channel.yo` |
 | C9 | `walker.WalkOptions.follow_symlinks` is declared and never read | `std/fs/walker.yo` |
 | C10 | `Instant.now()`/`DateTime.now_utc()` discard `clock_gettime`'s return code — a failing clock silently yields epoch | `std/time/instant.yo`, `datetime.yo` |
-| C11 | `decode_html` carries three `// TODO: proper break` overflow hacks | `std/encoding/html.yo` |
+| C11 | `decode_html` carries three `// TODO: proper break` overflow hacks — analyzed 2026-08-22: contorted but functionally correct. BLOCKED on a bigger find: the module is UNTESTABLE — `html_entities.yo`'s runtime map build emits one ~2,125-insert C function that CRASHES clang at -O0 (why zero tests exist). Rewrite entities to static data first, then land the prepared test suite, then this cleanup: issues/html-entities-runtime-map-uncompilable-in-tests.md | `std/encoding/html.yo` |
 | C12 | `TempDir`/`TempFile` doc says "RAII-managed" but neither implements `Dispose`; `BufWriter` has no `Dispose` so buffered bytes are silently lost | `std/fs/temp.yo`, `std/sys/bufio/buf_writer.yo` |
 | C13 | `sync/rwlock` doc claims atomicity it doesn't have; `mutex.yo` doc says `Drop` where the trait is `Dispose`; `Channel`/`WaitGroup` doc examples call `Thread.spawn(() => …)` against the real `(io : Io)` signature; `imm/map.yo` docstring demos an `Index` impl the type doesn't have; `ArgParser` doc shows three methods that don't exist; `toml.yo` doc imports a nonexistent `std/encoding` barrel | various |
 
