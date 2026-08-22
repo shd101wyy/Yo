@@ -4,13 +4,14 @@ on:
   workflow_dispatch:
     inputs:
       bump:
-        description: "Version bump type"
+        description: "Version bump type ('none' RESUMES an interrupted release at the version already in src/version.yo — use after a run died past its version-bump commit)"
         required: true
         default: "patch"
         type: choice
         options:
           - patch
           - minor
+          - none
 
 env:
   # The previous-release seed used by the seed-driven steps below (the musl
@@ -81,7 +82,13 @@ jobs:
           # gate on its PARENT in that case.
           MSG=$(git log -1 --pretty=%s)
           if [[ "$MSG" == "chore: bump version"* ]]; then
-            NON_PKG=$(git diff --name-only HEAD~1 HEAD | grep -cvE '^(package\.json|vscode-extension/package\.json)$' || true)
+            # The exclusion list is EVERY file the bump commit writes (see the
+            # "Commit version bump" step). It originally named only the two
+            # package.json files, so a real bump commit (which also touches
+            # src/version.yo and package-lock.json) failed the purity test and
+            # the gate demanded a test run for a [skip ci] commit — which can
+            # never exist. That blocked the bump=none resume path.
+            NON_PKG=$(git diff --name-only HEAD~1 HEAD | grep -cvE '^(package\.json|vscode-extension/package\.json|vscode-extension/package-lock\.json|src/version\.yo)$' || true)
             if [[ "$NON_PKG" == "0" ]]; then
               SHA=$(git rev-parse HEAD~1)
               echo "HEAD is a pure version bump — gating on parent $SHA"
@@ -118,6 +125,11 @@ jobs:
           case "${{ inputs.bump }}" in
             patch) PA=$((PA + 1)) ;;
             minor) MI=$((MI + 1)); PA=0 ;;
+            # Resume mode: a previous run already bumped src/version.yo and
+            # pushed the bump commit before dying (v0.2.16's first attempt
+            # died at the site build, AFTER the bump + Marketplace publish).
+            # Re-release the version the tree already pins.
+            none) ;;
             *) echo "::error::unsupported bump '${{ inputs.bump }}'"; exit 1 ;;
           esac
           NEW_VERSION="$MA.$MI.$PA"
@@ -154,6 +166,14 @@ jobs:
             exit 0
           fi
           echo "Marketplace currently has $LIVE"
+          # Resume guard: if the Marketplace already carries the version being
+          # released, the previous (interrupted) run published it — a second
+          # `vsce publish` of the same number is a guaranteed rejection.
+          if [ "$LIVE" = "${{ steps.version.outputs.version }}" ]; then
+            echo "Marketplace already has v$LIVE (this release's version) — SKIPPING the publish."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           if ! git rev-parse -q --verify "v$LIVE^{commit}" >/dev/null; then
             echo "::warning::No local tag v$LIVE to diff against — publishing unconditionally."
             echo "changed=true" >> "$GITHUB_OUTPUT"
@@ -199,7 +219,13 @@ jobs:
       - name: Get last commit message
         id: last_commit
         run: |
-          LAST_COMMIT_MSG=$(git log -1 --pretty=%B)
+          # On a bump=none resume HEAD is the previous run's own
+          # "chore: bump version" commit — quote the real change under it.
+          REF=HEAD
+          if [[ "$(git log -1 --pretty=%s)" == "chore: bump version"* ]]; then
+            REF=HEAD~1
+          fi
+          LAST_COMMIT_MSG=$(git log -1 --pretty=%B "$REF")
           echo "message<<EOF" >> $GITHUB_OUTPUT
           echo "$LAST_COMMIT_MSG" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
@@ -228,14 +254,21 @@ jobs:
             fi
             git add "$f"
           done
-          git commit -m "chore: bump version to ${{ steps.version.outputs.version }} [skip ci]"
-          # The checkout used RELEASE_PAT (repository-admin ruleset bypass),
-          # so this direct push to the protected develop succeeds — no
-          # version-bump PR, no second dispatch. If it fails, the PAT is
-          # missing/expired: fail LOUDLY rather than releasing a tree whose
-          # version never landed on develop.
-          git push || { echo "::error::Direct push to develop failed — is the RELEASE_PAT secret set and unexpired (fine-grained, Contents: read/write)?"; exit 1; }
-          echo "Version bump pushed directly to develop."
+          # bump=none resume: the tree already pins this version, so the adds
+          # above stage nothing — committing would fail on an empty index.
+          # HEAD (the previous run's bump commit) is the release commit.
+          if git diff --cached --quiet; then
+            echo "No version changes to commit (bump=none resume) — releasing HEAD as-is."
+          else
+            git commit -m "chore: bump version to ${{ steps.version.outputs.version }} [skip ci]"
+            # The checkout used RELEASE_PAT (repository-admin ruleset bypass),
+            # so this direct push to the protected develop succeeds — no
+            # version-bump PR, no second dispatch. If it fails, the PAT is
+            # missing/expired: fail LOUDLY rather than releasing a tree whose
+            # version never landed on develop.
+            git push || { echo "::error::Direct push to develop failed — is the RELEASE_PAT secret set and unexpired (fine-grained, Contents: read/write)?"; exit 1; }
+            echo "Version bump pushed directly to develop."
+          fi
           echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
 
       # npm publishing STOPPED as of v0.2.0 (P2 retires the TS compiler —
@@ -341,7 +374,14 @@ jobs:
       - name: Install the seed compiler (for the site build)
         uses: ./.github/actions/install-seed
         with:
-          version: ${{ env.SEED_VERSION }}
+          # PINNED to v0.2.14, NOT env.SEED_VERSION — the same pin (and the
+          # same reason) as test.yml's docs-site job: the v0.2.15 seed's
+          # memory regression OOMs the hosted runner compiling
+          # scripts/build_site.yo. v0.2.16's first attempt died exactly here:
+          # 44 s of silence, then "runner has received a shutdown signal"
+          # (run 32567883597). Revert BOTH pins to env.SEED_VERSION at the
+          # next seed bump.
+          version: v0.2.14
 
       - name: Generate documentation website
         run: |
