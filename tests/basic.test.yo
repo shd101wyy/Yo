@@ -2341,3 +2341,18 @@ test("cond arm struct literal with `return` in field name", {
   assert(f.return_flag, "cond arm 1 must set return_flag = true");
   assert(!(f.other_flag), "cond arm 1 must leave other_flag = false");
 });
+test("locals named after Windows macros survive codegen", {
+  // windef.h defines the legacy Win16 set (near/far/pascal/...) to NOTHING,
+  // so an unmangled local named `near` emitted `if ()` on the windows
+  // target. sanitize_for_c_identifier now renames them
+  // (issues/fixed/emitted-c-locals-collide-with-windows-macros.md); this
+  // exercises the mangling end-to-end on every CI platform.
+  near := true;
+  far := i32(2);
+  interface := i32(3);
+  (small : i32) = i32(0);
+  if(near, {
+    small = (far + interface);
+  });
+  assert(small == i32(5), "windows-macro-named locals must behave as plain locals");
+});
