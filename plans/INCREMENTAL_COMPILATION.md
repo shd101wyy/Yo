@@ -1,12 +1,13 @@
 # Incremental compilation
 
-**Status: Phases A+B LANDED.** Phase A (build-runner artifact cache) LANDED
-(#213). Phase B (LSP-correct invalidation, B1 import-graph invalidation + B2
-registry purge-on-re-analysis) LANDED (#219) — measured ~37 s first open /
-~65 ms per edit on compiler-sized modules, registry sizes stable across
-repeated didChange. Phase C (cross-process evaluated-export reuse) stays
-deferred behind the env-graph snapshot problem. Original deferral rationale
-below, kept for the record.
+**Status: Phases A+B+C LANDED.** Phase A (build-runner artifact cache,
+#213). Phase B (LSP-correct invalidation, B1+B2, #219) — ~65 ms per edit on
+compiler-sized modules, registry sizes flat across edits. Phase C (revised
+scope: in-process `yo check --watch` / `yo build --watch` on the Phase B
+machinery) — a leaf edit re-checks its 3-file reverse closure in ~2.75 s vs
+the 95 s full pass. The ORIGINAL Phase C (cross-process evaluated-export
+reuse) stays deferred behind the env-graph snapshot problem — boundary
+analysis at the end of the Phase C section.
 
 Related batch-speed lever landed the same day (not incremental, but the same
 campaign): the macOS `yo build` allocator flip — `check ./src` went
@@ -22,7 +23,7 @@ output skips the child compile entirely. `YO_BUILD_NO_CACHE=1` disables.
 Gated by `tests/cli-cases/build-cache`. The second `yo build` of an
 unchanged project does no compilation.
 
-## Phase B — LSP-correct invalidation (CURRENT)
+## Phase B — LSP-correct invalidation (LANDED, #219)
 
 Two gaps, two sub-phases. Both are correctness-first: the speed story is
 that the module cache can then be TRUSTED across edits instead of the
@@ -106,13 +107,64 @@ A/B, 3 rounds each):
   closure) — the small-doc number above says nothing about evaluator-heavy
   documents.
 
-## Phase C — cross-process evaluated-export reuse (DEFERRED)
+## Phase C — in-process incrementality: `yo check --watch` (LANDED, revised scope)
 
-Serializing evaluated exports remains blocked on the shared env graph
-(7.4 M live `Variable`s at peak, `plans/backlog/YO_SELF_ENV_SHARING.md`)
-and on codegen's process-lifetime shared `ExprInfoTable`
-(`src/module_manager.yo`). Do not attempt until B has burned in and the
-env-sharing work gives the graph a snapshot boundary.
+The original Phase C (serialize evaluated exports across processes) stays
+deferred — see "The true cross-process boundary" below. The revised Phase C
+delivers the incrementality by KEEPING THE PROCESS ALIVE instead:
+`src/check_watch.yo` + the `--watch` / `--watch-once` / `--poll-ms` flags on
+`yo check`, and a thin `yo build --watch` loop.
+
+Mechanics: initial full pass, then an mtime/size poll (default 200 ms) over
+the collected file set; on change, ONE round = `mm_invalidate_document` per
+changed path (B1 reverse-closure drop + B2 registry purge) → re-check ONLY
+the entry files whose module key fell out of the cache (everything else is a
+module-cache hit; `mm_load_file` re-registers entries, so order within a
+round does not multiply work). Changed paths are canonicalized through
+`mm_resolve_entry_abs` (relative targets vs absolute `file://` cache keys).
+A std/prelude edit exits with a restart message — the cached prelude env is
+deliberately outside the invalidation machinery, and an in-process prelude
+reload double-registers the owner-less prelude registrations. fs_event
+(std/sys/events) was evaluated and deliberately NOT used in v1: on macOS the
+callback carries no path and on Linux only a per-dir entry name, so the
+mtime sweep (~1-3 ms for a src/-sized set) would still be the truth — the
+sweep alone suffices.
+
+Measured (M4, `yo check ./src --watch`, 261 files, cold full pass 95 s):
+- leaf edit (`src/lsp/folding.yo`): reverse closure = 3 files, round =
+  **2.75 s** (~35× the full check);
+- hub edit (`src/token.yo`): 220 files, round = 87 s — correctly bounded
+  above by the full check;
+- two-file fixture rounds: **2 ms**.
+
+`yo build --watch`: every round is a full `run_build` — artifacts compile in
+CHILD processes behind the Phase A stamp, so unchanged artifacts are no-ops
+and there is no parent evaluator state to keep warm. A failing round is
+reported and the loop continues.
+
+Gates: `tests/internal/check_watch.test.yo` (error→fix→clean rounds on a
+disk-backed fixture + registry-size flatness across 5 rounds) and
+`tests/cli-cases/check-watch-once` (`--watch-once` reads changed paths from
+stdin, runs one round, exits with the failure count — the golden pins the
+SELECTIVE recheck: only the importer re-parses).
+
+v1 limits (deliberate): the file set is fixed at startup (new files need a
+restart); deleted files re-report as FAILED entries; long-lived-process
+registry growth beyond the B2-purged pair (the fid-keyed side tables,
+specialization caches, `g_funcval_cap_vars`) is bounded only by session
+length — the follow-up is either owner-tagged purges for the GROW+SCAN
+tables or a counter-triggered self-restart valve.
+
+### The true cross-process boundary (Phase C original, still deferred)
+
+Reusing evaluated modules across BUILD invocations in one process fails on
+`run_compile`'s self-containment invariant (main.yo: fresh ExprInfoTable per
+compile — violating it produced 47 "Failed to transpile" markers on the
+second in-process compile). Lifting it requires a process-lifetime shared
+`ExprInfoTable` that invalidated modules re-populate in place, plus pruning
+for the fid-keyed function_value.yo registries codegen reads — i.e.
+per-module emit with stale-entry GC. That, or full serialization, remains
+the deferred cut.
 
 ---
 
