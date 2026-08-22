@@ -2356,3 +2356,44 @@ test("locals named after Windows macros survive codegen", {
   });
   assert(small == i32(5), "windows-macro-named locals must behave as plain locals");
 });
+LowAlignPayload :: enum(
+  Small(a : u8, b : u8, c : u8, d : u8),
+  Wide(segments : Array(u16, 8))
+);
+TagPadded :: struct(inner : LowAlignPayload, tail : u16);
+test("enum tag participates in alignment and struct tail padding", {
+  // issues/fixed/enum-alignment-ignores-tag-heap-corruption.md: the C tag is
+  // int-typed (4-aligned), so the enum aligns to 4 even though its payloads
+  // align to 2 — and the embedding struct gains C's tail padding (24, not
+  // 22). Pre-fix the evaluator said 22 and every ArrayList of TagPadded
+  // mixed a 22-byte stride with 24-byte C copies (heap overflow on the
+  // ASan CI legs).
+  assert(sizeof(LowAlignPayload) == usize(20), "enum: 4-byte tag + 16-byte payload");
+  assert(sizeof(TagPadded) == usize(24), "struct: 20 + 2 rounded up to align 4");
+  // Functional roundtrip across a growth boundary — the ASan legs check the
+  // memory behavior, every leg checks the values.
+  { ArrayList } :: import("std/collections/array_list");
+  l := ArrayList(TagPadded).new();
+  k := u16(0);
+  while(k < u16(6), {
+    segs := Array(u16, usize(8)).fill(u16(0));
+    segs(usize(0)) = (k + u16(100));
+    segs(usize(7)) = k;
+    l.push(TagPadded(inner : LowAlignPayload.Wide(segments : segs), tail : k));
+    k = (k + u16(1));
+  });
+  j := usize(0);
+  while(j < usize(6), {
+    e := l(j);
+    assert(e.tail == u16(j), "tail survives the growth copy");
+    match(
+      e.inner,
+      .Wide(segments) => {
+        assert(segments(usize(0)) == (u16(j) + u16(100)), "payload head survives");
+        assert(segments(usize(7)) == u16(j), "payload tail survives");
+      },
+      _ => assert(false, "variant survived")
+    );
+    j = (j + usize(1));
+  });
+});
