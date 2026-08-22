@@ -1023,6 +1023,7 @@ run_compile :: (
   (target_triple : String) = String.from("");
   (sysroot : String) = String.from("");
   (allocator : String) = String.from("system");
+  (emit_chunks : usize) = usize(0);
   (optimize : String) = String.from(""); // "" = unset; "0".."3"
   (sanitize : String) = String.from(""); // "" / "address" / "leak" / "thread"
   (cflags : String) = String.from("");
@@ -1215,6 +1216,11 @@ run_compile :: (
       (a == "--debug-gc") => {
         debug_gc = true;
         ai = (ai + usize(1));
+      },
+      (a == "--emit-chunks") => {
+        ecv := _arg_val_req(argv, ai, String.from("--emit-chunks"), exn);
+        emit_chunks = match(ecv.parse_u64(), .Some(n) => usize(n), .None => usize(0));
+        ai = (ai + usize(2));
       },
       (a == "--debug-parallelism") => {
         debug_parallelism = true;
@@ -1437,7 +1443,8 @@ run_compile :: (
     // Generate C11 from the evaluated module. A static library has no main()
     // wrapper (is_library = true). Allocator + debug-logging flags are threaded
     // through to the code generator (mirrors CodeGeneratorC.compileModule).
-    c_src := compile_module(module_value, ctx.expr_info_table, target, allocator.clone(), debug_gc, debug_parallelism, debug_async_await, static_library, ctx, env, exn);
+    chunk_parts := ArrayList(String).new();
+    c_src := compile_module(module_value, ctx.expr_info_table, target, allocator.clone(), debug_gc, debug_parallelism, debug_async_await, static_library, ctx, env, exn, chunk_parts);
     // --emit-c prints the generated C to stdout (module-manager.ts:473-475) —
     // and compilation continues; only --skip-c-compiler stops before the link.
     if(emit_c, {
@@ -1474,7 +1481,32 @@ run_compile :: (
         .None => ()
       );
     });
-    io.await(write_file(Path.new(c_path.clone()), c_src, io), IoExn(io : io, exn : exn));
+    cond(
+      (emit_chunks >= usize(1)) => {
+        // Chunked emission, step-1 degenerate mode (plans/CHUNKED_C_EMISSION.md):
+        // ONE all-static chunk that #includes the shared header — proves the
+        // split assembly end-to-end before the step-2 linkage work makes
+        // N > 1 linkable. The chunk file becomes the cc input (`c_path`).
+        shared_h := `${c_base}_shared.h`;
+        hdr := String.new();
+        hdr.push_string(match(chunk_parts.get(usize(0)), .Some(x) => x, .None => String.new()));
+        hdr.push_str("
+");
+        hdr.push_string(match(chunk_parts.get(usize(1)), .Some(x) => x, .None => String.new()));
+        io.await(write_file(Path.new(shared_h.clone()), hdr, io), IoExn(io : io, exn : exn));
+        chunk0 := `${c_base}_chunk000.c`;
+        cbody := String.new();
+        cbody.push_str("#include \"");
+        cbody.push_string(shared_h.clone());
+        cbody.push_str("\"\n");
+        cbody.push_string(match(chunk_parts.get(usize(2)), .Some(x) => x, .None => String.new()));
+        io.await(write_file(Path.new(chunk0.clone()), cbody, io), IoExn(io : io, exn : exn));
+        c_path = chunk0;
+      },
+      true => {
+        io.await(write_file(Path.new(c_path.clone()), c_src, io), IoExn(io : io, exn : exn));
+      }
+    );
   };
   // The scope above has dropped the AST, the evaluated module, the env, the
   // eval context and the 140 MB C string. The module-manager GLOBALS still
