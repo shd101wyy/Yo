@@ -80,12 +80,26 @@ IMPORTING document's next analysis; (b) a repeated-didChange case whose
 registry sizes are asserted stable via a debug counter (or, minimally, a
 dot-completion answer that stays correct and duplicate-free after N edits).
 
-### Measurement baseline (to collect at B kickoff)
+### Measurement baseline
 
-- `yo check ./src --std-path ./std` wall time on the dev machine
-- LSP re-analysis latency for one keystroke in a compiler-sized module
-  (didChange → publishDiagnostics, measured via the harness stdin clock)
-- Registry entry counts after 1 vs 50 re-analyses of the same document
+Measured 2026-08-22 on the Mac Mini M4 (both binaries -O2, interleaved
+A/B, 3 rounds each):
+
+- **A 12-message LSP session (initialize + didOpen + 10 didChange) on a
+  small ArrayList-importing document: ~0.34-0.35 s wall for the WHOLE
+  session** (~30 ms per analysis including the first one's prelude cost),
+  identical pre- and post-Phase-B — the invalidation + purge add no
+  measurable per-edit cost. All 11 publishDiagnostics verified present
+  (hollow-measurement check).
+- Registry growth per edit before B2 (the leak the red-first probe
+  demonstrated): each round grew both registries by the document's impl
+  surface; after B2 the counts are flat across rounds
+  (tests/internal/module_invalidation.test.yo).
+- Still to collect when it matters: `yo check ./src` wall time (whole-tree
+  check is the build-side number, not an LSP-latency one), and re-analysis
+  latency on a compiler-SIZED module (a src/ file with a deep import
+  closure) — the small-doc number above says nothing about evaluator-heavy
+  documents.
 
 ## Phase C — cross-process evaluated-export reuse (DEFERRED)
 
