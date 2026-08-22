@@ -3933,6 +3933,7 @@ Fix: wrap the call:
         cap_names := __fvm7.*.cap_names;
         cap_tys := __fvm7.*.cap_tys;
         func_id_fv := __fvm7.*.func_id;
+        fv_env_key := __fvm7.*.env_key;
         n_p := param_names.len();
         n_ev := evidence_names.len();
         (n_a : usize) = args.len();
@@ -5023,11 +5024,15 @@ Fix: wrap the call:
           });
         });
         // Build (or reuse) the function body's lexical environment from the
-        // FuncVal's flat capture snapshot. Memoised per closure instance by
-        // `capture_env_for` — re-binding every captured name on every call was
-        // 31 M `Variable` constructions per self-emit from this site alone.
+        // FuncVal's capture snapshot, memoised per closure instance by
+        // `capture_env_for`. With a registered `env_key` the frame holds the
+        // ORIGINAL Variable handles (plans/FUNCVAL_ENV_SHARING.md); the flat
+        // triple rebuild is the fallback (re-binding every captured name on
+        // every call was 31 M `Variable` constructions per self-emit from
+        // this site alone).
         fresh_env := capture_env_for(
           func_id_fv,
+          fv_env_key,
           cap_names,
           cap_tys,
           cap_vals,
@@ -5045,7 +5050,8 @@ Fix: wrap the call:
               body : body_box,
               cap_names : cap_names,
               cap_tys : cap_tys,
-              func_id : random_id(env.module_path)
+              func_id : random_id(env.module_path),
+              env_key : fv_env_key
             )
           ),
           cap_vals

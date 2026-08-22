@@ -47,6 +47,10 @@ open(import("std/fmt"));
   synthetic_token,
   snapshot_env,
   capture_env_for,
+  get_funcval_cap_vars,
+  make_capture_variable,
+  mint_funcval_env_key,
+  register_funcval_cap_vars,
   make_err_variable
 } :: import("../../env.yo");
 // dup-on-store / move for owned fn-call args (TS helper.ts:411-451). utils.yo
@@ -3117,6 +3121,32 @@ create_specialized_function_inline :: (
           new_cap_names := ArrayList(String).new();
           new_cap_tys := ArrayList(TypeValue).new();
           new_cap_vals := ArrayList(EvalValue).new();
+          // Campaign 2 (plans/FUNCVAL_ENV_SHARING.md step 3): the derived
+          // FuncVal inherits the original's SHARED handle list and appends
+          // the generic-binding Variables looked up below — so its calls
+          // build the capture env from handles too. If the original never
+          // registered (env_key 0), stay on the flat fallback.
+          new_cap_vars := ArrayList(Variable).new();
+          (new_env_key : usize) = usize(0);
+          (have_cap_vars : bool) = false;
+          match(
+            get_funcval_cap_vars(__fvm2.*.env_key),
+            .Some(pv) => {
+              have_cap_vars = true;
+              (pvi : usize) = usize(0);
+              while(pvi < pv.len(), {
+                match(
+                  pv.get(pvi),
+                  .Some(ph) => {
+                    new_cap_vars.push(ph);
+                  },
+                  .None => ()
+                );
+                pvi = (pvi + usize(1));
+              });
+            },
+            .None => ()
+          );
           // Re-use existing captures from original function
           (oci : usize) = usize(0);
           n_oc := cap_names.len();
@@ -3154,6 +3184,9 @@ create_specialized_function_inline :: (
                       new_cap_names.push(label);
                       new_cap_tys.push(ev.ty);
                       new_cap_vals.push(v);
+                      if(have_cap_vars, {
+                        new_cap_vars.push(ev);
+                      });
                     },
                     .None => ()
                   );
@@ -3168,6 +3201,10 @@ create_specialized_function_inline :: (
           // Create the specialized function value — carries the fresh-id CLONE
           // (not the shared original body) so codegen walks this specialization's
           // own nodes and reads its own per-node ExprInfo / method-callee entries.
+          if(have_cap_vars, {
+            new_env_key = mint_funcval_env_key();
+            register_funcval_cap_vars(new_env_key, new_cap_vars);
+          });
           specialized_func_val := EvalValue.FuncVal(
             box(
               FuncValData(
@@ -3178,7 +3215,8 @@ create_specialized_function_inline :: (
                 body : cloned_body,
                 cap_names : new_cap_names,
                 cap_tys : new_cap_tys,
-                func_id : specialized_func_id
+                func_id : specialized_func_id,
+                env_key : new_env_key
               )
             ),
             new_cap_vals
@@ -3841,6 +3879,7 @@ evaluate_ctl_function_body_inline :: (
   orig_cap_tys := match(original_func_val, .FuncVal(__fvd9, _) => __fvd9.*.cap_tys, _ => ArrayList(TypeValue).new());
   orig_cap_vals := match(original_func_val, .FuncVal(_, cv) => cv, _ => ArrayList(EvalValue).new());
   orig_func_id := match(original_func_val, .FuncVal(__fvd10, _) => __fvd10.*.func_id, _ => String.from("__err_ctl"));
+  orig_env_key := match(original_func_val, .FuncVal(__fvd11, _) => __fvd11.*.env_key, _ => usize(0));
   // -------------------------------------------------------------------------
   // Determine concreteTypeForForall from context.
   // For function-body contexts, it's the enclosing function's return type.
@@ -4058,6 +4097,29 @@ evaluate_ctl_function_body_inline :: (
   ctl_cap_names := ArrayList(String).new();
   ctl_cap_tys := ArrayList(TypeValue).new();
   ctl_cap_vals := ArrayList(EvalValue).new();
+  // Campaign 2 step 3: inherit the shared handle list + mint one capture
+  // Variable per generic binding (see plans/FUNCVAL_ENV_SHARING.md).
+  ctl_cap_vars := ArrayList(Variable).new();
+  (ctl_env_key : usize) = usize(0);
+  (ctl_have_vars : bool) = false;
+  match(
+    get_funcval_cap_vars(orig_env_key),
+    .Some(pv) => {
+      ctl_have_vars = true;
+      (pvi : usize) = usize(0);
+      while(pvi < pv.len(), {
+        match(
+          pv.get(pvi),
+          .Some(ph) => {
+            ctl_cap_vars.push(ph);
+          },
+          .None => ()
+        );
+        pvi = (pvi + usize(1));
+      });
+    },
+    .None => ()
+  );
   (oci : usize) = usize(0);
   n_oc := orig_cap_names.len();
   while(oci < n_oc, {
@@ -4074,7 +4136,21 @@ evaluate_ctl_function_body_inline :: (
     ctl_cap_names.push(fl3.clone());
     ctl_cap_tys.push(ft3);
     ctl_cap_vals.push(create_type_value(concrete_type_for_forall));
+    if(ctl_have_vars, {
+      ctl_cap_vars.push(
+        make_capture_variable(
+          fl3.clone(),
+          ft3,
+          Option(EvalValue).Some(create_type_value(concrete_type_for_forall)),
+          specialized_env.module_path
+        )
+      );
+    });
     fi3 = (fi3 + usize(1));
+  });
+  if(ctl_have_vars, {
+    ctl_env_key = mint_funcval_env_key();
+    register_funcval_cap_vars(ctl_env_key, ctl_cap_vars);
   });
   ctl_func_val := EvalValue.FuncVal(
     box(
@@ -4086,7 +4162,8 @@ evaluate_ctl_function_body_inline :: (
         body : orig_body,
         cap_names : ctl_cap_names,
         cap_tys : ctl_cap_tys,
-        func_id : ctl_func_id.clone()
+        func_id : ctl_func_id.clone(),
+        env_key : ctl_env_key
       )
     ),
     ctl_cap_vals
@@ -4743,12 +4820,15 @@ try_to_call_function_with_arguments :: (
         func_val,
         .Some(fv) => match(
           fv,
-          // `capture_env_for` memoises the rebuilt capture env per closure
-          // instance — this used to re-bind every captured name on EVERY call
-          // (~660 `add_variable_to_env` calls per call in a self-compile, the
+          // `capture_env_for` memoises the capture env per closure
+          // instance; with a registered `env_key` the frame holds the
+          // ORIGINAL Variable handles (plans/FUNCVAL_ENV_SHARING.md), else
+          // the flat rebuild re-binds every captured name (~660
+          // `add_variable_to_env` calls per call in a self-compile, the
           // top allocation site of the bootstrap). See env.yo.
           .FuncVal(__fvm3, cv) => capture_env_for(
             __fvm3.*.func_id,
+            __fvm3.*.env_key,
             __fvm3.*.cap_names,
             __fvm3.*.cap_tys,
             cv,

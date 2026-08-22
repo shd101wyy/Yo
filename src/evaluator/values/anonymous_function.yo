@@ -64,10 +64,13 @@ open(import("std/fmt"));
 { AwaitAnalysisResult } :: import("../async/await_analysis_types.yo");
 {
   Environment,
+  Variable,
   add_variable_to_env,
   synthetic_token,
   snapshot_env,
-  get_variables_from_env
+  get_variables_from_env,
+  mint_funcval_env_key,
+  register_funcval_cap_vars
 } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
@@ -947,6 +950,10 @@ evaluate_anonymous_function_implementation :: (
   cap_names := ArrayList(String).new();
   cap_tys := ArrayList(TypeValue).new();
   cap_vals := ArrayList(EvalValue).new();
+  // Campaign 2 (plans/FUNCVAL_ENV_SHARING.md): the same walk also snapshots
+  // the ORIGINAL Variable handles, so `capture_env_for` can build the call
+  // env by sharing them instead of re-minting one Variable per binding.
+  cap_vars := ArrayList(Variable).new();
   n_cap_fr := env.frames.len();
   (cap_fi : usize) = usize(0);
   while(cap_fi < n_cap_fr, {
@@ -969,6 +976,7 @@ evaluate_anonymous_function_implementation :: (
                     .None => EvalValue.VarRef(cv.name)
                   );
                   cap_vals.push(cap_val);
+                  cap_vars.push(cv);
                 },
                 true => ()
               );
@@ -982,6 +990,8 @@ evaluate_anonymous_function_implementation :: (
     );
     cap_fi = (cap_fi + usize(1));
   });
+  fv_env_key := mint_funcval_env_key();
+  register_funcval_cap_vars(fv_env_key, cap_vars);
   // -------------------------------------------------------------------------
   // Push a new environment frame for the function parameters.
   // -------------------------------------------------------------------------
@@ -1206,7 +1216,8 @@ evaluate_anonymous_function_implementation :: (
         body : body_expr,
         cap_names : cap_names,
         cap_tys : cap_tys,
-        func_id : func_id.clone()
+        func_id : func_id.clone(),
+        env_key : fv_env_key
       )
     ),
     cap_vals
