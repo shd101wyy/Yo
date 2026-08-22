@@ -1074,6 +1074,14 @@ Constructor-style traits (`FromJson.from_json`) are therefore expressible.
 multi-param receivers — `HashMap(String, V)` bound `V := String` — was
 fixed 2026-08-22:
 issues/fixed/generic-impl-fromjson-container-decode-failures.md.)
+### Don't name locals after Windows macros (`near`, `far`, `pascal`, `IN`, `OUT`)
+
+Emitted C keeps user local names, and `windef.h` defines the legacy Win16
+set (`near`, `far`, `pascal`, …) to NOTHING — a local named `near`
+compiles everywhere except the windows target, where `if (near)` becomes
+`if ()` (caught by PR #218's windows leg; see
+issues/emitted-c-locals-collide-with-windows-macros.md).
+
 ### A local `(fn(...) -> T)(body)` literal cannot capture enclosing locals
 
 A typed fn literal bound inside another function is a full function

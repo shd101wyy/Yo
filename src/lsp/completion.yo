@@ -554,11 +554,14 @@ _expected_enum_at :: (
     .FnCall(_, func_box, args, _, _) => {
       head := match(func_box, .Atom(_, ht) => ht.value.clone(), _ => String.new());
       if((head == "=") && (args.len() >= usize(2)), {
-        near := (
+        // NB: not named `near` — that is a legacy Windows macro (windef.h
+        // defines it to nothing), and user locals keep their names in the
+        // emitted C, so `if (near)` became `if ()` on the windows target.
+        near_cursor := (
           match(args.get(usize(1)), .Some(r) => _expr_near_line(r, line), .None => false) ||
             match(args.get(usize(0)), .Some(l) => _expr_near_line(l, line), .None => false)
         );
-        if(near, {
+        if(near_cursor, {
           match(
             args.get(usize(0)),
             .Some(lhs) => match(
