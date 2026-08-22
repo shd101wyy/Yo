@@ -1056,6 +1056,26 @@ fn :: (fn() -> T)(match(x, arms))
 fn :: (fn() -> T)({ match(x, arms); })
 ```
 
+### Sibling match/cond arms must agree in type — brace statement-like arms
+
+An unbraced arm's value is the expression's value, and `list.push(x)` /
+`map.set(k, v)` return non-unit — so mixing an unbraced push arm with a
+block-shaped (unit) sibling arm is a type error ("Incompatible types" /
+"{ ... } without semicolons"). Brace-and-semicolon every arm whose result
+is not meant to be the value: `(c) => { bytes.push(b); },`.
+
+### Static (self-less) trait methods work — the FromJson pattern
+
+A trait method with no `self` (`Maker :: trait(make : (fn(x : i32) -> Self))`)
+dispatches as `Point.make(x)` on any impl'd type, and through a generic
+where-constrained fn (`(fn(comptime(T) : Type, x : i32, where(T <: Maker)) -> T)(T.make(x))`).
+Constructor-style traits (`FromJson.from_json`) are therefore expressible.
+CAVEAT: inside a GENERIC IMPL body, calling `T.method(v)` whose return
+type wraps Self in a type application (`Result(Self, E)`) can mis-resolve
+in some contexts — route the call through a module-level where-constrained
+helper fn instead, and if a container decode still fails see
+issues/generic-impl-fromjson-container-decode-failures.md.
+
 ### Template strings cannot be nested inside `${...}` interpolations
 
 A template string literal (`` ` `` ... `` ` ``) inside a `${...}` interpolation of another template string closes the outer string. The compiler gives confusing parse errors.
