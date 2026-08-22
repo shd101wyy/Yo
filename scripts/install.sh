@@ -98,11 +98,17 @@ detect_osarch() {
   <https://github.com/$YO_REPO#building-from-source>";;
   esac
 
-  case "$(uname)" in
+  # YO_FAKE_UNAME_S is a TEST-ONLY hook: it replaces the `uname -s` output so
+  # the HarmonyOS branches can be dry-run-tested on ordinary Linux CI runners
+  # (there is no HongMeng runner; without it every harmonyos branch is dead
+  # code, like the musl branches were before the Alpine leg). Never set it in
+  # production commands.
+  uname_s="${YO_FAKE_UNAME_S:-$(uname)}"
+  case "$uname_s" in
     [Ll]inux)  OSNAME="linux";;
     [Dd]arwin) OSNAME="macos";;
     [Hh]armony[Oo][Ss]) OSNAME="harmonyos";;
-    *) stop "Unsupported OS: $(uname). This installer supports Linux, macOS and HarmonyOS.
+    *) stop "Unsupported OS: $uname_s. This installer supports Linux, macOS and HarmonyOS.
   On Windows use scripts/install.ps1 instead.";;
   esac
 
@@ -425,16 +431,18 @@ install_dependencies() {
     # HarmonyOS has no apt/dnf/pacman; package management is harmonybrew —
     # a Homebrew reimplementation whose 'brew' works like macOS's, provided
     # by https://harmonybrew.atomgit.com/. It likewise CANNOT be installed
-    # from inside this script (it needs its own installer), so ask first.
+    # from inside this script (it needs its own installer), and the whole
+    # HarmonyOS route (source build with the OHOS clang) needs it, so stop
+    # rather than limp on. `stop` (not `return 1`): this script is usually
+    # launched as `sh install.sh`, which does NOT carry the shebang's -e, so
+    # a plain non-zero return would be ignored and the run would continue
+    # into a compile with no compiler.
     if ! has_cmd brew; then
-      warn ""
-      warn "HarmonyOS detected, but 'brew' is not on PATH."
-      warn "Install harmonybrew first — a Homebrew reimplementation for"
-      warn "HarmonyOS that provides the 'brew' command like macOS:"
-      warn "    https://harmonybrew.atomgit.com/"
-      warn "Then re-run this installer."
-      warn ""
-      return 1
+      stop "HarmonyOS detected, but 'brew' is not on PATH.
+  Install harmonybrew first — a Homebrew reimplementation for HarmonyOS
+  that provides the 'brew' command like macOS:
+      https://harmonybrew.atomgit.com/
+  Then re-run this installer."
     fi
 
     # brew installs into <prefix>/bin; make that visible for the rest of the

@@ -654,8 +654,14 @@ Also fixed on the way: `install.sh --from-source` now passes
 `pkg-config --cflags liburing` (not just `--libs`) to the C compiler — the
 include path is required for brew-style prefixes and harmless elsewhere.
 
-**Untestable in CI** — no hosted runner exists; the HarmonyOS branches of
-`install.sh` are exercised only by hand on the real platform.
+**Untestable in CI** — no hosted HongMeng runner exists for REAL runs, so the
+HarmonyOS branches get a **simulated dry-run leg** instead
+(`install-scripts.yml` `harmonyos-simulation`): `YO_FAKE_UNAME_S` — a
+TEST-ONLY hook in `install.sh` that replaces `uname -s` output — drives the
+branch logic (brew-missing abort, forced source path with the
+`linux-<arch>` yo.c URL, poisoned-`LD_LIBRARY_PATH` warning) on ordinary
+Linux runners. The real end-to-end (brew + ohos-sdk + compile + verify) can
+only run on an actual HarmonyOS machine.
 
 ## Gate
 
