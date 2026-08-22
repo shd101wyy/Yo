@@ -625,3 +625,50 @@ test("json_decode parse error is Err", {
     .Err(_) => assert(false, "valid JSON should parse")
   );
 });
+// ===== derive(ToJson) / derive(FromJson) =====
+_DInner :: struct(a : i32, b : String);
+derive(_DInner, ToJson(_DInner));
+derive(_DInner, FromJson(_DInner));
+_DOuter :: struct(name : String, inner : _DInner, flag : bool);
+derive(_DOuter, ToJson(_DOuter));
+derive(_DOuter, FromJson(_DOuter));
+test("derived struct roundtrip", {
+  v := _DInner(a : i32(7), b : `seven`);
+  s := json_encode(v);
+  assert(s == "{\"a\":7,\"b\":\"seven\"}", "derived encode shape");
+  match(
+    json_decode(_DInner, s),
+    .Ok(back) => {
+      assert(back.a == i32(7), "a roundtrip");
+      assert(back.b == "seven", "b roundtrip");
+    },
+    .Err(_) => assert(false, "derived decode should succeed")
+  );
+});
+test("derived nested struct roundtrip", {
+  o := _DOuter(name : `outer`, inner : _DInner(a : i32(1), b : `one`), flag : true);
+  s := json_encode(o);
+  assert(s == "{\"name\":\"outer\",\"inner\":{\"a\":1,\"b\":\"one\"},\"flag\":true}", "nested encode shape");
+  match(
+    json_decode(_DOuter, s),
+    .Ok(back) => {
+      assert(back.name == "outer", "name roundtrip");
+      assert(back.inner.a == i32(1), "nested a roundtrip");
+      assert(back.inner.b == "one", "nested b roundtrip");
+      assert(back.flag, "flag roundtrip");
+    },
+    .Err(_) => assert(false, "nested decode should succeed")
+  );
+});
+test("derived decode missing field errors", {
+  assert(json_decode(_DOuter, `{"name":"x","flag":true}`).is_err(), "missing inner must Err");
+  match(
+    json_decode(_DInner, `{"a":1}`),
+    .Ok(_) => assert(false, "missing b must Err"),
+    .Err(e) => match(
+      e,
+      .Other(msg) => assert(msg.contains(String.from("missing field b")), "error names the field"),
+      _ => assert(false, "expected Other error")
+    )
+  );
+});

@@ -1102,6 +1102,24 @@ _push_twice :: (fn(v : i32, out : ArrayList(i32)) -> unit)({ out.push(v); out.pu
 outer :: (fn(out : ArrayList(i32)) -> unit)({ _push_twice(i32(1), out); });
 ```
 
+### Writing derive rules (outside the prelude works)
+
+`derive_rule(MyTrait, __my_rule)` works in any module with
+`pragma(Pragma.AllowMacroDef)`; the deriving module imports the trait and
+whatever names the GENERATED code references. Authoring gotchas, each of
+which otherwise surfaces as the misleading
+`derive rule must return(comptime(Expr)); got Comptime`:
+
+- Code strings passed to `.to_expr()` must parse as EXACTLY ONE
+  expression — wrap statement blocks in parens: `"({ a := 1; () })"`,
+  never a bare `"{ … }"`.
+- A raw backtick inside a `"..."` code string splits the parse — generate
+  `String.from("x")` in the code instead of a template literal.
+- Invoke derives with trait arguments: `derive(Point, Eq(Point))`. The
+  bare `derive(Point, Eq)` kills the module's evaluation with an
+  error anchored somewhere else entirely
+  (issues/bare-derive-form-kills-module-eval.md).
+
 ### Template strings cannot be nested inside `${...}` interpolations
 
 A template string literal (`` ` `` ... `` ` ``) inside a `${...}` interpolation of another template string closes the outer string. The compiler gives confusing parse errors.

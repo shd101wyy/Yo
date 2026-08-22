@@ -13,6 +13,7 @@
 //! println(json_stringify(v));
 //! ```
 pragma(Pragma.AllowUnsafe);
+pragma(Pragma.AllowMacroDef);
 open(import("../string"));
 { ArrayList } :: import("../collections/array_list");
 { HashMap } :: import("../collections/hash_map");
@@ -1299,3 +1300,73 @@ json_decode :: (fn(comptime(T) : Type, s : String, where(T <: FromJson)) -> Resu
   match(json_parse_result(s), .Ok(v) => T.from_json(v), .Err(e) => .Err(e))
 );
 export(ToJson, FromJson, json_parse_result, json_encode, json_decode);
+// ============================================================================
+// derive(ToJson) / derive(FromJson) — struct derives
+// ============================================================================
+// v1 scope: STRUCTS. Enums need an agreed representation (externally-tagged
+// vs tag-field) before a derive can commit to one; until then deriving on an
+// enum is a comptime error. The generated impls reference `JsonValue`,
+// `JsonError`, `ToJson`/`FromJson`, `ArrayList` and `String` — the deriving
+// module must have them in scope (import this module and
+// std/collections/array_list).
+__derive_to_json :: (
+  fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr)
+)({
+  info :: Type.get_info(T);
+  comptime_assert(info.is_struct(), "derive(ToJson) supports structs only (enum representation is not decided yet)");
+  fields :: Type.get_struct_fields(T);
+  fc :: fields.len();
+  pushes :: __yo_comptime_fold_range(
+    fc,
+    "",
+    (fn(comptime(acc) : comptime_str, comptime(fi) : usize) -> comptime(comptime_str))({
+      fname :: fields.get(fi).name;
+      acc + (((("__djt_keys.push(String.from(\"" + fname) + "\")); __djt_values.push(self.") + fname) + ".to_json()); ")
+    })
+  );
+  body :: (("({ __djt_keys := ArrayList(String).new(); __djt_values := ArrayList(JsonValue).new(); " + pushes) + "JsonValue.Object(keys : __djt_keys, values : __djt_values) })");
+  body_expr :: __yo_comptime_string_to_expr(body);
+  ctx.make_impl(
+    quote(
+      ToJson(to_json : ((self) -> #(body_expr)))
+    )
+  )
+});
+derive_rule(ToJson, __derive_to_json);
+__derive_from_json :: (
+  fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr)
+)({
+  info :: Type.get_info(T);
+  comptime_assert(info.is_struct(), "derive(FromJson) supports structs only (enum representation is not decided yet)");
+  fields :: Type.get_struct_fields(T);
+  fc :: fields.len();
+  type_name :: Type.to_comptime_string(T);
+  extracts :: __yo_comptime_fold_range(
+    fc,
+    "",
+    (fn(comptime(acc) : comptime_str, comptime(fi) : usize) -> comptime(comptime_str))({
+      fname :: fields.get(fi).name;
+      ftype :: Type.to_comptime_string(fields.get(fi).field_type);
+      acc + (((((((((("__djf_" + fname) + " := match(v.get(String.from(\"") + fname) + "\")), .Some(__djf_j) => match(") + ftype) + ".from_json(__djf_j), .Ok(__djf_ok) => __djf_ok, .Err(__djf_e) => { return(.Err(__djf_e)); }), .None => { return(.Err(JsonError.Other(String.from(\"missing field ") + fname) + " in ") + type_name) + "\")))); }); ")
+    })
+  );
+  ctor_args :: __yo_comptime_fold_range(
+    fc,
+    "",
+    (fn(comptime(acc) : comptime_str, comptime(fi) : usize) -> comptime(comptime_str))({
+      fname :: fields.get(fi).name;
+      part :: ((fname + " : __djf_") + fname);
+      cond(
+        (acc == "") => part,
+        true => ((acc + ", ") + part)
+      )
+    })
+  );
+  body :: (((("({ " + extracts) + ".Ok(Self(") + ctor_args) + ")) })");
+  ctx.make_impl(
+    quote(
+      FromJson(from_json : ((v) -> #(body.to_expr())))
+    )
+  )
+});
+derive_rule(FromJson, __derive_from_json);
