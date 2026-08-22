@@ -340,9 +340,17 @@ show memory management is STILL ~40% of remaining CPU:
   volume: FEWER objects (capture_env_for share) and SMALLER headers (§4's
   56→24 B diet — density = fewer misses), not decr_rc itself.
 - **libsystem malloc/free ≈ 16% + memset/memmove/memcmp ≈ 7%** — allocation
-  VOLUME. Levers, in order: the open `capture_env_for` share (§3 second
-  site), the String-identity plumbing below, then §4's RC-header diet
-  (fewer bytes per object also cuts memset).
+  VOLUME. Attribution on `check` (on-stack samples / 11,740 worker total,
+  symbol found by grepping the emitted C's PARAMETER NAMES —
+  `yo_id_300633(__yo_t0 func_id, __yo_t20* cap_names, …)`):
+  `capture_env_for` ≈ **7% cumulative** (823 early / 706 late), the
+  `add_variable_to_env` calls inside it ≈ 2%. So the §3-second-site share
+  campaign is worth ≤7% on `check` — real but NOT the next big lever there;
+  its emit-side share (where FuncVal creation is denser) is still
+  unmeasured and should be attributed the same way before starting.
+  Remaining volume is DIFFUSE — no single site over ~7%; the structural
+  answers are §4's RC-header diet (cache density; memset less per object)
+  and the String-identity plumbing below.
 - **String-keyed identity long tail**: the hottest named Yo functions are
   enum-id string transforms, `String.split(separator)`, visited-`HashSet(String)`
   probes, and is-call-named string compares — type/enum ids are heap Strings
