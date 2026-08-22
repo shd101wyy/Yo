@@ -1,6 +1,45 @@
-# FuncVal env sharing (env-sharing campaign 2) — replace the flat capture rebuild with a frozen shared Environment
+# FuncVal env sharing (env-sharing campaign 2) — shared Variable handles in the capture rebuild
 
-**Status: ACTIVE (designed 2026-08-22).** Successor to the landed §3 def-time
+**DESIGN REVISED 2026-08-23.** The original mechanism below (§3: freeze a
+multi-frame def-scope env per definition, registry-preferred at call time)
+was BUILT AND REJECTED the same day, twice over — keep this record, the
+failure modes generalize:
+
+1. **Semantics.** The call machinery's frame-level arithmetic grew up against
+   `capture_env_for`'s SINGLE-frame env shape. Multi-frame callee envs broke
+   `(!)`/Call-tuple dispatch (`_Self : (LogicalNot)` refused to bind `bool` —
+   the trial rejection surfaced as "No matching call found" at the prelude's
+   `!=` default) and derive rules ("derive rule must return comptime(Expr);
+   got Comptime"). A single-frame frozen env fixed both repros — the depth
+   was the poison, not the sharing.
+2. **Performance.** Freezing per DEFINITION (eagerly, fresh `index_key` per
+   frame) thrashed `g_frame_indexes`' 2048-entry wholesale clear:
+   `check src/env.yo` went 24.7 s → >9 min with 78% of CPU in `__yo_decr_rc`
+   + TLS reads under the two env-lookup functions. `capture_env_for` never
+   thrashed because it builds LAZILY at first call, memoised, bounding the
+   number of distinct capture frames.
+3. Also fixed en route: the frozen env carried the DEF module's
+   `module_path` where the flat env stamps the CALLER's — relative-import
+   resolution (`import("./rune.yo")`) flows through `env.module_path`, so
+   def-module stamping mis-resolved sibling imports.
+
+**The revision keeps `capture_env_for`'s laziness, per-instance memo, and env
+shape untouched and changes exactly one thing: the definition site registers
+the ORIGINAL `Variable` handles (`g_funcval_cap_vars`, keyed by a fresh
+`FuncValData.env_key`), and the rebuild pushes those handles into the capture
+frame instead of re-minting Variable + value cell + name string per binding.**
+Semantic deltas vs the flat rebuild, accepted and gate-tested: captured
+variables keep their true `is_compile_time_only` flags and live value cells
+(the flat loop marked EVERYTHING comptime and used `VarRef` sentinels for
+valueless bindings).
+
+Measured (self-emit, M4): step 2 alone (direct definition sites only)
+141.3 → 138.6 s / 17.19 → 16.53 GB footprint — the big population is DERIVED
+FuncVals (step 3): today all 17 derived construction sites leave `env_key = 0`
+and fall back to the flat rebuild, safely.
+
+**Status: step 2 (revised) implemented; original design below kept for the
+record (its §1/§2 ground-truth research and §6 risk checklist remain valid).** Successor to the landed §3 def-time
 sharing (`plans/backlog/YO_SELF_ENV_SHARING.md`, `_share_def_time_frames`).
 Target: the `capture_env_for` population — **242,154 rebuilds minting
 144.5 M `Variable`s per self-emit (~597/rebuild), 99% from DERIVED FuncVal

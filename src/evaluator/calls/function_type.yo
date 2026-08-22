@@ -45,7 +45,9 @@ _(env : fnty_env) :: import("std/env");
   add_parameter_to_env,
   synthetic_token,
   snapshot_env,
-  generate_variable_id
+  generate_variable_id,
+  mint_funcval_env_key,
+  register_funcval_cap_vars
 } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_some_t, t_ptr, resolve_some_binder_kind } :: import("../../types/creators.yo");
@@ -1027,6 +1029,9 @@ try_to_implement_function_by_function_type :: (
       cap_names := ArrayList(String).new();
       cap_tys := ArrayList(TypeValue).new();
       cap_vals := ArrayList(EvalValue).new();
+      // Campaign 2: parallel snapshot of the ORIGINAL Variable handles (see
+      // the twin comment in evaluator/values/anonymous_function.yo).
+      cap_vars := ArrayList(Variable).new();
       (has_fwd_comptime_fn_cap : bool) = false;
       n_cap_fr := caller_env.frames.len();
       (cap_fi : usize) = usize(0);
@@ -1087,6 +1092,7 @@ try_to_implement_function_by_function_type :: (
                       has_fwd_comptime_fn_cap = true;
                     });
                     cap_vals.push(cap_val);
+                    cap_vars.push(cv);
                   });
                 },
                 .None => ()
@@ -1098,6 +1104,8 @@ try_to_implement_function_by_function_type :: (
         );
         cap_fi = (cap_fi + usize(1));
       });
+      ft_env_key := mint_funcval_env_key();
+      register_funcval_cap_vars(ft_env_key, cap_vars);
       fn_val_id := random_id(caller_env.module_path);
       // Faithful port of `shouldDeferBodyEvaluation` (function-type.ts:445-451):
       // defer body evaluation ONLY for functions that depend on generic type
@@ -1191,7 +1199,8 @@ try_to_implement_function_by_function_type :: (
             body : body_expr,
             cap_names : cap_names,
             cap_tys : cap_tys,
-            func_id : fn_val_id.clone()
+            func_id : fn_val_id.clone(),
+            env_key : ft_env_key
           )
         ),
         cap_vals

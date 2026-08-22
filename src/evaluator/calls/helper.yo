@@ -47,7 +47,6 @@ open(import("std/fmt"));
   synthetic_token,
   snapshot_env,
   capture_env_for,
-  get_funcval_def_env,
   make_err_variable
 } :: import("../../env.yo");
 // dup-on-store / move for owned fn-call args (TS helper.ts:411-451). utils.yo
@@ -4744,23 +4743,19 @@ try_to_call_function_with_arguments :: (
         func_val,
         .Some(fv) => match(
           fv,
-          // Preferred source: the frozen def-scope registry
-          // (plans/FUNCVAL_ENV_SHARING.md) — TS's
-          // `pushEnvFrame(functionType.env)`. Fallback: `capture_env_for`,
-          // which memoises the rebuilt capture env per closure instance —
-          // that rebuild used to re-bind every captured name on EVERY call
-          // (~660 `add_variable_to_env` calls per call in a self-compile, the
+          // `capture_env_for` memoises the capture env per closure
+          // instance; with a registered `env_key` the frame holds the
+          // ORIGINAL Variable handles (plans/FUNCVAL_ENV_SHARING.md), else
+          // the flat rebuild re-binds every captured name (~660
+          // `add_variable_to_env` calls per call in a self-compile, the
           // top allocation site of the bootstrap). See env.yo.
-          .FuncVal(__fvm3, cv) => match(
-            get_funcval_def_env(__fvm3.*.env_key),
-            .Some(fe) => snapshot_env(fe),
-            .None => capture_env_for(
-              __fvm3.*.func_id,
-              __fvm3.*.cap_names,
-              __fvm3.*.cap_tys,
-              cv,
-              caller_env.module_path
-            )
+          .FuncVal(__fvm3, cv) => capture_env_for(
+            __fvm3.*.func_id,
+            __fvm3.*.env_key,
+            __fvm3.*.cap_names,
+            __fvm3.*.cap_tys,
+            cv,
+            caller_env.module_path
           ),
           _ => Environment.new(caller_env.module_path)
         ),
