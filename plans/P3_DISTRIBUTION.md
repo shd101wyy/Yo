@@ -636,7 +636,11 @@ HarmonyOS before compiling (idempotent: statx include insertion gated on
 the file lacking `<linux/stat.h>`, and `L:` → `L:;` on every bare label
 line). A post-fix release passes through unchanged; v0.2.15 — the current
 latest — installs today. Verified: the patched `yo-v0.2.15-linux-arm64.c.gz`
-passes `clang -fsyntax-only` with the OHOS clang.
+passes `clang -fsyntax-only` with the OHOS clang, and a full
+`bash scripts/install.sh` ran end to end on the box (installed yo 0.2.15
+runs, DT_NEEDED = libc.so only). **Compile time measured:** the -O2 pass
+over ~100 MB of C is the whole story — ~20 min idle, ~1 h under normal
+load, ~2 h on this heavily loaded box (load 20+).
 
 Runtime constraint worth recording: the compiler reads every source file
 through io_uring, and the async runtime `exit(1)`s if `io_uring_queue_init`

@@ -52,6 +52,13 @@ $ curl -sSL https://raw.githubusercontent.com/shd101wyy/Yo/develop/scripts/insta
 4. 用 OHOS clang 编译 `yo.c`（编译进 liburing，启用异步 I/O）；
 5. 把 `yo` 安装到 `<prefix>/lib/yo/<tag>`，并链接 `<prefix>/bin/yo`。
 
+**需要多久：** 第 4 步占绝大部分时间 —— 它是用 `-O2` 对约 100 MB 的单文件
+C 做一次 clang 编译，请按几十分钟而不是几秒来预计。实测于 HarmonyOS PC
+（arm64，SDK clang 15）：**机器空闲时约 20 分钟，有正常后台负载时约 1 小时，
+机器繁忙时更长**（本机运行着负载 20+ 的搜索/AI 服务，一次完整安装曾被拖到
+接近两小时）。其余步骤（下载、打补丁、安装）都在一两分钟内。没有增量捷径：
+每个版本安装都会重新编译整个文件。
+
 ## 要求与故障排查
 
 - **内核必须支持 io_uring。** 编译器读取每个源文件都经过

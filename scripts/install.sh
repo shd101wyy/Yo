@@ -884,7 +884,7 @@ install_from_source() {
     warn "'brew install pkgconf liburing') and re-run."
   fi
 
-  info "Compiling yo.c (this takes a minute).."
+  info "Compiling yo.c (a -O2 pass over ~100 MB of C — measure in tens of minutes, not seconds).."
   # shellcheck disable=SC2086  # CFLAGS_OVERRIDE, uring_cflags and uring_libs are intentionally word-split
   "$CC_BIN" -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
     "$YO_TEMP_DIR/yo.c" -o "$YO_TEMP_DIR/yo" $CFLAGS_OVERRIDE $uring_cflags -lpthread -lm $uring_libs \

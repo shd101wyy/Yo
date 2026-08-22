@@ -56,6 +56,15 @@ The installer:
 4. compiles `yo.c` with the OHOS clang (with liburing compiled in), and
 5. installs `yo` under `<prefix>/lib/yo/<tag>` and links `<prefix>/bin/yo`.
 
+**How long it takes:** step 4 dominates — it is one `-O2` clang pass over the
+~100 MB single-file C, so plan in tens of minutes, not seconds. Measured on a
+HarmonyOS PC (arm64, SDK clang 15): **~20 minutes when the machine is
+otherwise idle, ~1 hour under a normal background load, more if the box is
+busy** (this machine runs search/AI services at load 20+, which stretched a
+full run toward two hours). Everything else — downloads, the patch step, the
+install itself — is under a couple of minutes. There is no incremental
+shortcut: each version install recompiles the whole file.
+
 ## Requirements & troubleshooting
 
 - **The kernel must support io_uring.** The compiler reads every source file
