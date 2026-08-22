@@ -212,6 +212,41 @@ export(JsonValue, JsonKV);
 // ============================================================================
 // Parser state
 // ============================================================================
+/// UTF-8-encode code point `cp` into `bytes`. Division/modulo instead of
+/// shifts (the closed operator set has no `<<`/`>>`).
+_push_utf8 :: (fn(bytes : ArrayList(u8), cp : u32) -> unit)({
+  cond(
+    (cp < u32(0x80)) => {
+      bytes.push(u8(cp));
+    },
+    (cp < u32(0x800)) => {
+      bytes.push(u8(u32(0xC0) + (cp / u32(64))));
+      bytes.push(u8(u32(0x80) + (cp % u32(64))));
+    },
+    (cp < u32(0x10000)) => {
+      bytes.push(u8(u32(0xE0) + (cp / u32(4096))));
+      bytes.push(u8(u32(0x80) + ((cp / u32(64)) % u32(64))));
+      bytes.push(u8(u32(0x80) + (cp % u32(64))));
+    },
+    true => {
+      bytes.push(u8(u32(0xF0) + (cp / u32(262144))));
+      bytes.push(u8(u32(0x80) + ((cp / u32(4096)) % u32(64))));
+      bytes.push(u8(u32(0x80) + ((cp / u32(64)) % u32(64))));
+      bytes.push(u8(u32(0x80) + (cp % u32(64))));
+    }
+  );
+});
+
+/// One hex digit's value, or 255 for a non-hex byte.
+_hex_digit :: (fn(b : u8) -> u8)(
+  cond(
+    ((b >= u8(48)) && (b <= u8(57))) => (b - u8(48)),
+    ((b >= u8(97)) && (b <= u8(102))) => (b - u8(87)),
+    ((b >= u8(65)) && (b <= u8(70))) => (b - u8(55)),
+    true => u8(255)
+  )
+);
+
 _Parser :: ref(
   struct(
     // BYTES, not `str`: `str` is the STATIC string view and a runtime
@@ -267,6 +302,30 @@ impl(
         )
     )
   }),
+  /// Four hex digits after `\u`, as a code unit. `.Err(.InvalidUnicode)`
+  /// on a short read or a non-hex byte.
+  parse_hex4 : (fn(self : Self) -> Result(u32, JsonError))({
+    (cp : u32) = u32(0);
+    (i : usize) = usize(0);
+    while(i < usize(4), {
+      match(
+        self.peek(),
+        .None => {
+          return(.Err(.UnexpectedEnd));
+        },
+        .Some(h) => {
+          d := _hex_digit(h);
+          if(d == u8(255), {
+            return(.Err(.InvalidUnicode));
+          });
+          self.advance();
+          cp = ((cp * u32(16)) + u32(d));
+        }
+      );
+      i = (i + usize(1));
+    });
+    .Ok(cp)
+  }),
   parse_string : (fn(self : Self) -> Result(String, JsonError))({
     self.advance(); // skip opening '"'
     bytes := ArrayList(u8).new();
@@ -294,22 +353,82 @@ impl(
                 .Some(e) => {
                   self.advance();
                   cond(
-                    (e == u8(110)) => bytes.push(u8(10)),
-                    // \n
-                    (e == u8(116)) => bytes.push(u8(9)),
-                    // \t
-                    (e == u8(114)) => bytes.push(u8(13)),
-                    // \r
-                    (e == u8(34)) => bytes.push(u8(34)),
-                    // \"
-                    (e == u8(92)) => bytes.push(u8(92)),
-                    // \\
-                    (e == u8(47)) => bytes.push(u8(47)),
-                    // \/
-                    (e == u8(98)) => bytes.push(u8(8)),
-                    // \b
-                    (e == u8(102)) => bytes.push(u8(12)),
-                    // \f
+                    (e == u8(110)) => {
+                      bytes.push(u8(10)); // \n
+                    },
+                    (e == u8(116)) => {
+                      bytes.push(u8(9)); // \t
+                    },
+                    (e == u8(114)) => {
+                      bytes.push(u8(13)); // \r
+                    },
+                    (e == u8(34)) => {
+                      bytes.push(u8(34)); // \"
+                    },
+                    (e == u8(92)) => {
+                      bytes.push(u8(92)); // \\
+                    },
+                    (e == u8(47)) => {
+                      bytes.push(u8(47)); // \/
+                    },
+                    (e == u8(98)) => {
+                      bytes.push(u8(8)); // \b
+                    },
+                    (e == u8(102)) => {
+                      bytes.push(u8(12)); // \f
+                    },
+                    (e == u8(117)) => {
+                      // \uXXXX — with surrogate-pair handling: a high
+                      // surrogate must be followed by `\uDC00`-`\uDFFF`,
+                      // and a lone low surrogate is invalid (JSON spec /
+                      // RFC 8259 §7).
+                      (cp : u32) = match(
+                        self.parse_hex4(),
+                        .Ok(v) => v,
+                        .Err(err) => {
+                          return(.Err(err));
+                        }
+                      );
+                      if((cp >= u32(0xD800)) && (cp <= u32(0xDBFF)), {
+                        bs := match(
+                          self.peek(),
+                          .Some(x) => x,
+                          .None => {
+                            return(.Err(.UnexpectedEnd));
+                          }
+                        );
+                        if(bs != u8(92), {
+                          return(.Err(.InvalidUnicode));
+                        });
+                        self.advance();
+                        bu := match(
+                          self.peek(),
+                          .Some(x2) => x2,
+                          .None => {
+                            return(.Err(.UnexpectedEnd));
+                          }
+                        );
+                        if(bu != u8(117), {
+                          return(.Err(.InvalidUnicode));
+                        });
+                        self.advance();
+                        lo := match(
+                          self.parse_hex4(),
+                          .Ok(v2) => v2,
+                          .Err(err2) => {
+                            return(.Err(err2));
+                          }
+                        );
+                        if((lo < u32(0xDC00)) || (lo > u32(0xDFFF)), {
+                          return(.Err(.InvalidUnicode));
+                        });
+                        cp = ((u32(0x10000) + ((cp - u32(0xD800)) * u32(1024))) + (lo - u32(0xDC00)));
+                      });
+                      if((cp >= u32(0xDC00)) && (cp <= u32(0xDFFF)), {
+                        return(.Err(.InvalidUnicode));
+                      });
+                      _push_utf8(bytes, cp);
+                    },
                     true => {
                       return(.Err(.InvalidEscape));
                     }
