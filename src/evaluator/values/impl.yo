@@ -53,6 +53,10 @@ _(env : impl_dbg_env) :: import("std/env");
   get_variables_from_env,
   snapshot_env,
   synthetic_token,
+  get_funcval_cap_vars,
+  make_capture_variable,
+  mint_funcval_env_key,
+  register_funcval_cap_vars,
   set_find_methods_from_generic_impls_fn,
   set_materialize_in_flight_method_fn
 } :: import("../../env.yo");
@@ -146,7 +150,7 @@ _stamp_impl_forall_on_method :: (fn(v : EvalValue, names : ArrayList(String)) ->
       .FuncVal(__fvm8, cv) => if(
         __fvm8.*.forall_names.len() > usize(0),
         v,
-        EvalValue.FuncVal(box(FuncValData(forall_names : names.clone(), params : __fvm8.*.params, param_type_names : __fvm8.*.param_type_names, evidence_params : __fvm8.*.evidence_params, body : __fvm8.*.body, cap_names : __fvm8.*.cap_names, cap_tys : __fvm8.*.cap_tys, func_id : __fvm8.*.func_id)), cv)
+        EvalValue.FuncVal(box(FuncValData(forall_names : names.clone(), params : __fvm8.*.params, param_type_names : __fvm8.*.param_type_names, evidence_params : __fvm8.*.evidence_params, body : __fvm8.*.body, cap_names : __fvm8.*.cap_names, cap_tys : __fvm8.*.cap_tys, func_id : __fvm8.*.func_id, env_key : __fvm8.*.env_key)), cv)
       ),
       _ => v
     )
@@ -1340,6 +1344,7 @@ _inject_forall_captures :: (
         cns := __fvm9.*.cap_names;
         cts := __fvm9.*.cap_tys;
         fid := __fvm9.*.func_id;
+        ifc_orig_env_key := __fvm9.*.env_key;
         memo_key := fid.clone();
         {
           (mk_i : usize) = usize(0);
@@ -1372,6 +1377,30 @@ _inject_forall_captures :: (
             new_cns := ArrayList(String).new();
             new_cts := ArrayList(TypeValue).new();
             new_cvs := ArrayList(EvalValue).new();
+            // Campaign 2 step 3: inherit the shared handle list; the
+            // per-generic bindings appended below get minted capture
+            // Variables (plans/FUNCVAL_ENV_SHARING.md).
+            new_cvars := ArrayList(Variable).new();
+            (ifc_env_key : usize) = usize(0);
+            (ifc_have_vars : bool) = false;
+            match(
+              get_funcval_cap_vars(ifc_orig_env_key),
+              .Some(pv) => {
+                ifc_have_vars = true;
+                (pvj : usize) = usize(0);
+                while(pvj < pv.len(), {
+                  match(
+                    pv.get(pvj),
+                    .Some(ph) => {
+                      new_cvars.push(ph);
+                    },
+                    .None => ()
+                  );
+                  pvj = (pvj + usize(1));
+                });
+              },
+              .None => ()
+            );
             // Copy existing captures (do not mutate the registry's arrays).
             (ci : usize) = usize(0);
             while(ci < cns.len(), {
@@ -1399,6 +1428,9 @@ _inject_forall_captures :: (
                     fa_is_val = true;
                     _b2v := new_cts.push(t_usize());
                     _c2v := new_cvs.push(EvalValue.IntLit(bv_raw.clone()));
+                    if(ifc_have_vars, {
+                      new_cvars.push(make_capture_variable(fa_n.clone(), t_usize(), Option(EvalValue).Some(EvalValue.IntLit(bv_raw.clone())), String.from("")));
+                    });
                   },
                   _ => ()
                 ),
@@ -1407,10 +1439,17 @@ _inject_forall_captures :: (
               if(!(fa_is_val), {
                 _b2 := new_cts.push(t_type());
                 _c2 := new_cvs.push(EvalValue.TypeVal(fa_t));
+                if(ifc_have_vars, {
+                  new_cvars.push(make_capture_variable(fa_n.clone(), t_type(), Option(EvalValue).Some(EvalValue.TypeVal(fa_t)), String.from("")));
+                });
               });
               fi2 = (fi2 + usize(1));
             });
-            injected := EvalValue.FuncVal(box(FuncValData(forall_names : fns, params : ps, param_type_names : ptns, evidence_params : evs, body : body, cap_names : new_cns, cap_tys : new_cts, func_id : fid)), new_cvs);
+            if(ifc_have_vars, {
+              ifc_env_key = mint_funcval_env_key();
+              register_funcval_cap_vars(ifc_env_key, new_cvars);
+            });
+            injected := EvalValue.FuncVal(box(FuncValData(forall_names : fns, params : ps, param_type_names : ptns, evidence_params : evs, body : body, cap_names : new_cns, cap_tys : new_cts, func_id : fid, env_key : ifc_env_key)), new_cvs);
             _memo := g_ifc_memo.set(memo_key, injected);
             Option(EvalValue).Some(injected)
           }
@@ -3962,7 +4001,8 @@ evaluate_module_value :: (
                                 body : d_body_clone.clone(),
                                 cap_names : d_fvd.*.cap_names,
                                 cap_tys : d_fvd.*.cap_tys,
-                                func_id : d_fresh_id.clone()
+                                func_id : d_fresh_id.clone(),
+                                env_key : d_fvd.*.env_key
                               )
                             ),
                             d_cvs
@@ -4009,7 +4049,8 @@ evaluate_module_value :: (
                                   body : d_fvd.*.body,
                                   cap_names : d_fvd.*.cap_names,
                                   cap_tys : d_fvd.*.cap_tys,
-                                  func_id : d_fvd.*.func_id
+                                  func_id : d_fvd.*.func_id,
+                                  env_key : d_fvd.*.env_key
                                 )
                               ),
                               d_cvs

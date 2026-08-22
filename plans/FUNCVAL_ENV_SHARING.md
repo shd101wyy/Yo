@@ -38,8 +38,26 @@ Measured (self-emit, M4): step 2 alone (direct definition sites only)
 FuncVals (step 3): today all 17 derived construction sites leave `env_key = 0`
 and fall back to the flat rebuild, safely.
 
-**Status: step 2 (revised) implemented; original design below kept for the
-record (its §1/§2 ground-truth research and §6 risk checklist remain valid).** Successor to the landed §3 def-time
+**Status: steps 2+3 (revised design) implemented and gate-green
+(gates_fast failures=0, FIXPOINT_HOLDS, late_sibling 2/2, check ./src
+260/260).** Step 3 wired the derived-FuncVal sites: verbatim-reuse sites
+(_stamp_impl_forall_on_method, trait-default materialization x2,
+_build_comptime_clone, fv_for_recur) pass `env_key` through;
+binding-appending sites (create_specialized_function_inline,
+create_ctl_specialized_function, _inject_forall_captures) inherit the
+parent's handle list and append looked-up Variable handles or
+`make_capture_variable` mints, registering under a fresh key — all guarded
+to stay on the flat fallback when the parent never registered. Partial
+application and the empty-capture placeholder sites deliberately stay at
+`env_key = 0`.
+
+Measured cumulative (self-emit, M4): 141.3 → 138.3 s wall,
+17.19 → 16.08 GB footprint (−1.11 GB). Below the census ceiling — the
+remaining flat-fallback population (attribution probe) is the step-4
+follow-up, along with the endgame deletion of the flat triple lists.
+
+Original design below kept for the record (its §1/§2 ground-truth research
+and §6 risk checklist remain valid).** Successor to the landed §3 def-time
 sharing (`plans/backlog/YO_SELF_ENV_SHARING.md`, `_share_def_time_frames`).
 Target: the `capture_env_for` population — **242,154 rebuilds minting
 144.5 M `Variable`s per self-emit (~597/rebuild), 99% from DERIVED FuncVal
