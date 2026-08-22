@@ -33,6 +33,7 @@ open(import("std/fmt"));
 { handle_references } :: import("./references.yo");
 { handle_folding_ranges } :: import("./folding.yo");
 { handle_rename } :: import("./rename.yo");
+{ handle_signature_help } :: import("./signature_help.yo");
 { format_yo_source } :: import("../formatter.yo");
 { resolve_std_path } :: import("../module_manager.yo");
 { BufReader } :: import("std/sys/bufio/buf_reader");
@@ -158,11 +159,19 @@ _publish_empty :: (fn(uri : String) -> unit)({
   write_lsp_message(json_stringify(j_notification("textDocument/publishDiagnostics", params)));
 });
 
+/// signatureHelp trigger characters: "(" and ",".
+_sig_triggers :: (fn() -> ArrayList(JsonValue))({
+  ts := ArrayList(JsonValue).new();
+  ts.push(jstr(String.from("(")));
+  ts.push(jstr(String.from(",")));
+  ts
+});
+
 /// The `initialize` response: full-document sync; push diagnostics carry no
 /// capability flag. Feature providers (hover, completion, …) arrive with
 /// their P4 slices.
 _initialize_result :: (fn() -> JsonValue)(
-  jb().put("capabilities", jb().put("textDocumentSync", jnum(usize(1))).put("hoverProvider", JsonValue.Bool(value : true)).put("definitionProvider", JsonValue.Bool(value : true)).put("documentSymbolProvider", JsonValue.Bool(value : true)).put("referencesProvider", JsonValue.Bool(value : true)).put("foldingRangeProvider", JsonValue.Bool(value : true)).put("renameProvider", JsonValue.Bool(value : true)).put("documentFormattingProvider", JsonValue.Bool(value : true)).obj()).put(
+  jb().put("capabilities", jb().put("textDocumentSync", jnum(usize(1))).put("hoverProvider", JsonValue.Bool(value : true)).put("definitionProvider", JsonValue.Bool(value : true)).put("documentSymbolProvider", JsonValue.Bool(value : true)).put("referencesProvider", JsonValue.Bool(value : true)).put("foldingRangeProvider", JsonValue.Bool(value : true)).put("renameProvider", JsonValue.Bool(value : true)).put("documentFormattingProvider", JsonValue.Bool(value : true)).put("signatureHelpProvider", jb().put("triggerCharacters", JsonValue.Array(items : _sig_triggers())).obj()).obj()).put(
     "serverInfo",
     // No `version` field on purpose: it is optional in the protocol, the
     // client can ask `yo --version`, and a version here would churn the
@@ -546,6 +555,66 @@ _handle_message :: (
       match(
         id_opt,
         .Some(id) => write_lsp_message(json_stringify(j_response(id, fmt_result))),
+        .None => ()
+      );
+    },
+    (method == String.from("textDocument/signatureHelp")) => {
+      (sh_result : JsonValue) = JsonValue.Null;
+      match(
+        v.get(String.from("params")),
+        .Some(params) => {
+          uri := match(
+            params.get(String.from("textDocument")),
+            .Some(td) => _jfield_str(td, "uri"),
+            .None => String.new()
+          );
+          (line : usize) = usize(0);
+          (character : usize) = usize(0);
+          match(
+            params.get(String.from("position")),
+            .Some(pos) => {
+              match(
+                pos.get(String.from("line")),
+                .Some(lv) => match(
+                  lv,
+                  .Number(ln) => {
+                    line = usize(ln);
+                  },
+                  _ => ()
+                ),
+                .None => ()
+              );
+              match(
+                pos.get(String.from("character")),
+                .Some(cv) => match(
+                  cv,
+                  .Number(cn) => {
+                    character = usize(cn);
+                  },
+                  _ => ()
+                ),
+                .None => ()
+              );
+            },
+            .None => ()
+          );
+          match(
+            docs.get(uri.clone()),
+            .Some(st) => match(
+              handle_signature_help(st.outcome.exprs, st.outcome.info_table, line, character),
+              .Some(sh) => {
+                sh_result = sh;
+              },
+              .None => ()
+            ),
+            .None => ()
+          );
+        },
+        .None => ()
+      );
+      match(
+        id_opt,
+        .Some(id) => write_lsp_message(json_stringify(j_response(id, sh_result))),
         .None => ()
       );
     },
