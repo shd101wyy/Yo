@@ -52,9 +52,14 @@ application and the empty-capture placeholder sites deliberately stay at
 `env_key = 0`.
 
 Measured cumulative (self-emit, M4): 141.3 → 138.3 s wall,
-17.19 → 16.08 GB footprint (−1.11 GB). Below the census ceiling — the
-remaining flat-fallback population (attribution probe) is the step-4
-follow-up, along with the endgame deletion of the flat triple lists.
+17.19 → 16.08 GB footprint (−1.11 GB). Attribution probe (2026-08-23):
+**>19,000 shared-handle builds vs <1,000 flat fallbacks per self-emit** —
+coverage is essentially total. The gap to the census ceiling is explained:
+the 144.5 M mints were TRANSIENT allocation churn (memo-evicted rebuilds),
+which the post-allocator-flip system malloc absorbs cheaply — the durable
+saving is the live share (the −1.11 GB). Remaining follow-ups: the endgame
+deletion of the flat triple lists (blocked on the generic-binding-channel
+consumers), and re-running the live census to re-rank the §4 levers.
 
 Original design below kept for the record (its §1/§2 ground-truth research
 and §6 risk checklist remain valid).** Successor to the landed §3 def-time
