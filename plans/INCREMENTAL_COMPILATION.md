@@ -1,12 +1,17 @@
 # Incremental compilation
 
-**Status: ACTIVE (promoted from backlog 2026-08-22).** Phase A (build-runner
-artifact cache) LANDED (#213). Phase B — LSP-correct invalidation — is the
-current work: the LSP MVP shipped with two documented invalidation gaps
-(`src/lsp/diagnostics.yo`), and they are this design's requirements list.
-Phase C (cross-process evaluated-export reuse) stays deferred behind the
-env-graph snapshot problem. Original deferral rationale below, kept for the
-record.
+**Status: Phases A+B LANDED.** Phase A (build-runner artifact cache) LANDED
+(#213). Phase B (LSP-correct invalidation, B1 import-graph invalidation + B2
+registry purge-on-re-analysis) LANDED (#219) — measured ~37 s first open /
+~65 ms per edit on compiler-sized modules, registry sizes stable across
+repeated didChange. Phase C (cross-process evaluated-export reuse) stays
+deferred behind the env-graph snapshot problem. Original deferral rationale
+below, kept for the record.
+
+Related batch-speed lever landed the same day (not incremental, but the same
+campaign): the macOS `yo build` allocator flip — `check ./src` went
+225.6 s → 97.5 s (2.3×) by matching the settled system-allocator decision
+(issues/fixed/macos-yo-build-still-mimalloc-despite-settled-decision.md).
 
 ## Phase A — build-runner artifact cache (LANDED, #213)
 
