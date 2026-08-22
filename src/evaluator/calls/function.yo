@@ -64,7 +64,8 @@ _(env : fncall_dbg_env) :: import("std/env");
   get_receiver_methods_by_name_from_env,
   get_type_trait_methods_by_name_from_env,
   snapshot_env,
-  capture_env_for
+  capture_env_for,
+  get_funcval_def_env
 } :: import("../../env.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
 { get_func_param_defaults, get_func_param_default_exprs, get_func_param_comptime, register_func_param_comptime, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_return_type_expr, get_func_variadic_param, get_func_param_type_exprs, evaluate_function_parameter_type_again, _collect_type_arg_somes } :: import("../types/function.yo");
@@ -3933,6 +3934,7 @@ Fix: wrap the call:
         cap_names := __fvm7.*.cap_names;
         cap_tys := __fvm7.*.cap_tys;
         func_id_fv := __fvm7.*.func_id;
+        fv_env_key := __fvm7.*.env_key;
         n_p := param_names.len();
         n_ev := evidence_names.len();
         (n_a : usize) = args.len();
@@ -5022,16 +5024,22 @@ Fix: wrap the call:
             n_supplied_reg = (n_supplied_reg + n_spliced);
           });
         });
-        // Build (or reuse) the function body's lexical environment from the
-        // FuncVal's flat capture snapshot. Memoised per closure instance by
-        // `capture_env_for` — re-binding every captured name on every call was
-        // 31 M `Variable` constructions per self-emit from this site alone.
-        fresh_env := capture_env_for(
-          func_id_fv,
-          cap_names,
-          cap_tys,
-          cap_vals,
-          env.module_path
+        // Build (or reuse) the function body's lexical environment. Preferred
+        // source: the frozen def-scope registry (plans/FUNCVAL_ENV_SHARING.md)
+        // — TS's `pushEnvFrame(functionType.env)`. Fallback: the flat capture
+        // snapshot rebuild, memoised per closure instance by `capture_env_for`
+        // (re-binding every captured name on every call was 31 M `Variable`
+        // constructions per self-emit from this site alone).
+        fresh_env := match(
+          get_funcval_def_env(fv_env_key),
+          .Some(fe) => snapshot_env(fe),
+          .None => capture_env_for(
+            func_id_fv,
+            cap_names,
+            cap_tys,
+            cap_vals,
+            env.module_path
+          )
         );
         // Push a frame and bind `__recur_fn`.
         _fr := fresh_env.push_frame(false);
