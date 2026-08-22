@@ -56,6 +56,10 @@ The installer:
 4. compiles `yo.c` with the OHOS clang (with liburing compiled in), and
 5. installs `yo` under `<prefix>/lib/yo/<tag>` and links `<prefix>/bin/yo`.
 
+After the install, make sure `<prefix>/bin` (default `~/.local/bin`) is on
+your `PATH` — e.g. add to `~/.zshrc` / `~/.bashrc`:
+`export PATH="$HOME/.local/bin:$PATH"`, then re-login or `source` the file.
+
 **How long it takes:** step 4 dominates — it is one `-O2` clang pass over the
 ~100 MB single-file C, so plan in tens of minutes, not seconds. Measured on a
 HarmonyOS PC (arm64, SDK clang 15): **~20 minutes when the machine is
@@ -76,10 +80,13 @@ shortcut: each version install recompiles the whole file.
   Measured on a sandboxed HarmonyOS image: `io_uring_setup` succeeds but
   **`io_uring_enter` (submit) is seccomp-blocked**, killing the process with
   SIGSYS (rc=159) on the first file read — the same Docker-seccomp pattern the
-  repo hit in CI (`--security-opt seccomp=unconfined` fixed it there). Real
-  host kernels normally allow io_uring; if a HarmonyOS PC policy blocks it,
-  Yo currently cannot run there (a blocking-I/O fallback would be a separate
-  project).
+  repo hit in CI (`--security-opt seccomp=unconfined` fixed it there). On that
+  image the block is SYSTEM-WIDE (every process and shell, not just one tool's
+  sandbox), and a SIGSYS handler does not help: the syscall never executes
+  (submits report success but completions never arrive, and even bounded
+  waits hang). Real host kernels normally allow io_uring; if a HarmonyOS PC
+  policy blocks it, Yo currently cannot run there (a blocking-I/O fallback
+  would be a separate project).
 - **Older releases are patched automatically.** The OHOS clang is strict
   C11: it rejects labels standing directly before a declaration, and the
   OHOS sysroot does not expose `struct statx` through `<sys/stat.h>`.

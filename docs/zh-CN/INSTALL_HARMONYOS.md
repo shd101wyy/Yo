@@ -52,6 +52,10 @@ $ curl -sSL https://raw.githubusercontent.com/shd101wyy/Yo/develop/scripts/insta
 4. 用 OHOS clang 编译 `yo.c`（编译进 liburing，启用异步 I/O）；
 5. 把 `yo` 安装到 `<prefix>/lib/yo/<tag>`，并链接 `<prefix>/bin/yo`。
 
+安装完成后，请确保 `<prefix>/bin`（默认 `~/.local/bin`）在 `PATH` 中 ——
+例如在 `~/.zshrc` / `~/.bashrc` 中加入：
+`export PATH="$HOME/.local/bin:$PATH"`，然后重新登录或 `source` 该文件。
+
 **需要多久：** 第 4 步占绝大部分时间 —— 它是用 `-O2` 对约 100 MB 的单文件
 C 做一次 clang 编译，请按几十分钟而不是几秒来预计。实测于 HarmonyOS PC
 （arm64，SDK clang 15）：**机器空闲时约 20 分钟，有正常后台负载时约 1 小时，
@@ -69,9 +73,12 @@ C 做一次 clang 编译，请按几十分钟而不是几秒来预计。实测�
   实测于沙箱化的 HarmonyOS 镜像：`io_uring_setup` 成功，但 `io_uring_enter`
   （提交阶段）被 seccomp 拦截，首次文件读取就被 SIGSYS（rc=159）杀死 ——
   与仓库 CI 曾遇到的 Docker seccomp 拦截 io_uring 是同一模式（当时用
-  `--security-opt seccomp=unconfined` 解决）。真实主机内核通常允许 io_uring；
-  若某台 HarmonyOS PC 的策略禁止它，Yo 目前无法在那台机器上运行（阻塞式
-  I/O 回退属于另一个项目）。
+  `--security-opt seccomp=unconfined` 解决）。在该镜像上这种拦截是**系统级**
+  的（所有进程和 shell 都受影响，不只是某个工具的沙箱），且安装 SIGSYS
+  处理器也无济于事：系统调用根本不会执行（submit 看似成功但没有完成事件，
+  即使带超时的等待也会挂起）。真实主机内核通常允许 io_uring；若某台
+  HarmonyOS PC 的策略禁止它，Yo 目前无法在那台机器上运行（阻塞式 I/O
+  回退属于另一个项目）。
 - **旧版本会自动打补丁。** OHOS clang 严格遵循 C11：它拒绝标签直接位于
   声明之前（label-before-declaration），且 OHOS sysroot 不在 `<sys/stat.h>`
   中提供 `struct statx`。在 codegen 修复之前发布的版本（v0.2.14/v0.2.15
