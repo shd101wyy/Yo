@@ -322,6 +322,32 @@ grep -E 'peak memory footprint|real' /tmp/re/gcpct.log
 Do NOT test a LARGER `FULL_PCT` — that raises the tracked-set ceiling and risks OOM
 on a 16 GB machine.
 
+## 3b. Post-allocator profile (2026-08-22) — the next time levers, ranked
+
+After the macOS system-allocator flip
+(issues/fixed/macos-yo-build-still-mimalloc-despite-settled-decision.md,
+`check ./src` 225.6 → 95.3 s), fresh `sample` profiles of the worker thread
+show memory management is STILL ~40% of remaining CPU:
+
+- **`__yo_decr_rc` ≈ 16% self time** — the single biggest named cost, stable
+  across early/late phases. Lever: inline the non-final fast path
+  (decrement + branch) at the drop site in emitted C and call the runtime
+  only on hitting zero / GC bookkeeping. Campaign-sized (touches every drop
+  in the emitted C; fixpoint + UAF-history gates apply).
+- **libsystem malloc/free ≈ 16% + memset/memmove/memcmp ≈ 7%** — allocation
+  VOLUME. Levers, in order: the open `capture_env_for` share (§3 second
+  site), the String-identity plumbing below, then §4's RC-header diet
+  (fewer bytes per object also cuts memset).
+- **String-keyed identity long tail**: the hottest named Yo functions are
+  enum-id string transforms, `String.split(separator)`, visited-`HashSet(String)`
+  probes, and is-call-named string compares — type/enum ids are heap Strings
+  split and re-hashed per lookup. An interned-id (u64 handle) representation
+  for type/enum ids is a real lever but a broad refactor; cheaper first bite:
+  stop re-splitting/cloning in the hottest paths.
+- Cycle collector: measured only ~4% of `check` wall (`YO_GC_THRESHOLD=0`
+  A/B) — NOT the cost it was assumed to be; do not prioritise collector
+  pacing for batch compiles.
+
 ## 4. Other levers found in the same sweep (independent of the above)
 
 | Lever                                              | Saving               | Risk | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
