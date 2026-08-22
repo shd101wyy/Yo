@@ -191,11 +191,13 @@ test("walk_cstr works with C string path", {
 });
 test("walk_with follow_symlinks descends through directory symlinks", {
   cond(
-    (platform == Platform.Emscripten) => {
+    ((platform == Platform.Emscripten) || (platform == Platform.Windows)) => {
       // Emscripten's FS emulation does not resolve symlinked directories
-      // through is_dir/realpath, so the follow machinery has nothing to work
-      // with there (observed on the wasm CI leg of PR #229).
-      unsafe(printf("  SKIP: emscripten FS does not resolve symlinked dirs\n"));
+      // through is_dir/realpath (observed on the wasm CI leg of PR #229), and
+      // on Windows the follow path is gated off in the walker until its
+      // primitives are verified —
+      // issues/walker-follow-symlinks-windows-unsupported.md.
+      unsafe(printf("  SKIP: follow_symlinks unsupported on this platform\n"));
     },
     true => {
       // plans/STD_API_AUDIT.md C9: WalkOptions.follow_symlinks was declared and

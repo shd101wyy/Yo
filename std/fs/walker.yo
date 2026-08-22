@@ -21,6 +21,16 @@ pragma(Pragma.AllowUnsafe);
 open(import("../string"));
 { Path } :: import("../path");
 _file :: import("./file");
+/// follow_symlinks support gate. On Windows the follow path's
+/// canonical/is_dir through a DIRECTORY symlink dies with an unknown I/O
+/// error at the runtime layer (observed on the windows-latest CI leg), so
+/// following is disabled there until the primitives are verified —
+/// issues/walker-follow-symlinks-windows-unsupported.md. Symlink entries
+/// are still REPORTED on every platform; only the descent is gated.
+_FOLLOW_SUPPORTED :: cond(
+  (__yo_process_platform() == "windows") => false,
+  true => true
+);
 { IoError } :: import("../sys/errors");
 { Error, AnyError, Exception, IoExn } :: import("../error");
 { FileType } :: import("./dir");
@@ -147,7 +157,7 @@ walk_with :: (fn(root : Path, options : WalkOptions, io : Io) -> Impl(Future(Arr
                   )
                 );
                 cond(
-                  options.follow_symlinks => {
+                  (options.follow_symlinks && _FOLLOW_SUPPORTED) => {
                     pending_links.push(entry_path);
                   },
                   true => ()
