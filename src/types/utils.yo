@@ -1500,7 +1500,21 @@ get_alignment_of_type :: (fn(ty_in : TypeValue) -> Option(usize))({
           );
           vi = (vi + usize(1));
         });
-        cond(unknown => Option(usize).None, true => Option(usize).Some(acc))
+        cond(
+          unknown => Option(usize).None,
+          // The C representation carries an int-typed tag (`__yo_tN_tag tag;`
+          // — a C enum, 4 bytes / 4-aligned on every supported target), so a
+          // value-semantics enum is at least 4-aligned REGARDLESS of its
+          // payload alignments. The size arm below already assumes this
+          // (`struct_align_bits = max(32, …)`). DELIBERATE DIVERGENCE from
+          // TS: getAlignmentOfType (attic utils.ts:1789) omits the tag, so an
+          // enum whose payloads align below 4 (e.g. Array(u16, 8) → 2)
+          // reported alignment 2, a struct embedding it skipped C's tail
+          // padding (evaluator 22 B vs C 24 B), and every sizeof-based buffer
+          // walk over such structs corrupted the heap —
+          // issues/fixed/enum-alignment-ignores-tag-heap-corruption.md.
+          true => Option(usize).Some(_max_usize(acc, usize(4)))
+        )
       }
     ),
     _ => .None
