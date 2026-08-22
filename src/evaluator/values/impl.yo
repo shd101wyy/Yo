@@ -66,7 +66,8 @@ _(env : impl_dbg_env) :: import("std/env");
   register_provisional_trait_method,
   get_provisional_trait_methods_by_name,
   clear_provisional_trait_methods,
-  type_id_or_empty
+  type_id_or_empty,
+  registration_owner
 } :: import("./type_trait_methods.yo");
 { FuncMeta, TypeValue } :: import("../../types/definitions.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -207,6 +208,16 @@ GenericImplEntry :: struct(
 (g_impl_registry_keys : ArrayList(String)) = ArrayList(String).new();
 (g_impl_registry_entry_lists : ArrayList(ArrayList(GenericImplEntry))) =
   ArrayList(ArrayList(GenericImplEntry)).new();
+// Owner tags, bucket-parallel to `g_impl_registry_entry_lists` (same outer
+// AND inner index): the `file://` module path whose evaluation registered
+// each entry, from `registration_owner()` (type_trait_methods.yo). `""` =
+// registered outside any module load, never purged. Enables
+// `purge_generic_impls_owned_by` — LSP re-analysis must not leak a registry
+// generation per edit (plans/INCREMENTAL_COMPILATION.md Phase B2), and
+// stale entries here are a PER-KEYSTROKE cost: every candidate scan in
+// `find_methods_from_generic_impls` walks them.
+(g_impl_registry_entry_owners : ArrayList(ArrayList(String))) =
+  ArrayList(ArrayList(String)).new();
 /// One IN-FLIGHT Case-2 (generic) impl: enough state to lazily
 /// forward-declare a not-yet-evaluated sibling field when a def-time body
 /// trial asks for it (env.yo's provisional-lookup miss path →
@@ -357,14 +368,22 @@ register_generic_impl :: (fn(entry : GenericImplEntry) -> unit)({
     });
     ki = (ki + usize(1));
   });
+  owner := registration_owner();
   match(
     key_idx,
     .Some(idx) => {
-      // Append to existing list.
+      // Append to existing list (owner list stays index-parallel).
       match(
         g_impl_registry_entry_lists.get(idx),
         .Some(list) => {
           list.push(entry);
+        },
+        .None => ()
+      );
+      match(
+        g_impl_registry_entry_owners.get(idx),
+        .Some(olist) => {
+          olist.push(owner);
         },
         .None => ()
       );
@@ -373,10 +392,59 @@ register_generic_impl :: (fn(entry : GenericImplEntry) -> unit)({
       // New key — add parallel entries.
       new_list := ArrayList(GenericImplEntry).new();
       new_list.push(entry);
+      new_owners := ArrayList(String).new();
+      new_owners.push(owner);
       g_impl_registry_keys.push(key);
       g_impl_registry_entry_lists.push(new_list);
+      g_impl_registry_entry_owners.push(new_owners);
     }
   );
+});
+/// Drop every generic-impl entry registered by `owner` (a `file://` abs
+/// module path). Phase B2 — called for each module the LSP invalidates.
+purge_generic_impls_owned_by :: (fn(owner : String) -> unit)({
+  if(owner.len() == usize(0), {
+    return(());
+  });
+  (ki : usize) = usize(0);
+  while(ki < g_impl_registry_entry_lists.len(), {
+    match(
+      g_impl_registry_entry_lists.get(ki),
+      .Some(list) => match(
+        g_impl_registry_entry_owners.get(ki),
+        .Some(olist) => {
+          (i : usize) = olist.len();
+          while(i > usize(0), {
+            i = (i - usize(1));
+            hit := match(olist.get(i), .Some(o) => (o == owner), .None => false);
+            if(hit && (i < list.len()), {
+              list.remove(i, usize(1));
+              olist.remove(i, usize(1));
+            });
+          });
+        },
+        .None => ()
+      ),
+      .None => ()
+    );
+    ki = (ki + usize(1));
+  });
+});
+/// Total generic-impl entries across all buckets (LSP leak gate).
+generic_impl_entry_count :: (fn() -> usize)({
+  (total : usize) = usize(0);
+  (ki : usize) = usize(0);
+  while(ki < g_impl_registry_entry_lists.len(), {
+    match(
+      g_impl_registry_entry_lists.get(ki),
+      .Some(list) => {
+        total = (total + list.len());
+      },
+      .None => ()
+    );
+    ki = (ki + usize(1));
+  });
+  total
 });
 // ---------------------------------------------------------------------------
 // Negative-impl registry (Phase N THREAD_SAFETY). A negative impl
@@ -4078,3 +4146,4 @@ export(mark_concrete_impl_being_registered);
 export(unmark_concrete_impl_being_registered);
 export(has_negative_impl);
 export(GenericImplDocEntry, get_generic_impl_doc_entries);
+export(purge_generic_impls_owned_by, generic_impl_entry_count);

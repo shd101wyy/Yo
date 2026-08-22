@@ -43,7 +43,9 @@ open(import("std/fmt"));
 { register_evaluate_expression } :: import("./evaluator/exprs/_expr.yo");
 { evaluate_anonymous_module_begin_exprs } :: import("./evaluator/values/anonymous_module.yo");
 { resolve_module_path, ModuleResolveResult, _build_module_val_from_env } :: import("./evaluator/exprs/import.yo");
-{ clear_module_cache, module_cache_has, register_module, load_module_from_cache, register_loading, unregister_loading, loading_env } :: import("./evaluator/module_loader.yo");
+{ clear_module_cache, module_cache_has, register_module, load_module_from_cache, register_loading, unregister_loading, loading_env, current_loading_module, record_import_edge, invalidate_module } :: import("./evaluator/module_loader.yo");
+{ purge_type_trait_methods_owned_by } :: import("./evaluator/values/type_trait_methods.yo");
+{ purge_generic_impls_owned_by } :: import("./evaluator/values/impl.yo");
 { EvalValue } :: import("./value.yo");
 { TypeValue } :: import("./types/definitions.yo");
 // ---------------------------------------------------------------------------
@@ -246,6 +248,84 @@ mm_resolve_entry_abs :: (fn(input_path : String, std_path : String) -> String)(
     .Ambiguous(_) => input_path
   )
 );
+// Open-document text overlay (Phase B1): the LSP holds newer text for open
+// buffers than the disk does. `_load_module_at_abs` consults this AFTER its
+// disk read, so an importing document's analysis sees the editor's version
+// of an imported file, saved or not. Parallel arrays, keyed by FS path.
+(g_open_doc_paths : ArrayList(String)) = ArrayList(String).new();
+(g_open_doc_texts : ArrayList(String)) = ArrayList(String).new();
+_open_doc_index :: (fn(fs_path : String) -> Option(usize))({
+  (i : usize) = usize(0);
+  n := g_open_doc_paths.len();
+  while(i < n, {
+    match(
+      g_open_doc_paths.get(i),
+      .Some(p) => if(p == fs_path, {
+        return(Option(usize).Some(i));
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  Option(usize).None
+});
+/// Record (or replace) the open-buffer text for `fs_path`.
+mm_set_open_document :: (fn(fs_path : String, text : String) -> unit)({
+  match(
+    _open_doc_index(fs_path.clone()),
+    .Some(i) => {
+      g_open_doc_texts(i) = text;
+    },
+    .None => {
+      g_open_doc_paths.push(fs_path);
+      g_open_doc_texts.push(text);
+    }
+  );
+});
+/// Drop the overlay for `fs_path` (didClose — disk becomes the truth again).
+mm_forget_open_document :: (fn(fs_path : String) -> unit)({
+  match(
+    _open_doc_index(fs_path.clone()),
+    .Some(i) => {
+      g_open_doc_paths.remove(i, usize(1));
+      g_open_doc_texts.remove(i, usize(1));
+    },
+    .None => ()
+  );
+});
+_open_doc_text :: (fn(fs_path : String) -> Option(String))(
+  match(
+    _open_doc_index(fs_path.clone()),
+    .Some(i) => g_open_doc_texts.get(i),
+    .None => Option(String).None
+  )
+);
+/// LSP invalidation entry (Phase B1, plans/INCREMENTAL_COMPILATION.md):
+/// drop the module cached for this FILESYSTEM path and every transitive
+/// dependent, so the next analysis of any document re-evaluates exactly the
+/// stale part of its import closure. Returns the removed `file://` paths
+/// (Phase B2's registry purge consumes this). The cached prelude env is NOT
+/// touched — editing std/prelude.yo still needs a server restart.
+mm_invalidate_document :: (fn(fs_path : String) -> ArrayList(String))({
+  removed := invalidate_module(`file://${fs_path}`);
+  // Phase B2: each removed module's registry entries go with it — its
+  // re-evaluation re-registers them (under fresh type ids). Without this,
+  // every LSP edit leaked a registry generation, and stale generic-impl
+  // entries lengthened every candidate scan.
+  (i : usize) = usize(0);
+  while(i < removed.len(), {
+    match(
+      removed.get(i),
+      .Some(owner) => {
+        purge_type_trait_methods_owned_by(owner.clone());
+        purge_generic_impls_owned_by(owner);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  removed
+});
 /// TS `ModuleManager.resetAllState()`. Drops the module cache, the cached
 /// prelude env, the shared ExprInfoTable and the loader context, so the next
 /// load starts from a clean evaluator universe.
@@ -320,7 +400,18 @@ _load_module_at_abs :: (fn(abs : String) -> Option(String))({
   exn := match(g_loader_exn, .Some(e) => e, .None => return(Option(String).None));
   fs_path := abs.replace(String.from("file://"), String.from(""));
   src_bytes := io.await(read_file(Path.new(fs_path.clone()), io), IoExn(io : io, exn : exn));
-  src := String.from_bytes(src_bytes);
+  (src : String) = String.from_bytes(src_bytes);
+  // Open-buffer overlay (Phase B1): the editor's text wins over the disk
+  // read above. The read still ALWAYS runs — the await stays a top-level
+  // statement (the async-lowering rule), and import resolution requires the
+  // file to exist on disk anyway.
+  match(
+    _open_doc_text(fs_path.clone()),
+    .Some(open_text) => {
+      src = open_text.clone();
+    },
+    .None => ()
+  );
   mod_exprs := parse(src, abs.clone(), exn);
   env := mm_fresh_module_env(abs.clone());
   ctx := eval_context_new(std_path.clone(), abs.clone());
@@ -369,6 +460,15 @@ _load_module_at_abs :: (fn(abs : String) -> Option(String))({
 /// computed by `evaluate_import`. Cache hit -> cached exports; currently-loading
 /// (cycle) -> partial exports from the module's live env; else load on demand.
 demand_load_module :: (fn(path : String) -> LoadModuleResult)({
+  // Import-graph edge: whoever is mid-evaluation (loading-stack top) depends
+  // on `path`. Recorded on EVERY request — a cache hit is still a dependency
+  // — so `invalidate_module` can walk dependents. Phase B1,
+  // plans/INCREMENTAL_COMPILATION.md.
+  match(
+    current_loading_module(),
+    .Some(importer) => record_import_edge(importer, path.clone()),
+    .None => ()
+  );
   if(module_cache_has(path.clone()), {
     return(load_module_from_cache(path));
   });
@@ -666,6 +766,9 @@ export(
   mm_shared_expr_info_table,
   mm_fresh_module_env,
   mm_resolve_entry_abs,
+  mm_invalidate_document,
+  mm_set_open_document,
+  mm_forget_open_document,
   mm_reset,
   demand_load_module,
   mm_load_prelude_file,
