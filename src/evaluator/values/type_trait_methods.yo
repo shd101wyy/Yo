@@ -156,22 +156,113 @@ MethodEntry :: ref(
 /// Module-level storage: `type id` → list of method entries.
 (_type_trait_methods : HashMap(String, ArrayList(MethodEntry))) =
   HashMap(String, ArrayList(MethodEntry)).new();
+/// Owner tags, parallel to `_type_trait_methods` (same key, same index):
+/// the `file://` abs path of the module whose evaluation registered the
+/// entry (`""` outside any module load — never purged). Enables
+/// `purge_type_trait_methods_owned_by` so LSP re-analysis stops leaking a
+/// registry generation per edit (plans/INCREMENTAL_COMPILATION.md Phase B2).
+(_type_trait_method_owners : HashMap(String, ArrayList(String))) =
+  HashMap(String, ArrayList(String)).new();
+/// The module currently being evaluated, as far as registration ownership
+/// is concerned. MAINTAINED BY module_loader's register_loading /
+/// unregister_loading (the loading-stack top) — the state lives HERE, and
+/// the loader pushes into it, because importing module_loader from this
+/// module would close the module_loader → env → type_trait_methods cycle.
+(_registration_owner : String) = String.new();
+set_registration_owner :: (fn(owner : String) -> unit)({
+  _registration_owner = owner;
+});
+/// The current owner tag ("" outside any module evaluation). Read by this
+/// module's own registration and by impl.yo's generic-impl registry.
+registration_owner :: (fn() -> String)(_registration_owner.clone());
 /// Append `entry` to the method list for `type_id`. The list is
-/// created on demand.
+/// created on demand. The owner tag is read from the module-loader's
+/// loading stack HERE so registration call sites stay unchanged.
 register_type_trait_method :: (
   fn(type_id : String, entry : MethodEntry) -> unit
 )({
+  owner := _registration_owner.clone();
   match(
-    _type_trait_methods.get(type_id),
+    _type_trait_methods.get(type_id.clone()),
     .Some(list) => {
       list.push(entry);
     },
     .None => {
       fresh := ArrayList(MethodEntry).new();
       fresh.push(entry);
-      ___set := _type_trait_methods.set(type_id, fresh);
+      ___set := _type_trait_methods.set(type_id.clone(), fresh);
     }
   );
+  match(
+    _type_trait_method_owners.get(type_id.clone()),
+    .Some(olist) => {
+      olist.push(owner);
+    },
+    .None => {
+      ofresh := ArrayList(String).new();
+      ofresh.push(owner);
+      ___oset := _type_trait_method_owners.set(type_id, ofresh);
+    }
+  );
+});
+/// Drop every method entry registered by `owner` (a `file://` abs module
+/// path). Called with each module the LSP invalidates, right before its
+/// re-evaluation re-registers the surviving impls under fresh type ids.
+purge_type_trait_methods_owned_by :: (fn(owner : String) -> unit)({
+  if(owner.len() == usize(0), {
+    return(());
+  });
+  it := _type_trait_methods.keys();
+  (go : bool) = true;
+  while(go, {
+    match(
+      it.next(),
+      .Some(key) => match(
+        _type_trait_methods.get(key.clone()),
+        .Some(list) => match(
+          _type_trait_method_owners.get(key.clone()),
+          .Some(olist) => {
+            (i : usize) = olist.len();
+            while(i > usize(0), {
+              i = (i - usize(1));
+              hit := match(olist.get(i), .Some(o) => (o == owner), .None => false);
+              if(hit && (i < list.len()), {
+                list.remove(i, usize(1));
+                olist.remove(i, usize(1));
+              });
+            });
+          },
+          .None => ()
+        ),
+        .None => ()
+      ),
+      .None => {
+        go = false;
+      }
+    );
+  });
+});
+/// Total registered method entries across all type ids (LSP leak gate).
+type_trait_methods_entry_count :: (fn() -> usize)({
+  (total : usize) = usize(0);
+  it := _type_trait_methods.keys();
+  (go : bool) = true;
+  while(go, {
+    match(
+      it.next(),
+      .Some(key) => match(
+        _type_trait_methods.get(key),
+        .Some(list) => {
+          total = (total + list.len());
+        },
+        .None => ()
+      ),
+      .None => {
+        go = false;
+      }
+    );
+  });
+  total
 });
 /// Return all method entries registered for `type_id`, or an empty
 /// list when nothing has been registered.
@@ -355,5 +446,9 @@ export(
   register_provisional_trait_method,
   get_provisional_trait_methods_by_name,
   clear_provisional_trait_methods,
-  type_id_or_empty
+  type_id_or_empty,
+  set_registration_owner,
+  registration_owner,
+  purge_type_trait_methods_owned_by,
+  type_trait_methods_entry_count
 );

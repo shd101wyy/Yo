@@ -1597,42 +1597,23 @@ _funcval_bind_foralls :: (
         );
       });
     });
-    // Fallback: bind the i-th generic param from the receiver's i-th type
-    // argument when it could not be inferred from call arguments.
-    // yo-self-only mechanism (TS resolves impl generics via specializedType,
-    // never positionally) — restrict it to Type-kinded binders: pairing a
-    // VALUE binder (`generic(N : usize)`) with a receiver TYPE argument
-    // stamps `N := TypeVal(elem)` and the body throws unify(usize, Type)
-    // (the imm_list/imm_vec hollow batch main).
-    fa_kind_is_type := match(forall_kinds.get(fa_i), .Some(k) => is_type_0(k), .None => true);
-    if((!(fa_bound) && fa_kind_is_type) && (fa_i < recv_type_args.len()), {
-      match(
-        recv_type_args.get(fa_i),
-        .Some(rta) => {
-          fa_bound_names.push(fa_name.clone());
-          fa_bound_types.push(rta.clone());
-          _add_forall_rt := add_variable_to_env(
-            fresh_env,
-            fa_name,
-            TypeValue.TypeUni(usize(0)),
-            Option(EvalValue).Some(EvalValue.TypeVal(rta)),
-            true,
-            false,
-            false,
-            false,
-            synthetic_token(fa_name, env.module_path)
-          );
-          fa_bound = true;
-        },
-        .None => ()
-      );
-    });
     // Capture fallback (STATIC generic-impl methods, e.g.
     // `ArrayList(u8).new`): no arg binds `T` and the receiver Struct may
     // not carry `type_arguments`, but the generic-impl resolver injected
     // the impl's generic binding (`T = u8`) into this FuncVal's CAPTURES
     // (`_inject_forall_captures`, appended at the tail). Bind `T` from that
     // capture so the body / specialization concretize.
+    //
+    // ORDER MATTERS: captures come from the impl resolver's PATTERN
+    // unification, so they are authoritative; the positional
+    // receiver-type-args fallback below is a stand-in that only holds when
+    // the impl's foralls happen to align 1:1 with the constructor's params.
+    // For `impl(generic(V), HashMap(String, V), FromJson(...))` the single
+    // forall V sits at receiver position 1, and positional-first bound
+    // `V := String` (type_arguments[0]) — dispatching every
+    // `HashMap(String, i32).from_json` value decode to String's impl
+    // ("expected a string"). See
+    // issues/generic-impl-fromjson-container-decode-failures.md.
     if(!(fa_bound), {
       (fcap_i : usize) = usize(0);
       while((fcap_i < cap_names.len()) && !(fa_bound), {
@@ -1662,20 +1643,29 @@ _funcval_bind_foralls :: (
               },
               .TypeVal(ctb) => {
                 cap_ty := ctb;
-                fa_bound_names.push(fa_name.clone());
-                fa_bound_types.push(cap_ty.clone());
-                _add_forall_cap := add_variable_to_env(
-                  fresh_env,
-                  fa_name,
-                  TypeValue.TypeUni(usize(0)),
-                  Option(EvalValue).Some(EvalValue.TypeVal(cap_ty)),
-                  true,
-                  false,
-                  false,
-                  false,
-                  synthetic_token(fa_name, env.module_path)
-                );
-                fa_bound = true;
+                // Bind from the capture only when it is CONCRETE. A capture
+                // can hold a still-unresolved SomeT (a def-time trial's own
+                // binder echoed back) — binding that here poisons the body
+                // (`ArrayList(u8).with_capacity` regressed to "member
+                // _bytes ... Got: Type(1)" when captures ran first
+                // unconditionally); an unresolved capture falls through to
+                // the positional receiver-type-args fallback below.
+                if(!(type_contains_some_type_deep(cap_ty.clone())), {
+                  fa_bound_names.push(fa_name.clone());
+                  fa_bound_types.push(cap_ty.clone());
+                  _add_forall_cap := add_variable_to_env(
+                    fresh_env,
+                    fa_name,
+                    TypeValue.TypeUni(usize(0)),
+                    Option(EvalValue).Some(EvalValue.TypeVal(cap_ty)),
+                    true,
+                    false,
+                    false,
+                    false,
+                    synthetic_token(fa_name, env.module_path)
+                  );
+                  fa_bound = true;
+                });
               },
               _ => ()
             ),
@@ -1684,6 +1674,37 @@ _funcval_bind_foralls :: (
         });
         fcap_i = (fcap_i + usize(1));
       });
+    });
+    // Fallback: bind the i-th generic param from the receiver's i-th type
+    // argument when it could not be inferred from call arguments OR from an
+    // injected capture (see ORDER MATTERS above).
+    // yo-self-only mechanism (TS resolves impl generics via specializedType,
+    // never positionally) — restrict it to Type-kinded binders: pairing a
+    // VALUE binder (`generic(N : usize)`) with a receiver TYPE argument
+    // stamps `N := TypeVal(elem)` and the body throws unify(usize, Type)
+    // (the imm_list/imm_vec hollow batch main).
+    fa_kind_is_type := match(forall_kinds.get(fa_i), .Some(k) => is_type_0(k), .None => true);
+    if((!(fa_bound) && fa_kind_is_type) && (fa_i < recv_type_args.len()), {
+      match(
+        recv_type_args.get(fa_i),
+        .Some(rta) => {
+          fa_bound_names.push(fa_name.clone());
+          fa_bound_types.push(rta.clone());
+          _add_forall_rt := add_variable_to_env(
+            fresh_env,
+            fa_name,
+            TypeValue.TypeUni(usize(0)),
+            Option(EvalValue).Some(EvalValue.TypeVal(rta)),
+            true,
+            false,
+            false,
+            false,
+            synthetic_token(fa_name, env.module_path)
+          );
+          fa_bound = true;
+        },
+        .None => ()
+      );
     });
     fa_i = (fa_i + usize(1));
   });

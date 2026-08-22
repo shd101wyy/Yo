@@ -56,3 +56,10 @@ before the real push.
 
 Move this to `issues/fixed/` once a release's `seed-bump` job has pushed
 successfully with the updated PAT.
+
+---
+
+**FIXED 2026-08-22:** the v0.2.16 release run (32568953170) — "Bump
+SEED_VERSION on develop: success" — pushed e04a118c3 directly to develop,
+updating the SEED_VERSION lines in all three workflow files. The
+RELEASE_PAT now carries "Workflows: read and write".

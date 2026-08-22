@@ -21,6 +21,7 @@ open(import("std/fmt"));
   jstr,
   jnum,
   j_diagnostic,
+  j_range,
   j_response,
   j_error_response,
   j_notification
@@ -31,7 +32,11 @@ open(import("std/fmt"));
 { handle_document_symbols } :: import("./symbols.yo");
 { handle_references } :: import("./references.yo");
 { handle_folding_ranges } :: import("./folding.yo");
-{ resolve_std_path } :: import("../module_manager.yo");
+{ handle_rename } :: import("./rename.yo");
+{ handle_signature_help } :: import("./signature_help.yo");
+{ handle_completion } :: import("./completion.yo");
+{ format_yo_source } :: import("../formatter.yo");
+{ resolve_std_path, mm_invalidate_document, mm_set_open_document, mm_forget_open_document } :: import("../module_manager.yo");
 { BufReader } :: import("std/sys/bufio/buf_reader");
 
 /// Per-document retained analysis: editor text + the last evaluation's
@@ -121,6 +126,14 @@ _analyze_and_publish :: (
   fn(uri : String, text : String, std_path : String, docs : HashMap(String, DocState), io : Io) -> unit
 )({
   fs_path := uri_to_fs_path(uri.clone());
+  // Phase B1 (plans/INCREMENTAL_COMPILATION.md): the editor holds this
+  // file's newest text — record it as the loader's open-buffer overlay,
+  // then drop any cached module built from an older version PLUS every
+  // transitive dependent. Together these make an edit to an IMPORTED file
+  // visible to the next analysis of any importing document (previously:
+  // invisible until the server restarted).
+  mm_set_open_document(fs_path.clone(), text.clone());
+  _inv := mm_invalidate_document(fs_path.clone());
   out_state := ArrayList(AnalyzeOutcome).new();
   diags := analyze_document(fs_path.clone(), text.clone(), std_path, io, out_state);
   match(
@@ -155,11 +168,28 @@ _publish_empty :: (fn(uri : String) -> unit)({
   write_lsp_message(json_stringify(j_notification("textDocument/publishDiagnostics", params)));
 });
 
+/// signatureHelp trigger characters: "(" and ",".
+_sig_triggers :: (fn() -> ArrayList(JsonValue))({
+  ts := ArrayList(JsonValue).new();
+  ts.push(jstr(String.from("(")));
+  ts.push(jstr(String.from(",")));
+  ts
+});
+
+/// completion trigger characters: member access and import-path strings.
+_completion_triggers :: (fn() -> ArrayList(JsonValue))({
+  ts := ArrayList(JsonValue).new();
+  ts.push(jstr(String.from(".")));
+  ts.push(jstr(String.from("\"")));
+  ts.push(jstr(String.from("/")));
+  ts
+});
+
 /// The `initialize` response: full-document sync; push diagnostics carry no
 /// capability flag. Feature providers (hover, completion, …) arrive with
 /// their P4 slices.
 _initialize_result :: (fn() -> JsonValue)(
-  jb().put("capabilities", jb().put("textDocumentSync", jnum(usize(1))).put("hoverProvider", JsonValue.Bool(value : true)).put("definitionProvider", JsonValue.Bool(value : true)).put("documentSymbolProvider", JsonValue.Bool(value : true)).put("referencesProvider", JsonValue.Bool(value : true)).put("foldingRangeProvider", JsonValue.Bool(value : true)).obj()).put(
+  jb().put("capabilities", jb().put("textDocumentSync", jnum(usize(1))).put("hoverProvider", JsonValue.Bool(value : true)).put("definitionProvider", JsonValue.Bool(value : true)).put("documentSymbolProvider", JsonValue.Bool(value : true)).put("referencesProvider", JsonValue.Bool(value : true)).put("foldingRangeProvider", JsonValue.Bool(value : true)).put("renameProvider", JsonValue.Bool(value : true)).put("documentFormattingProvider", JsonValue.Bool(value : true)).put("signatureHelpProvider", jb().put("triggerCharacters", JsonValue.Array(items : _sig_triggers())).obj()).put("completionProvider", jb().put("triggerCharacters", JsonValue.Array(items : _completion_triggers())).obj()).obj()).put(
     "serverInfo",
     // No `version` field on purpose: it is optional in the protocol, the
     // client can ask `yo --version`, and a version here would churn the
@@ -167,6 +197,28 @@ _initialize_result :: (fn() -> JsonValue)(
     jb().put("name", jstr(String.from("yo-lsp"))).obj()
   ).obj()
 );
+
+/// Whole-document formatting via `yo fmt`'s format_yo_source. Returns the
+/// LSP result: an ARRAY with one whole-document TextEdit, an EMPTY array
+/// when already canonical, or Null (own unwind frame) when the source does
+/// not parse — the client keeps the buffer untouched.
+_format_document :: (fn(text : String, doc_abs : String) -> JsonValue)({
+  fmt_exn := Exception(
+    throw : (
+      (_err) -> unwind(JsonValue.Null)
+    )
+  );
+  formatted := format_yo_source(text.clone(), doc_abs.clone(), fmt_exn);
+  if(formatted == text, {
+    return(JsonValue.Array(items : ArrayList(JsonValue).new()));
+  });
+  line_count := text.split(String.from("\n")).len();
+  edits := ArrayList(JsonValue).new();
+  edits.push(
+    jb().put("range", j_range(usize(0), usize(0), line_count, usize(0))).put("newText", jstr(formatted)).obj()
+  );
+  JsonValue.Array(items : edits)
+});
 
 /// Handle one JSON-RPC message. Returns 0 = keep serving, 10 = exit(0),
 /// 11 = exit(1) (`exit` without a preceding `shutdown`).
@@ -437,6 +489,209 @@ _handle_message :: (
         .None => ()
       );
     },
+    (method == String.from("textDocument/rename")) => {
+      (rn_result : JsonValue) = JsonValue.Null;
+      match(
+        v.get(String.from("params")),
+        .Some(params) => {
+          uri := match(
+            params.get(String.from("textDocument")),
+            .Some(td) => _jfield_str(td, "uri"),
+            .None => String.new()
+          );
+          new_name := _jfield_str(params, "newName");
+          (line : usize) = usize(0);
+          (character : usize) = usize(0);
+          match(
+            params.get(String.from("position")),
+            .Some(pos) => {
+              match(
+                pos.get(String.from("line")),
+                .Some(lv) => match(
+                  lv,
+                  .Number(ln) => {
+                    line = usize(ln);
+                  },
+                  _ => ()
+                ),
+                .None => ()
+              );
+              match(
+                pos.get(String.from("character")),
+                .Some(cv) => match(
+                  cv,
+                  .Number(cn) => {
+                    character = usize(cn);
+                  },
+                  _ => ()
+                ),
+                .None => ()
+              );
+            },
+            .None => ()
+          );
+          match(
+            docs.get(uri.clone()),
+            .Some(st) => match(
+              handle_rename(st.text, st.entry_abs, uri.clone(), st.outcome.exprs, line, character, new_name),
+              .Some(we) => {
+                rn_result = we;
+              },
+              .None => ()
+            ),
+            .None => ()
+          );
+        },
+        .None => ()
+      );
+      match(
+        id_opt,
+        .Some(id) => write_lsp_message(json_stringify(j_response(id, rn_result))),
+        .None => ()
+      );
+    },
+    (method == String.from("textDocument/formatting")) => {
+      (fmt_result : JsonValue) = JsonValue.Null;
+      match(
+        v.get(String.from("params")),
+        .Some(params) => {
+          uri := match(
+            params.get(String.from("textDocument")),
+            .Some(td) => _jfield_str(td, "uri"),
+            .None => String.new()
+          );
+          match(
+            docs.get(uri.clone()),
+            .Some(st) => {
+              fmt_result = _format_document(st.text, st.entry_abs);
+            },
+            .None => ()
+          );
+        },
+        .None => ()
+      );
+      match(
+        id_opt,
+        .Some(id) => write_lsp_message(json_stringify(j_response(id, fmt_result))),
+        .None => ()
+      );
+    },
+    (method == String.from("textDocument/signatureHelp")) => {
+      (sh_result : JsonValue) = JsonValue.Null;
+      match(
+        v.get(String.from("params")),
+        .Some(params) => {
+          uri := match(
+            params.get(String.from("textDocument")),
+            .Some(td) => _jfield_str(td, "uri"),
+            .None => String.new()
+          );
+          (line : usize) = usize(0);
+          (character : usize) = usize(0);
+          match(
+            params.get(String.from("position")),
+            .Some(pos) => {
+              match(
+                pos.get(String.from("line")),
+                .Some(lv) => match(
+                  lv,
+                  .Number(ln) => {
+                    line = usize(ln);
+                  },
+                  _ => ()
+                ),
+                .None => ()
+              );
+              match(
+                pos.get(String.from("character")),
+                .Some(cv) => match(
+                  cv,
+                  .Number(cn) => {
+                    character = usize(cn);
+                  },
+                  _ => ()
+                ),
+                .None => ()
+              );
+            },
+            .None => ()
+          );
+          match(
+            docs.get(uri.clone()),
+            .Some(st) => match(
+              handle_signature_help(st.outcome.exprs, st.outcome.info_table, line, character),
+              .Some(sh) => {
+                sh_result = sh;
+              },
+              .None => ()
+            ),
+            .None => ()
+          );
+        },
+        .None => ()
+      );
+      match(
+        id_opt,
+        .Some(id) => write_lsp_message(json_stringify(j_response(id, sh_result))),
+        .None => ()
+      );
+    },
+    (method == String.from("textDocument/completion")) => {
+      (comp_result : JsonValue) = JsonValue.Null;
+      match(
+        v.get(String.from("params")),
+        .Some(params) => {
+          uri := match(
+            params.get(String.from("textDocument")),
+            .Some(td) => _jfield_str(td, "uri"),
+            .None => String.new()
+          );
+          (line : usize) = usize(0);
+          (character : usize) = usize(0);
+          match(
+            params.get(String.from("position")),
+            .Some(pos) => {
+              match(
+                pos.get(String.from("line")),
+                .Some(lv) => match(
+                  lv,
+                  .Number(ln) => {
+                    line = usize(ln);
+                  },
+                  _ => ()
+                ),
+                .None => ()
+              );
+              match(
+                pos.get(String.from("character")),
+                .Some(cv) => match(
+                  cv,
+                  .Number(cn) => {
+                    character = usize(cn);
+                  },
+                  _ => ()
+                ),
+                .None => ()
+              );
+            },
+            .None => ()
+          );
+          match(
+            docs.get(uri.clone()),
+            .Some(st) => {
+              comp_result = handle_completion(st.text, st.entry_abs, std_path.clone(), st.outcome.exprs, st.outcome.info_table, line, character, io);
+            },
+            .None => ()
+          );
+        },
+        .None => ()
+      );
+      match(
+        id_opt,
+        .Some(id) => write_lsp_message(json_stringify(j_response(id, comp_result))),
+        .None => ()
+      );
+    },
     (method == String.from("textDocument/didOpen")) => {
       match(
         v.get(String.from("params")),
@@ -501,6 +756,11 @@ _handle_message :: (
             uri := _jfield_str(td, "uri");
             if(uri.len() > usize(0), {
               _r := docs.remove(uri.clone());
+              // Phase B1: the disk becomes this file's truth again — drop
+              // the open-buffer overlay and anything cached from it.
+              closed_fs := uri_to_fs_path(uri.clone());
+              mm_forget_open_document(closed_fs.clone());
+              _inv2 := mm_invalidate_document(closed_fs);
               _publish_empty(uri);
             });
           },

@@ -124,6 +124,7 @@ masked := ((A | B) | C);
 - `func arg1, arg2` and `func (arg1, arg2)` are invalid
 - Yo has no operator precedence: a chain of the SAME operator left-associates (`a + b + c` ⇒ `(a + b) + c`, no parens needed); adjacent DIFFERENT operators require parentheses (`(a + b) * c`, not `a + b * c`)
 - An operator RHS that itself contains a different top-level operator must be parenthesized: `true => (x / y)`, `value := (x + y)`, `(x : T) = ((v) -> { ... })`, `next : (fn(...) -> T)`
+- The rule also applies on the LEFT of a `cond` arm's `=>`: a same-operator chain like `a || b || c` is fine alone, but `a || b || c => v` mixes `||` with `=>` — wrap the whole condition: `(a || b || c) => v` ("Adjacent different operators need parentheses")
 - Source layout does NOT affect grouping — there is no newline-based associativity
 - Prefix operators (`-` `!` `~` `&` `*` `?` `^`) bind ONE postfix expression (plans/PREFIX_OPERATOR_OPERAND_RULE.md): `-1`, `!ready`, `&s`, `?*T`, `3 - -3` are valid; an INFIX operand still needs parens (`-(1 + 2)`). SEED CONSTRAINT: keep parenthesized forms (`-(1)`, `!(x)`) in `src/` and `std/` until a rule-bearing release becomes the seed.
 - Tight special forms also require immediate parentheses: `#(expr)`, `?(*(u8))`, `T <: !(Runtime)`
@@ -1055,6 +1056,70 @@ fn :: (fn() -> T)({ match(x, arms) })
 fn :: (fn() -> T)(match(x, arms))
 fn :: (fn() -> T)({ match(x, arms); })
 ```
+
+### Sibling match/cond arms must agree in type — brace statement-like arms
+
+An unbraced arm's value is the expression's value, and `list.push(x)` /
+`map.set(k, v)` return non-unit — so mixing an unbraced push arm with a
+block-shaped (unit) sibling arm is a type error ("Incompatible types" /
+"{ ... } without semicolons"). Brace-and-semicolon every arm whose result
+is not meant to be the value: `(c) => { bytes.push(b); },`.
+
+### Static (self-less) trait methods work — the FromJson pattern
+
+A trait method with no `self` (`Maker :: trait(make : (fn(x : i32) -> Self))`)
+dispatches as `Point.make(x)` on any impl'd type, and through a generic
+where-constrained fn (`(fn(comptime(T) : Type, x : i32, where(T <: Maker)) -> T)(T.make(x))`).
+Constructor-style traits (`FromJson.from_json`) are therefore expressible.
+(A forall-binding-order bug that broke this inside generic impls on
+multi-param receivers — `HashMap(String, V)` bound `V := String` — was
+fixed 2026-08-22:
+issues/fixed/generic-impl-fromjson-container-decode-failures.md.)
+### Don't name locals after Windows macros (`near`, `far`, `pascal`, `IN`, `OUT`)
+
+Emitted C keeps user local names, and `windef.h` defines the legacy Win16
+set (`near`, `far`, `pascal`, …) to NOTHING — a local named `near`
+compiles everywhere except the windows target, where `if (near)` becomes
+`if ()` (caught by PR #218's windows leg; see
+issues/emitted-c-locals-collide-with-windows-macros.md).
+
+### A local `(fn(...) -> T)(body)` literal cannot capture enclosing locals
+
+A typed fn literal bound inside another function is a full function
+definition (def-time evaluated), NOT a closure — its body fails with
+`Variable "x" not found` for any enclosing local it references. Arrow
+closures (`(a) -> expr`, `(a) => { ... }`) capture; typed fn literals do
+not. Hoist the fn to module level and pass the state as parameters:
+
+```rust
+// ❌ inner fn cannot see `out` from the enclosing fn's scope
+outer :: (fn(out : ArrayList(i32)) -> unit)({
+  push_twice := (fn(v : i32) -> unit)({ out.push(v); out.push(v); });
+  push_twice(i32(1));
+});
+
+// ✅ module-level helper takes the state explicitly
+_push_twice :: (fn(v : i32, out : ArrayList(i32)) -> unit)({ out.push(v); out.push(v); });
+outer :: (fn(out : ArrayList(i32)) -> unit)({ _push_twice(i32(1), out); });
+```
+
+### Writing derive rules (outside the prelude works)
+
+`derive_rule(MyTrait, __my_rule)` works in any module with
+`pragma(Pragma.AllowMacroDef)`; the deriving module imports the trait and
+whatever names the GENERATED code references. Authoring gotchas, each of
+which otherwise surfaces as the misleading
+`derive rule must return(comptime(Expr)); got Comptime`:
+
+- Code strings passed to `.to_expr()` must parse as EXACTLY ONE
+  expression — wrap statement blocks in parens: `"({ a := 1; () })"`,
+  never a bare `"{ … }"`.
+- A raw backtick inside a `"..."` code string splits the parse — generate
+  `String.from("x")` in the code instead of a template literal.
+- Invoke derives with trait arguments: `derive(Point, Eq(Point))`. The
+  bare `derive(Point, Eq)` kills the module's evaluation with an
+  error anchored somewhere else entirely
+  (issues/bare-derive-form-kills-module-eval.md).
 
 ### Template strings cannot be nested inside `${...}` interpolations
 

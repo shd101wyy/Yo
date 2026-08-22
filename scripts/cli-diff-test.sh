@@ -294,6 +294,15 @@ run_case() {
   done <<< "${CASE_ENV_RAW:-}"
 
   local rc=0 line
+  # A case may provide a `stdin` file (raw bytes, e.g. framed LSP messages
+  # for `yo lsp`); commands read /dev/null otherwise so an accidentally
+  # interactive subcommand can never hang the harness. Resolve it to an
+  # ABSOLUTE path HERE: the redirect below is evaluated after `cd "$proj"`,
+  # where a relative $cdir no longer exists — the original inline
+  # `[[ -f "$cdir/stdin" ]]` check silently fell back to /dev/null on every
+  # run, which made the lsp-handshake case vacuous (empty golden, rc=0).
+  local stdin_file=/dev/null
+  [[ -f "$cdir/stdin" ]] && stdin_file="$(cd "$cdir" && pwd)/stdin"
   : > "$sand/stdout.raw"
   while IFS= read -r line; do
     [[ -z "$line" || "$line" == \#* ]] && continue
@@ -301,12 +310,9 @@ run_case() {
     eval "argv=($line)"
     {
       echo "\$ yo ${argv[*]}"
-      # A case may provide a `stdin` file (raw bytes, e.g. framed LSP
-      # messages for `yo lsp`); commands read /dev/null otherwise so an
-      # accidentally interactive subcommand can never hang the harness.
       ( cd "$proj" && HOME="$home" YO_ORIGINAL_CWD="$proj" YO_STD="$REPO_ROOT/std" \
           run_with_timeout "$tmo" env ${envkv[@]+"${envkv[@]}"} "$YO_SELF_BIN" "${argv[@]}" 2>&1 \
-          < "$( [[ -f "$cdir/stdin" ]] && echo "$cdir/stdin" || echo /dev/null )" )
+          < "$stdin_file" )
       rc=$?
       echo "rc=$rc"
     } >> "$sand/stdout.raw"
