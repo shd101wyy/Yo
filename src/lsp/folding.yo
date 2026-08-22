@@ -1,0 +1,73 @@
+//! lsp/folding — textDocument/foldingRange (plans/P4_LSP.md slice 5).
+//!
+//! Port of the attic `folding.ts`: region ranges from multi-line `{...}`
+//! and `(...)` pairs (a shared stack, exactly like the original — a
+//! mismatched closer pops whatever is on top, which is fine for folding),
+//! plus comment ranges for multi-line block comments.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+open(import("std/error"));
+{ Token, TokenKind } :: import("../token.yo");
+{ tokenize } :: import("../lexer.yo");
+{ JsonValue } :: import("std/encoding/json");
+{ jb, jstr, jnum } :: import("./protocol.yo");
+
+_push_fold :: (
+  fn(out : ArrayList(JsonValue), start_line : usize, end_line : usize, kind : str) -> unit
+)({
+  out.push(
+    jb().put("startLine", jnum(start_line)).put("endLine", jnum(end_line)).put("kind", jstr(String.from(kind))).obj()
+  );
+});
+
+/// Folding ranges for the document text.
+handle_folding_ranges :: (fn(text : String, doc_abs : String) -> JsonValue)({
+  out := ArrayList(JsonValue).new();
+  lex_exn := Exception(
+    throw : (
+      (_err) -> unwind(JsonValue.Array(items : ArrayList(JsonValue).new()))
+    )
+  );
+  tokens := tokenize(text.clone(), doc_abs.clone(), lex_exn);
+  open_rows := ArrayList(usize).new();
+  (i : usize) = usize(0);
+  n := tokens.len();
+  while(i < n, {
+    t := match(
+      tokens.get(i),
+      .Some(x) => x,
+      .None => {
+        return(JsonValue.Array(items : out));
+      }
+    );
+    is_open := ((t.kind == TokenKind.LCurlyBracket) || (t.kind == TokenKind.LParen));
+    is_close := ((t.kind == TokenKind.RCurlyBracket) || (t.kind == TokenKind.RParen));
+    cond(
+      is_open => {
+        open_rows.push(t.row);
+      },
+      is_close => {
+        if(open_rows.len() > usize(0), {
+          open_row := match(open_rows.get(open_rows.len() - usize(1)), .Some(r) => r, .None => t.row);
+          _p := open_rows.pop();
+          if(open_row < t.row, {
+            _push_fold(out, open_row, t.row, "region");
+          });
+        });
+      },
+      (
+        (t.kind == TokenKind.MultiLineComment) ||
+          ((t.kind == TokenKind.DocBlockComment) || (t.kind == TokenKind.InnerDocBlockComment))
+      ) => {
+        line_count := t.value.split(String.from("\n")).len();
+        if(line_count > usize(1), {
+          _push_fold(out, t.row, (t.row + line_count) - usize(1), "comment");
+        });
+      },
+      true => ()
+    );
+    i = (i + usize(1));
+  });
+  JsonValue.Array(items : out)
+});
+export(handle_folding_ranges);

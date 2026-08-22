@@ -1328,3 +1328,12 @@ while(i < s.len(), { b := s.byte_at(i); ... });
 // ❌ WRONG — rune index from index_of fed to byte_at
 match(s.index_of(w, from), .Some(idx) => s.byte_at(idx - usize(1)), ...);
 ```
+
+## Async: await only at the async-closure statement level
+
+An `e.io.await(...)` nested inside if-branches of an `io.async` closure has
+been observed to compile SILENTLY WRONG (the branch's continuation never
+ran — issues/async-await-nested-if-lost-continuation.md; `check` cannot
+catch it, and only SOME shapes are rejected at codegen). Until that bug is
+minimized and fixed: hoist every await-bearing step to a top-level
+statement of the closure and branch on plain booleans afterwards.

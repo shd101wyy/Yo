@@ -1,0 +1,296 @@
+//! lsp/hover — textDocument/hover (plans/P4_LSP.md slice 3).
+//!
+//! Port of the retired TypeScript `src/lsp/hover.ts` + the position/match
+//! helpers from `src/lsp/utils.ts` (src-attic-final). The algorithm:
+//! find the token under the cursor, collect the Atom expressions whose
+//! token matches it by (value, row, column), pick the best candidate,
+//! then read its `ExprInfo` (type / value / env / doc comment), refining
+//! through the env's variable list when several bindings share the name.
+//! Renders the same markdown shape TS produced:
+//!
+//!   ```
+//!   name
+//!   : type
+//!   = value            (comptime values only)
+//!   ```
+//!   ---
+//!   doc comment
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+open(import("std/error"));
+{ Token, TokenKind, is_reserved_operator_name } :: import("../token.yo");
+{ tokenize } :: import("../lexer.yo");
+{ AstExpr, ast_expr_id, ast_expr_token } :: import("../expr.yo");
+{ ExprInfo, ExprInfoTable, expr_info_table_get } :: import("../expr_info.yo");
+{ get_variables_from_env, Variable, variable_doc_comment } :: import("../env.yo");
+{ type_to_string } :: import("../types/string.yo");
+{ EvalValue, value_to_string } :: import("../value.yo");
+{ JsonValue } :: import("std/encoding/json");
+{ jb, jstr, j_range } :: import("./protocol.yo");
+
+/// Find the token at (line, character), skipping whitespace and comments.
+_find_token_at :: (
+  fn(tokens : ArrayList(Token), line : usize, character : usize) -> Option(Token)
+)({
+  (i : usize) = usize(0);
+  n := tokens.len();
+  while(i < n, {
+    t := match(
+      tokens.get(i),
+      .Some(x) => x,
+      .None => {
+        return(Option(Token).None);
+      }
+    );
+    skip := (
+      (t.kind == TokenKind.Whitespace) ||
+        ((t.kind == TokenKind.SingleLineComment) || (t.kind == TokenKind.MultiLineComment))
+    );
+    if(!(skip) && (t.row == line), {
+      if((character >= t.column) && (character < (t.column + t.value.len())), {
+        return(Option(Token).Some(t));
+      });
+    });
+    i = (i + usize(1));
+  });
+  Option(Token).None
+});
+
+/// Collect Atom exprs matching the target token by (value, row, column).
+_collect_candidates :: (
+  fn(e : AstExpr, target : Token, out : ArrayList(AstExpr)) -> unit
+)({
+  match(
+    e,
+    .Atom(_, tok) => {
+      if(((tok.value == target.value) && (tok.row == target.row)) && (tok.column == target.column), {
+        out.push(e);
+      });
+    },
+    .FnCall(_, func_box, args, _, _) => {
+      recur(func_box, target, out);
+      (i : usize) = usize(0);
+      while(i < args.len(), {
+        match(
+          args.get(i),
+          .Some(a) => recur(a, target, out),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    }
+  );
+});
+
+/// Best candidate: prefer one WITH ExprInfo (evaluated), then the first.
+_best_candidate :: (
+  fn(cands : ArrayList(AstExpr), info_table : ExprInfoTable) -> Option(AstExpr)
+)({
+  (i : usize) = usize(0);
+  while(i < cands.len(), {
+    match(
+      cands.get(i),
+      .Some(c) => {
+        if(expr_info_table_get(info_table, ast_expr_id(c)).is_some(), {
+          return(Option(AstExpr).Some(c));
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  cands.get(usize(0))
+});
+
+/// TS selectBestVariableAtPosition, faithfully: exact-position match first,
+/// then the LATEST declaration visible at (and same module as) the target.
+_select_best_variable :: (
+  fn(vars : ArrayList(Variable), target : Token) -> Option(Variable)
+)({
+  (best_visible : Option(Variable)) = Option(Variable).None;
+  (best_row : usize) = usize(0);
+  (best_col : usize) = usize(0);
+  (i : usize) = usize(0);
+  while(i < vars.len(), {
+    v := match(
+      vars.get(i),
+      .Some(x) => x,
+      .None => {
+        return(Option(Variable).None);
+      }
+    );
+    match(
+      v.initialized_at_token,
+      .Some(it) => {
+        if(it.module_path == target.module_path, {
+          exact := ((it.row == target.row) && (it.column == target.column));
+          if(exact, {
+            return(Option(Variable).Some(v));
+          });
+          visible := (
+            (it.row < target.row) ||
+              ((it.row == target.row) && (it.column <= target.column))
+          );
+          if(visible, {
+            later := (
+              best_visible.is_none() ||
+                ((it.row > best_row) || ((it.row == best_row) && (it.column >= best_col)))
+            );
+            if(later, {
+              best_visible = Option(Variable).Some(v);
+              best_row = it.row;
+              best_col = it.column;
+            });
+          });
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  match(
+    best_visible,
+    .Some(bv) => Option(Variable).Some(bv),
+    .None => vars.get(vars.len() - usize(1))
+  )
+});
+
+/// Build the hover response value for (line, character), or `.None` when
+/// nothing meaningful is under the cursor.
+handle_hover :: (
+  fn(
+    text : String,
+    doc_abs : String,
+    exprs : ArrayList(AstExpr),
+    info_table : ExprInfoTable,
+    line : usize,
+    character : usize
+  ) -> Option(JsonValue)
+)({
+  lex_exn := Exception(
+    throw : (
+      (_err) -> unwind(Option(JsonValue).None)
+    )
+  );
+  tokens := tokenize(text.clone(), doc_abs.clone(), lex_exn);
+  target := match(
+    _find_token_at(tokens, line, character),
+    .Some(t) => t,
+    .None => {
+      return(Option(JsonValue).None);
+    }
+  );
+  cands := ArrayList(AstExpr).new();
+  (ei : usize) = usize(0);
+  while(ei < exprs.len(), {
+    match(
+      exprs.get(ei),
+      .Some(e) => _collect_candidates(e, target, cands),
+      .None => ()
+    );
+    ei = (ei + usize(1));
+  });
+  expr := match(
+    _best_candidate(cands, info_table),
+    .Some(x) => x,
+    .None => {
+      return(Option(JsonValue).None);
+    }
+  );
+  info_opt := expr_info_table_get(info_table, ast_expr_id(expr));
+  (name : String) = target.value.clone();
+  if(is_reserved_operator_name(name.clone()) || (target.kind == TokenKind.Operator), {
+    name = `(${name})`;
+  });
+  (ty_opt : Option(String)) = Option(String).None;
+  (val_opt : Option(String)) = Option(String).None;
+  (doc_opt : Option(String)) = Option(String).None;
+  (is_comptime : bool) = false;
+  match(
+    info_opt,
+    .Some(info) => {
+      ty_opt = Option(String).Some(type_to_string(info.ty));
+      match(
+        info.value,
+        .Some(v) => {
+          vs := value_to_string(v);
+          if(vs != "<runtime value>", {
+            val_opt = Option(String).Some(vs);
+          });
+        },
+        .None => ()
+      );
+      doc_opt = info.doc_comment;
+      // Env refinement: several bindings can share the name; pick the one
+      // declared at/nearest the cursor (mirrors TS's env pass).
+      vars := get_variables_from_env(info.env, target.value.clone());
+      if(vars.len() > usize(0), {
+        match(
+          _select_best_variable(vars, target),
+          .Some(sv) => {
+            ty_opt = Option(String).Some(type_to_string(sv.ty));
+            is_comptime = sv.is_compile_time_only;
+            match(
+              sv.value.get(usize(0)),
+              .Some(vv) => {
+                vs2 := value_to_string(vv);
+                if(vs2 != "<runtime value>", {
+                  val_opt = Option(String).Some(vs2);
+                });
+              },
+              .None => ()
+            );
+            match(
+              variable_doc_comment(sv),
+              .Some(dc) => {
+                doc_opt = Option(String).Some(dc);
+              },
+              .None => ()
+            );
+          },
+          .None => ()
+        );
+      });
+    },
+    .None => {
+      return(Option(JsonValue).None);
+    }
+  );
+  if(is_comptime, {
+    name = `comptime(${name})`;
+  });
+  fence := String.from("```");
+  (content : String) = `${fence}\n${name}`;
+  match(
+    ty_opt,
+    .Some(ts) => {
+      content = `${content}\n: ${ts}`;
+    },
+    .None => ()
+  );
+  match(
+    val_opt,
+    .Some(vs3) => {
+      content = `${content}\n= ${vs3}`;
+    },
+    .None => ()
+  );
+  content = `${content}\n${fence}`;
+  match(
+    doc_opt,
+    .Some(dc2) => {
+      content = `${content}\n\n---\n\n${dc2}`;
+    },
+    .None => ()
+  );
+  Option(JsonValue).Some(
+    jb().put(
+      "contents",
+      jb().put("kind", jstr(String.from("markdown"))).put("value", jstr(content)).obj()
+    ).put(
+      "range",
+      j_range(target.row, target.column, target.row, target.column + target.value.len())
+    ).obj()
+  )
+});
+export(handle_hover, _find_token_at, _collect_candidates, _best_candidate, _select_best_variable);

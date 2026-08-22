@@ -39,3 +39,10 @@ scoping as its own small plan if build times become the bottleneck before P4.
 At P4 kickoff (`plans/P4_LSP.md`): the LSP's incremental evaluation design
 should subsume the build-cache question — a module whose evaluated exports can
 be reused across LSP edits can be reused across builds.
+
+**REOPENED 2026-08-22** — P4 kicked off; the LSP MVP (slices 1-2) documents
+its two invalidation gaps in `src/lsp/diagnostics.yo` (imported-file edits
+invisible until server restart; per-edit re-registration leaks registry
+entries under fresh type ids). Those two gaps are this design's concrete
+requirements list. First measured perf win of the campaign landed
+separately: `issues/desugar-token-clones-evaluator-regression.md`.

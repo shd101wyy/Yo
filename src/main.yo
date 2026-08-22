@@ -27,6 +27,7 @@ _(env : proc_env) :: import("std/env");
   fetch_remote_versions
 } :: import("./version_cache.yo");
 { Regex } :: import("std/regex");
+{ run_lsp_server } :: import("./lsp/server.yo");
 { Path } :: import("std/path");
 { read_file, write_file, exists } :: import("std/fs/file");
 { metadata } :: import("std/fs/metadata");
@@ -3336,7 +3337,9 @@ main :: (fn(io : Io) -> unit)({
       .None => ()
     );
   });
-  if(subcmd == "compile", {
+  if(subcmd == "lsp", {
+    run_lsp_server(io, exn);
+  }, if(subcmd == "compile", {
     run_compile(argv, io, exn);
   }, if(subcmd == "test", {
     run_test(argv, io, exn);
@@ -3363,7 +3366,7 @@ main :: (fn(io : Io) -> unit)({
   }, if(subcmd == "version", {
     run_version_cmd(argv, io, exn);
   }, {
-    exn.throw(dyn(`unknown subcommand '${subcmd}'. Usage: yo <compile|test|fmt|check|init|build|fetch|install|cache|doc|version|unsafe-report|public-safe-report> ...`));
-  })))))))))))));
+    exn.throw(dyn(`unknown subcommand '${subcmd}'. Usage: yo <compile|test|fmt|check|init|build|fetch|install|cache|doc|version|lsp|unsafe-report|public-safe-report> ...`));
+  }))))))))))))));
 });
 export(main);

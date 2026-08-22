@@ -1,0 +1,88 @@
+//! lsp/protocol — small JSON-RPC / LSP payload construction helpers.
+//!
+//! `std/encoding/json`'s `JsonValue.Object(keys, values)` is the wire type;
+//! these helpers keep the server's handlers readable. `JsonObjBuilder` is a
+//! ref struct, so `put` chains without copies.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ JsonValue } :: import("std/encoding/json");
+
+/// Chainable JSON object builder.
+JsonObjBuilder :: ref(
+  struct(
+    keys : ArrayList(String),
+    values : ArrayList(JsonValue)
+  )
+);
+impl(
+  JsonObjBuilder,
+  put : (fn(self : Self, key : str, v : JsonValue) -> Self)({
+    self.keys.push(String.from(key));
+    self.values.push(v);
+    return(self);
+  }),
+  obj : (fn(self : Self) -> JsonValue)(
+    JsonValue.Object(keys : self.keys, values : self.values)
+  )
+);
+/// Fresh builder.
+jb :: (fn() -> JsonObjBuilder)(
+  JsonObjBuilder(
+    keys : ArrayList(String).new(),
+    values : ArrayList(JsonValue).new()
+  )
+);
+/// JSON string value.
+jstr :: (fn(s : String) -> JsonValue)(JsonValue.Str(value : s));
+/// JSON number value from a usize.
+jnum :: (fn(n : usize) -> JsonValue)(JsonValue.Number(value : f64(n)));
+/// LSP Position (0-based line/character).
+j_position :: (fn(line : usize, character : usize) -> JsonValue)(
+  jb().put("line", jnum(line)).put("character", jnum(character)).obj()
+);
+/// LSP Range.
+j_range :: (
+  fn(start_line : usize, start_col : usize, end_line : usize, end_col : usize) -> JsonValue
+)(
+  jb().put("start", j_position(start_line, start_col)).put("end", j_position(end_line, end_col)).obj()
+);
+/// LSP Diagnostic with Error severity and source "yo".
+j_diagnostic :: (
+  fn(
+    start_line : usize,
+    start_col : usize,
+    end_line : usize,
+    end_col : usize,
+    message : String
+  ) -> JsonValue
+)(
+  jb().put("range", j_range(start_line, start_col, end_line, end_col)).put("severity", jnum(usize(1))).put("source", jstr(String.from("yo"))).put("message", jstr(message)).obj()
+);
+/// A JSON-RPC response carrying `result` for request `id`.
+j_response :: (fn(id : JsonValue, result : JsonValue) -> JsonValue)(
+  jb().put("jsonrpc", jstr(String.from("2.0"))).put("id", id).put("result", result).obj()
+);
+/// A JSON-RPC error response for request `id`.
+j_error_response :: (fn(id : JsonValue, code : i64, message : String) -> JsonValue)(
+  jb().put("jsonrpc", jstr(String.from("2.0"))).put("id", id).put(
+    "error",
+    jb().put("code", JsonValue.Number(value : f64(code))).put("message", jstr(message)).obj()
+  ).obj()
+);
+/// A JSON-RPC notification.
+j_notification :: (fn(method : str, params : JsonValue) -> JsonValue)(
+  jb().put("jsonrpc", jstr(String.from("2.0"))).put("method", jstr(String.from(method))).put("params", params).obj()
+);
+
+export(
+  JsonObjBuilder,
+  jb,
+  jstr,
+  jnum,
+  j_position,
+  j_range,
+  j_diagnostic,
+  j_response,
+  j_error_response,
+  j_notification
+);

@@ -1,0 +1,42 @@
+open(import("std/string"));
+open(import("std/error"));
+open(import("std/fmt"));
+{ exists } :: import("std/fs/file");
+{ Path } :: import("std/path");
+
+// A PLAIN (non-async) helper that awaits — the build-runner cache helpers'
+// shape.
+helper_probe :: (fn(io : Io) -> String)({
+  h_exn := Exception(throw : ((_e) -> unwind(String.new())));
+  found := io.await(exists(Path.new(`/tmp`), io), IoExn(io : io, exn : h_exn));
+  cond(found => String.from("yes"), true => String.from("no"))
+});
+
+main :: (fn(io : Io) -> unit)({
+  exn := Exception(throw : ((err) -> unwind(())));
+  r := io.await(
+    io.async(
+      (e : IoExn) => {
+        (a : bool) = true;
+        (s : String) = String.new();
+        println(`step1`);
+        if(a, {
+          s = helper_probe(e.io);
+          println(`step2 helper=${s}`);
+          if(s.len() > usize(0), {
+            inner := e.io.await(exists(Path.new(`/tmp`), e.io), e.io);
+            println(`step3 inner=${inner.to_string()}`);
+            if(inner, {
+              println(`step4-nested`);
+            });
+          });
+        });
+        println(`step5-tail s=${s}`);
+        Result(unit, String).Ok(())
+      }
+    ),
+    IoExn(io : io, exn : exn)
+  );
+  println(`step6-done`);
+});
+export(main);
