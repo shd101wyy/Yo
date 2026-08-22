@@ -1,13 +1,27 @@
 # P4 — the LSP in Yo
 
-**Status: IN PROGRESS — kickoff 2026-08-22 (branch `p4/lsp-transport`).**
-Slices 1 and 2 are LANDED: `yo lsp` speaks LSP over stdio (framing,
-JSON-RPC dispatch, initialize, full-document sync) and pushes diagnostics
-on open/change, gated by the `lsp-handshake` cli-case (a scripted client:
-broken doc → diagnostic at the exact range, fix → cleared, unknown request
-→ MethodNotFound, clean shutdown). The VS Code extension gained a plain-JS
-LSP client (`yo.binPath` setting, default `yo`; `yo.lsp.enabled`) — still
-no build step. Server: `src/lsp/` (transport/protocol/diagnostics/server).
+**Status: FEATURE-COMPLETE 2026-08-22 — every slice done or done-in-effect
+(see the slice table); the tail of the work rides the stacked PRs
+#212→#215→#217→#218 through the merge train.** `yo lsp` serves stdio LSP
+with: push diagnostics at exact ranges (including the def-time swallow
+class — slice 0's re-raise landed 2026-08-13), hover, definition, document
+symbols, references, folding, rename, formatting, signature help, and
+completion (import-path / dot members / enum dot-prefix / generic-impl
+methods / identifier+env+keyword). Server: `src/lsp/`
+(transport/protocol/diagnostics/server + one module per feature). The VS
+Code extension carries a plain-JS LSP client (`yo.binPath`,
+`yo.lsp.enabled`), no build step. Gated by the `lsp-handshake` and
+`lsp-completion` cli-cases (framed JSON-RPC over the harness's stdin —
+which was silently /dev/null until 2026-08-22, see
+`issues/fixed/cli-diff-stdin-relative-cdir-vacuous.md`).
+
+**Remaining quality items (not feature gaps):** a structured-diagnostics
+return channel (today `diagnostics.yo` parses `YoError.to_string()`
+anchors — works, but a typed channel is cleaner); doc-comment plumbing
+(`Variable.doc_comment` has a single producer, so hover misses many doc
+comments); inlay hints deliberately dropped (attic shipped them disabled);
+and the incremental-compilation arc for the two documented invalidation
+gaps (`plans/backlog/INCREMENTAL_COMPILATION.md`).
 
 **Kickoff decisions (2026-08-22, maintainer-approved direction):**
 - Slice order adjusted: transport FIRST (slice 1+2 together) — most
@@ -147,13 +161,13 @@ slice 4 before slice 0 is done.
 
 | #   | slice                                                                                                                                                                                                                             | gate                                                                     |
 | --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| 0   | def-time re-raise for a structured diagnostic (the ACCEPTANCE half is done — see the 2026-08-12 update; what is missing is row/column + identifier, and it needs per-trial save/restore so nested trials cannot clobber the flag) | `check` on a file with an undefined call reports it, with row/column     |
+| 0   | def-time re-raise for a structured diagnostic — **DONE in effect, verified 2026-08-22**: the concrete-path trial re-raise landed 2026-08-13 (`a87525aad`, see `issues/fixed/self-hosted-compile-swallows-undefined-call.md` — this row's "missing row/column" text predates it), `check` on an undefined call in a fn body reports `Variable "…" not found.` anchored `path:row:col`, and the LSP publishes it at the identifier's exact range (probed: `{"range":{"start":{"line":1,"character":2},"end":…,"character":24}}`). What remains is OPTIONAL refactoring: an analysis entry point that RETURNS structured errors instead of `diagnostics.yo` parsing `YoError.to_string()` anchors — a quality cleanup, not a gap                                                                                                                                                                          | `check` on a file with an undefined call reports it, with row/column     |
 | 1   | transport: framing, JSON-RPC dispatch, `initialize`, document sync                                                                                                                                                                | a scripted client completes the handshake and syncs an edit              |
 | 2   | diagnostics (publishDiagnostics on open/change)                                                                                                                                                                                   | broken file → squiggle at the right range; fixing it clears the squiggle |
 | 3   | hover + go-to-definition + document symbols                                                                                                                                                                                       | fixture-driven request/response tests                                    |
 | 4   | completion (1541 lines — the tail) — **DONE 2026-08-22** (`src/lsp/completion.yo`): import-path, struct/type dot (fields, variants w/ snippets, inherent + trait methods via the per-type registry, generic-impl methods via `get_generic_impl_doc_entries`), enum dot-prefix from typed-decl/match context, identifier + env + keyword completion. The attic file was the feature map, not the spec — deliberate v1 divergences are listed in the module doc. Gated by the `lsp-completion` cli-case (one request per mode)                                                                                                                                                                                                | fixture-driven, per completion kind                                      |
 | 5   | references, rename, signature help, folding — **DONE 2026-08-22** (`src/lsp/{references,folding,rename,signature_help}.yo`, plus formatting wiring; asserted by the `lsp-handshake` cli-case golden, which became REAL on 2026-08-22 — the harness had been silently feeding `/dev/null` as stdin, see `issues/fixed/cli-diff-stdin-relative-cdir-vacuous.md`). Inlay hints are **deliberately dropped**: the attic `inlay-hints.ts` was itself DISABLED in `server.ts` ("the inlay hints (e.g., `p1: Point`) were confusing in Yo's syntax") — porting a feature the reference shipped turned off is not parity; revisit only with a different hint style.                                                                                                                                                                          | fixture-driven                                                           |
-| 6   | point the VS Code extension at the Yo server; drop `src/lsp`                                                                                                                                                                      | extension works against the native binary with no Node dependency        |
+| 6   | point the VS Code extension at the Yo server — **DONE 2026-08-22**: the extension carries a plain-JS `vscode-languageclient` spawning `yo lsp` (`yo.binPath`, `yo.lsp.enabled`), no build step; completion/signatureHelp/etc. arrive through standard client capabilities with no extension change. ("drop `src/lsp`" referred to the TS island — it went with P2.5)                                                                                                                                                                      | extension works against the native binary with no Node dependency        |
 
 `formatting.ts` (31 lines) is already covered by `yo fmt` and needs only wiring.
 
