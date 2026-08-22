@@ -27,10 +27,11 @@ generate_platform_sys_runtime_linux :: (fn(emitter : Emitter) -> unit)({
 #include <arpa/inet.h>
 #include <sys/un.h>
 
-// HarmonyOS (OHOS) sysroots are musl-based but do not expose `struct statx`
+// HarmonyOS (OHOS) sysroots are musl-based but do not expose struct statx
 // through <sys/stat.h>; the kernel UAPI header carries it instead. The OHOS
 // clang defines __OHOS__ (checked against the ohos-sdk 26.0.0.18 toolchain),
-// so this is precise: glibc and stock musl systems are untouched.
+// so this is precise: glibc and stock musl systems are untouched. (Note: this
+// block lives inside a backtick template, so no backticks may appear here.)
 #if defined(__OHOS__)
 #include <linux/stat.h>
 #endif
