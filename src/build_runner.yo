@@ -17,10 +17,14 @@ open(import("std/fmt"));
 // Imported under an alias: `args` collides with the `args` parameter/field used
 // throughout this file (`run_step.args`). Same rename form main.yo uses for `env`.
 _(args : proc_args) :: import("std/env");
-{ exists } :: import("std/fs/file");
+{ exists, read_file, write_file } :: import("std/fs/file");
+{ read_dir } :: import("std/fs/dir");
+{ sha256_hex } :: import("std/crypto/sha256");
+{ CURRENT_YO_VERSION } :: import("./version.yo");
+_(env : proc_env) :: import("std/env");
 { create_dir_all } :: import("std/fs/dir");
 { Command } :: import("std/process/command");
-{ mm_load_yo_file, mm_reset, get_std_path_override } :: import("./module_manager.yo");
+{ mm_load_yo_file, mm_reset, get_std_path_override, resolve_std_path } :: import("./module_manager.yo");
 { exit } :: import("std/libc/stdlib");
 {
   ArtifactKind,
@@ -366,6 +370,124 @@ detect_cycle :: (fn(dag : ArrayList(DAGNode)) -> Option(String))({
 // Artifact compilation
 // ---------------------------------------------------------------------------
 /// Compile a build artifact by invoking the Yo compiler.
+// ---------------------------------------------------------------------------
+// Artifact input cache (plans/backlog/INCREMENTAL_COMPILATION.md Phase A).
+// A compile is SKIPPED when the sha256 over (child argv + compiler version +
+// every project/std `.yo` file + yo.lock) matches the stamp recorded next to
+// the output on the last successful compile. Approximations, documented:
+// the system C compiler and vendor C sources are NOT stamped (the compiler
+// version + argv covers the yo side); delete yo-out or set
+// YO_BUILD_NO_CACHE=1 to bypass.
+// ---------------------------------------------------------------------------
+/// Recursively collect `*.yo` files under `dir`, skipping build outputs and
+/// VCS/tooling directories. Sorted for a deterministic stamp — read_dir
+/// order is platform-dependent (the readdir-order lesson).
+_cache_collect_yo_files :: (
+  fn(dir : String, out : ArrayList(String), io : Io) -> unit
+)({
+  walk_exn := Exception(throw : ((_e) -> unwind(())));
+  entries := io.await(read_dir(Path.new(dir.clone()), io), IoExn(io : io, exn : walk_exn));
+  names := ArrayList(String).new();
+  (i : usize) = usize(0);
+  while(i < entries.len(), {
+    match(
+      entries.get(i),
+      .Some(en) => {
+        names.push(en.name.clone());
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  names.sort();
+  (j : usize) = usize(0);
+  while(j < names.len(), {
+    name := names(j);
+    skip := (
+      (name == "yo-out") ||
+        ((name == ".git") || ((name == "node_modules") || (name.starts_with(String.from("tmp")))))
+    );
+    if(!(skip), {
+      full := Path.new(dir.clone()).join(Path.new(name.clone())).to_string();
+      cond(
+        name.ends_with(String.from(".yo")) => {
+          out.push(full);
+        },
+        true => {
+          // Directories recurse; read_dir on a FILE throws and the walker's
+          // handler swallows it, so no stat is needed here.
+          if(!(name.contains(String.from("."))), {
+            recur(full, out, io);
+          });
+        }
+      );
+    });
+    j = (j + usize(1));
+  });
+});
+/// Read a file into the stamp accumulator; `.None` (file vanished mid-walk)
+/// disables the cache for this artifact rather than mis-stamping it.
+_cache_read_file :: (fn(path : String, io : Io) -> Option(ArrayList(u8)))({
+  rd_exn := Exception(throw : ((_e) -> unwind(Option(ArrayList(u8)).None)));
+  bytes := io.await(read_file(Path.new(path.clone()), io), IoExn(io : io, exn : rd_exn));
+  Option(ArrayList(u8)).Some(bytes)
+});
+/// The artifact's input stamp, or "" when stamping failed (cache disabled).
+_artifact_input_stamp :: (
+  fn(argv : ArrayList(String), project_dir : String, io : Io) -> String
+)({
+  acc := ArrayList(u8).new();
+  push_str := (fn(dst : ArrayList(u8), s2 : String) -> unit)({
+    b := s2.as_bytes();
+    (bi : usize) = usize(0);
+    while(bi < b.len(), {
+      dst.push(b(bi));
+      bi = (bi + usize(1));
+    });
+    dst.push(u8(10));
+  });
+  push_str(acc, `yo-version ${CURRENT_YO_VERSION}`);
+  sep := String.from(" ");
+  push_str(acc, `argv ${sep.join(argv)}`);
+  files := ArrayList(String).new();
+  _cache_collect_yo_files(project_dir.clone(), files, io);
+  std_root := resolve_std_path();
+  if(std_root.len() > usize(0), {
+    _cache_collect_yo_files(std_root.replace(String.from("file://"), String.new()), files, io);
+  });
+  lock_path := Path.new(project_dir.clone()).join(Path.new(String.from("yo.lock"))).to_string();
+  files.push(lock_path);
+  (fi : usize) = usize(0);
+  while(fi < files.len(), {
+    fpath := files(fi);
+    match(
+      _cache_read_file(fpath.clone(), io),
+      .Some(bytes) => {
+        push_str(acc, `${fpath} ${sha256_hex(bytes)}`);
+      },
+      .None => {
+        // yo.lock legitimately may not exist; any OTHER unreadable input
+        // disables the cache.
+        if(!(fpath.ends_with(String.from("yo.lock"))), {
+          return(String.new());
+        });
+      }
+    );
+    fi = (fi + usize(1));
+  });
+  sha256_hex(acc)
+});
+/// Read the recorded stamp next to an output, `.None` when absent.
+_read_stamp :: (fn(path : String, io : Io) -> Option(String))({
+  st_exn := Exception(throw : ((_e) -> unwind(Option(String).None)));
+  bytes := io.await(read_file(Path.new(path.clone()), io), IoExn(io : io, exn : st_exn));
+  Option(String).Some(String.from_bytes(bytes))
+});
+/// Record the stamp; failures are silent (the cache is an optimization).
+_write_stamp :: (fn(path : String, stamp : String, io : Io) -> unit)({
+  wr_exn := Exception(throw : ((_e) -> unwind(())));
+  io.await(write_file(Path.new(path.clone()), stamp.clone(), io), IoExn(io : io, exn : wr_exn));
+});
 compile_artifact :: (
   fn(
     artifact : BuildArtifact,
@@ -582,8 +704,35 @@ compile_artifact :: (
     // with: …" lines and every clang diagnostic land on the build's own stdout.
     // Capturing them hid compile errors from the user entirely unless the whole
     // step failed.
+    // Every await-bearing step below is a TOP-LEVEL statement of this
+    // async closure ON PURPOSE: an await nested inside an if-branch here
+    // silently lost its continuation (the cache-skip block after it never
+    // ran) — issues/async-await-in-nested-if-drops-continuation.md. The
+    // unconditional exists()/read are harmless when the cache is disabled.
+    cache_enabled := match(proc_env.get(`YO_BUILD_NO_CACHE`), .Some(v) => (v != "1"), .None => true);
+    stamp := cond(
+      cache_enabled => _artifact_input_stamp(cmd._args, ctx.project_dir.clone(), e.io),
+      true => String.new()
+    );
+    stamp_path := `${output_path.to_string()}.inputs-sha256`;
+    // The static-library child appends `.a` itself (the same suffix the
+    // Building line shows), so the existence probe must too — without it a
+    // static-library artifact could never cache-hit.
+    out_exists := e.io.await(exists(Path.new(`${output_path.to_string()}${lib_suffix}`), e.io), e.io);
+    prev_stamp := _read_stamp(stamp_path.clone(), e.io);
+    stamp_matches := match(prev_stamp, .Some(prev) => (prev == stamp), .None => false);
+    use_cache := (((cache_enabled && (stamp.len() > usize(0))) && out_exists) && stamp_matches);
+    if(use_cache, {
+      println(`  (cached: inputs unchanged, skipping compile)`);
+      return(Result(unit, String).Ok(()));
+    });
     st := e.io.await(cmd.status(e.io), e);
-    if(st.success(), Result(unit, String).Ok(()), {
+    if(st.success(), {
+      if(cache_enabled && (stamp.len() > usize(0)), {
+        _write_stamp(stamp_path.clone(), stamp.clone(), e.io);
+      });
+      Result(unit, String).Ok(())
+    }, {
       code := st.code();
       Result(unit, String).Err(`Compilation failed (exit ${code})`)
     })

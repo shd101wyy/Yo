@@ -1,0 +1,30 @@
+open(import("std/string"));
+open(import("std/error"));
+open(import("std/fmt"));
+{ exists } :: import("std/fs/file");
+{ Path } :: import("std/path");
+
+main :: (fn(io : Io) -> unit)({
+  exn := Exception(throw : ((err) -> unwind(())));
+  r := io.await(
+    io.async(
+      (e : IoExn) => {
+        (a : bool) = true;
+        println(`step1`);
+        if(a, {
+          println(`step2-before-await`);
+          inner := e.io.await(exists(Path.new(`/tmp`), e.io), e.io);
+          println(`step3-after-await ${inner.to_string()}`);
+          if(inner, {
+            println(`step4-nested`);
+          });
+        });
+        println(`step5-tail`);
+        Result(unit, String).Ok(())
+      }
+    ),
+    IoExn(io : io, exn : exn)
+  );
+  println(`step6-done`);
+});
+export(main);
