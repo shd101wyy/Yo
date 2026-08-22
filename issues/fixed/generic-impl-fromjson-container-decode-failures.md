@@ -1,11 +1,42 @@
 # Generic FromJson impls on prelude containers: Option decode miscompiles, HashMap decode fails to unify
 
+**Status: FIXED 2026-08-22, same session — ONE evaluator root for both.**
+
+## Root cause and fix
+
+`_funcval_bind_foralls` (src/evaluator/calls/function.yo) resolves a
+static generic-impl method's un-inferable foralls through two fallbacks,
+and their ORDER was wrong: the positional receiver-type-args fallback
+(forall[i] ← receiver.type_arguments[i]) ran BEFORE the injected-capture
+fallback. Captures come from the impl resolver's PATTERN unification
+(`_inject_forall_captures`), so they are authoritative; the positional
+stand-in only holds when the impl's foralls happen to align 1:1 with the
+constructor's params. For `impl(generic(V), HashMap(String, V), …)` the
+single forall V sits at receiver position 1, so positional-first bound
+`V := String` (type_arguments[0]) — every `HashMap(String, i32).from_json`
+value decode dispatched to STRING's impl (runtime "expected a string";
+at def time the same mis-binding surfaced as the location-less
+`Cannot unify "i32" and "String"`). The Option failure — broken emitted C —
+was the same wrong binding flowing into the specialization.
+
+Fix: capture fallback FIRST, gated on the captured type being CONCRETE
+(`type_contains_some_type_deep` — an unresolved-SomeT capture falls
+through to positional; binding it unconditionally regressed
+`ArrayList(u8).with_capacity` to "member _bytes … Got: Type(1)").
+Positional stays as the last resort, preserving
+issues/fixed/self-dispatch-loses-type-args.md.
+
+Verified: both repros below pass through the fixed compiler; the full
+json suite (48/48) covers Option and HashMap ROUNDTRIPS now; std checks
+154/154 with the concreteness gate.
+
+## Original record
+
 **Found:** 2026-08-22, implementing `ToJson`/`FromJson` (std/encoding/json.yo).
 Two independent failures in the DECODE direction of generic trait impls on
 prelude type constructors; the ENCODE direction (ToJson) of the identical
 shapes works, and `ArrayList(T)`'s FromJson — the same pattern with one
-generic param — works in BOTH directions. The failing impls were removed
-from std v1 (Option/HashMap ship encode-only); restore them when fixed.
+generic param — works in BOTH directions. The impls were TEMPORARILY removed from std v1 and are now restored.
 
 ## Failure 1 — `Option(T)` FromJson: emitted C does not compile
 

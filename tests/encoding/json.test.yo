@@ -551,14 +551,25 @@ test("json_decode integer errors", {
   assert(json_decode(u8, `-1`).is_err(), "negative into u8 must Err");
   assert(json_decode(i32, `"nope"`).is_err(), "string into i32 must Err");
 });
-test("json Option encode", {
-  // Decode side is BLOCKED on
-  // issues/generic-impl-fromjson-container-decode-failures.md — the
-  // FromJson impl and its cases live in issues/repros/ until then.
+test("json Option roundtrip", {
   (some_v : Option(i32)) = Option(i32).Some(i32(7));
   (none_v : Option(i32)) = Option(i32).None;
   assert(json_encode(some_v) == "7", "Some encodes as payload");
   assert(json_encode(none_v) == "null", "None encodes as null");
+  match(
+    json_decode(Option(i32), `null`),
+    .Ok(o) => assert(o.is_none(), "null decodes to None"),
+    .Err(_) => assert(false, "null decode should succeed")
+  );
+  match(
+    json_decode(Option(i32), `7`),
+    .Ok(o2) => match(
+      o2,
+      .Some(n) => assert(n == i32(7), "Some payload value"),
+      .None => assert(false, "expected Some")
+    ),
+    .Err(_) => assert(false, "Some decode should succeed")
+  );
 });
 test("json ArrayList roundtrip", {
   list := ArrayList(i32).new();
@@ -577,12 +588,19 @@ test("json ArrayList roundtrip", {
   );
   assert(json_decode(ArrayList(i32), `[1,"x"]`).is_err(), "bad element must Err");
 });
-test("json HashMap encode", {
-  // Decode side is BLOCKED on
-  // issues/generic-impl-fromjson-container-decode-failures.md.
+test("json HashMap roundtrip", {
   m := HashMap(String, i32).new();
   _s := m.set(`a`, i32(1));
   assert(json_encode(m) == "{\"a\":1}", "single-key map encode");
+  match(
+    json_decode(HashMap(String, i32), `{"a":1,"b":2}`),
+    .Ok(back) => {
+      assert(back.get(`a`).unwrap() == i32(1), "key a");
+      assert(back.get(`b`).unwrap() == i32(2), "key b");
+    },
+    .Err(_) => assert(false, "map decode should succeed")
+  );
+  assert(json_decode(HashMap(String, i32), `{"a":"x"}`).is_err(), "bad value must Err");
 });
 test("json custom struct roundtrip", {
   p := _TPoint(x : i32(3), y : i32(-(4)));

@@ -1070,11 +1070,10 @@ A trait method with no `self` (`Maker :: trait(make : (fn(x : i32) -> Self))`)
 dispatches as `Point.make(x)` on any impl'd type, and through a generic
 where-constrained fn (`(fn(comptime(T) : Type, x : i32, where(T <: Maker)) -> T)(T.make(x))`).
 Constructor-style traits (`FromJson.from_json`) are therefore expressible.
-CAVEAT: inside a GENERIC IMPL body, calling `T.method(v)` whose return
-type wraps Self in a type application (`Result(Self, E)`) can mis-resolve
-in some contexts — route the call through a module-level where-constrained
-helper fn instead, and if a container decode still fails see
-issues/generic-impl-fromjson-container-decode-failures.md.
+(A forall-binding-order bug that broke this inside generic impls on
+multi-param receivers — `HashMap(String, V)` bound `V := String` — was
+fixed 2026-08-22:
+issues/fixed/generic-impl-fromjson-container-decode-failures.md.)
 
 ### Template strings cannot be nested inside `${...}` interpolations
 

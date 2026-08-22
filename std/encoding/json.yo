@@ -975,13 +975,11 @@ ToJson :: trait(
 FromJson :: trait(
   from_json : (fn(v : JsonValue) -> Result(Self, JsonError))
 );
-/// Call `T.from_json(v)` through a where-constrained helper. The container
-/// impls below route through this rather than calling `T.from_json`
-/// DIRECTLY inside their generic bodies: the direct call's
-/// `Result(Self, JsonError)` return mis-resolves during the generic-impl
-/// trial ("Type mismatch for type member \"value\"... Got: Type(1)"),
-/// while the same call through a generic function is fine — see
-/// issues/generic-impl-static-trait-method-result-misresolve.md.
+/// Call `T.from_json(v)` through a where-constrained helper — the shape
+/// the container impls below use for their element/value decodes. (During
+/// development this also worked around a forall-binding-order evaluator
+/// bug, fixed alongside this module — see
+/// issues/fixed/generic-impl-fromjson-container-decode-failures.md.)
 _from_json_of :: (fn(comptime(T) : Type, v : JsonValue, where(T <: FromJson)) -> Result(T, JsonError))(
   T.from_json(v)
 );
@@ -1148,11 +1146,20 @@ impl(
     )
   )
 );
-// NOTE: Option(T) is ENCODE-ONLY for now. Its FromJson impl (null -> None,
-// payload -> Some) is written and preserved verbatim in
-// issues/repros/json-option-fromjson-codegen.test.yo — the specialization
-// currently miscompiles (emitted C has NULL-placeholder expressions). See
-// issues/generic-impl-fromjson-container-decode-failures.md.
+impl(
+  generic(T : Type),
+  where(T <: FromJson),
+  Option(T),
+  FromJson(
+    from_json : (fn(v : JsonValue) -> Result(Self, JsonError))(
+      match(
+        v,
+        .Null => .Ok(Option(T).None),
+        _ => match(_from_json_of(T, v), .Ok(x) => .Ok(Option(T).Some(x)), .Err(e) => .Err(e))
+      )
+    )
+  )
+);
 impl(
   generic(T : Type),
   where(T <: ToJson),
@@ -1241,11 +1248,41 @@ impl(
     })
   )
 );
-// NOTE: HashMap(String, V) is ENCODE-ONLY for now. Its FromJson impl is
-// preserved verbatim in issues/repros/json-hashmap-fromjson-unify.test.yo —
-// the mixed concrete/generic instantiation currently fails def-time
-// unification ("Cannot unify i32 and String"). See
-// issues/generic-impl-fromjson-container-decode-failures.md.
+impl(
+  generic(V : Type),
+  where(V <: FromJson),
+  HashMap(String, V),
+  FromJson(
+    from_json : (fn(v : JsonValue) -> Result(Self, JsonError))(
+      match(
+        v,
+        .Object(keys, values) => {
+          out := Self.new();
+          (i : usize) = usize(0);
+          while(i < keys.len(), {
+            k := match(keys.get(i), .Some(key_s) => key_s, .None => String.new());
+            match(
+              values.get(i),
+              .Some(jv) => match(
+                _from_json_of(V, jv),
+                .Ok(decoded_v) => {
+                  _s := out.set(k, decoded_v);
+                },
+                .Err(e) => {
+                  return(.Err(e));
+                }
+              ),
+              .None => ()
+            );
+            i = (i + usize(1));
+          });
+          .Ok(out)
+        },
+        _ => .Err(.Other(`expected an object`))
+      )
+    )
+  )
+);
 /// Parse a JSON `String` into a `JsonValue`, as a `Result` (no Exception
 /// plumbing — the decode-side counterpart of `json_stringify`).
 json_parse_result :: (fn(s : String) -> Result(JsonValue, JsonError))({
