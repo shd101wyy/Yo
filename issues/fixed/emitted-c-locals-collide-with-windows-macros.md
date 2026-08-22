@@ -1,5 +1,15 @@
 # Emitted C keeps user local names — a local named `near` breaks the Windows target
 
+**Status: FIXED 2026-08-22 — option 1 (mangler blocklist) implemented.**
+`_build_c_reserved_words` (src/codegen/utils/index.yo) now includes the
+legacy Windows macro set (`near far pascal cdecl IN OUT OPTIONAL interface
+small hyper`), so `sanitize_for_c_identifier` renames such locals to
+`__yo_c_reserved_<name>` — with the existing extern-C escape hatch keeping
+real C symbols untouched. Verified red-first on the emit (bare `near` ×2
+pre-fix → `__yo_c_reserved_near` ×2, zero bare, post-fix) and gated by
+tests/basic.test.yo "locals named after Windows macros survive codegen",
+which runs on every CI platform including the windows legs.
+
 **Found:** 2026-08-22 by PR #218's `test (windows-latest)` leg: the
 cross-emitted `cross/yo-windows-x64.c` failed with
 `error: expected expression` at `if (near) {`. `near` (and `far`,

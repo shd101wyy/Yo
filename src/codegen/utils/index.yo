@@ -566,6 +566,22 @@ _build_c_reserved_words :: (fn() -> HashSet(String))({
   _w48 := words.add(String.from("NULL"));
   _w49 := words.add(String.from("true"));
   _w50 := words.add(String.from("false"));
+  // Legacy Windows macros: windef.h defines these to NOTHING, so a user
+  // local named `near` emitted verbatim became `if ()` in the windows
+  // cross-emit (PR #218's windows leg;
+  // issues/fixed/emitted-c-locals-collide-with-windows-macros.md). The
+  // extern-C escape hatch in sanitize_for_c_identifier still lets real C
+  // symbols keep their names.
+  _w51 := words.add(String.from("near"));
+  _w52 := words.add(String.from("far"));
+  _w53 := words.add(String.from("pascal"));
+  _w54 := words.add(String.from("cdecl"));
+  _w55 := words.add(String.from("IN"));
+  _w56 := words.add(String.from("OUT"));
+  _w57 := words.add(String.from("OPTIONAL"));
+  _w58 := words.add(String.from("interface"));
+  _w59 := words.add(String.from("small"));
+  _w60 := words.add(String.from("hyper"));
   words
 });
 _c_reserved_words := _build_c_reserved_words();
