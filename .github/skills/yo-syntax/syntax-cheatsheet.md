@@ -1074,6 +1074,25 @@ Constructor-style traits (`FromJson.from_json`) are therefore expressible.
 multi-param receivers — `HashMap(String, V)` bound `V := String` — was
 fixed 2026-08-22:
 issues/fixed/generic-impl-fromjson-container-decode-failures.md.)
+### A local `(fn(...) -> T)(body)` literal cannot capture enclosing locals
+
+A typed fn literal bound inside another function is a full function
+definition (def-time evaluated), NOT a closure — its body fails with
+`Variable "x" not found` for any enclosing local it references. Arrow
+closures (`(a) -> expr`, `(a) => { ... }`) capture; typed fn literals do
+not. Hoist the fn to module level and pass the state as parameters:
+
+```rust
+// ❌ inner fn cannot see `out` from the enclosing fn's scope
+outer :: (fn(out : ArrayList(i32)) -> unit)({
+  push_twice := (fn(v : i32) -> unit)({ out.push(v); out.push(v); });
+  push_twice(i32(1));
+});
+
+// ✅ module-level helper takes the state explicitly
+_push_twice :: (fn(v : i32, out : ArrayList(i32)) -> unit)({ out.push(v); out.push(v); });
+outer :: (fn(out : ArrayList(i32)) -> unit)({ _push_twice(i32(1), out); });
+```
 
 ### Template strings cannot be nested inside `${...}` interpolations
 
