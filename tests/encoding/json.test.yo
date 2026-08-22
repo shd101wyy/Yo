@@ -105,6 +105,78 @@ test("json_parse string with escapes", {
   assert(bytes.len() == usize(11), "escaped string should have 11 bytes");
   assert(bytes(usize(5)) == u8(10), "byte 5 should be newline");
 });
+test("json_parse unicode escape BMP", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  // \u0041 = 'A' (1-byte UTF-8), \u00e9 = 'é' (2-byte), \u4e2d = '中' (3-byte).
+  v := json_parse("\"\\u0041 \\u00e9 \\u4e2d\"", exn);
+  s := v.as_string().unwrap();
+  bytes := s.as_bytes();
+  assert(bytes.len() == usize(8), "A + sp + 2-byte + sp + 3-byte = 8 bytes");
+  assert(bytes(usize(0)) == u8(65), "first byte should be 'A'");
+  assert(bytes(usize(2)) == u8(0xC3), "é lead byte");
+  assert(bytes(usize(3)) == u8(0xA9), "é continuation byte");
+  assert(bytes(usize(5)) == u8(0xE4), "中 lead byte");
+  assert(bytes(usize(6)) == u8(0xB8), "中 continuation byte 1");
+  assert(bytes(usize(7)) == u8(0xAD), "中 continuation byte 2");
+});
+test("json_parse unicode escape surrogate pair", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  // \ud83d\ude00 = U+1F600 (😀), 4-byte UTF-8 F0 9F 98 80.
+  v := json_parse("\"\\ud83d\\ude00\"", exn);
+  bytes := v.as_string().unwrap().as_bytes();
+  assert(bytes.len() == usize(4), "one astral code point = 4 bytes");
+  assert(bytes(usize(0)) == u8(0xF0), "byte 0");
+  assert(bytes(usize(1)) == u8(0x9F), "byte 1");
+  assert(bytes(usize(2)) == u8(0x98), "byte 2");
+  assert(bytes(usize(3)) == u8(0x80), "byte 3");
+});
+test("json_parse lone high surrogate error", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        unwind(());
+      }
+    )
+  );
+  json_parse("\"\\ud83d\"", exn);
+  assert(false, "lone high surrogate should throw");
+});
+test("json_parse lone low surrogate error", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        unwind(());
+      }
+    )
+  );
+  json_parse("\"\\udc00 tail\"", exn);
+  assert(false, "lone low surrogate should throw");
+});
+test("json_parse invalid unicode escape hex error", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        unwind(());
+      }
+    )
+  );
+  json_parse("\"\\uZZZZ\"", exn);
+  assert(false, "non-hex \\u escape should throw");
+});
 test("json_parse empty string", {
   exn := Exception(
     throw : (
