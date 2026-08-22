@@ -630,6 +630,14 @@ the build:
    `<sys/stat.h>`; the Linux runtime template now includes `<linux/stat.h>`
    under `#if defined(__OHOS__)`.
 
+**Old releases install too.** Because a release is needed to carry the
+codegen fixes into `yo.c`, `install.sh` patches the downloaded C on
+HarmonyOS before compiling (idempotent: statx include insertion gated on
+the file lacking `<linux/stat.h>`, and `L:` → `L:;` on every bare label
+line). A post-fix release passes through unchanged; v0.2.15 — the current
+latest — installs today. Verified: the patched `yo-v0.2.15-linux-arm64.c.gz`
+passes `clang -fsyntax-only` with the OHOS clang.
+
 Runtime constraint worth recording: the compiler reads every source file
 through io_uring, and the async runtime `exit(1)`s if `io_uring_queue_init`
 fails — a HarmonyOS kernel without io_uring cannot run Yo at all (blocking-I/O

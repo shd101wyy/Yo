@@ -71,14 +71,13 @@ The installer:
   host kernels normally allow io_uring; if a HarmonyOS PC policy blocks it,
   Yo currently cannot run there (a blocking-I/O fallback would be a separate
   project).
-- **Releases before the C11-compatibility fixes cannot build here.** The OHOS
-  clang is strict C11: it rejects labels standing directly before a
-  declaration, and the OHOS sysroot does not expose `struct statx` through
-  `<sys/stat.h>`. Both were fixed in the emitted C (null statements after
-  async-while labels; `#include <linux/stat.h>` under `__OHOS__`), so `yo.c`
-  from a release published after those fixes compiles cleanly. Older releases
-  fail with `expected expression` / `incomplete definition of type
-  'struct statx'` — use a newer release.
+- **Older releases are patched automatically.** The OHOS clang is strict
+  C11: it rejects labels standing directly before a declaration, and the
+  OHOS sysroot does not expose `struct statx` through `<sys/stat.h>`.
+  Releases cut before the codegen fixes (the v0.2.14/v0.2.15 era) emit C
+  with both flaws, so the installer patches the downloaded `yo.c` in place
+  before compiling (idempotent transforms — a post-fix release passes
+  through unchanged).
 - **User programs compile with the same clang.** `yo compile` invokes `clang`
   by default, so the same strict-C11 guarantees apply to everything Yo emits
   — which is why the fixes above live in the codegen, not the installer.

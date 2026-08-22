@@ -65,13 +65,11 @@ $ curl -sSL https://raw.githubusercontent.com/shd101wyy/Yo/develop/scripts/insta
   `--security-opt seccomp=unconfined` 解决）。真实主机内核通常允许 io_uring；
   若某台 HarmonyOS PC 的策略禁止它，Yo 目前无法在那台机器上运行（阻塞式
   I/O 回退属于另一个项目）。
-- **C11 兼容性修复之前的版本无法在此构建。** OHOS clang 严格遵循 C11：
-  它拒绝标签直接位于声明之前（label-before-declaration），且 OHOS sysroot
-  不在 `<sys/stat.h>` 中提供 `struct statx`。这两点都已在生成的 C 中修复
-  （异步 while 标签后输出空语句；在 `__OHOS__` 下 `#include <linux/stat.h>`），
-  因此发布在这些修复之后的 `yo.c` 可以顺利编译。更早的版本会报
-  `expected expression` / `incomplete definition of type 'struct statx'` ——
-  请使用更新的版本。
+- **旧版本会自动打补丁。** OHOS clang 严格遵循 C11：它拒绝标签直接位于
+  声明之前（label-before-declaration），且 OHOS sysroot 不在 `<sys/stat.h>`
+  中提供 `struct statx`。在 codegen 修复之前发布的版本（v0.2.14/v0.2.15
+  时代）生成的 C 同时带有这两个问题，因此安装脚本会在编译前对下载的
+  `yo.c` 就地打补丁（幂等变换 —— 修复后的新版本原样通过，不受影响）。
 - **用户程序同样使用这个 clang 编译。** `yo compile` 默认调用 `clang`，
   因此上述严格 C11 保证适用于 Yo 生成的所有代码 —— 这也是为什么修复在
   codegen 里而不是在安装脚本里。

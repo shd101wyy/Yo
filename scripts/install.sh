@@ -808,6 +808,32 @@ install_from_source() {
   gzip -dc "$YO_TEMP_DIR/$cfile" > "$YO_TEMP_DIR/yo.c" \
     || stop "Failed to decompress $cfile"
 
+  # On HarmonyOS, releases cut BEFORE the strict-C11 codegen fixes (the
+  # v0.2.14/v0.2.15 era) emit C the OHOS clang rejects: loop labels standing
+  # directly before a declaration, and `struct statx` uses with no definition
+  # in the OHOS sysroot's <sys/stat.h>. Patch the released C in place — both
+  # transforms are IDEMPOTENT, so a post-fix release passes through unchanged
+  # (and the label fix would also repair any future regression to bare labels).
+  if is_harmonyos; then
+    info "HarmonyOS: applying strict-C11 compatibility patches to the released yo.c"
+    if ! grep -q "^#include <linux/stat.h>$" "$YO_TEMP_DIR/yo.c"; then
+      # Insert the statx definition include right after the first
+      # <sys/stat.h> (guarded: OHOS-only, no-op elsewhere).
+      sed -e '1,/#include <sys\/stat.h>$/s|^#include <sys/stat.h>$|#include <sys/stat.h>\n#if defined(__OHOS__)\n#include <linux/stat.h>\n#endif|' \
+        "$YO_TEMP_DIR/yo.c" > "$YO_TEMP_DIR/yo.c.patched" \
+        || stop "Failed to patch the released yo.c for HarmonyOS (struct statx)"
+      mv "$YO_TEMP_DIR/yo.c.patched" "$YO_TEMP_DIR/yo.c"
+    fi
+    # Append a null statement to every bare label line (`L:` -> `L:;`), which
+    # keeps every such label legal strict C11 (a label must be followed by a
+    # statement). `default:`/`case X:` lines are not affected (the pattern is
+    # anchored on a bare identifier + colon, end of line).
+    sed -e 's|^\([[:space:]]*\)\([a-zA-Z_][a-zA-Z0-9_]*\):$|\1\2:;|' \
+      "$YO_TEMP_DIR/yo.c" > "$YO_TEMP_DIR/yo.c.patched" \
+      || stop "Failed to patch the released yo.c for HarmonyOS (C11 labels)"
+    mv "$YO_TEMP_DIR/yo.c.patched" "$YO_TEMP_DIR/yo.c"
+  fi
+
   info "Downloading the standard library.."
   download_file "$src_url" "$YO_TEMP_DIR/src.tar.gz" \
     || stop "Unable to download the source tarball: $src_url"
@@ -864,8 +890,9 @@ install_from_source() {
     "$YO_TEMP_DIR/yo.c" -o "$YO_TEMP_DIR/yo" $CFLAGS_OVERRIDE $uring_cflags -lpthread -lm $uring_libs \
     || stop "Failed to compile yo.c with $CC_BIN.
   On Linux, install the liburing development headers first (see --help).$(if is_harmonyos; then echo "
-  On HarmonyOS the OHOS clang (ohos-sdk) is strict C11: releases before the
-  label/statx compatibility fixes cannot build here — try a newer release."; fi)"
+  On HarmonyOS the released yo.c is patched automatically for the strict
+  OHOS clang (C11 labels + struct statx); if compilation still fails, this
+  release carries a different incompatibility — please report it."; fi)"
 
   info "Installing.."
   stage="$YO_TEMP_DIR/stage"
