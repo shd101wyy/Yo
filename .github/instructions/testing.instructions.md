@@ -76,6 +76,23 @@ locally built one, since that is what CI runs:
 yo fmt --check ./src ./std ./tests
 ```
 
+## A fixpoint run's stage-1 must live OUTSIDE the repo (`/tmp/yo-s1`)
+
+Type keys embed each declaring module's PATH SPELLING, and std resolution is
+`--std-path > YO_STD > exe-walk-up > ./std`. A stage-1 sitting INSIDE the
+repo (e.g. `yo-out/<target>/bin/yo`) exe-walks-up to the repo std and renders
+ABSOLUTE module paths; the script's stage-2 binary is built in `/tmp` and
+falls back to relative `./std`. Different path spellings → different type-key
+strings → different hash-bucket emission order → a FIXPOINT_BROKEN verdict
+with same-content, reordered/renumbered C (measured 2026-08-23: first
+divergence was `struct_decl_31673__Users/...` vs `struct_decl_31673___std/...`).
+Copy the binary first, exactly as AGENTS.md shows:
+
+```bash
+cp yo-out/aarch64-macos/bin/yo /tmp/yo-s1
+S1=/tmp/yo-s1 P=local bash scripts/bootstrap/fixpoint_only.sh
+```
+
 ## A fixpoint run's stage-1 must come from the SAME tree it compiles
 
 `scripts/bootstrap/fixpoint_only.sh` takes a prebuilt stage-1 via `S1=` and has

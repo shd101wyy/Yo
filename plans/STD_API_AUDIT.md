@@ -300,6 +300,18 @@ small number of PRs with tree-wide fixups (compiler + std + tests + docs):
 9. `Duration` integration everywhere a timeout/interval appears
 10. `net.UnixStream`/`UnixListener`
 
+**P0+ — user-requested (2026-08-23), tracked with this campaign**
+- `yo <subcommand> --help` per-subcommand help (today `yo version --help`
+  errors with `unknown option`, and nothing tells the user `version list`
+  has `--remote`) — CLI fix in `src/main.yo`, not std, but discovered by and
+  shipped with this campaign.
+- Replace the two `curl` shell-outs (`src/version_cache.yo:454,512` — bundle
+  download + releases list, both https against the GitHub API) with
+  `std/http`. **Blocked on TLS (D6/O2)**: std's fetch deliberately refuses
+  https since C1, so the sequence is TLS `TlsStream` first, then the swap —
+  doing it earlier would silently downgrade the toolchain's release channel
+  to cleartext.
+
 **P1 — expected of a modern std**
 HTTP server + chunked/redirect/timeout client; TLS (D6); CSV; DateTime
 parse/format; `fs.watch`; testing `assert_eq` family; log rewrite; glob

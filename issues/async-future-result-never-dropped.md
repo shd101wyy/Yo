@@ -82,6 +82,23 @@ dup/drop pair for RC captures needs to land together:
 Same story for cross-boundary local drops on the unwind path
 (`local_drop_lines` via `_rc_field_drop_line`).
 
+## Third family member (also FIXED)
+
+`generate_join_handle_await` (`src/codegen/exprs/await.yo`) had the same
+`.None` gap on the EXTRACTION side: `JoinHandle.await` bare-copied
+`header->result` instead of dup'ing it, handing out a borrowed reference
+that this fix turned into a use-after-free (double-release: the binding's
+scope-end drop AND the future's dispose both released the single count).
+Same inline-dup fix as the sync-await path; regression test in
+tests/async_await.test.yo ("spawned task's ref result is dup'd out…").
+
+(A fixpoint break observed while landing this family was initially blamed
+on this UAF — wrongly. It was a HARNESS mistake: passing a repo-resident
+binary as `S1` makes it resolve std by exe-walk-up to ABSOLUTE paths while
+the /tmp-built stage-2 falls back to relative `./std`, and type keys embed
+the module-path spelling — different key strings, different hash-bucket
+emission order. `S1` must live at `/tmp/yo-s1` exactly as AGENTS.md shows.)
+
 ## Regression test
 
 `tests/async_await.test.yo` — "async-produced ref result is disposed when
