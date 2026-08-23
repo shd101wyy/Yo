@@ -30,7 +30,7 @@ open(import("std/string"));
 { is_temp_variable_name } :: import("../../utils.yo");
 { is_target_posix, is_target_linux, is_target_windows } :: import("../../target.yo");
 { get_func_type, is_closure_fn, get_closure_capture_info, is_effect_record_member } :: import("../../function_value.yo");
-{ get_type_string, get_variable_type_string, sanitize_for_c_identifier, get_variable_name_for_codegen } :: import("../utils/index.yo");
+{ get_type_string, get_variable_type_string, sanitize_for_c_identifier, get_variable_name_for_codegen, ChunkRange } :: import("../utils/index.yo");
 { get_shell_redirect } :: import("../../evaluator/values/type_trait_methods.yo");
 { FunctionGenerationContext } :: import("./context.yo");
 { generate_function_prototype, should_skip_function_codegen, _async_override_return_type } :: import("./declarations.yo");
@@ -679,9 +679,19 @@ generate_all_functions :: (fn(context : FunctionGenerationContext) -> unit)({
   });
   collect_unwind_value_ctypes(context);
   generate_atomic_gc_runtime_functions(context);
+  // Chunked emission: the constructor/traverse block is routed VERBATIM into
+  // the shared header (per-TU `static` copies — constructors are called from
+  // every chunk, and each TU's constructors take the address of that TU's own
+  // traverse copy, which is only ever CALLED through the stored pointer).
+  ctor_block_start := if(context.base.chunk_mode, em.code.as_bytes().len(), usize(0));
   generate_ref_struct_constructor_functions(context);
   generate_ref_enum_constructor_functions(context);
   generate_closure_constructor_functions(context);
+  if(context.base.chunk_mode, {
+    context.base.chunk_header_ranges.push(
+      ChunkRange(c_name : String.from("__ctor_block"), start_b : ctor_block_start, end_b : em.code.as_bytes().len())
+    );
+  });
   // Iterate in INSERTION order (function_order), NOT HashMap bucket order, so
   // body emission — and the specializations created during it — are ordered
   // deterministically across the TS-compiled s1 and self-compiled s2. Index by
@@ -702,7 +712,17 @@ generate_all_functions :: (fn(context : FunctionGenerationContext) -> unit)({
           // preceding the definition. Mirrors TS generateAllFunctions
           // (generation.ts:583-661), which applies the full skip set here too.
           if(!(should_skip_function_codegen(fid, entry.c_name.clone(), entry.value, context.base)), {
+            // Chunked emission: record this function's `code`-buffer byte
+            // range AFTER the call returns — generate_function may truncate
+            // the buffer tail (superseded-stub rewrite), so the extent is
+            // final only then. Ranges are non-overlapping and ascending.
+            fn_start := if(context.base.chunk_mode, em.code.as_bytes().len(), usize(0));
             generate_function(entry.value, entry.c_name, context);
+            if(context.base.chunk_mode, {
+              context.base.chunk_fn_ranges.push(
+                ChunkRange(c_name : entry.c_name.clone(), start_b : fn_start, end_b : em.code.as_bytes().len())
+              );
+            });
           });
         },
         .None => ()
@@ -827,9 +847,22 @@ emit_module_level_variable_declarations :: (
               if(!(seen.contains(c_var_name.clone())), {
                 _s2 := seen.add(c_var_name.clone());
                 c_type_str := get_type_string(vi.ty, context.base);
-                em.emit_declaration_string_line(
-                  `static ${c_type_str} ${c_var_name}; // module-level mutable variable`
-                );
+                // Chunked emission: module-level vars are read/written from
+                // every chunk — one definition (chunk 0), extern in the header.
+                if(context.base.chunk_mode, {
+                  em.emit_declaration_string_line(
+                    `extern ${c_type_str} ${c_var_name}; // module-level mutable variable`
+                  );
+                  cgb := context.base;
+                  cgb.chunk_globals.push_string(
+                    `${c_type_str} ${c_var_name};
+`
+                  );
+                }, {
+                  em.emit_declaration_string_line(
+                    `static ${c_type_str} ${c_var_name}; // module-level mutable variable`
+                  );
+                });
               });
               rhs := match(_args(init_expr).get(usize(1)), .Some(e) => e, .None => make_err_expr());
               _p := result.push(ModuleLevelVarEntry(c_var_name : c_var_name, rhs : rhs));

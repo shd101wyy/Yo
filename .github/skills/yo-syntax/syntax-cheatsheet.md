@@ -802,6 +802,34 @@ process_map(counts);
 // counts now has "key" => 42
 ```
 
+### `String` out-parameters silently discard writes
+
+`String` is a **value** type whose byte buffer is lazily allocated (`_bytes : .None` until the first push). A `String` parameter is therefore a COPY: pushing into it allocates the buffer *in the copy*, and the caller sees nothing — no error, no warning, just an empty string. This is the opposite of `ArrayList`/`HashMap`/`HashSet` (RC `ref` types), where mutations DO propagate, which makes it an easy trap when a function needs to return two strings.
+
+```rust
+// WRONG — caller's `hdr`/`body` stay EMPTY, silently:
+split :: (fn(text : String, hdr_out : String, body_out : String) -> unit)({
+  hdr_out.push_str("...");   // mutates a copy
+  body_out.push_str("...");  // mutates a copy
+});
+hdr := String.new();
+body := String.new();
+split(src, hdr, body);       // hdr and body are still empty
+
+// CORRECT — return a `ref` struct:
+Split :: ref(struct(head_part : String, body_part : String));
+split :: (fn(text : String) -> Split)({
+  Split(head_part : h, body_part : b)
+});
+
+// ALSO CORRECT — collect into an RC container (mutations propagate):
+collect :: (fn(text : String, out : ArrayList(String)) -> unit)({
+  out.push(String.from("..."));
+});
+```
+
+This cost a full debug cycle in the chunked-C-emission work: an entire emitter buffer was dropped from the output, and the only symptom was a far-downstream C error (`unknown type name`) in the generated code. If a function must fill several strings, return a `ref` struct — and remember that a `String` fetched back out of an `ArrayList(String)` is likewise a value copy, so mutating it does not update the stored element.
+
 ### Forward references are NOT allowed
 
 Top-level bindings are evaluated strictly in order. A function must be defined BEFORE it is called (even inside closures that are called later).

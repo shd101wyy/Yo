@@ -1001,6 +1001,16 @@ _asan_runtime_is_usable :: (fn(base : String, io : Io) -> bool)({
   g_asan_usable = Option(bool).Some(usable);
   usable
 });
+/// Zero-pad a chunk index to 3 digits (`7` → `"007"`) for the
+/// `<base>_chunkNNN.c` file names of `--emit-chunks`.
+_pad3 :: (fn(i : usize) -> String)({
+  s := i.to_string();
+  cond(
+    (s.len() >= usize(3)) => s,
+    (s.len() == usize(2)) => `0${s}`,
+    true => `00${s}`
+  )
+});
 /// Run the `compile` subcommand.
 run_compile :: (
   fn(
@@ -1024,6 +1034,7 @@ run_compile :: (
   (sysroot : String) = String.from("");
   (allocator : String) = String.from("system");
   (emit_chunks : usize) = usize(0);
+  (chunk_no_lto : bool) = false;
   (optimize : String) = String.from(""); // "" = unset; "0".."3"
   (sanitize : String) = String.from(""); // "" / "address" / "leak" / "thread"
   (cflags : String) = String.from("");
@@ -1217,6 +1228,10 @@ run_compile :: (
         debug_gc = true;
         ai = (ai + usize(1));
       },
+      (a == "--no-chunk-lto") => {
+        chunk_no_lto = true;
+        ai = (ai + usize(1));
+      },
       (a == "--emit-chunks") => {
         ecv := _arg_val_req(argv, ai, String.from("--emit-chunks"), exn);
         emit_chunks = match(ecv.parse_u64(), .Some(n) => usize(n), .None => usize(0));
@@ -1279,6 +1294,18 @@ run_compile :: (
   });
   if((emcc_environment != "") && ((emcc_environment != "web") && (emcc_environment != "node")), {
     exn.throw(dyn(`compile: invalid --emcc-environment "${emcc_environment}". Choices: web, node`));
+  });
+  // Chunked emission drives multiple TU inputs through the executable link
+  // line; the static-library path compiles ONE input to ONE `.o`.
+  if((emit_chunks >= usize(1)) && static_library, {
+    exn.throw(dyn(String.from("compile: --emit-chunks is not supported with --static-library")));
+  });
+  // Both flags decide what C files get WRITTEN, so the combination is
+  // ambiguous rather than merely redundant: `--emit-c-to` names ONE file, and
+  // the chunked path writes a header plus N chunks. (`--emit-c`, which only
+  // PRINTS the single-file equivalent, stays allowed.)
+  if((emit_chunks >= usize(1)) && (emit_c_to.len() > usize(0)), {
+    exn.throw(dyn(String.from("compile: --emit-c-to writes one C file and --emit-chunks writes a header plus N chunks — pass only one")));
   });
   // ----- C compiler resolution (src/yo-cli.ts:468-486) ---------------------
   // Auto-select emcc for wasm targets when --cc was not given; otherwise probe
@@ -1410,6 +1437,8 @@ run_compile :: (
   // it survives) and `target` are the only values the link line needs.
   // ---------------------------------------------------------------------
   (c_path : String) = String.new();
+  // Chunked emission: every written chunk `.c` (all become cc inputs).
+  chunk_c_files := ArrayList(String).new();
   {
     clear_module_cache();
     mm_clear_prelude_env();
@@ -1444,7 +1473,7 @@ run_compile :: (
     // wrapper (is_library = true). Allocator + debug-logging flags are threaded
     // through to the code generator (mirrors CodeGeneratorC.compileModule).
     chunk_parts := ArrayList(String).new();
-    c_src := compile_module(module_value, ctx.expr_info_table, target, allocator.clone(), debug_gc, debug_parallelism, debug_async_await, static_library, ctx, env, exn, chunk_parts);
+    c_src := compile_module(module_value, ctx.expr_info_table, target, allocator.clone(), debug_gc, debug_parallelism, debug_async_await, static_library, ctx, env, exn, chunk_parts, emit_chunks);
     // --emit-c prints the generated C to stdout (module-manager.ts:473-475) —
     // and compilation continues; only --skip-c-compiler stops before the link.
     if(emit_c, {
@@ -1483,25 +1512,31 @@ run_compile :: (
     });
     cond(
       (emit_chunks >= usize(1)) => {
-        // Chunked emission, step-1 degenerate mode (plans/CHUNKED_C_EMISSION.md):
-        // ONE all-static chunk that #includes the shared header — proves the
-        // split assembly end-to-end before the step-2 linkage work makes
-        // N > 1 linkable. The chunk file becomes the cc input (`c_path`).
+        // Chunked emission (plans/CHUNKED_C_EMISSION.md step 2): parts[0] is
+        // the shared header, parts[1..] the linkage-split translation-unit
+        // bodies. Each chunk #includes the header BY BASENAME (quoted
+        // includes resolve relative to the including file, and the files are
+        // siblings by construction — a full relative path would double the
+        // directory prefix). Every chunk file becomes a cc input.
         shared_h := `${c_base}_shared.h`;
-        hdr := String.new();
-        hdr.push_string(match(chunk_parts.get(usize(0)), .Some(x) => x, .None => String.new()));
-        hdr.push_str("
-");
-        hdr.push_string(match(chunk_parts.get(usize(1)), .Some(x) => x, .None => String.new()));
-        io.await(write_file(Path.new(shared_h.clone()), hdr, io), IoExn(io : io, exn : exn));
-        chunk0 := `${c_base}_chunk000.c`;
-        cbody := String.new();
-        cbody.push_str("#include \"");
-        cbody.push_string(shared_h.clone());
-        cbody.push_str("\"\n");
-        cbody.push_string(match(chunk_parts.get(usize(2)), .Some(x) => x, .None => String.new()));
-        io.await(write_file(Path.new(chunk0.clone()), cbody, io), IoExn(io : io, exn : exn));
-        c_path = chunk0;
+        shared_h_base := match(Path.new(shared_h.clone()).file_name(), .Some(bn) => bn, .None => shared_h.clone());
+        io.await(
+          write_file(Path.new(shared_h.clone()), match(chunk_parts.get(usize(0)), .Some(x) => x, .None => String.new()), io),
+          IoExn(io : io, exn : exn)
+        );
+        (pi2 : usize) = usize(1);
+        while(pi2 < chunk_parts.len(), {
+          cf := `${c_base}_chunk${_pad3(pi2 - usize(1))}.c`;
+          cbody := String.new();
+          cbody.push_str("#include \"");
+          cbody.push_string(shared_h_base.clone());
+          cbody.push_str("\"\n");
+          cbody.push_string(match(chunk_parts.get(pi2), .Some(x) => x, .None => String.new()));
+          io.await(write_file(Path.new(cf.clone()), cbody, io), IoExn(io : io, exn : exn));
+          chunk_c_files.push(cf);
+          pi2 = (pi2 + usize(1));
+        });
+        c_path = match(chunk_c_files.get(usize(0)), .Some(x) => x.clone(), .None => c_path.clone());
       },
       true => {
         io.await(write_file(Path.new(c_path.clone()), c_src, io), IoExn(io : io, exn : exn));
@@ -1563,6 +1598,20 @@ run_compile :: (
       cmd.arg(String.from("-O0"));
     }
   );
+  // Chunked emission implies ThinLTO, and this is NOT an optional tuning knob
+  // (plans/CHUNKED_C_EMISSION.md). Splitting the program into N translation
+  // units externalizes every generated function, so the C compiler can no
+  // longer internalize or dead-strip them: MEASURED on an N=4 self-build, the
+  // binary went 9 MB / 3.5k symbols -> 24 MB / 7.2k symbols and ran 14.2%
+  // SLOWER on `check ./src` (102.8s vs 90.0s). With `-flto=thin` the linker
+  // recovers the cross-module inlining and the same build runs 87.4s —
+  // slightly FASTER than single-file. A chunked compiler that runs 14% slower
+  // would cancel the build-time win it exists for, so the flag rides along
+  // with `--emit-chunks` unless explicitly disabled. Not for wasm: emcc's LTO
+  // story is separate and chunked wasm builds are out of scope.
+  if((emit_chunks >= usize(1)) && (!(chunk_no_lto) && !(is_target_wasm(target))), {
+    cmd.arg(String.from("-flto=thin"));
+  });
   if(debug_symbols, {
     cmd.arg(String.from("-g"));
   });
@@ -1717,8 +1766,19 @@ run_compile :: (
     });
     return(())
   });
-  // Executable: source + externs, output, then link libraries.
-  cmd.arg(c_path.clone());
+  // Executable: source + externs, output, then link libraries. Chunked
+  // emission passes every chunk `.c` — cc compiles each TU and links them in
+  // the one invocation (parallel per-chunk `cc -c` + a `.o` cache is step 3).
+  cond(
+    (chunk_c_files.len() > usize(0)) => {
+      (cci : usize) = usize(0);
+      while(cci < chunk_c_files.len(), {
+        match(chunk_c_files.get(cci), .Some(f) => cmd.arg(f.clone()), .None => ());
+        cci = (cci + usize(1));
+      });
+    },
+    true => cmd.arg(c_path.clone())
+  );
   (ei : usize) = usize(0);
   while(ei < externs.len(), {
     match(externs.get(ei), .Some(f) => cmd.arg(f.clone()), .None => ());
@@ -3182,6 +3242,9 @@ Examples:
   $ yo compile main.yo --release -D NDEBUG -o app
   $ yo compile main.yo -g -o app_debug
   $ yo compile main.yo --release -s --cflags='-march=native' -o app
+  $ yo compile main.yo --release --emit-chunks 16 -o app
+                                 Split the emitted C into 16 translation units
+                                 (opt-in; implies -flto=thin, --no-chunk-lto opts out)
 
 yo build [steps] [options]       Build project using build.yo
 Examples:

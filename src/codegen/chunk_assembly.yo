@@ -1,0 +1,777 @@
+//! Chunked C emission assembly — plans/CHUNKED_C_EMISSION.md step 2.
+//!
+//! Turns the emitter's three buffers + the byte ranges recorded under
+//! `chunk_mode` into ONE shared header and N translation-unit bodies:
+//!
+//!   header  = headers ++ dequalified declarations ++ the header-routed code
+//!             ranges (the constructor/traverse block verbatim and the
+//!             per-type RC helpers ___dup/___drop/___dispose — per-TU
+//!             `static`/`static inline` copies, they are the RC hot path and
+//!             their addresses are stored but never compared)
+//!   chunk 0 = the split-static definitions (chunk_globals: typeid chars,
+//!             TLS unwind/effect buffers, argv shim, module-level vars) ++
+//!             dequalified residue (everything outside the recorded ranges,
+//!             original order: runtimes, dyn scaffolding, deferred async
+//!             blocks, the main wrapper, the dispose dispatch) ++ its share
+//!             of the functions
+//!   chunk i = the functions whose fnv1a(c_name) % n == i, emission order
+//!
+//! Linkage rule (the auto-dequalifier): a file-scope `static` FUNCTION whose
+//! name is NOT defined in the header text loses its `static` prefix —
+//! prototype and definition alike — becoming external, because its callers
+//! may sit in any chunk. A name DEFINED in the header (atomics, dyn
+//! wrappers, constructors, RC helpers) keeps `static` everywhere: every TU
+//! gets its own copy. Both transforms are driven by the same header-defined
+//! name set, so prototype and definition can never disagree. `static` DATA
+//! lines are never touched here — address-identity statics (typeids) and
+//! cross-chunk globals are split at their emission sites instead
+//! (CodeGenContext.chunk_globals).
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ HashSet } :: import("std/collections/hash_set");
+{ HashMap } :: import("std/collections/hash_map");
+{ ChunkRange } :: import("./utils/index.yo");
+/// The assembled chunked emission: the shared header text and one body text
+/// per translation unit (without the `#include` line — the driver knows the
+/// header's file name). NOTE the field is `header_text`, not `header`: a ref
+/// struct field named `header` collides with the RC header member in the
+/// emitted C (issues/ref-struct-field-named-header-collides-with-rc-header.md).
+ChunkAssembly :: ref(struct(header_text : String, chunks : ArrayList(String)));
+/// True iff `b` is a C identifier byte: [A-Za-z0-9_].
+_ca_is_ident_byte :: (fn(b : u8) -> bool)(
+  ((b >= u8(48)) && (b <= u8(57))) || (((b >= u8(65)) && (b <= u8(90))) || (((b >= u8(97)) && (b <= u8(122))) || (b == u8(95))))
+);
+/// Byte at `i`, or 0 past the end.
+_ca_bget :: (fn(bytes : ArrayList(u8), i : usize) -> u8)(
+  match(bytes.get(i), .Some(b) => b, .None => u8(0))
+);
+/// True iff `bytes[pos..]` starts with `pat`'s bytes.
+_ca_matches :: (fn(bytes : ArrayList(u8), pos : usize, pat : String) -> bool)({
+  n := pat.bytes_len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    if(_ca_bget(bytes, pos + i) != pat.byte_at(i), {
+      return(false);
+    });
+    i = (i + usize(1));
+  });
+  true
+});
+/// `bytes[start, end)` as a String.
+_ca_slice :: (fn(bytes : ArrayList(u8), start : usize, end : usize) -> String)({
+  out := ArrayList(u8).new();
+  (i : usize) = start;
+  while(i < end, {
+    out.push(_ca_bget(bytes, i));
+    i = (i + usize(1));
+  });
+  String.from_bytes(out)
+});
+/// A parsed column-0 `static` FUNCTION line: the function's name, whether the
+/// signature opens a definition (`{` after the closing paren) or a prototype
+/// (`;`), and how many bytes of linkage prefix (`static [inline ]
+/// [__attribute__((...)) ]`) the line carries.
+_StaticFnLine :: struct(name : String, is_def : bool, prefix_len : usize);
+/// Parse the column-0 `static`-prefixed line starting at `ls` (the caller has
+/// already matched `"static "`). Returns `.None` when the line is not a
+/// function prototype/definition open (data declarations hit `=` or `;`
+/// before any `(`). The paren scan crosses newlines, so multi-line signatures
+/// classify correctly.
+_ca_parse_static_fn_line :: (
+  fn(bytes : ArrayList(u8), ls : usize, n : usize, inline_pat : String, attr_pat : String) -> Option(_StaticFnLine)
+)({
+  (p : usize) = (ls + usize(7));
+  if(_ca_matches(bytes, p, inline_pat), {
+    p = (p + inline_pat.bytes_len());
+  });
+  // Generic `__attribute__((...)) ` skip — paren-depth over the attribute so
+  // its inner parens are not mistaken for the parameter list. The pattern
+  // ends after the double-open, so the depth starts at 2.
+  if(_ca_matches(bytes, p, attr_pat), {
+    (ad : usize) = usize(2);
+    (a : usize) = (p + attr_pat.bytes_len());
+    (adone : bool) = false;
+    while(!(adone) && (a < n), {
+      ab := _ca_bget(bytes, a);
+      cond(
+        (ab == u8(40)) => {
+          ad = (ad + usize(1));
+        },
+        (ab == u8(41)) => {
+          ad = (ad - usize(1));
+          if(ad == usize(0), {
+            adone = true;
+          });
+        },
+        (ab == u8(10)) => {
+          adone = true;
+        },
+        true => ()
+      );
+      a = (a + usize(1));
+    });
+    p = a;
+    if(_ca_bget(bytes, p) == u8(32), {
+      p = (p + usize(1));
+    });
+  });
+  prefix_len := (p - ls);
+  // The first `(` on the line (before any `=`, `;`, or the newline) opens the
+  // parameter list; the identifier run ending there is the function name.
+  (q : usize) = p;
+  (found : bool) = false;
+  while(!(found), {
+    if(q >= n, {
+      return(Option(_StaticFnLine).None);
+    });
+    b := _ca_bget(bytes, q);
+    cond(
+      (b == u8(40)) => {
+        found = true;
+      },
+      ((b == u8(10)) || ((b == u8(61)) || (b == u8(59)))) => {
+        return(Option(_StaticFnLine).None);
+      },
+      true => {
+        q = (q + usize(1));
+      }
+    );
+  });
+  (ns : usize) = q;
+  while((ns > p) && _ca_is_ident_byte(_ca_bget(bytes, ns - usize(1))), {
+    ns = (ns - usize(1));
+  });
+  if(ns == q, {
+    return(Option(_StaticFnLine).None);
+  });
+  name := _ca_slice(bytes, ns, q);
+  (depth : usize) = usize(1);
+  (r : usize) = (q + usize(1));
+  while((depth > usize(0)) && (r < n), {
+    b2 := _ca_bget(bytes, r);
+    cond(
+      (b2 == u8(40)) => {
+        depth = (depth + usize(1));
+      },
+      (b2 == u8(41)) => {
+        depth = (depth - usize(1));
+      },
+      true => ()
+    );
+    r = (r + usize(1));
+  });
+  while((r < n) && ((_ca_bget(bytes, r) == u8(32)) || ((_ca_bget(bytes, r) == u8(10)) || (_ca_bget(bytes, r) == u8(9)))), {
+    r = (r + usize(1));
+  });
+  // DATA-vs-FUNCTION guard. A prototype or definition always has `)` followed
+  // by `;` or `{`. Without this check, paren-QUALIFIED file-scope data —
+  // `static __declspec(thread) T x = init;` (the Windows async runtime's TLS
+  // globals), `static _Alignas(16) char buf[64];`, `static _Atomic(void*) p;` —
+  // parses as a "prototype" named after the qualifier and then has its
+  // `static` stripped by the dequalifier, silently giving file-scope DATA
+  // external linkage. Keeping this check here makes the module's
+  // "`static` DATA lines are never touched" invariant actually hold, for all
+  // three consumers of this parser.
+  rb := _ca_bget(bytes, r);
+  if(!((rb == u8(123)) || (rb == u8(59))), {
+    return(Option(_StaticFnLine).None);
+  });
+  Option(_StaticFnLine).Some(
+    _StaticFnLine(name : name, is_def : (rb == u8(123)), prefix_len : prefix_len)
+  )
+});
+/// Collect the names of every column-0 `static` FUNCTION DEFINITION in `text`
+/// into `into` (the header-defined set the dequalifier keys on).
+_ca_collect_static_def_names :: (fn(text : String, into : HashSet(String)) -> unit)({
+  static_pat := String.from("static ");
+  inline_pat := String.from("inline ");
+  attr_pat := String.from("__attribute__((");
+  bytes := text.as_bytes();
+  n := bytes.len();
+  (ls : usize) = usize(0);
+  while(ls < n, {
+    if(_ca_matches(bytes, ls, static_pat), {
+      match(
+        _ca_parse_static_fn_line(bytes, ls, n, inline_pat, attr_pat),
+        .Some(info) => if(info.is_def, {
+          _a := into.add(info.name);
+          ()
+        }),
+        .None => ()
+      );
+    });
+    while((ls < n) && (_ca_bget(bytes, ls) != u8(10)), {
+      ls = (ls + usize(1));
+    });
+    ls = (ls + usize(1));
+  });
+});
+/// Strip the `static [inline ] [__attribute__((...)) ]` prefix from every
+/// column-0 static FUNCTION line (prototype or definition) whose name is NOT
+/// in `header_defined` — those functions become external so any chunk can
+/// call them. Everything else is copied byte-for-byte.
+_ca_dequalify_statics :: (fn(text : String, header_defined : HashSet(String)) -> String)({
+  static_pat := String.from("static ");
+  inline_pat := String.from("inline ");
+  attr_pat := String.from("__attribute__((");
+  bytes := text.as_bytes();
+  n := bytes.len();
+  out := ArrayList(u8).new();
+  (ls : usize) = usize(0);
+  while(ls < n, {
+    (strip : usize) = usize(0);
+    if(_ca_matches(bytes, ls, static_pat), {
+      match(
+        _ca_parse_static_fn_line(bytes, ls, n, inline_pat, attr_pat),
+        .Some(info) => if(!(header_defined.contains(info.name)), {
+          strip = info.prefix_len;
+        }),
+        .None => ()
+      );
+    });
+    (i : usize) = (ls + strip);
+    (le : usize) = ls;
+    while((le < n) && (_ca_bget(bytes, le) != u8(10)), {
+      le = (le + usize(1));
+    });
+    le = if(le < n, le + usize(1), le);
+    while(i < le, {
+      out.push(_ca_bget(bytes, i));
+      i = (i + usize(1));
+    });
+    ls = le;
+  });
+  String.from_bytes(out)
+});
+/// True iff `name` is a per-type RC helper (routed into the shared header —
+/// same predicate as generate_function's `is_rc` linkage branch).
+_ca_is_rc_helper :: (fn(name : String) -> bool)(
+  name.contains("___drop") || (name.contains("___dup") || name.contains("___dispose"))
+);
+/// True iff the column-0 line at `ls` opens a linkage-qualified or type-level
+/// construct that is NEVER a relocatable external definition.
+_ca_decl_line_is_qualified :: (fn(bytes : ArrayList(u8), ls : usize) -> bool)(
+  _ca_matches(bytes, ls, String.from("static ")) || (_ca_matches(bytes, ls, String.from("extern ")) || (_ca_matches(bytes, ls, String.from("typedef ")) || (_ca_matches(bytes, ls, String.from("inline ")) || (_ca_matches(bytes, ls, String.from("struct ")) || (_ca_matches(bytes, ls, String.from("union ")) || _ca_matches(bytes, ls, String.from("enum ")))))))
+);
+/// Result of `_ca_split_decl_defs`. A REF struct return, not two `String`
+/// out-parameters: `String` is a VALUE type whose buffer is lazily allocated
+/// (`_bytes : .None` until first push), so pushing into a `String` parameter
+/// mutates a copy and the caller sees nothing.
+DeclSplit :: ref(struct(header_part : String, moved_part : String));
+/// Split the declarations text into the part that stays in the SHARED HEADER
+/// and the EXTERNAL function DEFINITIONS that must be relocated to chunk 0.
+///
+/// The async state-machine emitter writes its `<sm>_set_effect` / `_resume` /
+/// `_dispose` BODIES into the declarations buffer with EXTERNAL linkage (80 of
+/// them in a self-build). A definition in the shared header is compiled by
+/// every TU — "duplicate symbol" at link time — and unlike a `static` header
+/// definition it cannot be made per-TU. So each such block moves to chunk 0
+/// and leaves `<signature>;` behind in the header, which is exactly what the
+/// other chunks need to reference it.
+///
+/// Block extent: emitted C closes a file-scope body with `}` at COLUMN 0 and
+/// indents everything inside it, and C string literals cannot span a raw
+/// newline — so the first column-0 `}` after the opening line ends the body.
+_ca_split_decl_defs :: (fn(text : String) -> DeclSplit)({
+  bytes := text.as_bytes();
+  n := bytes.len();
+  hdr := ArrayList(u8).new();
+  mov := ArrayList(u8).new();
+  (ls : usize) = usize(0);
+  while(ls < n, {
+    // Line extent [ls, le) including its newline.
+    (le : usize) = ls;
+    while((le < n) && (_ca_bget(bytes, le) != u8(10)), {
+      le = (le + usize(1));
+    });
+    le = if(le < n, le + usize(1), le);
+    b0 := _ca_bget(bytes, ls);
+    ident_start := (((b0 >= u8(65)) && (b0 <= u8(90))) || (((b0 >= u8(97)) && (b0 <= u8(122))) || (b0 == u8(95))));
+    (moved : bool) = false;
+    if(ident_start && !(_ca_decl_line_is_qualified(bytes, ls)), {
+      // Parse `<return type> name(<params>)` then require ` {` — the same
+      // shape check the residue-prototype scanner uses.
+      (q : usize) = ls;
+      (found : bool) = false;
+      (stop : bool) = false;
+      while(!(found) && (!(stop) && (q < n)), {
+        bq := _ca_bget(bytes, q);
+        cond(
+          (bq == u8(40)) => {
+            found = true;
+          },
+          ((bq == u8(10)) || ((bq == u8(61)) || (bq == u8(59)))) => {
+            stop = true;
+          },
+          true => {
+            q = (q + usize(1));
+          }
+        );
+      });
+      if(found, {
+        (ns : usize) = q;
+        while((ns > ls) && _ca_is_ident_byte(_ca_bget(bytes, ns - usize(1))), {
+          ns = (ns - usize(1));
+        });
+        // A definition has a return type before the name, and the paren must
+        // be preceded by an identifier at all.
+        if((ns > ls) && (ns < q), {
+          (depth : usize) = usize(1);
+          (r : usize) = (q + usize(1));
+          while((depth > usize(0)) && (r < n), {
+            b2 := _ca_bget(bytes, r);
+            cond(
+              (b2 == u8(40)) => {
+                depth = (depth + usize(1));
+              },
+              (b2 == u8(41)) => {
+                depth = (depth - usize(1));
+              },
+              true => ()
+            );
+            r = (r + usize(1));
+          });
+          close_pos := r;
+          (w : usize) = r;
+          while((w < n) && ((_ca_bget(bytes, w) == u8(32)) || (_ca_bget(bytes, w) == u8(9))), {
+            w = (w + usize(1));
+          });
+          if(_ca_bget(bytes, w) == u8(123), {
+            // Prototype into the header.
+            (pi : usize) = ls;
+            while(pi < close_pos, {
+              hdr.push(_ca_bget(bytes, pi));
+              pi = (pi + usize(1));
+            });
+            hdr.push(u8(59));
+            hdr.push(u8(10));
+            // Body (from the opening line through the column-0 `}` line) into
+            // the relocated text.
+            (be : usize) = le;
+            (done : bool) = false;
+            while(!(done) && (be < n), {
+              (ble : usize) = be;
+              while((ble < n) && (_ca_bget(bytes, ble) != u8(10)), {
+                ble = (ble + usize(1));
+              });
+              ble = if(ble < n, ble + usize(1), ble);
+              if(_ca_bget(bytes, be) == u8(125), {
+                done = true;
+              });
+              be = ble;
+            });
+            (mi : usize) = ls;
+            while(mi < be, {
+              mov.push(_ca_bget(bytes, mi));
+              mi = (mi + usize(1));
+            });
+            ls = be;
+            moved = true;
+          });
+        });
+      });
+    });
+    if(!(moved), {
+      (ci : usize) = ls;
+      while(ci < le, {
+        hdr.push(_ca_bget(bytes, ci));
+        ci = (ci + usize(1));
+      });
+      ls = le;
+    });
+  });
+  DeclSplit(header_part : String.from_bytes(hdr), moved_part : String.from_bytes(mov))
+});
+/// Collect a candidate extern prototype (`<signature>`) for every `__yo_`-
+/// named FUNCTION DEFINITION found at column 0 of the (already dequalified)
+/// chunk-0 residue: `names_out` keeps the residue definition order (the
+/// header emission must be deterministic — HashMap iteration is not),
+/// `protos_out` maps name → signature text. Only definitions REFERENCED by
+/// non-residue code get emitted (see `_ca_collect_yo_refs`) — internal
+/// runtime helpers mention residue-local typedefs that are invisible in the
+/// header, and nothing outside chunk 0 calls them. A non-empty name is
+/// required: FSM emitters write `switch (...) {` at column 0, which has no
+/// identifier before its paren.
+_ca_collect_residue_protos :: (
+  fn(text : String, names_out : ArrayList(String), protos_out : HashMap(String, String)) -> unit
+)({
+  yo_pat := String.from("__yo_");
+  bytes := text.as_bytes();
+  n := bytes.len();
+  (ls : usize) = usize(0);
+  while(ls < n, {
+    b0 := _ca_bget(bytes, ls);
+    is_start := (((b0 >= u8(65)) && (b0 <= u8(90))) || (((b0 >= u8(97)) && (b0 <= u8(122))) || (b0 == u8(95))));
+    if(is_start, {
+      (q : usize) = ls;
+      (found : bool) = false;
+      (stop : bool) = false;
+      while(!(found) && (!(stop) && (q < n)), {
+        bq := _ca_bget(bytes, q);
+        cond(
+          (bq == u8(40)) => {
+            found = true;
+          },
+          ((bq == u8(10)) || ((bq == u8(61)) || (bq == u8(59)))) => {
+            stop = true;
+          },
+          true => {
+            q = (q + usize(1));
+          }
+        );
+      });
+      if(found, {
+        (ns : usize) = q;
+        while((ns > ls) && _ca_is_ident_byte(_ca_bget(bytes, ns - usize(1))), {
+          ns = (ns - usize(1));
+        });
+        // `ns > ls`: a definition has a return type before the name;
+        // `ns < q`: the paren must be preceded by an identifier at all.
+        if((ns > ls) && ((ns < q) && _ca_matches(bytes, ns, yo_pat)), {
+          nm := _ca_slice(bytes, ns, q);
+          (depth : usize) = usize(1);
+          (r : usize) = (q + usize(1));
+          while((depth > usize(0)) && (r < n), {
+            b2 := _ca_bget(bytes, r);
+            cond(
+              (b2 == u8(40)) => {
+                depth = (depth + usize(1));
+              },
+              (b2 == u8(41)) => {
+                depth = (depth - usize(1));
+              },
+              true => ()
+            );
+            r = (r + usize(1));
+          });
+          close_pos := r;
+          (w : usize) = r;
+          while((w < n) && ((_ca_bget(bytes, w) == u8(32)) || ((_ca_bget(bytes, w) == u8(10)) || (_ca_bget(bytes, w) == u8(9)))), {
+            w = (w + usize(1));
+          });
+          if((_ca_bget(bytes, w) == u8(123)) && !(protos_out.contains_key(nm.clone())), {
+            names_out.push(nm.clone());
+            _s := protos_out.set(nm, _ca_slice(bytes, ls, close_pos));
+            ()
+          });
+        });
+      });
+    });
+    while((ls < n) && (_ca_bget(bytes, ls) != u8(10)), {
+      ls = (ls + usize(1));
+    });
+    ls = (ls + usize(1));
+  });
+});
+/// Collect every `__yo_`-prefixed identifier occurring in CODE POSITION in
+/// `text` into `into` (token starts only — a preceding identifier byte
+/// disqualifies). Content inside C string literals is SKIPPED: the
+/// compiler's own runtime-emitter literals carry the entire runtime C text
+/// as `__yo_str` spill data, and matching names inside them would mark every
+/// runtime function as referenced. Emitted C strings never span lines (their
+/// newlines are `\n` escapes), so the in-string state resets per line.
+_ca_collect_yo_refs :: (fn(text : String, into : HashSet(String)) -> unit)({
+  yo_pat := String.from("__yo_");
+  bytes := text.as_bytes();
+  n := bytes.len();
+  (i : usize) = usize(0);
+  (in_str : bool) = false;
+  while(i < n, {
+    b := _ca_bget(bytes, i);
+    cond(
+      (b == u8(10)) => {
+        in_str = false;
+        i = (i + usize(1));
+      },
+      in_str => {
+        cond(
+          (b == u8(92)) => {
+            i = (i + usize(2));
+          },
+          (b == u8(34)) => {
+            in_str = false;
+            i = (i + usize(1));
+          },
+          true => {
+            i = (i + usize(1));
+          }
+        );
+      },
+      (b == u8(34)) => {
+        in_str = true;
+        i = (i + usize(1));
+      },
+      ((b == u8(95)) && _ca_matches(bytes, i, yo_pat)) => {
+        prev_ident := if(i > usize(0), _ca_is_ident_byte(_ca_bget(bytes, i - usize(1))), false);
+        if(!(prev_ident), {
+          (e : usize) = i;
+          while((e < n) && _ca_is_ident_byte(_ca_bget(bytes, e)), {
+            e = (e + usize(1));
+          });
+          _a := into.add(_ca_slice(bytes, i, e));
+          i = e;
+        }, {
+          i = (i + usize(1));
+        });
+      },
+      true => {
+        i = (i + usize(1));
+      }
+    );
+  });
+});
+/// Merge two start-ascending range lists into one start-ascending list.
+_ca_merge_ranges :: (
+  fn(a : ArrayList(ChunkRange), b : ArrayList(ChunkRange)) -> ArrayList(ChunkRange)
+)({
+  out := ArrayList(ChunkRange).new();
+  (i : usize) = usize(0);
+  (j : usize) = usize(0);
+  while((i < a.len()) || (j < b.len()), {
+    ai := a.get(i);
+    bj := b.get(j);
+    match(
+      ai,
+      .Some(ra) => match(
+        bj,
+        .Some(rb) => if(ra.start_b <= rb.start_b, {
+          out.push(ra);
+          i = (i + usize(1));
+        }, {
+          out.push(rb);
+          j = (j + usize(1));
+        }),
+        .None => {
+          out.push(ra);
+          i = (i + usize(1));
+        }
+      ),
+      .None => match(
+        bj,
+        .Some(rb) => {
+          out.push(rb);
+          j = (j + usize(1));
+        },
+        .None => ()
+      )
+    );
+  });
+  out
+});
+/// Assemble the chunked emission. `n_chunks` >= 1; chunk 0 additionally
+/// carries the split-static definitions and the residue (see file header).
+assemble_chunks :: (
+  fn(
+    headers : String,
+    declarations : String,
+    code : String,
+    fn_ranges : ArrayList(ChunkRange),
+    header_ranges : ArrayList(ChunkRange),
+    globals : String,
+    n_chunks : usize
+  ) -> ChunkAssembly
+)({
+  n := if(n_chunks < usize(1), usize(1), n_chunks);
+  code_bytes := code.as_bytes();
+  // 1. The header-defined name set: static definitions already living in the
+  //    declarations text (atomics, dyn wrappers), the constructor/traverse
+  //    block, and the RC helper ranges (their c_name IS the defined name).
+  header_defined := HashSet(String).new();
+  _ca_collect_static_def_names(declarations.clone(), header_defined);
+  (hi : usize) = usize(0);
+  while(hi < header_ranges.len(), {
+    match(
+      header_ranges.get(hi),
+      .Some(hr) => _ca_collect_static_def_names(_ca_slice(code_bytes, hr.start_b, hr.end_b), header_defined),
+      .None => ()
+    );
+    hi = (hi + usize(1));
+  });
+  (ri : usize) = usize(0);
+  while(ri < fn_ranges.len(), {
+    match(
+      fn_ranges.get(ri),
+      .Some(fr) => if(_ca_is_rc_helper(fr.c_name.clone()), {
+        _a := header_defined.add(fr.c_name.clone());
+        ()
+      }),
+      .None => ()
+    );
+    ri = (ri + usize(1));
+  });
+  // 2. Residue: everything in `code` outside the recorded ranges, original
+  //    order, dequalified — into chunk 0 after the split-static definitions.
+  //    Built BEFORE the header so its auto-generated prototypes can be
+  //    inserted right after the declarations.
+  all_ranges := _ca_merge_ranges(header_ranges, fn_ranges);
+  residue := ArrayList(u8).new();
+  (prev_end : usize) = usize(0);
+  (ai : usize) = usize(0);
+  while(ai < all_ranges.len(), {
+    match(
+      all_ranges.get(ai),
+      .Some(rr) => {
+        (ci : usize) = prev_end;
+        while(ci < rr.start_b, {
+          residue.push(_ca_bget(code_bytes, ci));
+          ci = (ci + usize(1));
+        });
+        prev_end = rr.end_b;
+      },
+      .None => ()
+    );
+    ai = (ai + usize(1));
+  });
+  (ti : usize) = prev_end;
+  cb_len := code_bytes.len();
+  while(ti < cb_len, {
+    residue.push(_ca_bget(code_bytes, ti));
+    ti = (ti + usize(1));
+  });
+  residue_deq := _ca_dequalify_statics(String.from_bytes(residue), header_defined);
+  // 3. Per-chunk function texts: fnv1a(c_name) % n picks the chunk (stable
+  //    under unrelated edits — round-robin by position would shift every
+  //    later function on any insertion). RC helpers (assignment n) are
+  //    header-routed. Each text is built in a LOCAL String — a String
+  //    fetched back out of a list is a value copy whose first lazy
+  //    allocation would not propagate to the stored element.
+  assigned := ArrayList(usize).new();
+  (fi : usize) = usize(0);
+  while(fi < fn_ranges.len(), {
+    match(
+      fn_ranges.get(fi),
+      .Some(fr) => if(_ca_is_rc_helper(fr.c_name.clone()), {
+        assigned.push(n);
+      }, {
+        nm := fr.c_name.clone();
+        assigned.push(usize(nm.hash() % u64(n)));
+      }),
+      .None => {
+        assigned.push(n);
+      }
+    );
+    fi = (fi + usize(1));
+  });
+  fns_texts := ArrayList(String).new();
+  (mi : usize) = usize(0);
+  while(mi < n, {
+    body := String.new();
+    body.push_str("\n");
+    (gi : usize) = usize(0);
+    while(gi < fn_ranges.len(), {
+      if(match(assigned.get(gi), .Some(x) => (x == mi), .None => false), {
+        match(
+          fn_ranges.get(gi),
+          .Some(fr) => body.push_string(_ca_dequalify_statics(_ca_slice(code_bytes, fr.start_b, fr.end_b), header_defined)),
+          .None => ()
+        );
+      });
+      gi = (gi + usize(1));
+    });
+    fns_texts.push(body);
+    mi = (mi + usize(1));
+  });
+  // 4. Auto-generated prototypes: collect candidates from the residue, then
+  //    emit ONLY those referenced by non-residue code (the chunk function
+  //    texts and the header-routed bodies) — internal runtime helpers whose
+  //    signatures mention residue-local typedefs stay chunk-0-private.
+  proto_names := ArrayList(String).new();
+  proto_map := HashMap(String, String).new();
+  _ca_collect_residue_protos(residue_deq.clone(), proto_names, proto_map);
+  referenced := HashSet(String).new();
+  (sx : usize) = usize(0);
+  while(sx < fns_texts.len(), {
+    match(
+      fns_texts.get(sx),
+      .Some(ft) => _ca_collect_yo_refs(ft, referenced),
+      .None => ()
+    );
+    sx = (sx + usize(1));
+  });
+  (sh : usize) = usize(0);
+  while(sh < header_ranges.len(), {
+    match(
+      header_ranges.get(sh),
+      .Some(hr) => _ca_collect_yo_refs(_ca_slice(code_bytes, hr.start_b, hr.end_b), referenced),
+      .None => ()
+    );
+    sh = (sh + usize(1));
+  });
+  protos := String.from("// Prototypes for referenced chunk-0 runtime definitions (auto-generated)\n");
+  (pn : usize) = usize(0);
+  while(pn < proto_names.len(), {
+    match(
+      proto_names.get(pn),
+      .Some(pname) => if(referenced.contains(pname.clone()), {
+        match(
+          proto_map.get(pname),
+          .Some(sig) => {
+            protos.push_string(sig);
+            protos.push_str(";\n");
+          },
+          .None => ()
+        );
+      }),
+      .None => ()
+    );
+    pn = (pn + usize(1));
+  });
+  // 5. Shared header: headers ++ dequalified declarations (with their
+  //    EXTERNAL function definitions relocated to chunk 0, prototypes left
+  //    behind) ++ the referenced prototypes ++ header-routed code ranges
+  //    verbatim (borrow primitives, constructor block, RC helpers).
+  decl_split := _ca_split_decl_defs(_ca_dequalify_statics(declarations.clone(), header_defined));
+  header_text := String.new();
+  header_text.push_string(headers.clone());
+  header_text.push_str("\n");
+  header_text.push_string(decl_split.header_part.clone());
+  header_text.push_str("\n");
+  header_text.push_string(protos);
+  header_text.push_str("\n");
+  (h2 : usize) = usize(0);
+  while(h2 < header_ranges.len(), {
+    match(
+      header_ranges.get(h2),
+      .Some(hr) => header_text.push_string(_ca_slice(code_bytes, hr.start_b, hr.end_b)),
+      .None => ()
+    );
+    h2 = (h2 + usize(1));
+  });
+  (r2 : usize) = usize(0);
+  while(r2 < fn_ranges.len(), {
+    match(
+      fn_ranges.get(r2),
+      .Some(fr) => if(_ca_is_rc_helper(fr.c_name.clone()), {
+        header_text.push_string(_ca_slice(code_bytes, fr.start_b, fr.end_b));
+      }),
+      .None => ()
+    );
+    r2 = (r2 + usize(1));
+  });
+  // 6. Final chunk bodies: chunk 0 = split globals + residue + its share.
+  chunks := ArrayList(String).new();
+  (ci2 : usize) = usize(0);
+  while(ci2 < n, {
+    body := String.new();
+    if(ci2 == usize(0), {
+      body.push_string(globals.clone());
+      body.push_str("\n");
+      body.push_string(residue_deq.clone());
+      // The relocated declarations-buffer definitions go LAST in chunk 0:
+      // they call residue runtime functions, and following the residue means
+      // every such definition precedes its use in this TU regardless of
+      // whether a prototype was generated for it.
+      body.push_str("\n");
+      body.push_string(decl_split.moved_part.clone());
+    });
+    match(
+      fns_texts.get(ci2),
+      .Some(ft) => body.push_string(ft),
+      .None => ()
+    );
+    chunks.push(body);
+    ci2 = (ci2 + usize(1));
+  });
+  ChunkAssembly(header_text : header_text, chunks : chunks)
+});
+export(ChunkAssembly, assemble_chunks);

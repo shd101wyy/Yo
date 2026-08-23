@@ -44,6 +44,7 @@ open(import("std/string"));
 { _generate_sm_atom } :: import("./exprs/atom.yo");
 { preregister_async_block_types, generate_deferred_async_blocks } :: import("./exprs/async.yo");
 { register_fsm_emitters_impl } :: import("./async/state_code_gen.yo");
+{ assemble_chunks } :: import("./chunk_assembly.yo");
 /// True if any field of the struct contains a SomeType (generic). Mirrors the
 /// `!type.fields.some(field => typeContainsSomeType(field.type))` guard.
 /// On-demand recovery for a type first seen DURING emission (a lazily-minted
@@ -286,7 +287,7 @@ static void __yo_dispose_dispatch(void* ptr) {
 /// preRegisterAsyncBlockTypes / preRegisterEffectfulFunctions /
 /// generateDeferredAsyncBlocks (Phase 5), generateClosureDisposeFunctions
 /// (Phase 5), generateSpecialized* (Gap 2), generateLibraryInitFunction.
-compile_module :: (fn(module_value : EvalValue, info : ExprInfoTable, target : TargetInfo, allocator : String, debug_gc : bool, debug_parallelism : bool, debug_async_await : bool, is_library : bool, eval_ctx : EvalContext, module_env : Environment, exn : Exception, (chunk_parts_out : ArrayList(String)) ?= ArrayList(String).new()) -> String)({
+compile_module :: (fn(module_value : EvalValue, info : ExprInfoTable, target : TargetInfo, allocator : String, debug_gc : bool, debug_parallelism : bool, debug_async_await : bool, is_library : bool, eval_ctx : EvalContext, module_env : Environment, exn : Exception, (chunk_parts_out : ArrayList(String)) ?= ArrayList(String).new(), (emit_chunks : usize) ?= usize(0)) -> String)({
   // Route fatal emitter errors (codegen_fatal) through this compile's exn so
   // they exit rc=1 like a TS compile error instead of __yo_panic's SIGABRT.
   set_codegen_fatal_exn(exn);
@@ -306,6 +307,10 @@ compile_module :: (fn(module_value : EvalValue, info : ExprInfoTable, target : T
   set_lookup_some_resolved_concrete(lookup_some_resolved_concrete);
   emitter := Emitter.new();
   base := CodeGenContext.new(emitter, info, target, allocator, debug_gc, debug_parallelism, debug_async_await, is_library);
+  // Chunked emission (plans/CHUNKED_C_EMISSION.md): record function byte
+  // ranges and split cross-chunk statics. MUST stay false by default — the
+  // single-file emission is gated byte-identical.
+  base.chunk_mode = (emit_chunks >= usize(1));
   // Seed the always-needed standard C headers (mirrors the cIncludes set the TS
   // CodeGeneratorC.compileModule constructs). <unistd.h>/<sys/stat.h> are
   // platform-specific and added by emit_c_includes.
@@ -364,16 +369,32 @@ typedef enum {
   // Mirrors codegen-c.ts: fixupDynImplKeys → generateDynBoxTypes.
   fixup_dyn_impl_keys(base);
   generate_dyn_box_types(base);
-  // Command-line arguments runtime shim.
-  base.emitter.emit_declaration_string_line(
-    `
+  // Command-line arguments runtime shim. Chunked emission: written by main
+  // (chunk 0), read from any chunk — one definition, extern in the header.
+  if(base.chunk_mode, {
+    base.emitter.emit_declaration_string_line(
+      `
+// Command-line arguments (initialized in main)
+typedef struct { uint8_t** data; size_t length; } Slice_uint8_t_u42_;
+extern int32_t __yo_argc;
+extern uint8_t** __yo_argv;
+extern Slice_uint8_t_u42_ __yo_args;
+`
+    );
+    base.chunk_globals.push_string(
+      String.from("int32_t __yo_argc;\nuint8_t** __yo_argv;\nSlice_uint8_t_u42_ __yo_args;\n")
+    );
+  }, {
+    base.emitter.emit_declaration_string_line(
+      `
 // Command-line arguments (initialized in main)
 typedef struct { uint8_t** data; size_t length; } Slice_uint8_t_u42_;
 static int32_t __yo_argc;
 static uint8_t** __yo_argv;
 static Slice_uint8_t_u42_ __yo_args;
 `
-  );
+    );
+  });
   // Pre-register async-block state-machine types (forward-declared struct
   // typedefs + uses_async flag) before function declarations, so prototypes use
   // the right SM struct names. Mirrors codegen-c.ts:205.
@@ -406,13 +427,33 @@ static Slice_uint8_t_u42_ __yo_args;
   });
   // Type-tag dispose dispatch switch.
   emit_dispose_dispatch(base);
-  // Chunked emission (plans/CHUNKED_C_EMISSION.md step 1): hand the three
-  // emitter buffers to the caller so it can assemble a shared header +
-  // chunk file(s) instead of one concatenated unit. Pushing the String
-  // HANDLES is O(1) — the buffers are not mutated after this point.
-  chunk_parts_out.push(base.emitter.headers);
-  chunk_parts_out.push(base.emitter.declarations);
-  chunk_parts_out.push(base.emitter.code);
+  // Chunked emission (plans/CHUNKED_C_EMISSION.md step 2): assemble the
+  // shared header + N linkable translation units from the recorded ranges;
+  // hand them to the driver as parts[0] = header, parts[1..] = chunk bodies
+  // (without the #include line — the driver knows the header's file name).
+  if(base.chunk_mode, {
+    asm2 := assemble_chunks(
+      base.emitter.headers,
+      base.emitter.declarations,
+      base.emitter.code,
+      base.chunk_fn_ranges,
+      base.chunk_header_ranges,
+      base.chunk_globals,
+      emit_chunks
+    );
+    chunk_parts_out.push(asm2.header_text);
+    (ci2 : usize) = usize(0);
+    while(ci2 < asm2.chunks.len(), {
+      match(
+        asm2.chunks.get(ci2),
+        .Some(cb) => {
+          chunk_parts_out.push(cb);
+        },
+        .None => ()
+      );
+      ci2 = (ci2 + usize(1));
+    });
+  });
   base.emitter.print()
 });
 export(compute_needs_cycle_gc, emit_dispose_dispatch, compile_module);
