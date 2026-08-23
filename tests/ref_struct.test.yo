@@ -61,21 +61,21 @@ test("A value struct may still have a field named header", {
   assert(v.header == i32(1), "value-struct header field readable");
   assert(v.n == i32(2), "value-struct sibling field readable");
 });
-test("A reference struct may DECLARE a comptime field named header", {
+test("A reference struct may have a comptime field named header", {
   // Comptime fields are erased from the C layout, so they cannot collide with
-  // the RC header — rejecting the declaration would be an over-rejection. The
-  // check this arm exercises runs at DECLARATION time, which is why the type is
-  // only declared: CONSTRUCTING a ref struct that mixes a comptime field with a
-  // runtime one is independently broken (the constructor call passes the
-  // comptime arg too — "too many arguments to function call"), a PRE-EXISTING
-  // bug this arm originally tripped over. See
-  // issues/ref-struct-comptime-field-breaks-constructor-arity.md.
+  // the RC header — rejecting the declaration would be an over-rejection.
+  // Constructing one also exercises the constructor-arity fix: the comptime
+  // field is not a constructor parameter, so passing a value for it emitted
+  // "too many arguments to function call".
+  // issues/fixed/ref-struct-comptime-field-breaks-constructor-arity.md
   CH :: ref(struct(header :: 1, n : i32));
-  // A sibling declaration with the reserved name absent, constructed, proves
-  // the surrounding machinery still works.
-  OK :: ref(struct(n : i32));
-  o := OK(n : i32(5));
-  assert(o.n == i32(5), "ordinary reference struct unaffected");
+  c := CH(n : i32(5));
+  assert(c.n == i32(5), "runtime sibling of a comptime header field");
+  // A comptime field under an ordinary name, same shape — proves the arity fix
+  // is about comptime erasure, not about the reserved name.
+  CT :: ref(struct(tag :: 7, n : i32));
+  t := CT(n : i32(9));
+  assert(t.n == i32(9), "comptime field under an ordinary name");
 });
 test("A reference struct may use the RC header's own member names", {
   // ref_count / gc_flags / type_id live INSIDE __yo_ref_header_t, so they are

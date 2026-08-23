@@ -1,7 +1,28 @@
 # A comptime field in a reference struct breaks the constructor's arity
 
-**Status: OPEN (found 2026-08-23; pre-existing — reproduces on an unmodified
-develop-HEAD binary).**
+**Status: FIXED 2026-08-23.** `src/codegen/exprs/other_fn_call.yo` — the
+reference-struct constructor call site now prefers the FIELD-DRIVEN
+reconstruction (`_ctor_args_from_labeled`, which walks
+`get_runtime_struct_fields` — the same view the constructor's parameter list is
+built from, so it has the right arity by construction) whenever the evaluator's
+recorded `runtime_arg_exprs_in_order` OVERSUPPLIES and the reconstruction
+matches the parameter count. Deliberately narrow: a recorded list that merely
+differs for some other reason is left alone, so this cannot perturb the
+constructor calls that work today.
+
+The evaluator side is left as-is on purpose. It has the right machinery — the
+per-arg `rt_ct_flags_args` filter that already excludes comptime args, and a
+`g_struct_field_comptime_flags` registry — but the synthesized constructor's
+parameter flags do not pick the field flags up, and threading them through is a
+larger change in the constructor-synthesis path than the codegen-side arity
+guard, which fixes the observable defect at the point it manifests. If the
+evaluator side is ever corrected, this guard becomes redundant rather than
+wrong.
+
+Gate: `tests/ref_struct.test.yo` "A reference struct may have a comptime field
+named header" now CONSTRUCTS such a value (two arms: the reserved name and an
+ordinary one, so the arity fix is pinned independently of the reserved-name
+rule).
 
 ## Symptom
 
@@ -67,6 +88,18 @@ struct. `tests/ref_struct.test.yo` currently has a DECLARE-ONLY arm for this
 shape ("A reference struct may DECLARE a comptime field named header") which
 deliberately avoids constructing — turn it into a constructing arm once this is
 fixed.
+
+## Precedent: the VALUE-struct twin was fixed a month earlier
+
+`issues/fixed/yo-self-comptime-field-struct-ctor.md` (2026-07-20) is the same
+class one path over: a VALUE struct with a comptime-only field emitted
+`(__yo_t0){ .next = __yo_t0 }` — the field paired against the wrong argument —
+and was fixed in the value-struct constructor branch of the same file
+(`other_fn_call.yo` ~1398). The REFERENCE-struct branch (~1470) never got the
+equivalent treatment, so it kept pairing positionally against the full declared
+field list. Worth knowing for anyone touching either branch: they are siblings
+that must both derive their argument list from the runtime-field view, and only
+one of them did.
 
 ## How it was found
 
