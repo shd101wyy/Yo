@@ -1,7 +1,30 @@
 # std/encoding/html is untestable: clang crashes compiling the emitted entity-map builder
 
-**Status: OPEN.** Found 2026-08-22 while writing the FIRST tests for
-`decode_html` (S0 C11 groundwork) — which is why the module has zero tests.
+**Status: FIXED 2026-08-24 (branch std-s0-correctness).** All three plan steps
+landed:
+
+1. `html_entities.yo` rewritten to STATIC DATA — one ASCII blob of
+   `name,cp[,cp];` records (27.5 KB) parsed by a ~30-line loop, in place of
+   the ~2,125 straight-line `map.set(...)` calls (2,256 → 76 lines). The
+   blob is a function-local backtick literal (a module-level `X :: `-string
+   is rejected: "Expected compile-time value" — `::` constants must be
+   comptime, and a String literal is a runtime RC construction). Emitted C
+   is one string literal + a small loop; clang at -O0 is fine with it.
+2. The prepared test suite landed as `tests/encoding/html.test.yo`
+   (8 tests, extended with static-table spot checks: first/last entries,
+   a two-code-point entity, legacy longest-prefix matching) — all green.
+3. The `// TODO: proper break` overflow hacks in `decode_html` replaced
+   with plain `scanning` flags (three sites: hex scan incl. its
+   double-pass "fix digit_end" decoder, decimal scan, named-entity scan).
+
+**Bonus data bug found by re-encoding:** the old table carried
+`generic → U+2200 (∀)` where the HTML5 spec has `forall` — an
+alphabetical-order violation between `fopf`/`fork` exposed the mangled
+rename; `forall` was absent entirely, so `&forall;` never decoded.
+Fixed in the regenerated blob; regression test in the new suite.
+
+Found 2026-08-22 while writing the FIRST tests for
+`decode_html` (S0 C11 groundwork) — which is why the module had zero tests.
 
 ## Symptom
 

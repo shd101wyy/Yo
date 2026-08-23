@@ -1,0 +1,47 @@
+{ assert } :: import("std/assert");
+open(import("std/string"));
+{ decode_html, from_code_point } :: import("std/encoding/html");
+test("named entities decode", {
+  assert(decode_html(String.from("a &amp; b")) == `a & b`, "amp");
+  assert(decode_html(String.from("&lt;p&gt;")) == `<p>`, "lt/gt");
+  assert(decode_html(String.from("&quot;x&quot;")) == `"x"`, "quot");
+});
+test("entities from the static table decode", {
+  assert(decode_html(String.from("&forall;x")) == `∀x`, "forall (was mangled to `generic` in the old table)");
+  assert(decode_html(String.from("&AElig;")) == `Æ`, "first table entry");
+  assert(decode_html(String.from("&zwnj;")) == from_code_point(i32(8204)), "last table entry");
+  assert(
+    decode_html(String.from("&NotEqualTilde;")) == (from_code_point(i32(8770)) + from_code_point(i32(824))),
+    "two-code-point entity"
+  );
+});
+test("legacy entities decode without semicolon by longest prefix", {
+  assert(decode_html(String.from("&amp!")) == `&!`, "legacy amp, no semicolon");
+  assert(decode_html(String.from("&notin")) == `¬in`, "notin is not legacy; not is - longest legacy prefix wins");
+  assert(decode_html(String.from("&bogus")) == `&bogus`, "unknown name with no legacy prefix stays literal");
+});
+test("decimal numeric entities decode", {
+  assert(decode_html(String.from("&#65;")) == `A`, "decimal with semicolon");
+  assert(decode_html(String.from("&#65&#66;")) == `AB`, "unterminated decimal still decodes");
+  assert(decode_html(String.from("x&#65Zy")) == `xAZy`, "decimal terminated by non-digit");
+});
+test("hex numeric entities decode", {
+  assert(decode_html(String.from("&#x41;")) == `A`, "hex with semicolon");
+  assert(decode_html(String.from("&#X41;")) == `A`, "capital X form");
+  assert(decode_html(String.from("x&#x41Zy")) == `xAZy`, "hex terminated by non-digit");
+  assert(decode_html(String.from("&#x1F600;")) == `😀`, "supplementary-plane hex");
+});
+test("digits running to end of input decode", {
+  assert(decode_html(String.from("&#65")) == `A`, "decimal at EOF");
+  assert(decode_html(String.from("&#x41")) == `A`, "hex at EOF");
+});
+test("malformed numeric entities stay literal", {
+  assert(decode_html(String.from("&#x;")) == `&#x;`, "hex marker with no digits");
+  assert(decode_html(String.from("&#;")) == `&#;`, "no digits at all");
+  assert(decode_html(String.from("a & b")) == `a & b`, "bare ampersand passes through");
+  assert(decode_html(String.from("&")) == `&`, "trailing ampersand");
+  assert(decode_html(String.from("&#")) == `&#`, "trailing numeric marker");
+});
+test("invalid code points keep the original entity text", {
+  assert(decode_html(String.from("&#xD800;")) == `&#xD800;`, "surrogate kept literal");
+});

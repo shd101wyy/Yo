@@ -101,33 +101,13 @@ decode_html :: (fn(input : String) -> String)({
               // Hex: &#xHH;
               (digit_start : usize) = (i + usize(1));
               (digit_end : usize) = digit_start;
-              while(digit_end < len, {
+              (scanning : bool) = true;
+              while(scanning && (digit_end < len), {
                 dc := input.at(digit_end).unwrap();
                 if(((dc >= rune(u32('0'))) && (dc <= rune(u32('9')))) || (((dc >= rune(u32('a'))) && (dc <= rune(u32('f')))) || ((dc >= rune(u32('A'))) && (dc <= rune(u32('F'))))), {
                   digit_end = (digit_end + usize(1));
                 }, {
-                  // Done with hex digits, break out
-                  digit_end = (digit_end + usize(0));
-                  // Use a flag to break
-                  return_early := true;
-                  // TODO: proper break
-                  digit_end = (len + usize(1));
-                });
-              });
-              // Fix digit_end if it overflowed
-              if(digit_end > len, {
-                // We used the overflow trick - find actual end
-                digit_end = digit_start;
-                while(digit_end < len, {
-                  dc2 := input.at(digit_end).unwrap();
-                  if(((dc2 >= rune(u32('0'))) && (dc2 <= rune(u32('9')))) || (((dc2 >= rune(u32('a'))) && (dc2 <= rune(u32('f')))) || ((dc2 >= rune(u32('A'))) && (dc2 <= rune(u32('F'))))), {
-                    digit_end = (digit_end + usize(1));
-                  }, {
-                    digit_end = ((len + digit_end) + usize(1));
-                  });
-                });
-                if(digit_end > len, {
-                  digit_end = ((digit_end - len) - usize(1));
+                  scanning = false;
                 });
               });
               if(digit_end > digit_start, {
@@ -155,16 +135,14 @@ decode_html :: (fn(input : String) -> String)({
               // Decimal: &#DD;
               (digit_start : usize) = i;
               (digit_end : usize) = digit_start;
-              while(digit_end < len, {
+              (scanning : bool) = true;
+              while(scanning && (digit_end < len), {
                 dc := input.at(digit_end).unwrap();
                 if((dc >= rune(u32('0'))) && (dc <= rune(u32('9'))), {
                   digit_end = (digit_end + usize(1));
                 }, {
-                  digit_end = ((len + digit_end) + usize(1));
+                  scanning = false;
                 });
-              });
-              if(digit_end > len, {
-                digit_end = ((digit_end - len) - usize(1));
               });
               if(digit_end > digit_start, {
                 dec_str := input.substring(digit_start, digit_end);
@@ -192,23 +170,15 @@ decode_html :: (fn(input : String) -> String)({
           // Named entity: &name; or &name (legacy)
           (name_start : usize) = i;
           (name_end : usize) = name_start;
-          while(name_end < len, {
+          (scanning : bool) = true;
+          while(scanning && (name_end < len), {
             nc := input.at(name_end).unwrap();
-            if(nc == rune(u32(';')), {
-              // Found semicolon — end of entity name
-              name_end = ((len + name_end) + usize(1));
-            }, if(_is_alpha_numeric(nc), {
+            if(_is_alpha_numeric(nc), {
               name_end = (name_end + usize(1));
             }, {
-              // Non-alphanumeric, non-semicolon — end of potential entity
-              name_end = ((len + name_end) + usize(1));
-            }));
-          });
-          // Decode the overflow trick
-          (found_end : bool) = false;
-          if(name_end > len, {
-            name_end = ((name_end - len) - usize(1));
-            found_end = true;
+              // Semicolon or other non-alphanumeric — end of potential entity
+              scanning = false;
+            });
           });
           name_str := input.substring(name_start, name_end);
           // Check for semicolon at name_end
