@@ -296,10 +296,11 @@ Measured (interleaved, `check ./src`, 262/262 on every run):
 | **chunked N=4 + ThinLTO** | **87.41 s** | **-2.9% (faster)** |
 | chunked N=4, no LTO | 102.81 s | +14.2% |
 
-So the design decision changes: **`--emit-chunks` now implies `-flto=thin`**
-(`--no-chunk-lto` opts out, wasm excluded). It is not a tuning knob — without
-it a chunked-built compiler runs 14% slower, which cancels the build-time win
-the campaign exists for. Interestingly the LTO binary is still 23 MB / 6,821
+So the design decision changes: **a chunked build at `-O1`+ gets `-flto=thin`
+automatically** (`--no-chunk-lto` opts out, wasm excluded; at `-O0` it is
+skipped — see the `-O0` measurement under step 3). It is not a tuning knob at
+`-O2` — without it a chunked-built compiler runs 14% slower, which cancels the
+build-time win the campaign exists for. Interestingly the LTO binary is still 23 MB / 6,821
 symbols, i.e. ThinLTO buys the speed through inlining rather than by shrinking
 the image.
 
@@ -366,11 +367,26 @@ Measure the cached-rebuild path before adding any of them.
    - **Without LTO the picture inverts**: a cached no-change rebuild is a
      0.1 s link. That is only usable if the 14.2% runtime penalty does not
      matter — which is exactly the case at `-O0`, where there is no
-     cross-module inlining to lose in the first place. HYPOTHESIS TO MEASURE at
-     step 4: chunking at `-O0` (the default, non-`--release` build) is pure win
-     — full parallelism, near-free cached rebuilds, no runtime cost — and LTO
-     should be tied to `-O2`+ rather than to `--emit-chunks`. If that holds,
-     the default-on decision gets much easier for dev builds.
+     cross-module inlining to lose in the first place.
+
+   **`-O0` measured, hypothesis CONFIRMED (2026-08-23):** at `-O0` clang
+   neither inlines nor dead-strips, so externalizing every function costs
+   almost nothing there:
+
+   | `-O0` build | C phase | runtime (`check ./std`, 154/154) | defined symbols |
+   |---|---|---|---|
+   | single-file | 18.25 s | 40.73 s | 6,848 |
+   | chunked, 4 parallel | **5.49 s (3.3x)** | **40.23 s (identical)** | 7,693 (+12%) |
+
+   Contrast the `-O2` symbol blow-up (3,493 -> 7,201, i.e. 2.1x): at `-O0` the
+   single-file build cannot dead-strip either, so the gap is only 12%. So
+   **LTO tracks the OPTIMIZATION LEVEL, not the chunk flag** — implemented as
+   `chunk_lto_wanted` in `run_compile`, mirroring the `-O` selection exactly.
+   At `-O0` a chunked build now skips the thin-link entirely and is 3.3x
+   faster with no runtime cost; at `-O1`+ it gets `-flto=thin` and is
+   perf-neutral. This also materially changes the default-on calculus for dev
+   builds: `-O0` chunking is a pure win, and with a `.o` cache the no-change
+   rebuild is a 0.13 s link.
 
    **BLOCKER, found while prototyping the fan-out:** `io.spawn` inside a
    `while` loop or a recursive call hangs (spins at 100% CPU) — the JoinHandle
