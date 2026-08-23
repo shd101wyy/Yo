@@ -144,6 +144,11 @@ DynImplEntry :: ref(
     trait_values : ArrayList(EvalValue)
   )
 );
+/// A byte range of the emitter's `code` buffer holding one complete emitted
+/// function (recorded AFTER its generate_function call returns — extents are
+/// final only then; see plans/CHUNKED_C_EMISSION.md "Ground truth"). Sliced
+/// post-emission by `assemble_chunks` into per-chunk translation units.
+ChunkRange :: ref(struct(c_name : String, start_b : usize, end_b : usize));
 /// The base C code generation context. See header above.
 CodeGenContext :: ref(
   struct(
@@ -253,7 +258,24 @@ CodeGenContext :: ref(
     // type maps to the FIRST registration's key (collect_type's stable-identity
     // dedup). Consulted by get_type_entry/get_type_c_name on a primary miss so
     // value sites keyed under either render resolve to ONE C type.
-    type_key_aliases : HashMap(String, String)
+    type_key_aliases : HashMap(String, String),
+    /// Chunked C emission (plans/CHUNKED_C_EMISSION.md, `--emit-chunks N`).
+    /// When true, emission records byte ranges + splits file-scope statics so
+    /// `assemble_chunks` can produce N linkable translation units. MUST stay
+    /// false by default: the single-file emission is gated byte-identical.
+    chunk_mode : bool,
+    /// Per-function `code`-buffer byte ranges (chunk_mode only), recorded
+    /// around each generate_function call in emission order.
+    chunk_fn_ranges : ArrayList(ChunkRange),
+    /// `code`-buffer byte ranges routed VERBATIM into the shared header
+    /// (chunk_mode only): the constructor/traverse block — per-TU `static`
+    /// copies, called from every chunk.
+    chunk_header_ranges : ArrayList(ChunkRange),
+    /// File-scope definitions for chunk 0 (chunk_mode only): the single-
+    /// definition side of split statics — typeid chars, dyn vtables, TLS
+    /// unwind/effect buffers, the argv shim, module-level vars. Their extern
+    /// declarations go to the declarations section (the shared header).
+    chunk_globals : String
   )
 );
 impl(
@@ -304,9 +326,37 @@ impl(
       declared_c_var_names : HashSet(String).new(),
       declared_scopes : ArrayList(String).new(),
       impl_closure_call_map : HashMap(String, ImplClosureCallInfo).new(),
-      type_key_aliases : HashMap(String, String).new()
+      type_key_aliases : HashMap(String, String).new(),
+      chunk_mode : false,
+      chunk_fn_ranges : ArrayList(ChunkRange).new(),
+      chunk_header_ranges : ArrayList(ChunkRange).new(),
+      chunk_globals : String.new()
     )
   ),
+  /// Emit a `__yo_typeid_*` static char whose ADDRESS is the runtime TypeId.
+  /// Chunked emission splits it — extern in the header, one definition in
+  /// chunk 0 — because per-TU copies would give the same type a different
+  /// address in every chunk (address identity IS the semantics). `comment` is
+  /// appended verbatim when non-empty (the dyn vtable pass labels its ids).
+  emit_typeid_static : (fn(self : Self, static_var_name : String, comment : String) -> unit)({
+    if(self.chunk_mode, {
+      decl := String.from("extern const char ");
+      decl.push_string(static_var_name.clone());
+      decl.push_str(";");
+      decl.push_string(comment.clone());
+      self.emitter.emit_declaration_string_line(decl);
+      def := String.from("const char ");
+      def.push_string(static_var_name);
+      def.push_str(" = 0;\n");
+      self.chunk_globals.push_string(def);
+    }, {
+      decl := String.from("static const char ");
+      decl.push_string(static_var_name);
+      decl.push_str(" = 0;");
+      decl.push_string(comment);
+      self.emitter.emit_declaration_string_line(decl);
+    });
+  }),
   /// Allocate (or reuse) the type-tag id for a dispose function's C name.
   /// Mirrors the disposeTypeIds get-or-assign in generateRefStructConstructorFunctions.
   dispose_type_id_for : (fn(self : Self, dispose_c_name : String) -> usize)(
@@ -1478,6 +1528,7 @@ find_returned_async_block :: (fn(expr : Option(AstExpr)) -> Option(AstExpr))(
 );
 export(
   CodeGenContext,
+  ChunkRange,
   CodegenTypeEntry,
   CodegenFunctionEntry,
   ImplClosureCallInfo,

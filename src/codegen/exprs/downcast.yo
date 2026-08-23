@@ -45,11 +45,7 @@ generate_downcast :: (fn(expr : AstExpr, indent : String, context : FunctionGene
   if(!(context.base.type_id_static_names.contains(static_var_name.clone())), {
     _n := context.base.type_id_static_names.add(static_var_name.clone());
     _r := context.base.type_id_statics.set(type_id.clone(), static_var_name.clone());
-    decl := String.from("static const char ");
-    decl.push_string(static_var_name.clone());
-    decl.push_str(" = 0;");
-    em := context.base.emitter;
-    em.emit_declaration_string_line(decl);
+    context.base.emit_typeid_static(static_var_name.clone(), String.new());
   });
   context.base.add_c_include(String.from("<stdint.h>"));
   // is-check: the Dyn's vtable type-id equals this target's static address.

@@ -1,6 +1,7 @@
 # Chunked C emission + parallel/cached clang
 
-**Status: ACTIVE (designed 2026-08-23; step 0 measured, step 1 in progress).**
+**Status: ACTIVE (designed 2026-08-23; steps 0-1 DONE — step 1 merged #233;
+step 2 in progress).**
 Goal: `yo build`'s C leg — clang -O2 on the single ~148 MB emitted `yo.c` —
 measured **74.8 s single-threaded** (step 0 baseline, M4, of a ~220 s full
 rebuild). Split the emitted program into N translation units compiled in
@@ -30,6 +31,31 @@ compare default emissions.
 
 ## Linkage split (the risk mass)
 
+**Step-2 implementation refinements (2026-08-23, src/codegen/chunk_assembly.yo):**
+
+- **The runtime allowlist is replaced by an AUTO-DEQUALIFIER.** The assembly
+  pass computes the *defined-in-header* name set (static definitions already
+  living in the declarations buffer — atomics, dyn wrappers — plus the
+  header-routed constructor/traverse block and the RC-helper ranges), then
+  strips the `static [inline]` prefix from every column-0 static FUNCTION
+  line (prototype and definition alike) whose name is NOT in that set. One
+  rule drives both sides, so prototype and definition linkage can never
+  disagree, and there is no hand-maintained list to rot. `static` DATA lines
+  are never touched by the dequalifier — address-identity statics and
+  cross-chunk globals are split at their emission sites under
+  `CodeGenContext.chunk_mode` (typeids via `emit_typeid_static`, TLS
+  unwind/effect buffers, argv shim, module-level vars → extern in the
+  header + one definition in `chunk_globals`, prepended to chunk 0).
+- **Dyn vtables stay per-TU static in the header** (no extern split): the
+  emitted C compares only `vtable->__yo_type_id` (downcast.yo) — vtable
+  ADDRESSES are stored and dereferenced, never compared — and the wrapper
+  functions they reference are per-TU header statics anyway. Only the
+  `__yo_typeid_*` chars need the extern/chunk-0 split.
+- **Constructors + traverse functions** are routed to the header as one
+  recorded byte-range block (per-TU `static` copies; each TU's constructors
+  take the address of that TU's own traverse copy, which is only ever CALLED
+  through the stored pointer).
+
 | Symbol class | Chunked treatment |
 |---|---|
 | Preprocessor/`#include`s, `__yo_tN` typedefs, FSM/GC structs | shared header verbatim |
@@ -41,9 +67,71 @@ compare default emissions.
 | `__yo_typeid_X` chars + dyn vtables | `extern const` decl + chunk-0 definition — **address identity is the semantics** |
 | String literals | compound literals inside bodies — travel with their function |
 
-`-flto=thin` is the opt-in mitigation (`--chunk-lto`) for lost cross-TU
-inlining; not default (thin-link + backends re-run per rebuild, eroding the
-cache win). Perf gate: chunked binary within ~5% of baseline on self-`check`.
+~~`-flto=thin` is the opt-in mitigation (`--chunk-lto`) for lost cross-TU
+inlining; not default.~~ **SUPERSEDED 2026-08-23 by measurement:** ThinLTO is
+REQUIRED, and `--emit-chunks` now implies it (`--no-chunk-lto` opts out). Without
+it the chunked binary runs 14.2% slower; with it, 2.9% faster than single-file.
+See "The real cause, and why ThinLTO is REQUIRED" below. Perf gate: chunked
+binary within ~5% of baseline on self-`check` — **met, with LTO**.
+
+## Chunk count: how N is chosen, and whether chunking should be default
+
+**How functions are assigned (decided, implemented):** `fnv1a(c_name) % N`
+(`String.hash()` is FNV-1a) — NOT by `.yo` source file. Measured skew on the
+self-build at N=4: chunk bodies 30/36/30/38 MB, i.e. max/mean = 1.13. By-file
+grouping was considered and rejected for now on three grounds: (1) source
+modules differ in emitted size by orders of magnitude (a hub like `expr.yo`
+against a leaf), so the slowest job — which sets wall clock — would be far
+worse than ±13%; (2) a large share of emitted functions are specializations
+minted DURING emission, which belong to no single source module in any useful
+sense; (3) hashing the name is edit-stable (inserting a function moves nothing
+else), where round-robin by definition order shifts every later function.
+By-file grouping WOULD be better for the step-3 `.o` cache — an edit to one
+leaf module would dirty one chunk — but only once symbol naming is
+content-stable; today the global expr-id counter in `yo_id_N` renames symbols
+in every module parsed after an edit, churning all chunks regardless of
+grouping. The defining module path exists in the evaluator but is not recorded
+on `CodegenFunctionEntry`, so this is a design choice, not a limitation.
+
+**The shared-header tax (measured, changed the design's assumptions):** every
+TU `#include`s the whole shared header, so aggregate compiler input is
+`bodies + N x header`. Self-build: header 9 MB, bodies 134 MB, single-file
+143 MB. N=4 -> 170 MB aggregate (+19%); N=16 -> 278 MB (+94%). Wall clock
+still falls (each job sees ~9 MB header + ~8 MB body at N=16 instead of
+143 MB) but the FLOOR is the header's own compile time, and aggregate CPU
+grows linearly with N — which matters on machines with fewer cores than N and
+for every `.o` cache MISS. So "N = 2x cores" is an assumption to MEASURE at
+step 4 (N=4/8/16/32), not a default to hard-code. The tax is worse in
+relative terms for small programs: on a ~1700-line test program the header is
+~27% of the emission, so N=4 there is ~181% of the work for a program that
+compiles in under a second.
+
+**Default-on? Not yet — deliberately.** `--emit-chunks` stays opt-in
+(default 0 = single file, bit-for-bit) until all of the following hold:
+1. steps 3-5 land (parallel driver + `.o` cache, perf validation, CI gate);
+2. step 4's runtime gate passes — chunking loses cross-TU inlining, and this
+   compiler is RC-hot (`__yo_decr_rc` has historically been ~54% of a
+   self-compile), so a silent runtime regression is the real risk;
+3. the behavioral fixpoint gate exists (a chunked-built binary emits
+   byte-identical single-file C), so flipping the default cannot quietly
+   weaken the bootstrap fixpoint story;
+4. auto-N (below) exists, so small programs and small machines do not
+   REGRESS relative to single-file.
+Even then, these paths stay single-file permanently: portable-C distribution
+(`plans/PORTABLE_C_DISTRIBUTION.md`), `--emit-c` / `--emit-c-to` (the
+single-file artifact is what humans read and bisect — see
+`.github/instructions/debugging.instructions.md`), `--static-library` (one
+input -> one `.o`; currently rejected outright with chunks), and wasm/emcc
+targets.
+
+**Auto-N (design, for step 3/4):** `--emit-chunks auto` picks
+`N = clamp(1, jobs, emitted_bytes / MIN_CHUNK_BYTES)` where `jobs` is the
+core count and `MIN_CHUNK_BYTES` (~4-8 MB, to be measured) keeps N=1 for
+programs too small to amortize the header tax. Blocker: there is no
+CPU-count API in `std` (verified — no `available_parallelism`, no `nproc`
+probe), so this needs either a new `std/sys` call or a `YO_JOBS` /
+`--jobs` override read first. Until auto-N exists, N is whatever the user
+passes.
 
 ## Determinism
 
@@ -73,6 +161,160 @@ mirrors Phase A's sha256 stamp pattern (build_runner.yo:436-490) under
 `<c_base>.chunks/cache/`; `YO_BUILD_NO_CACHE=1` honored; mimalloc `static.c`
 becomes one more parallel job.
 
+## Step 2 bring-up record (2026-08-23)
+
+Four linkage classes were NOT in the original table and had to be discovered by
+bring-up. Each is now handled in `src/codegen/chunk_assembly.yo`; the gate that
+catches regressions in seconds is `tests/internal/chunk_assembly.test.yo`
+(synthetic-C unit test of every split rule, red-first verified — 40 s vs the
+~15 min a chunked self-build costs).
+
+1. **Borrow primitives needed header routing.** `__yo_borrow_acquire` /
+   `_release` / `_assert_unborrowed` have no prototypes anywhere and are called
+   from every chunk (they are the per-container-access hot path), so they are
+   recorded as a header range in `generate_atomic_gc_runtime_functions`.
+2. **Residue functions need auto-generated prototypes** — the sys / async /
+   parallelism / GC runtimes are emitted as big string literals carrying no
+   prototypes, yet generated bodies call them across chunks. `assemble_chunks`
+   now synthesizes a prototype for every `__yo_`-named residue definition,
+   filtered to those actually REFERENCED by non-residue text.
+3. **The reference scan must skip C string literals.** This compiler's own
+   runtime emitters embed the entire runtime C text as `__yo_str` spill data,
+   so a naive scan sees every runtime function name as "referenced" and emits
+   prototypes whose signatures name chunk-0-private typedefs
+   (`__yo_io_pending_op_t`, `__yo_fs_event_entry_t`, `__yo_yield_future_t`) —
+   16+16+4 "unknown type name" errors. The scan is now string-literal aware.
+4. **External function DEFINITIONS live in the declarations buffer.** The async
+   state-machine emitter writes `<sm>_set_effect` / `_resume` / `_dispose`
+   bodies there with EXTERNAL linkage — 80 of them in a self-build. A
+   definition in the shared header is compiled by every TU: 240 duplicate
+   symbols at link. Unlike a `static` header definition it cannot be made
+   per-TU, so `_ca_split_decl_defs` relocates each block to chunk 0 (placed
+   after the residue, so residue definitions precede their uses) and leaves
+   `<signature>;` in the header.
+
+**Two Yo-level bugs surfaced along the way:**
+
+- `issues/ref-struct-field-named-header-collides-with-rc-header.md` (OPEN,
+  PRE-EXISTING): a `ref(struct(...))` field named `header` collides with the
+  built-in RC header member and emits invalid C. `yo check` passes it.
+  Reproduced on unmodified develop HEAD. The assembler's field is
+  `header_text` because of it.
+- **`String` out-parameters silently discard writes** (a Yo semantics trap, not
+  a compiler bug): `String` is a VALUE type whose byte buffer is lazily
+  allocated (`_bytes : .None` until first push), so `fn f(out : String)` +
+  `out.push_string(...)` mutates a copy. This dropped the ENTIRE declarations
+  buffer from the emission — the header came out 11.6k lines instead of 29.4k
+  and clang reported it only as far-downstream "unknown type name". Fixed by
+  returning a `ref` struct (`DeclSplit`). Recorded in the syntax cheatsheet.
+
+### The RC de-inlining regression (found, measured, fixed)
+
+A 5-lens adversarial audit of the linkage split (34 agents; 3 findings survived
+double verification) produced one dominant result, which the measurement then
+confirmed quantitatively.
+
+**Measured, interleaved A/B, both binaries `-O2`, `check ./src` (262 files):**
+
+| binary | run 1 | run 2 | run 3 | mean | verdict |
+|---|---|---|---|---|---|
+| single-file self-build | 87.54 s | 87.59 s | 87.88 s | **87.67 s** | 262/262, 0 errors |
+| N=4 chunked self-build | 102.61 s | 102.00 s | 101.93 s | **102.18 s** | 262/262, 0 errors |
+
+Functionally equivalent, **16.5% slower** — 3x over the ~5% gate. And it is
+self-defeating: a chunked-built compiler that compiles 16.5% slower cancels the
+build-time win it was made for, so this is blocking for step 2, not a step-4
+formality.
+
+**Cause.** `__yo_decr_rc` / `__yo_incr_rc` are emitted `static inline` into the
+CODE buffer with no covering header range, so they land in the residue and the
+auto-dequalifier makes them external. RC drops are lowered as DIRECT calls to
+these two primitives — the self-build emission has **336,211 `__yo_decr_rc(`
+sites** and 14,756 `__yo_incr_rc(` sites — so with N=4 roughly 78% of them
+became cross-TU calls into `chunk000.o`, on the function profiled at 54% of a
+self-compile. (Chunk 0's own sites are fine: clang -O2 still inlines from an
+in-TU body even without the `inline` keyword.)
+
+**Fix (the audit's, better than routing the globals).** The full-GC
+`__yo_decr_rc` only touches the thread-local GC state in its TRACKED tail; the
+untracked fast path needs nothing but the object header. So the tail is split
+out as `__yo_decr_rc_tracked` (stays in the residue -> chunk 0, external,
+auto-prototyped) and the inline fast path plus `__yo_incr_rc` are bracketed
+into a `chunk_header_ranges` entry, exactly as the borrow primitives are. The
+lightweight (non-cycle-GC) RC pair is header-routable as-is. `header_defined`
+then picks up both definitions, so the `declarations.yo:298-299` prototypes
+keep `static inline` automatically and prototype/definition cannot disagree.
+In a single-file build the tail is a `static` function with one call site, so
+clang inlines it back and the split is free.
+
+**Also fixed (audit F2):** `_ca_parse_static_fn_line` had no data-vs-function
+guard, so paren-QUALIFIED file-scope data — `static __declspec(thread) T x =
+init;` (11 sites in the Windows async runtime), `static _Alignas(16) char
+buf[64];`, `static _Atomic(void*) p;` — parsed as a "prototype" named after the
+qualifier and lost its `static` to the dequalifier, silently giving file-scope
+DATA external linkage. Latent on macOS (those lines hit `=` before any paren)
+but live for Windows targets, since `--emit-chunks` is not target-gated. The
+parser now requires `)` to be followed by `;` or `{`, which makes the module's
+"`static` DATA lines are never touched" invariant actually hold for all three
+consumers of the parser.
+
+**Recorded, not fixed (audit F3):** `_ca_is_rc_helper` is DEAD — it keys on a
+triple underscore (`___drop`), while real emitted names put a single one before
+the verb (`__yo_dispose___yo_dyn_box___yo_tN`). Its three branches never
+execute. Confirmed inert AND low-value: there are only 8 per-type dyn-box
+dispose functions in a whole self-build, so correcting the predicate would
+route 8 functions. Delete it once the RC measurement settles. The same dead
+predicate exists in the COMPILER (not just the assembler) and has silently
+disabled an intended `always_inline` optimization since it was written —
+filed as `issues/rc-helper-always-inline-linkage-branch-never-fires.md`.
+
+### The real cause, and why ThinLTO is REQUIRED (not an opt-in mitigation)
+
+Routing the RC primitives into the header was necessary for design conformance
+but **recovered nothing**: 102.18 s before the fix, 102.21 s after. The
+hypothesis was refuted by measurement, and the honest cause is elsewhere.
+
+Splitting the program into N translation units externalizes ~175k generated
+functions that were `static inline`, so the C compiler can no longer
+INTERNALIZE or DEAD-STRIP them. Measured on the N=4 self-build:
+
+| build | binary | defined symbols |
+|---|---|---|
+| single-file | 9 MB | 3,493 |
+| chunked N=4 | 24 MB | 7,201 |
+
+A 2.7x code-size explosion — I-cache and branch-predictor pressure, not call
+overhead, is what costs the 14%. That also explains why the RC fix was
+irrelevant: `__yo_decr_rc` was already only one of ~175k externalized symbols.
+
+`-flto=thin` restores cross-module inlining and internalization at link time.
+Measured (interleaved, `check ./src`, 262/262 on every run):
+
+| build | mean runtime | vs single-file |
+|---|---|---|
+| single-file (`yo-step3`) | 90.02 s | — |
+| **chunked N=4 + ThinLTO** | **87.41 s** | **-2.9% (faster)** |
+| chunked N=4, no LTO | 102.81 s | +14.2% |
+
+So the design decision changes: **`--emit-chunks` now implies `-flto=thin`**
+(`--no-chunk-lto` opts out, wasm excluded). It is not a tuning knob — without
+it a chunked-built compiler runs 14% slower, which cancels the build-time win
+the campaign exists for. Interestingly the LTO binary is still 23 MB / 6,821
+symbols, i.e. ThinLTO buys the speed through inlining rather than by shrinking
+the image.
+
+Side observation on the LTO build cost: the ThinLTO C phase took 65.8 s wall /
+125.9 s CPU (the backends already parallelize ~1.9x) against the 74.8 s
+single-file baseline — so chunking is *already* marginally ahead on build time
+before step 3's parallel driver exists, and the 125.9 s of CPU is what that
+driver gets to spread across cores.
+
+**Still open for step 4:** whether `-flto=thin` erodes the `.o` cache win
+enough to want the alternatives (header-routing SMALL functions as per-TU
+`static inline` via the byte-range size already recorded per function; keeping
+`static` for functions no OTHER chunk references; call-graph-aware assignment).
+Measure the cached-rebuild path before adding any of them.
+
 ## Steps and gates
 
 0. **Baseline (DONE 2026-08-23)**: clang -O2 -c on the emitted self-build C
@@ -81,9 +323,26 @@ becomes one more parallel job.
    generation.yo:705, `--emit-chunks` flag, `yo_shared.h` + one all-static
    `.c` that `#include`s it. Gate: default emission byte-identical; N=1
    self-build binary passes `yo check`.
-2. **Linkage split** (the hard step): the table above. Gate: N=4 self-build
-   links cleanly; full `tests/` green on the chunked binary; fn-pointer
-   equality audit on duplicated inlines.
+2. **Linkage split** (the hard step): the table above.
+   Gates and their status:
+   - N=4 self-build links cleanly — **DONE 2026-08-23** (after four
+     undiscovered linkage classes; see the bring-up record above).
+   - chunked binary is functionally equivalent — **DONE**: `check ./src`
+     262/262, 0 errors, identical to the single-file build.
+   - default emission byte-identical — **DONE** (`--emit-chunks 0` unchanged;
+     re-verified after every assembler change until the RC split
+     deliberately changed the emitted C for all builds).
+   - assembler unit gate — **DONE**: `tests/internal/chunk_assembly.test.yo`
+     (every split rule on synthetic C, red-first verified, 40 s).
+   - fn-pointer equality audit on duplicated inlines — **DONE**: only
+     `vtable->__yo_type_id` is ever compared (`downcast.yo:53`); no
+     function-pointer or vtable-address comparison exists in the emit, so
+     per-TU copies of constructors/traverse/RC helpers are safe and dyn
+     vtables need no extern split.
+   - runtime within ~5% of the single-file build — **the blocking gate**; see
+     "The RC de-inlining regression" above (16.5% found, RC fix landed,
+     re-measurement in progress).
+   - full `tests/` green on the chunked binary — pending the perf gate.
 3. **Parallel driver + `.o` cache**. Gate: N=16 C-phase ≤ ~20 s; touch-nothing
    rebuild = 100% cache hits; corrupt `.o` falls back.
 4. **Perf validation + LTO experiment** (3 configs). Gate: runtime within
