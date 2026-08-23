@@ -7,11 +7,14 @@
 //!
 //! ```rust
 //! { ArgParser } :: import "std/cli/arg_parser";
+//! { args } :: import "std/env";
 //!
 //! parser := ArgParser.new(`myapp`, `A sample CLI tool`);
-//! parser.flag(`verbose`, `v`, `Enable verbose output`);
-//! parser.option(`output`, `o`, `Output file`, `out.txt`);
-//! args := parser.parse();
+//! parser.add_flag(`--verbose`, `-v`, `Enable verbose output`);
+//! parser.add_option(`--output`, `-o`, `Output file`, `out.txt`);
+//! parsed := parser.parse(args()).unwrap();
+//! verbose := parsed.get_flag(`--verbose`);
+//! output := parsed.get_option(`--output`);
 //! ```
 open(import("../collections/array_list"));
 open(import("../string"));

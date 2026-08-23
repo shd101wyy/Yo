@@ -1,7 +1,7 @@
 # std API audit — the road to a stable, batteries-included standard library
 
-**Status: PLANNED (audit complete 2026-08-22; implementation starts after the
-v0.2.16 release).** Method: six parallel full-surface catalog sweeps (core/prelude,
+**Status: IN PROGRESS (audit complete 2026-08-22; all §8 open questions DECIDED
+by the user 2026-08-23; S0 correctness fixes underway).** Method: six parallel full-surface catalog sweeps (core/prelude,
 collections+imm, strings+encoding, io/fs/os, net/async/sync, time/crypto/build)
 over all 144 files / ~44k lines of `std/`, cross-checked against Rust std,
 Python, and Node, plus repo-wide import-usage scans. Goal per the user: *"battery
@@ -40,6 +40,28 @@ The audit found three kinds of work, in priority order:
 ## 2. Correctness bugs found by the audit (fix immediately, file in `issues/`)
 
 Ranked by severity; none of these are API-design questions.
+
+**Progress:** C1–C5 + C9 LANDED in PR #229 (2026-08-23, with red-first tests
+under `tests/{http,net,time,crypto,fs}/`). C6, C8, C10, C12, C13 fixed
+2026-08-23 (this tree; red-first where the failure is reachable — C10's
+syscall failure is not, so it has no dedicated test). Notes against the
+audit text: the C6 bool-arithmetic claim was STALE (no such impls exist —
+only the f32/f64 bitwise four and the five unsigned `Negate`s were real);
+C13's rwlock atomicity claim could not be found in the current source and
+was left alone. **C12 uncovered TWO compiler bugs**: (1) a future's owned RC result
+was NEVER dropped (empty sync-future dispose / warning-comment state-machine
+dispose), so `Dispose` of any async-produced object never ran — fixed in
+`src/codegen/exprs/async.yo` with inline-drop fallbacks
+(issues/async-future-result-never-dropped.md; regression test in
+tests/async_await.test.yo); (2) unmasked by (1): the async post-while
+cond-branch cleanup re-executed on a stale `cond_branch_N` key,
+over-releasing every RC slot it dropped — bug (1)'s leak had absorbed
+exactly one extra drop per awaited result — fixed by consuming the key
+after the guarded cleanup (`src/codegen/async/state_machine.yo`;
+issues/async-postwhile-branch-cleanup-double-drop.md; gated by the
+fs_walker tests). Remaining: C11 (blocked on the html-entities
+static-data rewrite), C7 (reclassified → O7, now DECIDED — lands with the
+S2 sweep).
 
 | # | Bug | Where |
 |---|-----|-------|
@@ -130,7 +152,7 @@ and `Error.source` actually used for chaining (`wrap`/`context` helper).
 bases in one type is the worst of both worlds (regex pays a
 `_byte_to_char_index` conversion per match).
 
-**Recommendation: go byte-indexed like Rust/Go.** `len()` = bytes O(1);
+**DECIDED (O1, 2026-08-23): go byte-indexed like Rust/Go.** `len()` = bytes O(1);
 `chars()`/`char_indices()` for rune walks; `char_len()` for the O(n) count;
 all find/slice APIs byte-indexed with a documented char-boundary contract.
 This is THE breaking change to do before stability — it cannot be done after.
@@ -148,12 +170,10 @@ handles (kills the `BufReader.new(i32(0))` magic number in the compiler's LSP).
 
 ### D6 — TLS position
 
-No TLS in tree; C1 makes https throw for now. Decision needed: platform TLS
-bindings (SecureTransport/Schannel/OpenSSL via pkg_config) vs vendoring
-(e.g. BearSSL/mbedTLS) vs deferring https to a package. **Recommendation:
-`std/crypto/tls.yo` over platform libraries via the existing `pkg_config`
-mechanism, behind one `TlsStream` type implementing the D5 traits.** Until it
-lands, std honestly refuses https.
+No TLS in tree; C1 makes https throw for now. **DECIDED (O2, 2026-08-23):
+`std/crypto/tls.yo` over platform libraries (SecureTransport/Schannel/OpenSSL)
+via the existing `pkg_config` mechanism, behind one `TlsStream` type
+implementing the D5 traits.** Until it lands, std honestly refuses https.
 
 ### D7 — sync/concurrency shape
 
@@ -199,7 +219,7 @@ lands, std honestly refuses https.
 | fmt | FIX + EXTEND | delete `display.yo` (zero users) or wire it; format specs (D3.10); collapse 4 print bodies; dedupe 15 snprintf helpers |
 | spec/ | FREEZE AS DOC | identity stubs; mark experimental, exclude from stability promise |
 | collections/* | RENAME + EXTEND | §5 renames; entry API, `retain/extend/drain`, `binary_search`, real `sort` (not O(n²) insertion), `sort_by`; HashSet = HashMap(T, unit) to kill ~500 duplicated SwissTable lines; hide pub `ctrl/data/…` fields; `BTreeMap` → rename `FlatMap` OR implement a real B-tree with `range()` (recommend: real B-tree, keep name); add `BTreeSet`; `PriorityQueue`: keep name, add comparator ctor, DOCUMENT min-heap |
-| imm/* | QUARANTINE → FIX | zero non-test consumers; fix C7 Trace bugs, add iteration + `Index` where doc'd, rename `imm.String` → `ImmString` (or drop if COW `String` lands), dedupe set pair; mark unstable until exercised |
+| imm/* | KEEP (O4) + FIX | stays in std (decided 2026-08-23); require `Acyclic` element bounds per O7, add iteration + `Index` where doc'd, rename `imm.String` → `ImmString` (or drop if COW `String` lands), dedupe set pair; mark unstable until exercised |
 | string | FIX + EXTEND | D4 indexing; Unicode-correct `to_lowercase` (+ `to_ascii_*` variants); `Pattern` impl for `rune` + `Regex`; `replace*` Pattern-generic; `parse_f64`/radix; `split_once`, `strip_prefix/suffix`, `char_indices`; move `panic_dyn`/`assert_dyn` to assert; delete dead `StringError`, one of `to_cstr`/`to_c_str` |
 | encoding | STANDARDIZE | D2 verbs; one error style per D1; utf8 module; add `html_encode` (XSS!); percent-encoding module (P0 — nothing in std can build a safe query string); base32; CSV (P1); toml: floats/arrays/dates/serializer + `ToToml`/`FromToml` derives to mirror json (P1) |
 | json | EXTEND | enum representation for derives (open question O3); `JsonValue.Object` O(n) parallel arrays → keep repr, add index map if profiling demands |
@@ -219,7 +239,7 @@ lands, std honestly refuses https.
 | crypto | EXTEND | streaming `Digest` trait unifying Sha256/Md5 (+ streaming Md5); SHA-1, SHA-512, **HMAC** (blocks JWT/SigV4/webhooks), CRC32, constant-time compare; fix C5; new `std/rand` module: seedable PCG/xoshiro PRNG, `shuffle`, `choice`, ranges — infallible, non-crypto, clearly separated from `crypto/random` |
 | log | REWRITE (zero users = free window) | levels + `Off`, `ToString`-generic message, lazy eval, timestamps, target/module, writer sink (file/buffer), thread-safe; keep the free-function facade |
 | testing | EXTEND | `assert_eq`/`assert_ne`/`assert_approx` (diff-printing), `bench`: auto-calibration, black_box, stddev/percentiles |
-| gc/allocator | POLISH | `gc.stats()`; allocator: decide whether `CustomAllocator` ever plumbs into collections — if not by stability time, DELETE the trait (currently zero implementors incl. `GlobalAllocator`) |
+| gc/allocator | POLISH | `gc.stats()`; allocator: DECIDED (O6, 2026-08-23) — DELETE `CustomAllocator` (zero implementors incl. `GlobalAllocator`); per-heap control, if ever needed, arrives as a process-global runtime hook, not a type parameter |
 | build | KEEP (already coherent) | Zig-shaped, comptime-correct; only additive evolution |
 
 ---
@@ -291,20 +311,32 @@ WebSocket; YAML/XML (lean package-ecosystem); msgpack/CBOR; base58;
 `BTreeSet`+range queries (with the real B-tree); bitset; `SmallVec`; LRU cache;
 mmap/file-lock/statfs wrappers; `gc.stats`; DNS SRV/TXT/reverse
 
-## 8. Open questions (need user decisions before the sweep)
+## 8. Open questions — ALL DECIDED (user, 2026-08-23)
 
-- **O1 (D4)**: byte-indexed String (recommended) vs keep rune-indexed?
-- **O2 (D6)**: TLS via platform libs (recommended) vs vendored vs package?
-- **O3**: enum representation for `derive(ToJson/FromJson)` — externally tagged
-  `{"Variant": {...}}` (serde default, recommended) vs internally tagged?
-- **O4**: keep the whole `imm/` family in std (fix + stabilize) vs move to a
-  package until it has real consumers?
-- **O5**: `Debug`/`Display` split vs single `ToString` (recommended: single)?
-- **O6**: does `CustomAllocator` ever plumb into collections, or delete?
-- **O7**: imm family element bounds — require `Acyclic` like `Arc` (breaking;
-  makes the no-cycle-collection design sound) vs keep `Send`-only with the
-  documented leak (see the C7 reclassification: atomic RC objects are never
-  GC-tracked, so cycles through imm structures cannot be reclaimed)?
+- **O1 (D4)**: **DECIDED — byte-indexed, matching Rust.** `len()` = bytes O(1),
+  `chars()`/`char_indices()` for rune walks, `char_len()` for the O(n) count,
+  find/slice APIs byte-indexed with a char-boundary contract.
+- **O2 (D6)**: **DECIDED — platform TLS libraries via `pkg_config`**
+  (SecureTransport/Schannel/OpenSSL), behind one `TlsStream` implementing the
+  D5 traits. Until it lands, https throws `UnsupportedScheme` (C1).
+- **O3**: **DECIDED — externally tagged** `{"Variant": {...}}` (serde default).
+- **O4**: **DECIDED — keep `imm/` in std for now.** Fix bugs, mark unstable
+  until it has real consumers; revisit promotion at stability time.
+- **O5**: **DECIDED — single `ToString`.** No `Debug`/`Display` split; derive
+  output routed through a `Formatter` so pretty/compact can be added additively.
+- **O6**: **DECIDED — delete `CustomAllocator`** (zero implementors, never
+  plumbs into collections). Rationale recorded: Yo objects are reference-
+  counted, so a per-collection allocator parameter would have to flow through
+  every RC header alloc/free — the Zig model doesn't fit. If per-heap control
+  is ever needed, the additive path is a process-global allocator hook at the
+  runtime-C level (Rust `#[global_allocator]` model — the mechanism the
+  existing `--allocator system|mimalloc` flag already proves out), not a
+  type-level parameter.
+- **O7**: **DECIDED — require `Acyclic` on imm element types, like `Arc`.**
+  The invariant is: atomic RC is only sound for acyclic data (no GC tracking),
+  so `atomic(...)` of a non-`Acyclic` type is a BUG, not a feature request.
+  Breaking bound added to the imm family in S2; additionally audit that no
+  other std surface hands out atomic RC over non-`Acyclic` payloads.
 
 ## 9. Phasing
 

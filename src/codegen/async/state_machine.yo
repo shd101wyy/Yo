@@ -2778,6 +2778,22 @@ _emit_post_while_cond_branch :: (
           },
           .None => ()
         );
+        // CONSUME the branch key once this cleanup has run. The block is
+        // reachable again on LATER passes through the shared loop-continuation
+        // code (a subsequent iteration taking a NON-await branch jumps into
+        // the resume state with the stale key still set), and re-running the
+        // deferred drops over-released every RC slot they name. The leak of
+        // the future's result used to mask this exactly (one leaked count per
+        // list ate one extra drop); once dispose really drops results, the
+        // double cleanup surfaced as a use-after-free in fs_walker
+        // (issues/async-postwhile-branch-cleanup-double-drop.md). A real
+        // re-selection of the branch re-assigns the field before the next
+        // pass, so consuming it here keeps the cleanup at most once per
+        // selection. Chained continuations keep the key — their next state's
+        // own guard still needs it (drops move there with them).
+        if(!(skip_check), {
+          em.emit_string_line(`        sm->cond_branch_${pw.cond_branch_field_index.to_string()} = -1;`);
+        });
       });
       em.emit_string_line(`      }`);
       context.in_async_state_machine = prev_in_sm;

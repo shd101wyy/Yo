@@ -614,6 +614,25 @@ len :: (fn(s : *(char)) -> usize)(unsafe(strlen(s)));        // wrap required
 
 `asm(...)` and `extern(...)`/`c_include(...)` declarations themselves do NOT need a wrap — the `asm` keyword and the declaration syntax are themselves the per-site markers, and the pragma is the file-level gate.
 
+### c_include-typed integers: cast to a Yo int before comparing
+
+Values typed by a `c_include` type alias (`ssize_t`, `off_t`, …) can fail to
+transpile in comparisons (`n <= isize(0)` emits `// Failed to transpile` in
+condition position — a class `yo check` cannot see; the C compiler then
+errors). Casts DO emit correctly, so bind through a cast at the call site:
+
+```rust
+// WRONG — may emit "// Failed to transpile n <= isize(0)":
+n := unsafe(write(int(fd), *(void)(p), count));   // n : ssize_t
+if(n <= isize(0), { ... });
+
+// CORRECT — cast to a Yo integer at the binding:
+n := i64(unsafe(write(int(fd), *(void)(p), count)));
+if(n <= i64(0), { ... });
+```
+
+See `issues/cinclude-int-comparison-fails-to-transpile.md`.
+
 `auto-generated://` URIs (macros, derive expansions) bypass the per-call wrap — the macro author owns the contract via the expansion site. See `plans/archive/EXTERN_UNSAFE_WRAP.md`.
 
 ### Raw views and the static-str model (post slice-rework)

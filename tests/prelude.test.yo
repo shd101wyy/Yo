@@ -124,6 +124,67 @@ test("Test 'Rc' and 'Dispose' traits", {
     )
   );
 });
+// S0 C6 (plans/STD_API_AUDIT.md §2): floats are not bit patterns and
+// unsigned integers have no negation. The prelude used to ship
+// BitAnd/BitOr/BitXor/BitNot impls for f32/f64 (C rejects float bitwise
+// operands, so using them could not even compile the emitted C) and Negate
+// impls for u8/u16/u32/u64/usize. All of them are compile errors now.
+test("float bitwise operators are compile errors", {
+  comptime_expect_error({
+    v := (f32(1.0) & f32(2.0));
+    consume(v);
+  });
+  comptime_expect_error({
+    v := (f32(1.0) | f32(2.0));
+    consume(v);
+  });
+  comptime_expect_error({
+    v := (f32(1.0) ^ f32(2.0));
+    consume(v);
+  });
+  comptime_expect_error({
+    v := ~(f32(1.0));
+    consume(v);
+  });
+  comptime_expect_error({
+    v := (f64(1.0) & f64(2.0));
+    consume(v);
+  });
+  comptime_expect_error({
+    v := (f64(1.0) | f64(2.0));
+    consume(v);
+  });
+  comptime_expect_error({
+    v := (f64(1.0) ^ f64(2.0));
+    consume(v);
+  });
+  comptime_expect_error({
+    v := ~(f64(1.0));
+    consume(v);
+  });
+});
+test("unsigned integer negation is a compile error", {
+  comptime_expect_error({
+    v := -(u8(1));
+    consume(v);
+  });
+  comptime_expect_error({
+    v := -(u16(1));
+    consume(v);
+  });
+  comptime_expect_error({
+    v := -(u32(1));
+    consume(v);
+  });
+  comptime_expect_error({
+    v := -(u64(1));
+    consume(v);
+  });
+  comptime_expect_error({
+    v := -(usize(1));
+    consume(v);
+  });
+});
 test("Test 'MaybeUninit'", {
   {
     uninit_arr := MaybeUninit(Array(i32, usize(2))).new();

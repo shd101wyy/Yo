@@ -42,9 +42,28 @@ c_include(
   // Code page constants
   CP_UTF8 : u32
 );
+// CRT low-level I/O (the POSIX-shaped `_`-prefixed MSVCRT functions).
+c_include(
+  "<io.h>",
+  // _write - write bytes to a file descriptor at its current position.
+  // Returns the number of bytes written, or -1 on error.
+  _write : (fn(fd : int, buffer : *(void), count : u32) -> int),
+  // _unlink - delete a file. Returns 0 on success, -1 on error.
+  // Unlike POSIX unlink, fails if the file is still open.
+  _unlink : (fn(path : *(char)) -> int)
+);
+// CRT directory operations.
+c_include(
+  "<direct.h>",
+  // _rmdir - remove an EMPTY directory. Returns 0 on success, -1 on error.
+  _rmdir : (fn(path : *(char)) -> int)
+);
 export(GetCurrentDirectoryW);
 export(SetCurrentDirectoryA);
 export(WideCharToMultiByte);
 export(_putenv_s);
 export(GetModuleFileNameW);
 export(CP_UTF8);
+export(_write);
+export(_unlink);
+export(_rmdir);

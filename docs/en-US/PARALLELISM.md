@@ -66,7 +66,7 @@ impl(Thread,
 { yield } :: import "std/async";
 
 // Spawn a dedicated thread (no async)
-thread := Thread.spawn(() => {
+thread := Thread.spawn((io) => {
   printf("Hello from thread\n");
 });
 thread.join();
@@ -170,12 +170,12 @@ Channel (`std/sync/channel.yo`) provides bounded, multi-producer multi-consumer 
 ch := Channel(i32).new(usize(10));
 
 // Producer thread
-Thread.spawn(() => {
+Thread.spawn((io) => {
   ch.send(i32(42));
 });
 
 // Consumer thread
-Thread.spawn(() => {
+Thread.spawn((io) => {
   val := ch.recv();
   cond(
     val.is_some() => printf("Got %d\n", val.unwrap()),
@@ -199,14 +199,14 @@ Only types that implement `Send` can cross thread boundaries:
 ```rust
 // ✅ Sendable
 Point :: struct(x: i32, y: i32);
-Thread.spawn(() => {
+Thread.spawn((io) => {
   p := Point(1, 2);  // OK: created inside thread
 });
 
 // ❌ Not Sendable
 Node :: ref(struct(value: i32));
 node := Node(42);
-Thread.spawn(() => {
+Thread.spawn((io) => {
   // ERROR: Cannot capture `node` (reference-semantics type is not Send)
   // node.value;
 });

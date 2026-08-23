@@ -71,7 +71,7 @@ assert((b.(*) == c.(*)), "same shared value");
 
 shared := arc(i32(42));
 
-t := Thread.spawn(() => {
+t := Thread.spawn((io) => {
   assert((shared.(*) == i32(42)), "thread sees shared value");
 });
 

@@ -4513,3 +4513,41 @@ test("Test spawn inside a loop runs tasks concurrently", {
   // leaves room for a loaded CI runner while still failing a serial fallback.
   assert(elapsed < i64(800), `spawned tasks must run concurrently, took ${elapsed.to_string()}ms`);
 });
+// Regression (issues/async-future-result-never-dropped.md): a ref value
+// RETURNED from an io.async body must be disposed once the last reference
+// drops. The future OWNS its stored result (awaiters only DUP it out), and
+// the future's generated dispose used to skip the result slot entirely —
+// empty dispose for sync futures, a "/* Warning: no ___drop */" comment for
+// state machines — so an async-produced object's Dispose NEVER ran
+// (TempDir/TempFile cleanup-on-drop was dead code). The counter is
+// module-level on purpose: module-level mutables have program lifetime, so
+// they stay readable after the handles are gone (same idiom as rc.test.yo).
+(g_async_result_disposed : i32) = i32(0);
+AsyncMadeProbe :: ref(struct(id : i32));
+impl(
+  AsyncMadeProbe,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      g_async_result_disposed = (g_async_result_disposed + i32(1));
+    })
+  )
+);
+make_async_made_probe :: (fn(id : i32, io : Io) -> Impl(Future(AsyncMadeProbe, Io)))(
+  io.async((io) => AsyncMadeProbe(id : id))
+);
+test("async-produced ref result is disposed when the last reference drops", {
+  {
+    a := io.await(make_async_made_probe(i32(1), io), io);
+    assert(g_async_result_disposed == i32(0), "value alive while its scope is live");
+  };
+  assert(g_async_result_disposed == i32(1), "temp-future shape: disposed at scope end");
+  {
+    t := make_async_made_probe(i32(2), io);
+    b := io.await(t, io);
+  };
+  assert(g_async_result_disposed == i32(2), "named-future shape: disposed at scope end");
+  {
+    io.await(make_async_made_probe(i32(3), io), io);
+  };
+  assert(g_async_result_disposed == i32(3), "discarded await result is disposed with the future");
+});

@@ -4,7 +4,7 @@
 //! Access is granted via `with_lock(closure)` — the closure receives a
 //! `inout(v): T` that is second-class (cannot escape the closure scope).
 //! The private `__MutexUnlocker` handles unlock on both normal return
-//! and unwind via its `Drop`.
+//! and unwind via its `Dispose` impl.
 pragma(Pragma.AllowUnsafe);
 
 extern(
@@ -56,7 +56,7 @@ Mutex :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
   )
 );
 
-// __MutexUnlocker — private object that calls _raw_unlock on Drop.
+// __MutexUnlocker — private object that calls _raw_unlock on Dispose.
 // Allocated locally inside with_lock; Yo's drop-on-scope-exit and
 // drop-on-unwind machinery guarantees unlock under both normal return
 // and unwind(...).

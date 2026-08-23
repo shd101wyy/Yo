@@ -96,6 +96,29 @@ test("Channel try_send returns Err after close", {
   r := ch.try_send(i32(1));
   assert(r.is_err(), "try_send to closed channel should return Err");
 });
+// S0 C8 (plans/STD_API_AUDIT.md §2): a failed send must hand the value BACK
+// to the caller instead of silently dropping it (Rust's SendError(T)).
+test("Channel send to closed channel returns the value back", {
+  ch := Channel(i32).new(usize(5));
+  ch.close();
+  r := ch.send(i32(7));
+  match(
+    r,
+    .Err(v) => assert(v == i32(7), "the unsent value comes back in Err"),
+    .Ok(_) => assert(false, "send to closed channel must fail")
+  );
+});
+test("Channel try_send to full channel returns the value back", {
+  ch := Channel(i32).new(usize(1));
+  ch.send(i32(1));
+  r := ch.try_send(i32(2));
+  match(
+    r,
+    .Err(v) => assert(v == i32(2), "the unsent value comes back in Err"),
+    .Ok(_) => assert(false, "try_send to full channel must fail")
+  );
+  assert(ch.recv().unwrap() == i32(1), "buffered value is untouched");
+});
 test("Channel recv drains remaining values after close", {
   ch := Channel(i32).new(usize(5));
   ch.send(i32(10));

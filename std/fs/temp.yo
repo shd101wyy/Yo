@@ -1,5 +1,10 @@
 //! RAII-managed temporary files and directories.
 //!
+//! Both types clean up on drop (`Dispose`), BEST-EFFORT: errors are ignored,
+//! and directory removal is non-recursive (same as `remove` — it succeeds
+//! only when the directory is empty). Call `remove(io)` explicitly when you
+//! need to observe removal errors.
+//!
 //! # Example
 //!
 //! ```rust
@@ -8,7 +13,7 @@
 //! main :: (fn(io : Io, exn : Exception) -> unit)({
 //!   dir := io.await(TempDir.new(io), { io, exn });
 //!   println(dir.path());
-//!   io.await(dir.remove(io), { io, exn });
+//!   io.await(dir.remove(io), { io, exn });  // or let Dispose clean up on drop
 //! });
 //! ```
 pragma(Pragma.AllowUnsafe);
@@ -109,6 +114,37 @@ impl(
     )
   })
 );
+// Dispose: best-effort removal on drop (plans/STD_API_AUDIT.md C12).
+// Errors are ignored and the removal is non-recursive (parity with
+// `remove`) — use `remove(io)` to observe failures.
+impl(
+  TempDir,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      cond(
+        self._removed => (),
+        true => {
+          path_cstr_bytes := self._path.to_string().to_cstr();
+          path_cstr := path_cstr_bytes.ptr().unwrap();
+          cond(
+            (platform == Platform.Windows) => {
+              { _rmdir } :: import("../libc/windows");
+              // SAFETY: path_cstr points at the NUL-terminated bytes of
+              // path_cstr_bytes, alive for this whole block.
+              unsafe(_rmdir(*(char)(path_cstr)));
+            },
+            true => {
+              { rmdir } :: import("../libc/unistd");
+              // SAFETY: as above — NUL-terminated, alive for the call.
+              unsafe(rmdir(*(char)(path_cstr)));
+            }
+          );
+          self._removed = true;
+        }
+      );
+    })
+  )
+);
 export(TempDir);
 /// Temporary file backed by a `File` handle.
 TempFile :: ref(
@@ -178,5 +214,44 @@ impl(
         )
     )
   })
+);
+// Dispose: best-effort close + unlink on drop (plans/STD_API_AUDIT.md C12).
+// Errors are ignored — use `remove(io)` to observe failures. The fd is
+// closed FIRST so Windows can delete the file (POSIX allows unlinking an
+// open file; Windows does not).
+impl(
+  TempFile,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      cond(
+        self._removed => (),
+        true => {
+          cond(
+            self._file._is_closed => (),
+            true => {
+              IO_file.close_sync(self._file._fd);
+              self._file._is_closed = true;
+            }
+          );
+          path_cstr_bytes := self._path.to_string().to_cstr();
+          path_cstr := path_cstr_bytes.ptr().unwrap();
+          cond(
+            (platform == Platform.Windows) => {
+              { _unlink } :: import("../libc/windows");
+              // SAFETY: path_cstr points at the NUL-terminated bytes of
+              // path_cstr_bytes, alive for this whole block.
+              unsafe(_unlink(*(char)(path_cstr)));
+            },
+            true => {
+              { unlink } :: import("../libc/unistd");
+              // SAFETY: as above — NUL-terminated, alive for the call.
+              unsafe(unlink(*(char)(path_cstr)));
+            }
+          );
+          self._removed = true;
+        }
+      );
+    })
+  )
 );
 export(TempFile);

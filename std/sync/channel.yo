@@ -11,7 +11,7 @@
 //! { Thread } :: import "std/thread";
 //!
 //! ch := Channel(i32).new(usize(10));
-//! t := Thread.spawn(() => {
+//! t := Thread.spawn((io) => {
 //!   ch.send(i32(42));
 //! });
 //! val := ch.recv();   // blocks until data available
@@ -69,8 +69,10 @@ impl(
   }),
   /// Send a value into the channel.
   /// Blocks if the channel is full until space becomes available.
-  /// Returns .Ok(()) on success, .Err(()) if the channel is closed.
-  send : (fn(self : Self, value : T) -> Result(unit, unit))({
+  /// Returns .Ok(()) on success, .Err(value) if the channel is closed —
+  /// the failed value is handed BACK to the caller instead of being
+  /// silently dropped (Rust's `SendError(T)`; plans/STD_API_AUDIT.md C8).
+  send : (fn(self : Self, value : T) -> Result(unit, T))({
     self._mutex._raw_lock();
     // Wait while buffer is full and channel is not closed
     while(runtime(
@@ -82,7 +84,7 @@ impl(
     cond(
       self._closed.load(MemoryOrder.Relaxed) => {
         self._mutex._raw_unlock();
-        return(.Err(()));
+        return(.Err(value));
       },
       true => ()
     );
@@ -125,8 +127,10 @@ impl(
     return(.Some(val));
   }),
   /// Try to send a value without blocking.
-  /// Returns .Ok(()) if sent, .Err(()) if full or closed.
-  try_send : (fn(self : Self, value : T) -> Result(unit, unit))({
+  /// Returns .Ok(()) if sent, .Err(value) if full or closed — the failed
+  /// value is handed back to the caller (use `is_closed()` to tell the
+  /// two failure causes apart).
+  try_send : (fn(self : Self, value : T) -> Result(unit, T))({
     self._mutex._raw_lock();
     cond(
       (
@@ -134,7 +138,7 @@ impl(
         || (self._len.load(MemoryOrder.Relaxed) >= self._capacity)
       ) => {
         self._mutex._raw_unlock();
-        return(.Err(()));
+        return(.Err(value));
       },
       true => ()
     );
@@ -168,7 +172,7 @@ impl(
   }),
   /// Close the channel. No more values can be sent.
   /// Pending recv() calls will return .None once the buffer is drained.
-  /// Pending send() calls will return .Err(()).
+  /// Pending send() calls will return .Err(value).
   close : (fn(self : Self) -> unit)({
     self._mutex._raw_lock();
     self._closed.store(true, MemoryOrder.Release);

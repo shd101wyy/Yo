@@ -68,7 +68,8 @@ open(import("std/string"));
   extract_future_trait_from_type,
   type_implements_future
 } :: import("../../evaluator/trait_checking.yo");
-{ get_drop_function_for_type, get_dup_function_for_type } :: import("./drop_dup.yo");
+{ get_drop_function_for_type, get_dup_function_for_type, generate_drop_code_for_value } :: import("./drop_dup.yo");
+{ Emitter } :: import("../../emitter.yo");
 { generate_atom, _generate_sm_atom } :: import("./atom.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { get_evidence_parameters } :: import("../functions/declarations.yo");
@@ -1234,7 +1235,6 @@ generate_async_block_state_dispose_function :: (
   em.emit_line("");
   // Drop the result field if it contains GC-managed data (state == -1 = completed).
   if(!(is_unit_type(result_type)) && type_contains_rc_type(result_type), {
-    result_type_c_name := get_type_string(result_type, context.base);
     em.emit_line("  // Drop result field if it was set (state == -1 means completed)");
     em.emit_line("  int final_state = sm->state;");
     em.emit_line("  if (final_state == -1) {");
@@ -1242,7 +1242,19 @@ generate_async_block_state_dispose_function :: (
     match(
       get_drop_function_for_type(result_type, context),
       .Some(drop_fn) => em.emit_string_line(`    ${drop_fn}(sm->result);`),
-      .None => em.emit_string_line(`    /* Warning: No ___drop function found for result type ${result_type_c_name} */`)
+      // INLINE drop, not a warning comment. yo-self synthesizes no ___drop
+      // methods (see drop_dup.yo), so `.None` is the ONLY path here — the
+      // old warning meant every state machine whose RC result was completed
+      // never dropped its owned result reference: the awaiter's copy is a
+      // DUP, so the future's own count leaked the value (Dispose of an
+      // async-produced object never ran —
+      // issues/async-future-result-never-dropped.md).
+      .None => {
+        drop_code := generate_drop_code_for_value(String.from("sm->result"), result_type, context);
+        if(drop_code.len() > usize(0), {
+          em.emit_string_line(`    ${drop_code};`);
+        });
+      }
     );
     em.emit_line("  }");
   });
@@ -2600,8 +2612,28 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
   capture_drop_fn := match(eff_capture_type, .Some(cap_ty) => if(type_contains_rc_type(cap_ty), get_drop_function_for_type(cap_ty, context), Option(String).None), .None => Option(String).None);
   capture_dup_fn := match(eff_capture_type, .Some(cap_ty) => if(type_contains_rc_type(cap_ty), get_dup_function_for_type(cap_ty, context), Option(String).None), .None => Option(String).None);
   result_drop_fn := get_drop_function_for_type(result_type, context);
+  // INLINE result-drop fallback: yo-self synthesizes no ___drop methods (see
+  // drop_dup.yo), so `result_drop_fn` is `.None` for every RC result type —
+  // the dispose used to come out EMPTY and the future's owned result
+  // reference leaked (awaiters only ever DUP it out): Dispose of an object
+  // produced inside io.async never ran
+  // (issues/async-future-result-never-dropped.md). The inline generator
+  // side-emits multi-line code (enum switches, array loops) into
+  // `context.base.emitter`, but this dispose goes into the DECLARATIONS
+  // buffer — capture the side lines through a temp emitter and re-emit them.
+  (result_inline_side : String) = String.from("");
+  (result_inline_stmt : String) = String.from("");
+  if(match(result_drop_fn, .Some(_) => false, .None => true) && (!(is_unit_type(result_type)) && type_contains_rc_type(result_type)), {
+    temp_em := Emitter.new();
+    saved_em := context.base.emitter;
+    context.base.emitter = temp_em;
+    result_inline_stmt = generate_drop_code_for_value(String.from("sm->result"), result_type, context);
+    context.base.emitter = saved_em;
+    result_inline_side = temp_em.print();
+  });
+  has_result_inline := ((result_inline_stmt.len() > usize(0)) || (result_inline_side.trim().len() > usize(0)));
   em.emit_declaration_string_line(`void ${dispose_function_name.clone()}(void* ptr) {`);
-  has_drop := (match(capture_drop_fn, .Some(_) => true, .None => false) || match(result_drop_fn, .Some(_) => true, .None => false));
+  has_drop := ((match(capture_drop_fn, .Some(_) => true, .None => false) || match(result_drop_fn, .Some(_) => true, .None => false)) || has_result_inline);
   if(has_drop, {
     em.emit_declaration_string_line(`  ${struct_name.clone()}* sm = (${struct_name.clone()}*)ptr;`);
     match(
@@ -2610,6 +2642,11 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
         em.emit_declaration_line("  // Drop captured variables (future owns its references)");
         em.emit_declaration_string_line(`  ${drop_fn}(sm->__capture);`);
       },
+      // NO inline fallback for the capture, deliberately: the sync-future
+      // constructor copies capture fields WITHOUT a dup when capture_dup_fn
+      // is `.None` (see the `__capture = ${lit}` emission below), so the
+      // capture is borrowed, and dropping it here would over-release. The
+      // dup/drop pair for captures is tracked in the same issue doc.
       .None => ()
     );
     match(
@@ -2619,7 +2656,22 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
         em.emit_declaration_string_line(`    ${drop_fn}(sm->result);`);
         em.emit_declaration_line("  }");
       },
-      .None => ()
+      .None => if(has_result_inline, {
+        em.emit_declaration_line("  if (sm->state == -1) {");
+        side_lines := result_inline_side.split("\n");
+        (sli : usize) = usize(0);
+        while(sli < side_lines.len(), {
+          sline := match(side_lines.get(sli), .Some(l) => l.trim(), .None => String.from(""));
+          if(sline.len() > usize(0), {
+            em.emit_declaration_string_line(`    ${sline}`);
+          });
+          sli = (sli + usize(1));
+        });
+        if(result_inline_stmt.len() > usize(0), {
+          em.emit_declaration_string_line(`    ${result_inline_stmt};`);
+        });
+        em.emit_declaration_line("  }");
+      })
     );
   });
   em.emit_declaration_line("}");

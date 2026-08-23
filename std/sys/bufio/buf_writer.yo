@@ -2,6 +2,8 @@
 //!
 //! Wraps a file descriptor with an internal buffer for efficient writes.
 //! Reduces the number of system calls by batching small writes together.
+//! Dropping a BufWriter flushes any buffered bytes BEST-EFFORT (errors are
+//! ignored) — call `flush()` explicitly when you need to observe them.
 //!
 //! # Example
 //!
@@ -19,6 +21,8 @@ open(import("../../string"));
 IO_file :: import("../file");
 { GlobalAllocator } :: import("../../allocator");
 { malloc, free } :: GlobalAllocator;
+{ platform, Platform } :: import("../../process");
+{ __yo_sync_lseek } :: import("../externs.yo");
 _DEFAULT_BUF_SIZE :: usize(4096);
 BufWriter :: ref(
   struct(
@@ -155,6 +159,64 @@ impl(
     io.async((io) => {
       flush_result := io.await(self._flush_inner(io), io);
       flush_result
+    })
+  )
+);
+// Dispose: best-effort SYNC flush of any bytes still buffered, so dropping a
+// BufWriter no longer silently loses data (plans/STD_API_AUDIT.md C12).
+// Dispose cannot report errors — call `flush()` first when you need to
+// observe them. Seeks to `_offset` first (matching the positioned writes the
+// async path issues); a non-seekable fd (pipe/socket/tty) fails the seek and
+// is written at its current position, which is the only position it has.
+impl(
+  BufWriter,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      cond(
+        (self._buf.len() > usize(0)) => {
+          total := self._buf.len();
+          buf_ptr := self._buf.ptr().unwrap();
+          __yo_sync_lseek(self._fd, i64(self._offset), i32(0));
+          // SEEK_SET; failure ignored (non-seekable fd)
+          written := usize(0);
+          keep_going := true;
+          while(runtime((written < total) && keep_going), {
+            cond(
+              (platform == Platform.Windows) => {
+                { _write } :: import("../../libc/windows");
+                // SAFETY: buf_ptr.add(written) stays inside _buf's live
+                // backing (written < total = _buf.len()); _write reads at
+                // most (total - written) bytes from it.
+                n := i64(unsafe(_write(int(self._fd), *(void)(buf_ptr.add(written)), u32(total - written))));
+                cond(
+                  (n <= i64(0)) => {
+                    keep_going = false;
+                  },
+                  true => {
+                    written = (written + usize(n));
+                  }
+                );
+              },
+              true => {
+                { write } :: import("../../libc/unistd");
+                // SAFETY: buf_ptr.add(written) stays inside _buf's live
+                // backing (written < total = _buf.len()); write reads at
+                // most (total - written) bytes from it.
+                n := i64(unsafe(write(int(self._fd), *(void)(buf_ptr.add(written)), total - written)));
+                cond(
+                  (n <= i64(0)) => {
+                    keep_going = false;
+                  },
+                  true => {
+                    written = (written + usize(n));
+                  }
+                );
+              }
+            );
+          });
+        },
+        true => ()
+      );
     })
   )
 );
