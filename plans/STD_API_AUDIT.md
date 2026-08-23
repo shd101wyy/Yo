@@ -161,6 +161,31 @@ and `ToString` in `std/fmt/to_string.yo` (`Some(42)` / `Ok(1)` forms — so
 tests/prelude.test.yo (18/18) — note closures capture locals BY VALUE, so
 side-effect tests observe through an ArrayList.
 
+**Progress (S1 chunk 3, 2026-08-24, branch s1-iterators, stacked on
+chunk 2):** D3.4 iterator completion (minus `collect`/`rev`/`flat_map` —
+see below) — consuming methods `find`, `position`, `last`, `nth`, `sum`
+(`A <: (Add(A), Default)`; `Add(T, Output := T)` binding syntax is NOT
+supported on parameterized trait constructors — plain bounds + per-call
+resolution works), `min`/`max` (`A <: Ord(A)`, first-of-equals /
+last-of-equals); new combinators `chain`, `take_while`, `skip_while`,
+`filter_map`, `peekable` (with inherent `peek()`); `filter`'s callback
+asymmetry FIXED — the predicate now takes the element BY VALUE like `map`
+(breaking, in-window; 3 test files swept). **Two compiler findings en
+route:** (1) variable-bound combinator receivers with a structurally-erased
+type param (`m := xs.map(f); m.for_each(g)`) failed generic-impl matching —
+pre-existing, latent; FIXED for map/filter_map/chain by walking the SomeT
+resolution-chain cell in `_bind_forall_from_type_args`
+(issues/varbound-combinator-receiver-impl-match.md). (2) `flat_map` is
+DEFERRED entirely: its doubly-derived `B` (through `F → M → Item`) ships
+under-resolved in the stamped type — var-bound fails at eval (empty `F`
+cell), chained fails at CODEGEN (abstract-keyed specialization,
+`B_id_B_wcforall` in the mangled name, incompatible C struct split) — needs
+the stamping-side fix first (same issue doc, REMAINING section). Also
+deferred, each needing new machinery: `collect`/`FromIterator`
+(trait-generic-method prototyping), `rev`/`DoubleEndedIterator` (pairs with
+D3.5 Range iteration). Tests: 10 new cases in
+tests/iterator_combinators.test.yo (28/28).
+
 1. **`Default`** trait + derive. Unblocks `unwrap_or_default`, map `or_default`.
 2. **`From(T)` / `Into(T)`** (the prelude header already *claims* they exist).
 3. **`Ordering` wired in**: `Ord` gains `cmp(self, rhs) -> Ordering` (default

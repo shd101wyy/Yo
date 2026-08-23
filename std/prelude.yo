@@ -8200,13 +8200,14 @@ export(IterMap);
 ///
 /// Created by calling `.filter(pred)` on any iterator.
 /// `I` is the source iterator type, `F` is the predicate closure type
-/// satisfying `Fn(item : *(A)) -> bool`.
+/// satisfying `Fn(item : A) -> bool` — by value, symmetric with `map`
+/// (plans/STD_API_AUDIT.md D3.4's callback-asymmetry fix).
 IterFilter :: (fn(comptime(I) : Type, comptime(F) : Type) -> comptime(Type))(
   struct(_inner : I, _f : F)
 );
 impl(
   generic(I : Type, A : Type, F : Type),
-  where(I <: Iterator(Item := A), F <: (Fn(item : *(A)) -> bool)),
+  where(I <: Iterator(Item := A), F <: (Fn(item : A) -> bool)),
   IterFilter(I, F),
   Iterator(
     Item : A,
@@ -8221,7 +8222,7 @@ impl(
           },
           .Some(item) => {
             cond(
-              (self._f)(&(item)) => {
+              (self._f)(item) => {
                 loop_result = .Some(item);
                 break;
               },
@@ -8360,6 +8361,214 @@ impl(
 );
 export(IterZip);
 // ---------------------------------------------------------------------------
+// IterChain
+// ---------------------------------------------------------------------------
+/// Lazy iterator that yields all of the first iterator, then all of the second.
+///
+/// Created by calling `.chain(other)` on any iterator. Both iterators must
+/// yield the same `Item` type.
+IterChain :: (fn(comptime(I) : Type, comptime(J) : Type) -> comptime(Type))(
+  struct(_first : I, _second : J, _first_done : bool)
+);
+impl(
+  generic(I : Type, J : Type, A : Type),
+  where(I <: Iterator(Item := A), J <: Iterator(Item := A)),
+  IterChain(I, J),
+  Iterator(
+    Item : A,
+    next : (fn(inout(self) : Self) -> Option(A))({
+      (result : Option(A)) = .None;
+      cond(
+        !(self._first_done) => {
+          match(
+            self._first.next(),
+            .Some(item) => {
+              result = .Some(item);
+            },
+            .None => {
+              self._first_done = true;
+            }
+          );
+        },
+        true => ()
+      );
+      cond(
+        (self._first_done && result.is_none()) => {
+          result = self._second.next();
+        },
+        true => ()
+      );
+      result
+    })
+  )
+);
+export(IterChain);
+// ---------------------------------------------------------------------------
+// IterTakeWhile
+// ---------------------------------------------------------------------------
+/// Lazy iterator that yields elements while `pred` holds, then stops forever.
+///
+/// Created by calling `.take_while(pred)` on any iterator.
+IterTakeWhile :: (fn(comptime(I) : Type, comptime(F) : Type) -> comptime(Type))(
+  struct(_inner : I, _f : F, _done : bool)
+);
+impl(
+  generic(I : Type, A : Type, F : Type),
+  where(I <: Iterator(Item := A), F <: (Fn(item : A) -> bool)),
+  IterTakeWhile(I, F),
+  Iterator(
+    Item : A,
+    next : (fn(inout(self) : Self) -> Option(A))({
+      (result : Option(A)) = .None;
+      cond(
+        self._done => (),
+        true => {
+          match(
+            self._inner.next(),
+            .None => {
+              self._done = true;
+            },
+            .Some(item) => {
+              cond(
+                (self._f)(item) => {
+                  result = .Some(item);
+                },
+                true => {
+                  self._done = true;
+                }
+              );
+            }
+          );
+        }
+      );
+      result
+    })
+  )
+);
+export(IterTakeWhile);
+// ---------------------------------------------------------------------------
+// IterSkipWhile
+// ---------------------------------------------------------------------------
+/// Lazy iterator that skips elements while `pred` holds, then yields the rest.
+///
+/// Created by calling `.skip_while(pred)` on any iterator.
+IterSkipWhile :: (fn(comptime(I) : Type, comptime(F) : Type) -> comptime(Type))(
+  struct(_inner : I, _f : F, _skipping : bool)
+);
+impl(
+  generic(I : Type, A : Type, F : Type),
+  where(I <: Iterator(Item := A), F <: (Fn(item : A) -> bool)),
+  IterSkipWhile(I, F),
+  Iterator(
+    Item : A,
+    next : (fn(inout(self) : Self) -> Option(A))({
+      (result : Option(A)) = .None;
+      while(runtime(true), {
+        match(
+          self._inner.next(),
+          .None => {
+            break;
+          },
+          .Some(item) => {
+            cond(
+              (self._skipping && (self._f)(item)) => (),
+              true => {
+                self._skipping = false;
+                result = .Some(item);
+                break;
+              }
+            );
+          }
+        );
+      });
+      result
+    })
+  )
+);
+export(IterSkipWhile);
+// ---------------------------------------------------------------------------
+// IterFilterMap
+// ---------------------------------------------------------------------------
+/// Lazy iterator that maps each element to an `Option` and yields the `Some`s.
+///
+/// Created by calling `.filter_map(f)` on any iterator. `B` is the output
+/// element type, `F` satisfies `Fn(item : A) -> Option(B)`.
+IterFilterMap :: (fn(comptime(I) : Type, comptime(B) : Type, comptime(F) : Type) -> comptime(Type))(
+  struct(_inner : I, _f : F)
+);
+impl(
+  generic(I : Type, A : Type, B : Type, F : Type),
+  where(I <: Iterator(Item := A), F <: (Fn(item : A) -> Option(B))),
+  IterFilterMap(I, B, F),
+  Iterator(
+    Item : B,
+    next : (fn(inout(self) : Self) -> Option(B))({
+      (result : Option(B)) = .None;
+      while(runtime(true), {
+        match(
+          self._inner.next(),
+          .None => {
+            break;
+          },
+          .Some(item) => {
+            match(
+              (self._f)(item),
+              .Some(mapped) => {
+                result = .Some(mapped);
+                break;
+              },
+              .None => ()
+            );
+          }
+        );
+      });
+      result
+    })
+  )
+);
+export(IterFilterMap);
+// ---------------------------------------------------------------------------
+// IterPeekable
+// ---------------------------------------------------------------------------
+/// Iterator wrapper that can look at the next element without consuming it.
+///
+/// Created by calling `.peekable()` on any iterator. `A` is the element type.
+IterPeekable :: (fn(comptime(I) : Type, comptime(A) : Type) -> comptime(Type))(
+  struct(_inner : I, _peeked : Option(A))
+);
+impl(
+  generic(I : Type, A : Type),
+  where(I <: Iterator(Item := A)),
+  IterPeekable(I, A),
+  /// Return the next element without consuming it. Repeated calls return
+  /// the same element until `next()` is called.
+  peek : (fn(inout(self) : Self) -> Option(A))({
+    cond(
+      self._peeked.is_none() => {
+        self._peeked = self._inner.next();
+      },
+      true => ()
+    );
+    self._peeked
+  })
+);
+impl(
+  generic(I : Type, A : Type),
+  where(I <: Iterator(Item := A)),
+  IterPeekable(I, A),
+  Iterator(
+    Item : A,
+    next : (fn(inout(self) : Self) -> Option(A))(
+      match(
+        self._peeked.take(),
+        .Some(item) => .Some(item),
+        .None => self._inner.next()
+      )
+    )
+  )
+);
+export(IterPeekable);
+// ---------------------------------------------------------------------------
 // Blanket methods — added to all types implementing Iterator
 // ---------------------------------------------------------------------------
 /// Blanket `into_iter` — every `Iterator` is its own `IntoIterator`,
@@ -8389,13 +8598,15 @@ impl(
   )(
     IterMap(Self, B, F)(_inner : self, _f : f)
   ),
-  /// Keep only elements for which `pred` returns `true`, producing an `IterFilter` iterator.
+  /// Keep only elements for which `pred` returns `true`, producing an
+  /// `IterFilter` iterator. The predicate takes the element BY VALUE,
+  /// symmetric with `map` (D3.4 callback-asymmetry fix).
   filter : (
     fn(
       generic(A : Type, F : Type),
       self : Self,
       f : F,
-      where(Self <: Iterator(Item := A), F <: (Fn(item : *(A)) -> bool))
+      where(Self <: Iterator(Item := A), F <: (Fn(item : A) -> bool))
     ) -> IterFilter(Self, F)
   )(
     IterFilter(Self, F)(_inner : self, _f : f)
@@ -8572,7 +8783,263 @@ impl(
       );
     });
     result
-  })
+  }),
+  /// Return the first element satisfying `pred`. Short-circuits.
+  find : (
+    fn(
+      generic(A : Type, F : Type),
+      self : Self,
+      pred : F,
+      where(Self <: Iterator(Item := A), F <: (Fn(item : A) -> bool))
+    ) -> Option(A)
+  )({
+    (found : Option(A)) = .None;
+    iter := self;
+    while(runtime(true), {
+      match(
+        iter.next(),
+        .None => {
+          break;
+        },
+        .Some(item) => {
+          cond(
+            (pred)(item) => {
+              found = .Some(item);
+              break;
+            },
+            true => ()
+          );
+        }
+      );
+    });
+    found
+  }),
+  /// Return the zero-based index of the first element satisfying `pred`.
+  position : (
+    fn(
+      generic(A : Type, F : Type),
+      self : Self,
+      pred : F,
+      where(Self <: Iterator(Item := A), F <: (Fn(item : A) -> bool))
+    ) -> Option(usize)
+  )({
+    (found : Option(usize)) = .None;
+    idx := usize(0);
+    iter := self;
+    while(runtime(true), {
+      match(
+        iter.next(),
+        .None => {
+          break;
+        },
+        .Some(item) => {
+          cond(
+            (pred)(item) => {
+              found = .Some(idx);
+              break;
+            },
+            true => {
+              idx = (idx + usize(1));
+            }
+          );
+        }
+      );
+    });
+    found
+  }),
+  /// Return the last element, consuming the iterator.
+  last : (
+    fn(
+      generic(A : Type),
+      self : Self,
+      where(Self <: Iterator(Item := A))
+    ) -> Option(A)
+  )({
+    (latest : Option(A)) = .None;
+    iter := self;
+    while(runtime(true), {
+      match(
+        iter.next(),
+        .None => {
+          break;
+        },
+        .Some(item) => {
+          latest = .Some(item);
+        }
+      );
+    });
+    latest
+  }),
+  /// Return the `n`-th element (zero-based), consuming elements up to it.
+  nth : (
+    fn(
+      generic(A : Type),
+      self : Self,
+      n : usize,
+      where(Self <: Iterator(Item := A))
+    ) -> Option(A)
+  )({
+    (result : Option(A)) = .None;
+    remaining := n;
+    iter := self;
+    while(runtime(true), {
+      match(
+        iter.next(),
+        .None => {
+          break;
+        },
+        .Some(item) => {
+          cond(
+            (remaining == usize(0)) => {
+              result = .Some(item);
+              break;
+            },
+            true => {
+              remaining = (remaining - usize(1));
+            }
+          );
+        }
+      );
+    });
+    result
+  }),
+  /// Sum all elements, starting from the element type's `Default`.
+  sum : (
+    fn(
+      generic(A : Type),
+      self : Self,
+      where(Self <: Iterator(Item := A), A <: (Add(A), Default))
+    ) -> A
+  )({
+    (acc : A) = (A <: Default).default();
+    iter := self;
+    while(runtime(true), {
+      match(
+        iter.next(),
+        .None => {
+          break;
+        },
+        .Some(item) => {
+          acc = (acc + item);
+        }
+      );
+    });
+    acc
+  }),
+  /// Return the smallest element (first of equals), or `None` when empty.
+  min : (
+    fn(
+      generic(A : Type),
+      self : Self,
+      where(Self <: Iterator(Item := A), A <: Ord(A))
+    ) -> Option(A)
+  )({
+    (best : Option(A)) = .None;
+    iter := self;
+    while(runtime(true), {
+      match(
+        iter.next(),
+        .None => {
+          break;
+        },
+        .Some(item) => {
+          best = match(
+            best,
+            .None => Option(A).Some(item),
+            .Some(b) => cond(
+              (item < b) => Option(A).Some(item),
+              true => Option(A).Some(b)
+            )
+          );
+        }
+      );
+    });
+    best
+  }),
+  /// Return the largest element (last of equals), or `None` when empty.
+  max : (
+    fn(
+      generic(A : Type),
+      self : Self,
+      where(Self <: Iterator(Item := A), A <: Ord(A))
+    ) -> Option(A)
+  )({
+    (best : Option(A)) = .None;
+    iter := self;
+    while(runtime(true), {
+      match(
+        iter.next(),
+        .None => {
+          break;
+        },
+        .Some(item) => {
+          best = match(
+            best,
+            .None => Option(A).Some(item),
+            .Some(b) => cond(
+              (item < b) => Option(A).Some(b),
+              true => Option(A).Some(item)
+            )
+          );
+        }
+      );
+    });
+    best
+  }),
+  /// Yield all of this iterator, then all of `other` (same element type).
+  chain : (
+    fn(
+      generic(A : Type, J : Type),
+      self : Self,
+      other : J,
+      where(Self <: Iterator(Item := A), J <: Iterator(Item := A))
+    ) -> IterChain(Self, J)
+  )(
+    IterChain(Self, J)(_first : self, _second : other, _first_done : false)
+  ),
+  /// Yield elements while `pred` holds, producing an `IterTakeWhile`.
+  take_while : (
+    fn(
+      generic(A : Type, F : Type),
+      self : Self,
+      f : F,
+      where(Self <: Iterator(Item := A), F <: (Fn(item : A) -> bool))
+    ) -> IterTakeWhile(Self, F)
+  )(
+    IterTakeWhile(Self, F)(_inner : self, _f : f, _done : false)
+  ),
+  /// Skip elements while `pred` holds, producing an `IterSkipWhile`.
+  skip_while : (
+    fn(
+      generic(A : Type, F : Type),
+      self : Self,
+      f : F,
+      where(Self <: Iterator(Item := A), F <: (Fn(item : A) -> bool))
+    ) -> IterSkipWhile(Self, F)
+  )(
+    IterSkipWhile(Self, F)(_inner : self, _f : f, _skipping : true)
+  ),
+  /// Map to `Option` and keep the `Some`s, producing an `IterFilterMap`.
+  filter_map : (
+    fn(
+      generic(A : Type, B : Type, F : Type),
+      self : Self,
+      f : F,
+      where(Self <: Iterator(Item := A), F <: (Fn(item : A) -> Option(B)))
+    ) -> IterFilterMap(Self, B, F)
+  )(
+    IterFilterMap(Self, B, F)(_inner : self, _f : f)
+  ),
+  /// Wrap in an `IterPeekable`, which adds `peek()`.
+  peekable : (
+    fn(
+      generic(A : Type),
+      self : Self,
+      where(Self <: Iterator(Item := A))
+    ) -> IterPeekable(Self, A)
+  )(
+    IterPeekable(Self, A)(_inner : self, _peeked : Option(A).None)
+  )
 );
 /// FutureState — the state of an async `Future`.
 FutureState :: enum(
