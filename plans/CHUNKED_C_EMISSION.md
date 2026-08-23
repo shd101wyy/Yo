@@ -383,7 +383,10 @@ Measure the cached-rebuild path before adding any of them.
    - runtime within ~5% of the single-file build — **the blocking gate**; see
      "The RC de-inlining regression" above (16.5% found, RC fix landed,
      re-measurement in progress).
-   - full `tests/` green on the chunked binary — pending the perf gate.
+   - full `tests/` green on the chunked binary — **MET 2026-08-23**: a
+     chunked-built compiler (N=4, `--release`) runs the whole language suite
+     at **2802 passed / 0 failed**, i.e. it is behaviourally identical to a
+     single-file-built one across the corpus, not merely on `check`.
 3. **Parallel driver + `.o` cache** — **DONE 2026-08-23** (see "Driver"
    above for the implementation and the measurements).
    Gates:
@@ -449,8 +452,35 @@ Measure the cached-rebuild path before adding any of them.
    build the driver on the wave pattern.
 4. **Perf validation + LTO experiment** (3 configs). Gate: runtime within
    ~5% of baseline.
-5. **build.yo surface + CI gate**: `Executable.emit_chunks`, a behavioral
-   fixpoint gate (chunked-built binary emits byte-identical single-file C),
-   cli-case golden. Default off everywhere including portable-C.
+5. **build.yo surface + CI gate**: partially DONE 2026-08-23.
+   - behavioural fixpoint gate — **DONE and PASSING**: a chunked-built
+     compiler (N=4) and a single-file-built one emit **byte-identical** C for
+     the compiler itself (143 MB, `cmp` clean, hollow=0 on both).
+     Packaged as `scripts/bootstrap/chunked_gate.sh`
+     (`S1=<bin> N=4 bash scripts/bootstrap/chunked_gate.sh`). This is the
+     strongest statement available about the linkage split: it rewrites
+     linkage across ~175k functions, duplicates the RC hot path and the
+     constructors per TU, and splits the address-identity statics — if any of
+     that changed behaviour, the two compilers would disagree on some emitted
+     byte. Deliberately NOT a per-PR CI job: it costs two self-builds plus two
+     self-emits (~12 min, heavy RAM) to guard an opt-in flag no default path
+     uses. Wire it in if chunking becomes a default.
+   - cli-case golden — **DONE**: `tests/cli-cases/compile-emit-chunks` runs the
+     same chunked compile twice, so one golden pins both halves of the cache
+     contract ("0 cached, 3 to compile" then "3 cached, 0 to compile").
+     Generated artifacts are in the case's `ignore` list — object files are not
+     reproducible across clang versions, and hashing the emitted C would force
+     a re-record on every codegen change.
+   - `Executable.emit_chunks` (the `yo build` surface) — **OPEN**. Today only
+     `yo compile --emit-chunks N` exists. The field has to thread through
+     `std/build.yo` -> `BuildArtifact` (src/evaluator/builtins/build.yo, three
+     construction sites + the positional extractor) -> the child argv in
+     `src/build_runner.yo`, following `emit_c_to`'s pattern exactly. Note
+     BuildArtifact's `emit_c_to` comment: a `?=` default needs a
+     compile-time-known value, so a non-defaultable field ripples into every
+     literal including `tests/internal/build_runner.test.yo`. The Phase A
+     artifact stamp already hashes the child argv, so the flag invalidates the
+     build cache for free.
+   Default off everywhere including portable-C.
 
 Honest total: ~2-3 weeks; the risk is Step 2.
