@@ -3572,10 +3572,269 @@ Examples:
   $ yo version clean               Remove all cached versions
 
 yo --help                        Show this help message
+yo <subcommand> --help           Show help for a subcommand
 yo --version                     Show version number`
   );
   h
 });
+/// Per-subcommand help text (`yo <subcommand> --help`). Returns `.None` for
+/// an unknown subcommand (the caller falls back to the top-level usage).
+_subcommand_help_text :: (fn(subcmd : String) -> Option(String))(
+  cond(
+    (subcmd == "compile") => Option(String).Some(
+      `Usage: yo compile <file.yo> [options]
+
+Compile a '.yo' source file to a native executable (via C11).
+
+Options:
+  -o <path>                 Output binary path
+  --release                 Optimized build (-O2; default is -O0)
+  --optimize <level>        Explicit C optimization level (0|1|2|3|s|z)
+  -g, --debug-symbols       Emit debug symbols
+  -s, --strip               Strip the output binary
+  --cc, --c-compiler <cc>   C compiler to use (clang|gcc|zig|emcc)
+  -t, --target <triple>     Cross-compile target (e.g. x86_64-linux-gnu, wasm-wasi)
+  --sysroot <dir>           Sysroot for cross-compilation
+  --cflags '<flags>'        Extra flags passed to the C compiler
+  -D, --define <N[=V]>      Preprocessor define for the C compile
+  -I <dir> / -L <dir>       Include / library search path
+  -l <name>                 Link a library
+  --extern <spec>           Extern library spec (pkg-config integration)
+  --static                  Static link
+  --static-library          Build a static library instead of an executable
+  --sanitize <kind>         Sanitizer (address|thread|undefined)
+  --disable-sanitize        Drop sanitizer flags added by defaults
+  --allocator <name>        Allocator (system|mimalloc)
+  --emit-c                  Print the generated C to stdout and stop
+  --emit-c-to <path>        Write the generated C to a file and stop
+  --skip-c-compiler         Generate C but skip the C compile
+  --skip-codegen            Evaluate only (no C generation)
+  --emit-chunks <n>         Split emitted C into n translation units (implies -flto=thin)
+  --no-chunk-lto            Opt out of ThinLTO for chunked builds
+  --jobs <n>                Parallel C compiles for chunked builds
+  --compile-timeout-ms <ms> C compiler timeout
+  --emcc-environment <env>  Emscripten environment (node|web)
+  --debug-gc / --debug-async-await / --debug-parallelism
+                            Runtime debug logging in the emitted binary
+  --std-path <dir>          Override the std library directory
+
+Examples:
+  $ yo compile main.yo -o app
+  $ yo compile main.yo --release --target x86_64-linux-gnu -o app
+  $ yo compile main.yo --emit-c --skip-c-compiler --release`
+    ),
+    (subcmd == "build") => Option(String).Some(
+      `Usage: yo build [steps...] [options]
+
+Build the project described by build.yo (default step: install).
+
+Options:
+  --list-steps              Show the available build steps
+  --summary                 Print the build summary tree
+  --dry-run                 Resolve the build graph without running it
+  --build-file <path>       Use an alternate build.yo
+  --cc, --c-compiler <cc>   C compiler to use
+  -t, --target <triple>     Cross-compile target
+  --sysroot <dir>           Sysroot for cross-compilation
+  -D<name>=<value>          Pass an option to build.yo
+  --watch                   Rebuild on source changes
+  --poll-ms <ms>            Watch poll interval
+  -v, --verbose             Verbose output
+  --std-path <dir>          Override the std library directory
+
+Examples:
+  $ yo build                Build all artifacts
+  $ yo build run            Build and run the application
+  $ yo build test           Run the test suite
+  $ yo build -Dstrip=true   Pass a build option`
+    ),
+    (subcmd == "test") => Option(String).Some(
+      `Usage: yo test [path] [options]
+
+Run *.test.yo files (a file, a directory tree, or the whole workspace).
+
+Options:
+  -b, --bail                Stop after the first failure
+  -v, --verbose             Show detailed output and errors
+  --test-name-pattern <s>   Run only tests whose name contains <s>
+  --exclude <path>          Exclude a directory/file (repeatable)
+  -p, --parallel <n>        Accepted for compatibility (v1 runs sequentially)
+  --test-batch-size <n>     Tests per generated C batch (default 100)
+  --cc, --c-compiler <cc>   C compiler for test binaries
+  --target <triple>         Run tests for a cross target (e.g. wasm-wasi)
+  --disable-sanitize        Skip AddressSanitizer linkage
+  -k, --keep-generated-files  Keep generated batch files
+  --profile                 Print per-phase timing
+  --std-path <dir>          Override the std library directory
+
+Examples:
+  $ yo test                       All tests in the workspace
+  $ yo test ./tests --bail
+  $ yo test ./tests/fs/temp.test.yo --test-name-pattern "Dispose"`
+    ),
+    (subcmd == "check") => Option(String).Some(
+      `Usage: yo check <file-or-dir> [options]
+
+Type-check .yo files with the evaluator only (no C generation). Note the
+async state-machine restrictions are enforced in codegen, so check passes
+over them — use 'yo compile --skip-c-compiler' to catch that class.
+
+Options:
+  --exclude <path>          Exclude a directory/file (repeatable)
+  --watch                   Re-check on source changes
+  --watch-once              One watch iteration (for scripting)
+  --poll-ms <ms>            Watch poll interval
+  --std-path <dir>          Override the std library directory
+
+Examples:
+  $ yo check ./src
+  $ yo check ./std --exclude std/libc`
+    ),
+    (subcmd == "fmt") => Option(String).Some(
+      `Usage: yo fmt [paths...] [options]
+
+Format Yo source files in place.
+
+Options:
+  --check                   Report unformatted files without writing (rc=1 if any)
+
+Examples:
+  $ yo fmt                  Format all .yo files under the current directory
+  $ yo fmt src tests
+  $ yo fmt --check ./src ./std ./tests`
+    ),
+    (subcmd == "doc") => Option(String).Some(
+      `Usage: yo doc [path] [options]
+
+Generate API documentation for .yo files.
+
+Options:
+  -o, --output <dir>        Output directory (default: ./yo-out/doc)
+  -f, --format <fmt>        Output format (html|json, default html)
+  --title <s>               Documentation site title
+  --document-private        Include underscore-private items
+  -v, --verbose             Verbose output
+  --std-path <dir>          Override the std library directory
+
+Examples:
+  $ yo doc ./std
+  $ yo doc ./src/main.yo -o docs --format json`
+    ),
+    (subcmd == "init") => Option(String).Some(
+      `Usage: yo init [dir] [options]
+
+Initialize a new Yo project (build.yo, src/, .gitignore).
+
+Options:
+  --name <s>                Project name (default: directory name)
+
+Examples:
+  $ yo init
+  $ yo init my-project --name my-project`
+    ),
+    (subcmd == "fetch") => Option(String).Some(
+      `Usage: yo fetch [options]
+
+Fetch the git dependencies declared in build.yo into the global cache and
+write yo.lock (stale lock entries are pruned automatically).
+
+Options:
+  -u, --update              Re-resolve refs to the latest commits
+  -v, --verbose             Show detailed fetch progress
+  --build-file <path>       Use an alternate build.yo
+
+Examples:
+  $ yo fetch
+  $ yo fetch --update`
+    ),
+    (subcmd == "install") => Option(String).Some(
+      `Usage: yo install <package> [options]
+
+Add a dependency to build.yo and fetch it. Accepts GitHub shorthands,
+pinned versions, and local paths.
+
+Options:
+  -v, --verbose             Show detailed progress
+  --build-file <path>       Use an alternate build.yo
+
+Examples:
+  $ yo install user/repo               Latest semver tag from GitHub
+  $ yo install user/repo@v1.0.0        Pinned version
+  $ yo install github.com/user/repo    Full form
+  $ yo install ./path/to/dep           Local path dependency`
+    ),
+    (subcmd == "cache") => Option(String).Some(
+      `Usage: yo cache <action>
+
+Manage the global dependency cache (~/.cache/yo/deps).
+
+Actions:
+  path                      Print the global cache directory
+  clean                     Remove all cached dependencies
+
+Examples:
+  $ yo cache path
+  $ yo cache clean`
+    ),
+    (subcmd == "version") => Option(String).Some(
+      `Usage: yo version [action] [options]
+
+Show or manage Yo toolchain versions. With no action, prints the current
+version and the project's .yo-version pin (if any).
+
+Actions:
+  pin [version]             Pin the project to a version via .yo-version
+                            (defaults to the current version; a named version
+                            is validated against the published releases)
+  install <version>         Pre-download a version into the version cache
+  list                      List cached versions
+  list --remote             List published releases (GitHub Releases);
+                            marks (current) and (cached)
+  clean [version]           Remove one cached version, or all of them
+
+Options:
+  --remote                  With 'list': query the published releases
+
+Examples:
+  $ yo version
+  $ yo version pin 0.2.16
+  $ yo version list --remote
+  $ yo version install 0.2.16
+  $ yo version clean 0.2.14`
+    ),
+    (subcmd == "lsp") => Option(String).Some(
+      `Usage: yo lsp
+
+Run the Yo language server on stdio (diagnostics, hover, definition,
+symbols, references, folding, rename, formatting, signature help,
+completion). Used by editor clients such as the VS Code extension.`
+    ),
+    (subcmd == "unsafe-report") => Option(String).Some(
+      `Usage: yo unsafe-report [path] [options]
+
+Scan for unsafe(...) sites and report them with their // SAFETY: comments.
+
+Options:
+  --json                    Machine-readable output
+
+Example:
+  $ yo unsafe-report ./std`
+    ),
+    (subcmd == "public-safe-report") => Option(String).Some(
+      `Usage: yo public-safe-report [path] [options]
+
+Report public top-level fn(...) declarations that leak raw pointers
+(the stdlib public-boundary rule).
+
+Options:
+  --json                    Machine-readable output
+
+Example:
+  $ yo public-safe-report ./std`
+    ),
+    true => Option(String).None
+  )
+);
 main :: (fn(io : Io) -> unit)({
   exn := Exception(
     throw : (
@@ -3631,6 +3890,32 @@ main :: (fn(io : Io) -> unit)({
     unsafe(exit(int(1)));
   });
   subcmd := argv(usize(1));
+  // Per-subcommand `--help` / `-h`: answered LOCALLY, before the .yo-version
+  // pre-dispatch (help must not require a cached binary or a network). The
+  // scan stops at `--` so pass-through arguments (e.g. a program's own
+  // --help after `--`) are never intercepted. Unknown subcommands fall back
+  // to the top-level usage text.
+  (help_wanted : bool) = false;
+  (help_i : usize) = usize(2);
+  while((help_i < argv.len()) && !(help_wanted), {
+    help_a := argv(help_i);
+    if(help_a == "--", {
+      help_i = argv.len();
+    }, {
+      if((help_a == "--help") || (help_a == "-h"), {
+        help_wanted = true;
+      });
+      help_i = (help_i + usize(1));
+    });
+  });
+  if(help_wanted, {
+    match(
+      _subcommand_help_text(subcmd),
+      .Some(t) => println(t),
+      .None => println(_top_level_help_text())
+    );
+    return(());
+  });
   // .yo-version PRE-DISPATCH (src/yo-cli.ts:118-195 parity): before any
   // subcommand runs, a project pinning a DIFFERENT version re-dispatches to
   // that version's cached native binary. Skipped for `version` itself, for
