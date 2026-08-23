@@ -125,11 +125,39 @@ and `Error.source` actually used for chaining (`wrap`/`context` helper).
 
 ### D3 — Prelude trait additions (the deepest gap in the whole audit)
 
+**Progress (S1 chunk 1, 2026-08-23, branch s1-prelude-traits):** D3.1
+`Default` trait + impls (all int/float primitives, bool, `Option(T)`→`.None`,
+`String`→empty, `ArrayList(T)`→empty) and `Option.unwrap_or_default`; D3.2
+`From`/`Into` traits + the lossless integer/float widening seed impls
+(`into(T)` disambiguates by its type argument like `try_into`; multiple
+`From` impls on one type are selected with the explicit
+`(T <: From(S)).from(v)` dispatch form — Yo has no overloading); D3.3
+`Ord.cmp -> Ordering` with a `<`/`==`-derived default, float TOTAL-order
+overrides (NaNs equal, greater than +inf) and float `Hash` DELETED per the
+no-PartialOrd decision; `ComptimeOrd`/`ComptimeToString` exported; dead
+`Exponentiation`/`ComptimeExponentiation` deleted. `derive(Default)` is
+DEFERRED to the next chunk: emitting `(FieldType <: Default).default()` per
+field needs a Type→source-expr rendering the derive surface
+(`TypeFieldInfo.field_type : Type`) doesn't expose yet — needs either a
+`Type.to_expr` builtin or per-field type names guaranteed reparseable.
+
 1. **`Default`** trait + derive. Unblocks `unwrap_or_default`, map `or_default`.
 2. **`From(T)` / `Into(T)`** (the prelude header already *claims* they exist).
 3. **`Ordering` wired in**: `Ord` gains `cmp(self, rhs) -> Ordering` (default
    implemented via `<`/`==`), sort APIs take comparators via it. Today `Ordering`
    is a dead enum.
+   **No `PartialEq`/`PartialOrd` split (decided with the user 2026-08-23,
+   same taste as single-`ToString`/O5):** Rust's split exists to quarantine
+   IEEE floats; Yo takes the smaller surface instead — (a) `cmp` is
+   contractually a TOTAL order for every std impl; floats use a NaN-total
+   order (all NaNs compare Equal to each other and Greater than every
+   number incl. +inf; -0 == +0 — deliberately SIMPLER than IEEE
+   `totalOrder`, and consistent with `==`) while the `<`/`==` OPERATORS
+   keep plain IEEE behavior; (b) float `Hash` is DELETED (today's impl is
+   `u64(i32(self))` — it truncates, so 0.5 and 0.9 already collide), which
+   makes `HashMap(f64, …)` a compile error and kills the invariant-breaking
+   case without a trait split; (c) if a real partial-order use case appears,
+   `PartialOrd` can be ADDED additively later — the reverse is impossible.
 4. **Iterator completion**: `collect` (via a `FromIterator` trait), `sum`, `min`,
    `max`, `find`, `position`, `last`, `nth`, `chain`, `flat_map`, `rev` (with
    `DoubleEndedIterator`), `take_while`, `skip_while`, `filter_map`, `peekable`.
