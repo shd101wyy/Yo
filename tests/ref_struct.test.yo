@@ -41,3 +41,48 @@ test("atomic(ref(struct)) constructs and reads", {
   a := A(v : i32(7));
   assert(a.v == i32(7), "atomic ref-struct field round-trips");
 });
+
+// ---------------------------------------------------------------------------
+// `header` is reserved for a REFERENCE struct's fields: the emitted C layout
+// is `{ __yo_ref_header_t header; <user fields...> }`, so a user field of that
+// name produced two members with one name and every access silently resolved
+// to the RC header instead. The declaration is rejected now, with a source
+// location, instead of emitting C that does not compile.
+//
+// The reservation is deliberately NARROW, and the arms below pin each edge:
+// value structs inject nothing, comptime fields are erased from the layout, and
+// the header's own members (ref_count, gc_flags, …) are nested INSIDE it and so
+// never collide.
+// issues/fixed/ref-struct-field-named-header-collides-with-rc-header.md
+// ---------------------------------------------------------------------------
+test("A value struct may still have a field named header", {
+  VH :: struct(header : i32, n : i32);
+  v := VH(header : i32(1), n : i32(2));
+  assert(v.header == i32(1), "value-struct header field readable");
+  assert(v.n == i32(2), "value-struct sibling field readable");
+});
+test("A reference struct may DECLARE a comptime field named header", {
+  // Comptime fields are erased from the C layout, so they cannot collide with
+  // the RC header — rejecting the declaration would be an over-rejection. The
+  // check this arm exercises runs at DECLARATION time, which is why the type is
+  // only declared: CONSTRUCTING a ref struct that mixes a comptime field with a
+  // runtime one is independently broken (the constructor call passes the
+  // comptime arg too — "too many arguments to function call"), a PRE-EXISTING
+  // bug this arm originally tripped over. See
+  // issues/ref-struct-comptime-field-breaks-constructor-arity.md.
+  CH :: ref(struct(header :: 1, n : i32));
+  // A sibling declaration with the reserved name absent, constructed, proves
+  // the surrounding machinery still works.
+  OK :: ref(struct(n : i32));
+  o := OK(n : i32(5));
+  assert(o.n == i32(5), "ordinary reference struct unaffected");
+});
+test("A reference struct may use the RC header's own member names", {
+  // ref_count / gc_flags / type_id live INSIDE __yo_ref_header_t, so they are
+  // not siblings of the user fields and must stay usable.
+  KH :: ref(struct(ref_count : i32, gc_flags : i32, type_id : i32));
+  k := KH(ref_count : i32(1), gc_flags : i32(2), type_id : i32(3));
+  assert(k.ref_count == i32(1), "ref_count usable as a field name");
+  assert(k.gc_flags == i32(2), "gc_flags usable as a field name");
+  assert(k.type_id == i32(3), "type_id usable as a field name");
+});

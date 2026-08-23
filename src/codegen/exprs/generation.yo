@@ -355,6 +355,27 @@ _generate_io_spawn :: (fn(expr : AstExpr, indent : String, context : FunctionGen
     em.emit_string_line(`${indent.clone()}  ${spawn_var.clone()}->__yo_resume_fn((void*)${spawn_var.clone()});`);
     em.emit_string_line(`${indent.clone()}}`);
   });
+  // OWNERSHIP. The JoinHandle used to be a pure borrowed view, which made it
+  // dangle whenever the future's owning binding died before the await — and a
+  // LOOP BODY is such a scope, so `handles.push(io.spawn(io.async(...), io))`
+  // inside a `while` hung forever at 100% CPU. Measured refcount history of
+  // the hanging case: 1 on creation, 2 after the cold-start incr below, back
+  // to 1 at the loop body's scope-end drop, then 0 when the task COMPLETES and
+  // the runtime releases the running reference — freeing the state machine
+  // while every handle already collected still pointed at it, so the await
+  // polled freed memory forever.
+  //
+  // So a surviving handle takes its own reference, released by
+  // `JoinHandle.await` (see generate_join_handle_await). Only when the spawn's
+  // result is actually BOUND: an unbound statement-level `io.spawn(...)` has no
+  // handle to keep alive (that is exactly what an absent `variable_name`
+  // means here — see the spawn_suffix comment above), and incrementing for a
+  // discarded compound literal would leak the task, which is today's correct
+  // fire-and-forget behaviour.
+  // See issues/fixed/io-spawn-in-loop-or-recursion-hangs.md.
+  if(name_suffix.len() > usize(0), {
+    em.emit_string_line(`${indent.clone()}__yo_incr_rc((void*)${spawn_var.clone()});  // the JoinHandle owns a reference`);
+  });
   match(
     join_handle_type_name,
     .Some(jh) => `(${jh}){ .__future = (void*)${spawn_var.clone()} }`,

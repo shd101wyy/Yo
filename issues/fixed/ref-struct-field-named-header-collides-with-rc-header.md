@@ -1,7 +1,29 @@
 # A ref-struct field named `header` collides with the RC header member in the emitted C
 
-**Status: OPEN (found 2026-08-23 during chunked-C-emission step 2; pre-existing —
-reproduces on the un-modified develop-HEAD binary).**
+**Status: FIXED 2026-08-23 by RESERVING the name** (fix direction 2's spirit,
+not the mangle of direction 1): `src/evaluator/types/struct.yo` rejects a
+reference-struct field named `header` at declaration time, so `yo check` now
+reports it with the field's own source location instead of the backend emitting
+C that will not compile.
+
+Why reserving rather than mangling: the mangle has to rename a C member
+consistently across struct declaration, constructor parameters and body,
+struct-literal emission, field access, `_ptr_field_access`, match
+destructuring, `open()`, the traversal functions, dup/drop/dispose, and four
+`box->${field}` sites in `src/codegen/functions/dyn.yo` — and a single missed
+site reproduces this very bug or, worse, silently reads the wrong member. One
+reserved name is the surgical fix. The mangle stays available as a future
+upgrade if the name is ever wanted.
+
+The reservation is deliberately narrow, and each edge has a test arm in
+`tests/ref_struct.test.yo`: VALUE structs inject nothing and keep the name;
+COMPTIME fields are erased from the C layout (`get_runtime_struct_fields`) so
+`ref(struct(header :: 1))` stays legal; and the header's own members
+(`ref_count`, `gc_flags`, `type_id`) are nested INSIDE it, so they never
+collide and remain usable as field names. The rejection itself is gated by
+`tests/cli-cases/check-ref-struct-header-field`, whose `stdout_keep_match`
+asserts THE diagnostic rather than merely a failure (red-first verified: the
+pre-fix binary produces no such message, so the case scores NO-GOLDEN).
 
 ## Symptom
 

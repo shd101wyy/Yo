@@ -656,8 +656,11 @@ generate_function_declaration :: (fn(function_type : TypeValue, c_function_name 
     );
   });
   prototype := generate_function_prototype(function_type, c_function_name.clone(), context, override, is_closure);
-  is_rc := (!(is_extern) && (!(is_exported) && (c_function_name.contains("___drop") || (c_function_name.contains("___dup") || c_function_name.contains("___dispose")))));
-  linkage := if(is_extern, String.from("extern "), if(is_exported, String.from(""), if(is_rc, String.from("static inline __attribute__((always_inline)) "), String.from("static inline "))));
+  // Three arms, matching generate_function's linkage EXACTLY (see the comment
+  // there): extern, exported (no prefix), otherwise `static inline`. The dead
+  // `always_inline` RC arm was removed from both sides together — it keyed on a
+  // triple-underscore name shape the mangler never produces.
+  linkage := if(is_extern, String.from("extern "), if(is_exported, String.from(""), String.from("static inline ")));
   line := linkage;
   line.push_string(prototype);
   line.push_str(";");

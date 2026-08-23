@@ -1,0 +1,15 @@
+# A reference struct's emitted C layout already carries a `header` member (the
+# reference-count header), so a user field of that name produced TWO members
+# with one name — "duplicate member 'header'" — and every `p.header` access
+# silently resolved to the RC header instead, cascading into incompatible-type
+# errors at the constructor, the traversal function and each use site. It
+# type-checked cleanly, so the only symptom was a wall of C errors naming
+# generated temps.
+#
+# This case pins the REJECTION: `check` must fail with the reserved-field
+# diagnostic, at the field's own source location. stdout_keep_match asserts THE
+# error rather than merely A failure — a case that only checked rc would pass on
+# any unrelated breakage.
+# issues/fixed/ref-struct-field-named-header-collides-with-rc-header.md
+stdout_keep_match="header" is a reserved field name in a reference struct
+timeout=120

@@ -46,11 +46,15 @@ emits **byte-identical** C to a single-file-built one
 - **The behavioural fixpoint gate is a script, not a CI job** — two self-builds
   plus two self-emits (~12 min, heavy RAM) to guard an opt-in flag no default
   path uses.
-- **`io.spawn` in a loop still hangs**
-  (`issues/io-spawn-in-loop-or-recursion-hangs.md`). Root-caused, with a
-  verified workaround; the driver sidesteps it entirely by generating a shell
-  script. Fixing it properly needs `JoinHandle` to own its future, which is an
-  async-runtime correctness project rather than build-perf work.
+- **The parallel driver still generates a `sh` script.** It did that because
+  `io.spawn` in a loop hung — which is now FIXED
+  (`issues/fixed/io-spawn-in-loop-or-recursion-hangs.md`: a surviving
+  JoinHandle owns its future). Native `io.spawn` fan-out therefore works and is
+  measurably concurrent — four child processes spawned from a loop complete in
+  2033 ms rather than the 8000 ms a serial fallback needs. Replacing the script
+  would drop the POSIX-`sh` dependency and with it the sequential-compile
+  fallback on Windows hosts. Not done here: the script works, and swapping it
+  is a separate change with its own gate.
 - **mimalloc's `static.c`** is still compiled by the link command rather than
   as one more parallel job.
 
@@ -208,7 +212,7 @@ the compile flag set; it is replayed verbatim for each `cc -c`, and the link
 runs from the same recorded argv with `.o` paths substituted for the `.c`.
 
 Parallelism does NOT use `io.spawn`: spawning in a loop hangs
-(`issues/io-spawn-in-loop-or-recursion-hangs.md`). The driver instead generates
+(`issues/fixed/io-spawn-in-loop-or-recursion-hangs.md`). The driver instead generates
 a POSIX `sh` script — one backgrounded `cc` per chunk in waves of `--jobs`
 (default 8), collecting each job's status individually with `wait $pid`,
 because bare `wait` always reports success. That is one child process and no
@@ -278,8 +282,8 @@ catches regressions in seconds is `tests/internal/chunk_assembly.test.yo`
 
 **Two Yo-level bugs surfaced along the way:**
 
-- `issues/ref-struct-field-named-header-collides-with-rc-header.md` (OPEN,
-  PRE-EXISTING): a `ref(struct(...))` field named `header` collides with the
+- `issues/fixed/ref-struct-field-named-header-collides-with-rc-header.md`
+  (pre-existing, FIXED later the same day by reserving the name): a `ref(struct(...))` field named `header` collides with the
   built-in RC header member and emits invalid C. `yo check` passes it.
   Reproduced on unmodified develop HEAD. The assembler's field is
   `header_text` because of it.
@@ -349,7 +353,8 @@ dispose functions in a whole self-build, so correcting the predicate would
 route 8 functions. Delete it once the RC measurement settles. The same dead
 predicate exists in the COMPILER (not just the assembler) and has silently
 disabled an intended `always_inline` optimization since it was written —
-filed as `issues/rc-helper-always-inline-linkage-branch-never-fires.md`.
+filed and since fixed:
+`issues/fixed/rc-helper-always-inline-linkage-branch-never-fires.md`.
 
 ### The real cause, and why ThinLTO is REQUIRED (not an opt-in mitigation)
 
@@ -484,15 +489,14 @@ Measure the cached-rebuild path before adding any of them.
    builds: `-O0` chunking is a pure win, and with a `.o` cache the no-change
    rebuild is a 0.13 s link.
 
-   **BLOCKER, found while prototyping the fan-out:** `io.spawn` inside a
-   `while` loop or a recursive call hangs (spins at 100% CPU) — the JoinHandle
-   holds a borrowed pointer and the loop body's scope-end drop frees the future
-   under it. Root-caused at the C level and filed as
-   `issues/io-spawn-in-loop-or-recursion-hangs.md`. A verified workaround
-   exists (unrolled spawns inside a helper fn, and loop over WAVES of that
-   helper — measured 2 waves x 500 ms concurrent = 1013 ms), which also bounds
-   the job window the way `--jobs` would anyway. Either fix the bug first or
-   build the driver on the wave pattern.
+   **BLOCKER found while prototyping the fan-out, since FIXED:** `io.spawn`
+   inside a `while` loop or a recursive call hung (spinning at 100% CPU). The
+   driver was built on the workaround (a generated `sh` script) and still uses
+   it; the bug itself is fixed in
+   `issues/fixed/io-spawn-in-loop-or-recursion-hangs.md` — a surviving
+   JoinHandle now owns its future, since the runtime's release-on-completion
+   was taking the last reference while handles still pointed at the state
+   machine.
 4. **Perf validation + LTO experiment** — **DONE 2026-08-23**. Gate: runtime
    within ~5% of baseline — **MET at -2.9%** (see "The real cause, and why
    ThinLTO is REQUIRED"), and the `-O0` configuration measured identical.

@@ -1,8 +1,32 @@
 # The RC-helper `always_inline` linkage branch never fires (dead predicate)
 
-**Status: OPEN (found 2026-08-23 during the chunked-C-emission step-2 audit;
-pre-existing, impact today is nil — filed so the dead intent is either removed
-or corrected deliberately).**
+**Status: FIXED 2026-08-23** by removing the arm from BOTH emitters
+(`src/codegen/functions/generation.yo` and `declarations.yo` — they must agree
+or a prototype/definition mismatch is "static declaration follows non-static"
+at every call site).
+
+Refinement on the analysis above: the arm is not strictly UNREACHABLE, which is
+a better reason to delete it than the one first filed. A specialization's
+signature folds every non-alnum byte to `_` and joins parts with `_`
+(`compute_compile_time_signature`), so a mangled name CAN land on the
+triple-underscore shape by coincidence — meaning the arm decorated whichever
+arbitrary function happened to mangle that way, rather than the RC helpers it
+was written for. Empirically it fires for nothing: zero code-position
+`always_inline` in a 143 MB self-emission and in the suite batch emissions. And
+dropping the attribute can only relax, since `always_inline` on a function
+clang cannot inline is a hard error.
+
+Evidence the change is inert: emitting a program that exercises none of the four
+fixes landed together is BYTE-IDENTICAL before and after. (The compiler's OWN
+emission necessarily differs — the deleted source text includes the
+`"static inline __attribute__((always_inline)) "` literal, which was itself one
+of the only two occurrences in the emission.)
+
+No test: a linkage assertion on generated C would be brittle, and the
+byte-identity check above is the stronger evidence. `_ca_is_rc_helper` in
+`src/codegen/chunk_assembly.yo` keeps the same dead predicate deliberately —
+`plans/CHUNKED_C_EMISSION.md` defers it and the chunk-assembly unit test feeds
+it synthetic names.
 
 ## What the code intends
 
