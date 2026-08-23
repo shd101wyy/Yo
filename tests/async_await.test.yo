@@ -4551,3 +4551,34 @@ test("async-produced ref result is disposed when the last reference drops", {
   };
   assert(g_async_result_disposed == i32(3), "discarded await result is disposed with the future");
 });
+// Regression (same family as issues/async-future-result-never-dropped.md):
+// JoinHandle.await's result extraction must DUP the value out of the spawned
+// future — the old bare copy handed out a borrowed reference that became a
+// use-after-free once futures started dropping their results (it was what
+// broke the stage2/stage3 fixpoint: the compiler's own io.spawn users read
+// freed memory). Separate counter from the io.await probe above because all
+// tests in this file share one batch binary.
+(g_spawn_result_disposed : i32) = i32(0);
+SpawnMadeProbe :: ref(struct(id : i32));
+impl(
+  SpawnMadeProbe,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      g_spawn_result_disposed = (g_spawn_result_disposed + i32(1));
+    })
+  )
+);
+make_spawn_probe :: (fn(id : i32, io : Io) -> Impl(Future(SpawnMadeProbe, Io)))(
+  io.async((io) => SpawnMadeProbe(id : id))
+);
+test("spawned task's ref result is dup'd out and disposed exactly once", {
+  {
+    task := make_spawn_probe(i32(41), io);
+    handle := io.spawn(task, io);
+    r := handle.await(io);
+    v := r.unwrap();
+    assert(v.id == i32(41), "value readable after the handle released the future");
+    assert(g_spawn_result_disposed == i32(0), "still alive while v is in scope");
+  };
+  assert(g_spawn_result_disposed == i32(1), "disposed exactly once after scope end");
+});
