@@ -140,6 +140,10 @@ DEFERRED to the next chunk: emitting `(FieldType <: Default).default()` per
 field needs a Type→source-expr rendering the derive surface
 (`TypeFieldInfo.field_type : Type`) doesn't expose yet — needs either a
 `Type.to_expr` builtin or per-field type names guaranteed reparseable.
+**PR #240 opened 2026-08-24 (stacked on #238)** after the full local battery:
+check 154+262, suite 2823/2823 under the S1 stage-1, gates green after
+re-recording the 2 legitimately-drifted CLI goldens (`check-watch-once` expr
+count, `lsp-completion` type ids + the new `default` entry), FIXPOINT_HOLDS.
 
 1. **`Default`** trait + derive. Unblocks `unwrap_or_default`, map `or_default`.
 2. **`From(T)` / `Into(T)`** (the prelude header already *claims* they exist).
