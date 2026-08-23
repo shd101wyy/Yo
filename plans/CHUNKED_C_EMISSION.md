@@ -1,15 +1,58 @@
 # Chunked C emission + parallel/cached clang
 
-**Status: ACTIVE (steps 0-3 DONE — step 1 #233, step 2 #234, LTO-by-opt-level
-#235, step 3 landing; steps 4-5 open).**
-Goal: `yo build`'s C leg — clang -O2 on the single ~148 MB emitted `yo.c` —
-measured **74.8 s single-threaded** (step 0 baseline, M4, of a ~220 s full
+**Status: STEPS 0-5 COMPLETE (2026-08-23) — step 1 #233, step 2 #234,
+LTO-by-opt-level #235, step 3 + gates + build surface #236. Remaining items are
+deliberate deferrals, listed under "What is intentionally not done".**
+
+Goal was `yo build`'s C leg: clang -O2 on the single ~148 MB emitted `yo.c`,
+measured **74.8 s single-threaded** (step 0 baseline, M4, of a ~210 s full
 rebuild). Split the emitted program into N translation units compiled in
 parallel with a content-hashed `.o` cache, then link. Opt-in
 (`--emit-chunks N`, default 0 = today's single file, bit-for-bit): the
 single-file `yo.c` is a DISTRIBUTION REQUIREMENT
 (`plans/PORTABLE_C_DISTRIBUTION.md`), and the bootstrap fixpoint gates
 compare default emissions.
+
+## Outcome
+
+| self-build, `--release` | total | C phase |
+|---|---|---|
+| single-file (default, unchanged) | 209.7 s | 72.3 s |
+| chunked N=8, cold cache | **171.5 s** | ~34.1 s |
+| chunked N=4, warm cache | **161.7 s** | ~24 s (link only) |
+
+So the C leg roughly halves, and a no-change rebuild's chunk phase collapses to
+a cached link. **The more useful result is what that leaves behind:** a warm
+chunked build is 137.4 s of evaluation plus a ~24 s ThinLTO link, i.e. the
+EVALUATOR is now 85% of a cached rebuild. Further chunk-side work cannot buy
+much; the next real levers are cross-process incremental evaluation (the
+deferred original Phase C of `plans/INCREMENTAL_COMPILATION.md`) and
+content-stable symbol naming, which is also what would make the `.o` cache pay
+off for ordinary source edits rather than only for flag changes.
+
+Correctness is gated two ways beyond `check`: the full language suite passes ON
+A CHUNKED-BUILT compiler (2802 passed / 0 failed), and a chunked-built compiler
+emits **byte-identical** C to a single-file-built one
+(`scripts/bootstrap/chunked_gate.sh`).
+
+## What is intentionally not done
+
+- **Chunking stays opt-in.** The four conditions for flipping the default are
+  under "Chunk count" below; three now hold, and the fourth (auto-N) is blocked
+  on a std CPU-count API.
+- **Auto-N** — blocked: `std` has no `available_parallelism`, and there is no
+  `YO_JOBS` override yet. The N sweep below says the target is ~8, not
+  "2x cores".
+- **The behavioural fixpoint gate is a script, not a CI job** — two self-builds
+  plus two self-emits (~12 min, heavy RAM) to guard an opt-in flag no default
+  path uses.
+- **`io.spawn` in a loop still hangs**
+  (`issues/io-spawn-in-loop-or-recursion-hangs.md`). Root-caused, with a
+  verified workaround; the driver sidesteps it entirely by generating a shell
+  script. Fixing it properly needs `JoinHandle` to own its future, which is an
+  async-runtime correctness project rather than build-perf work.
+- **mimalloc's `static.c`** is still compiled by the link command rather than
+  as one more parallel job.
 
 ## Ground truth
 
@@ -450,8 +493,27 @@ Measure the cached-rebuild path before adding any of them.
    helper — measured 2 waves x 500 ms concurrent = 1013 ms), which also bounds
    the job window the way `--jobs` would anyway. Either fix the bug first or
    build the driver on the wave pattern.
-4. **Perf validation + LTO experiment** (3 configs). Gate: runtime within
-   ~5% of baseline.
+4. **Perf validation + LTO experiment** — **DONE 2026-08-23**. Gate: runtime
+   within ~5% of baseline — **MET at -2.9%** (see "The real cause, and why
+   ThinLTO is REQUIRED"), and the `-O0` configuration measured identical.
+
+   **N sweep (cold chunked self-build, `--release`, jobs=8, 10-core M4; C phase
+   is total minus the constant 137.4 s of evaluation):**
+
+   | N | total | C phase | binary |
+   |---|---|---|---|
+   | 2 | 204.3 s | ~66.9 s | 20 MB |
+   | 4 | 173.2 s | ~35.8 s | 22 MB |
+   | 8 | **171.5 s** | **~34.1 s** | 24 MB |
+   | 16 | 172.2 s | ~34.8 s | 24 MB |
+
+   **The knee is at N=4-8 and there is nothing past it.** N=16 is
+   indistinguishable from N=8 (marginally worse), because the ThinLTO link — not
+   the per-chunk compile — is the floor, and the shared-header tax grows
+   linearly in N, so everything beyond the knee is pure waste. N=2 is far worse.
+   This refutes the plan's original "N default 16 (>= 2x cores)": auto-N should
+   target ~8 and can drop the core-count term entirely, keeping only the
+   small-program size floor.
 5. **build.yo surface + CI gate**: partially DONE 2026-08-23.
    - behavioural fixpoint gate — **DONE and PASSING**: a chunked-built
      compiler (N=4) and a single-file-built one emit **byte-identical** C for

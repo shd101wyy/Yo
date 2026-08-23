@@ -659,6 +659,14 @@ compile_artifact :: (
       cmd.arg(String.from("--emit-c-to"));
       cmd.arg(Path.new(ctx.project_dir.clone()).join(Path.new(artifact.emit_c_to.clone())).to_string());
     });
+    // Chunked C emission (plans/CHUNKED_C_EMISSION.md): 0 = off, which is the
+    // default, so an unset field adds nothing to the child argv and the
+    // emission stays byte-identical. The Phase A artifact stamp hashes this
+    // argv, so flipping the field invalidates the build cache for free.
+    if(artifact.emit_chunks > usize(0), {
+      cmd.arg(String.from("--emit-chunks"));
+      cmd.arg(artifact.emit_chunks.to_string());
+    });
     if(artifact.sanitize != "none", {
       cmd.arg(String.from("--sanitize"));
       cmd.arg(artifact.sanitize.clone());

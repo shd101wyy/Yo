@@ -39,6 +39,26 @@ description: "Use when running tests, setting up test files, or debugging test f
 - Run them like any other internal test: `yo test ./tests/internal/build_runner.test.yo --parallel 1`.
 - End-to-end CLI subcommand behaviour is covered separately by the `tests/cli-cases/` corpus.
 
+## Adding a cli-case: `yo fmt` the fixture BEFORE recording the golden
+
+A cli-case fixture (`tests/cli-cases/<case>/fixture/*.yo`) is a real `.yo` file
+and CI's "Check the formatted code" step scans the whole tree, so an
+unformatted fixture reds the PR even when every other gate is green. Fixtures
+sit outside the `src/ std/ tests/internal/` paths people usually pass to
+`yo fmt`, which is exactly why this is easy to miss.
+
+Order matters: formatting changes the fixture's content hash, and that hash is
+part of the case's `expected_tree` golden. So `yo fmt` the fixture FIRST, then
+`scripts/cli-diff-test.sh --record <case>`, then re-score without `--record`.
+Doing it the other way round means recording twice.
+
+Verify with all three roots, using the INSTALLED release binary rather than a
+locally built one, since that is what CI runs:
+
+```bash
+yo fmt --check ./src ./std ./tests
+```
+
 ## A fixpoint run's stage-1 must come from the SAME tree it compiles
 
 `scripts/bootstrap/fixpoint_only.sh` takes a prebuilt stage-1 via `S1=` and has

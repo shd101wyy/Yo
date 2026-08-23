@@ -91,7 +91,15 @@ Executable :: struct(
   /// Write the single generated C file to this path instead of the default
   /// `<output>.c` sidecar. Empty = default. Redirects rather than duplicates,
   /// so exactly one C file exists and the C compiler consumes it.
-  (emit_c_to : comptime_str) ?= ""
+  (emit_c_to : comptime_str) ?= "",
+  /// Split the emitted C into this many translation units, compiled in
+  /// PARALLEL behind a content-addressed object cache and then linked
+  /// (plans/CHUNKED_C_EMISSION.md). 0 = off, one C file as before — which is
+  /// the default because the single-file emission is what the bootstrap gates
+  /// and the portable-C distribution compare. At -O1 and above a chunked
+  /// build also gets `-flto=thin`, without which it would lose the
+  /// cross-module inlining that a single translation unit gives for free.
+  (emit_chunks : comptime_int) ?= 0
 );
 export(Executable);
 /// Configuration for building a static library.
@@ -301,7 +309,7 @@ executable :: (fn(comptime(config) : Executable) -> comptime(Step))({
     .Leak => "leak",
     .Thread => "thread"
   );
-  __yo_build_executable(config.name, config.root, config.target, opt_str, alloc_str, san_str, config.emit_c_to);
+  __yo_build_executable(config.name, config.root, config.target, opt_str, alloc_str, san_str, config.emit_c_to, config.emit_chunks);
   Step(name : config.name, kind : StepKind.Executable)
 });
 export(executable);
