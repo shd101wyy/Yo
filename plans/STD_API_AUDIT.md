@@ -59,9 +59,16 @@ over-releasing every RC slot it dropped — bug (1)'s leak had absorbed
 exactly one extra drop per awaited result — fixed by consuming the key
 after the guarded cleanup (`src/codegen/async/state_machine.yo`;
 issues/async-postwhile-branch-cleanup-double-drop.md; gated by the
-fs_walker tests). Remaining: C11 (blocked on the html-entities
-static-data rewrite), C7 (reclassified → O7, now DECIDED — lands with the
-S2 sweep).
+fs_walker tests). **C12 Windows follow-up (2026-08-24):** PR #238's two
+Windows legs failed at the BufWriter Dispose test — the dispose flush used
+CRT `_write`, but async-opened file fds wrap FILE_FLAG_OVERLAPPED handles
+CRT `_write` cannot serve. Fixed with a per-platform positioned
+`__yo_sync_write` runtime shim (POSIX: pwrite + ESPIPE fallback; Windows:
+OVERLAPPED WriteFile with low-bit hEvent so completions never post to the
+async loop's IOCP), surfaced as `std/sys/file.yo write_sync`; the CRT
+`_write` binding is deleted from `std/libc/windows.yo`. Remaining: C11
+(blocked on the html-entities static-data rewrite), C7 (reclassified → O7,
+now DECIDED — lands with the S2 sweep).
 
 | # | Bug | Where |
 |---|-----|-------|

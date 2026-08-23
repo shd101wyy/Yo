@@ -18,7 +18,7 @@
 //   };
 pragma(Pragma.AllowUnsafe);
 { IoFuture } :: import("./future.yo");
-{ __yo_async_read_start, __yo_async_write_start, __yo_async_openat_start, __yo_async_close_start, __yo_async_statx_start, __yo_async_fsync_start, __yo_async_fdatasync_start, __yo_async_ftruncate_start, __yo_file_open, __yo_file_close, __yo_file_size } :: import("./externs.yo");
+{ __yo_async_read_start, __yo_async_write_start, __yo_async_openat_start, __yo_async_close_start, __yo_async_statx_start, __yo_async_fsync_start, __yo_async_fdatasync_start, __yo_async_ftruncate_start, __yo_file_open, __yo_file_close, __yo_file_size, __yo_sync_write } :: import("./externs.yo");
 // ============================================================================
 // Async File Operations (return IoFuture, use with await)
 // ============================================================================
@@ -74,6 +74,14 @@ open_sync :: (fn(path : *(u8), flags : i32, mode : i32) -> i32)(
 close_sync :: (fn(fd : i32) -> unit)(
   __yo_file_close(fd)
 );
+// Positioned synchronous write (pwrite semantics; plain write for
+// non-seekable fds). For contexts that cannot await — Dispose impls.
+// Returns bytes written on success, -errno on failure. On Windows this is
+// OVERLAPPED-aware: async-opened file fds wrap FILE_FLAG_OVERLAPPED handles
+// that CRT _write cannot serve.
+write_sync :: (fn(fd : i32, buf : *(u8), count : u32, offset : u64) -> i32)(
+  __yo_sync_write(fd, buf, count, offset)
+);
 // Get file size synchronously. Returns size on success, -errno on failure.
 file_size :: (fn(fd : i32) -> i64)(
   __yo_file_size(fd)
@@ -89,5 +97,6 @@ export(
   ftruncate,
   open_sync,
   close_sync,
+  write_sync,
   file_size
 );

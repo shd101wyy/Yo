@@ -43,11 +43,11 @@ c_include(
   CP_UTF8 : u32
 );
 // CRT low-level I/O (the POSIX-shaped `_`-prefixed MSVCRT functions).
+// NOTE: CRT `_write` deliberately NOT bound here — async-opened file fds
+// wrap FILE_FLAG_OVERLAPPED handles that CRT _write cannot serve; use the
+// runtime's `__yo_sync_write` (std/sys/file.yo `write_sync`) instead.
 c_include(
   "<io.h>",
-  // _write - write bytes to a file descriptor at its current position.
-  // Returns the number of bytes written, or -1 on error.
-  _write : (fn(fd : int, buffer : *(void), count : u32) -> int),
   // _unlink - delete a file. Returns 0 on success, -1 on error.
   // Unlike POSIX unlink, fails if the file is still open.
   _unlink : (fn(path : *(char)) -> int)
@@ -64,6 +64,5 @@ export(WideCharToMultiByte);
 export(_putenv_s);
 export(GetModuleFileNameW);
 export(CP_UTF8);
-export(_write);
 export(_unlink);
 export(_rmdir);

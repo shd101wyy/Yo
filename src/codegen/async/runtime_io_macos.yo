@@ -52,6 +52,17 @@ static int64_t __yo_sync_lseek(int32_t fd, int64_t offset, int32_t whence) {
   return (result < 0) ? (int64_t)(-errno) : (int64_t)result;
 }
 
+/* Positioned synchronous write (pwrite semantics; plain write for
+   non-seekable fds). Exists so Dispose impls — which cannot await — can
+   flush bytes without reaching for libc through platform-gated imports:
+   on Windows the async-opened fds wrap OVERLAPPED handles that CRT _write
+   cannot serve, so a per-platform shim is the only correct home. */
+static int32_t __yo_sync_write(int32_t fd, const void* buf, uint32_t count, uint64_t offset) {
+  ssize_t n = pwrite(fd, buf, (size_t)count, (off_t)offset);
+  if (n < 0 && errno == ESPIPE) n = write(fd, buf, (size_t)count);
+  return (n < 0) ? -errno : (int32_t)n;
+}
+
 static int32_t __yo_sync_fallocate(int32_t fd, int32_t mode, int64_t offset, int64_t length) {
   if (offset < 0 || length < 0) return -EINVAL;
 

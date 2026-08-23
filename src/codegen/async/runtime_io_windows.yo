@@ -310,6 +310,49 @@ static int64_t __yo_sync_lseek(int32_t fd, int64_t offset, int32_t whence) {
   return (result < 0) ? (int64_t)(-errno) : (int64_t)result;
 }
 
+/* Positioned synchronous write. File fds here may wrap handles opened with
+   FILE_FLAG_OVERLAPPED (the async openat path), which CRT _write cannot
+   serve — WriteFile with an explicit OVERLAPPED works for BOTH overlapped
+   and plain handles (for plain ones it honors the offset and blocks until
+   done). The low bit set on hEvent suppresses posting the completion to
+   any I/O completion port the handle is associated with (documented
+   GetQueuedCompletionStatus behavior), so this write never injects foreign
+   packets into the async event loop. */
+static int32_t __yo_sync_write(int32_t fd, const void* buf, uint32_t count, uint64_t offset) {
+  if (fd < 0) return -EBADF;
+  if (__yo_win_is_socket_fd(fd)) return -ESPIPE;
+  intptr_t hv = _get_osfhandle(fd);
+  if (hv == -1) return -EBADF;
+  HANDLE h = (HANDLE)hv;
+  DWORD ft = GetFileType(h);
+  if (ft == FILE_TYPE_PIPE || ft == FILE_TYPE_CHAR) {
+    int n = _write(fd, buf, count);
+    return (n < 0) ? -errno : n;
+  }
+  OVERLAPPED ov;
+  memset(&ov, 0, sizeof(ov));
+  ov.Offset = (DWORD)(offset & 0xFFFFFFFFu);
+  ov.OffsetHigh = (DWORD)(offset >> 32);
+  HANDLE ev = CreateEventW(NULL, TRUE, FALSE, NULL);
+  if (!ev) return -EIO;
+  ov.hEvent = (HANDLE)((uintptr_t)ev | 1);
+  DWORD written = 0;
+  BOOL ok = WriteFile(h, buf, count, &written, &ov);
+  if (!ok) {
+    DWORD err = GetLastError();
+    if (err != ERROR_IO_PENDING) {
+      CloseHandle(ev);
+      return -__yo_win_last_error_to_errno();
+    }
+    if (!GetOverlappedResult(h, &ov, &written, TRUE)) {
+      CloseHandle(ev);
+      return -__yo_win_last_error_to_errno();
+    }
+  }
+  CloseHandle(ev);
+  return (int32_t)written;
+}
+
 static int32_t __yo_sync_fallocate(int32_t fd, int32_t mode, int64_t offset, int64_t length) {
   if (fd < 0) return -EBADF;
   if (offset < 0 || length < 0) return -EINVAL;
