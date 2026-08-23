@@ -1598,18 +1598,24 @@ run_compile :: (
       cmd.arg(String.from("-O0"));
     }
   );
-  // Chunked emission implies ThinLTO, and this is NOT an optional tuning knob
-  // (plans/CHUNKED_C_EMISSION.md). Splitting the program into N translation
-  // units externalizes every generated function, so the C compiler can no
-  // longer internalize or dead-strip them: MEASURED on an N=4 self-build, the
-  // binary went 9 MB / 3.5k symbols -> 24 MB / 7.2k symbols and ran 14.2%
-  // SLOWER on `check ./src` (102.8s vs 90.0s). With `-flto=thin` the linker
-  // recovers the cross-module inlining and the same build runs 87.4s —
-  // slightly FASTER than single-file. A chunked compiler that runs 14% slower
-  // would cancel the build-time win it exists for, so the flag rides along
-  // with `--emit-chunks` unless explicitly disabled. Not for wasm: emcc's LTO
-  // story is separate and chunked wasm builds are out of scope.
-  if((emit_chunks >= usize(1)) && (!(chunk_no_lto) && !(is_target_wasm(target))), {
+  // Chunked emission needs ThinLTO **at -O1 and above**, and there it is NOT an
+  // optional tuning knob (plans/CHUNKED_C_EMISSION.md). Splitting the program
+  // into N translation units externalizes every generated function, so an
+  // optimizing build can no longer internalize or dead-strip them: MEASURED on
+  // an N=4 self-build at -O2, the binary went 9 MB / 3.5k symbols -> 24 MB /
+  // 7.2k symbols and ran 14.2% SLOWER on `check ./src` (102.8s vs 90.0s).
+  // `-flto=thin` gives the linker back the cross-module inlining and the same
+  // build runs 87.4s — slightly FASTER than single-file.
+  //
+  // At -O0 the opposite is true: clang neither inlines nor dead-strips there,
+  // so externalization costs nothing (MEASURED: +12% symbols, and `check ./std`
+  // 40.2s chunked vs 40.7s single-file — identical) while the parallel C phase
+  // is 3.3x faster (5.5s vs 18.2s). Paying for a thin-link at -O0 would spend
+  // that win on nothing, so LTO tracks the OPTIMIZATION LEVEL rather than the
+  // chunk flag. The condition mirrors the -O selection above exactly.
+  // Not for wasm: emcc's LTO story is separate and chunked wasm is out of scope.
+  chunk_lto_wanted := (((optimize == "") && release) || ((optimize != "") && (optimize != "0")));
+  if((emit_chunks >= usize(1)) && (chunk_lto_wanted && (!(chunk_no_lto) && !(is_target_wasm(target)))), {
     cmd.arg(String.from("-flto=thin"));
   });
   if(debug_symbols, {

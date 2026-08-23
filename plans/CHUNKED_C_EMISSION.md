@@ -296,10 +296,11 @@ Measured (interleaved, `check ./src`, 262/262 on every run):
 | **chunked N=4 + ThinLTO** | **87.41 s** | **-2.9% (faster)** |
 | chunked N=4, no LTO | 102.81 s | +14.2% |
 
-So the design decision changes: **`--emit-chunks` now implies `-flto=thin`**
-(`--no-chunk-lto` opts out, wasm excluded). It is not a tuning knob — without
-it a chunked-built compiler runs 14% slower, which cancels the build-time win
-the campaign exists for. Interestingly the LTO binary is still 23 MB / 6,821
+So the design decision changes: **a chunked build at `-O1`+ gets `-flto=thin`
+automatically** (`--no-chunk-lto` opts out, wasm excluded; at `-O0` it is
+skipped — see the `-O0` measurement under step 3). It is not a tuning knob at
+`-O2` — without it a chunked-built compiler runs 14% slower, which cancels the
+build-time win the campaign exists for. Interestingly the LTO binary is still 23 MB / 6,821
 symbols, i.e. ThinLTO buys the speed through inlining rather than by shrinking
 the image.
 
@@ -345,6 +346,57 @@ Measure the cached-rebuild path before adding any of them.
    - full `tests/` green on the chunked binary — pending the perf gate.
 3. **Parallel driver + `.o` cache**. Gate: N=16 C-phase ≤ ~20 s; touch-nothing
    rebuild = 100% cache hits; corrupt `.o` falls back.
+
+   **Measured up front (2026-08-23, N=4, 10-core M4), so the driver is built
+   against numbers rather than hopes:**
+
+   | configuration | compile | link | total | binary runtime |
+   |---|---|---|---|---|
+   | single-file (today's default) | — | — | 72.3 s | baseline |
+   | chunked, ONE clang call + LTO (what the driver does after step 2) | — | — | 65.8 s | −2.9% |
+   | chunked, 4 parallel `cc -c` + LTO link | 11.5 s | 24.8 s | **36.2 s** | −2.9% |
+   | chunked, 4 parallel `cc -c`, no LTO | 26.3 s | 0.1 s | **26.4 s** | +14.2% |
+
+   Two consequences for the design:
+   - **The link becomes the bottleneck under LTO** (24.8 s of 36.2 s), and it
+     is not cacheable — it re-runs on every build. So a `.o` cache saves at
+     most the 11.5 s compile, putting the cached-rebuild floor at ~25 s. Raising
+     N past ~4 mostly does not help either; the thin-link/backend phase already
+     parallelizes internally (~1.9x). The cache is still worth having, but
+     "N=16 C-phase ≤ 20 s" is unreachable WITH LTO and should be restated.
+   - **Without LTO the picture inverts**: a cached no-change rebuild is a
+     0.1 s link. That is only usable if the 14.2% runtime penalty does not
+     matter — which is exactly the case at `-O0`, where there is no
+     cross-module inlining to lose in the first place.
+
+   **`-O0` measured, hypothesis CONFIRMED (2026-08-23):** at `-O0` clang
+   neither inlines nor dead-strips, so externalizing every function costs
+   almost nothing there:
+
+   | `-O0` build | C phase | runtime (`check ./std`, 154/154) | defined symbols |
+   |---|---|---|---|
+   | single-file | 18.25 s | 40.73 s | 6,848 |
+   | chunked, 4 parallel | **5.49 s (3.3x)** | **40.23 s (identical)** | 7,693 (+12%) |
+
+   Contrast the `-O2` symbol blow-up (3,493 -> 7,201, i.e. 2.1x): at `-O0` the
+   single-file build cannot dead-strip either, so the gap is only 12%. So
+   **LTO tracks the OPTIMIZATION LEVEL, not the chunk flag** — implemented as
+   `chunk_lto_wanted` in `run_compile`, mirroring the `-O` selection exactly.
+   At `-O0` a chunked build now skips the thin-link entirely and is 3.3x
+   faster with no runtime cost; at `-O1`+ it gets `-flto=thin` and is
+   perf-neutral. This also materially changes the default-on calculus for dev
+   builds: `-O0` chunking is a pure win, and with a `.o` cache the no-change
+   rebuild is a 0.13 s link.
+
+   **BLOCKER, found while prototyping the fan-out:** `io.spawn` inside a
+   `while` loop or a recursive call hangs (spins at 100% CPU) — the JoinHandle
+   holds a borrowed pointer and the loop body's scope-end drop frees the future
+   under it. Root-caused at the C level and filed as
+   `issues/io-spawn-in-loop-or-recursion-hangs.md`. A verified workaround
+   exists (unrolled spawns inside a helper fn, and loop over WAVES of that
+   helper — measured 2 waves x 500 ms concurrent = 1013 ms), which also bounds
+   the job window the way `--jobs` would anyway. Either fix the bug first or
+   build the driver on the wave pattern.
 4. **Perf validation + LTO experiment** (3 configs). Gate: runtime within
    ~5% of baseline.
 5. **build.yo surface + CI gate**: `Executable.emit_chunks`, a behavioral
