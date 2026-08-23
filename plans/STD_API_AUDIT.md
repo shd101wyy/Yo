@@ -186,6 +186,18 @@ deferred, each needing new machinery: `collect`/`FromIterator`
 D3.5 Range iteration). Tests: 10 new cases in
 tests/iterator_combinators.test.yo (28/28).
 
+**Progress (S1 chunk 5, 2026-08-24, branch s1-tostring, stacked on
+chunk 3):** D3.8 ToString completion — the eight C-interop integers
+(`int`/`uint`/`short`/`ushort`/`long`/`ulong`/`longlong`/`ulonglong`) plus
+`longdouble` (`%Lg`), and containers: `ArrayList(T)`/`Array(T, N)` print as
+`[a, b, c]` where `T <: ToString` (nests through Option/Result's chunk-2
+impls), so `println(list)` compiles. `to_string.yo` now imports ArrayList
+(no cycle — array_list does not import fmt). DEFERRED: `unit` — an
+`inout(self)` receiver of type unit emits an invalid C ref-spill
+(`void __yo_ref_spill_N = ;`,
+issues/inout-unit-receiver-void-ref-spill.md). Tests: 2 new cases in
+tests/fmt.test.yo (5/5).
+
 1. **`Default`** trait + derive. Unblocks `unwrap_or_default`, map `or_default`.
 2. **`From(T)` / `Into(T)`** (the prelude header already *claims* they exist).
 3. **`Ordering` wired in**: `Ord` gains `cmp(self, rhs) -> Ordering` (default

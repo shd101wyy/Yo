@@ -2,6 +2,7 @@
 pragma(Pragma.AllowUnsafe);
 { String, rune } :: import("../string");
 { snprintf } :: import("../libc/stdio");
+{ ArrayList } :: import("../collections/array_list");
 /// Trait for converting values to their `String` representation.
 /// Types implementing this trait can be used with `println`, `print`, and template strings.
 ToString :: trait(
@@ -153,6 +154,107 @@ impl(
     })
   )
 );
+// === C-interop Integer Implementations (plans/STD_API_AUDIT.md D3.8) ===
+impl(
+  int,
+  ToString(
+    to_string : (fn(inout(self) : Self) -> String)({
+      buffer := Array(u8, _INT_BUFFER_SIZE).fill(0);
+      buffer_ptr := (&(buffer(0)));
+      unsafe(snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%d", self));
+      String.from_cstr(buffer_ptr).unwrap()
+    })
+  )
+);
+impl(
+  uint,
+  ToString(
+    to_string : (fn(inout(self) : Self) -> String)({
+      buffer := Array(u8, _INT_BUFFER_SIZE).fill(0);
+      buffer_ptr := (&(buffer(0)));
+      unsafe(snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%u", self));
+      String.from_cstr(buffer_ptr).unwrap()
+    })
+  )
+);
+impl(
+  short,
+  ToString(
+    to_string : (fn(inout(self) : Self) -> String)({
+      buffer := Array(u8, _INT_BUFFER_SIZE).fill(0);
+      buffer_ptr := (&(buffer(0)));
+      unsafe(snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%hd", self));
+      String.from_cstr(buffer_ptr).unwrap()
+    })
+  )
+);
+impl(
+  ushort,
+  ToString(
+    to_string : (fn(inout(self) : Self) -> String)({
+      buffer := Array(u8, _INT_BUFFER_SIZE).fill(0);
+      buffer_ptr := (&(buffer(0)));
+      unsafe(snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%hu", self));
+      String.from_cstr(buffer_ptr).unwrap()
+    })
+  )
+);
+impl(
+  long,
+  ToString(
+    to_string : (fn(inout(self) : Self) -> String)({
+      buffer := Array(u8, _INT_BUFFER_SIZE).fill(0);
+      buffer_ptr := (&(buffer(0)));
+      unsafe(snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%ld", self));
+      String.from_cstr(buffer_ptr).unwrap()
+    })
+  )
+);
+impl(
+  ulong,
+  ToString(
+    to_string : (fn(inout(self) : Self) -> String)({
+      buffer := Array(u8, _INT_BUFFER_SIZE).fill(0);
+      buffer_ptr := (&(buffer(0)));
+      unsafe(snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%lu", self));
+      String.from_cstr(buffer_ptr).unwrap()
+    })
+  )
+);
+impl(
+  longlong,
+  ToString(
+    to_string : (fn(inout(self) : Self) -> String)({
+      buffer := Array(u8, _INT_BUFFER_SIZE).fill(0);
+      buffer_ptr := (&(buffer(0)));
+      unsafe(snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%lld", self));
+      String.from_cstr(buffer_ptr).unwrap()
+    })
+  )
+);
+impl(
+  ulonglong,
+  ToString(
+    to_string : (fn(inout(self) : Self) -> String)({
+      buffer := Array(u8, _INT_BUFFER_SIZE).fill(0);
+      buffer_ptr := (&(buffer(0)));
+      unsafe(snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%llu", self));
+      String.from_cstr(buffer_ptr).unwrap()
+    })
+  )
+);
+impl(
+  longdouble,
+  ToString(
+    to_string : (fn(inout(self) : Self) -> String)({
+      buffer := Array(u8, _FLOAT_BUFFER_SIZE).fill(0);
+      buffer_ptr := (&(buffer(0)));
+      // Use %Lg for general format (removes trailing zeros)
+      unsafe(snprintf(*(char)(buffer_ptr), _FLOAT_BUFFER_SIZE, "%Lg", self));
+      String.from_cstr(buffer_ptr).unwrap()
+    })
+  )
+);
 // === Boolean Implementation ===
 impl(
   bool,
@@ -281,7 +383,54 @@ impl(
     )
   )
 );
-// TODO: Array to_string implementation?
+// === Container Implementations (plans/STD_API_AUDIT.md D3.8) ===
+/// `ArrayList(T)` prints as `[a, b, c]`, so `println(list)` compiles.
+impl(
+  generic(T : Type),
+  where(T <: ToString),
+  ArrayList(T),
+  ToString(
+    to_string : (fn(inout(self) : Self) -> String)({
+      (out : String) = `[`;
+      (i : usize) = usize(0);
+      n := self.len();
+      while(i < n, {
+        cond(
+          (i > usize(0)) => {
+            out = `${out}, `;
+          },
+          true => ()
+        );
+        out = `${out}${self(i)}`;
+        i = (i + usize(1));
+      });
+      `${out}]`
+    })
+  )
+);
+/// `Array(T, N)` prints as `[a, b, c]`.
+impl(
+  generic(T : Type, N : usize),
+  where(T <: ToString),
+  Array(T, N),
+  ToString(
+    to_string : (fn(inout(self) : Self) -> String)({
+      (out : String) = `[`;
+      (i : usize) = usize(0);
+      while(i < N, {
+        cond(
+          (i > usize(0)) => {
+            out = `${out}, `;
+          },
+          true => ()
+        );
+        out = `${out}${self(i)}`;
+        i = (i + usize(1));
+      });
+      `${out}]`
+    })
+  )
+);
 // --- derive_rule for ToString ---
 // Local helpers (not exported from prelude, so defined locally)
 __ts_s2 :: (fn(comptime(a) : comptime_str, comptime(b) : comptime_str) -> comptime(comptime_str))(a + b);
