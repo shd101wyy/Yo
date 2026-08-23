@@ -1,0 +1,15 @@
+# Chunked C emission (plans/CHUNKED_C_EMISSION.md steps 2-3): `--emit-chunks N`
+# splits the emitted program into N linkable translation units, compiles them in
+# parallel behind a content-addressed `.o` cache, and links. The case runs the
+# SAME compile twice, so the golden pins both halves of the cache contract: the
+# first run compiles every unit, the second serves all of them from cache.
+#
+# stdout_keep: the only deterministic lines are the allocator notice and the
+# per-run chunk summary. Everything else (paths, timings) varies by sandbox.
+#
+# The `ignore` file drops the generated artifacts: object files and the linked
+# binary are not reproducible across clang versions, and the emitted C/header
+# would force a golden re-record on every codegen change — the assertion here is
+# the CACHE BEHAVIOUR and a successful link, not the bytes of the output.
+stdout_keep=^(chunks: |Using )
+timeout=300
