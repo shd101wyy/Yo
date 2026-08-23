@@ -347,10 +347,11 @@ _bind_some_type :: (
         return(());
       });
       bind_probe_name := match(synth_dbg_env.get(`YO_DEBUG_BIND`), .Some(bpn) => bpn, .None => String.from(""));
-      if(((bind_probe_name.len() > usize(0)) && (name == bind_probe_name)) && !(val_is_self_marker), {
+      if((bind_probe_name.len() > usize(0)) && (name == bind_probe_name), {
         wrote_lvl := if(identity_mismatch || ((env.frames.len() > usize(0)) && (old_var.frame_level != (env.frames.len() - usize(1)))), env.frames.len() - usize(1), old_var.frame_level);
         wrote_fid := match(env.frames.get(wrote_lvl), .Some(wf) => wf.id, .None => usize(0));
-        eprintln(`[bind-T] val=${value_to_string(val)} slot_lvl=${old_var.frame_level.to_string()} top=${(env.frames.len() - usize(1)).to_string()} wrote_lvl=${wrote_lvl.to_string()} fid=${wrote_fid.to_string()} inplace=${(!(identity_mismatch || ((env.frames.len() > usize(0)) && (old_var.frame_level != (env.frames.len() - usize(1)))))).to_string()}`);
+        slot_str := match(old_var.value.get(usize(0)), .Some(ovv) => value_to_string(ovv), .None => String.from("-"));
+        eprintln(`[bind-T] val=${value_to_string(val)} slot=${slot_str} slot_id=${found_slot_someid} src_id=${source_some_id} selfm=${val_is_self_marker.to_string()} slot_lvl=${old_var.frame_level.to_string()} top=${(env.frames.len() - usize(1)).to_string()} wrote_lvl=${wrote_lvl.to_string()} fid=${wrote_fid.to_string()} inplace=${(!(identity_mismatch || ((env.frames.len() > usize(0)) && (old_var.frame_level != (env.frames.len() - usize(1)))))).to_string()}`);
       });
       if(identity_mismatch || ((env.frames.len() > usize(0)) && (old_var.frame_level != (env.frames.len() - usize(1)))), {
         add_variable_to_env(
