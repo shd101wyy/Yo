@@ -1,7 +1,7 @@
 # Chunked C emission + parallel/cached clang
 
-**Status: ACTIVE (designed 2026-08-23; steps 0-1 DONE — step 1 merged #233;
-step 2 in progress).**
+**Status: ACTIVE (steps 0-3 DONE — step 1 #233, step 2 #234, LTO-by-opt-level
+#235, step 3 landing; steps 4-5 open).**
 Goal: `yo build`'s C leg — clang -O2 on the single ~148 MB emitted `yo.c` —
 measured **74.8 s single-threaded** (step 0 baseline, M4, of a ~220 s full
 rebuild). Split the emitted program into N translation units compiled in
@@ -68,11 +68,13 @@ compare default emissions.
 | String literals | compound literals inside bodies — travel with their function |
 
 ~~`-flto=thin` is the opt-in mitigation (`--chunk-lto`) for lost cross-TU
-inlining; not default.~~ **SUPERSEDED 2026-08-23 by measurement:** ThinLTO is
-REQUIRED, and `--emit-chunks` now implies it (`--no-chunk-lto` opts out). Without
-it the chunked binary runs 14.2% slower; with it, 2.9% faster than single-file.
-See "The real cause, and why ThinLTO is REQUIRED" below. Perf gate: chunked
-binary within ~5% of baseline on self-`check` — **met, with LTO**.
+inlining; not default.~~ **SUPERSEDED 2026-08-23 by measurement:** at `-O1`+
+ThinLTO is REQUIRED and a chunked build gets it automatically
+(`--no-chunk-lto` opts out); at `-O0` it is skipped, because there is no
+cross-module inlining to lose there. Without LTO at `-O2` the chunked binary
+runs 14.2% slower; with it, 2.9% faster than single-file. See "The real cause,
+and why ThinLTO is REQUIRED" below. Perf gate: chunked binary within ~5% of
+baseline on self-`check` — **met**.
 
 ## Chunk count: how N is chosen, and whether chunking should be default
 
@@ -151,15 +153,53 @@ passes.
 - Cache key: `sha256(shared_header ‖ chunk_text ‖ clang argv ‖ compiler
   version)` — a type renumbering must invalidate every chunk.
 
-## Driver
+## Driver (IMPLEMENTED, step 3)
 
-Refactor `run_compile`'s flag assembly (main.yo:1492-1732) into a helper
-shared by: the unchanged single-file command (byte-identical argv), per-chunk
-`cc -c` jobs, and the link. Parallelism via `io.spawn` windows (`--jobs J`,
-default 8, `YO_JOBS` override — no CPU-count API in std yet). `.o` cache
-mirrors Phase A's sha256 stamp pattern (build_runner.yo:436-490) under
-`<c_base>.chunks/cache/`; `YO_BUILD_NO_CACHE=1` honored; mimalloc `static.c`
-becomes one more parallel job.
+The flag assembly was NOT refactored into a helper — 99 `cmd.arg(...)` call
+sites would have had to move, and any reordering silently changes the
+single-file argv the bootstrap gates depend on. Instead `cmd` became a
+drop-in RECORDER (`CcArgv`, whose `arg` matches `Command.arg`'s signature
+exactly), so every assembly site is untouched and the argv order is preserved
+by construction. Everything recorded up to the point where inputs are added is
+the compile flag set; it is replayed verbatim for each `cc -c`, and the link
+runs from the same recorded argv with `.o` paths substituted for the `.c`.
+
+Parallelism does NOT use `io.spawn`: spawning in a loop hangs
+(`issues/io-spawn-in-loop-or-recursion-hangs.md`). The driver instead generates
+a POSIX `sh` script — one backgrounded `cc` per chunk in waves of `--jobs`
+(default 8), collecting each job's status individually with `wait $pid`,
+because bare `wait` always reports success. That is one child process and no
+async machinery. On a WINDOWS host there is no `sh`, so the compiles run
+sequentially (the `.o` cache still applies). Flag values reach the script
+single-quoted (`_sh_quote`), since `-D`/`-I`/`--cflags` carry user text.
+
+`.o` cache: key is `sha256(chunk text hash ‖ compile flags ‖ compiler
+version)`, where the text hash is taken AT WRITE TIME so the ~140 MB of chunk
+`.c` never has to be read back. The stamp lands in `<obj>.inputs-sha256`
+(Phase A's pattern) and is written only AFTER a successful compile, so a failed
+build never leaves a stamp that would skip a missing object.
+`YO_BUILD_NO_CACHE=1` disables it.
+
+A stamp records INPUTS, so it cannot detect that an object file is present but
+unusable (truncated, clobbered). A link failure after cache hits is therefore
+treated as a poisoned cache: the driver recompiles every chunk from source and
+links once more, and only a second failure is reported. Verified by
+clobbering one `.o` — link fails, all chunks recompile, binary builds and runs.
+
+**Measured on the self-build (N=4, `--release`):**
+
+| build | total | chunk phase |
+|---|---|---|
+| single-file baseline | ~209.7 s (137.4 s evaluate+emit, 72.3 s C) | — |
+| chunked, cold cache | **173.2 s** | 0 cached, 4 compiled |
+| chunked, warm cache | **161.7 s** | 4 cached, 0 compiled |
+
+The warm build's residual is 137.4 s of evaluation plus the ~24 s ThinLTO
+link — i.e. **the evaluator is now 85% of a cached rebuild**, and the C leg is
+no longer where the time goes. Not done: `--jobs` has no `YO_JOBS` override and
+no CPU-count default (no std API yet — see auto-N above); mimalloc's
+`static.c` is still compiled by the link command rather than as one more
+parallel job.
 
 ## Step 2 bring-up record (2026-08-23)
 
@@ -344,8 +384,18 @@ Measure the cached-rebuild path before adding any of them.
      "The RC de-inlining regression" above (16.5% found, RC fix landed,
      re-measurement in progress).
    - full `tests/` green on the chunked binary — pending the perf gate.
-3. **Parallel driver + `.o` cache**. Gate: N=16 C-phase ≤ ~20 s; touch-nothing
-   rebuild = 100% cache hits; corrupt `.o` falls back.
+3. **Parallel driver + `.o` cache** — **DONE 2026-08-23** (see "Driver"
+   above for the implementation and the measurements).
+   Gates:
+   - touch-nothing rebuild = 100% cache hits — **MET** (self-build: "4
+     unit(s), 4 cached, 0 to compile"; total 173.2 s cold -> 161.7 s warm).
+   - corrupt `.o` falls back — **MET**, by recompiling every chunk and
+     retrying the link once (a stamp records inputs, so it cannot detect an
+     unusable object). Verified by clobbering an object file.
+   - N=16 C-phase ≤ ~20 s — **RESTATED, not met as written**: with ThinLTO the
+     link alone is ~24 s and is not cacheable, so no N reaches 20 s. At `-O0`,
+     where LTO is skipped, a cached rebuild's chunk phase is a 0.13 s link.
+     The gate should have been written per optimization level.
 
    **Measured up front (2026-08-23, N=4, 10-core M4), so the driver is built
    against numbers rather than hopes:**

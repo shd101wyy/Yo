@@ -30,6 +30,7 @@ _(env : proc_env) :: import("std/env");
 { run_lsp_server } :: import("./lsp/server.yo");
 { Path } :: import("std/path");
 { read_file, write_file, exists } :: import("std/fs/file");
+{ sha256_hex } :: import("std/crypto/sha256");
 { metadata } :: import("std/fs/metadata");
 { read_dir, FileType, remove_file, create_dir_all } :: import("std/fs/dir");
 { sleep } :: import("std/time/sleep");
@@ -1011,6 +1012,206 @@ _pad3 :: (fn(i : usize) -> String)({
     true => `00${s}`
   )
 });
+/// Records the C-compiler argv as it is assembled, so the chunked path can
+/// replay EXACTLY the same flags for per-chunk `cc -c` jobs. The method name
+/// and signature deliberately match `Command.arg`, so `run_compile`'s ~99
+/// flag-assembly call sites are untouched — and therefore cannot drift or
+/// reorder the single-file argv, which the bootstrap gates depend on.
+CcArgv :: ref(struct(recorded : ArrayList(String)));
+impl(
+  CcArgv,
+  new : (fn() -> Self)(
+    Self(recorded : ArrayList(String).new())
+  ),
+  arg : (fn(inout(self) : Self, a : String) -> unit)({
+    _p := self.recorded.push(a);
+    ()
+  })
+);
+/// Build a runnable `Command` from a recorded argv.
+_cc_command :: (fn(program : String, argv : ArrayList(String)) -> Command)({
+  c := Command.new(program.clone());
+  (i : usize) = usize(0);
+  while(i < argv.len(), {
+    match(argv.get(i), .Some(a) => c.arg(a.clone()), .None => ());
+    i = (i + usize(1));
+  });
+  c
+});
+/// Single-quote `s` for POSIX `sh`, escaping embedded single quotes as
+/// `'\''`. Flag values can carry user text (`-D`, `-I`, `--cflags`), so the
+/// generated compile script must never let them reach the shell unquoted.
+_sh_quote :: (fn(s : String) -> String)({
+  out := String.from("'");
+  b := s.as_bytes();
+  (i : usize) = usize(0);
+  while(i < b.len(), {
+    ch := match(b.get(i), .Some(x) => x, .None => u8(0));
+    if(ch == u8(39), {
+      out.push_str("'\\''");
+    }, {
+      out.push_byte(ch);
+    });
+    i = (i + usize(1));
+  });
+  out.push_str("'");
+  out
+});
+/// Read a file's bytes, or `.None` when unreadable.
+_chunk_read :: (fn(path : String, io : Io) -> Option(ArrayList(u8)))({
+  rd_exn := Exception(throw : ((_e) -> unwind(Option(ArrayList(u8)).None)));
+  bytes := io.await(read_file(Path.new(path.clone()), io), IoExn(io : io, exn : rd_exn));
+  Option(ArrayList(u8)).Some(bytes)
+});
+/// Recorded stamp beside an object file, `.None` when absent.
+_chunk_read_stamp :: (fn(path : String, io : Io) -> Option(String))(
+  match(_chunk_read(path, io), .Some(b) => Option(String).Some(String.from_bytes(b)), .None => Option(String).None)
+);
+/// Record a stamp; failures are silent (the cache is only an optimization).
+_chunk_write_stamp :: (fn(path : String, stamp : String, io : Io) -> unit)({
+  wr_exn := Exception(throw : ((_e) -> unwind(())));
+  io.await(write_file(Path.new(path.clone()), stamp.clone(), io), IoExn(io : io, exn : wr_exn));
+});
+/// Compile the chunk `.c` files to `.o` in PARALLEL and return the object
+/// paths, honouring a content-addressed cache.
+///
+/// Parallelism is done by generating a POSIX `sh` script rather than by
+/// spawning children from Yo: `io.spawn` in a loop currently hangs
+/// (issues/io-spawn-in-loop-or-recursion-hangs.md), and one `sh` child running
+/// `cc ... & ... ; wait` needs no async machinery at all. Failures are
+/// detected per job (`wait $pid`), since bare `wait` always reports success.
+/// On a WINDOWS host there is no `sh`, so the compiles run sequentially — the
+/// `.o` cache still applies.
+///
+/// Cache key per chunk: sha256(text hash of `shared.h ++ chunk.c` computed at
+/// emission time, the compile flags, and the compiler version) — so a flag
+/// change or a type renumbering invalidates every chunk, which is the
+/// intended behaviour. `YO_BUILD_NO_CACHE=1` disables it.
+_compile_chunks_parallel :: (
+  fn(
+    cc : String,
+    flags : ArrayList(String),
+    chunk_c_files : ArrayList(String),
+    chunk_text_hashes : ArrayList(String),
+    out_base : String,
+    jobs : usize,
+    force_recompile : bool,
+    hits_out : ArrayList(usize),
+    io : Io,
+    exn : Exception
+  ) -> ArrayList(String)
+)({
+  objs := ArrayList(String).new();
+  no_cache := (force_recompile || match(proc_env.get(`YO_BUILD_NO_CACHE`), .Some(v) => (v == "1"), .None => false));
+  flags_key := String.from(" ").join(flags);
+  // Per-chunk decision: reuse the cached `.o`, or add a compile line.
+  lines := ArrayList(String).new();
+  stamps := ArrayList(String).new();
+  stamp_paths := ArrayList(String).new();
+  (i : usize) = usize(0);
+  while(i < chunk_c_files.len(), {
+    cf := match(chunk_c_files.get(i), .Some(x) => x, .None => String.new());
+    obj := `${cf.substring(usize(0), cf.len() - usize(2))}.o`;
+    objs.push(obj.clone());
+    text_hash := match(chunk_text_hashes.get(i), .Some(h) => h, .None => String.new());
+    stamp_src := ArrayList(u8).new();
+    sb := `${text_hash}\n${flags_key}\n${CURRENT_YO_VERSION}`.as_bytes();
+    (si : usize) = usize(0);
+    while(si < sb.len(), {
+      stamp_src.push(match(sb.get(si), .Some(x) => x, .None => u8(0)));
+      si = (si + usize(1));
+    });
+    stamp := sha256_hex(stamp_src);
+    stamp_path := `${obj}.inputs-sha256`;
+    obj_exists := io.await(exists(Path.new(obj.clone()), io), io);
+    cached := (!(no_cache) && (obj_exists && match(_chunk_read_stamp(stamp_path.clone(), io), .Some(prev) => (prev == stamp), .None => false)));
+    if(!(cached), {
+      cmdline := String.new();
+      cmdline.push_string(_sh_quote(cc.clone()));
+      (fi : usize) = usize(0);
+      while(fi < flags.len(), {
+        cmdline.push_str(" ");
+        cmdline.push_string(_sh_quote(match(flags.get(fi), .Some(f) => f, .None => String.new())));
+        fi = (fi + usize(1));
+      });
+      cmdline.push_str(" -c ");
+      cmdline.push_string(_sh_quote(cf.clone()));
+      cmdline.push_str(" -o ");
+      cmdline.push_string(_sh_quote(obj.clone()));
+      lines.push(cmdline);
+      stamps.push(stamp);
+      stamp_paths.push(stamp_path);
+    });
+    i = (i + usize(1));
+  });
+  hits := (chunk_c_files.len() - lines.len());
+  hits_out.push(hits);
+  println(`chunks: ${chunk_c_files.len().to_string()} unit(s), ${hits.to_string()} cached, ${lines.len().to_string()} to compile (jobs=${jobs.to_string()})`);
+  if(lines.len() == usize(0), {
+    return(objs);
+  });
+  windows_host := is_target_windows(host_target());
+  cond(
+    windows_host => {
+      // No `sh`: compile sequentially, one Command per chunk.
+      (li : usize) = usize(0);
+      while(li < chunk_c_files.len(), {
+        cf := match(chunk_c_files.get(li), .Some(x) => x, .None => String.new());
+        obj := match(objs.get(li), .Some(x) => x, .None => String.new());
+        seq := _cc_command(cc.clone(), flags);
+        seq.arg(String.from("-c"));
+        seq.arg(cf.clone());
+        seq.arg(String.from("-o"));
+        seq.arg(obj.clone());
+        sst := io.await(seq.status(io), IoExn(io : io, exn : exn));
+        if(sst.raw != i32(0), {
+          exn.throw(dyn(`compile: C compiler failed (exit ${sst.code().to_string()}) on ${cf}`));
+          return(objs);
+        });
+        li = (li + usize(1));
+      });
+    },
+    true => {
+      // One `sh` child; `cc` jobs run in background waves of `jobs`, and each
+      // job's status is collected individually.
+      script := String.from("pids=\"\"\nrc=0\n");
+      (li : usize) = usize(0);
+      (in_wave : usize) = usize(0);
+      while(li < lines.len(), {
+        script.push_string(match(lines.get(li), .Some(l) => l, .None => String.new()));
+        script.push_str(" & pids=\"$pids $!\"\n");
+        in_wave = (in_wave + usize(1));
+        if(in_wave >= jobs, {
+          script.push_str("for p in $pids; do wait $p || rc=1; done\npids=\"\"\n");
+          in_wave = usize(0);
+        });
+        li = (li + usize(1));
+      });
+      script.push_str("for p in $pids; do wait $p || rc=1; done\nexit $rc\n");
+      script_path := `${out_base}_chunks_compile.sh`;
+      io.await(write_file(Path.new(script_path.clone()), script, io), IoExn(io : io, exn : exn));
+      shcmd := Command.new(String.from("sh"));
+      shcmd.arg(script_path.clone());
+      shst := io.await(shcmd.status(io), IoExn(io : io, exn : exn));
+      if(shst.raw != i32(0), {
+        exn.throw(dyn(`compile: C compiler failed (exit ${shst.code().to_string()}) compiling chunks — see ${script_path}`));
+        return(objs);
+      });
+    }
+  );
+  // Only stamp AFTER a successful compile, so a failed build never leaves a
+  // stamp that would make the next run skip a missing/partial object.
+  (wi : usize) = usize(0);
+  while(wi < stamp_paths.len(), {
+    _chunk_write_stamp(
+      match(stamp_paths.get(wi), .Some(p) => p, .None => String.new()),
+      match(stamps.get(wi), .Some(s) => s, .None => String.new()),
+      io
+    );
+    wi = (wi + usize(1));
+  });
+  objs
+});
 /// Run the `compile` subcommand.
 run_compile :: (
   fn(
@@ -1035,6 +1236,8 @@ run_compile :: (
   (allocator : String) = String.from("system");
   (emit_chunks : usize) = usize(0);
   (chunk_no_lto : bool) = false;
+  // --jobs J: parallel per-chunk `cc -c` jobs (chunked emission only).
+  (jobs : usize) = usize(8);
   (optimize : String) = String.from(""); // "" = unset; "0".."3"
   (sanitize : String) = String.from(""); // "" / "address" / "leak" / "thread"
   (cflags : String) = String.from("");
@@ -1231,6 +1434,11 @@ run_compile :: (
       (a == "--no-chunk-lto") => {
         chunk_no_lto = true;
         ai = (ai + usize(1));
+      },
+      (a == "--jobs") => {
+        jv := _arg_val_req(argv, ai, String.from("--jobs"), exn);
+        jobs = match(jv.parse_u64(), .Some(n) => if(n > u64(0), usize(n), usize(1)), .None => usize(8));
+        ai = (ai + usize(2));
       },
       (a == "--emit-chunks") => {
         ecv := _arg_val_req(argv, ai, String.from("--emit-chunks"), exn);
@@ -1437,8 +1645,15 @@ run_compile :: (
   // it survives) and `target` are the only values the link line needs.
   // ---------------------------------------------------------------------
   (c_path : String) = String.new();
-  // Chunked emission: every written chunk `.c` (all become cc inputs).
+  // Chunked emission: every written chunk `.c` (all become cc inputs), plus a
+  // content hash per chunk taken AT WRITE TIME (the `.o` cache key's text
+  // half — hashing here avoids re-reading ~140 MB back off disk at link time).
   chunk_c_files := ArrayList(String).new();
+  chunk_text_hashes := ArrayList(String).new();
+  // Whether the chunk `.o` cache actually served anything, plus the compile
+  // flag prefix — both needed to retry without the cache if the link fails.
+  (chunk_used_cache : bool) = false;
+  chunk_link_flags := ArrayList(String).new();
   {
     clear_module_cache();
     mm_clear_prelude_env();
@@ -1532,8 +1747,9 @@ run_compile :: (
           cbody.push_string(shared_h_base.clone());
           cbody.push_str("\"\n");
           cbody.push_string(match(chunk_parts.get(pi2), .Some(x) => x, .None => String.new()));
-          io.await(write_file(Path.new(cf.clone()), cbody, io), IoExn(io : io, exn : exn));
+          io.await(write_file(Path.new(cf.clone()), cbody.clone(), io), IoExn(io : io, exn : exn));
           chunk_c_files.push(cf);
+          chunk_text_hashes.push(sha256_hex(cbody.as_bytes()));
           pi2 = (pi2 + usize(1));
         });
         c_path = match(chunk_c_files.get(usize(0)), .Some(x) => x.clone(), .None => c_path.clone());
@@ -1558,7 +1774,11 @@ run_compile :: (
   });
   // ----- assemble the C-compiler invocation (mirrors src/codegen/index.ts) ---
   std_root := resolve_std_path();
-  cmd := Command.new(cc.clone());
+  // Flags are RECORDED rather than pushed straight into a Command, so the
+  // chunked path can replay the identical flag list for per-chunk `cc -c`
+  // jobs. `CcArgv.arg` matches `Command.arg`, so every assembly call site
+  // below is unchanged.
+  cmd := CcArgv.new();
   // `zig` is invoked as `zig cc ...`.
   if(cc == "zig", {
     cmd.arg(String.from("cc"));
@@ -1756,7 +1976,7 @@ run_compile :: (
     cmd.arg(c_path.clone());
     cmd.arg(String.from("-o"));
     cmd.arg(obj_path.clone());
-    cst := io.await(cmd.status(io), IoExn(io : io, exn : exn));
+    cst := io.await(_cc_command(cc.clone(), cmd.recorded).status(io), IoExn(io : io, exn : exn));
     if(cst.raw != i32(0), {
       exn.throw(dyn(`compile: C compiler failed (exit ${cst.code().to_string()}) on ${c_path}`));
       return(())
@@ -1777,9 +1997,27 @@ run_compile :: (
   // the one invocation (parallel per-chunk `cc -c` + a `.o` cache is step 3).
   cond(
     (chunk_c_files.len() > usize(0)) => {
+      // Everything recorded so far is the COMPILE flag set; replay it for one
+      // `cc -c` per chunk, in parallel and behind the `.o` cache, then link
+      // the objects with the same command line.
+      chunk_hits := ArrayList(usize).new();
+      chunk_objs := _compile_chunks_parallel(
+        cc.clone(),
+        cmd.recorded,
+        chunk_c_files,
+        chunk_text_hashes,
+        output.clone(),
+        jobs,
+        false,
+        chunk_hits,
+        io,
+        exn
+      );
+      chunk_link_flags = cmd.recorded;
+      chunk_used_cache = match(chunk_hits.get(usize(0)), .Some(h) => (h > usize(0)), .None => false);
       (cci : usize) = usize(0);
-      while(cci < chunk_c_files.len(), {
-        match(chunk_c_files.get(cci), .Some(f) => cmd.arg(f.clone()), .None => ());
+      while(cci < chunk_objs.len(), {
+        match(chunk_objs.get(cci), .Some(f) => cmd.arg(f.clone()), .None => ());
         cci = (cci + usize(1));
       });
     },
@@ -1828,8 +2066,34 @@ run_compile :: (
     // (OpenProcessToken/LookupPrivilegeValueA); harmless when unused.
     cmd.arg(String.from("-ladvapi32"));
   });
-  st := io.await(cmd.status(io), IoExn(io : io, exn : exn));
+  st := io.await(_cc_command(cc.clone(), cmd.recorded).status(io), IoExn(io : io, exn : exn));
   if(st.raw != i32(0), {
+    // A chunk `.o` can be present with a matching stamp yet unusable (a
+    // truncated or clobbered file — the stamp records the INPUTS, so it cannot
+    // detect that). Rather than make the user discover `YO_BUILD_NO_CACHE=1`,
+    // treat a link failure after cache hits as a poisoned cache: recompile
+    // every chunk from source and link once more. A second failure is real.
+    if(chunk_used_cache, {
+      eprintln(String.from("compile: link failed with cached chunk objects — recompiling all chunks and retrying"));
+      retry_hits := ArrayList(usize).new();
+      _r := _compile_chunks_parallel(
+        cc.clone(),
+        chunk_link_flags,
+        chunk_c_files,
+        chunk_text_hashes,
+        output.clone(),
+        jobs,
+        true,
+        retry_hits,
+        io,
+        exn
+      );
+      st2 := io.await(_cc_command(cc.clone(), cmd.recorded).status(io), IoExn(io : io, exn : exn));
+      if(st2.raw != i32(0), {
+        exn.throw(dyn(`compile: C compiler failed (exit ${st2.code().to_string()}) on ${c_path}`));
+      });
+      return(())
+    });
     exn.throw(dyn(`compile: C compiler failed (exit ${st.code().to_string()}) on ${c_path}`));
   });
 });
