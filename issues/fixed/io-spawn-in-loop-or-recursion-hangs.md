@@ -1,7 +1,46 @@
 # `io.spawn` inside a loop or a recursive call hangs (spins at 100% CPU)
 
-**Status: OPEN (found 2026-08-23 while designing the parallel per-chunk C
-driver, `plans/CHUNKED_C_EMISSION.md` step 3 — this is the blocker for it).**
+**Status: FIXED 2026-08-23 — the JoinHandle now owns its future.**
+
+`src/codegen/exprs/generation.yo` (`_generate_io_spawn`) emits an
+`__yo_incr_rc` for the future when the spawn's result is BOUND, and
+`src/codegen/exprs/await.yo` (`generate_join_handle_await`) releases it after
+the result has been read and dup'd. Two details matter:
+
+- **Only when bound.** An unbound statement-level `io.spawn(...)` has no handle
+  to keep alive — that is exactly what an absent `variable_name` means at that
+  site — so fire-and-forget spawns (e.g. `tests/sys/timer.test.yo:35`) keep
+  today's behaviour and do not leak.
+- **Pairing the incr with the await keeps it leak-free**, at the cost of
+  requiring a handle be awaited AT MOST ONCE. Verified against the corpus: 18
+  handles across `tests/async_await.test.yo` and
+  `tests/codegen-bootstrap/io_spawn_join_handle.yo`, zero double-awaits. This
+  is the same single-use contract Rust's `JoinHandle::join` enforces by taking
+  self by value.
+
+**Refinement to the analysis below, from instrumenting the emitted C.** The
+refcount table further down said the future reaches 0 at the scope-end drop.
+Printing the counts showed otherwise, and the real sequence is worse to reason
+about: the hanging case reads rc=2 after spawn, rc=1 after the loop body's
+drop, and rc=1 at await ENTRY — the future is still alive when the await
+begins. It is the RUNTIME's release-on-completion that takes the last
+reference, mid-poll, while the handle still points at the state machine. The
+working (drop-removed) variant shows the same trace one higher: rc=2 at await
+entry, then 1 — i.e. the completion release is visible as the drop from 2 to 1.
+So the fix is the same, but the free happens DURING the await rather than
+before it.
+
+Verified: the loop variant now completes 4/4 in 508 ms (was: hang), the
+recursion variant 4/4 in 509 ms (was: hang), the unrolled control still 503 ms,
+and the original motivating case — four concurrent CHILD PROCESSES spawned from
+a loop — runs in 2033 ms rather than the 8000 ms a serial fallback would need.
+Gate: `tests/async_await.test.yo` "Test spawn inside a loop runs tasks
+concurrently", red-first verified (the pre-fix compiler hangs; the test run
+times out at rc=124 with zero check errors).
+
+Consequence for `plans/CHUNKED_C_EMISSION.md` step 3: the parallel driver's
+shell-script workaround is no longer forced. Replacing it with native
+`io.spawn` is now possible and is recorded there as a follow-up.
 
 ## Symptom
 

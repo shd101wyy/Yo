@@ -750,6 +750,14 @@ generate_join_handle_await :: (fn(expr : AstExpr, indent : String, context : Fun
   em.emit_string_line(`${indent.clone()}    __yo_effect_escaped = 0;`);
   em.emit_string_line(`${indent.clone()}    ${result_var.clone()} = (${option_type_name.clone()}){ .tag = ${none_tag.clone()} };`);
   em.emit_string_line(`${indent.clone()}  }`);
+  // Release the reference the handle took at io.spawn (see _generate_io_spawn's
+  // ownership comment). AFTER the result is read and dup'd above, since this
+  // may be the last reference and free the state machine. Pairing the two is
+  // what keeps the fix leak-free; it does mean a handle must be awaited AT MOST
+  // ONCE, which is how every spawn site in the corpus uses it (verified: 18
+  // handles, zero double-awaits) and is the same single-use contract Rust's
+  // JoinHandle::join enforces by taking self by value.
+  em.emit_string_line(`${indent.clone()}  __yo_decr_rc(${fut_var.clone()});  // release the JoinHandle's reference`);
   em.emit_string_line(`${indent.clone()}}`);
   result_var
 });

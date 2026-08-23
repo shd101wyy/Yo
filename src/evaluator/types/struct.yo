@@ -162,6 +162,40 @@ evaluate_struct_type :: (
         )
       );
     });
+    // RESERVED MEMBER. A reference struct's emitted C layout is
+    // `{ __yo_ref_header_t header; <user fields...> }`, so a user field named
+    // `header` produced TWO members with that name: "duplicate member
+    // 'header'", and every `x.header` access silently resolved to the RC
+    // header instead — cascading into incompatible-type errors at the
+    // constructor, the traversal function and each use site. It type-checked
+    // cleanly, so the only symptom was a wall of C errors naming generated
+    // temps. `header` is the ONLY injected member (ref_count, gc_flags,
+    // type_id, dispose_fn and friends live INSIDE the header struct, so they
+    // do not collide), and value structs inject nothing — hence the
+    // is_reference_semantics guard. Rejecting here means `yo check` catches it
+    // with a source location. See
+    // issues/fixed/ref-struct-field-named-header-collides-with-rc-header.md.
+    // `!(field.is_comptime)`: a comptime field is ERASED from the C layout
+    // (get_runtime_struct_fields drops it), so `ref(struct(header :: 1))`
+    // cannot collide and must stay legal.
+    if((is_reference_semantics && !(field.is_comptime)) && (field.label == "header"), {
+      res_args := match(arg, .FnCall(_, _, a3, _, _) => a3, .Atom(_, _) => ArrayList(AstExpr).new());
+      res_tok := if(
+        ast_expr_is_fn_call(arg),
+        match(res_args.get(usize(0)), .Some(fe2) => ast_expr_token(fe2), .None => ast_expr_token(arg)),
+        ast_expr_token(arg)
+      );
+      exn.throw(
+        dyn(
+          format_error_message(
+            res_tok,
+            String.from("\"header\" is a reserved field name in a reference struct: the generated C layout already carries a `header` member (the reference-count header), so a field of that name would collide with it. Rename the field."),
+            false,
+            .None
+          )
+        )
+      );
+    });
     field_labels.push(field.label.clone());
     field_types.push(field.ty);
     field_comptime_flags.push(field.is_comptime);

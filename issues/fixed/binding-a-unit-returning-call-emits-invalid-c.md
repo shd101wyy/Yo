@@ -1,6 +1,16 @@
 # Binding a `unit`-returning call emits invalid C (`void x = ;`)
 
-**Status: OPEN (found 2026-08-23 while writing async-spawn probes; pre-existing).**
+**Status: FIXED 2026-08-23.** `src/codegen/exprs/init_assignment.yo` — the
+non-array scalar path's RHS TEMP declaration now takes the same unit guard the
+LHS declaration already had (resolved through SomeT, so a type parameter that
+resolves to unit takes the same path). The RHS code is emitted as a STATEMENT
+when non-empty rather than dropped: most unit calls are already emitted as a
+statement by `_call_generate_expr` and return "", which is why the bad line read
+`void <temp> = ;`, but assuming that would turn a compile error into a silent
+miscompile for any expression form that returns non-empty code. Gate:
+`tests/fn.test.yo` "Binding a unit-returning call compiles and still runs the
+call" — red-first verified (the pre-fix compiler fails with
+`variable has incomplete type 'void'` naming the generated temp).
 
 ## Symptom
 

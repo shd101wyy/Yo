@@ -308,15 +308,42 @@ generate_initialization_assignment :: (fn(expr : AstExpr, indent : String, conte
             rhs_is_same_atom := (ast_expr_is_atom(rhs) && (temp_var_name == get_variable_name_for_codegen(ast_expr_token(rhs).value, Option(Environment).Some(rei.env))));
             if((temp_var_name == sanitized_var_name) || rhs_is_same_atom, emit_deferred_dup_or_code(rhs, _call_generate_expr(rhs, indent.clone(), context), indent.clone(), context), {
               rhs_expr_code := _call_generate_expr(rhs, indent.clone(), context);
-              if(!(rhs_expr_code == temp_var_name), {
-                effective_type := match(expr_info_converted_runtime_type(rei), .Some(crt) => crt, .None => rei.ty);
-                tv := get_variable_type_string(effective_type, temp_var_name.clone(), context.base);
-                line := indent.clone();
-                line.push_string(tv);
-                line.push_str(" = ");
-                line.push_string(rhs_expr_code);
-                line.push_str(";");
-                em.emit_string_line(line);
+              effective_type := match(expr_info_converted_runtime_type(rei), .Some(crt) => crt, .None => rei.ty);
+              // A UNIT-typed RHS has no value to hold. `_call_generate_expr`
+              // has already emitted the call as a STATEMENT (so the side effect
+              // is preserved) and returned "", so declaring a temp for it
+              // emitted `void <temp> = ;` — an incomplete-type error plus an
+              // empty initializer, for a program `yo check` accepts. The LHS
+              // declaration below carries exactly this guard already; this was
+              // the missing half. Resolve through SomeT first, so a type
+              // parameter that resolves to unit takes the same path.
+              // See issues/fixed/binding-a-unit-returning-call-emits-invalid-c.md.
+              rhs_is_unit := is_unit_type(resolve_some_type_to_concrete(effective_type));
+              if(rhs_is_unit, {
+                // No value to hold, so no declaration — but the code must
+                // still RUN. Most unit calls are already emitted as a
+                // statement by `_call_generate_expr` and return "", which is
+                // why the old declaration came out as `void <temp> = ;`. Do
+                // NOT assume that: an expression form that returns non-empty
+                // code (e.g. an indirect call that skips the statement path)
+                // would be silently DISCARDED, turning a compile error into a
+                // miscompile. Emit whatever came back as a statement instead.
+                if(rhs_expr_code.len() > usize(0), {
+                  ustmt := indent.clone();
+                  ustmt.push_string(rhs_expr_code.clone());
+                  ustmt.push_str(";");
+                  em.emit_string_line(ustmt);
+                });
+              }, {
+                if(!(rhs_expr_code == temp_var_name), {
+                  tv := get_variable_type_string(effective_type, temp_var_name.clone(), context.base);
+                  line := indent.clone();
+                  line.push_string(tv);
+                  line.push_str(" = ");
+                  line.push_string(rhs_expr_code);
+                  line.push_str(";");
+                  em.emit_string_line(line);
+                });
               });
               emit_deferred_dup_or_code(rhs, temp_var_name, indent.clone(), context)
             })

@@ -431,8 +431,33 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
       async_override := _async_override_return_type(function_type, Option(AstExpr).Some(body_box), context.base);
       prototype := generate_function_prototype(function_type, c_function_name.clone(), context.base, async_override, is_closure_fn(func_id.clone()));
       is_exported := ((c_function_name == "__yo_user_main") || context.base.exported_function_labels.contains_key(func_id.clone()));
-      is_rc := (!(is_exported) && ((c_function_name.contains("___drop")) || ((c_function_name.contains("___dup")) || (c_function_name.contains("___dispose")))));
-      linkage := if(is_exported, String.from(""), if(is_rc, String.from("static inline __attribute__((always_inline)) "), String.from("static inline ")));
+      // Non-exported functions are `static inline` and exported ones carry no
+      // linkage prefix. A third arm used to give "RC helpers" `always_inline`,
+      // keyed on the C name CONTAINING `___drop` / `___dup` / `___dispose`.
+      // It never did what it meant to: the real per-type helpers are named
+      // `__yo_dispose___yo_dyn_box___yo_tN` — one underscore before the verb —
+      // so the predicate missed every one of them, and they are reached ONLY
+      // through the stored `header.dispose_fn` pointer anyway (verified:
+      // prototype + assignment + definition, zero direct call sites), which no
+      // attribute can inline.
+      //
+      // It was not strictly UNREACHABLE, which is the more interesting reason
+      // to delete it: a specialization's signature folds every non-alnum byte
+      // to `_` and joins the parts with `_` (compute_compile_time_signature),
+      // so a mangled name CAN land on the triple-underscore shape by
+      // coincidence — meaning the arm applied `always_inline` to whichever
+      // arbitrary function happened to mangle that way, which is worse than
+      // not applying it at all. Empirically it fires for nothing: zero
+      // code-position `always_inline` in a 143 MB self-emission and in the
+      // test-suite batch emissions. And dropping the attribute can only
+      // relax — `always_inline` on a function clang cannot inline is a hard
+      // error, so removing it never introduces one.
+      //
+      // `declarations.yo` must keep the same two arms: a prototype/definition
+      // linkage mismatch is "static declaration follows non-static" at every
+      // call site.
+      // See issues/fixed/rc-helper-always-inline-linkage-branch-never-fires.md.
+      linkage := if(is_exported, String.from(""), String.from("static inline "));
       open := linkage;
       open.push_string(prototype);
       open.push_str(" {");

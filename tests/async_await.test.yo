@@ -9,6 +9,8 @@ open(import("std/fmt"));
 { Path } :: import("std/path");
 { exists } :: import("std/fs/file");
 { arch, Arch } :: import("std/process");
+{ sleep } :: import("std/sys/timer");
+{ Instant } :: import("std/time/instant");
 /// A `bool` future for `while` conditions: true while `v` is under `limit`.
 /// Taken as a top-level helper rather than an inline `io.async` closure — a
 /// closure capturing a mutable local, re-created every iteration, hits a
@@ -4464,4 +4466,50 @@ test("cond mixes an anonymous branch with a named future branch (reverse order)"
   );
   assert(io.await(drive(true, io), io) == i32(101), "anonymous branch");
   assert(io.await(drive(false, io), io) == i32(202), "named branch extracted despite anonymous representative");
+});
+
+// ---------------------------------------------------------------------------
+// io.spawn from inside a LOOP. A JoinHandle used to hold a borrowed pointer to
+// the task's state machine, so the loop body's scope-end drop plus the
+// runtime's release-on-completion took the refcount to zero while handles
+// already collected still pointed at it — the awaits then polled freed memory
+// forever (100% CPU, no progress). A surviving handle now owns a reference.
+// The elapsed-time assertion is what distinguishes "concurrent" from a
+// serialized fallback; it is deliberately loose (4 x 250ms tasks must finish
+// well under the 1000ms a serial run would need).
+// issues/fixed/io-spawn-in-loop-or-recursion-hangs.md
+// ---------------------------------------------------------------------------
+test("Test spawn inside a loop runs tasks concurrently", {
+  t0 := Instant.now();
+  handles := ArrayList(JoinHandle(u64)).new();
+  (i : usize) = usize(0);
+  while(i < usize(4), {
+    task := io.async((io : Io) => {
+      _slept := io.await(sleep(u64(250)), io);
+      u64(1)
+    });
+    handles.push(io.spawn(task, io));
+    i = (i + usize(1));
+  });
+  (done : usize) = usize(0);
+  (j : usize) = usize(0);
+  while(j < handles.len(), {
+    match(
+      handles.get(j),
+      .Some(h) => match(
+        h.await(io),
+        .Some(_v) => {
+          done = (done + usize(1));
+        },
+        .None => ()
+      ),
+      .None => ()
+    );
+    j = (j + usize(1));
+  });
+  elapsed := t0.elapsed().as_millis();
+  assert(done == usize(4), `all four spawned tasks must complete, got ${done.to_string()}`);
+  // 4 x 250ms: concurrent finishes near 250ms, serial needs 1000ms. 800ms
+  // leaves room for a loaded CI runner while still failing a serial fallback.
+  assert(elapsed < i64(800), `spawned tasks must run concurrently, took ${elapsed.to_string()}ms`);
 });

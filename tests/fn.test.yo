@@ -849,3 +849,28 @@ test "Test variadic function", {
   ();
 };
 */
+// ---------------------------------------------------------------------------
+// Binding a UNIT-returning call. `x := f()` where f returns unit used to emit
+// `void x = ;` — an incomplete-type error plus an empty initializer — for a
+// program `yo check` accepted, so the only symptom was a raw C error naming a
+// generated temp. The call must still RUN (it can have side effects); only the
+// value-less declaration is dropped.
+// issues/fixed/binding-a-unit-returning-call-emits-invalid-c.md
+// ---------------------------------------------------------------------------
+_unit_bump :: (fn(b : Box(i32), by : i32) -> unit)({
+  b.* = (b.* + by);
+});
+test("Binding a unit-returning call compiles and still runs the call", {
+  counter := Box(i32)(0);
+  // The binding form that used to emit invalid C.
+  _r := _unit_bump(counter, i32(7));
+  assert(counter.* == i32(7), "bound unit call must still execute");
+  // A second binding in the same scope (each needs its own temp).
+  _s := _unit_bump(counter, i32(3));
+  assert(counter.* == i32(10), "second bound unit call must also execute");
+  // The same lowering one scope deeper.
+  {
+    _t := _unit_bump(counter, i32(5));
+    assert(counter.* == i32(15), "nested-scope bound unit call must execute");
+  };
+});

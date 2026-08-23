@@ -1472,10 +1472,29 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
           // Prefer the recorded runtime arg exprs; fall back to reconstructing
           // them from the FnCall's labeled args when empty (ctor inside a
           // specialized body — see _ctor_args_from_labeled).
+          // The recorded list can carry MORE values than the constructor has
+          // parameters: a comptime (`::`) field is erased from the C layout, so
+          // it is not a constructor parameter, but the evaluator's
+          // runtime_arg_exprs still recorded a value for it — emitting
+          // `__yo_new_T(1, 5)` against `__yo_new_T(int32_t n)`, i.e. "too many
+          // arguments to function call". `_ctor_args_from_labeled` is
+          // field-driven (it walks get_runtime_struct_fields, the same view the
+          // constructor's parameter list is built from), so it has the right
+          // arity by construction. Prefer it whenever the recorded list
+          // OVERSUPPLIES and the reconstruction matches — deliberately narrow,
+          // so a recorded list that merely differs for some other reason is
+          // left alone.
+          // See issues/fixed/ref-struct-comptime-field-breaks-constructor-arity.md.
+          ctor_rt_n := get_runtime_struct_fields(wrapped.clone()).len();
+          ctor_labeled := _ctor_args_from_labeled(wrapped.clone(), obj_fncall_args);
           ctor_args := match(
             ei.runtime_arg_exprs_in_order,
-            .Some(ra) => if(ra.len() > usize(0), ra, _ctor_args_from_labeled(wrapped.clone(), obj_fncall_args)),
-            .None => _ctor_args_from_labeled(wrapped.clone(), obj_fncall_args)
+            .Some(ra) => cond(
+              (ra.len() == usize(0)) => ctor_labeled,
+              ((ra.len() > ctor_rt_n) && (ctor_labeled.len() == ctor_rt_n)) => ctor_labeled,
+              true => ra
+            ),
+            .None => ctor_labeled
           );
           ctor_list := String.from("");
           nca := ctor_args.len();
