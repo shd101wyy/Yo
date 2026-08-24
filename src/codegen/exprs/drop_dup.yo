@@ -28,6 +28,7 @@ open(import("std/string"));
 { random_id, is_temp_variable_name } :: import("../../utils.yo");
 { MethodEntry, get_type_trait_methods_by_name, type_id_or_empty } :: import("../../evaluator/values/type_trait_methods.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
+{ should_skip_function_codegen } :: import("../functions/declarations.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { get_type_string, get_variable_type_string, get_variable_name_for_codegen, get_deferred_drop_target_atom_name, get_deferred_dup_target_atom_name, is_deferred_drop_for_closure_capture, get_enum_variant_c_name, sanitize_for_c_identifier, can_optimize_as_nullable_pointer, get_runtime_struct_fields, type_key } :: import("../utils/index.yo");
 { resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
@@ -105,7 +106,20 @@ get_trace_function_for_type :: (fn(type : TypeValue, context : FunctionGeneratio
         v,
         .FuncVal(__fvd2, _) => match(
           context.base.get_function_entry(__fvd2.*.func_id),
-          .Some(e) => Option(String).Some(e.c_name),
+          // A registry hit whose spec the function emitter SKIPS (hard-generic
+          // — its signature still carries unresolvable SomeTs) must not be
+          // delegated to: the traverse would call a never-emitted C name
+          // ("call to undeclared function ...", raw SomeT ids in the mangled
+          // name). This state is reached by ERA-COPY type identities minted
+          // during failed where-bound generic-impl trials (never constructed
+          // at runtime — the field-walk fallback is inert for them); the
+          // trials themselves are the open under-resolution family,
+          // issues/where-bound-intoiterator-gc-trace-abstract-key.md.
+          .Some(e) => cond(
+            should_skip_function_codegen(__fvd2.*.func_id, e.c_name.clone(), v, context.base) =>
+              Option(String).None,
+            true => Option(String).Some(e.c_name)
+          ),
           .None => Option(String).None
         ),
         _ => Option(String).None
