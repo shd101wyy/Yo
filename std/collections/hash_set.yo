@@ -872,4 +872,21 @@ hash_set :: (fn(...(quote(elems))) -> unquote(Expr))({
     unquote(tmp)
   })
 });
+/// Build a `HashSet(T)` from any iterator of `T` — the target of
+/// `it.collect(HashSet(T))`. Duplicates collapse, as with `add`.
+impl(
+  generic(T : Type),
+  where(T <: (Eq(T), Hash)),
+  HashSet(T),
+  FromIterator(
+    Elem : T,
+    from_iter_new : (fn() -> Self)(
+      HashSet(T).new()
+    ),
+    from_iter_add : (fn(acc : Self, item : T) -> Self)({
+      acc.add(item);
+      acc
+    })
+  )
+);
 export(hash_set);

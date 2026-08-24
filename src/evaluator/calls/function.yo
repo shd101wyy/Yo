@@ -5482,7 +5482,29 @@ Fix: wrap the call:
         // path regardless of the declared return type (TS function.ts:1932
         // `isMacroCall` always calls tryToCallFunctionWithArguments with an
         // executing context).
-        if(((is_type_hierarchy_type(ret_type) || callee_result_is_comptime) || all_args_are_types) || fv_is_macro, {
+        // `all_args_are_types` alone must NOT divert an ORDINARY function whose
+        // parameters merely HAPPEN to all be comptime types. The CTFE arm cannot
+        // resolve a return type that NAMES a comptime parameter (its repair is
+        // value-space only), and it CTFE-EXECUTES a runtime body — so
+        // `(fn(comptime(C) : Type, where(C <: Default)) -> C)` came back
+        // under-resolved and `(fn(comptime(C) : Type) -> i32)` ran its body at
+        // compile time. See
+        // issues/fixed/comptime-type-argument-alone-does-not-bind-the-generic.md.
+        //
+        // Consult the callee's DECLARED signature rather than the recorded
+        // (possibly specialized) one: every real type constructor is declared
+        // `-> comptime(Type)`, which is exactly the case this disjunct was added
+        // for, while the two broken shapes declare `-> C` and `-> i32`. Dropping
+        // the disjunct entirely is NOT safe — it is what keeps a repeat
+        // constructor call memoized and stamped with `constructor_func_id`, and
+        // losing that fragments type identity (the era-split class fixed in
+        // #247).
+        declared_ret_is_type := match(
+          get_func_type(func_id_fv.clone()),
+          .Func({ result : d_result, meta : __fmd }) => (is_type_hierarchy_type(d_result) || __fmd.*.result_is_comptime_only),
+          _ => false
+        );
+        if(((is_type_hierarchy_type(ret_type) || callee_result_is_comptime) || (all_args_are_types && declared_ret_is_type)) || fv_is_macro, {
           ct_arg_entries := ArrayList(ArgEntry).new();
           (ct_ai : usize) = usize(0);
           while(ct_ai < evaled_arg_infos.len(), {

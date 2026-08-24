@@ -8007,6 +8007,31 @@ Iterator :: trait(
     )
 );
 export(Iterator);
+/// DoubleEndedIterator trait — an `Iterator` that can also be advanced from the
+/// BACK. `next` and `next_back` consume from opposite ends of the same sequence
+/// and meet in the middle; once they meet, both return `.None`.
+///
+/// Declares its own `Item` and ties it to `Iterator`'s through the where-clause,
+/// mirroring `IntoIterator` below — a trait where-clause is a trailing parameter
+/// evaluated AFTER the field types, so a bare `where(Self <: Iterator)` would
+/// NOT make `Self.Item` nameable in `next_back`'s signature.
+///
+/// COHERENCE RULE (not compiler-checked): an impl's `DoubleEndedIterator.Item`
+/// MUST equal its `Iterator.Item`. The associated-type registry is keyed by
+/// (type id, label) with no trait discrimination and takes the FIRST match, so a
+/// mismatch is silently first-wins rather than diagnosed.
+DoubleEndedIterator :: trait(
+  /// The type of elements yielded — must equal `Self`'s `Iterator.Item`.
+  Item : Type,
+  /// Advance the iterator from the back and return the previous value, or
+  /// `None` when the two ends have met.
+  next_back :
+    (
+      fn(inout(self) : Self) -> Option(Self.Item)
+    ),
+  where(Self <: Iterator(Item := Self.Item))
+);
+export(DoubleEndedIterator);
 /// IntoIterator trait — convert a collection into an iterator.
 IntoIterator :: trait(
   Item : Type,
@@ -8016,13 +8041,44 @@ IntoIterator :: trait(
   where(Self.IntoIter <: Iterator(Item := Self.Item))
 );
 export(IntoIterator);
+/// FromIterator trait — build `Self` from a sequence of `Self.Elem` values.
+///
+/// The iteration loop lives in the blanket `collect` below, not here, so this
+/// trait stays MONOMORPHIC: a seed constructor plus one element-at-a-time step,
+/// both statics, dispatched the way `sum` calls `(A <: Default).default()`.
+/// That is what removes the need for a trait method carrying its own
+/// `generic(...)` + `where`.
+///
+/// The element type is deliberately named `Elem`, NOT `Item`: the assoc-type
+/// registry is keyed by (type id, label) with no trait discrimination, so an
+/// `Item` here would collide with the collection's own `IntoIterator.Item` and
+/// resolve first-wins by load order — benign for `ArrayList`, but genuinely
+/// divergent for `HashMap`, whose `IntoIterator.Item` is `Bucket(K, V)`.
+///
+/// `from_iter_add` RETURNS the accumulator instead of mutating it so that one
+/// signature covers reference collections (mutate `acc`, return it — the return
+/// is a rebind of the same object) and value types such as `String`.
+FromIterator :: trait(
+  /// The element type this collection is built from.
+  Elem : Type,
+  /// The empty collection `collect` starts from.
+  from_iter_new : (fn() -> Self),
+  /// Add one element to a partially-built collection and return it.
+  from_iter_add : (fn(acc : Self, item : Self.Elem) -> Self)
+);
+export(FromIterator);
 /// === Array Iterator ===
 /// Value iterator for Array(T, N) — yields elements by value. Backs
 /// the for-macro value form `for(arr, (x) => body)` via `into_iter`.
 _ArrayIter :: (fn(comptime(T) : Type, comptime(N) : usize) -> comptime(Type))(
   struct(
     _arr : Array(T, N),
-    _index : usize
+    _index : usize,
+    /// How many elements `next_back` has already taken off the END. A COUNTER
+    /// rather than a back cursor, so it initialises from a plain `usize(0)`
+    /// literal and nothing has to coerce the comptime value-generic `N` into a
+    /// runtime field. While it is 0 the forward guard is unchanged.
+    _back_taken : usize
   )
 );
 impl(
@@ -8032,11 +8088,27 @@ impl(
     Item : T,
     next : (fn(inout(self) : Self) -> Option(T))(
       cond(
-        (self._index >= N) => .None,
+        ((self._index + self._back_taken) >= N) => .None,
         true => {
           out := self._arr(self._index);
           self._index = (self._index + usize(1));
           .Some(out)
+        }
+      )
+    )
+  )
+);
+impl(
+  generic(T : Type, N : usize),
+  _ArrayIter(T, N),
+  DoubleEndedIterator(
+    Item : T,
+    next_back : (fn(inout(self) : Self) -> Option(T))(
+      cond(
+        ((self._index + self._back_taken) >= N) => .None,
+        true => {
+          self._back_taken = (self._back_taken + usize(1));
+          .Some(self._arr(N - self._back_taken))
         }
       )
     )
@@ -8049,7 +8121,7 @@ impl(
     Item : T,
     IntoIter : _ArrayIter(T, N),
     into_iter : (fn(self : Self) -> _ArrayIter(T, N))(
-      _ArrayIter(T, N)(_arr : self, _index : usize(0))
+      _ArrayIter(T, N)(_arr : self, _index : usize(0), _back_taken : usize(0))
     )
   )
 );
@@ -8685,6 +8757,41 @@ impl(
   )
 );
 export(IterPeekable);
+/// Lazy iterator that yields the source's elements back-to-front.
+///
+/// Created by calling `.rev()` on any `DoubleEndedIterator`. `next` pulls from
+/// the source's BACK and `next_back` from its FRONT, so `.rev().rev()` restores
+/// the original order.
+IterRev :: (fn(comptime(I) : Type) -> comptime(Type))(
+  struct(
+    _inner : I
+  )
+);
+impl(
+  generic(I : Type, A : Type),
+  where(I <: DoubleEndedIterator(Item := A)),
+  IterRev(I),
+  Iterator(
+    Item : A,
+    next : (fn(inout(self) : Self) -> Option(A))(
+      self._inner.next_back()
+    )
+  )
+);
+/// `IterRev` is itself double-ended — `next_back` is the source's `next`. This
+/// is what makes `.rev().rev()` the identity.
+impl(
+  generic(I : Type, A : Type),
+  where(I <: Iterator(Item := A)),
+  IterRev(I),
+  DoubleEndedIterator(
+    Item : A,
+    next_back : (fn(inout(self) : Self) -> Option(A))(
+      self._inner.next()
+    )
+  )
+);
+export(IterRev);
 // ---------------------------------------------------------------------------
 // Range iteration (plans/STD_API_AUDIT.md D3.5): `for(0..10, (i) => ...)`
 // and every iterator combinator work on integer ranges. Per-type impls —
@@ -9134,6 +9241,492 @@ impl(
             },
             true => {
               self.start = (self.start + usize(1));
+            }
+          );
+          .Some(v)
+        }
+      )
+    )
+  )
+);
+// ---------------------------------------------------------------------------
+// Range back-iteration — the DoubleEndedIterator half of the forward impls
+// above, so `(a .. b).rev()` and `.rev()` on any range-backed chain work.
+// Per-type for the same reason the forward impls are: a generic impl would
+// need a `Step` notion (a generic "one") the prelude does not have.
+// ---------------------------------------------------------------------------
+/// Half-open `i8` range back-iteration: yields `end - 1`, …, `start`. No
+/// underflow on unsigned types: the guard means `end > start >= i8.MIN`, so
+/// `end - 1` is always representable.
+impl(
+  Range(i8),
+  DoubleEndedIterator(
+    Item : i8,
+    next_back : (fn(inout(self) : Self) -> Option(i8))(
+      cond(
+        (self.start >= self.end) => .None,
+        true => {
+          self.end = (self.end - i8(1));
+          .Some(self.end)
+        }
+      )
+    )
+  )
+);
+/// Inclusive `i8` range back-iteration: yields `end`, …, `start`. The exact
+/// mirror of the forward impl — the canonical-EMPTY sentinel (start 1, end 0)
+/// is end-agnostic, so flipping on the LAST element works from either side,
+/// `i8.MIN ..= x` terminates from the back without underflowing `end`, and
+/// mixing `next` with `next_back` on one range stays correct because both test
+/// `start > end` and both flip when the ends coincide.
+impl(
+  RangeInclusive(i8),
+  DoubleEndedIterator(
+    Item : i8,
+    next_back : (fn(inout(self) : Self) -> Option(i8))(
+      cond(
+        (self.start > self.end) => .None,
+        true => {
+          v := self.end;
+          cond(
+            (v == self.start) => {
+              self.start = i8(1);
+              self.end = i8(0);
+            },
+            true => {
+              self.end = (self.end - i8(1));
+            }
+          );
+          .Some(v)
+        }
+      )
+    )
+  )
+);
+/// Half-open `i16` range back-iteration: yields `end - 1`, …, `start`. No
+/// underflow on unsigned types: the guard means `end > start >= i16.MIN`, so
+/// `end - 1` is always representable.
+impl(
+  Range(i16),
+  DoubleEndedIterator(
+    Item : i16,
+    next_back : (fn(inout(self) : Self) -> Option(i16))(
+      cond(
+        (self.start >= self.end) => .None,
+        true => {
+          self.end = (self.end - i16(1));
+          .Some(self.end)
+        }
+      )
+    )
+  )
+);
+/// Inclusive `i16` range back-iteration: yields `end`, …, `start`. The exact
+/// mirror of the forward impl — the canonical-EMPTY sentinel (start 1, end 0)
+/// is end-agnostic, so flipping on the LAST element works from either side,
+/// `i16.MIN ..= x` terminates from the back without underflowing `end`, and
+/// mixing `next` with `next_back` on one range stays correct because both test
+/// `start > end` and both flip when the ends coincide.
+impl(
+  RangeInclusive(i16),
+  DoubleEndedIterator(
+    Item : i16,
+    next_back : (fn(inout(self) : Self) -> Option(i16))(
+      cond(
+        (self.start > self.end) => .None,
+        true => {
+          v := self.end;
+          cond(
+            (v == self.start) => {
+              self.start = i16(1);
+              self.end = i16(0);
+            },
+            true => {
+              self.end = (self.end - i16(1));
+            }
+          );
+          .Some(v)
+        }
+      )
+    )
+  )
+);
+/// Half-open `i32` range back-iteration: yields `end - 1`, …, `start`. No
+/// underflow on unsigned types: the guard means `end > start >= i32.MIN`, so
+/// `end - 1` is always representable.
+impl(
+  Range(i32),
+  DoubleEndedIterator(
+    Item : i32,
+    next_back : (fn(inout(self) : Self) -> Option(i32))(
+      cond(
+        (self.start >= self.end) => .None,
+        true => {
+          self.end = (self.end - i32(1));
+          .Some(self.end)
+        }
+      )
+    )
+  )
+);
+/// Inclusive `i32` range back-iteration: yields `end`, …, `start`. The exact
+/// mirror of the forward impl — the canonical-EMPTY sentinel (start 1, end 0)
+/// is end-agnostic, so flipping on the LAST element works from either side,
+/// `i32.MIN ..= x` terminates from the back without underflowing `end`, and
+/// mixing `next` with `next_back` on one range stays correct because both test
+/// `start > end` and both flip when the ends coincide.
+impl(
+  RangeInclusive(i32),
+  DoubleEndedIterator(
+    Item : i32,
+    next_back : (fn(inout(self) : Self) -> Option(i32))(
+      cond(
+        (self.start > self.end) => .None,
+        true => {
+          v := self.end;
+          cond(
+            (v == self.start) => {
+              self.start = i32(1);
+              self.end = i32(0);
+            },
+            true => {
+              self.end = (self.end - i32(1));
+            }
+          );
+          .Some(v)
+        }
+      )
+    )
+  )
+);
+/// Half-open `i64` range back-iteration: yields `end - 1`, …, `start`. No
+/// underflow on unsigned types: the guard means `end > start >= i64.MIN`, so
+/// `end - 1` is always representable.
+impl(
+  Range(i64),
+  DoubleEndedIterator(
+    Item : i64,
+    next_back : (fn(inout(self) : Self) -> Option(i64))(
+      cond(
+        (self.start >= self.end) => .None,
+        true => {
+          self.end = (self.end - i64(1));
+          .Some(self.end)
+        }
+      )
+    )
+  )
+);
+/// Inclusive `i64` range back-iteration: yields `end`, …, `start`. The exact
+/// mirror of the forward impl — the canonical-EMPTY sentinel (start 1, end 0)
+/// is end-agnostic, so flipping on the LAST element works from either side,
+/// `i64.MIN ..= x` terminates from the back without underflowing `end`, and
+/// mixing `next` with `next_back` on one range stays correct because both test
+/// `start > end` and both flip when the ends coincide.
+impl(
+  RangeInclusive(i64),
+  DoubleEndedIterator(
+    Item : i64,
+    next_back : (fn(inout(self) : Self) -> Option(i64))(
+      cond(
+        (self.start > self.end) => .None,
+        true => {
+          v := self.end;
+          cond(
+            (v == self.start) => {
+              self.start = i64(1);
+              self.end = i64(0);
+            },
+            true => {
+              self.end = (self.end - i64(1));
+            }
+          );
+          .Some(v)
+        }
+      )
+    )
+  )
+);
+/// Half-open `isize` range back-iteration: yields `end - 1`, …, `start`. No
+/// underflow on unsigned types: the guard means `end > start >= isize.MIN`, so
+/// `end - 1` is always representable.
+impl(
+  Range(isize),
+  DoubleEndedIterator(
+    Item : isize,
+    next_back : (fn(inout(self) : Self) -> Option(isize))(
+      cond(
+        (self.start >= self.end) => .None,
+        true => {
+          self.end = (self.end - isize(1));
+          .Some(self.end)
+        }
+      )
+    )
+  )
+);
+/// Inclusive `isize` range back-iteration: yields `end`, …, `start`. The exact
+/// mirror of the forward impl — the canonical-EMPTY sentinel (start 1, end 0)
+/// is end-agnostic, so flipping on the LAST element works from either side,
+/// `isize.MIN ..= x` terminates from the back without underflowing `end`, and
+/// mixing `next` with `next_back` on one range stays correct because both test
+/// `start > end` and both flip when the ends coincide.
+impl(
+  RangeInclusive(isize),
+  DoubleEndedIterator(
+    Item : isize,
+    next_back : (fn(inout(self) : Self) -> Option(isize))(
+      cond(
+        (self.start > self.end) => .None,
+        true => {
+          v := self.end;
+          cond(
+            (v == self.start) => {
+              self.start = isize(1);
+              self.end = isize(0);
+            },
+            true => {
+              self.end = (self.end - isize(1));
+            }
+          );
+          .Some(v)
+        }
+      )
+    )
+  )
+);
+/// Half-open `u8` range back-iteration: yields `end - 1`, …, `start`. No
+/// underflow on unsigned types: the guard means `end > start >= u8.MIN`, so
+/// `end - 1` is always representable.
+impl(
+  Range(u8),
+  DoubleEndedIterator(
+    Item : u8,
+    next_back : (fn(inout(self) : Self) -> Option(u8))(
+      cond(
+        (self.start >= self.end) => .None,
+        true => {
+          self.end = (self.end - u8(1));
+          .Some(self.end)
+        }
+      )
+    )
+  )
+);
+/// Inclusive `u8` range back-iteration: yields `end`, …, `start`. The exact
+/// mirror of the forward impl — the canonical-EMPTY sentinel (start 1, end 0)
+/// is end-agnostic, so flipping on the LAST element works from either side,
+/// `u8.MIN ..= x` terminates from the back without underflowing `end`, and
+/// mixing `next` with `next_back` on one range stays correct because both test
+/// `start > end` and both flip when the ends coincide.
+impl(
+  RangeInclusive(u8),
+  DoubleEndedIterator(
+    Item : u8,
+    next_back : (fn(inout(self) : Self) -> Option(u8))(
+      cond(
+        (self.start > self.end) => .None,
+        true => {
+          v := self.end;
+          cond(
+            (v == self.start) => {
+              self.start = u8(1);
+              self.end = u8(0);
+            },
+            true => {
+              self.end = (self.end - u8(1));
+            }
+          );
+          .Some(v)
+        }
+      )
+    )
+  )
+);
+/// Half-open `u16` range back-iteration: yields `end - 1`, …, `start`. No
+/// underflow on unsigned types: the guard means `end > start >= u16.MIN`, so
+/// `end - 1` is always representable.
+impl(
+  Range(u16),
+  DoubleEndedIterator(
+    Item : u16,
+    next_back : (fn(inout(self) : Self) -> Option(u16))(
+      cond(
+        (self.start >= self.end) => .None,
+        true => {
+          self.end = (self.end - u16(1));
+          .Some(self.end)
+        }
+      )
+    )
+  )
+);
+/// Inclusive `u16` range back-iteration: yields `end`, …, `start`. The exact
+/// mirror of the forward impl — the canonical-EMPTY sentinel (start 1, end 0)
+/// is end-agnostic, so flipping on the LAST element works from either side,
+/// `u16.MIN ..= x` terminates from the back without underflowing `end`, and
+/// mixing `next` with `next_back` on one range stays correct because both test
+/// `start > end` and both flip when the ends coincide.
+impl(
+  RangeInclusive(u16),
+  DoubleEndedIterator(
+    Item : u16,
+    next_back : (fn(inout(self) : Self) -> Option(u16))(
+      cond(
+        (self.start > self.end) => .None,
+        true => {
+          v := self.end;
+          cond(
+            (v == self.start) => {
+              self.start = u16(1);
+              self.end = u16(0);
+            },
+            true => {
+              self.end = (self.end - u16(1));
+            }
+          );
+          .Some(v)
+        }
+      )
+    )
+  )
+);
+/// Half-open `u32` range back-iteration: yields `end - 1`, …, `start`. No
+/// underflow on unsigned types: the guard means `end > start >= u32.MIN`, so
+/// `end - 1` is always representable.
+impl(
+  Range(u32),
+  DoubleEndedIterator(
+    Item : u32,
+    next_back : (fn(inout(self) : Self) -> Option(u32))(
+      cond(
+        (self.start >= self.end) => .None,
+        true => {
+          self.end = (self.end - u32(1));
+          .Some(self.end)
+        }
+      )
+    )
+  )
+);
+/// Inclusive `u32` range back-iteration: yields `end`, …, `start`. The exact
+/// mirror of the forward impl — the canonical-EMPTY sentinel (start 1, end 0)
+/// is end-agnostic, so flipping on the LAST element works from either side,
+/// `u32.MIN ..= x` terminates from the back without underflowing `end`, and
+/// mixing `next` with `next_back` on one range stays correct because both test
+/// `start > end` and both flip when the ends coincide.
+impl(
+  RangeInclusive(u32),
+  DoubleEndedIterator(
+    Item : u32,
+    next_back : (fn(inout(self) : Self) -> Option(u32))(
+      cond(
+        (self.start > self.end) => .None,
+        true => {
+          v := self.end;
+          cond(
+            (v == self.start) => {
+              self.start = u32(1);
+              self.end = u32(0);
+            },
+            true => {
+              self.end = (self.end - u32(1));
+            }
+          );
+          .Some(v)
+        }
+      )
+    )
+  )
+);
+/// Half-open `u64` range back-iteration: yields `end - 1`, …, `start`. No
+/// underflow on unsigned types: the guard means `end > start >= u64.MIN`, so
+/// `end - 1` is always representable.
+impl(
+  Range(u64),
+  DoubleEndedIterator(
+    Item : u64,
+    next_back : (fn(inout(self) : Self) -> Option(u64))(
+      cond(
+        (self.start >= self.end) => .None,
+        true => {
+          self.end = (self.end - u64(1));
+          .Some(self.end)
+        }
+      )
+    )
+  )
+);
+/// Inclusive `u64` range back-iteration: yields `end`, …, `start`. The exact
+/// mirror of the forward impl — the canonical-EMPTY sentinel (start 1, end 0)
+/// is end-agnostic, so flipping on the LAST element works from either side,
+/// `u64.MIN ..= x` terminates from the back without underflowing `end`, and
+/// mixing `next` with `next_back` on one range stays correct because both test
+/// `start > end` and both flip when the ends coincide.
+impl(
+  RangeInclusive(u64),
+  DoubleEndedIterator(
+    Item : u64,
+    next_back : (fn(inout(self) : Self) -> Option(u64))(
+      cond(
+        (self.start > self.end) => .None,
+        true => {
+          v := self.end;
+          cond(
+            (v == self.start) => {
+              self.start = u64(1);
+              self.end = u64(0);
+            },
+            true => {
+              self.end = (self.end - u64(1));
+            }
+          );
+          .Some(v)
+        }
+      )
+    )
+  )
+);
+/// Half-open `usize` range back-iteration: yields `end - 1`, …, `start`. No
+/// underflow on unsigned types: the guard means `end > start >= usize.MIN`, so
+/// `end - 1` is always representable.
+impl(
+  Range(usize),
+  DoubleEndedIterator(
+    Item : usize,
+    next_back : (fn(inout(self) : Self) -> Option(usize))(
+      cond(
+        (self.start >= self.end) => .None,
+        true => {
+          self.end = (self.end - usize(1));
+          .Some(self.end)
+        }
+      )
+    )
+  )
+);
+/// Inclusive `usize` range back-iteration: yields `end`, …, `start`. The exact
+/// mirror of the forward impl — the canonical-EMPTY sentinel (start 1, end 0)
+/// is end-agnostic, so flipping on the LAST element works from either side,
+/// `usize.MIN ..= x` terminates from the back without underflowing `end`, and
+/// mixing `next` with `next_back` on one range stays correct because both test
+/// `start > end` and both flip when the ends coincide.
+impl(
+  RangeInclusive(usize),
+  DoubleEndedIterator(
+    Item : usize,
+    next_back : (fn(inout(self) : Self) -> Option(usize))(
+      cond(
+        (self.start > self.end) => .None,
+        true => {
+          v := self.end;
+          cond(
+            (v == self.start) => {
+              self.start = usize(1);
+              self.end = usize(0);
+            },
+            true => {
+              self.end = (self.end - usize(1));
             }
           );
           .Some(v)
@@ -9613,6 +10206,63 @@ impl(
     ) -> IterPeekable(Self, A)
   )(
     IterPeekable(Self, A)(_inner : self, _peeked : Option(A).None)
+  ),
+  /// Collect the iterator into the collection type `C`, chosen by TYPE
+  /// ARGUMENT the way `into(T)` is. The element type is not written — it comes
+  /// from `Self.Item` and must match `C`'s `FromIterator.Elem`.
+  ///
+  /// ```rust
+  /// squares := (i32(0) .. i32(5)).map((x) => (x * x)).collect(ArrayList(i32));
+  /// uniq := words.into_iter().collect(HashSet(String));
+  /// ```
+  ///
+  /// There is no return-type inference and no turbofish: the argument is the
+  /// only channel. Carries NO `generic(A : Type)` and no method-level `Self`
+  /// bound — the enclosing impl header already supplies `Self <: Iterator`, and
+  /// binding no `A` keeps `collect` off the Item-recovery path implicated in
+  /// issues/iterator-chain-shared-stamp-cross-item-pollution.md.
+  collect : (
+    fn(
+      self : Self,
+      comptime(C) : Type,
+      where(C <: FromIterator)
+    ) -> C
+  )({
+    (out : C) = (C <: FromIterator).from_iter_new();
+    iter := self;
+    while(runtime(true), {
+      match(
+        iter.next(),
+        .None => {
+          break;
+        },
+        .Some(item) => {
+          out = (C <: FromIterator).from_iter_add(out, item);
+        }
+      );
+    });
+    out
+  })
+);
+/// Blanket `rev` — added to every type implementing `DoubleEndedIterator`.
+///
+/// Its OWN impl block (rather than a method inside the `where(I <: Iterator)`
+/// block with a trailing `where(Self <: DoubleEndedIterator)`) so the bound sits
+/// on a bare-SomeT receiver pattern, which is the only case where an impl
+/// where-clause is actually enforced during generic-impl matching — `rev` on a
+/// forward-only iterator then fails at method resolution with a clear message
+/// instead of late inside specialization.
+impl(
+  generic(I : Type),
+  where(I <: DoubleEndedIterator),
+  I,
+  /// Reverse the iteration order, producing an `IterRev` iterator.
+  ///
+  /// ```rust
+  /// (i32(0) .. i32(5)).rev().for_each((x) => { out.push(x); });  // 4 3 2 1 0
+  /// ```
+  rev : (fn(self : Self) -> IterRev(Self))(
+    IterRev(Self)(_inner : self)
   )
 );
 /// FutureState — the state of an async `Future`.
