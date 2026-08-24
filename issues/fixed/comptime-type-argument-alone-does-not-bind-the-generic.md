@@ -1,6 +1,9 @@
 # A generic bound ONLY by an explicit `comptime(C) : Type` argument leaves the call result under-resolved
 
-**Status:** OPEN
+**Status: FIXED 2026-08-25** (branch `fix/comptime-type-arg-binding`) — the
+routing gate now consults the callee's DECLARED signature. Regression test:
+`tests/comptime_type_arg_binding.test.yo` (4 cases, red before / green after,
+including a type-constructor identity witness).
 **Found:** 2026-08-24, prototyping `collect` for STD_API_AUDIT D3.4.
 **Severity:** high for std design — this is the "trait-generic-method
 prototyping" gap the audit named as the reason `collect`/`FromIterator` was

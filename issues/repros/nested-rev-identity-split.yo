@@ -1,0 +1,27 @@
+// Reproducer for issues/nested-same-adaptor-instantiation-identity-split.md
+//
+//   yo compile issues/repros/nested-rev-identity-split.yo --release -o /tmp/x
+//
+// Expected today: the C compiler rejects the emitted code with
+//   error: initializing '__yo_tNN' with an expression of incompatible type '__yo_tMM'
+// because `IterRev(IterRev(Range(i32)))` is minted twice under two struct ids.
+// A single `.rev()` (below) compiles and runs.
+{ assert } :: import("std/assert");
+open(import("std/string"));
+open(import("std/fmt"));
+open(import("std/collections/array_list"));
+main :: (fn() -> unit)({
+  // ✅ works
+  single := array_list(i32(0));
+  (i32(0) .. i32(5)).rev().for_each((x) => {
+    single.push(x);
+  });
+  println(single.to_string());
+  // ❌ the bug: an adaptor instantiated over ITSELF
+  twice := array_list(i32(0));
+  (i32(0) .. i32(4)).rev().rev().for_each((x) => {
+    twice.push(x);
+  });
+  println(twice.to_string());
+});
+export(main);

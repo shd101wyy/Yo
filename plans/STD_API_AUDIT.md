@@ -184,7 +184,64 @@ the stamping-side fix first (same issue doc, REMAINING section). Also
 deferred, each needing new machinery: `collect`/`FromIterator`
 (trait-generic-method prototyping), `rev`/`DoubleEndedIterator` (pairs with
 D3.5 Range iteration). Tests: 10 new cases in
-tests/iterator_combinators.test.yo (28/28).
+tests/iterator_combinators.test.yo (28/28). **Both deferrals are now
+CLOSED — see chunk 7 below.**
+
+**Progress (S1 chunk 7, 2026-08-24, branch fix/comptime-type-arg-binding):**
+the last two D3.4 items, `collect` and `rev`, **land together with the
+compiler bug that blocked `collect`**.
+
+- `rev` / `DoubleEndedIterator`: a new prelude trait (`Item` + `next_back`),
+  the `IterRev(I)` adaptor — itself double-ended, so `.rev().rev()` is the
+  identity — and a blanket `rev` in its OWN impl block, so the
+  `DoubleEndedIterator` bound sits on a bare-SomeT receiver pattern, the only
+  shape where an impl where-clause is actually enforced during generic-impl
+  matching (`rev` on a forward-only iterator then fails at method resolution
+  rather than late in specialization). `next_back` impls: all 20
+  `Range`/`RangeInclusive` forms (the inclusive one mirrors the forward
+  canonical-empty sentinel exactly, so `T.MIN ..= x` terminates from the back),
+  `ArrayListIter` and `_ArrayIter` via a `_back_taken` COUNTER (a counter, not
+  a back cursor, so the forward guard keeps reading `_list._length` live and
+  nothing has to coerce the comptime value-generic `N` into a runtime field),
+  and `DequeIter`/`DequeIterPtr` with ZERO new fields — `_pos` + `_remaining`
+  already bracket both ends. Adaptor `next_back` impls (on `IterMap` etc.) are
+  DEFERRED: a nominal receiver pattern is not discriminated by its
+  where-clause, so such an impl would claim `DoubleEndedIterator` whether or
+  not its source is one.
+- `collect` / `FromIterator`: the trait keeps TWO MONOMORPHIC statics
+  (`from_iter_new` + `from_iter_add`) and the iteration loop lives in the
+  blanket `collect`, which is what removes the "trait-generic-method
+  prototyping" the deferral named — std declares such a method exactly once
+  (`CustomAllocator.realloc`) and has never dispatched it. The element assoc
+  type is named `Elem`, NOT `Item`, because the assoc-type registry is keyed by
+  (type id, label) with no trait discrimination and takes the first match — an
+  `Item` here would collide with the collection's own `IntoIterator.Item`,
+  benign for `ArrayList` but genuinely divergent for `HashMap`
+  (`Bucket(K, V)`). `from_iter_add` returns the accumulator so one signature
+  covers reference collections and the value newtype `String`. Impls:
+  `ArrayList`, `HashSet`, `Deque`, `String`.
+- **Compiler bug fixed en route** (the actual blocker):
+  `evaluate_function_call` routed ANY call whose arguments are all `TypeVal`s
+  into the CTFE type-constructor path, so an ordinary function whose only
+  parameter is `comptime(C) : Type` came back under-resolved — and worse, had
+  its body CTFE-executed. The gate now consults the callee's DECLARED
+  signature (every real type constructor is declared `-> comptime(Type)`)
+  instead of the shape of the arguments;
+  issues/fixed/comptime-type-argument-alone-does-not-bind-the-generic.md.
+- SECOND pre-existing bug surfaced: `.rev().rev()` does not compile —
+  instantiating a generic struct over ITSELF mints two C type identities
+  (`IterRev(IterRev(Range(i32)))` twice under two struct ids). Reproduced
+  identically on the previous compiler, so it is not from this branch;
+  `IterRev` is just the first std adaptor whose own type is a legal argument to
+  itself. Filed with a reproducer in
+  issues/nested-same-adaptor-instantiation-identity-split.md; the tests cover
+  `.rev()` and point there for the nested case.
+- HONEST LIMIT, stated rather than papered over: `.map(f).collect(C)` at TWO
+  different Item types in one module still trips the pre-existing shared-stamp
+  pollution (issues/iterator-chain-shared-stamp-cross-item-pollution.md), and
+  no spelling of `collect` fixes that — the pollution lives in the shared
+  `IterMap` stamp, not in the consumer. Tests keep every mapped chain at one
+  Item type.
 
 **Progress (S1 chunk 5, 2026-08-24, branch s1-tostring, stacked on
 chunk 3):** D3.8 ToString completion — the eight C-interop integers
