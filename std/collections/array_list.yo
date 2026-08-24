@@ -605,7 +605,12 @@ impl(
 ArrayListIter :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(
     _list : ArrayList(T),
-    _index : usize
+    _index : usize,
+    /// How many elements `next_back` has already taken off the END. A COUNTER
+    /// rather than a back cursor, so the forward guard keeps reading
+    /// `_list._length` LIVE — pushing during a forward-only walk still extends
+    /// it exactly as before.
+    _back_taken : usize
   )
 );
 impl(
@@ -615,11 +620,27 @@ impl(
     Item : T,
     next : (fn(inout(self) : Self) -> Option(T))(
       cond(
-        (self._index >= self._list._length) => .None,
+        ((self._index + self._back_taken) >= self._list._length) => .None,
         true => {
           value := self._list.get(self._index);
           self._index = (self._index + usize(1));
           value
+        }
+      )
+    )
+  )
+);
+impl(
+  generic(T : Type),
+  ArrayListIter(T),
+  DoubleEndedIterator(
+    Item : T,
+    next_back : (fn(inout(self) : Self) -> Option(T))(
+      cond(
+        ((self._index + self._back_taken) >= self._list._length) => .None,
+        true => {
+          self._back_taken = (self._back_taken + usize(1));
+          self._list.get(self._list._length - self._back_taken)
         }
       )
     )
@@ -632,7 +653,7 @@ impl(
     Item : T,
     IntoIter : ArrayListIter(T),
     into_iter : (fn(self : Self) -> ArrayListIter(T))(
-      ArrayListIter(T)(_list : self, _index : usize(0))
+      ArrayListIter(T)(_list : self, _index : usize(0), _back_taken : usize(0))
     )
   )
 );
@@ -911,5 +932,22 @@ impl(
     });
     out
   })
+);
+/// Build an `ArrayList(T)` from any iterator of `T` — the target of
+/// `it.collect(ArrayList(T))`. The iteration loop lives in the blanket
+/// `collect` (std/prelude.yo); these two statics are the seed and the step.
+impl(
+  generic(T : Type),
+  ArrayList(T),
+  FromIterator(
+    Elem : T,
+    from_iter_new : (fn() -> Self)(
+      ArrayList(T).new()
+    ),
+    from_iter_add : (fn(acc : Self, item : T) -> Self)({
+      acc.push(item);
+      acc
+    })
+  )
 );
 export(array_list);

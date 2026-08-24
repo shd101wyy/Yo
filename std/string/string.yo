@@ -2471,6 +2471,22 @@ assert_dyn :: (fn(flag : bool, msg : String) -> unit)({
   );
 });
 
+/// Build a `String` by concatenating an iterator of `String`s — the target of
+/// `it.collect(String)`. `String` is a value newtype, which is why
+/// `from_iter_add` returns the accumulator rather than mutating in place.
+impl(
+  String,
+  FromIterator(
+    Elem : String,
+    from_iter_new : (fn() -> Self)(
+      String.new()
+    ),
+    from_iter_add : (fn(acc : Self, item : Self.Elem) -> Self)({
+      acc.push_string(item);
+      acc
+    })
+  )
+);
 export(
   String,
   StringError,

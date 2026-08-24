@@ -209,6 +209,27 @@ impl(
 );
 impl(
   generic(T : Type),
+  DequeIter(T),
+  DoubleEndedIterator(
+    Item : T,
+    next_back : (fn(inout(self) : Self) -> Option(T))(
+      cond(
+        (self._remaining == usize(0)) => .None,
+        true => {
+          // Decrement FIRST so the index lands on the last LIVE element and
+          // `_remaining - 1` never underflows. `_pos` + `_remaining` already
+          // bracket both ends, so back-iteration needs no new field.
+          self._remaining = (self._remaining - usize(1));
+          idx := (((self._deque._head + self._pos) + self._remaining) % self._deque._capacity);
+          buf := self._deque._buf.unwrap();
+          .Some((buf.add(idx)).*)
+        }
+      )
+    )
+  )
+);
+impl(
+  generic(T : Type),
   Deque(T),
   IntoIterator(
     Item : T,
@@ -295,6 +316,23 @@ impl(
         },
         .None => ()
       );
+    })
+  )
+);
+/// Build a `Deque(T)` from any iterator of `T` — the target of
+/// `it.collect(Deque(T))`. Elements arrive at the BACK, so iteration order is
+/// preserved.
+impl(
+  generic(T : Type),
+  Deque(T),
+  FromIterator(
+    Elem : T,
+    from_iter_new : (fn() -> Self)(
+      Deque(T).new()
+    ),
+    from_iter_add : (fn(acc : Self, item : T) -> Self)({
+      acc.push_back(item);
+      acc
     })
   )
 );

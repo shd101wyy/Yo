@@ -1093,6 +1093,35 @@ block-shaped (unit) sibling arm is a type error ("Incompatible types" /
 "{ ... } without semicolons"). Brace-and-semicolon every arm whose result
 is not meant to be the value: `(c) => { bytes.push(b); },`.
 
+### A trait where-clause cannot bind another trait's assoc type to its OWN
+
+A trait may name its own associated type in a METHOD signature (`Self.Item`),
+but it may not use that projection as the VALUE of an associated-type
+constraint in its where clause:
+
+```rust
+// ❌ Error: Expected type for associated type constraint "Item", got: (Self.Item)
+DoubleEndedIterator :: trait(
+  Item : Type,
+  next_back : (fn(inout(self) : Self) -> Option(Self.Item)),
+  where(Self <: Iterator(Item := Self.Item))
+);
+
+// ✅ the method signature may still name Self.Item; drop the where clause
+DoubleEndedIterator :: trait(
+  Item : Type,
+  next_back : (fn(inout(self) : Self) -> Option(Self.Item))
+);
+```
+
+`IntoIterator`'s `where(Self.IntoIter <: Iterator(Item := Self.Item))` works
+because the SUBJECT is a different type (`Self.IntoIter`); what is rejected is a
+`Self`-projection appearing as the constraint's value while constraining `Self`
+itself. When two traits must agree on an associated type, state the coherence
+rule in the doc comment — the assoc-type registry is keyed by (type id, label)
+with no trait discrimination and takes the first match, so a mismatch is
+silently first-wins rather than diagnosed.
+
 ### Static (self-less) trait methods work — the FromJson pattern
 
 A trait method with no `self` (`Maker :: trait(make : (fn(x : i32) -> Self))`)

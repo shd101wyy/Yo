@@ -390,3 +390,91 @@ test("IntoIterator bound accepts ArrayList and Array", {
   assert(__ii_sum(xs) == i32(6), "ArrayList through the Item-bound generic");
   assert(__ii_sum([i32(4), i32(5)]) == i32(9), "Array through the Item-bound generic");
 });
+// --- D3.4: rev / DoubleEndedIterator (plans/STD_API_AUDIT.md) ---------------
+test("rev on integer ranges", {
+  out := array_list(i32(0));
+  (i32(0) .. i32(5)).rev().for_each((x) => {
+    out.push(x);
+  });
+  assert(out.to_string() == `[0, 4, 3, 2, 1, 0]`, "half-open range backwards");
+  inc := array_list(i32(0));
+  (i32(1) ..= i32(4)).rev().for_each((x) => {
+    inc.push(x);
+  });
+  assert(inc.to_string() == `[0, 4, 3, 2, 1]`, "inclusive range backwards");
+});
+test("rev on a range terminates at the type's MIN", {
+  // The canonical-empty sentinel is end-agnostic, so an inclusive range that
+  // reaches MIN from the back stops instead of underflowing `end`.
+  n := (u8(0) ..= u8(2)).rev().count();
+  assert(n == usize(3), "u8(0)..=u8(2) yields exactly 3 from the back");
+});
+test("rev on an ArrayList and on an Array", {
+  xs := array_list(i32(1), i32(2), i32(3));
+  got := array_list(i32(0));
+  xs.into_iter().rev().for_each((x) => {
+    got.push(x);
+  });
+  assert(got.to_string() == `[0, 3, 2, 1]`, "ArrayList backwards");
+  arr_out := array_list(i32(0));
+  [i32(7), i32(8)].into_iter().rev().for_each((x) => {
+    arr_out.push(x);
+  });
+  assert(arr_out.to_string() == `[0, 8, 7]`, "Array backwards");
+});
+// `.rev().rev()` is NOT covered: instantiating a generic struct over ITSELF
+// mints two C type identities, a pre-existing bug (same failure on the previous
+// compiler) that IterRev is simply the first std adaptor able to trigger —
+// issues/nested-same-adaptor-instantiation-identity-split.md.
+test("next and next_back meet in the middle", {
+  it := (i32(0) .. i32(4)).into_iter();
+  a := it.next();
+  b := it.next_back();
+  c := it.next();
+  d := it.next_back();
+  e := it.next();
+  assert(a.unwrap() == i32(0), "front 0");
+  assert(b.unwrap() == i32(3), "back 3");
+  assert(c.unwrap() == i32(1), "front 1");
+  assert(d.unwrap() == i32(2), "back 2");
+  assert(e.is_none(), "the ends have met");
+});
+// --- D3.4: collect / FromIterator (plans/STD_API_AUDIT.md) ------------------
+// NOTE: every `.map(...).collect(...)` here stays at ONE Item type (i32). A
+// second Item type through the same combinator stamp trips the pre-existing
+// shared-stamp pollution — issues/iterator-chain-shared-stamp-cross-item-pollution.md.
+test("collect into an ArrayList", {
+  got := (i32(0) .. i32(4)).collect(ArrayList(i32));
+  assert(got.to_string() == `[0, 1, 2, 3]`, "range collects in order");
+});
+test("collect after map", {
+  squares := (i32(1) ..= i32(4)).map((x) => (x * x)).collect(ArrayList(i32));
+  assert(squares.to_string() == `[1, 4, 9, 16]`, "mapped chain collects");
+});
+test("collect after filter", {
+  evens := (i32(0) .. i32(8)).filter((x) => ((x % i32(2)) == i32(0))).collect(ArrayList(i32));
+  assert(evens.to_string() == `[0, 2, 4, 6]`, "filtered chain collects");
+});
+test("collect into a Deque", {
+  { Deque } :: import("std/collections/deque");
+  d := (i32(1) .. i32(4)).collect(Deque(i32));
+  assert(d.len() == usize(3), "deque length");
+  assert(d.pop_front().unwrap() == i32(1), "front is the first element");
+});
+test("collect into a HashSet collapses duplicates", {
+  { HashSet } :: import("std/collections/hash_set");
+  xs := array_list(i32(1), i32(2), i32(2), i32(3));
+  set := xs.into_iter().collect(HashSet(i32));
+  assert(set.len() == usize(3), "duplicates collapse");
+});
+test("collect and rev on an EMPTY sequence", {
+  empty := (i32(0) .. i32(0)).collect(ArrayList(i32));
+  assert(empty.len() == usize(0), "collecting nothing yields an empty collection");
+  assert((i32(0) .. i32(0)).rev().count() == usize(0), "rev of an empty range yields nothing");
+  assert((i32(5) ..= i32(4)).rev().count() == usize(0), "rev of an empty inclusive range too");
+});
+test("collect into a String concatenates", {
+  parts := array_list(`a`, `b`, `c`);
+  joined := parts.into_iter().collect(String);
+  assert(joined == `abc`, "strings concatenate in order");
+});
