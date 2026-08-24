@@ -153,8 +153,12 @@ impl(
 impl(
   generic(K : Type, V : Type),
   BTreeMap(K, V),
-  into_iter : (fn(self : Self) -> BTreeMapIter(K, V))(
-    BTreeMapIter(K, V)(_entries : self._entries, _index : usize(0))
+  IntoIterator(
+    Item : BTreeEntry(K, V),
+    IntoIter : BTreeMapIter(K, V),
+    into_iter : (fn(self : Self) -> BTreeMapIter(K, V))(
+      BTreeMapIter(K, V)(_entries : self._entries, _index : usize(0))
+    )
   )
 );
 /**

@@ -220,6 +220,24 @@ issues/iterator-chain-shared-stamp-cross-item-pollution.md (same
 under-resolution family as the flat_map residual). Tests: 4 range cases in
 tests/iterator_combinators.test.yo (32/32).
 
+**Progress (S1 chunk 6, 2026-08-24, branch s1-intoiter, stacked on the
+chunk-4 fix branch):** D3.6 — every collection's inherent `into_iter` is now
+a real `IntoIterator` TRAIT impl (ArrayList, HashMap → `Bucket(K,V)`,
+HashSet, Deque, LinkedList, PriorityQueue, BTreeMap → `BTreeEntry(K,V)`,
+plus `Array(T, N)` in the prelude), so `where(C <: IntoIterator)` /
+`IntoIterator(Item := X)` generic code finally dispatches; the `for` macro
+and all 394 collections tests are unaffected. DEFERRED: a blanket
+IntoIterator TRAIT impl for every Iterator (so ranges/combinator chains
+satisfy the bound too) — needs assoc-of-assoc (`Item := I.Item`) in a
+blanket impl; the inherent blanket `into_iter` still serves the `for`
+macro. FOUND (pre-existing, OPEN — third face of the under-resolution
+family): piling several instantiations of one where-bound generic leaves a
+later instantiation's GC trace calls abstract-keyed → C compile failure;
+minimal trigger LinkedList-then-BTreeMap,
+issues/where-bound-intoiterator-gc-trace-abstract-key.md. Tests: 1 new case
+in tests/iterator_combinators.test.yo (33/33), scoped away from the
+landmine with a pointer at the issue.
+
 1. **`Default`** trait + derive. Unblocks `unwrap_or_default`, map `or_default`.
 2. **`From(T)` / `Into(T)`** (the prelude header already *claims* they exist).
 3. **`Ordering` wired in**: `Ord` gains `cmp(self, rhs) -> Ordering` (default

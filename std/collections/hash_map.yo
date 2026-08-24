@@ -535,8 +535,12 @@ impl(
   generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash)),
   HashMap(K, V),
-  into_iter : (fn(self : Self) -> HashMapIter(K, V))(
-    HashMapIter(K, V)(_map : self, _index : usize(0))
+  IntoIterator(
+    Item : Bucket(K, V),
+    IntoIter : HashMapIter(K, V),
+    into_iter : (fn(self : Self) -> HashMapIter(K, V))(
+      HashMapIter(K, V)(_map : self, _index : usize(0))
+    )
   )
 );
 /**
