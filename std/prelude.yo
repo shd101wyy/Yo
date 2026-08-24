@@ -452,28 +452,10 @@ ComptimeBitRightShift :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime)) -> co
   )
 );
 export(ComptimeBitRightShift);
-/// Exponentiation trait — enables `lhs.pow(rhs)`.
-///
-/// The `**` OPERATOR spelling was removed 2026-08-21
-/// (plans/OPERATOR_SET_AND_PRECEDENCE.md): it had zero impls and zero call
-/// sites, and dropping the token lets `**i32` lex as `*`,`*`,`i32`
-/// (double deref) instead of a phantom power operator. Word method only,
-/// like `Negate`'s `(neg)`.
-Exponentiation :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
-  trait(
-    Output : Type,
-    (pow) : (fn(lhs : Self, rhs : Rhs) -> Self.Output)
-  )
-);
-export(Exponentiation);
-ComptimeExponentiation :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime)) -> comptime(Trait))(
-  trait(
-    Output : Type,
-    (pow) : (fn(comptime(lhs) : Self, comptime(rhs) : Rhs) -> comptime(Self.Output)),
-    where(Self <: Comptime, Self.Output <: Comptime)
-  )
-);
-export(ComptimeExponentiation);
+// `Exponentiation`/`ComptimeExponentiation` were DELETED here (std S1,
+// plans/STD_API_AUDIT.md §4 prelude row): the `**` operator token was
+// already removed 2026-08-21 (plans/OPERATOR_SET_AND_PRECEDENCE.md), and
+// the traits had zero impls and zero call sites — dead surface.
 /// Negate trait — enables unary `-value` operator.
 Negate :: trait(
   Output : Type,
@@ -679,6 +661,12 @@ Ordering :: enum(
 export(Ordering);
 /// Ord trait — enables `<`, `<=`, `>`, `>=` comparison operators.
 /// Requires the type to also implement `Eq`.
+///
+/// `cmp` is contractually a TOTAL order for every std impl (the audit's
+/// no-PartialOrd decision, plans/STD_API_AUDIT.md D3.3): the default is
+/// derived from `<`/`==`, and types whose operators are only partial
+/// (floats: NaN is incomparable under IEEE `<`) OVERRIDE `cmp` with a
+/// total order instead of splitting the trait.
 Ord :: (
   fn(
     comptime(Rhs) : Type
@@ -693,6 +681,15 @@ Ord :: (
       (fn(lhs : Self, rhs : Rhs) -> bool),
     (>=) :
       (fn(lhs : Self, rhs : Rhs) -> bool),
+    (cmp : (fn(lhs : Self, rhs : Rhs) -> Ordering)) ?=
+      (
+        (lhs, rhs) ->
+          cond(
+            Self.(<)(lhs, rhs) => Ordering.Less,
+            Self.(==)(lhs, rhs) => Ordering.Equal,
+            true => Ordering.Greater
+          )
+      ),
     where(Self <: Eq(Rhs))
   )
 );
@@ -715,6 +712,7 @@ ComptimeOrd :: (
     where(Self <: (Comptime, ComptimeEq(Rhs)))
   )
 );
+export(ComptimeOrd);
 /**
 * Hash trait - Similar to Rust's std::hash::Hash
 *
@@ -745,6 +743,29 @@ Clone :: trait(
     )
 );
 export(Clone);
+/// Default trait — the type's default value (Rust's `Default`).
+/// Call explicitly via `(T <: Default).default()` in generic code, or
+/// `MyType.default()` on a concrete type. Unblocks
+/// `Option.unwrap_or_default` and map `or_default`-style helpers
+/// (plans/STD_API_AUDIT.md D3.1).
+Default :: trait(
+  /// The default value of the type.
+  default : (fn() -> Self)
+);
+export(Default);
+impl(bool, Default(default : (fn() -> Self)(false)));
+impl(i8, Default(default : (fn() -> Self)(i8(0))));
+impl(i16, Default(default : (fn() -> Self)(i16(0))));
+impl(i32, Default(default : (fn() -> Self)(i32(0))));
+impl(i64, Default(default : (fn() -> Self)(i64(0))));
+impl(u8, Default(default : (fn() -> Self)(u8(0))));
+impl(u16, Default(default : (fn() -> Self)(u16(0))));
+impl(u32, Default(default : (fn() -> Self)(u32(0))));
+impl(u64, Default(default : (fn() -> Self)(u64(0))));
+impl(isize, Default(default : (fn() -> Self)(isize(0))));
+impl(usize, Default(default : (fn() -> Self)(usize(0))));
+impl(f32, Default(default : (fn() -> Self)(f32(0.0))));
+impl(f64, Default(default : (fn() -> Self)(f64(0.0))));
 /// Isolation trait — runtime check whether a value can be safely transferred.
 Isolation :: trait(
   can_isolate : (fn(self : Self) -> bool)
@@ -755,6 +776,7 @@ ComptimeToString :: trait(
   to_comptime_string : (fn(comptime(self) : Self) -> comptime(comptime_str)),
   where(Self <: Comptime)
 );
+export(ComptimeToString);
 // SAFETY: All builtin primitive types (unit, void, comptime_int,
 // comptime_float, comptime_str, bool, i8/i16/i32/i64, u8/u16/u32/u64,
 // f32/f64, isize/usize, char/int/uint/short/ushort/long/ulong/longlong/
@@ -3437,15 +3459,34 @@ impl(
     (<) : ((lhs, rhs) -> __yo_op_lt(lhs, rhs)),
     (<=) : ((lhs, rhs) -> __yo_op_lte(lhs, rhs)),
     (>) : ((lhs, rhs) -> __yo_op_gt(lhs, rhs)),
-    (>=) : ((lhs, rhs) -> __yo_op_gte(lhs, rhs))
+    (>=) : ((lhs, rhs) -> __yo_op_gte(lhs, rhs)),
+    // TOTAL-order override (plans/STD_API_AUDIT.md D3.3, no-PartialOrd
+    // decision): the OPERATORS stay IEEE (NaN incomparable), but `cmp`
+    // must be total so float sorts are deterministic. NaNs compare equal
+    // to each other and greater than every number (incl. +inf); -0 and
+    // +0 compare Equal (deliberately simpler than IEEE totalOrder, and
+    // consistent with `==`).
+    cmp : (
+      (lhs, rhs) -> {
+        l_nan := not(lhs == lhs);
+        r_nan := not(rhs == rhs);
+        cond(
+          (l_nan && r_nan) => Ordering.Equal,
+          l_nan => Ordering.Greater,
+          r_nan => Ordering.Less,
+          (lhs < rhs) => Ordering.Less,
+          (lhs == rhs) => Ordering.Equal,
+          true => Ordering.Greater
+        )
+      }
+    )
   )
 );
-impl(
-  f32,
-  Hash(
-    (hash) : ((self) -> u64(i32(self)))
-  )
-);
+// f32's `Hash` impl was DELETED (std S1, no-PartialOrd decision): it was
+// `u64(i32(self))` — a TRUNCATING int cast, so 0.5 and 0.9 already hashed
+// alike — and float map keys break the Eq/Hash contract on NaN anyway.
+// `HashMap(f32, …)` is now a compile error; key by the bits or a rounded
+// integer explicitly instead.
 impl(
   f32,
   Clone(
@@ -3610,15 +3651,26 @@ impl(
     (<) : ((lhs, rhs) -> __yo_op_lt(lhs, rhs)),
     (<=) : ((lhs, rhs) -> __yo_op_lte(lhs, rhs)),
     (>) : ((lhs, rhs) -> __yo_op_gt(lhs, rhs)),
-    (>=) : ((lhs, rhs) -> __yo_op_gte(lhs, rhs))
+    (>=) : ((lhs, rhs) -> __yo_op_gte(lhs, rhs)),
+    // TOTAL-order override — see the f32 impl's comment.
+    cmp : (
+      (lhs, rhs) -> {
+        l_nan := not(lhs == lhs);
+        r_nan := not(rhs == rhs);
+        cond(
+          (l_nan && r_nan) => Ordering.Equal,
+          l_nan => Ordering.Greater,
+          r_nan => Ordering.Less,
+          (lhs < rhs) => Ordering.Less,
+          (lhs == rhs) => Ordering.Equal,
+          true => Ordering.Greater
+        )
+      }
+    )
   )
 );
-impl(
-  f64,
-  Hash(
-    (hash) : ((self) -> u64(i64(self)))
-  )
-);
+// f64's `Hash` impl was DELETED — see the f32 note above (it was
+// `u64(i64(self))`, a truncating cast).
 impl(
   f64,
   Clone(
@@ -6396,6 +6448,28 @@ impl(
     )
   )
 );
+/// `Option(T)` defaults to `.None`.
+impl(
+  generic(T : Type),
+  Option(T),
+  Default(
+    default : (fn() -> Self)(Option(T).None)
+  )
+);
+/// Default-aware helpers for `Option(T)` (plans/STD_API_AUDIT.md D3.1/D3.7).
+impl(
+  generic(T : Type),
+  where(T <: Default),
+  Option(T),
+  /// Extract the contained value, or `T`'s default when `None`.
+  unwrap_or_default : (fn(self : Self) -> T)(
+    match(
+      self,
+      .Some(value) => value,
+      .None => (T <: Default).default()
+    )
+  )
+);
 /// `Option(T)` implements `Comptime` when `T` implements `Comptime`.
 impl(generic(T : Type), where(T <: Comptime), Option(T), Comptime());
 /// Compile-time methods for `Option(T)`.
@@ -7546,13 +7620,62 @@ impl(
   )
 );
 /// TryFrom trait — fallible conversion from one type to another.
-TryFrom :: (fn(comptime(From) : Type) -> comptime(Trait))(
+/// From trait — infallible conversion FROM another type
+/// (plans/STD_API_AUDIT.md D3.2; the fallible pair is `TryFrom` below).
+From :: (fn(comptime(Source) : Type) -> comptime(Trait))(
+  trait(
+    /// Convert `value` into `Self`.
+    from :
+      (fn(value : Source) -> Self)
+  )
+);
+export(From);
+/// Into trait — infallible conversion of `Self` INTO another type.
+/// Called with the target type, mirroring `try_into`:
+/// `wide := narrow.into(i64);`
+Into :: (fn(comptime(To) : Type) -> comptime(Trait))(
+  trait(
+    /// Convert `self` into the target type.
+    into :
+      (fn(self : Self, (comptime(_To) : Type) = To) -> To)
+  )
+);
+export(Into);
+// Lossless integer widenings — the canonical seed impls for From/Into.
+// (Narrowing stays with TryFrom, where failure is representable.)
+impl(i16, From(i8)(from : (value -> i16(value))));
+impl(i32, From(i8)(from : (value -> i32(value))));
+impl(i32, From(i16)(from : (value -> i32(value))));
+impl(i64, From(i8)(from : (value -> i64(value))));
+impl(i64, From(i16)(from : (value -> i64(value))));
+impl(i64, From(i32)(from : (value -> i64(value))));
+impl(u16, From(u8)(from : (value -> u16(value))));
+impl(u32, From(u8)(from : (value -> u32(value))));
+impl(u32, From(u16)(from : (value -> u32(value))));
+impl(u64, From(u8)(from : (value -> u64(value))));
+impl(u64, From(u16)(from : (value -> u64(value))));
+impl(u64, From(u32)(from : (value -> u64(value))));
+impl(f64, From(f32)(from : (value -> f64(value))));
+impl(i8, Into(i16)(into : ((self, _) -> i16(self))));
+impl(i8, Into(i32)(into : ((self, _) -> i32(self))));
+impl(i8, Into(i64)(into : ((self, _) -> i64(self))));
+impl(i16, Into(i32)(into : ((self, _) -> i32(self))));
+impl(i16, Into(i64)(into : ((self, _) -> i64(self))));
+impl(i32, Into(i64)(into : ((self, _) -> i64(self))));
+impl(u8, Into(u16)(into : ((self, _) -> u16(self))));
+impl(u8, Into(u32)(into : ((self, _) -> u32(self))));
+impl(u8, Into(u64)(into : ((self, _) -> u64(self))));
+impl(u16, Into(u32)(into : ((self, _) -> u32(self))));
+impl(u16, Into(u64)(into : ((self, _) -> u64(self))));
+impl(u32, Into(u64)(into : ((self, _) -> u64(self))));
+impl(f32, Into(f64)(into : ((self, _) -> f64(self))));
+TryFrom :: (fn(comptime(Source) : Type) -> comptime(Trait))(
   trait(
     /// Error type returned on conversion failure.
     Error : Type,
     /// Attempt to convert `value` into `Self`.
     try_from :
-      (fn(value : From) -> Result(Self, Self.Error))
+      (fn(value : Source) -> Result(Self, Self.Error))
   )
 );
 export(TryFrom);

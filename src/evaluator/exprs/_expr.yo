@@ -407,6 +407,16 @@ is_comptime_numeric_fn_call :: (fn(e : AstExpr) -> bool)(
 // stuck C compiler is not covered by it (see plans/P2_5_RETIRE_EXECUTION.md).
 (_g_eval_deadline_ns : i64) = i64(0);
 (_g_eval_deadline_counter : u64) = u64(0);
+// Latched on the first trip. The evaluator has many deliberate SWALLOWING
+// exception handlers (trial evaluation, receiver probing, Call-overload
+// trials); if one of them eats the deadline throw and the next check is
+// another 16384 dispatches away, the intervening code finishes with a
+// half-evaluated value and reports ITS error instead — e.g. `derive` masking
+// the timeout as "derive rule must return(comptime(Expr)); got Comptime"
+// (issues/fixed/evaluator-deadline-error-swallowed-by-trial-eval.md). Once
+// tripped, throw on EVERY dispatch so a swallow can never outrun the
+// deadline: the first dispatch back in a propagating context rethrows.
+(_g_eval_deadline_tripped : bool) = false;
 _monotonic_ns :: (fn() -> i64)({
   out_s := i64(0);
   out_ns := i64(0);
@@ -420,16 +430,24 @@ set_evaluator_deadline :: (fn(budget_ms : usize) -> unit)({
     true => (_monotonic_ns() + (i64(budget_ms) * i64(1000000)))
   );
   _g_eval_deadline_counter = u64(0);
+  _g_eval_deadline_tripped = false;
 });
+_throw_deadline_error :: (fn(exn : Exception) -> unit)(
+  exn.throw(
+    dyn(
+      `Yo compilation exceeded the configured time limit (possible evaluator hang). See issues/fixed/test-runner-no-compile-timeout.md.`
+    )
+  )
+);
 _check_evaluator_deadline :: (fn(exn : Exception) -> unit)(
   if(_g_eval_deadline_ns != i64(0), {
+    if(_g_eval_deadline_tripped, {
+      _throw_deadline_error(exn);
+    });
     _g_eval_deadline_counter = (_g_eval_deadline_counter + u64(1));
     if(((_g_eval_deadline_counter & u64(16383)) == u64(0)) && (_monotonic_ns() > _g_eval_deadline_ns), {
-      exn.throw(
-        dyn(
-          `Yo compilation exceeded the configured time limit (possible evaluator hang). See issues/fixed/test-runner-no-compile-timeout.md.`
-        )
-      );
+      _g_eval_deadline_tripped = true;
+      _throw_deadline_error(exn);
     });
   })
 );

@@ -214,3 +214,81 @@ test("Test 'MaybeUninit'", {
     assert(point.y == 99);
   };
 });
+// ============================================================================
+// S1 prelude traits (plans/STD_API_AUDIT.md D3.1–D3.3)
+// ============================================================================
+test("Default trait provides zero values, .None, and empty containers", {
+  { String } :: import("std/string");
+  { ArrayList } :: import("std/collections/array_list");
+  assert(i32.default() == i32(0), "i32 default");
+  assert(u64.default() == u64(0), "u64 default");
+  assert(f64.default() == f64(0.0), "f64 default");
+  assert(bool.default() == false, "bool default");
+  (o : Option(i32)) = Option(i32).default();
+  assert(o.is_none(), "Option default is None");
+  s := String.default();
+  assert(s.len() == usize(0), "String default is empty");
+  l := ArrayList(i32).default();
+  assert(l.len() == usize(0), "ArrayList default is empty");
+});
+test("Option.unwrap_or_default uses the payload type's Default", {
+  (x : Option(i32)) = .None;
+  assert(x.unwrap_or_default() == i32(0), "None yields default");
+  (y : Option(i32)) = .Some(i32(7));
+  assert(y.unwrap_or_default() == i32(7), "Some yields payload");
+});
+test("From and Into widen integers and floats losslessly", {
+  // A type carries several From impls, so bare `i64.from` is ambiguous by
+  // design (Yo has no overloading) — the explicit trait-dispatch form
+  // selects the source type. `into(T)` disambiguates via its type argument,
+  // like `try_into(T)`.
+  assert((i64 <: From(i32)).from(i32(5)) == i64(5), "From(i32) for i64");
+  assert((i32 <: From(i8)).from(i8(-(8))) == i32(-(8)), "From(i8) for i32");
+  assert((u64 <: From(u8)).from(u8(255)) == u64(255), "From(u8) for u64");
+  assert((f64 <: From(f32)).from(f32(1.5)) == f64(1.5), "From(f32) for f64");
+  a := i32(5);
+  assert(a.into(i64) == i64(5), "i32 into i64");
+  b := u16(65535);
+  assert(b.into(u64) == u64(65535), "u16 into u64");
+  c := f32(2.5);
+  assert(c.into(f64) == f64(2.5), "f32 into f64");
+});
+test("Ord.cmp default derives a total order from < and ==", {
+  less := match(i32(1).cmp(i32(2)), .Less => true, _ => false);
+  assert(less, "1 cmp 2 is Less");
+  eq := match(i32(3).cmp(i32(3)), .Equal => true, _ => false);
+  assert(eq, "3 cmp 3 is Equal");
+  gt := match(u8(9).cmp(u8(4)), .Greater => true, _ => false);
+  assert(gt, "9 cmp 4 is Greater");
+});
+test("float cmp is total: NaNs equal each other and sort after +inf", {
+  zero := f64(0.0);
+  one := f64(1.0);
+  nan := (zero / zero);
+  inf := (one / zero);
+  assert(match(nan.cmp(one), .Greater => true, _ => false), "NaN cmp 1.0 is Greater");
+  assert(match(one.cmp(nan), .Less => true, _ => false), "1.0 cmp NaN is Less");
+  assert(match(nan.cmp(nan), .Equal => true, _ => false), "NaN cmp NaN is Equal");
+  assert(match(inf.cmp(nan), .Less => true, _ => false), "+inf cmp NaN is Less");
+  assert(match(one.cmp(one), .Equal => true, _ => false), "1.0 cmp 1.0 is Equal");
+  neg := -(one);
+  assert(match(neg.cmp(one), .Less => true, _ => false), "-1.0 cmp 1.0 is Less");
+  zero32 := f32(0.0);
+  nan32 := (zero32 / zero32);
+  assert(match(nan32.cmp(f32(5.0)), .Greater => true, _ => false), "f32 NaN cmp is Greater");
+});
+// The no-PartialOrd decision's enforcement half: floats no longer hash, so
+// HashMap(f64, …) keys are a COMPILE error instead of a NaN/truncation
+// footgun (the old impl was `u64(i64(self))` — a truncating cast).
+test("float Hash is deleted — hashing a float is a compile error", {
+  comptime_expect_error({
+    f := f64(1.5);
+    h := f.hash();
+    consume(h);
+  });
+  comptime_expect_error({
+    g := f32(1.5);
+    h2 := g.hash();
+    consume(h2);
+  });
+});
