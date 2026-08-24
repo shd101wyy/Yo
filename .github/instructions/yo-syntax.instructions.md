@@ -548,6 +548,7 @@ like the RHS failed to type — the wrong place to look. Measured 2026-08-12:
 - If you use a comptime-only (`::`) variable in a bare `while` condition (without `comptime()`), the compiler will **error**: the condition would never change at runtime, causing an infinite loop.
 - `assert`/`panic` live in `std/assert` (`{ assert, panic } :: import("std/assert");`) — not prelude-ambient. Messages accept any `ToString` type (template strings OK); `assert(cond)` uses a default message. The diverging builtin for value-position arms is `__yo_panic("str only")`.
 - Pointer comparison is plain `==`/`!=`/`<`/`<=`/`>`/`>=` (Eq/Ord impls on `*(T)`, address identity). Pointer arithmetic is METHODS: `p.add(n)`, `p.sub(n)` (offset by `usize` elements), `p.offset_from(q)` (signed element distance → `isize`). Comparisons are safe; arithmetic methods require `unsafe(...)`.
+- **A module-level `NAME :: <backtick String literal>` is REJECTED** ("Expected compile-time value for NAME"): `::` constants must be comptime values, and a backtick literal (like `String.from(...)`) constructs a runtime RC `String`. Double-quoted `str` (`app_name :: "yo-demo";`) and numeric constants (`_COMMA :: u8(44);`) are fine — `str` is static. For big `String` data (e.g. an embedded table), put the backtick literal INSIDE the function that consumes it (`data := ` + blob) — it is one C string literal there; a module-level `:=` global also works but runs at module init and module globals get unmangled C names (alias hazard). Precedent: `std/encoding/html_entities.yo`.
 
 ## `unsafe(...)` and `pragma(Pragma.AllowUnsafe);` for raw pointer operations
 
@@ -613,6 +614,25 @@ len :: (fn(s : *(char)) -> usize)(unsafe(strlen(s)));        // wrap required
 ```
 
 `asm(...)` and `extern(...)`/`c_include(...)` declarations themselves do NOT need a wrap — the `asm` keyword and the declaration syntax are themselves the per-site markers, and the pragma is the file-level gate.
+
+### c_include-typed integers: cast to a Yo int before comparing
+
+Values typed by a `c_include` type alias (`ssize_t`, `off_t`, …) can fail to
+transpile in comparisons (`n <= isize(0)` emits `// Failed to transpile` in
+condition position — a class `yo check` cannot see; the C compiler then
+errors). Casts DO emit correctly, so bind through a cast at the call site:
+
+```rust
+// WRONG — may emit "// Failed to transpile n <= isize(0)":
+n := unsafe(write(int(fd), *(void)(p), count));   // n : ssize_t
+if(n <= isize(0), { ... });
+
+// CORRECT — cast to a Yo integer at the binding:
+n := i64(unsafe(write(int(fd), *(void)(p), count)));
+if(n <= i64(0), { ... });
+```
+
+See `issues/cinclude-int-comparison-fails-to-transpile.md`.
 
 `auto-generated://` URIs (macros, derive expansions) bypass the per-call wrap — the macro author owns the contract via the expansion site. See `plans/archive/EXTERN_UNSAFE_WRAP.md`.
 

@@ -13,6 +13,7 @@ pragma(Pragma.AllowUnsafe);
 { ToString } :: import("../fmt");
 { CLOCK_REALTIME, clock_gettime } :: import("../sys/clock");
 { snprintf } :: import("../libc/stdio");
+{ panic } :: import("../assert");
 /// Calendar date and time with nanosecond precision.
 /// Values are in UTC unless `utc_offset_secs` is non-zero.
 DateTime :: struct(
@@ -97,10 +98,18 @@ _from_unix_secs :: (fn(secs : i64, nanos : i64) -> DateTime)({
 impl(
   DateTime,
   // Current UTC date/time.
+  // Panics if the realtime clock fails — a broken clock must not silently
+  // yield the epoch (plans/STD_API_AUDIT.md C10).
   now_utc : (fn() -> Self)({
     sec := i64(0);
     nsec := i64(0);
-    clock_gettime(CLOCK_REALTIME, &(sec), &(nsec));
+    rc := clock_gettime(CLOCK_REALTIME, &(sec), &(nsec));
+    // cond + panic (not assert) so the message String is only built on the
+    // failure path.
+    cond(
+      (rc == i32(0)) => (),
+      true => panic(`DateTime.now_utc: clock_gettime(CLOCK_REALTIME) failed (rc=${rc})`)
+    );
     _from_unix_secs(sec, nsec)
   }),
   // Current local date/time (UTC offset not resolved; same as now_utc for now).

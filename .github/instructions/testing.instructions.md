@@ -10,6 +10,23 @@ description: "Use when running tests, setting up test files, or debugging test f
 > it are all deleted (`src/` is now the Yo compiler — see AGENTS.md's note) — there is no bun, npm, or node in this repo outside
 > `vscode-extension/`.
 
+## Testing changes to the repo's `std/`
+
+The installed `yo` resolves `std` from its OWN release bundle (exe-walk-up
+beats the `./std` fallback), so running `yo test` from the repo root after
+editing `std/` silently tests the INSTALLED std, not your edit. Point it at
+the tree explicitly:
+
+```bash
+YO_STD=$PWD/std yo test ./tests/sync/channel.test.yo --parallel 1
+```
+
+A tree-built stage-1 (`yo build` → `yo-out/<target>/bin/yo`) walks up to the
+repo root and finds `./std` naturally, so it needs no override — and it is
+what CI's suite legs run. Changes to `src/` codegen are only observable
+under such a stage-1; the installed seed emits the old code no matter which
+std it reads.
+
 ## Scratch experiments
 
 - `tmp/fixme.yo` is the scratch file for one-off experiments (`tmp*` is gitignored). It replaces the old `src/tests/fixme.yo`.
@@ -57,6 +74,23 @@ locally built one, since that is what CI runs:
 
 ```bash
 yo fmt --check ./src ./std ./tests
+```
+
+## A fixpoint run's stage-1 must live OUTSIDE the repo (`/tmp/yo-s1`)
+
+Type keys embed each declaring module's PATH SPELLING, and std resolution is
+`--std-path > YO_STD > exe-walk-up > ./std`. A stage-1 sitting INSIDE the
+repo (e.g. `yo-out/<target>/bin/yo`) exe-walks-up to the repo std and renders
+ABSOLUTE module paths; the script's stage-2 binary is built in `/tmp` and
+falls back to relative `./std`. Different path spellings → different type-key
+strings → different hash-bucket emission order → a FIXPOINT_BROKEN verdict
+with same-content, reordered/renumbered C (measured 2026-08-23: first
+divergence was `struct_decl_31673__Users/...` vs `struct_decl_31673___std/...`).
+Copy the binary first, exactly as AGENTS.md shows:
+
+```bash
+cp yo-out/aarch64-macos/bin/yo /tmp/yo-s1
+S1=/tmp/yo-s1 P=local bash scripts/bootstrap/fixpoint_only.sh
 ```
 
 ## A fixpoint run's stage-1 must come from the SAME tree it compiles

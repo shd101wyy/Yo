@@ -2,6 +2,8 @@
 //!
 //! Wraps a file descriptor with an internal buffer for efficient writes.
 //! Reduces the number of system calls by batching small writes together.
+//! Dropping a BufWriter flushes any buffered bytes BEST-EFFORT (errors are
+//! ignored) — call `flush()` explicitly when you need to observe them.
 //!
 //! # Example
 //!
@@ -155,6 +157,49 @@ impl(
     io.async((io) => {
       flush_result := io.await(self._flush_inner(io), io);
       flush_result
+    })
+  )
+);
+// Dispose: best-effort SYNC flush of any bytes still buffered, so dropping a
+// BufWriter no longer silently loses data (plans/STD_API_AUDIT.md C12).
+// Dispose cannot report errors — call `flush()` first when you need to
+// observe them. Uses the positioned `write_sync` shim at `_offset`
+// (matching the positioned writes the async path issues); non-seekable fds
+// (pipe/socket/tty) are written at their current position, and on Windows
+// the shim is OVERLAPPED-aware — the async-opened file fds wrap
+// FILE_FLAG_OVERLAPPED handles that CRT `_write` cannot serve.
+impl(
+  BufWriter,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      cond(
+        (self._buf.len() > usize(0)) => {
+          total := self._buf.len();
+          buf_ptr := self._buf.ptr().unwrap();
+          written := usize(0);
+          keep_going := true;
+          while(runtime((written < total) && keep_going), {
+            // SAFETY: buf_ptr.add(written) stays inside _buf's live backing
+            // (written < total = _buf.len()); write_sync reads at most
+            // (total - written) bytes from it.
+            n := IO_file.write_sync(
+              self._fd,
+              unsafe(buf_ptr.add(written)),
+              u32(total - written),
+              self._offset + u64(written)
+            );
+            cond(
+              (n <= i32(0)) => {
+                keep_going = false;
+              },
+              true => {
+                written = (written + usize(n));
+              }
+            );
+          });
+        },
+        true => ()
+      );
     })
   )
 );

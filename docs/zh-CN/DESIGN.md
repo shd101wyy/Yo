@@ -2661,7 +2661,7 @@ copy := shared;             // 引用计数：1 → 2
 // 跨线程共享
 { Thread } :: import("std/thread");
 shared := arc(i32(42));
-t := Thread.spawn(() => {
+t := Thread.spawn((io) => {
   assert((shared.(*) == i32(42)), "thread sees shared value");
 });
 t.join();

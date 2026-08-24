@@ -863,3 +863,30 @@ test("BufReader read_exact reports EOF when short", {
   );
   io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
 });
+// S0 C12 (plans/STD_API_AUDIT.md §2): dropping a BufWriter with buffered
+// bytes must flush them (best-effort) instead of silently losing them.
+test("BufWriter Dispose flushes buffered bytes on drop", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        println(`  unexpected error: ${err}`);
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  tmp := temp_dir();
+  fpath := Path.new(path_join(tmp, `yo_bufio_dispose_flush.txt`));
+  f := io.await(File.open(fpath, .Write, io), IoExn(io : io, exn : exn));
+  {
+    writer := BufWriter.new(f.fd());
+    r := io.await(writer.write_string(`buffered bytes`, io), io);
+    assert(r.is_ok(), "write into the buffer succeeds");
+    assert(writer.buffered() == usize(14), "bytes sit in the buffer, unflushed");
+    // no flush() — Dispose must flush on drop
+  };
+  s := io.await(fs_file.read_string(fpath, io), IoExn(io : io, exn : exn));
+  assert(s == `buffered bytes`, "Dispose flushed the buffered bytes to the fd");
+  io.await(f.close(io), IoExn(io : io, exn : exn));
+  io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
+});

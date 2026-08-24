@@ -2674,7 +2674,7 @@ copy := shared;             // refcount: 1 → 2
 // Cross-thread sharing
 { Thread } :: import("std/thread");
 shared := arc(i32(42));
-t := Thread.spawn(() => {
+t := Thread.spawn((io) => {
   assert((shared.(*) == i32(42)), "thread sees shared value");
 });
 t.join();
