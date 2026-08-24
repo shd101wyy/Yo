@@ -647,9 +647,9 @@ The builtin `Slice(T)` and the view methods `String.as_str()` /
   constraints.
 - Range indexing COPIES: `arr(a..b)` → new `ArrayList(T)`, `s(a..b)` on
   `String` → new `String`; `str` ranges stay zero-copy static windows.
-- Safe sub-range _views_ use `ListView(T)`
-  (`std/collections/list_view.yo`) — an alias window over the live
-  Rc'd backing.
+- There is no aliasing view type: `ListView(T)` was deleted (no `Index`, no
+  iteration, no consumers — superseded by the copying range forms above). If a
+  real view type is ever needed it comes back with iteration and `Index`.
 - Privileged ptr+len plumbing uses `RawSlice(T)` (prelude). Naming it —
   or any type whose representation carries a raw pointer — in a
   parameter annotation requires `pragma(Pragma.AllowUnsafe);` (a

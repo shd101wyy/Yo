@@ -503,6 +503,31 @@ small number of PRs with tree-wide fixups (compiler + std + tests + docs):
 
 ## 6. Deletions (all pre-stability; each verified zero/near-zero usage by grep)
 
+**Progress (S2 deletions, round 1, 2026-08-25, branch std/s2-deletions):** four
+targets removed after re-verifying zero usage by grep — `std/alg/hash.yo` (0
+importers; its docstring's "Used internally by `HashMap` and `HashSet`" was
+false, and the FNV consolidation it hints at belongs to the D3.9 Hasher redesign,
+which rewrites every `Hash` impl anyway), `std/encoding/punycode.yo` (0 importers
+including `url`; 343 untested spec-sensitive lines — IDN support should return
+with tests and a `Url` integration, not sit dormant in a stable std),
+`std/fmt/display.yo` (0 call sites, not re-exported, and a parameterized trait
+misusing its `T` as the self type — also settled against by O5's single-`ToString`
+decision; `std/fmt/writer.yo` STAYS, it is used by `std/net/addr.yo`), and
+`std/collections/list_view.yo` plus its test (superseded by the copying range
+forms; the `ListView` recommendation in
+`.github/instructions/yo-syntax.instructions.md` is updated). `std/alg/` is now
+empty and gone.
+
+**`std/collections/linked_list.yo` is KEPT for now**, against the table's
+recommendation, for a concrete reason: it is the load-bearing half of the #249
+regression trigger (`tests/where_clause_fn_inference.test.yo` instantiates one
+where-bound generic at LinkedList and then at BTreeMap — the minimal
+era-copy/GC-trace reproducer). Deleting it forces substituting a different
+collection pair that cannot be verified to still reproduce the original bug, so
+the deletion would trade a real regression test for 514 lines. Revisit if that
+test is ever re-expressed without it.
+
+
 | Target | Evidence |
 |---|---|
 | `std/alg/hash.yo` | zero importers; docstring false; FNV constants re-inlined in both String hashes — inline or wire in |
