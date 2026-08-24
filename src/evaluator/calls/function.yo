@@ -96,7 +96,7 @@ _(env : fncall_dbg_env) :: import("std/env");
 { type_to_string } :: import("../../types/string.yo");
 { get_all_some_types, type_somes_all_resolve_concrete } :: import("../../types/utils.yo");
 { type_id_or_empty, get_type_trait_methods_by_name, MethodEntry } :: import("../values/type_trait_methods.yo");
-{ evaluate_comptime_fn_call, resolve_recursive_type_ref } :: import("./comptime_fn.yo");
+{ evaluate_comptime_fn_call, resolve_recursive_type_ref, canonicalize_instantiation_via_ctfe_memo } :: import("./comptime_fn.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { evaluate_begin_expression } :: import("../exprs/begin.yo");
 { try_to_implement_function_by_function_type } :: import("./function_type.yo");
@@ -2850,6 +2850,18 @@ evaluate_function_call :: (
           });
         });
       });
+      // Era repair for the operator's stamped RESULT type (the trait-operator
+      // half of the recursive-instantiation era class): a trait method
+      // declared `-> Range(Self)` registers a substitution-era instance
+      // (substitute() keeps the trait-definition era's struct id — see
+      // canonicalize_instantiation_via_ctfe_memo), so `usize(1)..usize(5)`
+      // was stamped with a Range(usize) no impl is registered on and
+      // `.next()`/`.count()`/`for` on an op-built range found no methods
+      // (issues/fixed/range-op-result-era-split-blocks-iteration.md). The helper.yo
+      // rte era repair can't fire here — the method's recorded return is
+      // already SomeT-free at call time. Route the stamp through the ctor
+      // memo's canonical instantiation instead.
+      resolved_ret = canonicalize_instantiation_via_ctfe_memo(resolved_ret);
       // CTFE-execute comptime-returning operators (e.g. ComptimeSub(usize)'s
       // `(-)`, `__yo_comptime_usize_sub`). Like the `.method()` arm, the
       // operator dispatch resolves only the return TYPE via `try_to_call`

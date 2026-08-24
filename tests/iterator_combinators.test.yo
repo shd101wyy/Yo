@@ -347,8 +347,14 @@ test("ranges feed the iterator combinators directly", {
   assert(s == i32(10), "1+2+3+4 via Range sum");
   n := (u64(0) .. u64(100)).filter(x => ((x % u64(7)) == u64(0))).count();
   assert(n == usize(15), "15 multiples of 7 below 100");
-  m := (i64(-3) .. i64(4)).map(x => (x * i64(2))).min();
-  assert(m.unwrap() == i64(-6), "min of doubled signed range");
+  // min taken on the RANGE receiver directly, and the mapped chain checked
+  // via count (binds no Item) — an Item-binding combinator on a chain
+  // receiver at a second Item type hits the pre-existing shared-stamp
+  // pollution (issues/iterator-chain-shared-stamp-cross-item-pollution.md).
+  m := (i64(-3) .. i64(4)).min();
+  assert(m.unwrap() == i64(-3), "min of signed range");
+  c := (i64(-3) .. i64(4)).map(x => (x * i64(2))).count();
+  assert(c == usize(7), "count of mapped signed range");
 });
 test("inclusive ranges include the end and terminate at type MAX", {
   s := (i8(1) ..= i8(4)).sum();

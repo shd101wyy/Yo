@@ -198,19 +198,27 @@ impls), so `println(list)` compiles. `to_string.yo` now imports ArrayList
 issues/inout-unit-receiver-void-ref-spill.md). Tests: 2 new cases in
 tests/fmt.test.yo (5/5).
 
-**Progress (S1 chunk 4, 2026-08-24, branch s1-range — WIP, PARKED):** D3.5
-implemented on the std side (`RangeOp`/`RangeInclusiveOp` for all ten
-integer types; `Iterator` for `Range(T)`/`RangeInclusive(T)`, the inclusive
-form flipping to canonical-empty after yielding `end` so `start..=T.MAX`
-terminates; tests written) but BLOCKED on a third pre-existing compiler
-bug: `..`-built values live in their own TYPE ERA (the trait's declared
-`Range(Self)` return mints an instance distinct from the ctor memo's), so
-NO trait impl ever dispatches on an operator-built range — which is the
-real reason "today ranges don't iterate". Direct construction
-(`Range(i32)(start :, end :).next()`) works, proving the impls. Fix
-direction recorded in issues/range-op-result-era-split-blocks-iteration.md
-(the `rre_era_suspect` era repair needs to cover the trait-operator
-Self-substitution path).
+**Progress (S1 chunk 4, 2026-08-24, branch fix/range-op-era-split —
+UNPARKED, compiler fix + std landed together):** D3.5 implemented on the
+std side (`RangeOp`/`RangeInclusiveOp` for all ten integer types;
+`Iterator` for `Range(T)`/`RangeInclusive(T)`, the inclusive form flipping
+to canonical-empty after yielding `end` so `start..=T.MAX` terminates).
+The blocker — `..`-built values living in their own TYPE ERA so no trait
+impl ever dispatched on an operator-built range — was a compiler bug one
+level deeper than first recorded: `substitute()` KEEPS the
+trait-definition era's struct id/ctor-fid when rewriting `Range(Self)`'s
+type arguments, so the operator's stamped result was an instance the ctor
+memo never issued. Fixed by canonicalizing the operator-dispatch result
+stamp through the CTFE ctor memo
+(`canonicalize_instantiation_via_ctfe_memo`, evaluator/calls/comptime_fn.yo
++ the operator arm of calls/function.yo) — record:
+issues/fixed/range-op-result-era-split-blocks-iteration.md. En route,
+found (pre-existing, OPEN, not range-specific): an Item-binding combinator
+(`min`/`max`/`sum`) after `.map` at a SECOND Item type adopts the FIRST
+call's Item — the combinator-chain shared-stamp pollution,
+issues/iterator-chain-shared-stamp-cross-item-pollution.md (same
+under-resolution family as the flat_map residual). Tests: 4 range cases in
+tests/iterator_combinators.test.yo (32/32).
 
 1. **`Default`** trait + derive. Unblocks `unwrap_or_default`, map `or_default`.
 2. **`From(T)` / `Into(T)`** (the prelude header already *claims* they exist).
