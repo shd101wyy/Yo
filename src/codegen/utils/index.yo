@@ -1219,6 +1219,24 @@ get_type_string :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
     }
   )
 );
+/// C type string in a STORAGE position — a parameter, a struct/tuple/union
+/// field, a local, or a cast target. C has no zero-sized object type, so a type
+/// whose spelling is exactly `void` (`unit`, `void`, or a SomeT that RESOLVES to
+/// either — `get_type_string` walks the resolution chain, `is_unit_type` does
+/// not) is spelled as a one-byte placeholder that is declared and never read.
+/// RETURN position keeps `get_type_string`, where `void` is legal, and pointer
+/// types spell `void*` rather than `void`, so both are untouched.
+///
+/// The guard fires only where today's output is already invalid C
+/// (`void x` / `void f(void x)` / `void b;`), which is what keeps the emitted C
+/// for every currently-compiling program byte-identical. See
+/// issues/unit-typed-params-and-fields-emit-c-void.md; the existing 1-byte
+/// precedents are `generate_future_trait_declaration` (types/generation.yo) and
+/// the await result slot (exprs/await.yo).
+get_storage_type_string :: (fn(t : TypeValue, context : CodeGenContext) -> String)({
+  s := get_type_string(t, context);
+  if(s == `void`, String.from("uint8_t"), s)
+});
 /// True iff `cn` appears in the emitter-maintained block-scope stack
 /// (`CodeGenContext.declared_scopes`) — i.e. its C variable was declared before
 /// this emission point AND its enclosing C block is still open (a closed
@@ -1540,6 +1558,7 @@ export(
   get_runtime_struct_fields,
   type_key,
   get_type_string,
+  get_storage_type_string,
   get_variable_type_string,
   get_enum_variant_c_name,
   sanitize_for_c_identifier,
