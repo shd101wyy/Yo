@@ -8011,15 +8011,17 @@ export(Iterator);
 /// BACK. `next` and `next_back` consume from opposite ends of the same sequence
 /// and meet in the middle; once they meet, both return `.None`.
 ///
-/// Declares its own `Item` and ties it to `Iterator`'s through the where-clause,
-/// mirroring `IntoIterator` below — a trait where-clause is a trailing parameter
-/// evaluated AFTER the field types, so a bare `where(Self <: Iterator)` would
-/// NOT make `Self.Item` nameable in `next_back`'s signature.
+/// Declares its own `Item`, which is how `next_back`'s signature can name it.
+/// It deliberately carries NO where-clause tying it to `Iterator`: a trait
+/// cannot constrain another trait's associated type to its OWN
+/// (`where(Self <: Iterator(Item := Self.Item))` is rejected — the constraint
+/// value must be a type, not an associated-type projection of `Self`).
 ///
 /// COHERENCE RULE (not compiler-checked): an impl's `DoubleEndedIterator.Item`
 /// MUST equal its `Iterator.Item`. The associated-type registry is keyed by
 /// (type id, label) with no trait discrimination and takes the FIRST match, so a
-/// mismatch is silently first-wins rather than diagnosed.
+/// mismatch is silently first-wins rather than diagnosed. Every impl in std
+/// pairs the two traits on the same type with the same `Item`.
 DoubleEndedIterator :: trait(
   /// The type of elements yielded — must equal `Self`'s `Iterator.Item`.
   Item : Type,
@@ -8028,8 +8030,7 @@ DoubleEndedIterator :: trait(
   next_back :
     (
       fn(inout(self) : Self) -> Option(Self.Item)
-    ),
-  where(Self <: Iterator(Item := Self.Item))
+    )
 );
 export(DoubleEndedIterator);
 /// IntoIterator trait — convert a collection into an iterator.
