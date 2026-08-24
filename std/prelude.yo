@@ -8045,8 +8045,12 @@ impl(
 impl(
   generic(T : Type, N : usize),
   Array(T, N),
-  into_iter : (fn(self : Self) -> _ArrayIter(T, N))(
-    _ArrayIter(T, N)(_arr : self, _index : usize(0))
+  IntoIterator(
+    Item : T,
+    IntoIter : _ArrayIter(T, N),
+    into_iter : (fn(self : Self) -> _ArrayIter(T, N))(
+      _ArrayIter(T, N)(_arr : self, _index : usize(0))
+    )
   )
 );
 /// TryFrom trait — fallible conversion from one type to another.

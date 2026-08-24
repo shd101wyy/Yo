@@ -731,8 +731,12 @@ impl(
   generic(T : Type),
   where(T <: (Eq(T), Hash)),
   HashSet(T),
-  into_iter : (fn(self : Self) -> HashSetIter(T))(
-    HashSetIter(T)(_set : self, _index : usize(0))
+  IntoIterator(
+    Item : T,
+    IntoIter : HashSetIter(T),
+    into_iter : (fn(self : Self) -> HashSetIter(T))(
+      HashSetIter(T)(_set : self, _index : usize(0))
+    )
   )
 );
 /**

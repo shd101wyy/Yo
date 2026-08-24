@@ -373,3 +373,20 @@ test("every integer type forms and iterates a range", {
   assert((u8(0) ..= u8(2)).count() == usize(3), "u8 inclusive");
   assert((i64(0) ..= i64(2)).count() == usize(3), "i64 inclusive");
 });
+// --- D3.6: IntoIterator trait impls on collections (plans/STD_API_AUDIT.md) --
+// Generic code over `where(C <: IntoIterator)` — impossible before the trait
+// impls existed (collections only had inherent into_iter methods).
+// NOTE: kept to single instantiations + a small combo — piling many
+// instantiations of ONE where-bound generic trips the pre-existing
+// under-resolution bug (LinkedList-then-BTreeMap is the minimal trigger):
+// issues/where-bound-intoiterator-gc-trace-abstract-key.md.
+__ii_sum :: (
+  fn(generic(C : Type), c : C, where(C <: IntoIterator(Item := i32))) -> i32
+)(
+  c.into_iter().fold(i32(0), (acc, x) => (acc + x))
+);
+test("IntoIterator bound accepts ArrayList and Array", {
+  xs := array_list(i32(1), i32(2), i32(3));
+  assert(__ii_sum(xs) == i32(6), "ArrayList through the Item-bound generic");
+  assert(__ii_sum([i32(4), i32(5)]) == i32(9), "Array through the Item-bound generic");
+});
