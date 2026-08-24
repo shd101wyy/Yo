@@ -534,43 +534,58 @@ _apply_ref_amp :: (fn(args : ArrayList(String), param_is_ref : ArrayList(bool), 
   while(i < na, {
     pref := match(param_is_ref.get(i), .Some(r) => r, .None => false);
     c := match(args.get(i), .Some(x) => x, .None => String.from(""));
+    // A ref/`inout` parameter of type `unit` has no C value to take the
+    // address of — the arg code is EMPTY, so the spill branch declared
+    // `void __yo_ref_spill_N = ;` (invalid C). The callee's unit receiver
+    // renders as `void* self` and is never read; pass a null pointer.
+    // See issues/fixed/inout-unit-receiver-void-ref-spill.md (blocked the
+    // D3.8 `unit` ToString impl).
+    arg_is_unit := match(
+      runtime_args.get(i),
+      .Some(ua) => match(context.base.get_expr_info(ua), .Some(uei) => is_unit_type(uei.ty), .None => false),
+      .None => false
+    );
     transformed := if(
-      !(pref),
-      c,
+      pref && arg_is_unit,
+      String.from("((void*)0)"),
       if(
-        (c.starts_with("(*")) && (c.ends_with(")")),
-        c.substring(usize(2), c.len() - usize(1)),
-        if(_is_bare_literal(c), {
-          cty := match(runtime_args.get(i), .Some(ra) => match(context.base.get_expr_info(ra), .Some(rei) => get_type_string(rei.ty, context.base), .None => String.from("size_t")), .None => String.from("size_t"));
-          w := String.from("(&((");
-          w.push_string(cty);
-          w.push_str("){");
-          w.push_string(c);
-          w.push_str("}))");
-          w
-        }, if(_is_addressable_c_expr(c.clone()), {
-          w := String.from("(&(");
-          w.push_string(c);
-          w.push_str("))");
-          w
-        }, {
-          cty := match(runtime_args.get(i), .Some(ra) => match(context.base.get_expr_info(ra), .Some(rei) => get_type_string(rei.ty, context.base), .None => String.from("size_t")), .None => String.from("size_t"));
-          spill := String.from("__yo_ref_spill_");
-          spill.push_string(g_ref_spill_counter.to_string());
-          g_ref_spill_counter = (g_ref_spill_counter + usize(1));
-          decl := indent.clone();
-          decl.push_string(cty);
-          decl.push_str(" ");
-          decl.push_string(spill.clone());
-          decl.push_str(" = ");
-          decl.push_string(c);
-          decl.push_str(";");
-          em.emit_string_line(decl);
-          w := String.from("(&(");
-          w.push_string(spill);
-          w.push_str("))");
-          w
-        }))
+        !(pref),
+        c,
+        if(
+          (c.starts_with("(*")) && (c.ends_with(")")),
+          c.substring(usize(2), c.len() - usize(1)),
+          if(_is_bare_literal(c), {
+            cty := match(runtime_args.get(i), .Some(ra) => match(context.base.get_expr_info(ra), .Some(rei) => get_type_string(rei.ty, context.base), .None => String.from("size_t")), .None => String.from("size_t"));
+            w := String.from("(&((");
+            w.push_string(cty);
+            w.push_str("){");
+            w.push_string(c);
+            w.push_str("}))");
+            w
+          }, if(_is_addressable_c_expr(c.clone()), {
+            w := String.from("(&(");
+            w.push_string(c);
+            w.push_str("))");
+            w
+          }, {
+            cty := match(runtime_args.get(i), .Some(ra) => match(context.base.get_expr_info(ra), .Some(rei) => get_type_string(rei.ty, context.base), .None => String.from("size_t")), .None => String.from("size_t"));
+            spill := String.from("__yo_ref_spill_");
+            spill.push_string(g_ref_spill_counter.to_string());
+            g_ref_spill_counter = (g_ref_spill_counter + usize(1));
+            decl := indent.clone();
+            decl.push_string(cty);
+            decl.push_str(" ");
+            decl.push_string(spill.clone());
+            decl.push_str(" = ");
+            decl.push_string(c);
+            decl.push_str(";");
+            em.emit_string_line(decl);
+            w := String.from("(&(");
+            w.push_string(spill);
+            w.push_str("))");
+            w
+          }))
+        )
       )
     );
     _p := out.push(transformed);

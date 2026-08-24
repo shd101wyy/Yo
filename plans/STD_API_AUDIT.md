@@ -192,11 +192,20 @@ chunk 3):** D3.8 ToString completion — the eight C-interop integers
 `longdouble` (`%Lg`), and containers: `ArrayList(T)`/`Array(T, N)` print as
 `[a, b, c]` where `T <: ToString` (nests through Option/Result's chunk-2
 impls), so `println(list)` compiles. `to_string.yo` now imports ArrayList
-(no cycle — array_list does not import fmt). DEFERRED: `unit` — an
-`inout(self)` receiver of type unit emits an invalid C ref-spill
-(`void __yo_ref_spill_N = ;`,
-issues/inout-unit-receiver-void-ref-spill.md). Tests: 2 new cases in
-tests/fmt.test.yo (5/5).
+(no cycle — array_list does not import fmt). The `unit` ToString impl now
+SHIPS (2026-08-24, branch fix/inout-unit-ref-spill): the invalid C
+ref-spill for an `inout(self)` receiver of type unit is fixed in codegen
+(`((void*)0)` — the callee's `void* self` is never read;
+issues/fixed/inout-unit-receiver-void-ref-spill.md), so `().to_string()`
+compiles and returns `"()"`. D3.8 is otherwise complete, with ONE
+carve-out found while landing it: `unit` in a *declaration* position is
+still emitted as C `void`, so a by-value `unit` parameter — and therefore
+`println(())` — a `unit` struct field, and `ArrayList(unit)` do not
+compile. Whole boundary measured and filed in
+issues/unit-typed-params-and-fields-emit-c-void.md (enum payloads like
+`Option(unit)`/`Result(unit, E)` already work; the fix is a codegen
+decision between full ZST erasure and a 1-byte representation). Tests:
+2 chunk-5 cases + 1 unit case in tests/fmt.test.yo (6/6).
 
 **Progress (S1 chunk 4, 2026-08-24, branch fix/range-op-era-split —
 UNPARKED, compiler fix + std landed together):** D3.5 implemented on the
