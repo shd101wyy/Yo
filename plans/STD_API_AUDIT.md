@@ -230,11 +230,14 @@ and all 394 collections tests are unaffected. DEFERRED: a blanket
 IntoIterator TRAIT impl for every Iterator (so ranges/combinator chains
 satisfy the bound too) — needs assoc-of-assoc (`Item := I.Item`) in a
 blanket impl; the inherent blanket `into_iter` still serves the `for`
-macro. FOUND (pre-existing, OPEN — third face of the under-resolution
+macro. FOUND (pre-existing — third face of the under-resolution
 family): piling several instantiations of one where-bound generic leaves a
 later instantiation's GC trace calls abstract-keyed → C compile failure;
-minimal trigger LinkedList-then-BTreeMap,
-issues/where-bound-intoiterator-gc-trace-abstract-key.md. Tests: 1 new case
+minimal trigger LinkedList-then-BTreeMap. The C-compile symptom is FIXED
+(branch fix/where-bound-gc-trace: traverse emission no longer delegates to
+a never-emitted hard-generic trace spec;
+issues/fixed/where-bound-intoiterator-gc-trace-abstract-key.md) — the
+era-copy family root stays open via the flat_map/shared-stamp issues. Tests: 1 new case
 in tests/iterator_combinators.test.yo (33/33), scoped away from the
 landmine with a pointer at the issue.
 
