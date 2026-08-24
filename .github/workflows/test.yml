@@ -1225,7 +1225,12 @@ jobs:
     # the ruleset's required check changed from the single name to the four
     # shard names in the same change — the swap must land in the ruleset
     # BEFORE this merges (see the issue's ordering trap).
-    timeout-minutes: 120
+    # BUDGET PATCH 2026-08-24 (was 120): the S1 prelude growth tripled
+    # self-emit peak memory (10 -> 29 GB), so the seed stage-1 build swap-
+    # thrashes on these 16 GB runners (12.8 -> 60.5 min measured) and the
+    # heavy files slow proportionally. REVERT to 120 when the env-sharing
+    # root fix lands — issues/std-s1-prelude-growth-tripled-self-emit-memory.md.
+    timeout-minutes: 210
     strategy:
       fail-fast: false
       matrix:
@@ -1313,7 +1318,10 @@ jobs:
           failed=""
           for f in $files; do
             echo "::group::$f"
-            if /tmp/yo-stage1 test "$f" --parallel 1 --verbose; then
+            # --compile-timeout-ms 1800000: the default 600 s evaluator
+            # deadline trips on the heavy files while the runner swaps (same
+            # budget patch as timeout-minutes above; revert together).
+            if /tmp/yo-stage1 test "$f" --parallel 1 --verbose --compile-timeout-ms 1800000; then
               echo "::endgroup::"
             else
               echo "::endgroup::"
