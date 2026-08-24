@@ -103,3 +103,32 @@ test("Test template strings", {
   assert(escaped7 == "${a} and ${b} with 42".to_string());
   println("All template string tests passed!");
 });
+test("C-interop integers, longdouble, and unit stringify (D3.8)", {
+  assert(int(42).to_string() == `42`, "int");
+  assert(uint(7).to_string() == `7`, "uint");
+  assert(short(-3).to_string() == `-3`, "short");
+  assert(ushort(9).to_string() == `9`, "ushort");
+  assert(long(-100).to_string() == `-100`, "long");
+  assert(ulong(100).to_string() == `100`, "ulong");
+  assert(longlong(-5).to_string() == `-5`, "longlong");
+  assert(ulonglong(5).to_string() == `5`, "ulonglong");
+  assert(longdouble(1.5).to_string() == `1.5`, "longdouble");
+  // unit's ToString is DEFERRED: an inout(self) receiver of type unit emits
+  // an invalid C ref-spill (issues/inout-unit-receiver-void-ref-spill.md).
+});
+test("ArrayList and Array stringify as bracketed lists (D3.8)", {
+  { ArrayList } :: import("std/collections/array_list");
+  list := ArrayList(i32).new();
+  assert(list.to_string() == `[]`, "empty list");
+  list.push(i32(1));
+  list.push(i32(2));
+  list.push(i32(3));
+  assert(list.to_string() == `[1, 2, 3]`, "three elements");
+  assert(`${list}` == `[1, 2, 3]`, "interpolates in templates");
+  arr := Array(u8, usize(3)).fill(7);
+  assert(arr.to_string() == `[7, 7, 7]`, "array fill");
+  nested := ArrayList(Option(i32)).new();
+  nested.push(Option(i32).Some(i32(4)));
+  nested.push(Option(i32).None);
+  assert(nested.to_string() == `[Some(4), None]`, "nests through Option's ToString");
+});
