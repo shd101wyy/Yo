@@ -422,10 +422,45 @@ test("rev on an ArrayList and on an Array", {
   });
   assert(arr_out.to_string() == `[0, 8, 7]`, "Array backwards");
 });
-// `.rev().rev()` is NOT covered: instantiating a generic struct over ITSELF
-// mints two C type identities, a pre-existing bug (same failure on the previous
-// compiler) that IterRev is simply the first std adaptor able to trigger —
-// issues/nested-same-adaptor-instantiation-identity-split.md.
+// Self-nesting adaptors — a generic struct instantiated over ITSELF. These used
+// to mint two C type identities for one logical type and fail at the C compiler;
+// issues/fixed/nested-same-adaptor-instantiation-identity-split.md.
+test("rev of rev is the identity", {
+  out := array_list(i32(0));
+  (i32(0) .. i32(4)).rev().rev().for_each((x) => {
+    out.push(x);
+  });
+  assert(out.to_string() == `[0, 0, 1, 2, 3]`, "double rev restores source order");
+});
+test("three levels of rev", {
+  out := array_list(i32(0));
+  (i32(0) .. i32(4)).rev().rev().rev().for_each((x) => {
+    out.push(x);
+  });
+  assert(out.to_string() == `[0, 3, 2, 1, 0]`, "triple rev reverses again");
+});
+test("self-nesting through a VARIABLE-BOUND receiver", {
+  // The chained form re-specializes on demand; the variable-bound form keeps
+  // the stamp, and only the stamp was repaired — so both are covered.
+  it := (i32(0) .. i32(4)).rev().rev();
+  out := array_list(i32(0));
+  it.for_each((x) => {
+    out.push(x);
+  });
+  assert(out.to_string() == `[0, 0, 1, 2, 3]`, "variable-bound double rev");
+});
+test("self-nesting on adaptors other than rev", {
+  assert((i32(0) .. i32(9)).take(usize(5)).take(usize(2)).count() == usize(2), "take of take");
+  assert((i32(0) .. i32(9)).skip(usize(1)).skip(usize(1)).count() == usize(7), "skip of skip");
+});
+test("a self-nested chain still composes with collect and map", {
+  got := (i32(0) .. i32(4)).rev().rev().collect(ArrayList(i32));
+  assert(got.to_string() == `[0, 1, 2, 3]`, "collect after a self-nested chain");
+  // `.map` puts a closure type in the adaptor's type arguments, which the
+  // canonicalizer deliberately declines to touch — keep that path exercised.
+  doubled := (i32(0) .. i32(3)).rev().rev().map((x) => (x * i32(2))).collect(ArrayList(i32));
+  assert(doubled.to_string() == `[0, 2, 4]`, "map after a self-nested chain");
+});
 test("next and next_back meet in the middle", {
   it := (i32(0) .. i32(4)).into_iter();
   a := it.next();

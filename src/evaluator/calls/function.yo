@@ -6433,6 +6433,20 @@ Fix: wrap the call:
             ),
             .None => ()
           );
+          // Recursive-instantiation era repair, METHOD-dispatch arm — the twin
+          // of the trait-operator arm above. A declared return like
+          // `-> IterRev(Self)` is resolved per call by substitution, and
+          // `substitute()` KEEPS the def-era struct id (types/substitution.yo).
+          // For an adaptor instantiated over ITSELF that means the outer
+          // instance and its own type ARGUMENT carry ONE id, so `type_key`'s
+          // id-keyed cycle guard reads the argument as a back-edge and renders
+          // it as the bare sid — splitting the call site from the
+          // specialization, whose own era repair had already adopted the ctor
+          // memo's CANONICAL instance. The mint half has an era-suspect
+          // trigger; this caller-side path has none, so adopt the canonical
+          // instantiation here. AFTER the receiver adopt, never before.
+          // issues/fixed/nested-same-adaptor-instantiation-identity-split.md
+          m_out_ty = canonicalize_instantiation_via_ctfe_memo(m_out_ty);
           out_m := new_expr_info(call_result_m.caller_env, m_out_ty);
           out_m.value = m_result_val;
           out_m.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_m.runtime_arg_exprs_in_order);
