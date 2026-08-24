@@ -518,6 +518,24 @@ forms; the `ListView` recommendation in
 `.github/instructions/yo-syntax.instructions.md` is updated). `std/alg/` is now
 empty and gone.
 
+**Export hygiene, partial:** `__MutexUnlocker` is no longer exported from
+`std/sync/mutex.yo` (used only inside that file). The other underscore-prefixed
+exports do NOT come off by simple deletion, and the audit row overstates how
+mechanical they are:
+
+- `std/libc/*` (`_exit`, `_Exit`, `_IOFBF`, `_putenv_s`, `_NSGetExecutablePath`,
+  …) and `std/sys/externs.yo`'s `__yo_async_*` are REAL C symbol names — they
+  must keep them; ~90 of the ~101 underscore exports are these.
+- `std/fs/types.yo`'s three converters and `std/encoding/html_entities.yo`'s two
+  builders are consumed by a SIBLING module (`fs/file.yo`, `encoding/html.yo`),
+  so unexporting them breaks the import. They need either a module-private
+  visibility mechanism (which Yo does not have) or a rename that admits they are
+  internal-but-shared — a D8 layout question, not a sweep.
+- `__YO_THREAD_SYNC_TYPE` is consumed by `std/sync/cond.yo` AND by the compiler
+  itself (`src/codegen/parallelism/runtime.yo`, `src/codegen/types/generation.yo`,
+  `src/codegen/functions/gc_runtime.yo`, `src/evaluator/trait_checking.yo`), so it
+  is D7 work.
+
 **`std/collections/linked_list.yo` is KEPT for now**, against the table's
 recommendation, for a concrete reason: it is the load-bearing half of the #249
 regression trigger (`tests/where_clause_fn_inference.test.yo` instantiates one
