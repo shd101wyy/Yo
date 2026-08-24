@@ -1,6 +1,24 @@
 # A generic struct instantiated over ITSELF gets two C type identities
 
-**Status:** OPEN
+**Status: FIXED 2026-08-25** — one statement in the method-dispatch arm of
+`evaluate_function_call` now canonicalizes the stamped return type through the
+CTFE constructor memo, the twin of the trait-operator arm #247 fixed the same
+way. `.rev().rev()` compiles and returns source order; three levels, the
+variable-bound receiver form, `take` of `take`, `skip` of `skip`, and a
+self-nested chain composed with `collect` and with `map` are all covered in
+tests/iterator_combinators.test.yo (49 passing).
+
+**Root cause (measured, after two refuted hypotheses):** the MINT half of a call
+re-evaluates the declared return-type expression under its era-suspect trigger,
+routing `IterRev(Self)` through the constructor memo and adopting the CANONICAL
+instance. The CALLER half has no such trigger — its gate fires only on leftover
+SomeTs, and the substituted return is already SomeT-free — so the call site kept
+the substitution copy. Because `substitute()` KEEPS the def-era struct id, that
+copy is self-nesting (its own id sits in its type arguments), and `type_key`'s
+cycle guard is keyed on the bare struct id, so it read that argument as a
+back-edge and rendered it as the bare id. Codegen keys C types by that string,
+so one logical type became two.
+
 **Found:** 2026-08-25, implementing `rev` for STD_API_AUDIT D3.4.
 **Pre-existing:** yes — reproduced identically with the previous compiler
 (develop before the D3.4 branch), so it is not caused by the routing-gate fix
