@@ -360,7 +360,12 @@ implementing the D5 traits.** Until it lands, std honestly refuses https.
 
 ---
 
-## 5. The rename/breaking sweep (one release, likely "0.3.0")
+## 5. The rename/breaking sweep (one release — a PATCH bump, staying on v0.2.xx)
+
+**Versioning decision (user, 2026-08-24): no minor release for this.** Yo is
+pre-stability; breaking std changes ship in ordinary v0.2.x patch releases
+rather than opening a "0.3.0" window. The sweep below is still ONE release's
+worth of coordinated renames — it just lands as the next patch version.
 
 Everything in D2/D4 plus these specific renames. Each is mechanical; land as a
 small number of PRs with tree-wide fixups (compiler + std + tests + docs):
@@ -472,8 +477,9 @@ mmap/file-lock/statfs wrappers; `gc.stats`; DNS SRV/TXT/reverse
    red-first test. No API changes beyond C1's throw.
 2. **S1 — conventions ADR + prelude traits (D1–D3):** the foundation everything
    else builds on.
-3. **S2 — the breaking sweep (§5 + §6 + D4/D5/D7/D8):** one minor-version
-   window; compiler tree migrates in the same PRs (it is the biggest std
+3. **S2 — the breaking sweep (§5 + §6 + D4/D5/D7/D8):** one release window —
+   a v0.2.x PATCH bump, per the §5 versioning decision (no minor release);
+   compiler tree migrates in the same PRs (it is the biggest std
    consumer and the best test).
 4. **S3 — P0 additions.**
 5. **S4 — P1 additions.**
