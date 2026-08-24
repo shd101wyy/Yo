@@ -1,7 +1,15 @@
 # where-bound IntoIterator generics: a prior instantiation leaves a later one's GC trace calls ABSTRACT-keyed — C compile fails on undeclared trace fn
 
-**Status: OPEN.** Found 2026-08-24 implementing S1 D3.6 (IntoIterator trait
-impls on every collection, branch `s1-intoiter`). Third face of the
+**Status: FIXED 2026-08-24 (the C-compile symptom; branch
+`fix/where-bound-gc-trace`) — the era-copy family root stays OPEN via the
+sibling issues below.** `get_trace_function_for_type`
+(src/codegen/exprs/drop_dup.yo) now refuses to delegate GC traversal to a
+trace spec that `should_skip_function_codegen` will never emit; the phantom
+era-copy identities (zero construction sites, verified in the emitted C)
+fall back to the inert field-walk. Red-first regression test:
+tests/where_clause_fn_inference.test.yo (user-defined IntoIterator-shaped
+trait, independent of the D3.6 std impls). Found 2026-08-24 implementing S1
+D3.6 (IntoIterator trait impls on every collection, branch `s1-intoiter`). Third face of the
 under-resolution family: same root class as
 issues/iterator-chain-shared-stamp-cross-item-pollution.md (face 2) and the
 flat_map residual in issues/varbound-combinator-receiver-impl-match.md
