@@ -1,0 +1,29 @@
+// Reproducer for
+// issues/comptime-type-argument-alone-does-not-bind-the-generic.md
+//
+//   yo compile issues/repros/comptime-type-arg-binding.yo --release -o /tmp/x
+//
+// Expected today: fails with
+//   Error: No matching call found with arguments: (a.to_string)()
+// Expected after the fix: prints "0" then "5" then "0".
+open(import("std/string"));
+open(import("std/fmt"));
+// ❌ THE BUG — C is pinned only by the explicit comptime type argument.
+dflt :: (fn(comptime(C) : Type, where(C <: Default)) -> C)((C <: Default).default());
+// ✅ works — C is also pinned by the value parameter `v`.
+pick :: (fn(comptime(C) : Type, v : C) -> C)(v);
+// ✅ works — same as `dflt` plus a dummy value parameter of type C.
+dflt2 :: (fn(comptime(C) : Type, hint : C, where(C <: Default)) -> C)(
+  (C <: Default).default()
+);
+main :: (fn() -> unit)({
+  // ✅ explicit trait dispatch at a concrete type is fine.
+  z := (i32 <: Default).default();
+  println(z.to_string());
+  println(pick(i32, i32(5)).to_string());
+  println(dflt2(i32, i32(0)).to_string());
+  // ❌ the failing line.
+  (a : i32) = dflt(i32);
+  println(a.to_string());
+});
+export(main);
