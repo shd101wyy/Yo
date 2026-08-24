@@ -522,10 +522,15 @@ small number of PRs with tree-wide fixups (compiler + std + tests + docs):
 10. `net.UnixStream`/`UnixListener`
 
 **P0+ — user-requested (2026-08-23), tracked with this campaign**
-- `yo <subcommand> --help` per-subcommand help (today `yo version --help`
-  errors with `unknown option`, and nothing tells the user `version list`
-  has `--remote`) — CLI fix in `src/main.yo`, not std, but discovered by and
-  shipped with this campaign.
+- ~~`yo <subcommand> --help` per-subcommand help~~ **DONE** (verified
+  2026-08-25): `_subcommand_help_text` in `src/main.yo` answers
+  `yo <sub> --help` / `-h` LOCALLY — before the `.yo-version` pre-dispatch, so
+  help never needs a cached binary or a network — with the scan stopping at
+  `--` so a program's own `--help` after `--` is not intercepted, and an
+  unknown subcommand falling back to the top-level usage. `yo version --help`
+  now prints the actions including `list --remote`. (Note for future readers:
+  an INSTALLED older `yo` on PATH still errors, which is what made this look
+  open — check against a binary built from the tree.)
 - Replace the two `curl` shell-outs (`src/version_cache.yo:454,512` — bundle
   download + releases list, both https against the GitHub API) with
   `std/http`. **Blocked on TLS (D6/O2)**: std's fetch deliberately refuses
