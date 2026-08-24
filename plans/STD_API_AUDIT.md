@@ -256,7 +256,16 @@ tests/iterator_combinators.test.yo (32/32).
    `ToString` (Yo is not Rust; one string form), but route derive output through
    a `Formatter` so pretty/compact can be added additively later.
 9. **`Hasher` design review**: `Hash` returning bare `u64` blocks DoS-resistant
-   seeding and composite hashing. Decide now (breaking) or accept forever.
+   seeding and composite hashing. **DECIDED (user, 2026-08-24): full
+   Rust-style `Hasher` trait** — `hash(self, hasher : inout(H))` writing into
+   a streaming hasher (`write_u8`/…/`write_u64`, `finish`), with pluggable
+   algorithms per map (SipHash-class seeded default; a fast unseeded option
+   possible later). Breaking; lands in the S2 window with its own design
+   round first (Hasher/BuildHasher shape, per-map seeding, derive(Hash)
+   rework, every existing `Hash` impl + HashMap/HashSet/OrderedMap driver
+   rewritten). The alternatives considered — keep bare `u64` forever, or a
+   fold-style `hash(self, state : u64) -> u64` middle ground — were
+   declined in favor of the most future-proof surface.
 10. **Format specs**: template strings gain `${v:spec}` (width/precision/fill/
     align/hex) routed through `fmt.Writer`'s existing primitives — the engine
     exists, nothing connects it.
