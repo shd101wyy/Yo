@@ -94,6 +94,12 @@ otherwise COMPLETE.
 
 ### D1 — Error handling: three blessed styles, no fourth
 
+**ADR WRITTEN 2026-08-25** — D1 and D2 are now encoded as conventions in
+`.github/instructions/yo-design.instructions.md` ("std error handling: three
+blessed styles, no fourth" and "std naming conventions"), so a future std change
+is told the rule without having to read this plan. The *enforcement* — migrating
+the existing violations — is still the S2 sweep.
+
 - **Effects (`exn : Exception` / `IoExn`)** for I/O and anything on the `io` path
   (fs, net, http, process). Already dominant; bufio's `Future(Result(_, IoError), Io)`
   and env's `Result(_, String)` migrate to it.

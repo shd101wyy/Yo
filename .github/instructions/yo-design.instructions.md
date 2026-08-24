@@ -471,6 +471,61 @@ Key semantics:
 - Mixed GADT/regular variants: some variants can have `-> recur(...)` while others remain unconstrained
 - For full design document, see `plans/GADTS.md` and `docs/en-US/GADTS.md`
 
+## std error handling: three blessed styles, no fourth
+
+Decided in `plans/STD_API_AUDIT.md` D1. Before this, std shipped four styles,
+sometimes inside one file. When you add or change a fallible std API, pick from
+exactly these three — and if none fits, that is a design discussion, not a
+licence to invent a fourth.
+
+| Situation | Style |
+| --- | --- |
+| I/O, and anything on the `io` path (fs, net, http, process) | **effects** — `exn : Exception` / `IoExn` |
+| pure fallible transforms: parsing, decoding, conversion | **`Result(T, TypedError)`** |
+| lookups where absence is not an error | **`Option(T)`** |
+
+Rules that follow from it:
+
+- **`Result(_, String)` is banned.** An error type is a real enum implementing
+  `Error()`. A string error cannot be matched on, downcast, or wrapped, and it
+  forces every caller into prose comparison.
+- **Never drop the payload on failure.** `Channel.send` returning
+  `Result(unit, unit)` discarded the value the caller still owned; return it.
+- A fallible constructor that cannot fail should not be fallible — do not add a
+  `Result` "for symmetry".
+- Absence and failure are different: do not model a missing key as an error, and
+  do not model an I/O failure as `None`.
+
+## std naming conventions
+
+Decided in `plans/STD_API_AUDIT.md` D2. One name per concept, across the whole
+tree. Use these when adding an API; a new module that invents a synonym is a
+review defect, not a style preference.
+
+| Concept | Blessed name | Do not use |
+| --- | --- | --- |
+| element count | `len()`, plus `is_empty()` on EVERY container | a public `size` field |
+| map insert | `insert(k, v) -> Option(V)` (returns the old value) | `set` |
+| set insert | `insert(v) -> bool` | `add` |
+| sequence append | `push` / `push_front` / `push_back` | — |
+| membership | `contains` (sequence/set), `contains_key` (map) | — |
+| value iterator | `into_iter()` | — |
+| pointer iterator | `iter()` | `iter_ptr` |
+| accessors | a bare noun | a `get_` prefix |
+| byte codecs | `encode` / `decode` | `to_ascii` / `to_unicode` |
+| text formats | `parse` / `stringify` | `decode_html`-style verb-first names |
+| conversion | `from_` / `to_` / `into_`, with Rust's discipline (`into_` consumes) | two spellings of one conversion (`to_cstr` vs `to_c_str`) |
+| comptime twins | `Comptime` prefix on the trait, `comptime_` prefix on the method | an infix `_comptime_` |
+
+Two conventions that are easy to miss:
+
+- **`sys/` is plumbing, `std/*` is the product.** Every user-relevant syscall
+  gets a typed wrapper, and an underscore-private name must never appear in an
+  `export(...)` list.
+- **Traits are the API.** An inherent method that duplicates a trait method
+  becomes a trait impl, so generic code can dispatch on it. Types that should
+  compose get `Eq` / `Ord` / `Hash` / `Clone` / `ToString`.
+
 ## Standard library module organization (`std/`)
 
 ## Function-type re-evaluation during impl specialization

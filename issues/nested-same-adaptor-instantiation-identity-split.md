@@ -57,6 +57,45 @@ repair was to canonicalize the *result* through the constructor memo
 (`canonicalize_instantiation_via_ctfe_memo`); the fix here is likely to
 canonicalize each concrete type ARGUMENT before keying the memo.
 
+## Measured evidence (2026-08-25)
+
+From the emitted C of the reproducer:
+
+```c
+struct __yo_t9_struct  { __yo_t10 _inner; };  //  : <struct:struct_yo_id_3978>
+struct __yo_t19_struct { __yo_t9  _inner; };  //  : <struct:struct_yo_id_3978>
+struct __yo_t11_struct { __yo_t9  _inner; };  //  : <struct:struct_yo_id_6252>
+```
+
+`t19` and `t11` are structurally IDENTICAL — both `IterRev(IterRev(Range(i32)))`
+— but carry DIFFERENT eval struct ids. `struct_yo_id_6252` appears exactly ONCE
+in the whole emitted C: as that one struct definition, used only as the `rev`
+function's return type. So one logical type was minted twice, and the call site
+holds the other instance.
+
+`3978` is the shared def-era `IterRev` id — `substitute()` keeps `id` and
+`constructor_func_id` while rewriting type arguments, so EVERY `IterRev`
+instantiation shares it and the distinction lives in the rendered type key.
+`6252` is a genuinely separate instantiation.
+
+Two hypotheses were tested and REFUTED:
+
+1. *The constructor memo key misses on a non-canonical copy.* No —
+   `_ctfe_args_equal` compares struct arguments by id first (a copy hits
+   trivially) and then by constructor fid plus recursive era-equality, so a copy
+   or an era instance unifies.
+2. *The return-type re-evaluation path (`rre_era_suspect`) mints it.* No —
+   running the reproducer with `YO_DEBUG_RRE=1` prints seven `[rre]` lines and
+   NONE of them is for `rev`. That path is never entered for this call, so it
+   cannot be the source.
+
+What remains: the two instances are produced by two different mechanisms — one
+substitution-derived (`3978` + rewritten arguments) for the call site, one a real
+constructor instantiation (`6252`) for the callee's return — and nothing
+reconciles them. #247 added exactly such a reconciliation
+(`canonicalize_instantiation_via_ctfe_memo`) but wired it to the trait-OPERATOR
+dispatch path only; a method call never reaches it.
+
 ## Impact
 
 Any generic type applied to an instance of itself: `.rev().rev()`,
