@@ -48,5 +48,5 @@ This fixes the `inout`/ref **argument** path only. `unit` in a C
 parameter (hence `println(())`, whose parameter is `value : T` at
 `T = unit`), a `unit` struct field, and `ArrayList(unit)` still fail to
 compile. That boundary is measured in full in
-issues/unit-typed-params-and-fields-emit-c-void.md, which is the
+issues/fixed/unit-typed-params-and-fields-emit-c-void.md, which is the
 follow-up.

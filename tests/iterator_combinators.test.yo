@@ -467,6 +467,12 @@ test("collect into a HashSet collapses duplicates", {
   set := xs.into_iter().collect(HashSet(i32));
   assert(set.len() == usize(3), "duplicates collapse");
 });
+test("collect and rev on an EMPTY sequence", {
+  empty := (i32(0) .. i32(0)).collect(ArrayList(i32));
+  assert(empty.len() == usize(0), "collecting nothing yields an empty collection");
+  assert((i32(0) .. i32(0)).rev().count() == usize(0), "rev of an empty range yields nothing");
+  assert((i32(5) ..= i32(4)).rev().count() == usize(0), "rev of an empty inclusive range too");
+});
 test("collect into a String concatenates", {
   parts := array_list(`a`, `b`, `c`);
   joined := parts.into_iter().collect(String);
