@@ -197,15 +197,19 @@ SHIPS (2026-08-24, branch fix/inout-unit-ref-spill): the invalid C
 ref-spill for an `inout(self)` receiver of type unit is fixed in codegen
 (`((void*)0)` — the callee's `void* self` is never read;
 issues/fixed/inout-unit-receiver-void-ref-spill.md), so `().to_string()`
-compiles and returns `"()"`. D3.8 is otherwise complete, with ONE
-carve-out found while landing it: `unit` in a *declaration* position is
-still emitted as C `void`, so a by-value `unit` parameter — and therefore
-`println(())` — a `unit` struct field, and `ArrayList(unit)` do not
-compile. Whole boundary measured and filed in
-issues/unit-typed-params-and-fields-emit-c-void.md (enum payloads like
-`Option(unit)`/`Result(unit, E)` already work; the fix is a codegen
-decision between full ZST erasure and a 1-byte representation). Tests:
-2 chunk-5 cases + 1 unit case in tests/fmt.test.yo (6/6).
+compiles and returns `"()"`. **D3.8 is COMPLETE**: the carve-out found
+while landing it — `unit` in a C *declaration* position was emitted as
+`void`, so a by-value `unit` parameter (hence `println(())`), a `unit`
+struct field, a tuple containing `unit` and `ArrayList(unit)` all failed to
+compile — is fixed too (branch codegen/unit-storage-byte,
+issues/fixed/unit-typed-params-and-fields-emit-c-void.md). Storage
+positions now spell a type whose C rendering is exactly `void` as a
+one-byte placeholder (`get_storage_type_string`), and the matching empty
+argument slot is filled; return position keeps `void`, so the guard fires
+only where today's C is already invalid and the emitted C for every
+compiling program is byte-identical (verified: 8/8 corpus files, same
+sha256). Tests: 2 chunk-5 cases + 1 unit case in tests/fmt.test.yo (6/6)
+plus tests/unit_as_value_type.test.yo (6/6).
 
 **Progress (S1 chunk 4, 2026-08-24, branch fix/range-op-era-split —
 UNPARKED, compiler fix + std landed together):** D3.5 implemented on the

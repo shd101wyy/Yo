@@ -1,7 +1,33 @@
 # `unit` in parameter or field position is emitted as C `void`
 
-**Status:** OPEN
+**Status: FIXED 2026-08-24** (branch `codegen/unit-storage-byte`).
 **Found:** 2026-08-24, while completing STD_API_AUDIT D3.8 (`ToString` for `unit`).
+
+## The fix
+
+C has no zero-sized object type, so a type whose C spelling is exactly `void` is
+now spelled as a **one-byte placeholder** in every STORAGE position — parameter,
+struct/tuple field, cast target — via `get_storage_type_string`
+(`src/codegen/utils/index.yo`), and the matching empty argument slot is filled
+with `0`. Return position keeps `get_type_string`, where `void` is legal, and
+pointer types spell `void*` rather than `void`, so both are untouched.
+
+The guard therefore fires **only where today's output is already invalid C**
+(`void x`, `void f(void x)`, `void b;`), which is what makes the change
+fixpoint-neutral by construction: the emitted C for every program that compiles
+today is unchanged. Verified — 8 representative corpus files re-emitted after the
+change, all 8 byte-identical (sha256), and the bootstrap fixpoint holds.
+
+Field COUNT and ORDER are preserved rather than erasing unit fields, so struct
+layouts, both constructor parameter lists, and the compound literal all stay
+aligned; a missed site keeps failing loudly at the C compiler instead of
+silently desynchronizing an ABI.
+
+Every shape in the boundary table below now compiles and runs, including
+`println(())`, `ArrayList(unit)` and `HashMap(String, unit)`. Regression test:
+`tests/unit_as_value_type.test.yo`. Remaining deliberately-unfixed shapes are in
+issues/unit-zst-residual-gaps.md.
+
 **Severity:** medium — `unit` is not usable as a value type argument, so
 `ArrayList(unit)`, `HashMap(K, unit)`, tuples containing `unit`, and any
 function taking a `unit` parameter fail at the C compiler.
