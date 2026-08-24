@@ -198,6 +198,28 @@ impls), so `println(list)` compiles. `to_string.yo` now imports ArrayList
 issues/inout-unit-receiver-void-ref-spill.md). Tests: 2 new cases in
 tests/fmt.test.yo (5/5).
 
+**Progress (S1 chunk 4, 2026-08-24, branch fix/range-op-era-split —
+UNPARKED, compiler fix + std landed together):** D3.5 implemented on the
+std side (`RangeOp`/`RangeInclusiveOp` for all ten integer types;
+`Iterator` for `Range(T)`/`RangeInclusive(T)`, the inclusive form flipping
+to canonical-empty after yielding `end` so `start..=T.MAX` terminates).
+The blocker — `..`-built values living in their own TYPE ERA so no trait
+impl ever dispatched on an operator-built range — was a compiler bug one
+level deeper than first recorded: `substitute()` KEEPS the
+trait-definition era's struct id/ctor-fid when rewriting `Range(Self)`'s
+type arguments, so the operator's stamped result was an instance the ctor
+memo never issued. Fixed by canonicalizing the operator-dispatch result
+stamp through the CTFE ctor memo
+(`canonicalize_instantiation_via_ctfe_memo`, evaluator/calls/comptime_fn.yo
++ the operator arm of calls/function.yo) — record:
+issues/fixed/range-op-result-era-split-blocks-iteration.md. En route,
+found (pre-existing, OPEN, not range-specific): an Item-binding combinator
+(`min`/`max`/`sum`) after `.map` at a SECOND Item type adopts the FIRST
+call's Item — the combinator-chain shared-stamp pollution,
+issues/iterator-chain-shared-stamp-cross-item-pollution.md (same
+under-resolution family as the flat_map residual). Tests: 4 range cases in
+tests/iterator_combinators.test.yo (32/32).
+
 1. **`Default`** trait + derive. Unblocks `unwrap_or_default`, map `or_default`.
 2. **`From(T)` / `Into(T)`** (the prelude header already *claims* they exist).
 3. **`Ordering` wired in**: `Ord` gains `cmp(self, rhs) -> Ordering` (default
@@ -234,7 +256,16 @@ tests/fmt.test.yo (5/5).
    `ToString` (Yo is not Rust; one string form), but route derive output through
    a `Formatter` so pretty/compact can be added additively later.
 9. **`Hasher` design review**: `Hash` returning bare `u64` blocks DoS-resistant
-   seeding and composite hashing. Decide now (breaking) or accept forever.
+   seeding and composite hashing. **DECIDED (user, 2026-08-24): full
+   Rust-style `Hasher` trait** — `hash(self, hasher : inout(H))` writing into
+   a streaming hasher (`write_u8`/…/`write_u64`, `finish`), with pluggable
+   algorithms per map (SipHash-class seeded default; a fast unseeded option
+   possible later). Breaking; lands in the S2 window with its own design
+   round first (Hasher/BuildHasher shape, per-map seeding, derive(Hash)
+   rework, every existing `Hash` impl + HashMap/HashSet/OrderedMap driver
+   rewritten). The alternatives considered — keep bare `u64` forever, or a
+   fold-style `hash(self, state : u64) -> u64` middle ground — were
+   declined in favor of the most future-proof surface.
 10. **Format specs**: template strings gain `${v:spec}` (width/precision/fill/
     align/hex) routed through `fmt.Writer`'s existing primitives — the engine
     exists, nothing connects it.
@@ -338,7 +369,12 @@ implementing the D5 traits.** Until it lands, std honestly refuses https.
 
 ---
 
-## 5. The rename/breaking sweep (one release, likely "0.3.0")
+## 5. The rename/breaking sweep (one release — a PATCH bump, staying on v0.2.xx)
+
+**Versioning decision (user, 2026-08-24): no minor release for this.** Yo is
+pre-stability; breaking std changes ship in ordinary v0.2.x patch releases
+rather than opening a "0.3.0" window. The sweep below is still ONE release's
+worth of coordinated renames — it just lands as the next patch version.
 
 Everything in D2/D4 plus these specific renames. Each is mechanical; land as a
 small number of PRs with tree-wide fixups (compiler + std + tests + docs):
@@ -450,8 +486,9 @@ mmap/file-lock/statfs wrappers; `gc.stats`; DNS SRV/TXT/reverse
    red-first test. No API changes beyond C1's throw.
 2. **S1 — conventions ADR + prelude traits (D1–D3):** the foundation everything
    else builds on.
-3. **S2 — the breaking sweep (§5 + §6 + D4/D5/D7/D8):** one minor-version
-   window; compiler tree migrates in the same PRs (it is the biggest std
+3. **S2 — the breaking sweep (§5 + §6 + D4/D5/D7/D8):** one release window —
+   a v0.2.x PATCH bump, per the §5 versioning decision (no minor release);
+   compiler tree migrates in the same PRs (it is the biggest std
    consumer and the best test).
 4. **S3 — P0 additions.**
 5. **S4 — P1 additions.**
