@@ -372,6 +372,48 @@ landmine with a pointer at the issue.
     align/hex) routed through `fmt.Writer`'s existing primitives — the engine
     exists, nothing connects it.
 
+    **SEPARATOR DECIDED (user, 2026-08-25): `:`**, i.e. `${total:>10.2}`, matching
+    Rust and Python exactly. A design round recommended `@` instead, on the
+    grounds that `@` is an operator CHARACTER with no operator TOKEN
+    (`src/token.yo` vs the closed tables in `src/lexer.yo`), so a depth-0 `@`
+    cannot occur in any valid expression at all — making the split rule total
+    with no fallback and no residual. The user chose familiarity over that
+    proof. The accepted cost, recorded so it is not rediscovered as a surprise:
+    `${name:T}` with no space, where `T` is both a spec kind letter and a type in
+    scope, is a silent reinterpretation rather than an error, and `yo fmt` cannot
+    normalize it away because it re-emits templates from the raw source slice.
+    Zero occurrences exist today — all 7 colon-bearing interpolations in the tree
+    are inside a doc comment or have the colon inside a string literal within
+    parens, so the split is safe on the current corpus.
+
+    **Stage 1 (the engine) is WRITTEN, on branch `d310/format-specs`, and NOT
+    merged.** `std/fmt/spec.yo` (the `FormatSpec` vocabulary: total `parse`,
+    `pad`, and a `pad_numeric` that puts zero fill BETWEEN the sign/prefix and
+    the digits — `write_padded` pads outside the sign, which made `-0000042` and
+    `0x0000002a` unreachable) plus `std/fmt/format.yo` (the `Format` protocol:
+    concrete impls for the ten integers with radix and sign-magnitude so
+    `i64.MIN` does not overflow, the floats via `Writer.write_f64`, and ONE
+    blanket over every `ToString` type for width/fill/align/truncate). Three
+    assumptions were proven by compile first: the `i64.MIN` magnitude trick is
+    exact, a bare-`T` blanket TRAIT impl is legal (unprecedented in std), and a
+    concrete impl wins over the blanket.
+
+    It is blocked by TWO codegen faults it surfaces, filed with reproducers in
+    issues/format-spec-blanket-loses-body-and-pad-emits-bad-c.md: a blanket-impl
+    result bound to a local loses its body (a SILENT wrong answer — ten spaces
+    instead of `   Some(4)`), and `FormatSpec.pad` with a local `String` argument
+    emits invalid C. Fixing those is the next step; shipping the engine with
+    tests routed around the broken shape would be a workaround.
+
+    **Stage 2** — the `${expr:spec}` parser sugar — is then a contained change:
+    `parse_template_string` (`src/parser.yo`) peels the spec off the right end of
+    an interpolation's raw text with a backward walk over a closed spec charset
+    that excludes `)`, `]`, `}`, quotes, comma and whitespace (so it physically
+    cannot cross out of a call or into a string literal), requires the character
+    before the run to be `:` and the one before THAT to be a non-space (which is
+    what preserves spaced colon-pairs), and lowers to `e.format("<spec>")` at the
+    same site where `make_ts_call` builds `e.to_string()` today.
+
 ### D4 — String indexing model (the one genuinely hard call)
 
 `String.len()` is rune-count O(n), `Index` returns a BYTE, `at()`/`substring()`/
