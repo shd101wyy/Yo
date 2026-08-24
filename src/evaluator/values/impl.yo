@@ -705,6 +705,21 @@ _bind_forall_from_type_args :: (
   fa_lvl := match(fa_some, .SomeT({ frame_level }) => frame_level, _ => return(Option(TypeValue).None));
   pat_ta := match(pattern, .Struct({ type_arguments : ta }) => ta, _ => ArrayList(TypeValue).new());
   con_ta := match(concrete, .Struct({ type_arguments : ta }) => ta, _ => ArrayList(TypeValue).new());
+  if(impl_dbg_env.get(`YO_DEBUG_DISPATCH`).is_some(), {
+    (bfta_s : String) = String.from("");
+    (bfta_i : usize) = usize(0);
+    while(bfta_i < con_ta.len(), {
+      bfta_s = `${bfta_s}[${match(con_ta.get(bfta_i), .Some(t) => type_to_string(t), .None => String.from("-"))}]`;
+      bfta_i = (bfta_i + usize(1));
+    });
+    (bfta_p : String) = String.from("");
+    (bfta_j : usize) = usize(0);
+    while(bfta_j < pat_ta.len(), {
+      bfta_p = `${bfta_p}[${match(pat_ta.get(bfta_j), .Some(t) => type_to_string(t), .None => String.from("-"))}]`;
+      bfta_j = (bfta_j + usize(1));
+    });
+    eprintln(`[bfta] fa=${fa_name} fa_lvl=${fa_lvl.to_string()} pat_ta=${bfta_p} con_ta=${bfta_s}`);
+  });
   (j : usize) = usize(0);
   (n : usize) = pat_ta.len();
   while(j < n, {
@@ -740,15 +755,71 @@ _bind_forall_from_type_args :: (
               return(Option(TypeValue).Some(ct));
             });
           };
-          // `ct` is still a SomeType. For an async future's output type, yo-self
-          // KEEPS the output unresolved through eval (the FSM/future machinery
-          // keys on that SomeType identity), and the concrete type lands in the
-          // codegen `g_some_resolved_concrete` registry (set at the io.async call
-          // site). Resolve via that registry — the same resolvedConcreteType
-          // bridge the io.await refinement uses — so e.g. `JoinHandle(T)`'s
-          // generic-impl `await` match binds `T` to the concrete spawned output
-          // instead of skipping the SomeType arg. See
-          // issues/fixed/yo-self-async-await-struct-result-eval.md.
+          // `ct` is still a SomeType. Resolution channel 1 — the SomeT's own
+          // resolution-chain CELL: a per-call closure-F combinator return
+          // (`IterMap(Self, B, F)`) deliberately keeps `F` as a SomeT in the
+          // stamped type (adopting the name-resolved value clobbered the
+          // per-call `F → <capture>` identity — see calls/function.yo's rre
+          // adoption notes) and records the concrete capture in the CELL.
+          // A CHAINED receiver re-specializes on demand and presents a
+          // resolved instance, but a VARIABLE-BOUND receiver keeps this
+          // stamp — without the cell walk the impl match left `F` unbound
+          // and `m := xs.map(f); m.for_each(g)` failed "does not implement
+          // required trait Iterator"
+          // (issues/varbound-combinator-receiver-impl-match.md).
+          {
+            (cell_cur : TypeValue) = ct;
+            (cell_seen : ArrayList(String)) = ArrayList(String).new();
+            (cell_walk : bool) = true;
+            while(cell_walk, {
+              match(
+                cell_cur,
+                .SomeT(id : cell_id, resolved_concrete : cell_rc) => {
+                  (cell_revisit : bool) = false;
+                  (cell_i : usize) = usize(0);
+                  while(cell_i < cell_seen.len(), {
+                    match(
+                      cell_seen.get(cell_i),
+                      .Some(cs) => if(cs == cell_id, {
+                        cell_revisit = true;
+                      }),
+                      .None => ()
+                    );
+                    cell_i = (cell_i + usize(1));
+                  });
+                  if(cell_revisit, {
+                    cell_walk = false;
+                  }, {
+                    cell_seen.push(cell_id.clone());
+                    match(
+                      cell_rc.get(usize(0)),
+                      .Some(cell_nx) => {
+                        cell_cur = cell_nx;
+                      },
+                      .None => {
+                        cell_walk = false;
+                      }
+                    );
+                  });
+                },
+                _ => {
+                  cell_walk = false;
+                }
+              );
+            });
+            if((!(is_some_type(cell_cur))) && !(match(cell_cur, .Unit => true, _ => false)), {
+              return(Option(TypeValue).Some(cell_cur));
+            });
+          };
+          // Channel 2 — the codegen registry. For an async future's output
+          // type, yo-self KEEPS the output unresolved through eval (the
+          // FSM/future machinery keys on that SomeType identity), and the
+          // concrete type lands in the `g_some_resolved_concrete` registry
+          // (set at the io.async call site). Resolve via that registry — the
+          // same resolvedConcreteType bridge the io.await refinement uses —
+          // so e.g. `JoinHandle(T)`'s generic-impl `await` match binds `T`
+          // to the concrete spawned output instead of skipping the SomeType
+          // arg. See issues/fixed/yo-self-async-await-struct-result-eval.md.
           match(
             ct,
             .SomeT({ id : ctid }) => match(
