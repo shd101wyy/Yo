@@ -15,7 +15,7 @@ open(import("std/string"));
 { lookup_some_resolved_concrete, expr_info_effect_analysis, expr_info_async_state_machine_struct_name } :: import("../../expr_info.yo");
 { EvalValue } :: import("../../value.yo");
 { get_func_type, is_effect_record_member, is_closure_fn, is_io_async_sm_closure, is_fn_unemittable } :: import("../../function_value.yo");
-{ CodeGenContext, get_type_string, sanitize_for_c_identifier, get_runtime_struct_fields, RuntimeStructField, is_function_value_with_only_builtin_yo_inline_function_call, find_returned_async_block, type_key } :: import("../utils/index.yo");
+{ CodeGenContext, get_type_string, get_storage_type_string, sanitize_for_c_identifier, get_runtime_struct_fields, RuntimeStructField, is_function_value_with_only_builtin_yo_inline_function_call, find_returned_async_block, type_key } :: import("../utils/index.yo");
 /// One evidence parameter threaded into a function that uses effect-record
 /// evidence passing. Mirrors the `EvidenceParameter` interface.
 EvidenceParameter :: ref(
@@ -185,11 +185,17 @@ generate_function_prototype :: (
             params.push_string(recur(pt, callee, context, Option(String).None, false));
           },
           true => {
-            pts := get_type_string(pt, context);
             is_ref := match(param_is_ref.get(i), .Some(b) => b, .None => false);
-            if(is_ref, {
-              pts.push_str("*");
-            });
+            // A BY-VALUE `unit` parameter has no C object type, so it is spelled
+            // as a dead byte (get_storage_type_string). A REF/`inout` unit
+            // parameter keeps `void*` — that is the pointer the call site hands
+            // it as `((void*)0)`
+            // (issues/fixed/inout-unit-receiver-void-ref-spill.md).
+            pts := if(is_ref, {
+              p0 := get_type_string(pt, context);
+              p0.push_str("*");
+              p0
+            }, get_storage_type_string(pt, context));
             params.push_string(pts);
             params.push_str(" ");
             params.push_string(pname.clone());
@@ -326,7 +332,7 @@ generate_object_constructor_declarations :: (fn(context : CodeGenContext) -> uni
                 if(pi > usize(0), {
                   params.push_str(", ");
                 });
-                params.push_string(get_type_string(field.ty, context));
+                params.push_string(get_storage_type_string(field.ty, context));
                 params.push_str(" ");
                 params.push_string(sanitize_for_c_identifier(field.label.clone(), false));
               },

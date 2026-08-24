@@ -21,6 +21,7 @@ open(import("std/string"));
   CodeGenContext,
   RuntimeStructField,
   get_type_string,
+  get_storage_type_string,
   get_runtime_struct_fields,
   sanitize_for_c_identifier,
   can_optimize_as_nullable_pointer,
@@ -121,7 +122,11 @@ _emit_runtime_fields :: (fn(fields : ArrayList(RuntimeStructField), context : Co
     match(
       fields.get(i),
       .Some(field) => {
-        fts := get_type_string(field.ty, context);
+        // A `unit` field is spelled as a dead byte rather than `void` — C has
+        // no zero-sized object type. Field COUNT and ORDER are preserved, so
+        // both constructor parameter lists and the compound literal stay
+        // aligned with the layout.
+        fts := get_storage_type_string(field.ty, context);
         fname := sanitize_for_c_identifier(field.label.clone(), false);
         context.emitter.emit_declaration_string_line(`  ${fts} ${fname};`);
       },
@@ -187,7 +192,10 @@ generate_tuple_declaration :: (fn(tuple_type : TypeValue, c_name : String, conte
             match(
               field_types.get(i),
               .Some(ft) => {
-                fts := get_type_string(ft, context);
+                // As for struct fields: a `unit` element becomes a dead byte.
+                // The zero-field branch above keeps its own `_dummy` marker —
+                // with placeholders a NON-empty tuple can never render empty.
+                fts := get_storage_type_string(ft, context);
                 context.emitter.emit_declaration_string_line(`  ${fts} _${i.to_string()};`);
               },
               .None => ()

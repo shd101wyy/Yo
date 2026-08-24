@@ -27,7 +27,7 @@ open(import("std/string"));
 { Environment, get_variables_from_env, find_innermost_frame_with_given_variable, Variable } :: import("../../env.yo");
 { is_builtin_yo_inline_function } :: import("../constants.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
-{ get_type_string, get_variable_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier, is_function_value_with_only_builtin_yo_inline_function_call, type_key, get_runtime_struct_fields, RuntimeStructField, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, ImplClosureCallInfo, scope_stack_contains } :: import("../utils/index.yo");
+{ get_type_string, get_storage_type_string, get_variable_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier, is_function_value_with_only_builtin_yo_inline_function_call, type_key, get_runtime_struct_fields, RuntimeStructField, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, ImplClosureCallInfo, scope_stack_contains } :: import("../utils/index.yo");
 { resolve_some_type_to_concrete } :: import("./closures.yo");
 { extract_fn_trait_from_type, type_implements_future } :: import("../../evaluator/trait_checking.yo");
 { CapturedVariable } :: import("../../evaluator/async/await_analysis_types.yo");
@@ -474,6 +474,15 @@ _materialize_arg :: (fn(arg : AstExpr, param_is_ref : bool, expr : AstExpr, inde
             .None => ()
           );
         });
+        // A `unit`-valued argument generates NO C code at all (the unit rvalue
+        // emitters return ""). Never materialize that into `<T> name = ;` — an
+        // invalid declaration. Hand back the empty marker and let the argument
+        // loop fill the C slot with the dead byte that now matches the callee's
+        // placeholder parameter. Twin of the three local-declaration guards in
+        // exprs/init_assignment.yo.
+        if(arg_code.len() == usize(0), {
+          return(String.from(""));
+        });
         is_comptime_only := _last_is_comptime_only(arg_ei.env, vname.clone());
         is_sm := arg_code.starts_with("sm->");
         sanitized := get_variable_name_for_codegen(vname.clone(), Option(Environment).Some(arg_ei.env));
@@ -649,8 +658,14 @@ _per_arg_cast :: (fn(args_list : String, param_types : ArrayList(TypeValue), par
         if(i > usize(0), {
           out.push_str(", ");
         });
-        base_str := match(param_types.get(i), .Some(t) => get_type_string(t, context.base), .None => String.from("void*"));
         pref := match(param_is_ref.get(i), .Some(r) => r, .None => false);
+        // A BY-VALUE `unit` parameter is spelled as the one-byte placeholder in
+        // the prototype, so its cast must agree; a REF one stays `void` + `*`.
+        base_str := match(
+          param_types.get(i),
+          .Some(t) => if(pref, get_type_string(t, context.base), get_storage_type_string(t, context.base)),
+          .None => String.from("void*")
+        );
         out.push_str("(");
         out.push_string(base_str);
         if(pref, {
@@ -1194,6 +1209,11 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
               ),
               .None => ArrayList(bool).new()
             );
+            // Resolved BEFORE the argument loop (they only need `method_fv`)
+            // so the loop can tell whether an empty — i.e. `unit` — argument
+            // has a real C parameter slot to fill with the dead byte.
+            cm_mft := match(method_fv, .Some(mv) => get_func_type(_func_val_id(mv)), .None => TypeValue.Unit);
+            cm_ptypes := match(cm_mft, .Func({ param_types : cpt }) => cpt, _ => ArrayList(TypeValue).new());
             cm_arg_list := ArrayList(String).new();
             cnma := dm_runtime.len();
             (cmi : usize) = usize(0);
@@ -1201,7 +1221,11 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
               match(
                 dm_runtime.get(cmi),
                 .Some(a) => {
-                  _cmp := cm_arg_list.push(_call_generate_expr(a, indent.clone(), context));
+                  _cmp := cm_arg_list.push({
+                    mc := _call_generate_expr(a, indent.clone(), context);
+                    hs := match(cm_ptypes.get(cmi), .Some(_) => true, .None => false);
+                    if((mc.len() == usize(0)) && hs, String.from("0"), mc)
+                  });
                 },
                 .None => ()
               );
@@ -1221,8 +1245,6 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
             // deep inside a method, the caller CONTINUED with a garbage
             // result (stage-2 prelude-eval SIGSEGV; see
             // issues/retired/yo-self-stage2-unwind-check-coverage.md).
-            cm_mft := match(method_fv, .Some(mv) => get_func_type(_func_val_id(mv)), .None => TypeValue.Unit);
-            cm_ptypes := match(cm_mft, .Func({ param_types : cpt }) => cpt, _ => ArrayList(TypeValue).new());
             // Method dispatch: the callee is a property access, not an atom —
             // TS's exprIsAtom(expr.func) fallback is false here.
             cm_may_unwind := _call_may_unwind(method_fv, cm_mft, cm_ptypes, false, context);
@@ -1312,6 +1334,11 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
           .Some(rmcn) => {
             rm_runtime := match(ei.runtime_arg_exprs_in_order, .Some(ra) => ra, .None => ArrayList(AstExpr).new());
             rm_pir := match(get_func_type(rm_fid.clone()), .Func({ meta : __fmrm }) => __fmrm.*.param_is_ref, _ => ArrayList(bool).new());
+            // Resolved BEFORE the argument loop (they only need `rm_fid`) so an
+            // empty — i.e. `unit` — argument can be filled with the dead byte
+            // when the callee actually has a C parameter at that index.
+            rm_mft := get_func_type(rm_fid.clone());
+            rm_ptypes := match(rm_mft, .Func({ param_types : cpt }) => cpt, _ => ArrayList(TypeValue).new());
             rm_args := ArrayList(String).new();
             rm_n := rm_runtime.len();
             (rmi : usize) = usize(0);
@@ -1319,7 +1346,11 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
               match(
                 rm_runtime.get(rmi),
                 .Some(a) => {
-                  _rmp := rm_args.push(_call_generate_expr(a, indent.clone(), context));
+                  _rmp := rm_args.push({
+                    mc := _call_generate_expr(a, indent.clone(), context);
+                    hs := match(rm_ptypes.get(rmi), .Some(_) => true, .None => false);
+                    if((mc.len() == usize(0)) && hs, String.from("0"), mc)
+                  });
                 },
                 .None => ()
               );
@@ -1330,8 +1361,6 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
             rm_call.push_str("(");
             rm_call.push_string(_join_args(rm_args));
             rm_call.push_str(")");
-            rm_mft := get_func_type(rm_fid.clone());
-            rm_ptypes := match(rm_mft, .Func({ param_types : cpt }) => cpt, _ => ArrayList(TypeValue).new());
             rm_may_unwind := _call_may_unwind(Option(EvalValue).Some(rmv), rm_mft, rm_ptypes, false, context);
             rm_install_ei := new_expr_info(ei.env, rm_mft);
             rm_install_ei.value = Option(EvalValue).Some(rmv);
@@ -1518,7 +1547,17 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
             if(ci > usize(0), {
               ctor_list.push_str(", ");
             });
-            match(ctor_args.get(ci), .Some(ca) => ctor_list.push_string(emit_deferred_dup_or_code(ca, _call_generate_expr(ca, indent.clone(), context), indent.clone(), context)), .None => ());
+            // A `unit` field argument generates no C; the constructor parameter
+            // it feeds is now a one-byte placeholder, so pass the dead byte
+            // instead of emitting `__yo_new_T(1, )`. Arity is preserved.
+            match(
+              ctor_args.get(ci),
+              .Some(ca) => {
+                cc := emit_deferred_dup_or_code(ca, _call_generate_expr(ca, indent.clone(), context), indent.clone(), context);
+                ctor_list.push_string(if(cc.len() == usize(0), String.from("0"), cc));
+              },
+              .None => ()
+            );
             ci = (ci + usize(1));
           });
           ctor_call := String.from("__yo_new_");
@@ -1642,7 +1681,17 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
                 // expression evaluated `code` TWICE (a fresh `N(...)` ctor
                 // arg allocated two objects: one leaked incr'd, one stored
                 // un-incr'd) and over-counted moves that need no incr at all.
-                match(vs_args.get(rfi), .Some(a) => cl_out.push_string(emit_deferred_dup_or_code(a, _call_generate_expr(a, indent.clone(), context), indent.clone(), context)), .None => ());
+                // Same as the constructor call: a `unit` field initializer has
+                // no C value, and the field is now a one-byte placeholder, so
+                // fill `.b = 0` rather than emitting `.b = `.
+                match(
+                  vs_args.get(rfi),
+                  .Some(a) => {
+                    vs_fv := emit_deferred_dup_or_code(a, _call_generate_expr(a, indent.clone(), context), indent.clone(), context);
+                    cl_out.push_string(if(vs_fv.len() == usize(0), String.from("0"), vs_fv));
+                  },
+                  .None => ()
+                );
                 rfi = (rfi + usize(1));
               });
               cl_out.push_str(" }");
@@ -1711,10 +1760,17 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
   (ai : usize) = usize(0);
   while(ai < na, {
     pref := match(param_is_ref.get(ai), .Some(r) => r, .None => false);
+    // A `unit` argument materializes to "" (see _materialize_arg). If the callee
+    // has a real C parameter at this index it is now a one-byte placeholder, so
+    // pass the dead byte rather than leaving `f(xs, )`. With NO matching
+    // parameter slot — a reconstructed argument list — leave the slot empty,
+    // which is today's behaviour.
+    has_slot := match(param_types.get(ai), .Some(_) => true, .None => false);
     match(
       runtime_args.get(ai),
       .Some(arg) => {
-        _p := args.push(_materialize_arg(arg, pref, expr, indent.clone(), context));
+        mc := _materialize_arg(arg, pref, expr, indent.clone(), context);
+        _p := args.push(if((mc.len() == usize(0)) && has_slot, String.from("0"), mc));
       },
       .None => ()
     );
@@ -1840,7 +1896,15 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
             return(Option(String).Some(`// Failed to transpile ${ast_expr_to_string(expr)}`));
           });
           casted := _per_arg_cast(args_list.clone(), param_types, param_is_ref, context);
-          if(is_unit_type(result_type), {
+          // `is_unit_type` does not walk the SomeT resolution chain, but
+          // `get_type_string` does — and the normalization above deliberately
+          // leaves `result_type` as a SomeT when the expression's own type is
+          // unit. Consult the SPELLING in that case so a generic result that
+          // RESOLVES to unit takes the statement form instead of declaring a
+          // `void` temp. Only for a SomeT: get_type_string panics on the
+          // Fn/Future trait arms.
+          rt_void := if(is_some_type(result_type), get_type_string(result_type, context.base) == `void`, is_unit_type(result_type));
+          if(rt_void, {
             // Clear __yo_effect_escaped before the call so a stale flag from
             // a previous unwind (already handled by a higher-level handler)
             // doesn't leak into this call's escape check.
@@ -2008,7 +2072,10 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
           if(pi > usize(0), {
             cast.push_str(", ");
           });
-          cast.push_string(match(param_types.get(pi), .Some(t) => get_type_string(t, context.base), .None => String.from("void*")));
+          // Must match the callee's PROTOTYPE, where a by-value `unit` parameter
+          // is the one-byte placeholder. The return slot above keeps
+          // get_type_string — `void` is legal there.
+          cast.push_string(match(param_types.get(pi), .Some(t) => get_storage_type_string(t, context.base), .None => String.from("void*")));
           pi = (pi + usize(1));
         });
         cast.push_str("))");
@@ -2028,7 +2095,8 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
               if(fa_i > usize(0), {
                 fa_out.push_str(", ");
               });
-              fa_pt := match(param_types.get(fa_i), .Some(t) => get_type_string(t, context.base), .None => String.from("void*"));
+              // In lockstep with the fn-pointer cast above.
+              fa_pt := match(param_types.get(fa_i), .Some(t) => get_storage_type_string(t, context.base), .None => String.from("void*"));
               fa_part := match(fa_parts.get(fa_i), .Some(x) => x, .None => String.new());
               fa_out.push_str("(");
               fa_out.push_string(fa_pt);

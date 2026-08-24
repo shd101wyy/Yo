@@ -369,7 +369,12 @@ generate_comptime_value :: (fn(value : EvalValue, ty : TypeValue, context : Code
           out.push_str("._");
           out.push_string(i.to_string());
           out.push_str(" = ");
-          match(fields.get(i), .Some(fv) => out.push_string(recur(fv, fty, context)), .None => ());
+          // A `unit` element has no comptime C value (it falls through the
+          // dispatch's catch-all to a skip marker) and its field is now a
+          // one-byte placeholder, so initialize it with the dead byte. Done
+          // here rather than as a `.UnitVal` arm on the dispatch: other callers
+          // key off that skip-marker string.
+          match(fields.get(i), .Some(fv) => out.push_string(if(is_unit_type(fty), String.from("0"), recur(fv, fty, context))), .None => ());
           i = (i + usize(1));
         });
         out.push_str(" }");

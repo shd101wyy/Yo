@@ -137,10 +137,9 @@ test("ArrayList and Array stringify as bracketed lists (D3.8)", {
   assert(nested.to_string() == `[Some(4), None]`, "nests through Option's ToString");
 });
 test("Test unit ToString", {
-  // The last D3.8 primitive: an inout(self) receiver of type unit used to
-  // emit invalid C (issues/fixed/inout-unit-receiver-void-ref-spill.md).
-  // The receiver is `inout(self) : Self` at Self = unit, which used to emit an
-  // invalid C ref-spill (`void __yo_ref_spill_N = ;`) —
+  // The last D3.8 primitive: the receiver is `inout(self) : Self` at
+  // Self = unit, which used to emit an invalid C ref-spill
+  // (`void __yo_ref_spill_N = ;`) —
   // issues/fixed/inout-unit-receiver-void-ref-spill.md.
   assert(().to_string() == "()", "unit prints as ()");
   // The unit argument's C code is EMPTY (the call is emitted as a statement),
@@ -148,8 +147,7 @@ test("Test unit ToString", {
   // side-effecting unit receiver must still run.
   assert(_unit_mark(i32(1)).to_string() == "()", "unit receiver from a call");
   assert(_unit_side_effects == i32(1), "the receiver call's side effect still ran");
-  // NOTE: `unit` in a *declaration* position — a by-value parameter (so
-  // `println(())`), a struct field, or a container element (`ArrayList(unit)`)
-  // — still emits C `void` and does not compile. Tracked separately in
-  // issues/unit-typed-params-and-fields-emit-c-void.md.
+  // `unit` in a declaration position (a by-value parameter, so `println(())`,
+  // a struct field, a container element) is covered by
+  // tests/unit_as_value_type.test.yo.
 });

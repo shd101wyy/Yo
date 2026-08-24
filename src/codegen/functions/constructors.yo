@@ -20,7 +20,7 @@ open(import("std/string"));
 { TypeValue } :: import("../../types/definitions.yo");
 { is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_atomic_reference_enum_type, is_enum_type, is_struct_type, is_newtype_type, is_tuple_type, is_array_type, is_unit_type } :: import("../../types/guards.yo");
 { type_contains_some_type, type_contains_rc_type, can_type_form_rc_cycle, type_uses_small_rc_header, _type_refs_back_to_cyclic } :: import("../../types/utils.yo");
-{ get_type_string, get_runtime_struct_fields, sanitize_for_c_identifier, get_enum_variant_c_name, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, RuntimeStructField } :: import("../utils/index.yo");
+{ get_type_string, get_storage_type_string, get_runtime_struct_fields, sanitize_for_c_identifier, get_enum_variant_c_name, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, RuntimeStructField } :: import("../utils/index.yo");
 { FunctionGenerationContext } :: import("./context.yo");
 { get_dispose_function_for_type, get_trace_function_for_type } :: import("../exprs/drop_dup.yo");
 /// True if any runtime field of `struct_type` contains a SomeType (generic).
@@ -60,7 +60,7 @@ _generate_one_constructor :: (fn(type : TypeValue, c_name : String, context : Fu
         if(pi > usize(0), {
           params.push_str(", ");
         });
-        params.push_string(get_type_string(field.ty, context.base));
+        params.push_string(get_storage_type_string(field.ty, context.base));
         params.push_str(" ");
         params.push_string(sanitize_for_c_identifier(field.label.clone(), false));
       },
