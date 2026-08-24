@@ -300,6 +300,17 @@ impl(
     })
   )
 );
+// === Unit ===
+/// `()` prints as "()" — the last D3.8 primitive (plans/STD_API_AUDIT.md).
+/// The inout(self) receiver of type unit is passed as a null pointer at the
+/// C level (see codegen _apply_ref_amp;
+/// issues/fixed/inout-unit-receiver-void-ref-spill.md).
+impl(
+  unit,
+  ToString(
+    to_string : (fn(inout(self) : Self) -> String)(`()`)
+  )
+);
 // === rune Implementation ===
 // Convert Unicode code point to UTF-8 string
 impl(
