@@ -249,6 +249,38 @@ impl(
     })
   )
 );
+// === Option / Result Implementations (plans/STD_API_AUDIT.md D3.7) ===
+/// `Option(T)` prints as `Some(<value>)` / `None`, so `println(opt)` and
+/// `${opt}` in template strings compile.
+impl(
+  generic(T : Type),
+  where(T <: ToString),
+  Option(T),
+  ToString(
+    to_string : (fn(inout(self) : Self) -> String)(
+      match(
+        self,
+        .Some(value) => `Some(${value})`,
+        .None => `None`
+      )
+    )
+  )
+);
+/// `Result(T, E)` prints as `Ok(<value>)` / `Err(<error>)`.
+impl(
+  generic(T : Type, E : Type),
+  where(T <: ToString, E <: ToString),
+  Result(T, E),
+  ToString(
+    to_string : (fn(inout(self) : Self) -> String)(
+      match(
+        self,
+        .Ok(value) => `Ok(${value})`,
+        .Err(error) => `Err(${error})`
+      )
+    )
+  )
+);
 // TODO: Array to_string implementation?
 // --- derive_rule for ToString ---
 // Local helpers (not exported from prelude, so defined locally)

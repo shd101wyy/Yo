@@ -145,6 +145,22 @@ check 154+262, suite 2823/2823 under the S1 stage-1, gates green after
 re-recording the 2 legitimately-drifted CLI goldens (`check-watch-once` expr
 count, `lsp-completion` type ids + the new `default` entry), FIXPOINT_HOLDS.
 
+**Progress (S1 chunk 2, 2026-08-24, branch s1-option-result, stacked on
+chunk 1):** D3.7 Option/Result completion — Option gains `expect`,
+`is_some_and`, `inspect`, `take`/`replace` (`inout(self)`, per the prelude's
+Index/Hash precedent), `zip` (returns `Option(IterPair(T, B))`; defined after
+`IterPair`), `transpose`; Result gains `unwrap_or`, `unwrap_or_default`,
+`expect`/`expect_err`, `inspect`/`inspect_err`, `flatten`, `transpose`; both
+gain `Ord` (`None` before every `Some`; every `Ok` before every `Err`; `cmp`
+via the chunk-1 default) and `Hash` (variant tag mixed into the inner hash),
+and `ToString` in `std/fmt/to_string.yo` (`Some(42)` / `Ok(1)` forms — so
+`println(opt)` compiles). `expect` takes `msg : str` and forwards to
+`__yo_panic` (prelude cannot import std/assert). NOT taken: `is_ok_and`/
+`is_err_and` (not in the audit list), Rust's `get_or_insert` family (needs
+`inout` chaining ergonomics first). Tests: 5 new cases in
+tests/prelude.test.yo (18/18) — note closures capture locals BY VALUE, so
+side-effect tests observe through an ArrayList.
+
 1. **`Default`** trait + derive. Unblocks `unwrap_or_default`, map `or_default`.
 2. **`From(T)` / `Into(T)`** (the prelude header already *claims* they exist).
 3. **`Ordering` wired in**: `Ord` gains `cmp(self, rhs) -> Ordering` (default

@@ -6433,7 +6433,51 @@ impl(
       .Some(value) => value,
       .None => f()
     )
+  ),
+  /// Extract the contained value, panicking with `msg` if `None`.
+  expect : (fn(self : Self, msg : str) -> T)(
+    match(
+      self,
+      .Some(value) => value,
+      .None => __yo_panic(msg)
+    )
+  ),
+  /// Return `true` if `Some` and the predicate holds for the value.
+  is_some_and : (fn(self : Self, f : Impl(Fn(a : T) -> bool)) -> bool)(
+    match(
+      self,
+      .Some(value) => f(value),
+      .None => false
+    )
+  ),
+  /// Call `f` with the contained value (if `Some`), then return the option.
+  inspect : (fn(self : Self, f : Impl(Fn(a : T) -> unit)) -> Option(T))(
+    match(
+      self,
+      .Some(value) => {
+        f(value);
+        Option(T).Some(value)
+      },
+      .None => Option(T).None
+    )
   )
+);
+/// In-place helpers for `Option(T)` (plans/STD_API_AUDIT.md D3.7).
+impl(
+  generic(T : Type),
+  Option(T),
+  /// Take the value out of the option, leaving `None` in its place.
+  take : (fn(inout(self) : Self) -> Option(T))({
+    old := self;
+    self = Option(T).None;
+    old
+  }),
+  /// Replace the contained value with `Some(value)`, returning the old option.
+  replace : (fn(inout(self) : Self, value : T) -> Option(T))({
+    old := self;
+    self = Option(T).Some(value);
+    old
+  })
 );
 /// Flatten a nested `Option(Option(T))` into `Option(T)`.
 impl(
@@ -7228,6 +7272,115 @@ impl(
       .Ok(value) => value,
       .Err(error) => f(error)
     )
+  ),
+  /// Extract the `Ok` value, or return `or_value` if `Err`.
+  unwrap_or : (fn(self : Self, or_value : OkType) -> OkType)(
+    match(
+      self,
+      .Ok(value) => value,
+      .Err(_) => or_value
+    )
+  ),
+  /// Extract the `Ok` value, panicking with `msg` if `Err`.
+  expect : (fn(self : Self, msg : str) -> OkType)(
+    match(
+      self,
+      .Ok(value) => value,
+      .Err(_) => __yo_panic(msg)
+    )
+  ),
+  /// Extract the `Err` value, panicking with `msg` if `Ok`.
+  expect_err : (fn(self : Self, msg : str) -> ErrorType)(
+    match(
+      self,
+      .Err(error) => error,
+      .Ok(_) => __yo_panic(msg)
+    )
+  ),
+  /// Call `f` with the `Ok` value (if any), then return the result.
+  inspect : (fn(self : Self, f : Impl(Fn(a : OkType) -> unit)) -> Result(OkType, ErrorType))(
+    match(
+      self,
+      .Ok(value) => {
+        f(value);
+        Result(OkType, ErrorType).Ok(value)
+      },
+      .Err(error) => Result(OkType, ErrorType).Err(error)
+    )
+  ),
+  /// Call `f` with the `Err` value (if any), then return the result.
+  inspect_err : (fn(self : Self, f : Impl(Fn(a : ErrorType) -> unit)) -> Result(OkType, ErrorType))(
+    match(
+      self,
+      .Ok(value) => Result(OkType, ErrorType).Ok(value),
+      .Err(error) => {
+        f(error);
+        Result(OkType, ErrorType).Err(error)
+      }
+    )
+  )
+);
+/// Extract the `Ok` value, or `OkType`'s default when `Err`
+/// (plans/STD_API_AUDIT.md D3.1/D3.7).
+impl(
+  generic(OkType : Type, ErrorType : Type),
+  where(OkType <: Default),
+  Result(OkType, ErrorType),
+  unwrap_or_default : (fn(self : Self) -> OkType)(
+    match(
+      self,
+      .Ok(value) => value,
+      .Err(_) => (OkType <: Default).default()
+    )
+  )
+);
+/// Flatten a nested `Result(Result(T, E), E)` into `Result(T, E)`.
+impl(
+  generic(T : Type, E : Type),
+  Result(Result(T, E), E),
+  /// Collapse one level of nesting.
+  flatten : (fn(self : Self) -> Result(T, E))(
+    match(
+      self,
+      .Ok(inner) => inner,
+      .Err(error) => Result(T, E).Err(error)
+    )
+  )
+);
+/// Transpose a `Result` of an `Option` into an `Option` of a `Result`.
+impl(
+  generic(T : Type, E : Type),
+  Result(Option(T), E),
+  /// `Ok(Some(v))` becomes `Some(Ok(v))`, `Ok(None)` becomes `None`,
+  /// `Err(e)` becomes `Some(Err(e))`.
+  transpose : (fn(self : Self) -> Option(Result(T, E)))(
+    match(
+      self,
+      .Ok(opt) => match(
+        opt,
+        .Some(value) => Option(Result(T, E)).Some(Result(T, E).Ok(value)),
+        .None => Option(Result(T, E)).None
+      ),
+      .Err(error) => Option(Result(T, E)).Some(Result(T, E).Err(error))
+    )
+  )
+);
+/// Transpose an `Option` of a `Result` into a `Result` of an `Option`.
+impl(
+  generic(T : Type, E : Type),
+  Option(Result(T, E)),
+  /// `Some(Ok(v))` becomes `Ok(Some(v))`, `None` becomes `Ok(None)`,
+  /// `Some(Err(e))` becomes `Err(e)`.
+  transpose : (fn(self : Self) -> Result(Option(T), E))(
+    match(
+      self,
+      .Some(r) => match(
+        r,
+        .Ok(value) => Result(Option(T), E).Ok(Option(T).Some(value)),
+        .Err(error) => Result(Option(T), E).Err(error)
+      ),
+      .None => Result(Option(T), E).Ok(Option(T).None)
+    )
   )
 );
 /// `Option` to `Result` conversion methods (defined after `Result`).
@@ -7324,6 +7477,80 @@ impl(
     )
   )
 );
+/// Ordering for `Option(T)` — `None` sorts before every `Some`
+/// (plans/STD_API_AUDIT.md D3.7).
+impl(
+  generic(T : Type),
+  where(T <: Ord(T)),
+  Option(T),
+  Ord(Option(T))(
+    (<) : (
+      (lhs, rhs) ->
+        match(
+          lhs,
+          .None => match(rhs, .None => false, .Some(_) => true),
+          .Some(a) => match(
+            rhs,
+            .None => false,
+            .Some(b) => (a < b)
+          )
+        )
+    ),
+    (<=) : (
+      (lhs, rhs) ->
+        match(
+          lhs,
+          .None => true,
+          .Some(a) => match(
+            rhs,
+            .None => false,
+            .Some(b) => (a <= b)
+          )
+        )
+    ),
+    (>) : (
+      (lhs, rhs) ->
+        match(
+          lhs,
+          .None => false,
+          .Some(a) => match(
+            rhs,
+            .None => true,
+            .Some(b) => (a > b)
+          )
+        )
+    ),
+    (>=) : (
+      (lhs, rhs) ->
+        match(
+          lhs,
+          .None => match(rhs, .None => true, .Some(_) => false),
+          .Some(a) => match(
+            rhs,
+            .None => true,
+            .Some(b) => (a >= b)
+          )
+        )
+    )
+  )
+);
+/// Hash for `Option(T)` — variant tag mixed with the inner hash, so
+/// options can key maps (plans/STD_API_AUDIT.md D3.7).
+impl(
+  generic(T : Type),
+  where(T <: Hash),
+  Option(T),
+  Hash(
+    (hash) : (
+      (self) ->
+        match(
+          self,
+          .None => u64(0),
+          .Some(v) => ((v.hash() * u64(31)) + u64(1))
+        )
+    )
+  )
+);
 /// Clone for `Result(T, E)` — clones the inner value or error.
 impl(
   generic(T : Type, E : Type),
@@ -7360,6 +7587,96 @@ impl(
             .Ok(_) => false,
             .Err(b) => (a == b)
           )
+        )
+    )
+  )
+);
+/// Ordering for `Result(T, E)` — every `Ok` sorts before every `Err`
+/// (plans/STD_API_AUDIT.md D3.7).
+impl(
+  generic(T : Type, E : Type),
+  where(T <: Ord(T), E <: Ord(E)),
+  Result(T, E),
+  Ord(Result(T, E))(
+    (<) : (
+      (lhs, rhs) ->
+        match(
+          lhs,
+          .Ok(a) => match(
+            rhs,
+            .Ok(b) => (a < b),
+            .Err(_) => true
+          ),
+          .Err(a) => match(
+            rhs,
+            .Ok(_) => false,
+            .Err(b) => (a < b)
+          )
+        )
+    ),
+    (<=) : (
+      (lhs, rhs) ->
+        match(
+          lhs,
+          .Ok(a) => match(
+            rhs,
+            .Ok(b) => (a <= b),
+            .Err(_) => true
+          ),
+          .Err(a) => match(
+            rhs,
+            .Ok(_) => false,
+            .Err(b) => (a <= b)
+          )
+        )
+    ),
+    (>) : (
+      (lhs, rhs) ->
+        match(
+          lhs,
+          .Ok(a) => match(
+            rhs,
+            .Ok(b) => (a > b),
+            .Err(_) => false
+          ),
+          .Err(a) => match(
+            rhs,
+            .Ok(_) => true,
+            .Err(b) => (a > b)
+          )
+        )
+    ),
+    (>=) : (
+      (lhs, rhs) ->
+        match(
+          lhs,
+          .Ok(a) => match(
+            rhs,
+            .Ok(b) => (a >= b),
+            .Err(_) => false
+          ),
+          .Err(a) => match(
+            rhs,
+            .Ok(_) => true,
+            .Err(b) => (a >= b)
+          )
+        )
+    )
+  )
+);
+/// Hash for `Result(T, E)` — variant tag mixed with the inner hash
+/// (plans/STD_API_AUDIT.md D3.7).
+impl(
+  generic(T : Type, E : Type),
+  where(T <: Hash, E <: Hash),
+  Result(T, E),
+  Hash(
+    (hash) : (
+      (self) ->
+        match(
+          self,
+          .Ok(v) => ((v.hash() * u64(31)) + u64(1)),
+          .Err(e) => ((e.hash() * u64(31)) + u64(2))
         )
     )
   )
@@ -7831,6 +8148,24 @@ IterPair :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type))(
   struct(_0 : A, _1 : B)
 );
 export(IterPair);
+/// Zip two options into an option of a pair (plans/STD_API_AUDIT.md D3.7;
+/// defined here because it needs `IterPair`).
+impl(
+  generic(T : Type),
+  Option(T),
+  /// `Some(a).zip(Some(b))` is `Some(IterPair(a, b))`; anything else is `None`.
+  zip : (fn(generic(B : Type), self : Self, other : Option(B)) -> Option(IterPair(T, B)))(
+    match(
+      self,
+      .Some(a) => match(
+        other,
+        .Some(b) => Option(IterPair(T, B)).Some(IterPair(T, B)(_0 : a, _1 : b)),
+        .None => Option(IterPair(T, B)).None
+      ),
+      .None => Option(IterPair(T, B)).None
+    )
+  )
+);
 // ---------------------------------------------------------------------------
 // IterMap
 // ---------------------------------------------------------------------------

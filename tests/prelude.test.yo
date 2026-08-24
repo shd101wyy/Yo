@@ -292,3 +292,111 @@ test("float Hash is deleted — hashing a float is a compile error", {
     consume(h2);
   });
 });
+test("Option completion: expect, is_some_and, inspect, take, replace", {
+  some := Option(i32).Some(i32(7));
+  none := Option(i32).None;
+  assert(some.expect("must be some") == i32(7), "expect returns the value");
+  assert(some.is_some_and((v) => (v > i32(5))), "is_some_and true");
+  assert(!(some.is_some_and((v) => (v > i32(10)))), "is_some_and false predicate");
+  assert(!(none.is_some_and((v) => (v > i32(0)))), "is_some_and on None");
+  // Closures capture locals BY VALUE, so observe the side effect through a
+  // reference-semantics container instead of a primitive local.
+  { ArrayList } :: import("std/collections/array_list");
+  seen := ArrayList(i32).new();
+  echoed := some.inspect((v) => {
+    seen.push(v);
+  });
+  assert((seen.len() == usize(1)) && (seen.get(usize(0)).unwrap() == i32(7)), "inspect ran the callback");
+  assert(echoed.unwrap() == i32(7), "inspect returns the option");
+  (slot : Option(i32)) = Option(i32).Some(i32(1));
+  taken := slot.take();
+  assert(taken.unwrap() == i32(1), "take returns the old value");
+  assert(slot.is_none(), "take leaves None behind");
+  old := slot.replace(i32(2));
+  assert(old.is_none(), "replace returns the old (None) option");
+  assert(slot.unwrap() == i32(2), "replace installs the new value");
+});
+test("Option zip and transpose", {
+  a := Option(i32).Some(i32(1));
+  b := Option(u8).Some(u8(2));
+  pair := a.zip(b);
+  assert(pair.is_some(), "zip of two Somes is Some");
+  p := pair.unwrap();
+  assert((p._0 == i32(1)) && (p._1 == u8(2)), "zip pairs both values");
+  assert(a.zip(Option(u8).None).is_none(), "zip with None is None");
+  ok_inner := Option(Result(i32, u8)).Some(Result(i32, u8).Ok(i32(3)));
+  transposed := ok_inner.transpose();
+  assert(transposed.is_ok(), "Some(Ok) transposes to Ok");
+  assert(transposed.unwrap().unwrap() == i32(3), "transposed value survives");
+  err_inner := Option(Result(i32, u8)).Some(Result(i32, u8).Err(u8(9)));
+  assert(err_inner.transpose().is_err(), "Some(Err) transposes to Err");
+  empty := Option(Result(i32, u8)).None;
+  assert(empty.transpose().unwrap().is_none(), "None transposes to Ok(None)");
+});
+test("Result completion: unwrap_or, unwrap_or_default, expect, inspect, flatten, transpose", {
+  ok := Result(i32, u8).Ok(i32(4));
+  err := Result(i32, u8).Err(u8(1));
+  assert(ok.unwrap_or(i32(0)) == i32(4), "unwrap_or on Ok");
+  assert(err.unwrap_or(i32(0)) == i32(0), "unwrap_or on Err");
+  assert(err.unwrap_or_default() == i32(0), "unwrap_or_default uses Default");
+  assert(ok.expect("must be ok") == i32(4), "expect on Ok");
+  assert(err.expect_err("must be err") == u8(1), "expect_err on Err");
+  // Closures capture locals BY VALUE — observe via reference-semantics lists.
+  { ArrayList } :: import("std/collections/array_list");
+  seen_ok := ArrayList(i32).new();
+  seen_err := ArrayList(u8).new();
+  ok.inspect((v) => {
+    seen_ok.push(v);
+  });
+  err.inspect_err((e) => {
+    seen_err.push(e);
+  });
+  assert((seen_ok.len() == usize(1)) && (seen_ok.get(usize(0)).unwrap() == i32(4)), "inspect saw the Ok value");
+  assert((seen_err.len() == usize(1)) && (seen_err.get(usize(0)).unwrap() == u8(1)), "inspect_err saw the Err value");
+  nested := Result(Result(i32, u8), u8).Ok(Result(i32, u8).Ok(i32(5)));
+  assert(nested.flatten().unwrap() == i32(5), "flatten unwraps one level");
+  nested_err := Result(Result(i32, u8), u8).Err(u8(2));
+  assert(nested_err.flatten().is_err(), "flatten keeps the outer Err");
+  ok_some := Result(Option(i32), u8).Ok(Option(i32).Some(i32(6)));
+  assert(ok_some.transpose().unwrap().unwrap() == i32(6), "Ok(Some) transposes to Some(Ok)");
+  ok_none := Result(Option(i32), u8).Ok(Option(i32).None);
+  assert(ok_none.transpose().is_none(), "Ok(None) transposes to None");
+  err_r := Result(Option(i32), u8).Err(u8(3));
+  assert(err_r.transpose().unwrap().is_err(), "Err transposes to Some(Err)");
+});
+test("Option and Result order totally and hash consistently with Eq", {
+  none := Option(i32).None;
+  one := Option(i32).Some(i32(1));
+  two := Option(i32).Some(i32(2));
+  assert(none < one, "None sorts before Some");
+  assert(one < two, "Some orders by inner value");
+  assert(two > one, "> works");
+  assert(none <= none, "None <= None");
+  assert(two >= two, ">= reflexive");
+  assert(match(none.cmp(one), .Less => true, _ => false), "cmp default via <");
+  assert(match(one.cmp(one), .Equal => true, _ => false), "cmp Equal");
+  assert(one.hash() == Option(i32).Some(i32(1)).hash(), "equal options hash equally");
+  assert(none.hash() != one.hash(), "None and Some(1) hash differently");
+  ok1 := Result(i32, u8).Ok(i32(1));
+  ok2 := Result(i32, u8).Ok(i32(2));
+  err0 := Result(i32, u8).Err(u8(0));
+  assert(ok1 < ok2, "Ok orders by inner value");
+  assert(ok2 < err0, "every Ok sorts before every Err");
+  assert(err0 > ok1, "Err > Ok");
+  assert(match(ok1.cmp(err0), .Less => true, _ => false), "Result cmp default");
+  assert(ok1.hash() == Result(i32, u8).Ok(i32(1)).hash(), "equal results hash equally");
+  assert(ok1.hash() != err0.hash(), "Ok and Err hash differently");
+});
+test("Option and Result to_string render variant and payload", {
+  { println } :: import("std/fmt");
+  some := Option(i32).Some(i32(42));
+  none := Option(i32).None;
+  assert(some.to_string() == `Some(42)`, "Some renders payload");
+  assert(none.to_string() == `None`, "None renders bare");
+  assert(`${some}` == `Some(42)`, "options interpolate in templates");
+  ok := Result(i32, u8).Ok(i32(1));
+  err := Result(i32, u8).Err(u8(2));
+  assert(ok.to_string() == `Ok(1)`, "Ok renders payload");
+  assert(err.to_string() == `Err(2)`, "Err renders payload");
+  println(some);
+});
