@@ -16,9 +16,9 @@ The bisect this doc originally recorded was CONFOUNDED twice:
 
 Consequences carried forward:
 
-- The probe revert restores normal CI shard times; **revert #244's budget
-  patch** (shard `timeout-minutes` 210 -> 120, drop
-  `--compile-timeout-ms 1800000`) once verified.
+- The probe revert restores normal CI shard times; #244's budget patch is
+  REVERTED (and its `--compile-timeout-ms` flag was invalid for `yo test` —
+  it broke every shard file with 'unknown option').
 - std growth is NOT gated on the env-sharing campaign after all — that
   campaign remains a real (pre-existing) improvement track, not a blocker.
 - The measurement discipline lives in the superseding issue: always init

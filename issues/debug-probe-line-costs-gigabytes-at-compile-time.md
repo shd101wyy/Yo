@@ -39,9 +39,12 @@ entire campaign.
 The 16 GB differential-shard runners swap-thrashed under the 29 GB peak
 (stage-1 build 12.8 → 60.5 min), heavy internal files then tripped the
 600 s evaluator deadline, and all four required shard checks became
-un-passable. The budget patch (#244: shard timeout 210 min +
-`--compile-timeout-ms 1800000`) papered over it — REVERT #244's knobs once
-this revert is on develop and shard times are re-verified normal.
+un-passable. The budget patch (#244) papered over it and was REVERTED right after the
+probe fix: the probe fix restored fast builds (shard build back to minutes
+on the first post-fix run), and #244's `--compile-timeout-ms` flag was
+INVALID anyway — `yo test` has no such option (the 600 s deadline is
+hardcoded on the runner's CHILD compile, src/main.yo ~2506), so every
+shard file failed instantly on 'unknown option'.
 
 Measurement trap that delayed the diagnosis: an early baseline ran in a
 worktree WITHOUT `vendor/` submodules initialized (the known fresh-worktree
