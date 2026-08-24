@@ -1,0 +1,42 @@
+$ yo compile --help
+Usage: yo compile <file.yo> [options]
+
+Compile a '.yo' source file to a native executable (via C11).
+
+Options:
+  -o <path>                 Output binary path
+  --release                 Optimized build (-O2; default is -O0)
+  --optimize <level>        Explicit C optimization level (0|1|2|3|s|z)
+  -g, --debug-symbols       Emit debug symbols
+  -s, --strip               Strip the output binary
+  --cc, --c-compiler <cc>   C compiler to use (clang|gcc|zig|emcc)
+  -t, --target <triple>     Cross-compile target (e.g. <TARGET>, wasm-wasi)
+  --sysroot <dir>           Sysroot for cross-compilation
+  --cflags '<flags>'        Extra flags passed to the C compiler
+  -D, --define <N[=V]>      Preprocessor define for the C compile
+  -I <dir> / -L <dir>       Include / library search path
+  -l <name>                 Link a library
+  --extern <spec>           Extern library spec (pkg-config integration)
+  --static                  Static link
+  --static-library          Build a static library instead of an executable
+  --sanitize <kind>         Sanitizer (address|thread|undefined)
+  --disable-sanitize        Drop sanitizer flags added by defaults
+  --allocator <name>        Allocator (system|mimalloc)
+  --emit-c                  Print the generated C to stdout and stop
+  --emit-c-to <path>        Write the generated C to a file and stop
+  --skip-c-compiler         Generate C but skip the C compile
+  --skip-codegen            Evaluate only (no C generation)
+  --emit-chunks <n>         Split emitted C into n translation units (implies -flto=thin)
+  --no-chunk-lto            Opt out of ThinLTO for chunked builds
+  --jobs <n>                Parallel C compiles for chunked builds
+  --compile-timeout-ms <ms> C compiler timeout
+  --emcc-environment <env>  Emscripten environment (node|web)
+  --debug-gc / --debug-async-await / --debug-parallelism
+                            Runtime debug logging in the emitted binary
+  --std-path <dir>          Override the std library directory
+
+Examples:
+  $ yo compile main.yo -o app
+  $ yo compile main.yo --release --target <TARGET> -o app
+  $ yo compile main.yo --emit-c --skip-c-compiler --release
+rc=0
