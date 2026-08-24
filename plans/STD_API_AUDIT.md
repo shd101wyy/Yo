@@ -219,7 +219,12 @@ compiler bug that blocked `collect`**.
   benign for `ArrayList` but genuinely divergent for `HashMap`
   (`Bucket(K, V)`). `from_iter_add` returns the accumulator so one signature
   covers reference collections and the value newtype `String`. Impls:
-  `ArrayList`, `HashSet`, `Deque`, `String`.
+  `ArrayList`, `HashSet`, `Deque`, `String`. `HashMap`/`BTreeMap` are NOT
+  included: collecting a map needs the element type to be a constructed pair
+  (`Elem := IterPair(K, V)`), i.e. recovery by unifying an associated type
+  against a CONSTRUCTED pattern — nothing in std does that today and it is the
+  same two-hop family as the `flat_map` deferral. Once that lands, a map impl is
+  four lines.
 - **Compiler bug fixed en route** (the actual blocker):
   `evaluate_function_call` routed ANY call whose arguments are all `TypeVal`s
   into the CTFE type-constructor path, so an ordinary function whose only
