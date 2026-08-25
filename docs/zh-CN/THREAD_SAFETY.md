@@ -67,10 +67,18 @@ Pragma 代码（带有 `pragma(Pragma.AllowUnsafe)` 的文件）绕过此规则�
 | `AtomicUsize`                                        | `atomic_size_t`                                                    | 集合大小、索引                  |
 | `AtomicIsize`                                        | `atomic_ptrdiff_t`                                                 | 有符号索引、偏移量              |
 
-每个包装器提供 `load`、`store`、`swap`、`compare_exchange`，整数类型还提供 `fetch_add`/`fetch_sub`。每个操作都需要显式的 `MemoryOrder`：
+每个包装器提供 `load`、`store`、`swap` 和 `compare_exchange`。每个**整数**包装
+器还提供完整的读-改-写族——`fetch_add`、`fetch_sub`、`fetch_and`、`fetch_or`、
+`fetch_xor`、`fetch_min`、`fetch_max`——它们都返回操作**之前**的值，并在溢出时
+回绕，与 C11 `atomic_fetch_*` 完全一致。`AtomicBool` 不提供这些方法：它不是整
+数原子类型。
+
+所有方法的接收者都是 `self : Self`，与 `std/sync` 中其他 `atomic(ref(...))` 类
+型的约定一致；只有 `compare_exchange` 的 `expected` 是 `inout`，因为交换失败时
+会把实际观测到的值写回它。每个操作都需要显式的 `MemoryOrder`：
 
 ```rust
-{ AtomicBool, AtomicI32, MemoryOrder } :: import("std/sync/atomic");
+{ AtomicBool, AtomicI32, AtomicU32, AtomicUsize, MemoryOrder } :: import("std/sync/atomic");
 
 flag := AtomicBool(false);
 flag.store(true, MemoryOrder.Release);
@@ -81,11 +89,33 @@ if(flag.load(MemoryOrder.Acquire), {
 counter := AtomicI32(i32(0));
 counter.fetch_add(i32(1), MemoryOrder.Relaxed);
 println(`count = ${counter.load(MemoryOrder.Acquire)}`);
+
+// 完整的读-改-写族，适用于每一种整数原子类型：
+bits := AtomicU32(u32(0));
+bits.fetch_or(u32(4), MemoryOrder.AcqRel);   // 置位
+bits.fetch_and(u32(4294967291), MemoryOrder.AcqRel); // 清位
+bits.fetch_xor(u32(1), MemoryOrder.AcqRel);  // 翻转
+
+high_water := AtomicUsize(usize(0));
+high_water.fetch_max(usize(512), MemoryOrder.AcqRel);
 ```
 
 `MemoryOrder` 枚举值：`Relaxed`、`Consume`、`Acquire`、`Release`、`AcqRel`、`SeqCst`。
 
 每个操作需要**显式**内存顺序——没有默认的 `SeqCst` 以避免意外的性能成本。
+
+模块还导出 `fence(order)`，它下降为 C11 `atomic_thread_fence`。原子操作自身的
+内存顺序只约束围绕**该对象**的访问，而屏障约束调用线程之前和之后的所有内存访
+问——这正是让一个线程上的 `Relaxed` 存储与另一个线程上的 `Relaxed` 加载配对的
+机制。
+
+`AtomicI32` 的 `fetch_add`/`sub`/`and`/`or`/`xor` 直接下降为 C11 的
+`atomic_fetch_*_explicit` 泛型宏——它是 `std/libc/stdatomic.yo` 唯一为其绑定这
+些宏的原子类型，因为 `c_include` 绑定以 C 符号名为键，每个宏只能有一个 Yo 绑
+定。其余类型，以及所有类型的 `fetch_min`/`fetch_max`（C11 根本没有原子
+min/max），都在该类型的 `__yo_atomic_compare_exchange_*` 原语之上运行强
+compare-exchange 循环。该循环是无锁的，产生相同的返回值和相同的回绕语义，只是
+在竞争下会多一次重试。
 
 ## Mutex(T) — 闭包作用域锁定
 
