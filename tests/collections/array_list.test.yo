@@ -933,3 +933,23 @@ test("ArrayList index .* on non-pointer Output gives clear error - issue arrayli
     _ := bad_list(usize(0)).*;
   });
 });
+// ===== is_empty (STD_API_AUDIT D2: is_empty on EVERY container) =====
+test("ArrayList.is_empty tracks length", {
+  list := ArrayList(i32).new();
+  assert(list.is_empty(), "a fresh list is empty");
+  list.push(i32(1));
+  assert(!(list.is_empty()), "not empty after a push");
+  list.push(i32(2));
+  list.pop();
+  assert(!(list.is_empty()), "still not empty with one element left");
+  list.pop();
+  assert(list.is_empty(), "empty again once every element is popped");
+});
+test("ArrayList.is_empty agrees with len on a with_capacity list", {
+  // Capacity is not length — a list with room reserved is still empty.
+  list := ArrayList(i32).with_capacity(usize(16));
+  assert(list.is_empty(), "reserved capacity does not make a list non-empty");
+  assert(list.len() == usize(0), "len agrees");
+  list.clear();
+  assert(list.is_empty(), "clear leaves it empty");
+});

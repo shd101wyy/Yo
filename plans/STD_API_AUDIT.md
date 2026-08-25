@@ -661,8 +661,12 @@ small number of PRs with tree-wide fixups (compiler + std + tests + docs):
 
 - `HashMap.set`→`insert`, `HashSet.add`→`insert`, `BTreeMap.set`→`insert`,
   `OrderedMap.set`→`insert` (returns stop leaking `HashMapError`)
-- `ArrayList`: add `is_empty`; `remove(start,count)`→`drain(range)`, add
-  single-`remove(idx) -> T`; `iter()` pointer iterator for symmetry
+- `ArrayList`: ~~add `is_empty`~~ **DONE 2026-08-25** (it was the ONLY container
+  missing it — btree_map, deque, hash_map, hash_set, linked_list, ordered_map,
+  priority_queue and String all already had one, so D2's "is_empty on EVERY
+  container" was a one-method gap, landed additively ahead of the breaking
+  sweep); `remove(start,count)`→`drain(range)`, add single-`remove(idx) -> T`;
+  `iter()` pointer iterator for symmetry
 - `HashMap.iter_ptr`→`iter`; OrderedMap iterators get real `Iterator` impls
 - `?(T)` spelling in btree_map/deque → `Option(T)` (or bless `?(T)` everywhere — pick one)
 - `Bucket`/`BTreeEntry`/`OrderedMapEntry`/`Pair` → one `MapEntry(K,V)`
