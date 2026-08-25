@@ -27,6 +27,27 @@ what CI's suite legs run. Changes to `src/` codegen are only observable
 under such a stage-1; the installed seed emits the old code no matter which
 std it reads.
 
+**`--std-path` now works for `yo test` too — but check which binary you are
+running.** `yo test` compiles its generated batch in a SPAWNED child
+(`src/main.yo`), and that child used to be given `--c-compiler`, `--target`,
+`--sanitize` and friends but NOT `--std-path`, so it re-resolved std on its own
+and landed back on the installed bundle. The runner evaluated against one std
+and compiled the batch against another, silently — green for code that was
+never compiled, whenever the edit was behaviour-only rather than shape-changing.
+Fixed 2026-08-26 (`issues/fixed/yo-test-does-not-forward-std-path-to-batch-compile.md`,
+gated by `tests/cli-cases/test-std-path-forwarded`). **A released `yo` on PATH
+predating that fix still has the old behaviour**, so when the binary is not one
+you built from this tree, prefer `YO_STD` — it rides the inherited environment
+and has always reached the child.
+
+`YO_KEEP_BATCH=1` keeps the generated `.yo`/`.c`/binary next to the test file,
+which is how you confirm a batch really transpiled:
+
+```bash
+YO_KEEP_BATCH=1 YO_STD=$PWD/std yo test ./tests/sync/atomic.test.yo --parallel 1
+bash scripts/count-transpile-failures.sh tests/sync/.yo_selftest_batch_1_0.bin.c
+```
+
 ## Scratch experiments
 
 - `tmp/fixme.yo` is the scratch file for one-off experiments (`tmp*` is gitignored). It replaces the old `src/tests/fixme.yo`.

@@ -1,6 +1,20 @@
 /// Phase C (THREAD_SAFETY): Atomic* wrappers runtime tests.
 { assert } :: import("std/assert");
-{ AtomicBool, AtomicI32, AtomicI64, AtomicUsize, AtomicIsize, MemoryOrder } :: import("std/sync/atomic");
+{
+  AtomicBool,
+  AtomicI8,
+  AtomicI16,
+  AtomicI32,
+  AtomicI64,
+  AtomicU8,
+  AtomicU16,
+  AtomicU32,
+  AtomicU64,
+  AtomicUsize,
+  AtomicIsize,
+  MemoryOrder,
+  fence
+} :: import("std/sync/atomic");
 { Thread } :: import("std/thread");
 { arch, Arch } :: import("std/process");
 
@@ -51,18 +65,6 @@ test("AtomicI32 store and load", {
   a := AtomicI32(i32(0));
   a.store(i32(99), MemoryOrder.Release);
   assert(a.load(MemoryOrder.Acquire) == i32(99), "should see stored value");
-});
-test("AtomicI32 fetch_add", {
-  a := AtomicI32(i32(10));
-  prev := a.fetch_add(i32(5), MemoryOrder.Relaxed);
-  assert(prev == i32(10), "fetch_add should return previous value");
-  assert(a.load(MemoryOrder.Relaxed) == i32(15), "should have new value");
-});
-test("AtomicI32 fetch_sub", {
-  a := AtomicI32(i32(20));
-  prev := a.fetch_sub(i32(7), MemoryOrder.Relaxed);
-  assert(prev == i32(20), "fetch_sub should return previous value");
-  assert(a.load(MemoryOrder.Relaxed) == i32(13), "should have new value");
 });
 test("AtomicI32 swap", {
   a := AtomicI32(i32(1));
@@ -136,4 +138,696 @@ test("AtomicIsize store and load", {
   a := AtomicIsize(isize(0));
   a.store(isize(-(42)), MemoryOrder.Release);
   assert(a.load(MemoryOrder.Acquire) == isize(-(42)), "should read back isize");
+});
+
+// ============================================================================
+// AtomicI8 read-modify-write family
+// ============================================================================
+test("AtomicI8 fetch_add / fetch_sub", {
+  a := AtomicI8(i8(12));
+  assert(a.fetch_add(i8(5), MemoryOrder.AcqRel) == i8(12), "fetch_add returns previous");
+  assert(a.load(MemoryOrder.Acquire) == i8(17), "fetch_add stores the sum");
+  assert(a.fetch_sub(i8(4), MemoryOrder.Release) == i8(17), "fetch_sub returns previous");
+  assert(a.load(MemoryOrder.Acquire) == i8(13), "fetch_sub stores the difference");
+});
+test("AtomicI8 fetch_and / fetch_or / fetch_xor", {
+  a := AtomicI8(i8(13));
+  assert(a.fetch_and(i8(10), MemoryOrder.SeqCst) == i8(13), "fetch_and returns previous");
+  assert(a.load(MemoryOrder.Acquire) == i8(8), "0b1101 & 0b1010 == 0b1000");
+  assert(a.fetch_or(i8(3), MemoryOrder.Relaxed) == i8(8), "fetch_or returns previous");
+  assert(a.load(MemoryOrder.Acquire) == i8(11), "0b1000 | 0b0011 == 0b1011");
+  assert(a.fetch_xor(i8(6), MemoryOrder.Consume) == i8(11), "fetch_xor returns previous");
+  assert(a.load(MemoryOrder.Acquire) == i8(13), "0b1011 ^ 0b0110 == 0b1101");
+});
+test("AtomicI8 fetch_min / fetch_max", {
+  a := AtomicI8(i8(13));
+  assert(a.fetch_min(i8(9), MemoryOrder.AcqRel) == i8(13), "fetch_min returns previous");
+  assert(a.load(MemoryOrder.Acquire) == i8(9), "fetch_min stores the smaller value");
+  assert(a.fetch_min(i8(40), MemoryOrder.AcqRel) == i8(9), "fetch_min still returns previous");
+  assert(a.load(MemoryOrder.Acquire) == i8(9), "fetch_min keeps the smaller value");
+  assert(a.fetch_max(i8(40), MemoryOrder.AcqRel) == i8(9), "fetch_max returns previous");
+  assert(a.load(MemoryOrder.Acquire) == i8(40), "fetch_max stores the larger value");
+  assert(a.fetch_max(i8(2), MemoryOrder.AcqRel) == i8(40), "fetch_max still returns previous");
+  assert(a.load(MemoryOrder.Acquire) == i8(40), "fetch_max keeps the larger value");
+});
+test("AtomicI8 fetch_min / fetch_max are signed comparisons", {
+  a := AtomicI8(i8(-(5)));
+  assert(a.fetch_max(i8(3), MemoryOrder.SeqCst) == i8(-(5)), "fetch_max returns previous");
+  assert(a.load(MemoryOrder.SeqCst) == i8(3), "3 > -5");
+  b := AtomicI8(i8(-(5)));
+  assert(b.fetch_min(i8(3), MemoryOrder.SeqCst) == i8(-(5)), "fetch_min returns previous");
+  assert(b.load(MemoryOrder.SeqCst) == i8(-(5)), "-5 < 3");
+});
+test("AtomicI8 wraps like the runtime operator", {
+  (seed : i8) = i8(127);
+  a := AtomicI8(seed);
+  assert(a.fetch_add(i8(1), MemoryOrder.Relaxed) == seed, "fetch_add returns previous");
+  (expected : i8) = (seed + i8(1));
+  assert(a.load(MemoryOrder.Relaxed) == expected, "MAX + 1 wraps exactly like the runtime +");
+  assert(a.load(MemoryOrder.Relaxed) < i8(0), "MAX + 1 is negative");
+});
+
+// ============================================================================
+// AtomicI16 read-modify-write family
+// ============================================================================
+test("AtomicI16 fetch_add / fetch_sub", {
+  a := AtomicI16(i16(12));
+  assert(a.fetch_add(i16(5), MemoryOrder.AcqRel) == i16(12), "fetch_add returns previous");
+  assert(a.load(MemoryOrder.Acquire) == i16(17), "fetch_add stores the sum");
+  assert(a.fetch_sub(i16(4), MemoryOrder.Release) == i16(17), "fetch_sub returns previous");
+  assert(a.load(MemoryOrder.Acquire) == i16(13), "fetch_sub stores the difference");
+});
+test("AtomicI16 fetch_and / fetch_or / fetch_xor", {
+  a := AtomicI16(i16(13));
+  assert(a.fetch_and(i16(10), MemoryOrder.SeqCst) == i16(13), "fetch_and returns previous");
+  assert(a.load(MemoryOrder.Acquire) == i16(8), "0b1101 & 0b1010 == 0b1000");
+  assert(a.fetch_or(i16(3), MemoryOrder.Relaxed) == i16(8), "fetch_or returns previous");
+  assert(a.load(MemoryOrder.Acquire) == i16(11), "0b1000 | 0b0011 == 0b1011");
+  assert(a.fetch_xor(i16(6), MemoryOrder.Consume) == i16(11), "fetch_xor returns previous");
+  assert(a.load(MemoryOrder.Acquire) == i16(13), "0b1011 ^ 0b0110 == 0b1101");
+});
+test("AtomicI16 fetch_min / fetch_max", {
+  a := AtomicI16(i16(13));
+  assert(a.fetch_min(i16(9), MemoryOrder.AcqRel) == i16(13), "fetch_min returns previous");
+  assert(a.load(MemoryOrder.Acquire) == i16(9), "fetch_min stores the smaller value");
+  assert(a.fetch_min(i16(40), MemoryOrder.AcqRel) == i16(9), "fetch_min still returns previous");
+  assert(a.load(MemoryOrder.Acquire) == i16(9), "fetch_min keeps the smaller value");
+  assert(a.fetch_max(i16(40), MemoryOrder.AcqRel) == i16(9), "fetch_max returns previous");
+  assert(a.load(MemoryOrder.Acquire) == i16(40), "fetch_max stores the larger value");
+  assert(a.fetch_max(i16(2), MemoryOrder.AcqRel) == i16(40), "fetch_max still returns previous");
+  assert(a.load(MemoryOrder.Acquire) == i16(40), "fetch_max keeps the larger value");
+});
+test("AtomicI16 fetch_min / fetch_max are signed comparisons", {
+  a := AtomicI16(i16(-(5)));
+  assert(a.fetch_max(i16(3), MemoryOrder.SeqCst) == i16(-(5)), "fetch_max returns previous");
+  assert(a.load(MemoryOrder.SeqCst) == i16(3), "3 > -5");
+  b := AtomicI16(i16(-(5)));
+  assert(b.fetch_min(i16(3), MemoryOrder.SeqCst) == i16(-(5)), "fetch_min returns previous");
+  assert(b.load(MemoryOrder.SeqCst) == i16(-(5)), "-5 < 3");
+});
+test("AtomicI16 wraps like the runtime operator", {
+  (seed : i16) = i16(32767);
+  a := AtomicI16(seed);
+  assert(a.fetch_add(i16(1), MemoryOrder.Relaxed) == seed, "fetch_add returns previous");
+  (expected : i16) = (seed + i16(1));
+  assert(a.load(MemoryOrder.Relaxed) == expected, "MAX + 1 wraps exactly like the runtime +");
+  assert(a.load(MemoryOrder.Relaxed) < i16(0), "MAX + 1 is negative");
+});
+
+// ============================================================================
+// AtomicI32 read-modify-write family
+// ============================================================================
+test("AtomicI32 fetch_add / fetch_sub", {
+  a := AtomicI32(i32(12));
+  assert(a.fetch_add(i32(5), MemoryOrder.AcqRel) == i32(12), "fetch_add returns previous");
+  assert(a.load(MemoryOrder.Acquire) == i32(17), "fetch_add stores the sum");
+  assert(a.fetch_sub(i32(4), MemoryOrder.Release) == i32(17), "fetch_sub returns previous");
+  assert(a.load(MemoryOrder.Acquire) == i32(13), "fetch_sub stores the difference");
+});
+test("AtomicI32 fetch_and / fetch_or / fetch_xor", {
+  a := AtomicI32(i32(13));
+  assert(a.fetch_and(i32(10), MemoryOrder.SeqCst) == i32(13), "fetch_and returns previous");
+  assert(a.load(MemoryOrder.Acquire) == i32(8), "0b1101 & 0b1010 == 0b1000");
+  assert(a.fetch_or(i32(3), MemoryOrder.Relaxed) == i32(8), "fetch_or returns previous");
+  assert(a.load(MemoryOrder.Acquire) == i32(11), "0b1000 | 0b0011 == 0b1011");
+  assert(a.fetch_xor(i32(6), MemoryOrder.Consume) == i32(11), "fetch_xor returns previous");
+  assert(a.load(MemoryOrder.Acquire) == i32(13), "0b1011 ^ 0b0110 == 0b1101");
+});
+test("AtomicI32 fetch_min / fetch_max", {
+  a := AtomicI32(i32(13));
+  assert(a.fetch_min(i32(9), MemoryOrder.AcqRel) == i32(13), "fetch_min returns previous");
+  assert(a.load(MemoryOrder.Acquire) == i32(9), "fetch_min stores the smaller value");
+  assert(a.fetch_min(i32(40), MemoryOrder.AcqRel) == i32(9), "fetch_min still returns previous");
+  assert(a.load(MemoryOrder.Acquire) == i32(9), "fetch_min keeps the smaller value");
+  assert(a.fetch_max(i32(40), MemoryOrder.AcqRel) == i32(9), "fetch_max returns previous");
+  assert(a.load(MemoryOrder.Acquire) == i32(40), "fetch_max stores the larger value");
+  assert(a.fetch_max(i32(2), MemoryOrder.AcqRel) == i32(40), "fetch_max still returns previous");
+  assert(a.load(MemoryOrder.Acquire) == i32(40), "fetch_max keeps the larger value");
+});
+test("AtomicI32 fetch_min / fetch_max are signed comparisons", {
+  a := AtomicI32(i32(-(5)));
+  assert(a.fetch_max(i32(3), MemoryOrder.SeqCst) == i32(-(5)), "fetch_max returns previous");
+  assert(a.load(MemoryOrder.SeqCst) == i32(3), "3 > -5");
+  b := AtomicI32(i32(-(5)));
+  assert(b.fetch_min(i32(3), MemoryOrder.SeqCst) == i32(-(5)), "fetch_min returns previous");
+  assert(b.load(MemoryOrder.SeqCst) == i32(-(5)), "-5 < 3");
+});
+test("AtomicI32 wraps like the runtime operator", {
+  (seed : i32) = i32(2147483647);
+  a := AtomicI32(seed);
+  assert(a.fetch_add(i32(1), MemoryOrder.Relaxed) == seed, "fetch_add returns previous");
+  (expected : i32) = (seed + i32(1));
+  assert(a.load(MemoryOrder.Relaxed) == expected, "MAX + 1 wraps exactly like the runtime +");
+  assert(a.load(MemoryOrder.Relaxed) < i32(0), "MAX + 1 is negative");
+});
+
+// ============================================================================
+// AtomicI64 read-modify-write family
+// ============================================================================
+test("AtomicI64 fetch_add / fetch_sub", {
+  a := AtomicI64(i64(12));
+  assert(a.fetch_add(i64(5), MemoryOrder.AcqRel) == i64(12), "fetch_add returns previous");
+  assert(a.load(MemoryOrder.Acquire) == i64(17), "fetch_add stores the sum");
+  assert(a.fetch_sub(i64(4), MemoryOrder.Release) == i64(17), "fetch_sub returns previous");
+  assert(a.load(MemoryOrder.Acquire) == i64(13), "fetch_sub stores the difference");
+});
+test("AtomicI64 fetch_and / fetch_or / fetch_xor", {
+  a := AtomicI64(i64(13));
+  assert(a.fetch_and(i64(10), MemoryOrder.SeqCst) == i64(13), "fetch_and returns previous");
+  assert(a.load(MemoryOrder.Acquire) == i64(8), "0b1101 & 0b1010 == 0b1000");
+  assert(a.fetch_or(i64(3), MemoryOrder.Relaxed) == i64(8), "fetch_or returns previous");
+  assert(a.load(MemoryOrder.Acquire) == i64(11), "0b1000 | 0b0011 == 0b1011");
+  assert(a.fetch_xor(i64(6), MemoryOrder.Consume) == i64(11), "fetch_xor returns previous");
+  assert(a.load(MemoryOrder.Acquire) == i64(13), "0b1011 ^ 0b0110 == 0b1101");
+});
+test("AtomicI64 fetch_min / fetch_max", {
+  a := AtomicI64(i64(13));
+  assert(a.fetch_min(i64(9), MemoryOrder.AcqRel) == i64(13), "fetch_min returns previous");
+  assert(a.load(MemoryOrder.Acquire) == i64(9), "fetch_min stores the smaller value");
+  assert(a.fetch_min(i64(40), MemoryOrder.AcqRel) == i64(9), "fetch_min still returns previous");
+  assert(a.load(MemoryOrder.Acquire) == i64(9), "fetch_min keeps the smaller value");
+  assert(a.fetch_max(i64(40), MemoryOrder.AcqRel) == i64(9), "fetch_max returns previous");
+  assert(a.load(MemoryOrder.Acquire) == i64(40), "fetch_max stores the larger value");
+  assert(a.fetch_max(i64(2), MemoryOrder.AcqRel) == i64(40), "fetch_max still returns previous");
+  assert(a.load(MemoryOrder.Acquire) == i64(40), "fetch_max keeps the larger value");
+});
+test("AtomicI64 fetch_min / fetch_max are signed comparisons", {
+  a := AtomicI64(i64(-(5)));
+  assert(a.fetch_max(i64(3), MemoryOrder.SeqCst) == i64(-(5)), "fetch_max returns previous");
+  assert(a.load(MemoryOrder.SeqCst) == i64(3), "3 > -5");
+  b := AtomicI64(i64(-(5)));
+  assert(b.fetch_min(i64(3), MemoryOrder.SeqCst) == i64(-(5)), "fetch_min returns previous");
+  assert(b.load(MemoryOrder.SeqCst) == i64(-(5)), "-5 < 3");
+});
+test("AtomicI64 wraps like the runtime operator", {
+  (seed : i64) = i64(9223372036854775807);
+  a := AtomicI64(seed);
+  assert(a.fetch_add(i64(1), MemoryOrder.Relaxed) == seed, "fetch_add returns previous");
+  (expected : i64) = (seed + i64(1));
+  assert(a.load(MemoryOrder.Relaxed) == expected, "MAX + 1 wraps exactly like the runtime +");
+  assert(a.load(MemoryOrder.Relaxed) < i64(0), "MAX + 1 is negative");
+});
+
+// ============================================================================
+// AtomicU8 read-modify-write family
+// ============================================================================
+test("AtomicU8 fetch_add / fetch_sub", {
+  a := AtomicU8(u8(12));
+  assert(a.fetch_add(u8(5), MemoryOrder.AcqRel) == u8(12), "fetch_add returns previous");
+  assert(a.load(MemoryOrder.Acquire) == u8(17), "fetch_add stores the sum");
+  assert(a.fetch_sub(u8(4), MemoryOrder.Release) == u8(17), "fetch_sub returns previous");
+  assert(a.load(MemoryOrder.Acquire) == u8(13), "fetch_sub stores the difference");
+});
+test("AtomicU8 fetch_and / fetch_or / fetch_xor", {
+  a := AtomicU8(u8(13));
+  assert(a.fetch_and(u8(10), MemoryOrder.SeqCst) == u8(13), "fetch_and returns previous");
+  assert(a.load(MemoryOrder.Acquire) == u8(8), "0b1101 & 0b1010 == 0b1000");
+  assert(a.fetch_or(u8(3), MemoryOrder.Relaxed) == u8(8), "fetch_or returns previous");
+  assert(a.load(MemoryOrder.Acquire) == u8(11), "0b1000 | 0b0011 == 0b1011");
+  assert(a.fetch_xor(u8(6), MemoryOrder.Consume) == u8(11), "fetch_xor returns previous");
+  assert(a.load(MemoryOrder.Acquire) == u8(13), "0b1011 ^ 0b0110 == 0b1101");
+});
+test("AtomicU8 fetch_min / fetch_max", {
+  a := AtomicU8(u8(13));
+  assert(a.fetch_min(u8(9), MemoryOrder.AcqRel) == u8(13), "fetch_min returns previous");
+  assert(a.load(MemoryOrder.Acquire) == u8(9), "fetch_min stores the smaller value");
+  assert(a.fetch_min(u8(40), MemoryOrder.AcqRel) == u8(9), "fetch_min still returns previous");
+  assert(a.load(MemoryOrder.Acquire) == u8(9), "fetch_min keeps the smaller value");
+  assert(a.fetch_max(u8(40), MemoryOrder.AcqRel) == u8(9), "fetch_max returns previous");
+  assert(a.load(MemoryOrder.Acquire) == u8(40), "fetch_max stores the larger value");
+  assert(a.fetch_max(u8(2), MemoryOrder.AcqRel) == u8(40), "fetch_max still returns previous");
+  assert(a.load(MemoryOrder.Acquire) == u8(40), "fetch_max keeps the larger value");
+});
+test("AtomicU8 fetch_min / fetch_max are unsigned comparisons", {
+  (top : u8) = u8(255);
+  a := AtomicU8(top);
+  assert(a.fetch_min(u8(1), MemoryOrder.SeqCst) == top, "fetch_min returns previous");
+  assert(a.load(MemoryOrder.SeqCst) == u8(1), "255 is ABOVE 1 unsigned, so min picks 1");
+  b := AtomicU8(u8(1));
+  assert(b.fetch_max(top, MemoryOrder.SeqCst) == u8(1), "fetch_max returns previous");
+  assert(b.load(MemoryOrder.SeqCst) == top, "255 is ABOVE 1 unsigned, so max picks 255");
+});
+test("AtomicU8 wraps like the runtime operator", {
+  (seed : u8) = u8(255);
+  a := AtomicU8(seed);
+  assert(a.fetch_add(u8(1), MemoryOrder.Relaxed) == seed, "fetch_add returns previous");
+  (expected : u8) = (seed + u8(1));
+  assert(a.load(MemoryOrder.Relaxed) == expected, "MAX + 1 wraps exactly like the runtime +");
+  assert(a.load(MemoryOrder.Relaxed) == u8(0), "MAX + 1 is 0");
+});
+
+// ============================================================================
+// AtomicU16 read-modify-write family
+// ============================================================================
+test("AtomicU16 fetch_add / fetch_sub", {
+  a := AtomicU16(u16(12));
+  assert(a.fetch_add(u16(5), MemoryOrder.AcqRel) == u16(12), "fetch_add returns previous");
+  assert(a.load(MemoryOrder.Acquire) == u16(17), "fetch_add stores the sum");
+  assert(a.fetch_sub(u16(4), MemoryOrder.Release) == u16(17), "fetch_sub returns previous");
+  assert(a.load(MemoryOrder.Acquire) == u16(13), "fetch_sub stores the difference");
+});
+test("AtomicU16 fetch_and / fetch_or / fetch_xor", {
+  a := AtomicU16(u16(13));
+  assert(a.fetch_and(u16(10), MemoryOrder.SeqCst) == u16(13), "fetch_and returns previous");
+  assert(a.load(MemoryOrder.Acquire) == u16(8), "0b1101 & 0b1010 == 0b1000");
+  assert(a.fetch_or(u16(3), MemoryOrder.Relaxed) == u16(8), "fetch_or returns previous");
+  assert(a.load(MemoryOrder.Acquire) == u16(11), "0b1000 | 0b0011 == 0b1011");
+  assert(a.fetch_xor(u16(6), MemoryOrder.Consume) == u16(11), "fetch_xor returns previous");
+  assert(a.load(MemoryOrder.Acquire) == u16(13), "0b1011 ^ 0b0110 == 0b1101");
+});
+test("AtomicU16 fetch_min / fetch_max", {
+  a := AtomicU16(u16(13));
+  assert(a.fetch_min(u16(9), MemoryOrder.AcqRel) == u16(13), "fetch_min returns previous");
+  assert(a.load(MemoryOrder.Acquire) == u16(9), "fetch_min stores the smaller value");
+  assert(a.fetch_min(u16(40), MemoryOrder.AcqRel) == u16(9), "fetch_min still returns previous");
+  assert(a.load(MemoryOrder.Acquire) == u16(9), "fetch_min keeps the smaller value");
+  assert(a.fetch_max(u16(40), MemoryOrder.AcqRel) == u16(9), "fetch_max returns previous");
+  assert(a.load(MemoryOrder.Acquire) == u16(40), "fetch_max stores the larger value");
+  assert(a.fetch_max(u16(2), MemoryOrder.AcqRel) == u16(40), "fetch_max still returns previous");
+  assert(a.load(MemoryOrder.Acquire) == u16(40), "fetch_max keeps the larger value");
+});
+test("AtomicU16 fetch_min / fetch_max are unsigned comparisons", {
+  (top : u16) = u16(65535);
+  a := AtomicU16(top);
+  assert(a.fetch_min(u16(1), MemoryOrder.SeqCst) == top, "fetch_min returns previous");
+  assert(a.load(MemoryOrder.SeqCst) == u16(1), "65535 is ABOVE 1 unsigned, so min picks 1");
+  b := AtomicU16(u16(1));
+  assert(b.fetch_max(top, MemoryOrder.SeqCst) == u16(1), "fetch_max returns previous");
+  assert(b.load(MemoryOrder.SeqCst) == top, "65535 is ABOVE 1 unsigned, so max picks 65535");
+});
+test("AtomicU16 wraps like the runtime operator", {
+  (seed : u16) = u16(65535);
+  a := AtomicU16(seed);
+  assert(a.fetch_add(u16(1), MemoryOrder.Relaxed) == seed, "fetch_add returns previous");
+  (expected : u16) = (seed + u16(1));
+  assert(a.load(MemoryOrder.Relaxed) == expected, "MAX + 1 wraps exactly like the runtime +");
+  assert(a.load(MemoryOrder.Relaxed) == u16(0), "MAX + 1 is 0");
+});
+
+// ============================================================================
+// AtomicU32 read-modify-write family
+// ============================================================================
+test("AtomicU32 fetch_add / fetch_sub", {
+  a := AtomicU32(u32(12));
+  assert(a.fetch_add(u32(5), MemoryOrder.AcqRel) == u32(12), "fetch_add returns previous");
+  assert(a.load(MemoryOrder.Acquire) == u32(17), "fetch_add stores the sum");
+  assert(a.fetch_sub(u32(4), MemoryOrder.Release) == u32(17), "fetch_sub returns previous");
+  assert(a.load(MemoryOrder.Acquire) == u32(13), "fetch_sub stores the difference");
+});
+test("AtomicU32 fetch_and / fetch_or / fetch_xor", {
+  a := AtomicU32(u32(13));
+  assert(a.fetch_and(u32(10), MemoryOrder.SeqCst) == u32(13), "fetch_and returns previous");
+  assert(a.load(MemoryOrder.Acquire) == u32(8), "0b1101 & 0b1010 == 0b1000");
+  assert(a.fetch_or(u32(3), MemoryOrder.Relaxed) == u32(8), "fetch_or returns previous");
+  assert(a.load(MemoryOrder.Acquire) == u32(11), "0b1000 | 0b0011 == 0b1011");
+  assert(a.fetch_xor(u32(6), MemoryOrder.Consume) == u32(11), "fetch_xor returns previous");
+  assert(a.load(MemoryOrder.Acquire) == u32(13), "0b1011 ^ 0b0110 == 0b1101");
+});
+test("AtomicU32 fetch_min / fetch_max", {
+  a := AtomicU32(u32(13));
+  assert(a.fetch_min(u32(9), MemoryOrder.AcqRel) == u32(13), "fetch_min returns previous");
+  assert(a.load(MemoryOrder.Acquire) == u32(9), "fetch_min stores the smaller value");
+  assert(a.fetch_min(u32(40), MemoryOrder.AcqRel) == u32(9), "fetch_min still returns previous");
+  assert(a.load(MemoryOrder.Acquire) == u32(9), "fetch_min keeps the smaller value");
+  assert(a.fetch_max(u32(40), MemoryOrder.AcqRel) == u32(9), "fetch_max returns previous");
+  assert(a.load(MemoryOrder.Acquire) == u32(40), "fetch_max stores the larger value");
+  assert(a.fetch_max(u32(2), MemoryOrder.AcqRel) == u32(40), "fetch_max still returns previous");
+  assert(a.load(MemoryOrder.Acquire) == u32(40), "fetch_max keeps the larger value");
+});
+test("AtomicU32 fetch_min / fetch_max are unsigned comparisons", {
+  (top : u32) = u32(4294967295);
+  a := AtomicU32(top);
+  assert(a.fetch_min(u32(1), MemoryOrder.SeqCst) == top, "fetch_min returns previous");
+  assert(a.load(MemoryOrder.SeqCst) == u32(1), "u32 MAX is ABOVE 1 unsigned, so min picks 1");
+  b := AtomicU32(u32(1));
+  assert(b.fetch_max(top, MemoryOrder.SeqCst) == u32(1), "fetch_max returns previous");
+  assert(b.load(MemoryOrder.SeqCst) == top, "u32 MAX is ABOVE 1 unsigned, so max picks u32 MAX");
+});
+test("AtomicU32 wraps like the runtime operator", {
+  (seed : u32) = u32(4294967295);
+  a := AtomicU32(seed);
+  assert(a.fetch_add(u32(1), MemoryOrder.Relaxed) == seed, "fetch_add returns previous");
+  (expected : u32) = (seed + u32(1));
+  assert(a.load(MemoryOrder.Relaxed) == expected, "MAX + 1 wraps exactly like the runtime +");
+  assert(a.load(MemoryOrder.Relaxed) == u32(0), "MAX + 1 is 0");
+});
+
+// ============================================================================
+// AtomicU64 read-modify-write family
+// ============================================================================
+test("AtomicU64 fetch_add / fetch_sub", {
+  a := AtomicU64(u64(12));
+  assert(a.fetch_add(u64(5), MemoryOrder.AcqRel) == u64(12), "fetch_add returns previous");
+  assert(a.load(MemoryOrder.Acquire) == u64(17), "fetch_add stores the sum");
+  assert(a.fetch_sub(u64(4), MemoryOrder.Release) == u64(17), "fetch_sub returns previous");
+  assert(a.load(MemoryOrder.Acquire) == u64(13), "fetch_sub stores the difference");
+});
+test("AtomicU64 fetch_and / fetch_or / fetch_xor", {
+  a := AtomicU64(u64(13));
+  assert(a.fetch_and(u64(10), MemoryOrder.SeqCst) == u64(13), "fetch_and returns previous");
+  assert(a.load(MemoryOrder.Acquire) == u64(8), "0b1101 & 0b1010 == 0b1000");
+  assert(a.fetch_or(u64(3), MemoryOrder.Relaxed) == u64(8), "fetch_or returns previous");
+  assert(a.load(MemoryOrder.Acquire) == u64(11), "0b1000 | 0b0011 == 0b1011");
+  assert(a.fetch_xor(u64(6), MemoryOrder.Consume) == u64(11), "fetch_xor returns previous");
+  assert(a.load(MemoryOrder.Acquire) == u64(13), "0b1011 ^ 0b0110 == 0b1101");
+});
+test("AtomicU64 fetch_min / fetch_max", {
+  a := AtomicU64(u64(13));
+  assert(a.fetch_min(u64(9), MemoryOrder.AcqRel) == u64(13), "fetch_min returns previous");
+  assert(a.load(MemoryOrder.Acquire) == u64(9), "fetch_min stores the smaller value");
+  assert(a.fetch_min(u64(40), MemoryOrder.AcqRel) == u64(9), "fetch_min still returns previous");
+  assert(a.load(MemoryOrder.Acquire) == u64(9), "fetch_min keeps the smaller value");
+  assert(a.fetch_max(u64(40), MemoryOrder.AcqRel) == u64(9), "fetch_max returns previous");
+  assert(a.load(MemoryOrder.Acquire) == u64(40), "fetch_max stores the larger value");
+  assert(a.fetch_max(u64(2), MemoryOrder.AcqRel) == u64(40), "fetch_max still returns previous");
+  assert(a.load(MemoryOrder.Acquire) == u64(40), "fetch_max keeps the larger value");
+});
+test("AtomicU64 fetch_min / fetch_max are unsigned comparisons", {
+  (top : u64) = u64(18446744073709551615);
+  a := AtomicU64(top);
+  assert(a.fetch_min(u64(1), MemoryOrder.SeqCst) == top, "fetch_min returns previous");
+  assert(a.load(MemoryOrder.SeqCst) == u64(1), "u64 MAX is ABOVE 1 unsigned, so min picks 1");
+  b := AtomicU64(u64(1));
+  assert(b.fetch_max(top, MemoryOrder.SeqCst) == u64(1), "fetch_max returns previous");
+  assert(b.load(MemoryOrder.SeqCst) == top, "u64 MAX is ABOVE 1 unsigned, so max picks u64 MAX");
+});
+test("AtomicU64 wraps like the runtime operator", {
+  (seed : u64) = u64(18446744073709551615);
+  a := AtomicU64(seed);
+  assert(a.fetch_add(u64(1), MemoryOrder.Relaxed) == seed, "fetch_add returns previous");
+  (expected : u64) = (seed + u64(1));
+  assert(a.load(MemoryOrder.Relaxed) == expected, "MAX + 1 wraps exactly like the runtime +");
+  assert(a.load(MemoryOrder.Relaxed) == u64(0), "MAX + 1 is 0");
+});
+
+// ============================================================================
+// AtomicUsize read-modify-write family
+// ============================================================================
+test("AtomicUsize fetch_add / fetch_sub", {
+  a := AtomicUsize(usize(12));
+  assert(a.fetch_add(usize(5), MemoryOrder.AcqRel) == usize(12), "fetch_add returns previous");
+  assert(a.load(MemoryOrder.Acquire) == usize(17), "fetch_add stores the sum");
+  assert(a.fetch_sub(usize(4), MemoryOrder.Release) == usize(17), "fetch_sub returns previous");
+  assert(a.load(MemoryOrder.Acquire) == usize(13), "fetch_sub stores the difference");
+});
+test("AtomicUsize fetch_and / fetch_or / fetch_xor", {
+  a := AtomicUsize(usize(13));
+  assert(a.fetch_and(usize(10), MemoryOrder.SeqCst) == usize(13), "fetch_and returns previous");
+  assert(a.load(MemoryOrder.Acquire) == usize(8), "0b1101 & 0b1010 == 0b1000");
+  assert(a.fetch_or(usize(3), MemoryOrder.Relaxed) == usize(8), "fetch_or returns previous");
+  assert(a.load(MemoryOrder.Acquire) == usize(11), "0b1000 | 0b0011 == 0b1011");
+  assert(a.fetch_xor(usize(6), MemoryOrder.Consume) == usize(11), "fetch_xor returns previous");
+  assert(a.load(MemoryOrder.Acquire) == usize(13), "0b1011 ^ 0b0110 == 0b1101");
+});
+test("AtomicUsize fetch_min / fetch_max", {
+  a := AtomicUsize(usize(13));
+  assert(a.fetch_min(usize(9), MemoryOrder.AcqRel) == usize(13), "fetch_min returns previous");
+  assert(a.load(MemoryOrder.Acquire) == usize(9), "fetch_min stores the smaller value");
+  assert(a.fetch_min(usize(40), MemoryOrder.AcqRel) == usize(9), "fetch_min still returns previous");
+  assert(a.load(MemoryOrder.Acquire) == usize(9), "fetch_min keeps the smaller value");
+  assert(a.fetch_max(usize(40), MemoryOrder.AcqRel) == usize(9), "fetch_max returns previous");
+  assert(a.load(MemoryOrder.Acquire) == usize(40), "fetch_max stores the larger value");
+  assert(a.fetch_max(usize(2), MemoryOrder.AcqRel) == usize(40), "fetch_max still returns previous");
+  assert(a.load(MemoryOrder.Acquire) == usize(40), "fetch_max keeps the larger value");
+});
+test("AtomicUsize fetch_min / fetch_max are unsigned comparisons", {
+  // `usize` is 32-bit on wasm32 and 64-bit elsewhere, so the all-ones
+  // sentinel is WRAPPED from a runtime zero instead of being spelled as a
+  // width-specific literal (a literal out of range hard-errors at comptime).
+  (zero : usize) = usize(0);
+  (top : usize) = (zero - usize(1));
+  a := AtomicUsize(top);
+  assert(a.fetch_min(usize(1), MemoryOrder.SeqCst) == top, "fetch_min returns previous");
+  assert(a.load(MemoryOrder.SeqCst) == usize(1), "usize MAX is ABOVE 1 unsigned, so min picks 1");
+  b := AtomicUsize(usize(1));
+  assert(b.fetch_max(top, MemoryOrder.SeqCst) == usize(1), "fetch_max returns previous");
+  assert(b.load(MemoryOrder.SeqCst) == top, "usize MAX is ABOVE 1 unsigned, so max picks usize MAX");
+});
+test("AtomicUsize wraps like the runtime operator", {
+  (seed : usize) = usize(0);
+  a := AtomicUsize(seed);
+  assert(a.fetch_sub(usize(1), MemoryOrder.Relaxed) == usize(0), "fetch_sub returns previous");
+  (expected : usize) = (seed - usize(1));
+  assert(a.load(MemoryOrder.Relaxed) == expected, "0 - 1 wraps exactly like the runtime -");
+});
+
+// ============================================================================
+// AtomicIsize read-modify-write family
+// ============================================================================
+test("AtomicIsize fetch_add / fetch_sub", {
+  a := AtomicIsize(isize(12));
+  assert(a.fetch_add(isize(5), MemoryOrder.AcqRel) == isize(12), "fetch_add returns previous");
+  assert(a.load(MemoryOrder.Acquire) == isize(17), "fetch_add stores the sum");
+  assert(a.fetch_sub(isize(4), MemoryOrder.Release) == isize(17), "fetch_sub returns previous");
+  assert(a.load(MemoryOrder.Acquire) == isize(13), "fetch_sub stores the difference");
+});
+test("AtomicIsize fetch_and / fetch_or / fetch_xor", {
+  a := AtomicIsize(isize(13));
+  assert(a.fetch_and(isize(10), MemoryOrder.SeqCst) == isize(13), "fetch_and returns previous");
+  assert(a.load(MemoryOrder.Acquire) == isize(8), "0b1101 & 0b1010 == 0b1000");
+  assert(a.fetch_or(isize(3), MemoryOrder.Relaxed) == isize(8), "fetch_or returns previous");
+  assert(a.load(MemoryOrder.Acquire) == isize(11), "0b1000 | 0b0011 == 0b1011");
+  assert(a.fetch_xor(isize(6), MemoryOrder.Consume) == isize(11), "fetch_xor returns previous");
+  assert(a.load(MemoryOrder.Acquire) == isize(13), "0b1011 ^ 0b0110 == 0b1101");
+});
+test("AtomicIsize fetch_min / fetch_max", {
+  a := AtomicIsize(isize(13));
+  assert(a.fetch_min(isize(9), MemoryOrder.AcqRel) == isize(13), "fetch_min returns previous");
+  assert(a.load(MemoryOrder.Acquire) == isize(9), "fetch_min stores the smaller value");
+  assert(a.fetch_min(isize(40), MemoryOrder.AcqRel) == isize(9), "fetch_min still returns previous");
+  assert(a.load(MemoryOrder.Acquire) == isize(9), "fetch_min keeps the smaller value");
+  assert(a.fetch_max(isize(40), MemoryOrder.AcqRel) == isize(9), "fetch_max returns previous");
+  assert(a.load(MemoryOrder.Acquire) == isize(40), "fetch_max stores the larger value");
+  assert(a.fetch_max(isize(2), MemoryOrder.AcqRel) == isize(40), "fetch_max still returns previous");
+  assert(a.load(MemoryOrder.Acquire) == isize(40), "fetch_max keeps the larger value");
+});
+test("AtomicIsize fetch_min / fetch_max are signed comparisons", {
+  a := AtomicIsize(isize(-(5)));
+  assert(a.fetch_max(isize(3), MemoryOrder.SeqCst) == isize(-(5)), "fetch_max returns previous");
+  assert(a.load(MemoryOrder.SeqCst) == isize(3), "3 > -5");
+  b := AtomicIsize(isize(-(5)));
+  assert(b.fetch_min(isize(3), MemoryOrder.SeqCst) == isize(-(5)), "fetch_min returns previous");
+  assert(b.load(MemoryOrder.SeqCst) == isize(-(5)), "-5 < 3");
+});
+test("AtomicIsize wraps like the runtime operator", {
+  (seed : isize) = isize(0);
+  a := AtomicIsize(seed);
+  assert(a.fetch_sub(isize(1), MemoryOrder.Relaxed) == isize(0), "fetch_sub returns previous");
+  (expected : isize) = (seed - isize(1));
+  assert(a.load(MemoryOrder.Relaxed) == expected, "0 - 1 wraps exactly like the runtime -");
+});
+
+// ============================================================================
+// Contention: the fetch_add / fetch_sub family
+// ============================================================================
+test("AtomicI64 fetch_add under four-thread contention", {
+  if(arch == Arch.Wasm32, return(()));
+  counter := AtomicI64(i64(0));
+  iterations := i64(5000);
+  spin :: (fn(c : AtomicI64, n : i64) -> unit)({
+    (i : i64) = i64(0);
+    while(runtime(i < n), {
+      c.fetch_add(i64(1), MemoryOrder.Relaxed);
+      i = (i + i64(1));
+    });
+  });
+  t1 := Thread.spawn((io) => spin(counter, iterations));
+  t2 := Thread.spawn((io) => spin(counter, iterations));
+  t3 := Thread.spawn((io) => spin(counter, iterations));
+  spin(counter, iterations);
+  t1.join();
+  t2.join();
+  t3.join();
+  assert(counter.load(MemoryOrder.Acquire) == (iterations * i64(4)), "no increment may be lost");
+});
+test("AtomicU64 fetch_sub under four-thread contention", {
+  if(arch == Arch.Wasm32, return(()));
+  iterations := u64(5000);
+  counter := AtomicU64(iterations * u64(4));
+  drain :: (fn(c : AtomicU64, n : u64) -> unit)({
+    (i : u64) = u64(0);
+    while(runtime(i < n), {
+      c.fetch_sub(u64(1), MemoryOrder.Relaxed);
+      i = (i + u64(1));
+    });
+  });
+  t1 := Thread.spawn((io) => drain(counter, iterations));
+  t2 := Thread.spawn((io) => drain(counter, iterations));
+  t3 := Thread.spawn((io) => drain(counter, iterations));
+  drain(counter, iterations);
+  t1.join();
+  t2.join();
+  t3.join();
+  assert(counter.load(MemoryOrder.Acquire) == u64(0), "no decrement may be lost");
+});
+test("AtomicUsize fetch_add under four-thread contention", {
+  if(arch == Arch.Wasm32, return(()));
+  counter := AtomicUsize(usize(0));
+  iterations := usize(5000);
+  spin :: (fn(c : AtomicUsize, n : usize) -> unit)({
+    (i : usize) = usize(0);
+    while(runtime(i < n), {
+      c.fetch_add(usize(1), MemoryOrder.Relaxed);
+      i = (i + usize(1));
+    });
+  });
+  t1 := Thread.spawn((io) => spin(counter, iterations));
+  t2 := Thread.spawn((io) => spin(counter, iterations));
+  t3 := Thread.spawn((io) => spin(counter, iterations));
+  spin(counter, iterations);
+  t1.join();
+  t2.join();
+  t3.join();
+  assert(counter.load(MemoryOrder.Acquire) == (iterations * usize(4)), "no increment may be lost");
+});
+
+// ============================================================================
+// Contention: the bitwise family
+// ============================================================================
+test("AtomicU32 fetch_or / fetch_and under four-thread contention", {
+  if(arch == Arch.Wasm32, return(()));
+  // `or`/`and` are idempotent, so a LOST read-modify-write is invisible in
+  // the final value — converging to the same fixed point proves nothing.
+  // What it cannot hide is a broken per-bit invariant: thread i owns bit i,
+  // sets it, then immediately clears it, and nobody else ever touches that
+  // bit. So every `fetch_or` this thread performs MUST report the bit clear.
+  // A dropped `fetch_and` leaves the bit standing and the next `fetch_or`
+  // sees it. Each thread reports into its OWN atomic (single writer, so the
+  // report cannot itself be lost to contention).
+  bits := AtomicU32(u32(0));
+  iterations := u32(4000);
+  v0 := AtomicU32(u32(0));
+  v1 := AtomicU32(u32(0));
+  v2 := AtomicU32(u32(0));
+  v3 := AtomicU32(u32(0));
+  toggle :: (
+    fn(c : AtomicU32, report : AtomicU32, bit : u32, keep : u32, n : u32) -> unit
+  )({
+    (i : u32) = u32(0);
+    while(runtime(i < n), {
+      prev := c.fetch_or(bit, MemoryOrder.AcqRel);
+      if((prev & bit) != u32(0), {
+        report.store(u32(1), MemoryOrder.Release);
+      });
+      c.fetch_and(keep, MemoryOrder.AcqRel);
+      i = (i + u32(1));
+    });
+  });
+  t1 := Thread.spawn((io) => toggle(bits, v1, u32(2), u32(4294967293), iterations));
+  t2 := Thread.spawn((io) => toggle(bits, v2, u32(4), u32(4294967291), iterations));
+  t3 := Thread.spawn((io) => toggle(bits, v3, u32(8), u32(4294967287), iterations));
+  toggle(bits, v0, u32(1), u32(4294967294), iterations);
+  t1.join();
+  t2.join();
+  t3.join();
+  assert(v0.load(MemoryOrder.Acquire) == u32(0), "thread 0 saw its own bit already set");
+  assert(v1.load(MemoryOrder.Acquire) == u32(0), "thread 1 saw its own bit already set");
+  assert(v2.load(MemoryOrder.Acquire) == u32(0), "thread 2 saw its own bit already set");
+  assert(v3.load(MemoryOrder.Acquire) == u32(0), "thread 3 saw its own bit already set");
+  assert(bits.load(MemoryOrder.Acquire) == u32(0), "every clear must survive");
+});
+test("AtomicU16 fetch_xor under four-thread contention", {
+  if(arch == Arch.Wasm32, return(()));
+  // Each thread flips the same mask an EVEN number of times, so a
+  // sequentially-consistent run returns to the initial value. Any lost
+  // read-modify-write leaves the flip unpaired and the result non-zero.
+  flags := AtomicU16(u16(0));
+  iterations := u16(5000);
+  flip :: (fn(c : AtomicU16, mask : u16, n : u16) -> unit)({
+    (i : u16) = u16(0);
+    while(runtime(i < n), {
+      c.fetch_xor(mask, MemoryOrder.AcqRel);
+      i = (i + u16(1));
+    });
+  });
+  t1 := Thread.spawn((io) => flip(flags, u16(43981), iterations));
+  t2 := Thread.spawn((io) => flip(flags, u16(43981), iterations));
+  t3 := Thread.spawn((io) => flip(flags, u16(4660), iterations));
+  flip(flags, u16(4660), iterations);
+  t1.join();
+  t2.join();
+  t3.join();
+  assert(flags.load(MemoryOrder.Acquire) == u16(0), "paired flips must cancel exactly");
+});
+
+// ============================================================================
+// Contention: the min / max family
+// ============================================================================
+test("AtomicI32 fetch_min / fetch_max under four-thread contention", {
+  if(arch == Arch.Wasm32, return(()));
+  // min and max are idempotent too, so the extremes alone are a weak oracle.
+  // The property that survives ANY interleaving is monotonicity: once a
+  // thread has run `hi.fetch_max(v)`, `hi` is >= v forever, and likewise
+  // `lo` is <= v after `lo.fetch_min(v)`. A dropped read-modify-write breaks
+  // exactly that. Each thread reports into its OWN atomic (single writer).
+  lowest := AtomicI32(i32(1000000));
+  highest := AtomicI32(i32(-(1000000)));
+  v0 := AtomicI32(i32(0));
+  v1 := AtomicI32(i32(0));
+  v2 := AtomicI32(i32(0));
+  v3 := AtomicI32(i32(0));
+  push :: (
+    fn(lo : AtomicI32, hi : AtomicI32, report : AtomicI32, base : i32, n : i32) -> unit
+  )({
+    (i : i32) = i32(0);
+    while(runtime(i < n), {
+      v := (base + i);
+      lo.fetch_min(v, MemoryOrder.AcqRel);
+      if(lo.load(MemoryOrder.Acquire) > v, {
+        report.store(i32(1), MemoryOrder.Release);
+      });
+      hi.fetch_max(v, MemoryOrder.AcqRel);
+      if(hi.load(MemoryOrder.Acquire) < v, {
+        report.store(i32(1), MemoryOrder.Release);
+      });
+      i = (i + i32(1));
+    });
+  });
+  t1 := Thread.spawn((io) => push(lowest, highest, v1, i32(1000), i32(1000)));
+  t2 := Thread.spawn((io) => push(lowest, highest, v2, i32(2000), i32(1000)));
+  t3 := Thread.spawn((io) => push(lowest, highest, v3, i32(3000), i32(1000)));
+  push(lowest, highest, v0, i32(0), i32(1000));
+  t1.join();
+  t2.join();
+  t3.join();
+  assert(v0.load(MemoryOrder.Acquire) == i32(0), "thread 0 observed a lost min/max");
+  assert(v1.load(MemoryOrder.Acquire) == i32(0), "thread 1 observed a lost min/max");
+  assert(v2.load(MemoryOrder.Acquire) == i32(0), "thread 2 observed a lost min/max");
+  assert(v3.load(MemoryOrder.Acquire) == i32(0), "thread 3 observed a lost min/max");
+  assert(lowest.load(MemoryOrder.Acquire) == i32(0), "the global minimum must win");
+  assert(highest.load(MemoryOrder.Acquire) == i32(3999), "the global maximum must win");
+});
+
+// ============================================================================
+// fence
+// ============================================================================
+test("fence accepts every ordering", {
+  fence(MemoryOrder.Relaxed);
+  fence(MemoryOrder.Consume);
+  fence(MemoryOrder.Acquire);
+  fence(MemoryOrder.Release);
+  fence(MemoryOrder.AcqRel);
+  fence(MemoryOrder.SeqCst);
+});
+test("fence publishes a relaxed store across threads", {
+  if(arch == Arch.Wasm32, return(()));
+  // The classic message-passing shape with RELAXED accesses on both sides:
+  // ordering comes only from the fences. `data` is written before the
+  // release fence and the flag; the reader's acquire fence after seeing the
+  // flag must therefore observe the payload.
+  data := AtomicI64(i64(0));
+  ready := AtomicBool(false);
+  observed := AtomicI64(i64(-(1)));
+  writer := Thread.spawn((io) => {
+    data.store(i64(424242), MemoryOrder.Relaxed);
+    fence(MemoryOrder.Release);
+    ready.store(true, MemoryOrder.Relaxed);
+  });
+  while(runtime(!(ready.load(MemoryOrder.Relaxed))), {
+    ();
+  });
+  fence(MemoryOrder.Acquire);
+  observed.store(data.load(MemoryOrder.Relaxed), MemoryOrder.Relaxed);
+  writer.join();
+  assert(observed.load(MemoryOrder.Acquire) == i64(424242), "the acquire fence must see the payload");
 });

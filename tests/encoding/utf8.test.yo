@@ -1,0 +1,530 @@
+{ assert } :: import("std/assert");
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{
+  Utf8Error,
+  Decoded,
+  is_continuation,
+  is_boundary,
+  sequence_len,
+  encoded_len,
+  decode,
+  decode_parts,
+  decode_lossy,
+  encode,
+  encode_into,
+  encode_lossy_into,
+  validate,
+  validate_range
+} :: import("std/encoding/utf8");
+// ============================================================================
+// Helpers — Yo has no varargs and no `\x` escapes, so byte buffers are built
+// by hand.
+// ============================================================================
+_b0 :: (fn() -> ArrayList(u8))(
+  ArrayList(u8).new()
+);
+_b1 :: (fn(a : u8) -> ArrayList(u8))({
+  l := ArrayList(u8).new();
+  l.push(a);
+  l
+});
+_b2 :: (fn(a : u8, b : u8) -> ArrayList(u8))({
+  l := ArrayList(u8).new();
+  l.push(a);
+  l.push(b);
+  l
+});
+_b3 :: (fn(a : u8, b : u8, c : u8) -> ArrayList(u8))({
+  l := ArrayList(u8).new();
+  l.push(a);
+  l.push(b);
+  l.push(c);
+  l
+});
+_b4 :: (fn(a : u8, b : u8, c : u8, d : u8) -> ArrayList(u8))({
+  l := ArrayList(u8).new();
+  l.push(a);
+  l.push(b);
+  l.push(c);
+  l.push(d);
+  l
+});
+/// Name of the failure variant, or "ok" — string compare keeps the assertions
+/// readable and covers every arm of `Utf8Error`.
+_kind :: (fn(r : Result(Decoded, Utf8Error)) -> str)(
+  match(
+    r,
+    .Ok(_) => "ok",
+    .Err(e) =>
+      match(
+        e,
+        .InvalidStart => "InvalidStart",
+        .UnexpectedEnd => "UnexpectedEnd",
+        .InvalidContinuation => "InvalidContinuation",
+        .Overlong => "Overlong",
+        .Surrogate => "Surrogate",
+        .OutOfRange => "OutOfRange"
+      )
+  )
+);
+_code :: (fn(r : Result(Decoded, Utf8Error)) -> u32)(
+  match(r, .Ok(d) => d.code.to_u32(), .Err(_) => u32(0xFFFFFFFF))
+);
+_width :: (fn(r : Result(Decoded, Utf8Error)) -> usize)(
+  match(r, .Ok(d) => d.width, .Err(_) => usize(0))
+);
+_err_index :: (fn(r : Result(Decoded, Utf8Error)) -> usize)(
+  match(r, .Ok(_) => usize(9999), .Err(e) => e.index())
+);
+_valid_kind :: (fn(r : Result(unit, Utf8Error)) -> str)(
+  match(
+    r,
+    .Ok(_) => "ok",
+    .Err(e) =>
+      match(
+        e,
+        .InvalidStart => "InvalidStart",
+        .UnexpectedEnd => "UnexpectedEnd",
+        .InvalidContinuation => "InvalidContinuation",
+        .Overlong => "Overlong",
+        .Surrogate => "Surrogate",
+        .OutOfRange => "OutOfRange"
+      )
+  )
+);
+/// Encode `code` and read the resulting bytes back as one hex-ish number so a
+/// round trip can be asserted in a single expression.
+_encoded_bytes :: (fn(code : u32) -> ArrayList(u8))({
+  out := ArrayList(u8).new();
+  encode_lossy_into(code, out);
+  out
+});
+_at :: (fn(l : ArrayList(u8), i : usize) -> u8)(
+  match(l.get(i), .Some(b) => b, .None => u8(0))
+);
+// ============================================================================
+// Byte classification
+// ============================================================================
+test("sequence_len covers the whole lead-byte table", {
+  assert(sequence_len(u8(0x00)) == usize(1), "NUL is a 1-byte lead");
+  assert(sequence_len(u8(0x41)) == usize(1), "'A' is a 1-byte lead");
+  assert(sequence_len(u8(0x7F)) == usize(1), "0x7F is a 1-byte lead");
+  // 0x80..0xBF are continuation bytes and lead nothing.
+  assert(sequence_len(u8(0x80)) == usize(0), "0x80 leads nothing");
+  assert(sequence_len(u8(0xBF)) == usize(0), "0xBF leads nothing");
+  // 0xC0/0xC1 could only ever spell an overlong ASCII byte.
+  assert(sequence_len(u8(0xC0)) == usize(0), "0xC0 is always overlong");
+  assert(sequence_len(u8(0xC1)) == usize(0), "0xC1 is always overlong");
+  assert(sequence_len(u8(0xC2)) == usize(2), "0xC2 is the first legal 2-byte lead");
+  assert(sequence_len(u8(0xDF)) == usize(2), "0xDF is the last 2-byte lead");
+  assert(sequence_len(u8(0xE0)) == usize(3), "0xE0 is the first 3-byte lead");
+  assert(sequence_len(u8(0xEF)) == usize(3), "0xEF is the last 3-byte lead");
+  assert(sequence_len(u8(0xF0)) == usize(4), "0xF0 is the first 4-byte lead");
+  assert(sequence_len(u8(0xF4)) == usize(4), "0xF4 is the last 4-byte lead");
+  // 0xF5.. could only spell scalars above U+10FFFF.
+  assert(sequence_len(u8(0xF5)) == usize(0), "0xF5 leads nothing");
+  assert(sequence_len(u8(0xFF)) == usize(0), "0xFF leads nothing");
+});
+test("is_continuation and is_boundary partition the byte space", {
+  assert(!(is_continuation(u8(0x00))), "NUL is not a continuation byte");
+  assert(!(is_continuation(u8(0x7F))), "0x7F is not a continuation byte");
+  assert(is_continuation(u8(0x80)), "0x80 is a continuation byte");
+  assert(is_continuation(u8(0xBF)), "0xBF is a continuation byte");
+  assert(!(is_continuation(u8(0xC0))), "0xC0 is not a continuation byte");
+  assert(!(is_continuation(u8(0xFF))), "0xFF is not a continuation byte");
+  assert(is_boundary(u8(0x41)), "ASCII sits on a boundary");
+  assert(!(is_boundary(u8(0x9F))), "a continuation byte is not a boundary");
+  assert(is_boundary(u8(0xF0)), "a 4-byte lead sits on a boundary");
+});
+test("encoded_len matches the encoded width", {
+  assert(encoded_len(rune(char : u32(0x0000))) == usize(1), "U+0000 is 1 byte");
+  assert(encoded_len(rune(char : u32(0x007F))) == usize(1), "U+007F is 1 byte");
+  assert(encoded_len(rune(char : u32(0x0080))) == usize(2), "U+0080 is 2 bytes");
+  assert(encoded_len(rune(char : u32(0x07FF))) == usize(2), "U+07FF is 2 bytes");
+  assert(encoded_len(rune(char : u32(0x0800))) == usize(3), "U+0800 is 3 bytes");
+  assert(encoded_len(rune(char : u32(0xFFFF))) == usize(3), "U+FFFF is 3 bytes");
+  assert(encoded_len(rune(char : u32(0x10000))) == usize(4), "U+10000 is 4 bytes");
+  assert(encoded_len(rune(char : u32(0x10FFFF))) == usize(4), "U+10FFFF is 4 bytes");
+});
+// ============================================================================
+// Decoding — the valid shapes
+// ============================================================================
+test("decode reads ASCII", {
+  r := decode(_b1(u8(0x41)), usize(0));
+  assert(_kind(r) == "ok", "'A' decodes");
+  assert(_code(r) == u32(0x41), "'A' is U+0041");
+  assert(_width(r) == usize(1), "'A' is 1 byte wide");
+});
+test("decode reads a 2-byte sequence", {
+  // U+00E9 LATIN SMALL LETTER E WITH ACUTE
+  r := decode(_b2(u8(0xC3), u8(0xA9)), usize(0));
+  assert(_kind(r) == "ok", "e-acute decodes");
+  assert(_code(r) == u32(0xE9), "e-acute is U+00E9");
+  assert(_width(r) == usize(2), "e-acute is 2 bytes wide");
+});
+test("decode reads a 3-byte sequence", {
+  // U+20AC EURO SIGN
+  r := decode(_b3(u8(0xE2), u8(0x82), u8(0xAC)), usize(0));
+  assert(_kind(r) == "ok", "euro sign decodes");
+  assert(_code(r) == u32(0x20AC), "euro sign is U+20AC");
+  assert(_width(r) == usize(3), "euro sign is 3 bytes wide");
+});
+test("decode reads a 4-byte sequence", {
+  // U+1F600 GRINNING FACE
+  r := decode(_b4(u8(0xF0), u8(0x9F), u8(0x98), u8(0x80)), usize(0));
+  assert(_kind(r) == "ok", "grinning face decodes");
+  assert(_code(r) == u32(0x1F600), "grinning face is U+1F600");
+  assert(_width(r) == usize(4), "grinning face is 4 bytes wide");
+});
+test("decode reads the boundary code points", {
+  // U+0000 / U+007F — the ends of the 1-byte range.
+  assert(_code(decode(_b1(u8(0x00)), usize(0))) == u32(0x0000), "U+0000 decodes");
+  assert(_code(decode(_b1(u8(0x7F)), usize(0))) == u32(0x007F), "U+007F decodes");
+  // U+0080 / U+07FF — the ends of the 2-byte range.
+  assert(_code(decode(_b2(u8(0xC2), u8(0x80)), usize(0))) == u32(0x0080), "U+0080 decodes");
+  assert(_code(decode(_b2(u8(0xDF), u8(0xBF)), usize(0))) == u32(0x07FF), "U+07FF decodes");
+  // U+0800 / U+FFFF — the ends of the 3-byte range.
+  assert(_code(decode(_b3(u8(0xE0), u8(0xA0), u8(0x80)), usize(0))) == u32(0x0800), "U+0800 decodes");
+  assert(_code(decode(_b3(u8(0xEF), u8(0xBF), u8(0xBF)), usize(0))) == u32(0xFFFF), "U+FFFF decodes");
+  // U+D7FF / U+E000 — the scalars either side of the surrogate block.
+  assert(_code(decode(_b3(u8(0xED), u8(0x9F), u8(0xBF)), usize(0))) == u32(0xD7FF), "U+D7FF decodes");
+  assert(_code(decode(_b3(u8(0xEE), u8(0x80), u8(0x80)), usize(0))) == u32(0xE000), "U+E000 decodes");
+  // U+10000 / U+10FFFF — the ends of the 4-byte range.
+  assert(_code(decode(_b4(u8(0xF0), u8(0x90), u8(0x80), u8(0x80)), usize(0))) == u32(0x10000), "U+10000 decodes");
+  assert(_code(decode(_b4(u8(0xF4), u8(0x8F), u8(0xBF), u8(0xBF)), usize(0))) == u32(0x10FFFF), "U+10FFFF decodes");
+});
+test("decode honours a non-zero start index", {
+  // "A" followed by the euro sign: decoding at 1 must read the 3-byte form.
+  b := ArrayList(u8).new();
+  b.push(u8(0x41));
+  b.push(u8(0xE2));
+  b.push(u8(0x82));
+  b.push(u8(0xAC));
+  r := decode(b, usize(1));
+  assert(_kind(r) == "ok", "the euro sign at offset 1 decodes");
+  assert(_code(r) == u32(0x20AC), "offset 1 is U+20AC");
+  assert(_width(r) == usize(3), "offset 1 is 3 bytes wide");
+});
+// ============================================================================
+// Decoding — every failure shape
+// ============================================================================
+test("decode rejects a continuation byte in first position", {
+  assert(_kind(decode(_b1(u8(0x80)), usize(0))) == "InvalidStart", "0x80 cannot start a sequence");
+  assert(_kind(decode(_b1(u8(0xBF)), usize(0))) == "InvalidStart", "0xBF cannot start a sequence");
+  // ...including when it trails a complete sequence.
+  b := ArrayList(u8).new();
+  b.push(u8(0x41));
+  b.push(u8(0x80));
+  assert(_kind(decode(b, usize(1))) == "InvalidStart", "a stray continuation byte after ASCII");
+  assert(_err_index(decode(b, usize(1))) == usize(1), "the error names byte 1");
+});
+test("decode rejects the always-overlong leads 0xC0 and 0xC1", {
+  // The canonical overlong NUL and overlong '/' — both die at the lead byte.
+  assert(_kind(decode(_b2(u8(0xC0), u8(0x80)), usize(0))) == "InvalidStart", "0xC0 0x80 is rejected");
+  assert(_kind(decode(_b2(u8(0xC1), u8(0xAF)), usize(0))) == "InvalidStart", "0xC1 0xAF is rejected");
+});
+test("decode rejects overlong 3-byte and 4-byte forms", {
+  // U+0000 spelled in three bytes.
+  assert(_kind(decode(_b3(u8(0xE0), u8(0x80), u8(0x80)), usize(0))) == "Overlong", "3-byte NUL is overlong");
+  // U+07FF spelled in three bytes — the last overlong 3-byte value.
+  assert(_kind(decode(_b3(u8(0xE0), u8(0x9F), u8(0xBF)), usize(0))) == "Overlong", "3-byte U+07FF is overlong");
+  // U+0000 spelled in four bytes.
+  assert(_kind(decode(_b4(u8(0xF0), u8(0x80), u8(0x80), u8(0x80)), usize(0))) == "Overlong", "4-byte NUL is overlong");
+  // U+FFFF spelled in four bytes — the last overlong 4-byte value.
+  assert(_kind(decode(_b4(u8(0xF0), u8(0x8F), u8(0xBF), u8(0xBF)), usize(0))) == "Overlong", "4-byte U+FFFF is overlong");
+});
+test("decode rejects lone surrogates", {
+  // U+D800 .. U+DFFF encoded as UTF-8 (CESU-8 / WTF-8).
+  assert(_kind(decode(_b3(u8(0xED), u8(0xA0), u8(0x80)), usize(0))) == "Surrogate", "U+D800 is a surrogate");
+  assert(_kind(decode(_b3(u8(0xED), u8(0xAF), u8(0xBF)), usize(0))) == "Surrogate", "U+DBFF is a surrogate");
+  assert(_kind(decode(_b3(u8(0xED), u8(0xB0), u8(0x80)), usize(0))) == "Surrogate", "U+DC00 is a surrogate");
+  assert(_kind(decode(_b3(u8(0xED), u8(0xBF), u8(0xBF)), usize(0))) == "Surrogate", "U+DFFF is a surrogate");
+});
+test("decode rejects scalars above U+10FFFF", {
+  // U+110000 — one past the last scalar, still a syntactically 4-byte form.
+  assert(_kind(decode(_b4(u8(0xF4), u8(0x90), u8(0x80), u8(0x80)), usize(0))) == "OutOfRange", "U+110000 is out of range");
+  // 0xF5.. cannot even lead: the lead byte alone puts it past U+10FFFF.
+  assert(_kind(decode(_b4(u8(0xF5), u8(0x80), u8(0x80), u8(0x80)), usize(0))) == "InvalidStart", "0xF5 cannot lead");
+  assert(_kind(decode(_b4(u8(0xFF), u8(0xBF), u8(0xBF), u8(0xBF)), usize(0))) == "InvalidStart", "0xFF cannot lead");
+});
+test("decode reports truncated tails", {
+  assert(_kind(decode(_b1(u8(0xC3)), usize(0))) == "UnexpectedEnd", "a 2-byte lead alone is truncated");
+  assert(_kind(decode(_b1(u8(0xE2)), usize(0))) == "UnexpectedEnd", "a 3-byte lead alone is truncated");
+  assert(_kind(decode(_b2(u8(0xE2), u8(0x82)), usize(0))) == "UnexpectedEnd", "a 3-byte lead + 1 is truncated");
+  assert(_kind(decode(_b1(u8(0xF0)), usize(0))) == "UnexpectedEnd", "a 4-byte lead alone is truncated");
+  assert(_kind(decode(_b3(u8(0xF0), u8(0x9F), u8(0x98)), usize(0))) == "UnexpectedEnd", "a 4-byte lead + 2 is truncated");
+  // Decoding past the end of the buffer is the same failure.
+  assert(_kind(decode(_b0(), usize(0))) == "UnexpectedEnd", "an empty buffer is truncated");
+  assert(_kind(decode(_b1(u8(0x41)), usize(5))) == "UnexpectedEnd", "an index past the end is truncated");
+});
+test("decode reports a non-continuation byte inside a sequence", {
+  // 'A' where a continuation byte belongs, at every position.
+  assert(_kind(decode(_b2(u8(0xC3), u8(0x41)), usize(0))) == "InvalidContinuation", "2-byte, bad byte 1");
+  assert(_kind(decode(_b3(u8(0xE2), u8(0x41), u8(0xAC)), usize(0))) == "InvalidContinuation", "3-byte, bad byte 1");
+  assert(_kind(decode(_b3(u8(0xE2), u8(0x82), u8(0x41)), usize(0))) == "InvalidContinuation", "3-byte, bad byte 2");
+  assert(_kind(decode(_b4(u8(0xF0), u8(0x41), u8(0x98), u8(0x80)), usize(0))) == "InvalidContinuation", "4-byte, bad byte 1");
+  assert(_kind(decode(_b4(u8(0xF0), u8(0x9F), u8(0x41), u8(0x80)), usize(0))) == "InvalidContinuation", "4-byte, bad byte 2");
+  assert(_kind(decode(_b4(u8(0xF0), u8(0x9F), u8(0x98), u8(0x41)), usize(0))) == "InvalidContinuation", "4-byte, bad byte 3");
+});
+test("Utf8Error carries the offset of the offending sequence", {
+  // "AB" then a truncated euro sign: the error must point at byte 2.
+  b := ArrayList(u8).new();
+  b.push(u8(0x41));
+  b.push(u8(0x42));
+  b.push(u8(0xE2));
+  b.push(u8(0x82));
+  r := decode(b, usize(2));
+  assert(_kind(r) == "UnexpectedEnd", "the tail is truncated");
+  assert(_err_index(r) == usize(2), "the error names byte 2");
+});
+test("Utf8Error.message names every variant", {
+  assert(Utf8Error.InvalidStart(usize(0), u8(0x80)).message() == "invalid UTF-8 start byte", "InvalidStart message");
+  assert(
+    Utf8Error.UnexpectedEnd(usize(0), usize(2), usize(1)).message() == "truncated UTF-8 sequence",
+    "UnexpectedEnd message"
+  );
+  assert(
+    Utf8Error.InvalidContinuation(usize(0), usize(1), u8(0x41)).message() == "invalid UTF-8 continuation byte",
+    "InvalidContinuation message"
+  );
+  assert(Utf8Error.Overlong(usize(0), u32(0)).message() == "overlong UTF-8 encoding", "Overlong message");
+  assert(
+    Utf8Error.Surrogate(usize(0), u32(0xD800)).message() == "UTF-8 encoded a UTF-16 surrogate",
+    "Surrogate message"
+  );
+  assert(
+    Utf8Error.OutOfRange(usize(0), u32(0x110000)).message() == "UTF-8 code point above U+10FFFF",
+    "OutOfRange message"
+  );
+});
+// ============================================================================
+// decode_parts — the allocation-free core
+// ============================================================================
+test("decode_parts decodes from loose bytes", {
+  r := decode_parts(u8(0xE2), u8(0x82), u8(0xAC), u8(0x00), usize(3), usize(7));
+  assert(_kind(r) == "ok", "the euro sign decodes from loose bytes");
+  assert(_code(r) == u32(0x20AC), "loose bytes give U+20AC");
+  assert(_width(r) == usize(3), "loose bytes give width 3");
+});
+test("decode_parts honours `available` over the byte values", {
+  // The bytes spell a complete euro sign, but only two were really readable.
+  r := decode_parts(u8(0xE2), u8(0x82), u8(0xAC), u8(0x00), usize(2), usize(0));
+  assert(_kind(r) == "UnexpectedEnd", "available=2 truncates a 3-byte form");
+  assert(_err_index(r) == usize(0), "the error keeps the caller's index");
+});
+test("decode_parts reports errors at the caller's index", {
+  r := decode_parts(u8(0xED), u8(0xA0), u8(0x80), u8(0x00), usize(3), usize(42));
+  assert(_kind(r) == "Surrogate", "a surrogate is still a surrogate off-buffer");
+  assert(_err_index(r) == usize(42), "the error carries index 42");
+});
+// ============================================================================
+// decode_lossy
+// ============================================================================
+test("decode_lossy substitutes U+FFFD and always advances", {
+  r := decode_lossy(_b1(u8(0x80)), usize(0));
+  assert(r.code.to_u32() == u32(0xFFFD), "an invalid byte becomes U+FFFD");
+  assert(r.width == usize(1), "an invalid byte advances by 1");
+  // A valid sequence is untouched.
+  ok := decode_lossy(_b2(u8(0xC3), u8(0xA9)), usize(0));
+  assert(ok.code.to_u32() == u32(0xE9), "a valid sequence is untouched");
+  assert(ok.width == usize(2), "a valid sequence keeps its width");
+});
+test("decode_lossy terminates over a fully invalid buffer", {
+  // Four 0xFF bytes: every step must yield U+FFFD and advance by one.
+  b := _b4(u8(0xFF), u8(0xFF), u8(0xFF), u8(0xFF));
+  (i : usize) = usize(0);
+  (seen : usize) = usize(0);
+  while(i < b.len(), {
+    d := decode_lossy(b, i);
+    assert(d.code.to_u32() == u32(0xFFFD), "every byte becomes U+FFFD");
+    assert(d.width > usize(0), "the width always advances");
+    i = (i + d.width);
+    seen = (seen + usize(1));
+  });
+  assert(seen == usize(4), "four replacement runes for four invalid bytes");
+});
+// ============================================================================
+// Encoding
+// ============================================================================
+test("encode_into writes each width", {
+  out := ArrayList(u8).new();
+  assert(encode_into(rune(char : u32(0x41)), out) == usize(1), "ASCII writes 1 byte");
+  assert(_at(out, usize(0)) == u8(0x41), "ASCII byte");
+  out2 := ArrayList(u8).new();
+  assert(encode_into(rune(char : u32(0xE9)), out2) == usize(2), "U+00E9 writes 2 bytes");
+  assert(_at(out2, usize(0)) == u8(0xC3), "U+00E9 byte 0");
+  assert(_at(out2, usize(1)) == u8(0xA9), "U+00E9 byte 1");
+  out3 := ArrayList(u8).new();
+  assert(encode_into(rune(char : u32(0x20AC)), out3) == usize(3), "U+20AC writes 3 bytes");
+  assert(_at(out3, usize(0)) == u8(0xE2), "U+20AC byte 0");
+  assert(_at(out3, usize(1)) == u8(0x82), "U+20AC byte 1");
+  assert(_at(out3, usize(2)) == u8(0xAC), "U+20AC byte 2");
+  out4 := ArrayList(u8).new();
+  assert(encode_into(rune(char : u32(0x1F600)), out4) == usize(4), "U+1F600 writes 4 bytes");
+  assert(_at(out4, usize(0)) == u8(0xF0), "U+1F600 byte 0");
+  assert(_at(out4, usize(1)) == u8(0x9F), "U+1F600 byte 1");
+  assert(_at(out4, usize(2)) == u8(0x98), "U+1F600 byte 2");
+  assert(_at(out4, usize(3)) == u8(0x80), "U+1F600 byte 3");
+});
+test("encode appends rather than overwriting", {
+  out := ArrayList(u8).new();
+  encode_into(rune(char : u32(0x41)), out);
+  encode_into(rune(char : u32(0x20AC)), out);
+  assert(out.len() == usize(4), "1 + 3 bytes");
+  assert(_at(out, usize(0)) == u8(0x41), "the ASCII byte stays first");
+  assert(_at(out, usize(1)) == u8(0xE2), "the euro sign follows");
+});
+test("encode returns a fresh buffer", {
+  b := encode(rune(char : u32(0x10FFFF)));
+  assert(b.len() == usize(4), "U+10FFFF is 4 bytes");
+  assert(_at(b, usize(0)) == u8(0xF4), "U+10FFFF byte 0");
+  assert(_at(b, usize(1)) == u8(0x8F), "U+10FFFF byte 1");
+  assert(_at(b, usize(2)) == u8(0xBF), "U+10FFFF byte 2");
+  assert(_at(b, usize(3)) == u8(0xBF), "U+10FFFF byte 3");
+});
+test("encode/decode round-trips the boundary code points", {
+  // Every width boundary, plus the two scalars bracketing the surrogate block.
+  codes := ArrayList(u32).new();
+  codes.push(u32(0x0000));
+  codes.push(u32(0x007F));
+  codes.push(u32(0x0080));
+  codes.push(u32(0x07FF));
+  codes.push(u32(0x0800));
+  codes.push(u32(0xD7FF));
+  codes.push(u32(0xE000));
+  codes.push(u32(0xFFFD));
+  codes.push(u32(0xFFFF));
+  codes.push(u32(0x10000));
+  codes.push(u32(0x1F600));
+  codes.push(u32(0x10FFFF));
+  (i : usize) = usize(0);
+  while(i < codes.len(), {
+    cp := match(codes.get(i), .Some(c) => c, .None => u32(0));
+    bytes := _encoded_bytes(cp);
+    back := decode(bytes, usize(0));
+    assert(_kind(back) == "ok", "the round trip decodes");
+    assert(_code(back) == cp, "the round trip preserves the code point");
+    assert(_width(back) == bytes.len(), "the width matches the encoded length");
+    assert(_width(back) == encoded_len(rune(char : cp)), "encoded_len agrees with decode");
+    i = (i + usize(1));
+  });
+});
+test("encode_lossy_into substitutes non-scalars", {
+  // A lone surrogate must NOT come out as CESU-8.
+  s := _encoded_bytes(u32(0xD800));
+  assert(s.len() == usize(3), "U+FFFD is 3 bytes");
+  assert(_at(s, usize(0)) == u8(0xEF), "U+FFFD byte 0");
+  assert(_at(s, usize(1)) == u8(0xBF), "U+FFFD byte 1");
+  assert(_at(s, usize(2)) == u8(0xBD), "U+FFFD byte 2");
+  // ...and neither must a scalar above U+10FFFF.
+  o := _encoded_bytes(u32(0x110000));
+  assert(o.len() == usize(3), "out-of-range becomes U+FFFD");
+  assert(_at(o, usize(0)) == u8(0xEF), "out-of-range byte 0");
+  // A legal scalar is passed through unchanged.
+  k := _encoded_bytes(u32(0x20AC));
+  assert(k.len() == usize(3), "U+20AC survives");
+  assert(_at(k, usize(0)) == u8(0xE2), "U+20AC byte 0");
+});
+test("encode_lossy_into output is always valid UTF-8", {
+  out := ArrayList(u8).new();
+  encode_lossy_into(u32(0xD800), out);
+  encode_lossy_into(u32(0x41), out);
+  encode_lossy_into(u32(0x110000), out);
+  assert(_valid_kind(validate(out)) == "ok", "a lossy buffer still validates");
+});
+// ============================================================================
+// Validation
+// ============================================================================
+test("validate accepts well-formed input", {
+  assert(_valid_kind(validate(_b0())) == "ok", "the empty buffer is valid");
+  assert(_valid_kind(validate(`hello`.as_bytes())) == "ok", "ASCII is valid");
+  assert(_valid_kind(validate(`héllo wörld`.as_bytes())) == "ok", "2-byte forms are valid");
+  assert(_valid_kind(validate(`€ 你好`.as_bytes())) == "ok", "3-byte forms are valid");
+});
+test("validate rejects each malformed shape", {
+  assert(_valid_kind(validate(_b1(u8(0x80)))) == "InvalidStart", "a lone continuation byte");
+  assert(_valid_kind(validate(_b2(u8(0xC0), u8(0x80)))) == "InvalidStart", "overlong NUL via 0xC0");
+  assert(_valid_kind(validate(_b3(u8(0xE0), u8(0x80), u8(0x80)))) == "Overlong", "overlong 3-byte NUL");
+  assert(_valid_kind(validate(_b3(u8(0xED), u8(0xA0), u8(0x80)))) == "Surrogate", "a lone surrogate");
+  assert(
+    _valid_kind(validate(_b4(u8(0xF4), u8(0x90), u8(0x80), u8(0x80)))) == "OutOfRange",
+    "a scalar above U+10FFFF"
+  );
+  assert(_valid_kind(validate(_b2(u8(0xE2), u8(0x82)))) == "UnexpectedEnd", "a truncated tail");
+  assert(_valid_kind(validate(_b2(u8(0xC3), u8(0x41)))) == "InvalidContinuation", "a broken continuation");
+});
+test("validate walks past valid prefixes to the first bad byte", {
+  // "A" + euro sign + lone 0x80.
+  b := ArrayList(u8).new();
+  b.push(u8(0x41));
+  b.push(u8(0xE2));
+  b.push(u8(0x82));
+  b.push(u8(0xAC));
+  b.push(u8(0x80));
+  match(
+    validate(b),
+    .Ok(_) => assert(false, "the trailing 0x80 must be rejected"),
+    .Err(e) => {
+      assert(e.index() == usize(4), "the error names byte 4");
+    }
+  );
+});
+test("validate_range checks a sub-range and never reads past it", {
+  // "A" + euro sign + "B".
+  b := ArrayList(u8).new();
+  b.push(u8(0x41));
+  b.push(u8(0xE2));
+  b.push(u8(0x82));
+  b.push(u8(0xAC));
+  b.push(u8(0x42));
+  assert(_valid_kind(validate_range(b, usize(0), usize(5))) == "ok", "the whole buffer is valid");
+  assert(_valid_kind(validate_range(b, usize(1), usize(4))) == "ok", "the euro sign alone is valid");
+  assert(_valid_kind(validate_range(b, usize(4), usize(5))) == "ok", "the trailing 'B' is valid");
+  // A range that cuts the euro sign in half must FAIL rather than read on.
+  assert(_valid_kind(validate_range(b, usize(1), usize(3))) == "UnexpectedEnd", "a range cutting a sequence");
+  // Starting inside a sequence is an invalid start byte.
+  assert(_valid_kind(validate_range(b, usize(2), usize(5))) == "InvalidStart", "a range starting mid-sequence");
+  // An empty range is trivially valid, and `to` is clamped to the length.
+  assert(_valid_kind(validate_range(b, usize(2), usize(2))) == "ok", "an empty range is valid");
+  assert(_valid_kind(validate_range(b, usize(0), usize(999))) == "ok", "`to` is clamped to the length");
+});
+// ============================================================================
+// The rest of std goes through this module — spot-check the seams
+// ============================================================================
+test("String round-trips through the shared decoder", {
+  s := `aé€😀`;
+  assert(s.len() == usize(4), "four runes");
+  assert(s.as_bytes().len() == usize(10), "1 + 2 + 3 + 4 bytes");
+  assert(_valid_kind(validate(s.as_bytes())) == "ok", "the template string is valid UTF-8");
+  assert(
+    match(s.at(usize(3)), .Some(r) => r.to_u32(), .None => u32(0)) == u32(0x1F600),
+    "the last rune is U+1F600"
+  );
+});
+test("String.from_utf8 validates and from_bytes does not", {
+  good := _b2(u8(0xC3), u8(0xA9));
+  match(
+    String.from_utf8(good),
+    .Ok(s) => {
+      assert(s.len() == usize(1), "e-acute is one rune");
+    },
+    .Err(_) => assert(false, "valid bytes must be accepted")
+  );
+  bad := _b2(u8(0xED), u8(0xA0));
+  match(
+    String.from_utf8(bad),
+    .Ok(_) => assert(false, "a truncated surrogate must be rejected"),
+    .Err(e) =>
+      match(
+        e,
+        .InvalidUtf8(cause) => {
+          assert(cause.message() == "truncated UTF-8 sequence", "the cause is carried through");
+        },
+        .IndexOutOfBounds(_, _) => assert(false, "wrong StringError variant")
+      )
+  );
+  // The unchecked constructor still takes anything, by contract.
+  loose := String.from_bytes(_b1(u8(0x80)));
+  assert(loose.as_bytes().len() == usize(1), "from_bytes does not validate");
+});

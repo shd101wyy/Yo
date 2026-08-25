@@ -1,0 +1,18 @@
+# REGRESSION GATE for issues/fixed/yo-test-does-not-forward-std-path-to-batch-compile.md.
+#
+# `--std-path` is a GLOBAL flag: main strips it from argv before subcommand
+# dispatch and stashes it with the module manager. The RUNNER therefore honours
+# it, but the child `yo compile` that builds the test batch is spawned with a
+# fresh argv and used to fall back to YO_STD.
+#
+# So this case pins YO_STD to a path that does not exist while passing the REAL
+# std via `--std-path`. Before the fix the runner evaluated fine and the child
+# compile died looking for a prelude under /nonexistent; after it, both use the
+# std the flag names. The harness normally exports YO_STD=$REPO_ROOT/std for
+# every case, which is exactly what makes the override meaningful here.
+#
+# The golden keeps only the summary lines: batch compiles emit clang warnings
+# whose text moves with the compiler version.
+env=YO_STD=/nonexistent-std-so-only-std-path-can-work
+stdout_keep=^(\$ yo |rc=|.*[0-9]+ passed|yo: error)
+timeout=600

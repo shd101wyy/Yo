@@ -1,9 +1,15 @@
 //! Regex pattern parser — parses a regex pattern string into an AST
 //! of `RegexNode` objects. Uses an iterative stack-based approach.
+//!
+//! **Internal to `std/regex`.** Nothing here is public API: import
+//! `std/regex` and use `Regex`. This module's shape changes freely — the one
+//! piece of it users see is `RegexError`, which `std/regex` re-exports.
 open(import("std/collections/array_list"));
 open(import("std/string"));
-{ RegexNode, NodeKind, CharRange, AnchorKind, GroupNameEntry } :: import("./node.yo");
+{ RegexNode, CharRange, GroupNameEntry } :: import("./node.yo");
 { unicode_property_ranges } :: import("./unicode.yo");
+{ RegexError } :: import("./error.yo");
+utf8 :: import("../encoding/utf8.yo");
 // A parse frame for tracking alternation/sequence state
 ParseFrame :: struct(
   alternatives : ArrayList(ArrayList(RegexNode)),
@@ -53,31 +59,19 @@ impl(
     self._pos = (self._pos + usize(1));
     b
   }),
-  // Decode a full UTF-8 codepoint given the first byte (already consumed by _advance).
-  // Reads 0-3 continuation bytes from self._pos and advances past them.
-  _read_codepoint : (fn(self : Self, first : u8) -> u32)(
-    cond(
-      (first < u8(0x80)) => u32(first),
-      ((first >= u8(0xC0)) && (first < u8(0xE0))) => {
-        second := self._bytes(self._pos);
-        self._pos = (self._pos + usize(1));
-        ((u32(first) & u32(0x1F)) << u32(6)) | (u32(second) & u32(0x3F))
-      },
-      ((first >= u8(0xE0)) && (first < u8(0xF0))) => {
-        second := self._bytes(self._pos);
-        third := self._bytes(self._pos + usize(1));
-        self._pos = (self._pos + usize(2));
-        (((u32(first) & u32(0x0F)) << u32(12)) | ((u32(second) & u32(0x3F)) << u32(6))) | (u32(third) & u32(0x3F))
-      },
-      true => {
-        second := self._bytes(self._pos);
-        third := self._bytes(self._pos + usize(1));
-        fourth := self._bytes(self._pos + usize(2));
-        self._pos = (self._pos + usize(3));
-        ((((u32(first) & u32(0x07)) << u32(18)) | ((u32(second) & u32(0x3F)) << u32(12))) | ((u32(third) & u32(0x3F)) << u32(6))) | (u32(fourth) & u32(0x3F))
-      }
-    )
-  ),
+  // Decode a full UTF-8 codepoint given the first byte (already consumed by
+  // _advance), and leave _pos just past the sequence.
+  //
+  // Tolerant by contract, like the VM's decoder: a malformed pattern byte
+  // becomes U+FFFD and consumes exactly one byte. The old hand-rolled version
+  // read `_bytes(self._pos + k)` unconditionally and indexed past the end on a
+  // truncated tail.
+  _read_codepoint : (fn(self : Self, first : u8) -> u32)({
+    start := (self._pos - usize(1));
+    d := utf8.decode_lossy(self._bytes, start);
+    self._pos = (start + d.width);
+    d.code.to_u32()
+  }),
   _at_end : (fn(self : Self) -> bool)(
     self._pos >= self._bytes.len()
   ),
@@ -204,7 +198,7 @@ impl(
     self._pos = (self._pos + usize(2));
     .Some(u32((v1 << i32(4)) | v2))
   }),
-  _parse_class_unwind : (fn(self : Self) -> Result(ArrayList(CharRange), String))({
+  _parse_class_unwind : (fn(self : Self) -> Result(ArrayList(CharRange), RegexError))({
     b := self._advance();
     match(
       b,
@@ -251,7 +245,7 @@ impl(
             .Ok(r)
           }
         ),
-      .None => .Err(`Unexpected end of pattern after backslash`)
+      .None => .Err(RegexError.TrailingBackslash(self._pos))
     )
   }),
   _try_parse_char_range : (fn(self : Self, ranges : ArrayList(CharRange), low : u32) -> unit)({
@@ -318,13 +312,13 @@ impl(
       }
     );
   }),
-  _parse_char_class_content : (fn(self : Self, ranges : ArrayList(CharRange)) -> Result(unit, String))({
+  _parse_char_class_content : (fn(self : Self, ranges : ArrayList(CharRange)) -> Result(unit, RegexError))({
     pk2 := self._peek();
     b := match(
       pk2,
       .Some(v) => v,
       .None => {
-        return(.Err(`Unterminated character class`));
+        return(.Err(RegexError.UnterminatedCharClass(self._pos)));
       }
     );
     cond(
@@ -361,7 +355,7 @@ impl(
     );
     .Ok(())
   }),
-  _parse_char_class : (fn(self : Self) -> Result(RegexNode, String))({
+  _parse_char_class : (fn(self : Self) -> Result(RegexNode, RegexError))({
     ranges := ArrayList(CharRange).new();
     negated := false;
     // Check for negation '^'
@@ -402,11 +396,11 @@ impl(
         }
       );
     });
-    .Err(`Unterminated character class`)
+    .Err(RegexError.UnterminatedCharClass(self._pos))
   }),
   // Parse \p{PropertyName} or \P{PropertyName} unicode property unwind.
   // negated=true for \P (inverted match).
-  _parse_unicode_property : (fn(self : Self, negated : bool) -> Result(RegexNode, String))({
+  _parse_unicode_property : (fn(self : Self, negated : bool) -> Result(RegexNode, RegexError))({
     // Expect opening '{'
     pk := self._peek();
     is_brace := match(
@@ -416,7 +410,7 @@ impl(
     );
     cond(
       (!(is_brace)) => {
-        return(.Err(`Expected '{' after \\p or \\P`));
+        return(.Err(RegexError.InvalidUnicodeProperty(self._pos)));
       },
       true => ()
     );
@@ -441,7 +435,7 @@ impl(
             match(
               lookup,
               .Some(ranges) => .Ok(RegexNode.char_class(ranges, negated)),
-              .None => .Err(`Unknown Unicode property: \\p{${name_str}}`)
+              .None => .Err(RegexError.UnknownUnicodeProperty(name_str, self._pos))
             )
           );
         },
@@ -451,9 +445,9 @@ impl(
         }
       );
     });
-    .Err(`Unterminated Unicode property \\p{...}`)
+    .Err(RegexError.InvalidUnicodeProperty(self._pos))
   }),
-  _parse_unwind : (fn(self : Self) -> Result(RegexNode, String))({
+  _parse_unwind : (fn(self : Self) -> Result(RegexNode, RegexError))({
     b := self._advance();
     match(
       b,
@@ -472,7 +466,7 @@ impl(
             group_idx := usize(ch - u8(48));
             cond(
               (group_idx > self._group_count) =>
-                .Err(`Backreference \\${group_idx} exceeds number of groups`),
+                .Err(RegexError.InvalidBackreference(group_idx, self._pos)),
               true => .Ok(RegexNode.backreference(group_idx))
             )
           },
@@ -486,7 +480,7 @@ impl(
             );
             cond(
               (!(is_lt)) => {
-                return(.Err(`Expected '<' after \\k`));
+                return(.Err(RegexError.InvalidNamedBackreference(self._pos)));
               },
               true => ()
             );
@@ -510,7 +504,7 @@ impl(
                     match(
                       lookup,
                       .Some(idx) => .Ok(RegexNode.backreference(idx)),
-                      .None => .Err(`Unknown named group in backreference`)
+                      .None => .Err(RegexError.UnknownGroupName(name_str, self._pos))
                     )
                   );
                 },
@@ -520,7 +514,7 @@ impl(
                 }
               );
             });
-            .Err(`Unterminated named backreference \\k<...>`)
+            .Err(RegexError.InvalidNamedBackreference(self._pos))
           },
           // Unicode property \p{Name}
           (ch == u8(112)) => self._parse_unicode_property(false),
@@ -534,17 +528,17 @@ impl(
           ),
           true => .Ok(RegexNode.literal(self._escape_char_codepoint(ch)))
         ),
-      .None => .Err(`Unexpected end of pattern after backslash`)
+      .None => .Err(RegexError.TrailingBackslash(self._pos))
     )
   }),
-  _parse_counted_quantifier : (fn(self : Self, atom : RegexNode) -> Result(RegexNode, String))({
+  _parse_counted_quantifier : (fn(self : Self, atom : RegexNode) -> Result(RegexNode, RegexError))({
     self._pos = (self._pos + usize(1));
     min_opt := self._parse_number();
     mn := match(
       min_opt,
       .Some(v) => v,
       .None => {
-        return(.Err(`Expected number after '{'`));
+        return(.Err(RegexError.InvalidQuantifier(self._pos)));
       }
     );
     pk := self._peek();
@@ -552,7 +546,7 @@ impl(
       pk,
       .Some(v) => v,
       .None => {
-        return(.Err(`Unexpected end of pattern in quantifier`));
+        return(.Err(RegexError.UnexpectedEnd(self._pos)));
       }
     );
     cond(
@@ -563,7 +557,7 @@ impl(
         return(.Ok(RegexNode.quantifier(atom, mn, mn, greedy)));
       },
       (b != u8(44)) => {
-        return(.Err(`Expected ',' or '}' in quantifier`));
+        return(.Err(RegexError.InvalidQuantifier(self._pos)));
       },
       true => ()
     );
@@ -574,7 +568,7 @@ impl(
       pk2,
       .Some(v) => v,
       .None => {
-        return(.Err(`Unexpected end of pattern in quantifier`));
+        return(.Err(RegexError.UnexpectedEnd(self._pos)));
       }
     );
     cond(
@@ -592,7 +586,7 @@ impl(
       max_opt,
       .Some(v) => v,
       .None => {
-        return(.Err(`Expected number after ',' in quantifier`));
+        return(.Err(RegexError.InvalidQuantifier(self._pos)));
       }
     );
     pk3 := self._peek();
@@ -600,26 +594,26 @@ impl(
       pk3,
       .Some(v) => v,
       .None => {
-        return(.Err(`Unexpected end of pattern in quantifier`));
+        return(.Err(RegexError.UnexpectedEnd(self._pos)));
       }
     );
     cond(
       (b3 != u8(125)) => {
-        return(.Err(`Expected '}' in quantifier`));
+        return(.Err(RegexError.InvalidQuantifier(self._pos)));
       },
       true => ()
     );
     self._pos = (self._pos + usize(1));
     cond(
       (mx < mn) => {
-        return(.Err(`Invalid quantifier: max less than min`));
+        return(.Err(RegexError.QuantifierOutOfOrder(mn, mx, self._pos)));
       },
       true => ()
     );
     greedy := self._parse_greedy_modifier();
     .Ok(RegexNode.quantifier(atom, mn, mx, greedy))
   }),
-  _parse_atom : (fn(self : Self) -> Result(RegexNode, String))({
+  _parse_atom : (fn(self : Self) -> Result(RegexNode, RegexError))({
     b := self._advance();
     match(
       b,
@@ -632,10 +626,10 @@ impl(
           (ch == u8(92)) => self._parse_unwind(),
           true => .Ok(RegexNode.literal(self._read_codepoint(ch)))
         ),
-      .None => .Err(`Unexpected end of pattern`)
+      .None => .Err(RegexError.UnexpectedEnd(self._pos))
     )
   }),
-  _maybe_quantify : (fn(self : Self, a : RegexNode) -> Result(RegexNode, String))({
+  _maybe_quantify : (fn(self : Self, a : RegexNode) -> Result(RegexNode, RegexError))({
     pk := self._peek();
     b := match(
       pk,
@@ -664,7 +658,7 @@ impl(
       true => .Ok(a)
     )
   }),
-  _parse_quantified : (fn(self : Self) -> Result(RegexNode, String))({
+  _parse_quantified : (fn(self : Self) -> Result(RegexNode, RegexError))({
     atom := self._parse_atom();
     match(
       atom,
@@ -699,7 +693,7 @@ impl(
     });
     result
   }),
-  parse : (fn(self : Self) -> Result(RegexNode, String))({
+  parse : (fn(self : Self) -> Result(RegexNode, RegexError))({
     stack := ArrayList(ParseFrame).new();
     cur_alts := ArrayList(ArrayList(RegexNode)).new();
     cur_seq := ArrayList(RegexNode).new();
@@ -861,7 +855,7 @@ impl(
           self._pos = (self._pos + usize(1));
           cond(
             (stack.len() == usize(0)) => {
-              return(.Err(`Unexpected ')' without matching '('`));
+              return(.Err(RegexError.UnmatchedCloseParen(self._pos)));
             },
             true => ()
           );
@@ -925,7 +919,7 @@ impl(
     });
     cond(
       (stack.len() > usize(0)) => {
-        return(.Err(`Unterminated group — expected ')'`));
+        return(.Err(RegexError.UnterminatedGroup(self._pos)));
       },
       true => ()
     );

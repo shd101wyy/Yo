@@ -1,9 +1,12 @@
 //! NFA compiler — compiles a `RegexNode` AST into a flat list of NFA instructions
 //! using Thompson's construction algorithm.
+//!
+//! **Internal to `std/regex`.** Nothing here is public API: import
+//! `std/regex` and use `Regex`. This module's shape changes freely.
 pragma(Pragma.AllowUnsafe);
 open(import("std/collections/array_list"));
 open(import("std/string"));
-{ RegexNode, NodeKind, CharRange, AnchorKind, GroupNameEntry } :: import("./node.yo");
+{ RegexNode, CharRange, GroupNameEntry } :: import("./node.yo");
 /// NFA instruction types.
 InstrKind :: enum(
   Char,
@@ -452,8 +455,5 @@ impl(
 export(
   NfaCompiler,
   NfaProgram,
-  Instr,
-  InstrKind,
-  ClassEntry,
-  GroupNameEntry
+  ClassEntry
 );

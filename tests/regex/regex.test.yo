@@ -16,7 +16,7 @@
 { assert } :: import("std/assert");
 open(import("std/collections/array_list"));
 open(import("std/string"));
-{ Regex, RegexMatch } :: import("std/regex");
+{ Regex, RegexMatch, RegexError } :: import("std/regex");
 // ============================================================================
 // 1. Literal Matching
 // ============================================================================
@@ -991,4 +991,163 @@ test("unicode property with quantifier", {
   m2 := re.exec(`ab123cd`);
   assert(m2.is_some(), "should match 3+ digits");
   assert(m2.unwrap().value() == `123`, "should match 123");
+});
+// ============================================================================
+// 20. Typed RegexError (STD_API_AUDIT D8)
+//
+// `Regex.new` reports every failure as a matchable `RegexError` — one test per
+// variant, so the error surface cannot regress silently.
+// ============================================================================
+test("RegexError.UnexpectedEnd for a truncated quantifier", {
+  hit := match(
+    Regex.new(`a{2`, ``),
+    .Ok(_re) => false,
+    .Err(e) => match(e, .UnexpectedEnd(_pos) => true, _ => false)
+  );
+  assert(hit, "`a{2` should yield RegexError.UnexpectedEnd");
+});
+test("RegexError.TrailingBackslash for a pattern ending in a backslash", {
+  hit := match(
+    Regex.new(`a\\`, ``),
+    .Ok(_re) => false,
+    .Err(e) => match(e, .TrailingBackslash(_pos) => true, _ => false)
+  );
+  assert(hit, "a trailing backslash should yield RegexError.TrailingBackslash");
+});
+test("RegexError.UnterminatedCharClass for an unclosed [", {
+  hit := match(
+    Regex.new(`[abc`, ``),
+    .Ok(_re) => false,
+    .Err(e) => match(e, .UnterminatedCharClass(_pos) => true, _ => false)
+  );
+  assert(hit, "`[abc` should yield RegexError.UnterminatedCharClass");
+});
+test("RegexError.UnterminatedGroup for an unclosed (", {
+  hit := match(
+    Regex.new(`(abc`, ``),
+    .Ok(_re) => false,
+    .Err(e) => match(e, .UnterminatedGroup(_pos) => true, _ => false)
+  );
+  assert(hit, "`(abc` should yield RegexError.UnterminatedGroup");
+});
+test("RegexError.UnmatchedCloseParen for a stray )", {
+  hit := match(
+    Regex.new(`abc)`, ``),
+    .Ok(_re) => false,
+    .Err(e) => match(e, .UnmatchedCloseParen(_pos) => true, _ => false)
+  );
+  assert(hit, "`abc)` should yield RegexError.UnmatchedCloseParen");
+});
+test("RegexError.InvalidQuantifier for an empty {}", {
+  hit := match(
+    Regex.new(`a{}`, ``),
+    .Ok(_re) => false,
+    .Err(e) => match(e, .InvalidQuantifier(_pos) => true, _ => false)
+  );
+  assert(hit, "`a{}` should yield RegexError.InvalidQuantifier");
+});
+test("RegexError.QuantifierOutOfOrder carries min and max", {
+  hit := match(
+    Regex.new(`a{3,1}`, ``),
+    .Ok(_re) => false,
+    .Err(e) =>
+      match(
+        e,
+        .QuantifierOutOfOrder(mn, mx, _pos) => ((mn == usize(3)) && (mx == usize(1))),
+        _ => false
+      )
+  );
+  assert(hit, "`a{3,1}` should yield RegexError.QuantifierOutOfOrder(3, 1)");
+});
+test("RegexError.InvalidBackreference carries the group number", {
+  hit := match(
+    Regex.new(`\\1`, ``),
+    .Ok(_re) => false,
+    .Err(e) =>
+      match(e, .InvalidBackreference(g, _pos) => (g == usize(1)), _ => false)
+  );
+  assert(hit, "`\\1` with no groups should yield RegexError.InvalidBackreference(1)");
+});
+test("RegexError.InvalidNamedBackreference for \\k without <name>", {
+  hit := match(
+    Regex.new(`\\kx`, ``),
+    .Ok(_re) => false,
+    .Err(e) => match(e, .InvalidNamedBackreference(_pos) => true, _ => false)
+  );
+  assert(hit, "`\\kx` should yield RegexError.InvalidNamedBackreference");
+});
+test("RegexError.UnknownGroupName carries the name", {
+  hit := match(
+    Regex.new(`(?<a>x)\\k<b>`, ``),
+    .Ok(_re) => false,
+    .Err(e) => match(e, .UnknownGroupName(name, _pos) => (name == `b`), _ => false)
+  );
+  assert(hit, "`\\k<b>` with no group b should yield RegexError.UnknownGroupName(b)");
+});
+test("RegexError.InvalidUnicodeProperty for \\p without braces", {
+  hit := match(
+    Regex.new(`\\pL`, ``),
+    .Ok(_re) => false,
+    .Err(e) => match(e, .InvalidUnicodeProperty(_pos) => true, _ => false)
+  );
+  assert(hit, "`\\pL` should yield RegexError.InvalidUnicodeProperty");
+});
+test("RegexError.UnknownUnicodeProperty carries the property name", {
+  hit := match(
+    Regex.new(`\\p{Nope}`, ``),
+    .Ok(_re) => false,
+    .Err(e) =>
+      match(e, .UnknownUnicodeProperty(name, _pos) => (name == `Nope`), _ => false)
+  );
+  assert(hit, "`\\p{Nope}` should yield RegexError.UnknownUnicodeProperty(Nope)");
+});
+test("RegexError.InvalidFlag carries the flag byte", {
+  hit := match(
+    Regex.new(`a`, `q`),
+    .Ok(_re) => false,
+    .Err(e) => match(e, .InvalidFlag(f) => (f == u8(113)), _ => false)
+  );
+  assert(hit, "flag `q` should yield RegexError.InvalidFlag('q')");
+});
+test("RegexError.DuplicateFlag carries the repeated flag byte", {
+  hit := match(
+    Regex.new(`a`, `gg`),
+    .Ok(_re) => false,
+    .Err(e) => match(e, .DuplicateFlag(f) => (f == u8(103)), _ => false)
+  );
+  assert(hit, "flags `gg` should yield RegexError.DuplicateFlag('g')");
+});
+test("RegexError renders through ToString", {
+  msg := match(
+    Regex.new(`[abc`, ``),
+    .Ok(_re) => ``,
+    .Err(e) => `${e}`
+  );
+  assert(msg.starts_with(`regex error: `), "RegexError should stringify with a `regex error: ` prefix");
+  assert(msg.contains(`character class`), "the message should name the failing construct");
+});
+// ============================================================================
+// 21. Capture-slot capacity (STD_API_AUDIT D8 — the retired MAX_SLOTS)
+//
+// The engine allocates 2 * (n_groups + 1) capture slots per NFA thread and
+// caps nothing. The dead `MAX_SLOTS :: 200` constant claimed a 99-group
+// ceiling that was never enforced; this test pins the measured truth so a real
+// cap cannot be introduced by accident.
+// ============================================================================
+test("more than 99 capture groups neither error nor truncate", {
+  pat := ArrayList(u8).new();
+  inp := ArrayList(u8).new();
+  i := usize(0);
+  while(i < usize(120), i = (i + usize(1)), {
+    pat.push(u8(40));
+    pat.push(u8(97));
+    pat.push(u8(41));
+    inp.push(u8(97));
+  });
+  re := Regex.new(String.from_bytes(pat), ``).unwrap();
+  m := re.exec(String.from_bytes(inp)).unwrap();
+  assert(m.group_count() == usize(120), "all 120 groups should be reported");
+  assert(m.group(usize(100)).is_some(), "group 100 should have captured");
+  assert(m.group(usize(120)).is_some(), "group 120 should have captured");
+  assert(m.group(usize(121)).is_none(), "group 121 does not exist");
 });

@@ -1,16 +1,28 @@
 //! NFA virtual machine (Thompson simulation).
 //!
+//! **Internal to `std/regex`.** Nothing here is public API: import
+//! `std/regex` and use `Regex`. This module's shape changes freely.
+//!
 //! Executes a compiled NFA program against an input string.
 //! Uses Thompson's NFA simulation with parallel state tracking
 //! for O(n×m) worst-case time complexity.
+//!
+//! ## Capture slots
+//!
+//! Each live NFA thread carries its own capture-slot array of
+//! `2 * (n_groups + 1)` `usize` entries — two (start, end) per group plus
+//! two for the whole match — initialised to `usize.MAX` ("unset"). The count
+//! is derived from the compiled program, so there is **no cap on the number
+//! of capture groups**: the engine neither errors nor truncates, and the only
+//! bound is memory. (A `MAX_SLOTS :: 200` constant used to sit here; it was
+//! referenced nowhere and bounded nothing, so it was deleted rather than
+//! turned into a limit the engine never had.)
 pragma(Pragma.AllowUnsafe);
 open(import("std/collections/array_list"));
 open(import("std/string"));
-{ NfaProgram, Instr, InstrKind, ClassEntry, GroupNameEntry } :: import("./compiler.yo");
-{ CharRange } :: import("./node.yo");
+{ NfaProgram, ClassEntry } :: import("./compiler.yo");
 { RegexFlags } :: import("./flags.yo");
-// Max number of capture slots (group 0 + up to 99 groups = 200 slots)
-MAX_SLOTS :: 200;
+utf8 :: import("../encoding/utf8.yo");
 // A single NFA thread: an instruction pointer + capture slots
 NfaThread :: ref(
   struct(
@@ -84,30 +96,13 @@ impl(
       _next_seen : next_seen
     )
   }),
+  // Tolerant by contract: the VM steps over whatever bytes the subject
+  // happens to hold, so a malformed sequence yields U+FFFD and a width of 1
+  // rather than failing. The old hand-rolled version indexed `_bytes` past the
+  // end on a truncated tail; `decode_lossy` bounds-checks instead.
   _decode_codepoint : (fn(self : Self, pos : usize) -> DecodedChar)({
-    first := self._bytes(pos);
-    cond(
-      (first < u8(0x80)) =>
-        DecodedChar(codepoint : u32(first), byte_len : usize(1)),
-      ((first >= u8(0xC0)) && (first < u8(0xE0))) => {
-        second := self._bytes(pos + usize(1));
-        cp := (((u32(first) & u32(0x1F)) << u32(6)) | (u32(second) & u32(0x3F)));
-        DecodedChar(codepoint : cp, byte_len : usize(2))
-      },
-      ((first >= u8(0xE0)) && (first < u8(0xF0))) => {
-        second := self._bytes(pos + usize(1));
-        third := self._bytes(pos + usize(2));
-        cp := ((((u32(first) & u32(0x0F)) << u32(12)) | ((u32(second) & u32(0x3F)) << u32(6))) | (u32(third) & u32(0x3F)));
-        DecodedChar(codepoint : cp, byte_len : usize(3))
-      },
-      true => {
-        second := self._bytes(pos + usize(1));
-        third := self._bytes(pos + usize(2));
-        fourth := self._bytes(pos + usize(3));
-        cp := (((((u32(first) & u32(0x07)) << u32(18)) | ((u32(second) & u32(0x3F)) << u32(12))) | ((u32(third) & u32(0x3F)) << u32(6))) | (u32(fourth) & u32(0x3F)));
-        DecodedChar(codepoint : cp, byte_len : usize(4))
-      }
-    )
+    d := utf8.decode_lossy(self._bytes, pos);
+    DecodedChar(codepoint : d.code.to_u32(), byte_len : d.width)
   }),
   _to_lower : (fn(self : Self, cp : u32) -> u32)(
     cond(
@@ -123,7 +118,7 @@ impl(
     while(p > usize(0), p = (p - usize(1)), {
       b := self._bytes(p);
       cond(
-        ((b < u8(0x80)) || (b >= u8(0xC0))) => {
+        utf8.is_boundary(b) => {
           return(p);
         },
         true => ()
@@ -670,7 +665,7 @@ impl(
                       cond(
                         (try_pos > usize(0)) => {
                           tb := self._bytes(try_pos);
-                          while(((tb >= u8(0x80)) && (tb < u8(0xC0))) && (try_pos > usize(0)), {
+                          while(utf8.is_continuation(tb) && (try_pos > usize(0)), {
                             try_pos = (try_pos - usize(1));
                             tb = self._bytes(try_pos);
                           });
@@ -725,9 +720,4 @@ impl(
     best_match
   })
 );
-export(
-  NfaVm,
-  NfaThread,
-  VmMatch,
-  DecodedChar
-);
+export(NfaVm);

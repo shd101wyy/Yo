@@ -641,8 +641,75 @@ implementing the D5 traits.** Until it lands, std honestly refuses https.
   `*(__YO_THREAD_SYNC_TYPE)` and only the deleted `cond_t.wait` wanted
   `mutex_t`. Still to do: stop exporting `__MutexUnlocker` (**DONE**, round 1)
   and `__YO_THREAD_SYNC_TYPE` (blocked — the compiler itself consumes it).
-- Atomics: `fetch_add/sub/and/or/xor/min/max` for ALL integer atomics (today
-  only `AtomicI32` has add/sub), `fence`, receiver convention unified.
+- ~~Atomics: `fetch_add/sub/and/or/xor/min/max` for ALL integer atomics (today
+  only `AtomicI32` has add/sub), `fence`, receiver convention unified.~~
+  **DONE 2026-08-25** (`std/sync/atomic.yo`, `tests/sync/atomic.test.yo`,
+  both `THREAD_SAFETY.md`). The row's premise re-measured and held: all 11
+  atomic types carried `new/load/store/swap/compare_exchange`, and `fetch_add`
+  / `fetch_sub` existed on `AtomicI32` alone. Now every one of the 10 INTEGER
+  types carries all seven `fetch_*` ops; `AtomicBool` deliberately carries
+  none (it is not an integer atomic, and Rust's `fetch_and/or/xor`-on-bool is
+  a separate request, not this row). `fence(order)` added, over the C11
+  ordering model `MemoryOrder` already models — `atomic_thread_fence` was
+  already bound in `std/libc/stdatomic.yo`, so no new C surface.
+
+  **Receiver — the row is right, and the inconsistency is cross-module, not
+  within the file.** Every method in `atomic.yo` already used `inout(self)`,
+  so the file was internally uniform; what it was out of step with is the rest
+  of `std/sync`, where every other `atomic(ref(...))` type (`Mutex`, `RwLock`,
+  `Cond`, `Channel`, `Once`, `WaitGroup`) takes `self : Self`. Unified ON
+  `self : Self` (46 receivers rewritten): an atomic IS a shared handle,
+  mutation goes through the C11 operation rather than a Yo place-write, so
+  `inout` only demanded a mutable binding at every call site without buying a
+  guarantee — and `&(self.field)` under a by-value receiver was already proven
+  legal by `Mutex._raw_lock`. `compare_exchange` keeps `inout(expected)`,
+  which really is written back. No call site in `std/`, `src/` or `tests/`
+  needed a change (going from `inout` to by-value only ever relaxes the call
+  site); `once`/`waitgroup`/`channel`/`mutex`/`rwlock`/`thread_safety`/
+  `async_await` test files all re-run green.
+
+  **Lowering — measured, and NOT what the row assumed.** `AtomicI32` keeps a
+  native lowering for `fetch_add/sub/and/or/xor` (the C11
+  `atomic_fetch_*_explicit` generic macros). It is the ONLY type that can:
+  a `c_include` binding is keyed by C symbol name (`extern_name = label`,
+  `src/evaluator/exprs/c_include.yo`) with no aliasing form, and Yo has no
+  overloading, so each `_Generic` macro gets exactly one Yo binding — and
+  `std/libc/stdatomic.yo` spent it on `*(atomic_int)`. The other nine types,
+  and `fetch_min`/`fetch_max` everywhere (C11 has no atomic min/max at all),
+  run a strong compare-exchange loop over that type's existing
+  `__yo_atomic_compare_exchange_*` primitive. Lock-free, same return value,
+  same wrapping semantics — verified: Yo's RUNTIME integer arithmetic wraps
+  two's-complement exactly like C11 `atomic_fetch_*` (its COMPTIME arithmetic
+  traps instead, which is why the wrap tests build their expectation from a
+  runtime-annotated local).
+
+  **Deliberately NOT done: native `__yo_atomic_fetch_*_<type>` runtime
+  wrappers.** They would be ~70 `static inline` C functions in
+  `src/codegen/types/generation.yo` next to the existing
+  `__yo_atomic_load_*` / `_store_*` / `_exchange_*` / `_compare_exchange_*`
+  block. That is a SEED-GATED change, not a free win: an `extern("Yo", …)`
+  symbol is supplied by the compiler's emitted preamble, so std may not call
+  one until a seed carrying it ships. CI would cope (test.yml's suite legs run
+  the TREE-BUILT compiler with `YO_STD=$PWD/std`), but the change is
+  unverifiable against an installed seed, which is what every local
+  `yo test tests/sync/atomic.test.yo` uses. Schedule it with the other
+  seed-gated follow-ups (`plans/backlog/SEED_VERSION_AUTOMATION.md`); the API
+  and the tests do not change when it lands, only the emitted C.
+
+  Review round (2026-08-26) added five **unsigned-comparison** `fetch_min` /
+  `fetch_max` tests (`AtomicU8/U16/U32/U64/Usize`). The original min/max tests
+  only used small operands (2, 9, 13, 40), where a signed and an unsigned
+  comparison agree — a signed-comparison mutation confined to `AtomicU8`
+  passed the whole file. The new tests pin the boundary (all-ones vs 1) and
+  catch exactly that mutation. `AtomicUsize` wraps its sentinel from a runtime
+  zero rather than spelling a literal, because `usize` is 32-bit on wasm32.
+  The implementation was already correct — this closes a test gap, not a bug.
+
+  Found en route: **`yo test --std-path <dir>` silently tests the INSTALLED
+  std** — the batch compile is a spawned child and `src/main.yo` forwards
+  `--c-compiler`/`--target`/`--sanitize`/… but not `--std-path`, unlike
+  `build_runner.yo`, which does. Use `YO_STD` for `yo test`.
+  → `issues/fixed/yo-test-does-not-forward-std-path-to-batch-compile.md` (FIXED in this batch)
 - `Once` gains `OnceCell(T)`-style `get_or_init`.
 - Merge `std/worker` into `std/thread` as `ThreadPool` (explicit object:
   `spawn -> JoinHandle`-analog, `join_all`, `shutdown`); `Thread.spawn` should
@@ -660,12 +727,199 @@ implementing the D5 traits.** Until it lands, std honestly refuses https.
 - `std/os/env.yo` merges into `std/env.yo` (dir helpers return `Path`); `std/os/`
   then holds only `signal.yo` — flatten. `fs/temp` uses the merged `temp_dir()`
   (kills the 3rd copy of that logic; also consult `TMPDIR` on macOS).
-- One shared `std/encoding/utf8.yo` (validate/decode_rune_at/encode_rune) —
-  SIX private UTF-8 decoders exist today; `String.from_bytes` starts validating
-  (or gains `from_bytes_unchecked`).
+- ~~One shared `std/encoding/utf8.yo` (validate/decode_rune_at/encode_rune) —
+  SIX private UTF-8 decoders exist today~~ **DONE 2026-08-25** — the module
+  exists and every private copy in `std/` is routed through it (the count was
+  low: **eleven** files, not six — see the note below). The
+  `String.from_bytes` half did **not** land as written; read the correction.
+
+  **The module.** `std/encoding/utf8.yo`, 15 exported names:
+  `Utf8Error`, `Decoded`, `is_continuation`, `is_boundary`, `sequence_len`,
+  `step_len`, `encoded_len`, `decode`, `decode_parts`, `decode_lossy`,
+  `encode`, `encode_into`, `encode_lossy_into`, `validate`, `validate_range`.
+  Design points worth not re-litigating:
+
+  - **Two entry points per direction, strict and lossy**, mirroring Rust's
+    `from_utf8` vs Go's `DecodeRune`. `decode` returns
+    `Result(Decoded, Utf8Error)` (D1 style 2: a pure fallible decode);
+    `decode_lossy` never fails, substitutes U+FFFD and always advances by at
+    least one byte so a scan over corrupt input terminates. `encode_into` takes
+    a `rune` and is infallible; `encode_lossy_into` takes a raw `u32` — the
+    shape JSON `\uXXXX`, UTF-16 code units and C `towlower` all produce — and
+    substitutes U+FFFD, so nothing in `std` can emit CESU-8 by accident any more.
+  - **`decode_parts(b0, b1, b2, b3, available, index)` is the real core**, and
+    is public. `decode` is a thin `ArrayList(u8)` wrapper over it. It exists
+    because `std/imm/string.yo` holds a raw `*(u8)` + len, and copying into a
+    list to decode one rune would cost an allocation per rune — the
+    "must not allocate" case the D8 row anticipated. That is the ONE decoder
+    whose *fetch* stayed local; its bit-twiddling and validation did not.
+  - **`Utf8Error` has NO `ToString`/`Error()` impl, by construction.** Those
+    traits live in `std/fmt` / `std/error`, both of which import
+    `std/string` — and `std/string/string.yo` is a consumer of this module, so
+    importing them here would close a cycle right through the core of `std`.
+    `Utf8Error` instead carries inherent `message() -> str` and
+    `index() -> usize`. Precedent: `AllocError` in `std/allocator.yo` has no
+    impls for the same layering reason. **This is load-bearing for D4** — the
+    byte-indexing rework has to be able to import this module from
+    `std/string/string.yo`, and it can only do that while this module stays
+    below `std/error`. `StringError.InvalidUtf8(cause : Utf8Error)` is how the
+    detail reaches a throwable error.
+  - **`decode` and `validate_range` both carry an ASCII fast path**, and it is
+    not decoration. This decoder replaced copies that fetched only the bytes
+    they needed, and it now runs under the compiler's own lexer
+    (`src/lexer.yo` / `src/parser.yo` call `StringBuilder.write_rune` per
+    character, and `String.at`/`substring` walk runes) — fetching four
+    `Option(u8)`s for every `'a'` would have been a real regression against
+    what it replaced. One compare, one fetch, done.
+  - Validation is RFC 3629 strict: `0xC0`/`0xC1` and `0xF5`..`0xFF` are not
+    lead bytes at all, overlong forms, surrogates (U+D800..U+DFFF) and scalars
+    above U+10FFFF are each their own error variant.
+  - `sequence_len` is the strict width (`0` = not a lead byte); `step_len` is
+    that clamped to 1. **Every** rune-walking loop in `std` now calls
+    `step_len` — that alone replaced **14** copies of the same four-arm
+    `cond` table (3 in `string.yo`, 10 in `regex/index.yo`, 1 in
+    `imm/string.yo`). `regex/vm.yo`'s two backwards scans were boundary tests,
+    not width tables, and went to `is_boundary` / `is_continuation`; there are
+    10 boundary-test call sites in all (7 in `string.yo`, 2 in `regex/vm.yo`,
+    1 in `imm/string.yo`).
+
+  **The count in this row was wrong: eleven files carried UTF-8 bit twiddling,
+  not six**, and three of them were encoders the row did not mention.
+  What was routed:
+
+  | file | what it had | now |
+  |---|---|---|
+  | `std/string/string.yo` | `_decode_rune_at`, 3 width tables, 6 boundary tests | `utf8.decode` / `step_len` / `is_boundary` |
+  | `std/imm/string.yo` | `_decode_rune_at` (ptr), width table, boundary test | `utf8.decode_parts` (no allocation) / `step_len` / `is_boundary` |
+  | `std/string/unicode.yo` | `_DecodeResult` + `_decode_utf8` + `_encode_utf8` | `utf8.decode_lossy` / `encode_lossy_into` |
+  | `std/string/string_builder.yo` | `write_rune` encoder | `utf8.encode_into` |
+  | `std/fmt/writer.yo` | `write_rune` encoder | `utf8.encode_into` |
+  | `std/fmt/to_string.yo` | `rune`'s `ToString` encoder (stack `Array(u8,5)` + `from_cstr`) | `utf8.encode_lossy_into` |
+  | `std/encoding/json.yo` | `_push_utf8` (`/` and `%` — its "no `<<`/`>>`" comment was stale) | `utf8.encode_lossy_into` |
+  | `std/encoding/utf16.yo` | a decoder AND an encoder | `utf8.decode_lossy` / `encode_lossy_into` |
+  | `std/regex/parser.yo` | `_read_codepoint` | `utf8.decode_lossy` |
+  | `std/regex/vm.yo` | `_decode_codepoint`, 2 boundary scans | `utf8.decode_lossy` / `is_boundary` / `is_continuation` |
+  | `std/regex/index.yo` | 10 identical width tables | `utf8.step_len` |
+
+  **Three latent bugs fell out of the unification** (all pre-existing, all
+  invisible to the old copies):
+
+  1. `std/regex/parser.yo` and `std/regex/vm.yo` both read
+     `_bytes(pos + 1..3)` **unconditionally** after seeing a multi-byte lead
+     byte — a truncated tail at the end of the subject indexed past the end.
+     `decode_lossy` bounds-checks.
+  2. `std/encoding/utf16.yo`'s `utf16_to_utf8` rejected an unpaired HIGH
+     surrogate but let an unpaired **LOW** surrogate fall through and wrote it
+     out as a 3-byte CESU-8 sequence — invalid UTF-8, contradicting the
+     function's own "throws on unpaired surrogates" doc. Fixed, red-first test
+     in `tests/encoding/utf16.test.yo`.
+  3. `base64_decode_string` handed arbitrary decoded bytes to the unchecked
+     `String.from_bytes` and returned a `String` that need not be UTF-8 at all.
+     It now validates. Red-first test in `tests/encoding/base64.test.yo`.
+     (Its `Result(_, String)` error style is still D1-illegal — that is the
+     §6 "fold into the primary pair" row, untouched here.)
+
+  Also found, filed, NOT fixed:
+  `issues/unicode-case-conversion-ignores-locale-so-non-ascii-is-unchanged.md`
+  — `unicode_to_lowercase`/`unicode_to_uppercase` leave every non-ASCII letter
+  unchanged, because `towlower`/`towupper` run in the `"C"` locale. Verified
+  pre-existing by A/B (byte-identical output before and after the routing).
+  The module has zero consumers and zero tests, which is why nobody noticed.
+  This is the real content of the string row's "Unicode-correct `to_lowercase`".
+
+- **CORRECTION to this row (2026-08-25): `String.from_bytes` did NOT become
+  validating, and `from_bytes_unchecked` was NOT added. Both are blocked, and
+  the blocker is not going away by itself.** What landed instead:
+  `String.from_utf8(bytes) -> Result(Self, StringError)` — the validating
+  constructor, Rust's name, D1 style 2 — plus a rewritten `from_bytes` doc
+  comment saying in so many words that it is the *unchecked* constructor.
+  Two names for the two behaviours, no dead alias.
+
+  Measured, not guessed:
+
+  - **`String.from_bytes` has ~170 call sites** (re-measured 2026-08-26 with
+    `grep -ro '\.from_bytes(' <dir> --include='*.yo'`): 38 in `std/`, 54 in
+    `src/`, 52 in `tests/` — **and 26 in `vendor/markdown_yo`**, which
+    `src/doc/render_html.yo:41` imports by source path. Changing the name or
+    the return type therefore breaks `yo check ./src` and `yo build` until a
+    companion commit is pushed upstream and the submodule pointer is bumped
+    (the standing rule in `plans/`/memory: *vendor needs COMPANION commits for
+    std API changes*). That is a cross-repo change, not a std sweep.
+  - **A three-name transitional shape (`from_bytes` + `from_bytes_unchecked` +
+    `from_utf8`) was rejected** as a straight D2 violation with a dead alias in
+    it. When the vendor bump happens, the rename `from_bytes` →
+    `from_bytes_unchecked` becomes a pure mechanical sweep with no control-flow
+    change; do it then, in one commit, together with the vendor bump.
+  - **`String.from_cstr` must NOT start validating**, against what the §6
+    `StringError` correction below suggests. `std/fmt/to_string.yo` calls it
+    **22 times** — it is how every integer and float becomes a `String`, i.e.
+    every `${x}` in every template string in the compiler. The bytes are
+    `snprintf` output, so validation would be a guaranteed-passing scan on the
+    hottest string path in the tree. `StringError.InvalidUtf8` is wired up by
+    `from_utf8` instead, which is all §6 actually needed to stop the variant
+    being dead.
+  - `StringError.InvalidUtf8` now carries `cause : Utf8Error`, so the caller
+    learns *what* was wrong and at *which byte*, not just "not UTF-8".
+
+  **One behaviour change on a hot path, measured after the fact (2026-08-26).**
+  Routing `rune`'s `ToString` through `encode_lossy_into` replaced a stack
+  `Array(u8, 5)` + `String.from_cstr(...)`, and `from_cstr` stops at the first
+  NUL byte. So `${rune}` changed for exactly two inputs, both previously
+  broken:
+
+  | input | before | after |
+  |---|---|---|
+  | `rune(char : 0)` | `""` (0 bytes — the NUL was eaten by `strlen`) | a 1-byte NUL string |
+  | a hand-built surrogate `rune` | 3-byte CESU-8 (`ED A0 80` for U+D800) | U+FFFD (`EF BF BD`) |
+
+  Every other code point is byte-identical (UTF-8 for a non-zero scalar never
+  contains a `0x00` byte). A/B'd with the same driver against the pre-change
+  `std`. The only in-tree caller that could hit either is
+  `std/encoding/html_char_utils.from_code_point`, and `html.yo` guards it with
+  `is_valid_entity_code`, which already rejects both 0 and the surrogate block
+  — so no `std` behaviour moved.
 - `EncodingError` moves out of `hex.yo` into `std/encoding/error.yo`.
-- Regex internals (`parser/node/compiler/vm` exports) go private; `MAX_SLOTS`
-  documented; typed `RegexError`.
+- ~~Regex internals (`parser/node/compiler/vm` exports) go private; `MAX_SLOTS`
+  documented; typed `RegexError`.~~ **DONE 2026-08-25** (branch
+  `s2/d8-regex-internals`). Three findings against the row as written:
+  1. *"Internals go private" has no language mechanism.* Yo's only visibility
+     control is the `export(...)` list, and `index.yo` must import from its
+     siblings, so a sibling cannot stop exporting what `index.yo` consumes.
+     What was measurable and done: every sub-module's export list trimmed to
+     exactly what its in-package consumers actually use — dropping `NodeKind`,
+     `AnchorKind` (node), `Instr`, `InstrKind` and the `GroupNameEntry`
+     re-export (compiler), `NfaThread`, `VmMatch`, `DecodedChar` (vm) — plus
+     four unused imports in `index.yo` and four in `vm.yo`. Each internal file
+     now carries a `//!` header saying it is not public API. The package's real
+     public surface is `index.yo`'s export list, cut from
+     `Regex, RegexMatch, RegexFlags` to `Regex, RegexMatch, RegexError`:
+     nothing public accepts or returns a `RegexFlags` (flags reach the engine
+     as the `Regex.new` string argument), so it was a leaked internal.
+  2. *`MAX_SLOTS` was DEAD, not undocumented.* `MAX_SLOTS :: 200` in `vm.yo`
+     was referenced nowhere and bounded nothing; the VM sizes capture slots as
+     `2 * (n_groups + 1)` with no cap. **Measured**: a 120-group pattern
+     compiles, matches and reports all 120 groups — no error, no truncation.
+     So there is no silent truncation to file as a bug. The constant was
+     deleted (nothing dead ships) and the real behaviour documented in `vm.yo`,
+     in `Regex.new`'s doc comment and in `plans/REGEX_ENGINE.md`, pinned by a
+     test. The only real group-count limits are syntactic (`\1`–`\9`,
+     `$1`–`$9`).
+  3. *Typed `RegexError`* — new `std/regex/error.yo`, a closed 14-variant enum
+     with `ToString` + `Error()` per D1, replacing `Result(_, String)` in
+     `parser.yo` (18 message sites), `flags.yo` (7) and `Regex.new`. Every
+     variant carries what the caller needs to report the fault (byte offset,
+     group number/name, property name, flag byte); no `Other(msg : String)`
+     escape hatch. One test per variant (`tests/regex/regex.test.yo`,
+     140 → 156 tests). The compiler's own call site
+     (`src/main.yo` `--test-name-pattern`) needed no change — it interpolates
+     the error, which now resolves through `ToString`.
+
+  Found en route, filed not fixed:
+  `issues/template-string-backslash-before-interpolation-eats-both.md` — a
+  literal `\\` immediately before `${...}` in a template string eats the
+  backslash AND silently disables the interpolation (lexer's escaped-dollar
+  marker collides with a real backslash). It corrupted a `RegexError` message
+  until a runtime read of the output caught it.
 - `std/glob` stays the matcher; `fs.walker` gains `pattern` option + a
   `glob(pattern, io)` expansion function (the Python/Node meaning).
 
@@ -684,7 +938,7 @@ implementing the D5 traits.** Until it lands, std honestly refuses https.
 | string | FIX + EXTEND | D4 indexing; Unicode-correct `to_lowercase` (+ `to_ascii_*` variants); `Pattern` impl for `rune` + `Regex`; `replace*` Pattern-generic; `parse_f64`/radix; `split_once`, `strip_prefix/suffix`, `char_indices`; move `panic_dyn`/`assert_dyn` to assert; delete dead `StringError`, one of `to_cstr`/`to_c_str` |
 | encoding | STANDARDIZE | D2 verbs; one error style per D1; utf8 module; add `html_encode` (XSS!); percent-encoding module (P0 — nothing in std can build a safe query string); base32; CSV (P1); toml: floats/arrays/dates/serializer + `ToToml`/`FromToml` derives to mirror json (P1) |
 | json | EXTEND | enum representation for derives (open question O3); `JsonValue.Object` O(n) parallel arrays → keep repr, add index map if profiling demands |
-| regex | POLISH | `Regex.escape`, optional-flags `new`, callback replace, lazy `find_iter`, group byte-spans, typed error, private internals |
+| regex | POLISH | `Regex.escape`, optional-flags `new`, callback replace, lazy `find_iter`, group byte-spans, ~~typed error, private internals~~ (**both DONE 2026-08-25**, D8) |
 | url | EXTEND | percent-encode/decode integration, `query_pairs`/`SearchParams`, `join` (RFC 3986 §5 — needed by http redirects), builder/setters; ~~wire punycode into host handling (or delete punycode)~~ — DELETED, §6 round 1 |
 | io | REDESIGN | D5 |
 | fs | EXTEND + POLISH | wrappers: `copy`, `remove_dir_all` (compiler implements it TWICE as workaround — `src/fetch.yo:80`, `src/version_cache.yo:72`), `read_link`, `set_permissions`, `set_len`, `try_exists`, `watch` (sys/events exists); `OpenOptions` builder; `File.from_fd`; Metadata: real `btime`, `permissions()`, stop `metadata` re-stat by path; DirEntry `path()`; walker: lazy option + glob filter; complete the `_str`/`_cstr` variant matrix or (better) collapse it with a `Pattern`-style `AsPath` trait |
@@ -1129,7 +1383,7 @@ the changed declarations at runtime, not on the nearest existing test file.
 
 **P0 — unblock real programs**
 1. `std/encoding/percent.yo` (percent-encode/decode) + URL/query integration
-2. `std/encoding/utf8.yo` (D8) + `html_encode`
+2. ~~`std/encoding/utf8.yo` (D8)~~ **DONE 2026-08-25** (see D8) + `html_encode`
 3. `std/io` redesign with stdio handles (D5)
 4. `fs.copy`, `fs.remove_dir_all`, `read_link`, `set_permissions`, `try_exists`
 5. `process.Child`/`spawn`/`Stdio`

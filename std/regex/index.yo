@@ -1,11 +1,33 @@
 //! Regular expression engine with an NFA-based virtual machine.
+//!
+//! The public surface of the whole package is the three names this module
+//! exports: `Regex`, `RegexMatch` and `RegexError`. The sibling modules
+//! (`parser`, `node`, `compiler`, `vm`, `flags`, `unicode`) are internals —
+//! they export only what their siblings consume, and nothing in them is
+//! covered by the stability promise.
+//!
+//! # Example
+//!
+//! ```rust
+//! { Regex } :: import("std/regex");
+//!
+//! re := Regex.new(`(\w+)@(\w+)`, `i`).unwrap();
+//! match(
+//!   re.exec(`mail Ada@Example`),
+//!   .Some(m) => println(m.group(usize(1)).unwrap()),
+//!   .None => println(`no match`)
+//! );
+//! ```
 open(import("std/collections/array_list"));
 open(import("std/string"));
+{ GroupNameEntry } :: import("./node.yo");
 { RegexParser } :: import("./parser.yo");
-{ NfaCompiler, NfaProgram, Instr, InstrKind, ClassEntry, GroupNameEntry } :: import("./compiler.yo");
-{ NfaVm, VmMatch } :: import("./vm.yo");
+{ NfaCompiler, NfaProgram } :: import("./compiler.yo");
+{ NfaVm } :: import("./vm.yo");
 { RegexFlags } :: import("./flags.yo");
 { RegexMatch } :: import("./match.yo");
+{ RegexError } :: import("./error.yo");
+utf8 :: import("../encoding/utf8.yo");
 /// Compiled regular expression backed by an NFA program.
 Regex :: ref(
   struct(
@@ -19,7 +41,19 @@ Regex :: ref(
 // Block 1: Constructor and leaf methods
 impl(
   Regex,
-  new : (fn(pattern : String, flags_str : String) -> Result(Self, String))({
+  /// Compile `pattern` with the JavaScript-style flag string `flags_str`
+  /// (any of `g`, `i`, `m`, `s`, `u`, `y`; an empty string for none).
+  ///
+  /// Returns `.Err(RegexError)` for every malformed pattern or flag string —
+  /// the variants are matchable, so a caller can report the exact fault and
+  /// the byte offset it was found at.
+  ///
+  /// Capture groups are not capped: the VM allocates `2 * (n_groups + 1)`
+  /// capture slots per NFA thread, bounded only by memory. Only the
+  /// *syntax* is limited — `\1`–`\9` backreferences and `$1`–`$9`
+  /// replacement references are single-digit, so groups past 9 are reachable
+  /// by name (`(?<x>…)` / `\k<x>` / `${x}`) or by `RegexMatch.group(i)`.
+  new : (fn(pattern : String, flags_str : String) -> Result(Self, RegexError))({
     flags_result := RegexFlags.parse(flags_str);
     match(
       flags_result,
@@ -72,12 +106,7 @@ impl(
     i := usize(0);
     while(i < byte_pos, {
       b := bytes(i);
-      char_len := cond(
-        (b < u8(0x80)) => usize(1),
-        ((b >= u8(0xC0)) && (b < u8(0xE0))) => usize(2),
-        ((b >= u8(0xE0)) && (b < u8(0xF0))) => usize(3),
-        true => usize(4)
-      );
+      char_len := utf8.step_len(b);
       i = (i + char_len);
       char_idx = (char_idx + usize(1));
     });
@@ -206,12 +235,7 @@ impl(
             },
             true => {
               b := bytes(byte_pos);
-              char_len := cond(
-                (b < u8(0x80)) => usize(1),
-                ((b >= u8(0xC0)) && (b < u8(0xE0))) => usize(2),
-                ((b >= u8(0xE0)) && (b < u8(0xF0))) => usize(3),
-                true => usize(4)
-              );
+              char_len := utf8.step_len(b);
               next_pos := (byte_pos + char_len);
               byte_pos = cond(
                 has_prefix => self._find_prefix_pos(bytes, next_pos),
@@ -250,12 +274,7 @@ impl(
                     },
                     true => {
                       b := bytes(byte_pos);
-                      char_len := cond(
-                        (b < u8(0x80)) => usize(1),
-                        ((b >= u8(0xC0)) && (b < u8(0xE0))) => usize(2),
-                        ((b >= u8(0xE0)) && (b < u8(0xF0))) => usize(3),
-                        true => usize(4)
-                      );
+                      char_len := utf8.step_len(b);
                       byte_pos = (byte_pos + char_len);
                     }
                   );
@@ -293,12 +312,7 @@ impl(
                     },
                     true => {
                       b := bytes(byte_pos);
-                      char_len := cond(
-                        (b < u8(0x80)) => usize(1),
-                        ((b >= u8(0xC0)) && (b < u8(0xE0))) => usize(2),
-                        ((b >= u8(0xE0)) && (b < u8(0xF0))) => usize(3),
-                        true => usize(4)
-                      );
+                      char_len := utf8.step_len(b);
                       next_pos := (byte_pos + char_len);
                       byte_pos = cond(
                         has_prefix => self._find_prefix_pos(bytes, next_pos),
@@ -322,12 +336,7 @@ impl(
                 },
                 true => {
                   b := bytes(byte_pos);
-                  char_len := cond(
-                    (b < u8(0x80)) => usize(1),
-                    ((b >= u8(0xC0)) && (b < u8(0xE0))) => usize(2),
-                    ((b >= u8(0xE0)) && (b < u8(0xF0))) => usize(3),
-                    true => usize(4)
-                  );
+                  char_len := utf8.step_len(b);
                   next_pos := (byte_pos + char_len);
                   byte_pos = cond(
                     has_prefix => self._find_prefix_pos(bytes, next_pos),
@@ -399,12 +408,7 @@ impl(
               ci := usize(0);
               while(ci < char_idx, {
                 cb := input_bytes(byte_idx);
-                cbl := cond(
-                  (cb < u8(0x80)) => usize(1),
-                  ((cb >= u8(0xC0)) && (cb < u8(0xE0))) => usize(2),
-                  ((cb >= u8(0xE0)) && (cb < u8(0xF0))) => usize(3),
-                  true => usize(4)
-                );
+                cbl := utf8.step_len(cb);
                 byte_idx = (byte_idx + cbl);
                 ci = (ci + usize(1));
               });
@@ -423,12 +427,7 @@ impl(
               ci := usize(0);
               while(ci < char_idx, {
                 cb := input_bytes(byte_idx);
-                cbl := cond(
-                  (cb < u8(0x80)) => usize(1),
-                  ((cb >= u8(0xC0)) && (cb < u8(0xE0))) => usize(2),
-                  ((cb >= u8(0xE0)) && (cb < u8(0xF0))) => usize(3),
-                  true => usize(4)
-                );
+                cbl := utf8.step_len(cb);
                 byte_idx = (byte_idx + cbl);
                 ci = (ci + usize(1));
               });
@@ -536,12 +535,7 @@ impl(
         ci := usize(0);
         while(ci < char_idx, {
           cb := input_bytes(match_start_byte);
-          cbl := cond(
-            (cb < u8(0x80)) => usize(1),
-            ((cb >= u8(0xC0)) && (cb < u8(0xE0))) => usize(2),
-            ((cb >= u8(0xE0)) && (cb < u8(0xF0))) => usize(3),
-            true => usize(4)
-          );
+          cbl := utf8.step_len(cb);
           match_start_byte = (match_start_byte + cbl);
           ci = (ci + usize(1));
         });
@@ -583,12 +577,7 @@ impl(
           ci := usize(0);
           while(ci < char_idx, {
             cb := input_bytes(match_start_byte);
-            cbl := cond(
-              (cb < u8(0x80)) => usize(1),
-              ((cb >= u8(0xC0)) && (cb < u8(0xE0))) => usize(2),
-              ((cb >= u8(0xE0)) && (cb < u8(0xF0))) => usize(3),
-              true => usize(4)
-            );
+            cbl := utf8.step_len(cb);
             match_start_byte = (match_start_byte + cbl);
             ci = (ci + usize(1));
           });
@@ -635,12 +624,7 @@ impl(
           ci := usize(0);
           while(ci < char_idx, {
             cb := input_bytes(match_start_byte);
-            cbl := cond(
-              (cb < u8(0x80)) => usize(1),
-              ((cb >= u8(0xC0)) && (cb < u8(0xE0))) => usize(2),
-              ((cb >= u8(0xE0)) && (cb < u8(0xF0))) => usize(3),
-              true => usize(4)
-            );
+            cbl := utf8.step_len(cb);
             match_start_byte = (match_start_byte + cbl);
             ci = (ci + usize(1));
           });
@@ -683,5 +667,5 @@ impl(
 export(
   Regex,
   RegexMatch,
-  RegexFlags
+  RegexError
 );

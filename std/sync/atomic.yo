@@ -1,4 +1,40 @@
 //! High-level `Atomic*` wrappers for thread-safe shared mutable values.
+//!
+//! # Receiver convention
+//!
+//! Every method on every `Atomic*` type takes `self : Self`, the same
+//! convention the rest of `std/sync` uses for `atomic(ref(...))` types
+//! (`Mutex`, `RwLock`, `Cond`, `Channel`, `Once`, `WaitGroup`). An atomic
+//! IS a shared handle — mutation goes through the C11 atomic operation, not
+//! through a Yo place-write — so an `inout` receiver would only demand a
+//! mutable binding at every call site without buying any extra guarantee.
+//! `compare_exchange` keeps `inout(expected)`, which really is written back:
+//! on failure it is updated to the value the object actually held.
+//!
+//! # Read-modify-write family
+//!
+//! Every integer atomic carries the full family:
+//! `fetch_add`, `fetch_sub`, `fetch_and`, `fetch_or`, `fetch_xor`,
+//! `fetch_min`, `fetch_max`. Each returns the value held BEFORE the
+//! operation and wraps on overflow, matching C11 `atomic_fetch_*`.
+//! `AtomicBool` has none of them: it is not an integer atomic.
+//!
+//! `AtomicI32` lowers `fetch_add`/`sub`/`and`/`or`/`xor` straight to the
+//! C11 `atomic_fetch_*_explicit` generic macros — the only atomic type
+//! `std/libc/stdatomic.yo` binds them for, because a `c_include` binding is
+//! keyed by C symbol name and those macros have exactly one Yo binding
+//! apiece. Every other type, and `fetch_min`/`fetch_max` on all of them
+//! (C11 has no atomic min/max at all), runs a strong compare-exchange loop
+//! over that type's `__yo_atomic_compare_exchange_*` primitive. The loop is
+//! lock-free and yields the same value and the same wrapping semantics; it
+//! only costs a retry under contention.
+//!
+//! # Memory ordering
+//!
+//! `MemoryOrder` is the full C11 model. A compare-exchange loop needs a
+//! read-side order for its load and for the CAS failure path, which C11
+//! forbids from being `release`/`acq_rel` or stronger than the success
+//! order; `_read_order` computes it.
 pragma(Pragma.AllowUnsafe);
 
 {
@@ -19,6 +55,10 @@ pragma(Pragma.AllowUnsafe);
   atomic_compare_exchange_strong_explicit,
   atomic_fetch_add_explicit,
   atomic_fetch_sub_explicit,
+  atomic_fetch_and_explicit,
+  atomic_fetch_or_explicit,
+  atomic_fetch_xor_explicit,
+  atomic_thread_fence,
   __yo_atomic_load_int,
   __yo_atomic_store_int,
   __yo_atomic_exchange_int,
@@ -84,6 +124,21 @@ impl(
   )
 );
 
+/// The read-side counterpart of `order`.
+///
+/// C11 forbids `release` and `acq_rel` where a plain load or a
+/// compare-exchange FAILURE order is required, and a failure order may never
+/// be stronger than its success order. This drops exactly the store half:
+/// `Release -> Relaxed`, `AcqRel -> Acquire`, everything else unchanged.
+_read_order :: (fn(order : MemoryOrder) -> MemoryOrder)(
+  match(
+    order,
+    (.Release) => MemoryOrder.Relaxed,
+    (.AcqRel) => MemoryOrder.Acquire,
+    _ => order
+  )
+);
+
 // ============================================================================
 // AtomicBool
 // ============================================================================
@@ -95,18 +150,18 @@ impl(
     cond(value => unsafe(atomic_store_explicit(&(v.*), true, memory_order_release)), true => ());
     v
   }),
-  load : (fn(inout(self) : Self, order : MemoryOrder) -> bool)(
+  load : (fn(self : Self, order : MemoryOrder) -> bool)(
     unsafe(atomic_load_explicit(&(self.*), order.to_c_order())) == true
   ),
-  store : (fn(inout(self) : Self, value : bool, order : MemoryOrder) -> unit)(
+  store : (fn(self : Self, value : bool, order : MemoryOrder) -> unit)(
     unsafe(atomic_store_explicit(&(self.*), value, order.to_c_order()))
   ),
-  swap : (fn(inout(self) : Self, value : bool, order : MemoryOrder) -> bool)(
+  swap : (fn(self : Self, value : bool, order : MemoryOrder) -> bool)(
     unsafe(atomic_exchange_explicit(&(self.*), value, order.to_c_order())) == true
   ),
   compare_exchange : (
     fn(
-      inout(self) : Self,
+      self : Self,
       inout(expected) : bool,
       new_value : bool,
       success : MemoryOrder,
@@ -136,18 +191,18 @@ impl(
     unsafe(__yo_atomic_store_schar(&(v.*), value, memory_order_release));
     v
   }),
-  load : (fn(inout(self) : Self, order : MemoryOrder) -> i8)(
+  load : (fn(self : Self, order : MemoryOrder) -> i8)(
     unsafe(i8(__yo_atomic_load_schar(&(self.*), order.to_c_order())))
   ),
-  store : (fn(inout(self) : Self, value : i8, order : MemoryOrder) -> unit)(
+  store : (fn(self : Self, value : i8, order : MemoryOrder) -> unit)(
     unsafe(__yo_atomic_store_schar(&(self.*), value, order.to_c_order()))
   ),
-  swap : (fn(inout(self) : Self, value : i8, order : MemoryOrder) -> i8)(
+  swap : (fn(self : Self, value : i8, order : MemoryOrder) -> i8)(
     unsafe(i8(__yo_atomic_exchange_schar(&(self.*), value, order.to_c_order())))
   ),
   compare_exchange : (
     fn(
-      inout(self) : Self,
+      self : Self,
       inout(expected) : i8,
       new_value : i8,
       success : MemoryOrder,
@@ -163,7 +218,72 @@ impl(
         failure.to_c_order()
       )
     )
-  )
+  ),
+  fetch_add : (fn(self : Self, value : i8, order : MemoryOrder) -> i8)({
+    read := _read_order(order);
+    (current : i8) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      swapped = self.compare_exchange(current, current + value, order, read);
+    });
+    current
+  }),
+  fetch_sub : (fn(self : Self, value : i8, order : MemoryOrder) -> i8)({
+    read := _read_order(order);
+    (current : i8) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      swapped = self.compare_exchange(current, current - value, order, read);
+    });
+    current
+  }),
+  fetch_and : (fn(self : Self, value : i8, order : MemoryOrder) -> i8)({
+    read := _read_order(order);
+    (current : i8) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      swapped = self.compare_exchange(current, current & value, order, read);
+    });
+    current
+  }),
+  fetch_or : (fn(self : Self, value : i8, order : MemoryOrder) -> i8)({
+    read := _read_order(order);
+    (current : i8) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      swapped = self.compare_exchange(current, current | value, order, read);
+    });
+    current
+  }),
+  fetch_xor : (fn(self : Self, value : i8, order : MemoryOrder) -> i8)({
+    read := _read_order(order);
+    (current : i8) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      swapped = self.compare_exchange(current, current ^ value, order, read);
+    });
+    current
+  }),
+  fetch_min : (fn(self : Self, value : i8, order : MemoryOrder) -> i8)({
+    read := _read_order(order);
+    (current : i8) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      chosen := if(current < value, current, value);
+      swapped = self.compare_exchange(current, chosen, order, read);
+    });
+    current
+  }),
+  fetch_max : (fn(self : Self, value : i8, order : MemoryOrder) -> i8)({
+    read := _read_order(order);
+    (current : i8) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      chosen := if(current > value, current, value);
+      swapped = self.compare_exchange(current, chosen, order, read);
+    });
+    current
+  })
 );
 
 // ============================================================================
@@ -177,18 +297,18 @@ impl(
     unsafe(__yo_atomic_store_short(&(v.*), value, memory_order_release));
     v
   }),
-  load : (fn(inout(self) : Self, order : MemoryOrder) -> i16)(
+  load : (fn(self : Self, order : MemoryOrder) -> i16)(
     unsafe(i16(__yo_atomic_load_short(&(self.*), order.to_c_order())))
   ),
-  store : (fn(inout(self) : Self, value : i16, order : MemoryOrder) -> unit)(
+  store : (fn(self : Self, value : i16, order : MemoryOrder) -> unit)(
     unsafe(__yo_atomic_store_short(&(self.*), value, order.to_c_order()))
   ),
-  swap : (fn(inout(self) : Self, value : i16, order : MemoryOrder) -> i16)(
+  swap : (fn(self : Self, value : i16, order : MemoryOrder) -> i16)(
     unsafe(i16(__yo_atomic_exchange_short(&(self.*), value, order.to_c_order())))
   ),
   compare_exchange : (
     fn(
-      inout(self) : Self,
+      self : Self,
       inout(expected) : i16,
       new_value : i16,
       success : MemoryOrder,
@@ -204,7 +324,72 @@ impl(
         failure.to_c_order()
       )
     )
-  )
+  ),
+  fetch_add : (fn(self : Self, value : i16, order : MemoryOrder) -> i16)({
+    read := _read_order(order);
+    (current : i16) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      swapped = self.compare_exchange(current, current + value, order, read);
+    });
+    current
+  }),
+  fetch_sub : (fn(self : Self, value : i16, order : MemoryOrder) -> i16)({
+    read := _read_order(order);
+    (current : i16) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      swapped = self.compare_exchange(current, current - value, order, read);
+    });
+    current
+  }),
+  fetch_and : (fn(self : Self, value : i16, order : MemoryOrder) -> i16)({
+    read := _read_order(order);
+    (current : i16) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      swapped = self.compare_exchange(current, current & value, order, read);
+    });
+    current
+  }),
+  fetch_or : (fn(self : Self, value : i16, order : MemoryOrder) -> i16)({
+    read := _read_order(order);
+    (current : i16) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      swapped = self.compare_exchange(current, current | value, order, read);
+    });
+    current
+  }),
+  fetch_xor : (fn(self : Self, value : i16, order : MemoryOrder) -> i16)({
+    read := _read_order(order);
+    (current : i16) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      swapped = self.compare_exchange(current, current ^ value, order, read);
+    });
+    current
+  }),
+  fetch_min : (fn(self : Self, value : i16, order : MemoryOrder) -> i16)({
+    read := _read_order(order);
+    (current : i16) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      chosen := if(current < value, current, value);
+      swapped = self.compare_exchange(current, chosen, order, read);
+    });
+    current
+  }),
+  fetch_max : (fn(self : Self, value : i16, order : MemoryOrder) -> i16)({
+    read := _read_order(order);
+    (current : i16) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      chosen := if(current > value, current, value);
+      swapped = self.compare_exchange(current, chosen, order, read);
+    });
+    current
+  })
 );
 
 // ============================================================================
@@ -218,24 +403,18 @@ impl(
     unsafe(__yo_atomic_store_int(&(v.*), value, memory_order_release));
     v
   }),
-  load : (fn(inout(self) : Self, order : MemoryOrder) -> i32)(
+  load : (fn(self : Self, order : MemoryOrder) -> i32)(
     unsafe(i32(__yo_atomic_load_int(&(self.*), order.to_c_order())))
   ),
-  store : (fn(inout(self) : Self, value : i32, order : MemoryOrder) -> unit)(
+  store : (fn(self : Self, value : i32, order : MemoryOrder) -> unit)(
     unsafe(__yo_atomic_store_int(&(self.*), value, order.to_c_order()))
   ),
-  fetch_add : (fn(inout(self) : Self, value : i32, order : MemoryOrder) -> i32)(
-    unsafe(i32(atomic_fetch_add_explicit(&(self.*), int(value), order.to_c_order())))
-  ),
-  fetch_sub : (fn(inout(self) : Self, value : i32, order : MemoryOrder) -> i32)(
-    unsafe(i32(atomic_fetch_sub_explicit(&(self.*), int(value), order.to_c_order())))
-  ),
-  swap : (fn(inout(self) : Self, value : i32, order : MemoryOrder) -> i32)(
+  swap : (fn(self : Self, value : i32, order : MemoryOrder) -> i32)(
     unsafe(i32(__yo_atomic_exchange_int(&(self.*), value, order.to_c_order())))
   ),
   compare_exchange : (
     fn(
-      inout(self) : Self,
+      self : Self,
       inout(expected) : i32,
       new_value : i32,
       success : MemoryOrder,
@@ -251,7 +430,42 @@ impl(
         failure.to_c_order()
       )
     )
-  )
+  ),
+  fetch_add : (fn(self : Self, value : i32, order : MemoryOrder) -> i32)(
+    unsafe(i32(atomic_fetch_add_explicit(&(self.*), int(value), order.to_c_order())))
+  ),
+  fetch_sub : (fn(self : Self, value : i32, order : MemoryOrder) -> i32)(
+    unsafe(i32(atomic_fetch_sub_explicit(&(self.*), int(value), order.to_c_order())))
+  ),
+  fetch_and : (fn(self : Self, value : i32, order : MemoryOrder) -> i32)(
+    unsafe(i32(atomic_fetch_and_explicit(&(self.*), int(value), order.to_c_order())))
+  ),
+  fetch_or : (fn(self : Self, value : i32, order : MemoryOrder) -> i32)(
+    unsafe(i32(atomic_fetch_or_explicit(&(self.*), int(value), order.to_c_order())))
+  ),
+  fetch_xor : (fn(self : Self, value : i32, order : MemoryOrder) -> i32)(
+    unsafe(i32(atomic_fetch_xor_explicit(&(self.*), int(value), order.to_c_order())))
+  ),
+  fetch_min : (fn(self : Self, value : i32, order : MemoryOrder) -> i32)({
+    read := _read_order(order);
+    (current : i32) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      chosen := if(current < value, current, value);
+      swapped = self.compare_exchange(current, chosen, order, read);
+    });
+    current
+  }),
+  fetch_max : (fn(self : Self, value : i32, order : MemoryOrder) -> i32)({
+    read := _read_order(order);
+    (current : i32) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      chosen := if(current > value, current, value);
+      swapped = self.compare_exchange(current, chosen, order, read);
+    });
+    current
+  })
 );
 
 // ============================================================================
@@ -265,18 +479,18 @@ impl(
     unsafe(__yo_atomic_store_llong(&(v.*), value, memory_order_release));
     v
   }),
-  load : (fn(inout(self) : Self, order : MemoryOrder) -> i64)(
+  load : (fn(self : Self, order : MemoryOrder) -> i64)(
     unsafe(i64(__yo_atomic_load_llong(&(self.*), order.to_c_order())))
   ),
-  store : (fn(inout(self) : Self, value : i64, order : MemoryOrder) -> unit)(
+  store : (fn(self : Self, value : i64, order : MemoryOrder) -> unit)(
     unsafe(__yo_atomic_store_llong(&(self.*), value, order.to_c_order()))
   ),
-  swap : (fn(inout(self) : Self, value : i64, order : MemoryOrder) -> i64)(
+  swap : (fn(self : Self, value : i64, order : MemoryOrder) -> i64)(
     unsafe(i64(__yo_atomic_exchange_llong(&(self.*), value, order.to_c_order())))
   ),
   compare_exchange : (
     fn(
-      inout(self) : Self,
+      self : Self,
       inout(expected) : i64,
       new_value : i64,
       success : MemoryOrder,
@@ -292,7 +506,72 @@ impl(
         failure.to_c_order()
       )
     )
-  )
+  ),
+  fetch_add : (fn(self : Self, value : i64, order : MemoryOrder) -> i64)({
+    read := _read_order(order);
+    (current : i64) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      swapped = self.compare_exchange(current, current + value, order, read);
+    });
+    current
+  }),
+  fetch_sub : (fn(self : Self, value : i64, order : MemoryOrder) -> i64)({
+    read := _read_order(order);
+    (current : i64) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      swapped = self.compare_exchange(current, current - value, order, read);
+    });
+    current
+  }),
+  fetch_and : (fn(self : Self, value : i64, order : MemoryOrder) -> i64)({
+    read := _read_order(order);
+    (current : i64) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      swapped = self.compare_exchange(current, current & value, order, read);
+    });
+    current
+  }),
+  fetch_or : (fn(self : Self, value : i64, order : MemoryOrder) -> i64)({
+    read := _read_order(order);
+    (current : i64) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      swapped = self.compare_exchange(current, current | value, order, read);
+    });
+    current
+  }),
+  fetch_xor : (fn(self : Self, value : i64, order : MemoryOrder) -> i64)({
+    read := _read_order(order);
+    (current : i64) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      swapped = self.compare_exchange(current, current ^ value, order, read);
+    });
+    current
+  }),
+  fetch_min : (fn(self : Self, value : i64, order : MemoryOrder) -> i64)({
+    read := _read_order(order);
+    (current : i64) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      chosen := if(current < value, current, value);
+      swapped = self.compare_exchange(current, chosen, order, read);
+    });
+    current
+  }),
+  fetch_max : (fn(self : Self, value : i64, order : MemoryOrder) -> i64)({
+    read := _read_order(order);
+    (current : i64) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      chosen := if(current > value, current, value);
+      swapped = self.compare_exchange(current, chosen, order, read);
+    });
+    current
+  })
 );
 
 // ============================================================================
@@ -306,18 +585,18 @@ impl(
     unsafe(__yo_atomic_store_uchar(&(v.*), value, memory_order_release));
     v
   }),
-  load : (fn(inout(self) : Self, order : MemoryOrder) -> u8)(
+  load : (fn(self : Self, order : MemoryOrder) -> u8)(
     unsafe(u8(__yo_atomic_load_uchar(&(self.*), order.to_c_order())))
   ),
-  store : (fn(inout(self) : Self, value : u8, order : MemoryOrder) -> unit)(
+  store : (fn(self : Self, value : u8, order : MemoryOrder) -> unit)(
     unsafe(__yo_atomic_store_uchar(&(self.*), value, order.to_c_order()))
   ),
-  swap : (fn(inout(self) : Self, value : u8, order : MemoryOrder) -> u8)(
+  swap : (fn(self : Self, value : u8, order : MemoryOrder) -> u8)(
     unsafe(u8(__yo_atomic_exchange_uchar(&(self.*), value, order.to_c_order())))
   ),
   compare_exchange : (
     fn(
-      inout(self) : Self,
+      self : Self,
       inout(expected) : u8,
       new_value : u8,
       success : MemoryOrder,
@@ -333,7 +612,72 @@ impl(
         failure.to_c_order()
       )
     )
-  )
+  ),
+  fetch_add : (fn(self : Self, value : u8, order : MemoryOrder) -> u8)({
+    read := _read_order(order);
+    (current : u8) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      swapped = self.compare_exchange(current, current + value, order, read);
+    });
+    current
+  }),
+  fetch_sub : (fn(self : Self, value : u8, order : MemoryOrder) -> u8)({
+    read := _read_order(order);
+    (current : u8) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      swapped = self.compare_exchange(current, current - value, order, read);
+    });
+    current
+  }),
+  fetch_and : (fn(self : Self, value : u8, order : MemoryOrder) -> u8)({
+    read := _read_order(order);
+    (current : u8) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      swapped = self.compare_exchange(current, current & value, order, read);
+    });
+    current
+  }),
+  fetch_or : (fn(self : Self, value : u8, order : MemoryOrder) -> u8)({
+    read := _read_order(order);
+    (current : u8) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      swapped = self.compare_exchange(current, current | value, order, read);
+    });
+    current
+  }),
+  fetch_xor : (fn(self : Self, value : u8, order : MemoryOrder) -> u8)({
+    read := _read_order(order);
+    (current : u8) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      swapped = self.compare_exchange(current, current ^ value, order, read);
+    });
+    current
+  }),
+  fetch_min : (fn(self : Self, value : u8, order : MemoryOrder) -> u8)({
+    read := _read_order(order);
+    (current : u8) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      chosen := if(current < value, current, value);
+      swapped = self.compare_exchange(current, chosen, order, read);
+    });
+    current
+  }),
+  fetch_max : (fn(self : Self, value : u8, order : MemoryOrder) -> u8)({
+    read := _read_order(order);
+    (current : u8) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      chosen := if(current > value, current, value);
+      swapped = self.compare_exchange(current, chosen, order, read);
+    });
+    current
+  })
 );
 
 // ============================================================================
@@ -347,18 +691,18 @@ impl(
     unsafe(__yo_atomic_store_ushort(&(v.*), value, memory_order_release));
     v
   }),
-  load : (fn(inout(self) : Self, order : MemoryOrder) -> u16)(
+  load : (fn(self : Self, order : MemoryOrder) -> u16)(
     unsafe(u16(__yo_atomic_load_ushort(&(self.*), order.to_c_order())))
   ),
-  store : (fn(inout(self) : Self, value : u16, order : MemoryOrder) -> unit)(
+  store : (fn(self : Self, value : u16, order : MemoryOrder) -> unit)(
     unsafe(__yo_atomic_store_ushort(&(self.*), value, order.to_c_order()))
   ),
-  swap : (fn(inout(self) : Self, value : u16, order : MemoryOrder) -> u16)(
+  swap : (fn(self : Self, value : u16, order : MemoryOrder) -> u16)(
     unsafe(u16(__yo_atomic_exchange_ushort(&(self.*), value, order.to_c_order())))
   ),
   compare_exchange : (
     fn(
-      inout(self) : Self,
+      self : Self,
       inout(expected) : u16,
       new_value : u16,
       success : MemoryOrder,
@@ -374,7 +718,72 @@ impl(
         failure.to_c_order()
       )
     )
-  )
+  ),
+  fetch_add : (fn(self : Self, value : u16, order : MemoryOrder) -> u16)({
+    read := _read_order(order);
+    (current : u16) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      swapped = self.compare_exchange(current, current + value, order, read);
+    });
+    current
+  }),
+  fetch_sub : (fn(self : Self, value : u16, order : MemoryOrder) -> u16)({
+    read := _read_order(order);
+    (current : u16) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      swapped = self.compare_exchange(current, current - value, order, read);
+    });
+    current
+  }),
+  fetch_and : (fn(self : Self, value : u16, order : MemoryOrder) -> u16)({
+    read := _read_order(order);
+    (current : u16) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      swapped = self.compare_exchange(current, current & value, order, read);
+    });
+    current
+  }),
+  fetch_or : (fn(self : Self, value : u16, order : MemoryOrder) -> u16)({
+    read := _read_order(order);
+    (current : u16) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      swapped = self.compare_exchange(current, current | value, order, read);
+    });
+    current
+  }),
+  fetch_xor : (fn(self : Self, value : u16, order : MemoryOrder) -> u16)({
+    read := _read_order(order);
+    (current : u16) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      swapped = self.compare_exchange(current, current ^ value, order, read);
+    });
+    current
+  }),
+  fetch_min : (fn(self : Self, value : u16, order : MemoryOrder) -> u16)({
+    read := _read_order(order);
+    (current : u16) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      chosen := if(current < value, current, value);
+      swapped = self.compare_exchange(current, chosen, order, read);
+    });
+    current
+  }),
+  fetch_max : (fn(self : Self, value : u16, order : MemoryOrder) -> u16)({
+    read := _read_order(order);
+    (current : u16) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      chosen := if(current > value, current, value);
+      swapped = self.compare_exchange(current, chosen, order, read);
+    });
+    current
+  })
 );
 
 // ============================================================================
@@ -388,18 +797,18 @@ impl(
     unsafe(__yo_atomic_store_uint(&(v.*), value, memory_order_release));
     v
   }),
-  load : (fn(inout(self) : Self, order : MemoryOrder) -> u32)(
+  load : (fn(self : Self, order : MemoryOrder) -> u32)(
     unsafe(u32(__yo_atomic_load_uint(&(self.*), order.to_c_order())))
   ),
-  store : (fn(inout(self) : Self, value : u32, order : MemoryOrder) -> unit)(
+  store : (fn(self : Self, value : u32, order : MemoryOrder) -> unit)(
     unsafe(__yo_atomic_store_uint(&(self.*), value, order.to_c_order()))
   ),
-  swap : (fn(inout(self) : Self, value : u32, order : MemoryOrder) -> u32)(
+  swap : (fn(self : Self, value : u32, order : MemoryOrder) -> u32)(
     unsafe(u32(__yo_atomic_exchange_uint(&(self.*), value, order.to_c_order())))
   ),
   compare_exchange : (
     fn(
-      inout(self) : Self,
+      self : Self,
       inout(expected) : u32,
       new_value : u32,
       success : MemoryOrder,
@@ -415,7 +824,72 @@ impl(
         failure.to_c_order()
       )
     )
-  )
+  ),
+  fetch_add : (fn(self : Self, value : u32, order : MemoryOrder) -> u32)({
+    read := _read_order(order);
+    (current : u32) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      swapped = self.compare_exchange(current, current + value, order, read);
+    });
+    current
+  }),
+  fetch_sub : (fn(self : Self, value : u32, order : MemoryOrder) -> u32)({
+    read := _read_order(order);
+    (current : u32) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      swapped = self.compare_exchange(current, current - value, order, read);
+    });
+    current
+  }),
+  fetch_and : (fn(self : Self, value : u32, order : MemoryOrder) -> u32)({
+    read := _read_order(order);
+    (current : u32) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      swapped = self.compare_exchange(current, current & value, order, read);
+    });
+    current
+  }),
+  fetch_or : (fn(self : Self, value : u32, order : MemoryOrder) -> u32)({
+    read := _read_order(order);
+    (current : u32) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      swapped = self.compare_exchange(current, current | value, order, read);
+    });
+    current
+  }),
+  fetch_xor : (fn(self : Self, value : u32, order : MemoryOrder) -> u32)({
+    read := _read_order(order);
+    (current : u32) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      swapped = self.compare_exchange(current, current ^ value, order, read);
+    });
+    current
+  }),
+  fetch_min : (fn(self : Self, value : u32, order : MemoryOrder) -> u32)({
+    read := _read_order(order);
+    (current : u32) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      chosen := if(current < value, current, value);
+      swapped = self.compare_exchange(current, chosen, order, read);
+    });
+    current
+  }),
+  fetch_max : (fn(self : Self, value : u32, order : MemoryOrder) -> u32)({
+    read := _read_order(order);
+    (current : u32) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      chosen := if(current > value, current, value);
+      swapped = self.compare_exchange(current, chosen, order, read);
+    });
+    current
+  })
 );
 
 // ============================================================================
@@ -429,18 +903,18 @@ impl(
     unsafe(__yo_atomic_store_ullong(&(v.*), value, memory_order_release));
     v
   }),
-  load : (fn(inout(self) : Self, order : MemoryOrder) -> u64)(
+  load : (fn(self : Self, order : MemoryOrder) -> u64)(
     unsafe(u64(__yo_atomic_load_ullong(&(self.*), order.to_c_order())))
   ),
-  store : (fn(inout(self) : Self, value : u64, order : MemoryOrder) -> unit)(
+  store : (fn(self : Self, value : u64, order : MemoryOrder) -> unit)(
     unsafe(__yo_atomic_store_ullong(&(self.*), value, order.to_c_order()))
   ),
-  swap : (fn(inout(self) : Self, value : u64, order : MemoryOrder) -> u64)(
+  swap : (fn(self : Self, value : u64, order : MemoryOrder) -> u64)(
     unsafe(u64(__yo_atomic_exchange_ullong(&(self.*), value, order.to_c_order())))
   ),
   compare_exchange : (
     fn(
-      inout(self) : Self,
+      self : Self,
       inout(expected) : u64,
       new_value : u64,
       success : MemoryOrder,
@@ -456,7 +930,72 @@ impl(
         failure.to_c_order()
       )
     )
-  )
+  ),
+  fetch_add : (fn(self : Self, value : u64, order : MemoryOrder) -> u64)({
+    read := _read_order(order);
+    (current : u64) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      swapped = self.compare_exchange(current, current + value, order, read);
+    });
+    current
+  }),
+  fetch_sub : (fn(self : Self, value : u64, order : MemoryOrder) -> u64)({
+    read := _read_order(order);
+    (current : u64) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      swapped = self.compare_exchange(current, current - value, order, read);
+    });
+    current
+  }),
+  fetch_and : (fn(self : Self, value : u64, order : MemoryOrder) -> u64)({
+    read := _read_order(order);
+    (current : u64) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      swapped = self.compare_exchange(current, current & value, order, read);
+    });
+    current
+  }),
+  fetch_or : (fn(self : Self, value : u64, order : MemoryOrder) -> u64)({
+    read := _read_order(order);
+    (current : u64) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      swapped = self.compare_exchange(current, current | value, order, read);
+    });
+    current
+  }),
+  fetch_xor : (fn(self : Self, value : u64, order : MemoryOrder) -> u64)({
+    read := _read_order(order);
+    (current : u64) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      swapped = self.compare_exchange(current, current ^ value, order, read);
+    });
+    current
+  }),
+  fetch_min : (fn(self : Self, value : u64, order : MemoryOrder) -> u64)({
+    read := _read_order(order);
+    (current : u64) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      chosen := if(current < value, current, value);
+      swapped = self.compare_exchange(current, chosen, order, read);
+    });
+    current
+  }),
+  fetch_max : (fn(self : Self, value : u64, order : MemoryOrder) -> u64)({
+    read := _read_order(order);
+    (current : u64) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      chosen := if(current > value, current, value);
+      swapped = self.compare_exchange(current, chosen, order, read);
+    });
+    current
+  })
 );
 
 // ============================================================================
@@ -470,18 +1009,18 @@ impl(
     unsafe(__yo_atomic_store_size_t(&(v.*), value, memory_order_release));
     v
   }),
-  load : (fn(inout(self) : Self, order : MemoryOrder) -> usize)(
+  load : (fn(self : Self, order : MemoryOrder) -> usize)(
     unsafe(usize(__yo_atomic_load_size_t(&(self.*), order.to_c_order())))
   ),
-  store : (fn(inout(self) : Self, value : usize, order : MemoryOrder) -> unit)(
+  store : (fn(self : Self, value : usize, order : MemoryOrder) -> unit)(
     unsafe(__yo_atomic_store_size_t(&(self.*), value, order.to_c_order()))
   ),
-  swap : (fn(inout(self) : Self, value : usize, order : MemoryOrder) -> usize)(
+  swap : (fn(self : Self, value : usize, order : MemoryOrder) -> usize)(
     unsafe(usize(__yo_atomic_exchange_size_t(&(self.*), value, order.to_c_order())))
   ),
   compare_exchange : (
     fn(
-      inout(self) : Self,
+      self : Self,
       inout(expected) : usize,
       new_value : usize,
       success : MemoryOrder,
@@ -497,7 +1036,72 @@ impl(
         failure.to_c_order()
       )
     )
-  )
+  ),
+  fetch_add : (fn(self : Self, value : usize, order : MemoryOrder) -> usize)({
+    read := _read_order(order);
+    (current : usize) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      swapped = self.compare_exchange(current, current + value, order, read);
+    });
+    current
+  }),
+  fetch_sub : (fn(self : Self, value : usize, order : MemoryOrder) -> usize)({
+    read := _read_order(order);
+    (current : usize) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      swapped = self.compare_exchange(current, current - value, order, read);
+    });
+    current
+  }),
+  fetch_and : (fn(self : Self, value : usize, order : MemoryOrder) -> usize)({
+    read := _read_order(order);
+    (current : usize) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      swapped = self.compare_exchange(current, current & value, order, read);
+    });
+    current
+  }),
+  fetch_or : (fn(self : Self, value : usize, order : MemoryOrder) -> usize)({
+    read := _read_order(order);
+    (current : usize) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      swapped = self.compare_exchange(current, current | value, order, read);
+    });
+    current
+  }),
+  fetch_xor : (fn(self : Self, value : usize, order : MemoryOrder) -> usize)({
+    read := _read_order(order);
+    (current : usize) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      swapped = self.compare_exchange(current, current ^ value, order, read);
+    });
+    current
+  }),
+  fetch_min : (fn(self : Self, value : usize, order : MemoryOrder) -> usize)({
+    read := _read_order(order);
+    (current : usize) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      chosen := if(current < value, current, value);
+      swapped = self.compare_exchange(current, chosen, order, read);
+    });
+    current
+  }),
+  fetch_max : (fn(self : Self, value : usize, order : MemoryOrder) -> usize)({
+    read := _read_order(order);
+    (current : usize) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      chosen := if(current > value, current, value);
+      swapped = self.compare_exchange(current, chosen, order, read);
+    });
+    current
+  })
 );
 
 // ============================================================================
@@ -511,18 +1115,18 @@ impl(
     unsafe(__yo_atomic_store_ptrdiff(&(v.*), value, memory_order_release));
     v
   }),
-  load : (fn(inout(self) : Self, order : MemoryOrder) -> isize)(
+  load : (fn(self : Self, order : MemoryOrder) -> isize)(
     unsafe(isize(__yo_atomic_load_ptrdiff(&(self.*), order.to_c_order())))
   ),
-  store : (fn(inout(self) : Self, value : isize, order : MemoryOrder) -> unit)(
+  store : (fn(self : Self, value : isize, order : MemoryOrder) -> unit)(
     unsafe(__yo_atomic_store_ptrdiff(&(self.*), value, order.to_c_order()))
   ),
-  swap : (fn(inout(self) : Self, value : isize, order : MemoryOrder) -> isize)(
+  swap : (fn(self : Self, value : isize, order : MemoryOrder) -> isize)(
     unsafe(isize(__yo_atomic_exchange_ptrdiff(&(self.*), value, order.to_c_order())))
   ),
   compare_exchange : (
     fn(
-      inout(self) : Self,
+      self : Self,
       inout(expected) : isize,
       new_value : isize,
       success : MemoryOrder,
@@ -538,7 +1142,82 @@ impl(
         failure.to_c_order()
       )
     )
-  )
+  ),
+  fetch_add : (fn(self : Self, value : isize, order : MemoryOrder) -> isize)({
+    read := _read_order(order);
+    (current : isize) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      swapped = self.compare_exchange(current, current + value, order, read);
+    });
+    current
+  }),
+  fetch_sub : (fn(self : Self, value : isize, order : MemoryOrder) -> isize)({
+    read := _read_order(order);
+    (current : isize) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      swapped = self.compare_exchange(current, current - value, order, read);
+    });
+    current
+  }),
+  fetch_and : (fn(self : Self, value : isize, order : MemoryOrder) -> isize)({
+    read := _read_order(order);
+    (current : isize) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      swapped = self.compare_exchange(current, current & value, order, read);
+    });
+    current
+  }),
+  fetch_or : (fn(self : Self, value : isize, order : MemoryOrder) -> isize)({
+    read := _read_order(order);
+    (current : isize) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      swapped = self.compare_exchange(current, current | value, order, read);
+    });
+    current
+  }),
+  fetch_xor : (fn(self : Self, value : isize, order : MemoryOrder) -> isize)({
+    read := _read_order(order);
+    (current : isize) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      swapped = self.compare_exchange(current, current ^ value, order, read);
+    });
+    current
+  }),
+  fetch_min : (fn(self : Self, value : isize, order : MemoryOrder) -> isize)({
+    read := _read_order(order);
+    (current : isize) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      chosen := if(current < value, current, value);
+      swapped = self.compare_exchange(current, chosen, order, read);
+    });
+    current
+  }),
+  fetch_max : (fn(self : Self, value : isize, order : MemoryOrder) -> isize)({
+    read := _read_order(order);
+    (current : isize) = self.load(read);
+    (swapped : bool) = false;
+    while(runtime(!(swapped)), {
+      chosen := if(current > value, current, value);
+      swapped = self.compare_exchange(current, chosen, order, read);
+    });
+    current
+  })
+);
+
+/// Establish a memory fence with `order` on the calling thread.
+///
+/// Lowers to C11 `atomic_thread_fence`. An atomic operation's own ordering
+/// constrains accesses around THAT object; a fence constrains every prior and
+/// subsequent memory access of the calling thread, so it is what pairs a
+/// `Relaxed` store on one thread with a `Relaxed` load on another.
+fence :: (fn(order : MemoryOrder) -> unit)(
+  unsafe(atomic_thread_fence(order.to_c_order()))
 );
 
 export(
@@ -553,5 +1232,6 @@ export(
   AtomicU64,
   AtomicUsize,
   AtomicIsize,
-  MemoryOrder
+  MemoryOrder,
+  fence
 );
