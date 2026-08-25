@@ -218,5 +218,7 @@ test("decode_string accepts a multi-byte UTF-8 payload", {
   // "w6k=" is 0xC3 0xA9 — U+00E9, valid UTF-8, so validation must not reject it.
   result := base64_decode_string(`w6k=`);
   assert(result.is_ok(), "valid multi-byte UTF-8 should still decode");
-  assert(result.unwrap().len() == usize(1), "the payload is one rune");
+  // `len()` counts BYTES since plans/STD_API_AUDIT_D4_PLAN.md D4 PR 3.
+  assert(result.unwrap().char_len() == usize(1), "the payload is one rune");
+  assert(result.unwrap().len() == usize(2), "and two bytes");
 });
