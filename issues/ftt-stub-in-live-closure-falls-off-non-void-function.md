@@ -128,15 +128,61 @@ Independently, clang ALREADY detects this exact shape:
 a.out.c:4124:1: warning: non-void function does not return a value [-Wreturn-type]
 ```
 
-`src/main.yo` suppresses it. Optimized builds pass `-w` and then re-enable a
-short list of diagnostics that "can ONLY mean the code GENERATOR emitted
-something inconsistent with its own prototypes" — currently
-`-Wincompatible-pointer-types`, `-Wint-conversion`,
-`-Wimplicit-function-declaration`. `-Wreturn-type` meets that stated criterion
-verbatim and belongs on the list. That is a backstop, not the fix: it should be
-added *in addition to* the gate, exactly as the pointer-type warning was added
-after `issues/fixed/specialized-inout-param-loses-ref-with-comptime-arg.md`.
-See also `issues/release-builds-suppress-all-c-warnings.md`.
+`src/main.yo` suppresses it — and investigating WHY exposed a second bug.
+
+Optimized builds passed `-w` and then "re-enabled" a short list of diagnostics.
+Measured on clang 21.1.7, that never worked: **`-w` is absolute.** No later
+`-W…`, and not even `-Werror=…`, can bring a diagnostic back once `-w` is on
+the command line. `-Wno-everything` behaves differently — later flags DO
+override it.
+
+| flags | on the FTT file above |
+| --- | --- |
+| `-w -Wincompatible-pointer-types -Wint-conversion -Wimplicit-function-declaration` (shipped) | rc=0 — ships the UB |
+| `-Wno-everything <same three> -Werror=return-type` | rc=1 — `error: non-void function does not return a value` |
+
+So the backstop needs BOTH: the blanket flag changed to `-Wno-everything`, and
+`-Werror=return-type` (a bare `-W` would only warn and still build). That also
+makes the three flags from
+`issues/fixed/release-builds-suppress-all-c-warnings.md` effective for the
+first time — see that issue.
+
+The flag is still a backstop, not the cure: it catches the invalid C, but the
+evaluator swallow that produced it remains the root.
+
+## A SECOND bug, found while fixing the first: the marker scan is unanchored
+
+`src/codegen/functions/generation.yo` decides whether a function body contains a
+marker by scanning the emitted C for the raw bytes `// Failed to transpile`.
+That text is not only a marker — it is also **data inside this compiler**:
+
+- `src/codegen/exprs/generation.yo` builds the marker with
+  `String.from("// Failed to transpile ")`, and
+- the `codegen_fatal` message a few lines below the scan itself contains
+  "Failed to transpile part of main's body".
+
+So on any SELF-compile the scan matches the compiler's own source text.
+**Measured on stage-2's emitted C: 14 hits, none of them a stub** — every one a
+string literal of the form
+
+```c
+__yo_t0 tmp = yo_id_4576((__yo_str){ .ptr = (const uint8_t*)"// Failed to transpile", .len = 22 });
+```
+
+This was latent because the two consumers were narrowly scoped: the fatal gate
+only fires for `__yo_user_main`, and the rewrite only for
+`fid_fully_specialized` originals. It stops being latent the moment either
+widens — generalizing the rewrite to non-void functions replaced **7 substantial
+emitter functions** (`expr, indent, context`) with `abort()`, ~950 KB of deleted
+bodies, and stage 3 died with `STAGE3_RC=134` (SIGABRT).
+
+It is also reachable WITHOUT any change: a user program whose `main` contains the
+literal text `// Failed to transpile` — a Yo program that generates C, say —
+trips `codegen_fatal` today for no reason.
+
+**Fix:** line-anchor the match. A genuine marker is a comment that starts its own
+line; a string literal is always mid-line inside an expression. Walk back over
+spaces/tabs and require a newline (or buffer start).
 
 ## Regression test
 

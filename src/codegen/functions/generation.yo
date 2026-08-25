@@ -626,7 +626,30 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
               mi = (mi + usize(1));
             });
             if(all_eq, {
-              stub_found_ftt = true;
+              // REJECT STRING-LITERAL MATCHES. The needle is not only a marker,
+              // it is also DATA inside this compiler: several files build or
+              // compare it with `"// Failed to transpile"` (codegen/exprs/
+              // generation.yo, inline_fns.yo, assignment.yo, dyn.yo, return.yo,
+              // other_fn_call.yo). On a SELF-compile an unanchored scan matches
+              // that source text and mistakes working emitter functions for
+              // stubs — measured: generalizing the rewrite without this check
+              // replaced 7 substantial `(expr, indent, context)` functions with
+              // abort() and stage 3 died with SIGABRT.
+              //
+              // The discriminator is the byte BEFORE the match. Every literal
+              // occurrence in emitted C is preceded by the opening quote
+              // (`(const uint8_t*)"// Failed to transpile"`), and a real marker
+              // never is. Do NOT line-anchor instead: a genuine marker can sit
+              // mid-line, as in `return // Failed to transpile x * i32(2);`,
+              // which anchoring would miss — and that one produces a `return`
+              // with no expression, i.e. C that does not even parse.
+              prev_ok := cond(
+                (si == usize(0)) => true,
+                true => match(sb.get(si - usize(1)), .Some(qv) => (qv != u8(34)), .None => true)
+              );
+              if(prev_ok, {
+                stub_found_ftt = true;
+              });
             });
             si = (si + usize(1));
           });
@@ -641,21 +664,35 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
       // hollow-sweep detector calls HOLLOW (a batch `__yo_user_main` that is a
       // marker reports every test as passed while running no assertions).
       //
-      // Markers elsewhere are NOT gated here: the degrade guards keep the C
-      // valid, and the stub rewrite just below deletes the ones that land on
-      // dead superseded originals. Gating those too was tried and reverted — it
-      // failed tests/fn.test.yo and tests/algebraic_effects.test.yo, whose
-      // markers are exactly that dead code.
+      // Markers elsewhere are NOT made FATAL here: gating those was tried and
+      // reverted — it failed tests/fn.test.yo and tests/algebraic_effects.test.yo,
+      // whose markers are dead superseded-generic code that never runs.
+      //
+      // But "never runs" does not make the C VALID. A marker in a NON-VOID
+      // function leaves a value-returning C function with no return statement,
+      // and falling off the end of one is undefined behaviour whether or not
+      // anything calls it — clang rejects it under -Werror=return-type
+      // regardless of liveness. So those bodies are REWRITTEN to abort() below,
+      // exactly as the superseded-generic path already does: the C becomes
+      // valid, dead stubs stay harmless, and a LIVE stub aborts loudly instead
+      // of returning whatever was in the return register. Measured: 6 such
+      // functions in the tests/ batch corpus today.
+      // See issues/ftt-stub-in-live-closure-falls-off-non-void-function.md.
       if(stub_found_ftt && (c_function_name == "__yo_user_main"), {
         codegen_fatal(
           `Failed to transpile part of main's body — the emitted C for "${c_function_name}" contains an untranspiled expression, so the program would run without it`
         );
       });
-      if(stub_found_ftt && fid_fully_specialized(func_id.clone()), {
-        // RARE path (superseded generic original): rebuild the prefix from
-        // bytes once. Byte-exact equivalent of the former char-indexed
-        // `substring(0, stub_mark)` — stub_mark_b was taken at the same
-        // buffer position.
+      stub_is_superseded := fid_fully_specialized(func_id.clone());
+      stub_ret_unit := match(
+        function_type,
+        .Func({ result : stub_r }) => is_unit_type(resolve_some_type_to_concrete(stub_r.clone())),
+        _ => true
+      );
+      if(stub_found_ftt && (stub_is_superseded || !(stub_ret_unit)), {
+        // Rebuild the prefix from bytes once. Byte-exact equivalent of the
+        // former char-indexed `substring(0, stub_mark)` — stub_mark_b was taken
+        // at the same buffer position.
         pb := em.code.as_bytes();
         prefix_bytes := ArrayList(u8).new();
         (pi : usize) = usize(0);
@@ -665,7 +702,13 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
         });
         em.code = String.from_bytes(prefix_bytes);
         em.emit_string_line(open.clone());
-        em.emit_string_line(String.from("  abort(); /* superseded generic original: all call sites dispatch a specialization */"));
+        em.emit_string_line(
+          if(
+            stub_is_superseded,
+            String.from("  abort(); /* superseded generic original: all call sites dispatch a specialization */"),
+            String.from("  abort(); /* untranspilable body in a value-returning fn: aborting beats falling off the end (UB) */")
+          )
+        );
         em.emit_string_line(String.from("}"));
       });
     },
