@@ -1,6 +1,12 @@
 # Thread Safety by Default
 
-**Status:** Complete. All 14 phases implemented.
+**Status:** 13 of 14 phases implemented. **Phase P (field visibility) NEVER
+LANDED** — `_`-prefixed fields are file-private by CONVENTION ONLY, verified
+2026-08-25: a file outside `std/sync` reads `mutex._value` and `yo check` passes
+(issues/thread-safety-phase-p-never-landed-but-plan-says-complete.md, with a
+reproducer). This document previously said "Complete. All 14 phases
+implemented", and vector 27 below is still marked closed BY Phase P — it is
+open.
 **Companion to:** `plans/MEMORY_SAFETY.md`.
 **Decided so far:**
 
@@ -120,7 +126,7 @@ Every concrete way user or compiler-emitted code could cause a race, paired with
 | 24  | `extern "c"` function called from multiple threads (race in C code)                                                     | Out of user-code scope. Pragma'd `extern("c", ...)` carries the audit burden, same as memory-safety pass. **Phase G** doc note.                                                                                                                                                                                                                                                                                                                                                                                                           |
 | 25  | Direct write to a field of an `atomic object` (`arc.* = ...`, `myarc._inner = ...`)                                     | **Phase O (new structural rule).** Yo today allows aliased object-field writes (share-by-reference semantics) — empirically verified: `arc.* = (arc.* + 1)` compiles and races at runtime. Phase O rejects any assignment whose LHS root is a value of `atomic object` type, in safe code. Forces composition with `AtomicX`/`Mutex`/`RwLock`. Pragma'd code bypasses (that's how `std/sync/mutex.yo` mutates internal Mutex state).                                                                                                      |
 | 26  | Passing an atomic-object field as `ref(T)` / `inout` to a function (callee writes through it)                           | **Phase O.** Same lexical rule extended to call sites: an argument expression whose root binding has `atomic object` type cannot be passed to a `ref(T)` / `inout` parameter in safe code. (Inside a `with_lock` closure body, the user's `v` parameter has type `ref(T)` whose root is `v`, not an atomic-object binding — so writes through `v` are allowed. The pragma'd primitive vouches that `v` points into a synchronized location.)                                                                                              |
-| 27  | Unsynchronized **read** of an atomic-object's interior field (`mutex._value` racing with `with_lock`'s pragma'd writer) | **Phase P** (field visibility). Closed by promoting `_`-prefix to enforced file-private: `mutex._value` in user code becomes a compile error because the field is defined in `std/sync/mutex.yo`, not the user's file. Pragma-audited Mutex methods (same file) still access `_value` freely after acquiring the lock. This is Yo's structural equivalent of Rust's private `value: UnsafeCell<T>` field on `Mutex<T>`. Phase O (the write rule) is uniform across all field names; Phase P is what closes the _read_ side of the bypass. |
+| 27  | **OPEN (2026-08-25)** — Unsynchronized **read** of an atomic-object's interior field (`mutex._value` racing with `with_lock`'s pragma'd writer). Phase P NEVER LANDED, so this row's "closed" verdict below never took effect; `_`-prefix is convention only and a safe user file can read the interior today. See issues/thread-safety-phase-p-never-landed-but-plan-says-complete.md. Original plan: | **Phase P** (field visibility). Closed by promoting `_`-prefix to enforced file-private: `mutex._value` in user code becomes a compile error because the field is defined in `std/sync/mutex.yo`, not the user's file. Pragma-audited Mutex methods (same file) still access `_value` freely after acquiring the lock. This is Yo's structural equivalent of Rust's private `value: UnsafeCell<T>` field on `Mutex<T>`. Phase O (the write rule) is uniform across all field names; Phase P is what closes the _read_ side of the bypass. |
 
 ## What's already in place (audit summary)
 
