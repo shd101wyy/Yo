@@ -27,16 +27,18 @@ what CI's suite legs run. Changes to `src/` codegen are only observable
 under such a stage-1; the installed seed emits the old code no matter which
 std it reads.
 
-**Use `YO_STD`, not `--std-path`, for `yo test`.** The flag works for `yo
-check` and `yo compile`, but `yo test` compiles its generated batch in a
-SPAWNED child (`src/main.yo`) and forwards `--c-compiler`, `--target`,
-`--sanitize` and friends while dropping `--std-path` — so the child re-resolves
-std on its own and lands back on the installed bundle. `YO_STD` survives
-because it rides the inherited environment. The failure is silent whenever
-your edit is behaviour-only rather than shape-changing: the batch compiles
-clean against the installed std and the suite reports green for code that was
-never compiled. →
-`issues/yo-test-does-not-forward-std-path-to-batch-compile.md`
+**`--std-path` now works for `yo test` too — but check which binary you are
+running.** `yo test` compiles its generated batch in a SPAWNED child
+(`src/main.yo`), and that child used to be given `--c-compiler`, `--target`,
+`--sanitize` and friends but NOT `--std-path`, so it re-resolved std on its own
+and landed back on the installed bundle. The runner evaluated against one std
+and compiled the batch against another, silently — green for code that was
+never compiled, whenever the edit was behaviour-only rather than shape-changing.
+Fixed 2026-08-26 (`issues/fixed/yo-test-does-not-forward-std-path-to-batch-compile.md`,
+gated by `tests/cli-cases/test-std-path-forwarded`). **A released `yo` on PATH
+predating that fix still has the old behaviour**, so when the binary is not one
+you built from this tree, prefer `YO_STD` — it rides the inherited environment
+and has always reached the child.
 
 `YO_KEEP_BATCH=1` keeps the generated `.yo`/`.c`/binary next to the test file,
 which is how you confirm a batch really transpiled:

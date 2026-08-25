@@ -1,6 +1,16 @@
 # `yo test --std-path <dir>` silently tests the INSTALLED std, not `<dir>`
 
-**Status:** OPEN — found 2026-08-25 while doing STD_API_AUDIT D7 (atomics).
+**Status: FIXED 2026-08-26.** `src/main.yo` now forwards the stashed override
+to the child compile alongside `--c-compiler`/`--target`, via
+`get_std_path_override()` (which `module_manager.yo` already exported — main
+imported only the setter). Regression gate:
+`tests/cli-cases/test-std-path-forwarded`, which pins `YO_STD` to a path that
+does not exist and passes the real std via `--std-path`, so the case can only
+pass if the child honours the flag. Red-first verified — on the unfixed
+compiler it records `rc=1` with `yo: error: file or directory not found` /
+`batch compile failed`.
+
+Found 2026-08-25 while doing STD_API_AUDIT D7 (atomics).
 **Severity:** silent-wrong-result. The flag is accepted, changes nothing, and
 the run reports PASS against a library the caller never asked for.
 

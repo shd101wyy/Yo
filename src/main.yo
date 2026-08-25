@@ -61,6 +61,7 @@ _(env : proc_env) :: import("std/env");
 {
   ModuleLoadOutcome,
   resolve_std_path,
+  get_std_path_override,
   set_std_path_override,
   mm_clear_prelude_env,
   mm_set_shared_expr_info_table,
@@ -2552,6 +2553,21 @@ run_test :: (
           ccmd.arg(String.from("--target"));
           ccmd.arg(test_target.clone());
         });
+        // `--std-path` is a GLOBAL flag: main strips it from argv before
+        // subcommand dispatch and stashes it with the module manager, so the
+        // RUNNER honours it — but the child `compile` is spawned with a fresh
+        // argv that never carried it, and falls back to YO_STD / exe-walk-up /
+        // ./std. The runner then evaluated against one std and compiled the
+        // batch against another, silently.
+        // See issues/fixed/yo-test-does-not-forward-std-path-to-batch-compile.md.
+        match(
+          get_std_path_override(),
+          .Some(sp) => {
+            ccmd.arg(String.from("--std-path"));
+            ccmd.arg(sp);
+          },
+          .None => ()
+        );
         // Cooperative compile deadline, ported from TS's test runner
         // (`src/test-runner.ts:544`, SEQUENTIAL_COMPILE_TIMEOUT_MS). TS arms
         // it in-process; we compile in a CHILD, so it travels as a flag. A

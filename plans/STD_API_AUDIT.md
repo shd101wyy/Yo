@@ -709,7 +709,7 @@ implementing the D5 traits.** Until it lands, std honestly refuses https.
   std** — the batch compile is a spawned child and `src/main.yo` forwards
   `--c-compiler`/`--target`/`--sanitize`/… but not `--std-path`, unlike
   `build_runner.yo`, which does. Use `YO_STD` for `yo test`.
-  → `issues/yo-test-does-not-forward-std-path-to-batch-compile.md`
+  → `issues/fixed/yo-test-does-not-forward-std-path-to-batch-compile.md` (FIXED in this batch)
 - `Once` gains `OnceCell(T)`-style `get_or_init`.
 - Merge `std/worker` into `std/thread` as `ThreadPool` (explicit object:
   `spawn -> JoinHandle`-analog, `join_all`, `shutdown`); `Thread.spawn` should
