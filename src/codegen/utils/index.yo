@@ -709,38 +709,104 @@ _unwrap_unsafe :: (fn(e : AstExpr) -> AstExpr)(
     )
   )
 );
+/// Local helper: is substituting the CALLER's argument codes for this body
+/// call's own arguments sound?
+///
+/// Every consumer of `is_function_value_with_only_builtin_yo_inline_function_call`
+/// ELIDES the wrapper function and emits the builtin at the call site with the
+/// caller's already-generated argument codes (`other_fn_call.yo`, `ptr_fns.yo`,
+/// `generation.yo`; `declarations.yo` then skips emitting the definition). That
+/// is a textual substitution, so it only preserves the program when the body
+/// passes its parameters through UNCHANGED and IN ORDER. The predicate used to
+/// check the callee NAME alone, which silently miscompiled every wrapper that
+/// computed anything:
+///
+///     half_sleep :: (fn(ms : usize) -> unit)(__yo_ms_sleep(ms / usize(2)));
+///
+/// emitted `usleep((<caller's ms>) * 1000)` — the `/ usize(2)` discarded, no
+/// diagnostic, measured 202 ms where 100 ms was asked for. See
+/// issues/fixed/inline-builtin-alias-drops-body-arguments.md.
+///
+/// The rule, and why it is exactly this shape:
+///
+/// * A COMPUTED argument (anything that is not a bare identifier) is rejected —
+///   it is the discarded-computation case above.
+/// * A bare identifier that NAMES A PARAMETER must sit at that parameter's own
+///   position, so `(a, b) -> __yo_op_sub(b, a)` is rejected while
+///   `(lhs, rhs) -> __yo_op_add(lhs, rhs)` — the shape all 418 operator aliases
+///   in the tree use — is accepted.
+/// * A bare identifier that names NO parameter is left alone. That keeps the
+///   one non-identity alias in std: `new : (fn() -> Self)(__yo_maybe_uninit_new(Self))`,
+///   whose argument is a TYPE, not a value, and whose emitter reads the type
+///   rather than an argument code.
+/// * Arity must agree when the function has parameters at all; the zero-parameter
+///   case is exempt for the same `Self` reason.
+_inline_body_passes_params_through :: (fn(call : AstExpr, fv : EvalValue) -> bool)({
+  args := match(call, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => return(false));
+  params := match(fv, .FuncVal(__fvd2, _) => __fvd2.*.params, _ => return(false));
+  nparams := params.len();
+  if((nparams > usize(0)) && (args.len() != nparams), {
+    return(false);
+  });
+  (i : usize) = usize(0);
+  while(i < args.len(), {
+    arg := match(args.get(i), .Some(a) => a, .None => return(false));
+    name := match(
+      arg,
+      .Atom(_, tok) => tok.value,
+      .FnCall(_, _, _, _, _) => return(false)
+    );
+    (j : usize) = usize(0);
+    while(j < nparams, {
+      p := match(params.get(j), .Some(s) => s, .None => String.from(""));
+      if((p == name) && (j != i), {
+        return(false);
+      });
+      j = (j + usize(1));
+    });
+    i = (i + usize(1));
+  });
+  true
+});
 /// Check if a function value's body only calls a single builtin
 /// `__yo_op_xxx`-style inline function (optionally wrapped in `unsafe` and/or
-/// a single-expression `begin`). Returns the operator name, or `.None`.
+/// a single-expression `begin`) AND passes its own parameters straight through
+/// to it. Returns the operator name, or `.None`.
 /// `__yo_as` casts are excluded (they need real call handling).
-/// Mirrors `isFunctionValueWithOnlyBuiltinYoInlineFunctionCall`.
+/// Mirrors `isFunctionValueWithOnlyBuiltinYoInlineFunctionCall`, plus the
+/// pass-through requirement TS also lacks (see
+/// `_inline_body_passes_params_through`).
 is_function_value_with_only_builtin_yo_inline_function_call :: (
   fn(fv : EvalValue) -> Option(String)
 )({
   body_box := match(fv, .FuncVal(__fvd1, _) => __fvd1.*.body, _ => return(.None));
   body := _unwrap_unsafe(body_box);
-  operator_name := match(
+  // The call node the operator name comes from — needed by the pass-through
+  // check below, which must inspect THAT call's arguments and not the
+  // `begin`/`unsafe` wrapper's.
+  call_node := match(
     body,
-    .Atom(_, _) => Option(String).None,
+    .Atom(_, _) => body,
     .FnCall(_, _, body_args, _, _) => if(ast_expr_is_fn_call_of(body, BK_BEGIN, .None) && (body_args.len() == usize(1)), {
-      inner := _unwrap_unsafe(match(body_args.get(usize(0)), .Some(a) => a, .None => body));
-      match(
-        _fn_call_callee_name(inner),
-        .Some(callee) => if(is_builtin_yo_inline_function(callee), .Some(callee), .None),
-        .None => Option(String).None
-      )
-    }, match(
-      _fn_call_callee_name(body),
-      .Some(callee) => if(is_builtin_yo_inline_function(callee), .Some(callee), .None),
-      .None => Option(String).None
-    ))
+      _unwrap_unsafe(match(body_args.get(usize(0)),
+      .Some(a) => a,
+      .None => body))
+    }, body)
   );
+  operator_name := match(
+    _fn_call_callee_name(call_node),
+    .Some(callee) => if(is_builtin_yo_inline_function(callee), Option(String).Some(callee), .None),
+    .None => Option(String).None
+  );
+  op := match(operator_name, .Some(o) => o, .None => return(.None));
   // Don't inline __yo_as — it needs proper call handling for complex args.
-  match(
-    operator_name,
-    .Some(op) => if(op == BF_YO_AS, Option(String).None, .Some(op)),
-    .None => .None
-  )
+  if(op == BF_YO_AS, {
+    return(.None);
+  });
+  if(!_inline_body_passes_params_through(call_node, fv), {
+    return(.None);
+  });
+  Option(String).Some(op)
 });
 /// Check if an enum can be optimized as a nullable pointer. Returns the
 /// pointer variant's field type if so, `.None` otherwise. Requires exactly
