@@ -113,7 +113,7 @@ test("BTreeMap.min returns smallest key entry", {
   m.insert(i32(30), i32(3));
   m.insert(i32(10), i32(1));
   m.insert(i32(20), i32(2));
-  entry := m.min();
+  entry := m.first_entry();
   assert(entry.is_some(), "min should exist");
   assert(entry.unwrap().key == i32(10), "min key should be 10");
   assert(entry.unwrap().value == i32(1), "min value should be 1");
@@ -123,24 +123,24 @@ test("BTreeMap.max returns largest key entry", {
   m.insert(i32(30), i32(3));
   m.insert(i32(10), i32(1));
   m.insert(i32(20), i32(2));
-  entry := m.max();
+  entry := m.last_entry();
   assert(entry.is_some(), "max should exist");
   assert(entry.unwrap().key == i32(30), "max key should be 30");
   assert(entry.unwrap().value == i32(3), "max value should be 3");
 });
 test("BTreeMap.min returns None for empty map", {
   m := BTreeMap(i32, i32).new();
-  assert(m.min().is_none(), "min should be None for empty map");
+  assert(m.first_entry().is_none(), "first_entry should be None for empty map");
 });
 test("BTreeMap.max returns None for empty map", {
   m := BTreeMap(i32, i32).new();
-  assert(m.max().is_none(), "max should be None for empty map");
+  assert(m.last_entry().is_none(), "last_entry should be None for empty map");
 });
 test("BTreeMap.min and max same for single entry", {
   m := BTreeMap(i32, i32).new();
   m.insert(i32(42), i32(100));
-  assert(m.min().unwrap().key == i32(42), "min key should be 42");
-  assert(m.max().unwrap().key == i32(42), "max key should be 42");
+  assert(m.first_entry().unwrap().key == i32(42), "first_entry key should be 42");
+  assert(m.last_entry().unwrap().key == i32(42), "last_entry key should be 42");
 });
 // ===== Mixed Operations =====
 test("BTreeMap insert then remove then insert again", {
@@ -162,8 +162,8 @@ test("BTreeMap ordering after mixed inserts and removes", {
   m.remove(i32(3));
   m.remove(i32(7));
   assert(m.len() == usize(3), "len should be 3");
-  assert(m.min().unwrap().key == i32(1), "min should be 1");
-  assert(m.max().unwrap().key == i32(9), "max should be 9");
+  assert(m.first_entry().unwrap().key == i32(1), "first_entry should be 1");
+  assert(m.last_entry().unwrap().key == i32(9), "last_entry should be 9");
 });
 // ---- Iterator Tests ----
 test("BTreeMap into_iter - empty map", {

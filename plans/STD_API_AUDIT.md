@@ -124,7 +124,7 @@ and `Error.source` actually used for chaining (`wrap`/`context` helper).
 | membership | `contains` (seq/set), `contains_key` (map) | BTreeMap's missing both |
 | value iterator | `into_iter()`; pointer iterator `iter()` | `iter_ptr`, OrderedMap's value-`iter` |
 | accessors | bare noun, no `get_` prefix | `ParsedArgs.get_flag`, reflection `get_info` |
-| byte codecs | `encode` / `decode` | `to_ascii`/`to_unicode` (punycode) |
+| byte codecs | `encode` / `decode` | ~~`to_ascii`/`to_unicode` (punycode)~~ — module deleted, §6 |
 | text formats | `parse` / `stringify` | `decode_html` (→ `html_decode` + new `html_encode`) |
 | conversion | `from_` / `to_` / `into_` (Rust discipline) | `to_cstr` vs `to_c_str` pair |
 | comptime twins | `Comptime` prefix on traits, `comptime_` on methods — and fix the one infix outlier (`to_comptime_string`) | — |
@@ -647,7 +647,7 @@ implementing the D5 traits.** Until it lands, std honestly refuses https.
 | encoding | STANDARDIZE | D2 verbs; one error style per D1; utf8 module; add `html_encode` (XSS!); percent-encoding module (P0 — nothing in std can build a safe query string); base32; CSV (P1); toml: floats/arrays/dates/serializer + `ToToml`/`FromToml` derives to mirror json (P1) |
 | json | EXTEND | enum representation for derives (open question O3); `JsonValue.Object` O(n) parallel arrays → keep repr, add index map if profiling demands |
 | regex | POLISH | `Regex.escape`, optional-flags `new`, callback replace, lazy `find_iter`, group byte-spans, typed error, private internals |
-| url | EXTEND | percent-encode/decode integration, `query_pairs`/`SearchParams`, `join` (RFC 3986 §5 — needed by http redirects), builder/setters, wire punycode into host handling (or delete punycode) |
+| url | EXTEND | percent-encode/decode integration, `query_pairs`/`SearchParams`, `join` (RFC 3986 §5 — needed by http redirects), builder/setters; ~~wire punycode into host handling (or delete punycode)~~ — DELETED, §6 round 1 |
 | io | REDESIGN | D5 |
 | fs | EXTEND + POLISH | wrappers: `copy`, `remove_dir_all` (compiler implements it TWICE as workaround — `src/fetch.yo:80`, `src/version_cache.yo:72`), `read_link`, `set_permissions`, `set_len`, `try_exists`, `watch` (sys/events exists); `OpenOptions` builder; `File.from_fd`; Metadata: real `btime`, `permissions()`, stop `metadata` re-stat by path; DirEntry `path()`; walker: lazy option + glob filter; complete the `_str`/`_cstr` variant matrix or (better) collapse it with a `Pattern`-style `AsPath` trait |
 | path | FIX + EXTEND | `join(str)`, `push`, `strip_prefix` (rename of `relative_from`, fallible), `Hash`/`Ord`/`Clone`, Windows separator in `to_string`, `ancestors`, PATH split/join; revisit eager `..` normalization (symlink semantics); delete dead `PathError` or make `new` fallible |
@@ -727,7 +727,20 @@ small number of PRs with tree-wide fixups (compiler + std + tests + docs):
 - ~~`HashMap.iter_ptr`→`iter`~~ **DONE 2026-08-25** (no collision: HashMap had
   `into_iter` for values and `iter_ptr` for pointers, exactly D2's split);
   OrderedMap iterators get real `Iterator` impls
-- `?(T)` spelling in btree_map/deque → `Option(T)` (or bless `?(T)` everywhere — pick one)
+- ~~`?(T)` spelling in btree_map/deque → `Option(T)`~~ **DONE 2026-08-25 (S2
+  chunk 4)** — but NOT as "pick one everywhere". The counts decided it: of 140
+  `?(…)` uses in std, **130 are `?(*(…))`** — a nullable RAW POINTER, almost all
+  at the C boundary (`?(*(char))`, `?(*(FILE))`, `?(*(void))` in std/libc/*).
+  That is a real idiom, not an inconsistency, and it stays. Only the **10**
+  value-typed uses became `Option(T)`. Three of them were OUTSIDE this item's
+  stated scope — `std/sync/channel.yo` (2) and `std/fs/walker.yo` (1) — so the
+  "btree_map/deque" framing was incomplete
+- ~~maps `min()`/`max()` → `first_entry`/`last_entry`; sets keep `min`/`max`~~
+  **DONE 2026-08-25 (S2 chunk 4)** — only `BTreeMap` had the map form (it
+  returns `Option(MapEntry(K,V))`, i.e. a whole entry, which is exactly why the
+  name had to change); `imm/sorted_set` keeps `min`/`max` because it returns the
+  ELEMENT, and the `Iterator` combinators' `min()`/`max()` are a third, unrelated
+  thing. 2 declarations + 8 call sites
 - ~~`Bucket`/`BTreeEntry`/`OrderedMapEntry`/`Pair` → one `MapEntry(K,V)`~~
   **DONE 2026-08-25 (S2 chunk 3)** — all four were literally
   `struct(key : K, value : V)`, so this was one concept under four names. The
@@ -797,13 +810,25 @@ small number of PRs with tree-wide fixups (compiler + std + tests + docs):
   nothing in std/, src/ or tests/ uses a glob `open(import(...))` on either
   module (every import is destructuring); no file imports both `fs/file` and
   `sys/file`; neither name is in the prelude; and `std/fmt` (glob-imported by
-  `fs/file.yo`) exports only Alignment/Format/FormatSpec/ToString/Writer/
-  eprint/eprintln/print/println.
+  `fs/file.yo`) exports no `read`/`write`.
+
+  **Correction 2026-08-25:** that last check was stated with the wrong evidence.
+  It listed the union of exports across `std/fmt/*.yo`
+  (Alignment/Format/FormatSpec/ToString/Writer/eprint/eprintln/print/println),
+  but a glob `open(import("../fmt"))` resolves to the PACKAGE ENTRY POINT,
+  `std/fmt/index.yo`, which exports only **7** names — ToString, Format,
+  FormatSpec, println, print, eprintln, eprint. `Writer` and `Alignment` come
+  from the sibling `std/fmt/writer.yo:21,214`, which a glob does NOT pull in.
+  The conclusion is unchanged and in fact stronger (fewer names in scope), but
+  the reasoning matters for the NEXT check: when D5 introduces an I/O `Writer`
+  trait, the three files that glob-import `std/fmt` (`fs/file.yo`, `net/tcp.yo`,
+  `net/udp.yo`) will see no clash — because `fmt`'s `Writer` was never in their
+  scope to begin with.
 
   Method note: `write_bytes` and `write_string` are ALSO method names on four
   writer types (File, TcpStream, Writer, BufWriter). Only the free functions
   moved — the method vocabulary is deliberately shared and stays put.
-- `min()`/`max()` naming: maps `first_entry`/`last_entry`, sets keep `min`/`max`
+
 - `Http` inherent `to_string`→`ToString` impl; ~~`TcpStream.shutdown(i32)`→
   `shutdown(Shutdown)`~~ **DONE 2026-08-25 (S2 chunk 2)** — new `Shutdown` enum
   (`Read`/`Write`/`Both`, matching `std::net::Shutdown`) plus a private
@@ -817,7 +842,12 @@ small number of PRs with tree-wide fixups (compiler + std + tests + docs):
   byte-count call sites. This also SHARPENED `std/http/client.yo`, whose read
   loop tested `n <= i32(0)` — conflating "error" with EOF. Errors throw, so a
   count is never negative; the test is now `n == usize(0)`, i.e. EOF only
-- `punycode.to_ascii`/`to_unicode`→`domain_to_ascii`/`domain_to_unicode`
+- ~~`punycode.to_ascii`/`to_unicode`→`domain_to_ascii`/`domain_to_unicode`~~
+  **OBSOLETE 2026-08-25** — §6 round 1 DELETED `std/encoding/punycode.yo`
+  outright (zero importers, 343 untested spec-sensitive lines), so there is
+  nothing left to rename. Verified: zero `punycode` references in std/, src/
+  or tests/. If IDN support returns it comes back with tests and a `Url`
+  integration, and it gets these names then
 - two `sleep`s → `time.sleep(Duration, io)` async + `time.sleep_blocking(Duration)`
 - `str.join(items)` receiver-as-separator: keep (Python style is fine) but
   document; `index_of`/`last_index_of` keep (JS names are the local norm) —
@@ -871,7 +901,7 @@ test is ever re-expressed without it.
 | Target | Evidence |
 |---|---|
 | `std/alg/hash.yo` | zero importers; docstring false; FNV constants re-inlined in both String hashes — inline or wire in |
-| `std/encoding/punycode.yo` | zero importers incl. url; 343 untested spec-sensitive lines; ALSO duplicated at `vendor/markdown_yo` — delete OR wire into `Url` (D8) |
+| ~~`std/encoding/punycode.yo`~~ **DELETED** | zero importers incl. url; 343 untested spec-sensitive lines; ALSO duplicated at `vendor/markdown_yo` — deleted in §6 round 1 |
 | `std/collections/list_view.yo` | test-only, no Index/iter/consumers; superseded by `slice_copy` |
 | `std/collections/linked_list.yo` | test-only, 510 lines; `Deque` covers it (decide: delete vs keep-as-is; recommend delete) |
 | `mutex_t`, `cond_t` | zero in-tree users, duplicate `Mutex`/`Cond` unsafely |
