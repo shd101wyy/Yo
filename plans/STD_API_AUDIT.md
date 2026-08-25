@@ -566,7 +566,30 @@ Nothing existing changed: the only line REMOVED anywhere in that PR was
 D4 PR 2 migration a provable no-op. Coverage is
 `tests/string/string_char_api.test.yo` (17 tests) plus a 6-test section in
 `tests/imm_string.test.yo`, every assertion multibyte with hand-computed byte
-offsets. The remaining D4 steps (PRs 2-9) are unchanged and still in
+offsets.
+
+~~**Step 2 of that plan (PR 2, pin char semantics)**~~ **LANDED 2026-08-26.**
+Every site that genuinely needs CHARACTER semantics now says so in its own
+source — `std/encoding/html.yo` (the highest-risk file in the tree) scans a
+`char_indices()` rune table instead of `s.at(i).unwrap()` in a `len()`-bounded
+loop; `std/fmt/spec.yo`'s width, precision and numeric total use `char_len()` +
+the new `truncate_chars`; `String.split("")` is pinned; and in `src/`,
+`_peel_spec`, the doc-summary cut, the caret column and all ten
+comptime-string-builtin sites are pinned. Two additive helpers came with it:
+`char_substring` (which holds `substring`'s CURRENT body verbatim, `substring`
+becoming a one-line delegation to it) and `truncate_chars`. **PR 3's review
+question is now "does this site want bytes?", and the answer is yes everywhere
+left.** The gate was output-identity of a multibyte behavioural probe (862
+lines, same `sha256` before and after) plus a simulated flip in which the new
+multibyte tests fail without the migration and pass with it — NOT emitted-C
+identity, which PR 2 measured to be the wrong instrument for a body rewrite.
+Coverage went from 8 → 12 tests in `tests/encoding/html.test.yo`, 7 → 12 in
+`tests/format_specs.test.yo`, 17 → 21 in `tests/string/string_char_api.test.yo`.
+PR 2 also found an **8th live mixed-basis bug** (`std/fs/dir.yo:121`
+`mkdir_all`, the first in `std/` rather than `src/`) that D4 PR 3 fixes for
+free, and settled the 14 `substring` sites the plan had left UNMEASURED.
+
+The remaining D4 steps (PRs 3-9) are unchanged and still in
 `plans/STD_API_AUDIT_D4_PLAN.md` §4.
 
 **SCOPE EXTENDED (user, 2026-08-25): `std/imm/string` is IN, and so is the
@@ -1442,7 +1465,9 @@ mmap/file-lock/statfs wrappers; `gc.stats`; DNS SRV/TXT/reverse
   find/slice APIs byte-indexed with a char-boundary contract. The additive half
   (`char_len`/`char_indices`/`is_char_boundary`/`floor_char_boundary`/
   `ceil_char_boundary`/`try_substring`, on both string types) **landed
-  2026-08-26**; the basis flip itself is still ahead (D4 plan PRs 2-9).
+  2026-08-26**, and so did the char-semantics pin (PR 2, plus
+  `char_substring`/`truncate_chars`); the basis flip itself is still ahead
+  (D4 plan PRs 3-9).
 - **O2 (D6)**: **DECIDED — platform TLS libraries via `pkg_config`**
   (SecureTransport/Schannel/OpenSSL), behind one `TlsStream` implementing the
   D5 traits. Until it lands, https throws `UnsupportedScheme` (C1).

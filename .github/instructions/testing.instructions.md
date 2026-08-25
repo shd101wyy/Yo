@@ -119,6 +119,37 @@ is the same multiset of statements; the symbol-set diff says no function was
 added, removed or renamed. In-order differences that remain are pure
 declaration reordering.
 
+**And for a "no behaviour change" REWRITE, drop the emitted C entirely —
+compare the program's OUTPUT.** The recipe above still assumes the source is
+additive. A refactor that claims to preserve behaviour while changing function
+BODIES (a loop rewritten onto a different iterator, a method renamed and
+delegated) makes the emitted C differ on purpose, so no C-level comparison
+— normalized or not — can pass without weakening it into meaninglessness.
+Measured 2026-08-26 on the D4 PR 2 migration: 13567 → 14139 lines and a
+different symbol set, from a change whose whole contract was "no behaviour
+change". The gate that has teeth:
+
+```bash
+# 1. BEFORE editing: a standalone driver over the touched surface, with a
+#    corpus that includes the inputs the refactor is ABOUT (multibyte, empty,
+#    boundary). Print every result AND its length, so a silent truncation
+#    shows up.
+yo compile tmp/probe.yo --std-path "$PWD/std" --release -o tmp/probe.bin
+./tmp/probe.bin > before.txt; shasum -a 256 before.txt
+# 2. AFTER: same binary rebuilt, same corpus.
+./tmp/probe.bin > after.txt; diff before.txt after.txt     # must be EMPTY
+```
+
+Two companions make it airtight. **Body-identity** where the refactor claims a
+pure rename: extract the old body with `git show HEAD:<file>` and compare it
+character-for-character to the new one — that covers call sites no runtime test
+can reach (compiler-internal code, which does not take effect until the tree is
+rebuilt). And a **simulated future state**: if the refactor exists to survive a
+change that has not landed yet, apply that change in a throwaway edit and run
+the new tests against it, then run them again with the pre-refactor file. The
+new tests must fail in the second run. If they pass both ways they are not
+testing the refactor.
+
 So for a rename sweep the gate is the FULL suite plus READING the cli-case
 golden diff — never check/build. A golden that gets SMALLER or reports FEWER
 findings (`Scanned 1 .yo file(s)` -> `Scanned 0`) is a regression signal, not

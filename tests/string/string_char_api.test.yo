@@ -306,3 +306,68 @@ test("String try_substring composes with floor/ceil to make any range safe", {
   mid := s.try_substring(s.floor_char_boundary(cut), s.bytes_len()).unwrap();
   assert(mid == `𝄞`, "floored start keeps the whole rune");
 });
+// ===========================================================================
+// char_substring / truncate_chars — the RUNE-indexed slice PR 2 pins onto
+// ===========================================================================
+test("String char_substring slices by RUNE index, not byte offset", {
+  s := _subject();
+  assert(s.char_substring(usize(0), usize(1)) == `a`, "rune 0");
+  assert(s.char_substring(usize(1), usize(2)) == `é`, "rune 1 is 2 bytes wide");
+  assert(s.char_substring(usize(2), usize(3)) == `中`, "rune 2 starts at byte 3");
+  assert(s.char_substring(usize(3), usize(4)) == `𝄞`, "rune 3 starts at byte 6");
+  assert(s.char_substring(usize(0), usize(4)) == s, "the whole string");
+  assert(s.char_substring(usize(1), usize(3)) == `é中`, "an interior run");
+  // A BYTE slice of the same numbers is something else entirely — that gap is
+  // exactly what D4's flip opens, and what `char_substring` closes.
+  assert(s.try_substring(usize(1), usize(3)).unwrap() == `é`, "BYTES 1..3 is just 'é'");
+  assert(s.char_substring(usize(1), usize(3)) == `é中`, "RUNES 1..3 is 'é中'");
+});
+test("String char_substring clamps exactly the way substring always has", {
+  s := _subject();
+  assert(s.char_substring(usize(0), usize(99)) == s, "end past the rune count clamps");
+  assert(s.char_substring(usize(2), usize(99)) == `中𝄞`, "clamped tail");
+  assert(s.char_substring(usize(4), usize(9)) == String.new(), "start at the rune count");
+  assert(s.char_substring(usize(9), usize(99)) == String.new(), "start past the rune count");
+  assert(s.char_substring(usize(2), usize(2)) == String.new(), "empty range");
+  assert(s.char_substring(usize(3), usize(1)) == String.new(), "inverted range");
+  assert(String.new().char_substring(usize(0), usize(3)) == String.new(), "empty receiver");
+});
+test("String truncate_chars keeps whole runes and never lengthens", {
+  s := _subject();
+  assert(s.truncate_chars(usize(0)) == String.new(), "zero runes");
+  assert(s.truncate_chars(usize(1)) == `a`, "one rune");
+  assert(s.truncate_chars(usize(2)) == `aé`, "two runes — 3 BYTES, not 2");
+  assert(s.truncate_chars(usize(2)).bytes_len() == usize(3), "byte length of the cut");
+  assert(s.truncate_chars(usize(3)) == `aé中`, "three runes");
+  assert(s.truncate_chars(usize(4)) == s, "exactly the rune count");
+  assert(s.truncate_chars(usize(5)) == s, "more than the rune count is a no-op");
+  assert(s.truncate_chars(usize(999)) == s, "far more is still a no-op");
+  // The property that makes it safe for arbitrary text: every result is a
+  // prefix that ends on a rune boundary.
+  i := usize(0);
+  while(i <= usize(6), i = (i + usize(1)), {
+    cut := s.truncate_chars(i);
+    assert(s.is_char_boundary(cut.bytes_len()), "the cut lands on a boundary");
+    assert(cut.char_len() == if(i < usize(4), i, usize(4)), "rune count of the cut");
+  });
+});
+test("String split on the EMPTY separator stays character-based", {
+  // STD_API_AUDIT_D4_PLAN §5.2 S5: `split("")` means "split into characters".
+  // A byte split would hand back fragments that are not valid UTF-8.
+  s := _subject();
+  parts := s.split(String.new());
+  assert(parts.len() == usize(4), "four runes, four parts — not ten bytes");
+  assert(parts(usize(0)) == `a`, "part 0");
+  assert(parts(usize(1)) == `é`, "part 1");
+  assert(parts(usize(2)) == `中`, "part 2");
+  assert(parts(usize(3)) == `𝄞`, "part 3");
+  assert(parts(usize(1)).bytes_len() == usize(2), "'é' is two bytes");
+  assert(parts(usize(3)).bytes_len() == usize(4), "'𝄞' is four bytes");
+  rejoined := String.new();
+  i := usize(0);
+  while(i < parts.len(), i = (i + usize(1)), {
+    rejoined.push_string(parts(i));
+  });
+  assert(rejoined == s, "the parts concatenate back to the original");
+  assert(String.new().split(String.new()).len() == usize(0), "empty string, no parts");
+});

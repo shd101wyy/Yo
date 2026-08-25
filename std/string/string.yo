@@ -179,6 +179,37 @@ impl(
       }
     )
   }),
+  /// Number of Unicode scalar values (runes) in the string.
+  ///
+  /// O(n) in the byte length. Identical to what `len()` returns today; it
+  /// stays a rune count after `len()` becomes a byte count.
+  char_len : (fn(self : Self) -> usize)(
+    match(
+      self._bytes,
+      .None => usize(0),
+      .Some(al) => {
+        count := usize(0);
+        byte_index := usize(0);
+        total_bytes := al.len();
+        while(byte_index < total_bytes, byte_index = (byte_index + usize(1)), {
+          byte_opt := al.get(byte_index);
+          match(
+            byte_opt,
+            .Some(byte) => {
+              cond(
+                utf8.is_boundary(byte) => {
+                  count = (count + usize(1));
+                },
+                true => ()
+              );
+            },
+            .None => ()
+          );
+        });
+        count
+      }
+    )
+  ),
   /**
   * Check if the string is empty
   */
@@ -456,6 +487,17 @@ impl(
   * If end is greater than length, it will substring to the end of the string
   */
   substring : (fn(self : Self, start : usize, end : usize) -> Self)(
+    self.char_substring(start, end)
+  ),
+  /// Slice by RUNE indices — what `substring` does today, under a name that
+  /// says so.
+  ///
+  /// `plans/STD_API_AUDIT_D4_PLAN.md` moves `substring` to BYTE offsets; every
+  /// call site that genuinely means "runes" says `char_substring` instead, so
+  /// the flip cannot change it silently. Out-of-range indices clamp (a start
+  /// at or past the rune count, or `start >= end`, yields the empty string),
+  /// which is the behaviour `substring` has always had.
+  char_substring : (fn(self : Self, start : usize, end : usize) -> Self)(
     match(
       self._bytes,
       .None => {
@@ -618,11 +660,15 @@ impl(
   _split_impl : (fn(self : Self, separator : Self) -> ArrayList(Self))({
     result := ArrayList(Self).new();
     cond(
+      // The empty separator means "split into CHARACTERS", and it has to keep
+      // meaning that after `plans/STD_API_AUDIT_D4_PLAN.md` rebases `len()`
+      // and `substring` onto bytes — a byte split would hand back fragments
+      // that are not valid UTF-8. Pinned to the rune vocabulary (§5.2 S5).
       separator.is_empty() => {
-        char_count := self.len();
+        char_count := self.char_len();
         i := usize(0);
         while(i < char_count, i = (i + usize(1)), {
-          char_str := self.substring(i, i + usize(1));
+          char_str := self.char_substring(i, i + usize(1));
           result.push(char_str);
         });
         return(result);
@@ -1833,37 +1879,6 @@ impl(
 /// classification (`utf8.is_boundary`) and cannot fail.
 impl(
   String,
-  /// Number of Unicode scalar values (runes) in the string.
-  ///
-  /// O(n) in the byte length. Identical to what `len()` returns today; it
-  /// stays a rune count after `len()` becomes a byte count.
-  char_len : (fn(self : Self) -> usize)(
-    match(
-      self._bytes,
-      .None => usize(0),
-      .Some(al) => {
-        count := usize(0);
-        byte_index := usize(0);
-        total_bytes := al.len();
-        while(byte_index < total_bytes, byte_index = (byte_index + usize(1)), {
-          byte_opt := al.get(byte_index);
-          match(
-            byte_opt,
-            .Some(byte) => {
-              cond(
-                utf8.is_boundary(byte) => {
-                  count = (count + usize(1));
-                },
-                true => ()
-              );
-            },
-            .None => ()
-          );
-        });
-        count
-      }
-    )
-  ),
   /// Iterate `(byte_offset, rune)` pairs — Rust's `char_indices()`.
   ///
   /// `_0` is the byte offset the rune starts at, `_1` is the rune. This is
@@ -1988,7 +2003,18 @@ impl(
       .None => ()
     );
     .Some(Self(_bytes : .Some(new_bytes)))
-  })
+  }),
+  /// Keep at most `max_runes` runes, dropping the rest — Rust's
+  /// `s.chars().take(n).collect()`.
+  ///
+  /// Never splits a rune, and never lengthens the string: a string of at most
+  /// `max_runes` runes comes back unchanged. This is the boundary-safe
+  /// replacement for `substring(0, n)` at the two sites that cut arbitrary
+  /// human text to a display length (`std/fmt/spec.yo` precision,
+  /// `src/doc/render_html.yo`'s 120-unit summary cap).
+  truncate_chars : (fn(self : Self, max_runes : usize) -> Self)(
+    self.char_substring(usize(0), max_runes)
+  )
 );
 /// === String utility methods ===
 /**

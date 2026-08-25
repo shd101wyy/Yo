@@ -513,18 +513,28 @@ impl(
     _is_spec_char :: (fn(c : rune) -> bool)(
       (((((c.char >= u32(0x30)) && (c.char <= u32(0x39))) || ((c.char >= u32(0x41)) && (c.char <= u32(0x5A)))) || ((c.char >= u32(0x61)) && (c.char <= u32(0x7A)))) || (((c.char == u32(0x2E)) || (c.char == u32(0x3C))) || ((c.char == u32(0x3E)) || (c.char == u32(0x5E))))) || ((((c.char == u32(0x2B)) || (c.char == u32(0x2D))) || ((c.char == u32(0x23)) || (c.char == u32(0x2A)))) || (((c.char == u32(0x5F)) || (c.char == u32(0x3D))) || (c.char == u32(0x7E))))
     );
+    // `k` and `tn` are RUNE indices into `tc`, so the two cuts at the end have
+    // to be resolved through the rune->byte map `char_indices()` gives, not
+    // fed to `substring` and left to whatever basis it has. This is
+    // plans/STD_API_AUDIT_D4_PLAN.md §5.2 S4: today `substring` reads them as
+    // rune indices and agrees by accident; after D4's flip it would read them
+    // as byte offsets and cut a template string like `${名前:>8}` apart in the
+    // middle of a codepoint.
     _peel_spec :: (fn(text : String) -> _SpecSplit)({
       tc := ArrayList(rune).new();
+      // `toff(i)` is the byte offset rune `i` starts at.
+      toff := ArrayList(usize).new();
       {
-        ti := text.chars();
+        ti := text.char_indices();
         while(runtime(true), {
           match(
             ti.next(),
             .None => {
               break;
             },
-            .Some(c) => {
-              tc.push(c);
+            .Some(pair) => {
+              toff.push(pair._0);
+              tc.push(pair._1);
             }
           );
         });
@@ -541,10 +551,28 @@ impl(
         // a SPACE before the colon means an ordinary colon-pair, not a spec
         ((tc(k - usize(2)).char == u32(0x20)) || (tc(k - usize(2)).char == u32(0x09))) =>
           _SpecSplit(expr_text : text, spec : String.new()),
-        true => _SpecSplit(
-          expr_text : text.substring(usize(0), k - usize(1)),
-          spec : text.substring(k, tn)
-        )
+        true => {
+          // Both cuts land on rune boundaries by construction: they come out
+          // of `char_indices()`, so `try_substring` can only answer `.Some`.
+          colon_byte := match(
+            toff.get(k - usize(1)),
+            .Some(b) => b,
+            .None => text.bytes_len()
+          );
+          spec_byte := match(toff.get(k), .Some(b) => b, .None => text.bytes_len());
+          _SpecSplit(
+            expr_text : match(
+              text.try_substring(usize(0), colon_byte),
+              .Some(sub) => sub,
+              .None => String.new()
+            ),
+            spec : match(
+              text.try_substring(spec_byte, text.bytes_len()),
+              .Some(sub) => sub,
+              .None => String.new()
+            )
+          )
+        }
       )
     });
     num_parts := part_content.len();
