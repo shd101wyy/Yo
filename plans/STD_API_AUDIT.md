@@ -523,9 +523,32 @@ landmine with a pointer at the issue.
 ### D4 — String indexing model (the one genuinely hard call)
 
 `String.len()` is rune-count O(n), `Index` returns a BYTE, `at()`/`substring()`/
-`index_of()` are char-indexed, `starts_with(position)` is byte-indexed. Mixed
-bases in one type is the worst of both worlds (regex pays a
-`_byte_to_char_index` conversion per match).
+`index_of()` are char-indexed, and `starts_with(position)` is ~~byte-indexed~~
+**a BROKEN char walk** — `_has_prefix` (`std/string/string.yo:883`) increments
+its char counter when it *sees* a lead byte and then steps one byte, so for
+`"你好"` with `position = 1` it stops mid-character at byte 1 rather than byte 3.
+`_index_of_impl`'s `from_index` skip has the identical shape and defect. So
+`position` is neither basis. Mixed bases in one type is the worst of both
+worlds (regex pays a `_byte_to_char_index` conversion per match).
+
+**D4 is not introducing a new convention — it is ending a 2-vs-2 split.** The
+comparison table below omits two string types that are ALREADY byte-based:
+`str.len()` is bytes (`std/prelude.yo:5756`) with `slice_copy` a byte range
+(`:5772`), and `StringBuilder.len()` is bytes
+(`std/string/string_builder.yo:45`). Byte-indexing `String` puts it on the same
+footing as the two types it interoperates with most, which is a stronger
+argument than consistency with Rust/Go alone.
+
+**The measured migration plan is `plans/STD_API_AUDIT_D4_PLAN.md`** — per-method
+contracts, exact call-site counts, a 50-site ASCII-invariance classification, the
+trap list, the PR sequence, and an explicit UNMEASURED section. Read it before
+starting: it corrects three claims in this section and finds five surfaces this
+section does not name (the `Pattern` trait's five index-carrying signatures,
+`slice_copy`/`slice_copy_inclusive` behind the `s(a..b)` sugar, the comptime
+string builtins riding on `substring`, `Token.character`'s open byte-indexing
+audit, and `RegexMatch.index()`'s public basis change). It also finds that D4
+**fixes seven live bugs** where a byte index is already being fed to a char
+`substring`.
 
 **DECIDED (O1, 2026-08-23): go byte-indexed like Rust/Go.** `len()` = bytes O(1);
 `chars()`/`char_indices()` for rune walks; `char_len()` for the O(n) count;
@@ -550,9 +573,13 @@ what the SAME method name means:
 
 So `index_of` returns a byte offset on one type and a character offset on the
 other. Code moved between them — or an offset from one fed into the other's
-slice — is silently wrong on any non-ASCII input, which is a worse failure than
-the single-type mixed basis, because nothing surfaces it until multibyte text
-appears.
+slice — would be silently wrong on any non-ASCII input.
+
+**MEASURED 2026-08-25: that hazard is UNREALIZED.** There are zero cross-type
+index feeds in the tree, and `imm.String` has zero production consumers. The imm
+half of D4 is therefore cheap insurance rather than a bug fix — which changes
+its priority: it can land AFTER the `String` flip instead of blocking it. See
+`plans/STD_API_AUDIT_D4_PLAN.md` §7.
 
 Applying D4 to `imm.String` is SMALL: it is already byte-indexed where it counts
 (`slice`, `index_of`, `byte_at`). The work is `len()` → bytes O(1), fold away the
