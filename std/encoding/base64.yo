@@ -137,6 +137,10 @@ _base64_index :: (fn(c : u8) -> i32)({
   i32(-(1))
 });
 /// Decode a base64 `String`, ignoring whitespace. Returns `Result(String, String)`.
+///
+/// The decoded payload must be valid UTF-8, because this function promises a
+/// `String`; a payload that is not is an `Err`. Use `base64_decode` when the
+/// payload is arbitrary binary — it returns the bytes and never validates.
 base64_decode_string :: (fn(input : String) -> Result(String, String))({
   cleaned := ArrayList(u8).new();
   i := usize(0);
@@ -203,6 +207,13 @@ base64_decode_string :: (fn(input : String) -> Result(String, String))({
       true => ()
     );
   });
-  .Ok(String.from_bytes(out))
+  // The decoded payload is arbitrary bytes; this function promises a `String`,
+  // so it has to check. Before this, a base64 blob carrying binary produced a
+  // `String` that was not valid UTF-8 at all.
+  match(
+    String.from_utf8(out),
+    .Ok(s) => .Ok(s),
+    .Err(_) => .Err(`base64 payload is not valid UTF-8`)
+  )
 });
 export(base64_encode_string, base64_decode_string);

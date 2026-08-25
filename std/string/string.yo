@@ -2,6 +2,11 @@
 pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("../collections/array_list.yo");
 { rune } :: import("./rune.yo");
+// The shared UTF-8 primitives (std/encoding/utf8) — one decoder for the whole
+// tree. That module deliberately imports nothing above this layer (only
+// ./rune.yo and ../collections/array_list.yo), so importing it here does NOT
+// pull std/error or std/fmt into String's dependency cycle.
+utf8 :: import("../encoding/utf8.yo");
 { memcpy, memcmp, strlen } :: import("../libc/string.yo");
 { fwrite, stderr } :: import("../libc/stdio.yo");
 // Pointer-identity builtin for the interned `==` fast path below, called
@@ -19,8 +24,9 @@ extern(
 { malloc } :: GlobalAllocator;
 /// String operation error variants.
 StringError :: enum(
-  /// The input bytes are not valid UTF-8.
-  InvalidUtf8,
+  /// The input bytes are not valid UTF-8. `cause` says exactly what is wrong
+  /// and at which byte offset.
+  InvalidUtf8(cause : utf8.Utf8Error),
   /// The index is out of bounds for the string's byte length.
   IndexOutOfBounds(index : usize, length : usize)
 );
@@ -54,13 +60,33 @@ impl(
     )
   ),
   /**
-  * Create a string from raw bytes (assumes valid UTF-8)
-  * No validation is performed - the caller must ensure bytes are valid UTF-8
+  * Create a string from raw bytes WITHOUT checking that they are UTF-8.
+  *
+  * This is the unchecked constructor: the caller guarantees validity, and
+  * nothing scans the buffer. Use it when the bytes came from something that
+  * already produced UTF-8 — another `String`, a UTF-8 encoder, a byte-exact
+  * slice taken at rune boundaries. For bytes of unknown provenance (a file, a
+  * socket, a subprocess) use `from_utf8`, which validates and reports where
+  * the input went wrong.
   */
   from_bytes : (fn(bytes : ArrayList(u8)) -> Self)(
     cond(
       (bytes.len() == usize(0)) => Self(_bytes : .None),
       true => Self(_bytes : .Some(bytes))
+    )
+  ),
+  /**
+  * Create a string from raw bytes, checking that they are valid UTF-8.
+  *
+  * The checked counterpart to `from_bytes`: `Err(StringError.InvalidUtf8)`
+  * carries a `Utf8Error` naming the defect and the byte offset it starts at.
+  * Validation is a single linear scan through `std/encoding/utf8`.
+  */
+  from_utf8 : (fn(bytes : ArrayList(u8)) -> Result(Self, StringError))(
+    match(
+      utf8.validate(bytes),
+      .Ok(_) => .Ok(Self.from_bytes(bytes)),
+      .Err(cause) => .Err(.InvalidUtf8(cause))
     )
   ),
   /**
@@ -140,7 +166,7 @@ impl(
             byte_opt,
             .Some(byte) => {
               cond(
-                ((byte < u8(0x80)) || (byte >= u8(0xC0))) => {
+                utf8.is_boundary(byte) => {
                   count = (count + usize(1));
                 },
                 true => ()
@@ -226,83 +252,18 @@ impl(
   * Decode a UTF-8 encoded rune starting at the given byte index
   * Internal helper method
   */
-  _decode_rune_at : (fn(self : Self, byte_index : usize) -> Option(rune))({
-    (al : Option(ArrayList(u8))) = self._bytes;
+  _decode_rune_at : (fn(self : Self, byte_index : usize) -> Option(rune))(
     match(
-      al,
-      .None => {
-        return(.None);
-      },
-      .Some(bytes) => {
-        first_byte_opt := bytes.get(byte_index);
+      self._bytes,
+      .None => .None,
+      .Some(bytes) =>
         match(
-          first_byte_opt,
-          .Some(first_byte) => {
-            (res : Option(rune)) = cond(
-              (first_byte < u8(0x80)) => {
-                codepoint := u32(first_byte);
-                rune.from_u32(codepoint)
-              },
-              ((first_byte >= u8(0xC0)) && (first_byte < u8(0xE0))) => {
-                second_opt := bytes.get(byte_index + usize(1));
-                match(
-                  second_opt,
-                  .Some(second) => {
-                    codepoint := (((u32(first_byte) & u32(0x1F)) << u32(6)) | (u32(second) & u32(0x3F)));
-                    rune.from_u32(codepoint)
-                  },
-                  .None => .None
-                )
-              },
-              ((first_byte >= u8(0xE0)) && (first_byte < u8(0xF0))) => {
-                second_opt := bytes.get(byte_index + usize(1));
-                third_opt := bytes.get(byte_index + usize(2));
-                match(
-                  second_opt,
-                  .Some(second) =>
-                    match(
-                      third_opt,
-                      .Some(third) => {
-                        codepoint := ((((u32(first_byte) & u32(0x0F)) << u32(12)) | ((u32(second) & u32(0x3F)) << u32(6))) | (u32(third) & u32(0x3F)));
-                        rune.from_u32(codepoint)
-                      },
-                      .None => .None
-                    ),
-                  .None => .None
-                )
-              },
-              ((first_byte >= u8(0xF0)) && (first_byte < u8(0xF8))) => {
-                second_opt := bytes.get(byte_index + usize(1));
-                third_opt := bytes.get(byte_index + usize(2));
-                fourth_opt := bytes.get(byte_index + usize(3));
-                match(
-                  second_opt,
-                  .Some(second) =>
-                    match(
-                      third_opt,
-                      .Some(third) =>
-                        match(
-                          fourth_opt,
-                          .Some(fourth) => {
-                            codepoint := (((((u32(first_byte) & u32(0x07)) << u32(18)) | ((u32(second) & u32(0x3F)) << u32(12))) | ((u32(third) & u32(0x3F)) << u32(6))) | (u32(fourth) & u32(0x3F)));
-                            rune.from_u32(codepoint)
-                          },
-                          .None => .None
-                        ),
-                      .None => .None
-                    ),
-                  .None => .None
-                )
-              },
-              true => .None
-            );
-            return(res);
-          },
-          .None => .None
+          utf8.decode(bytes, byte_index),
+          .Ok(d) => .Some(d.code),
+          .Err(_) => .None
         )
-      }
     )
-  }),
+  ),
   /**
   * Get the rune at the specified character index (0-based)
   * Returns None if index is out of bounds
@@ -323,7 +284,7 @@ impl(
           match(
             byte_opt,
             .Some(byte) => {
-              is_start := ((byte < u8(0x80)) || (byte >= u8(0xC0)));
+              is_start := utf8.is_boundary(byte);
               cond(
                 is_start => {
                   cond(
@@ -518,12 +479,7 @@ impl(
             break;
           });
           (b : u8) = al(byte_index);
-          (byte_len : usize) = cond(
-            (b < u8(0x80)) => usize(1),
-            (b < u8(0xE0)) => usize(2),
-            (b < u8(0xF0)) => usize(3),
-            true => usize(4)
-          );
+          (byte_len : usize) = utf8.step_len(b);
           byte_index = (byte_index + byte_len);
           char_index = (char_index + usize(1));
         });
@@ -574,7 +530,7 @@ impl(
                   match(
                     first_byte_opt,
                     .Some(first_byte) => {
-                      is_start := ((first_byte < u8(0x80)) || (first_byte >= u8(0xC0)));
+                      is_start := utf8.is_boundary(first_byte);
                       cond(
                         is_start => {
                           char_index = (char_index + usize(1));
@@ -626,7 +582,7 @@ impl(
                   match(
                     first_byte_opt,
                     .Some(first_byte) => {
-                      is_start := ((first_byte < u8(0x80)) || (first_byte >= u8(0xC0)));
+                      is_start := utf8.is_boundary(first_byte);
                       cond(
                         is_start => {
                           char_index = (char_index + usize(1));
@@ -790,7 +746,7 @@ impl(
                   match(
                     byte_opt,
                     .Some(byte) => {
-                      is_start := ((byte < u8(0x80)) || (byte >= u8(0xC0)));
+                      is_start := utf8.is_boundary(byte);
                       cond(
                         is_start => {
                           char_positions.push(char_idx);
@@ -899,16 +855,10 @@ impl(
               match(
                 byte_opt,
                 .Some(byte) => {
-                  is_start := ((byte < u8(0x80)) || (byte >= u8(0xC0)));
+                  is_start := utf8.is_boundary(byte);
                   cond(
                     is_start => {
-                      byte_len := cond(
-                        (byte < u8(0x80)) => usize(1),
-                        ((byte >= u8(0xC0)) && (byte < u8(0xE0))) => usize(2),
-                        ((byte >= u8(0xE0)) && (byte < u8(0xF0))) => usize(3),
-                        ((byte >= u8(0xF0)) && (byte < u8(0xF8))) => usize(4),
-                        true => usize(1)
-                      );
+                      byte_len := utf8.step_len(byte);
                       byte_index = ((byte_index + byte_len) - usize(1));
                       char_index = (char_index + usize(1));
                     },
@@ -989,7 +939,7 @@ impl(
               match(
                 byte_opt,
                 .Some(byte) => {
-                  is_start := ((byte < u8(0x80)) || (byte >= u8(0xC0)));
+                  is_start := utf8.is_boundary(byte);
                   cond(
                     is_start => {
                       cond(
@@ -1757,13 +1707,7 @@ impl(
             match(
               first_byte_opt,
               .Some(first_byte) => {
-                (byte_len : usize) = cond(
-                  (first_byte < u8(0x80)) => usize(1),
-                  ((first_byte >= u8(0xC0)) && (first_byte < u8(0xE0))) => usize(2),
-                  ((first_byte >= u8(0xE0)) && (first_byte < u8(0xF0))) => usize(3),
-                  ((first_byte >= u8(0xF0)) && (first_byte < u8(0xF8))) => usize(4),
-                  true => usize(1)
-                );
+                (byte_len : usize) = utf8.step_len(first_byte);
                 r := self._string._decode_rune_at(self._byte_index);
                 self._byte_index = (self._byte_index + byte_len);
                 r

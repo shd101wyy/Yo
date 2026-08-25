@@ -22,6 +22,7 @@ open(import("std/collections/array_list"));
 open(import("std/string"));
 { NfaProgram, ClassEntry } :: import("./compiler.yo");
 { RegexFlags } :: import("./flags.yo");
+utf8 :: import("../encoding/utf8.yo");
 // A single NFA thread: an instruction pointer + capture slots
 NfaThread :: ref(
   struct(
@@ -95,30 +96,13 @@ impl(
       _next_seen : next_seen
     )
   }),
+  // Tolerant by contract: the VM steps over whatever bytes the subject
+  // happens to hold, so a malformed sequence yields U+FFFD and a width of 1
+  // rather than failing. The old hand-rolled version indexed `_bytes` past the
+  // end on a truncated tail; `decode_lossy` bounds-checks instead.
   _decode_codepoint : (fn(self : Self, pos : usize) -> DecodedChar)({
-    first := self._bytes(pos);
-    cond(
-      (first < u8(0x80)) =>
-        DecodedChar(codepoint : u32(first), byte_len : usize(1)),
-      ((first >= u8(0xC0)) && (first < u8(0xE0))) => {
-        second := self._bytes(pos + usize(1));
-        cp := (((u32(first) & u32(0x1F)) << u32(6)) | (u32(second) & u32(0x3F)));
-        DecodedChar(codepoint : cp, byte_len : usize(2))
-      },
-      ((first >= u8(0xE0)) && (first < u8(0xF0))) => {
-        second := self._bytes(pos + usize(1));
-        third := self._bytes(pos + usize(2));
-        cp := ((((u32(first) & u32(0x0F)) << u32(12)) | ((u32(second) & u32(0x3F)) << u32(6))) | (u32(third) & u32(0x3F)));
-        DecodedChar(codepoint : cp, byte_len : usize(3))
-      },
-      true => {
-        second := self._bytes(pos + usize(1));
-        third := self._bytes(pos + usize(2));
-        fourth := self._bytes(pos + usize(3));
-        cp := (((((u32(first) & u32(0x07)) << u32(18)) | ((u32(second) & u32(0x3F)) << u32(12))) | ((u32(third) & u32(0x3F)) << u32(6))) | (u32(fourth) & u32(0x3F)));
-        DecodedChar(codepoint : cp, byte_len : usize(4))
-      }
-    )
+    d := utf8.decode_lossy(self._bytes, pos);
+    DecodedChar(codepoint : d.code.to_u32(), byte_len : d.width)
   }),
   _to_lower : (fn(self : Self, cp : u32) -> u32)(
     cond(
@@ -134,7 +118,7 @@ impl(
     while(p > usize(0), p = (p - usize(1)), {
       b := self._bytes(p);
       cond(
-        ((b < u8(0x80)) || (b >= u8(0xC0))) => {
+        utf8.is_boundary(b) => {
           return(p);
         },
         true => ()
@@ -681,7 +665,7 @@ impl(
                       cond(
                         (try_pos > usize(0)) => {
                           tb := self._bytes(try_pos);
-                          while(((tb >= u8(0x80)) && (tb < u8(0xC0))) && (try_pos > usize(0)), {
+                          while(utf8.is_continuation(tb) && (try_pos > usize(0)), {
                             try_pos = (try_pos - usize(1));
                             tb = self._bytes(try_pos);
                           });

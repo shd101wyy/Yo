@@ -15,6 +15,7 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("../string");
 { ArrayList } :: import("../collections/array_list");
 { rune } :: import("../string/rune");
+utf8 :: import("../encoding/utf8");
 { snprintf } :: import("../libc/stdio");
 /// Text alignment for padded output.
 Alignment :: enum(Left, Right, Center);
@@ -68,27 +69,7 @@ impl(
   }),
   /// Append a Unicode code point encoded as UTF-8.
   write_rune : (fn(self : Self, r : rune) -> Self)({
-    v := u32(r.char);
-    cond(
-      (v < u32(0x80)) => {
-        self.buf.push(u8(v));
-      },
-      (v < u32(0x800)) => {
-        self.buf.push(u8(u32(0xC0) | (v >> u32(6))));
-        self.buf.push(u8(u32(0x80) | (v & u32(0x3F))));
-      },
-      (v < u32(0x10000)) => {
-        self.buf.push(u8(u32(0xE0) | (v >> u32(12))));
-        self.buf.push(u8(u32(0x80) | ((v >> u32(6)) & u32(0x3F))));
-        self.buf.push(u8(u32(0x80) | (v & u32(0x3F))));
-      },
-      true => {
-        self.buf.push(u8(u32(0xF0) | (v >> u32(18))));
-        self.buf.push(u8(u32(0x80) | ((v >> u32(12)) & u32(0x3F))));
-        self.buf.push(u8(u32(0x80) | ((v >> u32(6)) & u32(0x3F))));
-        self.buf.push(u8(u32(0x80) | (v & u32(0x3F))));
-      }
-    );
+    utf8.encode_into(r, self.buf);
     self
   }),
   /// Append a signed 64-bit integer in decimal.

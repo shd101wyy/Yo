@@ -526,6 +526,41 @@ Two conventions that are easy to miss:
   becomes a trait impl, so generic code can dispatch on it. Types that should
   compose get `Eq` / `Ord` / `Hash` / `Clone` / `ToString`.
 
+## UTF-8 lives in exactly one module
+
+`std/encoding/utf8.yo` is the only place in the tree that is allowed to know how
+UTF-8 is laid out. Before it landed, **eleven** `std/` files carried their own
+copy of the same bit twiddling (STD_API_AUDIT D8), and three latent bugs were
+hiding in the copies. Do not add a twelfth.
+
+| you need | call |
+| --- | --- |
+| decode a rune at a byte offset, strictly | `decode(bytes, i) -> Result(Decoded, Utf8Error)` |
+| decode without ever failing (a scanner over untrusted bytes) | `decode_lossy(bytes, i) -> Decoded` — U+FFFD, width ≥ 1 |
+| decode from a buffer that is not an `ArrayList(u8)` | `decode_parts(b0, b1, b2, b3, available, index)` — fetch the bytes yourself, no allocation |
+| encode a `rune` | `encode_into(r, out)` / `encode(r)` |
+| encode a raw `u32` from a decoder (`\uXXXX`, a UTF-16 unit, `towlower`) | `encode_lossy_into(code, out)` — substitutes U+FFFD, so you cannot emit CESU-8 |
+| advance a rune-walking loop | `step_len(b)` — never `cond((b < 0x80) => 1, (b < 0xE0) => 2, …)` |
+| test a rune boundary | `is_boundary(b)` / `is_continuation(b)` |
+| check a whole buffer or a sub-range | `validate(bytes)` / `validate_range(bytes, from, to)` |
+
+Two constraints on that module you must not break:
+
+- **It stays below `std/error` and `std/fmt`.** It imports only
+  `std/string/rune` and `std/collections/array_list`, because
+  `std/string/string.yo` is a consumer and `std/error`/`std/fmt` both import
+  `std/string`. That is why `Utf8Error` has inherent `message()`/`index()`
+  instead of `ToString`/`Error()` impls — same reason `AllocError` has none.
+  A module that wants a throwable UTF-8 error wraps it, the way
+  `StringError.InvalidUtf8(cause : Utf8Error)` does.
+- **`String.from_bytes` does not validate** — it is the *unchecked*
+  constructor, and its ~170 call sites (26 of them in `vendor/markdown_yo`) are
+  why it still has that name. Use `String.from_utf8` for bytes of unknown
+  provenance: a file, a socket, a subprocess, a decoded payload. Use
+  `from_bytes` only when the bytes demonstrably came from UTF-8 already.
+  `String.from_cstr` does not validate either, deliberately: it is how every
+  `${number}` in every template string is built.
+
 ## Standard library module organization (`std/`)
 
 ## Function-type re-evaluation during impl specialization

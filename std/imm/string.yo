@@ -8,6 +8,7 @@ pragma(Pragma.AllowUnsafe);
 { malloc, free } :: GlobalAllocator;
 { memcpy, memcmp } :: import("../libc/string.yo");
 { rune } :: import("../string/rune.yo");
+utf8 :: import("../encoding/utf8.yo");
 std_string :: import("../string");
 { ToString } :: import("../fmt/to_string.yo");
 imm_list :: import("./list.yo");
@@ -92,7 +93,7 @@ impl(
       .Some(p) => {
         while(i < self._len, i = (i + usize(1)), {
           (b : u8) = (p.add(i)).*;
-          if((b & u8(0xC0)) != u8(0x80), {
+          if(utf8.is_boundary(b), {
             count = (count + usize(1));
           });
         });
@@ -538,38 +539,33 @@ impl(
         return(.None);
       },
       .Some(p) => {
+        // This buffer is raw memory, not an `ArrayList(u8)`, so the bytes are
+        // fetched here and handed to the shared core. `decode_parts` exists
+        // for exactly this: copying into a list to decode one rune would cost
+        // an allocation per rune.
+        (rest : usize) = (self._len - byte_index);
+        (available : usize) = cond(
+          (rest > usize(4)) => usize(4),
+          true => rest
+        );
         (b0 : u8) = (p.add(byte_index)).*;
-        if((b0 & u8(0x80)) == u8(0), {
-          return(.Some(rune(char : u32(b0))));
-        });
-        if((b0 & u8(0xE0)) == u8(0xC0), {
-          if((byte_index + usize(1)) >= self._len, {
-            return(.None);
-          });
-          (b1 : u8) = (p.add(byte_index + usize(1))).*;
-          (code : u32) = (((u32(b0) & u32(0x1F)) << u32(6)) | (u32(b1) & u32(0x3F)));
-          return(.Some(rune(char : code)));
-        });
-        if((b0 & u8(0xF0)) == u8(0xE0), {
-          if((byte_index + usize(2)) >= self._len, {
-            return(.None);
-          });
-          (b1 : u8) = (p.add(byte_index + usize(1))).*;
-          (b2 : u8) = (p.add(byte_index + usize(2))).*;
-          (code : u32) = ((((u32(b0) & u32(0x0F)) << u32(12)) | ((u32(b1) & u32(0x3F)) << u32(6))) | (u32(b2) & u32(0x3F)));
-          return(.Some(rune(char : code)));
-        });
-        if((b0 & u8(0xF8)) == u8(0xF0), {
-          if((byte_index + usize(3)) >= self._len, {
-            return(.None);
-          });
-          (b1 : u8) = (p.add(byte_index + usize(1))).*;
-          (b2 : u8) = (p.add(byte_index + usize(2))).*;
-          (b3 : u8) = (p.add(byte_index + usize(3))).*;
-          (code : u32) = (((((u32(b0) & u32(0x07)) << u32(18)) | ((u32(b1) & u32(0x3F)) << u32(12))) | ((u32(b2) & u32(0x3F)) << u32(6))) | (u32(b3) & u32(0x3F)));
-          return(.Some(rune(char : code)));
-        });
-        return(.None);
+        (b1 : u8) = cond(
+          (available > usize(1)) => (p.add(byte_index + usize(1))).*,
+          true => u8(0)
+        );
+        (b2 : u8) = cond(
+          (available > usize(2)) => (p.add(byte_index + usize(2))).*,
+          true => u8(0)
+        );
+        (b3 : u8) = cond(
+          (available > usize(3)) => (p.add(byte_index + usize(3))).*,
+          true => u8(0)
+        );
+        match(
+          utf8.decode_parts(b0, b1, b2, b3, available, byte_index),
+          .Ok(d) => .Some(d.code),
+          .Err(_) => .None
+        )
       }
     )
   }),
@@ -591,20 +587,7 @@ impl(
             return(self._decode_rune_at(byte_index));
           });
           (b : u8) = (p.add(byte_index)).*;
-          cond(
-            ((b & u8(0x80)) == u8(0)) => {
-              byte_index = (byte_index + usize(1));
-            },
-            ((b & u8(0xE0)) == u8(0xC0)) => {
-              byte_index = (byte_index + usize(2));
-            },
-            ((b & u8(0xF0)) == u8(0xE0)) => {
-              byte_index = (byte_index + usize(3));
-            },
-            true => {
-              byte_index = (byte_index + usize(4));
-            }
-          );
+          byte_index = (byte_index + utf8.step_len(b));
           char_count = (char_count + usize(1));
         });
         return(.None);

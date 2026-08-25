@@ -21,6 +21,7 @@ open(import("../string"));
 { snprintf } :: import("../libc/stdio");
 { Error, AnyError, Exception } :: import("../error");
 { ToString } :: import("../fmt");
+utf8 :: import("./utf8");
 // ============================================================================
 // JsonError
 // ============================================================================
@@ -214,31 +215,6 @@ export(JsonValue, JsonKV);
 // ============================================================================
 // Parser state
 // ============================================================================
-/// UTF-8-encode code point `cp` into `bytes`. Division/modulo instead of
-/// shifts (the closed operator set has no `<<`/`>>`).
-_push_utf8 :: (fn(bytes : ArrayList(u8), cp : u32) -> unit)({
-  cond(
-    (cp < u32(0x80)) => {
-      bytes.push(u8(cp));
-    },
-    (cp < u32(0x800)) => {
-      bytes.push(u8(u32(0xC0) + (cp / u32(64))));
-      bytes.push(u8(u32(0x80) + (cp % u32(64))));
-    },
-    (cp < u32(0x10000)) => {
-      bytes.push(u8(u32(0xE0) + (cp / u32(4096))));
-      bytes.push(u8(u32(0x80) + ((cp / u32(64)) % u32(64))));
-      bytes.push(u8(u32(0x80) + (cp % u32(64))));
-    },
-    true => {
-      bytes.push(u8(u32(0xF0) + (cp / u32(262144))));
-      bytes.push(u8(u32(0x80) + ((cp / u32(4096)) % u32(64))));
-      bytes.push(u8(u32(0x80) + ((cp / u32(64)) % u32(64))));
-      bytes.push(u8(u32(0x80) + (cp % u32(64))));
-    }
-  );
-});
-
 /// One hex digit's value, or 255 for a non-hex byte.
 _hex_digit :: (fn(b : u8) -> u8)(
   cond(
@@ -429,7 +405,9 @@ impl(
                       if((cp >= u32(0xDC00)) && (cp <= u32(0xDFFF)), {
                         return(.Err(.InvalidUnicode));
                       });
-                      _push_utf8(bytes, cp);
+                      // Surrogate halves were already rejected above, so
+                      // `cp` is a scalar and nothing is substituted here.
+                      utf8.encode_lossy_into(cp, bytes);
                     },
                     true => {
                       return(.Err(.InvalidEscape));

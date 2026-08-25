@@ -27,6 +27,7 @@ open(import("std/string"));
 { RegexFlags } :: import("./flags.yo");
 { RegexMatch } :: import("./match.yo");
 { RegexError } :: import("./error.yo");
+utf8 :: import("../encoding/utf8.yo");
 /// Compiled regular expression backed by an NFA program.
 Regex :: ref(
   struct(
@@ -105,12 +106,7 @@ impl(
     i := usize(0);
     while(i < byte_pos, {
       b := bytes(i);
-      char_len := cond(
-        (b < u8(0x80)) => usize(1),
-        ((b >= u8(0xC0)) && (b < u8(0xE0))) => usize(2),
-        ((b >= u8(0xE0)) && (b < u8(0xF0))) => usize(3),
-        true => usize(4)
-      );
+      char_len := utf8.step_len(b);
       i = (i + char_len);
       char_idx = (char_idx + usize(1));
     });
@@ -239,12 +235,7 @@ impl(
             },
             true => {
               b := bytes(byte_pos);
-              char_len := cond(
-                (b < u8(0x80)) => usize(1),
-                ((b >= u8(0xC0)) && (b < u8(0xE0))) => usize(2),
-                ((b >= u8(0xE0)) && (b < u8(0xF0))) => usize(3),
-                true => usize(4)
-              );
+              char_len := utf8.step_len(b);
               next_pos := (byte_pos + char_len);
               byte_pos = cond(
                 has_prefix => self._find_prefix_pos(bytes, next_pos),
@@ -283,12 +274,7 @@ impl(
                     },
                     true => {
                       b := bytes(byte_pos);
-                      char_len := cond(
-                        (b < u8(0x80)) => usize(1),
-                        ((b >= u8(0xC0)) && (b < u8(0xE0))) => usize(2),
-                        ((b >= u8(0xE0)) && (b < u8(0xF0))) => usize(3),
-                        true => usize(4)
-                      );
+                      char_len := utf8.step_len(b);
                       byte_pos = (byte_pos + char_len);
                     }
                   );
@@ -326,12 +312,7 @@ impl(
                     },
                     true => {
                       b := bytes(byte_pos);
-                      char_len := cond(
-                        (b < u8(0x80)) => usize(1),
-                        ((b >= u8(0xC0)) && (b < u8(0xE0))) => usize(2),
-                        ((b >= u8(0xE0)) && (b < u8(0xF0))) => usize(3),
-                        true => usize(4)
-                      );
+                      char_len := utf8.step_len(b);
                       next_pos := (byte_pos + char_len);
                       byte_pos = cond(
                         has_prefix => self._find_prefix_pos(bytes, next_pos),
@@ -355,12 +336,7 @@ impl(
                 },
                 true => {
                   b := bytes(byte_pos);
-                  char_len := cond(
-                    (b < u8(0x80)) => usize(1),
-                    ((b >= u8(0xC0)) && (b < u8(0xE0))) => usize(2),
-                    ((b >= u8(0xE0)) && (b < u8(0xF0))) => usize(3),
-                    true => usize(4)
-                  );
+                  char_len := utf8.step_len(b);
                   next_pos := (byte_pos + char_len);
                   byte_pos = cond(
                     has_prefix => self._find_prefix_pos(bytes, next_pos),
@@ -432,12 +408,7 @@ impl(
               ci := usize(0);
               while(ci < char_idx, {
                 cb := input_bytes(byte_idx);
-                cbl := cond(
-                  (cb < u8(0x80)) => usize(1),
-                  ((cb >= u8(0xC0)) && (cb < u8(0xE0))) => usize(2),
-                  ((cb >= u8(0xE0)) && (cb < u8(0xF0))) => usize(3),
-                  true => usize(4)
-                );
+                cbl := utf8.step_len(cb);
                 byte_idx = (byte_idx + cbl);
                 ci = (ci + usize(1));
               });
@@ -456,12 +427,7 @@ impl(
               ci := usize(0);
               while(ci < char_idx, {
                 cb := input_bytes(byte_idx);
-                cbl := cond(
-                  (cb < u8(0x80)) => usize(1),
-                  ((cb >= u8(0xC0)) && (cb < u8(0xE0))) => usize(2),
-                  ((cb >= u8(0xE0)) && (cb < u8(0xF0))) => usize(3),
-                  true => usize(4)
-                );
+                cbl := utf8.step_len(cb);
                 byte_idx = (byte_idx + cbl);
                 ci = (ci + usize(1));
               });
@@ -569,12 +535,7 @@ impl(
         ci := usize(0);
         while(ci < char_idx, {
           cb := input_bytes(match_start_byte);
-          cbl := cond(
-            (cb < u8(0x80)) => usize(1),
-            ((cb >= u8(0xC0)) && (cb < u8(0xE0))) => usize(2),
-            ((cb >= u8(0xE0)) && (cb < u8(0xF0))) => usize(3),
-            true => usize(4)
-          );
+          cbl := utf8.step_len(cb);
           match_start_byte = (match_start_byte + cbl);
           ci = (ci + usize(1));
         });
@@ -616,12 +577,7 @@ impl(
           ci := usize(0);
           while(ci < char_idx, {
             cb := input_bytes(match_start_byte);
-            cbl := cond(
-              (cb < u8(0x80)) => usize(1),
-              ((cb >= u8(0xC0)) && (cb < u8(0xE0))) => usize(2),
-              ((cb >= u8(0xE0)) && (cb < u8(0xF0))) => usize(3),
-              true => usize(4)
-            );
+            cbl := utf8.step_len(cb);
             match_start_byte = (match_start_byte + cbl);
             ci = (ci + usize(1));
           });
@@ -668,12 +624,7 @@ impl(
           ci := usize(0);
           while(ci < char_idx, {
             cb := input_bytes(match_start_byte);
-            cbl := cond(
-              (cb < u8(0x80)) => usize(1),
-              ((cb >= u8(0xC0)) && (cb < u8(0xE0))) => usize(2),
-              ((cb >= u8(0xE0)) && (cb < u8(0xF0))) => usize(3),
-              true => usize(4)
-            );
+            cbl := utf8.step_len(cb);
             match_start_byte = (match_start_byte + cbl);
             ci = (ci + usize(1));
           });

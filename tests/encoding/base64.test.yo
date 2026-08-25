@@ -206,3 +206,17 @@ test("decode_string invalid characters", {
   result := base64_decode_string(`!!!!`);
   assert(result.is_err(), "invalid characters should return error");
 });
+test("decode_string rejects a payload that is not UTF-8", {
+  // "/w==" decodes to the single byte 0xFF, which cannot appear in UTF-8.
+  // Before std/encoding/utf8 landed, `base64_decode_string` handed that byte
+  // straight to the unchecked `String.from_bytes` and returned an invalid
+  // `String`.
+  result := base64_decode_string(`/w==`);
+  assert(result.is_err(), "a non-UTF-8 payload should be an error, not a broken String");
+});
+test("decode_string accepts a multi-byte UTF-8 payload", {
+  // "w6k=" is 0xC3 0xA9 — U+00E9, valid UTF-8, so validation must not reject it.
+  result := base64_decode_string(`w6k=`);
+  assert(result.is_ok(), "valid multi-byte UTF-8 should still decode");
+  assert(result.unwrap().len() == usize(1), "the payload is one rune");
+});

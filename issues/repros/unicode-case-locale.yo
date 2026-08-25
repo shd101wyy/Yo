@@ -1,0 +1,19 @@
+// Reproducer for issues/unicode-case-conversion-ignores-locale-so-non-ascii-is-unchanged.md
+//
+//   yo compile issues/repros/unicode-case-locale.yo --release -o /tmp/uc && /tmp/uc
+//
+// Expected (per std/string/unicode.yo's own doc comment):
+//   hello wörld ss
+//   HELLO WÖRLD SS FI
+// Actual:
+//   hello wÖrld ss
+//   HELLO WöRLD SS FI
+{ println } :: import("std/fmt");
+open(import("std/string"));
+{ unicode_to_lowercase, unicode_to_uppercase } :: import("std/string/unicode");
+main :: (fn() -> unit)({
+  println(unicode_to_lowercase(`HELLO WÖRLD ẞ`));
+  println(unicode_to_uppercase(`hello wörld ß ﬁ`));
+  ()
+});
+export(main);
