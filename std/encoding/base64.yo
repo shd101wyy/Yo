@@ -203,6 +203,13 @@ base64_decode_string :: (fn(input : String) -> Result(String, String))({
       true => ()
     );
   });
-  .Ok(String.from_bytes(out))
+  // The decoded payload is arbitrary bytes; this function promises a `String`,
+  // so it has to check. Before this, a base64 blob carrying binary produced a
+  // `String` that was not valid UTF-8 at all.
+  match(
+    String.from_utf8(out),
+    .Ok(s) => .Ok(s),
+    .Err(_) => .Err(`base64 payload is not valid UTF-8`)
+  )
 });
 export(base64_encode_string, base64_decode_string);

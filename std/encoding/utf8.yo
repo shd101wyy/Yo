@@ -1,0 +1,410 @@
+//! UTF-8 primitives — the single decoder/encoder the rest of `std` is built on.
+//!
+//! Everything here is byte-level and allocation-free unless it is handed a
+//! buffer to append to. `decode`/`decode_parts` validate to RFC 3629: overlong
+//! forms, UTF-16 surrogates (U+D800..U+DFFF) and scalars above U+10FFFF are
+//! rejected, not silently accepted.
+//!
+//! # Layering
+//!
+//! This module deliberately imports only `std/string/rune` and
+//! `std/collections/array_list`. It must stay below `std/error` and `std/fmt`,
+//! because `std/string/string.yo` — which both of those import — is itself a
+//! consumer. That is also why `Utf8Error` carries an inherent `message()`
+//! returning `str` instead of a `ToString`/`Error()` impl: those traits live
+//! above this layer. Callers that need a throwable error wrap it in their own
+//! module's error enum (`StringError.InvalidUtf8` does exactly that).
+//!
+//! # Example
+//!
+//! ```rust
+//! { decode, encode_into, validate } :: import "std/encoding/utf8";
+//! { ArrayList } :: import "std/collections/array_list";
+//!
+//! bytes := `héllo`.as_bytes();
+//! match(validate(bytes), .Ok(_) => (), .Err(e) => println(e.message()));
+//!
+//! // Walk the string one rune at a time.
+//! i := usize(0);
+//! while(i < bytes.len(), {
+//!   match(decode(bytes, i), .Ok(d) => { i = (i + d.width); }, .Err(_) => { i = (i + usize(1)); });
+//! });
+//! ```
+{ rune } :: import("../string/rune.yo");
+{ ArrayList } :: import("../collections/array_list.yo");
+// ============================================================================
+// Error type
+// ============================================================================
+/// Why a byte sequence is not valid UTF-8.
+///
+/// Every variant carries `index`, the byte offset the offending sequence
+/// STARTS at, so a caller can report the position without re-scanning.
+Utf8Error :: enum(
+  /// The byte at `index` cannot begin a sequence: it is a continuation byte,
+  /// an always-overlong lead (`0xC0`/`0xC1`), or a lead above `0xF4`.
+  InvalidStart(index : usize, byte : u8),
+  /// The sequence starting at `index` needs `expected` bytes but only
+  /// `available` remain in the range being decoded.
+  UnexpectedEnd(index : usize, expected : usize, available : usize),
+  /// Byte number `offset` (1-based, within the sequence starting at `index`)
+  /// is not a continuation byte (`0b10xxxxxx`).
+  InvalidContinuation(index : usize, offset : usize, byte : u8),
+  /// The sequence at `index` spells `code` using more bytes than the shortest
+  /// form — the classic UTF-8 security hole (`0xC0 0x80` for NUL).
+  Overlong(index : usize, code : u32),
+  /// The sequence at `index` spells a UTF-16 surrogate half. Surrogates are
+  /// not scalar values and must never appear in UTF-8 (this is CESU-8/WTF-8).
+  Surrogate(index : usize, code : u32),
+  /// The sequence at `index` spells `code`, which is above U+10FFFF.
+  OutOfRange(index : usize, code : u32)
+);
+impl(
+  Utf8Error,
+  /// A short, allocation-free description of the failure.
+  ///
+  /// Returns `str` rather than `String` on purpose — see the module header on
+  /// layering. Callers that want a formatted message with the offending bytes
+  /// build it themselves from the variant's fields.
+  message : (fn(self : Self) -> str)(
+    match(
+      self,
+      .InvalidStart => "invalid UTF-8 start byte",
+      .UnexpectedEnd => "truncated UTF-8 sequence",
+      .InvalidContinuation => "invalid UTF-8 continuation byte",
+      .Overlong => "overlong UTF-8 encoding",
+      .Surrogate => "UTF-8 encoded a UTF-16 surrogate",
+      .OutOfRange => "UTF-8 code point above U+10FFFF"
+    )
+  ),
+  /// The byte offset the offending sequence starts at.
+  index : (fn(self : Self) -> usize)(
+    match(
+      self,
+      .InvalidStart(at, _) => at,
+      .UnexpectedEnd(at, _, _) => at,
+      .InvalidContinuation(at, _, _) => at,
+      .Overlong(at, _) => at,
+      .Surrogate(at, _) => at,
+      .OutOfRange(at, _) => at
+    )
+  )
+);
+export(Utf8Error);
+// ============================================================================
+// Decoded rune
+// ============================================================================
+/// One decoded scalar value plus the width of the sequence that carried it.
+///
+/// `width` is what a `chars()` / `char_indices()` iterator advances by, so a
+/// decode step is `decode(bytes, i)` then `i = i + width`.
+Decoded :: struct(
+  /// The decoded scalar value.
+  code : rune,
+  /// Bytes the sequence occupied — 1, 2, 3 or 4.
+  width : usize
+);
+export(Decoded);
+// ============================================================================
+// Byte classification
+// ============================================================================
+/// True when `b` is a UTF-8 continuation byte (`0b10xxxxxx`).
+is_continuation :: (fn(b : u8) -> bool)(
+  (b & u8(0xC0)) == u8(0x80)
+);
+export(is_continuation);
+/// True when `b` sits on a rune boundary — i.e. it is not a continuation byte.
+///
+/// This is the predicate for scanning backwards to the start of the rune
+/// containing a byte index, and for counting runes by counting boundaries.
+is_boundary :: (fn(b : u8) -> bool)(
+  (b & u8(0xC0)) != u8(0x80)
+);
+export(is_boundary);
+/// Byte width of the UTF-8 sequence that `first` begins, or `0` when `first`
+/// cannot begin one.
+///
+/// `0` is returned for continuation bytes (`0x80`..`0xBF`), for the two
+/// always-overlong leads `0xC0`/`0xC1`, and for `0xF5`..`0xFF` (which could
+/// only spell scalars above U+10FFFF). Callers that must make forward progress
+/// over invalid input treat `0` as "skip one byte".
+sequence_len :: (fn(first : u8) -> usize)(
+  cond(
+    (first < u8(0x80)) => usize(1),
+    (first < u8(0xC2)) => usize(0),
+    (first < u8(0xE0)) => usize(2),
+    (first < u8(0xF0)) => usize(3),
+    (first < u8(0xF5)) => usize(4),
+    true => usize(0)
+  )
+);
+export(sequence_len);
+/// Bytes to advance by when walking runes FORWARD from `b`: `sequence_len`
+/// clamped to 1, so a byte that cannot start a sequence still makes progress.
+///
+/// This is what a tolerant scanner steps by; `sequence_len` is the strict
+/// answer and returns `0` for "not a lead byte". Every rune-walking loop in
+/// `std` uses this, which is why it is a function and not five copies of a
+/// `cond` table.
+step_len :: (fn(b : u8) -> usize)({
+  n := sequence_len(b);
+  cond(
+    (n == usize(0)) => usize(1),
+    true => n
+  )
+});
+export(step_len);
+/// Bytes `r` occupies once UTF-8 encoded — 1, 2, 3 or 4.
+encoded_len :: (fn(r : rune) -> usize)({
+  code := r.to_u32();
+  cond(
+    (code < u32(0x80)) => usize(1),
+    (code < u32(0x800)) => usize(2),
+    (code < u32(0x10000)) => usize(3),
+    true => usize(4)
+  )
+});
+export(encoded_len);
+// ============================================================================
+// Decoding
+// ============================================================================
+/// Read one byte, or `0` past the end. Private: `decode_parts` already knows
+/// how many of its four bytes are real, via `available`.
+_at :: (fn(bytes : ArrayList(u8), i : usize) -> u8)(
+  match(bytes.get(i), .Some(b) => b, .None => u8(0))
+);
+/// Assemble and validate one UTF-8 sequence from up to four ALREADY-FETCHED
+/// bytes.
+///
+/// This is the single implementation `decode` runs on. It exists as its own
+/// entry point for buffers that are not an `ArrayList(u8)` — a raw pointer
+/// region, a memory-mapped file — where copying into a list to decode one rune
+/// would be absurd. `std/imm/string` is exactly that caller.
+///
+/// `available` is how many of `b0`..`b3` were really readable (1..4); the rest
+/// are ignored. `index` is only used to build the error, so pass the byte
+/// offset `b0` came from.
+decode_parts :: (
+  fn(b0 : u8, b1 : u8, b2 : u8, b3 : u8, available : usize, index : usize) -> Result(Decoded, Utf8Error)
+)({
+  width := sequence_len(b0);
+  if(width == usize(0), {
+    return(.Err(.InvalidStart(index, b0)));
+  });
+  if(available < width, {
+    return(.Err(.UnexpectedEnd(index, width, available)));
+  });
+  if(width == usize(1), {
+    return(.Ok(Decoded(code : rune(char : u32(b0)), width : usize(1))));
+  });
+  if(!(is_continuation(b1)), {
+    return(.Err(.InvalidContinuation(index, usize(1), b1)));
+  });
+  if(width == usize(2), {
+    // `sequence_len` already rejected 0xC0/0xC1, so a 2-byte form here is
+    // always >= U+0080 and can never be overlong.
+    code2 := (((u32(b0) & u32(0x1F)) << u32(6)) | (u32(b1) & u32(0x3F)));
+    return(.Ok(Decoded(code : rune(char : code2), width : usize(2))));
+  });
+  if(!(is_continuation(b2)), {
+    return(.Err(.InvalidContinuation(index, usize(2), b2)));
+  });
+  if(width == usize(3), {
+    code3 := ((((u32(b0) & u32(0x0F)) << u32(12)) | ((u32(b1) & u32(0x3F)) << u32(6))) | (u32(b2) & u32(0x3F)));
+    if(code3 < u32(0x800), {
+      return(.Err(.Overlong(index, code3)));
+    });
+    if((code3 >= u32(0xD800)) && (code3 <= u32(0xDFFF)), {
+      return(.Err(.Surrogate(index, code3)));
+    });
+    return(.Ok(Decoded(code : rune(char : code3), width : usize(3))));
+  });
+  if(!(is_continuation(b3)), {
+    return(.Err(.InvalidContinuation(index, usize(3), b3)));
+  });
+  code4 := (((((u32(b0) & u32(0x07)) << u32(18)) | ((u32(b1) & u32(0x3F)) << u32(12))) | ((u32(b2) & u32(0x3F)) << u32(6))) | (u32(b3) & u32(0x3F)));
+  if(code4 < u32(0x10000), {
+    return(.Err(.Overlong(index, code4)));
+  });
+  if(code4 > u32(0x10FFFF), {
+    return(.Err(.OutOfRange(index, code4)));
+  });
+  .Ok(Decoded(code : rune(char : code4), width : usize(4)))
+});
+export(decode_parts);
+/// Decode the rune starting at byte `index` of `bytes`.
+///
+/// The `Err` case names exactly what is wrong and where; `decode_lossy` is the
+/// variant for scanners that must keep going regardless.
+decode :: (fn(bytes : ArrayList(u8), index : usize) -> Result(Decoded, Utf8Error))({
+  n := bytes.len();
+  if(index >= n, {
+    return(.Err(.UnexpectedEnd(index, usize(1), usize(0))));
+  });
+  b0 := _at(bytes, index);
+  // ASCII fast path. It is not just an optimisation of the common case: this
+  // decoder replaced hand-rolled copies that fetched only the bytes they
+  // needed, and it runs under the compiler's own lexer, so fetching all four
+  // bytes for every 'a' would be a real regression against what it replaced.
+  if(b0 < u8(0x80), {
+    return(.Ok(Decoded(code : rune(char : u32(b0)), width : usize(1))));
+  });
+  (rest : usize) = (n - index);
+  (available : usize) = cond(
+    (rest > usize(4)) => usize(4),
+    true => rest
+  );
+  decode_parts(
+    b0,
+    cond(
+      (available > usize(1)) => _at(bytes, index + usize(1)),
+      true => u8(0)
+    ),
+    cond(
+      (available > usize(2)) => _at(bytes, index + usize(2)),
+      true => u8(0)
+    ),
+    cond(
+      (available > usize(3)) => _at(bytes, index + usize(3)),
+      true => u8(0)
+    ),
+    available,
+    index
+  )
+});
+export(decode);
+/// Decode the rune starting at byte `index`, substituting U+FFFD REPLACEMENT
+/// CHARACTER with a width of 1 for anything invalid.
+///
+/// Same contract as Go's `utf8.DecodeRune`: never fails, and always makes
+/// forward progress, so a `while` loop over a corrupt buffer still terminates.
+decode_lossy :: (fn(bytes : ArrayList(u8), index : usize) -> Decoded)(
+  match(
+    decode(bytes, index),
+    .Ok(d) => d,
+    .Err(_) => Decoded(code : rune.REPLACEMENT, width : usize(1))
+  )
+);
+export(decode_lossy);
+// ============================================================================
+// Encoding
+// ============================================================================
+/// Append the UTF-8 encoding of `r` to `out`, returning how many bytes were
+/// pushed (1..4).
+///
+/// Infallible: `rune` is already constrained to the scalar values, so there is
+/// no invalid input to reject.
+encode_into :: (fn(r : rune, out : ArrayList(u8)) -> usize)({
+  code := r.to_u32();
+  cond(
+    (code < u32(0x80)) => {
+      out.push(u8(code));
+      usize(1)
+    },
+    (code < u32(0x800)) => {
+      out.push(u8(u32(0xC0) | (code >> u32(6))));
+      out.push(u8(u32(0x80) | (code & u32(0x3F))));
+      usize(2)
+    },
+    (code < u32(0x10000)) => {
+      out.push(u8(u32(0xE0) | (code >> u32(12))));
+      out.push(u8(u32(0x80) | ((code >> u32(6)) & u32(0x3F))));
+      out.push(u8(u32(0x80) | (code & u32(0x3F))));
+      usize(3)
+    },
+    true => {
+      out.push(u8(u32(0xF0) | (code >> u32(18))));
+      out.push(u8(u32(0x80) | ((code >> u32(12)) & u32(0x3F))));
+      out.push(u8(u32(0x80) | ((code >> u32(6)) & u32(0x3F))));
+      out.push(u8(u32(0x80) | (code & u32(0x3F))));
+      usize(4)
+    }
+  )
+});
+export(encode_into);
+/// Append the UTF-8 encoding of the raw code point `code` to `out`,
+/// substituting U+FFFD when `code` is not a scalar value (a surrogate half, or
+/// above U+10FFFF). Returns how many bytes were pushed.
+///
+/// This is the entry point for decoders whose intermediate value is a `u32`
+/// that has not been through `rune.from_u32` — JSON `\uXXXX` escapes, UTF-16
+/// code units, C `towlower`/`towupper` results. Substituting keeps the output
+/// buffer valid UTF-8 instead of quietly emitting CESU-8.
+encode_lossy_into :: (fn(code : u32, out : ArrayList(u8)) -> usize)(
+  match(
+    rune.from_u32(code),
+    .Some(r) => encode_into(r, out),
+    .None => encode_into(rune.REPLACEMENT, out)
+  )
+);
+export(encode_lossy_into);
+/// The UTF-8 encoding of `r` as a fresh 1..4 byte list.
+encode :: (fn(r : rune) -> ArrayList(u8))({
+  out := ArrayList(u8).with_capacity(encoded_len(r));
+  encode_into(r, out);
+  out
+});
+export(encode);
+// ============================================================================
+// Validation
+// ============================================================================
+/// Check that `bytes[from..to)` is well-formed UTF-8, on its own — a sequence
+/// that would spill past `to` is reported as `UnexpectedEnd`, not accepted.
+///
+/// `to` is clamped to the buffer length. An empty range is `Ok`.
+validate_range :: (fn(bytes : ArrayList(u8), from : usize, to : usize) -> Result(unit, Utf8Error))({
+  n := bytes.len();
+  (end : usize) = cond(
+    (to > n) => n,
+    true => to
+  );
+  (i : usize) = from;
+  while(i < end, {
+    b0 := _at(bytes, i);
+    // Same ASCII fast path as `decode` — validating a mostly-ASCII buffer
+    // should cost one compare per byte, not four fetches.
+    cond(
+      (b0 < u8(0x80)) => {
+        i = (i + usize(1));
+      },
+      true => {
+        (rest : usize) = (end - i);
+        (available : usize) = cond(
+          (rest > usize(4)) => usize(4),
+          true => rest
+        );
+        match(
+          decode_parts(
+            b0,
+            cond(
+              (available > usize(1)) => _at(bytes, i + usize(1)),
+              true => u8(0)
+            ),
+            cond(
+              (available > usize(2)) => _at(bytes, i + usize(2)),
+              true => u8(0)
+            ),
+            cond(
+              (available > usize(3)) => _at(bytes, i + usize(3)),
+              true => u8(0)
+            ),
+            available,
+            i
+          ),
+          .Ok(d) => {
+            i = (i + d.width);
+          },
+          .Err(e) => {
+            return(.Err(e));
+          }
+        );
+      }
+    );
+  });
+  .Ok(())
+});
+export(validate_range);
+/// Check that the whole buffer is well-formed UTF-8.
+validate :: (fn(bytes : ArrayList(u8)) -> Result(unit, Utf8Error))(
+  validate_range(bytes, usize(0), bytes.len())
+);
+export(validate);

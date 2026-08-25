@@ -3,6 +3,7 @@ pragma(Pragma.AllowUnsafe);
 { String, rune } :: import("../string");
 { snprintf } :: import("../libc/stdio");
 { ArrayList } :: import("../collections/array_list");
+utf8 :: import("../encoding/utf8");
 /// Trait for converting values to their `String` representation.
 /// Types implementing this trait can be used with `println`, `print`, and template strings.
 ToString :: trait(
@@ -317,48 +318,13 @@ impl(
   rune,
   ToString(
     to_string : (fn(inout(self) : Self) -> String)({
-      // Get the code point value
-      code := self.char;
-      // UTF-8 encoding:
-      // 0x00-0x7F: 1 byte
-      // 0x80-0x7FF: 2 bytes
-      // 0x800-0xFFFF: 3 bytes (excluding surrogates 0xD800-0xDFFF)
-      // 0x10000-0x10FFFF: 4 bytes
-      // Use 5-byte buffer to always have space for null terminator
-      buffer := cond(
-        (code <= 0x7F) => {
-          // 1-byte encoding: 0xxxxxxx
-          arr := Array(u8, usize(5)).fill(0);
-          arr(0) = u8(code);
-          arr
-        },
-        (code <= 0x7FF) => {
-          // 2-byte encoding: 110xxxxx 10xxxxxx
-          arr := Array(u8, usize(5)).fill(0);
-          arr(0) = u8(u32(0xC0) | ((code >> 6) & 0x1F));
-          arr(1) = u8(u32(0x80) | (code & 0x3F));
-          arr
-        },
-        (code <= 0xFFFF) => {
-          // 3-byte encoding: 1110xxxx 10xxxxxx 10xxxxxx
-          arr := Array(u8, usize(5)).fill(0);
-          arr(0) = u8(u32(0xE0) | ((code >> 12) & 0x0F));
-          arr(1) = u8(u32(0x80) | ((code >> 6) & 0x3F));
-          arr(2) = u8(u32(0x80) | (code & 0x3F));
-          arr
-        },
-        true => {
-          // 4-byte encoding: 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
-          arr := Array(u8, usize(5)).fill(0);
-          arr(0) = u8(u32(0xF0) | ((code >> 18) & 0x07));
-          arr(1) = u8(u32(0x80) | ((code >> 12) & 0x3F));
-          arr(2) = u8(u32(0x80) | ((code >> 6) & 0x3F));
-          arr(3) = u8(u32(0x80) | (code & 0x3F));
-          arr
-        }
-      );
-      buffer_ptr := (&(buffer(0)));
-      String.from_cstr(buffer_ptr).unwrap()
+      // One shared encoder (std/encoding/utf8) instead of a seventh hand-rolled
+      // copy. `self.char` is a raw u32, so the lossy entry point is the right
+      // one — a `rune` built by hand around a surrogate stringifies as U+FFFD
+      // rather than emitting CESU-8.
+      out := ArrayList(u8).with_capacity(usize(4));
+      utf8.encode_lossy_into(self.char, out);
+      String.from_bytes(out)
     })
   )
 );

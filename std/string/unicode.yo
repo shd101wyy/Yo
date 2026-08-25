@@ -11,6 +11,7 @@
 pragma(Pragma.AllowUnsafe);
 open(import("../string"));
 { ArrayList } :: import("../collections/array_list");
+utf8 :: import("../encoding/utf8");
 // Declare towlower/towupper directly with i32 to avoid wint_t cast issues.
 // On all major platforms, wint_t is compatible with int/i32.
 c_include(
@@ -22,63 +23,12 @@ c_include(
       fn(wc : i32) -> i32
     )
 );
-// Result of decoding a single UTF-8 codepoint
-_DecodeResult :: struct(
-  codepoint : i32,
-  bytes_consumed : usize
-);
-// Decode a single UTF-8 codepoint from bytes at position i.
-_decode_utf8 :: (fn(bytes : ArrayList(u8), i : usize) -> _DecodeResult)({
-  (b0 : i32) = i32(bytes(i));
-  cond(
-    // 1-byte ASCII
-    ((b0 & i32(0x80)) == i32(0)) =>
-      _DecodeResult(codepoint : b0, bytes_consumed : usize(1)),
-    // 2-byte
-    ((b0 & i32(0xE0)) == i32(0xC0)) => {
-      (b1 : i32) = i32(bytes(i + usize(1)));
-      (cp : i32) = (((b0 & i32(0x1F)) << i32(6)) | (b1 & i32(0x3F)));
-      _DecodeResult(codepoint : cp, bytes_consumed : usize(2))
-    },
-    // 3-byte
-    ((b0 & i32(0xF0)) == i32(0xE0)) => {
-      (b1 : i32) = i32(bytes(i + usize(1)));
-      (b2 : i32) = i32(bytes(i + usize(2)));
-      (cp : i32) = ((((b0 & i32(0x0F)) << i32(12)) | ((b1 & i32(0x3F)) << i32(6))) | (b2 & i32(0x3F)));
-      _DecodeResult(codepoint : cp, bytes_consumed : usize(3))
-    },
-    // 4-byte
-    true => {
-      (b1 : i32) = i32(bytes(i + usize(1)));
-      (b2 : i32) = i32(bytes(i + usize(2)));
-      (b3 : i32) = i32(bytes(i + usize(3)));
-      (cp : i32) = (((((b0 & i32(0x07)) << i32(18)) | ((b1 & i32(0x3F)) << i32(12))) | ((b2 & i32(0x3F)) << i32(6))) | (b3 & i32(0x3F)));
-      _DecodeResult(codepoint : cp, bytes_consumed : usize(4))
-    }
-  )
-});
-// Encode a Unicode codepoint as UTF-8 bytes into an ArrayList.
-_encode_utf8 :: (fn(cp : i32, out : ArrayList(u8)) -> unit)({
-  cond(
-    (cp < i32(0x80)) => {
-      out.push(u8(cp));
-    },
-    (cp < i32(0x800)) => {
-      out.push(u8(i32(0xC0) | (cp >> i32(6))));
-      out.push(u8(i32(0x80) | (cp & i32(0x3F))));
-    },
-    (cp < i32(0x10000)) => {
-      out.push(u8(i32(0xE0) | (cp >> i32(12))));
-      out.push(u8(i32(0x80) | ((cp >> i32(6)) & i32(0x3F))));
-      out.push(u8(i32(0x80) | (cp & i32(0x3F))));
-    },
-    true => {
-      out.push(u8(i32(0xF0) | (cp >> i32(18))));
-      out.push(u8(i32(0x80) | ((cp >> i32(12)) & i32(0x3F))));
-      out.push(u8(i32(0x80) | ((cp >> i32(6)) & i32(0x3F))));
-      out.push(u8(i32(0x80) | (cp & i32(0x3F))));
-    }
-  );
+// Encode a codepoint that came back from C's `towlower`/`towupper` as an
+// `i32`. Those return their argument unchanged when there is no mapping, so
+// the value is normally a scalar already; anything that is not (a negative
+// WEOF, a surrogate) becomes U+FFFD rather than invalid UTF-8.
+_push_cp :: (fn(cp : i32, out : ArrayList(u8)) -> unit)({
+  utf8.encode_lossy_into(u32(cp), out);
 });
 // Special case folding: codepoints that expand to multiple codepoints
 // when lowercased. These are Unicode case folding entries of type 'F' (full).
@@ -94,7 +44,7 @@ _special_to_lower :: (fn(cp : i32, out : ArrayList(u8)) -> bool)(
     (cp == i32(0x0130)) => {
       out.push(u8(0x69)); // i
       // U+0307 COMBINING DOT ABOVE
-      _encode_utf8(i32(0x0307), out);
+      _push_cp(i32(0x0307), out);
       true
     },
     true => false
@@ -175,15 +125,15 @@ unicode_to_lowercase :: (fn(input : String) -> String)({
       });
       i = (i + usize(1));
     }, {
-      // Multi-byte UTF-8: decode codepoint
-      (result : _DecodeResult) = _decode_utf8(bytes, i);
-      (cp : i32) = result.codepoint;
-      (len : usize) = result.bytes_consumed;
+      // Multi-byte UTF-8: decode codepoint through the shared decoder
+      (result : utf8.Decoded) = utf8.decode_lossy(bytes, i);
+      (cp : i32) = i32(result.code.to_u32());
+      (len : usize) = result.width;
       // Try special case folding first
       if(!(_special_to_lower(cp, out)), {
         // Use C towlower for standard Unicode lowercase
         (lower : i32) = i32(unsafe(towlower(cp)));
-        _encode_utf8(lower, out);
+        _push_cp(lower, out);
       });
       i = (i + len);
     });
@@ -208,15 +158,15 @@ unicode_to_uppercase :: (fn(input : String) -> String)({
       });
       i = (i + usize(1));
     }, {
-      // Multi-byte UTF-8: decode codepoint
-      (result : _DecodeResult) = _decode_utf8(bytes, i);
-      (cp : i32) = result.codepoint;
-      (len : usize) = result.bytes_consumed;
+      // Multi-byte UTF-8: decode codepoint through the shared decoder
+      (result : utf8.Decoded) = utf8.decode_lossy(bytes, i);
+      (cp : i32) = i32(result.code.to_u32());
+      (len : usize) = result.width;
       // Try special case folding first
       if(!(_special_to_upper(cp, out)), {
         // Use C towupper for standard Unicode uppercase
         (upper : i32) = i32(unsafe(towupper(cp)));
-        _encode_utf8(upper, out);
+        _push_cp(upper, out);
       });
       i = (i + len);
     });

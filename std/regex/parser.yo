@@ -4,6 +4,7 @@ open(import("std/collections/array_list"));
 open(import("std/string"));
 { RegexNode, NodeKind, CharRange, AnchorKind, GroupNameEntry } :: import("./node.yo");
 { unicode_property_ranges } :: import("./unicode.yo");
+utf8 :: import("../encoding/utf8.yo");
 // A parse frame for tracking alternation/sequence state
 ParseFrame :: struct(
   alternatives : ArrayList(ArrayList(RegexNode)),
@@ -53,31 +54,19 @@ impl(
     self._pos = (self._pos + usize(1));
     b
   }),
-  // Decode a full UTF-8 codepoint given the first byte (already consumed by _advance).
-  // Reads 0-3 continuation bytes from self._pos and advances past them.
-  _read_codepoint : (fn(self : Self, first : u8) -> u32)(
-    cond(
-      (first < u8(0x80)) => u32(first),
-      ((first >= u8(0xC0)) && (first < u8(0xE0))) => {
-        second := self._bytes(self._pos);
-        self._pos = (self._pos + usize(1));
-        ((u32(first) & u32(0x1F)) << u32(6)) | (u32(second) & u32(0x3F))
-      },
-      ((first >= u8(0xE0)) && (first < u8(0xF0))) => {
-        second := self._bytes(self._pos);
-        third := self._bytes(self._pos + usize(1));
-        self._pos = (self._pos + usize(2));
-        (((u32(first) & u32(0x0F)) << u32(12)) | ((u32(second) & u32(0x3F)) << u32(6))) | (u32(third) & u32(0x3F))
-      },
-      true => {
-        second := self._bytes(self._pos);
-        third := self._bytes(self._pos + usize(1));
-        fourth := self._bytes(self._pos + usize(2));
-        self._pos = (self._pos + usize(3));
-        ((((u32(first) & u32(0x07)) << u32(18)) | ((u32(second) & u32(0x3F)) << u32(12))) | ((u32(third) & u32(0x3F)) << u32(6))) | (u32(fourth) & u32(0x3F))
-      }
-    )
-  ),
+  // Decode a full UTF-8 codepoint given the first byte (already consumed by
+  // _advance), and leave _pos just past the sequence.
+  //
+  // Tolerant by contract, like the VM's decoder: a malformed pattern byte
+  // becomes U+FFFD and consumes exactly one byte. The old hand-rolled version
+  // read `_bytes(self._pos + k)` unconditionally and indexed past the end on a
+  // truncated tail.
+  _read_codepoint : (fn(self : Self, first : u8) -> u32)({
+    start := (self._pos - usize(1));
+    d := utf8.decode_lossy(self._bytes, start);
+    self._pos = (start + d.width);
+    d.code.to_u32()
+  }),
   _at_end : (fn(self : Self) -> bool)(
     self._pos >= self._bytes.len()
   ),

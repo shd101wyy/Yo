@@ -628,9 +628,135 @@ implementing the D5 traits.** Until it lands, std honestly refuses https.
 - `std/os/env.yo` merges into `std/env.yo` (dir helpers return `Path`); `std/os/`
   then holds only `signal.yo` — flatten. `fs/temp` uses the merged `temp_dir()`
   (kills the 3rd copy of that logic; also consult `TMPDIR` on macOS).
-- One shared `std/encoding/utf8.yo` (validate/decode_rune_at/encode_rune) —
-  SIX private UTF-8 decoders exist today; `String.from_bytes` starts validating
-  (or gains `from_bytes_unchecked`).
+- ~~One shared `std/encoding/utf8.yo` (validate/decode_rune_at/encode_rune) —
+  SIX private UTF-8 decoders exist today~~ **DONE 2026-08-25** — the module
+  exists and every private copy in `std/` is routed through it (the count was
+  low: **eleven** files, not six — see the note below). The
+  `String.from_bytes` half did **not** land as written; read the correction.
+
+  **The module.** `std/encoding/utf8.yo`, 12 exported names:
+  `Utf8Error`, `Decoded`, `is_continuation`, `is_boundary`, `sequence_len`,
+  `step_len`, `encoded_len`, `decode`, `decode_parts`, `decode_lossy`,
+  `encode`, `encode_into`, `encode_lossy_into`, `validate`, `validate_range`.
+  Design points worth not re-litigating:
+
+  - **Two entry points per direction, strict and lossy**, mirroring Rust's
+    `from_utf8` vs Go's `DecodeRune`. `decode` returns
+    `Result(Decoded, Utf8Error)` (D1 style 2: a pure fallible decode);
+    `decode_lossy` never fails, substitutes U+FFFD and always advances by at
+    least one byte so a scan over corrupt input terminates. `encode_into` takes
+    a `rune` and is infallible; `encode_lossy_into` takes a raw `u32` — the
+    shape JSON `\uXXXX`, UTF-16 code units and C `towlower` all produce — and
+    substitutes U+FFFD, so nothing in `std` can emit CESU-8 by accident any more.
+  - **`decode_parts(b0, b1, b2, b3, available, index)` is the real core**, and
+    is public. `decode` is a thin `ArrayList(u8)` wrapper over it. It exists
+    because `std/imm/string.yo` holds a raw `*(u8)` + len, and copying into a
+    list to decode one rune would cost an allocation per rune — the
+    "must not allocate" case the D8 row anticipated. That is the ONE decoder
+    whose *fetch* stayed local; its bit-twiddling and validation did not.
+  - **`Utf8Error` has NO `ToString`/`Error()` impl, by construction.** Those
+    traits live in `std/fmt` / `std/error`, both of which import
+    `std/string` — and `std/string/string.yo` is a consumer of this module, so
+    importing them here would close a cycle right through the core of `std`.
+    `Utf8Error` instead carries inherent `message() -> str` and
+    `index() -> usize`. Precedent: `AllocError` in `std/allocator.yo` has no
+    impls for the same layering reason. **This is load-bearing for D4** — the
+    byte-indexing rework has to be able to import this module from
+    `std/string/string.yo`, and it can only do that while this module stays
+    below `std/error`. `StringError.InvalidUtf8(cause : Utf8Error)` is how the
+    detail reaches a throwable error.
+  - **`decode` and `validate_range` both carry an ASCII fast path**, and it is
+    not decoration. This decoder replaced copies that fetched only the bytes
+    they needed, and it now runs under the compiler's own lexer
+    (`src/lexer.yo` / `src/parser.yo` call `StringBuilder.write_rune` per
+    character, and `String.at`/`substring` walk runes) — fetching four
+    `Option(u8)`s for every `'a'` would have been a real regression against
+    what it replaced. One compare, one fetch, done.
+  - Validation is RFC 3629 strict: `0xC0`/`0xC1` and `0xF5`..`0xFF` are not
+    lead bytes at all, overlong forms, surrogates (U+D800..U+DFFF) and scalars
+    above U+10FFFF are each their own error variant.
+  - `sequence_len` is the strict width (`0` = not a lead byte); `step_len` is
+    that clamped to 1. **Every** rune-walking loop in `std` now calls
+    `step_len` — that alone replaced 15 copies of the same four-arm `cond`
+    table (3 in `string.yo`, 10 in `regex/index.yo`, 1 in `imm/string.yo`,
+    1 in `regex/vm.yo`'s backwards scan).
+
+  **The count in this row was wrong: eleven files carried UTF-8 bit twiddling,
+  not six**, and three of them were encoders the row did not mention.
+  What was routed:
+
+  | file | what it had | now |
+  |---|---|---|
+  | `std/string/string.yo` | `_decode_rune_at`, 3 width tables, 6 boundary tests | `utf8.decode` / `step_len` / `is_boundary` |
+  | `std/imm/string.yo` | `_decode_rune_at` (ptr), width table, boundary test | `utf8.decode_parts` (no allocation) / `step_len` / `is_boundary` |
+  | `std/string/unicode.yo` | `_DecodeResult` + `_decode_utf8` + `_encode_utf8` | `utf8.decode_lossy` / `encode_lossy_into` |
+  | `std/string/string_builder.yo` | `write_rune` encoder | `utf8.encode_into` |
+  | `std/fmt/writer.yo` | `write_rune` encoder | `utf8.encode_into` |
+  | `std/fmt/to_string.yo` | `rune`'s `ToString` encoder (stack `Array(u8,5)` + `from_cstr`) | `utf8.encode_lossy_into` |
+  | `std/encoding/json.yo` | `_push_utf8` (`/` and `%` — its "no `<<`/`>>`" comment was stale) | `utf8.encode_lossy_into` |
+  | `std/encoding/utf16.yo` | a decoder AND an encoder | `utf8.decode_lossy` / `encode_lossy_into` |
+  | `std/regex/parser.yo` | `_read_codepoint` | `utf8.decode_lossy` |
+  | `std/regex/vm.yo` | `_decode_codepoint`, 2 boundary scans | `utf8.decode_lossy` / `is_boundary` / `is_continuation` |
+  | `std/regex/index.yo` | 10 identical width tables | `utf8.step_len` |
+
+  **Three latent bugs fell out of the unification** (all pre-existing, all
+  invisible to the old copies):
+
+  1. `std/regex/parser.yo` and `std/regex/vm.yo` both read
+     `_bytes(pos + 1..3)` **unconditionally** after seeing a multi-byte lead
+     byte — a truncated tail at the end of the subject indexed past the end.
+     `decode_lossy` bounds-checks.
+  2. `std/encoding/utf16.yo`'s `utf16_to_utf8` rejected an unpaired HIGH
+     surrogate but let an unpaired **LOW** surrogate fall through and wrote it
+     out as a 3-byte CESU-8 sequence — invalid UTF-8, contradicting the
+     function's own "throws on unpaired surrogates" doc. Fixed, red-first test
+     in `tests/encoding/utf16.test.yo`.
+  3. `base64_decode_string` handed arbitrary decoded bytes to the unchecked
+     `String.from_bytes` and returned a `String` that need not be UTF-8 at all.
+     It now validates. Red-first test in `tests/encoding/base64.test.yo`.
+     (Its `Result(_, String)` error style is still D1-illegal — that is the
+     §6 "fold into the primary pair" row, untouched here.)
+
+  Also found, filed, NOT fixed:
+  `issues/unicode-case-conversion-ignores-locale-so-non-ascii-is-unchanged.md`
+  — `unicode_to_lowercase`/`unicode_to_uppercase` leave every non-ASCII letter
+  unchanged, because `towlower`/`towupper` run in the `"C"` locale. Verified
+  pre-existing by A/B (byte-identical output before and after the routing).
+  The module has zero consumers and zero tests, which is why nobody noticed.
+  This is the real content of the string row's "Unicode-correct `to_lowercase`".
+
+- **CORRECTION to this row (2026-08-25): `String.from_bytes` did NOT become
+  validating, and `from_bytes_unchecked` was NOT added. Both are blocked, and
+  the blocker is not going away by itself.** What landed instead:
+  `String.from_utf8(bytes) -> Result(Self, StringError)` — the validating
+  constructor, Rust's name, D1 style 2 — plus a rewritten `from_bytes` doc
+  comment saying in so many words that it is the *unchecked* constructor.
+  Two names for the two behaviours, no dead alias.
+
+  Measured, not guessed:
+
+  - **`String.from_bytes` has ~140 call sites**: 30 in `std/`, ~50 in `src/`,
+    ~70 in `tests/` — **and 20 in `vendor/markdown_yo`**, which
+    `src/doc/render_html.yo:41` imports by source path. Changing the name or
+    the return type therefore breaks `yo check ./src` and `yo build` until a
+    companion commit is pushed upstream and the submodule pointer is bumped
+    (the standing rule in `plans/`/memory: *vendor needs COMPANION commits for
+    std API changes*). That is a cross-repo change, not a std sweep.
+  - **A three-name transitional shape (`from_bytes` + `from_bytes_unchecked` +
+    `from_utf8`) was rejected** as a straight D2 violation with a dead alias in
+    it. When the vendor bump happens, the rename `from_bytes` →
+    `from_bytes_unchecked` becomes a pure mechanical sweep with no control-flow
+    change; do it then, in one commit, together with the vendor bump.
+  - **`String.from_cstr` must NOT start validating**, against what the §6
+    `StringError` correction below suggests. `std/fmt/to_string.yo` calls it
+    **24 times** — it is how every integer and float becomes a `String`, i.e.
+    every `${x}` in every template string in the compiler. The bytes are
+    `snprintf` output, so validation would be a guaranteed-passing scan on the
+    hottest string path in the tree. `StringError.InvalidUtf8` is wired up by
+    `from_utf8` instead, which is all §6 actually needed to stop the variant
+    being dead.
+  - `StringError.InvalidUtf8` now carries `cause : Utf8Error`, so the caller
+    learns *what* was wrong and at *which byte*, not just "not UTF-8".
 - `EncodingError` moves out of `hex.yo` into `std/encoding/error.yo`.
 - Regex internals (`parser/node/compiler/vm` exports) go private; `MAX_SLOTS`
   documented; typed `RegexError`.
@@ -987,7 +1113,7 @@ the changed declarations at runtime, not on the nearest existing test file.
 
 **P0 — unblock real programs**
 1. `std/encoding/percent.yo` (percent-encode/decode) + URL/query integration
-2. `std/encoding/utf8.yo` (D8) + `html_encode`
+2. ~~`std/encoding/utf8.yo` (D8)~~ **DONE 2026-08-25** (see D8) + `html_encode`
 3. `std/io` redesign with stdio handles (D5)
 4. `fs.copy`, `fs.remove_dir_all`, `read_link`, `set_permissions`, `try_exists`
 5. `process.Child`/`spawn`/`Stdio`
