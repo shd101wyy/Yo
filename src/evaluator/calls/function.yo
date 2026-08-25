@@ -388,6 +388,24 @@ _try_find_receiver_method :: (
 // `ctx.self_type` for the next body. Mirrors TS `context.SelfType =
 // dereferencedReceiverType`. Returns `.None` for non-static-method callees.
 // ---------------------------------------------------------------------------
+/// `(T <: Trait).static_method()` evaluates its dot-receiver to the TRAIT, with
+/// the real receiver parked in the trait's `is_concrete` slot (subtype_of.yo
+/// stores it there — TS called the field `receiverType`). `Self` inside the
+/// method body must be `T`, not the trait: binding the trait instead makes a
+/// `Self(field : ...)` constructor read as a trait IMPLEMENTATION and fail with
+/// "Receiver type is undefined when implementing trait". Unwrap one level so
+/// the explicit-dispatch form agrees with the plain `T.static_method()` form.
+_unwrap_trait_receiver :: (fn(t : TypeValue) -> TypeValue)(
+  match(
+    t,
+    .TraitT(_, _, _, _, _, is_concrete, _, _, _, _) => match(
+      is_concrete,
+      .Some(r) => r.clone(),
+      .None => t.clone()
+    ),
+    _ => t.clone()
+  )
+);
 _static_dot_receiver_self_type :: (
   fn(callee : AstExpr, ctx : EvalContext) -> Option(TypeValue)
 )({
@@ -412,7 +430,7 @@ _static_dot_receiver_self_type :: (
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(recv)),
     .Some(ri) => match(
       ri.value,
-      .Some(rv) => match(rv, .TypeVal(ib) => Option(TypeValue).Some(ib), _ => Option(TypeValue).None),
+      .Some(rv) => match(rv, .TypeVal(ib) => Option(TypeValue).Some(_unwrap_trait_receiver(ib)), _ => Option(TypeValue).None),
       .None => Option(TypeValue).None
     ),
     .None => Option(TypeValue).None

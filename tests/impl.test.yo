@@ -308,3 +308,33 @@ test("Test generic impl instantiated twice registers cleanly", {
   assert(a.first() == i32(7), "GenBox(i32) instantiation");
   assert(b.first() == true, "GenBox(bool) instantiation");
 });
+// ============================================================
+// `(T <: Trait).static_method()` binds Self to T, not to the trait
+// ============================================================
+// A generic impl's STATIC (no-`self`) trait method whose body constructs via
+// `Self(...)` used to fail under the explicit-dispatch form with "Receiver type
+// is undefined when implementing trait": the dot-receiver evaluated to the
+// TRAIT, so `Self` bound to the trait and `Self(field : ...)` read as a trait
+// IMPLEMENTATION. The plain `T.method()` form was always fine, which is what
+// isolated it. issues/fixed/subtype-dispatch-binds-self-to-the-trait.md
+SdBox :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(value : T)
+);
+SdMake :: trait(
+  sd_make : (fn() -> Self)
+);
+impl(
+  generic(T : Type),
+  where(T <: Default),
+  SdBox(T),
+  SdMake(sd_make : (fn() -> Self)(Self(value : (T <: Default).default())))
+);
+test("explicit `<:` dispatch of a generic static binds Self to the receiver", {
+  a := (SdBox(i32) <: SdMake).sd_make();
+  assert(a.value == i32(0), "i32 instantiation through the <: form");
+  b := (SdBox(bool) <: SdMake).sd_make();
+  assert(b.value == false, "bool instantiation resolves independently");
+  // The plain dot form must keep agreeing with it.
+  c := SdBox(i32).sd_make();
+  assert(c.value == a.value, "plain dot form agrees with the <: form");
+});
