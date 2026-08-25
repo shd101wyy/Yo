@@ -10,7 +10,7 @@ open(import("std/string"));
 { AnyError, Exception, IoExn } :: import("std/error");
 { ArrayList } :: import("std/collections/array_list");
 { Path } :: import("std/path");
-{ read_file, write_file, write_bytes, exists } :: import("std/fs/file");
+{ read, write_string, write, exists } :: import("std/fs/file");
 {
   DirEntry,
   FileType,
@@ -342,7 +342,7 @@ compute_content_hash :: (
           abs_file := item.abs_path.clone();
           abs_file.push_str("/");
           abs_file.push_string(entry_name);
-          content := e.io.await(read_file(Path.new(abs_file), e.io), e);
+          content := e.io.await(read(Path.new(abs_file), e.io), e);
           normalized := normalize_line_endings(content);
           hasher = hasher.update(normalized);
         });
@@ -375,7 +375,7 @@ write_sidecar_hash :: (
     sidecar := Path.new(cached_path).join(Path.new(String.from(SIDECAR_FILENAME)));
     sidecar_content := content_hash.clone();
     sidecar_content.push_str("\n");
-    e.io.await(write_file(sidecar, sidecar_content, e.io), e);
+    e.io.await(write_string(sidecar, sidecar_content, e.io), e);
   })
 );
 /// Read the sidecar hash file, returning None if it doesn't exist or can't be read.
@@ -390,7 +390,7 @@ read_sidecar_hash :: (
     sidecar := Path.new(cached_path).join(Path.new(String.from(SIDECAR_FILENAME)));
     sidecar_exists := e.io.await(exists(sidecar, e.io), e.io);
     if(!(sidecar_exists), Option(String).None, {
-      content := e.io.await(read_file(sidecar, e.io), e);
+      content := e.io.await(read(sidecar, e.io), e);
       text := String.from_bytes(content).trim();
       Option(String).Some(text)
     })

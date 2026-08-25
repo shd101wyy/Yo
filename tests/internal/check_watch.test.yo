@@ -9,7 +9,7 @@ open(import("std/error"));
 { assert } :: import("std/assert");
 { Path } :: import("std/path");
 { create_dir_all } :: import("std/fs/dir");
-{ write_file } :: import("std/fs/file");
+{ write_string } :: import("std/fs/file");
 { watch_round } :: import("../../src/check_watch.yo");
 { mm_load_file, mm_invalidate_document, resolve_std_path } :: import("../../src/module_manager.yo");
 { type_trait_methods_entry_count } :: import("../../src/evaluator/values/type_trait_methods.yo");
@@ -41,8 +41,8 @@ test("Phase C: watch_round rechecks the reverse closure, error -> fix -> clean",
   io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
   lib_path := `${dir}/lib.yo`;
   app_path := `${dir}/app.yo`;
-  io.await(write_file(Path.new(lib_path.clone()), String.from(_LIB_OK), io), ioexn);
-  io.await(write_file(Path.new(app_path.clone()), String.from(_APP), io), ioexn);
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_LIB_OK), io), ioexn);
+  io.await(write_string(Path.new(app_path.clone()), String.from(_APP), io), ioexn);
   std_path := resolve_std_path();
   // Drop any earlier state for these paths (suite processes are reused).
   _pre1 := mm_invalidate_document(lib_path.clone());
@@ -55,11 +55,11 @@ test("Phase C: watch_round rechecks the reverse closure, error -> fix -> clean",
   assert(mm_load_file(lib_path.clone(), std_path.clone(), true, io, exn).ok, "initial lib check should pass");
   // 1. Break lib on DISK (rename the export) -> the round must recheck the
   //    reverse closure and fail exactly the importer.
-  io.await(write_file(Path.new(lib_path.clone()), String.from(_LIB_RENAMED), io), ioexn);
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_LIB_RENAMED), io), ioexn);
   failed1 := _round(lib_path.clone(), files, std_path.clone(), io, exn);
   assert(failed1 == usize(1), `broken lib: expected 1 failed, got ${failed1.to_string()}`);
   // 2. Fix lib on disk -> the next round is clean again.
-  io.await(write_file(Path.new(lib_path.clone()), String.from(_LIB_OK), io), ioexn);
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_LIB_OK), io), ioexn);
   failed2 := _round(lib_path.clone(), files, std_path.clone(), io, exn);
   assert(failed2 == usize(0), `fixed lib: expected 0 failed, got ${failed2.to_string()}`);
   // 3. Long-lived-process guarantee: repeated rounds keep the registry

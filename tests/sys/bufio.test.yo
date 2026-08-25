@@ -41,7 +41,7 @@ test("BufReader read_line reads single line", {
   );
   tmp := temp_dir();
   fpath := Path.new(path_join(tmp, `yo_bufio_readline_single.txt`));
-  io.await(fs_file.write_file(fpath, String.from("hello world\n"), io), IoExn(io : io, exn : exn));
+  io.await(fs_file.write_string(fpath, String.from("hello world\n"), io), IoExn(io : io, exn : exn));
   f := io.await(File.open(fpath, .Read, io), IoExn(io : io, exn : exn));
   fd := f.fd();
   reader := BufReader.new(fd);
@@ -74,7 +74,7 @@ test("BufReader read_line reads multiple lines", {
   );
   tmp := temp_dir();
   fpath := Path.new(path_join(tmp, `yo_bufio_readline_multi.txt`));
-  io.await(fs_file.write_file(fpath, String.from("line1\nline2\nline3\n"), io), IoExn(io : io, exn : exn));
+  io.await(fs_file.write_string(fpath, String.from("line1\nline2\nline3\n"), io), IoExn(io : io, exn : exn));
   f := io.await(File.open(fpath, .Read, io), IoExn(io : io, exn : exn));
   fd := f.fd();
   reader := BufReader.new(fd);
@@ -152,7 +152,7 @@ test("BufReader read_line handles line without trailing newline", {
   );
   tmp := temp_dir();
   fpath := Path.new(path_join(tmp, `yo_bufio_readline_notrail.txt`));
-  io.await(fs_file.write_file(fpath, String.from("no newline at end"), io), IoExn(io : io, exn : exn));
+  io.await(fs_file.write_string(fpath, String.from("no newline at end"), io), IoExn(io : io, exn : exn));
   f := io.await(File.open(fpath, .Read, io), IoExn(io : io, exn : exn));
   fd := f.fd();
   reader := BufReader.new(fd);
@@ -200,7 +200,7 @@ test("BufReader read_line on empty file returns None", {
   );
   tmp := temp_dir();
   fpath := Path.new(path_join(tmp, `yo_bufio_readline_empty.txt`));
-  io.await(fs_file.write_file(fpath, String.from(""), io), IoExn(io : io, exn : exn));
+  io.await(fs_file.write_string(fpath, String.from(""), io), IoExn(io : io, exn : exn));
   f := io.await(File.open(fpath, .Read, io), IoExn(io : io, exn : exn));
   fd := f.fd();
   reader := BufReader.new(fd);
@@ -232,7 +232,7 @@ test("BufReader read_bytes reads entire file", {
   );
   tmp := temp_dir();
   fpath := Path.new(path_join(tmp, `yo_bufio_readall.txt`));
-  io.await(fs_file.write_file(fpath, String.from("all data here"), io), IoExn(io : io, exn : exn));
+  io.await(fs_file.write_string(fpath, String.from("all data here"), io), IoExn(io : io, exn : exn));
   f := io.await(File.open(fpath, .Read, io), IoExn(io : io, exn : exn));
   fd := f.fd();
   reader := BufReader.new(fd);
@@ -260,7 +260,7 @@ test("BufReader read_to_string reads entire file as String", {
   );
   tmp := temp_dir();
   fpath := Path.new(path_join(tmp, `yo_bufio_readtostring.txt`));
-  io.await(fs_file.write_file(fpath, String.from("string content"), io), IoExn(io : io, exn : exn));
+  io.await(fs_file.write_string(fpath, String.from("string content"), io), IoExn(io : io, exn : exn));
   f := io.await(File.open(fpath, .Read, io), IoExn(io : io, exn : exn));
   fd := f.fd();
   reader := BufReader.new(fd);
@@ -455,7 +455,7 @@ test("BufReader read returns bytes from file", {
   );
   tmp := temp_dir();
   fpath := Path.new(path_join(tmp, `yo_bufio_read_bytes.txt`));
-  io.await(fs_file.write_file(fpath, String.from("abcde"), io), IoExn(io : io, exn : exn));
+  io.await(fs_file.write_string(fpath, String.from("abcde"), io), IoExn(io : io, exn : exn));
   f := io.await(File.open(fpath, .Read, io), IoExn(io : io, exn : exn));
   fd := f.fd();
   reader := BufReader.new(fd);
@@ -486,7 +486,7 @@ test("BufReader read on empty file returns zero", {
   );
   tmp := temp_dir();
   fpath := Path.new(path_join(tmp, `yo_bufio_read_empty.txt`));
-  io.await(fs_file.write_file(fpath, String.from(""), io), IoExn(io : io, exn : exn));
+  io.await(fs_file.write_string(fpath, String.from(""), io), IoExn(io : io, exn : exn));
   f := io.await(File.open(fpath, .Read, io), IoExn(io : io, exn : exn));
   fd := f.fd();
   reader := BufReader.new(fd);
@@ -515,7 +515,7 @@ test("BufReader read partial then remaining", {
   );
   tmp := temp_dir();
   fpath := Path.new(path_join(tmp, `yo_bufio_read_partial.txt`));
-  io.await(fs_file.write_file(fpath, String.from("hello world"), io), IoExn(io : io, exn : exn));
+  io.await(fs_file.write_string(fpath, String.from("hello world"), io), IoExn(io : io, exn : exn));
   f := io.await(File.open(fpath, .Read, io), IoExn(io : io, exn : exn));
   fd := f.fd();
   reader := BufReader.new(fd);
@@ -566,7 +566,7 @@ test("BufReader with small buffer reads multiple chunks", {
   tmp := temp_dir();
   fpath := Path.new(path_join(tmp, `yo_bufio_small_buf.txt`));
   // Write data larger than small buffer
-  io.await(fs_file.write_file(fpath, String.from("abcdefghijklmnopqrstuvwxyz"), io), IoExn(io : io, exn : exn));
+  io.await(fs_file.write_string(fpath, String.from("abcdefghijklmnopqrstuvwxyz"), io), IoExn(io : io, exn : exn));
   f := io.await(File.open(fpath, .Read, io), IoExn(io : io, exn : exn));
   fd := f.fd();
   // Use a small buffer (8 bytes) to force multiple refills
@@ -595,7 +595,7 @@ test("BufReader with small buffer reads lines across chunks", {
   tmp := temp_dir();
   fpath := Path.new(path_join(tmp, `yo_bufio_small_buf_lines.txt`));
   // Lines that span multiple 8-byte buffer fills
-  io.await(fs_file.write_file(fpath, String.from("hello world\ngoodbye world\n"), io), IoExn(io : io, exn : exn));
+  io.await(fs_file.write_string(fpath, String.from("hello world\ngoodbye world\n"), io), IoExn(io : io, exn : exn));
   f := io.await(File.open(fpath, .Read, io), IoExn(io : io, exn : exn));
   fd := f.fd();
   reader := BufReader.with_capacity(fd, usize(8));
@@ -646,7 +646,7 @@ test("BufReader read_line with only newlines", {
   );
   tmp := temp_dir();
   fpath := Path.new(path_join(tmp, `yo_bufio_only_newlines.txt`));
-  io.await(fs_file.write_file(fpath, String.from("\n\n\n"), io), IoExn(io : io, exn : exn));
+  io.await(fs_file.write_string(fpath, String.from("\n\n\n"), io), IoExn(io : io, exn : exn));
   f := io.await(File.open(fpath, .Read, io), IoExn(io : io, exn : exn));
   fd := f.fd();
   reader := BufReader.new(fd);
@@ -802,7 +802,7 @@ test("BufReader read_exact reads exactly n bytes and leaves the rest", {
   );
   tmp := temp_dir();
   fpath := Path.new(path_join(tmp, `yo_bufio_read_exact.txt`));
-  io.await(fs_file.write_file(fpath, String.from("HEAD\nabcdefghijTAIL\n"), io), IoExn(io : io, exn : exn));
+  io.await(fs_file.write_string(fpath, String.from("HEAD\nabcdefghijTAIL\n"), io), IoExn(io : io, exn : exn));
   f := io.await(File.open(fpath, .Read, io), IoExn(io : io, exn : exn));
   reader := BufReader.new(f.fd());
   // A header line, then a fixed-size payload, then the remainder — the shape a
@@ -846,7 +846,7 @@ test("BufReader read_exact reports EOF when short", {
   );
   tmp := temp_dir();
   fpath := Path.new(path_join(tmp, `yo_bufio_read_exact_short.txt`));
-  io.await(fs_file.write_file(fpath, String.from("tiny"), io), IoExn(io : io, exn : exn));
+  io.await(fs_file.write_string(fpath, String.from("tiny"), io), IoExn(io : io, exn : exn));
   f := io.await(File.open(fpath, .Read, io), IoExn(io : io, exn : exn));
   reader := BufReader.new(f.fd());
   // Asking for more than exists must be distinguishable from a clean read, so a

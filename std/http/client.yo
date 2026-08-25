@@ -190,12 +190,15 @@ _read_http_response :: (fn(stream : TcpStream, e : IoExn) -> String)({
   while(runtime(!(done)), {
     n := e.io.await(stream.read(buf, buf_size, e.io), e);
     cond(
-      (n <= i32(0)) => {
+      // 0 bytes means the peer closed the connection. A negative count is
+      // no longer representable: NetError.check throws on error, so read()
+      // only ever returns a real byte count.
+      (n == usize(0)) => {
         done = true;
       },
       true => {
         i := usize(0);
-        while(runtime(i < usize(n)), {
+        while(runtime(i < n), {
           result.push((buf.add(i)).*);
           i = (i + usize(1));
         });

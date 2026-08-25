@@ -25,7 +25,7 @@ test("metadata returns file info", {
   );
   tmp := temp_dir();
   fpath := Path.new(path_join(tmp, `yo_fs_meta_file.txt`));
-  io.await(fs_file.write_file(fpath, String.from("metadata test"), io), IoExn(io : io, exn : exn));
+  io.await(fs_file.write_string(fpath, String.from("metadata test"), io), IoExn(io : io, exn : exn));
   m := io.await(fs_metadata.metadata(fpath, io), IoExn(io : io, exn : exn));
   unsafe(printf("  size = %lld\n", m.size()));
   assert(m.size() == i64(13), "size should be 13");
@@ -88,7 +88,7 @@ test("metadata_str works with str path", {
   );
   tmp := temp_dir();
   fpath := Path.new(path_join(tmp, `yo_fs_meta_str.txt`));
-  io.await(fs_file.write_file(fpath, String.from("str meta"), io), IoExn(io : io, exn : exn));
+  io.await(fs_file.write_string(fpath, String.from("str meta"), io), IoExn(io : io, exn : exn));
   m := io.await(fs_metadata.metadata(fpath, io), IoExn(io : io, exn : exn));
   unsafe(printf("  size = %lld\n", m.size()));
   assert(m.size() == i64(8), "size should be 8");
@@ -138,7 +138,7 @@ test("symlink_metadata on symlink reports symlink", {
     },
     true => ()
   );
-  io.await(fs_file.write_file(src, String.from("symlink meta test"), io), IoExn(io : io, exn : setup_exn));
+  io.await(fs_file.write_string(src, String.from("symlink meta test"), io), IoExn(io : io, exn : setup_exn));
   // Symlink may fail with PermissionDenied on Windows
   sym_exn := Exception(
     throw : (
@@ -199,7 +199,7 @@ test("File.metadata returns correct info", {
   );
   tmp := temp_dir();
   fpath := Path.new(path_join(tmp, `yo_fs_meta_file_method.txt`));
-  io.await(fs_file.write_file(fpath, String.from("file meta"), io), IoExn(io : io, exn : exn));
+  io.await(fs_file.write_string(fpath, String.from("file meta"), io), IoExn(io : io, exn : exn));
   { File } :: import("std/fs/file");
   f := io.await(File.open(fpath, .Read, io), IoExn(io : io, exn : exn));
   m := io.await(f.metadata(io), IoExn(io : io, exn : exn));

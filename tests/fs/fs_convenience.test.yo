@@ -25,7 +25,7 @@ test("is_file returns true for a regular file", {
   );
   tmp := temp_dir();
   fpath := Path.new(path_join(tmp, `yo_fs_conv_is_file.txt`));
-  io.await(fs_file.write_file(fpath, String.from("hello"), io), IoExn(io : io, exn : exn));
+  io.await(fs_file.write_string(fpath, String.from("hello"), io), IoExn(io : io, exn : exn));
   r := io.await(fs_file.is_file(fpath, io), io);
   unsafe(printf("  is_file = %d\n", cond(r => i32(1), true => i32(0))));
   assert(r, "should be a file");
@@ -85,7 +85,7 @@ test("is_dir returns false for a file", {
   );
   tmp := temp_dir();
   fpath := Path.new(path_join(tmp, `yo_fs_conv_is_dir_file.txt`));
-  io.await(fs_file.write_file(fpath, String.from("test"), io), IoExn(io : io, exn : exn));
+  io.await(fs_file.write_string(fpath, String.from("test"), io), IoExn(io : io, exn : exn));
   r := io.await(fs_file.is_dir(fpath, io), io);
   unsafe(printf("  is_dir on file = %d\n", cond(r => i32(1), true => i32(0))));
   assert(!(r), "file should not be a directory");
@@ -112,7 +112,7 @@ test("canonical resolves a real path", {
   );
   tmp := temp_dir();
   fpath := Path.new(path_join(tmp, `yo_fs_conv_canonical.txt`));
-  io.await(fs_file.write_file(fpath, String.from("canonical"), io), IoExn(io : io, exn : exn));
+  io.await(fs_file.write_string(fpath, String.from("canonical"), io), IoExn(io : io, exn : exn));
   resolved := io.await(fs_file.canonicalize(fpath, io), IoExn(io : io, exn : exn));
   resolved_str := resolved.to_string();
   unsafe(printf("  canonical = %s\n", resolved_str.to_cstr().ptr().unwrap()));
@@ -135,7 +135,7 @@ test("canonical resolves dot-dot segments", {
   file_path := Path.new(path_join(tmp, `yo_fs_conv_canonical_dir/target.txt`));
   io.await(fs_dir.create_dir(dir_path, io), IoExn(io : io, exn : exn));
   io.await(fs_dir.create_dir(sub_path, io), IoExn(io : io, exn : exn));
-  io.await(fs_file.write_file(file_path, String.from("data"), io), IoExn(io : io, exn : exn));
+  io.await(fs_file.write_string(file_path, String.from("data"), io), IoExn(io : io, exn : exn));
   // Path with .. segment: dir/sub/../target.txt should resolve to dir/target.txt
   dotdot_path := Path.new(path_join(path_join(path_join(tmp, `yo_fs_conv_canonical_dir`), `sub`), `../target.txt`));
   resolved := io.await(fs_file.canonicalize(dotdot_path, io), IoExn(io : io, exn : exn));

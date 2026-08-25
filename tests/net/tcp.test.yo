@@ -8,10 +8,9 @@ open(import("std/libc/stdio"));
 { ArrayList } :: import("std/collections/array_list");
 open(import("std/string"));
 open(import("std/fmt"));
-{ TcpListener, TcpStream } :: import("std/net/tcp");
+{ TcpListener, TcpStream, Shutdown } :: import("std/net/tcp");
 { SocketAddr, IpAddr } :: import("std/net/addr");
 { NetError } :: import("std/net/errors");
-{ SHUT_RDWR } :: import("std/sys/socket");
 { Error, AnyError, Exception, IoExn } :: import("std/error");
 // ============================================================================
 // TcpListener tests
@@ -85,13 +84,13 @@ test("TCP echo with write_str and read", {
   server_stream := io.await(listener.accept(io), IoExn(io : io, exn : exn));
   // Client sends
   n := io.await(client.write_str("Hello Net!", io), IoExn(io : io, exn : exn));
-  unsafe(printf("  sent = %d\n", n));
-  assert(n == i32(10), "should send 10 bytes");
+  unsafe(printf("  sent = %zu\n", n));
+  assert(n == usize(10), "should send 10 bytes");
   // Server reads
   recv_buf := *(u8)(malloc(usize(256)).unwrap());
   nr := io.await(server_stream.read(recv_buf, usize(256), io), IoExn(io : io, exn : exn));
-  unsafe(printf("  received = %d\n", nr));
-  assert(nr == i32(10), "should receive 10 bytes");
+  unsafe(printf("  received = %zu\n", nr));
+  assert(nr == usize(10), "should receive 10 bytes");
   assert((recv_buf.add(usize(0))).* == u8(72), "H");
   assert((recv_buf.add(usize(1))).* == u8(101), "e");
   assert((recv_buf.add(usize(2))).* == u8(108), "l");
@@ -118,13 +117,13 @@ test("TCP echo with write String", {
   // Write using String
   msg := `Hello String!`;
   n := io.await(client.write_string(msg, io), IoExn(io : io, exn : exn));
-  unsafe(printf("  sent = %d\n", n));
-  assert(n == i32(13), "should send 13 bytes");
+  unsafe(printf("  sent = %zu\n", n));
+  assert(n == usize(13), "should send 13 bytes");
   // Server reads
   recv_buf := *(u8)(malloc(usize(256)).unwrap());
   nr := io.await(server_stream.read(recv_buf, usize(256), io), IoExn(io : io, exn : exn));
-  unsafe(printf("  received = %d\n", nr));
-  assert(nr == i32(13), "should receive 13 bytes");
+  unsafe(printf("  received = %zu\n", nr));
+  assert(nr == usize(13), "should receive 13 bytes");
   free(.Some(*(void)(recv_buf)));
   io.await(server_stream.close(io), IoExn(io : io, exn : exn));
   io.await(client.close(io), IoExn(io : io, exn : exn));
@@ -150,13 +149,13 @@ test("TCP write_bytes", {
   data.push(u8(3));
   data.push(u8(4));
   n := io.await(client.write_bytes(data, io), IoExn(io : io, exn : exn));
-  unsafe(printf("  sent = %d\n", n));
-  assert(n == i32(4), "should send 4 bytes");
+  unsafe(printf("  sent = %zu\n", n));
+  assert(n == usize(4), "should send 4 bytes");
   // Server reads
   recv_buf := *(u8)(malloc(usize(256)).unwrap());
   nr := io.await(server_stream.read(recv_buf, usize(256), io), IoExn(io : io, exn : exn));
-  unsafe(printf("  received = %d\n", nr));
-  assert(nr == i32(4), "should receive 4 bytes");
+  unsafe(printf("  received = %zu\n", nr));
+  assert(nr == usize(4), "should receive 4 bytes");
   assert((recv_buf.add(usize(0))).* == u8(1), "byte 0");
   assert((recv_buf.add(usize(1))).* == u8(2), "byte 1");
   assert((recv_buf.add(usize(2))).* == u8(3), "byte 2");
@@ -198,7 +197,7 @@ test("TCP shutdown", {
   listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
   client := io.await(TcpStream.connect(addr, io), IoExn(io : io, exn : exn));
   server_stream := io.await(listener.accept(io), IoExn(io : io, exn : exn));
-  io.await(client.shutdown(SHUT_RDWR, io), IoExn(io : io, exn : exn));
+  io.await(client.shutdown(Shutdown.Both, io), IoExn(io : io, exn : exn));
   unsafe(printf("  shutdown ok\n"));
   io.await(server_stream.close(io), IoExn(io : io, exn : exn));
   io.await(client.close(io), IoExn(io : io, exn : exn));
@@ -238,7 +237,7 @@ test("TCP read_bytes gets all data", {
   server_stream := io.await(listener.accept(io), IoExn(io : io, exn : exn));
   // Client sends data then closes write side
   io.await(client.write_str("ABCDE", io), IoExn(io : io, exn : exn));
-  io.await(client.shutdown(i32(1), io), IoExn(io : io, exn : exn));
+  io.await(client.shutdown(Shutdown.Write, io), IoExn(io : io, exn : exn));
   // Server reads all
   data := io.await(server_stream.read_bytes(io), IoExn(io : io, exn : exn));
   unsafe(printf("  read_bytes len = %lld\n", i64(data.len())));

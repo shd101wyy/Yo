@@ -15,7 +15,7 @@ open(import("std/fmt"));
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
 { Path } :: import("std/path");
-{ read_file, write_file, is_file, is_dir, exists } :: import("std/fs/file");
+{ read, write_string, is_file, is_dir, exists } :: import("std/fs/file");
 { DirEntry, FileType, read_dir } :: import("std/fs/dir");
 { HashMap } :: import("std/collections/hash_map");
 { Token, TokenKind } :: import("./token.yo");
@@ -2647,13 +2647,13 @@ format_yo_files :: (
       files.get(fi),
       .None => (),
       .Some(file) => {
-        bytes := io.await(read_file(Path.new(file), io), IoExn(io : io, exn : exn));
+        bytes := io.await(read(Path.new(file), io), IoExn(io : io, exn : exn));
         original := String.from_bytes(bytes);
         formatted := format_yo_source(original, file, exn);
         if(formatted != original, {
           _r := changed.push(file);
           if(!(options.check), {
-            io.await(write_file(Path.new(file), formatted, io), IoExn(io : io, exn : exn));
+            io.await(write_string(Path.new(file), formatted, io), IoExn(io : io, exn : exn));
           });
         });
       }

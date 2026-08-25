@@ -154,7 +154,7 @@ test("remove_file removes a file", {
   );
   tmp := temp_dir();
   fpath := Path.new(path_join(tmp, `yo_fs_dir_rm_file.txt`));
-  io.await(fs_file.write_file(fpath, String.from("to remove"), io), IoExn(io : io, exn : exn));
+  io.await(fs_file.write_string(fpath, String.from("to remove"), io), IoExn(io : io, exn : exn));
   io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
   unsafe(printf("  remove_file ok\n"));
   // Verify gone
@@ -195,7 +195,7 @@ test("rename moves a file", {
     },
     true => ()
   );
-  io.await(fs_file.write_file(old_path, String.from("rename me"), io), IoExn(io : io, exn : exn));
+  io.await(fs_file.write_string(old_path, String.from("rename me"), io), IoExn(io : io, exn : exn));
   io.await(fs_dir.rename(old_path, new_path, io), IoExn(io : io, exn : exn));
   unsafe(printf("  rename ok\n"));
   // Old should not exist
@@ -232,7 +232,7 @@ test("hard_link creates a link", {
     },
     true => ()
   );
-  io.await(fs_file.write_file(src, String.from("link data"), io), IoExn(io : io, exn : exn));
+  io.await(fs_file.write_string(src, String.from("link data"), io), IoExn(io : io, exn : exn));
   io.await(fs_dir.hard_link(src, dst, io), IoExn(io : io, exn : exn));
   unsafe(printf("  hard_link ok\n"));
   // Read via link
@@ -268,7 +268,7 @@ test("symlink creates a symbolic link", {
     },
     true => ()
   );
-  io.await(fs_file.write_file(src, String.from("symlink data"), io), IoExn(io : io, exn : setup_exn));
+  io.await(fs_file.write_string(src, String.from("symlink data"), io), IoExn(io : io, exn : setup_exn));
   // Symlink may fail with PermissionDenied on Windows
   sym_exn := Exception(
     throw : (
@@ -334,7 +334,7 @@ test("read_dir survives directories larger than one getdents buffer", {
   io.await(fs_dir.create_dir_all(dpath, io), IoExn(io : io, exn : exn));
   (i : usize) = usize(0);
   while(runtime(i < usize(200)), {
-    io.await(fs_file.write_file(Path.new(path_join(dname.clone(), `file_with_a_reasonably_long_name_${i}.txt`)), String.from("x"), io), IoExn(io : io, exn : exn));
+    io.await(fs_file.write_string(Path.new(path_join(dname.clone(), `file_with_a_reasonably_long_name_${i}.txt`)), String.from("x"), io), IoExn(io : io, exn : exn));
     i = (i + usize(1));
   });
   entries := io.await(fs_dir.read_dir(dpath, io), IoExn(io : io, exn : exn));
@@ -361,8 +361,8 @@ test("read_dir lists directory entries", {
   dpath := Path.new(path_join(tmp, `yo_fs_read_dir`));
   io.await(fs_dir.create_dir_all(dpath, io), IoExn(io : io, exn : exn));
   // Create some files inside
-  io.await(fs_file.write_file(Path.new(path_join(path_join(tmp, `yo_fs_read_dir`), `a.txt`)), String.from("a"), io), IoExn(io : io, exn : exn));
-  io.await(fs_file.write_file(Path.new(path_join(path_join(tmp, `yo_fs_read_dir`), `b.txt`)), String.from("b"), io), IoExn(io : io, exn : exn));
+  io.await(fs_file.write_string(Path.new(path_join(path_join(tmp, `yo_fs_read_dir`), `a.txt`)), String.from("a"), io), IoExn(io : io, exn : exn));
+  io.await(fs_file.write_string(Path.new(path_join(path_join(tmp, `yo_fs_read_dir`), `b.txt`)), String.from("b"), io), IoExn(io : io, exn : exn));
   // Create a subdirectory
   io.await(fs_dir.create_dir(Path.new(path_join(path_join(tmp, `yo_fs_read_dir`), `subdir`)), io), IoExn(io : io, exn : exn));
   entries := io.await(fs_dir.read_dir(dpath, io), IoExn(io : io, exn : exn));

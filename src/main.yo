@@ -29,7 +29,7 @@ _(env : proc_env) :: import("std/env");
 { Regex } :: import("std/regex");
 { run_lsp_server } :: import("./lsp/server.yo");
 { Path } :: import("std/path");
-{ read_file, write_file, exists } :: import("std/fs/file");
+{ read, write_string, exists } :: import("std/fs/file");
 { sha256_hex } :: import("std/crypto/sha256");
 { metadata } :: import("std/fs/metadata");
 { read_dir, FileType, remove_file, create_dir_all } :: import("std/fs/dir");
@@ -399,7 +399,7 @@ collect_module_deps :: (
     .Some(p) => p.to_string()
   );
   // Read and parse the imported module
-  src_bytes := io.await(read_file(Path.new(abs_path.clone()), io), IoExn(io : io, exn : exn));
+  src_bytes := io.await(read(Path.new(abs_path.clone()), io), IoExn(io : io, exn : exn));
   src := String.from_bytes(src_bytes);
   mod_exprs := parse(src, mod_base_dir.clone(), exn);
   // Recursively collect dependencies of this module first (post-order DFS)
@@ -970,7 +970,7 @@ _asan_runtime_is_usable :: (fn(base : String, io : Io) -> bool)({
   );
   probe_src := `${base}.asan_probe.c`;
   probe_bin := `${base}.asan_probe`;
-  io.await(write_file(Path.new(probe_src.clone()), String.from("int main(void) { return 0; }\n"), io), IoExn(io : io, exn : probe_exn));
+  io.await(write_string(Path.new(probe_src.clone()), String.from("int main(void) { return 0; }\n"), io), IoExn(io : io, exn : probe_exn));
   cc_cmd := Command.new(String.from("cc"));
   cc_cmd.arg(String.from("-x"));
   cc_cmd.arg(String.from("c"));
@@ -1060,7 +1060,7 @@ _sh_quote :: (fn(s : String) -> String)({
 /// Read a file's bytes, or `.None` when unreadable.
 _chunk_read :: (fn(path : String, io : Io) -> Option(ArrayList(u8)))({
   rd_exn := Exception(throw : ((_e) -> unwind(Option(ArrayList(u8)).None)));
-  bytes := io.await(read_file(Path.new(path.clone()), io), IoExn(io : io, exn : rd_exn));
+  bytes := io.await(read(Path.new(path.clone()), io), IoExn(io : io, exn : rd_exn));
   Option(ArrayList(u8)).Some(bytes)
 });
 /// Recorded stamp beside an object file, `.None` when absent.
@@ -1070,7 +1070,7 @@ _chunk_read_stamp :: (fn(path : String, io : Io) -> Option(String))(
 /// Record a stamp; failures are silent (the cache is only an optimization).
 _chunk_write_stamp :: (fn(path : String, stamp : String, io : Io) -> unit)({
   wr_exn := Exception(throw : ((_e) -> unwind(())));
-  io.await(write_file(Path.new(path.clone()), stamp.clone(), io), IoExn(io : io, exn : wr_exn));
+  io.await(write_string(Path.new(path.clone()), stamp.clone(), io), IoExn(io : io, exn : wr_exn));
 });
 /// Compile the chunk `.c` files to `.o` in PARALLEL and return the object
 /// paths, honouring a content-addressed cache.
@@ -1189,7 +1189,7 @@ _compile_chunks_parallel :: (
       });
       script.push_str("for p in $pids; do wait $p || rc=1; done\nexit $rc\n");
       script_path := `${out_base}_chunks_compile.sh`;
-      io.await(write_file(Path.new(script_path.clone()), script, io), IoExn(io : io, exn : exn));
+      io.await(write_string(Path.new(script_path.clone()), script, io), IoExn(io : io, exn : exn));
       shcmd := Command.new(String.from("sh"));
       shcmd.arg(script_path.clone());
       shst := io.await(shcmd.status(io), IoExn(io : io, exn : exn));
@@ -1673,7 +1673,7 @@ run_compile :: (
     // Quiet: `compile` has no `check:` chatter.
     mm_preload_prelude(std_path.clone(), false, io, exn);
     // Read + parse the input module.
-    src_bytes := io.await(read_file(Path.new(input_path.clone()), io), IoExn(io : io, exn : exn));
+    src_bytes := io.await(read(Path.new(input_path.clone()), io), IoExn(io : io, exn : exn));
     src := String.from_bytes(src_bytes);
     exprs := parse(src, input_path.clone(), exn);
     // Demand-driven module loading. The entry module's eval context reuses the
@@ -1746,7 +1746,7 @@ run_compile :: (
         shared_h := `${c_base}_shared.h`;
         shared_h_base := match(Path.new(shared_h.clone()).file_name(), .Some(bn) => bn, .None => shared_h.clone());
         io.await(
-          write_file(Path.new(shared_h.clone()), match(chunk_parts.get(usize(0)), .Some(x) => x, .None => String.new()), io),
+          write_string(Path.new(shared_h.clone()), match(chunk_parts.get(usize(0)), .Some(x) => x, .None => String.new()), io),
           IoExn(io : io, exn : exn)
         );
         (pi2 : usize) = usize(1);
@@ -1757,7 +1757,7 @@ run_compile :: (
           cbody.push_string(shared_h_base.clone());
           cbody.push_str("\"\n");
           cbody.push_string(match(chunk_parts.get(pi2), .Some(x) => x, .None => String.new()));
-          io.await(write_file(Path.new(cf.clone()), cbody.clone(), io), IoExn(io : io, exn : exn));
+          io.await(write_string(Path.new(cf.clone()), cbody.clone(), io), IoExn(io : io, exn : exn));
           chunk_c_files.push(cf);
           chunk_text_hashes.push(sha256_hex(cbody.as_bytes()));
           pi2 = (pi2 + usize(1));
@@ -1765,7 +1765,7 @@ run_compile :: (
         c_path = match(chunk_c_files.get(usize(0)), .Some(x) => x.clone(), .None => c_path.clone());
       },
       true => {
-        io.await(write_file(Path.new(c_path.clone()), c_src, io), IoExn(io : io, exn : exn));
+        io.await(write_string(Path.new(c_path.clone()), c_src, io), IoExn(io : io, exn : exn));
       }
     );
   };
@@ -2337,7 +2337,7 @@ run_test :: (
     while(sfi < files.len(), {
       sf := match(files.get(sfi), .Some(f) => f, .None => String.from(""));
       sfi = (sfi + usize(1));
-      sf_bytes := io.await(read_file(Path.new(sf.clone()), io), IoExn(io : io, exn : exn));
+      sf_bytes := io.await(read(Path.new(sf.clone()), io), IoExn(io : io, exn : exn));
       sf_src := String.from_bytes(sf_bytes);
       sf_lines := sf_src.split("\n");
       (skip_this : bool) = false;
@@ -2377,7 +2377,7 @@ run_test :: (
     fi = (fi + usize(1));
     println(``);
     println(`${file}`);
-    src_bytes := io.await(read_file(Path.new(file.clone()), io), IoExn(io : io, exn : exn));
+    src_bytes := io.await(read(Path.new(file.clone()), io), IoExn(io : io, exn : exn));
     src := String.from_bytes(src_bytes);
     prog := parse(src, file.clone(), exn);
     tests := ArrayList(TestDecl).new();
@@ -2485,7 +2485,7 @@ run_test :: (
         // that was never written throws `file or directory not found` and
         // aborts the rest of the cleanup with it.
         tmp_c := if(run_is_wasi || run_is_emcc, `${batch_base}.c`, `${tmp_bin}.c`);
-        io.await(write_file(Path.new(tmp_yo.clone()), prog_src.clone(), io), IoExn(io : io, exn : exn));
+        io.await(write_string(Path.new(tmp_yo.clone()), prog_src.clone(), io), IoExn(io : io, exn : exn));
         // Compile the batch in a CHILD PROCESS, not in-process.
         //
         // WHY: `run_compile` creates a fresh ExprInfoTable, but compiler state lives
@@ -2609,7 +2609,7 @@ run_test :: (
           // (getMacOSLsanSuppressions, compiler-utils.ts:334-341).
           if(is_target_macos(host_ti), {
             lsan_supp_file = `${tmp_bin}.lsan_supp.txt`;
-            io.await(write_file(Path.new(lsan_supp_file.clone()), String.from("leak:libobjc\nleak:libdyld\nleak:libxpc\nleak:libsystem_malloc\nleak:dyld"), io), IoExn(io : io, exn : exn));
+            io.await(write_string(Path.new(lsan_supp_file.clone()), String.from("leak:libobjc\nleak:libdyld\nleak:libxpc\nleak:libsystem_malloc\nleak:dyld"), io), IoExn(io : io, exn : exn));
             _sv_lsan := proc_env.set(String.from("LSAN_OPTIONS"), `suppressions=${lsan_supp_file}`);
           });
           // Windows + clang: the ASan runtime DLL directory must be on PATH
@@ -3445,7 +3445,7 @@ run_version_cmd :: (
           exn.throw(dyn(`Error: Yo version ${version_to_pin} is not available. Run \`yo version list --remote\` to see the published releases.`));
         });
       });
-      io.await(write_file(Path.new(`${version_cwd}/.yo-version`), `${version_to_pin}\n`, io), IoExn(io : io, exn : exn));
+      io.await(write_string(Path.new(`${version_cwd}/.yo-version`), `${version_to_pin}\n`, io), IoExn(io : io, exn : exn));
       println(`Pinned Yo version to ${version_to_pin} in .yo-version`);
     },
     (action == "install") => {

@@ -471,7 +471,7 @@ whole loop cycle through one state.
 
 ```rust
 // ✓ supported
-cond(needs_write => { io.await(write_file(p, data, io), io); }, true => ());
+cond(needs_write => { io.await(write_string(p, data, io), io); }, true => ());
 if(io.await(exists(p, io), io), { ... });
 cond(io.await(ready(io), io) => ..., true => ...);
 match(io.await(num(io), io), 42 => ..., _ => ...);

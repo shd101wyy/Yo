@@ -19,7 +19,7 @@ open(import("std/fmt"));
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { Path } :: import("std/path");
-{ write_file } :: import("std/fs/file");
+{ write_string } :: import("std/fs/file");
 { create_dir_all } :: import("std/fs/dir");
 { Exception, IoExn } :: import("std/error");
 {
@@ -1640,7 +1640,7 @@ render_doc_site :: (
   index_content := _render_index_content(model);
   index_sidebar := _render_sidebar(model, Option(String).None);
   index_page := _wrap_page(`${model.name} — Documentation`, index_content, index_sidebar, _search_index_json(search_idx), css_text, js_text);
-  io.await(write_file(Path.new(`${output_dir}/index.html`), index_page, io), ioexn);
+  io.await(write_string(Path.new(`${output_dir}/index.html`), index_page, io), ioexn);
   (mi : usize) = usize(0);
   while(mi < model.modules.len(), {
     m := match(
@@ -1655,7 +1655,7 @@ render_doc_site :: (
     mod_content := _render_module_content(m, symbol_links);
     mod_search := _fix_search_index_for_module_page(search_idx);
     mod_page := _wrap_page(`${m.name} — ${model.name}`, mod_content, mod_sidebar, _search_index_json(mod_search), css_text, js_text);
-    io.await(write_file(Path.new(`${module_dir}/${fname}.html`), mod_page, io), ioexn);
+    io.await(write_string(Path.new(`${module_dir}/${fname}.html`), mod_page, io), ioexn);
     mi = (mi + usize(1));
   });
 });
