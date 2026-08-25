@@ -74,13 +74,29 @@ impl(
     self._mutex._raw_unlock();
   }),
   // Release a write lock.
+  //
+  // Wake BOTH waiting sets. The previous form picked one:
+  //
+  //     cond((self._readers > i32(0)) => self._read_cv.broadcast(),
+  //          true                     => self._write_cv.signal());
+  //
+  // and its reader arm was UNREACHABLE. The exclusion invariant guarantees
+  // `_readers == 0` here: `read_lock` blocks while `_writer` is set, so no
+  // reader can have incremented `_readers` while this writer held the lock,
+  // and `write_lock` only proceeds once `_readers == 0`. So the test was always
+  // false and only `_write_cv.signal()` ever ran — readers blocked in
+  // `_read_cv.wait` were never woken by the writer at all, and escaped only on
+  // a pthread SPURIOUS wakeup, which is what made this look like it worked.
+  //
+  // A releasing writer cannot know which set is waiting, so it must notify
+  // both: broadcast to every blocked reader (they can all proceed together)
+  // and signal one blocked writer (only one can proceed). Both predicates are
+  // re-checked in `while` loops, so the extra wakeups are safe.
   write_unlock : (fn(self : Self) -> unit)({
     self._mutex._raw_lock();
     self._writer = false;
-    cond(
-      (self._readers > i32(0)) => self._read_cv.broadcast(),
-      true => self._write_cv.signal()
-    );
+    self._read_cv.broadcast();
+    self._write_cv.signal();
     self._mutex._raw_unlock();
   })
 );

@@ -245,3 +245,54 @@ test("RwLock with Workers write then read", {
   assert(data.load(MemoryOrder.Relaxed) == i32(77), "should see worker's write");
   lock.read_unlock();
 });
+// ============================================================================
+// Reader wakeup on write_unlock
+//
+// The suite above never blocks a reader behind a HELD writer: "RwLock readers
+// wait for writer across threads" joins the writer before spawning readers, so
+// read_lock never waits. This test holds the write lock while the readers
+// arrive, which is the only way to exercise write_unlock's wakeup.
+// issues/rwlock-write-unlock-never-wakes-blocked-readers.md
+// ============================================================================
+test("RwLock readers blocked behind a held writer are woken on release", {
+  if(arch == Arch.Wasm32, return(()));
+  lock := RwLock.new();
+  data := AtomicI32(i32(0));
+  arrived := AtomicI32(i32(0));
+  done := AtomicI32(i32(0));
+  // The MAIN thread holds the write lock for the whole spawn window.
+  lock.write_lock();
+  data.store(i32(99), MemoryOrder.Relaxed);
+  t1 := Thread.spawn((io) => {
+    arrived.fetch_add(i32(1), MemoryOrder.Relaxed);
+    lock.read_lock();
+    assert(data.load(MemoryOrder.Relaxed) == i32(99), "reader 1 must see the writer's value");
+    lock.read_unlock();
+    done.fetch_add(i32(1), MemoryOrder.Relaxed);
+  });
+  t2 := Thread.spawn((io) => {
+    arrived.fetch_add(i32(1), MemoryOrder.Relaxed);
+    lock.read_lock();
+    assert(data.load(MemoryOrder.Relaxed) == i32(99), "reader 2 must see the writer's value");
+    lock.read_unlock();
+    done.fetch_add(i32(1), MemoryOrder.Relaxed);
+  });
+  t3 := Thread.spawn((io) => {
+    arrived.fetch_add(i32(1), MemoryOrder.Relaxed);
+    lock.read_lock();
+    assert(data.load(MemoryOrder.Relaxed) == i32(99), "reader 3 must see the writer's value");
+    lock.read_unlock();
+    done.fetch_add(i32(1), MemoryOrder.Relaxed);
+  });
+  // All three have reached read_lock, and the writer still holds it.
+  while(runtime(arrived.load(MemoryOrder.Relaxed) < i32(3)), {
+    sleep(usize(1));
+  });
+  sleep(usize(20));
+  assert(done.load(MemoryOrder.Relaxed) == i32(0), "no reader may pass while the writer holds the lock");
+  lock.write_unlock();
+  t1.join();
+  t2.join();
+  t3.join();
+  assert(done.load(MemoryOrder.Relaxed) == i32(3), "every blocked reader must be woken by write_unlock");
+});
