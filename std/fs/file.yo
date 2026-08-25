@@ -28,14 +28,14 @@ open(import("../string"));
 open(import("../fmt"));
 { Path } :: import("../path");
 { IoError } :: import("../sys/errors");
+{ EINVAL } :: import("../libc/errno");
 { Error, AnyError, Exception, IoExn } :: import("../error");
 { Metadata } :: import("./metadata");
 _metadata_mod :: import("./metadata");
 { Statx } :: import("../sys/statx");
 IO_path :: import("../sys/path");
-{ OpenMode, FilePermission, SeekFrom, _open_mode_to_flags, _open_mode_needs_perm, _seek_from_to_whence } :: import("./types");
+{ OpenMode, FilePermission, SeekFrom, _open_mode_to_flags, _open_mode_needs_perm } :: import("./types");
 IO_file :: import("../sys/file");
-IO_seek :: import("../sys/seek");
 { AT_FDCWD, AT_STATX_SYNC_AS_STAT, STATX_BASIC_STATS, O_RDONLY, O_WRONLY, O_RDWR, O_CREAT, O_TRUNC, O_APPEND, O_CLOEXEC, DEFAULT_FILE_MODE } :: import("../sys/constants");
 // ============================================================================
 // File
@@ -48,7 +48,20 @@ File :: ref(
   struct(
     _fd : i32,
     _path : Path,
-    _is_closed : bool
+    _is_closed : bool,
+    /// Byte offset for the NEXT `read`/`write_*` on this handle.
+    ///
+    /// `File` must carry its own position because the async runtime implements
+    /// reads and writes with POSITIONAL I/O (`pread`/`pwrite`), which neither
+    /// consults nor advances the descriptor's file position. Passing a constant
+    /// 0 here is what made every `read` return the first bytes forever, every
+    /// `write_*` overwrite at the start, and `seek` a silent no-op —
+    /// issues/file-read-write-ignore-position-always-offset-zero.md.
+    ///
+    /// One exception is deliberate: a handle opened `.Append` carries
+    /// `O_APPEND`, and the kernel forces those writes to end-of-file whatever
+    /// offset is supplied, so `_pos` does not govern them.
+    _pos : u64
   )
 );
 impl(
@@ -69,7 +82,8 @@ impl(
       File(
         _fd : fd,
         _path : path,
-        _is_closed : false
+        _is_closed : false,
+        _pos : u64(0)
       )
     })
   }),
@@ -98,8 +112,10 @@ impl(
   read : (fn(self : Self, buf : *(u8), size : u32, io : Io) -> Impl(Future(i32, IoExn)))({
     fd := self._fd;
     io.async((e) => {
-      result := e.io.await(IO_file.read(fd, buf, size, u64(0)), e.io);
-      IoError.check(result, e.exn)
+      result := e.io.await(IO_file.read(fd, buf, size, self._pos), e.io);
+      n := IoError.check(result, e.exn);
+      self._pos = (self._pos + u64(n));
+      n
     })
   }),
   /// Write a `String` to the file.
@@ -111,8 +127,10 @@ impl(
       cond(
         (data_bytes.len() == usize(0)) => i32(0),
         true => {
-          result := e.io.await(IO_file.write(fd, data_bytes.ptr().unwrap(), u32(data_bytes.len()), u64(0)), e.io);
-          IoError.check(result, e.exn)
+          result := e.io.await(IO_file.write(fd, data_bytes.ptr().unwrap(), u32(data_bytes.len()), self._pos), e.io);
+          n := IoError.check(result, e.exn);
+          self._pos = (self._pos + u64(n));
+          n
         }
       )
     })
@@ -126,8 +144,10 @@ impl(
         cond(
           (data.len() == usize(0)) => i32(0),
           true => {
-            result := e.io.await(IO_file.write(fd, data.ptr().unwrap(), u32(data.len()), u64(0)), e.io);
-            IoError.check(result, e.exn)
+            result := e.io.await(IO_file.write(fd, data.ptr().unwrap(), u32(data.len()), self._pos), e.io);
+            n := IoError.check(result, e.exn);
+            self._pos = (self._pos + u64(n));
+            n
           }
         )
     )
@@ -182,15 +202,33 @@ impl(
   }),
   /// Seek to a position relative to `from`. Returns the new absolute byte offset.
   seek : (fn(self : Self, offset : i64, from : SeekFrom, exn : Exception) -> i64)({
-    result := IO_seek.lseek(self._fd, offset, _seek_from_to_whence(from));
+    // `_pos` is the authority, NOT the descriptor's position. `read`/`write_*`
+    // are positional (pread/pwrite) and never move the descriptor, so it sits at
+    // 0 forever — an `lseek(fd, n, SEEK_CUR)` would therefore compute from 0
+    // rather than from where this handle has actually read to. Resolve the
+    // target here and keep the descriptor out of it.
+    base := match(
+      from,
+      .Start => i64(0),
+      .Current => i64(self._pos),
+      .End => self.size()
+    );
+    target := (base + offset);
     cond(
-      (result < i64(0)) => exn.throw(dyn(IoError.from_errno(i32(i64(0) - result)))),
-      true => result
+      (target < i64(0)) => exn.throw(dyn(IoError.from_errno(i32(EINVAL)))),
+      true => {
+        self._pos = u64(target);
+        target
+      }
     )
   }),
   /// Get the current file position (byte offset from the beginning).
+  ///
+  /// Reports `_pos`, not the descriptor's position. This used to ask the
+  /// descriptor via `lseek(SEEK_CUR)`, which ALWAYS answered 0: positional
+  /// reads and writes never move it.
   position : (fn(self : Self) -> i64)(
-    IO_seek.lseek(self._fd, i64(0), IO_seek.SEEK_CUR)
+    i64(self._pos)
   ),
   /// Get the file size in bytes.
   size : (fn(self : Self) -> i64)(
