@@ -1,0 +1,36 @@
+// Reproducer for
+// issues/assign-to-by-value-closure-param-under-generic-result-types-unit.md
+//
+//   yo compile issues/repros/assign-to-by-value-closure-param-generic-result.yo --release -o /tmp/r
+//
+// Expected: builds and runs (both asserts hold — assigning to a BY-VALUE
+// closure parameter mutates the body's own copy, exactly like the
+// non-generic `plain` case).
+// Actual (2026-08-26, yo 0.2.17): the `apply` (generic-result) call types as
+// `unit`, so `b == i32(9)` is a unit comparison:
+//   Error: Cannot unify incompatible types: Expected: "bool" Given: "unit"
+{ assert } :: import("std/assert");
+
+apply :: (fn(generic(R : Type), body : Impl(Fn(v : i32) -> R)) -> R)({
+  x := i32(1);
+  body(x)
+});
+
+plain :: (fn(body : Impl(Fn(v : i32) -> i32)) -> i32)({
+  x := i32(1);
+  body(x)
+});
+
+main :: (fn() -> unit)({
+  a := plain((v) => {
+    v = i32(9);
+    v + i32(0)
+  });
+  assert(a == i32(9), "non-generic callback: assigning to a by-value param is local");
+  b := apply((v) => {
+    v = i32(9);
+    v + i32(0)
+  });
+  assert(b == i32(9), "generic-R callback: same");
+});
+export(main);

@@ -1,10 +1,12 @@
-//! One-time initialization primitive.
-pragma(Pragma.AllowUnsafe);
+//! One-time initialization primitives.
+//!
+//! `Once` runs a side-effecting closure exactly once; `OnceCell(T)` stores the
+//! value that closure produced and hands it back on every later call.
 //!
 //! # Example
 //!
 //! ```rust
-//! { Once } :: import "std/sync/once";
+//! { Once, OnceCell } :: import "std/sync/once";
 //!
 //! init := Once.new();
 //! // Only the first call executes the function
@@ -14,7 +16,13 @@ pragma(Pragma.AllowUnsafe);
 //! init.call(() => {
 //!   println("this will NOT run");
 //! });
+//!
+//! cell := OnceCell(i32).new();
+//! a := cell.get_or_init(() => i32(42)); // runs the closure
+//! b := cell.get_or_init(() => i32(99)); // returns 42, closure not run
 //! ```
+pragma(Pragma.AllowUnsafe);
+
 { Mutex } :: import("./mutex");
 { AtomicBool, MemoryOrder } :: import("./atomic");
 {
@@ -25,6 +33,7 @@ pragma(Pragma.AllowUnsafe);
   memory_order_acquire,
   memory_order_release
 } :: import("std/libc/stdatomic");
+
 /// Execute a function exactly once, thread-safely.
 /// Uses atomic reference counting for safe cross-thread sharing.
 Once :: atomic(
@@ -45,6 +54,14 @@ impl(
   }),
   // Execute the function exactly once.
   // Subsequent calls are no-ops.
+  //
+  // NOTE: the slow path SHOULD run under `Mutex.with_lock`, so that an
+  // `unwind` out of the user's `f` cannot leave the mutex held forever
+  // (`__MutexUnlocker`'s `Dispose` fires on the unwind path; this manual
+  // `_raw_unlock` does not). That rewrite is blocked on a C-codegen bug —
+  // a `fn(generic(R), body : Impl(Fn(...) -> R)) -> R` specialized at R = unit
+  // emits `void* tmp = closure(...)` against a `void`-returning C function.
+  // See issues/generic-r-callback-with-unit-closure-emits-void-star-temp.md.
   call : (fn(self : Self, f : Impl(Fn() -> unit)) -> unit)({
     // Fast path: already done (atomic_bool with Acquire load)
     cond(
@@ -70,4 +87,58 @@ impl(
     unsafe(atomic_load_explicit(&(self._done), memory_order_acquire)) == true
   )
 );
-export(Once);
+
+/// A cell initialized at most once, thread-safely — the value-carrying
+/// counterpart of `Once` (Rust's `OnceLock`).
+///
+/// `Once` itself stores nothing but its completion flag, so it cannot hand a
+/// value back; `OnceCell(T)` adds the storage and reuses `Once` for the
+/// double-checked-locking protocol. The Release-store that publishes `_done`
+/// happens after `_value` is written, and every read goes through an
+/// Acquire-load of `_done` first, so a thread that observes an initialized
+/// cell also observes the value the initializer wrote.
+OnceCell :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
+  atomic(
+    ref(
+      struct(
+        _once : Once,
+        _value : Option(T)
+      )
+    )
+  )
+);
+impl(
+  generic(T : Type),
+  where(T <: Send),
+  OnceCell(T),
+  /// Create an empty cell.
+  new : (fn() -> Self)(
+    Self(
+      _once : Once.new(),
+      _value : Option(T).None
+    )
+  ),
+  /// Return the stored value, initializing it with `f` if this is the first
+  /// call. `f` runs at most once across all threads; every other caller blocks
+  /// until it finishes and then sees its value.
+  get_or_init : (fn(self : Self, f : Impl(Fn() -> T)) -> T)({
+    self._once.call(() => {
+      self._value = Option(T).Some(f());
+    });
+    self._value.expect("OnceCell: initialized flag published without a value")
+  }),
+  /// Return the stored value, or `None` if the cell has not been initialized.
+  /// Never runs an initializer.
+  get : (fn(self : Self) -> Option(T))(
+    cond(
+      self._once.is_done() => self._value,
+      true => Option(T).None
+    )
+  ),
+  /// Whether the cell holds a value.
+  is_initialized : (fn(self : Self) -> bool)(
+    self._once.is_done()
+  )
+);
+
+export(Once, OnceCell);
