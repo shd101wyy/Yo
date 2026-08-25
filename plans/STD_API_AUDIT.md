@@ -491,6 +491,29 @@ landmine with a pointer at the issue.
     what preserves spaced colon-pairs), and lowers to `e.format("<spec>")` at the
     same site where `make_ts_call` builds `e.to_string()` today.
 
+    **Stage 2 LANDED 2026-08-25.** The split rule as implemented, and why it is
+    safe without any depth or quote tracking: the backward walk runs over a
+    CLOSED character set — alphanumerics plus `. < > ^ + - # * _ = ~` — that
+    deliberately EXCLUDES `)`, `]`, `}`, quotes, comma and whitespace, so it can
+    physically never cross out of a call's argument list, out of a bracket, or
+    into a string literal. Three further conditions, all required: the run must
+    be non-empty, the character before it must be `:`, and the character before
+    THAT must not be whitespace — which is what preserves a spaced colon-pair
+    (`${a : b}` keeps its meaning while `${x:>8}` splits).
+
+    The auto-import is gated on whether any spec appeared: a file with no specs
+    still imports `std/fmt/to_string`, so its import closure, lowering and
+    alloc_id sequence stay byte-identical, and only a file that actually uses a
+    spec pulls in `std/fmt/format`. Spec text can never contain a quote or a
+    backslash — the character set excludes both — so the synthesized StringLit
+    needs no escaping.
+
+    Tests: `tests/template_string_specs.test.yo`, which deliberately does NOT
+    import std/fmt (the parser's auto-import is half of what is under test),
+    mixes a spec'd and an unspec'd interpolation in one template, and pins the
+    negative cases (`${String.from(":")}` and a colon inside a nested call
+    argument must not split).
+
 ### D4 — String indexing model (the one genuinely hard call)
 
 `String.len()` is rune-count O(n), `Index` returns a BYTE, `at()`/`substring()`/
