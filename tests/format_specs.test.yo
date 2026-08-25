@@ -35,10 +35,13 @@ test("float precision", {
   assert(f64(3.14159).format(".2") == `3.14`, "two decimals");
   assert(f64(-(3.14159)).format(">10.3") == `    -3.142`, "width applies after precision");
 });
-test("the blanket impl covers bool", {
+test("the blanket impl covers every ToString type", {
+  // Both in ONE body deliberately: this exact shape used to crash, because the
+  // blanket's `inout(self)` lost its by-ref binding when the receiver folded to
+  // a comptime constant — issues/fixed/specialized-inout-param-loses-ref-with-comptime-arg.md.
   assert(true.format("^9") == `  true   `, "bool through the blanket");
-});
-test("the blanket impl covers Option", {
+  assert(Option(i32).Some(i32(4)).format(">10") == `   Some(4)`, "inline Option receiver");
   o := Option(i32).Some(i32(4));
-  assert(o.format(">10") == `   Some(4)`, "Option through the blanket");
+  assert(o.format(">10") == `   Some(4)`, "named Option receiver");
+  assert(Result(i32, String).Ok(i32(1)).format(">8") == `   Ok(1)`, "inline Result receiver");
 });
