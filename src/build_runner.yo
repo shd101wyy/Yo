@@ -625,7 +625,7 @@ compile_artifact :: (
     i = usize(0);
     n = artifact.include_paths.len();
     while(i < n, {
-      cmd.arg(String.from("--include"));
+      cmd.arg(String.from("-I"));
       cmd.arg(artifact.include_paths(i));
       i = (i + usize(1));
     });
@@ -635,10 +635,10 @@ compile_artifact :: (
     // every level except debug/release-safe, `mapOptimize` sends
     // release-safe/-small to -O2 and release-fast to -O3, allocator is passed
     // unconditionally, sanitize only when not "none".
-    is_release := ((artifact.optimize != "debug") && (artifact.optimize != "release-safe"));
-    if(is_release, {
-      cmd.arg(String.from("--release"));
-    });
+    // NOTE: no `--release` is emitted. Every level that would have set it
+    // (release-fast, release-small) also emits an explicit `--optimize` below,
+    // which supersedes it — so the flag never changed a single argv. `yo compile`
+    // now collapses `--release` into `--optimize` anyway.
     optimize_num := cond(
       (artifact.optimize == "release-safe") => String.from("2"),
       (artifact.optimize == "release-fast") => String.from("3"),
