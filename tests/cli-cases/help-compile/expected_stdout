@@ -5,8 +5,12 @@ Compile a '.yo' source file to a native executable (via C11).
 
 Options:
   -o <path>                 Output binary path
-  --release                 Optimized build (-O2; default is -O0)
-  --optimize <level>        Explicit C optimization level (0|1|2|3|s|z)
+  --release                 Optimized build (-O2; default is -O0). The usual
+                            way to build for real use.
+  --optimize <level>        Explicit C optimization level (0|1|2|3). --release
+                            is exactly --optimize 2; an explicit --optimize
+                            wins. Any level above 0 also enables the ThinLTO
+                            pairing that --emit-chunks requires.
   -g, --debug-symbols       Emit debug symbols
   -s, --strip               Strip the output binary
   --cc, --c-compiler <cc>   C compiler to use (clang|gcc|zig|emcc)
