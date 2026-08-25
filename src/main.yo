@@ -1497,6 +1497,16 @@ run_compile :: (
   if((optimize != "") && (((optimize != "0") && (optimize != "1")) && ((optimize != "2") && (optimize != "3"))), {
     exn.throw(dyn(`compile: invalid --optimize "${optimize}". Choices: 0, 1, 2, 3`));
   });
+  // `--release` is an ALIAS for `--optimize 2` — it selects no profile, gates
+  // nothing semantic, and never reaches `compile_module`, so the emitted C is
+  // identical with or without it. Collapse it into `optimize` HERE, so exactly
+  // ONE mechanism reaches the flag emission and the LTO gate below and the
+  // "explicit --optimize wins" precedence rule stops being a special case that
+  // every reader has to reconstruct. An explicit `--optimize` still wins simply
+  // by already being set.
+  if(release && (optimize == ""), {
+    optimize = String.from("2");
+  });
   if((sanitize != "") && (((sanitize != "address") && (sanitize != "leak")) && (sanitize != "thread")), {
     exn.throw(dyn(`compile: invalid --sanitize "${sanitize}". Choices: address, leak, thread`));
   });
@@ -1793,9 +1803,9 @@ run_compile :: (
   if(get_needs_intel_asm_syntax() && !(is_target_wasm(target)), {
     cmd.arg(String.from("-masm=intel"));
   });
-  // Optimization + warnings: explicit --optimize wins over --release; the
-  // default and explicit `--optimize 0` use -O0 with the noisy warnings
-  // suppressed (mirrors the TS option logic).
+  // Optimization + warnings. `--release` was already collapsed into `optimize`
+  // above, so there is ONE mechanism here: an empty or "0" level means the -O0
+  // default, anything else is an optimized build.
   //
   // WARNINGS ARE NOT PURELY A FUNCTION OF THE OPTIMIZATION LEVEL. Generated C is
   // full of harmless noise (unused temporaries, redundant parens, pointer-sign
@@ -1817,13 +1827,6 @@ run_compile :: (
   // The -O0 arm below needs no such re-enabling — `-Wall` and clang's
   // defaults already include all three.
   cond(
-    ((optimize == "") && release) => {
-      cmd.arg(String.from("-w"));
-      cmd.arg(String.from("-Wincompatible-pointer-types"));
-      cmd.arg(String.from("-Wint-conversion"));
-      cmd.arg(String.from("-Wimplicit-function-declaration"));
-      cmd.arg(String.from("-O2"));
-    },
     ((optimize != "") && (optimize != "0")) => {
       cmd.arg(String.from("-w"));
       cmd.arg(String.from("-Wincompatible-pointer-types"));
@@ -1860,7 +1863,7 @@ run_compile :: (
   // that win on nothing, so LTO tracks the OPTIMIZATION LEVEL rather than the
   // chunk flag. The condition mirrors the -O selection above exactly.
   // Not for wasm: emcc's LTO story is separate and chunked wasm is out of scope.
-  chunk_lto_wanted := (((optimize == "") && release) || ((optimize != "") && (optimize != "0")));
+  chunk_lto_wanted := ((optimize != "") && (optimize != "0"));
   if((emit_chunks >= usize(1)) && (chunk_lto_wanted && (!(chunk_no_lto) && !(is_target_wasm(target)))), {
     cmd.arg(String.from("-flto=thin"));
   });
@@ -3616,11 +3619,10 @@ Options:
   -o <path>                 Output binary path
   --release                 Optimized build (-O2; default is -O0). The usual
                             way to build for real use.
-  --optimize <level>        Explicit C optimization level (0|1|2|3|s|z), for a
-                            level --release does not give you. Takes precedence
-                            over --release; any level above 0 optimizes exactly
-                            as --release does, including the ThinLTO pairing
-                            that --emit-chunks requires.
+  --optimize <level>        Explicit C optimization level (0|1|2|3). --release
+                            is exactly --optimize 2; an explicit --optimize
+                            wins. Any level above 0 also enables the ThinLTO
+                            pairing that --emit-chunks requires.
   -g, --debug-symbols       Emit debug symbols
   -s, --strip               Strip the output binary
   --cc, --c-compiler <cc>   C compiler to use (clang|gcc|zig|emcc)
