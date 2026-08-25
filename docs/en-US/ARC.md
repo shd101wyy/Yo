@@ -101,6 +101,6 @@ assert((shared.(*) == i32(42)), "main still sees shared value");
 
 ## Related docs
 
-- `docs/en-US/PARALLELISM.md` — thread and worker model
+- `docs/en-US/PARALLELISM.md` — thread and thread-pool model
 - `docs/en-US/ISOLATED.md` — unique ownership with `Iso(T)`
 - `docs/en-US/IMMUTABLE_COLLECTIONS.md` — persistent collections built on `atomic(ref(struct(...)))`

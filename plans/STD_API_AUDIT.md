@@ -675,6 +675,14 @@ implementing the D5 traits.** Until it lands, std honestly refuses https.
     `__yo_worker_pool_shutdown` is a `static` C function with no Yo-visible
     entry point (adding one needs a `_is_threading_macro_function` entry, i.e.
     a compiler change).
+  - **`join_all` leaks ~344 bytes per call** (review follow-up 2026-08-26). Its
+    `Channel(bool)` is captured by the sentinel closures, and the emitted spawn
+    wrapper never drops a closure's RC'd captures. Pre-existing and below std —
+    measured identically on `develop` with `Worker.spawn` and a plain task
+    closure — so it is filed, not worked around:
+    `issues/spawn-closure-captures-never-dropped-leak.md`. A per-pool cached
+    channel would trade the leak for a broken barrier under concurrent
+    `join_all`, so the fix belongs in the spawn emitter.
 - **NOT DONE — `Thread.spawn` should carry a result (`join() -> T`) and panic
   propagation.** Both are blocked below std:
   - `join() -> T` needs `spawn` to be generic over `T` and to put a `T`-typed
