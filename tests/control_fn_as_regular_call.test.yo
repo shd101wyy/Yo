@@ -64,4 +64,7 @@ test("control fn called from worker closures", {
   });
   main_result := do_work(i32(4), io);
   assert(main_result == i32(6), "main sum 0..3 should be 6");
+  // Without this the pool task is fire-and-forget and its assertion may never
+  // run before the test ends — the check would pass vacuously.
+  pool.join_all();
 });
