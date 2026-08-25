@@ -598,7 +598,7 @@ open(import("std/fs/file"));
 // open(import("std/fs"));  // which module? file? dir? walker?
 ```
 
-Modules in this category: `std/net`, `std/fs`, `std/sync`, `std/time`, `std/os`, `std/io`, `std/crypto`, `std/encoding`, `std/collections`, `std/cli`, `std/testing`.
+Modules in this category: `std/net`, `std/fs`, `std/sync`, `std/time`, `std/io`, `std/crypto`, `std/encoding`, `std/collections`, `std/cli`, `std/testing`.
 
 ### Multi-file modules with a primary file
 
