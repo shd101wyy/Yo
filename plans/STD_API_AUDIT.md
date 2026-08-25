@@ -634,7 +634,7 @@ implementing the D5 traits.** Until it lands, std honestly refuses https.
   low: **eleven** files, not six — see the note below). The
   `String.from_bytes` half did **not** land as written; read the correction.
 
-  **The module.** `std/encoding/utf8.yo`, 12 exported names:
+  **The module.** `std/encoding/utf8.yo`, 15 exported names:
   `Utf8Error`, `Decoded`, `is_continuation`, `is_boundary`, `sequence_len`,
   `step_len`, `encoded_len`, `decode`, `decode_parts`, `decode_lossy`,
   `encode`, `encode_into`, `encode_lossy_into`, `validate`, `validate_range`.
@@ -677,9 +677,12 @@ implementing the D5 traits.** Until it lands, std honestly refuses https.
     above U+10FFFF are each their own error variant.
   - `sequence_len` is the strict width (`0` = not a lead byte); `step_len` is
     that clamped to 1. **Every** rune-walking loop in `std` now calls
-    `step_len` — that alone replaced 15 copies of the same four-arm `cond`
-    table (3 in `string.yo`, 10 in `regex/index.yo`, 1 in `imm/string.yo`,
-    1 in `regex/vm.yo`'s backwards scan).
+    `step_len` — that alone replaced **14** copies of the same four-arm
+    `cond` table (3 in `string.yo`, 10 in `regex/index.yo`, 1 in
+    `imm/string.yo`). `regex/vm.yo`'s two backwards scans were boundary tests,
+    not width tables, and went to `is_boundary` / `is_continuation`; there are
+    10 boundary-test call sites in all (7 in `string.yo`, 2 in `regex/vm.yo`,
+    1 in `imm/string.yo`).
 
   **The count in this row was wrong: eleven files carried UTF-8 bit twiddling,
   not six**, and three of them were encoders the row did not mention.
@@ -735,8 +738,9 @@ implementing the D5 traits.** Until it lands, std honestly refuses https.
 
   Measured, not guessed:
 
-  - **`String.from_bytes` has ~140 call sites**: 30 in `std/`, ~50 in `src/`,
-    ~70 in `tests/` — **and 20 in `vendor/markdown_yo`**, which
+  - **`String.from_bytes` has ~170 call sites** (re-measured 2026-08-26 with
+    `grep -ro '\.from_bytes(' <dir> --include='*.yo'`): 38 in `std/`, 54 in
+    `src/`, 52 in `tests/` — **and 26 in `vendor/markdown_yo`**, which
     `src/doc/render_html.yo:41` imports by source path. Changing the name or
     the return type therefore breaks `yo check ./src` and `yo build` until a
     companion commit is pushed upstream and the submodule pointer is bumped
@@ -749,7 +753,7 @@ implementing the D5 traits.** Until it lands, std honestly refuses https.
     change; do it then, in one commit, together with the vendor bump.
   - **`String.from_cstr` must NOT start validating**, against what the §6
     `StringError` correction below suggests. `std/fmt/to_string.yo` calls it
-    **24 times** — it is how every integer and float becomes a `String`, i.e.
+    **22 times** — it is how every integer and float becomes a `String`, i.e.
     every `${x}` in every template string in the compiler. The bytes are
     `snprintf` output, so validation would be a guaranteed-passing scan on the
     hottest string path in the tree. `StringError.InvalidUtf8` is wired up by
@@ -757,6 +761,24 @@ implementing the D5 traits.** Until it lands, std honestly refuses https.
     being dead.
   - `StringError.InvalidUtf8` now carries `cause : Utf8Error`, so the caller
     learns *what* was wrong and at *which byte*, not just "not UTF-8".
+
+  **One behaviour change on a hot path, measured after the fact (2026-08-26).**
+  Routing `rune`'s `ToString` through `encode_lossy_into` replaced a stack
+  `Array(u8, 5)` + `String.from_cstr(...)`, and `from_cstr` stops at the first
+  NUL byte. So `${rune}` changed for exactly two inputs, both previously
+  broken:
+
+  | input | before | after |
+  |---|---|---|
+  | `rune(char : 0)` | `""` (0 bytes — the NUL was eaten by `strlen`) | a 1-byte NUL string |
+  | a hand-built surrogate `rune` | 3-byte CESU-8 (`ED A0 80` for U+D800) | U+FFFD (`EF BF BD`) |
+
+  Every other code point is byte-identical (UTF-8 for a non-zero scalar never
+  contains a `0x00` byte). A/B'd with the same driver against the pre-change
+  `std`. The only in-tree caller that could hit either is
+  `std/encoding/html_char_utils.from_code_point`, and `html.yo` guards it with
+  `is_valid_entity_code`, which already rejects both 0 and the surrogate block
+  — so no `std` behaviour moved.
 - `EncodingError` moves out of `hex.yo` into `std/encoding/error.yo`.
 - Regex internals (`parser/node/compiler/vm` exports) go private; `MAX_SLOTS`
   documented; typed `RegexError`.

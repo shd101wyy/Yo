@@ -554,7 +554,7 @@ Two constraints on that module you must not break:
   A module that wants a throwable UTF-8 error wraps it, the way
   `StringError.InvalidUtf8(cause : Utf8Error)` does.
 - **`String.from_bytes` does not validate** — it is the *unchecked*
-  constructor, and its ~140 call sites (20 of them in `vendor/markdown_yo`) are
+  constructor, and its ~170 call sites (26 of them in `vendor/markdown_yo`) are
   why it still has that name. Use `String.from_utf8` for bytes of unknown
   provenance: a file, a socket, a subprocess, a decoded payload. Use
   `from_bytes` only when the bytes demonstrably came from UTF-8 already.

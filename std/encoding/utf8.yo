@@ -291,8 +291,12 @@ export(decode_lossy);
 /// Append the UTF-8 encoding of `r` to `out`, returning how many bytes were
 /// pushed (1..4).
 ///
-/// Infallible: `rune` is already constrained to the scalar values, so there is
-/// no invalid input to reject.
+/// Infallible for a `rune` that came from `rune.from_u32` or from a decoder in
+/// this module — those are scalar values by construction, so there is nothing
+/// to reject. `rune` is a plain struct with a public `char`, so a hand-built
+/// non-scalar (a surrogate half, or a value above U+10FFFF) still encodes to
+/// the bit pattern its bits ask for; use `encode_lossy_into` when the code
+/// point came from somewhere that can produce one.
 encode_into :: (fn(r : rune, out : ArrayList(u8)) -> usize)({
   code := r.to_u32();
   cond(
