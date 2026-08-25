@@ -250,6 +250,50 @@ test("String contains from_index is a byte offset", {
   assert(!(s.contains(`é`, usize(2))), "past é's start");
 });
 // ===========================================================================
+// The EMPTY needle — the one documented hole in "every index this returns is
+// a rune boundary". Pinned here because a search result is documented as safe
+// to feed straight back into `substring`, and `substring` PANICS at a
+// non-boundary, so the exception has to be visible rather than folklore.
+// ===========================================================================
+test("String index_of with an empty needle answers from_index verbatim", {
+  s := _subject();
+  e := String.new();
+  // Boundary case: the ordinary answer.
+  assert(s.index_of(e.clone(), usize(0)).unwrap() == usize(0), "empty needle at 0");
+  assert(s.index_of(e.clone(), usize(3)).unwrap() == usize(3), "empty needle at a boundary");
+  // NOT a boundary — `index_of` hands the offset straight back, so this is the
+  // one result that must NOT be fed to `substring` unchecked.
+  assert(s.index_of(e.clone(), usize(2)).unwrap() == usize(2), "empty needle mid-rune");
+  assert(!(s.is_char_boundary(usize(2))), "and byte 2 really is inside a rune");
+  assert(s.try_substring(usize(0), usize(2)).is_none(), "which try_substring refuses");
+  // And past the end: unclamped (JavaScript's indexOf("") would clamp to len).
+  assert(s.index_of(e.clone(), usize(99)).unwrap() == usize(99), "empty needle past the end");
+  assert(s.contains(e.clone(), usize(2)), "contains agrees with index_of");
+  // last_index_of's empty-needle arm ignores from_index entirely.
+  assert(s.last_index_of(e.clone()).unwrap() == usize(10), "empty needle is at len()");
+  assert(s.last_index_of(e.clone(), usize(2)).unwrap() == usize(10), "even under a lower cap");
+});
+// ===========================================================================
+// floor / ceil char boundary — the arithmetic escape hatch named by
+// substring's boundary policy
+// ===========================================================================
+test("String floor and ceil char boundary snap onto rune starts", {
+  s := _subject();
+  // a@0 é@1 中@3 𝄞@6, len 10.
+  assert(s.floor_char_boundary(usize(0)) == usize(0), "0 is already a boundary");
+  assert(s.floor_char_boundary(usize(2)) == usize(1), "inside é snaps back to 1");
+  assert(s.floor_char_boundary(usize(5)) == usize(3), "inside 中 snaps back to 3");
+  assert(s.floor_char_boundary(usize(9)) == usize(6), "inside 𝄞 snaps back to 6");
+  assert(s.floor_char_boundary(usize(10)) == usize(10), "len is a boundary");
+  assert(s.ceil_char_boundary(usize(2)) == usize(3), "inside é snaps up to 中");
+  assert(s.ceil_char_boundary(usize(4)) == usize(6), "inside 中 snaps up to 𝄞");
+  assert(s.ceil_char_boundary(usize(7)) == usize(10), "inside 𝄞 snaps up to len");
+  // Snapping first is what makes an arbitrary byte offset safe to slice with.
+  a := s.floor_char_boundary(usize(2));
+  b := s.ceil_char_boundary(usize(5));
+  assert(s.substring(a, b) == `é中`, "snapped endpoints slice cleanly");
+});
+// ===========================================================================
 // starts_with(position) / ends_with(end_position)
 // ===========================================================================
 test("String starts_with position is a byte offset — the 1.3(a) fix", {

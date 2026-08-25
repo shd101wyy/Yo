@@ -769,9 +769,15 @@ implementing the D5 traits.** Until it lands, std honestly refuses https.
   D sketch, which gave BOTH `with_read` and `with_write` a `ref(v) : T` body
   parameter; splitting them into by-value / `inout` is what makes the read/write
   distinction mean anything. Found while reviewing: `yo test --std-path <dir>` is
-  silently ignored (the per-batch compile is a child process and the flag is not
-  forwarded), so a `--std-path` test run scores the INSTALLED std —
-  issues/yo-test-std-path-not-forwarded-to-the-batch-compile.md.
+  silently ignored, so a `--std-path` test run scores the INSTALLED std.
+  **Correction (D4 PR-3 review, 2026-08-26): that is the SEED's behaviour, not
+  the tree's.** The forwarding fix landed in #286
+  (issues/fixed/yo-test-does-not-forward-std-path-to-batch-compile.md, gated by
+  `tests/cli-cases/test-std-path-forwarded`); the write-up filed here was a
+  duplicate and is now
+  issues/retired/yo-test-std-path-not-forwarded-to-the-batch-compile.md. The
+  practical rule stands while the seed on `PATH` predates #286: use
+  `YO_STD=$PWD/std`.
 - **BLOCKER found while doing the row above:** a callback generic over its
   result — the `with_lock` / `with_read` / `with_write` signature itself —
   emits `void* tmp = <void call>;` when the closure returns unit, so

@@ -1,7 +1,11 @@
 # D4 — String indexing model: the executable migration plan
 
 > **Status:** **PRs 1-3 LANDED 2026-08-26** (PR 2 got a skeptical review pass on
-> the same branch that added §5.2 **S11**); PRs 4-9 still PLAN.
+> the same branch that added §5.2 **S11**; **PR 3 got one too — it found one
+> live regression the flip introduced, `_capitalize_last_segment`, §5.1's last
+> row, and one contract hole, the empty needle, §1.4. Both are fixed on the
+> same branch; the review's full method and measurements are §6.1.2**);
+> PRs 4-9 still PLAN.
 > **PR 3 was the flip.** `String` is byte-indexed from here on; the numbers in
 > §0/§2/§3 below are the pre-flip survey and are kept as the historical record
 > of what the migration measured, not as a description of the tree today.
@@ -153,7 +157,17 @@ most. That is a stronger argument for the change than the one in the audit.
 > and deliberately so:** UTF-8 is self-synchronizing, so a valid-UTF-8 needle
 > can never match starting at a continuation byte, which means a mid-rune
 > `from_index` / `position` / `end_position` cannot invent a hit and simply
-> answers `false` / `.None`. O1c is unchanged: comptime stays pinned to
+> answers `false` / `.None`. **That argument has exactly one hole, found in the
+> skeptical review (2026-08-26) and now documented on the two methods it
+> affects: the EMPTY needle matches everywhere.** `index_of(``, i)` answers
+> `.Some(i)` verbatim, so it is the one search result that can be a
+> continuation byte or past `len()` — feed THAT to `substring` and it panics.
+> `last_index_of(``, i)` answers `len()` regardless of `i`, exceeding the cap
+> the caller asked for. Both are pre-D4 behaviours carried over unchanged (only
+> the unit moved, rune→byte); what was new in PR 3 was the doc comments'
+> universally-quantified claim that "every index this returns is a rune
+> boundary", which was false. Docs corrected, behaviour untouched, and
+> `tests/string/string_byte_index.test.yo` pins it. O1c is unchanged: comptime stays pinned to
 > `char_len`/`char_substring` (S10) and is PR 7's to align.
 
 - **O1a — what does `at()` mean after the flip?** Options: (i) `at(byte_index)`
@@ -427,7 +441,7 @@ no-op and PR 3 only has to change definitions.
 | ~~**0**~~ **LANDED** (#286) | `std/encoding/utf8.yo`. Primitives: `seq_len(lead: u8) -> usize`, `decode(bytes, i) -> Option((rune, usize))`, `encode(r, out)`, `is_char_boundary(bytes, i)`, `validate`. **Dependency:** PR 1 and PR 6 both consume it; PR 2 does not. | `yo check ./std`; new `tests/encoding/utf8.test.yo` |
 | ~~**1**~~ **LANDED 2026-08-26** | **Additive only.** `String.char_len()`, `String.char_indices()`, `String.is_char_boundary()`, `floor_char_boundary`, `ceil_char_boundary`, `try_substring`. Same six on `imm.String`, plus `imm.String.chars()`. Built on `std/encoding/utf8` (PR 0), no second decoder. New `tests/string/string_char_api.test.yo` (17 tests) + 6 tests appended to `tests/imm_string.test.yo`, all multibyte. | achieved: `yo check ./std` 153/153; `tests/string/string_char_api` 17/17, `tests/imm_string` 34/34, `tests/string/string` 253/253, `imm_map`/`imm_vec`/`imm_threading` green; 0 `Failed to transpile` in both kept batches; emitted-C **equivalence** measured as below (literal byte-identity is unattainable — see the correction under §6.1) |
 | ~~**2**~~ **LANDED 2026-08-26** | **Pin char semantics, no basis change.** Done: `std/encoding/html.yo` onto a `char_indices()` rune table (S1); `std/fmt/spec.yo` width/precision/numeric-total onto `char_len()` + the new `truncate_chars` (S2); `std/string/string.yo` `_split_impl`'s empty-separator arm onto `char_len`/`char_substring` (S5); `src/parser.yo:_peel_spec` onto `char_indices()` + `try_substring` (S4); `src/doc/render_html.yo` onto `char_len`/`truncate_chars` (S6); `src/error.yo:43` onto `char_len()` (S7); all 10 comptime-string-builtin sites onto `char_len`/`char_substring` (S10, O1c). Two additive helpers were needed and added: `char_substring` (the rune-indexed slice, holding `substring`'s CURRENT body verbatim — `substring` is now a one-line delegation to it) and `truncate_chars`. **NOT done here, and why:** S8 (`src/doc/builder.yo`) needs `Token.byte_offset`, S9 (`src/lsp/completion.yo`) needs the UTF-16 work — both are PR 3 by §5.4; S3 (regex) is PR 6. | achieved: `yo check ./std --std-path <tree>/std` 153/153; every touched `src/` file `check`s clean; `tests/encoding/html` 12/12 (was 8), `tests/format_specs` 13/13 (was 7; 12 as PR 2 committed it), `tests/string/string_char_api` 21/21 (was 17), `tests/string/string` 253/253, `tests/template_string_specs` 6/6, `tests/imm_string` 34/34, `string_builder` 21/21, `rune` 36/36. Behavioural gate: a 862-line multibyte probe over `decode_html` / `FormatSpec.pad` / `pad_numeric` / `split("")` / the rune vocabulary hashes **`828549f0f0a9bdf747692bc872f018499a53435f518741fe055742d8561105e3` before AND after** the migration. Emitted C is NOT identical and cannot be — see the §6.1 correction extension below. **Review pass 2026-08-26 (same branch) added §5.2 S11** — 11 more rune-column sites in `formatter`/`lsp`/`doc` that PR 2 as first committed had missed — plus a real `pad_numeric` multibyte test (the one it shipped was vacuous), and recorded a 9th live mixed-basis bug in `unsafe_report.yo`/`public_safe_report.yo`. Independently re-verified there: a 1481-line multibyte behavioural probe hashes `b7a76ec66909fbab41940268b645d950fc56f5788a45ed17e9fe8be87b2233c1` on the base `std` and on the migrated `std`; `char_len ≡ len` and `char_substring ≡ substring` over 39,488 exhaustive comparisons, 0 mismatches; `_peel_spec` old-vs-new 35 inputs (20 multibyte), 0 mismatches; `substring`'s new one-line delegation costs 0 measurable time at `-O2`. |
-| ~~**3**~~ **LANDED 2026-08-26** | **The flip.** `String.len()` → bytes O(1); `at`/`substring`/`slice_copy*`/`index_of`/`last_index_of`/`contains(from)`/`starts_with(pos)`/`ends_with(pos)`/`Pattern`'s five methods → bytes. `bytes_len()` is now `self.len()`. §1.3(a) fixed by construction. `src/` migrated in the same commit. `Token.byte_offset` added (a `?= usize(0)` defaulted field, so only the ~20 synthetic construction sites that COPY a source token's position needed touching) and `_byte_offset_of_char_index` retired. S8 (`src/doc/builder.yo`) done via `byte_offset`; S9 (`src/lsp/completion.yo`) and `src/lsp/diagnostics.yo:_ident_len_at` done via a new `rune_col_to_byte_offset` / `byte_offset_to_rune_col` pair in `src/lsp/protocol.yo` — **the UTF-16 half of §5.4 was NOT done, see the note under §5.4.** One site needed a rewrite the plan had classified INVARIANT: `src/doc_command.yo:_scan_quoted_value_after` peeked one unit at a time with `substring(j, j+1)`, which under the new panic policy would abort on a lead byte; it now reads bytes. | achieved: `yo build` green; `fixpoint_only.sh` **FIXPOINT_HOLDS**, stage-2 hollow=0; `gates_fast.sh` all 7 gates (battery 23/23 files hollow=0, corpus **155/155 with goldens unchanged**, `check ./std` 154/154, `check ./src` 262/262, cli-diff 52 PASS / 0 GOLDEN-DIFF, fmt idempotent); new `tests/string/string_byte_index.test.yo` 19/19 of which **15 FAIL against the pre-flip `std`**; `tests/string/string.test.yo` 253/253 after rewriting the **36** (not 20) multibyte+index tests; `string_char_api` 21/21, `encoding/utf8` 35/35, `encoding/html` 12/12, `format_specs` 13/13, `imm_string` 34/34, `regex` 156/156, `index` 49/49, `json` 53/53, `utf16` 13/13, `template_string_specs` 6/6, `string_multibyte_literal` 2/2, and `tests/internal/{lexer 45,parser 52,formatter 8,doc_extractor 39,doc_sections 23,doc_render_markdown 25,pkg_config 11,lock_file 15,build_runner 10,install_command 43,version 21,fetch 10,cache 6,init 13,target 22,error 16,env 11,type_key 5,…}` all green |
+| ~~**3**~~ **LANDED 2026-08-26** | **The flip.** `String.len()` → bytes O(1); `at`/`substring`/`slice_copy*`/`index_of`/`last_index_of`/`contains(from)`/`starts_with(pos)`/`ends_with(pos)`/`Pattern`'s five methods → bytes. `bytes_len()` is now `self.len()`. §1.3(a) fixed by construction. `src/` migrated in the same commit. `Token.byte_offset` added (a `?= usize(0)` defaulted field, so only the ~20 synthetic construction sites that COPY a source token's position needed touching) and `_byte_offset_of_char_index` retired. S8 (`src/doc/builder.yo`) done via `byte_offset`; S9 (`src/lsp/completion.yo`) and `src/lsp/diagnostics.yo:_ident_len_at` done via a new `rune_col_to_byte_offset` / `byte_offset_to_rune_col` pair in `src/lsp/protocol.yo` — **the UTF-16 half of §5.4 was NOT done, see the note under §5.4.** One site needed a rewrite the plan had classified INVARIANT: `src/doc_command.yo:_scan_quoted_value_after` peeked one unit at a time with `substring(j, j+1)`, which under the new panic policy would abort on a lead byte; it now reads bytes. | achieved: `yo build` green; `fixpoint_only.sh` **FIXPOINT_HOLDS**, stage-2 hollow=0; `gates_fast.sh` all 7 gates (battery 23/23 files hollow=0, corpus **155/155 with goldens unchanged** (**156** after the review pass added `effect_label_non_ascii.yo`), `check ./std` 154/154, `check ./src` 262/262, cli-diff 52 PASS / 0 GOLDEN-DIFF, fmt idempotent); new `tests/string/string_byte_index.test.yo` 19/19 of which **15 FAIL against the pre-flip `std`** (**21/21 and 17 failing** after the review pass added the empty-needle and floor/ceil rows; both figures re-measured independently, §6.1.2); `tests/string/string.test.yo` 253/253 after rewriting the **36** (not 20) multibyte+index tests; `string_char_api` 21/21, `encoding/utf8` 35/35, `encoding/html` 12/12, `format_specs` 13/13, `imm_string` 34/34, `regex` 156/156, `index` 49/49, `json` 53/53, `utf16` 13/13, `template_string_specs` 6/6, `string_multibyte_literal` 2/2, and `tests/internal/{lexer 45,parser 52,formatter 8,doc_extractor 39,doc_sections 23,doc_render_markdown 25,pkg_config 11,lock_file 15,build_runner 10,install_command 43,version 21,fetch 10,cache 6,init 13,target 22,error 16,env 11,type_key 5,…}` all green |
 | **4** | `imm.String`: `len()` → bytes, `at()` aligned, `bytes_len()` aliased, `chars()`/`char_indices()`/`char_len()` wired. | `tests/imm_string.test.yo` (rewritten per §6.2), `imm_vec`, `imm_threading` |
 | **5** | `imm.String` → `ImmString` rename. ~15 lines: the `String ::` binding + `export`, 3 test imports, 4 doc lines × 2 languages. | suite + docs both languages |
 | **6** | **Regex.** Delete `_byte_to_char_index` (`std/regex/index.yo:70`) and the three char→byte re-walks at `:535-545`, `:582-592`, `:634-644`. `RegexMatch.index()` becomes a **byte** index — a silent public API change that needs its own release note. Adopt `std/encoding/utf8.yo`. | `tests/regex/regex.test.yo` + new multibyte index assertions |
@@ -556,6 +570,8 @@ the duplicated report walker, was found in the PR-1/PR-2 review pass):
 | `src/unsafe_report.yo:511,521` + `src/public_safe_report.yo:517,525` `_walk_yo_files` | `root_prefix_len := walk_root.as_bytes().len()` (**bytes**), then `p.substring(root_prefix_len + 1, p.len())` (**runes**) | **LIVE BUG, FOUND IN THE PR-1/PR-2 REVIEW (2026-08-26) — a 9th, and it is DUPLICATED across two files**; written up in `issues/fixed/unsafe-report-relative-path-uses-a-byte-prefix-length.md`. The relative path is cut `bytes(root) - runes(root)` positions too far in, so the directory-skip filter runs on the wrong segments and the printed label is mangled. Measured on a standalone reproducer: root `/tmp/名` gives `"yo"` where `"a.yo"` is wanted; root `/tmp/café` gives `"rc/a.yo"` where `"src/a.yo"` is wanted. Reachable from `yo unsafe-report` and `yo public-safe-report` (`src/main.yo:3245`). **FIXED by D4 PR 3 (2026-08-26) with no edit to either file**; the same standalone reproducer now answers `a.yo` / `src/a.yo`. Not covered by a repo test — `_walk_yo_files` is private and neither subcommand has a harness. |
 
 | `std/http/client.yo:325` `fetch` | `req.set_header(\`Content-Length\`, \`${opts.body.len()}\`)` with `opts.body : String` | **LIVE BUG, FOUND IN PR 3 (2026-08-26) — a 10th, and the first that is wrong ON THE WIRE rather than internally.** `Content-Length` is defined in bytes; a rune count under-reports any non-ASCII request body, so the server reads a truncated body (or blocks waiting for one). The survey missed it because the detector looked for `len()` mixed with a byte LOOP, and this one mixes it with a protocol. **D4 PR 3 fixes it for free** — the site is unchanged and now correct. |
+
+| `src/codegen/exprs/async.yo:366` `_capitalize_last_segment` | `last.substring(usize(0), usize(1)).to_uppercase()` on a user-written effect LABEL | **A site the flip BREAKS, not one it fixes — the ONLY one found in the skeptical review (2026-08-26), and it broke a program that WORKED.** `generate_future_effect_setter` calls this on every injectable effect label so the emitted `strcmp(field, …)` chain also accepts the capitalized alias. Yo identifiers may start with a non-ASCII rune (`src/token.yo` `is_identifier_start`: `c.char >= 0xA0`), so the label can be multibyte — and `substring(0, 1)` then lands INSIDE the first rune, which post-flip **aborts the compiler** (`String.substring: end is not on a UTF-8 character boundary`, rc=134, no source location, nothing emitted). Pre-flip the same expression was a rune slice and simply worked. **FIXED in the review pass** by cutting with `char_substring` — the rune vocabulary, which is what the function always meant; ASCII output is byte-identical (`io.async` → `Async`, `errors.raise` → `Raise`, `x` → `X`). Ratchet: `tests/codegen-bootstrap/effect_label_non_ascii.yo` (+ golden), a program that compiles and runs `r=7` on the seed and would abort the flipped compiler without the fix. |
 
 **All nine of the pre-existing rows above are fixed by PR 3**, seven of them
 without touching the site (`_win_dirname`, `_path_has_extension`,
@@ -837,12 +853,124 @@ asserts in their place is `try_substring` answering `.None` at exactly those
 indices.
 
 **METHOD TRAP, cost one full re-run:** `yo test --std-path ./std` **silently
-ignores the flag** (`issues/yo-test-std-path-not-forwarded-to-the-batch-compile.md`)
-— the batch compile is a child process. `tests/string/string.test.yo` scored a
-clean 253/253 that way against the flipped tree, because it had actually
-scored the INSTALLED std. `YO_STD=$PWD/std yo test ...` is the working lever,
-and it reported the 36 real failures. Any future std-facing measurement in this
-campaign must use `YO_STD`.
+ignores the flag** — the batch compile is a child process.
+`tests/string/string.test.yo` scored a clean 253/253 that way against the
+flipped tree, because it had actually scored the INSTALLED std.
+`YO_STD=$PWD/std yo test ...` is the working lever, and it reported the 36 real
+failures (re-measured in the review pass: **exactly 36**, and `tests/fs/dir`
+exactly 13/1). Any std-facing measurement in this campaign must use `YO_STD`.
+
+**CORRECTION to that trap (review pass, 2026-08-26): the flag is NOT broken in
+this tree — it is broken in the SEED.** `src/main.yo`'s per-batch child-compile
+block already forwards `get_std_path_override()` as `--std-path`, landed in
+#286 with `tests/cli-cases/test-std-path-forwarded` as its gate
+(`issues/fixed/yo-test-does-not-forward-std-path-to-batch-compile.md`). The
+issue PR 3 cited was a duplicate filed AFTER that fix and has been retired
+(`issues/retired/yo-test-std-path-not-forwarded-to-the-batch-compile.md`). The
+`yo` on `PATH` is v0.2.17, built before #286, which is why the symptom is real
+today — but nothing needs implementing, and a future agent must not re-derive
+the "fix sketch" that file carried.
+
+### 6.1.2 What the SKEPTICAL REVIEW re-ran, and what it found (2026-08-26)
+
+A second pass over the landed flip, attacking the five things that could still
+be wrong. Everything below was run with `YO_STD=$PWD/std` against the seed
+`yo 0.2.17`, one command at a time.
+
+**1. Re-ran the detectors on the POST-flip tree, and added new ones.**
+`.at(` repo-wide outside `string.yo` (the `.unwrap()`-panic shape S1 was
+about): 2 sites, both in `src/install_command.yo`, both correct in either
+basis. `Token.column`/`character` + `.len()` (the S11 shape): **zero** — all
+11 sites carry `char_len()`. Every `Token(` construction that copies a real
+`character` also sets `byte_offset` (11 constructions set `character :
+usize(0)`, matching `byte_offset`'s default of 0; **no** construction sets a
+non-zero `character` without a `byte_offset`) — checked mechanically with a
+balanced-paren scan of all 46 sites, which is the invariant `_slice_token_text`
+and `read_raw_template_string` depend on. New detector: every
+`substring`/`try_substring`/`slice_copy` site in `src` (135) and `std` (17),
+classified by whether both endpoints are provably rune boundaries. Exactly TWO
+have a literal end offset (`src/fetch.yo:401` `commit.substring(0, 12)` on a
+git SHA; `src/codegen/exprs/async.yo:366`); every other endpoint is `0`,
+`X.len()`, an `index_of` result, a byte-walk cursor, or a literal guarded by an
+ASCII `starts_with`/`ends_with`. Only `async.yo:366` was live and wrong — §5.1's
+new row. Two now-FALSE comments were corrected in passing
+(`src/version_cache.yo:476` "String indices are rune-based",
+`src/codegen/utils/index.yo:1402` "the rune-indexed substring"), and
+`src/main.yo`'s `extract_bare_import_path` / `extract_import_path` /
+`collect_import_paths_recursive` / `collect_module_deps` were found to be
+**dead code with no caller in the tree** — which is the only reason their
+unguarded `raw.substring(1, n - 1)` on an arbitrary Atom token is not a
+reachable abort. Left in place; flagged, not deleted.
+
+**2. Boundary policy, measured on every method rather than argued.** A new
+exhaustive driver sweeps `0 ..= len+2` (and every `(a, b)` pair) over seven
+strings — `aé中𝄞`, `你好世界你好`, `abc`, empty, `a`, `𝄞`, `aa中bb` — and asserts:
+`is_char_boundary` equals the raw byte classification; `floor`/`ceil` land on
+boundaries and bracket the input; `at` is `.Some` exactly at an in-range
+boundary; `try_substring` is `.Some` exactly on a legal range and agrees with
+`substring` there; every non-empty search result is an in-range boundary; a
+mid-rune `position`/`end_position` never yields `true`; and `char_substring`
+stays rune-exact. **Result: clean on all seven, with exactly one exception —
+the empty needle (§1.4).** The panic arms were re-verified out-of-band and
+EXTENDED beyond what PR 3 checked: `substring(1,2)`, `substring(2,3)`,
+`substring(0,9)`, **`s(1 .. 2)`** and **`s(1 ..= 1)`** all exit 134 with a named
+message, and `char_substring(1,2)` does not.
+
+**3. `_has_prefix` / `_index_of_impl`: the "fixed by construction" claim
+holds.** The pre-flip `_index_of_impl` was read at the parent commit and has
+exactly the shape §1.3(a) describes (a `char_index` incremented on seeing a
+lead byte inside a loop that also steps one byte, and a `char_index` returned).
+The behavioural proof is the discrimination table below.
+
+**4. The discrimination table was re-derived independently, not taken on
+trust.** A pre-flip `std` was rebuilt by restoring ONLY
+`std/string/string.yo` from the parent commit (confirmed: it is the one and only
+`std/` file the flip touched) and every claim re-scored against it:
+
+| | pre-flip `std` | flipped `std` |
+| --- | ---: | ---: |
+| `tests/string/string_byte_index.test.yo` | 4 / 15 | 19 / 0 |
+| the same file, +2 tests added in this review | 4 / 17 | **21 / 0** |
+| `tests/string/string.test.yo` | 217 / **36** | 253 / 0 |
+| `tests/fs/dir.test.yo` | 13 / 1 | 14 / 0 |
+
+So "36, not 20" and "13/1 → 14/0" are both exactly right. The `src/` half was
+checked the same way: reverting `raw_token_value` to `t.character` scores
+`tests/internal/formatter.test.yo` at **7 / 1**, and `t.byte_offset` at 8 / 0 —
+the new formatter test is genuinely red-first, and it is the only in-tree gate
+on the whole `Token.byte_offset` mechanism.
+
+**5. LSP: the flip made it BETTER, and nothing worse.** Checked by hand, since
+the cli-cases cannot see it. Every handler that only COMPARES columns
+(`hover`, `definition`, `references`, `rename`, `symbols`, `doc/builder`,
+`formatter`'s adjacency test) moved `len()` → `char_len()`, whose body IS
+`len()`'s pre-flip body — inert. The three handlers that SLICE went through
+`rune_col_to_byte_offset`, which returns a `char_indices` key or `line.len()`
+and therefore **always a boundary**, so `line_text.substring(0, cur)` cannot
+panic. `completion.yo`'s `ws` walk backs up over `_is_word_byte`, which is
+ASCII-only, so it cannot land mid-rune either. And the pre-flip shape was
+already mixed-basis — `cur` was a rune column clamped by a BYTE length and then
+used as a byte index into `bytes` — so `ws`/`dot_before`/`prefix` were wrong on
+any multibyte line before this PR and are right after it. `_ident_len_at` is
+§5.1's 6th live bug and is likewise fixed. The UTF-16 gap of §5.4 is untouched
+in either direction.
+
+**6. Vacuous-green audit.** Every rewritten assertion in
+`tests/string/string.test.yo` was read against the byte layout in its own
+comment: the multibyte content sits BEFORE the asserted offsets in every case
+(`at(2)`→`at(4)`, `at(1)`→`at(3)`, `substring(2,4)`→`substring(6,12)`, …), the
+rune assertion is kept alongside under `char_len`/`char_substring`, and the
+whole file scores 36 failures against the pre-flip `std` — which is the
+mechanical proof that none of it is basis-invariant. Same for the new
+`string_byte_index` file: 4 of its 21 tests pass on both bases, and those 4 are
+exactly the ones that MUST (clamping, `try_substring`, `byte_at`/`Index`,
+`split("")`).
+
+**What this review changed:** the `async.yo` rune-cut fix + its corpus ratchet
+(now **156** files, was 155); the two empty-needle doc corrections in
+`std/string/string.yo` and two tests pinning them; two stale comments; one new
+issue (`issues/async-effect-setter-emits-a-raw-non-ascii-identifier-as-a-c-member-name.md`,
+pre-existing and unrelated to D4); one duplicate issue retired.
 
 ### 6.2 Which existing tests cannot catch this class
 

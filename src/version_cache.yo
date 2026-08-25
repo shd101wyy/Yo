@@ -472,8 +472,12 @@ _http_get :: (
       msg.push_string(url);
       e.exn.throw(dyn(msg));
     });
-    // stdout = body bytes + 3-digit status code. Split at the BYTE level:
-    // release JSON can contain non-ASCII, and String indices are rune-based.
+    // stdout = body bytes + 3-digit status code. Split at the BYTE level, on
+    // the raw `ArrayList(u8)`, before it is ever a String: release JSON can
+    // contain non-ASCII, and the split point must not depend on the decoded
+    // text at all. (Before plans/STD_API_AUDIT_D4_PLAN.md D4 PR 3 the reason
+    // was written as "String indices are rune-based" — `String` is byte-indexed
+    // now, but the byte-level split is still the right shape here.)
     n := out.stdout.len();
     if(n < usize(3), {
       e.exn.throw(dyn(`HTTP request failed for: ${url}`));

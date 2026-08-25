@@ -1,0 +1,46 @@
+open(import("std/string"));
+open(import("std/fmt"));
+
+// A non-ASCII effect label reaching the future's `set_effect` emitter.
+//
+// `generate_future_effect_setter` (src/codegen/exprs/async.yo) calls
+// `_capitalize_last_segment` on EVERY injectable effect label so the emitted
+// `strcmp(field, …)` chain also accepts the capitalized alias. Yo identifiers
+// may start with a non-ASCII rune (src/token.yo `is_identifier_start`:
+// `c.char >= 0xA0`), so that label can be multibyte — and after
+// plans/STD_API_AUDIT_D4_PLAN.md D4 PR 3 made `substring` byte-indexed AND
+// non-boundary-PANICKING, the `substring(0, 1)` that took the first character
+// aborted the COMPILER with
+// `String.substring: end is not on a UTF-8 character boundary`, no source
+// location, before emitting anything. The cut is by rune (`char_substring`)
+// again; this file is the ratchet.
+//
+// The shape is load-bearing: the effect must be FUNCTION-typed (so the label
+// is the effect TYPE's name rather than a struct field path) and the future
+// must be awaited from another future (so the injectable-mapping loop runs at
+// all). A struct-typed bundle with a non-ASCII FIELD name reaches the same
+// code but cannot be used as a regression test — it hits a separate,
+// pre-existing C-name-mangling gap
+// (issues/async-effect-setter-emits-a-raw-non-ascii-identifier-as-a-c-member-name.md).
+Éraise :: (fn(msg : String) -> i32);
+inner :: (fn(h : Éraise, io : Io) -> Impl(Future(i32, Éraise)))(
+  io.async((e) => {
+    return(h(`x`));
+  })
+);
+work :: (fn(h : Éraise, io : Io) -> Impl(Future(i32, Éraise)))(
+  io.async((e) => {
+    r := io.await(inner(h, io), e);
+    return(r);
+  })
+);
+main :: (fn(io : Io) -> unit)({
+  (h : Éraise) = (
+    (m) -> {
+      return(i32(7));
+    }
+  );
+  r := io.await(work(h, io), h);
+  println(`r=${r}`);
+});
+export(main);

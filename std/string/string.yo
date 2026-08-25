@@ -585,9 +585,18 @@ impl(
   /// `from_index` needs no boundary check and gets none: UTF-8 is
   /// self-synchronizing, so a valid-UTF-8 needle can never match starting at a
   /// continuation byte. Starting the scan mid-rune therefore cannot invent a
-  /// match, and every index this returns is a rune boundary.
+  /// match, and for a NON-EMPTY needle every index this returns is a rune
+  /// boundary at or before `len()`.
   ///
-  /// An empty needle matches at `from_index` (Rust's `find("")` shape).
+  /// **The empty needle is the one exception, and it is deliberate.** It
+  /// matches everywhere, so `index_of(``, i)` answers `.Some(i)` verbatim —
+  /// including an `i` inside a rune and an `i` past `len()` (JavaScript's
+  /// `indexOf("")` clamps to the length; this does not, and neither did the
+  /// pre-D4 rune-indexed version). An offset past the end is harmless
+  /// downstream because `substring` clamps, but a MID-RUNE one is not:
+  /// `substring` panics there. Callers that feed a search result straight back
+  /// into a slice and can be handed an empty needle should go through
+  /// `try_substring`, or snap with `floor_char_boundary`.
   /// Not called directly — go through `index_of`.
   _index_of_impl : (fn(self : Self, substr : Self, (from_index : usize) ?= 0) -> Option(usize))(
     cond(
@@ -781,9 +790,13 @@ impl(
   /// **BYTE basis, in AND out** (`plans/STD_API_AUDIT_D4_PLAN.md` D4 PR 3 —
   /// both were rune indices before the flip). `from_index` is the highest byte
   /// offset a match is allowed to START at; the default `usize.MAX` means
-  /// "anywhere". The result is the byte offset of the match.
+  /// "anywhere". The result is the byte offset of the match, and for a
+  /// non-empty needle it is always a rune boundary.
   ///
-  /// An empty needle matches at `len()` (Rust's `rfind("")` shape).
+  /// **The empty needle answers `len()` regardless of `from_index`** (Rust's
+  /// `rfind("")` shape), so it is the one case where the result can exceed the
+  /// cap the caller asked for. That is the pre-D4 behaviour carried over
+  /// unchanged — only the unit changed, from a rune count to a byte count.
   /// Not called directly — go through `last_index_of`.
   _last_index_of_impl : (fn(self : Self, substr : Self, (from_index : usize) ?= usize.MAX) -> Option(usize))(
     cond(

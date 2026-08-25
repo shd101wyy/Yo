@@ -357,14 +357,24 @@ _first_struct_effect_type :: (fn(future_trait_type : TypeValue) -> Option(TypeVa
   Option(TypeValue).None
 });
 /// The capitalized last dotted segment of `label` (e.g. `errors.raise` → `Raise`).
+///
+/// **Cuts by RUNE, not by byte.** `label` is a user-written effect-bundle field
+/// path (`io.async`, `exn.throw`, or any field name the user chose), and Yo
+/// identifiers may start with a non-ASCII rune (`src/token.yo`
+/// `is_identifier_start`: `c.char >= 0xA0`). Since
+/// `plans/STD_API_AUDIT_D4_PLAN.md` D4 PR 3 made `substring` byte-indexed and
+/// non-boundary-PANICKING, `substring(0, 1)` on such a label aborted the whole
+/// compiler with `String.substring: end is not on a UTF-8 character boundary`
+/// and no source location. `char_substring` is the rune-indexed slice and
+/// restores exactly the pre-flip cut, which is what this function always meant.
 _capitalize_last_segment :: (fn(label : String) -> String)({
   parts := label.split(".");
   last := if(parts.len() > usize(0), match(parts.get(parts.len() - usize(1)), .Some(p) => p, .None => label.clone()), label.clone());
   if(last.len() == usize(0), {
     return(last);
   });
-  head := last.substring(usize(0), usize(1)).to_uppercase();
-  head.push_string(last.substring(usize(1), last.len()));
+  head := last.char_substring(usize(0), usize(1)).to_uppercase();
+  head.push_string(last.char_substring(usize(1), last.char_len()));
   head
 });
 /// Emit the future's `set_effect` callback: a `strcmp(field, …)` chain that copies
