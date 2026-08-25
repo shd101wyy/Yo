@@ -202,7 +202,7 @@ test("rename moves a file", {
   old_ex := io.await(fs_file.exists(old_path, io), io);
   assert(!(old_ex), "old path should not exist");
   // New should exist with correct content
-  s := io.await(fs_file.read_string(new_path, io), IoExn(io : io, exn : exn));
+  s := io.await(fs_file.read_to_string(new_path, io), IoExn(io : io, exn : exn));
   assert(s == `rename me`, "renamed content mismatch");
   io.await(fs_dir.remove_file(new_path, io), IoExn(io : io, exn : exn));
 });
@@ -236,7 +236,7 @@ test("hard_link creates a link", {
   io.await(fs_dir.hard_link(src, dst, io), IoExn(io : io, exn : exn));
   unsafe(printf("  hard_link ok\n"));
   // Read via link
-  s := io.await(fs_file.read_string(dst, io), IoExn(io : io, exn : exn));
+  s := io.await(fs_file.read_to_string(dst, io), IoExn(io : io, exn : exn));
   assert(s == `link data`, "link content mismatch");
   io.await(fs_dir.remove_file(src, io), IoExn(io : io, exn : exn));
   io.await(fs_dir.remove_file(dst, io), IoExn(io : io, exn : exn));
@@ -303,7 +303,7 @@ test("symlink creates a symbolic link", {
       }
     )
   );
-  s := io.await(fs_file.read_string(lnk, io), IoExn(io : io, exn : exn));
+  s := io.await(fs_file.read_to_string(lnk, io), IoExn(io : io, exn : exn));
   assert(s == `symlink data`, "symlink content mismatch");
   io.await(fs_dir.remove_file(lnk, io), IoExn(io : io, exn : exn));
   io.await(fs_dir.remove_file(src, io), IoExn(io : io, exn : exn));

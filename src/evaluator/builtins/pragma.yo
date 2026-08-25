@@ -154,7 +154,7 @@ pre_scan_for_skip_prelude :: (fn(program : ArrayList(AstExpr)) -> bool)({
 warn_verify_mode_not_implemented :: (fn(module_path : String, kind_name : String) -> unit)({
   key := `${module_path}|${kind_name}`;
   if(g_warned_verify_files.contains(key.clone()), return(()));
-  _added := g_warned_verify_files.add(key);
+  _added := g_warned_verify_files.insert(key);
   eprintln(
     `[warning] pragma(Pragma.${kind_name}) in ${module_path}: verify mode is not implemented yet (Phase 0 of plans/FORMAL_VERIFICATION.md). Contracts in this file will behave as if no pragma were set — they parse and (in later phases) lower to runtime asserts, but no proof obligations are generated.`
   );

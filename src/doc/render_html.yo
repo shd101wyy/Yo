@@ -183,7 +183,7 @@ _build_symbol_links :: (fn(model : DocModel) -> HashMap(String, String))({
           break;
         }
       );
-      links.set(t.name.clone(), `${fname}.html#type-${t.name}`);
+      links.insert(t.name.clone(), `${fname}.html#type-${t.name}`);
       i = (i + usize(1));
     });
     i = usize(0);
@@ -195,7 +195,7 @@ _build_symbol_links :: (fn(model : DocModel) -> HashMap(String, String))({
           break;
         }
       );
-      links.set(tr.name.clone(), `${fname}.html#trait-${tr.name}`);
+      links.insert(tr.name.clone(), `${fname}.html#trait-${tr.name}`);
       i = (i + usize(1));
     });
     i = usize(0);
@@ -207,7 +207,7 @@ _build_symbol_links :: (fn(model : DocModel) -> HashMap(String, String))({
           break;
         }
       );
-      links.set(f.name.clone(), `${fname}.html#fn-${f.name}`);
+      links.insert(f.name.clone(), `${fname}.html#fn-${f.name}`);
       i = (i + usize(1));
     });
     i = usize(0);
@@ -219,7 +219,7 @@ _build_symbol_links :: (fn(model : DocModel) -> HashMap(String, String))({
           break;
         }
       );
-      links.set(c.name.clone(), `${fname}.html#const-${c.name}`);
+      links.insert(c.name.clone(), `${fname}.html#const-${c.name}`);
       i = (i + usize(1));
     });
     mi = (mi + usize(1));
@@ -572,7 +572,7 @@ _render_sidebar :: (fn(model : DocModel, active_module : Option(String)) -> Stri
         .None => {
           lst := ArrayList(DocModule).new();
           lst.push(m);
-          groups.set(g.clone(), lst);
+          groups.insert(g.clone(), lst);
           group_keys.push(g);
         }
       );
@@ -1049,7 +1049,7 @@ _render_impl_blocks :: (
         break;
       }
     );
-    methods_by_name.set(m.name.clone(), m);
+    methods_by_name.insert(m.name.clone(), m);
     i = (i + usize(1));
   });
   claimed := HashMap(String, bool).new();
@@ -1112,7 +1112,7 @@ _render_impl_blocks :: (
             },
             .None => ()
           );
-          claimed.set(nm, true);
+          claimed.insert(nm, true);
           ni = (ni + usize(1));
         });
         if(impl_methods.len() > usize(0), {
@@ -1404,7 +1404,7 @@ _render_index_content :: (fn(model : DocModel) -> String)({
         .None => {
           lst := ArrayList(DocModule).new();
           lst.push(m);
-          groups.set(g.clone(), lst);
+          groups.insert(g.clone(), lst);
           group_keys.push(g);
         }
       );

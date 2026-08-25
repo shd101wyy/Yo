@@ -8,7 +8,7 @@ test("Empty table", {
 });
 test("Table set and get", {
   t := TomlValue.new_table();
-  t.set(`name`, .Str(`hello`));
+  t.insert(`name`, .Str(`hello`));
   assert(t.table_len() == usize(1), "should have 1 entry");
   assert(t.has_key(`name`), "should have key name");
   val := t.get(`name`);
@@ -19,8 +19,8 @@ test("Table set and get", {
 });
 test("Table set overwrites", {
   t := TomlValue.new_table();
-  t.set(`x`, .Int(i64(1)));
-  t.set(`x`, .Int(i64(2)));
+  t.insert(`x`, .Int(i64(1)));
+  t.insert(`x`, .Int(i64(2)));
   assert(t.table_len() == usize(1), "should still have 1 entry");
   assert(t.get(`x`).unwrap().as_int().unwrap() == i64(2), "should be 2");
 });

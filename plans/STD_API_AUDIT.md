@@ -659,21 +659,66 @@ worth of coordinated renames — it just lands as the next patch version.
 Everything in D2/D4 plus these specific renames. Each is mechanical; land as a
 small number of PRs with tree-wide fixups (compiler + std + tests + docs):
 
-- `HashMap.set`→`insert`, `HashSet.add`→`insert`, `BTreeMap.set`→`insert`,
-  `OrderedMap.set`→`insert` (returns stop leaking `HashMapError`)
+- ~~`HashMap.set`→`insert`, `HashSet.add`→`insert`, `BTreeMap.set`→`insert`,
+  `OrderedMap.set`→`insert`~~ **DONE 2026-08-25 (S2 chunk 1)** — plus
+  `TomlTable.set`→`insert`, since D2 is "one name per concept across the whole
+  tree" and a TOML table set is a map insert. The returns still leak
+  `HashMapError`; that half is separate.
+
+  Method note, because grep cannot do this rename: `.add(` in this tree is
+  overwhelmingly POINTER ARITHMETIC, so the sweep was driven by the compiler as
+  oracle (`yo check ./src` names the failing receiver, rewrite, repeat). Two
+  over-reaches were caught that way and reverted: `env.set(KEY, VALUE)` is
+  `setenv`, not a map insert (26 sites across 5 files), and `imm.Vec.set(idx, val)`
+  is index REPLACEMENT, a different concept that keeps its name. A third was
+  invisible to `yo check` entirely — six `result_set.add(...)` sites inside
+  hash_set.yo's own union/intersection helpers live in generic bodies that
+  `check` does not instantiate, and only the test run surfaced them.
+
+  **The verification lesson of this chunk, which every later chunk inherits:
+  `yo check ./std` 152/152 + `yo check ./src` 262/262 + `yo build` rc=0 were ALL
+  green while the tree was broken.** Four classes of call site are structurally
+  invisible to check: macro `quote(...)` bodies (never evaluated until expansion
+  — hash_set's literal builder held two), generic trait-impl bodies
+  (`FromIterator.from_iter_add`), generic helpers inside the defining module (the
+  six above), and async closure bodies. The last class does not even error: the
+  missed `followed.add(canon_s)` in `std/fs/walker.yo`'s symlink-follow loop
+  became a `// Failed to transpile` stub, so `walk_with` returned an EMPTY list
+  and `yo fetch`, `yo version`, `public-safe-report` and `unsafe-report` all kept
+  building while traversing nothing. Its only trace in the whole battery was two
+  cli-case goldens moving from `Scanned 1 .yo file(s)` to `Scanned 0` — which is
+  why a re-recorded golden must be READ, never just recorded. Filed as
+  issues/ftt-stub-in-live-closure-falls-off-non-void-function.md (the emitted C
+  is a value-returning function with no return statement: undefined behaviour),
+  with a standalone repro.
+
+  So the gate for a rename chunk is the FULL suite plus the golden DIFF, not
+  check/build. Grep separately inside `quote(`, `impl(` and `io.async(` bodies —
+  the compiler will not name those for you.
 - `ArrayList`: ~~add `is_empty`~~ **DONE 2026-08-25** (it was the ONLY container
   missing it — btree_map, deque, hash_map, hash_set, linked_list, ordered_map,
   priority_queue and String all already had one, so D2's "is_empty on EVERY
   container" was a one-method gap, landed additively ahead of the breaking
   sweep); `remove(start,count)`→`drain(range)`, add single-`remove(idx) -> T`;
   `iter()` pointer iterator for symmetry
-- `HashMap.iter_ptr`→`iter`; OrderedMap iterators get real `Iterator` impls
+- ~~`HashMap.iter_ptr`→`iter`~~ **DONE 2026-08-25** (no collision: HashMap had
+  `into_iter` for values and `iter_ptr` for pointers, exactly D2's split);
+  OrderedMap iterators get real `Iterator` impls
 - `?(T)` spelling in btree_map/deque → `Option(T)` (or bless `?(T)` everywhere — pick one)
 - `Bucket`/`BTreeEntry`/`OrderedMapEntry`/`Pair` → one `MapEntry(K,V)`
-- `canonical`→`canonicalize`; `relative_from`→`strip_prefix`;
-  `created_time`→`status_changed_time` + real `created_time` (btime)
-- `File.read_string`/free `read_string`→`read_to_string`; `read_file`→`read`
-  (bytes) mirroring `write_file`→`write`
+- ~~`canonical`→`canonicalize`; `relative_from`→`strip_prefix`~~ **DONE
+  2026-08-25** — the `canonical` FAMILY moved together
+  (`canonical_str`/`canonical_cstr` too), since leaving the siblings behind would
+  have created exactly the split-vocabulary D2 exists to prevent;
+  `created_time`→`status_changed_time` + real `created_time` (btime) still open
+- ~~`File.read_string`/free `read_string`→`read_to_string`~~ **DONE 2026-08-25**
+  (family: `read_string_str`/`read_string_cstr` moved with it); `read_file`→`read`
+  (bytes) mirroring `write_file`→`write` moves to S2 chunk 2 — its **collision
+  check is now DONE and clean**: `std/sys/file.yo` does export free `read`/`write`
+  at the fd level and `File.read` is a method, but nothing in std/, src/ or tests/
+  uses a glob `open(import(...))` on either module (every import is
+  destructuring), so there is no ambient collision — and it matches
+  `std::fs::read` in Rust
 - `min()`/`max()` naming: maps `first_entry`/`last_entry`, sets keep `min`/`max`
 - `Http` inherent `to_string`→`ToString` impl; `TcpStream.shutdown(i32)`→
   `shutdown(Shutdown)`; net `read/write` return `usize`

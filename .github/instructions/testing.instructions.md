@@ -49,6 +49,30 @@ std it reads.
 - Useful as a bulk sanity pass after touching many files: `yo check ./src` or `yo check std/` before running any test.
 - **`check` is evaluator-only.** The async state-machine restrictions are enforced in CODEGEN, so `check` passes straight over them. Use `yo compile src/main.yo --skip-c-compiler` (~3 min) to catch that class.
 
+### `check` + `build` both green is NOT proof for a tree-wide rename
+
+Renaming an existing std method (`HashSet.add` -> `insert`, 2026-08-25) had
+`yo check ./std` 152/152, `yo check ./src` 262/262 AND `yo build` rc=0 all green
+while the tree was broken. Four classes of call site are structurally invisible:
+
+| invisible in | why |
+| --- | --- |
+| macro `quote(...)` bodies | not evaluated until expansion, so nothing type-checks them at definition time |
+| generic trait-impl bodies | `check` never instantiates them (e.g. `FromIterator.from_iter_add`) |
+| generic helpers in the defining module | same — the six `result_set.add` sites inside hash_set's own set-ops |
+| **async closure bodies** (`io.async((e) => {...})`) | the evaluator's deferred trial SWALLOWS the error and codegen emits `// Failed to transpile` — **no error anywhere** |
+
+The last row is the dangerous one. A missed call in `std/fs/walker.yo`'s
+symlink loop made `walk_with` return an EMPTY list, so `yo fetch`, `yo version`
+and both report lints kept building and traversed nothing. See
+`issues/ftt-stub-in-live-closure-falls-off-non-void-function.md`.
+
+So for a rename sweep the gate is the FULL suite plus READING the cli-case
+golden diff — never check/build. A golden that gets SMALLER or reports FEWER
+findings (`Scanned 1 .yo file(s)` -> `Scanned 0`) is a regression signal, not
+drift. Grep separately inside `quote(`, `impl(` and `io.async(` bodies; the
+compiler will not name those sites for you.
+
 ## Build system tests
 
 - The build system is covered by `.yo` tests in `tests/internal/`: `build_runner.test.yo`, `lock_file.test.yo`, `target.test.yo`, `fetch.test.yo`, `install_command.test.yo`, `cache.test.yo`, `init.test.yo`, `version.test.yo`.

@@ -880,10 +880,10 @@ _add_deferred_dep :: (
     dependents.get(dep_struct_name.clone()),
     .Some(ds) => {
       if(ds.contains(b_struct_name.clone()), return());
-      _r := ds.add(b_struct_name.clone());
-      _r2 := dependents.set(dep_struct_name, ds);
+      _r := ds.insert(b_struct_name.clone());
+      _r2 := dependents.insert(dep_struct_name, ds);
       cur := match(indegree.get(b_struct_name.clone()), .Some(n) => n, .None => usize(0));
-      _r3 := indegree.set(b_struct_name, cur + usize(1));
+      _r3 := indegree.insert(b_struct_name, cur + usize(1));
     },
     .None => ()
   );
@@ -971,7 +971,7 @@ emit_deferred_async_block_struct_definitions :: (fn(context : FunctionGeneration
     match(
       blocks.get(i),
       .Some(b) => {
-        _r := by_struct_name.set(b.struct_name.clone(), b);
+        _r := by_struct_name.insert(b.struct_name.clone(), b);
       },
       .None => ()
     );
@@ -985,8 +985,8 @@ emit_deferred_async_block_struct_definitions :: (fn(context : FunctionGeneration
     match(
       blocks.get(i2),
       .Some(b) => {
-        _r := dependents.set(b.struct_name.clone(), HashSet(String).new());
-        _r2 := indegree.set(b.struct_name.clone(), usize(0));
+        _r := dependents.insert(b.struct_name.clone(), HashSet(String).new());
+        _r2 := indegree.insert(b.struct_name.clone(), usize(0));
       },
       .None => ()
     );
@@ -1029,7 +1029,7 @@ emit_deferred_async_block_struct_definitions :: (fn(context : FunctionGeneration
             dit.next(),
             .Some(m) => {
               next := (match(indegree.get(m.clone()), .Some(d) => d, .None => usize(0)) - usize(1));
-              _r := indegree.set(m.clone(), next);
+              _r := indegree.insert(m.clone(), next);
               if(next == usize(0), {
                 queue.push(m);
               });
@@ -1821,7 +1821,7 @@ generate_async_block :: (fn(expr : AstExpr, io_async_body : Option(AstExpr), ana
         // load-bearing for `return(x)`-tailed bodies, whose body ExprInfo
         // type is the FUTURE itself — taking it made the SM's result field
         // (and the return temp) the SM struct pointer instead of the output
-        // (fs/file read_string: `__yo_t17* result`).
+        // (fs/file read_to_string: `__yo_t17* result`).
         (resolved_via_fn_ret : bool) = false;
         match(
           lookup_io_async_closure_fid(ast_expr_id(expr).to_string()),
@@ -1987,7 +1987,7 @@ _copy_string_map :: (fn(src : HashMap(String, String)) -> HashMap(String, String
     match(
       it.next(),
       .Some(e) => {
-        _r := out.set(e.key.clone(), e.value.clone());
+        _r := out.insert(e.key.clone(), e.value.clone());
       },
       .None => {
         go = false;
@@ -2058,7 +2058,7 @@ _emit_one_deferred_async_block :: (fn(block : DeferredAsyncBlock, context : Func
     match(
       fcvs.get(fi),
       .Some(v) => {
-        _r := sm_var_map.set(v.base.id.to_string(), v);
+        _r := sm_var_map.insert(v.base.id.to_string(), v);
       },
       .None => ()
     );
@@ -2074,7 +2074,7 @@ _emit_one_deferred_async_block :: (fn(block : DeferredAsyncBlock, context : Func
         match(
           cap_fields.get(cfi),
           .Some(field) => {
-            _r := sm_var_map.set(field.label.clone(), _make_sm_captured_variable(field.label.clone(), field.label.clone(), field.ty, CapturedVariableKind.Outer));
+            _r := sm_var_map.insert(field.label.clone(), _make_sm_captured_variable(field.label.clone(), field.label.clone(), field.ty, CapturedVariableKind.Outer));
           },
           .None => ()
         );
@@ -2092,7 +2092,7 @@ _emit_one_deferred_async_block :: (fn(block : DeferredAsyncBlock, context : Func
     match(
       osa_it.next(),
       .Some(e) => {
-        _r := merged_aliases.set(e.key.clone(), e.value.clone());
+        _r := merged_aliases.insert(e.key.clone(), e.value.clone());
       },
       .None => {
         ogo = false;
@@ -2104,7 +2104,7 @@ _emit_one_deferred_async_block :: (fn(block : DeferredAsyncBlock, context : Func
     match(
       cps.get(cp2),
       .Some(slot) => {
-        _r := merged_aliases.set(`__closure_param_${cp2.to_string()}`, slot.field_name.clone());
+        _r := merged_aliases.insert(`__closure_param_${cp2.to_string()}`, slot.field_name.clone());
       },
       .None => ()
     );

@@ -206,7 +206,7 @@ impl(
     if(expr_info_table_get(ctx.expr_info_table, ast_expr_id(body)).is_none(), {
       return(true);
     });
-    g_ms_in_progress.set(fid.clone(), true);
+    g_ms_in_progress.insert(fid.clone(), true);
     local_touched := ArrayList(String).new();
     mutates := _MsW.walk(body, ctx, local_touched);
     ___ := g_ms_in_progress.remove(fid.clone());
@@ -224,10 +224,10 @@ impl(
       li = (li + usize(1));
     });
     if(mutates, {
-      g_ms_summary_by_fid.set(fid.clone(), true);
+      g_ms_summary_by_fid.insert(fid.clone(), true);
     });
     if((!(mutates)) && (filtered_touched.len() == usize(0)), {
-      g_ms_summary_by_fid.set(fid.clone(), false);
+      g_ms_summary_by_fid.insert(fid.clone(), false);
     });
     (ti : usize) = usize(0);
     while(ti < filtered_touched.len(), {

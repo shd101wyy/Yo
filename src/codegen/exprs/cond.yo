@@ -263,7 +263,7 @@ _emit_value_arm :: (fn(value : AstExpr, value_indent : String, temp_var_opt : Op
             dline.push_string(raw_code.clone());
             dline.push_str(";");
             em.emit_string_line(dline);
-            _cd := context.base.declared_c_var_names.add(vtv.clone());
+            _cd := context.base.declared_c_var_names.insert(vtv.clone());
           });
           final_code = vtv;
           declared_temp = true;
@@ -290,7 +290,7 @@ _emit_value_arm :: (fn(value : AstExpr, value_indent : String, temp_var_opt : Op
               dline2.push_string(generate_dup_code_for_value(final_code.clone(), vei.ty, context));
               dline2.push_str(";");
               em.emit_string_line(dline2);
-              _dd := context.base.declared_c_var_names.add(dtv.clone());
+              _dd := context.base.declared_c_var_names.insert(dtv.clone());
               final_code = dtv;
               dup_named = true;
             },
@@ -438,7 +438,7 @@ _emit_begin_arm :: (fn(value : AstExpr, value_indent : String, temp_var_opt : Op
                   dline.push_string(raw_code.clone());
                   dline.push_str(";");
                   em.emit_string_line(dline);
-                  _fd := context.base.declared_c_var_names.add(ftv.clone());
+                  _fd := context.base.declared_c_var_names.insert(ftv.clone());
                 });
               },
               .None => ()
@@ -665,7 +665,7 @@ generate_cond_expression :: (fn(expr : AstExpr, indent : String, context : Funct
                   if(!(value_code == tv), {
                     line.push_string(get_type_string(value_type, context.base));
                     line.push_str(" ");
-                    _dc := context.base.declared_c_var_names.add(tv.clone());
+                    _dc := context.base.declared_c_var_names.insert(tv.clone());
                   });
                   line.push_string(tv.clone());
                   line.push_str(" = ");

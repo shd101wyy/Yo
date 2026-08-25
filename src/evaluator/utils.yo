@@ -290,7 +290,7 @@ find_rc_value_owner_relationship :: (
               candidate_opt = Option(Variable).None;
               return(candidate_opt);
             });
-            visited_add_result := visited.add(cand.id);
+            visited_add_result := visited.insert(cand.id);
             candidate_opt = match(
               cand.is_owning_the_same_rc_value_as,
               .Some(next_box) => Option(Variable).Some(next_box.*),
@@ -752,7 +752,7 @@ set_expr_as_needs_to_call_dup :: (
       );
       // Stamp the USE SITE's source token for the dup/drop pair optimizer
       // (mirrors TS `__useSiteToken`, expr.ts:2577-2579).
-      g_dup_use_site_tokens.set(ast_expr_id(evaluated_dup), ast_expr_token(rhs));
+      g_dup_use_site_tokens.insert(ast_expr_id(evaluated_dup), ast_expr_token(rhs));
       // Stash the deferred dup expression on the rhs's ExprInfo (codegen emits it).
       dup_list := ArrayList(AstExpr).new();
       dup_list.push(evaluated_dup);
@@ -885,7 +885,7 @@ set_expr_as_needs_to_call_dup_for_borrowed_projection :: (
             ),
             .Atom(_, _) => ()
           );
-          g_dup_use_site_tokens.set(ast_expr_id(dup_expr), ast_expr_token(rhs));
+          g_dup_use_site_tokens.insert(ast_expr_id(dup_expr), ast_expr_token(rhs));
           dup_list := ArrayList(AstExpr).new();
           dup_list.push(dup_expr);
           ei.deferred_dup_expressions = Option(ArrayList(AstExpr)).Some(dup_list);

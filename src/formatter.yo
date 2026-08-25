@@ -458,7 +458,7 @@ find_matching_paren_indices :: (fn(tokens : ArrayList(Token)) -> HashMap(usize, 
           if(stack.len() > usize(0), {
             left := match(stack.get(stack.len() - usize(1)), .Some(x) => x, .None => usize(0));
             _r := stack.pop();
-            _r2 := pairs.set(left, i);
+            _r2 := pairs.insert(left, i);
           });
         },
         true => ()
@@ -483,7 +483,7 @@ find_parent_paren_indices :: (fn(tokens : ArrayList(Token)) -> HashMap(usize, us
         (t.kind == TokenKind.LParen) => {
           if(stack.len() > usize(0), {
             parent := match(stack.get(stack.len() - usize(1)), .Some(x) => x, .None => usize(0));
-            _r := parents.set(i, parent);
+            _r := parents.insert(i, parent);
           });
           _r2 := stack.push(i);
         },
@@ -547,8 +547,8 @@ find_inline_curly_indices :: (fn(tokens : ArrayList(Token)) -> HashSet(usize))({
             _p3 := stack_bracket_depths.pop();
             _p4 := stack_has_top_level_semi.pop();
             if(!(has_semi), {
-              _add1 := inline_indices.add(left_idx);
-              _add2 := inline_indices.add(i);
+              _add1 := inline_indices.insert(left_idx);
+              _add2 := inline_indices.insert(i);
             });
           });
         },
@@ -592,8 +592,8 @@ find_multiline_bracket_indices :: (fn(tokens : ArrayList(Token)) -> HashSet(usiz
             _p := stack.pop();
             left_tok := match(tokens.get(left_idx), .Some(lt) => lt, .None => t);
             if(t.row > left_tok.row, {
-              _add1 := multiline_indices.add(left_idx);
-              _add2 := multiline_indices.add(i);
+              _add1 := multiline_indices.insert(left_idx);
+              _add2 := multiline_indices.insert(i);
             });
           });
         },
@@ -626,8 +626,8 @@ find_multiline_inline_curly_indices :: (fn(tokens : ArrayList(Token), inline_cur
             _p := stack.pop();
             left_tok := match(tokens.get(left_idx), .Some(lt) => lt, .None => t);
             if(inline_curly_indices.contains(left_idx) && (t.row > left_tok.row), {
-              _add1 := multiline_indices.add(left_idx);
-              _add2 := multiline_indices.add(i);
+              _add1 := multiline_indices.insert(left_idx);
+              _add2 := multiline_indices.insert(i);
             });
           });
         },
@@ -1081,7 +1081,7 @@ find_redundant_grouping_paren_indices :: (fn(tokens : ArrayList(Token)) -> HashS
       .Some(t) => if((t.kind == TokenKind.LParen) && matching_parens.contains_key(i), {
         right_idx := match(matching_parens.get(i), .Some(x) => x, .None => i);
         if(is_redundant_grouping_paren(tokens, i, right_idx), {
-          _add := candidate_left_indices.add(i);
+          _add := candidate_left_indices.insert(i);
         });
       })
     );
@@ -1104,8 +1104,8 @@ find_redundant_grouping_paren_indices :: (fn(tokens : ArrayList(Token)) -> HashS
         )
       );
       if(keep_candidate, {
-        _add1 := skipped_indices.add(j);
-        _add2 := skipped_indices.add(right_idx);
+        _add1 := skipped_indices.insert(j);
+        _add2 := skipped_indices.insert(right_idx);
       });
     });
     j = (j + usize(1));
@@ -1162,8 +1162,8 @@ find_multiline_paren_indices :: (
                     )
                 );
                 if(!(skip), {
-                  _add1 := multiline_indices.add(i);
-                  _add2 := multiline_indices.add(right_idx);
+                  _add1 := multiline_indices.insert(i);
+                  _add2 := multiline_indices.insert(right_idx);
                 });
               }
             );

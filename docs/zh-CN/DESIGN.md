@@ -1938,7 +1938,7 @@ list.shrink_to_fit();
 map := HashMap(i32, i32).new();
 
 // 插入键值对
-result := map.set(i32(1), i32(100));
+result := map.insert(i32(1), i32(100));
 match(result,
   .Ok(opt) => match(opt,
     .None => printf("Inserted new key\n"),
@@ -1989,7 +1989,7 @@ map.clear();
 set := HashSet(i32).new();
 
 // 插入元素
-result := set.add(i32(42));
+result := set.insert(i32(42));
 match(result,
   .Ok(was_new) => cond(
     was_new => printf("Inserted new element\n"),
@@ -2015,13 +2015,13 @@ cond(
 set1 := HashSet(i32).new();
 set2 := HashSet(i32).new();
 
-set1.add(i32(1));
-set1.add(i32(2));
-set1.add(i32(3));
+set1.insert(i32(1));
+set1.insert(i32(2));
+set1.insert(i32(3));
 
-set2.add(i32(2));
-set2.add(i32(3));
-set2.add(i32(4));
+set2.insert(i32(2));
+set2.insert(i32(3));
+set2.insert(i32(4));
 
 // 并集
 union_result := set1.union(set2);

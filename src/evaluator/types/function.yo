@@ -98,14 +98,14 @@ open(import("std/fmt"));
 register_macro_quoted_params :: (fn(func_id : String, indices : ArrayList(usize)) -> unit)({
   cond(
     (indices.len() > usize(0)) => {
-      g_macro_quoted_param_indices.set(func_id.clone(), indices);
+      g_macro_quoted_param_indices.insert(func_id.clone(), indices);
     },
     true => ()
   );
 });
 /// Mark a function as having an `unquote(...)` return type. Idempotent.
 register_macro_return_is_unquote :: (fn(func_id : String) -> unit)({
-  g_macro_return_is_unquote.set(func_id.clone(), true);
+  g_macro_return_is_unquote.insert(func_id.clone(), true);
 });
 /// Returns the list of quoted parameter indices, or an empty list if none.
 get_macro_quoted_param_indices :: (fn(func_id : String) -> ArrayList(usize))(
@@ -170,14 +170,14 @@ copy_macro_registration :: (fn(from_id : String, to_id : String) -> unit)({
   match(
     g_macro_quoted_param_indices.get(from_id.clone()),
     .Some(idxs) => {
-      g_macro_quoted_param_indices.set(to_id.clone(), idxs);
+      g_macro_quoted_param_indices.insert(to_id.clone(), idxs);
     },
     .None => ()
   );
   match(
     g_macro_return_is_unquote.get(from_id.clone()),
     .Some(_) => {
-      g_macro_return_is_unquote.set(to_id.clone(), true);
+      g_macro_return_is_unquote.insert(to_id.clone(), true);
     },
     .None => ()
   );
@@ -216,7 +216,7 @@ register_func_param_defaults :: (fn(func_id : String, defaults : ArrayList(Optio
     i = (i + usize(1));
   });
   if(any_default, {
-    g_func_param_defaults.set(func_id.clone(), defaults);
+    g_func_param_defaults.insert(func_id.clone(), defaults);
   });
 });
 /// Copy a registered default-values entry from `from_id` to `to_id`
@@ -226,7 +226,7 @@ copy_func_param_defaults :: (fn(from_id : String, to_id : String) -> unit)({
   match(
     g_func_param_defaults.get(from_id.clone()),
     .Some(defaults) => {
-      g_func_param_defaults.set(to_id.clone(), defaults);
+      g_func_param_defaults.insert(to_id.clone(), defaults);
     },
     .None => ()
   );
@@ -244,14 +244,14 @@ VariadicParamEntry :: struct(label : String, ty : TypeValue);
   HashMap(String, VariadicParamEntry).new();
 register_func_variadic_param :: (fn(func_id : String, label : String, ty : TypeValue) -> unit)({
   if(label != "...", {
-    g_func_variadic_params.set(func_id.clone(), VariadicParamEntry(label : label, ty : ty));
+    g_func_variadic_params.insert(func_id.clone(), VariadicParamEntry(label : label, ty : ty));
   });
 });
 copy_func_variadic_param :: (fn(from_id : String, to_id : String) -> unit)({
   match(
     g_func_variadic_params.get(from_id.clone()),
     .Some(entry) => {
-      g_func_variadic_params.set(to_id.clone(), entry);
+      g_func_variadic_params.insert(to_id.clone(), entry);
     },
     .None => ()
   );
@@ -296,14 +296,14 @@ register_func_param_assigned_values :: (fn(func_id : String, assigned : ArrayLis
     i = (i + usize(1));
   });
   if(any_assigned, {
-    g_func_param_assigned_values.set(func_id.clone(), assigned);
+    g_func_param_assigned_values.insert(func_id.clone(), assigned);
   });
 });
 copy_func_param_assigned_values :: (fn(from_id : String, to_id : String) -> unit)({
   match(
     g_func_param_assigned_values.get(from_id.clone()),
     .Some(assigned) => {
-      g_func_param_assigned_values.set(to_id.clone(), assigned);
+      g_func_param_assigned_values.insert(to_id.clone(), assigned);
     },
     .None => ()
   );
@@ -341,14 +341,14 @@ register_func_param_comptime :: (fn(func_id : String, flags : ArrayList(bool)) -
     i = (i + usize(1));
   });
   if(any_ct, {
-    g_func_param_comptime.set(func_id.clone(), flags);
+    g_func_param_comptime.insert(func_id.clone(), flags);
   });
 });
 copy_func_param_comptime :: (fn(from_id : String, to_id : String) -> unit)({
   match(
     g_func_param_comptime.get(from_id.clone()),
     .Some(flags) => {
-      g_func_param_comptime.set(to_id.clone(), flags);
+      g_func_param_comptime.insert(to_id.clone(), flags);
     },
     .None => ()
   );
@@ -365,13 +365,13 @@ copy_func_param_comptime :: (fn(from_id : String, to_id : String) -> unit)({
 // struct-id mismatch).
 (g_func_return_type_expr : HashMap(String, AstExpr)) = HashMap(String, AstExpr).new();
 register_func_return_type_expr :: (fn(func_id : String, e : AstExpr) -> unit)({
-  g_func_return_type_expr.set(func_id.clone(), e);
+  g_func_return_type_expr.insert(func_id.clone(), e);
 });
 copy_func_return_type_expr :: (fn(from_id : String, to_id : String) -> unit)({
   match(
     g_func_return_type_expr.get(from_id.clone()),
     .Some(e) => {
-      g_func_return_type_expr.set(to_id.clone(), e.clone());
+      g_func_return_type_expr.insert(to_id.clone(), e.clone());
     },
     .None => ()
   );
@@ -405,14 +405,14 @@ register_func_param_default_exprs :: (fn(func_id : String, exprs : ArrayList(Opt
     i = (i + usize(1));
   });
   if(any_default, {
-    g_func_param_default_exprs.set(func_id.clone(), exprs);
+    g_func_param_default_exprs.insert(func_id.clone(), exprs);
   });
 });
 copy_func_param_default_exprs :: (fn(from_id : String, to_id : String) -> unit)({
   match(
     g_func_param_default_exprs.get(from_id.clone()),
     .Some(exprs) => {
-      g_func_param_default_exprs.set(to_id.clone(), exprs);
+      g_func_param_default_exprs.insert(to_id.clone(), exprs);
     },
     .None => ()
   );
@@ -450,14 +450,14 @@ register_func_param_type_exprs :: (fn(func_id : String, exprs : ArrayList(Option
     tei = (tei + usize(1));
   });
   if(any_te, {
-    g_func_param_type_exprs.set(func_id.clone(), exprs);
+    g_func_param_type_exprs.insert(func_id.clone(), exprs);
   });
 });
 copy_func_param_type_exprs :: (fn(from_id : String, to_id : String) -> unit)({
   match(
     g_func_param_type_exprs.get(from_id.clone()),
     .Some(exprs) => {
-      g_func_param_type_exprs.set(to_id.clone(), exprs);
+      g_func_param_type_exprs.insert(to_id.clone(), exprs);
     },
     .None => ()
   );
@@ -494,7 +494,7 @@ WhereConstraintEntry :: struct(
 /// No-op when the function has none (keeps the table sparse).
 register_func_where_constraints :: (fn(func_id : String, entries : ArrayList(WhereConstraintEntry)) -> unit)({
   if(entries.len() > usize(0), {
-    g_func_where_constraints.set(func_id.clone(), entries);
+    g_func_where_constraints.insert(func_id.clone(), entries);
   });
 });
 /// Call-site RE-APPLICATION needs the original constraint EXPRESSIONS: TS
@@ -509,7 +509,7 @@ register_func_where_constraints :: (fn(func_id : String, entries : ArrayList(Whe
 /// No-op when the function has none (keeps the table sparse).
 register_func_where_clause_exprs :: (fn(func_id : String, exprs : ArrayList(AstExpr)) -> unit)({
   if(exprs.len() > usize(0), {
-    g_func_where_clause_exprs.set(func_id.clone(), exprs);
+    g_func_where_clause_exprs.insert(func_id.clone(), exprs);
   });
 });
 /// Return the where-clause constraint expressions for `func_id` (empty when none).
@@ -527,14 +527,14 @@ copy_func_where_constraints :: (fn(from_id : String, to_id : String) -> unit)({
   match(
     g_func_where_constraints.get(from_id.clone()),
     .Some(entries) => {
-      g_func_where_constraints.set(to_id.clone(), entries);
+      g_func_where_constraints.insert(to_id.clone(), entries);
     },
     .None => ()
   );
   match(
     g_func_where_clause_exprs.get(from_id.clone()),
     .Some(exprs) => {
-      g_func_where_clause_exprs.set(to_id.clone(), exprs);
+      g_func_where_clause_exprs.insert(to_id.clone(), exprs);
     },
     .None => ()
   );
@@ -567,13 +567,13 @@ get_func_where_constraints :: (fn(func_id : String) -> ArrayList(WhereConstraint
 /// (keeps the table sparse, like the where-constraints table).
 register_func_requires_exprs :: (fn(func_id : String, preds : ArrayList(AstExpr)) -> unit)({
   if(preds.len() > usize(0), {
-    g_func_requires_exprs.set(func_id.clone(), preds);
+    g_func_requires_exprs.insert(func_id.clone(), preds);
   });
 });
 /// Register the signature's `ensures(...)` predicates. No-op when empty.
 register_func_ensures_exprs :: (fn(func_id : String, preds : ArrayList(AstExpr)) -> unit)({
   if(preds.len() > usize(0), {
-    g_func_ensures_exprs.set(func_id.clone(), preds);
+    g_func_ensures_exprs.insert(func_id.clone(), preds);
   });
 });
 /// Re-key both contract tables from the fn-type-expr id to the FuncVal id.
@@ -581,14 +581,14 @@ copy_func_contract_exprs :: (fn(from_id : String, to_id : String) -> unit)({
   match(
     g_func_requires_exprs.get(from_id.clone()),
     .Some(preds) => {
-      g_func_requires_exprs.set(to_id.clone(), preds);
+      g_func_requires_exprs.insert(to_id.clone(), preds);
     },
     .None => ()
   );
   match(
     g_func_ensures_exprs.get(from_id.clone()),
     .Some(preds) => {
-      g_func_ensures_exprs.set(to_id.clone(), preds);
+      g_func_ensures_exprs.insert(to_id.clone(), preds);
     },
     .None => ()
   );

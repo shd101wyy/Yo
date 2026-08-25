@@ -270,7 +270,7 @@ _harvest_extern_c_fns :: (fn(srcs : ArrayList(String)) -> HashSet(String))({
                     );
                   });
                   if(_bytes_at(src, k2, "fn("), {
-                    _added := names.add(name.clone());
+                    _added := names.insert(name.clone());
                   });
                 });
                 j = (j + name.as_bytes().len());
@@ -563,7 +563,7 @@ generate_unsafe_report :: (fn(root_path : String, io : Io, exn : Exception) -> I
     file_srcs := ArrayList(String).new();
     (fi : usize) = usize(0);
     while(fi < yo_files.len(), {
-      src := e.io.await(fs_file.read_string(Path.new(yo_files(fi).clone()), e.io), e);
+      src := e.io.await(fs_file.read_to_string(Path.new(yo_files(fi).clone()), e.io), e);
       file_srcs.push(src);
       fi = (fi + usize(1));
     });
@@ -645,7 +645,7 @@ generate_unsafe_report :: (fn(root_path : String, io : Io, exn : Exception) -> I
               if(prev_count == usize(0), {
                 callee_names.push(callee.clone());
               });
-              callee_counts.set(callee.clone(), prev_count + usize(1));
+              callee_counts.insert(callee.clone(), prev_count + usize(1));
             },
             .None => ()
           );

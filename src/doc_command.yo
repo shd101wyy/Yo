@@ -196,7 +196,7 @@ _find_yo_files :: (
 /// Derive a module name from a file path relative to the project root.
 /// Mirrors `moduleNameFromPath` (doc-command.ts:124).
 _module_name_from_path :: (fn(file_path : String, base_path : String) -> String)({
-  rel := Path.new(file_path.clone()).relative_from(Path.new(base_path.clone())).to_string();
+  rel := Path.new(file_path.clone()).strip_prefix(Path.new(base_path.clone())).to_string();
   if(rel.ends_with(String.from(".yo")), rel.substring(usize(0), rel.len() - usize(3)), rel.clone())
 });
 /// The value of the FIRST `"<key>" : "<value>"` pair in `content`, or `.None`.

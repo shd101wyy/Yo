@@ -1116,7 +1116,7 @@ _register_await_substitutions :: (
   fn(expr : AstExpr, await_point : AwaitPoint, value : String, subs : HashMap(usize, String)) -> unit
 )({
   if(is_io_await_call(expr) && contains_await_expr(expr, await_point.base.expr), {
-    subs.set(ast_expr_id(expr), value.clone());
+    subs.insert(ast_expr_id(expr), value.clone());
   });
   match(
     expr,
@@ -1178,7 +1178,7 @@ generate_state_segment_code :: (
       );
       hp_idx_s := hp.base.index.to_string();
       sub_value := `sm->await_result_${hp_idx_s}`;
-      subs.set(substitution_key, sub_value);
+      subs.insert(substitution_key, sub_value);
       // The hoisted expression may hold a DIFFERENT node for the same await —
       // an `if` is generated through its macro expansion, whose `io.await` node
       // has its own ExprId. Register every matching await node in the
@@ -1250,7 +1250,7 @@ generate_state_segment_code :: (
     .Some(_) => match(
       context.await_result_substitutions,
       .Some(subs) => if(had_substitution, {
-        subs.set(substitution_key, previous_substitution);
+        subs.insert(substitution_key, previous_substitution);
       }, {
         _r := subs.remove(substitution_key);
       }),
@@ -1542,7 +1542,7 @@ generate_while_with_await :: (
       context.async_while_loop_info = Option(HashMap(usize, WhileLoopInfo)).Some(HashMap(usize, WhileLoopInfo).new());
     });
     cmap := match(context.async_while_loop_info, .Some(m) => m, .None => HashMap(usize, WhileLoopInfo).new());
-    cmap.set(
+    cmap.insert(
       await_point.base.index,
       WhileLoopInfo(
         condition_expr : condition_expr,
@@ -1604,7 +1604,7 @@ generate_while_with_await :: (
             body_exprs_after_await : body_exprs_after_await
           )
         );
-        info_map.set(await_point.base.index, inner);
+        info_map.insert(await_point.base.index, inner);
       },
       // This outer loop suspends BEFORE control ever reaches the nested loop,
       // so the nested loop is emitted by the resume state, not by the body
@@ -1614,7 +1614,7 @@ generate_while_with_await :: (
       // fresh index via while_loop_origin_index (they would otherwise default
       // to the await index, which names the inner loop).
       .None => {
-        info_map.set(
+        info_map.insert(
           await_point.base.index,
           WhileLoopInfo(
             condition_expr : condition_expr,
@@ -1633,7 +1633,7 @@ generate_while_with_await :: (
       }
     );
   }, {
-    info_map.set(
+    info_map.insert(
       await_point.base.index,
       WhileLoopInfo(
         condition_expr : condition_expr,
@@ -2099,7 +2099,7 @@ _attach_cond_branch_post_while :: (
             )
           )
         );
-        wmap.set(idx, winfo);
+        wmap.insert(idx, winfo);
       },
       .None => ()
     ),
@@ -2248,7 +2248,7 @@ _set_cond_branch_target :: (
   if(entry.target_assignment_code.is_none(), {
     entry.target_assignment_code = target;
   });
-  m.set(idx, entry);
+  m.insert(idx, entry);
   context.async_cond_branch_info = Option(HashMap(usize, AsyncCondBranchInfo)).Some(m);
 });
 /// Store the cond/match branch info at `idx` unless a nested cond already stored
@@ -2306,7 +2306,7 @@ _store_cond_branch_info :: (
           );
           bi = (bi + usize(1));
         });
-        cmap0.set(
+        cmap0.insert(
           idx,
           AsyncCondBranchInfo(
             branches : branches,
@@ -2318,7 +2318,7 @@ _store_cond_branch_info :: (
         );
       },
       .None => {
-        cmap0.set(
+        cmap0.insert(
           idx,
           AsyncCondBranchInfo(
             branches : branches,
@@ -2335,7 +2335,7 @@ _store_cond_branch_info :: (
   });
   if(!(_cond_inner_has_remaining_code(context, idx)), {
     cmap := match(context.async_cond_branch_info, .Some(m) => m, .None => HashMap(usize, AsyncCondBranchInfo).new());
-    cmap.set(
+    cmap.insert(
       idx,
       AsyncCondBranchInfo(
         branches : branches,
@@ -2760,7 +2760,7 @@ generate_primitive_match_with_await :: (
     context.async_cond_branch_info = Option(HashMap(usize, AsyncCondBranchInfo)).Some(HashMap(usize, AsyncCondBranchInfo).new());
   });
   pmap := match(context.async_cond_branch_info, .Some(m) => m, .None => HashMap(usize, AsyncCondBranchInfo).new());
-  pmap.set(
+  pmap.insert(
     await_point.base.index,
     AsyncCondBranchInfo(
       branches : branches_with_await,
@@ -2793,7 +2793,7 @@ _push_cond_branch :: (fn(context : FunctionGenerationContext, idx : usize, branc
     )
   );
   entry.branches.push(branch);
-  m.set(idx, entry);
+  m.insert(idx, entry);
   context.async_cond_branch_info = Option(HashMap(usize, AsyncCondBranchInfo)).Some(m);
 });
 /// The state-machine variable id whose captured-variable name is `name`, or
@@ -2951,7 +2951,7 @@ _push_chained_match_arm :: (
   bl.push(cb);
   chained.push(ChainedCondBranches(branches : bl, cond_branch_field_index : idx));
   entry.chained_branches = Option(ArrayList(ChainedCondBranches)).Some(chained);
-  m.set(idx, entry);
+  m.insert(idx, entry);
   context.async_cond_branch_info = Option(HashMap(usize, AsyncCondBranchInfo)).Some(m);
 });
 /// Handle one match case body at `case_index`: a branch with await delegates to
@@ -3025,7 +3025,7 @@ _emit_match_case_await_or_value :: (
                   )
                 )
               );
-              wm.set(await_point.base.index, winfo);
+              wm.insert(await_point.base.index, winfo);
               context.async_while_loop_info = Option(HashMap(usize, WhileLoopInfo)).Some(wm);
               true
             },

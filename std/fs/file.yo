@@ -6,14 +6,14 @@
 //! # Example
 //!
 //! ```rust
-//! { File, read_string, write_file, OpenMode } :: import "std/fs/file";
+//! { File, read_to_string, write_file, OpenMode } :: import "std/fs/file";
 //!
 //! main :: (fn(io : Io, exn : Exception) -> unit)({
 //!   // Write a file
 //!   io.await(write_file(Path.new(`test.txt`), `hello world`, io), { io, exn });
 //!
 //!   // Read it back
-//!   content := io.await(read_string(Path.new(`test.txt`), io), { io, exn });
+//!   content := io.await(read_to_string(Path.new(`test.txt`), io), { io, exn });
 //!   println(content);
 //!
 //!   // Open with OpenMode
@@ -163,7 +163,7 @@ impl(
     })
   }),
   /// Read the entire file contents into a `String`.
-  read_string : (fn(self : Self, io : Io) -> Impl(Future(String, IoExn)))(
+  read_to_string : (fn(self : Self, io : Io) -> Impl(Future(String, IoExn)))(
     io.async((e) => {
       bytes := e.io.await(self.read_bytes(io), e);
       String.from_bytes(bytes)
@@ -246,21 +246,21 @@ export(File, OpenMode, FilePermission, SeekFrom);
 // Convenience functions
 // ============================================================================
 /// Read an entire file into a `String`.
-read_string :: (fn(path : Path, io : Io) -> Impl(Future(String, IoExn)))(
+read_to_string :: (fn(path : Path, io : Io) -> Impl(Future(String, IoExn)))(
   io.async((e) => {
     file := e.io.await(File.open(path, .Read, io), e);
-    content := e.io.await(file.read_string(io), e);
+    content := e.io.await(file.read_to_string(io), e);
     e.io.await(file.close(io), e);
     return(content);
   })
 );
 /// Read an entire file into a `String` (`str` path variant).
-read_string_str :: (fn(path : str, io : Io) -> Impl(Future(String, IoExn)))(
-  read_string(Path.new(String.from(path)), io)
+read_to_string_str :: (fn(path : str, io : Io) -> Impl(Future(String, IoExn)))(
+  read_to_string(Path.new(String.from(path)), io)
 );
 /// Read an entire file into a `String` (C string path variant).
-read_string_cstr :: (fn(path : *(u8), io : Io) -> Impl(Future(String, IoExn)))(
-  read_string(Path.from_cstr(path), io)
+read_to_string_cstr :: (fn(path : *(u8), io : Io) -> Impl(Future(String, IoExn)))(
+  read_to_string(Path.from_cstr(path), io)
 );
 /// Read an entire file into a byte list (`ArrayList(u8)`).
 read_file :: (fn(path : Path, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))(
@@ -398,7 +398,7 @@ is_dir_cstr :: (fn(path : *(u8), io : Io) -> Impl(Future(bool, Io)))(
 );
 /// Resolve a path to its canonical absolute form (resolves symlinks, `.` and `..`).
 /// Throws if the path does not exist.
-canonical :: (fn(path : Path, io : Io) -> Impl(Future(Path, IoExn)))(
+canonicalize :: (fn(path : Path, io : Io) -> Impl(Future(Path, IoExn)))(
   io.async((e) => {
     path_str := path.to_string();
     cstr_bytes := path_str.to_cstr();
@@ -425,17 +425,17 @@ canonical :: (fn(path : Path, io : Io) -> Impl(Future(Path, IoExn)))(
   })
 );
 /// Resolve a path to its canonical absolute form (`str` path variant).
-canonical_str :: (fn(path : str, io : Io) -> Impl(Future(Path, IoExn)))(
-  canonical(Path.new(String.from(path)), io)
+canonicalize_str :: (fn(path : str, io : Io) -> Impl(Future(Path, IoExn)))(
+  canonicalize(Path.new(String.from(path)), io)
 );
 /// Resolve a path to its canonical absolute form (C string path variant).
-canonical_cstr :: (fn(path : *(u8), io : Io) -> Impl(Future(Path, IoExn)))(
-  canonical(Path.from_cstr(path), io)
+canonicalize_cstr :: (fn(path : *(u8), io : Io) -> Impl(Future(Path, IoExn)))(
+  canonicalize(Path.from_cstr(path), io)
 );
 export(
-  read_string,
-  read_string_str,
-  read_string_cstr,
+  read_to_string,
+  read_to_string_str,
+  read_to_string_cstr,
   read_file,
   read_file_str,
   read_file_cstr,
@@ -454,7 +454,7 @@ export(
   is_dir,
   is_dir_str,
   is_dir_cstr,
-  canonical,
-  canonical_str,
-  canonical_cstr
+  canonicalize,
+  canonicalize_str,
+  canonicalize_cstr
 );

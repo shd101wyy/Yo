@@ -80,7 +80,7 @@ _canon_dir_target :: (fn(lp : String, io : Io) -> Impl(Future(String, IoExn)))(
     is_d := e.io.await(_file.is_dir(Path.new(lp), e.io), e.io);
     cond(
       is_d => {
-        canon := e.io.await(_file.canonical(Path.new(lp), e.io), e);
+        canon := e.io.await(_file.canonicalize(Path.new(lp), e.io), e);
         return(canon.to_string());
       },
       true => ()
@@ -185,7 +185,7 @@ walk_with :: (fn(root : Path, options : WalkOptions, io : Io) -> Impl(Future(Arr
             canon_s := e.io.await(_canon_dir_target(lp, e.io), e);
             cond(
               ((!(canon_s.is_empty())) && (!(followed.contains(canon_s)))) => {
-                match(followed.add(canon_s), .Ok(_) => (), .Err(_) => ());
+                match(followed.insert(canon_s), .Ok(_) => (), .Err(_) => ());
                 stack.push({ path : lp, depth : (cur_depth + u32(1)) });
               },
               true => ()

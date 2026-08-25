@@ -136,7 +136,7 @@ match(numbers.get(usize(0)),
 // ✓ v := numbers(usize(0));
 
 counts := HashMap(String, i32).new();
-counts.set(`yo`, i32(1));
+counts.insert(`yo`, i32(1));
 ```
 
 | Type             | Use when                                 |

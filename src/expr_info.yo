@@ -744,7 +744,7 @@ expr_info_paths_for_write :: (fn(info : ExprInfo) -> PathCollection)({
   info.path_collection
 });
 expr_info_table_set :: (fn(table : ExprInfoTable, id : ExprId, info : ExprInfo) -> unit)({
-  table.data.set(id, info);
+  table.data.insert(id, info);
   ()
 });
 /// Retrieve the ExprInfo for the given expression id, or None.
@@ -771,7 +771,7 @@ expr_info_table_get :: (fn(table : ExprInfoTable, id : ExprId) -> Option(ExprInf
 (g_method_callee_types : HashMap(ExprId, TypeValue)) = HashMap(ExprId, TypeValue).new();
 /// Record the resolved method `Func` type for a method-call expr id.
 record_method_callee_type :: (fn(call_id : ExprId, ty : TypeValue) -> unit)({
-  g_method_callee_types.set(call_id, ty);
+  g_method_callee_types.insert(call_id, ty);
   ()
 });
 /// Look up the resolved method `Func` type for a method-call expr id, if any.
@@ -800,7 +800,7 @@ lookup_method_callee_type :: (fn(call_id : ExprId) -> Option(TypeValue))(
 (g_io_builtin_struct_fields : HashMap(String, String)) = HashMap(String, String).new();
 /// Record that `struct_id`.`field_label` holds an io-builtin function.
 record_io_builtin_struct_field :: (fn(struct_id : String, field_label : String, marker : String) -> unit)({
-  g_io_builtin_struct_fields.set(`${struct_id}\n${field_label}`, marker);
+  g_io_builtin_struct_fields.insert(`${struct_id}\n${field_label}`, marker);
   ()
 });
 /// Look up the io-builtin marker for `struct_id`.`field_label`, if any.
@@ -810,7 +810,7 @@ lookup_io_builtin_struct_field :: (fn(struct_id : String, field_label : String) 
 (g_io_builtin_calls : HashMap(ExprId, String)) = HashMap(ExprId, String).new();
 /// Record the io-builtin marker for a call expr id.
 record_io_builtin_call :: (fn(call_id : ExprId, marker : String) -> unit)({
-  g_io_builtin_calls.set(call_id, marker);
+  g_io_builtin_calls.insert(call_id, marker);
   ()
 });
 /// Look up the io-builtin marker for a call expr id, if any.
@@ -826,7 +826,7 @@ lookup_io_builtin_call :: (fn(call_id : ExprId) -> Option(String))(
 (g_method_callee_values : HashMap(ExprId, EvalValue)) = HashMap(ExprId, EvalValue).new();
 /// Record the resolved/specialized method FuncVal for a method-call expr id.
 record_method_callee_value :: (fn(call_id : ExprId, v : EvalValue) -> unit)({
-  g_method_callee_values.set(call_id, v);
+  g_method_callee_values.insert(call_id, v);
   ()
 });
 /// Look up the resolved/specialized method FuncVal for a method-call expr id.
@@ -848,7 +848,7 @@ lookup_method_callee_value :: (fn(call_id : ExprId) -> Option(EvalValue))(
 /// shadowing <errno.h>'s `errno : *(int)`) does not match — see
 /// get_extern_c_global_type's consumer in codegen get_variable_name_for_codegen.
 register_extern_c_global :: (fn(name : String, ty : TypeValue) -> unit)({
-  g_extern_c_globals.set(name, ty);
+  g_extern_c_globals.insert(name, ty);
   ()
 });
 /// The declared type of the c_include'd extern-C global `name`, if any.
@@ -935,7 +935,7 @@ register_module_level_global :: (fn(module_path : String, name : String) -> unit
   if((g_mg_recording_depth > usize(0)) && g_module_level_globals.get(mg_key.clone()).is_none(), {
     g_mg_recorded_keys.push(mg_key.clone());
   });
-  g_module_level_globals.set(mg_key, true);
+  g_module_level_globals.insert(mg_key, true);
   ()
 });
 /// True if module `module_path` declared the module-level runtime global
@@ -966,7 +966,7 @@ module_global_c_suffix :: (fn(module_path : String) -> String)({
 (g_some_resolved_concrete : HashMap(String, TypeValue)) = HashMap(String, TypeValue).new();
 /// Record the resolved concrete type for the `SomeT` with unique id `some_id`.
 register_some_resolved_concrete :: (fn(some_id : String, ty : TypeValue) -> unit)({
-  g_some_resolved_concrete.set(some_id, ty);
+  g_some_resolved_concrete.insert(some_id, ty);
   ()
 });
 /// The resolved concrete type for the `SomeT` with id `some_id`, if recorded.
@@ -1043,7 +1043,7 @@ record_branch_init :: (fn(var_id : usize, ty : TypeValue, capture : Option(TypeV
     .None => {
       lst := ArrayList(usize).new();
       lst.push(idx);
-      g_branch_init_by_var.set(var_id, lst);
+      g_branch_init_by_var.insert(var_id, lst);
       ()
     }
   );
@@ -1056,7 +1056,7 @@ register_arm_init_range :: (fn(arm_expr_id : usize, start : usize, end : usize) 
   rng := ArrayList(usize).new();
   rng.push(start);
   rng.push(end);
-  g_arm_init_ranges.set(arm_expr_id, rng);
+  g_arm_init_ranges.insert(arm_expr_id, rng);
   ()
 });
 get_arm_init_range :: (fn(arm_expr_id : usize) -> Option(ArrayList(usize)))(
@@ -1168,7 +1168,7 @@ has_dominating_branch_init :: (fn(var_id : usize) -> bool)({
   found
 });
 register_struct_ctor_fid :: (fn(struct_id : String, ctor_fid : String) -> unit)({
-  g_struct_ctor_fids.set(struct_id, ctor_fid);
+  g_struct_ctor_fids.insert(struct_id, ctor_fid);
   ()
 });
 /// The constructor funcId stamped for `struct_id`, if any.
@@ -1190,7 +1190,7 @@ register_trait_ctor_fid :: (fn(trait_id : String, ctor_fid : String) -> unit)({
     g_trait_ctor_fids.get(trait_id.clone()),
     .Some(_) => (),
     .None => {
-      g_trait_ctor_fids.set(trait_id, ctor_fid);
+      g_trait_ctor_fids.insert(trait_id, ctor_fid);
     }
   );
 });
@@ -1313,13 +1313,13 @@ adopt_receiver_struct_instance :: (
 /// Count a runtime call dispatch for `fid`.
 record_fid_rtcall :: (fn(fid : String) -> unit)({
   n := match(g_fid_rtcalls.get(fid.clone()), .Some(v) => v, .None => usize(0));
-  g_fid_rtcalls.set(fid, n + usize(1));
+  g_fid_rtcalls.insert(fid, n + usize(1));
   ()
 });
 /// Count a successful call-site specialization of `fid`.
 record_fid_spec :: (fn(fid : String) -> unit)({
   n := match(g_fid_specs.get(fid.clone()), .Some(v) => v, .None => usize(0));
-  g_fid_specs.set(fid, n + usize(1));
+  g_fid_specs.insert(fid, n + usize(1));
   ()
 });
 /// True when every counted runtime call of `fid` was specialized (and at
@@ -1346,7 +1346,7 @@ fid_fully_specialized :: (fn(fid : String) -> bool)({
 (g_macro_expansions : HashMap(ExprId, AstExpr)) = HashMap(ExprId, AstExpr).new();
 /// Record the expanded form for a macro-call expr id.
 record_macro_expansion :: (fn(call_id : ExprId, expanded : AstExpr) -> unit)({
-  g_macro_expansions.set(call_id, expanded);
+  g_macro_expansions.insert(call_id, expanded);
   ()
 });
 /// Look up the expanded form for a macro-call expr id, if recorded.
@@ -1370,7 +1370,7 @@ record_module_level_init_expr :: (fn(e : AstExpr) -> unit)({
   eid := ast_expr_id(e);
   already := match(g_module_level_init_seen.get(eid), .Some(_) => true, .None => false);
   if(!(already), {
-    g_module_level_init_seen.set(eid, true);
+    g_module_level_init_seen.insert(eid, true);
     g_module_level_init_exprs.push(e);
   });
   ()

@@ -7,7 +7,7 @@
 //!
 //! The table is STATIC DATA: one ASCII blob of `name,cp[,cp];` records
 //! (and a comma-joined name list for the legacy set), parsed by a small
-//! loop. It was previously ~2,125 straight-line `map.set(...)` calls in one
+//! loop. It was previously ~2,125 straight-line `map.insert(...)` calls in one
 //! function, whose emitted C crashed clang's frontend at -O0 and made the
 //! module untestable (issues/fixed/html-entities-runtime-map-uncompilable-in-tests.md).
 open(import("../string"));
@@ -52,7 +52,7 @@ _build_entity_map :: (fn() -> HashMap(String, String))({
       });
       i = (i + usize(1));
     });
-    m.set(name, value);
+    m.insert(name, value);
   });
   m
 });
@@ -70,7 +70,7 @@ _build_legacy_set :: (fn() -> HashSet(String))({
     while((i < n) && (bytes.get(i).unwrap() != comma), {
       i = (i + usize(1));
     });
-    s.add(String.from_bytes(bytes.slice_copy(name_start .. i)));
+    s.insert(String.from_bytes(bytes.slice_copy(name_start .. i)));
     i = (i + usize(1));
   });
   s

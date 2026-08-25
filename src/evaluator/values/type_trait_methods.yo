@@ -190,7 +190,7 @@ register_type_trait_method :: (
     .None => {
       fresh := ArrayList(MethodEntry).new();
       fresh.push(entry);
-      ___set := _type_trait_methods.set(type_id.clone(), fresh);
+      ___set := _type_trait_methods.insert(type_id.clone(), fresh);
     }
   );
   match(
@@ -201,7 +201,7 @@ register_type_trait_method :: (
     .None => {
       ofresh := ArrayList(String).new();
       ofresh.push(owner);
-      ___oset := _type_trait_method_owners.set(type_id, ofresh);
+      ___oset := _type_trait_method_owners.insert(type_id, ofresh);
     }
   );
 });
@@ -306,7 +306,7 @@ register_provisional_trait_method :: (
     .None => {
       fresh := ArrayList(MethodEntry).new();
       fresh.push(entry);
-      ___set := _provisional_trait_methods.set(type_id, fresh);
+      ___set := _provisional_trait_methods.insert(type_id, fresh);
     }
   );
 });
@@ -398,7 +398,7 @@ note_inherent_method_site :: (
       true => Option(String).Some(prev)
     ),
     .None => {
-      ___ins := _inherent_method_sites.set(key, site);
+      ___ins := _inherent_method_sites.insert(key, site);
       Option(String).None
     }
   )
@@ -411,7 +411,7 @@ note_inherent_method_site :: (
 /// overriding a defaulted method (e.g. `Error.source ?= (self) -> .None`).
 (_trait_method_defaults : HashMap(String, EvalValue)) = HashMap(String, EvalValue).new();
 register_trait_default :: (fn(trait_id : String, label : String, value : EvalValue) -> unit)({
-  _trait_method_defaults.set((trait_id + String.from("::")) + label, value);
+  _trait_method_defaults.insert((trait_id + String.from("::")) + label, value);
 });
 get_trait_default :: (fn(trait_id : String, label : String) -> Option(EvalValue))(
   _trait_method_defaults.get((trait_id + String.from("::")) + label)
@@ -427,7 +427,7 @@ get_trait_default :: (fn(trait_id : String, label : String) -> Option(EvalValue)
 /// parser.yo's recursive `get_program` emitting a shell's unevaluated body.
 (_shell_redirect : HashMap(String, String)) = HashMap(String, String).new();
 register_shell_redirect :: (fn(shell_func_id : String, real_func_id : String) -> unit)({
-  _shell_redirect.set(shell_func_id, real_func_id);
+  _shell_redirect.insert(shell_func_id, real_func_id);
 });
 get_shell_redirect :: (fn(shell_func_id : String) -> Option(String))(
   _shell_redirect.get(shell_func_id)

@@ -15,7 +15,7 @@ open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { Path } :: import("std/path");
 { AnyError, Exception, IoExn } :: import("std/error");
-{ exists, read_string, write_file } :: import("std/fs/file");
+{ exists, read_to_string, write_file } :: import("std/fs/file");
 // ---------------------------------------------------------------------------
 // Data types
 // ---------------------------------------------------------------------------
@@ -190,7 +190,7 @@ read_lock_file :: (
     cond(
       (!(file_exists)) => LockFile.empty(),
       true => {
-        content := e.io.await(read_string(lock_path, e.io), e);
+        content := e.io.await(read_to_string(lock_path, e.io), e);
         parse_lock_file(content)
       }
     )

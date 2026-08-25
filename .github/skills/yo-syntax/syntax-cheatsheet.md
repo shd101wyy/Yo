@@ -797,7 +797,7 @@ Enum variant construction is positional (no field names needed).
 // CORRECT: fn(m : HashMap(String, V)) — pass by value, mutations propagate via RC
 
 process_map :: (fn(m : HashMap(String, i32)) -> unit)({
-  m.set(String.from("key"), i32(42));  // mutation visible to caller
+  m.insert(String.from("key"), i32(42));  // mutation visible to caller
 });
 
 counts := HashMap(String, i32).new();
@@ -1107,7 +1107,7 @@ fn :: (fn() -> T)({ match(x, arms); })
 ### Sibling match/cond arms must agree in type — brace statement-like arms
 
 An unbraced arm's value is the expression's value, and `list.push(x)` /
-`map.set(k, v)` return non-unit — so mixing an unbraced push arm with a
+`map.insert(k, v)` return non-unit — so mixing an unbraced push arm with a
 block-shaped (unit) sibling arm is a type error ("Incompatible types" /
 "{ ... } without semicolons"). Brace-and-semicolon every arm whose result
 is not meant to be the value: `(c) => { bytes.push(b); },`.

@@ -96,7 +96,7 @@ build_doc_lookup :: (fn(extraction : DocExtractionResult) -> HashMap(String, Str
     match(
       extraction.declarations.get(i),
       .Some(assoc) => if(assoc.declaration_name.len() > usize(0), {
-        lookup.set(assoc.declaration_name.clone(), assoc.comment.content.clone());
+        lookup.insert(assoc.declaration_name.clone(), assoc.comment.content.clone());
       }),
       .None => ()
     );
@@ -723,7 +723,7 @@ _extract_top_level_fn_signatures :: (
             .None => false
           );
           if(!(already), {
-            result.set(token.value.clone(), info);
+            result.insert(token.value.clone(), info);
           });
         },
         .None => ()
@@ -1048,7 +1048,7 @@ extract_trait_impls_from_tokens :: (
     if(!(existing.contains(trait_name)), {
       existing.push(trait_name.clone());
     });
-    result.set(type_name.clone(), existing);
+    result.insert(type_name.clone(), existing);
     i = (i + usize(1));
   });
   result
@@ -1534,7 +1534,7 @@ extract_impl_info_from_tokens :: (
         )
       );
     });
-    result.set(receiver_type_name.clone(), entry);
+    result.insert(receiver_type_name.clone(), entry);
     i = impl_end;
   });
   result
