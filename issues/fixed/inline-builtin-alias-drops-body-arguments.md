@@ -6,10 +6,27 @@ function's parameters through unchanged and in order; when it does not, the
 wrapper is emitted as a real C function and called normally. Regression tests:
 `tests/inline_builtin_alias.test.yo` (computed argument, reversed parameters,
 and a straight pass-through that must still inline) — red-first verified, the
-first two fail with exit code 6 on the unfixed compiler. `std/time/sleep.yo`'s
-`sleep_blocking` is back to its natural one-expression body, and the
+first two fail with exit code 6 on the unfixed compiler. The
 "never wrap an inline builtin in a ONE-EXPRESSION body" section added to
-`.github/instructions/yo-design.instructions.md` as a workaround is deleted.
+`.github/instructions/yo-design.instructions.md` as if it were a language rule
+is deleted.
+
+**`std/time/sleep.yo`'s `sleep_blocking` keeps its two-statement body, now
+SEED-GATED.** Collapsing it to the natural one-expression form was tried and
+reverted: `yo build` compiles this tree with the *seed* compiler, which predates
+the fix, so the seed miscompiles the body and clang rejects the result —
+
+```
+yo.c:1897262:43: error: invalid operands to binary expression
+                        ('__yo_t1035' (aka Duration) and 'int')
+      usleep((_file____priv_temp_1746189) * 1000);
+```
+
+That is a loud failure, not a silent one, and it is exactly the bug's signature
+seen from the other side. Collapse the body at the next seed bump. Nothing in
+`tests/` is affected: test files are compiled by the stage-1 binary built FROM
+this tree, which carries the fix — only `std/` and `src/`, which the seed must
+compile, are gated.
 
 Found 2026-08-25 while implementing STD_API_AUDIT §5
 (`time.sleep(Duration, io)` / `time.sleep_blocking(Duration)`).

@@ -876,8 +876,11 @@ small number of PRs with tree-wide fixups (compiler + std + tests + docs):
   arguments, silently discarding the body's own argument expressions
   (`issues/fixed/inline-builtin-alias-drops-body-arguments.md`). The predicate
   now also requires the body to pass its parameters through unchanged and in
-  order, so `sleep_blocking` keeps its natural one-expression body rather than
-  the two-statement workaround it shipped with for one commit.
+  order. `sleep_blocking` still ships the two-statement body, but as a SEED
+  GATE rather than a workaround: `yo build` compiles this tree with the seed,
+  which predates the fix, so the one-expression form breaks the bootstrap
+  (loudly — clang rejects the seed's output). Scheduled at
+  `plans/backlog/SEED_VERSION_AUTOMATION.md`.
   **Deferred:** migrating `src/check_watch.yo` off `std/sys/timer` — it is the one
   non-test consumer of the async sleep, and an async call-shape change inside the
   compiler tree cannot be validated without a `yo build` / `compile src/main.yo`.

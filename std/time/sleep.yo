@@ -40,9 +40,21 @@ sleep :: (fn(duration : Duration, io : Io) -> Impl(Future(unit)))({
 });
 /// Block the current thread for `duration`. Nothing else runs on this thread
 /// until it returns — inside async code use `sleep` instead.
-sleep_blocking :: (fn(duration : Duration) -> unit)(
-  __yo_ms_sleep(usize(duration.as_millis()))
-);
+///
+/// SEED-GATED, not style: the `ms` binding must stay until a released seed
+/// carries the codegen fix in
+/// `issues/fixed/inline-builtin-alias-drops-body-arguments.md`. A function body
+/// that is a SINGLE inline-builtin call is elided by codegen and re-emitted
+/// with the CALLER's arguments, so the one-expression form hands the raw
+/// `Duration` to `usleep`. The compiler in this tree rejects that form loudly
+/// — `error: invalid operands to binary expression ('__yo_t1035' (aka Duration)
+/// and 'int')` at `usleep((...) * 1000)` — but `yo build` compiles this tree
+/// with the SEED, which predates the fix, so collapsing this body breaks the
+/// bootstrap. Collapse it at the next seed bump.
+sleep_blocking :: (fn(duration : Duration) -> unit)({
+  ms := usize(duration.as_millis());
+  __yo_ms_sleep(ms)
+});
 export(
   sleep,
   sleep_blocking
