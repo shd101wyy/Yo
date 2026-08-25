@@ -1,0 +1,11 @@
+open(import("std/string"));
+open(import("std/fmt"));
+TSBox :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(value : T)
+);
+derive(generic(T), TSBox(T), where(T <: ToString), ToString);
+main :: (fn() -> unit)({
+  println(`generic : ${TSBox(i32)(i32(5)).to_string()}`);
+  ();
+});
+export(main);
