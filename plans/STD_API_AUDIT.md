@@ -665,6 +665,15 @@ implementing the D5 traits.** Until it lands, std honestly refuses https.
   seed-gated follow-ups (`plans/backlog/SEED_VERSION_AUTOMATION.md`); the API
   and the tests do not change when it lands, only the emitted C.
 
+  Review round (2026-08-26) added five **unsigned-comparison** `fetch_min` /
+  `fetch_max` tests (`AtomicU8/U16/U32/U64/Usize`). The original min/max tests
+  only used small operands (2, 9, 13, 40), where a signed and an unsigned
+  comparison agree — a signed-comparison mutation confined to `AtomicU8`
+  passed the whole file. The new tests pin the boundary (all-ones vs 1) and
+  catch exactly that mutation. `AtomicUsize` wraps its sentinel from a runtime
+  zero rather than spelling a literal, because `usize` is 32-bit on wasm32.
+  The implementation was already correct — this closes a test gap, not a bug.
+
   Found en route: **`yo test --std-path <dir>` silently tests the INSTALLED
   std** — the batch compile is a spawned child and `src/main.yo` forwards
   `--c-compiler`/`--target`/`--sanitize`/… but not `--std-path`, unlike

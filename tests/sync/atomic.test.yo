@@ -358,6 +358,15 @@ test("AtomicU8 fetch_min / fetch_max", {
   assert(a.fetch_max(u8(2), MemoryOrder.AcqRel) == u8(40), "fetch_max still returns previous");
   assert(a.load(MemoryOrder.Acquire) == u8(40), "fetch_max keeps the larger value");
 });
+test("AtomicU8 fetch_min / fetch_max are unsigned comparisons", {
+  (top : u8) = u8(255);
+  a := AtomicU8(top);
+  assert(a.fetch_min(u8(1), MemoryOrder.SeqCst) == top, "fetch_min returns previous");
+  assert(a.load(MemoryOrder.SeqCst) == u8(1), "255 is ABOVE 1 unsigned, so min picks 1");
+  b := AtomicU8(u8(1));
+  assert(b.fetch_max(top, MemoryOrder.SeqCst) == u8(1), "fetch_max returns previous");
+  assert(b.load(MemoryOrder.SeqCst) == top, "255 is ABOVE 1 unsigned, so max picks 255");
+});
 test("AtomicU8 wraps like the runtime operator", {
   (seed : u8) = u8(255);
   a := AtomicU8(seed);
@@ -396,6 +405,15 @@ test("AtomicU16 fetch_min / fetch_max", {
   assert(a.load(MemoryOrder.Acquire) == u16(40), "fetch_max stores the larger value");
   assert(a.fetch_max(u16(2), MemoryOrder.AcqRel) == u16(40), "fetch_max still returns previous");
   assert(a.load(MemoryOrder.Acquire) == u16(40), "fetch_max keeps the larger value");
+});
+test("AtomicU16 fetch_min / fetch_max are unsigned comparisons", {
+  (top : u16) = u16(65535);
+  a := AtomicU16(top);
+  assert(a.fetch_min(u16(1), MemoryOrder.SeqCst) == top, "fetch_min returns previous");
+  assert(a.load(MemoryOrder.SeqCst) == u16(1), "65535 is ABOVE 1 unsigned, so min picks 1");
+  b := AtomicU16(u16(1));
+  assert(b.fetch_max(top, MemoryOrder.SeqCst) == u16(1), "fetch_max returns previous");
+  assert(b.load(MemoryOrder.SeqCst) == top, "65535 is ABOVE 1 unsigned, so max picks 65535");
 });
 test("AtomicU16 wraps like the runtime operator", {
   (seed : u16) = u16(65535);
@@ -436,6 +454,15 @@ test("AtomicU32 fetch_min / fetch_max", {
   assert(a.fetch_max(u32(2), MemoryOrder.AcqRel) == u32(40), "fetch_max still returns previous");
   assert(a.load(MemoryOrder.Acquire) == u32(40), "fetch_max keeps the larger value");
 });
+test("AtomicU32 fetch_min / fetch_max are unsigned comparisons", {
+  (top : u32) = u32(4294967295);
+  a := AtomicU32(top);
+  assert(a.fetch_min(u32(1), MemoryOrder.SeqCst) == top, "fetch_min returns previous");
+  assert(a.load(MemoryOrder.SeqCst) == u32(1), "u32 MAX is ABOVE 1 unsigned, so min picks 1");
+  b := AtomicU32(u32(1));
+  assert(b.fetch_max(top, MemoryOrder.SeqCst) == u32(1), "fetch_max returns previous");
+  assert(b.load(MemoryOrder.SeqCst) == top, "u32 MAX is ABOVE 1 unsigned, so max picks u32 MAX");
+});
 test("AtomicU32 wraps like the runtime operator", {
   (seed : u32) = u32(4294967295);
   a := AtomicU32(seed);
@@ -475,6 +502,15 @@ test("AtomicU64 fetch_min / fetch_max", {
   assert(a.fetch_max(u64(2), MemoryOrder.AcqRel) == u64(40), "fetch_max still returns previous");
   assert(a.load(MemoryOrder.Acquire) == u64(40), "fetch_max keeps the larger value");
 });
+test("AtomicU64 fetch_min / fetch_max are unsigned comparisons", {
+  (top : u64) = u64(18446744073709551615);
+  a := AtomicU64(top);
+  assert(a.fetch_min(u64(1), MemoryOrder.SeqCst) == top, "fetch_min returns previous");
+  assert(a.load(MemoryOrder.SeqCst) == u64(1), "u64 MAX is ABOVE 1 unsigned, so min picks 1");
+  b := AtomicU64(u64(1));
+  assert(b.fetch_max(top, MemoryOrder.SeqCst) == u64(1), "fetch_max returns previous");
+  assert(b.load(MemoryOrder.SeqCst) == top, "u64 MAX is ABOVE 1 unsigned, so max picks u64 MAX");
+});
 test("AtomicU64 wraps like the runtime operator", {
   (seed : u64) = u64(18446744073709551615);
   a := AtomicU64(seed);
@@ -513,6 +549,19 @@ test("AtomicUsize fetch_min / fetch_max", {
   assert(a.load(MemoryOrder.Acquire) == usize(40), "fetch_max stores the larger value");
   assert(a.fetch_max(usize(2), MemoryOrder.AcqRel) == usize(40), "fetch_max still returns previous");
   assert(a.load(MemoryOrder.Acquire) == usize(40), "fetch_max keeps the larger value");
+});
+test("AtomicUsize fetch_min / fetch_max are unsigned comparisons", {
+  // `usize` is 32-bit on wasm32 and 64-bit elsewhere, so the all-ones
+  // sentinel is WRAPPED from a runtime zero instead of being spelled as a
+  // width-specific literal (a literal out of range hard-errors at comptime).
+  (zero : usize) = usize(0);
+  (top : usize) = (zero - usize(1));
+  a := AtomicUsize(top);
+  assert(a.fetch_min(usize(1), MemoryOrder.SeqCst) == top, "fetch_min returns previous");
+  assert(a.load(MemoryOrder.SeqCst) == usize(1), "usize MAX is ABOVE 1 unsigned, so min picks 1");
+  b := AtomicUsize(usize(1));
+  assert(b.fetch_max(top, MemoryOrder.SeqCst) == usize(1), "fetch_max returns previous");
+  assert(b.load(MemoryOrder.SeqCst) == top, "usize MAX is ABOVE 1 unsigned, so max picks usize MAX");
 });
 test("AtomicUsize wraps like the runtime operator", {
   (seed : usize) = usize(0);
