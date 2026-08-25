@@ -146,6 +146,33 @@ DEFERRED to the next chunk: emitting `(FieldType <: Default).default()` per
 field needs a Type→source-expr rendering the derive surface
 (`TypeFieldInfo.field_type : Type`) doesn't expose yet — needs either a
 `Type.to_expr` builtin or per-field type names guaranteed reparseable.
+
+**CORRECTION + LANDED (2026-08-25, branch s1/derive-default):** that deferral
+was based on an incomplete survey — the derive surface DOES expose field types
+(`Type.get_struct_fields(T).get(i).field_type`), and a reparseable NAME is not
+needed in the first place. `derive(Default)` now emits
+`Self(f : (Type.get_struct_fields(Self).get(i).field_type <: Default).default(), …)`
+— reaching each field's type as a VALUE by index, which needs no name and no
+import at the use site. Structs only: an enum has no canonical default variant
+(Rust needs an explicit `#[default]`; guessing the first variant would be a
+silent choice).
+
+Getting there surfaced THREE pre-existing defects, all fixed in the same change
+rather than routed around:
+1. `Type.to_comptime_string` is a DISPLAY renderer returning
+   `<struct:…>` / `<enum:…>` for every INSTANTIATED generic — and two shipped
+   derive rules fed it back into generated source. So `derive(Clone)` failed on
+   every generic struct, and `derive(FromJson)` failed on every struct with an
+   `Option(…)` / `ArrayList(…)` field. Both rewritten name-free (`Self(…)` and
+   the indexing form); the renderer gained the doc comment it never had.
+   issues/fixed/derive-rules-name-types-through-a-display-renderer.md
+2. `(T <: Trait).static_method()` bound `Self` to the TRAIT rather than to `T`,
+   so a generic static whose body constructs `Self(…)` failed with "Receiver
+   type is undefined when implementing trait" — while the plain `T.method()`
+   form worked, which is what isolated it.
+   issues/fixed/subtype-dispatch-binds-self-to-the-trait.md
+3. (process, not code) #260 landed without its re-recorded `help-compile`
+   golden, leaving develop red until #261.
 **PR #240 opened 2026-08-24 (stacked on #238)** after the full local battery:
 check 154+262, suite 2823/2823 under the S1 stage-1, gates green after
 re-recording the 2 legitimately-drifted CLI goldens (`check-watch-once` expr
@@ -368,6 +395,44 @@ landmine with a pointer at the issue.
    rewritten). The alternatives considered — keep bare `u64` forever, or a
    fold-style `hash(self, state : u64) -> u64` middle ground — were
    declined in favor of the most future-proof surface.
+
+   **DESIGN ROUND STARTED 2026-08-25 — and it found a BLOCKER before any design
+   debate.** The decided shape, transcribed from Rust
+   (`fn hash<H: Hasher>(&self, state: &mut H)`), is in Yo:
+
+   ```rust
+   Hash :: trait(
+     hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H) -> unit)
+   );
+   ```
+
+   That is EXACTLY the shape that miscompiles. A trait method carrying its own
+   `generic(...)` reads a PRIMITIVE `inout(self)` receiver as a POINTER — the
+   emitted C is `(uint64_t)(self)` where `(*self)` is meant — so every primitive
+   `Hash` impl would feed the hasher stack ADDRESSES instead of values. It is
+   silent: no diagnostic, no crash, and #260's re-enabled `-w` diagnostics cannot
+   see it because the bad cast is explicit. It was caught only by writing the
+   trait and asserting a known FNV-1a value.
+   issues/generic-trait-method-reads-primitive-inout-self-as-pointer.md.
+
+   Isolation: the bug needs all three of (a) the method's own `generic(...)`,
+   (b) an `inout(self)` receiver, (c) a PRIMITIVE receiver type. A struct
+   receiver and a by-value `self` are both fine, and the non-receiver
+   `inout(hasher) : H` parameter's write-back works — so the fault is
+   specifically the scalar receiver's value read.
+
+   **Consequence for phasing:** that fix is a PREREQUISITE for D3.9, not a
+   parallel nicety. It is the third site in the `Variable.is_ref` family, after
+   #258 (folded-const specialization) and
+   issues/derive-tostring-on-a-generic-struct-emits-invalid-c.md (address-of-a-
+   field in a generic impl); a single repair to ref-ness propagation may well
+   cover all three, and they should be attacked together.
+
+   Also confirmed while probing, worth recording so it is not re-derived: the
+   `inout` marker goes on the LABEL, never the type — `inout(hasher) : H`, and
+   `hasher : inout(H)` fails with `Variable "inout" not found`. The shipping
+   bare-`u64` `Hash` is UNAFFECTED by all of this: its impls are non-generic
+   (`(hash) : ((self) -> u64(self))`), so condition (a) never holds.
 10. **Format specs**: template strings gain `${v:spec}` (width/precision/fill/
     align/hex) routed through `fmt.Writer`'s existing primitives — the engine
     exists, nothing connects it.

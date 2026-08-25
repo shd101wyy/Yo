@@ -672,3 +672,40 @@ test("derived decode missing field errors", {
     )
   );
 });
+// ===== derive(FromJson) with generic-instantiated field types =====
+// Used to fail outright — `derive(FromJson)` named each field's type with
+// `Type.to_comptime_string`, a DISPLAY renderer that yields an unusable
+// `<enum:enum_yo_id_N>` / `<struct:struct_yo_id_N>` placeholder for an
+// instantiated generic. So no struct carrying an `Option(…)` or `ArrayList(…)`
+// field — an extremely ordinary shape — could derive JSON at all. The rule now
+// reaches each field's type as a VALUE, by index into the struct's own field
+// list. issues/fixed/derive-rules-name-types-through-a-display-renderer.md
+_DGeneric :: struct(tag : Option(i32), items : ArrayList(i32), name : String);
+derive(_DGeneric, ToJson(_DGeneric));
+derive(_DGeneric, FromJson(_DGeneric));
+test("derived roundtrip with Option and ArrayList fields", {
+  xs := ArrayList(i32).new();
+  xs.push(i32(1));
+  xs.push(i32(2));
+  v := _DGeneric(tag : Option(i32).Some(i32(5)), items : xs, name : `g`);
+  s := json_encode(v);
+  match(
+    json_decode(_DGeneric, s),
+    .Ok(back) => {
+      assert(back.tag.is_some(), "Option field roundtrips as Some");
+      assert(back.tag.unwrap_or(i32(0)) == i32(5), "Option payload roundtrips");
+      assert(back.items.len() == usize(2), "ArrayList field roundtrips");
+      assert(back.name == "g", "plain field still roundtrips");
+    },
+    .Err(_) => assert(false, "decode of a generic-field struct should succeed")
+  );
+});
+test("derived roundtrip with a None Option field", {
+  ys := ArrayList(i32).new();
+  v := _DGeneric(tag : Option(i32).None, items : ys, name : `n`);
+  match(
+    json_decode(_DGeneric, json_encode(v)),
+    .Ok(back) => assert(back.tag.is_none(), "None roundtrips as None"),
+    .Err(_) => assert(false, "decode should succeed for a None field")
+  );
+});

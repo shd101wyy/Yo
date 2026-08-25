@@ -37,7 +37,7 @@ Use this skill when you need to:
 - Model nullable pointers with `Option(*(T))` or `?(*(T))`.
 - Use `struct` for value types, `newtype` for single-field wrappers, `object` for reference-counted types.
 - Use `generic` + `where` for generic impls; use `_` placeholder for partial application of comptime functions.
-- Use `derive(Type, Eq, Hash, Clone, Ord, ToString)` to auto-generate common trait impls.
+- Use `derive(Type, Eq, Hash, Clone, Ord, ToString, Default)` to auto-generate common trait impls. `Default` is structs-only (an enum has no canonical default variant).
 - Custom error types implement `ToString` + `Error`; wrap with `dyn(...)` into `AnyError`.
 - Use `(params) => expr` for closures; `Impl(Fn(...) -> T)` for the closure type.
 - Use `for(collection.iter(), (item) => { ... })` for iteration.

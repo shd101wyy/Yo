@@ -325,7 +325,7 @@ println(value);
 
 ```rust
 Point :: struct(x : i32, y : i32);
-derive(Point, Eq, Hash, Clone, Ord, ToString);
+derive(Point, Eq, Hash, Clone, Ord, ToString, Default);
 
 p1 := Point(1, 2);
 p2 := p1.clone();
