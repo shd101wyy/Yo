@@ -125,6 +125,8 @@ masked := ((A | B) | C);
 - Yo has no operator precedence: a chain of the SAME operator left-associates (`a + b + c` ⇒ `(a + b) + c`, no parens needed); adjacent DIFFERENT operators require parentheses (`(a + b) * c`, not `a + b * c`)
 - An operator RHS that itself contains a different top-level operator must be parenthesized: `true => (x / y)`, `value := (x + y)`, `(x : T) = ((v) -> { ... })`, `next : (fn(...) -> T)`
 - The rule also applies on the LEFT of a `cond` arm's `=>`: a same-operator chain like `a || b || c` is fine alone, but `a || b || c => v` mixes `||` with `=>` — wrap the whole condition: `(a || b || c) => v` ("Adjacent different operators need parentheses")
+- …and on the RIGHT of an arm's `=>` too, in BOTH `cond` and `match`. An arm body that is a bare infix expression mixes the operator with `=>`: `.Some(qv) => qv != u8(34)` is rejected, `.Some(qv) => (qv != u8(34))` is accepted. Same for `+`, `==`, `&&`, … in arm-body position.
+- **`yo fmt` does NOT catch either form.** `yo fmt` and `yo fmt --check` both pass on the unparenthesised version; only the evaluator rejects it. A clean `fmt` is not evidence the file parses — run `yo check` on the file after editing arms.
 - Source layout does NOT affect grouping — there is no newline-based associativity
 - Prefix operators (`-` `!` `~` `&` `*` `?` `^`) bind ONE postfix expression (plans/PREFIX_OPERATOR_OPERAND_RULE.md): `-1`, `!ready`, `&s`, `?*T`, `3 - -3` are valid; an INFIX operand still needs parens (`-(1 + 2)`). SEED CONSTRAINT: keep parenthesized forms (`-(1)`, `!(x)`) in `src/` and `std/` until a rule-bearing release becomes the seed.
 - Tight special forms also require immediate parentheses: `#(expr)`, `?(*(u8))`, `T <: !(Runtime)`
