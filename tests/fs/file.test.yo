@@ -3,6 +3,8 @@ pragma(Pragma.SkipWasm32Wasi); // Emscripten syscalls (__syscall_*) not availabl
 { assert } :: import("std/assert");
 open(import("std/libc/stdio"));
 open(import("std/string"));
+{ GlobalAllocator } :: import("std/allocator");
+{ malloc, free } :: GlobalAllocator;
 { Path } :: import("std/path");
 { IoError } :: import("std/sys/errors");
 { Error, AnyError, Exception, IoExn } :: import("std/error");
@@ -269,6 +271,85 @@ test("File.open_cstr convenience", {
   s := io.await(f.read_to_string(io), IoExn(io : io, exn : exn));
   unsafe(printf("  read: %s\n", s.to_cstr().ptr().unwrap()));
   assert(s == `open_str test`, "open_str content mismatch");
+  io.await(f.close(io), IoExn(io : io, exn : exn));
+  io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
+});
+// ============================================================================
+// File position tracking
+//
+// The underlying primitive is POSITIONAL (pread/pwrite), so `File` must carry
+// its own offset — the descriptor's position is neither read nor advanced.
+// issues/file-read-write-ignore-position-always-offset-zero.md
+// ============================================================================
+test("File sequential write_string calls advance the position", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        println(`  unexpected error: ${err}`);
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  tmp := temp_dir();
+  fpath := Path.new(path_join(tmp, `yo_fs_file_pos_write.txt`));
+  f := io.await(File.open(fpath, .Write, io), IoExn(io : io, exn : exn));
+  io.await(f.write_string(`AAA`, io), IoExn(io : io, exn : exn));
+  io.await(f.write_string(`BBB`, io), IoExn(io : io, exn : exn));
+  io.await(f.close(io), IoExn(io : io, exn : exn));
+  s := io.await(fs_file.read_to_string(fpath, io), IoExn(io : io, exn : exn));
+  assert(s == `AAABBB`, "second write must APPEND, not overwrite at offset 0");
+  io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
+});
+test("File sequential read calls advance the position", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        println(`  unexpected error: ${err}`);
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  tmp := temp_dir();
+  fpath := Path.new(path_join(tmp, `yo_fs_file_pos_read.txt`));
+  io.await(fs_file.write_string(fpath, `ABCDEF`, io), IoExn(io : io, exn : exn));
+  f := io.await(File.open(fpath, .Read, io), IoExn(io : io, exn : exn));
+  buf := *(u8)(malloc(usize(8)).unwrap());
+  n1 := io.await(f.read(buf, u32(3), io), IoExn(io : io, exn : exn));
+  assert(n1 == i32(3), "first read should return 3 bytes");
+  first := ((((buf).* == u8(65)) && ((buf.add(usize(1))).* == u8(66))) && ((buf.add(usize(2))).* == u8(67)));
+  assert(first, "first read should be ABC");
+  n2 := io.await(f.read(buf, u32(3), io), IoExn(io : io, exn : exn));
+  assert(n2 == i32(3), "second read should return 3 bytes");
+  second := ((((buf).* == u8(68)) && ((buf.add(usize(1))).* == u8(69))) && ((buf.add(usize(2))).* == u8(70)));
+  assert(second, "second read must be DEF — the position must advance");
+  free(.Some(*(void)(buf)));
+  io.await(f.close(io), IoExn(io : io, exn : exn));
+  io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
+});
+test("File.seek positions the next read", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        println(`  unexpected error: ${err}`);
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  tmp := temp_dir();
+  fpath := Path.new(path_join(tmp, `yo_fs_file_pos_seek.txt`));
+  io.await(fs_file.write_string(fpath, `0123456789`, io), IoExn(io : io, exn : exn));
+  f := io.await(File.open(fpath, .Read, io), IoExn(io : io, exn : exn));
+  moved := f.seek(i64(5), .Start, exn);
+  assert(moved == i64(5), "seek should report the new offset");
+  buf := *(u8)(malloc(usize(8)).unwrap());
+  n := io.await(f.read(buf, u32(3), io), IoExn(io : io, exn : exn));
+  assert(n == i32(3), "read after seek should return 3 bytes");
+  got := ((((buf).* == u8(53)) && ((buf.add(usize(1))).* == u8(54))) && ((buf.add(usize(2))).* == u8(55)));
+  assert(got, "read after seek(5) must be 567, not 012");
+  free(.Some(*(void)(buf)));
   io.await(f.close(io), IoExn(io : io, exn : exn));
   io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
 });
