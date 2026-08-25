@@ -1346,7 +1346,13 @@ __derive_from_json :: (
     "",
     (fn(comptime(acc) : comptime_str, comptime(fi) : usize) -> comptime(comptime_str))({
       fname :: fields.get(fi).name;
-      ftype :: Type.to_comptime_string(fields.get(fi).field_type);
+      // Reach the field's type as a VALUE, by index into the struct's own
+      // field list. Naming it with `Type.to_comptime_string` does not work:
+      // that is a DISPLAY renderer and yields an unusable `<enum:…>` /
+      // `<struct:…>` placeholder for an instantiated generic, so a struct with
+      // an `Option(T)` / `ArrayList(T)` / any generic field could not derive
+      // FromJson at all. Indexing needs no name and no import at the use site.
+      ftype :: (("(Type.get_struct_fields(Self).get(" + fi.to_comptime_string()) + ").field_type <: FromJson)");
       acc + (((((((((("__djf_" + fname) + " := match(v.get(String.from(\"") + fname) + "\")), .Some(__djf_j) => match(") + ftype) + ".from_json(__djf_j), .Ok(__djf_ok) => __djf_ok, .Err(__djf_e) => { return(.Err(__djf_e)); }), .None => { return(.Err(JsonError.Other(String.from(\"missing field ") + fname) + " in ") + type_name) + "\")))); }); ")
     })
   );
