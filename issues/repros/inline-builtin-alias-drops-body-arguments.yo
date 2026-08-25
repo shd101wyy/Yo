@@ -1,0 +1,20 @@
+pragma(Pragma.AllowUnsafe);
+open(import("std/libc/stdio"));
+{ Instant } :: import("std/time/instant");
+extern(
+  "Yo",
+  __yo_ms_sleep : (fn(ms : usize) -> unit)
+);
+/// Body sleeps HALF of `ms`. Codegen elides this function (its body is a
+/// single inline-builtin call) and emits `usleep((<caller arg>) * 1000)`,
+/// silently dropping the `/ 2`.
+half_sleep :: (fn(ms : usize) -> unit)(
+  __yo_ms_sleep(ms / usize(2))
+);
+main :: (fn() -> unit)({
+  t := Instant.now();
+  half_sleep(usize(200));
+  e := t.elapsed();
+  unsafe(printf("half_sleep(200) slept %lld ms (correct: ~100)\n", e.as_millis()));
+});
+export(main);
