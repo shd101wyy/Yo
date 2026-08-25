@@ -1,8 +1,29 @@
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
-{ Reader } :: import("std/io/reader");
-{ Writer } :: import("std/io/writer");
 { Exception } :: import("std/error");
+// Byte-level Reader/Writer traits. These used to live in `std/io/{reader,writer}.yo`
+// and were deleted there (zero implementors outside this file, and the D5 async
+// redesign replaces their shape) — they are kept here because the trait-impl
+// machinery this file exercises (a user trait whose methods take raw `*(u8)`
+// params plus an `Exception`, implemented on a plain struct) has no other test.
+Reader :: trait(
+  /// Read up to `size` bytes into buffer `buf`.
+  /// Returns the number of bytes actually read (0 at end-of-stream).
+  read :
+    (
+      fn(inout(self) : Self, buf : *(u8), size : usize, exn : Exception) -> usize
+    )
+);
+Writer :: trait(
+  /// Write bytes from buffer. Returns number of bytes written.
+  write :
+    (fn(inout(self) : Self, buf : *(u8), size : usize, exn : Exception) -> usize),
+  /// Flush any buffered data to the underlying destination.
+  flush :
+    (
+      fn(inout(self) : Self, exn : Exception) -> unit
+    )
+);
 // Simple fixed-size byte buffer for testing Reader and Writer traits
 TestBuf :: struct(
   _data : Array(u8, 64),
