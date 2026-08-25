@@ -1,11 +1,32 @@
 //! Regular expression engine with an NFA-based virtual machine.
+//!
+//! The public surface of the whole package is the three names this module
+//! exports: `Regex`, `RegexMatch` and `RegexError`. The sibling modules
+//! (`parser`, `node`, `compiler`, `vm`, `flags`, `unicode`) are internals —
+//! they export only what their siblings consume, and nothing in them is
+//! covered by the stability promise.
+//!
+//! # Example
+//!
+//! ```rust
+//! { Regex } :: import("std/regex");
+//!
+//! re := Regex.new(`(\w+)@(\w+)`, `i`).unwrap();
+//! match(
+//!   re.exec(`mail Ada@Example`),
+//!   .Some(m) => println(m.group(usize(1)).unwrap()),
+//!   .None => println(`no match`)
+//! );
+//! ```
 open(import("std/collections/array_list"));
 open(import("std/string"));
+{ GroupNameEntry } :: import("./node.yo");
 { RegexParser } :: import("./parser.yo");
-{ NfaCompiler, NfaProgram, Instr, InstrKind, ClassEntry, GroupNameEntry } :: import("./compiler.yo");
-{ NfaVm, VmMatch } :: import("./vm.yo");
+{ NfaCompiler, NfaProgram } :: import("./compiler.yo");
+{ NfaVm } :: import("./vm.yo");
 { RegexFlags } :: import("./flags.yo");
 { RegexMatch } :: import("./match.yo");
+{ RegexError } :: import("./error.yo");
 /// Compiled regular expression backed by an NFA program.
 Regex :: ref(
   struct(
@@ -19,7 +40,19 @@ Regex :: ref(
 // Block 1: Constructor and leaf methods
 impl(
   Regex,
-  new : (fn(pattern : String, flags_str : String) -> Result(Self, String))({
+  /// Compile `pattern` with the JavaScript-style flag string `flags_str`
+  /// (any of `g`, `i`, `m`, `s`, `u`, `y`; an empty string for none).
+  ///
+  /// Returns `.Err(RegexError)` for every malformed pattern or flag string —
+  /// the variants are matchable, so a caller can report the exact fault and
+  /// the byte offset it was found at.
+  ///
+  /// Capture groups are not capped: the VM allocates `2 * (n_groups + 1)`
+  /// capture slots per NFA thread, bounded only by memory. Only the
+  /// *syntax* is limited — `\1`–`\9` backreferences and `$1`–`$9`
+  /// replacement references are single-digit, so groups past 9 are reachable
+  /// by name (`(?<x>…)` / `\k<x>` / `${x}`) or by `RegexMatch.group(i)`.
+  new : (fn(pattern : String, flags_str : String) -> Result(Self, RegexError))({
     flags_result := RegexFlags.parse(flags_str);
     match(
       flags_result,
@@ -683,5 +716,5 @@ impl(
 export(
   Regex,
   RegexMatch,
-  RegexFlags
+  RegexError
 );

@@ -395,8 +395,46 @@ std/regex/
 ├── flags.yo       — RegexFlags parsing
 ├── node.yo        — AST node types (NodeKind, RegexNode, CharRange)
 ├── unicode.yo     — Unicode property range tables for \p{...}
-└── index.yo       — Module exports
+├── error.yo       — RegexError (added 2026-08-25, STD_API_AUDIT D8)
+└── index.yo       — Regex type + the package's whole public surface
 ```
+
+> Note: `regex.yo` above is historical — the `Regex` type lives in `index.yo`.
+
+### Public surface (STD_API_AUDIT D8, 2026-08-25)
+
+`import("std/regex")` exports exactly three names — **`Regex`**, **`RegexMatch`**
+and **`RegexError`**. Every other module in the package is an internal, and its
+`export(...)` list is now trimmed to exactly what its siblings consume:
+
+| module | exports | consumed by |
+| --- | --- | --- |
+| `node.yo` | `RegexNode`, `CharRange`, `GroupNameEntry` | parser, compiler, unicode, match, index |
+| `parser.yo` | `RegexParser` | index |
+| `compiler.yo` | `NfaCompiler`, `NfaProgram`, `ClassEntry` | vm, index |
+| `vm.yo` | `NfaVm` | index |
+| `flags.yo` | `RegexFlags` | vm, index |
+| `match.yo` | `RegexMatch` | index (public) |
+| `unicode.yo` | `unicode_property_ranges` | parser |
+| `error.yo` | `RegexError` | parser, flags, index (public) |
+
+Dropped as consumed-by-nobody: `NodeKind`, `AnchorKind` (node), `Instr`,
+`InstrKind`, `GroupNameEntry` re-export (compiler), `NfaThread`, `VmMatch`,
+`DecodedChar` (vm), and `RegexFlags` from the package barrel — nothing public
+accepts or returns a `RegexFlags`, so it was a leaked internal.
+
+### Capture slots
+
+There is **no cap on capture groups**. The VM allocates `2 * (n_groups + 1)`
+`usize` slots per live NFA thread, derived from the compiled program; nothing
+errors and nothing truncates (measured: 120 groups all capture — pinned by
+"more than 99 capture groups neither error nor truncate" in
+`tests/regex/regex.test.yo`). A `MAX_SLOTS :: 200` constant in `vm.yo` claimed a
+99-group ceiling, was referenced nowhere, and was deleted rather than turned
+into a limit the engine never had. The only group-count limits that are real are
+*syntactic*: `\1`–`\9` backreferences and `$1`–`$9` replacement references are
+single-digit, so groups past 9 are reachable by name or by
+`RegexMatch.group(i)`.
 
 ---
 

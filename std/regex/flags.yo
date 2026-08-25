@@ -1,5 +1,8 @@
 //! Regex flags parsing and representation.
 //!
+//! **Internal to `std/regex`.** `RegexFlags` is not public API — flags reach
+//! the engine as the string argument of `Regex.new(pattern, flags)`.
+//!
 //! Regex flags follow JavaScript syntax: `"gi"`, `"ms"`, `"iu"`, etc.
 //!
 //! Supported flags:
@@ -11,6 +14,7 @@
 //! - `y` — sticky: match from lastIndex only
 open(import("std/string"));
 open(import("std/collections/array_list"));
+{ RegexError } :: import("./error.yo");
 RegexFlags :: struct(
   global : bool,
   ignore_case : bool,
@@ -33,7 +37,7 @@ impl(
     )
   ),
   // Parse flags from a string like `gi`, `ms`, etc.
-  parse : (fn(flags_str : String) -> Result(Self, String))({
+  parse : (fn(flags_str : String) -> Result(Self, RegexError))({
     result := Self.default();
     bytes := flags_str.as_bytes();
     i := usize(0);
@@ -47,7 +51,7 @@ impl(
               // 'g'
               cond(
                 result.global => {
-                  return(.Err(`Duplicate flag: g`));
+                  return(.Err(RegexError.DuplicateFlag(b)));
                 },
                 true => {
                   result.global = true;
@@ -58,7 +62,7 @@ impl(
               // 'i'
               cond(
                 result.ignore_case => {
-                  return(.Err(`Duplicate flag: i`));
+                  return(.Err(RegexError.DuplicateFlag(b)));
                 },
                 true => {
                   result.ignore_case = true;
@@ -69,7 +73,7 @@ impl(
               // 'm'
               cond(
                 result.multiline => {
-                  return(.Err(`Duplicate flag: m`));
+                  return(.Err(RegexError.DuplicateFlag(b)));
                 },
                 true => {
                   result.multiline = true;
@@ -80,7 +84,7 @@ impl(
               // 's'
               cond(
                 result.dot_all => {
-                  return(.Err(`Duplicate flag: s`));
+                  return(.Err(RegexError.DuplicateFlag(b)));
                 },
                 true => {
                   result.dot_all = true;
@@ -91,7 +95,7 @@ impl(
               // 'u'
               cond(
                 result.unicode => {
-                  return(.Err(`Duplicate flag: u`));
+                  return(.Err(RegexError.DuplicateFlag(b)));
                 },
                 true => {
                   result.unicode = true;
@@ -102,7 +106,7 @@ impl(
               // 'y'
               cond(
                 result.sticky => {
-                  return(.Err(`Duplicate flag: y`));
+                  return(.Err(RegexError.DuplicateFlag(b)));
                 },
                 true => {
                   result.sticky = true;
@@ -110,7 +114,7 @@ impl(
               );
             },
             true => {
-              return(.Err(`Invalid flag character`));
+              return(.Err(RegexError.InvalidFlag(b)));
             }
           );
         },

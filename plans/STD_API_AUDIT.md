@@ -731,8 +731,47 @@ implementing the D5 traits.** Until it lands, std honestly refuses https.
   SIX private UTF-8 decoders exist today; `String.from_bytes` starts validating
   (or gains `from_bytes_unchecked`).
 - `EncodingError` moves out of `hex.yo` into `std/encoding/error.yo`.
-- Regex internals (`parser/node/compiler/vm` exports) go private; `MAX_SLOTS`
-  documented; typed `RegexError`.
+- ~~Regex internals (`parser/node/compiler/vm` exports) go private; `MAX_SLOTS`
+  documented; typed `RegexError`.~~ **DONE 2026-08-25** (branch
+  `s2/d8-regex-internals`). Three findings against the row as written:
+  1. *"Internals go private" has no language mechanism.* Yo's only visibility
+     control is the `export(...)` list, and `index.yo` must import from its
+     siblings, so a sibling cannot stop exporting what `index.yo` consumes.
+     What was measurable and done: every sub-module's export list trimmed to
+     exactly what its in-package consumers actually use — dropping `NodeKind`,
+     `AnchorKind` (node), `Instr`, `InstrKind` and the `GroupNameEntry`
+     re-export (compiler), `NfaThread`, `VmMatch`, `DecodedChar` (vm) — plus
+     four unused imports in `index.yo` and four in `vm.yo`. Each internal file
+     now carries a `//!` header saying it is not public API. The package's real
+     public surface is `index.yo`'s export list, cut from
+     `Regex, RegexMatch, RegexFlags` to `Regex, RegexMatch, RegexError`:
+     nothing public accepts or returns a `RegexFlags` (flags reach the engine
+     as the `Regex.new` string argument), so it was a leaked internal.
+  2. *`MAX_SLOTS` was DEAD, not undocumented.* `MAX_SLOTS :: 200` in `vm.yo`
+     was referenced nowhere and bounded nothing; the VM sizes capture slots as
+     `2 * (n_groups + 1)` with no cap. **Measured**: a 120-group pattern
+     compiles, matches and reports all 120 groups — no error, no truncation.
+     So there is no silent truncation to file as a bug. The constant was
+     deleted (nothing dead ships) and the real behaviour documented in `vm.yo`,
+     in `Regex.new`'s doc comment and in `plans/REGEX_ENGINE.md`, pinned by a
+     test. The only real group-count limits are syntactic (`\1`–`\9`,
+     `$1`–`$9`).
+  3. *Typed `RegexError`* — new `std/regex/error.yo`, a closed 14-variant enum
+     with `ToString` + `Error()` per D1, replacing `Result(_, String)` in
+     `parser.yo` (18 message sites), `flags.yo` (7) and `Regex.new`. Every
+     variant carries what the caller needs to report the fault (byte offset,
+     group number/name, property name, flag byte); no `Other(msg : String)`
+     escape hatch. One test per variant (`tests/regex/regex.test.yo`,
+     140 → 156 tests). The compiler's own call site
+     (`src/main.yo` `--test-name-pattern`) needed no change — it interpolates
+     the error, which now resolves through `ToString`.
+
+  Found en route, filed not fixed:
+  `issues/template-string-backslash-before-interpolation-eats-both.md` — a
+  literal `\\` immediately before `${...}` in a template string eats the
+  backslash AND silently disables the interpolation (lexer's escaped-dollar
+  marker collides with a real backslash). It corrupted a `RegexError` message
+  until a runtime read of the output caught it.
 - `std/glob` stays the matcher; `fs.walker` gains `pattern` option + a
   `glob(pattern, io)` expansion function (the Python/Node meaning).
 
@@ -751,7 +790,7 @@ implementing the D5 traits.** Until it lands, std honestly refuses https.
 | string | FIX + EXTEND | D4 indexing; Unicode-correct `to_lowercase` (+ `to_ascii_*` variants); `Pattern` impl for `rune` + `Regex`; `replace*` Pattern-generic; `parse_f64`/radix; `split_once`, `strip_prefix/suffix`, `char_indices`; move `panic_dyn`/`assert_dyn` to assert; delete dead `StringError`, one of `to_cstr`/`to_c_str` |
 | encoding | STANDARDIZE | D2 verbs; one error style per D1; utf8 module; add `html_encode` (XSS!); percent-encoding module (P0 — nothing in std can build a safe query string); base32; CSV (P1); toml: floats/arrays/dates/serializer + `ToToml`/`FromToml` derives to mirror json (P1) |
 | json | EXTEND | enum representation for derives (open question O3); `JsonValue.Object` O(n) parallel arrays → keep repr, add index map if profiling demands |
-| regex | POLISH | `Regex.escape`, optional-flags `new`, callback replace, lazy `find_iter`, group byte-spans, typed error, private internals |
+| regex | POLISH | `Regex.escape`, optional-flags `new`, callback replace, lazy `find_iter`, group byte-spans, ~~typed error, private internals~~ (**both DONE 2026-08-25**, D8) |
 | url | EXTEND | percent-encode/decode integration, `query_pairs`/`SearchParams`, `join` (RFC 3986 §5 — needed by http redirects), builder/setters; ~~wire punycode into host handling (or delete punycode)~~ — DELETED, §6 round 1 |
 | io | REDESIGN | D5 |
 | fs | EXTEND + POLISH | wrappers: `copy`, `remove_dir_all` (compiler implements it TWICE as workaround — `src/fetch.yo:80`, `src/version_cache.yo:72`), `read_link`, `set_permissions`, `set_len`, `try_exists`, `watch` (sys/events exists); `OpenOptions` builder; `File.from_fd`; Metadata: real `btime`, `permissions()`, stop `metadata` re-stat by path; DirEntry `path()`; walker: lazy option + glob filter; complete the `_str`/`_cstr` variant matrix or (better) collapse it with a `Pattern`-style `AsPath` trait |

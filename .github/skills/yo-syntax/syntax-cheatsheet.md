@@ -1214,6 +1214,28 @@ sep := `, `;
 lines.push(`**Implements:** ${sep.join(names)}`);
 ```
 
+### A literal `\\` immediately before `${...}` silently kills the interpolation
+
+`\\` is the escape for one literal backslash and works everywhere EXCEPT
+directly in front of an interpolation, where the backslash is swallowed AND the
+`${...}` is emitted as literal text. No error, no warning — you only see it in
+the printed string.
+
+```rust
+n := usize(7);
+println(`A: ${n}`);    // A: 7
+println(`B: \\${n}`);   // B: ${n}   ❌ backslash eaten, interpolation dead
+println(`C: \\ ${n}`);  // C: \ 7    ✅ any character in between is fine
+println(`D: \\x${n}`);  // D: \x7    ✅
+```
+
+Cause: the lexer encodes "escaped dollar" as the two characters `\$`, which is
+byte-identical to "literal backslash, then a real `${`"
+(`src/lexer.yo:415-433` → `src/parser.yo:376-384`) —
+issues/template-string-backslash-before-interpolation-eats-both.md. Until that
+is fixed, reword so no backslash abuts an interpolation, or build the string
+with a separator variable.
+
 ### A backtick literal WITHOUT `${...}` interpolation is a `str`, not a `String`
 
 `String.from(`` `...` ``)` looks harmless but a backtick literal with no

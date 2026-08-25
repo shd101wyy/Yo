@@ -1,16 +1,27 @@
 //! NFA virtual machine (Thompson simulation).
 //!
+//! **Internal to `std/regex`.** Nothing here is public API: import
+//! `std/regex` and use `Regex`. This module's shape changes freely.
+//!
 //! Executes a compiled NFA program against an input string.
 //! Uses Thompson's NFA simulation with parallel state tracking
 //! for O(n×m) worst-case time complexity.
+//!
+//! ## Capture slots
+//!
+//! Each live NFA thread carries its own capture-slot array of
+//! `2 * (n_groups + 1)` `usize` entries — two (start, end) per group plus
+//! two for the whole match — initialised to `usize.MAX` ("unset"). The count
+//! is derived from the compiled program, so there is **no cap on the number
+//! of capture groups**: the engine neither errors nor truncates, and the only
+//! bound is memory. (A `MAX_SLOTS :: 200` constant used to sit here; it was
+//! referenced nowhere and bounded nothing, so it was deleted rather than
+//! turned into a limit the engine never had.)
 pragma(Pragma.AllowUnsafe);
 open(import("std/collections/array_list"));
 open(import("std/string"));
-{ NfaProgram, Instr, InstrKind, ClassEntry, GroupNameEntry } :: import("./compiler.yo");
-{ CharRange } :: import("./node.yo");
+{ NfaProgram, ClassEntry } :: import("./compiler.yo");
 { RegexFlags } :: import("./flags.yo");
-// Max number of capture slots (group 0 + up to 99 groups = 200 slots)
-MAX_SLOTS :: 200;
 // A single NFA thread: an instruction pointer + capture slots
 NfaThread :: ref(
   struct(
@@ -725,9 +736,4 @@ impl(
     best_match
   })
 );
-export(
-  NfaVm,
-  NfaThread,
-  VmMatch,
-  DecodedChar
-);
+export(NfaVm);
