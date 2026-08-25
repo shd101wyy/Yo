@@ -48,6 +48,59 @@ missing member is simply absent.
 The failure is also badly localised: the crash surfaces in `temp.test.yo`, while
 the defect is a literal in `temp.yo` referring to a type declared in `file.yo`.
 
+## ROOT CAUSE (corrected 2026-08-25 — the first diagnosis was wrong)
+
+**The check already exists and is correct.** `src/evaluator/calls/type.yo:347-364`,
+in `try_to_call_type_with_arguments`:
+
+```rust
+// Check that all unchecked fields have defaults.
+...
+has_default := field.default_value.is_some();
+if(!(has_default || has_assigned), {
+  ... `Type member "${field.label}" is not provided and has no default value or assigned value.`
+```
+
+It never RUNS for this site. The offending construction is at
+`std/fs/temp.yo:185`, and line 161 shows where it lives:
+
+```rust
+new_in : (fn(parent : Path, io : Io) -> Impl(Future(TempFile, IoExn)))(
+  io.async((e) => {
+    ...
+    file := _file_mod.File(_fd : fd, _path : path, _is_closed : false);   // <-- inside the async closure
+```
+
+An `io.async` closure body is one of the four contexts `yo check` never
+evaluates (macro `quote(...)` bodies, generic trait-impl bodies, generic
+helpers in the defining module, async closure bodies — see
+`.github/instructions/testing.instructions.md`). So the validation is
+unreachable, codegen emits a struct literal short one member, and the field is
+uninitialised.
+
+This is therefore NOT a missing check — it is the **def-eval / async-closure
+blind spot** again, the same root as
+`issues/ftt-stub-in-live-closure-falls-off-non-void-function.md` and the "~220
+type-level swallow classes" still open in
+`issues/fixed/self-hosted-compile-swallows-undefined-call.md`.
+
+### Why the #275 backstop does not catch this one
+
+`-Werror=return-type` plus the abort-stub rewrite (PR #275) catch untranspilable
+bodies because codegen leaves a `// Failed to transpile` MARKER it can find.
+This failure leaves no marker at all: codegen happily emits a well-formed
+compound literal that is simply missing a member. The C compiles, and the only
+symptom is garbage in the field. **So the FTT backstop's coverage stops exactly
+where this class begins**, and no existing gate sees it.
+
+### What a fix would have to do
+
+Either make the existing check reachable for async-closure bodies (the wider
+strict-mode campaign — large, and previously reverted once), or add a
+codegen-side assertion that a struct literal's member count matches its type's
+field count, which is cheap and local and would have caught this instance.
+The second is a backstop, not a cure, and should be labelled as such.
+
 ## Expected
 
 A struct literal missing a required field should be a hard evaluator error
