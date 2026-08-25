@@ -1,7 +1,7 @@
 # Passing a C `int` where `i32` is declared is accepted by the evaluator, and codegen splices a Yo type expression into a C identifier
 
 **Status: OPEN.** Found 2026-08-25 while fixing
-`issues/file-read-write-ignore-position-always-offset-zero.md`.
+`issues/fixed/file-read-write-ignore-position-always-offset-zero.md`.
 
 ## Symptom
 

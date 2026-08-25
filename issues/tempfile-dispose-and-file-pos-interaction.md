@@ -25,7 +25,7 @@ different batch, is NOT yet established — that is the open question here.
 
 ## 2. Making `read_bytes` honour `File._pos` crashes six of these tests
 
-While fixing `issues/file-read-write-ignore-position-always-offset-zero.md`,
+While fixing `issues/fixed/file-read-write-ignore-position-always-offset-zero.md`,
 `read_bytes` was changed to start from `self._pos` and leave it at EOF (rather
 than a local `offset := u64(0)`), so that mixing it with the incremental `read`
 stays coherent. That is the correct behaviour and mirrors Rust's `read_to_end`.

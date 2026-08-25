@@ -1,7 +1,11 @@
 # `File.read`/`write_*` always pread/pwrite at offset 0, and `File.seek` is a silent no-op
 
-**Status: OPEN.** Found 2026-08-25 by the STD_API_AUDIT scoping survey, verified
-directly against `develop`. Three faces of one bug.
+**Status: FIXED 2026-08-25** in `8825bbb39` ("std: File never tracked its
+position", PR #277) — `File` gained a `_pos : u64` field that `read`/`write_*`
+advance and `seek` sets, with `tests/fs/file.test.yo` covering sequential reads,
+sequential writes, and all three `SeekFrom` origins. Found 2026-08-25 by the
+STD_API_AUDIT scoping survey, verified directly against `develop`. Three faces
+of one bug.
 
 ## The bug
 

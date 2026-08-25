@@ -1,7 +1,11 @@
 # `RwLock.write_unlock` never wakes blocked readers — the reader branch is unreachable, and the readers hang indefinitely
 
-**Status: OPEN.** Found 2026-08-25 by the STD_API_AUDIT scoping survey, verified
-on `develop` at `340a9e735` with a red-first test that HANGS for 300 s.
+**Status: FIXED 2026-08-25** in `d6748e4cc` ("std: RwLock.write_unlock never
+woke blocked readers") — `write_unlock` now clears `_writer` and issues BOTH a
+reader `broadcast()` and a writer `signal()` unconditionally, so a reader
+blocked behind a writer is always woken. `tests/sync/rwlock.test.yo` carries the
+red-first case that used to hang for 300 s. Found 2026-08-25 by the
+STD_API_AUDIT scoping survey, verified on `develop` at `340a9e735`.
 
 ## The bug
 
