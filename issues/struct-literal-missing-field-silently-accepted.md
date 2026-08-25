@@ -4,8 +4,8 @@
 below before acting on this: the title and the first root-cause analysis are
 both wrong. Nothing is emitted "short" — the statement is dropped as
 `// Failed to transpile`, and `-Werror=return-type` (PR #275) already rejects
-the release build. What remains open is the `-O0` arm, `unit`-returning
-functions, and the swallowed diagnostic.
+the release build — on BOTH optimisation arms. What remains open is
+`unit`-returning functions and the swallowed diagnostic.
 
 Found 2026-08-25 while adding a field to `std/fs/file.yo`'s `File`. Verified on
 `develop` at `340a9e735`.
@@ -166,9 +166,11 @@ module, ref struct reached module-qualified (`_thing_mod.Thing(...)`, the shape
 
 `-Werror=return-type` is a backstop on the SYMPTOM, and three holes remain:
 
-- **`-O0` only warns.** The non-release arm passes `-Wall -Wextra …`
-  (`src/main.yo:1861+`), where `-Wreturn-type` is a warning, so a default build
-  still links and still SIGSEGVs.
+- ~~**`-O0` only warns.**~~ **NOT A GAP — this was measured wrong.** PR #275
+  (`dd4dbbf5a`) put `-Werror=return-type` on **both** arms, not just the
+  optimised one: `src/main.yo:1871` adds it to the `-Wall -Wextra …` `-O0` arm
+  alongside `src/main.yo:1859` on the release arm. A default build rejects this
+  C exactly as `--release` does.
 - **A `unit`-returning function is not covered at all.** If the FTT'd
   construction sits in a function with no return value, nothing fires and the
   statement is silently dropped — missing side effects rather than
