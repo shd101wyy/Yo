@@ -4,7 +4,8 @@ pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
 open(import("std/libc/stdio"));
 { WaitGroup } :: import("std/sync/waitgroup");
 { Thread } :: import("std/thread");
-{ sleep } :: import("std/time/sleep");
+{ sleep_blocking } :: import("std/time/sleep");
+{ Duration } :: import("std/time/duration");
 Worker :: import("std/worker");
 // ============================================================================
 // Basic operations
@@ -94,15 +95,15 @@ test("WaitGroup threads call done then main waits", {
   wg := WaitGroup.new();
   wg.add(i32(3));
   t1 := Thread.spawn((io) => {
-    sleep(usize(10));
+    sleep_blocking(Duration.from_millis(i64(10)));
     wg.done();
   });
   t2 := Thread.spawn((io) => {
-    sleep(usize(20));
+    sleep_blocking(Duration.from_millis(i64(20)));
     wg.done();
   });
   t3 := Thread.spawn((io) => {
-    sleep(usize(30));
+    sleep_blocking(Duration.from_millis(i64(30)));
     wg.done();
   });
   wg.wait();
@@ -196,15 +197,15 @@ test("WaitGroup with Workers and sleep", {
   Worker.set_num_threads(2);
   wg.add(i32(3));
   Worker.spawn((io) => {
-    sleep(usize(10));
+    sleep_blocking(Duration.from_millis(i64(10)));
     wg.done();
   });
   Worker.spawn((io) => {
-    sleep(usize(20));
+    sleep_blocking(Duration.from_millis(i64(20)));
     wg.done();
   });
   Worker.spawn((io) => {
-    sleep(usize(30));
+    sleep_blocking(Duration.from_millis(i64(30)));
     wg.done();
   });
   wg.wait();

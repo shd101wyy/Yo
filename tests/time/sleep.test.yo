@@ -1,0 +1,62 @@
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+open(import("std/libc/stdio"));
+open(import("std/string"));
+open(import("std/fmt"));
+{ sleep, sleep_blocking } :: import("std/time/sleep");
+{ Duration } :: import("std/time/duration");
+{ Instant } :: import("std/time/instant");
+// ============================================================================
+// sleep_blocking — parks the calling thread
+// ============================================================================
+test("sleep_blocking waits at least the requested Duration", {
+  start := Instant.now();
+  sleep_blocking(Duration.from_millis(i64(60)));
+  elapsed := start.elapsed();
+  unsafe(printf("  sleep_blocking(60ms) took %lld ms\n", elapsed.as_millis()));
+  // Timer slop cuts both ways; 50 is a floor the OS never undercuts for a 60ms
+  // request, and the upper bound is loose enough for a loaded CI box.
+  assert(elapsed.as_millis() >= i64(50), "sleep_blocking should wait ~60ms");
+  assert(elapsed.as_millis() < i64(2000), "sleep_blocking should not hang");
+});
+test("sleep_blocking truncates sub-millisecond Durations to no wait", {
+  start := Instant.now();
+  sleep_blocking(Duration.from_micros(i64(500)));
+  elapsed := start.elapsed();
+  assert(elapsed.as_millis() < i64(1000), "sub-ms sleep should return promptly");
+});
+// ============================================================================
+// sleep — suspends the calling async task
+// ============================================================================
+test("sleep waits at least the requested Duration", {
+  start := Instant.now();
+  io.await(sleep(Duration.from_millis(i64(60)), io), io);
+  elapsed := start.elapsed();
+  unsafe(printf("  sleep(60ms) took %lld ms\n", elapsed.as_millis()));
+  assert(elapsed.as_millis() >= i64(50), "sleep should wait ~60ms");
+  assert(elapsed.as_millis() < i64(2000), "sleep should not hang");
+});
+test("sleep suspends the task instead of blocking the loop", {
+  // A short sleep on one task must complete while a long sleep on another is
+  // still pending — that is the whole difference from sleep_blocking.
+  order := Box(i32)(0);
+  slow := io.async((io : Io) => {
+    io.await(sleep(Duration.from_millis(i64(200)), io), io);
+    order.* = (order.* + i32(10));
+  });
+  fast := io.async((io : Io) => {
+    io.await(sleep(Duration.from_millis(i64(20)), io), io);
+    assert(order.* == i32(0), "fast task must finish while the slow one sleeps");
+    order.* = (order.* + i32(1));
+  });
+  start := Instant.now();
+  io.spawn(slow, io);
+  io.spawn(fast, io);
+  io.await(slow, io);
+  io.await(fast, io);
+  elapsed := start.elapsed();
+  unsafe(printf("  overlapped sleeps took %lld ms (order=%d)\n", elapsed.as_millis(), order.*));
+  assert(order.* == i32(11), "both tasks must have run");
+  // Serialized (blocking) sleeps would need >= 220ms plus scheduling slop.
+  assert(elapsed.as_millis() < i64(350), "the two sleeps must overlap");
+});

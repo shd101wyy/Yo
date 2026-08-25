@@ -4,7 +4,8 @@ pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
 open(import("std/libc/stdio"));
 { RwLock } :: import("std/sync/rwlock");
 { Thread } :: import("std/thread");
-{ sleep } :: import("std/time/sleep");
+{ sleep_blocking } :: import("std/time/sleep");
+{ Duration } :: import("std/time/duration");
 { WaitGroup } :: import("std/sync/waitgroup");
 { AtomicI32, MemoryOrder } :: import("std/sync/atomic");
 Worker :: import("std/worker");
@@ -109,17 +110,17 @@ test("RwLock concurrent readers across threads", {
   lock := RwLock.new();
   t1 := Thread.spawn((io) => {
     lock.read_lock();
-    sleep(usize(10));
+    sleep_blocking(Duration.from_millis(i64(10)));
     lock.read_unlock();
   });
   t2 := Thread.spawn((io) => {
     lock.read_lock();
-    sleep(usize(10));
+    sleep_blocking(Duration.from_millis(i64(10)));
     lock.read_unlock();
   });
   t3 := Thread.spawn((io) => {
     lock.read_lock();
-    sleep(usize(10));
+    sleep_blocking(Duration.from_millis(i64(10)));
     lock.read_unlock();
   });
   // Main thread also reads concurrently
@@ -286,9 +287,9 @@ test("RwLock readers blocked behind a held writer are woken on release", {
   });
   // All three have reached read_lock, and the writer still holds it.
   while(runtime(arrived.load(MemoryOrder.Relaxed) < i32(3)), {
-    sleep(usize(1));
+    sleep_blocking(Duration.from_millis(i64(1)));
   });
-  sleep(usize(20));
+  sleep_blocking(Duration.from_millis(i64(20)));
   assert(done.load(MemoryOrder.Relaxed) == i32(0), "no reader may pass while the writer holds the lock");
   lock.write_unlock();
   t1.join();

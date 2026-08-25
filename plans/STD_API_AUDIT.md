@@ -662,9 +662,9 @@ implementing the D5 traits.** Until it lands, std honestly refuses https.
 | cli | EXTEND or DROP-TO-PACKAGE | typed values, required enforcement, `--` , repeated opts, help-not-an-error; needs tty/color access (D8 wrappers). Recommendation: keep minimal-but-correct in std |
 | net | FIX + EXTEND | C2/C3; `Shutdown` enum; `Reader`/`Writer` impls (D5); `incoming()`; UDP `connect` (its own doc references it), typed `recv_from`; `UnixStream`/`UnixListener` (sys/unix.yo fully plumbed — lowest-effort high-value gap); `parse_v6`, `SocketAddr.parse`, `Eq`/`Hash` on addr types; RFC 5952 V6 formatting |
 | http | FIX + EXTEND | C1; timeouts (dead `Timeout` variant becomes real), redirects (needs `Url.join`), chunked decoding, binary bodies (`Output`-style bytes + `text()`/`json()` accessors), keep-alive; **server (P1)**: `parse_request`, `HttpServer` on `TcpListener`, router-free minimal core; collapse `FetchOptions` into `HttpRequest` |
-| async | PROMOTE | becomes the combinator home: `join_all`, `race`, `any`, `timeout`, async `sleep(Duration)`, interval, cancellation story for `JoinHandle` (`abort()`), async channel/mutex (D7) |
+| async | PROMOTE | becomes the combinator home: `join_all`, `race`, `any`, `timeout`, ~~async `sleep(Duration)`~~ (LANDED 2026-08-25 as `std/time/sleep.yo`'s `sleep(Duration, io)` per §5 — do NOT add a second one here; re-export it if `std/async` wants the name), interval, cancellation story for `JoinHandle` (`abort()`), async channel/mutex (D7) |
 | thread/worker/sync | REDESIGN (D7) | |
-| time | EXTEND | `Duration`: `Add/Sub` operator impls, `Eq/Ord/Hash`, `from_secs_f64`, `subsec_*`, consts; **make std USE it** (timeouts, sleeps — today zero consumers outside time/); `Instant` `add/sub`, `Eq/Ord`; `DateTime`: RFC3339 `parse`/`format` (C4 fix first), component ctor, arithmetic, `Eq/Ord`; ONE `sleep(Duration, io)` async + `sleep_blocking(Duration)` |
+| time | EXTEND | `Duration`: `Add/Sub` operator impls, `Eq/Ord/Hash`, `from_secs_f64`, `subsec_*`, consts; **make std USE it** (timeouts, sleeps — today zero consumers outside time/); `Instant` `add/sub`, `Eq/Ord`; `DateTime`: RFC3339 `parse`/`format` (C4 fix first), component ctor, arithmetic, `Eq/Ord`; ~~ONE `sleep(Duration, io)` async + `sleep_blocking(Duration)`~~ **DONE 2026-08-25 (§5)** |
 | crypto | EXTEND | streaming `Digest` trait unifying Sha256/Md5 (+ streaming Md5); SHA-1, SHA-512, **HMAC** (blocks JWT/SigV4/webhooks), CRC32, constant-time compare; fix C5; new `std/rand` module: seedable PCG/xoshiro PRNG, `shuffle`, `choice`, ranges — infallible, non-crypto, clearly separated from `crypto/random` |
 | log | REWRITE (zero users = free window) | levels + `Off`, `ToString`-generic message, lazy eval, timestamps, target/module, writer sink (file/buffer), thread-safe; keep the free-function facade |
 | testing | EXTEND | `assert_eq`/`assert_ne`/`assert_approx` (diff-printing), `bench`: auto-calibration, black_box, stddev/percentiles |
@@ -854,7 +854,25 @@ small number of PRs with tree-wide fixups (compiler + std + tests + docs):
   nothing left to rename. Verified: zero `punycode` references in std/, src/
   or tests/. If IDN support returns it comes back with tests and a `Url`
   integration, and it gets these names then
-- two `sleep`s → `time.sleep(Duration, io)` async + `time.sleep_blocking(Duration)`
+- ~~two `sleep`s → `time.sleep(Duration, io)` async + `time.sleep_blocking(Duration)`~~
+  **DONE 2026-08-25 (S2, branch `s2/sleep-duration`)** — `std/time/sleep.yo` now
+  exports both: `sleep(Duration, io) -> Impl(Future(unit))` (an `io.async` block
+  awaiting the sys timer) and `sleep_blocking(Duration) -> unit`. `std/sys/timer.yo`
+  is UNCHANGED and keeps its raw `sleep(milliseconds : u64) -> IoFuture`: `sys/` is
+  the syscall boundary, the same call the `Shutdown`/`SeekFrom` split already makes.
+  16 blocking call sites migrated (`src/main.yo` ×1, `tests/sync/{channel,rwlock,
+  waitgroup}.test.yo` ×15); `tests/imm_threading.test.yo` had an unused `sleep`
+  import, dropped. The async call sites left on `std/sys/timer` are the sys-layer
+  tests themselves plus `src/check_watch.yo` — see the deferred note below.
+  New coverage: `tests/time/sleep.test.yo` (4 tests), including an overlap test
+  proving `sleep` suspends rather than blocks the loop.
+  **Found en route:** a codegen miscompilation — a function whose body is ONE
+  inline-builtin call is emitted with the CALLER's arguments, silently discarding
+  the body's own argument expressions (`issues/inline-builtin-alias-drops-body-arguments.md`).
+  `sleep_blocking` works around it with a two-statement body.
+  **Deferred:** migrating `src/check_watch.yo` off `std/sys/timer` — it is the one
+  non-test consumer of the async sleep, and an async call-shape change inside the
+  compiler tree cannot be validated without a `yo build` / `compile src/main.yo`.
 - `str.join(items)` receiver-as-separator: keep (Python style is fine) but
   document; `index_of`/`last_index_of` keep (JS names are the local norm) —
   the D2 table is the arbiter wherever vocabularies mix
