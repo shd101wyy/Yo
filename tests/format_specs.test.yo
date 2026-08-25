@@ -45,3 +45,69 @@ test("the blanket impl covers every ToString type", {
   assert(o.format(">10") == `   Some(4)`, "named Option receiver");
   assert(Result(i32, String).Ok(i32(1)).format(">8") == `   Ok(1)`, "inline Result receiver");
 });
+// D4 (plans/STD_API_AUDIT_D4_PLAN.md §5.2 S2, §6.2). `width` is documented
+// "Minimum width in CHARACTERS" and `.N` on text is a truncation length in
+// characters, but every test above this line is pure ASCII — where bytes and
+// runes coincide, so a wrong basis passes. These pin the character basis with
+// content where the two disagree, and they must keep passing after `len()`
+// and `substring()` become byte-based.
+test("width counts CHARACTERS, not bytes", {
+  // `中文` is 2 runes / 6 bytes: a byte-based width would emit no padding.
+  assert(String.from("中文").format(">4") == `  中文`, "3-byte runes right-aligned");
+  assert(String.from("中文").format("<4") == `中文  `, "3-byte runes left-aligned");
+  assert(String.from("中文").format("^6") == `  中文  `, "3-byte runes centred");
+  // 1+2+3+4 bytes = 10 bytes, 4 runes.
+  assert(String.from("aé中𝄞").format(">6") == `  aé中𝄞`, "all four UTF-8 widths");
+  assert(String.from("aé中𝄞").format(">4") == `aé中𝄞`, "already at the width");
+  assert(String.from("aé中𝄞").format(">10") == `      aé中𝄞`, "byte length would give no padding");
+  assert(String.from("😀").format("*>3") == `**😀`, "astral rune with a custom fill");
+});
+test("a multibyte FILL character pads by runes too", {
+  assert(String.from("ab").format("中>5") == `中中中ab`, "three 3-byte fill runes");
+  assert(String.from("中").format("𝄞^5") == `𝄞𝄞中𝄞𝄞`, "4-byte fill around a 3-byte body");
+});
+test("precision truncates by CHARACTERS and never splits a rune", {
+  assert(String.from("中文字符串").format(".3") == `中文字`, "3 runes, not 3 bytes");
+  assert(String.from("aé中𝄞").format(".1") == `a`, "cut before the 2-byte rune");
+  assert(String.from("aé中𝄞").format(".2") == `aé`, "cut after the 2-byte rune");
+  assert(String.from("aé中𝄞").format(".3") == `aé中`, "cut after the 3-byte rune");
+  assert(String.from("aé中𝄞").format(".4") == `aé中𝄞`, "the whole string");
+  assert(String.from("aé中𝄞").format(".9") == `aé中𝄞`, "precision past the end is a no-op");
+  // A byte cut at 2 would land inside 'é' and emit invalid UTF-8; the result
+  // here is always re-decodable, which is what the assertion below checks.
+  assert(String.from("aé中𝄞").format(".2").bytes_len() == usize(3), "2 runes are 3 bytes");
+  assert(String.from("😀😀😀").format(".2") == `😀😀`, "astral runes");
+});
+test("width and precision compose on multibyte text", {
+  assert(String.from("中文字符串").format(">6.3") == `   中文字`, "truncate then pad");
+  assert(String.from("aé中𝄞").format("<7.2") == `aé     `, "left-aligned after a rune cut");
+  assert(String.from("aé中𝄞").format("^8.3") == `  aé中   `, "centred after a rune cut");
+});
+test("numeric padding measures the sign, prefix and digits in characters", {
+  // The ASCII shape first: zero fill goes between the sign/prefix and digits.
+  assert(i32(-(42)).format("08") == `-0000042`, "zero fill still goes after the sign");
+  assert(i32(255).format("#08x") == `0x0000ff`, "alt hex zero padded");
+  assert(String.from("中文").format("0>5") == `000中文`, "explicit align beats the zero flag");
+});
+test("pad_numeric counts its sign, prefix and digits in RUNES", {
+  // `String.format` routes a String body through `pad`, NEVER through
+  // `pad_numeric`, so the assertions above cannot reach `pad_numeric`'s own
+  // `char_len` measurement at all — the radix formatters only ever hand it
+  // ASCII. Call it directly with multibyte parts, which is the only way to
+  // pin its basis. Every expected value below differs under a byte basis
+  // (shown in the comment), so a wrong basis cannot pass.
+  // char: head 1+1=2, total 4, 8-4 = 4 zeros.  byte: head 2+3=5, total 7 -> 1 zero.
+  assert(FormatSpec.parse("08").pad_numeric(`é`, `中`, `12`) == `é中000012`, "multibyte sign and prefix");
+  // char: head 1+2=3, total 5, 10-5 = 5 zeros.  byte: total 9 -> 1 zero.
+  assert(FormatSpec.parse("010").pad_numeric(`-`, `0x`, `中文`) == `-0x00000中文`, "multibyte digits");
+  // char: total 4, 4 zeros.  byte: total 10 >= 8 -> no padding at all.
+  assert(FormatSpec.parse("08").pad_numeric(``, ``, `aé中𝄞`) == `0000aé中𝄞`, "all four UTF-8 widths");
+  // Explicit alignment takes the `_apply_width` path over the whole rendering:
+  // char len 4 -> 4 spaces; byte len 7 -> 1 space.
+  assert(FormatSpec.parse(">8").pad_numeric(`é`, `中`, `12`) == `    é中12`, "explicit align, multibyte");
+  // No zero flag: same `_apply_width` path. char len 3 -> 5 spaces.
+  assert(FormatSpec.parse("8").pad_numeric(`-`, ``, `中文`) == `     -中文`, "width without the zero flag");
+  // The rune counts are what the width promises, and the bytes are not.
+  assert(FormatSpec.parse("08").pad_numeric(`é`, `中`, `12`).char_len() == usize(8), "eight runes wide");
+  assert(FormatSpec.parse("08").pad_numeric(`é`, `中`, `12`).bytes_len() == usize(11), "eleven bytes, not eight");
+});

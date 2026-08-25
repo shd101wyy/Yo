@@ -47,7 +47,9 @@ _find_token_at :: (
         ((t.kind == TokenKind.SingleLineComment) || (t.kind == TokenKind.MultiLineComment))
     );
     if(!(skip) && (t.row == line), {
-      if((character >= t.column) && (character < (t.column + t.value.len())), {
+      // `character` and `t.column` are RUNE columns, so the token width has
+      // to be a rune count (plans/STD_API_AUDIT_D4_PLAN.md §5.2 S11).
+      if((character >= t.column) && (character < (t.column + t.value.char_len())), {
         return(Option(Token).Some(t));
       });
     });
@@ -289,7 +291,7 @@ handle_hover :: (
       jb().put("kind", jstr(String.from("markdown"))).put("value", jstr(content)).obj()
     ).put(
       "range",
-      j_range(target.row, target.column, target.row, target.column + target.value.len())
+      j_range(target.row, target.column, target.row, target.column + target.value.char_len())
     ).obj()
   )
 });

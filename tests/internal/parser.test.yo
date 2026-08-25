@@ -2,6 +2,7 @@ open(import("std/string"));
 open(import("std/fmt"));
 open(import("std/error"));
 { ArrayList } :: import("std/collections/array_list");
+{ StringBuilder } :: import("std/string/string_builder");
 { AstExpr, ast_expr_to_string, ast_expr_is_atom, ast_expr_is_fn_call, make_err_expr } :: import("../../src/expr.yo");
 { ParseError, parse, extract_source_line, generate_expr_from_code } :: import("../../src/parser.yo");
 { assert, panic } :: import("std/assert");
@@ -706,4 +707,68 @@ test("Parse colon : with multi-line parenthesized -> RHS in struct field", {
   );
   e := only_expr(prog);
   assert(ast_expr_is_fn_call(e), "colon with multi-line parens should produce FnCall");
+});
+// ─── Template-string spec peeling (`_peel_spec`) ──────────────────────────────
+// `plans/STD_API_AUDIT_D4_PLAN.md` §5.2 S4. `_peel_spec` splits `${expr:spec}`
+// by walking an `ArrayList(rune)` backwards and then cutting `text`. Those two
+// index bases have to agree, and BEFORE the D4 migration they agreed only by
+// accident — `substring` happened to be rune-indexed. Every pre-existing test
+// in this file is ASCII, where the accident is invisible; these are multibyte
+// on BOTH sides of the cut, so a byte/rune confusion in the peel shows up as a
+// mangled expression text or a mangled spec.
+//
+// The parse of a template string yields two top-level exprs: the injected
+// `import("std/fmt/format")` and the rendering call, whose printed form
+// (`(<expr>.format)("<spec>")`) shows exactly where the peel cut.
+_ts :: (fn(inner : str) -> String)({
+  sb := StringBuilder.new();
+  sb.write_byte(u8(96));
+  sb.write_str(inner);
+  sb.write_byte(u8(96));
+  sb.to_string()
+});
+// `exn` is passed in rather than built here: the file's other tests build the
+// throwing handler INSIDE the `test(...)` body, and a `(err) -> { …; unwind(()); }`
+// closure hoisted into a top-level helper emits a `Failed to transpile` stub
+// under the seed compiler (issues/ftt-stub-in-live-closure-falls-off-non-void-function.md).
+_parse_ts :: (fn(inner : str, exn : Exception) -> String)({
+  prog := parse(_ts(inner), `test.yo`, exn);
+  assert(prog.len() == usize(2), "template string should parse to import + rendering");
+  match(
+    prog.get(usize(1)),
+    .Some(e) => ast_expr_to_string(e),
+    .None => String.new()
+  )
+});
+_ts_exn :: (fn() -> Exception)(
+  Exception(
+    throw : (
+      (err) -> {
+        panic("unexpected parse error in a template string");
+      }
+    )
+  )
+);
+test("Peel a format spec off a MULTIBYTE template expression", {
+  exn := _ts_exn();
+  assert_str_eq(_parse_ts("${x:>8}", exn), `(x.format)(">8")`, "ASCII control case");
+  assert_str_eq(_parse_ts("${名前:>8}", exn), `(名前.format)(">8")`, "3-byte runes before the colon");
+  assert_str_eq(_parse_ts("${名前:.2}", exn), `(名前.format)(".2")`, "precision spec after 3-byte runes");
+  assert_str_eq(_parse_ts("${é:#08x}", exn), `(é.format)("#08x")`, "2-byte rune before the colon");
+  assert_str_eq(_parse_ts("${a.名前:^10.4}", exn), `((a.名前).format)("^10.4")`, "dotted path with a multibyte segment");
+});
+test("A spaced colon-pair stays a colon-pair with multibyte content", {
+  exn := _ts_exn();
+  // The `space before the colon` guard reads `tc(k - 2)`, a RUNE index; the
+  // whole point of S4 is that the cut that follows agrees with it.
+  assert_str_eq(_parse_ts("${名前 : y}", exn), `((名前 : y).to_string)()`, "spaced colon is not a spec");
+  assert_str_eq(_parse_ts("${名前}", exn), `(名前.to_string)()`, "no spec at all");
+});
+test("Peeling survives multibyte literal text around the interpolation", {
+  exn := _ts_exn();
+  assert_str_eq(
+    _parse_ts("中${名前:>8}文", exn),
+    `((("中".to_string)().(+))((名前.format)(">8")).(+))(("文".to_string)())`,
+    "multibyte literal segments on both sides"
+  );
 });

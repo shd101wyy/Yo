@@ -186,7 +186,10 @@ evaluate_yo_comptime_string_functions :: (
             av,
             .StrLit(raw) => {
               unquoted := str_lit_unquote(raw);
-              EvalValue.IntLit(unquoted.len().to_string())
+              // COMPTIME BASIS PIN (STD_API_AUDIT_D4_PLAN §1.4 O1c): comptime
+              // `length` counts CHARACTERS. Spelled `char_len` so D4's byte
+              // flip cannot change the comptime language silently.
+              EvalValue.IntLit(unquoted.char_len().to_string())
             },
             _ => create_unknown_val(t_comptime_int())
           ),
@@ -305,15 +308,17 @@ evaluate_yo_comptime_string_functions :: (
                       .IntLit(end_raw) => match(
                         end_raw.parse_i64(),
                         .Some(n) => usize(n),
-                        .None => unquoted.len()
+                        .None => unquoted.char_len()
                       ),
-                      _ => unquoted.len()
+                      _ => unquoted.char_len()
                     ),
-                    .None => unquoted.len()
+                    .None => unquoted.char_len()
                   ),
-                  .None => unquoted.len()
+                  .None => unquoted.char_len()
                 );
-                sliced := unquoted.substring(start_idx, end_idx);
+                // COMPTIME BASIS PIN (STD_API_AUDIT_D4_PLAN §1.4 O1c):
+                // comptime `slice` indexes CHARACTERS.
+                sliced := unquoted.char_substring(start_idx, end_idx);
                 EvalValue.StrLit(str_lit_quote(sliced))
               },
               _ => create_unknown_val(t_comptime_string())

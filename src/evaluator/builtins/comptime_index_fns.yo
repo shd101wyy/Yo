@@ -765,7 +765,7 @@ ci_eval_string_index :: (
       );
     });
     idx_usize := usize(idx_i64);
-    str_len := unquoted.len();
+    str_len := unquoted.char_len();
     if(idx_usize >= str_len, {
       exn.throw(
         dyn(
@@ -778,7 +778,10 @@ ci_eval_string_index :: (
         )
       );
     });
-    char_str := unquoted.substring(idx_usize, idx_usize + usize(1));
+    // COMPTIME BASIS PIN (STD_API_AUDIT_D4_PLAN §1.4 O1c): comptime `s[i]`
+    // yields the i-th CHARACTER as a 1-char StrLit, not the i-th byte. Runtime
+    // `s[i]` already differs (it is a u8); PR 7 decides whether to unify them.
+    char_str := unquoted.char_substring(idx_usize, idx_usize + usize(1));
     out_info := new_expr_info(cur_env, result_ty);
     out_info.value = Option(EvalValue).Some(EvalValue.StrLit(ci_str_quote(char_str)));
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
@@ -822,7 +825,7 @@ ci_eval_string_index :: (
   );
   start_idx := ci_range.start_idx;
   end_idx := ci_range.end_idx;
-  str_len := unquoted.len();
+  str_len := unquoted.char_len();
   if(start_idx > str_len, {
     exn.throw(
       dyn(
@@ -859,7 +862,9 @@ ci_eval_string_index :: (
       )
     );
   });
-  sliced := unquoted.substring(start_idx, end_idx);
+  // COMPTIME BASIS PIN (STD_API_AUDIT_D4_PLAN §1.4 O1c): comptime `s(a..b)`
+  // slices CHARACTERS.
+  sliced := unquoted.char_substring(start_idx, end_idx);
   out_info := new_expr_info(cur_env, result_ty);
   out_info.value = Option(EvalValue).Some(EvalValue.StrLit(ci_str_quote(sliced)));
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
