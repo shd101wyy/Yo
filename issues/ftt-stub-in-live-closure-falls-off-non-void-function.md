@@ -1,7 +1,32 @@
 # A `Failed to transpile` marker in a LIVE closure falls off a value-returning C function
 
-**Status: OPEN.** Found 2026-08-25 while landing the STD_API_AUDIT D2 naming
-sweep. Reproducer: `issues/repros/ftt-stub-in-async-closure-returns-garbage.yo`.
+**Status: PARTIALLY FIXED — still OPEN for the `unit`-returning case.**
+
+The half described below, where the enclosing C function RETURNS A VALUE, is
+closed by PR #275 (`dd4dbbf5a`): codegen rewrites such a body to `abort()`
+instead of letting it fall off the end, and `yo compile` passes
+`-Werror=return-type` on **both** optimisation arms (`src/main.yo:1859` release,
+`:1871` `-O0`), so clang rejects any that slip through. Falling off the end of a
+value-returning C function is UB whether or not anything calls it, which is why
+the rewrite is unconditional on liveness.
+
+What remains is the **`unit`-returning** case: `src/codegen/functions/generation.yo`
+gates the abort rewrite on `stub_is_superseded || !(stub_ret_unit)`, so an
+untranspiled statement in a live `unit`-returning function is still silently
+dropped — missing side effects rather than a garbage value, and nothing
+diagnoses it. Extending the rewrite to that case is measurable rather than
+speculative: flip the gate to fire on any marker, then run the full suite and
+the hollow sweep. Zero new failures means the class is free to close; any
+failure is itself a silent bug that was passing.
+
+The comment above the gate records why markers were not made FATAL in general —
+that was tried and reverted, because `tests/fn.test.yo` and
+`tests/algebraic_effects.test.yo` carry markers in dead superseded-generic code
+that never runs. The abort rewrite is what makes those harmless without
+pretending they are absent.
+
+Found 2026-08-25 while landing the STD_API_AUDIT D2 naming sweep. Reproducer:
+`issues/repros/ftt-stub-in-async-closure-returns-garbage.yo`.
 
 A method that does not exist, called inside `io.async((e) => { ... })`, is
 silently dropped. `yo check` passes, `yo compile` exits 0 with no diagnostic,

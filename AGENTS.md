@@ -317,7 +317,7 @@ yo version clean      # Remove all cached versions
 ## Common Pitfalls
 
 - **An `ExprInfo.value` of `.None`** means the value is a runtime value (not `UnknownVal`). `EvalValue.UnknownVal` means the type is known but the value itself is not. (TS-era docs write this as `expr.$.value == undefined` / `UnknownValue`.)
-- **`yo compile` cannot be used on `*.test.yo` files.** Extract the failing test case into a standalone `.yo` file with a `main` function and `export main;`.
+- **`yo compile` cannot be used on `*.test.yo` files.** Extract the failing test case into a standalone `.yo` file with a `main` function and `export(main);` (the bare `export main;` form older docs show does not parse).
 - **Algebraic effect `unwind` vs C `abort()`**: They are completely different. The Yo keyword `unwind` discards a continuation; C's `abort()` terminates the process. (`unwind` was previously named `escape`, renamed in commit `a3510d20`.)
 - **The VS Code extension bundles an LSP client since 2026-08-22** (plain JS, no build step): it spawns `yo lsp` (configurable via `yo.binPath`), which serves the FULL feature set — diagnostics, hover, definition, symbols, references, folding, rename, formatting, signature help, completion (P4 feature-complete 2026-08-22, `plans/P4_LSP.md`). With `yo.lsp.enabled: false` (or no yo binary) it degrades to syntax highlighting.
 - **`outdated/` markdown files are stale.** Do not use them for design decisions.

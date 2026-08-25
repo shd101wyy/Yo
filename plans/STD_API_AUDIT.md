@@ -871,10 +871,13 @@ small number of PRs with tree-wide fixups (compiler + std + tests + docs):
   tests themselves plus `src/check_watch.yo` — see the deferred note below.
   New coverage: `tests/time/sleep.test.yo` (4 tests), including an overlap test
   proving `sleep` suspends rather than blocks the loop.
-  **Found en route:** a codegen miscompilation — a function whose body is ONE
-  inline-builtin call is emitted with the CALLER's arguments, silently discarding
-  the body's own argument expressions (`issues/inline-builtin-alias-drops-body-arguments.md`).
-  `sleep_blocking` works around it with a two-statement body.
+  **Found en route and FIXED in the same batch:** a codegen miscompilation — a
+  function whose body is ONE inline-builtin call was emitted with the CALLER's
+  arguments, silently discarding the body's own argument expressions
+  (`issues/fixed/inline-builtin-alias-drops-body-arguments.md`). The predicate
+  now also requires the body to pass its parameters through unchanged and in
+  order, so `sleep_blocking` keeps its natural one-expression body rather than
+  the two-statement workaround it shipped with for one commit.
   **Deferred:** migrating `src/check_watch.yo` off `std/sys/timer` — it is the one
   non-test consumer of the async sleep, and an async call-shape change inside the
   compiler tree cannot be validated without a `yo build` / `compile src/main.yo`.

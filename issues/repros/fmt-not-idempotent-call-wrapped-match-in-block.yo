@@ -1,0 +1,13 @@
+// Repro for issues/fmt-not-idempotent-call-wrapped-match-in-block.md.
+//
+//   cp this file to /tmp/a.yo
+//   yo fmt /tmp/a.yo && cp /tmp/a.yo /tmp/pass1.yo
+//   yo fmt /tmp/a.yo && diff /tmp/pass1.yo /tmp/a.yo   # <-- differs
+//
+// Equivalently: `yo fmt f.yo && yo fmt --check f.yo` FAILS, which is exactly
+// the workflow AGENTS.md prescribes.
+{ ArrayList } :: import("std/collections/array_list");
+pick :: (fn(xs : ArrayList(i32)) -> i32)({
+  i32(match(xs.get(usize(0)), .Some(a) => a, .None => i32(0)))
+});
+export(pick);

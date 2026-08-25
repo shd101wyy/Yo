@@ -40,16 +40,9 @@ sleep :: (fn(duration : Duration, io : Io) -> Impl(Future(unit)))({
 });
 /// Block the current thread for `duration`. Nothing else runs on this thread
 /// until it returns — inside async code use `sleep` instead.
-///
-/// The `ms` binding is load-bearing, not style: a function body that is a
-/// SINGLE call to an inline builtin is elided by codegen, which then emits the
-/// builtin with the CALLER's arguments — so a one-expression body here would
-/// hand the raw `Duration` to `usleep`
-/// (issues/inline-builtin-alias-drops-body-arguments.md).
-sleep_blocking :: (fn(duration : Duration) -> unit)({
-  ms := usize(duration.as_millis());
-  __yo_ms_sleep(ms)
-});
+sleep_blocking :: (fn(duration : Duration) -> unit)(
+  __yo_ms_sleep(usize(duration.as_millis()))
+);
 export(
   sleep,
   sleep_blocking

@@ -1,6 +1,17 @@
 # A function whose body is ONE inline-builtin call is emitted with the CALLER's arguments
 
-**Status:** OPEN — found 2026-08-25 while implementing STD_API_AUDIT §5
+**Status: FIXED 2026-08-25.** `is_function_value_with_only_builtin_yo_inline_function_call`
+(`src/codegen/utils/index.yo`) now also requires the body call to pass the
+function's parameters through unchanged and in order; when it does not, the
+wrapper is emitted as a real C function and called normally. Regression tests:
+`tests/inline_builtin_alias.test.yo` (computed argument, reversed parameters,
+and a straight pass-through that must still inline) — red-first verified, the
+first two fail with exit code 6 on the unfixed compiler. `std/time/sleep.yo`'s
+`sleep_blocking` is back to its natural one-expression body, and the
+"never wrap an inline builtin in a ONE-EXPRESSION body" section added to
+`.github/instructions/yo-design.instructions.md` as a workaround is deleted.
+
+Found 2026-08-25 while implementing STD_API_AUDIT §5
 (`time.sleep(Duration, io)` / `time.sleep_blocking(Duration)`).
 
 **Severity:** silent miscompilation. When the wrapper's argument types happen to

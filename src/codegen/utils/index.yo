@@ -788,9 +788,13 @@ is_function_value_with_only_builtin_yo_inline_function_call :: (
     body,
     .Atom(_, _) => body,
     .FnCall(_, _, body_args, _, _) => if(ast_expr_is_fn_call_of(body, BK_BEGIN, .None) && (body_args.len() == usize(1)), {
-      _unwrap_unsafe(match(body_args.get(usize(0)),
-      .Some(a) => a,
-      .None => body))
+      _unwrap_unsafe(
+        match(
+          body_args.get(usize(0)),
+          .Some(a) => a,
+          .None => body
+        )
+      )
     }, body)
   );
   operator_name := match(

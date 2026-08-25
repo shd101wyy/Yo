@@ -121,37 +121,6 @@ result := unsafe.cast(ptr, *(u8));
 
 **Note:** `__yo_as` is still exported from prelude as a top-level symbol because the evaluator internally transforms type casts (e.g., `u32(x)`) into `__yo_as` calls. Do not remove `export __yo_as;`.
 
-### Never wrap an inline builtin in a ONE-EXPRESSION body
-
-A function (or method) whose body is a **single** call to one of the builtin
-inline functions — the `BuiltinYoInlineFunctions` list in
-`src/codegen/constants.yo`: `__yo_op_*`, `__yo_ptr_*`, `__yo_str_*`,
-`__yo_ms_sleep`, `__yo_array_index`, … — is ELIDED by codegen, which emits the
-builtin at the call site using the **caller's** arguments. The argument
-expressions in your body are silently discarded.
-
-```rust
-// WRONG — emits `usleep((<caller's Duration>) * 1000)`; the cast and the
-// `.as_millis()` never happen.
-sleep_blocking :: (fn(duration : Duration) -> unit)(
-  __yo_ms_sleep(usize(duration.as_millis()))
-);
-
-// RIGHT — a two-statement body is not elided, so a real C function is emitted.
-sleep_blocking :: (fn(duration : Duration) -> unit)({
-  ms := usize(duration.as_millis());
-  __yo_ms_sleep(ms)
-});
-```
-
-A one-expression body is only safe when the builtin's arguments are exactly the
-function's parameters, in order (the operator-alias shape,
-`add : (fn(a, b) -> T)(__yo_op_add(a, b))`).
-
-This is a compiler bug, not a language rule — tracked in
-`issues/inline-builtin-alias-drops-body-arguments.md`. Delete this section when
-it is fixed.
-
 ## SomeType
 
 - `SomeType` automatically implements the `Runtime` trait by default.
