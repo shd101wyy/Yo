@@ -648,6 +648,29 @@ implementing the D5 traits.** Until it lands, std honestly refuses https.
   `with_write` takes `Impl(Fn(inout(v) : T) -> R)` (writes land in the cell);
   `with_read` takes `Impl(Fn(v : T) -> R)` — by value, because that is the only
   read/write distinction Yo's parameter modes can express.
+  **Reviewed 2026-08-26 (second pass).** Re-measured: 14/14
+  `tests/sync/rwlock.test.yo`, 16/16 `tests/sync/once.test.yo`, 87/87 for the
+  whole `tests/sync` directory as one batch, `yo check ./std` 151/151 — all with
+  `YO_STD` pointed at this tree. Non-vacuity was proved by breaking four
+  assertions in each file and watching them fail, and the red-first wakeup case
+  was proved still red by restoring the old single-arm `cond` in
+  `_raw_write_unlock` (that test then fails; it passes with the both-sets
+  wakeup). Two caveats on the claims above: (1) the by-value read guarantee is
+  now TESTED — "RwLock with_read does not write through to the shared cell"
+  writes a FIELD of the copy (which compiles; only assigning the parameter
+  ITSELF trips the evaluator hole) and asserts the shared cell is unchanged;
+  (2) the "releases on unwind" property is INHERITED from `__MutexUnlocker`'s
+  `Dispose` and is not directly exercisable through this API — a closure body
+  cannot raise a `ctl`, so there is no way to unwind out of a `with_read` /
+  `with_write` body ("Closures cannot capture a value of control-bound type").
+  It is an argument about the drop machinery, not a measurement, for `Mutex` too.
+  Note also that the landed shape deviates from `plans/THREAD_SAFETY.md`'s Phase
+  D sketch, which gave BOTH `with_read` and `with_write` a `ref(v) : T` body
+  parameter; splitting them into by-value / `inout` is what makes the read/write
+  distinction mean anything. Found while reviewing: `yo test --std-path <dir>` is
+  silently ignored (the per-batch compile is a child process and the flag is not
+  forwarded), so a `--std-path` test run scores the INSTALLED std —
+  issues/yo-test-std-path-not-forwarded-to-the-batch-compile.md.
 - **BLOCKER found while doing the row above:** a callback generic over its
   result — the `with_lock` / `with_read` / `with_write` signature itself —
   emits `void* tmp = <void call>;` when the closure returns unit, so

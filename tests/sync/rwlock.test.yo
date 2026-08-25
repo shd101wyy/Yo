@@ -85,6 +85,20 @@ test("RwLock protects a value struct", {
   assert(got == i32(10), "struct field writes land in the shared cell");
   assert(lock.with_read((v) => v.y) == i32(2), "the untouched field is preserved");
 });
+test("RwLock with_read does not write through to the shared cell", {
+  // `with_read` binds the protected value BY VALUE, so a FIELD assignment
+  // inside the body mutates the body's own copy only. (Assigning to the
+  // parameter itself is a separate, unrelated evaluator hole — see
+  // issues/assign-to-by-value-closure-param-under-generic-result-types-unit.md
+  // — which is why this case writes through a field instead.)
+  Point :: struct(x : i32, y : i32);
+  lock := RwLock(Point).new(Point(i32(1), i32(2)));
+  lock.with_read((v) => {
+    v.x = i32(99);
+    v.x
+  });
+  assert(lock.with_read((v) => v.x) == i32(1), "a read body's field write must not reach the shared cell");
+});
 
 // ============================================================================
 // Thread integration (atomic object — shared directly without Arc)
