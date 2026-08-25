@@ -526,6 +526,42 @@ bases in one type is the worst of both worlds (regex pays a
 all find/slice APIs byte-indexed with a documented char-boundary contract.
 This is THE breaking change to do before stability — it cannot be done after.
 
+**SCOPE EXTENDED (user, 2026-08-25): `std/imm/string` is IN, and so is the
+`imm.String` → `ImmString` rename** (moved here from the §4 imm row, which had it
+as an open "or drop if COW String lands" question — it is now part of this one
+decision).
+
+The reason is sharper than consistency. The two string types already disagree on
+what the SAME method name means:
+
+| | `std/string` `String` | `std/imm/string` `String` |
+| --- | --- | --- |
+| `len()` | runes, O(n) | runes, O(n) (`:83`) |
+| `index_of()` | **char** index | **byte** index (`:255`) |
+| slice | `substring()` char-indexed | `slice()` **byte** range (`:199`) |
+| byte access | `Index` → byte | `byte_at()` (`:116`) |
+| `at()` | char → rune | char → rune (`:577`) |
+
+So `index_of` returns a byte offset on one type and a character offset on the
+other. Code moved between them — or an offset from one fed into the other's
+slice — is silently wrong on any non-ASCII input, which is a worse failure than
+the single-type mixed basis, because nothing surfaces it until multibyte text
+appears.
+
+Applying D4 to `imm.String` is SMALL: it is already byte-indexed where it counts
+(`slice`, `index_of`, `byte_at`). The work is `len()` → bytes O(1), fold away the
+now-redundant `bytes_len()` (it exists only because `len()` took the name for the
+rune count), add `char_len()`, and give it `chars()`/`char_indices()`.
+
+**Related doc defect, FIXED 2026-08-25 ahead of this work** (it was wrong today
+and would otherwise have shipped in v0.2.17): `docs/en-US/DESIGN.md`,
+`docs/zh-CN/DESIGN.md` and `std/string/string.yo`'s own header all called
+`std/string`'s `String` an "Immutable String". It is growable — `push_str`,
+`push_string`, `push_byte`, `reserve`, `clear` all take `inout(self)` — and the
+source comment contradicted itself in consecutive lines. The immutable one is
+`std/imm/string`. Corrected in all four places; the naming confusion that error
+reflects is exactly what the `ImmString` rename above is for.
+
 ### D5 — Async I/O traits + the fd problem
 
 `std/io.Reader`/`Writer` are sync, orphaned (zero implementors), and
@@ -588,7 +624,7 @@ implementing the D5 traits.** Until it lands, std honestly refuses https.
 | fmt | FIX + EXTEND | delete `display.yo` (zero users) or wire it; format specs (D3.10); collapse 4 print bodies; dedupe 15 snprintf helpers |
 | spec/ | FREEZE AS DOC | identity stubs; mark experimental, exclude from stability promise |
 | collections/* | RENAME + EXTEND | §5 renames; entry API, `retain/extend/drain`, `binary_search`, real `sort` (not O(n²) insertion), `sort_by`; HashSet = HashMap(T, unit) to kill ~500 duplicated SwissTable lines; hide pub `ctrl/data/…` fields; `BTreeMap` → rename `FlatMap` OR implement a real B-tree with `range()` (recommend: real B-tree, keep name); add `BTreeSet`; `PriorityQueue`: keep name, add comparator ctor, DOCUMENT min-heap |
-| imm/* | KEEP (O4) + FIX | stays in std (decided 2026-08-23); require `Acyclic` element bounds per O7, add iteration + `Index` where doc'd, rename `imm.String` → `ImmString` (or drop if COW `String` lands), dedupe set pair; mark unstable until exercised |
+| imm/* | KEEP (O4) + FIX | stays in std (decided 2026-08-23); require `Acyclic` element bounds per O7, add iteration + `Index` where doc'd, rename `imm.String` → `ImmString` (**folded into D4** 2026-08-25 — decided, no longer conditional on COW `String`), dedupe set pair; mark unstable until exercised |
 | string | FIX + EXTEND | D4 indexing; Unicode-correct `to_lowercase` (+ `to_ascii_*` variants); `Pattern` impl for `rune` + `Regex`; `replace*` Pattern-generic; `parse_f64`/radix; `split_once`, `strip_prefix/suffix`, `char_indices`; move `panic_dyn`/`assert_dyn` to assert; delete dead `StringError`, one of `to_cstr`/`to_c_str` |
 | encoding | STANDARDIZE | D2 verbs; one error style per D1; utf8 module; add `html_encode` (XSS!); percent-encoding module (P0 — nothing in std can build a safe query string); base32; CSV (P1); toml: floats/arrays/dates/serializer + `ToToml`/`FromToml` derives to mirror json (P1) |
 | json | EXTEND | enum representation for derives (open question O3); `JsonValue.Object` O(n) parallel arrays → keep repr, add index map if profiling demands |

@@ -84,7 +84,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
 - [Pattern Matching](#pattern-matching)
 - [String](#string)
   - [String literal as `str` or C string pointer](#string-literal-as-str-or-c-string-pointer)
-  - [String (Immutable String)](#string-immutable-string)
+  - [String (Growable UTF-8 String)](#string-growable-utf-8-string)
     - [Template string interpolation with `${}` syntax:](#template-string-interpolation-with--syntax)
 - [Collections](#collections)
   - [ArrayList](#arraylist)
@@ -1824,9 +1824,14 @@ s := "Hello"; // s : str — a string literal is the builtin static string view 
 s3 := *(u8)("Hi"); // Or use a pointer cast to get a C string pointer.
 ```
 
-### String (Immutable String)
+### String (Growable UTF-8 String)
 
-UTF-8 encoded string.
+Heap-allocated, growable UTF-8 string — the same shape as Rust's `String`. It is
+NOT immutable: `push_str`, `push_string`, `push_byte`, `reserve` and `clear` take
+`inout(self)` and mutate in place. Operators like `+` still produce a new string.
+
+For an immutable, atomically reference-counted string that is safe to share across
+threads, see `std/imm/string`, whose "modification" methods all return a new value.
 
 ```rust
 s := String.new();
