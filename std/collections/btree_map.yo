@@ -65,7 +65,7 @@ impl(
     _FindResult(lo, false)
   }),
   // Retrieve the value associated with key `k`.
-  get : (fn(self : Self, k : K, where(K <: Ord(K))) -> ?(V))({
+  get : (fn(self : Self, k : K, where(K <: Ord(K))) -> Option(V))({
     r := self._find(k);
     cond(
       r.found => .Some(self._entries(r.idx).value),
@@ -95,7 +95,7 @@ impl(
     );
   }),
   // Remove the entry with key `k`. Returns the old value, or .None.
-  remove : (fn(self : Self, k : K, where(K <: Ord(K))) -> ?(V))({
+  remove : (fn(self : Self, k : K, where(K <: Ord(K))) -> Option(V))({
     r := self._find(k);
     cond(
       r.found => {
@@ -106,15 +106,19 @@ impl(
       true => .None
     )
   }),
-  // Return the entry with the smallest key, or .None.
-  min : (fn(self : Self) -> ?(MapEntry(K, V)))(
+  /// Return the entry with the smallest key, or `.None`.
+  ///
+  /// Named `first_entry`/`last_entry` rather than `min`/`max` because this is a
+  /// MAP: it returns a whole `MapEntry`, not a key. Sets keep `min`/`max`,
+  /// which do return the element (plans/STD_API_AUDIT.md §5).
+  first_entry : (fn(self : Self) -> Option(MapEntry(K, V)))(
     cond(
       (self._entries.len() == usize(0)) => .None,
       true => .Some(self._entries(usize(0)))
     )
   ),
-  // Return the entry with the largest key, or .None.
-  max : (fn(self : Self) -> ?(MapEntry(K, V)))(
+  /// Return the entry with the largest key, or `.None`.
+  last_entry : (fn(self : Self) -> Option(MapEntry(K, V)))(
     cond(
       (self._entries.len() == usize(0)) => .None,
       true => .Some(self._entries(self._entries.len() - usize(1)))
