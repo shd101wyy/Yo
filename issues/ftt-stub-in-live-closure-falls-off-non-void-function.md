@@ -128,15 +128,27 @@ Independently, clang ALREADY detects this exact shape:
 a.out.c:4124:1: warning: non-void function does not return a value [-Wreturn-type]
 ```
 
-`src/main.yo` suppresses it. Optimized builds pass `-w` and then re-enable a
-short list of diagnostics that "can ONLY mean the code GENERATOR emitted
-something inconsistent with its own prototypes" — currently
-`-Wincompatible-pointer-types`, `-Wint-conversion`,
-`-Wimplicit-function-declaration`. `-Wreturn-type` meets that stated criterion
-verbatim and belongs on the list. That is a backstop, not the fix: it should be
-added *in addition to* the gate, exactly as the pointer-type warning was added
-after `issues/fixed/specialized-inout-param-loses-ref-with-comptime-arg.md`.
-See also `issues/release-builds-suppress-all-c-warnings.md`.
+`src/main.yo` suppresses it — and investigating WHY exposed a second bug.
+
+Optimized builds passed `-w` and then "re-enabled" a short list of diagnostics.
+Measured on clang 21.1.7, that never worked: **`-w` is absolute.** No later
+`-W…`, and not even `-Werror=…`, can bring a diagnostic back once `-w` is on
+the command line. `-Wno-everything` behaves differently — later flags DO
+override it.
+
+| flags | on the FTT file above |
+| --- | --- |
+| `-w -Wincompatible-pointer-types -Wint-conversion -Wimplicit-function-declaration` (shipped) | rc=0 — ships the UB |
+| `-Wno-everything <same three> -Werror=return-type` | rc=1 — `error: non-void function does not return a value` |
+
+So the backstop needs BOTH: the blanket flag changed to `-Wno-everything`, and
+`-Werror=return-type` (a bare `-W` would only warn and still build). That also
+makes the three flags from
+`issues/fixed/release-builds-suppress-all-c-warnings.md` effective for the
+first time — see that issue.
+
+The flag is still a backstop, not the cure: it catches the invalid C, but the
+evaluator swallow that produced it remains the root.
 
 ## Regression test
 

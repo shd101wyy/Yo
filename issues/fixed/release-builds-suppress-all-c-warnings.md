@@ -1,6 +1,29 @@
 # `--release` passes `-w`, hiding warnings that mean the compiler miscompiled
 
-**Status:** FIXED 2026-08-25 (PR #260).
+**Status:** FIXED 2026-08-25 (PR #260) — **but that fix was a NO-OP until
+2026-08-25 (`fix/ftt-silent-stub`), which is when it actually started working.**
+
+PR #260 re-enabled three diagnostics AFTER `-w`. Measured on clang 21.1.7, `-w`
+is ABSOLUTE — nothing later can bring a diagnostic back, not even `-Werror=`:
+
+| flags (two-line file passing `char *` to an `int *` parameter) | result |
+| --- | --- |
+| `-Wincompatible-pointer-types` | warning |
+| `-w -Wincompatible-pointer-types` | **SILENT** |
+| `-w -Werror=incompatible-pointer-types` | **SILENT** |
+| `-Wno-everything -Wincompatible-pointer-types` | warning (comes back) |
+
+So the exact diagnostic this issue was written to preserve — the one that turned
+the `inout` miscompile into a silent wrong answer — was STILL suppressed in
+release builds after the "fix". The other two entries
+(`-Wint-conversion`, `-Wimplicit-function-declaration`) appeared to work only
+because clang 16+ makes them errors BY DEFAULT and `-w` cannot suppress an
+error; they fired with or without the list.
+
+The real fix is one word: the blanket flag is now `-Wno-everything`, which later
+`-W…` flags DO override. Found while adding `-Werror=return-type` for
+issues/ftt-stub-in-live-closure-falls-off-non-void-function.md — that flag was
+also silently doing nothing behind `-w`.
 **Found:** 2026-08-25, while fixing
 issues/fixed/specialized-inout-param-loses-ref-with-comptime-arg.md, where `-w`
 is precisely what turned a miscompile into a silent wrong answer.
