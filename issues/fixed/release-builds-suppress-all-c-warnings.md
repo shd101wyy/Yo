@@ -1,44 +1,59 @@
-# `--release` passed a bare `-w`, silencing the diagnostics that catch codegen faults
+# `--release` passes `-w`, hiding warnings that mean the compiler miscompiled
 
 **Status:** FIXED 2026-08-25 (PR #260).
-**Found:** 2026-08-24, while diagnosing
-`issues/fixed/specialized-inout-param-loses-ref-with-comptime-arg.md`.
+**Found:** 2026-08-25, while fixing
+issues/fixed/specialized-inout-param-loses-ref-with-comptime-arg.md, where `-w`
+is precisely what turned a miscompile into a silent wrong answer.
 
-## Symptom
+## What happens
 
-Warning selection was purely a function of the optimization level: any optimized
-build (`--release`, or `--optimize` at a nonzero level) passed a bare `-w` to the
-C compiler, which disables **every** C diagnostic.
+`src/main.yo` chooses C warning flags by optimization level:
 
-That is defensible for the noise generated C produces — unused temporaries,
-redundant parentheses, pointer-sign on string literals — but it also silenced the
-three diagnostics that can only mean the code **generator** emitted something
-inconsistent with its own prototypes:
+- default / `--optimize 0` → `-Wall -Wextra` (with targeted `-Wno-…` for the
+  noisy ones)
+- `--release` or any `--optimize N` → **`-w`**, which disables every warning
 
-- `-Wincompatible-pointer-types`
-- `-Wint-conversion`
-- `-Wimplicit-function-declaration`
+The intent is reasonable: at `-O2` the generated C produces noise nobody reads.
+But `-w` does not distinguish "noise about generated code style" from "the code
+generator emitted something inconsistent with its own prototype".
 
-## Why it mattered
+## Why it matters
 
-Not hypothetical. A specialized generic's `inout` parameter lost its by-ref
-binding, so codegen passed a `T**` where its own emitted prototype said `T*`.
-That is exactly `-Wincompatible-pointer-types`. With `-w` in force the build
-looked clean, and the program returned an uninitialised value — a formatted
-string came back as padding with no body, a silent wrong answer rather than a
-crash.
+The `inout`-ref bug had two manifestations. One was a hard clang error and was
+caught immediately. The other passed a `T**` where the callee's prototype said
+`T*` — which clang reports as `-Wincompatible-pointer-types`, a **warning**. Under
+`--release` that warning is suppressed, so the program built cleanly and returned
+an uninitialised value. The visible symptom was a formatted string that came back
+as ten spaces instead of `   Some(4)`; nothing in the build said a word.
 
-The same class of fault had been invisible in every optimized build the project
-had ever run.
+A pointer-type mismatch between generated code and its own generated prototype is
+never acceptable output. It cannot be "noise", because both sides are written by
+the compiler.
 
-## Fix
+## Suggested fix
 
-`src/main.yo`: warnings are decoupled from the optimization level. Both `-w`
-arms now additionally pass the three diagnostics above, so the noise stays
-suppressed while a generator/prototype mismatch is still reported.
+Keep `-w` for genuine noise, but re-enable the diagnostics that can only mean a
+codegen defect — clang honours later flags, so appending after `-w` works:
 
-## Verification
+```
+-w -Wincompatible-pointer-types -Wint-conversion -Wimplicit-function-declaration
+```
 
-A full self-build after the change emitted **zero** hits of the three re-enabled
-diagnostics — so they are not noisy on real generated C, and no other latent
-instance of this class existed in the tree at the time.
+`-Wimplicit-function-declaration` is worth including for the same reason: it is
+how the where-bound GC-trace bug (`issues/fixed/`) announced itself, and that one
+was found only because it happened to be an error rather than a warning in that
+context.
+
+Consider promoting them to `-Werror=` once the tree is known clean under them —
+run the full corpus first, since any existing instance would then break the build.
+
+## Fix (PR #260)
+
+`src/main.yo`: warning selection is decoupled from the optimization level. Both
+`-w` arms additionally pass `-Wincompatible-pointer-types`, `-Wint-conversion`
+and `-Wimplicit-function-declaration`, so the style noise stays suppressed while
+a generator/prototype mismatch is still reported.
+
+**Verification:** a full self-build after the change emitted **zero** hits of the
+three re-enabled diagnostics — so they are not noisy on real generated C, and no
+other latent instance of this class existed in the tree at the time.
