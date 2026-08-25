@@ -650,7 +650,7 @@ implementing the D5 traits.** Until it lands, std honestly refuses https.
 | url | EXTEND | percent-encode/decode integration, `query_pairs`/`SearchParams`, `join` (RFC 3986 §5 — needed by http redirects), builder/setters; ~~wire punycode into host handling (or delete punycode)~~ — DELETED, §6 round 1 |
 | io | REDESIGN | D5 |
 | fs | EXTEND + POLISH | wrappers: `copy`, `remove_dir_all` (compiler implements it TWICE as workaround — `src/fetch.yo:80`, `src/version_cache.yo:72`), `read_link`, `set_permissions`, `set_len`, `try_exists`, `watch` (sys/events exists); `OpenOptions` builder; `File.from_fd`; Metadata: real `btime`, `permissions()`, stop `metadata` re-stat by path; DirEntry `path()`; walker: lazy option + glob filter; complete the `_str`/`_cstr` variant matrix or (better) collapse it with a `Pattern`-style `AsPath` trait |
-| path | FIX + EXTEND | `join(str)`, `push`, `strip_prefix` (rename of `relative_from`, fallible), `Hash`/`Ord`/`Clone`, Windows separator in `to_string`, `ancestors`, PATH split/join; revisit eager `..` normalization (symlink semantics); delete dead `PathError` or make `new` fallible |
+| path | FIX + EXTEND | `join(str)`, `push`, `strip_prefix` (rename of `relative_from`, fallible), `Hash`/`Ord`/`Clone`, Windows separator in `to_string`, `ancestors`, PATH split/join; revisit eager `..` normalization (symlink semantics); ~~delete dead `PathError`~~ **DONE** (deleted 2026-08-25, §6 round 2) or make `new` fallible |
 | env | MERGE (D8) | + `remove`, `vars()` iteration, `str` keys |
 | process | EXTEND | `Child`/`spawn`/`Stdio` piping, `env`/`current_dir` on Command, builder returns `Self`, `ExitStatus.code() -> Option(i32)`, hide `raw` |
 | cli | EXTEND or DROP-TO-PACKAGE | typed values, required enforcement, `--` , repeated opts, help-not-an-error; needs tty/color access (D8 wrappers). Recommendation: keep minimal-but-correct in std |
@@ -662,7 +662,7 @@ implementing the D5 traits.** Until it lands, std honestly refuses https.
 | crypto | EXTEND | streaming `Digest` trait unifying Sha256/Md5 (+ streaming Md5); SHA-1, SHA-512, **HMAC** (blocks JWT/SigV4/webhooks), CRC32, constant-time compare; fix C5; new `std/rand` module: seedable PCG/xoshiro PRNG, `shuffle`, `choice`, ranges — infallible, non-crypto, clearly separated from `crypto/random` |
 | log | REWRITE (zero users = free window) | levels + `Off`, `ToString`-generic message, lazy eval, timestamps, target/module, writer sink (file/buffer), thread-safe; keep the free-function facade |
 | testing | EXTEND | `assert_eq`/`assert_ne`/`assert_approx` (diff-printing), `bench`: auto-calibration, black_box, stddev/percentiles |
-| gc/allocator | POLISH | `gc.stats()`; allocator: DECIDED (O6, 2026-08-23) — DELETE `CustomAllocator` (zero implementors incl. `GlobalAllocator`); per-heap control, if ever needed, arrives as a process-global runtime hook, not a type parameter |
+| gc/allocator | POLISH | `gc.stats()`; allocator: DECIDED (O6, 2026-08-23), **DONE** (deleted 2026-08-25, §6 round 2) — DELETE `CustomAllocator` (zero implementors incl. `GlobalAllocator`); per-heap control, if ever needed, arrives as a process-global runtime hook, not a type parameter |
 | build | KEEP (already coherent) | Zig-shaped, comptime-correct; only additive evolution |
 
 ---
@@ -908,7 +908,7 @@ test is ever re-expressed without it.
 | `WaitGroup` | Go transplant; replaced per D7 |
 | `std/io/{reader,writer}.yo` current traits | zero implementors — replaced by D5 redesign |
 | `std/fmt/display.yo` | zero call sites, not re-exported, malformed trait shape |
-| ~~`StringError`~~, `PathError`, dead variants (`HashMapError.KeyNotFound`, `HttpError.Timeout`* etc.) | never constructed (*Timeout/TooManyRedirects/ResponseTooLarge become REAL when the features land — don't delete, implement). **`StringError` RECLASSIFIED 2026-08-25 — see the note below; it belongs with the starred ones.** |
+| ~~`StringError`~~, ~~`PathError`~~ **DELETED**, dead variants (`HashMapError.KeyNotFound` — dead but BLOCKED, `HttpError.Timeout`* etc.) | never constructed (*Timeout/TooManyRedirects/ResponseTooLarge become REAL when the features land — don't delete, implement). **`StringError` RECLASSIFIED 2026-08-25 — see the note below; it belongs with the starred ones.** |
 | `base64_{encode,decode}_string` | duplicate logic, second error style; fold into primary pair |
 | `ExprInfo.popped_env_frame`-class dead fields, prelude commented-out blocks, `export();` no-op | listed in core report |
 | underscore-private names in `export(...)` (fs/types converters, `__MutexUnlocker`, regex internals, `ArgDef`, `raw_args`/`argc`/`argv` duplicates) | export hygiene sweep |
@@ -936,6 +936,46 @@ of that are true, but they mean opposite things:
 
   `StringError.IndexOutOfBounds(index, length)` should be reviewed in the same
   pass — it is the natural error for the D4 byte-indexed API's bounds failures.
+
+**§6 ROUND 2 RECORD (2026-08-25) — three items, two landed, one BLOCKED by a
+compiler bug.** Each was re-verified by grep across `std/ src/ tests/` (and
+`vendor/`, which must be read from a worktree with submodules initialized —
+a fresh worktree has them EMPTY, so a vendor grep there is vacuous).
+
+- **`PathError` — DELETED.** Confirmed exactly 2 repo-wide `.yo` hits, both in
+  `std/path.yo` (decl :7, export :13); `EmptyPath` and `InvalidPath` each occur
+  once, at their own declaration. No `ToString`, no `Error()` impl, so it could
+  never have been reported.
+- **`CustomAllocator` + `Allocator :: Dyn(CustomAllocator)` — DELETED.**
+  Confirmed 4 hits, all in `std/allocator.yo`, and ZERO implementors: the only
+  `impl` mentioning an allocator is `GlobalAllocator :: impl({...})`, a bare
+  module of raw `extern` bindings that does not implement the trait. The
+  separate `Allocator` enum in `std/build.yo` (`System`/`Mimalloc`) is
+  unrelated and untouched — every `Allocator` reference in `docs/` is that one.
+- **`AllocError.{InvalidSize,InvalidAlignment,InvalidPointer}` — DELETED.**
+  Each occurred once, at its declaration. `AllocError` is now single-variant
+  (`OutOfMemory`), which is legal — `src/error.yo:13` `ErrorKind :: enum(Overflow)`
+  is existing precedent — and `OutOfMemory` has no structural collision partner
+  anywhere in `std/` or `src/`.
+- **`HashMapError.{KeyNotFound,CapacityOverflow}` and
+  `HashSetError.{ElementNotFound,CapacityOverflow}` — NOT DELETED.** The
+  variants really are dead (one occurrence each, at their declarations), but
+  removing them makes `HashMapError` and `HashSetError` *structurally
+  identical* (`enum(AllocError(error : AllocError))`), and that trips a
+  compiler bug: any module importing both `hash_map.yo` and `hash_set.yo` then
+  fails to evaluate with `Type mismatch for type member "error": Expected:
+  HashMapError Got: HashSetError` at `hash_set.yo:219`. Filed as
+  `issues/structurally-identical-error-enums-in-two-generic-impls-collide.md`
+  with reproducer `issues/repros/hashmap-hashset-error-enums-collide.yo`.
+  Trimming either enum alone is fine; only the pair collides. **Fix the
+  compiler first, then land this trim.**
+
+**Method note for the rest of §6: a passing targeted test can be vacuous here.**
+With both enums trimmed, `tests/collections/hash_map.test.yo` still reported
+61 passed / 61 total, because it imports only `hash_map.yo` and the two enums
+never meet. The bug was caught only by a standalone `yo compile` + **run** of a
+program importing both. Gate std deletions on a program that actually exercises
+the changed declarations at runtime, not on the nearest existing test file.
 
 ## 7. Additions ranked (post-sweep, additive, batteries-included)
 
@@ -992,7 +1032,7 @@ mmap/file-lock/statfs wrappers; `gc.stats`; DNS SRV/TXT/reverse
   until it has real consumers; revisit promotion at stability time.
 - **O5**: **DECIDED — single `ToString`.** No `Debug`/`Display` split; derive
   output routed through a `Formatter` so pretty/compact can be added additively.
-- **O6**: **DECIDED — delete `CustomAllocator`** (zero implementors, never
+- **O6**: **DECIDED — delete `CustomAllocator`** — **DONE 2026-08-25** (§6 round 2) (zero implementors, never
   plumbs into collections). Rationale recorded: Yo objects are reference-
   counted, so a per-collection allocator parameter would have to flow through
   every RC header alloc/free — the Zig model doesn't fit. If per-heap control
