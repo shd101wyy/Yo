@@ -304,9 +304,13 @@ y :: 14;
 // or
 (3 + 4) - 5;
 
-// Operators in Yo are combination of the following characters:
-// = + - * / < > @ $ ~ & % | ! ? ^ . : \\ #
-// They can be used as infix operators with two arguments
+// Yo has a CLOSED operator set (plans/OPERATOR_SET_AND_PRECEDENCE.md).
+// A run of operator characters is split greedily against two fixed tables;
+// anything not in them is a LEX ERROR, not a user-defined operator.
+//   two-char: != && -> :: := <: << <= == => >= >> ?= ||
+//   one-char: ! # % & * + - / : < = > ? ^ | ~
+//   dot family: . .. ..= ... ...#
+// Infix operators are translated to a dot method call:
 // But they will be translated as dot method call:
 (3 + 4) * 5; // is the same as
 3.(+)(4).(*)(5);
@@ -585,9 +589,7 @@ p2 := BoolPoint(true, false);
 Named arguments in Yo must be provided in the same order as they are defined in the function signature:
 
 ```rust
-add :: (fn(x : i32, y : i32) -> i32)
-  (x + y)
-;
+add :: (fn(x : i32, y : i32) -> i32)((x + y));
 
 add(3, 4);        // OK: Positional arguments
 add(x: 3, y: 4);  // OK: Named arguments in correct order
@@ -603,9 +605,9 @@ Default parameter values can be defined using `?=` syntax:
 create_user :: (fn(
     name: String,
     (age: i32) ?= 18,
-  ) -> User)
+  ) -> User)(
   User(name: name, age: age)
-;
+);
 
 create_user(name: "Alice");  // Uses defaults: age=18
 create_user(name: "Bob", age: 30);  // Explicit age
@@ -618,9 +620,7 @@ create_user(name: "Bob", age: 30);  // Explicit age
 You can use `generic` to define generic functions:
 
 ```rust
-identity :: (fn(generic(T : Type), arg : T) -> T)
-  arg
-;
+identity :: (fn(generic(T : Type), arg : T) -> T)(arg);
 
 x := identity(12);     // Type inferred: x: i32
 y := identity(true);   // Type inferred: y: bool
@@ -631,9 +631,7 @@ y := identity(true);   // Type inferred: y: bool
 You can use `where` clause to add type constraints on generic parameters:
 
 ```rust
-add :: (fn(generic(T : Type), x: T, y: T, where(T <: Add(T))) -> T)
-  (x + y)
-;
+add :: (fn(generic(T : Type), x: T, y: T, where(T <: Add(T))) -> T)((x + y));
 ```
 
 `where` clause can specify multiple constraints:
@@ -946,11 +944,12 @@ For more pointer examples, see [ptr.test.yo](../tests/ptr.test.yo).
 Yo uses `Option(*(T))` for nullable pointers:
 
 ```rust
-// malloc returns Option(*(T))
+// malloc returns Option(*(void)) — it is NOT generic, so cast before use.
 some_ptr := malloc(sizeof(i32));
 match(some_ptr,
-  .Some(ptr) => {
-    ptr.* = 42;
+  .Some(vp) => {
+    ptr := *(i32)(vp);
+    ptr.* = i32(42);
     printf("value: %d\n", ptr.*);
     free(some_ptr);
   },
@@ -968,7 +967,7 @@ Yo's safety model is layered (the design plan is [plans/MEMORY_SAFETY.md](../../
 
 - **Reference-semantics types** (`ref(struct(...))` / `ref(enum(...))`, and the `atomic(ref(...))` variants) are reference-counted and automatically freed (RC + cycle removal). Memory-safe by construction.
 - **`Iso(T)` / `Arc(T)`** provide affine and atomic-RC ownership for transfer and thread-shared cases.
-- **`*(T)` raw pointers** require an explicit `unsafe(...)` wrap around operations that dereference, do arithmetic on, or consume-through a pointer. Without the wrap, those operations are compile errors.
+- **`*(T)` raw pointers** are available only in a file that declares `pragma(Pragma.AllowUnsafe);`. Inside such a file the `unsafe(...)` wrap is the per-operation AUDIT MARKER that `yo unsafe-report` keys on — and the convention `std/`, `src/` and `tests/` follow — not a second compiler gate: a bare `p.*` in a pragma'd file compiles. In a file WITHOUT the pragma the whole raw-pointer surface is rejected, including the `*(T)` type itself.
 
 `unsafe(...)` is a regular builtin call that takes exactly one expression. It is purely a compile-time marker — at codegen time it lowers to its inner expression, no runtime cost.
 
@@ -992,7 +991,7 @@ write_and_read :: (fn(p : *(i32), v : i32) -> i32)(unsafe({
 
 **What requires `unsafe(...)`**: pointer dereference (`.*`), pointer arithmetic (`.add(n)`, `.sub(n)`, `.offset_from(q)`), and `consume(p.* = v)`.
 
-**What stays safe**: taking an address (`&(x)`), passing/storing/returning pointers, pointer comparison (`<`, `==`, etc.), pointer-type casts (`*(u8)(p)`), and `asm(...)` (already implicitly unsafe).
+**What needs no additional `unsafe(...)` wrap** (inside a file that already declares `pragma(Pragma.AllowUnsafe);`): taking an address (`&(x)`), passing/storing/returning pointers, pointer comparison (`<`, `==`, etc.), pointer-type casts (`*(u8)(p)`), and `asm(...)` (already implicitly unsafe). None of these are available in SAFE code — without the pragma, `&(x)` is rejected at the construction site and a `*(T)` type in any signature is rejected outright.
 
 The unsafe surface is greppable: every `unsafe(` token marks a place where raw memory ops happen. A file must declare `pragma(Pragma.AllowUnsafe);` at the top before it can use `unsafe(...)` or perform raw pointer operations. `std/`, `src/`, and `tests/` files declare this pragma explicitly; user code (`main.yo`, the rest of your project) defaults to safe mode and gets a compile error if it tries to use `unsafe(...)`.
 
@@ -1081,24 +1080,26 @@ my_unit := (); // my_unit: unit.
 
 my_i32_tuple := (12);  // my_i32_tuple: i32
 // Needs extra comma to make it a tuple
-my_i32_tuple := (12,); // my_i32_tuple: (i32,). Free type
+my_i32_tuple := (12,); // my_i32_tuple: (i32;). Free type
 
-(i32_tuple: (i32, i32, i32)) = (1, 2, 3); // tuple: (i32, i32, i32). Free type
+// NOTE the separator: tuple VALUES use commas, tuple TYPES use SEMICOLONS.
+(i32_tuple : (i32; i32; i32)) = (1, 2, 3);
 
-mixed_tuple := (1, true, "Hello"); // mixed_tuple: (i32, bool, *u8[6,'\0']). Free type
+mixed_tuple := (1, true, "Hello"); // mixed_tuple: (i32; bool; str)
 
-(a, b, c) := mixed_tuple; // a: i32, b: bool, c: *u8[6,'\0']. Free type
+(a, b, c) := mixed_tuple; // a: i32, b: bool, c: str
 
 a := mixed_tuple.0;
 b := mixed_tuple.1;
 c := mixed_tuple.2;
 
-// NOTE: For a tuple that has only 1 element, we need to add a comma to make it a tuple.
-MyTuple := (i32)
+// NOTE: a 1-element tuple TYPE still needs the separator, or it is just the
+// element type itself.
+MyTuple :: (i32);
 // is equivalent to
-MyTuple := i32;
-// to make it a tuple, we need to add a comma
-MyTuple := (i32,);
+MyTuple :: i32;
+// to make it a 1-element tuple type:
+MyTuple :: (i32;);
 ```
 
 ## Array & Ranges
@@ -1138,7 +1139,7 @@ part := list(usize(1)..usize(3));   // [2, 3]
 part2 := list(usize(1)..=usize(3)); // [2, 3, 4]
 
 // Mutating the copy does not affect the source
-part.set(usize(0), i32(99));
+part(usize(0)) = i32(99);
 assert(list(usize(1)) == i32(2));
 ```
 
@@ -1151,7 +1152,9 @@ Arrays in Yo come with useful methods:
 Create an array filled with a value:
 
 ```rust
-// Fill at runtime
+// `fill` requires a COMPILE-TIME value (it is defined under `where(T <: Comptime)`
+// and takes a `comptime(val)`), so there is no runtime fill. The two forms below
+// differ only in binding the comptime result to a runtime (`:=`) or comptime (`::`) name.
 zeros := Array(i32, 10).fill(0);  // [0,0,0,0,0,0,0,0,0,0]
 
 // Fill at compile-time
@@ -1164,12 +1167,11 @@ Get the length of an array:
 
 ```rust
 arr := [1, 2, 3, 4, 5];
-len := arr.len();  // 5 (compile-time known for fixed-size arrays)
+len := arr.len();  // 5 (a runtime value; the length is in the TYPE, reachable
+                   //    at compile time via Type.get_info([i32; 5]) -> .Array(_, n))
 
 // Works with generic arrays
-generic_len :: (fn(comptime(T) : Type, comptime(n) : usize, arr : [T; n]) -> usize)
-  arr.len()  // Returns n
-;
+generic_len :: (fn(comptime(T) : Type, comptime(n) : usize, arr : [T; n]) -> usize)(arr.len());  // Returns n
 ```
 
 ### Array Length Inference
@@ -1277,12 +1279,11 @@ main :: (fn() -> unit)({
   // If no return type, it is unit
   number := 3;
 
-  if number < 5, then: {
+  if(number < 5, then: {
     println("condition was true");
-  },
-  else: {
+  }, else: {
     println("condition was false");
-  };
+  });
 
   if(number < 5, println("condition was true"), println("condition was false"));
 });
@@ -1290,8 +1291,8 @@ main :: (fn() -> unit)({
 
 ### while
 
-`while(condition, do: body)` or
-`while(condition, steps, do: body)`
+`while(condition, body)` or
+`while(condition, step, body)`
 
 ```rust
 factorial :: (fn(n: i32) -> i32)({
@@ -1646,26 +1647,26 @@ newtype(
 
 ```rust
 rune :: newtype(
-  c : u32
+  char : u32
 );
 impl(rune,
   // Constructor with validation
-  from_u32 : ((fn(value: u32) -> Option(Self))
+  from_u32 : (fn(value : u32) -> Option(Self))(
     cond(
-      ((value <= u32(0x10FFFF)) && (((value < 0xD800) || (value > 0xDFFF)))) => .Some(Self(c: value)),
+      ((value <= u32(0x10FFFF)) && ((value < 0xD800) || (value > 0xDFFF))) => .Some(Self(char : value)),
       true => .None
     )
   ),
 
-  to_u32 : ((fn(self: Self) -> u32) self.c),
+  to_u32 : (fn(self : Self) -> u32)(self.char),
 
-  is_ascii : ((fn(self: Self) -> bool) (self.c <= 0x7F)),
+  is_ascii : (fn(self : Self) -> bool)(self.char <= u32(0x7F)),
 
   // Constants
-  NUL        : Self(c: 0x00),
-  TAB        : Self(c: 0x09),
-  NEWLINE    : Self(c: 0x0A),
-  SPACE      : Self(c: 0x20)
+  NUL        : Self(char : 0x00),
+  TAB        : Self(char : 0x09),
+  NEWLINE    : Self(char : 0x0A),
+  SPACE      : Self(char : 0x20)
 );
 ```
 
@@ -1688,7 +1689,7 @@ UserId :: newtype(value : i32);
 ## C union
 
 ```rust
-MyNumber := union(
+MyNumber :: union(
   i : i32,
   j : f32
 );
@@ -1710,11 +1711,11 @@ union MyNumber {
 It's the same as the ADT, but all variants have no fields.
 
 ```rust
-State := enum(
+State :: enum(
   Working,
   Failed
 );
-Week := enum(
+Week :: enum(
   Monday, // 0
   Tuesday, // 1
   Wednesday // 2
@@ -1910,7 +1911,7 @@ list.push(i32(42));
 list.push(i32(100));
 list.push(i32(200));
 
-printf("Length: %zu\n", list.length());
+printf("Length: %zu\n", list.len());
 printf("Capacity: %zu\n", list.capacity());
 
 // Get elements by index
@@ -1921,7 +1922,7 @@ match(first,
 );
 
 // Set an element
-list.set(usize(1), i32(150));
+list(usize(1)) = i32(150);
 
 // Pop an element
 popped := list.pop();
@@ -1967,7 +1968,7 @@ match(value_opt,
 
 // Check if key exists
 cond(
-  (map.has(i32(1))) => printf("Contains key 1\n"),
+  (map.contains_key(i32(1))) => printf("Contains key 1\n"),
   true => printf("Does not contain key 1\n")
 );
 
@@ -1979,7 +1980,7 @@ match(removed,
 );
 
 // Check length and empty
-printf("Length: %zu\n", map.length());
+printf("Length: %zu\n", map.len());
 cond(
   (map.is_empty()) => printf("Map is empty\n"),
   true => printf("Map is not empty\n")
@@ -2011,7 +2012,7 @@ match(result,
 
 // Check if has
 cond(
-  (set.has(i32(42))) => printf("Contains 42\n"),
+  (set.contains(i32(42))) => printf("Contains 42\n"),
   true => printf("Does not contain 42\n")
 );
 
@@ -2037,14 +2038,14 @@ set2.add(i32(4));
 // Union
 union_result := set1.union(set2);
 match(union_result,
-  .Ok(union_set) => printf("Union size: %zu\n", union_set.length()),
+  .Ok(union_set) => printf("Union size: %zu\n", union_set.len()),
   .Error(_) => printf("Union failed\n")
 );
 
 // Intersection
 inter_result := set1.intersection(set2);
 match(inter_result,
-  .Ok(inter_set) => printf("Intersection size: %zu\n", inter_set.length()),
+  .Ok(inter_set) => printf("Intersection size: %zu\n", inter_set.len()),
   .Error(_) => printf("Intersection failed\n")
 );
 
@@ -2102,7 +2103,7 @@ match(list.get(usize(0)),
 );
 
 // Insert at index
-match(list.set(usize(1), i32(20)),
+match(list.insert(usize(1), i32(20)),
   .Ok(_) => printf("Inserted at index 1\n"),
   .Error(err) => match(err,
     .IndexOutOfBounds => printf("Index out of bounds\n"),
@@ -2118,7 +2119,7 @@ match(list.remove(usize(0)),
 
 // Check if has
 cond(
-  (list.has(i32(20))) => printf("Contains 20\n"),
+  (list.contains(i32(20))) => printf("Contains 20\n"),
   true => printf("Does not contain 20\n")
 );
 
@@ -2398,11 +2399,22 @@ RetI32 :: trait(
   return_i32 : (fn(inout(self) : Self) -> i32)
 );
 
+// `Impl(Trait)` is STATIC dispatch: every path must return the SAME concrete
+// type, which the compiler infers. Returning `bool` from one arm and `i32` from
+// another does not compile.
 get_value :: (fn(use_bool : bool) -> Impl(RetI32))({
   cond(
-    use_bool => return(true),   // bool implements RetI32
-    true => return(i32(42))      // i32 implements RetI32
-  )
+    use_bool => return(i32(1)),
+    true => return(i32(42))
+  );
+});
+
+// To return DIFFERENT concrete types from different arms, erase to `Dyn`:
+get_any :: (fn(use_bool : bool) -> Dyn(RetI32))({
+  cond(
+    use_bool => return(dyn(true)),
+    true => return(dyn(i32(42)))
+  );
 });
 ```
 
@@ -2476,9 +2488,7 @@ DogRun :: impl(Dog, Run(
 ));
 
 // Dyn type is reference counted - no & needed
-act :: (fn(s: Dyn(Speak, Run)) -> i32)
-  (s.speak() + s.run())
-;
+act :: (fn(s: Dyn(Speak, Run)) -> i32)((s.speak() + s.run()));
 
 main :: (fn() -> i32)({
   dog := Dog();
@@ -2626,7 +2636,7 @@ safe_divide :: (fn(x: i32, y: i32, exn : Exception) -> i32)(
   )
 );
 
-result := safe_divide(6, 3);     // result = 2
+result := safe_divide(6, 3, exn);     // result = 2
 safe_divide(10, 0, exn);         // handler fires, unwinds — code after this is unreached
 ```
 
@@ -2670,15 +2680,15 @@ Yo uses **async/await with state machine transformation** for efficient **single
 
 main :: (fn(io : Io) -> unit)({
   task1 := io.async((io : Io)=> {
-    io.await(yield());
+    io.await(yield(io), io);
     return(i32(1));
   });
   task2 := io.async((io : Io)=> {
-    io.await(yield());
+    io.await(yield(io), io);
     return(i32(2));
   });
-  handle1 := io.spawn(task1);  // start task1, returns JoinHandle(i32)
-  handle2 := io.spawn(task2);  // start task2, returns JoinHandle(i32)
+  handle1 := io.spawn(task1, io);  // start task1, returns JoinHandle(i32)
+  handle2 := io.spawn(task2, io);  // start task2, returns JoinHandle(i32)
   r1 := handle1.await(io);  // wait → Option(i32)
   r2 := handle2.await(io);
 });
@@ -2688,8 +2698,8 @@ export(main);
 Key properties:
 
 - `io.async(fn)` creates a **cold Future** — the body does NOT execute until awaited or spawned
-- `io.await(future)` starts a cold future and runs it to completion; can be called **multiple times** on the same Future
-- `io.spawn(future)` starts a cold future without waiting, returns `JoinHandle(T)`
+- `io.await(future, e)` starts a cold future and runs it to completion; can be called **multiple times** on the same Future (`e` is the effect record — just `io` for pure-Io tasks)
+- `io.spawn(future, e)` starts a cold future without waiting, returns `JoinHandle(T)`
 - `handle.await(io)` waits for a spawned task, returns `Option(T)` — `.None` on unwind (abort)
 - All async code runs on the **same thread** (no thread spawning, no data races)
 
@@ -2707,7 +2717,7 @@ Please check [ISOLATED.md](./ISOLATED.md) for details on isolated types in Yo.
 
 `Arc(T)` provides **shared ownership** with atomic reference counting. It is no longer
 a compiler built-in; it is defined in `std/prelude.yo` as a thin
-`atomic(ref(struct(...)))` wrapper. `Arc(T)` requires `T <: Send`, so it only wraps
+`atomic(ref(struct(...)))` wrapper. `Arc(T)` requires `T <: (Send, Acyclic)` — thread-shareable AND unable to form a reference cycle (atomic RC is not cycle-collected) — so it only wraps
 thread-shareable values. Use `Arc(T)` when you want to share a single value.
 Use `atomic(ref(struct(...)))` when defining your own shared types.
 
@@ -2843,7 +2853,7 @@ test("Test description", {
 
 // Io is implicitly available via `io` in all test bodies
 test("With effects", {
-  io.await(sleep(u64(1000)));
+  io.await(sleep(u64(1000)), io);
 });
 ```
 
@@ -2898,7 +2908,7 @@ test("Compile-time assertions", {
 
   // Type-level assertions
   T :: i32;
-  comptime_assert(Type.to_string(T) == "i32");
+  comptime_assert(Type.to_comptime_string(T) == "i32");
 });
 ```
 
@@ -3081,11 +3091,11 @@ Yo supports automatic trait derivation similar to Rust's `#[derive(...)]`, but u
 
 ### Built-in derives
 
-Five traits have built-in derive support: `Eq`, `Hash`, `Clone`, `Ord`, and `ToString`. They work for both structs and enums:
+Six traits have built-in derive support: `Eq`, `Hash`, `Clone`, `Ord`, `Default`, and `ToString`. They work for both structs and enums:
 
 ```rust
 Point :: struct(x : i32, y : i32);
-derive(Point, Eq, Hash, Clone, Ord, ToString);
+derive(Point, Eq(Point), Hash, Clone, Ord(Point), ToString);
 
 // Now Point supports ==, !=, hashing, cloning, comparison, and string conversion
 main :: (fn() -> unit)({
@@ -3243,9 +3253,7 @@ len :: arr.len();          // 5 (compile-time)
 zeros :: Array(i32, 10).fill(0);  // [0,0,0,0,0,0,0,0,0,0]
 
 // Generic array function
-create_array :: (fn(comptime(T) : Type, comptime(n) : usize, value : T) -> [T; n])
-  Array(T, n).fill(value)
-;
+create_array :: (fn(comptime(T) : Type, comptime(n) : usize, value : T) -> [T; n])(Array(T, n).fill(value));
 
 int_array :: create_array(i32, 5, 42);  // [42,42,42,42,42]
 ```
@@ -3263,7 +3271,7 @@ test("Compile-time assertions", {
 
   // Compile-time type checks
   T :: i32;
-  comptime_assert(Type.to_string(T) == "i32");
+  comptime_assert(Type.to_comptime_string(T) == "i32");
 });
 ```
 
@@ -3352,7 +3360,7 @@ For the full design, syntax reference, and C codegen details, see [INLINE_ASSEMB
 
 Yo provides a unified `Index` trait for custom indexing on any type. Types that implement `Index(Idx)` can use function-call syntax `value(index)` for element access, pointer access via `&(value(index))`, and mutation via the call-syntax assignment `value(index) = new_value`.
 
-The standard library implements `Index` for `ArrayList`, `HashMap`, `BTreeMap`, `Deque`, and `String`. Fixed-size arrays and `str` use built-in indexing with the same syntax; `..` and `..=` ranges on collections produce owned copies (`slice_copy`), while ranges on `str` are zero-copy static windows.
+The standard library implements `Index` for its collection types, including `ArrayList`, `HashMap`, `BTreeMap`, `Deque`, `LinkedList` and `String`. Fixed-size arrays and `str` use built-in indexing with the same syntax; `..` and `..=` ranges on collections produce owned copies (`slice_copy`), while ranges on `str` are zero-copy static windows.
 
 For the full design, trait definition, and implementation details, see [INDEX_TRAIT.md](./INDEX_TRAIT.md).
 

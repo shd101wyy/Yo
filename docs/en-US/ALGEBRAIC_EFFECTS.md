@@ -18,7 +18,7 @@ function pointers are passed as extra C parameters.
 | Evidence passing       | Handler fn pointers as C params                          |
 | One-shot continuations | `return` resumes, `unwind` discards                      |
 | Handler type           | `ctl(args) -> ret` parallel to `fn(args) -> ret`         |
-| Escape discipline      | Type-level check via `typeIsControlBound`                |
+| Escape discipline      | Type-level check via `type_is_control_bound`                |
 | Effect polymorphism    | `generic(E : Type.Struct)` + `e : E`                     |
 | Effect bundling        | Anonymous structs `{ raise, log }` or named struct types |
 
@@ -229,7 +229,7 @@ locally installed.
 7. **Control-bound types.** A type is _control-bound_ iff it
    transitively contains a `ctl(...) -> ret` (directly, or as a
    struct/tuple/enum/union field, or as an array/slice element, or as
-   a pointer pointee). The predicate is `typeIsControlBound(T)`.
+   a pointer pointee). The predicate is `type_is_control_bound(T)`.
 
 8. **Escape boundaries.** Control-bound types are rejected as:
 
@@ -237,7 +237,7 @@ locally installed.
      install frame.
    - **Module-level binding type** — module scope outlives every call
      frame.
-   - **`Box(T)` / `Rc(T)` / any heap-allocation type parameter** —
+   - **`Box(T)` / `Arc(T)` / any heap-allocating type constructor** —
      heap outlives every stack frame.
    - **Closure capture type** (covered by rule 4).
    - **Pointer pointee type** — `*(Raise)` is rejected so a handler
@@ -293,7 +293,7 @@ top_handler :: (raise : Raise) = ((msg) -> { unwind(i32(0)); });
 P :: *(Raise);  // rejected
 
 // ❌ Storing in a Box — heap outlives the install frame.
-b := Box(Raise).new((msg) -> { unwind(i32(0)); });
+b := box((msg) -> { unwind(i32(0)); });
 
 // ❌ Closure capturing a handler — closure escapes; handler with it.
 (r : Raise) = ((msg) -> { unwind(i32(0)); });
@@ -358,12 +358,28 @@ log_and_check :: (fn(x : i32, logger : Logger) -> i32)({
 result := log_and_check(42, my_logger);
 ```
 
+## Handler Functions Are Not Closures
+
+Effect handler functions — both the struct-record and the `fn`-type forms — are
+compiled as standalone C functions via evidence passing. They are **not**
+closures: no capture struct is generated, and a handler body cannot read a local
+from the scope that installed it. This is by design.
+
+If a handler needs state, pass it explicitly:
+
+- take it as an argument to the effect function, so the caller supplies it at
+  the `ctl` call site; or
+- allocate a `Box` outside the handler and pass its address in.
+
+(`.github/instructions/c-codegen.instructions.md` § "Handler functions are
+standalone, not closures" is the implementation-side statement of the same rule.)
+
 ## Semantics
 
-- Handler bodies run in their install frame's stack — they can
-  reference outer-frame locals (sibling handlers, surrounding
-  variables) directly. The codegen achieves this by inlining handlers
-  / threading them through state machines.
+- Handler bodies are compiled as **standalone C functions** via evidence
+  passing, so they can NOT reference variables from the enclosing scope —
+  no closure/capture struct is generated. See
+  [Handler Functions Are Not Closures](#handler-functions-are-not-closures).
 - `return(value)` is **one-shot** — the captured continuation can be
   resumed at most once.
 - Handler types are enforced at the type level via `ctl(...)`. The
