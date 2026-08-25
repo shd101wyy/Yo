@@ -1,5 +1,33 @@
-//! OS thread creation and management with per-thread Io event loops.
+//! OS threads and a thread pool, each thread with its own Io event loop and
+//! GC heap.
+//!
+//! Two levels are available:
+//!
+//!   * `Thread.spawn` — one dedicated OS thread per call, joined explicitly.
+//!   * `ThreadPool`   — a reusable pool of worker threads that tasks are
+//!     handed to; tasks are distributed round-robin with thread affinity
+//!     (no work stealing).
+//!
+//! Neither `Thread.join` nor `ThreadPool.join_all` carries a value out of a
+//! thread. To return a result, hand the value back over a `Channel`:
+//!
+//! ```rust
+//! { Channel } :: import "std/sync/channel";
+//! { Thread } :: import "std/thread";
+//!
+//! out := Channel(i32).new(usize(1));
+//! t := Thread.spawn((io) => {
+//!   out.send(i32(42));
+//!   ()
+//! });
+//! t.join();
+//! result := out.recv().unwrap();
+//! ```
 pragma(Pragma.AllowUnsafe);
+{ Mutex } :: import("./sync/mutex");
+{ AtomicBool, MemoryOrder } :: import("./sync/atomic");
+{ Channel } :: import("./sync/channel");
+{ assert } :: import("./assert");
 extern(
   "Yo",
   __yo_thread_get_hardware_threads : (fn() -> usize),
@@ -11,6 +39,12 @@ extern(
   __yo_thread_t : Type,
   __yo_thread_spawn : (fn(cb : Impl(Fn(io : Io) -> unit, Send)) -> __yo_thread_t),
   __yo_thread_join : (fn(t : __yo_thread_t) -> unit)
+);
+extern(
+  "Yo",
+  __yo_worker_spawn : (fn(cb : Impl(Fn(io : Io) -> unit, Send)) -> unit),
+  __yo_worker_get_num_threads : (fn() -> usize),
+  __yo_worker_set_num_threads : (fn(num : usize) -> unit)
 );
 /// OS thread handle. Each spawned thread gets its own Io event loop.
 Thread :: struct(
@@ -29,6 +63,157 @@ impl(
     __yo_thread_join(self.handle)
   )
 );
+/// A pool of worker threads that tasks are handed to.
+///
+/// Each task is pinned to one worker thread (round-robin, no work stealing),
+/// and every worker thread has its own GC heap and async Io event loop.
+///
+/// The OS worker threads live in one process-global pool owned by the
+/// runtime, which starts it on the first `spawn` and tears it down at process
+/// exit. A `ThreadPool` value is the explicit handle on that pool: it decides
+/// the thread count, submits tasks, and drains them. Two consequences:
+///
+///   * the `num_threads` passed to `new` is a request — it only takes effect
+///     while the runtime pool has not started yet, so the first `ThreadPool`
+///     created (before any task is spawned) fixes the count for the process;
+///   * `join_all` and `shutdown` drain the *runtime* pool, so if a program
+///     holds two `ThreadPool` values they drain each other's work as well.
+///
+/// Uses atomic reference counting, so a pool may be shared across threads.
+///
+/// # Example
+///
+/// ```rust
+/// { ThreadPool, spawn } :: import "std/thread";
+///
+/// pool := ThreadPool.new(usize(4));
+/// spawn(pool, (io) => {
+///   // ... do work ...
+/// });
+/// pool.join_all(); // wait for everything submitted so far
+/// pool.shutdown(); // refuse new work, then drain
+/// ```
+ThreadPool :: atomic(
+  ref(
+    struct(
+      _mutex : Mutex(bool),
+      _used : AtomicBool,
+      _closed : AtomicBool
+    )
+  )
+);
+impl(
+  ThreadPool,
+  /// Create a pool that requests `num_threads` worker threads.
+  ///
+  /// `num_threads` must be > 0. It is a request, not a guarantee: see the
+  /// type-level note about the process-global runtime pool.
+  new : (fn(num_threads : usize) -> Self)({
+    assert(num_threads > usize(0), "ThreadPool.new: num_threads must be > 0");
+    __yo_worker_set_num_threads(num_threads);
+    Self(
+      _mutex : Mutex(bool).new(false),
+      _used : AtomicBool(false),
+      _closed : AtomicBool(false)
+    )
+  }),
+  /// Create a pool sized to the runtime pool's current thread count, which
+  /// defaults to the number of hardware threads (CPU cores).
+  with_hardware_threads : (fn() -> Self)(
+    Self.new(__yo_worker_get_num_threads())
+  ),
+  /// The number of worker threads the runtime pool is using (or will use).
+  num_threads : (fn(self : Self) -> usize)(
+    __yo_worker_get_num_threads()
+  ),
+  /// Block until every task submitted to this pool so far has finished.
+  /// The pool stays open — further `spawn` calls are still accepted.
+  ///
+  /// The drain is a barrier, not a counter: it submits one sentinel task per
+  /// worker thread and waits for all of them. The runtime hands consecutive
+  /// submissions to consecutive worker threads (round-robin, guarded by the
+  /// runtime's pool mutex) and each worker runs its own queue in FIFO order,
+  /// so once every sentinel has run, every task queued before it has run too.
+  /// `spawn` and this submission loop share the pool mutex, so tasks
+  /// submitted concurrently *through this pool* cannot break the round-robin
+  /// stride.
+  ///
+  /// Must not be called from inside a pool task: the caller's worker thread
+  /// would be busy waiting for its own sentinel.
+  join_all : (fn(self : Self) -> unit)({
+    cond(
+      self._used.load(MemoryOrder.Acquire) => {
+        workers := __yo_worker_get_num_threads();
+        drained := Channel(bool).new(workers);
+        // Submit exactly one sentinel per worker, with no interleaved
+        // submission from this pool.
+        self._mutex._raw_lock();
+        (i : usize) = usize(0);
+        while(runtime(i < workers), {
+          __yo_worker_spawn((io : Io) => {
+            drained.send(true);
+            ()
+          });
+          i = (i + usize(1));
+        });
+        self._mutex._raw_unlock();
+        // Wait for every sentinel. Nothing is held while we block, so tasks
+        // may keep arriving behind the barrier.
+        (seen : usize) = usize(0);
+        while(runtime(seen < workers), {
+          drained.recv().unwrap();
+          seen = (seen + usize(1));
+        });
+      },
+      true => ()
+    );
+  }),
+  /// Refuse new work, then block until every outstanding task has finished.
+  ///
+  /// Idempotent. The runtime's OS worker threads are process-global and are
+  /// reclaimed at process exit; `shutdown` closes *this* pool and drains the
+  /// work it submitted.
+  shutdown : (fn(self : Self) -> unit)({
+    self._closed.store(true, MemoryOrder.Release);
+    self.join_all();
+  }),
+  /// Whether `shutdown` has been called (lock-free atomic load).
+  is_shutdown : (fn(self : Self) -> bool)(
+    self._closed.load(MemoryOrder.Acquire)
+  )
+);
+/// Hand a task to `pool`. Returns immediately; the task runs on one of the
+/// worker threads, which supplies it with its own Io event loop.
+///
+/// Panics if the pool has been shut down.
+///
+/// ```rust
+/// spawn(pool, (io) => {
+///   // ... do work ...
+/// });
+/// ```
+//
+// IMPLEMENTATION NOTE — this is deliberately a module-level function and not
+// a `pool.spawn(cb)` method. A closure parameter that is forwarded into a
+// spawn primitive from inside an impl method with a `self` receiver is
+// specialized only once: with two or more differently-shaped task closures in
+// one program, every shape after the first is emitted as a
+// `// Failed to transpile` comment, so those tasks silently do nothing.
+// Static impl methods (`Thread.spawn`) and free functions are unaffected.
+// See issues/impl-method-self-receiver-hollows-forwarded-spawn-closures.md —
+// do not "tidy" this into a method until that is fixed.
+spawn :: (fn(pool : ThreadPool, cb : Impl(Fn(io : Io) -> unit, Send)) -> unit)({
+  assert(
+    !(pool._closed.load(MemoryOrder.Acquire)),
+    "thread.spawn: pool has been shut down"
+  );
+  // The pool mutex serializes submission so that `join_all`'s sentinel tasks
+  // land on distinct worker threads (see `ThreadPool.join_all`).
+  pool._mutex._raw_lock();
+  pool._used.store(true, MemoryOrder.Release);
+  __yo_worker_spawn(cb);
+  pool._mutex._raw_unlock();
+});
 /// Get the number of hardware threads (CPU cores) available.
 get_hardware_threads :: __yo_thread_get_hardware_threads;
 /// Get the current OS thread ID.
@@ -39,5 +224,7 @@ export(
   get_hardware_threads,
   get_thread_id,
   get_cpu_id,
-  Thread
+  Thread,
+  ThreadPool,
+  spawn
 );

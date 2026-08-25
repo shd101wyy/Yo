@@ -5,30 +5,30 @@
 Yo provides two mechanisms for parallel execution:
 
 1. **Thread** - A dedicated OS thread (wrapper around pthread)
-2. **Worker** - A task that runs on a thread pool with thread affinity
+2. **ThreadPool** - A pool of worker threads that tasks are handed to, with thread affinity
 
 Communication between threads is done via **Channel** (`std/sync/channel.yo`) — a bounded, multi-producer multi-consumer queue with blocking send/recv.
 
 This is similar to:
 
-- **Go**: goroutines (Worker) + channels
+- **Go**: goroutines (ThreadPool) + channels
 - **Rust**: std::thread (Thread) + mpsc channels
-- **Java**: Thread + ExecutorService (Worker) + BlockingQueue
+- **Java**: Thread + ExecutorService (ThreadPool) + BlockingQueue
 
-**Key Insight**: By separating execution (Thread/Worker) from communication (Channel), we get a simpler and more flexible design.
+**Key Insight**: By separating execution (Thread/ThreadPool) from communication (Channel), we get a simpler and more flexible design.
 
 ## Concurrency vs Parallelism
 
 | Concept         | Mechanism         | Description                                |
 | --------------- | ----------------- | ------------------------------------------ |
 | **Concurrency** | `async/await`     | Multiple tasks interleaved on ONE thread   |
-| **Parallelism** | `Thread`/`Worker` | Multiple tasks running on SEPARATE threads |
+| **Parallelism** | `Thread`/`ThreadPool` | Multiple tasks running on SEPARATE threads |
 
 See `ASYNC_AWAIT.md` for single-threaded concurrency.
 
 ## Per-Thread Event Loop
 
-Each OS thread (both Thread and Worker) gets its own async event loop:
+Each OS thread (both Thread and ThreadPool workers) gets its own async event loop:
 
 - **Linux**: per-thread `io_uring` instance
 - **macOS**: per-thread `kqueue` descriptor
@@ -90,45 +90,76 @@ thread.join();
 - UI applications (main thread + worker threads)
 - When you need explicit control over thread lifecycle
 
-## Worker - Thread Pool Task
+## ThreadPool - Thread Pool Tasks
 
-`Worker` spawns tasks on a **thread pool** with **thread affinity**. Each task stays on its assigned OS thread (no work stealing).
+`ThreadPool` hands tasks to a **pool of worker threads** with **thread affinity**. Each task stays on its assigned OS thread (no work stealing).
+
+The OS worker threads are a single process-global pool owned by the runtime; a
+`ThreadPool` value is the explicit handle on it. It decides the thread count,
+submits tasks and drains them. Two consequences: the `num_threads` passed to
+`new` only takes effect while the runtime pool has not started yet, and
+`join_all`/`shutdown` drain the runtime pool, so two `ThreadPool` values in one
+program drain each other's work as well.
 
 ### API
 
 ```rust
-Worker :: import "std/worker";
+{ ThreadPool, spawn } :: import "std/thread";
 
-// Spawn a task on the thread pool
-Worker.spawn : (fn(cb : Impl(Fn(io : Io) -> unit, Send)) -> unit);
+// Create a pool that requests `num_threads` worker threads
+ThreadPool.new : (fn(num_threads : usize) -> ThreadPool);
 
-// Configure thread pool size (call before first spawn)
-Worker.set_num_threads : (fn(num : usize) -> unit);
+// Create a pool sized to the number of hardware threads
+ThreadPool.with_hardware_threads : (fn() -> ThreadPool);
 
-// Get number of threads in pool (default: hardware threads)
-Worker.get_num_threads : (fn() -> usize);
+// Number of worker threads in use (or about to be)
+ThreadPool.num_threads : (fn(self : ThreadPool) -> usize);
+
+// Hand a task to the pool — a module-level function, not a method
+spawn : (fn(pool : ThreadPool, cb : Impl(Fn(io : Io) -> unit, Send)) -> unit);
+
+// Block until every task submitted so far has finished; the pool stays open
+ThreadPool.join_all : (fn(self : ThreadPool) -> unit);
+
+// Refuse new work, then drain. Idempotent.
+ThreadPool.shutdown : (fn(self : ThreadPool) -> unit);
+ThreadPool.is_shutdown : (fn(self : ThreadPool) -> bool);
 ```
 
 ### Usage
 
 ```rust
-Worker :: import "std/worker";
+{ ThreadPool, spawn } :: import "std/thread";
 { yield } :: import "std/async";
 
-// Simple tasks on thread pool
-Worker.set_num_threads(4);
-Worker.spawn(() => {
+pool := ThreadPool.new(usize(4));
+
+// Simple tasks on the pool
+spawn(pool, (io : Io) => {
   do_work();
 });
 
-// Async tasks on thread pool
-Worker.spawn((io : Io) => {
+// Async tasks on the pool — each worker thread has its own event loop
+spawn(pool, (io : Io) => {
   task := io.async((io : Io) => {
-    io.await(yield());
+    io.await(yield(io), io);
   });
-  io.await(task);
+  io.await(task, io);
 });
+
+// Wait for everything submitted so far
+pool.join_all();
+
+// Refuse new work and drain
+pool.shutdown();
 ```
+
+`join_all` is a **barrier**, not a counter: it submits one sentinel task per
+worker thread and waits for all of them. Because the runtime hands consecutive
+submissions to consecutive worker threads and each worker runs its queue in
+FIFO order, once every sentinel has run, every task queued before it has run
+too. Do not call `join_all` from inside a pool task — the caller's worker
+thread would be busy waiting for its own sentinel.
 
 ### Thread Pool Design
 
@@ -152,11 +183,11 @@ Worker.spawn((io : Io) => {
 └────────────────────────────────────────────────────────────────┘
 ```
 
-### When to Use Worker
+### When to Use ThreadPool
 
 - Many short-lived tasks
 - CPU-bound parallel work
-- When you don't need to wait for individual tasks
+- When you wait for a whole batch rather than for individual tasks
 - Task parallelism (map-reduce style)
 
 ## Channel - Inter-Thread Communication
@@ -230,30 +261,32 @@ This means:
 - No stop-the-world GC pauses
 - No contention on async I/O
 
-## Comparison: Thread vs Worker
+## Comparison: Thread vs ThreadPool
 
-| Aspect          | Thread                   | Worker                     |
+| Aspect          | Thread                   | ThreadPool                 |
 | --------------- | ------------------------ | -------------------------- |
 | OS Thread       | Dedicated (1:1)          | Shared (thread pool)       |
-| Lifecycle       | Explicit (join)          | Fire-and-forget            |
+| Lifecycle       | Explicit (`join`)        | Batch (`join_all`/`shutdown`) |
 | Overhead        | Higher (thread creation) | Lower (reuses threads)     |
 | Use Case        | Long-running tasks       | Short-lived tasks          |
 | Thread Affinity | N/A                      | Yes (task stays on thread) |
 | Async I/O       | Own event loop           | Shared per-thread loop     |
+
+Neither `Thread.join` nor `ThreadPool.join_all` carries a value out of a
+thread. To return a result, hand it back over a `Channel`.
 
 ## Summary
 
 | Component   | Purpose                | API                   |
 | ----------- | ---------------------- | --------------------- |
 | **Thread**  | Dedicated OS thread    | `spawn`, `join`       |
-| **Worker**  | Thread pool task       | `spawn`               |
+| **ThreadPool** | Thread pool         | `new`, `spawn`, `join_all`, `shutdown` |
 | **Channel** | Blocking communication | `new`, `send`, `recv` |
 
 ### Quick Reference
 
 ```rust
-{ Thread } :: import "std/thread";
-Worker :: import "std/worker";
+{ Thread, ThreadPool, spawn } :: import "std/thread";
 { Channel } :: import "std/sync/channel";
 
 // Dedicated thread with async I/O
@@ -265,7 +298,9 @@ thread := Thread.spawn((io : Io) => {
 thread.join();
 
 // Thread pool task
-Worker.spawn(() => { /* work */ });
+pool := ThreadPool.new(usize(4));
+spawn(pool, (io : Io) => { /* work */ });
+pool.join_all();
 
 // Communication
 ch := Channel(i32).new(usize(10));
@@ -275,9 +310,9 @@ val := ch.recv();
 
 ### Key Principles
 
-1. **Separation of concerns** - Thread/Worker = execution, Channel = communication
+1. **Separation of concerns** - Thread/ThreadPool = execution, Channel = communication
 2. **Send trait** - only Send types can cross thread boundaries
 3. **Thread-local GC** - no cross-thread GC coordination
 4. **Non-atomic RC** - no atomic overhead for thread-local objects
-5. **Thread affinity** - Worker tasks stay on assigned OS thread
+5. **Thread affinity** - pool tasks stay on assigned OS thread
 6. **Per-thread event loop** - each thread gets independent async I/O

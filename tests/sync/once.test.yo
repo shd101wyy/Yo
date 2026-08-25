@@ -4,10 +4,9 @@ pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
 open(import("std/libc/stdio"));
 { Once } :: import("std/sync/once");
 { ArrayList } :: import("std/collections/array_list");
-{ Thread } :: import("std/thread");
+{ Thread, ThreadPool, spawn } :: import("std/thread");
 { WaitGroup } :: import("std/sync/waitgroup");
 { AtomicI32, MemoryOrder } :: import("std/sync/atomic");
-Worker :: import("std/worker");
 // ============================================================================
 // Basic operations
 // ============================================================================
@@ -172,28 +171,28 @@ test("Once multiple threads race to call", {
   assert(o.is_done(), "should be done");
 });
 // ============================================================================
-// Worker integration (atomic object — shared directly without Arc)
+// ThreadPool integration (atomic object — shared directly without Arc)
 // ============================================================================
-test("Once with Workers executes only once", {
+test("Once with pool tasks executes only once", {
   if(arch == Arch.Wasm32, return(()));
   o := Once.new();
   counter := AtomicI32(i32(0));
   wg := WaitGroup.new();
-  Worker.set_num_threads(2);
+  pool := ThreadPool.new(usize(2));
   wg.add(i32(3));
-  Worker.spawn((io) => {
+  spawn(pool, (io) => {
     o.call(() => {
       counter.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
     wg.done();
   });
-  Worker.spawn((io) => {
+  spawn(pool, (io) => {
     o.call(() => {
       counter.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
     wg.done();
   });
-  Worker.spawn((io) => {
+  spawn(pool, (io) => {
     o.call(() => {
       counter.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
