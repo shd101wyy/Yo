@@ -61,6 +61,17 @@ test("Barrier holds every party until the last one arrives", {
   while(runtime(arrived.load(MemoryOrder.Acquire) < i32(3)), {
     sleep_blocking(Duration.from_millis(i64(1)));
   });
+  // `arrived` only says the three threads reached the fetch_add; wait for the
+  // barrier's OWN count to see them, so `waiting() == 3` below is an invariant
+  // rather than a bet on 30 ms being enough scheduling slack on a loaded
+  // runner. The deadline is what keeps a barrier that trips early (and so
+  // resets `_count` before it is ever observed at 3) failing on the assertions
+  // instead of hanging here.
+  settle := i32(0);
+  while(runtime((b.waiting() < i32(3)) && (settle < i32(5000))), {
+    sleep_blocking(Duration.from_millis(i64(1)));
+    settle = (settle + i32(1));
+  });
   sleep_blocking(Duration.from_millis(i64(30)));
   assert(passed.load(MemoryOrder.Acquire) == i32(0), "no party may pass a 4-party barrier while only 3 have arrived");
   assert(b.waiting() == i32(3), "all three are parked in the current generation");
