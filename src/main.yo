@@ -1796,13 +1796,39 @@ run_compile :: (
   // Optimization + warnings: explicit --optimize wins over --release; the
   // default and explicit `--optimize 0` use -O0 with the noisy warnings
   // suppressed (mirrors the TS option logic).
+  //
+  // WARNINGS ARE NOT PURELY A FUNCTION OF THE OPTIMIZATION LEVEL. Generated C is
+  // full of harmless noise (unused temporaries, redundant parens, pointer-sign
+  // on string literals), so an optimized build passes `-w` to silence it. But a
+  // few diagnostics can ONLY mean the code GENERATOR emitted something
+  // inconsistent with its own prototypes, and those are re-enabled AFTER `-w`
+  // (clang and gcc honour the later flag, so exactly those come back).
+  //
+  // This is not hypothetical: a specialized generic's `inout` parameter lost its
+  // by-ref binding, so codegen passed a `T**` where its own prototype said `T*`.
+  // That is only -Wincompatible-pointer-types, `-w` swallowed it, and the
+  // program silently returned an uninitialised value — a formatted string came
+  // back as padding with no body. See
+  // issues/fixed/specialized-inout-param-loses-ref-with-comptime-arg.md and
+  // issues/release-builds-suppress-all-c-warnings.md. A pointer-type mismatch
+  // between generated code and its own generated prototype is never noise:
+  // both sides are written by this compiler.
+  //
+  // The -O0 arm below needs no such re-enabling — `-Wall` and clang's
+  // defaults already include all three.
   cond(
     ((optimize == "") && release) => {
       cmd.arg(String.from("-w"));
+      cmd.arg(String.from("-Wincompatible-pointer-types"));
+      cmd.arg(String.from("-Wint-conversion"));
+      cmd.arg(String.from("-Wimplicit-function-declaration"));
       cmd.arg(String.from("-O2"));
     },
     ((optimize != "") && (optimize != "0")) => {
       cmd.arg(String.from("-w"));
+      cmd.arg(String.from("-Wincompatible-pointer-types"));
+      cmd.arg(String.from("-Wint-conversion"));
+      cmd.arg(String.from("-Wimplicit-function-declaration"));
       cmd.arg(`-O${optimize}`);
     },
     true => {
@@ -3588,8 +3614,13 @@ Compile a '.yo' source file to a native executable (via C11).
 
 Options:
   -o <path>                 Output binary path
-  --release                 Optimized build (-O2; default is -O0)
-  --optimize <level>        Explicit C optimization level (0|1|2|3|s|z)
+  --release                 Optimized build (-O2; default is -O0). The usual
+                            way to build for real use.
+  --optimize <level>        Explicit C optimization level (0|1|2|3|s|z), for a
+                            level --release does not give you. Takes precedence
+                            over --release; any level above 0 optimizes exactly
+                            as --release does, including the ThinLTO pairing
+                            that --emit-chunks requires.
   -g, --debug-symbols       Emit debug symbols
   -s, --strip               Strip the output binary
   --cc, --c-compiler <cc>   C compiler to use (clang|gcc|zig|emcc)
