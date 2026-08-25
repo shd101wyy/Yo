@@ -113,7 +113,7 @@ test("canonical resolves a real path", {
   tmp := temp_dir();
   fpath := Path.new(path_join(tmp, `yo_fs_conv_canonical.txt`));
   io.await(fs_file.write_file(fpath, String.from("canonical"), io), IoExn(io : io, exn : exn));
-  resolved := io.await(fs_file.canonical(fpath, io), IoExn(io : io, exn : exn));
+  resolved := io.await(fs_file.canonicalize(fpath, io), IoExn(io : io, exn : exn));
   resolved_str := resolved.to_string();
   unsafe(printf("  canonical = %s\n", resolved_str.to_cstr().ptr().unwrap()));
   assert(resolved.is_absolute(), "canonical path should be absolute");
@@ -138,8 +138,8 @@ test("canonical resolves dot-dot segments", {
   io.await(fs_file.write_file(file_path, String.from("data"), io), IoExn(io : io, exn : exn));
   // Path with .. segment: dir/sub/../target.txt should resolve to dir/target.txt
   dotdot_path := Path.new(path_join(path_join(path_join(tmp, `yo_fs_conv_canonical_dir`), `sub`), `../target.txt`));
-  resolved := io.await(fs_file.canonical(dotdot_path, io), IoExn(io : io, exn : exn));
-  direct := io.await(fs_file.canonical(file_path, io), IoExn(io : io, exn : exn));
+  resolved := io.await(fs_file.canonicalize(dotdot_path, io), IoExn(io : io, exn : exn));
+  direct := io.await(fs_file.canonicalize(file_path, io), IoExn(io : io, exn : exn));
   resolved_str := resolved.to_string();
   direct_str := direct.to_string();
   unsafe(printf("  dotdot resolved = %s\n", resolved_str.to_cstr().ptr().unwrap()));
@@ -159,6 +159,6 @@ test("canonical throws for nonexistent path", {
       }
     )
   );
-  io.await(fs_file.canonical(fpath, io), IoExn(io : io, exn : exn));
+  io.await(fs_file.canonicalize(fpath, io), IoExn(io : io, exn : exn));
   assert(false, "should have thrown");
 });

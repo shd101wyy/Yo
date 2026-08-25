@@ -30,7 +30,7 @@ Substitution :: ref(
     // recorded, `substitute` returns that TraitT unchanged rather than
     // re-descending into its (already-bound) method types.
     visited_trait_ids : ArrayList(String),
-    /// TS `substitutions.set("Self", concreteType)` (impl.ts:2474), applied by
+    /// TS `substitutions.insert("Self", concreteType)` (impl.ts:2474), applied by
     /// this same walk. 0 or 1 element each; empty = no Self binding.
     self_from : ArrayList(TypeValue),
     self_to : ArrayList(TypeValue)
@@ -47,7 +47,7 @@ subst_new :: (fn() -> Substitution)(
     self_to : ArrayList(TypeValue).new()
   )
 );
-/// Bind `Self` — port of TS `substitutions.set("Self", concreteType)`
+/// Bind `Self` — port of TS `substitutions.insert("Self", concreteType)`
 /// (src/evaluator/values/impl.ts:2474), consumed by
 /// `reEvaluateFunctionType(..., SelfType)` (impl.ts:1494-1498). TS re-evaluates
 /// the stored type EXPRESSIONS; yo-self's `TypeValue.Func` stores none

@@ -366,7 +366,7 @@ impl(
       .None => {
         id := self.next_dispose_type_id;
         self.next_dispose_type_id = (id + usize(1));
-        _r := self.dispose_type_ids.set(dispose_c_name.clone(), id);
+        _r := self.dispose_type_ids.insert(dispose_c_name.clone(), id);
         id
       }
     )
@@ -375,14 +375,14 @@ impl(
   register_type : (
     fn(self : Self, id : String, ty : TypeValue, c_name : String, c_include : Option(String)) -> unit
   )({
-    _r := self.types.set(id, CodegenTypeEntry(ty : ty, c_name : c_name, c_include : c_include));
+    _r := self.types.insert(id, CodegenTypeEntry(ty : ty, c_name : c_name, c_include : c_include));
     ()
   }),
   /// Alias an EVOLVED type_key render to an already-registered key (the
   /// stable-identity dedup in collect_type). One level only — the target is
   /// always a PRIMARY registered key.
   register_type_alias : (fn(self : Self, alias_id : String, target_id : String) -> unit)({
-    _r := self.type_key_aliases.set(alias_id, target_id);
+    _r := self.type_key_aliases.insert(alias_id, target_id);
     ()
   }),
   /// Look up a registered type entry by id (following one alias level).
@@ -423,7 +423,7 @@ impl(
     if(!(self.functions.contains_key(func_id.clone())), {
       _o := self.function_order.push(func_id.clone());
     });
-    _r := self.functions.set(func_id, CodegenFunctionEntry(value : value, c_name : c_name));
+    _r := self.functions.insert(func_id, CodegenFunctionEntry(value : value, c_name : c_name));
     ()
   }),
   /// True if a function with this func_id is already registered.
@@ -464,26 +464,26 @@ impl(
   }),
   /// Record an exported function's label → func_id mapping (stable C name).
   set_exported_function_label : (fn(self : Self, func_id : String, label : String) -> unit)({
-    _r := self.exported_function_labels.set(func_id, label);
+    _r := self.exported_function_labels.insert(func_id, label);
     ()
   }),
   /// Register a dyn() usage (idempotent on key).
   register_dyn_impl : (fn(self : Self, key : String, entry : DynImplEntry) -> unit)({
-    _r := self.dyn_impls.set(key, entry);
+    _r := self.dyn_impls.insert(key, entry);
     ()
   }),
   /// Register an extern function.
   register_extern_function : (
     fn(self : Self, id : String, ty : TypeValue, c_name : String, c_include : Option(String)) -> unit
   )({
-    _r := self.extern_functions.set(id, CodegenExternFnEntry(ty : ty, c_name : c_name, c_include : c_include));
+    _r := self.extern_functions.insert(id, CodegenExternFnEntry(ty : ty, c_name : c_name, c_include : c_include));
     ()
   }),
   /// Register an array struct type (idempotent).
   register_array_struct_type : (
     fn(self : Self, c_name : String, child_type : String, length : i64) -> unit
   )({
-    _r := self.array_struct_types.set(c_name, ArrayStructInfo(child_type : child_type, length : length));
+    _r := self.array_struct_types.insert(c_name, ArrayStructInfo(child_type : child_type, length : length));
     ()
   }),
   /// True if an array struct type with this C name is registered.
@@ -494,7 +494,7 @@ impl(
   register_iso_type : (
     fn(self : Self, c_name : String, child_type_c_name : String, iso_type : TypeValue) -> unit
   )({
-    _r := self.iso_types.set(
+    _r := self.iso_types.insert(
       c_name,
       IsoTypeInfo(
         child_type_c_name : child_type_c_name,
@@ -513,7 +513,7 @@ impl(
   ),
   /// Add a C include header.
   add_c_include : (fn(self : Self, include : String) -> unit)({
-    _r := self.c_includes.add(include);
+    _r := self.c_includes.insert(include);
     ()
   })
 );
@@ -563,75 +563,75 @@ get_runtime_struct_fields :: (fn(struct_type : TypeValue) -> ArrayList(RuntimeSt
 _build_c_reserved_words :: (fn() -> HashSet(String))({
   words := HashSet(String).new();
   // C keywords
-  _w0 := words.add(String.from("auto"));
-  _w1 := words.add(String.from("break"));
-  _w2 := words.add(String.from("case"));
-  _w3 := words.add(String.from("char"));
-  _w4 := words.add(String.from("const"));
-  _w5 := words.add(String.from("continue"));
-  _w6 := words.add(String.from("default"));
-  _w7 := words.add(String.from("do"));
-  _w8 := words.add(String.from("double"));
-  _w9 := words.add(String.from("else"));
-  _w10 := words.add(String.from("enum"));
-  _w11 := words.add(String.from("extern"));
-  _w12 := words.add(String.from("float"));
-  _w13 := words.add(String.from("for"));
-  _w14 := words.add(String.from("goto"));
-  _w15 := words.add(String.from("if"));
-  _w16 := words.add(String.from("inline"));
-  _w17 := words.add(String.from("int"));
-  _w18 := words.add(String.from("long"));
-  _w19 := words.add(String.from("register"));
-  _w20 := words.add(String.from("restrict"));
-  _w21 := words.add(String.from("return"));
-  _w22 := words.add(String.from("short"));
-  _w23 := words.add(String.from("signed"));
-  _w24 := words.add(String.from("sizeof"));
-  _w25 := words.add(String.from("static"));
-  _w26 := words.add(String.from("struct"));
-  _w27 := words.add(String.from("switch"));
-  _w28 := words.add(String.from("typedef"));
-  _w29 := words.add(String.from("union"));
-  _w30 := words.add(String.from("unsigned"));
-  _w31 := words.add(String.from("void"));
-  _w32 := words.add(String.from("volatile"));
-  _w33 := words.add(String.from("while"));
+  _w0 := words.insert(String.from("auto"));
+  _w1 := words.insert(String.from("break"));
+  _w2 := words.insert(String.from("case"));
+  _w3 := words.insert(String.from("char"));
+  _w4 := words.insert(String.from("const"));
+  _w5 := words.insert(String.from("continue"));
+  _w6 := words.insert(String.from("default"));
+  _w7 := words.insert(String.from("do"));
+  _w8 := words.insert(String.from("double"));
+  _w9 := words.insert(String.from("else"));
+  _w10 := words.insert(String.from("enum"));
+  _w11 := words.insert(String.from("extern"));
+  _w12 := words.insert(String.from("float"));
+  _w13 := words.insert(String.from("for"));
+  _w14 := words.insert(String.from("goto"));
+  _w15 := words.insert(String.from("if"));
+  _w16 := words.insert(String.from("inline"));
+  _w17 := words.insert(String.from("int"));
+  _w18 := words.insert(String.from("long"));
+  _w19 := words.insert(String.from("register"));
+  _w20 := words.insert(String.from("restrict"));
+  _w21 := words.insert(String.from("return"));
+  _w22 := words.insert(String.from("short"));
+  _w23 := words.insert(String.from("signed"));
+  _w24 := words.insert(String.from("sizeof"));
+  _w25 := words.insert(String.from("static"));
+  _w26 := words.insert(String.from("struct"));
+  _w27 := words.insert(String.from("switch"));
+  _w28 := words.insert(String.from("typedef"));
+  _w29 := words.insert(String.from("union"));
+  _w30 := words.insert(String.from("unsigned"));
+  _w31 := words.insert(String.from("void"));
+  _w32 := words.insert(String.from("volatile"));
+  _w33 := words.insert(String.from("while"));
   // C11 keywords
-  _w34 := words.add(String.from("_Alignas"));
-  _w35 := words.add(String.from("_Alignof"));
-  _w36 := words.add(String.from("_Atomic"));
-  _w37 := words.add(String.from("_Bool"));
-  _w38 := words.add(String.from("_Complex"));
-  _w39 := words.add(String.from("_Generic"));
-  _w40 := words.add(String.from("_Imaginary"));
-  _w41 := words.add(String.from("_Noreturn"));
-  _w42 := words.add(String.from("_Static_assert"));
-  _w43 := words.add(String.from("_Thread_local"));
+  _w34 := words.insert(String.from("_Alignas"));
+  _w35 := words.insert(String.from("_Alignof"));
+  _w36 := words.insert(String.from("_Atomic"));
+  _w37 := words.insert(String.from("_Bool"));
+  _w38 := words.insert(String.from("_Complex"));
+  _w39 := words.insert(String.from("_Generic"));
+  _w40 := words.insert(String.from("_Imaginary"));
+  _w41 := words.insert(String.from("_Noreturn"));
+  _w42 := words.insert(String.from("_Static_assert"));
+  _w43 := words.insert(String.from("_Thread_local"));
   // Common standard library macros that expand to complex expressions
-  _w44 := words.add(String.from("errno"));
-  _w45 := words.add(String.from("stdin"));
-  _w46 := words.add(String.from("stdout"));
-  _w47 := words.add(String.from("stderr"));
-  _w48 := words.add(String.from("NULL"));
-  _w49 := words.add(String.from("true"));
-  _w50 := words.add(String.from("false"));
+  _w44 := words.insert(String.from("errno"));
+  _w45 := words.insert(String.from("stdin"));
+  _w46 := words.insert(String.from("stdout"));
+  _w47 := words.insert(String.from("stderr"));
+  _w48 := words.insert(String.from("NULL"));
+  _w49 := words.insert(String.from("true"));
+  _w50 := words.insert(String.from("false"));
   // Legacy Windows macros: windef.h defines these to NOTHING, so a user
   // local named `near` emitted verbatim became `if ()` in the windows
   // cross-emit (PR #218's windows leg;
   // issues/fixed/emitted-c-locals-collide-with-windows-macros.md). The
   // extern-C escape hatch in sanitize_for_c_identifier still lets real C
   // symbols keep their names.
-  _w51 := words.add(String.from("near"));
-  _w52 := words.add(String.from("far"));
-  _w53 := words.add(String.from("pascal"));
-  _w54 := words.add(String.from("cdecl"));
-  _w55 := words.add(String.from("IN"));
-  _w56 := words.add(String.from("OUT"));
-  _w57 := words.add(String.from("OPTIONAL"));
-  _w58 := words.add(String.from("interface"));
-  _w59 := words.add(String.from("small"));
-  _w60 := words.add(String.from("hyper"));
+  _w51 := words.insert(String.from("near"));
+  _w52 := words.insert(String.from("far"));
+  _w53 := words.insert(String.from("pascal"));
+  _w54 := words.insert(String.from("cdecl"));
+  _w55 := words.insert(String.from("IN"));
+  _w56 := words.insert(String.from("OUT"));
+  _w57 := words.insert(String.from("OPTIONAL"));
+  _w58 := words.insert(String.from("interface"));
+  _w59 := words.insert(String.from("small"));
+  _w60 := words.insert(String.from("hyper"));
   words
 });
 _c_reserved_words := _build_c_reserved_words();
@@ -1274,7 +1274,7 @@ get_variable_type_string :: (
   c_name := sanitize_for_c_identifier(var_name, false);
   // Record the declared C name (choke-point for every typed declaration) so the
   // deferred-drop pass can skip drops for temps that were never materialized.
-  _dv := context.declared_c_var_names.add(c_name.clone());
+  _dv := context.declared_c_var_names.insert(c_name.clone());
   result.push_string(c_name);
   result
 });

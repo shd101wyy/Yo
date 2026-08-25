@@ -84,7 +84,7 @@ _collect_created_var_names_from_expr :: (fn(expr : AstExpr, result : HashSet(Str
           match(
             ei.variable_name,
             .Some(vn) => {
-              _a := result.add(vn.clone());
+              _a := result.insert(vn.clone());
             },
             .None => ()
           );
@@ -109,7 +109,7 @@ _collect_created_var_names_from_expr :: (fn(expr : AstExpr, result : HashSet(Str
                     .Some(dei) => match(
                       dei.variable_name,
                       .Some(dvn) => {
-                        _b := result.add(dvn.clone());
+                        _b := result.insert(dvn.clone());
                       },
                       .None => ()
                     ),
@@ -189,7 +189,7 @@ _emit_drops_for_conditional_branch :: (fn(var_names : HashSet(String), indent : 
               match(
                 context.short_circuit_handled_drop_var_names,
                 .Some(s) => {
-                  _a := s.add(target);
+                  _a := s.insert(target);
                 },
                 .None => ()
               );

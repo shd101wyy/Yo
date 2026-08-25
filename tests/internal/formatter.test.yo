@@ -77,8 +77,8 @@ test("format_yo_source: fixture corpus from formatter.test.ts", {
       entries.get(i),
       .Some(e) => if(e.name.ends_with(`.input`), {
         base := e.name.substring(usize(0), e.name.len() - usize(6));
-        input := io.await(fs_file.read_string(Path.new(`${dir}/${base}.input`), io), ioexn);
-        expected := io.await(fs_file.read_string(Path.new(`${dir}/${base}.expected`), io), ioexn);
+        input := io.await(fs_file.read_to_string(Path.new(`${dir}/${base}.input`), io), ioexn);
+        expected := io.await(fs_file.read_to_string(Path.new(`${dir}/${base}.expected`), io), ioexn);
         got := _fmt(input);
         if(got != expected, {
           println(`  FIXTURE FAILED: ${base}`);

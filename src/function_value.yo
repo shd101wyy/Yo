@@ -33,7 +33,7 @@ open(import("std/string"));
 ///
 /// Mirrors setting `functionValue.isControlFunction = true` in TypeScript.
 mark_as_control_fn :: (fn(func_id : String) -> unit)({
-  g_control_fn_registry.set(func_id.clone(), true);
+  g_control_fn_registry.insert(func_id.clone(), true);
 });
 /// Returns true if the function identified by `func_id` is a control function.
 ///
@@ -58,7 +58,7 @@ is_control_fn :: (fn(func_id : String) -> bool)(
 (g_closure_fn_registry : HashMap(String, bool)) = HashMap(String, bool).new();
 /// Mark a function (by `func_id`) as a closure. Idempotent.
 mark_as_closure_fn :: (fn(func_id : String) -> unit)({
-  g_closure_fn_registry.set(func_id.clone(), true);
+  g_closure_fn_registry.insert(func_id.clone(), true);
 });
 /// True if the function identified by `func_id` is a closure (takes a capture
 /// context as its first C parameter). Mirrors reading `functionType.isClosure`.
@@ -95,7 +95,7 @@ ClosureCaptureInfo :: ref(struct(capture_type : TypeValue, frame_level : usize))
 (g_closure_capture_by_source : HashMap(String, ClosureCaptureInfo)) = HashMap(String, ClosureCaptureInfo).new();
 /// Record the source key for a closure fid (at FuncVal mint).
 register_closure_fid_source :: (fn(func_id : String, src_key : String) -> unit)({
-  g_closure_fid_source.set(func_id, src_key);
+  g_closure_fid_source.insert(func_id, src_key);
   ()
 });
 _capture_struct_field_count :: (fn(t : TypeValue) -> usize)(
@@ -130,12 +130,12 @@ register_closure_capture_info :: (fn(func_id : String, info : ClosureCaptureInfo
         .None => ()
       );
       if(src_do_set, {
-        g_closure_capture_by_source.set(src_key1.clone(), ClosureCaptureInfo(capture_type : info.capture_type, frame_level : info.frame_level));
+        g_closure_capture_by_source.insert(src_key1.clone(), ClosureCaptureInfo(capture_type : info.capture_type, frame_level : info.frame_level));
       });
     },
     .None => ()
   );
-  g_closure_capture_info.set(func_id.clone(), info);
+  g_closure_capture_info.insert(func_id.clone(), info);
 });
 /// The recorded capture info for `func_id`, if any.
 /// Reverse lookup: capture-struct id → the closure func_id that registered it.
@@ -200,7 +200,7 @@ get_closure_capture_info :: (fn(func_id : String) -> Option(ClosureCaptureInfo))
 (g_effect_record_member_registry : HashMap(String, bool)) = HashMap(String, bool).new();
 /// Mark a function (by func_id) as an effect-record member. Idempotent.
 mark_as_effect_record_member :: (fn(func_id : String) -> unit)({
-  g_effect_record_member_registry.set(func_id.clone(), true);
+  g_effect_record_member_registry.insert(func_id.clone(), true);
 });
 // ---------------------------------------------------------------------------
 // isIoAsyncStateMachineClosure side-table (codegen)
@@ -216,7 +216,7 @@ mark_as_effect_record_member :: (fn(func_id : String) -> unit)({
 (g_io_async_sm_closure_registry : HashMap(String, bool)) = HashMap(String, bool).new();
 /// Mark a closure (by func_id) as an io.async state-machine closure. Idempotent.
 mark_io_async_sm_closure :: (fn(func_id : String) -> unit)({
-  g_io_async_sm_closure_registry.set(func_id.clone(), true);
+  g_io_async_sm_closure_registry.insert(func_id.clone(), true);
 });
 /// Returns true if `func_id` is an io.async state-machine closure.
 is_io_async_sm_closure :: (fn(func_id : String) -> bool)(
@@ -237,7 +237,7 @@ is_io_async_sm_closure :: (fn(func_id : String) -> bool)(
 (g_io_async_closure_fid_by_expr : HashMap(String, String)) = HashMap(String, String).new();
 /// Record the io.async call expr (by AST id, stringified) → closure func_id.
 register_io_async_closure_fid :: (fn(expr_id : String, func_id : String) -> unit)({
-  g_io_async_closure_fid_by_expr.set(expr_id.clone(), func_id.clone());
+  g_io_async_closure_fid_by_expr.insert(expr_id.clone(), func_id.clone());
 });
 /// Look up the closure func_id recorded for an io.async call expr.
 lookup_io_async_closure_fid :: (fn(expr_id : String) -> Option(String))(
@@ -278,7 +278,7 @@ is_effect_record_member :: (fn(func_id : String) -> bool)(
 /// Mirrors setting `functionValue.definitionSiteEnclosingFunctionType = ...`
 /// in `src/evaluator/values/anonymous-function.ts`.
 register_definition_site_return :: (fn(func_id : String, return_ty : TypeValue) -> unit)({
-  g_definition_site_return_registry.set(func_id.clone(), return_ty);
+  g_definition_site_return_registry.insert(func_id.clone(), return_ty);
 });
 /// Get the enclosing function's return type at a function's definition site.
 /// Returns `t_unit()` if the function was not defined inside another function
@@ -311,7 +311,7 @@ get_definition_site_return :: (fn(func_id : String) -> TypeValue)(
 (g_closure_body_type_registry : HashMap(String, TypeValue)) =
   HashMap(String, TypeValue).new();
 register_closure_body_type :: (fn(func_id : String, body_ty : TypeValue) -> unit)({
-  g_closure_body_type_registry.set(func_id.clone(), body_ty);
+  g_closure_body_type_registry.insert(func_id.clone(), body_ty);
 });
 get_closure_body_type :: (fn(func_id : String) -> Option(TypeValue))(
   g_closure_body_type_registry.get(func_id.clone())
@@ -319,7 +319,7 @@ get_closure_body_type :: (fn(func_id : String) -> Option(TypeValue))(
 /// Record a function's own resolved `Func` type by func_id (called when the
 /// FuncVal is created). Resolves Gap 10 for the codegen function-emission driver.
 register_func_type :: (fn(func_id : String, func_ty : TypeValue) -> unit)({
-  g_func_type_registry.set(func_id.clone(), func_ty);
+  g_func_type_registry.insert(func_id.clone(), func_ty);
 });
 // ---------------------------------------------------------------------------
 // Unemittable-fn side-table
@@ -331,7 +331,7 @@ register_func_type :: (fn(func_id : String, func_ty : TypeValue) -> unit)({
 /// undeclared outer variables. should_skip_function_codegen consults this.
 (g_unemittable_fns : HashSet(String)) = HashSet(String).new();
 mark_fn_unemittable :: (fn(func_id : String) -> unit)({
-  _g := g_unemittable_fns.add(func_id.clone());
+  _g := g_unemittable_fns.insert(func_id.clone());
 });
 is_fn_unemittable :: (fn(func_id : String) -> bool)(
   g_unemittable_fns.contains(func_id.clone())
@@ -368,7 +368,7 @@ get_func_type :: (fn(func_id : String) -> TypeValue)(
 /// Store the parameter-bound frame for a function, keyed by its `fn(...)`
 /// type-expression id. (Capture timing is critical — see DEFTIME_BODY_EVAL.md.)
 register_func_parameters_frame :: (fn(func_id : String, frame : Frame) -> unit)({
-  g_func_parameters_frame.set(func_id.clone(), frame);
+  g_func_parameters_frame.insert(func_id.clone(), frame);
 });
 /// Retrieve a function's parameter-bound frame, if captured.
 get_func_parameters_frame :: (fn(func_id : String) -> Option(Frame))(

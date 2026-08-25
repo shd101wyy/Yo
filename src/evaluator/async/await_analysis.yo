@@ -369,7 +369,7 @@ detect_await_expr_ :: (
       target_variable_id := extract_target_variable_id(parent_expr.clone(), get_info);
       // Store async-specific extras in the side-channel, keyed by token position
       expr_char_key := tok.character.to_string();
-      await_extras.set(
+      await_extras.insert(
         expr_char_key.clone(),
         AwaitPointExtra(
           result_type : result_type.clone(),
@@ -617,7 +617,7 @@ collect_variable_bindings_ :: (
                                               Option(Box(CapturedVariable)).None
                                           );
                                           variables.push(cv);
-                                          seen.set(variable.id.to_string(), true);
+                                          seen.insert(variable.id.to_string(), true);
                                         });
                                       }
                                     );
@@ -691,7 +691,7 @@ get_local_variables_from_body :: (
 (g_closure_await_analysis : HashMap(String, AwaitAnalysisResult)) = HashMap(String, AwaitAnalysisResult).new();
 /// Register a closure's await analysis by func_id (only when it has awaits).
 register_closure_await_analysis :: (fn(func_id : String, result : AwaitAnalysisResult) -> unit)({
-  g_closure_await_analysis.set(func_id.clone(), result);
+  g_closure_await_analysis.insert(func_id.clone(), result);
 });
 /// The await analysis recorded for `func_id`, if any.
 get_closure_await_analysis :: (fn(func_id : String) -> Option(AwaitAnalysisResult))(

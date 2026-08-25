@@ -14,7 +14,7 @@ open(import("std/fmt"));
 // ============================================================================
 // Convenience function tests
 // ============================================================================
-test("write_file and read_string round-trip", {
+test("write_file and read_to_string round-trip", {
   exn := Exception(
     throw : (
       (err) -> {
@@ -28,13 +28,13 @@ test("write_file and read_string round-trip", {
   fpath := Path.new(path_join(tmp, `yo_fs_file_write_read.txt`));
   io.await(fs_file.write_file(fpath, String.from("hello world"), io), IoExn(io : io, exn : exn));
   unsafe(printf("  write ok\n"));
-  s := io.await(fs_file.read_string(fpath, io), IoExn(io : io, exn : exn));
+  s := io.await(fs_file.read_to_string(fpath, io), IoExn(io : io, exn : exn));
   unsafe(printf("  read: %s\n", s.to_cstr().ptr().unwrap()));
   assert(s == `hello world`, "content mismatch");
   // Cleanup
   io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
 });
-test("write_file_cstr and read_string_cstr", {
+test("write_file_cstr and read_to_string_cstr", {
   exn := Exception(
     throw : (
       (err) -> {
@@ -49,7 +49,7 @@ test("write_file_cstr and read_string_cstr", {
   fpath_c := fpath_cstr.ptr().unwrap();
   io.await(fs_file.write_file_cstr(fpath_c, "str path test", io), IoExn(io : io, exn : exn));
   unsafe(printf("  write ok\n"));
-  s := io.await(fs_file.read_string_cstr(fpath_c, io), IoExn(io : io, exn : exn));
+  s := io.await(fs_file.read_to_string_cstr(fpath_c, io), IoExn(io : io, exn : exn));
   unsafe(printf("  read: %s\n", s.to_cstr().ptr().unwrap()));
   assert(s == `str path test`, "content mismatch");
   io.await(fs_dir.remove_file(Path.new(fpath_s), io), IoExn(io : io, exn : exn));
@@ -87,7 +87,7 @@ test("append_file appends to existing content", {
   fpath := Path.new(path_join(tmp, `yo_fs_file_append.txt`));
   io.await(fs_file.write_file(fpath, String.from("first"), io), IoExn(io : io, exn : exn));
   io.await(fs_file.append_file(fpath, String.from(" second"), io), IoExn(io : io, exn : exn));
-  s := io.await(fs_file.read_string(fpath, io), IoExn(io : io, exn : exn));
+  s := io.await(fs_file.read_to_string(fpath, io), IoExn(io : io, exn : exn));
   unsafe(printf("  read: %s\n", s.to_cstr().ptr().unwrap()));
   assert(s == `first second`, "append content mismatch");
   io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
@@ -126,7 +126,7 @@ test("exists returns false for nonexistent file", {
 // ============================================================================
 // File object tests
 // ============================================================================
-test("File.open write and read_string", {
+test("File.open write and read_to_string", {
   exn := Exception(
     throw : (
       (err) -> {
@@ -145,7 +145,7 @@ test("File.open write and read_string", {
   io.await(f.close(io), IoExn(io : io, exn : exn));
   // Open for reading
   f2 := io.await(File.open(fpath, .Read, io), IoExn(io : io, exn : exn));
-  s := io.await(f2.read_string(io), IoExn(io : io, exn : exn));
+  s := io.await(f2.read_to_string(io), IoExn(io : io, exn : exn));
   unsafe(printf("  read: %s\n", s.to_cstr().ptr().unwrap()));
   assert(s == `file object test`, "File read content mismatch");
   io.await(f2.close(io), IoExn(io : io, exn : exn));
@@ -266,7 +266,7 @@ test("File.open_cstr convenience", {
   fpath_c := fpath_cstr.ptr().unwrap();
   io.await(fs_file.write_file(fpath, String.from("open_str test"), io), IoExn(io : io, exn : exn));
   f := io.await(File.open_cstr(fpath_c, .Read, io), IoExn(io : io, exn : exn));
-  s := io.await(f.read_string(io), IoExn(io : io, exn : exn));
+  s := io.await(f.read_to_string(io), IoExn(io : io, exn : exn));
   unsafe(printf("  read: %s\n", s.to_cstr().ptr().unwrap()));
   assert(s == `open_str test`, "open_str content mismatch");
   io.await(f.close(io), IoExn(io : io, exn : exn));

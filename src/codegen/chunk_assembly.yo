@@ -194,7 +194,7 @@ _ca_collect_static_def_names :: (fn(text : String, into : HashSet(String)) -> un
       match(
         _ca_parse_static_fn_line(bytes, ls, n, inline_pat, attr_pat),
         .Some(info) => if(info.is_def, {
-          _a := into.add(info.name);
+          _a := into.insert(info.name);
           ()
         }),
         .None => ()
@@ -451,7 +451,7 @@ _ca_collect_residue_protos :: (
           });
           if((_ca_bget(bytes, w) == u8(123)) && !(protos_out.contains_key(nm.clone())), {
             names_out.push(nm.clone());
-            _s := protos_out.set(nm, _ca_slice(bytes, ls, close_pos));
+            _s := protos_out.insert(nm, _ca_slice(bytes, ls, close_pos));
             ()
           });
         });
@@ -508,7 +508,7 @@ _ca_collect_yo_refs :: (fn(text : String, into : HashSet(String)) -> unit)({
           while((e < n) && _ca_is_ident_byte(_ca_bget(bytes, e)), {
             e = (e + usize(1));
           });
-          _a := into.add(_ca_slice(bytes, i, e));
+          _a := into.insert(_ca_slice(bytes, i, e));
           i = e;
         }, {
           i = (i + usize(1));
@@ -592,7 +592,7 @@ assemble_chunks :: (
     match(
       fn_ranges.get(ri),
       .Some(fr) => if(_ca_is_rc_helper(fr.c_name.clone()), {
-        _a := header_defined.add(fr.c_name.clone());
+        _a := header_defined.insert(fr.c_name.clone());
         ()
       }),
       .None => ()

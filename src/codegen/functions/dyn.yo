@@ -72,7 +72,7 @@ generate_dyn_dup_drop :: (fn(context : FunctionGenerationContext) -> unit)({
         dyn_key := type_key(impl_entry.dyn_type.clone());
         dyn_c := match(context.base.get_type_c_name(dyn_key.clone()), .Some(cn) => cn, .None => `__yo_dyn_${dyn_key}`);
         if(!(generated.contains(dyn_c.clone())), {
-          _g := generated.add(dyn_c.clone());
+          _g := generated.insert(dyn_c.clone());
           em.emit_string_line(`${dyn_c} __yo_dup_${dyn_c}(${dyn_c} dyn) {`);
           em.emit_line("  if (dyn.data) {");
           em.emit_line("    __yo_incr_rc(dyn.data);");
@@ -123,13 +123,13 @@ generate_dyn_box_functions :: (fn(context : FunctionGenerationContext) -> unit)(
         concrete_c := match(context.base.get_type_c_name(concrete_key.clone()), .Some(cn) => cn, .None => `unknown_${concrete_key}`);
         box_name := `__yo_dyn_box_${concrete_c}`;
         if(!(generated.contains(box_name.clone())), {
-          _g := generated.add(box_name.clone());
+          _g := generated.insert(box_name.clone());
           value_str := get_type_string(dyn_concrete_res.clone(), context.base);
           // Late-registered dyn impl (registered during body generation, after
           // the type-decl phase's box pass): emit the missing typedef into the
           // DECLARATIONS section now — see CodeGenContext.dyn_box_typedefs.
           if(!(context.base.dyn_box_typedefs.contains(box_name.clone())), {
-            _g3 := context.base.dyn_box_typedefs.add(box_name.clone());
+            _g3 := context.base.dyn_box_typedefs.insert(box_name.clone());
             em.emit_declaration_line("typedef struct {");
             em.emit_declaration_line("  __yo_ref_header_t header;");
             em.emit_declaration_string_line(`  ${value_str} value;`);
@@ -539,14 +539,14 @@ generate_dyn_vtables :: (fn(context : FunctionGenerationContext) -> unit)({
         concrete_cname := match(context.base.get_type_c_name(type_key(impl_entry.concrete_type.clone())), .Some(cn) => cn, .None => `unknown_${type_key(impl_entry.concrete_type.clone())}`);
         typeid_name := `__yo_typeid_${concrete_cname}`;
         if(!(generated.contains(typeid_name.clone())) && !(context.base.type_id_static_names.contains(typeid_name.clone())), {
-          _g := generated.add(typeid_name.clone());
-          _n := context.base.type_id_static_names.add(typeid_name.clone());
-          _s := context.base.type_id_statics.set(type_key(impl_entry.concrete_type.clone()), typeid_name.clone());
+          _g := generated.insert(typeid_name.clone());
+          _n := context.base.type_id_static_names.insert(typeid_name.clone());
+          _s := context.base.type_id_statics.insert(type_key(impl_entry.concrete_type.clone()), typeid_name.clone());
           context.base.emit_typeid_static(typeid_name.clone(), ` // TypeId for ${concrete_cname}`);
         }, {
           // Name already emitted by the typeid/downcast expression emitters —
           // still record the key mapping so vtables reference the shared static.
-          _s2 := context.base.type_id_statics.set(type_key(impl_entry.concrete_type.clone()), typeid_name.clone());
+          _s2 := context.base.type_id_statics.insert(type_key(impl_entry.concrete_type.clone()), typeid_name.clone());
         });
       },
       .None => ()
@@ -581,7 +581,7 @@ generate_dyn_vtables :: (fn(context : FunctionGenerationContext) -> unit)({
             req_traits.get(mi),
             .Some(rt) => if(is_fn_trait_type(rt.clone()), {
               em.emit_declaration_string_line(`  .call = __yo_wrap_${impl_key}_call,`);
-              _p := processed.add(String.from("call"));
+              _p := processed.insert(String.from("call"));
             }, {
               match(
                 rt,
@@ -596,7 +596,7 @@ generate_dyn_vtables :: (fn(context : FunctionGenerationContext) -> unit)({
                     label_processed := processed.contains(label.clone());
                     is_skip := (((label == "Self") || label_reserved) || label_processed);
                     if(!(is_skip), {
-                      _p := processed.add(label.clone());
+                      _p := processed.insert(label.clone());
                       // Only emit a slot for a method whose first param is `self`.
                       has_self := match(
                         field_types.get(fi),

@@ -45,7 +45,7 @@ _lookup_or_register_enum_sig :: (fn(sig : String, full_key : String) -> String)(
     // cfid-key returns below.
     .Some(k) => k.clone(),
     .None => {
-      g_enum_sig_keys.set(sig.clone(), full_key.clone());
+      g_enum_sig_keys.insert(sig.clone(), full_key.clone());
       full_key
     }
   )
@@ -260,10 +260,10 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
             match(
               g_struct_cfid_keys.get(sid),
               .Some(prev) => if(!((prev == key) || (prev == "!AMBIG")), {
-                g_struct_cfid_keys.set(sid.clone(), String.from("!AMBIG"));
+                g_struct_cfid_keys.insert(sid.clone(), String.from("!AMBIG"));
               }),
               .None => {
-                g_struct_cfid_keys.set(sid.clone(), key.clone());
+                g_struct_cfid_keys.insert(sid.clone(), key.clone());
               }
             );
           });

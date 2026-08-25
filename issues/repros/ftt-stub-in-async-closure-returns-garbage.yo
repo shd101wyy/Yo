@@ -1,0 +1,37 @@
+// Reproducer: issues/ftt-stub-in-live-closure-falls-off-non-void-function.md
+//
+// `no_such_method_at_all` does not exist on HashSet(usize). Called inside
+// `io.async((e) => { ... })` it is SILENTLY DROPPED:
+//
+//   yo check   tmp/fixme.yo                    -> rc=0, "evaluator OK"
+//   yo compile tmp/fixme.yo --release -o boom  -> rc=0, no diagnostic
+//   ./boom                                     -> prints 0, not 7
+//
+// The emitted closure is `static inline size_t closure_yo_id_N(...)` whose
+// ENTIRE body is two `// Failed to transpile` comments — a value-returning
+// C function with no return statement at all. Falling off the end of it is
+// undefined behaviour; 0 is just what this target happened to leave in the
+// return register.
+//
+// The same call written directly in `main` DOES fail the compile, rc=1:
+//   Error: No matching call found with arguments:
+// That is an EVALUATOR error on the concrete path — it never reaches codegen.
+// Inside the async closure the evaluator's deferred trial SWALLOWS that same
+// error, and codegen is then left with an expression it cannot transpile.
+{ HashSet } :: import("std/collections/hash_set");
+{ IoExn } :: import("std/error");
+{ println } :: import("std/fmt");
+
+_boom :: (fn(io : Io) -> Impl(Future(usize, IoExn)))(
+  io.async((e) => {
+    s := HashSet(usize).new();
+    s.no_such_method_at_all(usize(1));
+    usize(7)
+  })
+);
+
+main :: (fn(io : Io) -> unit)({
+  v := io.await(_boom(io), io);
+  println(v);
+});
+export(main);

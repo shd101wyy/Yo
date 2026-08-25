@@ -274,7 +274,7 @@ _arm_value_with_dups :: (fn(body_expr : AstExpr, indent : String, context : Func
         bline.push_string(raw_code.clone());
         bline.push_str(";");
         bem.emit_string_line(bline);
-        _bd := context.base.declared_c_var_names.add(btv.clone());
+        _bd := context.base.declared_c_var_names.insert(btv.clone());
       });
       final_code = btv;
     },
@@ -300,7 +300,7 @@ _arm_value_with_dups :: (fn(body_expr : AstExpr, indent : String, context : Func
           dline.push_string(generate_dup_code_for_value(final_code.clone(), bei.ty, context));
           dline.push_str(";");
           dem.emit_string_line(dline);
-          _dd := context.base.declared_c_var_names.add(dtv.clone());
+          _dd := context.base.declared_c_var_names.insert(dtv.clone());
           final_code = dtv;
           dup_named = true;
         },
@@ -789,11 +789,11 @@ _shadow_add :: (fn(context : FunctionGenerationContext, name : String) -> unit)(
   match(
     context.local_shadowed_variables,
     .Some(s) => {
-      _a := s.add(name);
+      _a := s.insert(name);
     },
     .None => {
       ns := HashSet(String).new();
-      _a := ns.add(name);
+      _a := ns.insert(name);
       context.local_shadowed_variables = Option(HashSet(String)).Some(ns);
     }
   );
@@ -1167,7 +1167,7 @@ generate_match_expression :: (fn(expr : AstExpr, indent : String, context : Func
         decl.push_string(matched_value_code.clone());
         decl.push_str(";");
         em.emit_string_line(decl);
-        _sd := context.base.declared_c_var_names.add(subject_var_name.clone());
+        _sd := context.base.declared_c_var_names.insert(subject_var_name.clone());
         matched_value_code = subject_var_name;
       });
       // The SUBJECT may carry a deferred `___dup` (begin-wrapped non-atom

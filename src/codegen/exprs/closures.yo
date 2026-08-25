@@ -253,7 +253,7 @@ generate_closure_construction :: (fn(expr : AstExpr, indent : String, context : 
     em.emit_string_line(decl);
     // Register the impl-closure-call mapping (key = concrete capture struct id).
     key := match(resolve_some_type_to_concrete(capture_ty), .Struct({ id : kid }) => kid, _ => struct_id.clone());
-    _r := context.base.impl_closure_call_map.set(
+    _r := context.base.impl_closure_call_map.insert(
       key,
       ImplClosureCallInfo(
         function_c_name : function_c_name,
@@ -284,7 +284,7 @@ generate_closure_construction :: (fn(expr : AstExpr, indent : String, context : 
       )
     );
     key := concrete_id;
-    _r := context.base.impl_closure_call_map.set(
+    _r := context.base.impl_closure_call_map.insert(
       key,
       ImplClosureCallInfo(
         function_c_name : function_c_name,
@@ -329,7 +329,7 @@ register_impl_closure_call_mappings :: (fn(context : FunctionGenerationContext) 
                 match(
                   context.base.functions.get(fid.clone()),
                   .Some(entry) => {
-                    _r := context.base.impl_closure_call_map.set(
+                    _r := context.base.impl_closure_call_map.insert(
                       key,
                       ImplClosureCallInfo(
                         function_c_name : entry.c_name,

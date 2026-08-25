@@ -200,7 +200,7 @@ _push_dup_call :: (fn(res : DupCallsResult, var_id : String, e : AstExpr) -> uni
     .None => {
       nl := ArrayList(AstExpr).new();
       nl.push(e);
-      res.dup_calls.set(var_id.clone(), nl);
+      res.dup_calls.insert(var_id.clone(), nl);
       res.dup_call_var_ids.push(var_id);
     }
   );
@@ -978,7 +978,7 @@ _optimize_dup_drop_pairs :: (
                     .Some(d) => {
                       _push_dup_call(merged, vid.clone(), d);
                       if(dup_child_idx.get(ast_expr_id(d)).is_none(), {
-                        dup_child_idx.set(ast_expr_id(d), ci);
+                        dup_child_idx.insert(ast_expr_id(d), ci);
                       });
                     },
                     .None => ()
@@ -1040,7 +1040,7 @@ _optimize_dup_drop_pairs :: (
             .Some(c) => c,
             .None => usize(0)
           );
-          consumed_derived.set(cbase.id.to_string(), cur + usize(1));
+          consumed_derived.insert(cbase.id.to_string(), cur + usize(1));
         });
       },
       .None => ()
@@ -1180,7 +1180,7 @@ _optimize_dup_drop_pairs :: (
                     match(
                       dups.get(rmi),
                       .Some(d3) => {
-                        remove_ids.add(ast_expr_id(d3));
+                        remove_ids.insert(ast_expr_id(d3));
                       },
                       .None => ()
                     );

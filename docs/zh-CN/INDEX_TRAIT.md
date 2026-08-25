@@ -194,7 +194,7 @@ v := list(usize(0));             // 42
 
 ```rust
 (map : HashMap(i32, i32)) = HashMap(i32, i32).new();
-map.set(i32(1), i32(100));
+map.insert(i32(1), i32(100));
 v := map(i32(1));               // 100
 &(map(i32(1))).* = i32(999);   // 原地修改
 // map(i32(99))                 // panic：键不存在
@@ -206,7 +206,7 @@ v := map(i32(1));               // 100
 
 ```rust
 (map : BTreeMap(i32, i32)) = BTreeMap(i32, i32).new();
-map.set(i32(5), i32(500));
+map.insert(i32(5), i32(500));
 v := map(i32(5));               // 500
 &(map(i32(5))).* = i32(77);   // 原地修改
 // map(i32(99))                 // panic：键不存在

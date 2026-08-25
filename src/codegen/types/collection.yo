@@ -75,7 +75,7 @@ _intern_type_c_name :: (fn(key : String) -> String)(
     .Some(existing) => existing,
     .None => {
       id := `__yo_t${_g_type_c_name_intern.len().to_string()}`;
-      _g_type_c_name_intern.set(key.clone(), id.clone());
+      _g_type_c_name_intern.insert(key.clone(), id.clone());
       id
     }
   )
@@ -92,7 +92,7 @@ _struct_some_type_is_only_in_function_fields :: (
       if(visited.contains(id.clone()), {
         return(true); // cyclic reference is fine
       });
-      _a := visited.add(id.clone());
+      _a := visited.insert(id.clone());
       (ok : bool) = true;
       n := field_types.len();
       (i : usize) = usize(0);
@@ -126,7 +126,7 @@ _enum_some_type_is_only_in_function_fields :: (
       if(visited.contains(id.clone()), {
         return(true);
       });
-      _a := visited.add(id.clone());
+      _a := visited.insert(id.clone());
       (ok : bool) = true;
       nv := variant_fields.len();
       (vi : usize) = usize(0);
@@ -245,7 +245,7 @@ collect_type :: (fn(type_in : TypeValue, context : CodeGenContext) -> unit)({
         aliased = true;
       }),
       .None => {
-        g_stable_to_key.set(stable.clone(), tk.clone());
+        g_stable_to_key.insert(stable.clone(), tk.clone());
       }
     );
     if(!(aliased), {
@@ -689,7 +689,7 @@ collect_required_types :: (fn(module_value : EvalValue, context : CodeGenContext
     while(ki < nk, {
       key := match(keys.get(ki), .Some(k) => k, .None => String.from(""));
       if(!(processed.contains(key.clone())), {
-        _p := processed.add(key.clone());
+        _p := processed.insert(key.clone());
         found_new = true;
         match(
           context.get_function_entry(key.clone()),

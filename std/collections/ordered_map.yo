@@ -19,9 +19,9 @@
 //! { OrderedMap } :: import "std/collections/ordered_map";
 //!
 //! m := OrderedMap(String, i32).new();
-//! m.set(`alpha`, i32(1));
-//! m.set(`beta`,  i32(2));
-//! m.set(`gamma`, i32(3));
+//! m.insert(`alpha`, i32(1));
+//! m.insert(`beta`,  i32(2));
+//! m.insert(`gamma`, i32(3));
 //!
 //! // Iteration yields keys in insertion order.
 //! it := m.keys();
@@ -76,9 +76,9 @@ impl(
   ///
   /// Returns `Ok(.Some(old_value))` if key already existed, `Ok(.None)` for
   /// a new key, or `.Err(_)` on allocation failure.
-  set : (fn(self : Self, key : K, value : V) -> Result(Option(V), HashMapError))({
+  insert : (fn(self : Self, key : K, value : V) -> Result(Option(V), HashMapError))({
     is_new := !(self._map.contains_key(key));
-    result := self._map.set(key, value);
+    result := self._map.insert(key, value);
     cond(
       is_new => match(
         result,

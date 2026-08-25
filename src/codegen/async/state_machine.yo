@@ -162,12 +162,12 @@ collect_variable_refs_in_expr :: (
                 .Some(ob) => ob.*.id.to_string(),
                 .None => canonical_id
               );
-              refs.add(owner_id.clone());
+              refs.insert(owner_id.clone());
               site_key_a := `${var_name}@${variable.token.module_path}:${variable.token.row.to_string()}:${variable.token.column.to_string()}`;
               match(
                 captured_name_ids.get(site_key_a),
                 .Some(site_id) => if(!(site_id == owner_id), {
-                  refs.add(site_id);
+                  refs.insert(site_id);
                 }),
                 .None => ()
               );
@@ -180,7 +180,7 @@ collect_variable_refs_in_expr :: (
         match(
           captured_name_ids.get(tok.value),
           .Some(cap_id) => {
-            refs.add(cap_id);
+            refs.insert(cap_id);
           },
           .None => ()
         );
@@ -228,12 +228,12 @@ collect_variable_refs_in_expr :: (
                     .Some(ob) => ob.*.id.to_string(),
                     .None => bind_canonical
                   );
-                  refs.add(bind_owner.clone());
+                  refs.insert(bind_owner.clone());
                   site_key_b := `${lhs_tok.value}@${bind_var.token.module_path}:${bind_var.token.row.to_string()}:${bind_var.token.column.to_string()}`;
                   match(
                     captured_name_ids.get(site_key_b),
                     .Some(site_id_b) => if(!(site_id_b == bind_owner), {
-                      refs.add(site_id_b);
+                      refs.insert(site_id_b);
                     }),
                     .None => ()
                   );
@@ -246,7 +246,7 @@ collect_variable_refs_in_expr :: (
             match(
               captured_name_ids.get(lhs_tok.value),
               .Some(cap_id_b) => {
-                refs.add(cap_id_b);
+                refs.insert(cap_id_b);
               },
               .None => ()
             );
@@ -365,8 +365,8 @@ _add_variable_segment :: (
     .Some(s) => s,
     .None => HashSet(usize).new()
   );
-  existing.add(seg);
-  variable_segments.set(var_id.clone(), existing);
+  existing.insert(seg);
+  variable_segments.insert(var_id.clone(), existing);
 });
 /// Determine which captured local variables cross await boundaries (referenced in
 /// more than one state segment, or in the cleanup segment, or in a single
@@ -404,7 +404,7 @@ compute_cross_boundary_variables :: (
           in_cond := match(ap.base.is_inside_cond, .Some(b) => b, .None => false);
           in_while := match(ap.base.is_inside_while, .Some(b) => b, .None => false);
           if(in_cond || in_while, {
-            branching_await_segment_indices.add(seg.state_number);
+            branching_await_segment_indices.insert(seg.state_number);
           });
         },
         .None => ()
@@ -428,12 +428,12 @@ compute_cross_boundary_variables :: (
       cn_cvs.get(cni),
       .Some(cv) => {
         if(!(captured_name_ids.contains_key(cv.base.name.clone())), {
-          _r := captured_name_ids.set(cv.base.name.clone(), cv.base.id.to_string());
+          _r := captured_name_ids.insert(cv.base.name.clone(), cv.base.id.to_string());
         });
         if(cv.base.decl_site.len() > usize(0), {
           site_key := `${cv.base.name.clone()}@${cv.base.decl_site.clone()}`;
           if(!(captured_name_ids.contains_key(site_key.clone())), {
-            _r2 := captured_name_ids.set(site_key, cv.base.id.to_string());
+            _r2 := captured_name_ids.insert(site_key, cv.base.id.to_string());
           });
         });
       },
@@ -530,20 +530,20 @@ compute_cross_boundary_variables :: (
             variable_segments.get(vid.clone()),
             .None => {
               // Not found in any segment — keep in struct (conservative).
-              cross_boundary_ids.add(vid.clone());
+              cross_boundary_ids.insert(vid.clone());
             },
             .Some(segs_used) => {
               if(segs_used.len() > usize(1), {
-                cross_boundary_ids.add(vid.clone());
+                cross_boundary_ids.insert(vid.clone());
               }, {
                 if(segs_used.contains(CLEANUP_SEGMENT), {
-                  cross_boundary_ids.add(vid.clone());
+                  cross_boundary_ids.insert(vid.clone());
                 }, {
                   // Exactly one numbered segment — struct only if it branches.
                   seg_iter := segs_used.into_iter();
                   single := match(seg_iter.next(), .Some(s) => s, .None => usize(0));
                   if(branching_await_segment_indices.contains(single), {
-                    cross_boundary_ids.add(vid.clone());
+                    cross_boundary_ids.insert(vid.clone());
                   });
                 });
               });
@@ -607,7 +607,7 @@ compute_cross_boundary_variables :: (
                       .Some(cap_id) => {
                         field := String.from("await_future_");
                         field.push_string(ap.base.index.to_string());
-                        await_future_temp_var_aliases.set(cap_id.clone(), field);
+                        await_future_temp_var_aliases.insert(cap_id.clone(), field);
                         cross_boundary_ids.remove(cap_id);
                       },
                       .None => ()
@@ -750,7 +750,7 @@ compute_overlapping_slots :: (
             );
           });
           if(has_any, {
-            ranges.set(v.base.id.to_string(), _SlotRange(min : mn, max : mx));
+            ranges.insert(v.base.id.to_string(), _SlotRange(min : mn, max : mx));
           });
         },
         .None => ()
@@ -779,7 +779,7 @@ compute_overlapping_slots :: (
           });
           group := match(by_type.get(ctype.clone()), .Some(grp) => grp, .None => ArrayList(String).new());
           group.push(vid.clone());
-          by_type.set(ctype.clone(), group);
+          by_type.insert(ctype.clone(), group);
         });
       },
       .None => ()
@@ -806,11 +806,11 @@ compute_overlapping_slots :: (
           rb := match(ranges.get(id_j.clone()), .Some(r) => r, .None => _SlotRange(min : usize(0), max : usize(0)));
           if((ra.min <= rb.max) && (rb.min <= ra.max), {
             ci := match(conflicts.get(id_i.clone()), .Some(s) => s, .None => HashSet(String).new());
-            ci.add(id_j.clone());
-            conflicts.set(id_i.clone(), ci);
+            ci.insert(id_j.clone());
+            conflicts.insert(id_i.clone(), ci);
             cj := match(conflicts.get(id_j.clone()), .Some(s) => s, .None => HashSet(String).new());
-            cj.add(id_i.clone());
-            conflicts.set(id_j.clone(), cj);
+            cj.insert(id_i.clone());
+            conflicts.insert(id_j.clone(), cj);
           });
           jj = (jj + usize(1));
         });
@@ -831,7 +831,7 @@ compute_overlapping_slots :: (
             .Some(conflict_id) => match(
               colors.get(conflict_id),
               .Some(col) => {
-                used_colors.add(col);
+                used_colors.insert(col);
               },
               .None => ()
             ),
@@ -844,7 +844,7 @@ compute_overlapping_slots :: (
         while(used_colors.contains(color), {
           color = (color + usize(1));
         });
-        colors.set(var_id.clone(), color);
+        colors.insert(var_id.clone(), color);
         ki = (ki + usize(1));
       });
       // Group var_ids by color (iterate var_ids order; ordered_colors for output).
@@ -859,7 +859,7 @@ compute_overlapping_slots :: (
         });
         cgroup := match(color_to_vars.get(col), .Some(g) => g, .None => ArrayList(String).new());
         cgroup.push(var_id.clone());
-        color_to_vars.set(col, cgroup);
+        color_to_vars.insert(col, cgroup);
         cti = (cti + usize(1));
       });
       // Create a slot per color group with ≥2 members (actual sharing).
@@ -880,7 +880,7 @@ compute_overlapping_slots :: (
               .None => gid.clone()
             );
             var_names.push(nm);
-            slot_aliases.set(gid.clone(), field_name.clone());
+            slot_aliases.insert(gid.clone(), field_name.clone());
             vni = (vni + usize(1));
           });
           slots.push(
@@ -1064,7 +1064,7 @@ _build_combined_sm_variables :: (
     match(
       cvs.get(i),
       .Some(v) => {
-        combined.set(v.base.id.to_string(), v);
+        combined.insert(v.base.id.to_string(), v);
       },
       .None => ()
     );
@@ -1090,7 +1090,7 @@ _build_combined_sm_variables :: (
           kind : CapturedVariableKind.Outer,
           is_owning_the_same_rc_value_as : Option(Box(CapturedVariable)).None
         );
-        combined.set(lbl.clone(), cv);
+        combined.insert(lbl.clone(), cv);
         j = (j + usize(1));
       });
     },
@@ -2176,12 +2176,12 @@ _chain_additional_remaining :: (
       bl.push(cb);
       chained.push(ChainedCondBranches(branches : bl, cond_branch_field_index : cond_branch_field_index));
       existing.chained_branches = Option(ArrayList(ChainedCondBranches)).Some(chained);
-      m.set(next_index, existing);
+      m.insert(next_index, existing);
     },
     .None => {
       bl := ArrayList(CondBranch).new();
       bl.push(cb);
-      m.set(
+      m.insert(
         next_index,
         AsyncCondBranchInfo(
           branches : bl,
@@ -2309,7 +2309,7 @@ _emit_cond_branch_remaining :: (
               .Some(enclosing) => if(!(wmap.contains_key(ap.base.index)), {
                 // Fresh object: WhileLoopInfo is a ref type, so mutating the
                 // enclosing handle would alias the previous state's entry.
-                wmap.set(
+                wmap.insert(
                   ap.base.index,
                   WhileLoopInfo(
                     condition_expr : enclosing.condition_expr,
@@ -2355,9 +2355,9 @@ _emit_cond_branch_remaining :: (
                           body_exprs_after_await : match(enclosing.body_exprs_after_await, .Some(b) => b, .None => ArrayList(AstExpr).new())
                         )
                       );
-                      wmap.set(ap.base.index, existing_next);
+                      wmap.insert(ap.base.index, existing_next);
                       enclosing.deferred_to_outer_while_loop = Option(bool).Some(true);
-                      wmap.set(prev_await.base.index, enclosing);
+                      wmap.insert(prev_await.base.index, enclosing);
                       context.async_while_loop_info = Option(HashMap(usize, WhileLoopInfo)).Some(wmap);
                     });
                   },
@@ -2403,7 +2403,7 @@ _emit_cond_branch_remaining :: (
                         )
                       )
                     );
-                    pw_map.set(ap.base.index, nested_while);
+                    pw_map.insert(ap.base.index, nested_while);
                     context.async_while_loop_info = Option(HashMap(usize, WhileLoopInfo)).Some(pw_map);
                     true
                   }, false),
@@ -3168,7 +3168,7 @@ _emit_while_continuation :: (
                       outer_while_loop : while_data.outer_while_loop,
                       deferred_to_outer_while_loop : Option(bool).None
                     );
-                    wm.set(ap.base.index, new_wi);
+                    wm.insert(ap.base.index, new_wi);
                     context.async_while_loop_info = Option(HashMap(usize, WhileLoopInfo)).Some(wm);
                     chained_to_next = true;
                     stop = true;

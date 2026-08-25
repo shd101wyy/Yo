@@ -303,7 +303,7 @@ test("BufWriter write and flush", {
   io.await(writer.write(data_bytes.ptr().unwrap(), u32(data_bytes.len()), io), io);
   io.await(writer.flush(io), io);
   // Read back
-  content := io.await(fs_file.read_string(fpath, io), IoExn(io : io, exn : exn));
+  content := io.await(fs_file.read_to_string(fpath, io), IoExn(io : io, exn : exn));
   unsafe(printf("  content: %s\n", content.to_cstr().ptr().unwrap()));
   assert(content == `buffered write test`, "content mismatch");
   io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
@@ -325,7 +325,7 @@ test("BufWriter write_string", {
   writer := BufWriter.new(fd);
   io.await(writer.write_string(`hello from bufwriter`, io), io);
   io.await(writer.flush(io), io);
-  content := io.await(fs_file.read_string(fpath, io), IoExn(io : io, exn : exn));
+  content := io.await(fs_file.read_to_string(fpath, io), IoExn(io : io, exn : exn));
   unsafe(printf("  content: %s\n", content.to_cstr().ptr().unwrap()));
   assert(content == `hello from bufwriter`, "content mismatch");
   io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
@@ -349,7 +349,7 @@ test("BufWriter with small buffer flushes automatically", {
   // Write more data than buffer size to trigger auto-flush
   io.await(writer.write_string(`abcdefghijklmnop`, io), io);
   io.await(writer.flush(io), io);
-  content := io.await(fs_file.read_string(fpath, io), IoExn(io : io, exn : exn));
+  content := io.await(fs_file.read_to_string(fpath, io), IoExn(io : io, exn : exn));
   unsafe(printf("  content: %s\n", content.to_cstr().ptr().unwrap()));
   assert(content == `abcdefghijklmnop`, "should have all data after auto-flush");
   io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
@@ -737,7 +737,7 @@ test("BufWriter write_bytes", {
   data.push(u8(111)); // o
   io.await(writer.write_bytes(data, io), io);
   io.await(writer.flush(io), io);
-  content := io.await(fs_file.read_string(fpath, io), IoExn(io : io, exn : exn));
+  content := io.await(fs_file.read_to_string(fpath, io), IoExn(io : io, exn : exn));
   unsafe(printf("  content: %s\n", content.to_cstr().ptr().unwrap()));
   assert(content == `hello`, "should write bytes correctly");
   io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
@@ -785,7 +785,7 @@ test("BufWriter multiple writes then single flush", {
   io.await(writer.write_string(`bbb`, io), io);
   io.await(writer.write_string(`ccc`, io), io);
   io.await(writer.flush(io), io);
-  content := io.await(fs_file.read_string(fpath, io), IoExn(io : io, exn : exn));
+  content := io.await(fs_file.read_to_string(fpath, io), IoExn(io : io, exn : exn));
   unsafe(printf("  content: %s\n", content.to_cstr().ptr().unwrap()));
   assert(content == `aaabbbccc`, "should concatenate all writes");
   io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
@@ -885,7 +885,7 @@ test("BufWriter Dispose flushes buffered bytes on drop", {
     assert(writer.buffered() == usize(14), "bytes sit in the buffer, unflushed");
     // no flush() — Dispose must flush on drop
   };
-  s := io.await(fs_file.read_string(fpath, io), IoExn(io : io, exn : exn));
+  s := io.await(fs_file.read_to_string(fpath, io), IoExn(io : io, exn : exn));
   assert(s == `buffered bytes`, "Dispose flushed the buffered bytes to the fd");
   io.await(f.close(io), IoExn(io : io, exn : exn));
   io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));

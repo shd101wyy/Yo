@@ -227,7 +227,7 @@ _push_variant :: (
   if(seen.contains(name.clone()), {
     return(());
   });
-  _a := seen.add(name.clone());
+  _a := seen.insert(name.clone());
   (detail : String) = String.new();
   (insert : String) = String.new();
   if(fields.len() > usize(0), {
@@ -270,7 +270,7 @@ _type_member_items :: (
         fty := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
         hidden := ((label.len() == usize(0)) || _hidden_name(label.clone()));
         if(!(hidden) && !(seen.contains(label.clone())), {
-          _a := seen.add(label.clone());
+          _a := seen.insert(label.clone());
           is_fn := match(fty, .Func(_, _, _, _, _, _, _) => true, _ => false);
           is_mod := match(fty, .Struct({ is_source_namespace : ns }) => ns, _ => false);
           kind := cond(
@@ -302,7 +302,7 @@ _type_member_items :: (
         label := match(u_labels.get(i), .Some(l) => l, .None => String.new());
         fty := match(u_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
         if((label.len() > usize(0)) && !(seen.contains(label.clone())), {
-          _a := seen.add(label.clone());
+          _a := seen.insert(label.clone());
           out.push(_ci(label.clone(), K_FIELD, type_to_string(fty), String.from("0_") + label.clone(), String.new()));
         });
         i = (i + usize(1));
@@ -315,7 +315,7 @@ _type_member_items :: (
         fty := match(t_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
         keep := ((label.len() > usize(0)) && _is_ident_name(label.clone()));
         if((keep && !(_hidden_name(label.clone()))) && !(seen.contains(label.clone())), {
-          _a := seen.add(label.clone());
+          _a := seen.insert(label.clone());
           is_fn := match(fty, .Func(_, _, _, _, _, _, _) => true, _ => false);
           kind := cond(is_fn => K_METHOD, true => K_PROPERTY);
           insert := cond(is_fn => _func_snippet(label.clone(), fty), true => String.new());
@@ -335,7 +335,7 @@ _push_method :: (
   if(bad || seen.contains(name.clone()), {
     return(());
   });
-  _a := seen.add(name.clone());
+  _a := seen.insert(name.clone());
   out.push(_ci(name.clone(), K_METHOD, type_to_string(ty), String.from("0_") + name.clone(), _func_snippet(name.clone(), ty)));
 });
 
@@ -710,7 +710,7 @@ _scan_idents :: (
             name_rows.push(tok.row);
             name_cols.push(tok.column);
             name_expr_ids.push(ast_expr_id(e));
-            _s := name_index.set(name, names.len() - usize(1));
+            _s := name_index.insert(name, names.len() - usize(1));
           }
         );
       });
@@ -816,7 +816,7 @@ _import_items :: (
         match(
           en.file_type,
           .Directory => {
-            _d := dirs.add(en.name.clone());
+            _d := dirs.insert(en.name.clone());
           },
           _ => ()
         );
@@ -1030,7 +1030,7 @@ handle_completion :: (
   while(ni < names.len(), {
     name := names(ni);
     if(!(_hidden_name(name.clone())) && _matches_prefix(name.clone(), prefix_lower.clone()), {
-      _e := emitted.add(name.clone());
+      _e := emitted.insert(name.clone());
       (detail : String) = String.new();
       (kind : usize) = K_VARIABLE;
       eid := match(name_expr_ids.get(ni), .Some(x) => x, .None => usize(0));
@@ -1072,7 +1072,7 @@ handle_completion :: (
                     (!(_hidden_name(vname.clone())) && _matches_prefix(vname.clone(), prefix_lower.clone()))
                 );
                 if(fresh, {
-                  _e2 := emitted.add(vname.clone());
+                  _e2 := emitted.insert(vname.clone());
                   is_fn := match(v.ty, .Func(_, _, _, _, _, _, _) => true, _ => false);
                   kind2 := cond(is_fn => K_FUNCTION, true => K_VARIABLE);
                   items.push(_ci(vname.clone(), kind2, type_to_string(v.ty), _sort_key(vname.clone(), prefix_lower.clone()), String.new()));
@@ -1093,7 +1093,7 @@ handle_completion :: (
   while(ki < kws.len(), {
     kw := kws(ki);
     if(!(emitted.contains(kw.clone())) && _matches_prefix(kw.clone(), prefix_lower.clone()), {
-      _e3 := emitted.add(kw.clone());
+      _e3 := emitted.insert(kw.clone());
       items.push(_ci(kw.clone(), K_KEYWORD, String.new(), _sort_key(kw.clone(), prefix_lower.clone()), String.new()));
     });
     ki = (ki + usize(1));

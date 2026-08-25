@@ -14,8 +14,8 @@ N :: ref(struct(id : i32, links : HashMap(i32, Self)));
 form_cycle :: (fn() -> unit)({
   a := N(1, HashMap(i32, N).new());
   b := N(2, HashMap(i32, N).new());
-  a.links.set(10, b).unwrap(); // a -> b
-  b.links.set(20, a).unwrap(); // b -> a : a <-> b cycle through HashMap
+  a.links.insert(10, b).unwrap(); // a -> b
+  b.links.insert(20, a).unwrap(); // b -> a : a <-> b cycle through HashMap
 });
 main :: (fn() -> unit)({
   before := Gc.tracked_count();

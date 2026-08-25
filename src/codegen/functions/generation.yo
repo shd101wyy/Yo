@@ -331,7 +331,7 @@ generate_function_body :: (fn(body_expr : AstExpr, function_type : TypeValue, in
     // Non-begin (bare tail-expression) body. Since _trial_eval_fn_body routes
     // every fn body through evaluate_begin_expression, the body node carries
     // the begin scope-end drops on its SHARED id. When the body is a bare
-    // `=` / `:=` STATEMENT (e.g. `___ := map.set(...)` — the whole body of a
+    // `=` / `:=` STATEMENT (e.g. `___ := map.insert(...)` — the whole body of a
     // unit fn like evaluator/types/field.yo register_struct_fields), the
     // drops must be flushed AFTER the statement, mirroring TS's begin path
     // order for a unit tail (generation.ts:1688-1695: statement first, drops
@@ -560,7 +560,7 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
                 _p
               }
             );
-            _dp := context.base.declared_c_var_names.add(_pnm.clone());
+            _dp := context.base.declared_c_var_names.insert(_pnm.clone());
             _dps := context.base.declared_scopes.push(_pnm);
             _pi = (_pi + usize(1));
           });
@@ -868,9 +868,9 @@ emit_module_level_variable_declarations :: (
             // sizeof() folds all failed — the stage2/stage3 fixpoint residue).
             dedup_key := `${c_var_name}#${ast_expr_token(init_expr).character.to_string()}`;
             if(!(seen.contains(dedup_key.clone())), {
-              _s := seen.add(dedup_key.clone());
+              _s := seen.insert(dedup_key.clone());
               if(!(seen.contains(c_var_name.clone())), {
-                _s2 := seen.add(c_var_name.clone());
+                _s2 := seen.insert(c_var_name.clone());
                 c_type_str := get_type_string(vi.ty, context.base);
                 // Chunked emission: module-level vars are read/written from
                 // every chunk — one definition (chunk 0), extern in the header.

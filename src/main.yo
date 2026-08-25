@@ -2886,7 +2886,7 @@ run_fmt :: (
           match(
             result.changed.get(cidx),
             .Some(c) => eprintln(
-              Path.new(c.clone()).relative_from(Path.new(fmt_cwd.clone())).to_string()
+              Path.new(c.clone()).strip_prefix(Path.new(fmt_cwd.clone())).to_string()
             ),
             .None => ()
           );
@@ -3141,10 +3141,10 @@ run_build_cmd :: (
         match(
           body.index_of(String.from("=")),
           .Some(pos) => {
-            _di := defines.set(body.substring(usize(0), pos), body.substring(pos + usize(1), body.len()));
+            _di := defines.insert(body.substring(usize(0), pos), body.substring(pos + usize(1), body.len()));
           },
           .None => {
-            _di := defines.set(body.clone(), String.from("true"));
+            _di := defines.insert(body.clone(), String.from("true"));
           }
         );
       },

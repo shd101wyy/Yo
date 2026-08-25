@@ -319,7 +319,7 @@ is_concrete_impl_being_registered :: (fn(type_id : String, trait_id : String) ->
 /// Mark a type+trait pair as currently being registered.
 mark_concrete_impl_being_registered :: (fn(type_id : String, trait_id : String) -> unit)({
   k := _concrete_impl_key(type_id, trait_id);
-  _currently_registering_concrete_impls.set(k, true);
+  _currently_registering_concrete_impls.insert(k, true);
 });
 /// Unmark a type+trait pair after registration completes.
 unmark_concrete_impl_being_registered :: (fn(type_id : String, trait_id : String) -> unit)({
@@ -1521,7 +1521,7 @@ _inject_forall_captures :: (
               register_funcval_cap_vars(ifc_env_key, new_cvars);
             });
             injected := EvalValue.FuncVal(box(FuncValData(forall_names : fns, params : ps, param_type_names : ptns, evidence_params : evs, body : body, cap_names : new_cns, cap_tys : new_cts, func_id : fid, env_key : ifc_env_key)), new_cvs);
-            _memo := g_ifc_memo.set(memo_key, injected);
+            _memo := g_ifc_memo.insert(memo_key, injected);
             Option(EvalValue).Some(injected)
           }
         )
@@ -1700,7 +1700,7 @@ find_methods_from_generic_impls :: (
                 sb_i = (sb_i + usize(1));
               });
               // Bind `Self` to the CONCRETE RECEIVER — port of TS
-              // `substitutions.set("Self", concreteType)` (impl.ts:2474),
+              // `substitutions.insert("Self", concreteType)` (impl.ts:2474),
               // consumed by `reEvaluateFunctionType(..., SelfType)`
               // (impl.ts:1494-1498). Pass the pattern UN-SUBSTITUTED: `Self`
               // was baked into `ftype` as the receiver pattern verbatim

@@ -299,7 +299,7 @@ impl(
   * Insert or update a key-value pair
   * Returns Ok(Some(old_value)) if key existed, Ok(None) if new key
   */
-  set : (fn(self : Self, key : K, value : V) -> Result(Option(V), HashMapError))({
+  insert : (fn(self : Self, key : K, value : V) -> Result(Option(V), HashMapError))({
     hash := key.hash();
     bucket_opt := Self._find_bucket(self, key, hash);
     match(
@@ -588,7 +588,7 @@ impl(
   /// Pointer iterator — yields `*(Bucket(K, V))` for each occupied bucket.
   /// For privileged/unsafe internal use; value iteration goes through
   /// `into_iter()`.
-  iter_ptr : (fn(self : Self) -> HashMapIterPtr(K, V))(
+  iter : (fn(self : Self) -> HashMapIterPtr(K, V))(
     HashMapIterPtr(K, V)(_map : self, _index : usize(0))
   )
 );
@@ -718,7 +718,7 @@ impl(
   Clone(
     clone : (fn(inout(self) : Self) -> Self)({
       result := Self.new();
-      it := self.iter_ptr();
+      it := self.iter();
       running := true;
       while(running, {
         nxt := it.next();
@@ -735,7 +735,7 @@ impl(
             // owns it across this call).
             k := unsafe(bucket_ptr.*.key.clone());
             v := unsafe(bucket_ptr.*.value.clone());
-            result.set(k, v);
+            result.insert(k, v);
           }
         );
       });
@@ -796,7 +796,7 @@ export(
 // =============================================================================
 // hash_map! literal macro
 // =============================================================================
-/// Internal helper: build a list of `tmp.set(k, v).unwrap()` statements from
+/// Internal helper: build a list of `tmp.insert(k, v).unwrap()` statements from
 /// a sequence of `k => v` arrow expressions.
 __hash_map_build_sets :: (fn(comptime(tmp) : Expr, comptime(entries) : ExprList) -> comptime(ExprList))(
   cond(
@@ -811,7 +811,7 @@ __hash_map_build_sets :: (fn(comptime(tmp) : Expr, comptime(entries) : ExprList)
       __2 :: comptime_assert(pair.len() == usize(2), "hash_map entries must use 'k => v'");
       key :: pair.car();
       val :: pair.cdr().car();
-      stmt :: quote(unquote(tmp).set(unquote(key), unquote(val)).unwrap());
+      stmt :: quote(unquote(tmp).insert(unquote(key), unquote(val)).unwrap());
       stmt.cons(recur(tmp, rest))
     }
   )
@@ -847,7 +847,7 @@ hash_map :: (fn(...(quote(entries))) -> unquote(Expr))({
     unquote(k_tmp) := unquote(first_key);
     unquote(v_tmp) := unquote(first_val);
     unquote(tmp) := HashMap(typeof(unquote(k_tmp)), typeof(unquote(v_tmp))).new();
-    unquote(tmp).set(unquote(k_tmp), unquote(v_tmp)).unwrap();
+    unquote(tmp).insert(unquote(k_tmp), unquote(v_tmp)).unwrap();
     unquote_splicing(rest_sets);
     unquote(tmp)
   })

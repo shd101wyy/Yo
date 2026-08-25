@@ -283,7 +283,7 @@ impl(
   * Insert an element into the set
   * Returns Ok(true) if element was newly inserted, Ok(false) if already present
   */
-  add : (fn(self : Self, element : T) -> Result(bool, HashSetError))({
+  insert : (fn(self : Self, element : T) -> Result(bool, HashSetError))({
     hash := element.hash();
     slot_opt := Self._find_slot(self, element, hash);
     match(
@@ -496,7 +496,7 @@ impl(
           cond(
             ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
               element := (data_ptr.add(i)).*;
-              result_set.add(element);
+              result_set.insert(element);
             },
             true => ()
           );
@@ -509,7 +509,7 @@ impl(
           cond(
             ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
               element := (other_data_ptr.add(j)).*;
-              result_set.add(element);
+              result_set.insert(element);
             },
             true => ()
           );
@@ -540,7 +540,7 @@ impl(
               element := (data_ptr.add(i)).*;
               cond(
                 (larger.contains(element)) => {
-                  _ := result_set.add(element);
+                  _ := result_set.insert(element);
                 },
                 true => ()
               );
@@ -573,7 +573,7 @@ impl(
               contains_result := other.contains(element);
               cond(
                 (contains_result == false) => {
-                  _ := result_set.add(element);
+                  _ := result_set.insert(element);
                 },
                 true => ()
               );
@@ -606,7 +606,7 @@ impl(
               contains_result := other.contains(element);
               cond(
                 (contains_result == false) => {
-                  _ := result_set.add(element);
+                  _ := result_set.insert(element);
                 },
                 true => ()
               );
@@ -625,7 +625,7 @@ impl(
               contains_result := self.contains(element);
               cond(
                 (contains_result == false) => {
-                  _ := result_set.add(element);
+                  _ := result_set.insert(element);
                 },
                 true => ()
               );
@@ -833,14 +833,14 @@ export(
 // =============================================================================
 // hash_set! literal macro
 // =============================================================================
-/// Internal helper: build a list of `tmp.add(elem).unwrap()` statements from `elems`.
+/// Internal helper: build a list of `tmp.insert(elem).unwrap()` statements from `elems`.
 __hash_set_build_adds :: (fn(comptime(tmp) : Expr, comptime(elems) : ExprList) -> comptime(ExprList))(
   cond(
     (elems.len() == usize(0)) => ExprList(),
     true => {
       first :: elems.car();
       rest :: elems.cdr();
-      stmt :: quote(unquote(tmp).add(unquote(first)).unwrap());
+      stmt :: quote(unquote(tmp).insert(unquote(first)).unwrap());
       stmt.cons(recur(tmp, rest))
     }
   )
@@ -867,13 +867,13 @@ hash_set :: (fn(...(quote(elems))) -> unquote(Expr))({
   quote({
     unquote(first_tmp) := unquote(first);
     unquote(tmp) := HashSet(typeof(unquote(first_tmp))).new();
-    unquote(tmp).add(unquote(first_tmp)).unwrap();
+    unquote(tmp).insert(unquote(first_tmp)).unwrap();
     unquote_splicing(rest_adds);
     unquote(tmp)
   })
 });
 /// Build a `HashSet(T)` from any iterator of `T` — the target of
-/// `it.collect(HashSet(T))`. Duplicates collapse, as with `add`.
+/// `it.collect(HashSet(T))`. Duplicates collapse, as with `insert`.
 impl(
   generic(T : Type),
   where(T <: (Eq(T), Hash)),
@@ -884,7 +884,7 @@ impl(
       HashSet(T).new()
     ),
     from_iter_add : (fn(acc : Self, item : T) -> Self)({
-      acc.add(item);
+      acc.insert(item);
       acc
     })
   )

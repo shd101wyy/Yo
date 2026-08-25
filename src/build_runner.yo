@@ -215,7 +215,7 @@ _walk_dag :: (
   ) -> unit
 )({
   if(visited.contains_key(name), return(()));
-  visited.set(name, true);
+  visited.insert(name, true);
   match(
     registry.resolve_dependency(name.clone()),
     .None => {
@@ -233,19 +233,19 @@ _walk_dag :: (
           recur(registry, nodes, visited, linked);
           i = (i + usize(1));
         });
-        nodes.set(name, DAGNode(name : name, kind : DAGNodeKind.Artifact, depends_on : deps));
+        nodes.insert(name, DAGNode(name : name, kind : DAGNodeKind.Artifact, depends_on : deps));
       },
       .Test(_t) => {
-        nodes.set(name, DAGNode(name : name, kind : DAGNodeKind.Test, depends_on : ArrayList(String).new()));
+        nodes.insert(name, DAGNode(name : name, kind : DAGNodeKind.Test, depends_on : ArrayList(String).new()));
       },
       .Run(run_step) => {
         deps := ArrayList(String).new();
         deps.push(run_step.artifact_name);
         recur(registry, nodes, visited, run_step.artifact_name);
-        nodes.set(name, DAGNode(name : name, kind : DAGNodeKind.Run, depends_on : deps));
+        nodes.insert(name, DAGNode(name : name, kind : DAGNodeKind.Run, depends_on : deps));
       },
       .Doc(_d) => {
-        nodes.set(name, DAGNode(name : name, kind : DAGNodeKind.Doc, depends_on : ArrayList(String).new()));
+        nodes.insert(name, DAGNode(name : name, kind : DAGNodeKind.Doc, depends_on : ArrayList(String).new()));
       },
       .Step(step) => {
         deps := ArrayList(String).new();
@@ -257,7 +257,7 @@ _walk_dag :: (
           recur(registry, nodes, visited, dep_name);
           i = (i + usize(1));
         });
-        nodes.set(name, DAGNode(name : name, kind : DAGNodeKind.Step, depends_on : deps));
+        nodes.insert(name, DAGNode(name : name, kind : DAGNodeKind.Step, depends_on : deps));
       }
     )
   );
@@ -299,11 +299,11 @@ _dfs_cycle :: (
     name : String
   ) -> Option(String)
 )({
-  color.set(name, _COLOR_GRAY);
+  color.insert(name, _COLOR_GRAY);
   match(
     node_map.get(name),
     .None => {
-      color.set(name, _COLOR_BLACK);
+      color.insert(name, _COLOR_BLACK);
       return(Option(String).None);
     },
     .Some(node) => {
@@ -330,7 +330,7 @@ _dfs_cycle :: (
       });
     }
   );
-  color.set(name, _COLOR_BLACK);
+  color.insert(name, _COLOR_BLACK);
   Option(String).None
 });
 /// Detect cycles in a DAG via DFS. Returns the cycle node name if found.
@@ -340,13 +340,13 @@ detect_cycle :: (fn(dag : ArrayList(DAGNode)) -> Option(String))({
   n := dag.len();
   while(i < n, {
     node := dag(i);
-    node_map.set(node.name, node);
+    node_map.insert(node.name, node);
     i = (i + usize(1));
   });
   color := HashMap(String, i32).new();
   i = usize(0);
   while(i < n, {
-    color.set(dag(i).name, _COLOR_WHITE);
+    color.insert(dag(i).name, _COLOR_WHITE);
     i = (i + usize(1));
   });
   i = usize(0);
@@ -540,7 +540,7 @@ compile_artifact :: (
       .Some(v) => ` ${v}`,
       .None => String.new()
     );
-    rel_output := Path.new(output_path.to_string()).relative_from(Path.new(ctx.project_dir.clone()));
+    rel_output := Path.new(output_path.to_string()).strip_prefix(Path.new(ctx.project_dir.clone()));
     lib_suffix := match(artifact.kind, .StaticLibrary => ".a", _ => "");
     println(`Building ${project_name}${version_suffix} → ${rel_output}${lib_suffix}`);
     cmd := Command.new(_self_exe());
@@ -1058,7 +1058,7 @@ execute_dag :: (
     while(i < n, {
       node := dag(i);
       if(!(in_degree.contains_key(node.name)), {
-        in_degree.set(node.name, i32(0));
+        in_degree.insert(node.name, i32(0));
       });
       j := usize(0);
       nd := node.depends_on.len();
@@ -1075,7 +1075,7 @@ execute_dag :: (
         });
         if(dep_in_dag, {
           cur := in_degree.get(node.name).unwrap_or(i32(0));
-          in_degree.set(node.name, cur + i32(1));
+          in_degree.insert(node.name, cur + i32(1));
         });
         j = (j + usize(1));
       });
@@ -1101,14 +1101,14 @@ execute_dag :: (
       while(k < rn, {
         node := ready(k);
         result := e.io.await(execute_node(node, ctx, e.io, e.exn), e);
-        results.set(node.name, result);
+        results.insert(node.name, result);
         k = (k + usize(1));
       });
       // Mark complete and update in-degrees
       k = usize(0);
       while(k < rn, {
         completed_name := ready(k).name;
-        completed.set(completed_name, true);
+        completed.insert(completed_name, true);
         // Decrement in-degree of all not-yet-completed nodes that depend on this
         m := usize(0);
         while(m < n, {
@@ -1120,7 +1120,7 @@ execute_dag :: (
               dep := other.depends_on(j);
               if(dep == completed_name, {
                 cur := in_degree.get(other.name).unwrap_or(i32(1));
-                in_degree.set(other.name, cur - i32(1));
+                in_degree.insert(other.name, cur - i32(1));
               });
               j = (j + usize(1));
             });
@@ -1218,7 +1218,7 @@ print_build_summary :: (
       j := usize(0);
       while(j < n, {
         nd := dag(j);
-        node_map.set(nd.name, nd);
+        node_map.insert(nd.name, nd);
         j = (j + usize(1));
       });
       _print_summary_node(dag(i), results, node_map, String.new(), String.new(), true);

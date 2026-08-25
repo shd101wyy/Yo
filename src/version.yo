@@ -9,7 +9,7 @@
 //! This mirrors `src/version.ts`.
 open(import("std/string"));
 { Path } :: import("std/path");
-{ exists, read_string } :: import("std/fs/file");
+{ exists, read_to_string } :: import("std/fs/file");
 { AnyError, Exception, IoExn } :: import("std/error");
 /// The name of the version pin file.
 YO_VERSION_FILE :: ".yo-version";
@@ -173,7 +173,7 @@ read_yo_version :: (
       path_opt,
       .None => Option(String).None,
       .Some(path) => {
-        content := e.io.await(read_string(path, e.io), e);
+        content := e.io.await(read_to_string(path, e.io), e);
         match(
           parse_yo_version(content),
           // msg.clone(): the abort-dispose of this state machine replays the

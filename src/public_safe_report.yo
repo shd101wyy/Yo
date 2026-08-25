@@ -562,7 +562,7 @@ generate_public_safe_report :: (fn(root_path : String, io : Io, exn : Exception)
       file := files(fi);
       if(!(_should_skip_file(file.clone())), {
         files_scanned = (files_scanned + usize(1));
-        src := e.io.await(fs_file.read_string(Path.new(file.clone()), e.io), e);
+        src := e.io.await(fs_file.read_to_string(Path.new(file.clone()), e.io), e);
         decls := _extract_top_level_fn_decls(src.as_bytes());
         (di : usize) = usize(0);
         while(runtime(di < decls.len()), {

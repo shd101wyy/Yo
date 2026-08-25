@@ -138,9 +138,9 @@ test("Test range slicing preserves data (owned copy)", {
 // === HashMap Index tests ===
 test("Test Index trait on HashMap", {
   (map : HashMap(i32, i32)) = HashMap(i32, i32).new();
-  map.set(i32(1), i32(100));
-  map.set(i32(2), i32(200));
-  map.set(i32(3), i32(300));
+  map.insert(i32(1), i32(100));
+  map.insert(i32(2), i32(200));
+  map.insert(i32(3), i32(300));
   // Basic indexing
   assert(map(i32(1)) == i32(100), "map(1) should be 100");
   assert(map(i32(2)) == i32(200), "map(2) should be 200");
@@ -148,7 +148,7 @@ test("Test Index trait on HashMap", {
 });
 test("Test Index trait mutation on HashMap", {
   (map : HashMap(i32, i32)) = HashMap(i32, i32).new();
-  map.set(i32(10), i32(42));
+  map.insert(i32(10), i32(42));
   // Mutate through pointer
   &(map(i32(10))).* = i32(999);
   assert(map(i32(10)) == i32(999), "map(10) should be 999 after mutation");
@@ -156,16 +156,16 @@ test("Test Index trait mutation on HashMap", {
 // === BTreeMap Index tests ===
 test("Test Index trait on BTreeMap", {
   (map : BTreeMap(i32, i32)) = BTreeMap(i32, i32).new();
-  map.set(i32(5), i32(500));
-  map.set(i32(3), i32(300));
-  map.set(i32(7), i32(700));
+  map.insert(i32(5), i32(500));
+  map.insert(i32(3), i32(300));
+  map.insert(i32(7), i32(700));
   assert(map(i32(3)) == i32(300), "map(3) should be 300");
   assert(map(i32(5)) == i32(500), "map(5) should be 500");
   assert(map(i32(7)) == i32(700), "map(7) should be 700");
 });
 test("Test Index trait mutation on BTreeMap", {
   (map : BTreeMap(i32, i32)) = BTreeMap(i32, i32).new();
-  map.set(i32(1), i32(10));
+  map.insert(i32(1), i32(10));
   &(map(i32(1))).* = i32(77);
   assert(map(i32(1)) == i32(77), "map(1) should be 77 after mutation");
 });

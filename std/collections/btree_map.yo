@@ -6,8 +6,8 @@
 //! { BTreeMap } :: import "std/collections/btree_map";
 //!
 //! m := BTreeMap(String, i32).new();
-//! m.set(String.from("b"), 2);
-//! m.set(String.from("a"), 1);
+//! m.insert(String.from("b"), 2);
+//! m.insert(String.from("a"), 1);
 //! // Iteration order: a, b
 //! ```
 pragma(Pragma.AllowUnsafe);
@@ -77,7 +77,7 @@ impl(
   }),
   // Insert or update the value for key `k`.
   // For new keys: append at end then shift-left to correct sorted position.
-  set : (fn(self : Self, k : K, v : V, where(K <: Ord(K))) -> unit)({
+  insert : (fn(self : Self, k : K, v : V, where(K <: Ord(K))) -> unit)({
     r := self._find(k);
     cond(
       r.found => {
