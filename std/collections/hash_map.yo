@@ -1,6 +1,7 @@
 //! Hash map using SwissTable algorithm with SIMD-accelerated lookup.
 pragma(Pragma.AllowUnsafe);
 { GlobalAllocator, AllocError } :: import("../allocator.yo");
+{ MapEntry } :: import("./entry.yo");
 { malloc, calloc, realloc, free } :: GlobalAllocator;
 /// Error variants for HashMap operations.
 HashMapError :: enum(
@@ -20,13 +21,6 @@ DEFAULT_CAPACITY :: usize(16);
 /// Maximum load factor numerator (7/8 = 0.875). Resize when `size > capacity * 7 / 8`.
 MAX_LOAD_FACTOR_NUMERATOR :: usize(7);
 MAX_LOAD_FACTOR_DENOMINATOR :: usize(8);
-/// Key-value pair stored in a hash map bucket.
-Bucket :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
-  struct(
-    key : K,
-    value : V
-  )
-);
 /// Extract H2 hash (lower 7 bits) from full hash for control byte comparison.
 h2_hash :: (fn(hash : u64) -> u8)(u8(hash & u64(127)));
 /// Avalanche-mix a 64-bit hash (murmur3 fmix64 finalizer) so that weakly-
@@ -58,7 +52,7 @@ HashMap :: (
   ref(
     struct(
       ctrl : ?(*(u8)),
-      data : ?(*(Bucket(K, V))),
+      data : ?(*(MapEntry(K, V))),
       capacity : usize,
       size : usize
     )
@@ -73,7 +67,7 @@ impl(
   * Initializes all control bytes to EMPTY
   */
   _alloc_with_capacity : (fn(capacity : usize) -> Result(Self, HashMapError))({
-    bucket_size :: sizeof(Bucket(K, V));
+    bucket_size :: sizeof(MapEntry(K, V));
     ctrl_size := capacity;
     data_size := (capacity * bucket_size);
     ctrl_result := malloc(ctrl_size);
@@ -90,7 +84,7 @@ impl(
             .Err(.AllocError(error : .OutOfMemory))
           },
           .Some(data_void_ptr) => {
-            data_ptr := *(Bucket(K, V))(data_void_ptr);
+            data_ptr := *(MapEntry(K, V))(data_void_ptr);
             i := usize(0);
             while(i < capacity, i = (i + usize(1)), {
               (ctrl_ptr.add(i)).* = CTRL_EMPTY;
@@ -157,7 +151,7 @@ impl(
   /**
   * Get data pointer (unwrapped for internal use)
   */
-  _data_ptr : (fn(self : Self) -> *(Bucket(K, V)))(
+  _data_ptr : (fn(self : Self) -> *(MapEntry(K, V)))(
     match(
       self.data,
       .Some(ptr) => ptr,
@@ -308,12 +302,12 @@ impl(
         data_ptr := Self._data_ptr(self);
         old_bucket := (data_ptr.add(index)).*;
         old_value := old_bucket.value;
-        new_bucket := Bucket(K, V)(key : key, value : value);
+        new_bucket := MapEntry(K, V)(key : key, value : value);
         // Don't use consume here - we want to drop the old bucket at memory
         // Note: old_bucket already duped it, so dropping here decrements to RC=1
         // Then old_bucket goes out of scope and drops again to RC=0
         // But wait - we return old_value which was duped from old_bucket...
-        // Actually the Bucket struct contains RC types, so assignment drops old + dups new
+        // Actually the MapEntry struct contains RC types, so assignment drops old + dups new
         (data_ptr.add(index)).* = new_bucket;
         .Ok(.Some(old_value))
       },
@@ -334,7 +328,7 @@ impl(
             ctrl_ptr := Self._ctrl_ptr(self);
             data_ptr := Self._data_ptr(self);
             (ctrl_ptr.add(index)).* = h2;
-            new_bucket := Bucket(K, V)(key : key, value : value);
+            new_bucket := MapEntry(K, V)(key : key, value : value);
             consume((data_ptr.add(index)).* = new_bucket);
             self.size = (self.size + usize(1));
             .Ok(.None)
@@ -494,7 +488,7 @@ impl(
   )
 );
 /**
-* Value iterator for HashMap - yields Bucket(K, V) by value
+* Value iterator for HashMap - yields MapEntry(K, V) by value
 * Scans ctrl bytes to find occupied slots.
 */
 HashMapIter :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
@@ -508,14 +502,14 @@ impl(
   where(K <: (Eq(K), Hash)),
   HashMapIter(K, V),
   Iterator(
-    Item : Bucket(K, V),
-    next : (fn(inout(self) : Self) -> Option(Bucket(K, V)))(
+    Item : MapEntry(K, V),
+    next : (fn(inout(self) : Self) -> Option(MapEntry(K, V)))(
       cond(
         (self._map.capacity == usize(0)) => .None,
         true => {
           ctrl_ptr := self._map.ctrl.unwrap();
           data_ptr := self._map.data.unwrap();
-          result := Option(Bucket(K, V)).None;
+          result := Option(MapEntry(K, V)).None;
           while((self._index < self._map.capacity) && result.is_none(), self._index = (self._index + usize(1)), {
             ctrl_byte := (ctrl_ptr.add(self._index)).*;
             cond(
@@ -536,7 +530,7 @@ impl(
   where(K <: (Eq(K), Hash)),
   HashMap(K, V),
   IntoIterator(
-    Item : Bucket(K, V),
+    Item : MapEntry(K, V),
     IntoIter : HashMapIter(K, V),
     into_iter : (fn(self : Self) -> HashMapIter(K, V))(
       HashMapIter(K, V)(_map : self, _index : usize(0))
@@ -544,7 +538,7 @@ impl(
   )
 );
 /**
-* Pointer iterator for HashMap - yields pointers to Bucket(K, V)
+* Pointer iterator for HashMap - yields pointers to MapEntry(K, V)
 * Pointers are valid as long as the map is not modified during iteration.
 */
 HashMapIterPtr :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
@@ -558,14 +552,14 @@ impl(
   where(K <: (Eq(K), Hash)),
   HashMapIterPtr(K, V),
   Iterator(
-    Item : *(Bucket(K, V)),
-    next : (fn(inout(self) : Self) -> Option(*(Bucket(K, V))))(
+    Item : *(MapEntry(K, V)),
+    next : (fn(inout(self) : Self) -> Option(*(MapEntry(K, V))))(
       cond(
         (self._map.capacity == usize(0)) => .None,
         true => {
           ctrl_ptr := self._map.ctrl.unwrap();
           data_ptr := self._map.data.unwrap();
-          result := Option(*(Bucket(K, V))).None;
+          result := Option(*(MapEntry(K, V))).None;
           while((self._index < self._map.capacity) && result.is_none(), self._index = (self._index + usize(1)), {
             ctrl_byte := (ctrl_ptr.add(self._index)).*;
             cond(
@@ -585,7 +579,7 @@ impl(
   generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash)),
   HashMap(K, V),
-  /// Pointer iterator — yields `*(Bucket(K, V))` for each occupied bucket.
+  /// Pointer iterator — yields `*(MapEntry(K, V))` for each occupied bucket.
   /// For privileged/unsafe internal use; value iteration goes through
   /// `into_iter()`.
   iter : (fn(self : Self) -> HashMapIterPtr(K, V))(
@@ -752,7 +746,7 @@ impl(
     * Cycle-GC tracing. Buckets live in a malloc'd open-addressing buffer the
     * compiler's auto-derived field walk cannot reach, so trace each FULL slot
     * (its control byte is neither EMPTY nor DELETED). `tracer.visit` takes the
-    * `Bucket(K, V)` slot POINTER; the per-value traversal descends inline through
+    * `MapEntry(K, V)` slot POINTER; the per-value traversal descends inline through
     * the value struct, tracing BOTH the key and the value, WITHOUT touching any
     * reference count (a by-value managed handle would be dup'd then dropped,
     * freeing a live element mid-collection). Mirrors the ArrayList `Trace` impl +
@@ -787,7 +781,7 @@ impl(
 export(
   HashMap,
   HashMapError,
-  Bucket,
+  MapEntry,
   HashMapIter,
   HashMapIterPtr,
   HashMapKeys,

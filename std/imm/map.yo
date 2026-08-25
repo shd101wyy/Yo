@@ -29,6 +29,7 @@
 pragma(Pragma.AllowUnsafe);
 { GlobalAllocator } :: import("../allocator.yo");
 { ArrayList } :: import("../collections/array_list.yo");
+{ MapEntry } :: import("../collections/entry.yo");
 { malloc, free } :: GlobalAllocator;
 /// Number of bits per HAMT level.
 BITS :: usize(5);
@@ -41,10 +42,6 @@ popcount :: (fn(x : u32) -> u32)({
   v = ((v & u32(858993459)) + ((v >> u32(2)) & u32(858993459)));
   (((v + (v >> u32(4))) & u32(252645135)) * u32(16843009)) >> u32(24)
 });
-/// Key-value pair used in collision nodes and entries.
-Pair :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
-  struct(key : K, value : V)
-);
 /// HAMT leaf node -- single key-value entry.
 MapLeaf :: (
   fn(
@@ -75,7 +72,7 @@ MapCollision :: (
     ref(
       struct(
         hash : u64,
-        _pairs_ptr : *(Pair(K, V)),
+        _pairs_ptr : *(MapEntry(K, V)),
         _pairs_len : usize
       )
     )
@@ -243,11 +240,11 @@ _branch_without_child :: (fn(comptime(K) : Type, comptime(V) : Type, branch : Ma
   MapBranch(K, V)(bitmap : (branch.bitmap & (~(bit))), _children_ptr : new_ptr, _children_len : new_len)
 });
 // -- MapCollision helpers --
-_alloc_pairs :: (fn(comptime(K) : Type, comptime(V) : Type, count : usize, where(K <: (Eq(K), Hash, Send), V <: Send)) -> *(Pair(K, V)))({
-  sz := (sizeof(Pair(K, V)) * count);
+_alloc_pairs :: (fn(comptime(K) : Type, comptime(V) : Type, count : usize, where(K <: (Eq(K), Hash, Send), V <: Send)) -> *(MapEntry(K, V)))({
+  sz := (sizeof(MapEntry(K, V)) * count);
   match(
     malloc(sz),
-    .Some(p) => *(Pair(K, V))(p),
+    .Some(p) => *(MapEntry(K, V))(p),
     .None => __yo_panic("imm.Map: collision allocation failed")
   )
 });
@@ -265,8 +262,8 @@ _copy_pairs :: (
   fn(
     comptime(K) : Type,
     comptime(V) : Type,
-    dst : *(Pair(K, V)),
-    src : *(Pair(K, V)),
+    dst : *(MapEntry(K, V)),
+    src : *(MapEntry(K, V)),
     dst_offset : usize,
     src_offset : usize,
     count : usize,
@@ -284,14 +281,14 @@ _coll_with_pair :: (fn(comptime(K) : Type, comptime(V) : Type, coll : MapCollisi
     .Some(idx) => {
       new_ptr := _alloc_pairs(K, V, coll._pairs_len);
       _copy_pairs(K, V, new_ptr, coll._pairs_ptr, usize(0), usize(0), coll._pairs_len);
-      (new_ptr.add(idx)).* = Pair(K, V)(key : k, value : v);
+      (new_ptr.add(idx)).* = MapEntry(K, V)(key : k, value : v);
       return(MapCollision(K, V)(hash : coll.hash, _pairs_ptr : new_ptr, _pairs_len : coll._pairs_len));
     },
     .None => {
       new_len := (coll._pairs_len + usize(1));
       new_ptr := _alloc_pairs(K, V, new_len);
       _copy_pairs(K, V, new_ptr, coll._pairs_ptr, usize(0), usize(0), coll._pairs_len);
-      consume((new_ptr.add(coll._pairs_len)).* = Pair(K, V)(key : k, value : v));
+      consume((new_ptr.add(coll._pairs_len)).* = MapEntry(K, V)(key : k, value : v));
       return(MapCollision(K, V)(hash : coll.hash, _pairs_ptr : new_ptr, _pairs_len : new_len));
     }
   )
@@ -400,8 +397,8 @@ _node_insert :: (
           );
         });
         pairs_ptr := _alloc_pairs(K, V, usize(2));
-        consume(pairs_ptr.* = Pair(K, V)(key : leaf.key, value : leaf.value));
-        consume((pairs_ptr.add(usize(1))).* = Pair(K, V)(key : k, value : v));
+        consume(pairs_ptr.* = MapEntry(K, V)(key : leaf.key, value : leaf.value));
+        consume((pairs_ptr.add(usize(1))).* = MapEntry(K, V)(key : k, value : v));
         return(
           InsertResult(K, V)(
             node : .Collision(MapCollision(K, V)(hash : hash, _pairs_ptr : pairs_ptr, _pairs_len : usize(2))),
@@ -702,15 +699,15 @@ _collect_entries :: (
     comptime(K) : Type,
     comptime(V) : Type,
     node : MapNode(K, V),
-    acc : List(Pair(K, V)),
+    acc : List(MapEntry(K, V)),
     where(K <: (Eq(K), Hash, Send), V <: Send)
-  ) -> List(Pair(K, V))
+  ) -> List(MapEntry(K, V))
 )(
   match(
     node,
-    .Leaf(leaf) => acc.prepend(Pair(K, V)(key : leaf.key, value : leaf.value)),
+    .Leaf(leaf) => acc.prepend(MapEntry(K, V)(key : leaf.key, value : leaf.value)),
     .Branch(branch) => {
-      (result : List(Pair(K, V))) = acc;
+      (result : List(MapEntry(K, V))) = acc;
       i := u8(0);
       while(i < branch._children_len, i = (i + u8(1)), {
         result = recur(K, V, _branch_child_at(K, V, branch, i), result);
@@ -718,7 +715,7 @@ _collect_entries :: (
       result
     },
     .Collision(coll) => {
-      (result : List(Pair(K, V))) = acc;
+      (result : List(MapEntry(K, V))) = acc;
       i := usize(0);
       while(i < coll._pairs_len, i = (i + usize(1)), {
         result = result.prepend((coll._pairs_ptr.add(i)).*);
@@ -760,7 +757,7 @@ _map_values_node :: (
       i := usize(0);
       while(i < coll._pairs_len, i = (i + usize(1)), {
         old_pair := (coll._pairs_ptr.add(i)).*;
-        consume((new_ptr.add(i)).* = Pair(K, U)(key : old_pair.key, value : f(old_pair.value)));
+        consume((new_ptr.add(i)).* = MapEntry(K, U)(key : old_pair.key, value : f(old_pair.value)));
       });
       .Collision(
         MapCollision(K, U)(
@@ -936,11 +933,11 @@ impl(
     )
   ),
   /// Collect all entries into a list of pairs.
-  entries : (fn(self : Self) -> List(Pair(K, V)))(
+  entries : (fn(self : Self) -> List(MapEntry(K, V)))(
     match(
       self._root,
-      .Some(root) => _collect_entries(K, V, root, List(Pair(K, V)).new()),
-      .None => List(Pair(K, V)).new()
+      .Some(root) => _collect_entries(K, V, root, List(MapEntry(K, V)).new()),
+      .None => List(MapEntry(K, V)).new()
     )
   ),
   /// Apply a function to each value, producing a new map.
@@ -964,7 +961,7 @@ impl(
     result
   }),
   /// Create a map from a slice of key-value pairs.
-  from_entries : (fn(pairs : ArrayList(Pair(K, V))) -> Self)({
+  from_entries : (fn(pairs : ArrayList(MapEntry(K, V))) -> Self)({
     (result : Self) = Self.new();
     i := usize(0);
     plen := pairs.len();
@@ -995,4 +992,4 @@ impl(
     })
   )
 );
-export(Map, MapNode, MapBranch, MapLeaf, MapCollision, Pair, InsertResult, RemoveResult);
+export(Map, MapNode, MapBranch, MapLeaf, MapCollision, MapEntry, InsertResult, RemoveResult);

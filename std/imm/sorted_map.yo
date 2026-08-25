@@ -20,7 +20,7 @@
 pragma(Pragma.AllowUnsafe);
 { List } :: import("./list.yo");
 { ArrayList } :: import("../collections/array_list.yo");
-{ Pair } :: import("./map.yo");
+{ MapEntry } :: import("./map.yo");
 /// Color of a red-black tree node.
 Color :: enum(Red, Black);
 /// Internal LLRB tree node — an `atomic object` for thread-safe sharing.
@@ -617,7 +617,7 @@ impl(
     _collect_values(K, V, self._root, List(V).new())
   ),
   /// Create a sorted map from a slice of key-value pairs.
-  from_entries : (fn(pairs : ArrayList(Pair(K, V))) -> Self)({
+  from_entries : (fn(pairs : ArrayList(MapEntry(K, V))) -> Self)({
     (result : Self) = Self.new();
     i := usize(0);
     plen := pairs.len();

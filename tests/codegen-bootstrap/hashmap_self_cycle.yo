@@ -1,8 +1,8 @@
 // Regression: cycle collection through a `HashMap(_, Self)` field. The managed
-// references live in the map's malloc'd Bucket buffer, which the auto-derived
+// references live in the map's malloc'd MapEntry buffer, which the auto-derived
 // field walk cannot reach — so HashMap's hand-written `Trace` impl
 // (std/collections/hash_map.yo) must visit each full bucket slot, and
-// `can_type_form_rc_cycle` must see THROUGH the `?(*(Bucket(K, V)))` buffer to V to
+// `can_type_form_rc_cycle` must see THROUGH the `?(*(MapEntry(K, V)))` buffer to V to
 // mark the type cyclic. a <-> b reference each other through their maps; on return
 // the pair is unreachable and must be fully reclaimed (after == before). Both
 // compilers must agree.

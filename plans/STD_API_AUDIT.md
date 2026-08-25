@@ -728,7 +728,33 @@ small number of PRs with tree-wide fixups (compiler + std + tests + docs):
   `into_iter` for values and `iter_ptr` for pointers, exactly D2's split);
   OrderedMap iterators get real `Iterator` impls
 - `?(T)` spelling in btree_map/deque → `Option(T)` (or bless `?(T)` everywhere — pick one)
-- `Bucket`/`BTreeEntry`/`OrderedMapEntry`/`Pair` → one `MapEntry(K,V)`
+- ~~`Bucket`/`BTreeEntry`/`OrderedMapEntry`/`Pair` → one `MapEntry(K,V)`~~
+  **DONE 2026-08-25 (S2 chunk 3)** — all four were literally
+  `struct(key : K, value : V)`, so this was one concept under four names. The
+  shared type lives in a NEW `std/collections/entry.yo` (user approved new
+  `.yo` files, 2026-08-25); it is deliberately NOT in the prelude, where growth
+  has a measured self-emit memory cost
+  (issues/std-s1-prelude-growth-tripled-self-emit-memory.md), and NOT in
+  `hash_map.yo`, which would have made `std/imm/map` depend on a
+  `std/collections` map. Each map module re-exports `MapEntry`, so
+  `{ BTreeMap, MapEntry } :: import("std/collections/btree_map")` still works.
+
+  TWO traps, both of which a textual sweep would have walked into:
+   - **Prelude `IterPair(A, B)` is NOT a map entry.** It is
+     `struct(_0 : A, _1 : B)` — POSITIONAL, produced by `zip` (D3.4). It was
+     left alone; a map entry is NAMED (`key`/`value`).
+   - **Most `\bPair\b` matches are TEST-LOCAL structs of unrelated shape** —
+     `struct(first : i32, second : i32)` (tests/index.test.yo:533),
+     `atomic(ref(struct(a : i32, b : u32)))` (tests/privilege_pragma.test.yo:88),
+     a `ref(...)` (tests/codegen-bootstrap/borrowed_field_return.yo:27). Only
+     two files import std's `Pair`. `Bucket`/`BTreeEntry`/`OrderedMapEntry` are
+     unambiguous and were swept tree-wide; `Pair` was done by explicit file
+     list.
+
+  `Bucket` was additionally referenced in ~35 `src/` COMMENTS documenting
+  type-identity hazards (`tk2/Bucket`, cache collisions). Those were updated
+  too — it is the same type under a new name, and a comment naming a type that
+  no longer exists is not navigable.
 - ~~`canonical`→`canonicalize`; `relative_from`→`strip_prefix`~~ **DONE
   2026-08-25** — the `canonical` FAMILY moved together
   (`canonical_str`/`canonical_cstr` too), since leaving the siblings behind would
