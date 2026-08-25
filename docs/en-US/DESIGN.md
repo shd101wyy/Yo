@@ -1846,6 +1846,44 @@ greeting := `Hello, ${name}!, age: ${age}`;
 // value "Hello, Alice!, age: 16"
 ```
 
+##### Format specifications — `${value:spec}`
+
+An interpolation may carry a format spec after a colon, using Rust's and Python's
+grammar (minus dynamic width/precision):
+
+```text
+spec  := [[fill]align][+][#][0][width][.precision][kind]
+align := "<" | ">" | "^"
+kind  := "x" | "X" | "b" | "o"
+```
+
+```rust
+name := `ada`;
+n := i32(255);
+pi := f64(3.14159);
+
+`[${name:>8}]`    // "[     ada]"   right-align to width 8
+`[${name:<6}]`    // "[ada   ]"     left-align
+`[${name:^7}]`    // "[  ada  ]"    center
+`[${name:*>6}]`   // "[***ada]"     custom fill character
+`${n:x}`          // "ff"           lowercase hex
+`${n:#06x}`       // "0x00ff"       alternate form, zero-padded
+`${pi:.2}`        // "3.14"         two decimals
+`${pi:>8.3}`      // "   3.142"     width applies after precision
+```
+
+Width is counted in CHARACTERS, and zero padding on a number goes between the
+sign or radix prefix and the digits (`${i32(-(42)):08}` is `-0000042`, not
+`000-0042`).
+
+Any value that implements `ToString` accepts the width, fill, alignment and
+truncation parts; numbers additionally accept sign, radix and zero-fill.
+
+The spec is separated from the expression by a colon with **no space before it**.
+A spaced colon is left alone, so an ordinary colon pair inside an interpolation
+keeps its meaning, and a colon inside a call's arguments or inside a string
+literal — `${parts.join(":")}` — is never mistaken for a separator.
+
 ## Collections
 
 Please check [std/collections](../std/collections) for the full list of collection types and their APIs.

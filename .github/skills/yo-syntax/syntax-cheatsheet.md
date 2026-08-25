@@ -982,6 +982,22 @@ the STATIC string view; plans/archive/SLICE_REWORK.md). If a function must accep
 runtime text, its parameter should be `String`; `str` parameters are for
 literals/static text only.
 
+**Format specs — `${value:spec}`** (D3.10, landed 2026-08-25). An interpolation
+may carry Rust's/Python's spec after a colon:
+`spec := [[fill]align][+][#][0][width][.precision][kind]`, `align` one of
+`< > ^`, `kind` one of `x X b o`. Examples: `` `${name:>8}` `` (right-align to
+8), `` `${name:*>6}` `` (fill with `*`), `` `${n:#06x}` `` → `0x00ff`,
+`` `${pi:.2}` `` → `3.14`, `` `${pi:>8.3}` `` (width applies AFTER precision).
+Width counts CHARACTERS; zero padding on a number lands between the sign/prefix
+and the digits (`-0000042`, not `000-0042`). Anything `ToString` gets
+width/fill/align/truncate; numbers also get sign/radix/zero-fill.
+**The colon takes NO SPACE before it** — a spaced colon (`${a : b}`) is left
+alone and keeps its ordinary colon-pair meaning, and a colon inside a call's
+arguments or a string literal (`${parts.join(":")}`) is never a separator,
+because the spec is peeled by a backward walk over a character set that excludes
+`)`, `]`, `}`, quotes, comma and whitespace. A file that uses no spec keeps
+importing `std/fmt/to_string`; one that uses any spec imports `std/fmt/format`.
+
 These features are powerful but less commonly used. Consult the linked docs for full details.
 
 | Feature                    | Syntax hint                                               | Documentation                                                                                                          |

@@ -128,12 +128,23 @@ make_parse_error_raw :: (fn(module_path : String, message : String) -> ParseErro
 _is_prefix_op_token :: (fn(t : Token) -> bool)(
   (t.kind == TokenKind.Operator) && ((t.value == "-") || ((t.value == "!") || ((t.value == "~") || ((t.value == "&") || ((t.value == "*") || ((t.value == "?") || (t.value == "^")))))))
 );
+/// The result of peeling a `:spec` suffix off a template-string interpolation.
+/// `spec` is empty when the text carries none, in which case `expr_text` is the
+/// original text unchanged.
+_SpecSplit :: struct(
+  expr_text : String,
+  spec : String
+);
 Parser :: struct(
   input_string : String,
   module_path : String,
   tokens : ArrayList(Token),
   program : ArrayList(AstExpr),
   has_template_string : bool,
+  /// Did any interpolation carry a `:spec` suffix? Decides which fmt module the
+  /// auto-import pulls in, so a file with no specs keeps a byte-identical
+  /// import closure.
+  has_template_spec : bool,
   next_expr_id : usize
 );
 impl(
@@ -152,6 +163,7 @@ impl(
       tokens : toks,
       program : ArrayList(AstExpr).new(),
       has_template_string : false,
+      has_template_spec : false,
       next_expr_id : usize(0)
     )
   }),
@@ -435,6 +447,7 @@ impl(
     dot_tok := self.make_syn_tok(TokenKind.Dot, String.from("."));
     plus_tok := self.make_syn_tok(TokenKind.Operator, String.from("+"));
     to_str_tok := self.make_syn_tok(TokenKind.Identifier, String.from("to_string"));
+    fmt_tok := self.make_syn_tok(TokenKind.Identifier, String.from("format"));
     // Helper: build `e.to_string()` — takes explicit params since local fns
     // can't capture outer values. The four synthetic sub-expressions need
     // UNIQUE expr ids (passed in via `id_*`): hardcoding `usize(0)` made
@@ -460,6 +473,80 @@ impl(
       (prop : AstExpr) = .FnCall(id_prop, .Atom(id_dot_atom, d_tok), prop_args, true, d_tok);
       .FnCall(id_outer, prop, ArrayList(AstExpr).new(), false, outer_tok)
     });
+    // Twin of `make_ts_call` for a spec'd interpolation: emits
+    // `e.format("<spec>")` instead of `e.to_string()`. The spec text can never
+    // contain a quote or a backslash — the peel's character set excludes both —
+    // so wrapping it in double quotes needs no escaping.
+    make_ts_spec_call :: (
+      fn(
+        e : AstExpr,
+        d_tok : Token,
+        fmt_tok : Token,
+        outer_tok : Token,
+        spec_tok : Token,
+        id_fmt_atom : usize,
+        id_dot_atom : usize,
+        id_prop : usize,
+        id_spec_atom : usize,
+        id_outer : usize
+      ) -> AstExpr
+    )({
+      prop_args := ArrayList(AstExpr).new();
+      prop_args.push(e);
+      prop_args.push(.Atom(id_fmt_atom, fmt_tok));
+      (prop : AstExpr) = .FnCall(id_prop, .Atom(id_dot_atom, d_tok), prop_args, true, d_tok);
+      outer_args := ArrayList(AstExpr).new();
+      outer_args.push(.Atom(id_spec_atom, spec_tok));
+      .FnCall(id_outer, prop, outer_args, false, outer_tok)
+    });
+    // `${expr:spec}` (STD_API_AUDIT D3.10). The spec is peeled off the RIGHT
+    // END by walking backward over a CLOSED character set that deliberately
+    // excludes `)`, `]`, `}`, quotes, comma and whitespace — so the walk can
+    // physically never cross out of a call's argument list, out of a bracket,
+    // or into a string literal. That is what defeats the colon ambiguity
+    // without any depth or quote tracking.
+    //
+    // Three further conditions, all required: the run must be non-empty, the
+    // character before it must be `:`, and the character before THAT must not
+    // be whitespace. The last one is what preserves a spaced colon-pair
+    // (`${a : b}` keeps its meaning) while `${x:>8}` splits.
+    _is_spec_char :: (fn(c : rune) -> bool)(
+      (((((c.char >= u32(0x30)) && (c.char <= u32(0x39))) || ((c.char >= u32(0x41)) && (c.char <= u32(0x5A)))) || ((c.char >= u32(0x61)) && (c.char <= u32(0x7A)))) || (((c.char == u32(0x2E)) || (c.char == u32(0x3C))) || ((c.char == u32(0x3E)) || (c.char == u32(0x5E))))) || ((((c.char == u32(0x2B)) || (c.char == u32(0x2D))) || ((c.char == u32(0x23)) || (c.char == u32(0x2A)))) || (((c.char == u32(0x5F)) || (c.char == u32(0x3D))) || (c.char == u32(0x7E))))
+    );
+    _peel_spec :: (fn(text : String) -> _SpecSplit)({
+      tc := ArrayList(rune).new();
+      {
+        ti := text.chars();
+        while(runtime(true), {
+          match(
+            ti.next(),
+            .None => {
+              break;
+            },
+            .Some(c) => {
+              tc.push(c);
+            }
+          );
+        });
+      };
+      tn := tc.len();
+      (k : usize) = tn;
+      while((k > usize(0)) && _is_spec_char(tc(k - usize(1))), {
+        k = (k - usize(1));
+      });
+      cond(
+        // no run, no colon before it, or a colon with nothing in front
+        ((k == tn) || (k < usize(2))) => _SpecSplit(expr_text : text, spec : String.new()),
+        (tc(k - usize(1)).char != u32(0x3A)) => _SpecSplit(expr_text : text, spec : String.new()),
+        // a SPACE before the colon means an ordinary colon-pair, not a spec
+        ((tc(k - usize(2)).char == u32(0x20)) || (tc(k - usize(2)).char == u32(0x09))) =>
+          _SpecSplit(expr_text : text, spec : String.new()),
+        true => _SpecSplit(
+          expr_text : text.substring(usize(0), k - usize(1)),
+          spec : text.substring(k, tn)
+        )
+      )
+    });
     num_parts := part_content.len();
     (result_expr_opt : Option(AstExpr)) = .None;
     pi := usize(0);
@@ -468,9 +555,12 @@ impl(
       content := match(part_content.get(pi), .Some(s) => s, .None => String.from(""));
       (part_expr : AstExpr) = cond(
         is_expr => {
+          // Peel a `:spec` suffix BEFORE parsing, so the spec text never reaches
+          // the expression parser (D3.10).
+          sp := _peel_spec(content);
           // Parse the interpolated expression via the module-level holder
           // (avoids forward reference: parse_template_string → get_program cycle)
-          (inner_prog : ArrayList(AstExpr)) = Parser.new(content, self.module_path, exn).get_program(exn);
+          (inner_prog : ArrayList(AstExpr)) = Parser.new(sp.expr_text, self.module_path, exn).get_program(exn);
           if(inner_prog.len() == usize(0), {
             exn.throw(dyn(make_parse_error(tok, `empty expression in template string interpolation`)));
           });
@@ -481,7 +571,33 @@ impl(
               return(ParseResult(expr : make_err_expr(), index : (index + usize(1))));
             }
           );
-          make_ts_call(inner_expr, dot_tok, to_str_tok, tok, self.alloc_id(), self.alloc_id(), self.alloc_id(), self.alloc_id())
+          cond(
+            (sp.spec.len() > usize(0)) => {
+              self.has_template_spec = true;
+              spec_tok := Token(
+                kind : TokenKind.StringLit,
+                value : ((String.from("\"") + sp.spec) + String.from("\"")),
+                row : tok.row,
+                column : tok.column,
+                character : tok.character,
+                module_path : tok.module_path,
+                input : tok.input
+              );
+              make_ts_spec_call(
+                inner_expr,
+                dot_tok,
+                fmt_tok,
+                tok,
+                spec_tok,
+                self.alloc_id(),
+                self.alloc_id(),
+                self.alloc_id(),
+                self.alloc_id(),
+                self.alloc_id()
+              )
+            },
+            true => make_ts_call(inner_expr, dot_tok, to_str_tok, tok, self.alloc_id(), self.alloc_id(), self.alloc_id(), self.alloc_id())
+          )
         },
         true => {
           // Literal string part: "content".to_string()
@@ -1481,7 +1597,7 @@ impl(
       );
       str_tok := Token(
         kind : TokenKind.StringLit,
-        value : String.from("\"std/fmt/to_string\""),
+        value : if(self.has_template_spec, String.from("\"std/fmt/format\""), String.from("\"std/fmt/to_string\"")),
         row : usize(0),
         column : usize(0),
         character : usize(0),
