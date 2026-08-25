@@ -1,0 +1,20 @@
+// Reproducer: issues/closure-nested-inside-io-async-closure-body-emits-abort-stub.md
+//
+// A closure defined INSIDE an `io.async` closure body makes that body
+// untranspilable. `yo compile --release` exits 0, clang is clean, and the binary
+// dies rc=134 on the #275 `abort()` stub. Expected output after a fix: 6.
+// No traits and no `Self` are involved — this is NOT the C16 trait-default bug.
+{ IoExn } :: import("std/error");
+{ println } :: import("std/fmt");
+rd :: (fn(k : usize, io : Io) -> Impl(Future(usize, IoExn)))(io.async((e) => k));
+twice :: (fn(k : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+  io.async((e) => {
+    f := ((x : usize) -> (x * usize(2)));
+    a := e.io.await(rd(k, io), e);
+    f(a)
+  })
+);
+main :: (fn(io : Io) -> unit)({
+  println(io.await(twice(usize(3), io), io));
+});
+export(main);

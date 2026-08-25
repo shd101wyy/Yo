@@ -134,13 +134,29 @@ existing `[trial]`/`[swallow]` channel.
 Reproducer: `issues/repros/async-trait-default-await-self-method.yo`.
 Regression test: `tests/async_trait_default_await.test.yo` (4 arms).
 
+RE-MEASURED 2026-08-26 (review pass, both binaries built from this tree — the
+unfixed one from the same tree with the `impl.yo` hunk reverted). Two rows of the
+first table posted here did not reproduce and are corrected in place:
+
 | | before | after |
 | --- | --- | --- |
-| `scripts/count-transpile-failures.sh` on the reproducer's C | 6 real | **0 real** |
+| `scripts/count-transpile-failures.sh` on the reproducer's C | **`0 real (0 floor, 2 abort-stub)`** — NOT "6 real". Since PR #275 an untranspilable body in a value-returning fn carries no marker at all, so the marker count cannot see this bug; the *stub* count is what moves | `0 real (0 floor, **0 abort-stub**)` |
 | closure signature | `void* closure_yo_id_N(void*, void* e)` | `size_t closure_yo_id_N(void*, IoExn e)`, and the default emits a real `_state_t` state machine per implementor |
 | capture struct | ONE shared `{ void* self; … }` | two, `{ __yo_t0 self; … }` (A) and `{ __yo_t1 self; … }` (B) |
-| running the reproducer | `abort()` | prints `22` then `26` |
+| running the reproducer | **never gets to the `abort()`** — the shared `void* self` capture makes the emitted C fail to compile (4 clang errors, `initializing 'void *' with an expression of incompatible type '__yo_t1'`). The `abort()` form is what the NO-CAPTURE variant does | prints `22` then `26` |
 | `yo test ./tests/async_trait_default_await.test.yo` | rc=1, C compile fails (15 errors) | 4 passed |
+| the same file with the `return(...)` arm REMOVED (async arms only) | rc=1, batch C compile fails | 3 passed |
+| **the `return(...)` arm ALONE** | **1 passed — green on develop too** | 1 passed |
+
+That last row matters for how much this file's `return(...)` claim is worth. The
+missing `is_evaluating_function_body_or_async_block` really does make a
+`return(...)` default body throw during MATERIALIZATION — but the throw is
+swallowed and the impl falls back to the shared generic default, which the
+call-time specializer then specializes per receiver
+(`fn_yo_id_…_rtparam0_struct_decl_…`) and which runs correctly. So `return(...)`
+in a trait default was never user-visibly broken; only the async shape was. The
+fix changes which of the two paths emits the method (measured on a two-implementor
+`return(...)` default: the emitted C differs, both print the same answers).
 
 ## Relationship to the FTT work
 
