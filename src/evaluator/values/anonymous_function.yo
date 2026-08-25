@@ -29,6 +29,7 @@ open(import("std/string"));
 open(import("std/fmt"));
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
+_(env : anonfn_dbg_env) :: import("std/env");
 {
   AstExpr,
   ast_expr_token,
@@ -107,7 +108,7 @@ open(import("std/fmt"));
 } :: import("../utils/closure.yo");
 { extract_fn_trait_from_type } :: import("../trait_checking.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
-{ create_function_body_evaluation_context } :: import("../calls/function_type.yo");
+{ create_function_body_evaluation_context } :: import("../context.yo");
 { evaluated_body_contains_unwind } :: import("../../expr_traversal.yo");
 { get_all_some_types, type_is_control_bound } :: import("../../types/utils.yo");
 { is_some_type, is_unit_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_fn_trait_type } :: import("../../types/guards.yo");
@@ -371,6 +372,8 @@ _subst_some_types_from_env :: (fn(ty : TypeValue, env2 : Environment, allow : Ar
     _ => ty
   )
 );
+/// Cached `YO_DEBUG_SWALLOW` gate for the closure-body trial channel below.
+(_g_anon_dbg_swallow : bool) = anonfn_dbg_env.get(`YO_DEBUG_SWALLOW`).is_some();
 /// Trial-evaluate an anonymous-function body at definition time, swallowing
 /// any eval error. Replicates `_trial_eval_fn_body` (calls/function_type.yo)
 /// — the swallow handler must be a capture-free `->` effect handler, so the
@@ -383,7 +386,34 @@ _trial_eval_anon_body :: (
   fn(body : AstExpr, env : Environment, ctx : EvalContext, out : ArrayList(AstExpr)) -> unit
 )({
   clear_flow_violation();
-  inner_exn := Exception(throw : ((_err) -> unwind(())));
+  // YO_DEBUG_SWALLOW=1 prints every closure-body trial and the error it ate,
+  // as `[anon-trial] <pos>` / `[anon-swallow] <err>`. Twin of the fn-body
+  // channel in calls/function_type.yo (`[trial]` / `[swallow]`); an
+  // `[anon-swallow]` belongs to the most recent `[anon-trial]` above it. This
+  // swallow used to be entirely silent, which is why a trait `?=` default
+  // whose `io.async` closure body failed to evaluate shipped as an
+  // all-`// Failed to transpile` C body with no diagnostic anywhere
+  // (issues/fixed/trait-default-awaiting-self-async-method-emits-hollow-fn.md).
+  // The `[anon-trial]` gate is a module-level bool, not a per-trial
+  // `env.get()`: it runs once per closure definition (a self-compile hits it
+  // ~10^5 times) and `get` allocates an `Option(String)` every call. The
+  // handler re-reads the env directly — it is a capture-free `->` (it cannot
+  // close over a module-level RUNTIME binding either) and only runs on the
+  // error path.
+  if(_g_anon_dbg_swallow, {
+    dbg_tok0 := ast_expr_token(body);
+    eprintln(`[anon-trial] ${dbg_tok0.module_path}:${dbg_tok0.row.to_string()}:${dbg_tok0.column.to_string()}`);
+  });
+  inner_exn := Exception(
+    throw : (
+      (_err) -> {
+        if(anonfn_dbg_env.get(`YO_DEBUG_SWALLOW`).is_some(), {
+          eprintln(`[anon-swallow] ${_err.to_string()}`);
+        });
+        unwind(())
+      }
+    )
+  );
   // Wrap a non-begin body in a synthetic `begin(...)` so even a bare-atom
   // body runs the begin-tail ownership pass (TS anonymous-function.ts:829
   // always routes through evaluateBeginExpression; see wrap_body_in_begin).
