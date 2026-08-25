@@ -885,7 +885,7 @@ float_ptr := *(f32)(ptr);  // Cast pointer to *(f32)
 
 ### Pointer Arithmetic and Comparison
 
-Pointer arithmetic uses methods — `p.add(n)`, `p.sub(n)`, `p.offset_from(q)` — which require `unsafe(...)`. Pointer comparison uses the ordinary operators (`==`, `!=`, `<`, `<=`, `>`, `>=`) via the `Eq`/`Ord` impls on `*(T)` and stays safe — comparing addresses can't violate memory safety. Note that `*(T) ==` compares ADDRESSES (identity), while reference-semantics reference-semantics types compare VALUES via their own `Eq` impls.
+Pointer arithmetic uses methods — `p.add(n)`, `p.sub(n)`, `p.offset_from(q)` — which require `unsafe(...)`. Pointer comparison uses the ordinary operators (`==`, `!=`, `<`, `<=`, `>`, `>=`) via the `Eq`/`Ord` impls on `*(T)` and stays safe — comparing addresses can't violate memory safety. Note that `*(T) ==` compares ADDRESSES (identity), while reference-semantics types compare VALUES via their own `Eq` impls.
 
 ```rust
 test("Pointer arithmetic", {
