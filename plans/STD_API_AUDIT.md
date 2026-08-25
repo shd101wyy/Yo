@@ -382,12 +382,17 @@ landmine with a pointer at the issue.
     `${name:T}` with no space, where `T` is both a spec kind letter and a type in
     scope, is a silent reinterpretation rather than an error, and `yo fmt` cannot
     normalize it away because it re-emits templates from the raw source slice.
-    Zero occurrences exist today — all 7 colon-bearing interpolations in the tree
-    are inside a doc comment or have the colon inside a string literal within
-    parens, so the split is safe on the current corpus.
+    Zero occurrences exist today. Re-verified 2026-08-25 across the whole tree:
+    of the 9 colon-bearing `${…}` matches, 7 end in `)` before the colon is
+    reached (the colon sits inside a call's arguments or inside `String.from(":")`),
+    1 is in a doc comment, and 1 is a plain `str` literal that is not a template
+    at all. The backward walk stops on `)` at its first character in every case,
+    so the split is safe on the current corpus.
 
-    **Stage 1 (the engine) is WRITTEN, on branch `d310/format-specs`, and NOT
-    merged.** `std/fmt/spec.yo` (the `FormatSpec` vocabulary: total `parse`,
+    **Stage 1 (the engine) LANDED 2026-08-25 (PR #259)** — full battery: suite
+    2886/2886, CLI scorecard 51/0/0, gates green, `STAGE3_RC=0 FIXPOINT_HOLDS`,
+    hollow sweep `SWEEP_GATE_OK` with zero allowlisted failures; tests in
+    `tests/format_specs.test.yo` (7). `std/fmt/spec.yo` (the `FormatSpec` vocabulary: total `parse`,
     `pad`, and a `pad_numeric` that puts zero fill BETWEEN the sign/prefix and
     the digits — `write_padded` pads outside the sign, which made `-0000042` and
     `0x0000002a` unreachable) plus `std/fmt/format.yo` (the `Format` protocol:
@@ -398,12 +403,19 @@ landmine with a pointer at the issue.
     exact, a bare-`T` blanket TRAIT impl is legal (unprecedented in std), and a
     concrete impl wins over the blanket.
 
-    It is blocked by TWO codegen faults it surfaces, filed with reproducers in
-    issues/format-spec-blanket-loses-body-and-pad-emits-bad-c.md: a blanket-impl
-    result bound to a local loses its body (a SILENT wrong answer — ten spaces
-    instead of `   Some(4)`), and `FormatSpec.pad` with a local `String` argument
-    emits invalid C. Fixing those is the next step; shipping the engine with
-    tests routed around the broken shape would be a workaround.
+    It was blocked by two codegen faults it surfaced — a blanket-impl result
+    bound to a local lost its body (a SILENT wrong answer: ten spaces instead of
+    `   Some(4)`), and `FormatSpec.pad` with a local `String` emitted invalid C.
+    Both turned out to be ONE bug, far broader than the formatter: a specialized
+    generic's `inout` parameter lost its by-ref binding whenever the argument
+    folded to a comptime constant, so codegen's two channels disagreed (the C
+    signature from the spec Func meta stayed a pointer, the body read the env's
+    `Variable.is_ref` and treated it as a value). Fixed in #258
+    (issues/fixed/specialized-inout-param-loses-ref-with-comptime-arg.md), which
+    also un-blocked this; the second manifestation was silent only because
+    `--release` passed a bare `-w`, since decoupled. Stage 1 tests: 7/7 in
+    tests/format_specs.test.yo, including the inline-`Option` receiver shape that
+    used to crash.
 
     **Stage 2** — the `${expr:spec}` parser sugar — is then a contained change:
     `parse_template_string` (`src/parser.yo`) peels the spec off the right end of

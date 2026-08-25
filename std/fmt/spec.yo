@@ -1,0 +1,241 @@
+//! Format specifications — the `${value:spec}` vocabulary (STD_API_AUDIT D3.10).
+//!
+//! The grammar is Rust's, minus dynamic width/precision:
+//!
+//! ```text
+//! spec := [[fill]align][+][#][0][width][.precision][kind]
+//! align := "<" | ">" | "^"
+//! kind  := "x" | "X" | "b" | "o"
+//! ```
+//!
+//! # Example
+//!
+//! ```rust
+//! { FormatSpec } :: import "std/fmt/spec";
+//!
+//! s := FormatSpec.parse(">8.2");
+//! s.pad(`3.14159`, Alignment.Left);   // "    3.14"
+//! ```
+{ Alignment } :: import("./writer");
+{ ArrayList } :: import("../collections/array_list");
+{ StringBuilder } :: import("../string/string_builder");
+open(import("../string"));
+/// A parsed format specification. Produced by `parse`, never written by hand —
+/// which is why the optional parts are `Option` rather than sentinels.
+FormatSpec :: struct(
+  /// Padding character. Defaults to a space.
+  fill : rune,
+  /// Explicit alignment, if the spec gave one.
+  align : Option(Alignment),
+  /// `+` — always show a sign on numbers.
+  plus : bool,
+  /// `#` — alternate form, i.e. the `0x` / `0b` / `0o` radix prefix.
+  alt : bool,
+  /// `0` — pad numbers with zeros BETWEEN the sign/prefix and the digits.
+  zero : bool,
+  /// Minimum width in CHARACTERS.
+  width : usize,
+  /// `.N` — decimal places for floats, or a truncation length for text.
+  precision : Option(usize),
+  /// Radix selector: `x`, `X`, `b`, `o`, or `\0` for none.
+  kind : rune
+);
+_is_align_char :: (fn(c : rune) -> bool)(
+  ((c.char == u32(0x3C)) || (c.char == u32(0x3E))) || (c.char == u32(0x5E))
+);
+_align_of :: (fn(c : rune) -> Alignment)(
+  cond(
+    (c.char == u32(0x3C)) => Alignment.Left,
+    (c.char == u32(0x3E)) => Alignment.Right,
+    true => Alignment.Center
+  )
+);
+_is_digit :: (fn(c : rune) -> bool)(
+  (c.char >= u32(0x30)) && (c.char <= u32(0x39))
+);
+/// Append `count` copies of `r` to `sb`.
+_pad_runes :: (fn(sb : StringBuilder, r : rune, count : usize) -> unit)({
+  (i : usize) = usize(0);
+  while(i < count, i = (i + usize(1)), {
+    sb.write_rune(r);
+  });
+});
+/// Apply width/fill/alignment to an already-final body. Deliberately does NOT
+/// truncate: `precision` means decimal places for numbers and a truncation
+/// length for text, so only the text path may apply it.
+_apply_width :: (
+  fn(fill : rune, align : Option(Alignment), width : usize, text : String, dflt : Alignment) -> String
+)({
+  len := text.len();
+  cond(
+    (len >= width) => text,
+    true => {
+      padding := (width - len);
+      al := match(align, .Some(a) => a, .None => dflt);
+      sb := StringBuilder.new();
+      match(
+        al,
+        .Left => {
+          sb.write_string(text);
+          _pad_runes(sb, fill, padding);
+        },
+        .Right => {
+          _pad_runes(sb, fill, padding);
+          sb.write_string(text);
+        },
+        .Center => {
+          left := (padding / usize(2));
+          _pad_runes(sb, fill, left);
+          sb.write_string(text);
+          _pad_runes(sb, fill, padding - left);
+        }
+      );
+      sb.to_string()
+    }
+  )
+});
+impl(
+  FormatSpec,
+  /// The default spec: no width, no precision, no radix.
+  empty : (fn() -> Self)(
+    Self(
+      fill : rune(u32(0x20)),
+      align : Option(Alignment).None,
+      plus : false,
+      alt : false,
+      zero : false,
+      width : usize(0),
+      precision : Option(usize).None,
+      kind : rune(u32(0))
+    )
+  ),
+  /// Parse a spec. TOTAL: anything unrecognised is ignored rather than
+  /// rejected, so a malformed spec degrades to plain `to_string()` output
+  /// instead of failing at runtime.
+  parse : (fn(s : str) -> Self)({
+    (out : Self) = Self.empty();
+    chars := ArrayList(rune).new();
+    {
+      text := String.from(s);
+      it := text.chars();
+      while(runtime(true), {
+        match(
+          it.next(),
+          .None => {
+            break;
+          },
+          .Some(c) => {
+            chars.push(c);
+          }
+        );
+      });
+    };
+    n := chars.len();
+    (i : usize) = usize(0);
+    // [[fill]align] — a fill character is only recognised when an alignment
+    // follows it, which is what lets `08` mean zero-pad rather than fill `0`.
+    if((i + usize(1)) < n, {
+      c1 := chars(i + usize(1));
+      if(_is_align_char(c1), {
+        out.fill = chars(i);
+        out.align = Option(Alignment).Some(_align_of(c1));
+        i = (i + usize(2));
+      });
+    });
+    if(i < n, {
+      if(out.align.is_none(), {
+        c0 := chars(i);
+        if(_is_align_char(c0), {
+          out.align = Option(Alignment).Some(_align_of(c0));
+          i = (i + usize(1));
+        });
+      });
+    });
+    // [+]
+    if(i < n, {
+      if(chars(i).char == u32(0x2B), {
+        out.plus = true;
+        i = (i + usize(1));
+      });
+    });
+    // [#]
+    if(i < n, {
+      if(chars(i).char == u32(0x23), {
+        out.alt = true;
+        i = (i + usize(1));
+      });
+    });
+    // [0] — zero padding, distinct from a width that merely starts with 0.
+    if(i < n, {
+      if(chars(i).char == u32(0x30), {
+        out.zero = true;
+        i = (i + usize(1));
+      });
+    });
+    // [width]
+    while((i < n) && _is_digit(chars(i)), {
+      out.width = ((out.width * usize(10)) + usize(u32(chars(i).char - u32(0x30))));
+      i = (i + usize(1));
+    });
+    // [.precision]
+    if(i < n, {
+      if(chars(i).char == u32(0x2E), {
+        i = (i + usize(1));
+        (p : usize) = usize(0);
+        while((i < n) && _is_digit(chars(i)), {
+          p = ((p * usize(10)) + usize(u32(chars(i).char - u32(0x30))));
+          i = (i + usize(1));
+        });
+        out.precision = Option(usize).Some(p);
+      });
+    });
+    // [kind]
+    if(i < n, {
+      out.kind = chars(i);
+    });
+    out
+  }),
+  /// Apply width/fill/alignment (and text truncation) to an already-rendered
+  /// body. `dflt` is the alignment used when the spec did not give one —
+  /// `Left` for text, `Right` for numbers, as in Rust.
+  pad : (fn(self : Self, body : String, dflt : Alignment) -> String)({
+    (text : String) = body;
+    match(
+      self.precision,
+      .Some(p) => {
+        if(text.len() > p, {
+          text = text.substring(usize(0), p);
+        });
+      },
+      .None => ()
+    );
+    _apply_width(self.fill, self.align, self.width, text, dflt)
+  }),
+  /// Number-aware padding: with `0` set and no explicit alignment, the zero
+  /// fill goes BETWEEN the sign/prefix and the digits, so `-0042` and
+  /// `0x0000002a` are reachable. Otherwise this is ordinary right-aligned
+  /// padding over the whole rendering.
+  pad_numeric : (fn(self : Self, sign : String, prefix : String, digits : String) -> String)({
+    head_len := (sign.len() + prefix.len());
+    total_len := (head_len + digits.len());
+    use_zero := (self.zero && self.align.is_none());
+    cond(
+      (use_zero && (self.width > total_len)) => {
+        sb := StringBuilder.new();
+        sb.write_string(sign);
+        sb.write_string(prefix);
+        _pad_runes(sb, rune(u32(0x30)), self.width - total_len);
+        sb.write_string(digits);
+        sb.to_string()
+      },
+      true => {
+        (whole : String) = String.new();
+        whole.push_string(sign);
+        whole.push_string(prefix);
+        whole.push_string(digits);
+        _apply_width(self.fill, self.align, self.width, whole, Alignment.Right)
+      }
+    )
+  })
+);
+export(FormatSpec);

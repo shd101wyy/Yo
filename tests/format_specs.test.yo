@@ -1,0 +1,47 @@
+{ assert } :: import("std/assert");
+open(import("std/string"));
+open(import("std/fmt"));
+// D3.10 format specs — the `Format` protocol and the spec grammar
+// (plans/STD_API_AUDIT.md). Width/fill/alignment/truncation come from one
+// blanket impl over `ToString`; numerics add radix and sign-aware zero fill.
+test("width, alignment and fill", {
+  assert(String.from("abc").format(">8") == `     abc`, "right align");
+  assert(String.from("ab").format("<6") == `ab    `, "left align");
+  assert(String.from("hi").format("^7") == `  hi   `, "center");
+  assert(String.from("xy").format("*>6") == `****xy`, "custom fill");
+  assert(String.from("abc").format("") == `abc`, "empty spec is identity");
+});
+test("precision truncates text", {
+  assert(String.from("abcdefg").format(".3") == `abc`, "truncate to 3");
+  assert(String.from("ab").format(".5") == `ab`, "shorter than precision");
+});
+test("integer radix and prefixes", {
+  assert(i32(255).format("x") == `ff`, "lowercase hex");
+  assert(i32(255).format("X") == `FF`, "uppercase hex");
+  assert(i32(255).format("#06x") == `0x00ff`, "alt hex, zero padded");
+  assert(u8(5).format("b") == `101`, "binary");
+  assert(i32(64).format("o") == `100`, "octal");
+});
+test("sign and zero padding", {
+  assert(i32(-(42)).format("08") == `-0000042`, "zero fill goes after the sign");
+  assert(i32(42).format("+") == `+42`, "explicit plus");
+  assert(i32(42).format(">6") == `    42`, "numbers right-align by default anyway");
+});
+test("i64.MIN has no magnitude overflow", {
+  // The magnitude is computed as (~u64(n) + 1); unary minus would overflow.
+  assert(i64(-(9223372036854775808)).format("x") == `-8000000000000000`, "i64.MIN in hex");
+});
+test("float precision", {
+  assert(f64(3.14159).format(".2") == `3.14`, "two decimals");
+  assert(f64(-(3.14159)).format(">10.3") == `    -3.142`, "width applies after precision");
+});
+test("the blanket impl covers every ToString type", {
+  // Both in ONE body deliberately: this exact shape used to crash, because the
+  // blanket's `inout(self)` lost its by-ref binding when the receiver folded to
+  // a comptime constant — issues/fixed/specialized-inout-param-loses-ref-with-comptime-arg.md.
+  assert(true.format("^9") == `  true   `, "bool through the blanket");
+  assert(Option(i32).Some(i32(4)).format(">10") == `   Some(4)`, "inline Option receiver");
+  o := Option(i32).Some(i32(4));
+  assert(o.format(">10") == `   Some(4)`, "named Option receiver");
+  assert(Result(i32, String).Ok(i32(1)).format(">8") == `   Ok(1)`, "inline Result receiver");
+});
