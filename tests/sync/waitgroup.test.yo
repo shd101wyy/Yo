@@ -3,10 +3,9 @@ pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
 { arch, Arch } :: import("std/process");
 open(import("std/libc/stdio"));
 { WaitGroup } :: import("std/sync/waitgroup");
-{ Thread } :: import("std/thread");
+{ Thread, ThreadPool, spawn } :: import("std/thread");
 { sleep_blocking } :: import("std/time/sleep");
 { Duration } :: import("std/time/duration");
-Worker :: import("std/worker");
 // ============================================================================
 // Basic operations
 // ============================================================================
@@ -172,39 +171,39 @@ test("WaitGroup reuse across thread groups", {
   assert(wg.count() == i32(0), "count should be 0 after second group");
 });
 // ============================================================================
-// Worker integration (atomic object — shared directly without Arc)
+// ThreadPool integration (atomic object — shared directly without Arc)
 // ============================================================================
-test("WaitGroup with Workers", {
+test("WaitGroup with pool tasks", {
   if(arch == Arch.Wasm32, return(()));
   wg := WaitGroup.new();
-  Worker.set_num_threads(2);
+  pool := ThreadPool.new(usize(2));
   wg.add(i32(3));
-  Worker.spawn((io) => {
+  spawn(pool, (io) => {
     wg.done();
   });
-  Worker.spawn((io) => {
+  spawn(pool, (io) => {
     wg.done();
   });
-  Worker.spawn((io) => {
+  spawn(pool, (io) => {
     wg.done();
   });
   wg.wait();
   assert(wg.count() == i32(0), "count should be 0 after workers done");
 });
-test("WaitGroup with Workers and sleep", {
+test("WaitGroup with pool tasks and sleep", {
   if(arch == Arch.Wasm32, return(()));
   wg := WaitGroup.new();
-  Worker.set_num_threads(2);
+  pool := ThreadPool.new(usize(2));
   wg.add(i32(3));
-  Worker.spawn((io) => {
+  spawn(pool, (io) => {
     sleep_blocking(Duration.from_millis(i64(10)));
     wg.done();
   });
-  Worker.spawn((io) => {
+  spawn(pool, (io) => {
     sleep_blocking(Duration.from_millis(i64(20)));
     wg.done();
   });
-  Worker.spawn((io) => {
+  spawn(pool, (io) => {
     sleep_blocking(Duration.from_millis(i64(30)));
     wg.done();
   });

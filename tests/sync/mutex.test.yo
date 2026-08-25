@@ -35,3 +35,18 @@ test("Mutex with_lock return value", {
   doubled := m.with_lock((v) => (v * i32(2)));
   assert(doubled == i32(14), "with_lock should propagate return value");
 });
+// Regression for issues/fixed/generic-r-callback-with-unit-closure-emits-void-star-temp.md.
+//
+// A `with_lock` body that ends in a STATEMENT binds the callback's generic `R`
+// to unit. Codegen used to declare a `void*` temp for the call and initialize
+// it from a `void`-returning C function — "initializing 'void *' with an
+// expression of incompatible type 'void'" — so the flagship std/sync form did
+// not C-compile at all. `yo check` and `--emit-c` both passed; only clang
+// caught it, and no test exercised the shape, so nothing in the battery could.
+test("Mutex with_lock body may end in a statement (unit R)", {
+  m := Mutex(i32).new(i32(0));
+  m.with_lock((v) => {
+    v = i32(42);
+  });
+  assert(m.with_lock((v) => v) == i32(42), "the unit-bodied write landed");
+});

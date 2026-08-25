@@ -1,0 +1,107 @@
+//! Reusable N-party barrier — the generation model, the same one Rust's
+//! `std::sync::Barrier` and POSIX `pthread_barrier_t` carry.
+//!
+//! Every thread that calls `wait()` blocks until `parties` threads have called
+//! it. All of them are then released together, the barrier resets, and it can
+//! be used again for the next round. Exactly one of the released threads —
+//! the last to arrive, which is the one that tripped the barrier — gets `true`
+//! back from `wait()`, so a caller can nominate a single thread to do the
+//! between-rounds bookkeeping (Rust spells this `BarrierWaitResult::is_leader`).
+//!
+//! ```rust
+//! { Barrier } :: import "std/sync/barrier";
+//! { Thread } :: import "std/thread";
+//!
+//! b := Barrier.new(i32(3));
+//! t1 := Thread.spawn((io) => { b.wait(); });
+//! t2 := Thread.spawn((io) => { b.wait(); });
+//! b.wait();  // the third party — all three proceed from here
+//! t1.join();
+//! t2.join();
+//! ```
+pragma(Pragma.AllowUnsafe);
+{ Mutex } :: import("./mutex");
+{ Cond } :: import("./cond");
+/// Reusable barrier built on `Mutex` and `Cond`.
+/// Uses atomic reference counting for safe cross-thread sharing.
+///
+/// `_generation` is what makes the barrier reusable and correct. A waiter
+/// samples it on arrival and sleeps until it CHANGES, rather than sleeping
+/// until `_count` returns to zero: a thread from the round that just tripped
+/// can re-enter the barrier and bump `_count` before a slower sibling of the
+/// previous round has been scheduled, so `_count` alone cannot tell that
+/// sibling whether its own round is over. The generation can, because it only
+/// ever moves forward.
+Barrier :: atomic(
+  ref(
+    struct(
+      _parties : i32,
+      _count : i32,
+      _generation : i64,
+      _mutex : Mutex(bool),
+      _cv : Cond
+    )
+  )
+);
+impl(
+  Barrier,
+  /// Create a barrier that trips once `parties` threads are waiting on it.
+  ///
+  /// `parties <= 1` yields a barrier that never blocks: the single arriving
+  /// thread trips it immediately and is its own leader.
+  new : (fn(parties : i32) -> Self)(
+    Self(
+      _parties : parties,
+      _count : i32(0),
+      _generation : i64(0),
+      _mutex : Mutex(bool).new(false),
+      _cv : Cond.new()
+    )
+  ),
+  /// Block until `parties` threads have called `wait()`. Returns `true` in
+  /// exactly one of them per generation — the thread that tripped the barrier.
+  wait : (fn(self : Self) -> bool)({
+    self._mutex._raw_lock();
+    arrival_generation := self._generation;
+    self._count = (self._count + i32(1));
+    is_leader := false;
+    cond(
+      (self._count >= self._parties) => {
+        // Last party in: reset for the next round, publish the new
+        // generation, and release everyone parked on the old one.
+        self._count = i32(0);
+        self._generation = (self._generation + i64(1));
+        is_leader = true;
+        self._cv.broadcast();
+      },
+      true => {
+        while(runtime(self._generation == arrival_generation), {
+          self._cv.wait(self._mutex._raw_handle_ptr());
+        });
+      }
+    );
+    self._mutex._raw_unlock();
+    is_leader
+  }),
+  /// The number of threads this barrier trips on. Fixed at construction.
+  parties : (fn(self : Self) -> i32)(
+    self._parties
+  ),
+  /// How many times the barrier has tripped so far — the round a caller
+  /// arriving now would join.
+  generation : (fn(self : Self) -> i64)({
+    self._mutex._raw_lock();
+    g := self._generation;
+    self._mutex._raw_unlock();
+    g
+  }),
+  /// How many threads are currently parked in `wait()` for the round in
+  /// progress. Informational only.
+  waiting : (fn(self : Self) -> i32)({
+    self._mutex._raw_lock();
+    n := self._count;
+    self._mutex._raw_unlock();
+    n
+  })
+);
+export(Barrier);

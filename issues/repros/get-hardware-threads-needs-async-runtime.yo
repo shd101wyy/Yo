@@ -1,0 +1,20 @@
+// Repro: `std/thread`'s `get_hardware_threads` only links when the program
+// ALSO uses async.
+//
+//   yo compile issues/repros/get-hardware-threads-needs-async-runtime.yo --release -o /tmp/r.out
+//
+//   error: call to undeclared function '__yo_thread_get_hardware_threads'
+//   note:  did you mean '__yo_get_hardware_threads'?
+//
+// `__yo_thread_get_hardware_threads` is emitted by the ASYNC runtime
+// (src/codegen/async/runtime_core.yo), while the PARALLELISM runtime emits a
+// second, differently-named copy `__yo_get_hardware_threads`
+// (src/codegen/parallelism/runtime.yo). A program that touches threads but not
+// async gets the parallelism runtime only, so the std alias dangles.
+pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
+{ get_hardware_threads } :: import("std/thread");
+{ assert } :: import("std/assert");
+main :: (fn() -> unit)({
+  assert(get_hardware_threads() > usize(0), "at least one hardware thread");
+});
+export(main);

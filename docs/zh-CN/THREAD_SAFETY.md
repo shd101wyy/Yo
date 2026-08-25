@@ -173,5 +173,5 @@ Thread.spawn((io) => {
 ## 参见
 
 - `plans/THREAD_SAFETY.md` — 完整设计文档
-- `docs/en-US/PARALLELISM.md` — Thread / Worker / Channel API
+- `docs/en-US/PARALLELISM.md` — Thread / ThreadPool / Channel API
 - `docs/en-US/ISOLATED.md` — Iso(T) 设计细节

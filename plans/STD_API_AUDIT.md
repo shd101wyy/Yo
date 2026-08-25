@@ -93,6 +93,7 @@ otherwise COMPLETE.
 | C17 | `Dyn(trait)` whose method returns `Impl(Future(...))` emits the on-demand Future struct INTO the middle of the open vtable typedef; clang rejects it with 7 errors. Blocks one of the two spellings of "BufReader/BufWriter wrap ANY Reader/Writer". OPEN — issues/dyn-trait-with-future-returning-method-splices-struct-into-vtable.md | compiler |
 | C18 | **A struct literal that OMITS a required field is silently accepted** — `yo check` says "evaluator OK", the field is uninitialised, and the program SIGSEGVs. This directly undermines §1's "additive-only changes to stable modules" promise: adding a field to a stable struct silently breaks every construction site not updated. OPEN — issues/struct-literal-missing-field-silently-accepted.md | compiler |
 | C19 | Passing a C `int` where `i32` is declared is accepted by the evaluator; codegen then splices a Yo type expression into a C identifier (`__yo_dyn_box_unknown_fn(T : Type) -> Type`) and clang fails with `expected ')'`. Loud, but the diagnostic names nothing the user wrote. OPEN — issues/int-vs-i32-mismatch-reaches-codegen-and-emits-malformed-c.md | compiler |
+| C20 | **A callback generic over its RESULT miscompiles when the closure returns unit** — `fn(generic(R), body : Impl(Fn(...) -> R)) -> R` specialized at `R = unit` emits `void* tmp = <void call>;`, which clang rejects. That signature IS `Mutex(T).with_lock`, so the flagship std/sync form `m.with_lock((v) => { v = i32(7); })` does not C-compile today; `tests/sync/mutex.test.yo` misses it because all three cases return a value. `yo check` and `--emit-c` are both clean — only the C compiler objects. Root-caused to one predicate in `src/codegen/exprs/other_fn_call.yo` (the fn-pointer `ou_may_unwind` branch tests `is_unit_type(result_type)` while the registered-callee path consults the SomeT spelling). **FIXED 2026-08-26** — the patch was validated and applied; the fn-pointer path's void-result test now also fires for a SomeT-typed unit result, excluding the generic-ResumeType `ctl` case. Red-first regression tests added to `tests/sync/mutex.test.yo` and `tests/sync/rwlock.test.yo`; they were the missing coverage, since no test used the unit-body shape at all. Unblocks `RwLock.with_write((v) => { ... })` and Phase D's unwind-safe `Once.call`. issues/fixed/generic-r-callback-with-unit-closure-emits-void-star-temp.md | compiler |
 
 ---
 
@@ -634,8 +635,53 @@ implementing the D5 traits.** Until it lands, std honestly refuses https.
 
 ### D7 — sync/concurrency shape
 
-- `Mutex(T).with_lock` closure style is the flagship — extend it: `RwLock(T)`
-  becomes generic with `with_read`/`with_write` guards.
+- ~~`Mutex(T).with_lock` closure style is the flagship — extend it: `RwLock(T)`
+  becomes generic with `with_read`/`with_write` guards.~~ **DONE 2026-08-26.**
+  `RwLock(T)` now owns the protected value and exposes only `with_read` /
+  `with_write`; the release runs from the `Dispose` of a private
+  `__RwLockReadUnlocker` / `__RwLockWriteUnlocker`, the same mechanism
+  `__MutexUnlocker` uses, so it fires on a normal return and on an unwind alike.
+  The public `read_lock` / `read_unlock` / `write_lock` / `write_unlock` pair is
+  GONE — following the Mutex precedent exactly, the four became internal
+  `_raw_*` methods that exist for the two unlocker objects. Nothing in `std/` or
+  `src/` consumed RwLock, so `tests/sync/rwlock.test.yo` was the whole migration.
+  `with_write` takes `Impl(Fn(inout(v) : T) -> R)` (writes land in the cell);
+  `with_read` takes `Impl(Fn(v : T) -> R)` — by value, because that is the only
+  read/write distinction Yo's parameter modes can express.
+  **Reviewed 2026-08-26 (second pass).** Re-measured: 14/14
+  `tests/sync/rwlock.test.yo`, 16/16 `tests/sync/once.test.yo`, 87/87 for the
+  whole `tests/sync` directory as one batch, `yo check ./std` 151/151 — all with
+  `YO_STD` pointed at this tree. Non-vacuity was proved by breaking four
+  assertions in each file and watching them fail, and the red-first wakeup case
+  was proved still red by restoring the old single-arm `cond` in
+  `_raw_write_unlock` (that test then fails; it passes with the both-sets
+  wakeup). Two caveats on the claims above: (1) the by-value read guarantee is
+  now TESTED — "RwLock with_read does not write through to the shared cell"
+  writes a FIELD of the copy (which compiles; only assigning the parameter
+  ITSELF trips the evaluator hole) and asserts the shared cell is unchanged;
+  (2) the "releases on unwind" property is INHERITED from `__MutexUnlocker`'s
+  `Dispose` and is not directly exercisable through this API — a closure body
+  cannot raise a `ctl`, so there is no way to unwind out of a `with_read` /
+  `with_write` body ("Closures cannot capture a value of control-bound type").
+  It is an argument about the drop machinery, not a measurement, for `Mutex` too.
+  Note also that the landed shape deviates from `plans/THREAD_SAFETY.md`'s Phase
+  D sketch, which gave BOTH `with_read` and `with_write` a `ref(v) : T` body
+  parameter; splitting them into by-value / `inout` is what makes the read/write
+  distinction mean anything. Found while reviewing: `yo test --std-path <dir>` is
+  silently ignored (the per-batch compile is a child process and the flag is not
+  forwarded), so a `--std-path` test run scores the INSTALLED std —
+  issues/yo-test-std-path-not-forwarded-to-the-batch-compile.md.
+- **BLOCKER found while doing the row above:** a callback generic over its
+  result — the `with_lock` / `with_read` / `with_write` signature itself —
+  emits `void* tmp = <void call>;` when the closure returns unit, so
+  `m.with_lock((v) => { v = i32(7); })` fails to C-compile TODAY on the shipped
+  `Mutex`. `tests/sync/mutex.test.yo` misses it because all three of its cases
+  return a value. Diagnosed to one predicate in
+  `src/codegen/exprs/other_fn_call.yo`; issue + minimal repro + an UNVALIDATED
+  patch are in `issues/fixed/generic-r-callback-with-unit-closure-emits-void-star-temp.md`
+  (validating a codegen change needs a self-compile). Until it lands, every
+  closure body in `tests/sync/rwlock.test.yo` ends in a value, and `Once.call`
+  cannot move onto `Mutex.with_lock` (Phase D's unwind-safe unlock).
 - Delete the parallel C-tier (`mutex_t`, `cond_t`) — **DONE 2026-08-25** (§6
   round 2); no `RawMutex` was needed after all, `Cond.wait` already took
   `*(__YO_THREAD_SYNC_TYPE)` and only the deleted `cond_t.wait` wanted
@@ -710,13 +756,113 @@ implementing the D5 traits.** Until it lands, std honestly refuses https.
   `--c-compiler`/`--target`/`--sanitize`/… but not `--std-path`, unlike
   `build_runner.yo`, which does. Use `YO_STD` for `yo test`.
   → `issues/fixed/yo-test-does-not-forward-std-path-to-batch-compile.md` (FIXED in this batch)
-- `Once` gains `OnceCell(T)`-style `get_or_init`.
+- ~~`Once` gains `OnceCell(T)`-style `get_or_init`.~~ **DONE 2026-08-26 as a
+  SEPARATE `OnceCell(T)` in `std/sync/once.yo`, not a generic `Once(T)`.**
+  `Once` stores only `_done : atomic_bool` plus a dummy `Mutex(bool)` — it has
+  no cell for a value, and its `call(f : Impl(Fn() -> unit))` contract has
+  legitimate value-less users. Making it generic would force every one of them
+  to invent a phantom `T` and force `new()` to invent an empty value. Rust draws
+  the same line (`sync::Once` vs `sync::OnceLock`). `OnceCell(T)` is
+  `atomic(ref(struct(_once : Once, _value : Option(T))))` with `where(T <: Send)`,
+  and reuses `Once` for the double-checked-locking protocol, so the Release-store
+  that publishes `_done` happens after `_value` is written and every read goes
+  through an Acquire-load first. API: `get_or_init(f)`, `get() -> Option(T)`,
+  `is_initialized()`. No `set` — `get_or_init(() => v)` covers it and the row
+  did not ask for one.
 - Merge `std/worker` into `std/thread` as `ThreadPool` (explicit object:
   `spawn -> JoinHandle`-analog, `join_all`, `shutdown`); `Thread.spawn` should
   carry a result (`join() -> T`) and panic propagation.
+- ~~Merge `std/worker` into `std/thread` as `ThreadPool` (explicit object:
+  `spawn -> JoinHandle`-analog, `join_all`, `shutdown`)~~ — **DONE 2026-08-26,
+  partially**. `std/worker.yo` is deleted; `std/thread.yo` now exports
+  `ThreadPool` (`new(num_threads)`, `with_hardware_threads()`, `num_threads()`,
+  `join_all()`, `shutdown()`, `is_shutdown()`) plus a module-level
+  `spawn(pool, cb)`. All 7 consumers migrated
+  (`tests/thread_pool.test.yo` replaces `tests/worker.test.yo`;
+  `tests/imm_threading`, `tests/control_fn_as_regular_call`,
+  `tests/sync/{channel,waitgroup,once,rwlock}`). Three deviations from the row
+  as written, each forced by a **measured compiler bug**, all four filed with
+  reproducers under `issues/repros/`:
+  - `spawn` is a **module-level function**, not `pool.spawn(cb)`. A closure
+    parameter forwarded into a spawn primitive from inside a `self`-receiver
+    method is specialized ONCE — with N task closure shapes, N−1 are emitted as
+    `// Failed to transpile` and **silently do nothing**
+    (`issues/impl-method-self-receiver-hollows-forwarded-spawn-closures.md`).
+    Free functions and *static* impl methods (`Thread.spawn`) are unaffected.
+  - `spawn` returns `unit`, not a per-task handle, and `join_all` is a
+    **barrier** (one sentinel task per worker thread, riding the runtime's
+    round-robin distribution + per-worker FIFO queues) rather than a completion
+    counter. Both would need std to wrap the user's task closure, and a wrapper
+    that forwards `io : Io` gets a stale `Io` C type — the two emitted wrappers
+    come out swapped
+    (`issues/spawn-wrapper-forwarded-io-crosses-specializations.md`).
+    `__yo_builtin_io` and `Dyn(Fn(io : Io) -> unit, Send)` were both measured
+    and neither fixes it beyond two shapes.
+  - `shutdown` closes *this* pool and drains its work; it cannot stop the OS
+    worker threads, because the runtime pool is process-global and its
+    `__yo_worker_pool_shutdown` is a `static` C function with no Yo-visible
+    entry point (adding one needs a `_is_threading_macro_function` entry, i.e.
+    a compiler change).
+  - **`join_all` leaks ~344 bytes per call** (review follow-up 2026-08-26). Its
+    `Channel(bool)` is captured by the sentinel closures, and the emitted spawn
+    wrapper never drops a closure's RC'd captures. Pre-existing and below std —
+    measured identically on `develop` with `Worker.spawn` and a plain task
+    closure — so it is filed, not worked around:
+    `issues/spawn-closure-captures-never-dropped-leak.md`. A per-pool cached
+    channel would trade the leak for a broken barrier under concurrent
+    `join_all`, so the fix belongs in the spawn emitter.
+- **NOT DONE — `Thread.spawn` should carry a result (`join() -> T`) and panic
+  propagation.** Both are blocked below std:
+  - `join() -> T` needs `spawn` to be generic over `T` and to put a `T`-typed
+    expression inside the spawned closure. Every such value is emitted as
+    `void*`: the closure handed to a spawn primitive is never re-specialized
+    for the enclosing generic instantiation
+    (`issues/spawn-closure-generic-captures-erased-to-void-ptr.md`; measured
+    for generic fns, generic impl methods and `generic(E : Type.Struct)`).
+  - Panic propagation is **not implementable today at any layer**. `panic` /
+    `assert` lower to `fprintf(stderr, ...)` + `abort()`
+    (`src/codegen/exprs/panic.yo`), i.e. SIGABRT for the whole process. There
+    is no unwinding runtime: the emitted `___drop` calls are straight-line
+    code, not landing pads, and there is no per-thread `jmp_buf`, no catch
+    form, and no panic payload. Propagating a panic across `join` needs (a)
+    `panic` to longjmp to a per-thread recovery point instead of aborting,
+    (b) RC/GC state to be unwound safely at that point, and (c) a payload
+    channel — a runtime/codegen project, not a std change. Do NOT accept a
+    `join() -> Result(T, E)` signature that cannot actually observe a panic.
 - `WaitGroup`: delete (Go transplant) — replaced by `ThreadPool.join_all` +
   a new `Barrier`/`Semaphore` pair. **Do it in that order**: §6 round 2 measured
   5 live test-file consumers, so the deletion must ride WITH the replacement.
+  **BOTH blockers are now gone, and `WaitGroup` still should not be deleted
+  yet.** Each half landed in this batch, and merging their two notes exposes a
+  gap neither saw alone:
+
+  **The replacement pair LANDED 2026-08-26** — `std/sync/semaphore.yo` and
+  `std/sync/barrier.yo`, covered by `tests/sync/semaphore.test.yo` (10 tests)
+  and `tests/sync/barrier.test.yo` (5 tests). `Semaphore` is the counting
+  model (Dijkstra P/V: `acquire` / `try_acquire` / `release` /
+  `available_permits`, `release` uncapped so it doubles as a signal, negative
+  initial counts legal); `Barrier` is the generation model (Rust
+  `std::sync::Barrier` / `pthread_barrier_t`: reusable, `wait() -> bool`
+  returns `true` in the one party per generation that tripped it). Both are
+  built on `Mutex` + `Cond`, both hold their state under the mutex rather than
+  in atomics — a permit released between a waiter's predicate test and its
+  `wait()` must not be lost.
+  **`WaitGroup`'s deletion now waits on ONE thing: `ThreadPool.join_all`.**
+  Neither new primitive is a drop-in for `add(n)`/`done()`/`wait()` — a
+  `Semaphore.new(-(n - 1))` plus one `release()` per task emulates it, and so
+  does a `Barrier` of `n + 1` when the waiter is itself a party — but "wait for
+  N spawned tasks" is what `join_all` is for, and it is what all five consumers
+  use `WaitGroup` for: `tests/imm_threading.test.yo`,
+  `tests/sync/channel.test.yo`, `tests/sync/once.test.yo`,
+  `tests/sync/rwlock.test.yo`, `tests/sync/waitgroup.test.yo`. Do not touch
+  `std/sync/waitgroup.yo` until `join_all` exists and those five are migrated.
+
+  **The gap:** `ThreadPool.join_all` is a WHOLE-POOL barrier, while all five
+  consumers use `WaitGroup` for PER-TASK waiting inside a shared pool. So
+  `join_all` is not a drop-in for them either, and neither is `Semaphore` or
+  `Barrier` without an emulation. What remains is therefore a MIGRATION
+  DECISION per consumer, not a missing primitive — decide it before deleting
+  anything, and record the decision here.
 - **Async-aware sync is a P0 addition** (§7): async `Channel`, async `Mutex`,
   `select`/timeout — today any `ch.recv()` inside a future parks the entire
   single-threaded event loop, and the prelude DOCUMENTS `Channel` as the way to
@@ -949,7 +1095,7 @@ implementing the D5 traits.** Until it lands, std honestly refuses https.
 | net | FIX + EXTEND | C2/C3; `Shutdown` enum; `Reader`/`Writer` impls (D5); `incoming()`; UDP `connect` (its own doc references it), typed `recv_from`; `UnixStream`/`UnixListener` (sys/unix.yo fully plumbed — lowest-effort high-value gap); `parse_v6`, `SocketAddr.parse`, `Eq`/`Hash` on addr types; RFC 5952 V6 formatting |
 | http | FIX + EXTEND | C1; timeouts (dead `Timeout` variant becomes real), redirects (needs `Url.join`), chunked decoding, binary bodies (`Output`-style bytes + `text()`/`json()` accessors), keep-alive; **server (P1)**: `parse_request`, `HttpServer` on `TcpListener`, router-free minimal core; collapse `FetchOptions` into `HttpRequest` |
 | async | PROMOTE | becomes the combinator home: `join_all`, `race`, `any`, `timeout`, ~~async `sleep(Duration)`~~ (LANDED 2026-08-25 as `std/time/sleep.yo`'s `sleep(Duration, io)` per §5 — do NOT add a second one here; re-export it if `std/async` wants the name), interval, cancellation story for `JoinHandle` (`abort()`), async channel/mutex (D7) |
-| thread/worker/sync | REDESIGN (D7) | |
+| thread/worker/sync | REDESIGN (D7) | `std/worker` merged into `std/thread` as `ThreadPool` 2026-08-26 (module-level `spawn(pool, cb)`, barrier `join_all`, `shutdown`); `join() -> T` and panic propagation blocked below std — see D7 |
 | time | EXTEND | `Duration`: `Add/Sub` operator impls, `Eq/Ord/Hash`, `from_secs_f64`, `subsec_*`, consts; **make std USE it** (timeouts, sleeps — today zero consumers outside time/); `Instant` `add/sub`, `Eq/Ord`; `DateTime`: RFC3339 `parse`/`format` (C4 fix first), component ctor, arithmetic, `Eq/Ord`; ~~ONE `sleep(Duration, io)` async + `sleep_blocking(Duration)`~~ **DONE 2026-08-25 (§5)** |
 | crypto | EXTEND | streaming `Digest` trait unifying Sha256/Md5 (+ streaming Md5); SHA-1, SHA-512, **HMAC** (blocks JWT/SigV4/webhooks), CRC32, constant-time compare; fix C5; new `std/rand` module: seedable PCG/xoshiro PRNG, `shuffle`, `choice`, ranges — infallible, non-crypto, clearly separated from `crypto/random` |
 | log | REWRITE (zero users = free window) | levels + `Off`, `ToString`-generic message, lazy eval, timestamps, target/module, writer sink (file/buffer), thread-safe; keep the free-function facade |
@@ -1261,12 +1407,14 @@ cli-case golden runs against its own fixture — left alone deliberately.
 NOT DELETED, with the measurement that blocks each:
 
 - **`WaitGroup` — KEEP.** The row says "Go transplant; replaced per D7", but D7's
-  replacement (`ThreadPool.join_all` + a `Barrier`/`Semaphore` pair) does not
-  exist yet, and `WaitGroup` is not dead: FIVE test files use it as a real
-  primitive (`tests/imm_threading`, `tests/sync/{channel,once,rwlock,waitgroup}`),
+  replacement (`ThreadPool.join_all` + a `Barrier`/`Semaphore` pair) was only
+  half built (the `Barrier`/`Semaphore` half landed 2026-08-26 — see the D7
+  bullet; `join_all` still does not exist), and `WaitGroup` is not dead: FIVE
+  test files use it as a real primitive (`tests/imm_threading`,
+  `tests/sync/{channel,once,rwlock,waitgroup}`),
   `plans/THREAD_SAFETY.md` records it as an in-scope fixed primitive (finding 2,
   `_count` → `AtomicI32`), and `src/doc/render_html_assets.yo` lists it as a
-  highlighter builtin. Delete it WITH its replacement, not before.
+  highlighter builtin. Delete it WITH `ThreadPool.join_all`, not before.
 - **`base64_decode_string` — NEEDS-DECISION; the row's evidence is only half
   true.** `base64_encode_string` really is a pure duplicate — it is literally
   `_encode_with(input.as_bytes(), _STD_ALPHA, true)`, i.e. `base64_encode` with
@@ -1307,7 +1455,7 @@ verification that an unresolved prelude extern is not load-bearing elsewhere).
 | `std/collections/list_view.yo` | test-only, no Index/iter/consumers; superseded by `slice_copy` |
 | `std/collections/linked_list.yo` | test-only, 510 lines; `Deque` covers it (decide: delete vs keep-as-is; recommend delete) |
 | ~~`mutex_t`, `cond_t`~~ **DELETED** | zero in-tree users, duplicate `Mutex`/`Cond` unsafely — deleted in §6 round 2; `Cond.wait` already took `*(__YO_THREAD_SYNC_TYPE)`, so D7's `RawMutex` was not needed |
-| `WaitGroup` **KEPT** | Go transplant, but NOT dead: 5 test files use it, `THREAD_SAFETY.md` records it as fixed-and-in-scope, and D7's replacement (`ThreadPool.join_all` + `Barrier`/`Semaphore`) does not exist yet — delete WITH the replacement, see the round-2 note |
+| `WaitGroup` **KEPT** | Go transplant, but NOT dead: 5 test files use it, `THREAD_SAFETY.md` records it as fixed-and-in-scope, and D7's replacement was incomplete — `Barrier`/`Semaphore` landed 2026-08-26, `ThreadPool.join_all` has not, and `join_all` is the one the 5 consumers need. Delete WITH `join_all`, see the round-2 note |
 | ~~`std/io/{reader,writer}.yo` current traits~~ **DELETED** | zero implementors — replaced by D5 redesign; deleted in §6 round 2, the two trait decls moved into `tests/io/reader_writer.test.yo` (its `TestBuf` was the only implementor and the only coverage of a `*(u8)`+`Exception` user trait). `std/io/` is now empty, which is the namespace D5 wants |
 | `std/fmt/display.yo` | zero call sites, not re-exported, malformed trait shape |
 | ~~`StringError`~~, ~~`PathError`~~ **DELETED**, dead variants (`HashMapError.KeyNotFound` — dead but BLOCKED, `HttpError.Timeout`* etc.) | never constructed (*Timeout/TooManyRedirects/ResponseTooLarge become REAL when the features land — don't delete, implement). **`StringError` RECLASSIFIED 2026-08-25 — see the note below; it belongs with the starred ones.** |
@@ -1413,7 +1561,7 @@ the changed declarations at runtime, not on the nearest existing test file.
 **P1 — expected of a modern std**
 HTTP server + chunked/redirect/timeout client; TLS (D6); CSV; DateTime
 parse/format; `fs.watch`; testing `assert_eq` family; log rewrite; glob
-expansion; `Semaphore`/`Barrier`; `ThreadPool`; format specs; entry API +
+expansion; ~~`Semaphore`/`Barrier`~~ **DONE 2026-08-26**; `ThreadPool`; format specs; entry API +
 `binary_search` + real sort; tty/terminal-size wrappers (cli needs them)
 
 **P2 — nice-to-have / decide-later**

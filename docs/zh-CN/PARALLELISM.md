@@ -5,37 +5,37 @@
 Yo 提供两种并行执行机制：
 
 1. **Thread** - 专用操作系统线程（对 pthread 的封装）
-2. **Worker** - 在具有线程亲和性的线程池上运行的任务
+2. **ThreadPool** - 由一组工作线程组成的线程池，任务被交给它执行，具有线程亲和性
 
 线程间通信通过 **Channel**（`std/sync/channel.yo`）完成——一个有界的多生产者多消费者队列，支持阻塞式发送/接收。
 
 这类似于：
 
-- **Go**：goroutine（Worker）+ channel
+- **Go**：goroutine（ThreadPool）+ channel
 - **Rust**：std::thread（Thread）+ mpsc channel
-- **Java**：Thread + ExecutorService（Worker）+ BlockingQueue
+- **Java**：Thread + ExecutorService（ThreadPool）+ BlockingQueue
 
-**核心思想**：通过将执行（Thread/Worker）与通信（Channel）分离，我们获得了更简洁、更灵活的设计。
+**核心思想**：通过将执行（Thread/ThreadPool）与通信（Channel）分离，我们获得了更简洁、更灵活的设计。
 
 ## 并发与并行
 
 | 概念     | 机制              | 描述                         |
 | -------- | ----------------- | ---------------------------- |
 | **并发** | `async/await`     | 多个任务在同一线程上交替执行 |
-| **并行** | `Thread`/`Worker` | 多个任务在不同线程上同时执行 |
+| **并行** | `Thread`/`ThreadPool` | 多个任务在不同线程上同时执行 |
 
 详见 `ASYNC_AWAIT.md` 了解单线程并发。
 
 ## 每线程事件循环
 
-每个操作系统线程（包括 Thread 和 Worker）都拥有自己的异步事件循环：
+每个操作系统线程（包括 Thread 和 ThreadPool 的工作线程）都拥有自己的异步事件循环：
 
 - **Linux**：每线程独立的 `io_uring` 实例
 - **macOS**：每线程独立的 `kqueue` 描述符
 - **Windows**：每线程独立的 IOCP 句柄
-- **WASM**：不适用——WASM 是单线程的；不支持并行（`Thread.spawn`、Worker）。请改用 `io.async`/`io.await` 进行协作式并发。
+- **WASM**：不适用——WASM 是单线程的；不支持并行（`Thread.spawn`、线程池）。请改用 `io.async`/`io.await` 进行协作式并发。
 
-这意味着派生的线程和 Worker 任务可以通过 `io.async`/`io.await` 执行异步 I/O，且无需竞争——每个线程的事件循环完全独立。
+这意味着派生的线程和线程池任务可以通过 `io.async`/`io.await` 执行异步 I/O，且无需竞争——每个线程的事件循环完全独立。
 
 运行时会在线程启动时自动初始化事件循环（`__yo_async_scheduler_init()`），并在闭包执行完成后排空待处理的任务（`__yo_async_wait_all()`）。I/O 后端状态为 `_Thread_local`，因此不需要同步。
 
@@ -90,45 +90,66 @@ thread.join();
 - UI 应用程序（主线程 + 工作线程）
 - 需要显式控制线程生命周期时
 
-## Worker - 线程池任务
+## ThreadPool - 线程池任务
 
-`Worker` 在具有**线程亲和性**的**线程池**上派生任务。每个任务固定在分配的操作系统线程上执行（无工作窃取）。
+`ThreadPool` 把任务交给具有**线程亲和性**的**工作线程池**。每个任务固定在分配的操作系统线程上执行（无工作窃取）。
+
+操作系统层面的工作线程是运行时拥有的**进程级全局线程池**；`ThreadPool` 值是它的显式句柄，负责决定线程数、提交任务并等待其排空。由此有两点后果：传给 `new` 的 `num_threads` 只在运行时线程池尚未启动时生效；`join_all`/`shutdown` 排空的是运行时线程池，因此同一程序中的两个 `ThreadPool` 值会互相等待对方提交的任务。
 
 ### API
 
 ```rust
-Worker :: import "std/worker";
+{ ThreadPool, spawn } :: import "std/thread";
 
-// 在线程池上派生一个任务
-Worker.spawn : (fn(cb : Impl(Fn(io : Io) -> unit, Send)) -> unit);
+// 创建线程池，请求 num_threads 个工作线程
+ThreadPool.new : (fn(num_threads : usize) -> ThreadPool);
 
-// 配置线程池大小（需在首次 spawn 之前调用）
-Worker.set_num_threads : (fn(num : usize) -> unit);
+// 创建与硬件线程数一致的线程池
+ThreadPool.with_hardware_threads : (fn() -> ThreadPool);
 
-// 获取线程池中的线程数（默认值：硬件线程数）
-Worker.get_num_threads : (fn() -> usize);
+// 当前（或即将）使用的工作线程数
+ThreadPool.num_threads : (fn(self : ThreadPool) -> usize);
+
+// 向线程池提交任务——这是模块级函数，不是方法
+spawn : (fn(pool : ThreadPool, cb : Impl(Fn(io : Io) -> unit, Send)) -> unit);
+
+// 阻塞直到此前提交的所有任务完成；线程池保持开放
+ThreadPool.join_all : (fn(self : ThreadPool) -> unit);
+
+// 拒绝新任务，然后排空。可重复调用。
+ThreadPool.shutdown : (fn(self : ThreadPool) -> unit);
+ThreadPool.is_shutdown : (fn(self : ThreadPool) -> bool);
 ```
 
 ### 用法
 
 ```rust
-Worker :: import "std/worker";
+{ ThreadPool, spawn } :: import "std/thread";
 { yield } :: import "std/async";
 
+pool := ThreadPool.new(usize(4));
+
 // 在线程池上运行简单任务
-Worker.set_num_threads(4);
-Worker.spawn(() => {
+spawn(pool, (io : Io) => {
   do_work();
 });
 
-// 在线程池上运行异步任务
-Worker.spawn((io : Io) => {
+// 在线程池上运行异步任务——每个工作线程都有自己的事件循环
+spawn(pool, (io : Io) => {
   task := io.async((io : Io) => {
-    io.await(yield());
+    io.await(yield(io), io);
   });
-  io.await(task);
+  io.await(task, io);
 });
+
+// 等待此前提交的所有任务
+pool.join_all();
+
+// 拒绝新任务并排空
+pool.shutdown();
 ```
+
+`join_all` 是**屏障**而非计数器：它为每个工作线程提交一个哨兵任务并等待全部完成。由于运行时按轮询顺序把连续提交分发给连续的工作线程，且每个工作线程按 FIFO 顺序执行自己的队列，因此当所有哨兵都执行完毕时，排在它们之前的任务也必然都已执行完毕。请勿在线程池任务内部调用 `join_all`——调用者所在的工作线程会因等待自己的哨兵而死锁。
 
 ### 线程池设计
 
@@ -152,11 +173,11 @@ Worker.spawn((io : Io) => {
 └────────────────────────────────────────────────────────────────┘
 ```
 
-### 何时使用 Worker
+### 何时使用 ThreadPool
 
 - 大量短期任务
 - CPU 密集型并行工作
-- 不需要等待单个任务完成时
+- 按批次等待，而不是等待单个任务时
 - 任务并行（MapReduce 风格）
 
 ## Channel - 线程间通信
@@ -230,30 +251,31 @@ Thread.spawn((io) => {
 - 没有全局停顿（stop-the-world）的 GC 暂停
 - 异步 I/O 无竞争
 
-## 对比：Thread 与 Worker
+## 对比：Thread 与 ThreadPool
 
-| 方面       | Thread             | Worker                 |
+| 方面       | Thread             | ThreadPool             |
 | ---------- | ------------------ | ---------------------- |
 | OS 线程    | 专用（1:1）        | 共享（线程池）         |
-| 生命周期   | 显式管理（join）   | 即发即忘               |
+| 生命周期   | 显式管理（`join`） | 按批次（`join_all`/`shutdown`） |
 | 开销       | 较高（需创建线程） | 较低（复用线程）       |
 | 适用场景   | 长时间运行的任务   | 短期任务               |
 | 线程亲和性 | 不适用             | 是（任务固定在线程上） |
 | 异步 I/O   | 拥有独立事件循环   | 共享每线程事件循环     |
+
+`Thread.join` 和 `ThreadPool.join_all` 都不会把值带出线程。要返回结果，请通过 `Channel` 传回。
 
 ## 总结
 
 | 组件        | 用途             | API                   |
 | ----------- | ---------------- | --------------------- |
 | **Thread**  | 专用操作系统线程 | `spawn`、`join`       |
-| **Worker**  | 线程池任务       | `spawn`               |
+| **ThreadPool** | 线程池        | `new`、`spawn`、`join_all`、`shutdown` |
 | **Channel** | 阻塞式通信       | `new`、`send`、`recv` |
 
 ### 快速参考
 
 ```rust
-{ Thread } :: import "std/thread";
-Worker :: import "std/worker";
+{ Thread, ThreadPool, spawn } :: import "std/thread";
 { Channel } :: import "std/sync/channel";
 
 // 带异步 I/O 的专用线程
@@ -265,7 +287,9 @@ thread := Thread.spawn((io : Io) => {
 thread.join();
 
 // 线程池任务
-Worker.spawn(() => { /* 工作 */ });
+pool := ThreadPool.new(usize(4));
+spawn(pool, (io : Io) => { /* 工作 */ });
+pool.join_all();
 
 // 通信
 ch := Channel(i32).new(usize(10));
@@ -275,9 +299,9 @@ val := ch.recv();
 
 ### 核心原则
 
-1. **关注点分离** - Thread/Worker = 执行，Channel = 通信
+1. **关注点分离** - Thread/ThreadPool = 执行，Channel = 通信
 2. **Send trait** - 只有 Send 类型可以跨越线程边界
 3. **线程局部 GC** - 无跨线程 GC 协调
 4. **非原子引用计数** - 线程局部对象无原子操作开销
-5. **线程亲和性** - Worker 任务固定在分配的操作系统线程上
+5. **线程亲和性** - 线程池任务固定在分配的操作系统线程上
 6. **每线程事件循环** - 每个线程拥有独立的异步 I/O

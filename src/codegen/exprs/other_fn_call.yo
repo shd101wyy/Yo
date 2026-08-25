@@ -2124,7 +2124,36 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
   // a temp + post-call check so the escape propagates (mirrors TS, which always
   // emits a temp + emitEffectUnwindCheck for such calls).
   if(ou_may_unwind, {
-    if(is_unit_type(result_type), {
+    // `is_unit_type` does not walk the SomeT resolution chain, and the
+    // normalization at the top of this function deliberately LEAVES
+    // `result_type` a SomeT whenever the call expression's own type is unit
+    // (the generic-ResumeType `ctl` cast needs the declared spelling). The
+    // registered-callee path above compensates for that by consulting the
+    // SomeT's spelling; this fn-pointer path did not, so a closure call whose
+    // result is a unit-valued generic emitted
+    //     void* tmp = closure_yo_id_N(&body, &self->_value);
+    // against a `void`-returning C function — "initializing 'void *' with an
+    // expression of incompatible type 'void'". That is exactly
+    // `Mutex(T).with_lock((v) => { v = i32(7); })`, the flagship std/sync
+    // form: R binds to unit, the specialization returns void, but the tail
+    // call still declared a `void*` temp. Every shape that reaches here today
+    // emits invalid C (`void`/`void*` temp initialized from a void call), so
+    // widening the test can only turn a C-compile error into working output.
+    //
+    // A generic-ResumeType `ctl` is EXCLUDED: that callee really is emitted as
+    // one `void*`-returning C function (issues/fixed/
+    // ctl-handler-void-signature-vs-sret-cast.md) and its branch below must
+    // still declare the temp the escape-path drops reference.
+    ou_result_is_void := cond(
+      is_unit_type(result_type) => true,
+      ctl_generic_ret => false,
+      is_some_type(result_type) => {
+        ou_rts := get_type_string(result_type, context.base);
+        (ou_rts == `void`) || ((ou_rts == `void*`) && is_unit_type(ei.ty))
+      },
+      true => false
+    );
+    if(ou_result_is_void, {
       // Clear __yo_effect_escaped before the indirect call
       em.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
       ucall := indent.clone();

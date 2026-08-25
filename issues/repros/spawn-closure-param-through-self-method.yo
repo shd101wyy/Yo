@@ -1,0 +1,85 @@
+// Repro: a closure PARAMETER forwarded into `__yo_worker_spawn` from inside an
+// impl method with a `self` receiver is specialized only ONCE. With four
+// differently-shaped task closures in one program, three of them are emitted as
+// `// Failed to transpile` comments and silently do nothing.
+//
+//   yo compile issues/repros/spawn-closure-param-through-self-method.yo --release -o /tmp/r.out
+//   grep -c "Failed to transpile" /tmp/r.out.c   # => 3
+//   /tmp/r.out                                    # => out=11, expected out=15
+//
+// Changing `Pool.submit` from a `self`-receiver method to a module-level
+// function `submit(pool, cb)` makes the same program emit 0 failures and print
+// out=15. A STATIC impl method (no `self`), e.g. `Thread.spawn`, is also fine.
+pragma(Pragma.AllowUnsafe);
+{ AtomicI32, MemoryOrder } :: import("std/sync/atomic");
+{ yield } :: import("std/async");
+{ assert } :: import("std/assert");
+{ println } :: import("std/fmt");
+{ sleep_blocking } :: import("std/time/sleep");
+{ Duration } :: import("std/time/duration");
+extern(
+  "Yo",
+  __yo_worker_spawn : (fn(cb : Impl(Fn(io : Io) -> unit, Send)) -> unit)
+);
+Pool :: struct(
+  _tag : usize
+);
+impl(
+  Pool,
+  new : (fn() -> Self)(
+    Self(usize(0))
+  ),
+  // The bug: `cb` crosses a `self`-receiver method boundary.
+  submit : (fn(self : Self, cb : Impl(Fn(io : Io) -> unit, Send)) -> unit)({
+    __yo_worker_spawn(cb);
+  })
+);
+main :: (fn() -> unit)({
+  pool := Pool.new();
+  out := AtomicI32(i32(0));
+  // Shape 1: no io use at all.
+  pool.submit((io) => {
+    out.fetch_add(i32(1), MemoryOrder.AcqRel);
+    ()
+  });
+  // Shape 2: await a unit future.
+  pool.submit((io) => {
+    task := io.async((io : Io) => {
+      io.await(yield(io), io);
+    });
+    io.await(task, io);
+    out.fetch_add(i32(2), MemoryOrder.AcqRel);
+    ()
+  });
+  // Shape 3: await a future returning a captured sum.
+  pool.submit((io) => {
+    x := 10;
+    y := 20;
+    task := io.async((io : Io) => {
+      io.await(yield(io), io);
+      return(x + y);
+    });
+    result := io.await(task, io);
+    assert(result == i32(30), "async result should be 30");
+    out.fetch_add(i32(4), MemoryOrder.AcqRel);
+    ()
+  });
+  // Shape 4: await a future with a loop.
+  pool.submit((io) => {
+    task := io.async((io : Io) => {
+      counter := 0;
+      while(runtime(counter < i32(3)), {
+        counter = (counter + 1);
+        io.await(yield(io), io);
+      });
+      return(counter);
+    });
+    result := io.await(task, io);
+    assert(result == i32(3), "counter should be 3");
+    out.fetch_add(i32(8), MemoryOrder.AcqRel);
+    ()
+  });
+  sleep_blocking(Duration.from_millis(i64(800)));
+  println(`out=${out.load(MemoryOrder.Acquire).to_string()}`);
+});
+export(main);
