@@ -50,7 +50,9 @@ echo "CHUNKED_EMIT_RC=$?"
 # A "Failed to transpile" marker in either emission would make a byte-identical
 # comparison vacuous — both could be equally hollow.
 for f in "/tmp/${P}_emit_single.c" "/tmp/${P}_emit_chunked.c"; do
-  echo "$(basename "$f") hollow=$(grep -cE '^\s*// (Failed to transpile|Unknown type:)' "$f")"
+  # Same detector as fixpoint_only.sh — anchoring to start-of-line misses the
+  # `return // Failed to transpile x;` and `__yo_tN tmp = // ...` forms.
+  echo "$(basename "$f") hollow=$(bash scripts/count-transpile-failures.sh "$f" | cut -d' ' -f1)"
 done
 
 if cmp -s "/tmp/${P}_emit_single.c" "/tmp/${P}_emit_chunked.c"; then

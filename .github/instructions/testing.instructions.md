@@ -200,6 +200,34 @@ Debugging one:
   `Eq` on the payload type specialized, which is a much heavier requirement than
   the assertion actually needs.
 
+#### Counting untranspiled bodies: never anchor to start-of-line
+
+Use `scripts/count-transpile-failures.sh <emitted.c>` — do not hand-roll a
+`grep`. Two things make a hand-rolled one wrong in opposite directions:
+
+- **Overcount.** Codegen spells its own marker strings (`String.from("// Failed
+  to transpile ")`), so the compiler compiling itself bakes them into stage-2 as
+  C string literals. That floor is 15 as of 2026-08-25 and moves whenever
+  codegen gains or loses a fallback branch — it is not the "fixed floor of 2"
+  older docs assert.
+- **Undercount.** `grep -cE '^\s*// Failed to transpile'` scores only the
+  standalone-comment form. Codegen also emits markers **mid-line**, as
+  `return // Failed to transpile <expr>;` and
+  `__yo_tN tmp = // Failed to transpile <expr>;`, and anchoring calls those
+  clean. That is the mistake that let a hollow `io.async` closure body ship
+  green (`issues/ftt-stub-in-live-closure-falls-off-non-void-function.md`).
+
+The rule that separates them: a **string-literal** occurrence is immediately
+preceded by a double quote; an **emitted marker** never is. Match anywhere on
+the line, then reject matches whose preceding byte is `"`. This is the same
+discriminator the codegen abort-stub detector uses
+(`src/codegen/functions/generation.yo`, PR #275).
+
+`fixpoint_only.sh` and `chunked_gate.sh` both call the script, and
+`fixpoint_only.sh` **gates** on it: a stage-2 carrying an untranspiled body is a
+broken compiler even when stage2 == stage3 byte-for-byte, because both stages
+emit the same hole.
+
 ### macOS 26 AMFI / ASAN dylib workaround
 
 On macOS 26+ (current release), locally-compiled C binaries linked against the
