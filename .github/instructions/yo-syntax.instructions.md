@@ -289,7 +289,7 @@ next : (fn(inout(self) : Self) -> Option(Self.Item))
 FuncType :: (fn() -> void)
 
 // `:` vs `=` — wrap the typed binding:
-(err1 : AnyErr) = dyn(ErrA(`error A`));
+(err1 : AnyError) = dyn(ErrA(`error A`));
 
 // `:=` vs `&&` — wrap the operator RHS:
 is_neg := ((a == "-") && (b == 1));

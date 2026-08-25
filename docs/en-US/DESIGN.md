@@ -27,7 +27,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
     - [Composite types:](#composite-types)
     - [Pointer types:](#pointer-types)
     - [Static/Dynamic dispatch types:](#staticdynamic-dispatch-types)
-    - [Value Types vs Object Types](#value-types-vs-object-types)
+    - [Value Types vs Reference-Semantics Types](#value-types-vs-reference-semantics-types)
   - [Variable Declaration](#variable-declaration)
     - [No variable shadowing](#no-variable-shadowing)
   - [Type inference](#type-inference)
@@ -41,13 +41,13 @@ Our goal is to be a practical language that is easy to use and easy to learn.
   - [Partial Application with `_`](#partial-application-with-_)
   - [Type Methods](#type-methods)
   - [recur](#recur)
-  - [Object Types and Memory Management](#object-types-and-memory-management)
-    - [Object Type](#object-type)
+  - [Reference-Semantics Types and Memory Management](#reference-semantics-types-and-memory-management)
+    - [Reference-Semantics Type](#reference-semantics-type)
     - [Compile-Time Reference Counting Optimization](#compile-time-reference-counting-optimization)
 - [Pointers](#pointers)
   - [Pointer Operations](#pointer-operations)
-  - [Pointer Arithmetic Operations](#pointer-arithmetic-operations)
-  - [Pointer Operators Reference](#pointer-operators-reference)
+  - [Pointer Arithmetic and Comparison](#pointer-arithmetic-and-comparison)
+  - [Pointer Operations Reference](#pointer-operations-reference)
   - [The consume Function](#the-consume-function)
   - [Nullable Pointers](#nullable-pointers)
   - [RAII (Resource Acquisition Is Initialization)](#raii-resource-acquisition-is-initialization)
@@ -95,7 +95,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
   - [Basic Closure Syntax](#basic-closure-syntax)
   - [Closure Capture Semantics](#closure-capture-semantics)
   - [Closure Type Restrictions](#closure-type-restrictions)
-  - [Closures with Object Types](#closures-with-object-types)
+  - [Closures with Reference-Semantics Types](#closures-with-reference-semantics-types)
 - [Box and Boxing](#box-and-boxing)
   - [Box Type](#box-type)
   - [Usage Examples](#usage-examples)
@@ -132,7 +132,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
     - [Compile-Time Assertions](#compile-time-assertions)
   - [Testing Expected Errors](#testing-expected-errors)
   - [Test Organization](#test-organization)
-  - [Testing with Object Types](#testing-with-object-types)
+  - [Testing with Reference-Semantics Types](#testing-with-reference-semantics-types)
   - [Test Files](#test-files)
 - [Meta-programming](#meta-programming)
   - [Macro functions](#macro-functions)
@@ -176,7 +176,7 @@ is visible at the call site, so what you see is what runs.
 
 - **No operator precedence** (same-operator chains left-associate; adjacent different operators require explicit parentheses)
 - **No variable shadowing** (similar to Zig)
-- **No stop-the-world GC** (optional thread-local cycle collector for object types)
+- **No stop-the-world GC** (optional thread-local cycle collector for reference-semantics types)
 
 ## Inspiration
 
@@ -398,7 +398,7 @@ A type can have the following **Kind**:
 - `Impl(Trait)` (static dispatch type that implements Trait)
 - `Dyn(Trait)` (dynamic dispatch type that implements Trait)
 
-#### Value Types vs Object Types
+#### Value Types vs Reference-Semantics Types
 
 **Value Types** (stack-allocated, copied on assignment):
 
@@ -507,7 +507,7 @@ Variables can be shadowed in different block scopes:
 ### Type inference
 
 ```rust
-// String is an object type with automatic reference counting
+// String is an reference-semantics type with automatic reference counting
 (my_string : String) = String.from("Hello, world"); // Heap-allocated
 my_string_2 := my_string; // Both point to the same object (RC incremented)
 
@@ -519,11 +519,11 @@ my_int_2 := my_int; // my_int_2 is a copy
 (my_int_array : Array(i32, 3)) = [1, 2, 3]; // Stack-allocated
 my_int_array := [1, 2, 3]; // Array(i32, 3)
 
-// ArrayList is an object type
+// ArrayList is an reference-semantics type
 (my_array_list : ArrayList(i32)) = ArrayList(i32).new(); // Heap-allocated, RC
 
-// Enum/ADT can be value or object type depending on definition
-Person :: struct(name : String, age : i32); // Value type (but contains object field)
+// Enum/ADT can be value or reference-semantics type depending on definition
+Person :: struct(name : String, age : i32); // Value type (but holds a reference-semantics field)
 p := Person(name : String.from("Alice"), age : 30);
 _(name, age) := p; // name : String, age : i32
 ```
@@ -887,7 +887,7 @@ float_ptr := *(f32)(ptr);  // Cast pointer to *(f32)
 
 ### Pointer Arithmetic and Comparison
 
-Pointer arithmetic uses methods — `p.add(n)`, `p.sub(n)`, `p.offset_from(q)` — which require `unsafe(...)`. Pointer comparison uses the ordinary operators (`==`, `!=`, `<`, `<=`, `>`, `>=`) via the `Eq`/`Ord` impls on `*(T)` and stays safe — comparing addresses can't violate memory safety. Note that `*(T) ==` compares ADDRESSES (identity), while reference-semantics object types compare VALUES via their own `Eq` impls.
+Pointer arithmetic uses methods — `p.add(n)`, `p.sub(n)`, `p.offset_from(q)` — which require `unsafe(...)`. Pointer comparison uses the ordinary operators (`==`, `!=`, `<`, `<=`, `>`, `>=`) via the `Eq`/`Ord` impls on `*(T)` and stays safe — comparing addresses can't violate memory safety. Note that `*(T) ==` compares ADDRESSES (identity), while reference-semantics reference-semantics types compare VALUES via their own `Eq` impls.
 
 ```rust
 test("Pointer arithmetic", {
@@ -958,7 +958,7 @@ match(some_ptr,
 );
 ```
 
-**Note**: Raw pointers are unsafe. Use object types for safe memory management whenever possible.
+**Note**: Raw pointers are unsafe. Use reference-semantics types for safe memory management whenever possible.
 
 ### Memory Safety
 
@@ -966,7 +966,7 @@ For the user-facing guide, see [MEMORY_SAFETY.md](MEMORY_SAFETY.md) — covers t
 
 Yo's safety model is layered (the design plan is [plans/MEMORY_SAFETY.md](../../plans/MEMORY_SAFETY.md)):
 
-- **`object` types** are reference-counted and automatically freed (RC + cycle removal). Memory-safe by construction.
+- **Reference-semantics types** (`ref(struct(...))` / `ref(enum(...))`, and the `atomic(ref(...))` variants) are reference-counted and automatically freed (RC + cycle removal). Memory-safe by construction.
 - **`Iso(T)` / `Arc(T)`** provide affine and atomic-RC ownership for transfer and thread-shared cases.
 - **`*(T)` raw pointers** require an explicit `unsafe(...)` wrap around operations that dereference, do arithmetic on, or consume-through a pointer. Without the wrap, those operations are compile errors.
 
@@ -1061,7 +1061,7 @@ double_both :: (fn(inout(x) : i32, inout(y) : i32) -> unit)({
 
 ### RAII (Resource Acquisition Is Initialization)
 
-Yo automatically manages memory for object types through reference counting. When an object's reference count reaches zero, it is automatically freed.
+Yo automatically manages memory for reference-semantics types through reference counting. When an object's reference count reaches zero, it is automatically freed.
 
 ```rust
 test :: (fn() -> unit)({
@@ -1121,7 +1121,7 @@ the underlying buffer is freed are excluded by construction:
   static string data — `s(a..b)` on a `str` is a zero-copy window of
   static bytes, which can never dangle.
 - **Element access hands out values, never interior pointers** —
-  `xs.get(i)` returns the element (a handle for object types, which
+  `xs.get(i)` returns the element (a handle for reference-semantics types, which
   survives container growth; a copy for struct types, written back with
   `xs(i) = v`). See [FLOWABILITY.md](./FLOWABILITY.md).
 
@@ -1363,7 +1363,7 @@ for(iter_expr, (variable) => {
 });
 ```
 
-The `for` macro iterates **by value** — `for(coll, (x) => body)` lowers to `coll.into_iter()` followed by a standard `next()`-loop. For object element types, `x` is a handle to the element, so mutating `x` in the body mutates the element in place. In-place mutation of struct/scalar elements uses an index loop with index writes:
+The `for` macro iterates **by value** — `for(coll, (x) => body)` lowers to `coll.into_iter()` followed by a standard `next()`-loop. For reference-semantics element types, `x` is a handle to the element, so mutating `x` in the body mutates the element in place. In-place mutation of struct/scalar elements uses an index loop with index writes:
 
 ```rust
 // Value form — each `x` is yielded by value.
@@ -1374,7 +1374,7 @@ for(list, (value) => {
   println(value);
 });
 
-// Object elements are handles — mutation lands in the collection.
+// Reference-semantics elements are handles — mutation lands in the collection.
 for(names, (s) => {
   s.push_str("!");
 });
@@ -2132,7 +2132,14 @@ assert(list.is_empty(), "List should be empty");
 
 ## Closure
 
-Yo supports closures (anonymous functions that capture their environment). Closures are automatically reference-counted and can capture variables from their surrounding scope.
+Yo supports closures (anonymous functions that capture their environment).
+
+A closure compiles to a **capture struct** holding the variables it uses. How that struct is stored and called depends on the type it is given:
+
+- **`Impl(Fn(...))` — static dispatch, not reference counted.** The compiler monomorphizes the closure into its own function, passes the capture struct **by value**, and emits a direct call. No heap allocation, no vtable, no reference count. Each closure has its own distinct type (see [Closure Type Restrictions](#closure-type-restrictions)), so this form cannot hold two different closures in one variable.
+- **`Dyn(Fn(...))` — dynamic dispatch, reference counted.** The capture struct is boxed on the heap behind a reference-count header, and the value is a fat pointer of `{data, vtable}`. Use this when closures of different types must share one type — storing them in a collection, returning them from different branches, or accepting any callable. Write `dyn(...)` around the closure to coerce it.
+
+In both cases the *captured values* follow the usual rules: a captured reference-semantics value is retained by the capture and released when the capture is dropped.
 
 Please check [closure.test.yo](../tests/closure.test.yo) for closure examples and usage.
 
@@ -2182,7 +2189,7 @@ test_closure :: (fn() -> unit)({
 Closures capture variables from their environment:
 
 - **Value types** (primitives, structs) are captured by value (copied)
-- **Object types** (reference-counted) are captured by reference
+- **Reference-semantics types** (reference-counted) are captured by reference
 - Captured variables maintain their mutability
 
 ```rust
@@ -2190,7 +2197,7 @@ test_capture :: (fn() -> unit)({
   // Value type - captured by value
   counter := 0;
 
-  // Object type - captured by reference
+  // Reference-semantics type - captured by reference
   data := Box(i32)(42);
 
   closure := ((increment : i32) => {
@@ -2313,7 +2320,7 @@ test("Box assignment behavior", {
 
 ### Box and Reference Counting
 
-`Box(T)` is an object type, so it uses automatic reference counting:
+`Box(T)` is an reference-semantics type, so it uses automatic reference counting:
 
 ```rust
 test("Box reference counting", {
@@ -2339,7 +2346,7 @@ test("Box reference counting", {
 - **Recursive types**: Breaking cycles in type definitions
 
 ```rust
-// Dynamic dispatch requires object types
+// Dynamic dispatch requires reference-semantics types
 impl(i32, SomeTrait(...));
 
 // Value types must be boxed for Dyn
@@ -2431,7 +2438,7 @@ See [DYN_DESIGN.md](./DYN_DESIGN.md) for comprehensive documentation on dynamic 
 
 Use `Dyn` to define dynamic dispatch types that can hold any object implementing specified traits. Use the `dyn()` function to create a `Dyn` instance from an object.
 
-`Dyn` types in Yo are reference-counted objects (like closures and regular object types). They enable dynamic dispatch through trait objects.
+`Dyn` types in Yo are reference-counted, like other reference-semantics types. They enable dynamic dispatch through trait objects. This applies to closures too: a `Dyn(Fn(...))` closure is heap-boxed and reference counted, whereas the `Impl(Fn(...))` form is monomorphized, passed by value and carries no reference count of its own.
 
 **Key features:**
 
@@ -2486,7 +2493,7 @@ main :: (fn() -> i32)({
 ## Impl vs Dyn
 
 - **Impl**: Static dispatch, compile-time polymorphism, no runtime overhead
-- **Dyn**: Dynamic dispatch, runtime polymorphism, requires object types
+- **Dyn**: Dynamic dispatch, runtime polymorphism, requires reference-semantics types
 
 ```rust
 // Impl - static dispatch (monomorphization)

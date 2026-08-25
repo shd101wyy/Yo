@@ -444,9 +444,10 @@ transform :: (fn(values : ArrayList(i32), f : Impl(Fn(x : i32) -> i32)) -> unit)
 ```
 
 - `(params) => expr` creates a closure
-- `Impl(Fn(params) -> ReturnType)` is the closure type
-- Closures capture: value types by copy, reference-semantics types by reference
-- Each closure has a unique type
+- `Impl(Fn(params) -> ReturnType)` is the STATIC closure type — monomorphized, capture struct by value, direct call, no allocation or refcount on the closure itself
+- `Dyn(Fn(params) -> ReturnType)` is the TYPE-ERASED closure type — capture heap-boxed behind a refcount header, called through a `{data, vtable}` fat pointer; wrap the value with `dyn(...)`
+- Closures capture: value types by copy, reference-semantics types by reference (the captured value carries the refcount, not the `Impl` closure)
+- Each closure has a unique anonymous type, so one `Impl(Fn(...))` variable cannot hold two different closures — use `Dyn(Fn(...))` for that, and for struct fields, where `Impl(Fn(...))` is rejected outright
 
 ## Iterator and for loop
 
