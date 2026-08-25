@@ -1,13 +1,13 @@
 /// Phase D (THREAD_SAFETY) / STD_API_AUDIT D7: RwLock(T) with_read / with_write
 /// closure-scoped API tests.
 ///
-/// NOTE ON CLOSURE BODIES: every closure below ends in a VALUE, never in a
-/// bare statement. A `with_read` / `with_write` body that returns unit
-/// currently miscompiles to C — `void* tmp = <void call>;` — see
-/// issues/generic-r-callback-with-unit-closure-emits-void-star-temp.md. The
-/// same hole is in `Mutex.with_lock`; it is a compiler bug, not an API
-/// restriction, and this file should grow unit-returning cases once it is
-/// fixed.
+/// NOTE ON CLOSURE BODIES: a body may end in a VALUE or in a bare STATEMENT.
+/// The statement form binds the callback's generic `R` to unit, which used to
+/// emit `void* tmp = <void call>;` and fail to C-compile — the same hole was in
+/// `Mutex.with_lock`. Fixed 2026-08-26
+/// (issues/fixed/generic-r-callback-with-unit-closure-emits-void-star-temp.md),
+/// and the unit-bodied cases this file was told to grow "once it is fixed" are
+/// at the bottom.
 pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
 { assert } :: import("std/assert");
 { arch, Arch } :: import("std/process");
@@ -342,4 +342,25 @@ test("RwLock with pool tasks write then read", {
   });
   wg.wait();
   assert(lock.with_read((v) => v) == i32(77), "the main thread sees the worker's write");
+});
+// Regression for issues/fixed/generic-r-callback-with-unit-closure-emits-void-star-temp.md.
+//
+// These are the cases this file's header used to say could not be written: a
+// `with_write` / `with_read` body ending in a STATEMENT binds `R` to unit, and
+// codegen emitted `void* tmp = <void call>` for it. Nothing in the battery
+// could catch that, because by construction no test used the shape.
+test("RwLock with_write body may end in a statement (unit R)", {
+  lock := RwLock(i32).new(i32(0));
+  lock.with_write((v) => {
+    v = i32(42);
+  });
+  assert(lock.with_read((v) => v) == i32(42), "the unit-bodied write landed");
+});
+test("RwLock with_read body may end in a statement (unit R)", {
+  lock := RwLock(i32).new(i32(5));
+  seen := AtomicI32(i32(0));
+  lock.with_read((v) => {
+    seen.store(v, MemoryOrder.Release);
+  });
+  assert(seen.load(MemoryOrder.Acquire) == i32(5), "the unit-bodied read observed the value");
 });

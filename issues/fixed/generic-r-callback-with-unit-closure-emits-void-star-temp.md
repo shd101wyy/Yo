@@ -1,10 +1,24 @@
 # A callback generic over its result (`with_lock`-shape) emits `void* tmp = <void call>` when the closure returns unit
 
-**Status: OPEN.** Found 2026-08-26 while making `RwLock(T)` match
-`Mutex(T).with_lock` (STD_API_AUDIT §D7). A ready-to-apply codegen patch is in
-`issues/patches/generic-r-callback-unit-closure-void-temp.patch` — it is
-**unvalidated**: verifying it needs a compiler rebuild, which the session that
-found this was not allowed to run.
+**Status: FIXED 2026-08-26.** The patch that shipped with this issue was
+validated and applied to `src/codegen/exprs/other_fn_call.yo`: the fn-pointer
+path's void-result test now also fires for a SomeT-typed result whose C type
+string is `void`/`void*` with a unit expression type, excluding the
+generic-ResumeType `ctl` case (which really is emitted as one `void*`-returning
+C function). The patch file is removed now that it is in the tree.
+
+Verified: the repro compiles (rc=0) and runs (rc=0) where it previously failed
+the C compile; `yo check ./src` 262/262; `yo build` rc=0; rwlock 16/16, mutex
+4/4, once 16/16, thread_pool 13/13, semaphore 10/10, barrier 5/5.
+
+Red-first regression tests added at the bottom of `tests/sync/mutex.test.yo` and
+`tests/sync/rwlock.test.yo` — on the unfixed compiler they fail with exactly
+`initializing 'void *' with an expression of incompatible type 'void'`. That
+coverage is the point: NO test exercised the unit-body shape before, so no
+battery could have caught this.
+
+Found 2026-08-26 while making `RwLock(T)` match `Mutex(T).with_lock`
+(STD_API_AUDIT §D7).
 
 ## Symptom
 

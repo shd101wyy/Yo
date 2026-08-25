@@ -2,7 +2,7 @@
 
 **Status: OPEN.** Found 2026-08-26 while adding `RwLock(T).with_read`
 (STD_API_AUDIT §D7). Distinct from — but in the same family as —
-`issues/generic-r-callback-with-unit-closure-emits-void-star-temp.md`: that one
+`issues/fixed/generic-r-callback-with-unit-closure-emits-void-star-temp.md`: that one
 is a codegen temp, this one is the evaluator picking the wrong `R`.
 
 ## Symptom

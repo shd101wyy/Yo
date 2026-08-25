@@ -36,10 +36,11 @@
 //! });
 //! ```
 //!
-//! Note the body ENDS IN A VALUE. A `with_read` / `with_write` body that
-//! returns unit currently miscompiles to C — the same hole is in
-//! `Mutex.with_lock`; see
-//! issues/generic-r-callback-with-unit-closure-emits-void-star-temp.md.
+//! A body may end in a VALUE or in a STATEMENT — the latter binds the
+//! callback's generic `R` to unit, which used to emit `void* tmp = <void call>`
+//! and fail to C-compile (the same hole was in `Mutex.with_lock`). Fixed
+//! 2026-08-26:
+//! issues/fixed/generic-r-callback-with-unit-closure-emits-void-star-temp.md.
 pragma(Pragma.AllowUnsafe);
 
 { Mutex } :: import("./mutex");
