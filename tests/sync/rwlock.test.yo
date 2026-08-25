@@ -12,12 +12,11 @@ pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
 { assert } :: import("std/assert");
 { arch, Arch } :: import("std/process");
 { RwLock } :: import("std/sync/rwlock");
-{ Thread } :: import("std/thread");
+{ Thread, ThreadPool, spawn } :: import("std/thread");
 { sleep_blocking } :: import("std/time/sleep");
 { Duration } :: import("std/time/duration");
 { WaitGroup } :: import("std/sync/waitgroup");
 { AtomicI32, MemoryOrder } :: import("std/sync/atomic");
-Worker :: import("std/worker");
 
 // ============================================================================
 // Compile-time checks
@@ -304,37 +303,37 @@ test("RwLock readers blocked behind a held writer are woken on release", {
 });
 
 // ============================================================================
-// Worker integration (atomic object — shared directly without Arc)
+// ThreadPool integration (atomic object — shared directly without Arc)
 // ============================================================================
-test("RwLock with Workers concurrent reads", {
+test("RwLock with pool tasks concurrent reads", {
   if(arch == Arch.Wasm32, return(()));
   lock := RwLock(i32).new(i32(4));
   wg := WaitGroup.new();
   seen := AtomicI32(i32(0));
-  Worker.set_num_threads(2);
+  pool := ThreadPool.new(usize(2));
   wg.add(i32(3));
-  Worker.spawn((io) => {
+  spawn(pool, (io) => {
     seen.fetch_add(lock.with_read((v) => v), MemoryOrder.AcqRel);
     wg.done();
   });
-  Worker.spawn((io) => {
+  spawn(pool, (io) => {
     seen.fetch_add(lock.with_read((v) => v), MemoryOrder.AcqRel);
     wg.done();
   });
-  Worker.spawn((io) => {
+  spawn(pool, (io) => {
     seen.fetch_add(lock.with_read((v) => v), MemoryOrder.AcqRel);
     wg.done();
   });
   wg.wait();
   assert(seen.load(MemoryOrder.Acquire) == i32(12), "all three workers read the protected value");
 });
-test("RwLock with Workers write then read", {
+test("RwLock with pool tasks write then read", {
   if(arch == Arch.Wasm32, return(()));
   lock := RwLock(i32).new(i32(0));
   wg := WaitGroup.new();
-  Worker.set_num_threads(2);
+  pool := ThreadPool.new(usize(2));
   wg.add(i32(1));
-  Worker.spawn((io) => {
+  spawn(pool, (io) => {
     lock.with_write((v) => {
       v = i32(77);
       v

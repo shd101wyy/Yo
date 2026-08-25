@@ -236,6 +236,6 @@ Non-`_`-prefixed fields (like `arc.*`, `box.*`) are readable but not writable in
 ## See Also
 
 - `plans/THREAD_SAFETY.md` — full design document with 27-vector inventory and phase breakdown
-- `docs/en-US/PARALLELISM.md` — Thread, Worker, and Channel API
+- `docs/en-US/PARALLELISM.md` — Thread, ThreadPool, and Channel API
 - `docs/en-US/ISOLATED.md` — `Iso(T)` design details
 - `docs/en-US/MEMORY_SAFETY.md` — memory safety pass

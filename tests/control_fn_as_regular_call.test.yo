@@ -17,7 +17,7 @@ pragma(Pragma.AllowUnsafe);
 open(import("std/libc/stdio"));
 { Exception, Error, AnyError } :: import("std/error");
 { yield } :: import("std/async");
-Worker :: import("std/worker");
+{ ThreadPool, spawn } :: import("std/thread");
 // Top-level fn with a locally installed effect handler that escapes.
 // The body pattern mirrors a server accept loop: install handler,
 // perform some async operations, return via `return ()` on early exit.
@@ -56,12 +56,15 @@ test("control fn called as regular function from multiple sites", {
 });
 test("control fn called from worker closures", {
   // Match the yo_http_benchmark multi-threaded pattern: call the
-  // control fn from main AND from a Worker.spawn closure.
-  Worker.set_num_threads(2);
-  Worker.spawn((io) => {
+  // control fn from main AND from a ThreadPool task closure.
+  pool := ThreadPool.new(usize(2));
+  spawn(pool, (io) => {
     r := do_work(i32(4), io);
     assert(r == i32(6), "worker sum 0..3 should be 6");
   });
   main_result := do_work(i32(4), io);
   assert(main_result == i32(6), "main sum 0..3 should be 6");
+  // Without this the pool task is fire-and-forget and its assertion may never
+  // run before the test ends — the check would pass vacuously.
+  pool.join_all();
 });

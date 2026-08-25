@@ -3,11 +3,10 @@ pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
 { arch, Arch } :: import("std/process");
 open(import("std/libc/stdio"));
 { Channel } :: import("std/sync/channel");
-{ Thread } :: import("std/thread");
+{ Thread, ThreadPool, spawn } :: import("std/thread");
 { sleep_blocking } :: import("std/time/sleep");
 { Duration } :: import("std/time/duration");
 { WaitGroup } :: import("std/sync/waitgroup");
-Worker :: import("std/worker");
 // ============================================================================
 // Basic Operations
 // ============================================================================
@@ -288,15 +287,15 @@ test("Channel capacity 1 works as rendezvous", {
   t.join();
 });
 // ============================================================================
-// Worker integration (Channel is atomic object — no Arc wrapping needed)
+// ThreadPool integration (Channel is atomic object — no Arc wrapping needed)
 // ============================================================================
-test("Channel send from Worker recv from main", {
+test("Channel send from pool task recv from main", {
   if(arch == Arch.Wasm32, return(()));
   ch := Channel(i32).new(usize(10));
   wg := WaitGroup.new();
-  Worker.set_num_threads(2);
+  pool := ThreadPool.new(usize(2));
   wg.add(i32(1));
-  Worker.spawn((io) => {
+  spawn(pool, (io) => {
     ch.send(i32(42));
     wg.done();
   });
@@ -305,13 +304,13 @@ test("Channel send from Worker recv from main", {
   assert(val.is_some(), "should receive value from worker");
   assert(val.unwrap() == i32(42), "value should be 42");
 });
-test("Channel Worker sends multiple values", {
+test("Channel pool task sends multiple values", {
   if(arch == Arch.Wasm32, return(()));
   ch := Channel(i32).new(usize(20));
   wg := WaitGroup.new();
-  Worker.set_num_threads(2);
+  pool := ThreadPool.new(usize(2));
   wg.add(i32(1));
-  Worker.spawn((io) => {
+  spawn(pool, (io) => {
     ch.send(i32(10));
     ch.send(i32(20));
     ch.send(i32(30));

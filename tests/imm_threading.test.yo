@@ -5,10 +5,9 @@ pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
 // shared across threads without data races.
 { arch, Arch } :: import("std/process");
 open(import("std/fmt"));
-{ Thread } :: import("std/thread");
+{ Thread, ThreadPool, spawn } :: import("std/thread");
 { Channel } :: import("std/sync/channel");
 { WaitGroup } :: import("std/sync/waitgroup");
-Worker :: import("std/worker");
 { Vec, PopResult } :: import("std/imm/vec");
 { List } :: import("std/imm/list");
 { Map } :: import("std/imm/map");
@@ -246,44 +245,46 @@ test("Channel of Vec — producer sends immutable snapshots to consumer", {
   producer.join();
 });
 // ============================================================================
-// Worker pool with immutable collections
+// Thread pool with immutable collections
 // ============================================================================
-test("Worker pool reads shared Map", {
+test("ThreadPool reads shared Map", {
   if(arch == Arch.Wasm32, return(()));
+  pool := ThreadPool.with_hardware_threads();
   m := Map(i32, i32).new().insert(i32(1), i32(10)).insert(i32(2), i32(20)).insert(i32(3), i32(30));
   wg := WaitGroup.new();
   wg.add(i32(3));
-  Worker.spawn((io) => {
+  spawn(pool, (io) => {
     assert(m.get(i32(1)).unwrap() == i32(10), "worker1 reads key 1");
     wg.done();
   });
-  Worker.spawn((io) => {
+  spawn(pool, (io) => {
     assert(m.get(i32(2)).unwrap() == i32(20), "worker2 reads key 2");
     wg.done();
   });
-  Worker.spawn((io) => {
+  spawn(pool, (io) => {
     assert(m.get(i32(3)).unwrap() == i32(30), "worker3 reads key 3");
     wg.done();
   });
   wg.wait();
 });
-test("Worker pool creates independent List versions", {
+test("ThreadPool creates independent List versions", {
   if(arch == Arch.Wasm32, return(()));
+  pool := ThreadPool.with_hardware_threads();
   base := List(i32).new().prepend(i32(2)).prepend(i32(1));
   ch := Channel(i32).new(usize(10));
   wg := WaitGroup.new();
   wg.add(i32(3));
-  Worker.spawn((io) => {
+  spawn(pool, (io) => {
     v := base.prepend(i32(100));
     ch.send(v.head().unwrap());
     wg.done();
   });
-  Worker.spawn((io) => {
+  spawn(pool, (io) => {
     v := base.prepend(i32(200));
     ch.send(v.head().unwrap());
     wg.done();
   });
-  Worker.spawn((io) => {
+  spawn(pool, (io) => {
     v := base.prepend(i32(300));
     ch.send(v.head().unwrap());
     wg.done();
@@ -300,13 +301,14 @@ test("Worker pool creates independent List versions", {
 });
 test("Queued worker task keeps captured ImmString alive after creator scope exits", {
   if(arch == Arch.Wasm32, return(()));
-  worker_count := Worker.get_num_threads();
+  pool := ThreadPool.with_hardware_threads();
+  worker_count := pool.num_threads();
   ready := Channel(bool).new(worker_count);
   release := Channel(bool).new(worker_count);
   result := Channel(usize).new(usize(1));
   i := usize(0);
   while(runtime(i < worker_count), {
-    Worker.spawn((io) => {
+    spawn(pool, (io) => {
       ready.send(true);
       release.recv().unwrap();
     });
@@ -319,7 +321,7 @@ test("Queued worker task keeps captured ImmString alive after creator scope exit
   });
   {
     s := ImmString.from("hello");
-    Worker.spawn((io) => {
+    spawn(pool, (io) => {
       result.send(s.len());
     });
   };
@@ -367,13 +369,14 @@ test("Multiple threads each consume own Vec independently", {
   t1.join();
   t2.join();
 });
-test("Worker consumes Vec via own(self) push", {
+test("Pool task consumes Vec via own(self) push", {
   if(arch == Arch.Wasm32, return(()));
+  pool := ThreadPool.with_hardware_threads();
   base := Vec(i32).new().push(i32(42));
   ch := Channel(usize).new(usize(4));
   wg := WaitGroup.new();
   wg.add(i32(1));
-  Worker.spawn((io) => {
+  spawn(pool, (io) => {
     v := base.push(i32(99));
     ch.send(v.len());
     wg.done();
@@ -466,23 +469,24 @@ test("Vec pop in thread — own(self) returning PopResult", {
 });
 test("Multiple workers each consume different Vecs", {
   if(arch == Arch.Wasm32, return(()));
+  pool := ThreadPool.with_hardware_threads();
   ch := Channel(usize).new(usize(10));
   wg := WaitGroup.new();
   wg.add(i32(3));
   v1 := Vec(i32).new().push(i32(1));
-  Worker.spawn((io) => {
+  spawn(pool, (io) => {
     r := v1.push(i32(2));
     ch.send(r.len());
     wg.done();
   });
   v2 := Vec(i32).new().push(i32(1)).push(i32(2));
-  Worker.spawn((io) => {
+  spawn(pool, (io) => {
     r := v2.push(i32(3)).push(i32(4));
     ch.send(r.len());
     wg.done();
   });
   v3 := Vec(i32).new();
-  Worker.spawn((io) => {
+  spawn(pool, (io) => {
     r := v3.push(i32(1)).push(i32(2)).push(i32(3));
     ch.send(r.len());
     wg.done();

@@ -772,9 +772,70 @@ implementing the D5 traits.** Until it lands, std honestly refuses https.
 - Merge `std/worker` into `std/thread` as `ThreadPool` (explicit object:
   `spawn -> JoinHandle`-analog, `join_all`, `shutdown`); `Thread.spawn` should
   carry a result (`join() -> T`) and panic propagation.
+- ~~Merge `std/worker` into `std/thread` as `ThreadPool` (explicit object:
+  `spawn -> JoinHandle`-analog, `join_all`, `shutdown`)~~ — **DONE 2026-08-26,
+  partially**. `std/worker.yo` is deleted; `std/thread.yo` now exports
+  `ThreadPool` (`new(num_threads)`, `with_hardware_threads()`, `num_threads()`,
+  `join_all()`, `shutdown()`, `is_shutdown()`) plus a module-level
+  `spawn(pool, cb)`. All 7 consumers migrated
+  (`tests/thread_pool.test.yo` replaces `tests/worker.test.yo`;
+  `tests/imm_threading`, `tests/control_fn_as_regular_call`,
+  `tests/sync/{channel,waitgroup,once,rwlock}`). Three deviations from the row
+  as written, each forced by a **measured compiler bug**, all four filed with
+  reproducers under `issues/repros/`:
+  - `spawn` is a **module-level function**, not `pool.spawn(cb)`. A closure
+    parameter forwarded into a spawn primitive from inside a `self`-receiver
+    method is specialized ONCE — with N task closure shapes, N−1 are emitted as
+    `// Failed to transpile` and **silently do nothing**
+    (`issues/impl-method-self-receiver-hollows-forwarded-spawn-closures.md`).
+    Free functions and *static* impl methods (`Thread.spawn`) are unaffected.
+  - `spawn` returns `unit`, not a per-task handle, and `join_all` is a
+    **barrier** (one sentinel task per worker thread, riding the runtime's
+    round-robin distribution + per-worker FIFO queues) rather than a completion
+    counter. Both would need std to wrap the user's task closure, and a wrapper
+    that forwards `io : Io` gets a stale `Io` C type — the two emitted wrappers
+    come out swapped
+    (`issues/spawn-wrapper-forwarded-io-crosses-specializations.md`).
+    `__yo_builtin_io` and `Dyn(Fn(io : Io) -> unit, Send)` were both measured
+    and neither fixes it beyond two shapes.
+  - `shutdown` closes *this* pool and drains its work; it cannot stop the OS
+    worker threads, because the runtime pool is process-global and its
+    `__yo_worker_pool_shutdown` is a `static` C function with no Yo-visible
+    entry point (adding one needs a `_is_threading_macro_function` entry, i.e.
+    a compiler change).
+  - **`join_all` leaks ~344 bytes per call** (review follow-up 2026-08-26). Its
+    `Channel(bool)` is captured by the sentinel closures, and the emitted spawn
+    wrapper never drops a closure's RC'd captures. Pre-existing and below std —
+    measured identically on `develop` with `Worker.spawn` and a plain task
+    closure — so it is filed, not worked around:
+    `issues/spawn-closure-captures-never-dropped-leak.md`. A per-pool cached
+    channel would trade the leak for a broken barrier under concurrent
+    `join_all`, so the fix belongs in the spawn emitter.
+- **NOT DONE — `Thread.spawn` should carry a result (`join() -> T`) and panic
+  propagation.** Both are blocked below std:
+  - `join() -> T` needs `spawn` to be generic over `T` and to put a `T`-typed
+    expression inside the spawned closure. Every such value is emitted as
+    `void*`: the closure handed to a spawn primitive is never re-specialized
+    for the enclosing generic instantiation
+    (`issues/spawn-closure-generic-captures-erased-to-void-ptr.md`; measured
+    for generic fns, generic impl methods and `generic(E : Type.Struct)`).
+  - Panic propagation is **not implementable today at any layer**. `panic` /
+    `assert` lower to `fprintf(stderr, ...)` + `abort()`
+    (`src/codegen/exprs/panic.yo`), i.e. SIGABRT for the whole process. There
+    is no unwinding runtime: the emitted `___drop` calls are straight-line
+    code, not landing pads, and there is no per-thread `jmp_buf`, no catch
+    form, and no panic payload. Propagating a panic across `join` needs (a)
+    `panic` to longjmp to a per-thread recovery point instead of aborting,
+    (b) RC/GC state to be unwound safely at that point, and (c) a payload
+    channel — a runtime/codegen project, not a std change. Do NOT accept a
+    `join() -> Result(T, E)` signature that cannot actually observe a panic.
 - `WaitGroup`: delete (Go transplant) — replaced by `ThreadPool.join_all` +
   a new `Barrier`/`Semaphore` pair. **Do it in that order**: §6 round 2 measured
   5 live test-file consumers, so the deletion must ride WITH the replacement.
+  `ThreadPool.join_all` now exists (2026-08-26), so the blocker is down to the
+  `Barrier`/`Semaphore` pair. Note the 5 consumers use `WaitGroup` for
+  *per-task* waiting inside a shared pool, which `join_all` (a whole-pool
+  barrier) does not cover on its own.
 - **Async-aware sync is a P0 addition** (§7): async `Channel`, async `Mutex`,
   `select`/timeout — today any `ch.recv()` inside a future parks the entire
   single-threaded event loop, and the prelude DOCUMENTS `Channel` as the way to
@@ -1007,7 +1068,7 @@ implementing the D5 traits.** Until it lands, std honestly refuses https.
 | net | FIX + EXTEND | C2/C3; `Shutdown` enum; `Reader`/`Writer` impls (D5); `incoming()`; UDP `connect` (its own doc references it), typed `recv_from`; `UnixStream`/`UnixListener` (sys/unix.yo fully plumbed — lowest-effort high-value gap); `parse_v6`, `SocketAddr.parse`, `Eq`/`Hash` on addr types; RFC 5952 V6 formatting |
 | http | FIX + EXTEND | C1; timeouts (dead `Timeout` variant becomes real), redirects (needs `Url.join`), chunked decoding, binary bodies (`Output`-style bytes + `text()`/`json()` accessors), keep-alive; **server (P1)**: `parse_request`, `HttpServer` on `TcpListener`, router-free minimal core; collapse `FetchOptions` into `HttpRequest` |
 | async | PROMOTE | becomes the combinator home: `join_all`, `race`, `any`, `timeout`, ~~async `sleep(Duration)`~~ (LANDED 2026-08-25 as `std/time/sleep.yo`'s `sleep(Duration, io)` per §5 — do NOT add a second one here; re-export it if `std/async` wants the name), interval, cancellation story for `JoinHandle` (`abort()`), async channel/mutex (D7) |
-| thread/worker/sync | REDESIGN (D7) | |
+| thread/worker/sync | REDESIGN (D7) | `std/worker` merged into `std/thread` as `ThreadPool` 2026-08-26 (module-level `spawn(pool, cb)`, barrier `join_all`, `shutdown`); `join() -> T` and panic propagation blocked below std — see D7 |
 | time | EXTEND | `Duration`: `Add/Sub` operator impls, `Eq/Ord/Hash`, `from_secs_f64`, `subsec_*`, consts; **make std USE it** (timeouts, sleeps — today zero consumers outside time/); `Instant` `add/sub`, `Eq/Ord`; `DateTime`: RFC3339 `parse`/`format` (C4 fix first), component ctor, arithmetic, `Eq/Ord`; ~~ONE `sleep(Duration, io)` async + `sleep_blocking(Duration)`~~ **DONE 2026-08-25 (§5)** |
 | crypto | EXTEND | streaming `Digest` trait unifying Sha256/Md5 (+ streaming Md5); SHA-1, SHA-512, **HMAC** (blocks JWT/SigV4/webhooks), CRC32, constant-time compare; fix C5; new `std/rand` module: seedable PCG/xoshiro PRNG, `shuffle`, `choice`, ranges — infallible, non-crypto, clearly separated from `crypto/random` |
 | log | REWRITE (zero users = free window) | levels + `Off`, `ToString`-generic message, lazy eval, timestamps, target/module, writer sink (file/buffer), thread-safe; keep the free-function facade |

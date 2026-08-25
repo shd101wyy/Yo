@@ -559,7 +559,7 @@ No new syntax. The evaluator already verifies that `dyn(value)` against `Dyn(T1,
 
 Sending a `Dyn(Trait)` (without `Send` in the list) to `Thread.spawn` or via `Channel(Dyn(Trait))` is rejected by the spawn API's Send bound — no special case needed.
 
-**Audit task:** scan every `Dyn(...)` in `std/sync/`, `std/thread.yo`, `std/worker.yo`, channel/atomic APIs, and any cross-thread API surface. Add `Send` to the trait list anywhere the dyn-typed value can cross a thread boundary. Document the rule in `docs/{en-US,zh-CN}/THREAD_SAFETY.md`.
+**Audit task:** scan every `Dyn(...)` in `std/sync/`, `std/thread.yo`, channel/atomic APIs, and any cross-thread API surface. Add `Send` to the trait list anywhere the dyn-typed value can cross a thread boundary. Document the rule in `docs/{en-US,zh-CN}/THREAD_SAFETY.md`.
 
 ### Phase J — Dropped
 

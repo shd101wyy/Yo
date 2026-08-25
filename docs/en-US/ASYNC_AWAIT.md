@@ -587,7 +587,7 @@ int main(int argc, char** argv) {
 
 **I/O initialization is lazy**: `__yo_io_init()` is called on the first actual I/O operation (file open, socket connect, etc.), not at program start. This means programs using only `yield()` and pure computation pay zero I/O setup cost.
 
-Similarly, the **parallelism runtime** (thread pool, worker spawn, hardware detection) is only emitted when the program uses `Thread.spawn` or `worker.spawn`. Non-parallel programs save ~450 lines of generated C code.
+Similarly, the **parallelism runtime** (thread pool, worker spawn, hardware detection) is only emitted when the program uses `Thread.spawn` or `std/thread`'s `spawn(pool, cb)`. Non-parallel programs save ~450 lines of generated C code.
 
 **Synchronous system helpers** (stat/dirent accessors, sendfile/copyfile, sync file operations, mmap/madvise, fcntl, flock, socket address helpers, signal handlers, TTY) are always emitted via `generate_sys_runtime()` which includes both cross-platform helpers and platform-specific sync helpers (`generate_platform_sys_runtime_{macos,linux,windows,wasm}`). These have **no IoFuture dependency**. All functions are `static`, so unused ones are stripped by the C compiler's dead-code elimination. This ensures non-async programs that use signals, stat, mmap, TTY, etc. compile without pulling in the full async runtime.
 
