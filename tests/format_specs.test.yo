@@ -84,11 +84,30 @@ test("width and precision compose on multibyte text", {
   assert(String.from("aé中𝄞").format("^8.3") == `  aé中   `, "centred after a rune cut");
 });
 test("numeric padding measures the sign, prefix and digits in characters", {
-  // The numeric path compares its own total against the same `width`, so it
-  // has to use the same basis. Non-ASCII digits are not produced by the
-  // radix formatters, so this pins the shape through `Format` on a String
-  // body that carries the multibyte content instead.
+  // The ASCII shape first: zero fill goes between the sign/prefix and digits.
   assert(i32(-(42)).format("08") == `-0000042`, "zero fill still goes after the sign");
   assert(i32(255).format("#08x") == `0x0000ff`, "alt hex zero padded");
   assert(String.from("中文").format("0>5") == `000中文`, "explicit align beats the zero flag");
+});
+test("pad_numeric counts its sign, prefix and digits in RUNES", {
+  // `String.format` routes a String body through `pad`, NEVER through
+  // `pad_numeric`, so the assertions above cannot reach `pad_numeric`'s own
+  // `char_len` measurement at all — the radix formatters only ever hand it
+  // ASCII. Call it directly with multibyte parts, which is the only way to
+  // pin its basis. Every expected value below differs under a byte basis
+  // (shown in the comment), so a wrong basis cannot pass.
+  // char: head 1+1=2, total 4, 8-4 = 4 zeros.  byte: head 2+3=5, total 7 -> 1 zero.
+  assert(FormatSpec.parse("08").pad_numeric(`é`, `中`, `12`) == `é中000012`, "multibyte sign and prefix");
+  // char: head 1+2=3, total 5, 10-5 = 5 zeros.  byte: total 9 -> 1 zero.
+  assert(FormatSpec.parse("010").pad_numeric(`-`, `0x`, `中文`) == `-0x00000中文`, "multibyte digits");
+  // char: total 4, 4 zeros.  byte: total 10 >= 8 -> no padding at all.
+  assert(FormatSpec.parse("08").pad_numeric(``, ``, `aé中𝄞`) == `0000aé中𝄞`, "all four UTF-8 widths");
+  // Explicit alignment takes the `_apply_width` path over the whole rendering:
+  // char len 4 -> 4 spaces; byte len 7 -> 1 space.
+  assert(FormatSpec.parse(">8").pad_numeric(`é`, `中`, `12`) == `    é中12`, "explicit align, multibyte");
+  // No zero flag: same `_apply_width` path. char len 3 -> 5 spaces.
+  assert(FormatSpec.parse("8").pad_numeric(`-`, ``, `中文`) == `     -中文`, "width without the zero flag");
+  // The rune counts are what the width promises, and the bytes are not.
+  assert(FormatSpec.parse("08").pad_numeric(`é`, `中`, `12`).char_len() == usize(8), "eight runes wide");
+  assert(FormatSpec.parse("08").pad_numeric(`é`, `中`, `12`).bytes_len() == usize(11), "eleven bytes, not eight");
 });

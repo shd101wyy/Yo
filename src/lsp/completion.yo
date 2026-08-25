@@ -923,11 +923,13 @@ handle_completion :: (
           ((t.kind == TokenKind.SingleLineComment) || (t.kind == TokenKind.MultiLineComment))
       );
       if(!(trivia), {
-        ends_at_dot := ((t.row == line) && ((t.column + t.value.len()) == dot_col));
+        // `t.column` and `dot_col` are RUNE columns, so the token width added
+        // to one has to be a rune count (§5.2 S7).
+        ends_at_dot := ((t.row == line) && ((t.column + t.value.char_len()) == dot_col));
         if(ends_at_dot && (t.kind == TokenKind.Identifier), {
           receiver = Option(Token).Some(t);
         });
-        before_dot := ((t.row < line) || ((t.row == line) && ((t.column + t.value.len()) <= dot_col)));
+        before_dot := ((t.row < line) || ((t.row == line) && ((t.column + t.value.char_len()) <= dot_col)));
         if(before_dot, {
           later := (
             prev_tok.is_none() ||

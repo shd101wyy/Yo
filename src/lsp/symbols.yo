@@ -95,7 +95,8 @@ handle_document_symbols :: (
               name_tok.row,
               name_tok.column,
               name_tok.row,
-              name_tok.column + name_tok.value.len()
+              // RUNE column + RUNE width (§5.2 S7).
+              name_tok.column + name_tok.value.char_len()
             );
             items.push(
               jb().put("name", jstr(name_tok.value.clone())).put("kind", jnum(_symbol_kind_of(value_expr))).put("range", rng).put("selectionRange", rng).obj()

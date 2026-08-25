@@ -101,7 +101,8 @@ handle_definition :: (
   Option(JsonValue).Some(
     jb().put("uri", jstr(_module_path_to_uri(def_tok.module_path.clone()))).put(
       "range",
-      j_range(def_tok.row, def_tok.column, def_tok.row, def_tok.column + def_tok.value.len())
+      // RUNE column + RUNE width (§5.2 S7).
+      j_range(def_tok.row, def_tok.column, def_tok.row, def_tok.column + def_tok.value.char_len())
     ).obj()
   )
 });

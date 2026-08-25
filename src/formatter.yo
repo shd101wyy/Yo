@@ -1243,7 +1243,10 @@ is_tightly_bound_operator :: (
             .None => false,
             .Some(n) => (
               (n.row == token.row) &&
-                (n.column == (token.column + token.value.len()))
+                // RUNE columns (the lexer indexes an ArrayList(rune)), so the
+                // token width added to one has to be a rune count
+                // (plans/STD_API_AUDIT_D4_PLAN.md §5.2 S7).
+                (n.column == (token.column + token.value.char_len()))
             )
           );
           cond(

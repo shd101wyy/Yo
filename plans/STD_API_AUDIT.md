@@ -577,17 +577,31 @@ the new `truncate_chars`; `String.split("")` is pinned; and in `src/`,
 `_peel_spec`, the doc-summary cut, the caret column and all ten
 comptime-string-builtin sites are pinned. Two additive helpers came with it:
 `char_substring` (which holds `substring`'s CURRENT body verbatim, `substring`
-becoming a one-line delegation to it) and `truncate_chars`. **PR 3's review
-question is now "does this site want bytes?", and the answer is yes everywhere
-left.** The gate was output-identity of a multibyte behavioural probe (862
-lines, same `sha256` before and after) plus a simulated flip in which the new
-multibyte tests fail without the migration and pass with it — NOT emitted-C
-identity, which PR 2 measured to be the wrong instrument for a body rewrite.
-Coverage went from 8 → 12 tests in `tests/encoding/html.test.yo`, 7 → 12 in
-`tests/format_specs.test.yo`, 17 → 21 in `tests/string/string_char_api.test.yo`.
+becoming a one-line delegation to it) and `truncate_chars`. The gate was
+output-identity of a multibyte behavioural probe (same `sha256` before and
+after) plus a simulated flip in which the new multibyte tests fail without the
+migration and pass with it — NOT emitted-C identity, which PR 2 measured to be
+the wrong instrument for a body rewrite. Coverage went from 8 → 12 tests in
+`tests/encoding/html.test.yo`, 7 → 13 in `tests/format_specs.test.yo`,
+17 → 21 in `tests/string/string_char_api.test.yo`.
 PR 2 also found an **8th live mixed-basis bug** (`std/fs/dir.yo:121`
 `mkdir_all`, the first in `std/` rather than `src/`) that D4 PR 3 fixes for
 free, and settled the 14 `substring` sites the plan had left UNMEASURED.
+
+**A skeptical review pass on the same branch (2026-08-26) closed the claim PR 2
+could not yet make.** PR 2 as first committed had migrated only the ONE instance
+of the "rune column + `tok.value.len()`" pattern that the plan's §5.2 named
+(`src/error.yo`, S7); the pattern actually occurs at **11 more sites in 6
+files** — `src/formatter.yo`, `src/lsp/{hover,symbols,definition,references,
+rename,completion}.yo` and `src/doc/builder.yo`. All 11 are now on `char_len()`
+(plan §5.2 **S11**); the worst of them would have made `textDocument/rename`
+replace past the end of a multibyte identifier. The review also replaced a
+**vacuous** `pad_numeric` test (it asserted only through `String.format`, which
+never reaches `pad_numeric`) and recorded a **9th** live mixed-basis bug,
+duplicated across `src/unsafe_report.yo` and `src/public_safe_report.yo`
+(`issues/unsafe-report-relative-path-uses-a-byte-prefix-length.md`).
+**Only now is PR 3's review question "does this site want bytes?" — and the
+answer is yes everywhere left except S8 and S9, which are open by design.**
 
 The remaining D4 steps (PRs 3-9) are unchanged and still in
 `plans/STD_API_AUDIT_D4_PLAN.md` §4.
