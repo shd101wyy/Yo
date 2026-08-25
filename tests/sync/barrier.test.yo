@@ -1,0 +1,225 @@
+pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
+{ assert } :: import("std/assert");
+{ arch, Arch } :: import("std/process");
+{ Barrier } :: import("std/sync/barrier");
+{ Thread } :: import("std/thread");
+{ sleep_blocking } :: import("std/time/sleep");
+{ Duration } :: import("std/time/duration");
+{ AtomicI32, MemoryOrder } :: import("std/sync/atomic");
+
+// ============================================================================
+// Degenerate barriers — a single party never blocks
+// ============================================================================
+test("Barrier of one trips immediately and its caller is the leader", {
+  b := Barrier.new(i32(1));
+  assert(b.parties() == i32(1), "parties is fixed at construction");
+  assert(b.generation() == i64(0), "a fresh barrier is on generation 0");
+  assert(b.wait(), "the only party is always the leader");
+  assert(b.generation() == i64(1), "tripping advances the generation");
+  assert(b.wait(), "and the barrier is immediately reusable");
+  assert(b.generation() == i64(2), "second trip, second generation");
+  assert(b.waiting() == i32(0), "nobody is parked");
+});
+test("Barrier of zero parties never blocks", {
+  // Degenerate but well-defined: the first arrival already satisfies
+  // `count >= parties`.
+  b := Barrier.new(i32(0));
+  assert(b.wait(), "the arriving party trips a 0-party barrier");
+  assert(b.generation() == i64(1), "it still counts as a generation");
+});
+
+// ============================================================================
+// Hold-back — nobody passes until the LAST party arrives.
+//
+// This is the assertion an off-by-one in the trip test (`>=` slipping to `>`
+// on the wrong side, or a `parties - 1` release) fails: three parties park,
+// and if any of them escapes before the fourth arrives, `passed` is non-zero
+// while the main thread still has not called wait(). It also pins down WHICH
+// thread is the leader — the last to arrive, which here is deterministically
+// the main thread.
+// ============================================================================
+test("Barrier holds every party until the last one arrives", {
+  if(arch == Arch.Wasm32, return(()));
+  b := Barrier.new(i32(4));
+  arrived := AtomicI32(i32(0));
+  passed := AtomicI32(i32(0));
+  t1 := Thread.spawn((io) => {
+    arrived.fetch_add(i32(1), MemoryOrder.AcqRel);
+    b.wait();
+    passed.fetch_add(i32(1), MemoryOrder.AcqRel);
+  });
+  t2 := Thread.spawn((io) => {
+    arrived.fetch_add(i32(1), MemoryOrder.AcqRel);
+    b.wait();
+    passed.fetch_add(i32(1), MemoryOrder.AcqRel);
+  });
+  t3 := Thread.spawn((io) => {
+    arrived.fetch_add(i32(1), MemoryOrder.AcqRel);
+    b.wait();
+    passed.fetch_add(i32(1), MemoryOrder.AcqRel);
+  });
+  while(runtime(arrived.load(MemoryOrder.Acquire) < i32(3)), {
+    sleep_blocking(Duration.from_millis(i64(1)));
+  });
+  sleep_blocking(Duration.from_millis(i64(30)));
+  assert(passed.load(MemoryOrder.Acquire) == i32(0), "no party may pass a 4-party barrier while only 3 have arrived");
+  assert(b.waiting() == i32(3), "all three are parked in the current generation");
+  assert(b.generation() == i64(0), "the barrier has not tripped yet");
+  // The main thread is the fourth and last party.
+  is_leader := b.wait();
+  assert(is_leader, "the party that trips the barrier is the leader");
+  t1.join();
+  t2.join();
+  t3.join();
+  assert(passed.load(MemoryOrder.Acquire) == i32(3), "every parked party is released when the barrier trips");
+  assert(b.generation() == i64(1), "one trip, one generation");
+  assert(b.waiting() == i32(0), "the count is reset for the next round");
+});
+
+// ============================================================================
+// Generations — reuse across rounds.
+//
+// Each thread records the round it believes it is in and checks the arrival
+// counter afterwards: after the barrier trips for round r, ALL parties of that
+// round must have arrived, so the counter cannot be below 4*(r+1). A barrier
+// that releases early (or that reuses the previous generation's wakeup) breaks
+// that lower bound. `leaders == ROUNDS` pins the other half: exactly one party
+// per generation is nominated, no more and no fewer.
+// ============================================================================
+test("Barrier reused across generations releases exactly one leader per round", {
+  if(arch == Arch.Wasm32, return(()));
+  b := Barrier.new(i32(4));
+  arrivals := AtomicI32(i32(0));
+  leaders := AtomicI32(i32(0));
+  early := AtomicI32(i32(0));
+  t1 := Thread.spawn((io) => {
+    r := i32(0);
+    while(runtime(r < i32(5)), {
+      arrivals.fetch_add(i32(1), MemoryOrder.AcqRel);
+      cond(
+        (b.wait()) => {
+          leaders.fetch_add(i32(1), MemoryOrder.AcqRel);
+        },
+        true => ()
+      );
+      cond(
+        (arrivals.load(MemoryOrder.Acquire) < (i32(4) * (r + i32(1)))) => {
+          early.fetch_add(i32(1), MemoryOrder.AcqRel);
+        },
+        true => ()
+      );
+      r = (r + i32(1));
+    });
+  });
+  t2 := Thread.spawn((io) => {
+    r := i32(0);
+    while(runtime(r < i32(5)), {
+      arrivals.fetch_add(i32(1), MemoryOrder.AcqRel);
+      cond(
+        (b.wait()) => {
+          leaders.fetch_add(i32(1), MemoryOrder.AcqRel);
+        },
+        true => ()
+      );
+      cond(
+        (arrivals.load(MemoryOrder.Acquire) < (i32(4) * (r + i32(1)))) => {
+          early.fetch_add(i32(1), MemoryOrder.AcqRel);
+        },
+        true => ()
+      );
+      r = (r + i32(1));
+    });
+  });
+  t3 := Thread.spawn((io) => {
+    r := i32(0);
+    while(runtime(r < i32(5)), {
+      arrivals.fetch_add(i32(1), MemoryOrder.AcqRel);
+      cond(
+        (b.wait()) => {
+          leaders.fetch_add(i32(1), MemoryOrder.AcqRel);
+        },
+        true => ()
+      );
+      cond(
+        (arrivals.load(MemoryOrder.Acquire) < (i32(4) * (r + i32(1)))) => {
+          early.fetch_add(i32(1), MemoryOrder.AcqRel);
+        },
+        true => ()
+      );
+      r = (r + i32(1));
+    });
+  });
+  t4 := Thread.spawn((io) => {
+    r := i32(0);
+    while(runtime(r < i32(5)), {
+      arrivals.fetch_add(i32(1), MemoryOrder.AcqRel);
+      cond(
+        (b.wait()) => {
+          leaders.fetch_add(i32(1), MemoryOrder.AcqRel);
+        },
+        true => ()
+      );
+      cond(
+        (arrivals.load(MemoryOrder.Acquire) < (i32(4) * (r + i32(1)))) => {
+          early.fetch_add(i32(1), MemoryOrder.AcqRel);
+        },
+        true => ()
+      );
+      r = (r + i32(1));
+    });
+  });
+  t1.join();
+  t2.join();
+  t3.join();
+  t4.join();
+  assert(arrivals.load(MemoryOrder.Acquire) == i32(20), "4 threads x 5 rounds must all arrive");
+  assert(early.load(MemoryOrder.Acquire) == i32(0), "no party may leave a round before all four arrived");
+  assert(leaders.load(MemoryOrder.Acquire) == i32(5), "exactly one leader per generation");
+  assert(b.generation() == i64(5), "five rounds, five generations");
+  assert(b.waiting() == i32(0), "no party is left parked");
+});
+
+// ============================================================================
+// Generation race — the reason the implementation counts generations instead
+// of watching `_count` return to zero.
+//
+// Two parties hammer the barrier with no sleeps at all, so the thread released
+// from round r routinely re-enters the barrier before its partner has been
+// scheduled out of round r. With a `_count == 0` wakeup predicate the slow
+// partner would see the fast one's fresh arrival and either hang or slip a
+// round; the generation counter is monotone, so it cannot.
+// ============================================================================
+test("Barrier survives a party re-entering before its partner leaves", {
+  if(arch == Arch.Wasm32, return(()));
+  b := Barrier.new(i32(2));
+  leaders := AtomicI32(i32(0));
+  rounds := AtomicI32(i32(0));
+  t := Thread.spawn((io) => {
+    i := i32(0);
+    while(runtime(i < i32(500)), {
+      cond(
+        (b.wait()) => {
+          leaders.fetch_add(i32(1), MemoryOrder.AcqRel);
+        },
+        true => ()
+      );
+      rounds.fetch_add(i32(1), MemoryOrder.AcqRel);
+      i = (i + i32(1));
+    });
+  });
+  i := i32(0);
+  while(runtime(i < i32(500)), {
+    cond(
+      (b.wait()) => {
+        leaders.fetch_add(i32(1), MemoryOrder.AcqRel);
+      },
+      true => ()
+    );
+    rounds.fetch_add(i32(1), MemoryOrder.AcqRel);
+    i = (i + i32(1));
+  });
+  t.join();
+  assert(rounds.load(MemoryOrder.Acquire) == i32(1000), "both parties must complete all 500 rounds");
+  assert(leaders.load(MemoryOrder.Acquire) == i32(500), "exactly one leader in each of the 500 generations");
+  assert(b.generation() == i64(500), "the generation counter matches the rounds run");
+});
