@@ -1,0 +1,27 @@
+// Reproducer for
+// issues/generic-r-callback-with-unit-closure-emits-void-star-temp.md
+//
+//   yo compile issues/repros/generic-r-callback-unit-closure.yo --release -o /tmp/r
+//
+// Expected: builds and runs. Actual (2026-08-26, yo 0.2.17):
+//   error: initializing 'void *' with an expression of incompatible type 'void'
+//     void* tmp = closure_yo_id_N(&(body), (&(x)));
+{ assert } :: import("std/assert");
+
+// A callback-taking helper generic over the callback's RESULT — the shape of
+// `Mutex(T).with_lock`, `RwLock(T).with_read` / `with_write`.
+apply :: (fn(generic(R : Type), body : Impl(Fn(inout(v) : i32) -> R)) -> R)({
+  x := i32(1);
+  body(x)
+});
+
+main :: (fn() -> unit)({
+  // R = i32 — fine.
+  n := apply((v) => (v + i32(1)));
+  assert(n == i32(2), "non-unit R works");
+  // R = unit — emits `void* tmp = <void call>;`.
+  apply((v) => {
+    v = i32(5);
+  });
+});
+export(main);

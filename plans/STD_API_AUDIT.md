@@ -93,6 +93,7 @@ otherwise COMPLETE.
 | C17 | `Dyn(trait)` whose method returns `Impl(Future(...))` emits the on-demand Future struct INTO the middle of the open vtable typedef; clang rejects it with 7 errors. Blocks one of the two spellings of "BufReader/BufWriter wrap ANY Reader/Writer". OPEN — issues/dyn-trait-with-future-returning-method-splices-struct-into-vtable.md | compiler |
 | C18 | **A struct literal that OMITS a required field is silently accepted** — `yo check` says "evaluator OK", the field is uninitialised, and the program SIGSEGVs. This directly undermines §1's "additive-only changes to stable modules" promise: adding a field to a stable struct silently breaks every construction site not updated. OPEN — issues/struct-literal-missing-field-silently-accepted.md | compiler |
 | C19 | Passing a C `int` where `i32` is declared is accepted by the evaluator; codegen then splices a Yo type expression into a C identifier (`__yo_dyn_box_unknown_fn(T : Type) -> Type`) and clang fails with `expected ')'`. Loud, but the diagnostic names nothing the user wrote. OPEN — issues/int-vs-i32-mismatch-reaches-codegen-and-emits-malformed-c.md | compiler |
+| C20 | **A callback generic over its RESULT miscompiles when the closure returns unit** — `fn(generic(R), body : Impl(Fn(...) -> R)) -> R` specialized at `R = unit` emits `void* tmp = <void call>;`, which clang rejects. That signature IS `Mutex(T).with_lock`, so the flagship std/sync form `m.with_lock((v) => { v = i32(7); })` does not C-compile today; `tests/sync/mutex.test.yo` misses it because all three cases return a value. `yo check` and `--emit-c` are both clean — only the C compiler objects. Root-caused to one predicate in `src/codegen/exprs/other_fn_call.yo` (the fn-pointer `ou_may_unwind` branch tests `is_unit_type(result_type)` while the registered-callee path consults the SomeT spelling). Blocks `RwLock.with_write((v) => { ... })` and Phase D's unwind-safe `Once.call`. OPEN, with an UNVALIDATED patch — issues/generic-r-callback-with-unit-closure-emits-void-star-temp.md | compiler |
 
 ---
 
@@ -634,8 +635,53 @@ implementing the D5 traits.** Until it lands, std honestly refuses https.
 
 ### D7 — sync/concurrency shape
 
-- `Mutex(T).with_lock` closure style is the flagship — extend it: `RwLock(T)`
-  becomes generic with `with_read`/`with_write` guards.
+- ~~`Mutex(T).with_lock` closure style is the flagship — extend it: `RwLock(T)`
+  becomes generic with `with_read`/`with_write` guards.~~ **DONE 2026-08-26.**
+  `RwLock(T)` now owns the protected value and exposes only `with_read` /
+  `with_write`; the release runs from the `Dispose` of a private
+  `__RwLockReadUnlocker` / `__RwLockWriteUnlocker`, the same mechanism
+  `__MutexUnlocker` uses, so it fires on a normal return and on an unwind alike.
+  The public `read_lock` / `read_unlock` / `write_lock` / `write_unlock` pair is
+  GONE — following the Mutex precedent exactly, the four became internal
+  `_raw_*` methods that exist for the two unlocker objects. Nothing in `std/` or
+  `src/` consumed RwLock, so `tests/sync/rwlock.test.yo` was the whole migration.
+  `with_write` takes `Impl(Fn(inout(v) : T) -> R)` (writes land in the cell);
+  `with_read` takes `Impl(Fn(v : T) -> R)` — by value, because that is the only
+  read/write distinction Yo's parameter modes can express.
+  **Reviewed 2026-08-26 (second pass).** Re-measured: 14/14
+  `tests/sync/rwlock.test.yo`, 16/16 `tests/sync/once.test.yo`, 87/87 for the
+  whole `tests/sync` directory as one batch, `yo check ./std` 151/151 — all with
+  `YO_STD` pointed at this tree. Non-vacuity was proved by breaking four
+  assertions in each file and watching them fail, and the red-first wakeup case
+  was proved still red by restoring the old single-arm `cond` in
+  `_raw_write_unlock` (that test then fails; it passes with the both-sets
+  wakeup). Two caveats on the claims above: (1) the by-value read guarantee is
+  now TESTED — "RwLock with_read does not write through to the shared cell"
+  writes a FIELD of the copy (which compiles; only assigning the parameter
+  ITSELF trips the evaluator hole) and asserts the shared cell is unchanged;
+  (2) the "releases on unwind" property is INHERITED from `__MutexUnlocker`'s
+  `Dispose` and is not directly exercisable through this API — a closure body
+  cannot raise a `ctl`, so there is no way to unwind out of a `with_read` /
+  `with_write` body ("Closures cannot capture a value of control-bound type").
+  It is an argument about the drop machinery, not a measurement, for `Mutex` too.
+  Note also that the landed shape deviates from `plans/THREAD_SAFETY.md`'s Phase
+  D sketch, which gave BOTH `with_read` and `with_write` a `ref(v) : T` body
+  parameter; splitting them into by-value / `inout` is what makes the read/write
+  distinction mean anything. Found while reviewing: `yo test --std-path <dir>` is
+  silently ignored (the per-batch compile is a child process and the flag is not
+  forwarded), so a `--std-path` test run scores the INSTALLED std —
+  issues/yo-test-std-path-not-forwarded-to-the-batch-compile.md.
+- **BLOCKER found while doing the row above:** a callback generic over its
+  result — the `with_lock` / `with_read` / `with_write` signature itself —
+  emits `void* tmp = <void call>;` when the closure returns unit, so
+  `m.with_lock((v) => { v = i32(7); })` fails to C-compile TODAY on the shipped
+  `Mutex`. `tests/sync/mutex.test.yo` misses it because all three of its cases
+  return a value. Diagnosed to one predicate in
+  `src/codegen/exprs/other_fn_call.yo`; issue + minimal repro + an UNVALIDATED
+  patch are in `issues/generic-r-callback-with-unit-closure-emits-void-star-temp.md`
+  (validating a codegen change needs a self-compile). Until it lands, every
+  closure body in `tests/sync/rwlock.test.yo` ends in a value, and `Once.call`
+  cannot move onto `Mutex.with_lock` (Phase D's unwind-safe unlock).
 - Delete the parallel C-tier (`mutex_t`, `cond_t`) — **DONE 2026-08-25** (§6
   round 2); no `RawMutex` was needed after all, `Cond.wait` already took
   `*(__YO_THREAD_SYNC_TYPE)` and only the deleted `cond_t.wait` wanted
@@ -710,7 +756,19 @@ implementing the D5 traits.** Until it lands, std honestly refuses https.
   `--c-compiler`/`--target`/`--sanitize`/… but not `--std-path`, unlike
   `build_runner.yo`, which does. Use `YO_STD` for `yo test`.
   → `issues/fixed/yo-test-does-not-forward-std-path-to-batch-compile.md` (FIXED in this batch)
-- `Once` gains `OnceCell(T)`-style `get_or_init`.
+- ~~`Once` gains `OnceCell(T)`-style `get_or_init`.~~ **DONE 2026-08-26 as a
+  SEPARATE `OnceCell(T)` in `std/sync/once.yo`, not a generic `Once(T)`.**
+  `Once` stores only `_done : atomic_bool` plus a dummy `Mutex(bool)` — it has
+  no cell for a value, and its `call(f : Impl(Fn() -> unit))` contract has
+  legitimate value-less users. Making it generic would force every one of them
+  to invent a phantom `T` and force `new()` to invent an empty value. Rust draws
+  the same line (`sync::Once` vs `sync::OnceLock`). `OnceCell(T)` is
+  `atomic(ref(struct(_once : Once, _value : Option(T))))` with `where(T <: Send)`,
+  and reuses `Once` for the double-checked-locking protocol, so the Release-store
+  that publishes `_done` happens after `_value` is written and every read goes
+  through an Acquire-load first. API: `get_or_init(f)`, `get() -> Option(T)`,
+  `is_initialized()`. No `set` — `get_or_init(() => v)` covers it and the row
+  did not ask for one.
 - Merge `std/worker` into `std/thread` as `ThreadPool` (explicit object:
   `spawn -> JoinHandle`-analog, `join_all`, `shutdown`); `Thread.spawn` should
   carry a result (`join() -> T`) and panic propagation.
