@@ -673,6 +673,19 @@ Enforced at function-type evaluation (`src/evaluator/types/function.yo`). See `t
 
 Yo passes `-fwrapv` to clang/gcc/zig by default, so signed-integer overflow is two's-complement wrap-around, not UB. `x := i32(2147483647); y := (x + i32(1));` evaluates to `i32(-2147483648)`, not silent miscompilation. Opt-out: `--cflags='-fno-wrapv'`.
 
+**COMPTIME arithmetic is the opposite: it REJECTS overflow.** The wrap-around above is a property of the *runtime* operator. Whenever both operands are compile-time constants the `Comptime*` overload is selected instead (`__yo_comptime_i32_add` and friends in `std/prelude.yo`), and that one raises a hard error rather than wrapping:
+
+```rust
+y := (i32(2147483647) + i32(1));   // ERROR: Integer overflow in compile-time evaluation
+                                    //   2147483647 + 1 = 2147483648
+                                    //   Result 2147483648 exceeds i32 range [-2147483648, 2147483647]
+
+x := i32(2147483647);
+y := (x + i32(1));                  // OK — runtime add, wraps to i32(-2147483648)
+```
+
+The two forms look nearly identical, so this bites when writing a test that asserts wrap-around: the *expected* value must also be built from a runtime binding, e.g. `(seed : i32) = i32(2147483647); (expected : i32) = (seed + i32(1));`. Writing the expectation as a folded constant fails the compile instead of the assertion. (Measured 2026-08-25 while adding the atomic `fetch_*` family — `tests/sync/atomic.test.yo` "wraps like the runtime operator".)
+
 ### `// SAFETY:` comment convention
 
 Every non-obvious `unsafe(...)` site in stdlib should have a `// SAFETY:` comment explaining the contract (what invariant guarantees the deref/arith is in bounds and the pointer is live). `yo unsafe-report` scans the previous ~8 lines preceding each unsafe site and surfaces the comment in the report.

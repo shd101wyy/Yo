@@ -641,8 +641,75 @@ implementing the D5 traits.** Until it lands, std honestly refuses https.
   `*(__YO_THREAD_SYNC_TYPE)` and only the deleted `cond_t.wait` wanted
   `mutex_t`. Still to do: stop exporting `__MutexUnlocker` (**DONE**, round 1)
   and `__YO_THREAD_SYNC_TYPE` (blocked — the compiler itself consumes it).
-- Atomics: `fetch_add/sub/and/or/xor/min/max` for ALL integer atomics (today
-  only `AtomicI32` has add/sub), `fence`, receiver convention unified.
+- ~~Atomics: `fetch_add/sub/and/or/xor/min/max` for ALL integer atomics (today
+  only `AtomicI32` has add/sub), `fence`, receiver convention unified.~~
+  **DONE 2026-08-25** (`std/sync/atomic.yo`, `tests/sync/atomic.test.yo`,
+  both `THREAD_SAFETY.md`). The row's premise re-measured and held: all 11
+  atomic types carried `new/load/store/swap/compare_exchange`, and `fetch_add`
+  / `fetch_sub` existed on `AtomicI32` alone. Now every one of the 10 INTEGER
+  types carries all seven `fetch_*` ops; `AtomicBool` deliberately carries
+  none (it is not an integer atomic, and Rust's `fetch_and/or/xor`-on-bool is
+  a separate request, not this row). `fence(order)` added, over the C11
+  ordering model `MemoryOrder` already models — `atomic_thread_fence` was
+  already bound in `std/libc/stdatomic.yo`, so no new C surface.
+
+  **Receiver — the row is right, and the inconsistency is cross-module, not
+  within the file.** Every method in `atomic.yo` already used `inout(self)`,
+  so the file was internally uniform; what it was out of step with is the rest
+  of `std/sync`, where every other `atomic(ref(...))` type (`Mutex`, `RwLock`,
+  `Cond`, `Channel`, `Once`, `WaitGroup`) takes `self : Self`. Unified ON
+  `self : Self` (46 receivers rewritten): an atomic IS a shared handle,
+  mutation goes through the C11 operation rather than a Yo place-write, so
+  `inout` only demanded a mutable binding at every call site without buying a
+  guarantee — and `&(self.field)` under a by-value receiver was already proven
+  legal by `Mutex._raw_lock`. `compare_exchange` keeps `inout(expected)`,
+  which really is written back. No call site in `std/`, `src/` or `tests/`
+  needed a change (going from `inout` to by-value only ever relaxes the call
+  site); `once`/`waitgroup`/`channel`/`mutex`/`rwlock`/`thread_safety`/
+  `async_await` test files all re-run green.
+
+  **Lowering — measured, and NOT what the row assumed.** `AtomicI32` keeps a
+  native lowering for `fetch_add/sub/and/or/xor` (the C11
+  `atomic_fetch_*_explicit` generic macros). It is the ONLY type that can:
+  a `c_include` binding is keyed by C symbol name (`extern_name = label`,
+  `src/evaluator/exprs/c_include.yo`) with no aliasing form, and Yo has no
+  overloading, so each `_Generic` macro gets exactly one Yo binding — and
+  `std/libc/stdatomic.yo` spent it on `*(atomic_int)`. The other nine types,
+  and `fetch_min`/`fetch_max` everywhere (C11 has no atomic min/max at all),
+  run a strong compare-exchange loop over that type's existing
+  `__yo_atomic_compare_exchange_*` primitive. Lock-free, same return value,
+  same wrapping semantics — verified: Yo's RUNTIME integer arithmetic wraps
+  two's-complement exactly like C11 `atomic_fetch_*` (its COMPTIME arithmetic
+  traps instead, which is why the wrap tests build their expectation from a
+  runtime-annotated local).
+
+  **Deliberately NOT done: native `__yo_atomic_fetch_*_<type>` runtime
+  wrappers.** They would be ~70 `static inline` C functions in
+  `src/codegen/types/generation.yo` next to the existing
+  `__yo_atomic_load_*` / `_store_*` / `_exchange_*` / `_compare_exchange_*`
+  block. That is a SEED-GATED change, not a free win: an `extern("Yo", …)`
+  symbol is supplied by the compiler's emitted preamble, so std may not call
+  one until a seed carrying it ships. CI would cope (test.yml's suite legs run
+  the TREE-BUILT compiler with `YO_STD=$PWD/std`), but the change is
+  unverifiable against an installed seed, which is what every local
+  `yo test tests/sync/atomic.test.yo` uses. Schedule it with the other
+  seed-gated follow-ups (`plans/backlog/SEED_VERSION_AUTOMATION.md`); the API
+  and the tests do not change when it lands, only the emitted C.
+
+  Review round (2026-08-26) added five **unsigned-comparison** `fetch_min` /
+  `fetch_max` tests (`AtomicU8/U16/U32/U64/Usize`). The original min/max tests
+  only used small operands (2, 9, 13, 40), where a signed and an unsigned
+  comparison agree — a signed-comparison mutation confined to `AtomicU8`
+  passed the whole file. The new tests pin the boundary (all-ones vs 1) and
+  catch exactly that mutation. `AtomicUsize` wraps its sentinel from a runtime
+  zero rather than spelling a literal, because `usize` is 32-bit on wasm32.
+  The implementation was already correct — this closes a test gap, not a bug.
+
+  Found en route: **`yo test --std-path <dir>` silently tests the INSTALLED
+  std** — the batch compile is a spawned child and `src/main.yo` forwards
+  `--c-compiler`/`--target`/`--sanitize`/… but not `--std-path`, unlike
+  `build_runner.yo`, which does. Use `YO_STD` for `yo test`.
+  → `issues/yo-test-does-not-forward-std-path-to-batch-compile.md`
 - `Once` gains `OnceCell(T)`-style `get_or_init`.
 - Merge `std/worker` into `std/thread` as `ThreadPool` (explicit object:
   `spawn -> JoinHandle`-analog, `join_all`, `shutdown`); `Thread.spawn` should

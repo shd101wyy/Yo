@@ -78,10 +78,20 @@ Pragma'd code (files with `pragma(Pragma.AllowUnsafe)`) bypasses this rule — t
 | `AtomicUsize`                                        | `atomic_size_t`                                                    | Collection sizes, indices           |
 | `AtomicIsize`                                        | `atomic_ptrdiff_t`                                                 | Signed indices, offsets             |
 
-Each wrapper exposes `load`, `store`, `swap`, `compare_exchange`, plus `fetch_add`/`fetch_sub` on integer types. Every operation takes an explicit `MemoryOrder`:
+Every wrapper exposes `load`, `store`, `swap` and `compare_exchange`. Every
+**integer** wrapper additionally exposes the full read-modify-write family —
+`fetch_add`, `fetch_sub`, `fetch_and`, `fetch_or`, `fetch_xor`, `fetch_min`,
+`fetch_max` — each returning the value held *before* the operation and
+wrapping on overflow, exactly like C11 `atomic_fetch_*`. `AtomicBool` has none
+of them: it is not an integer atomic.
+
+Every method takes `self : Self`, the same receiver convention the rest of
+`std/sync` uses for `atomic(ref(...))` types; only `compare_exchange`'s
+`expected` is `inout`, because a failing exchange writes the observed value
+back into it. Every operation takes an explicit `MemoryOrder`:
 
 ```rust
-{ AtomicBool, AtomicI32, MemoryOrder } :: import("std/sync/atomic");
+{ AtomicBool, AtomicI32, AtomicU32, AtomicUsize, MemoryOrder } :: import("std/sync/atomic");
 
 flag := AtomicBool(false);
 flag.store(true, MemoryOrder.Release);
@@ -92,11 +102,37 @@ if(flag.load(MemoryOrder.Acquire), {
 counter := AtomicI32(i32(0));
 counter.fetch_add(i32(1), MemoryOrder.Relaxed);
 println(`count = ${counter.load(MemoryOrder.Acquire)}`);
+
+// The whole read-modify-write family, on every integer atomic:
+bits := AtomicU32(u32(0));
+bits.fetch_or(u32(4), MemoryOrder.AcqRel);   // set a bit
+bits.fetch_and(u32(4294967291), MemoryOrder.AcqRel); // clear it again
+bits.fetch_xor(u32(1), MemoryOrder.AcqRel);  // flip a bit
+
+high_water := AtomicUsize(usize(0));
+high_water.fetch_max(usize(512), MemoryOrder.AcqRel);
 ```
 
 `MemoryOrder` enum: `Relaxed`, `Consume`, `Acquire`, `Release`, `AcqRel`, `SeqCst`.
 
-Each operation requires an **explicit** memory order — there is no default `SeqCst` to avoid accidental performance cost.
+Each operation requires an **explicit** memory order — there is no default
+`SeqCst` to avoid accidental performance cost.
+
+`fence(order)` is also exported. It lowers to C11 `atomic_thread_fence`: where
+an atomic operation's own ordering constrains accesses around *that* object, a
+fence constrains every prior and subsequent memory access of the calling
+thread, which is what lets a `Relaxed` store on one thread pair with a
+`Relaxed` load on another.
+
+`AtomicI32` lowers `fetch_add`/`sub`/`and`/`or`/`xor` straight to the C11
+`atomic_fetch_*_explicit` generic macros — it is the only atomic type
+`std/libc/stdatomic.yo` binds them for, since a `c_include` binding is keyed by
+C symbol name and each macro has exactly one Yo binding. Every other type, and
+`fetch_min`/`fetch_max` on all of them (C11 has no atomic min/max at all), runs
+a strong compare-exchange loop over that type's
+`__yo_atomic_compare_exchange_*` primitive. The loop is lock-free and yields
+the same value and the same wrapping semantics; it only costs a retry under
+contention.
 
 ## Mutex(T) — Closure-Scoped Locking
 
