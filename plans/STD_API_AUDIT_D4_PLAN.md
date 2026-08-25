@@ -1,6 +1,7 @@
 # D4 — String indexing model: the executable migration plan
 
-> **Status:** PLAN (survey complete 2026-08-25, nothing implemented).
+> **Status:** **PR 1 LANDED 2026-08-26**; PRs 2-9 still PLAN.
+> (Survey complete 2026-08-25.)
 > **Parent decision:** `plans/STD_API_AUDIT.md` §3 **D4** + §8 **O1** —
 > `String` goes byte-indexed like Rust/Go. Scope extended (user, 2026-08-25)
 > to `std/imm/string` and the `imm.String` → `ImmString` rename.
@@ -61,13 +62,23 @@ contract.
 | `replace` / `replace_all` | 1056 / 1162 | — | — | ✅ unchanged |
 | `trim` / `trim_start` / `trim_end` | 1318 / 1360 / 1405 | — (byte-internal, ASCII whitespace) | — | ✅ unchanged |
 | `to_uppercase` / `to_lowercase` / `concat` / `repeat` / `join` | | — | — | ✅ unchanged |
-| `char_len()` | — | **DOES NOT EXIST** | new, **C**, O(n) | ➕ additive |
-| `char_indices()` | — | **DOES NOT EXIST** | new, yields `(byte_offset, rune)` | ➕ additive |
-| `is_char_boundary(i)` | — | **DOES NOT EXIST** | new | ➕ additive |
+| ~~`char_len()`~~ | 1840 | — | **C**, O(n) | ✅ **LANDED PR 1** |
+| ~~`char_indices()`~~ | 1872 | — | yields `IterPair(byte_offset, rune)` | ✅ **LANDED PR 1** |
+| ~~`is_char_boundary(i)`~~ | 1879 | — | **B** | ✅ **LANDED PR 1** |
+| ~~`floor_char_boundary(i)`~~ | 1903 | — | **B** | ✅ **LANDED PR 1** |
+| ~~`ceil_char_boundary(i)`~~ | 1930 | — | **B** | ✅ **LANDED PR 1** |
+| ~~`try_substring(a, b)`~~ | 1961 | — | **B**, `Option(String)` | ✅ **LANDED PR 1** |
 
-**Verified absent today:** `grep -rn "char_indices\|char_len" std/` returns
-only unrelated locals in `std/regex/index.yo` and `std/string/string.yo:978`.
-Neither `char_len()` nor `char_indices()` exists anywhere.
+**Was verified absent before PR 1:** `grep -rn "char_indices\|char_len" std/`
+returned only unrelated locals in `std/regex/index.yo` and
+`std/string/string.yo:978`. PR 1 added all six names on `String` and on
+`imm.String` (plus `imm.String.chars()`); the `std/regex/index.yo` hits are
+still unrelated locals.
+
+**PR 1's yield type is `IterPair(usize, rune)`** (the prelude's positional pair,
+`std/prelude.yo:8368`), not a bare tuple — Yo has no tuple literal, and
+`IterPair` is what `enumerate`/`zip` already yield. Destructure it as
+`p._0` / `p._1`.
 
 ### 1.2 `std/imm/string.yo` — `imm.String`
 
@@ -81,7 +92,8 @@ Neither `char_len()` nor `char_indices()` exists anywhere.
 | `at(index) -> Option(rune)` | 577 | **C** | **B** (mirror `String.at`) | 🔴 **SILENT** |
 | `starts_with` / `ends_with` / `contains` | 217/235/286 | no position arg | — | ✅ |
 | `split` / `trim*` / `replace*` / `repeat` | | — | — | ✅ |
-| `chars()` / `char_indices()` / `char_len()` | — | **absent** | new | ➕ additive |
+| ~~`chars()` / `char_indices()` / `char_len()`~~ | 672/676/683 | — | new | ✅ **LANDED PR 1** |
+| ~~`is_char_boundary` / `floor_char_boundary` / `ceil_char_boundary` / `try_substring`~~ | 707/723/747/773 | — | **B** | ✅ **LANDED PR 1** |
 
 The audit's claim that "applying D4 to `imm.String` is SMALL" is **confirmed**:
 one silent flip (`len()`), one alias fold, one `at()` alignment, three additions.
@@ -388,9 +400,9 @@ no-op and PR 3 only has to change definitions.
 
 | PR | content | gate |
 | --- | --- | --- |
-| **0** | `std/encoding/utf8.yo` (in flight, other agent). Primitives: `seq_len(lead: u8) -> usize`, `decode(bytes, i) -> Option((rune, usize))`, `encode(r, out)`, `is_char_boundary(bytes, i)`, `validate`. **Dependency:** PR 1 and PR 6 both consume it; PR 2 does not. | `yo check ./std`; new `tests/encoding/utf8.test.yo` |
-| **1** | **Additive only.** `String.char_len()`, `String.char_indices()`, `String.is_char_boundary()`, `floor_char_boundary`, `ceil_char_boundary`, `try_substring`. Same six on `imm.String`, plus `imm.String.chars()`. No existing behaviour changes. Ships its own multibyte tests. | full language suite green; **byte-identity** of the compiler's emitted C (nothing in `src/` calls the new API yet) |
-| **2** | **Pin char semantics, no basis change.** Rewrite the §3.1-RISK and §5.2 sites to the new char APIs: `std/encoding/html.yo` `at()` loops → `chars()`; `std/fmt/spec.yo` width/precision → `char_len()` + `truncate_chars`; `src/error.yo:43` → `char_len()`; `src/doc/render_html.yo:406` → `truncate_chars`; `src/parser.yo:_peel_spec` → `char_indices()`; comptime string builtins pinned to explicit char helpers (O1c). **Because `char_len() == len()` today, this PR must not change one byte of behaviour.** | full language suite; **BYTE-IDENTITY of the whole emitted-C corpus** (record sha256 before editing — the repo's standing acceptance test for an "additive" codegen change) |
+| ~~**0**~~ **LANDED** (#286) | `std/encoding/utf8.yo`. Primitives: `seq_len(lead: u8) -> usize`, `decode(bytes, i) -> Option((rune, usize))`, `encode(r, out)`, `is_char_boundary(bytes, i)`, `validate`. **Dependency:** PR 1 and PR 6 both consume it; PR 2 does not. | `yo check ./std`; new `tests/encoding/utf8.test.yo` |
+| ~~**1**~~ **LANDED 2026-08-26** | **Additive only.** `String.char_len()`, `String.char_indices()`, `String.is_char_boundary()`, `floor_char_boundary`, `ceil_char_boundary`, `try_substring`. Same six on `imm.String`, plus `imm.String.chars()`. Built on `std/encoding/utf8` (PR 0), no second decoder. New `tests/string/string_char_api.test.yo` (17 tests) + 6 tests appended to `tests/imm_string.test.yo`, all multibyte. | achieved: `yo check ./std` 153/153; `tests/string/string_char_api` 17/17, `tests/imm_string` 34/34, `tests/string/string` 253/253, `imm_map`/`imm_vec`/`imm_threading` green; 0 `Failed to transpile` in both kept batches; emitted-C **equivalence** measured as below (literal byte-identity is unattainable — see the correction under §6.1) |
+| **2** | **Pin char semantics, no basis change.** Rewrite the §3.1-RISK and §5.2 sites to the new char APIs: `std/encoding/html.yo` `at()` loops → `chars()`; `std/fmt/spec.yo` width/precision → `char_len()` + `truncate_chars`; `src/error.yo:43` → `char_len()`; `src/doc/render_html.yo:406` → `truncate_chars`; `src/parser.yo:_peel_spec` → `char_indices()`; comptime string builtins pinned to explicit char helpers (O1c). **Because `char_len() == len()` today, this PR must not change one byte of behaviour.** | full language suite; **emitted-C equivalence of the corpus** — NOT literal byte-identity, which PR 1 measured to be unattainable for any `std` edit; use the normalized comparison in the §6.1 correction |
 | **3** | **The flip.** `String.len()` → bytes O(1); `at`/`substring`/`slice_copy*`/`index_of`/`last_index_of`/`contains(from)`/`starts_with(pos)`/`ends_with(pos)`/`Pattern`'s five methods → bytes. `bytes_len()` becomes a deprecated alias. Fix §1.3(a) by construction. `src/` migrates **in the same PR** — the repo build compiles `src/` against the *repo's* `std` (`--std-path > YO_STD > exe-walk-up > ./std`), so it cannot lag. Add `Token.byte_offset` and retire `_byte_offset_of_char_index` (`src/formatter.yo:1496`). | `yo check ./std && yo check ./src`; full language suite; `tests/internal`; `gates_fast.sh` + fixpoint; new §6 multibyte battery |
 | **4** | `imm.String`: `len()` → bytes, `at()` aligned, `bytes_len()` aliased, `chars()`/`char_indices()`/`char_len()` wired. | `tests/imm_string.test.yo` (rewritten per §6.2), `imm_vec`, `imm_threading` |
 | **5** | `imm.String` → `ImmString` rename. ~15 lines: the `String ::` binding + `export`, 3 test imports, 4 doc lines × 2 languages. | suite + docs both languages |
@@ -401,7 +413,18 @@ no-op and PR 3 only has to change definitions.
 
 **Ordering constraints, explicitly:**
 
-- PR 1 **must** precede PR 2 (`char_indices()` is what PR 2 migrates onto).
+- PR 1 **must** precede PR 2 (`char_indices()` is what PR 2 migrates onto). ✅ done.
+- **PR 1 did NOT ship `truncate_chars`.** §4 PR 2 names it for S2/S6 but §4 PR 1
+  does not list it, so it was deliberately left out. PR 2 either adds it (as a
+  `char_len` + `floor_char_boundary` + `try_substring` composition — the shape is
+  covered by `tests/string/string_char_api.test.yo`'s last test) or migrates
+  those two sites without it.
+- **`try_substring` is BYTE-based from day one**, while `substring` is still
+  character-based until PR 3. That is intentional: a NEW name can carry the final
+  contract, and a new name that flipped basis under its callers in PR 3 would be
+  exactly the silent hazard this plan exists to avoid. PR 2 must not reach for
+  `try_substring` as a drop-in for `substring`; its migration targets are
+  `char_len()` and `char_indices()`.
 - PR 2 **must** precede PR 3. This is the whole safety argument: after PR 2,
   every site that *needs* char semantics says so in its own source, so PR 3's
   review question collapses to "does this site want bytes?" — and the answer
@@ -578,6 +601,39 @@ claims to change no behaviour; record `sha256` of every `.c` before editing and
 require `same=N diff=0`. That is the repo's standing acceptance test for an
 "additive" codegen change and it makes the PR-2 review free.
 
+**CORRECTION (measured in PR 1, 2026-08-26): literal byte-identity of emitted C
+is unattainable for ANY `std` edit, additive or not.** The C backend embeds two
+families of generated number into its identifiers — anonymous type ids
+(`__yo_tN`) and a global declaration/expression counter (`yo_id_N`,
+`struct_decl_N`, `enum_decl_N`, `loop_yo_id_N`). Adding declarations to
+`std/string/string.yo` shifted every counter ordered after the insertion point
+by a constant (+1004 here) and permuted the `__yo_tN` numbering, so a
+String-heavy probe's `.c` changed `sha256` while the *program* did not change at
+all. Do not write "byte-identity" as a gate for PR 2; it will fail vacuously and
+hide whether anything real moved.
+
+**What to measure instead** (this is what PR 1 ran, and it is decisive):
+
+```bash
+# 1. before editing: emit the probe's C
+yo compile tmp/probe.yo --skip-c-compiler --release -o tmp/probe.bin   # writes tmp/probe.bin.c
+# 2. after editing: emit again, then compare modulo the generated-id families
+norm() { sed -E 's/__yo_t[0-9]+/__yo_tT/g; s/__YO_T[0-9]+/__YO_TT/g;
+                 s/yo_id_[0-9]+/yo_id_N/g; s/(struct_decl|enum_decl|decl)_[0-9]+/\1_N/g;
+                 s/_temp_[0-9]+/_temp_N/g' "$1"; }
+diff <(norm before.c | sort) <(norm after.c | sort)      # must be EMPTY
+# 3. and the emitted function-symbol sets must be identical
+grep -oE '__yo_[A-Za-z0-9_]+\(' before.c | sort -u > b.syms   # same for after.c
+```
+
+PR 1's result on a probe exercising `String.len/substring/index_of/chars/split`
+and `imm.String.len/slice/at`: **5016 lines both sides, sorted normalized diff
+= 0 lines, 196 emitted symbols both sides with an empty diff, and zero
+occurrences of the new API in the C.** The only in-order differences were the
+renumbering above plus a reordering of a handful of type declarations. That is
+the strongest inertness statement available, and it is stronger than a `sha256`
+would have been even if one had matched.
+
 ### 6.2 Which existing tests cannot catch this class
 
 Per-test measurement (a test counts only if the **same test body** contains
@@ -593,6 +649,8 @@ both a non-ASCII literal and an index-basis call):
 | `tests/imm_string.test.yo` | 28 | 1 | **1** |
 | `tests/index.test.yo` | 49 | 2 | **1** |
 | `tests/string_multibyte_literal.test.yo` | 2 | 2 | **1** |
+| `tests/string/string_char_api.test.yo` **(new, PR 1)** | 17 | 17 | **17** |
+| `tests/imm_string.test.yo` **(PR 1 section)** | +6 | +6 | **+6** |
 | `tests/string/rune.test.yo` | 36 | 0 | **0** |
 | `tests/string/string_builder.test.yo` | 21 | 0 | **0** |
 | `tests/string/string_parse.test.yo` | 28 | 0 | **0** |
@@ -600,7 +658,9 @@ both a non-ASCII literal and an index-basis call):
 | `tests/format_specs.test.yo` | 7 | 1 | **0** |
 | `tests/template_string_specs.test.yo` | 6 | 0 | **0** |
 
-**≈ 33 tests repo-wide are the entire net.** Consequences:
+**≈ 33 tests repo-wide were the entire net** before PR 1; PR 1 added 23 more
+that are multibyte-plus-index by construction, all of them on the NEW names, so
+they guard the vocabulary and not yet the flipping methods. Consequences:
 
 - The `std/fmt/spec.yo` width regression (S2) has **zero** coverage —
   `tests/format_specs.test.yo` never pads a multibyte body. **Add it in PR 2.**

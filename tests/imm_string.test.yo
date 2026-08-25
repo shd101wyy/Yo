@@ -194,3 +194,159 @@ test("imm.String COW concat chain", {
   s = s.concat(String.from("d"));
   assert(s == String.from("abcd"), "chained COW concat");
 });
+// ===========================================================================
+// D4 PR 1 — the rune-aware vocabulary (plans/STD_API_AUDIT_D4_PLAN.md §4).
+//
+// `imm.String` already indexes in BYTES everywhere it indexes at all
+// (`slice`, `index_of`, `byte_at`); `len()` is the one rune-based outlier and
+// PR 4 flips it. These additions are what rune-meaning call sites migrate
+// onto, so every assertion below is multibyte with hand-computed byte offsets.
+//
+//   rune   a      é         中           𝄞
+//   width  1B     2B        3B           4B          10 bytes, 4 runes
+//   bytes  61     C3 A9     E4 B8 AD     F0 9D 84 9E
+//   offset 0      1  2      3  4  5      6  7  8  9
+// ===========================================================================
+test("imm.String char_len counts runes across all four UTF-8 widths", {
+  s := String.from("aé中𝄞");
+  assert(s.bytes_len() == usize(10), "subject must be 10 bytes");
+  assert(s.char_len() == usize(4), "subject must be 4 runes");
+  assert(s.char_len() == s.len(), "char_len is today's len() — the PR 4 golden");
+  assert(s.byte_at(usize(0)).unwrap() == u8(0x61), "byte 0 is 'a'");
+  assert(s.byte_at(usize(1)).unwrap() == u8(0xC3), "byte 1 leads 'é'");
+  assert(s.byte_at(usize(3)).unwrap() == u8(0xE4), "byte 3 leads '中'");
+  assert(s.byte_at(usize(6)).unwrap() == u8(0xF0), "byte 6 leads '𝄞'");
+  assert(String.new().char_len() == usize(0), "empty is 0 runes");
+});
+test("imm.String is_char_boundary marks every byte of a 4-byte sequence", {
+  s := String.from("aé中𝄞");
+  assert(s.is_char_boundary(usize(0)), "0 starts 'a'");
+  assert(s.is_char_boundary(usize(1)), "1 starts 'é'");
+  assert(!(s.is_char_boundary(usize(2))), "2 is inside 'é'");
+  assert(s.is_char_boundary(usize(3)), "3 starts '中'");
+  assert(!(s.is_char_boundary(usize(4))), "4 is inside '中'");
+  assert(!(s.is_char_boundary(usize(5))), "5 is inside '中'");
+  assert(s.is_char_boundary(usize(6)), "6 starts '𝄞'");
+  assert(!(s.is_char_boundary(usize(7))), "7 is inside '𝄞'");
+  assert(!(s.is_char_boundary(usize(8))), "8 is inside '𝄞'");
+  assert(!(s.is_char_boundary(usize(9))), "9 is inside '𝄞'");
+  assert(s.is_char_boundary(usize(10)), "10 is the end, a boundary");
+  assert(!(s.is_char_boundary(usize(11))), "11 is past the end");
+  e := String.new();
+  assert(e.is_char_boundary(usize(0)), "0 is a boundary of the empty string");
+  assert(!(e.is_char_boundary(usize(1))), "1 is past the empty string");
+});
+test("imm.String floor/ceil char boundary snap onto rune starts", {
+  s := String.from("aé中𝄞");
+  assert(s.floor_char_boundary(usize(2)) == usize(1), "2 floors into 'é'");
+  assert(s.floor_char_boundary(usize(5)) == usize(3), "5 floors into '中'");
+  assert(s.floor_char_boundary(usize(9)) == usize(6), "9 floors into '𝄞'");
+  assert(s.floor_char_boundary(usize(10)) == usize(10), "the end floors to itself");
+  assert(s.floor_char_boundary(usize(999)) == usize(10), "far past clamps");
+  assert(s.ceil_char_boundary(usize(2)) == usize(3), "2 ceils past 'é'");
+  assert(s.ceil_char_boundary(usize(4)) == usize(6), "4 ceils past '中'");
+  assert(s.ceil_char_boundary(usize(7)) == usize(10), "7 ceils past '𝄞'");
+  assert(s.ceil_char_boundary(usize(10)) == usize(10), "the end ceils to itself");
+  assert(s.ceil_char_boundary(usize(999)) == usize(10), "far past clamps");
+  i := usize(0);
+  while(i <= s.bytes_len(), i = (i + usize(1)), {
+    on := s.is_char_boundary(i);
+    assert((s.floor_char_boundary(i) == i) == on, "floor fixes exactly the boundaries");
+    assert((s.ceil_char_boundary(i) == i) == on, "ceil fixes exactly the boundaries");
+  });
+  assert(String.new().floor_char_boundary(usize(7)) == usize(0), "empty floors to 0");
+  assert(String.new().ceil_char_boundary(usize(7)) == usize(0), "empty ceils to 0");
+});
+test("imm.String chars and char_indices walk the same runes", {
+  s := String.from("aé中𝄞");
+  ci := s.char_indices();
+  ch := s.chars();
+  expected_offset := usize(0);
+  seen := usize(0);
+  while(true, {
+    (finished : bool) = false;
+    match(
+      ci.next(),
+      .Some(p) => {
+        assert(p._0 == expected_offset, "offset advances by the encoded width");
+        match(
+          ch.next(),
+          .Some(r) => assert(p._1.to_u32() == r.to_u32(), "same rune from both iterators"),
+          .None => assert(false, "chars() ended early")
+        );
+        seen = (seen + usize(1));
+        expected_offset = s.ceil_char_boundary(p._0 + usize(1));
+      },
+      .None => {
+        match(ch.next(), .Some(_) => assert(false, "chars() ran long"), .None => ());
+        finished = true;
+      }
+    );
+    if(finished, {
+      break;
+    });
+  });
+  assert(seen == usize(4), "four runes");
+  assert(expected_offset == usize(10), "every byte consumed");
+});
+test("imm.String char_indices yields BYTE offsets, not character offsets", {
+  s := String.from("aé中𝄞");
+  it := s.char_indices();
+  match(
+    it.next(),
+    .Some(p) => {
+      assert(p._0 == usize(0), "'a' starts at byte 0");
+      assert(p._1.to_u32() == u32(0x61), "'a' is U+0061");
+    },
+    .None => assert(false, "expected 'a'")
+  );
+  match(
+    it.next(),
+    .Some(p) => {
+      assert(p._0 == usize(1), "'é' starts at byte 1");
+      assert(p._1.to_u32() == u32(0xE9), "'é' is U+00E9");
+    },
+    .None => assert(false, "expected 'é'")
+  );
+  match(
+    it.next(),
+    .Some(p) => {
+      assert(p._0 == usize(3), "'中' starts at byte 3, not 2");
+      assert(p._1.to_u32() == u32(0x4E2D), "'中' is U+4E2D");
+    },
+    .None => assert(false, "expected '中'")
+  );
+  match(
+    it.next(),
+    .Some(p) => {
+      assert(p._0 == usize(6), "'𝄞' starts at byte 6, not 3");
+      assert(p._1.to_u32() == u32(0x1D11E), "'𝄞' is U+1D11E");
+    },
+    .None => assert(false, "expected '𝄞'")
+  );
+  match(it.next(), .Some(_) => assert(false, "expected exhaustion"), .None => ());
+  match(String.new().char_indices().next(), .Some(_) => assert(false, "empty yields nothing"), .None => ());
+});
+test("imm.String try_substring slices on boundaries and refuses interior offsets", {
+  s := String.from("aé中𝄞");
+  assert(s.try_substring(usize(0), usize(1)).unwrap() == String.from("a"), "[0,1)");
+  assert(s.try_substring(usize(1), usize(3)).unwrap() == String.from("é"), "[1,3)");
+  assert(s.try_substring(usize(3), usize(6)).unwrap() == String.from("中"), "[3,6)");
+  assert(s.try_substring(usize(6), usize(10)).unwrap() == String.from("𝄞"), "[6,10)");
+  assert(s.try_substring(usize(0), usize(10)).unwrap() == s, "the whole string");
+  assert(s.try_substring(usize(3), usize(3)).unwrap() == String.new(), "empty range");
+  // Every interior byte of the 4-byte rune, both as start and as end.
+  assert(s.try_substring(usize(6), usize(7)).is_none(), "end 7 splits '𝄞'");
+  assert(s.try_substring(usize(6), usize(8)).is_none(), "end 8 splits '𝄞'");
+  assert(s.try_substring(usize(6), usize(9)).is_none(), "end 9 splits '𝄞'");
+  assert(s.try_substring(usize(7), usize(10)).is_none(), "start 7 splits '𝄞'");
+  assert(s.try_substring(usize(8), usize(10)).is_none(), "start 8 splits '𝄞'");
+  assert(s.try_substring(usize(9), usize(10)).is_none(), "start 9 splits '𝄞'");
+  assert(s.try_substring(usize(0), usize(2)).is_none(), "end 2 splits 'é'");
+  assert(s.try_substring(usize(4), usize(6)).is_none(), "start 4 splits '中'");
+  assert(s.try_substring(usize(0), usize(11)).is_none(), "end past the last byte");
+  assert(s.try_substring(usize(6), usize(3)).is_none(), "start > end");
+  // `slice` CLAMPS the same bad range instead of refusing it — that contrast
+  // is exactly why the checked form exists.
+  assert(s.slice(usize(0), usize(11)) == s, "slice clamps a past-the-end range");
+});

@@ -88,6 +88,37 @@ symlink loop made `walk_with` return an EMPTY list, so `yo fetch`, `yo version`
 and both report lints kept building and traversed nothing. See
 `issues/ftt-stub-in-live-closure-falls-off-non-void-function.md`.
 
+### "Byte-identity of the emitted C" does NOT survive a `std/` source edit
+
+The standing acceptance test for an *additive codegen* change — record `sha256`
+of the emitted-C corpus before editing, require `same=N diff=0` — is only valid
+when the `.yo` SOURCE is unchanged. Generated C identifiers embed two families
+of number: anonymous type ids (`__yo_tN`) and a global declaration/expression
+counter (`yo_id_N`, `struct_decl_N`, `enum_decl_N`, `loop_yo_id_N`). **Adding
+declarations anywhere in `std/` shifts every counter ordered after the insertion
+point by a constant and permutes the `__yo_tN` numbering**, so the `.c` changes
+`sha256` even when the program is provably identical. Measured 2026-08-26 while
+adding six unused methods to `std/string/string.yo`: the shift was a uniform
++1004, and the numbers appear in `std/collections/array_list.yo` and
+`std/allocator.yo` identifiers too, not just the edited file's.
+
+Compare like this instead — it is strictly stronger than a `sha256` match:
+
+```bash
+norm() { sed -E 's/__yo_t[0-9]+/__yo_tT/g; s/__YO_T[0-9]+/__YO_TT/g;
+                 s/yo_id_[0-9]+/yo_id_N/g; s/(struct_decl|enum_decl|decl)_[0-9]+/\1_N/g;
+                 s/_temp_[0-9]+/_temp_N/g' "$1"; }
+diff <(norm before.c | sort) <(norm after.c | sort)          # must be EMPTY
+diff <(grep -oE '__yo_[A-Za-z0-9_]+\(' before.c | sort -u) \
+     <(grep -oE '__yo_[A-Za-z0-9_]+\(' after.c  | sort -u)  # must be EMPTY
+grep -c '<the new API you added>' after.c                    # must be 0 if unused
+```
+
+An empty sorted-normalized diff with equal line counts says the emitted program
+is the same multiset of statements; the symbol-set diff says no function was
+added, removed or renamed. In-order differences that remain are pure
+declaration reordering.
+
 So for a rename sweep the gate is the FULL suite plus READING the cli-case
 golden diff — never check/build. A golden that gets SMALLER or reports FEWER
 findings (`Scanned 1 .yo file(s)` -> `Scanned 0`) is a regression signal, not

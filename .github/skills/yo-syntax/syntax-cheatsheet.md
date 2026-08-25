@@ -1496,6 +1496,26 @@ while(i < s.len(), { b := s.byte_at(i); ... });
 match(s.index_of(w, from), .Some(idx) => s.byte_at(idx - usize(1)), ...);
 ```
 
+**Since 2026-08-26 there is a byte-safe vocabulary — prefer it over hand-rolled
+byte walks** (`std/string/string.yo`, same six on `std/imm/string.yo`, which also
+gained `chars()`):
+
+| call | basis | meaning |
+| --- | --- | --- |
+| `s.char_len()` | runes | the O(n) rune count. **Say this** when you mean runes; `len()` is scheduled to become the byte count (D4). |
+| `s.char_indices()` | — | iterator of `IterPair(byte_offset, rune)`; `p._0` is the BYTE offset, `p._1` the rune. Replaces `while(i < s.len()) { s.at(i) }`, which is O(n²). |
+| `s.is_char_boundary(i)` | byte | is byte `i` the start of a rune? `0` and `bytes_len()` are boundaries; past the end is not. |
+| `s.floor_char_boundary(i)` / `s.ceil_char_boundary(i)` | byte | snap an arbitrary byte offset back/forward onto a rune start (clamped to `bytes_len()`). |
+| `s.try_substring(a, b)` | **byte** | `Option(String)`; `.None` for `a > b`, `b > bytes_len()`, or an endpoint inside a rune. NOTE: byte offsets, unlike `substring`, which is still rune-indexed and clamps. |
+
+So the byte-exact slice above is now `s.try_substring(from, to).unwrap()`, and a
+fixed-width truncation that must not split a codepoint is
+`s.try_substring(usize(0), s.floor_char_boundary(n)).unwrap()`.
+
+`char_len` and `char_indices` sit on `std/encoding/utf8`, so they inherit its
+malformed-input behaviour: `char_len` counts non-continuation bytes, and
+`char_indices` (like `chars()`) stops at the first sequence that will not decode.
+
 ## Async: await only at the async-closure statement level
 
 An `e.io.await(...)` nested inside if-branches of an `io.async` closure has

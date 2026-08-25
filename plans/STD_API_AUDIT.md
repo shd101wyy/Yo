@@ -555,6 +555,20 @@ audit, and `RegexMatch.index()`'s public basis change). It also finds that D4
 all find/slice APIs byte-indexed with a documented char-boundary contract.
 This is THE breaking change to do before stability — it cannot be done after.
 
+~~**Step 1 of that plan (PR 1, additive vocabulary)**~~ **LANDED 2026-08-26.**
+`String` and `imm.String` both gained `char_len()`, `char_indices()`,
+`is_char_boundary()`, `floor_char_boundary()`, `ceil_char_boundary()` and
+`try_substring()`, and `imm.String` gained `chars()`. All of it is built on
+`std/encoding/utf8.yo` (D8, #286) — no second decoder, no second width table.
+Nothing existing changed: the only line REMOVED anywhere in that PR was
+`export(String);` in `std/imm/string.yo`, replaced by a longer export list.
+`char_len() == len()` on both types today, which is exactly what makes the
+D4 PR 2 migration a provable no-op. Coverage is
+`tests/string/string_char_api.test.yo` (17 tests) plus a 6-test section in
+`tests/imm_string.test.yo`, every assertion multibyte with hand-computed byte
+offsets. The remaining D4 steps (PRs 2-9) are unchanged and still in
+`plans/STD_API_AUDIT_D4_PLAN.md` §4.
+
 **SCOPE EXTENDED (user, 2026-08-25): `std/imm/string` is IN, and so is the
 `imm.String` → `ImmString` rename** (moved here from the §4 imm row, which had it
 as an open "or drop if COW String lands" question — it is now part of this one
@@ -935,7 +949,7 @@ implementing the D5 traits.** Until it lands, std honestly refuses https.
 | spec/ | FREEZE AS DOC | identity stubs; mark experimental, exclude from stability promise |
 | collections/* | RENAME + EXTEND | §5 renames; entry API, `retain/extend/drain`, `binary_search`, real `sort` (not O(n²) insertion), `sort_by`; HashSet = HashMap(T, unit) to kill ~500 duplicated SwissTable lines; hide pub `ctrl/data/…` fields; `BTreeMap` → rename `FlatMap` OR implement a real B-tree with `range()` (recommend: real B-tree, keep name); add `BTreeSet`; `PriorityQueue`: keep name, add comparator ctor, DOCUMENT min-heap |
 | imm/* | KEEP (O4) + FIX | stays in std (decided 2026-08-23); require `Acyclic` element bounds per O7, add iteration + `Index` where doc'd, rename `imm.String` → `ImmString` (**folded into D4** 2026-08-25 — decided, no longer conditional on COW `String`), dedupe set pair; mark unstable until exercised |
-| string | FIX + EXTEND | D4 indexing; Unicode-correct `to_lowercase` (+ `to_ascii_*` variants); `Pattern` impl for `rune` + `Regex`; `replace*` Pattern-generic; `parse_f64`/radix; `split_once`, `strip_prefix/suffix`, `char_indices`; move `panic_dyn`/`assert_dyn` to assert; delete dead `StringError`, one of `to_cstr`/`to_c_str` |
+| string | FIX + EXTEND | D4 indexing; Unicode-correct `to_lowercase` (+ `to_ascii_*` variants); `Pattern` impl for `rune` + `Regex`; `replace*` Pattern-generic; `parse_f64`/radix; `split_once`, `strip_prefix/suffix`, ~~`char_indices`~~ (landed 2026-08-26 with the rest of the D4 PR-1 vocabulary); move `panic_dyn`/`assert_dyn` to assert; delete dead `StringError`, one of `to_cstr`/`to_c_str` |
 | encoding | STANDARDIZE | D2 verbs; one error style per D1; utf8 module; add `html_encode` (XSS!); percent-encoding module (P0 — nothing in std can build a safe query string); base32; CSV (P1); toml: floats/arrays/dates/serializer + `ToToml`/`FromToml` derives to mirror json (P1) |
 | json | EXTEND | enum representation for derives (open question O3); `JsonValue.Object` O(n) parallel arrays → keep repr, add index map if profiling demands |
 | regex | POLISH | `Regex.escape`, optional-flags `new`, callback replace, lazy `find_iter`, group byte-spans, ~~typed error, private internals~~ (**both DONE 2026-08-25**, D8) |
@@ -1425,7 +1439,10 @@ mmap/file-lock/statfs wrappers; `gc.stats`; DNS SRV/TXT/reverse
 
 - **O1 (D4)**: **DECIDED — byte-indexed, matching Rust.** `len()` = bytes O(1),
   `chars()`/`char_indices()` for rune walks, `char_len()` for the O(n) count,
-  find/slice APIs byte-indexed with a char-boundary contract.
+  find/slice APIs byte-indexed with a char-boundary contract. The additive half
+  (`char_len`/`char_indices`/`is_char_boundary`/`floor_char_boundary`/
+  `ceil_char_boundary`/`try_substring`, on both string types) **landed
+  2026-08-26**; the basis flip itself is still ahead (D4 plan PRs 2-9).
 - **O2 (D6)**: **DECIDED — platform TLS libraries via `pkg_config`**
   (SecureTransport/Schannel/OpenSSL), behind one `TlsStream` implementing the
   D5 traits. Until it lands, https throws `UnsupportedScheme` (C1).
