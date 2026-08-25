@@ -72,11 +72,11 @@ test("where-clause inference with bool callback return type", {
 // A user IntoIterator-shaped trait (assoc Item/IntoIter + a where-clause tying
 // them) implemented on LinkedList and BTreeMap; instantiating one where-bound
 // generic at LinkedList and then a second at BTreeMap minted ERA-COPY
-// ArrayList(BTreeEntry(K',V')) identities from the failed impl-match trials,
+// ArrayList(MapEntry(K',V')) identities from the failed impl-match trials,
 // whose GC traverse delegated to a never-emitted hard-generic trace spec —
 // "call to undeclared function yo_id_..._<raw SomeT ids>_..." at C compile.
 { LinkedList, LinkedListIter } :: import("std/collections/linked_list");
-{ BTreeMap, BTreeMapIter, BTreeEntry } :: import("std/collections/btree_map");
+{ BTreeMap, BTreeMapIter, MapEntry } :: import("std/collections/btree_map");
 __WbInto :: trait(
   Item : Type,
   IntoIter : Type,
@@ -96,7 +96,7 @@ impl(
   generic(K : Type, V : Type),
   BTreeMap(K, V),
   __WbInto(
-    Item : BTreeEntry(K, V),
+    Item : MapEntry(K, V),
     IntoIter : BTreeMapIter(K, V),
     wb_into : (fn(self : Self) -> BTreeMapIter(K, V))(self.into_iter())
   )

@@ -32,6 +32,7 @@
 //!   );
 //! };
 //! ```
+{ MapEntry } :: import("./entry.yo");
 open(import("./array_list"));
 open(import("./hash_map"));
 /// Ordered map preserving insertion order of keys.
@@ -196,18 +197,6 @@ impl(
     );
   })
 );
-/// Key-value pair yielded by `OrderedMapIter`.
-OrderedMapEntry :: (
-  fn(
-    comptime(K) : Type,
-    comptime(V) : Type
-  ) -> comptime(Type)
-)(
-  struct(
-    key : K,
-    value : V
-  )
-);
 /// Iterator over `(key, value)` pairs of an `OrderedMap` in insertion order.
 OrderedMapIter :: (
   fn(
@@ -227,7 +216,7 @@ impl(
   generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash)),
   OrderedMapIter(K, V),
-  next : (fn(inout(self) : Self) -> Option(OrderedMapEntry(K, V)))({
+  next : (fn(inout(self) : Self) -> Option(MapEntry(K, V)))({
     cond(
       (self._index >= self._map._order.len()) => {
         return(.None);
@@ -241,7 +230,7 @@ impl(
         match(
           self._map._map.get(k),
           .Some(v) => {
-            return(.Some(OrderedMapEntry(K, V)(key : k, value : v)));
+            return(.Some(MapEntry(K, V)(key : k, value : v)));
           },
           .None => {
             return(.None);
@@ -273,7 +262,7 @@ impl(
 );
 export(
   OrderedMap,
-  OrderedMapEntry,
+  MapEntry,
   OrderedMapKeys,
   OrderedMapValues,
   OrderedMapIter

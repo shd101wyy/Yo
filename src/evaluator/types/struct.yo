@@ -77,7 +77,7 @@ evaluate_struct_type :: (
   // twin (see there for the full rationale): re-evaluation generations of a
   // module-level struct declaration share one identity; CTFE instantiations
   // (generic constructors) keep eval-fresh ids so distinct instantiations
-  // never share (the recorded tk2/Bucket hazard of the unconditional swap).
+  // never share (the recorded tk2/MapEntry hazard of the unconditional swap).
   struct_id := if(
     ctx.ctfe_depth == usize(0),
     `struct_decl_${ast_expr_id(expr).to_string()}_${env.module_path.replace(String.from("/"), String.from("_")).replace(String.from("."), String.from("_")).replace(String.from(":"), String.from("_"))}`,

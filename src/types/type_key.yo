@@ -159,7 +159,7 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
       // #30: a reference-semantics struct (`ref(struct …)` → emitted as a pointer
       // field) and a value struct with the SAME fields have DIFFERENT C layouts
       // and MUST NOT share a C type id. `type_key` historically omitted this, so
-      // two `Bucket(K,V)` instantiations — one with a ref `value` field, one with
+      // two `MapEntry(K,V)` instantiations — one with a ref `value` field, one with
       // a value `value` field — collapsed onto one id; the GC traverse fn built for
       // the ref layout was then emitted for the value layout (`if(struct){…}` — a
       // clang scalar-type error, main.yo-only). Prefix ref-semantics struct keys so
@@ -196,8 +196,8 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
         // a depth cap made every generic nested deeper than the cap fall back
         // to the g_struct_cfid_keys[sid] single slot, which is
         // first-registration-wins and thus WRONG for shared-id generics like
-        // Bucket(K,V) (all instantiations share one eval struct id) — the
-        // flaky GC-tracer .label/.ty cluster: a deep Bucket keyed as the
+        // MapEntry(K,V) (all instantiations share one eval struct id) — the
+        // flaky GC-tracer .label/.ty cluster: a deep MapEntry keyed as the
         // FIRST-seen instantiation, collapsing two different layouts onto one
         // C name, order-dependent per emit. Long keys are ugly but correct.
         ((scfid.len() > usize(0)) && (stas.len() > usize(0))) => {
@@ -249,12 +249,12 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
           // Record the cfid-key for this struct id so cfid-empty copies use
           // it — but ONLY while the sid maps to ONE instantiation key. When a
           // SECOND different key arrives (shared-id generics: every
-          // Bucket(K,V) instantiation shares one eval struct id), POISON the
+          // MapEntry(K,V) instantiation shares one eval struct id), POISON the
           // slot: a cfid-empty copy can then no longer be attributed to any
           // single instantiation and must key STRUCTURALLY (below). The old
           // first-registration-wins slot pinned every cfid-empty copy to the
-          // FIRST instantiation — one specialized Bucket tracer served 36
-          // different Bucket layouts (the flaky GC-tracer .label/.ty cluster),
+          // FIRST instantiation — one specialized MapEntry tracer served 36
+          // different MapEntry layouts (the flaky GC-tracer .label/.ty cluster),
           // with registration order deciding the winner per emit.
           if(sid.len() > usize(0), {
             match(
@@ -275,11 +275,11 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
         // with different layouts get different, DETERMINISTIC keys (the enum
         // analogue: g_enum_sig_keys). A NEVER-REGISTERED sid (.None) with
         // known field types ALSO keys structurally: shared-id generics whose
-        // instantiations are all cfid-empty (Bucket(K,V) — created by the
+        // instantiations are all cfid-empty (MapEntry(K,V) — created by the
         // with_capacity Type(1) path, so NO instantiation ever records a gs_
         // key) otherwise render bare-sid everywhere and every layout collapses
-        // onto ONE key — one GcTracer visit specialization served all Bucket
-        // layouts and walked the wrong fields (TS emits 47 distinct Bucket
+        // onto ONE key — one GcTracer visit specialization served all MapEntry
+        // layouts and walked the wrong fields (TS emits 47 distinct MapEntry
         // visit fns, one per instantiation). Unpoisoned REGISTERED sids
         // (.Some non-poison) behave exactly as before.
         (sid.len() > usize(0)) => {

@@ -88,7 +88,7 @@ _(env : ctfe_dbg_env) :: import("std/env");
 /// diverging one level up (the imm_sorted_map/imm_threading caller-arg
 /// struct-to-struct casts). Enums carry no type_arguments; their cfid match
 /// falls back to pairwise era-equal variant FIELD lists. Concrete same-shape
-/// but different-ctor types still take the EXACT fallback (the Bucket/ME
+/// but different-ctor types still take the EXACT fallback (the MapEntry/ME
 /// cache-collision hazard).
 _ctfe_types_era_equal :: (fn(aty : TypeValue, bty : TypeValue, d : usize) -> bool)({
   if(d > usize(6), {
@@ -226,8 +226,8 @@ _ctfe_args_equal :: (
           // compatibility. Mirrors TS comptime-fn.ts:159-164 (`requireExactMatch
           // =true`). Lenient `are_types_compatible` treats two distinct
           // same-shaped structs as equal (e.g. a user `object(name, kind)` vs
-          // `Bucket(key, value)`), causing a CACHE COLLISION: a later
-          // `(?*)(Bucket(String, ArrayList(ME)))` wrongly hit a cached
+          // `MapEntry(key, value)`), causing a CACHE COLLISION: a later
+          // `(?*)(MapEntry(String, ArrayList(ME)))` wrongly hit a cached
           // `(?*)(ME)` entry and returned `Option(*(ME))` — making
           // `HashMap(.., ArrayList(<RC>)).new()`'s data field `?(*(ME))` and
           // failing method resolution. See

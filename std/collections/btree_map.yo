@@ -12,13 +12,10 @@
 //! ```
 pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("./array_list");
+{ MapEntry } :: import("./entry.yo");
+export(MapEntry);
 { assert } :: import("../assert");
 open(import("../string"));
-/// Key-value pair entry stored in a BTreeMap.
-BTreeEntry :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
-  struct(key : K, value : V)
-);
-export(BTreeEntry);
 // Internal result from binary search.
 _FindResult :: struct(idx : usize, found : bool);
 /// Sorted map maintaining entries in key order.
@@ -26,7 +23,7 @@ _FindResult :: struct(idx : usize, found : bool);
 BTreeMap :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
   ref(
     struct(
-      _entries : ArrayList(BTreeEntry(K, V))
+      _entries : ArrayList(MapEntry(K, V))
     )
   )
 );
@@ -35,7 +32,7 @@ impl(
   BTreeMap(K, V),
   // Create an empty map.
   new : (fn() -> Self)(
-    Self(_entries : ArrayList(BTreeEntry(K, V)).new())
+    Self(_entries : ArrayList(MapEntry(K, V)).new())
   ),
   // Number of entries.
   len : (fn(self : Self) -> usize)(
@@ -82,11 +79,11 @@ impl(
     cond(
       r.found => {
         entry := self._entries(r.idx);
-        &(self._entries(r.idx)).* = BTreeEntry(K, V)(key : entry.key, value : v);
+        &(self._entries(r.idx)).* = MapEntry(K, V)(key : entry.key, value : v);
       },
       true => {
         // Append new entry then bubble left to sorted position
-        self._entries.push(BTreeEntry(K, V)(key : k, value : v));
+        self._entries.push(MapEntry(K, V)(key : k, value : v));
         pos := (self._entries.len() - usize(1));
         while(pos > r.idx, pos = (pos - usize(1)), {
           curr := self._entries(pos);
@@ -110,14 +107,14 @@ impl(
     )
   }),
   // Return the entry with the smallest key, or .None.
-  min : (fn(self : Self) -> ?(BTreeEntry(K, V)))(
+  min : (fn(self : Self) -> ?(MapEntry(K, V)))(
     cond(
       (self._entries.len() == usize(0)) => .None,
       true => .Some(self._entries(usize(0)))
     )
   ),
   // Return the entry with the largest key, or .None.
-  max : (fn(self : Self) -> ?(BTreeEntry(K, V)))(
+  max : (fn(self : Self) -> ?(MapEntry(K, V)))(
     cond(
       (self._entries.len() == usize(0)) => .None,
       true => .Some(self._entries(self._entries.len() - usize(1)))
@@ -125,11 +122,11 @@ impl(
   )
 );
 /**
-* Value iterator for BTreeMap - yields BTreeEntry(K, V) in sorted key order
+* Value iterator for BTreeMap - yields MapEntry(K, V) in sorted key order
 */
 BTreeMapIter :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
   struct(
-    _entries : ArrayList(BTreeEntry(K, V)),
+    _entries : ArrayList(MapEntry(K, V)),
     _index : usize
   )
 );
@@ -137,8 +134,8 @@ impl(
   generic(K : Type, V : Type),
   BTreeMapIter(K, V),
   Iterator(
-    Item : BTreeEntry(K, V),
-    next : (fn(inout(self) : Self) -> Option(BTreeEntry(K, V)))(
+    Item : MapEntry(K, V),
+    next : (fn(inout(self) : Self) -> Option(MapEntry(K, V)))(
       cond(
         (self._index >= self._entries.len()) => .None,
         true => {
@@ -154,7 +151,7 @@ impl(
   generic(K : Type, V : Type),
   BTreeMap(K, V),
   IntoIterator(
-    Item : BTreeEntry(K, V),
+    Item : MapEntry(K, V),
     IntoIter : BTreeMapIter(K, V),
     into_iter : (fn(self : Self) -> BTreeMapIter(K, V))(
       BTreeMapIter(K, V)(_entries : self._entries, _index : usize(0))
@@ -162,11 +159,11 @@ impl(
   )
 );
 /**
-* Pointer iterator for BTreeMap - yields pointers to BTreeEntry(K, V) in sorted key order
+* Pointer iterator for BTreeMap - yields pointers to MapEntry(K, V) in sorted key order
 */
 BTreeMapIterPtr :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
   struct(
-    _entries : ArrayList(BTreeEntry(K, V)),
+    _entries : ArrayList(MapEntry(K, V)),
     _index : usize
   )
 );
@@ -174,8 +171,8 @@ impl(
   generic(K : Type, V : Type),
   BTreeMapIterPtr(K, V),
   Iterator(
-    Item : *(BTreeEntry(K, V)),
-    next : (fn(inout(self) : Self) -> Option(*(BTreeEntry(K, V))))(
+    Item : *(MapEntry(K, V)),
+    next : (fn(inout(self) : Self) -> Option(*(MapEntry(K, V))))(
       cond(
         (self._index >= self._entries.len()) => .None,
         true =>

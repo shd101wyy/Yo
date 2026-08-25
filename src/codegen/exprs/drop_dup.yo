@@ -395,7 +395,7 @@ generate_drop_code_for_value :: (fn(value_code : String, value_type : TypeValue,
     // INLINE — the same rationale as the value-enum arm above (yo-self lowers
     // RC ops directly instead of synthesizing per-type ___drop methods; TS
     // calls the synthesized fn_..___drop here). Previously the missing-method
-    // case silently emitted NOTHING, so value-struct locals (e.g. Bucket(K, V)
+    // case silently emitted NOTHING, so value-struct locals (e.g. MapEntry(K, V)
     // in HashMap.set) never released their RC fields at scope end.
     is_struct_type(concrete_type) => match(
       get_drop_function_for_type(concrete_type, context),
