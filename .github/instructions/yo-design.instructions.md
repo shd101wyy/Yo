@@ -384,7 +384,7 @@ Define traits parameterized by type constructors:
 ```rust
 Functor :: (fn(comptime(F) : (fn(comptime(T) : Type) -> comptime(Type))) -> comptime(Type))(
   trait(
-    map : (fn(generic(A : Type, B : Type), self : F(A), f : (fn(a : A) -> B)) -> F(B))
+    map : (fn(generic(A : Type, B : Type), self : F(A), f : Impl(Fn(a : A) -> B)) -> F(B))
   )
 );
 ```
@@ -397,7 +397,7 @@ Use `where(F(A) <: SomeTrait(F))` to constrain type constructor applications:
 do_map :: (fn(
   generic(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type, B : Type),
   container: F(A),
-  f: (fn(a : A) -> B),
+  f: Impl(Fn(a : A) -> B),
   where(F(A) <: Functor(F))
 ) -> F(B))(
   container.map(generic(B), f)
@@ -707,7 +707,8 @@ env_mut.input_string = result.env.input_string;
 
 ### `io.async` closures: one parameter, effects struct
 
-`io.async`'s signature is `Impl(Fn(e : E) -> T)`. The closure takes exactly
+`io.async` takes one closure argument typed `Impl(Fn(e : E) -> T)` and returns
+`Impl(Future(T, E))` (`std/prelude.yo`). The closure takes exactly
 one parameter — the **effects struct** `e : E`. When the future needs
 `IoExn` effects, the parameter type is `IoExn`, and all effect operations
 go through `e.io` and `e.exn`. The closure body must NOT capture `io` or
@@ -725,7 +726,7 @@ io.async((e : IoExn) => {
 // CORRECT — all effects through e:
 io.async((e : IoExn) => {
   e.io.await(create_dir_all(path, e.io), e);
-  e.exn.throw(dyn("error"));
+  e.exn.throw(dyn(`error`));
 });
 ```
 

@@ -523,7 +523,7 @@ my_int_array := [1, 2, 3]; // Array(i32, 3)
 (my_array_list : ArrayList(i32)) = ArrayList(i32).new(); // Heap-allocated, RC
 
 // Enum/ADT can be value or reference-semantics type depending on definition
-Person :: struct(name : String, age : i32); // Value type (but contains object field)
+Person :: struct(name : String, age : i32); // Value type (but holds a reference-semantics field)
 p := Person(name : String.from("Alice"), age : 30);
 _(name, age) := p; // name : String, age : i32
 ```
@@ -966,7 +966,7 @@ For the user-facing guide, see [MEMORY_SAFETY.md](MEMORY_SAFETY.md) — covers t
 
 Yo's safety model is layered (the design plan is [plans/MEMORY_SAFETY.md](../../plans/MEMORY_SAFETY.md)):
 
-- **`object` types** are reference-counted and automatically freed (RC + cycle removal). Memory-safe by construction.
+- **Reference-semantics types** (`ref(struct(...))` / `ref(enum(...))`, and the `atomic(ref(...))` variants) are reference-counted and automatically freed (RC + cycle removal). Memory-safe by construction.
 - **`Iso(T)` / `Arc(T)`** provide affine and atomic-RC ownership for transfer and thread-shared cases.
 - **`*(T)` raw pointers** require an explicit `unsafe(...)` wrap around operations that dereference, do arithmetic on, or consume-through a pointer. Without the wrap, those operations are compile errors.
 
@@ -1363,7 +1363,7 @@ for(iter_expr, (variable) => {
 });
 ```
 
-The `for` macro iterates **by value** — `for(coll, (x) => body)` lowers to `coll.into_iter()` followed by a standard `next()`-loop. For object element types, `x` is a handle to the element, so mutating `x` in the body mutates the element in place. In-place mutation of struct/scalar elements uses an index loop with index writes:
+The `for` macro iterates **by value** — `for(coll, (x) => body)` lowers to `coll.into_iter()` followed by a standard `next()`-loop. For reference-semantics element types, `x` is a handle to the element, so mutating `x` in the body mutates the element in place. In-place mutation of struct/scalar elements uses an index loop with index writes:
 
 ```rust
 // Value form — each `x` is yielded by value.
@@ -1374,7 +1374,7 @@ for(list, (value) => {
   println(value);
 });
 
-// Object elements are handles — mutation lands in the collection.
+// Reference-semantics elements are handles — mutation lands in the collection.
 for(names, (s) => {
   s.push_str("!");
 });

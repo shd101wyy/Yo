@@ -4,7 +4,7 @@
 
 `Dyn(Trait)` enables runtime polymorphism through dynamic dispatch with type erasure.
 
-**Important**: `Dyn` is a **value type** (struct with data pointer and vtable). The `data` field **must** point to an `object` type (reference counted).
+**Important**: `Dyn` is a **value type** (struct with data pointer and vtable). The `data` field **must** point to a reference-semantics type — `ref(struct(...))` / `ref(enum(...))` — i.e. one that is reference counted.
 
 ```typescript
 Id :: trait(id : (fn(inout(self) : Self) -> i32));
