@@ -45,3 +45,38 @@ test("malformed numeric entities stay literal", {
 test("invalid code points keep the original entity text", {
   assert(decode_html(String.from("&#xD800;")) == `&#xD800;`, "surrogate kept literal");
 });
+// D4 (plans/STD_API_AUDIT_D4_PLAN.md §5.2 S1). Every test above puts multibyte
+// content only in the DECODER'S OUTPUT; the INPUT is pure ASCII, so the
+// scanner's rune arithmetic is never exercised. `decode_html` is the
+// highest-risk file in the tree for the byte flip — it scans arbitrary HTML by
+// index — so these run multibyte text through the scanner itself, on both
+// sides of every entity form and in every backtracking arm.
+test("entities decode with multibyte text around them", {
+  assert(decode_html(String.from("中文 &amp; 日本語")) == `中文 & 日本語`, "named, CJK on both sides");
+  assert(decode_html(String.from("é&lt;é&gt;é")) == `é<é>é`, "2-byte runes between entities");
+  assert(decode_html(String.from("𝄞&#65;𝄞")) == `𝄞A𝄞`, "decimal between 4-byte runes");
+  assert(decode_html(String.from("𝄞&#x41;𝄞")) == `𝄞A𝄞`, "hex between 4-byte runes");
+  assert(decode_html(String.from("aé中𝄞&amp;aé中𝄞")) == `aé中𝄞&aé中𝄞`, "all four widths");
+  assert(decode_html(String.from("😀&#x1F600;😀")) == `😀😀😀`, "astral in and out");
+  assert(decode_html(String.from("é&#x4E2D;é")) == `é中é`, "hex naming a 3-byte rune");
+});
+test("the legacy backtracking arm survives multibyte input", {
+  // `&notin` decodes as `not` + `in`; the walk-back over `try_end` is the
+  // rune-indexed loop that a byte basis would break.
+  assert(decode_html(String.from("中&notin中")) == `中¬in中`, "longest legacy prefix, CJK around it");
+  assert(decode_html(String.from("é&bogus;é")) == `é&bogus;é`, "unknown named entity stays literal");
+  assert(decode_html(String.from("中&amp!中")) == `中&!中`, "legacy amp with no semicolon");
+});
+test("invalid code points keep their original text with multibyte around them", {
+  // The `keep original entity text` arm re-slices the INPUT between two
+  // scanner positions — the one place a wrong basis would corrupt bytes it
+  // never decoded.
+  assert(decode_html(String.from("𝄞&#xD800;𝄞")) == `𝄞&#xD800;𝄞`, "surrogate kept, astral around it");
+  assert(decode_html(String.from("中&#xDFFF;中")) == `中&#xDFFF;中`, "high surrogate kept");
+});
+test("truncated entities at the end of multibyte input", {
+  assert(decode_html(String.from("é&")) == `é&`, "trailing ampersand after a 2-byte rune");
+  assert(decode_html(String.from("中&#")) == `中&#`, "trailing numeric marker");
+  assert(decode_html(String.from("𝄞&#x")) == `𝄞&#x`, "trailing hex marker");
+  assert(decode_html(String.from("aé中𝄞")) == `aé中𝄞`, "no entity at all is returned unchanged");
+});

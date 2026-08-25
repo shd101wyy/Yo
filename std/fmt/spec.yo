@@ -66,7 +66,10 @@ _pad_runes :: (fn(sb : StringBuilder, r : rune, count : usize) -> unit)({
 _apply_width :: (
   fn(fill : rune, align : Option(Alignment), width : usize, text : String, dflt : Alignment) -> String
 )({
-  len := text.len();
+  // `width` is a CHARACTER count (the field doc says so, and Rust counts
+  // chars here too), so the measurement has to say `char_len` — otherwise
+  // D4's byte flip would silently start padding `é` to two columns.
+  len := text.char_len();
   cond(
     (len >= width) => text,
     true => {
@@ -203,8 +206,11 @@ impl(
     match(
       self.precision,
       .Some(p) => {
-        if(text.len() > p, {
-          text = text.substring(usize(0), p);
+        // `.N` on text is a truncation length in CHARACTERS. `truncate_chars`
+        // is boundary-safe, so the cut can never split a rune and emit
+        // invalid UTF-8 (STD_API_AUDIT_D4_PLAN §5.2 S2).
+        if(text.char_len() > p, {
+          text = text.truncate_chars(p);
         });
       },
       .None => ()
@@ -216,8 +222,10 @@ impl(
   /// `0x0000002a` are reachable. Otherwise this is ordinary right-aligned
   /// padding over the whole rendering.
   pad_numeric : (fn(self : Self, sign : String, prefix : String, digits : String) -> String)({
-    head_len := (sign.len() + prefix.len());
-    total_len := (head_len + digits.len());
+    // Same CHARACTER basis as `_apply_width` — the two are compared against
+    // the same `self.width`, so they must measure the same thing.
+    head_len := (sign.char_len() + prefix.char_len());
+    total_len := (head_len + digits.char_len());
     use_zero := (self.zero && self.align.is_none());
     cond(
       (use_zero && (self.width > total_len)) => {

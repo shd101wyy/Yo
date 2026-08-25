@@ -595,6 +595,197 @@ impl(
     )
   })
 );
+/// === Rune-aware indexing (D4 vocabulary) ===
+///
+/// The same six additions `std/string/string.yo` grew, plus the rune iterator
+/// this type never had. Offsets are **BYTES** throughout (except `char_len`,
+/// which counts runes) — `slice`, `index_of` and `byte_at` on this type are
+/// already byte-based, so this block is what makes the rest of the API
+/// sayable in one basis. See `plans/STD_API_AUDIT_D4_PLAN.md`.
+///
+/// Until `len()` becomes a byte count, `char_len()` returns exactly what
+/// `len()` returns; migrate rune-counting call sites onto it now.
+///
+/// `char_len` and `char_indices` are built on `std/encoding/utf8` and inherit
+/// its malformed-input behaviour: `char_len` counts non-continuation bytes
+/// (what `len()` does today), `char_indices` and `chars` stop at the first
+/// sequence that will not decode. The boundary functions and `try_substring`
+/// are pure byte classification and cannot fail.
+/// Rune iterator for `imm.String` — created by `chars()`.
+StringChars :: struct(
+  _string : String,
+  _byte_index : usize
+);
+impl(
+  StringChars,
+  Iterator(
+    Item : rune,
+    next : (fn(inout(self) : Self) -> Option(rune))(
+      cond(
+        (self._byte_index >= self._string.bytes_len()) => .None,
+        true => match(
+          self._string.byte_at(self._byte_index),
+          .Some(first_byte) => {
+            offset := self._byte_index;
+            self._byte_index = (offset + utf8.step_len(first_byte));
+            self._string._decode_rune_at(offset)
+          },
+          .None => .None
+        )
+      )
+    )
+  )
+);
+/// `(byte_offset, rune)` iterator for `imm.String` — created by
+/// `char_indices()`. Walks in lockstep with `StringChars`.
+StringCharIndices :: struct(
+  _string : String,
+  _byte_index : usize
+);
+impl(
+  StringCharIndices,
+  Iterator(
+    Item : IterPair(usize, rune),
+    next : (fn(inout(self) : Self) -> Option(IterPair(usize, rune)))(
+      cond(
+        (self._byte_index >= self._string.bytes_len()) => .None,
+        true => match(
+          self._string.byte_at(self._byte_index),
+          .Some(first_byte) => {
+            offset := self._byte_index;
+            self._byte_index = (offset + utf8.step_len(first_byte));
+            match(
+              self._string._decode_rune_at(offset),
+              .Some(r) => .Some(IterPair(usize, rune)(_0 : offset, _1 : r)),
+              .None => .None
+            )
+          },
+          .None => .None
+        )
+      )
+    )
+  )
+);
+impl(
+  String,
+  /// Iterate the string's runes.
+  chars : (fn(self : Self) -> StringChars)(
+    StringChars(_string : self, _byte_index : usize(0))
+  ),
+  /// Iterate `(byte_offset, rune)` pairs — Rust's `char_indices()`.
+  char_indices : (fn(self : Self) -> StringCharIndices)(
+    StringCharIndices(_string : self, _byte_index : usize(0))
+  ),
+  /// Number of Unicode scalar values (runes) in the string.
+  ///
+  /// O(n) in the byte length. Identical to what `len()` returns today; it
+  /// stays a rune count after `len()` becomes a byte count.
+  char_len : (fn(self : Self) -> usize)({
+    count := usize(0);
+    i := usize(0);
+    n := self._len;
+    while(i < n, i = (i + usize(1)), {
+      match(
+        self.byte_at(i),
+        .Some(b) => {
+          cond(
+            utf8.is_boundary(b) => {
+              count = (count + usize(1));
+            },
+            true => ()
+          );
+        },
+        .None => ()
+      );
+    });
+    count
+  }),
+  /// True when byte offset `index` sits on a rune boundary.
+  ///
+  /// `0` and `bytes_len()` are always boundaries; an index past the end never
+  /// is. Mirrors Rust's `str::is_char_boundary`.
+  is_char_boundary : (fn(self : Self, index : usize) -> bool)(
+    cond(
+      (index == usize(0)) => true,
+      (index == self._len) => true,
+      (index > self._len) => false,
+      true => match(
+        self.byte_at(index),
+        .Some(b) => utf8.is_boundary(b),
+        .None => false
+      )
+    )
+  ),
+  /// The largest byte offset `<= index` that sits on a rune boundary.
+  ///
+  /// `index` is clamped to `bytes_len()` first, so the answer is always a
+  /// boundary of THIS string.
+  floor_char_boundary : (fn(self : Self, index : usize) -> usize)(
+    cond(
+      (index >= self._len) => self._len,
+      true => {
+        i := index;
+        while(i > usize(0), {
+          (on_boundary : bool) = match(
+            self.byte_at(i),
+            .Some(b) => utf8.is_boundary(b),
+            .None => true
+          );
+          if(on_boundary, {
+            break;
+          });
+          i = (i - usize(1));
+        });
+        i
+      }
+    )
+  ),
+  /// The smallest byte offset `>= index` that sits on a rune boundary.
+  ///
+  /// `index` at or past `bytes_len()` clamps to `bytes_len()`, which is a
+  /// boundary, so this always terminates on a valid one.
+  ceil_char_boundary : (fn(self : Self, index : usize) -> usize)(
+    cond(
+      (index >= self._len) => self._len,
+      true => {
+        i := index;
+        while(i < self._len, {
+          (on_boundary : bool) = match(
+            self.byte_at(i),
+            .Some(b) => utf8.is_boundary(b),
+            .None => true
+          );
+          if(on_boundary, {
+            break;
+          });
+          i = (i + usize(1));
+        });
+        i
+      }
+    )
+  ),
+  /// Byte-range slice that REFUSES a bad range instead of clamping it —
+  /// Rust's `s.get(start..end)`, and the checked counterpart of `slice`.
+  ///
+  /// `.None` for `start > end`, for `end` past `bytes_len()`, and for an
+  /// endpoint inside a rune (which would produce invalid UTF-8). An empty but
+  /// valid range yields `.Some` of the empty string.
+  try_substring : (fn(self : Self, start : usize, end : usize) -> Option(Self))({
+    if(start > end, {
+      return(.None);
+    });
+    if(end > self._len, {
+      return(.None);
+    });
+    if(!(self.is_char_boundary(start)), {
+      return(.None);
+    });
+    if(!(self.is_char_boundary(end)), {
+      return(.None);
+    });
+    return(.Some(self.slice(start, end)));
+  })
+);
 /// Equality by byte content.
 impl(
   String,
@@ -719,4 +910,4 @@ impl(
     })
   )
 );
-export(String);
+export(String, StringChars, StringCharIndices);

@@ -88,6 +88,68 @@ symlink loop made `walk_with` return an EMPTY list, so `yo fetch`, `yo version`
 and both report lints kept building and traversed nothing. See
 `issues/ftt-stub-in-live-closure-falls-off-non-void-function.md`.
 
+### "Byte-identity of the emitted C" does NOT survive a `std/` source edit
+
+The standing acceptance test for an *additive codegen* change — record `sha256`
+of the emitted-C corpus before editing, require `same=N diff=0` — is only valid
+when the `.yo` SOURCE is unchanged. Generated C identifiers embed two families
+of number: anonymous type ids (`__yo_tN`) and a global declaration/expression
+counter (`yo_id_N`, `struct_decl_N`, `enum_decl_N`, `loop_yo_id_N`). **Adding
+declarations anywhere in `std/` shifts every counter ordered after the insertion
+point by a constant and permutes the `__yo_tN` numbering**, so the `.c` changes
+`sha256` even when the program is provably identical. Measured 2026-08-26 while
+adding six unused methods to `std/string/string.yo`: the shift was a uniform
++1004, and the numbers appear in `std/collections/array_list.yo` and
+`std/allocator.yo` identifiers too, not just the edited file's.
+
+Compare like this instead — it is strictly stronger than a `sha256` match:
+
+```bash
+norm() { sed -E 's/__yo_t[0-9]+/__yo_tT/g; s/__YO_T[0-9]+/__YO_TT/g;
+                 s/yo_id_[0-9]+/yo_id_N/g; s/(struct_decl|enum_decl|decl)_[0-9]+/\1_N/g;
+                 s/_temp_[0-9]+/_temp_N/g' "$1"; }
+diff <(norm before.c | sort) <(norm after.c | sort)          # must be EMPTY
+diff <(grep -oE '__yo_[A-Za-z0-9_]+\(' before.c | sort -u) \
+     <(grep -oE '__yo_[A-Za-z0-9_]+\(' after.c  | sort -u)  # must be EMPTY
+grep -c '<the new API you added>' after.c                    # must be 0 if unused
+```
+
+An empty sorted-normalized diff with equal line counts says the emitted program
+is the same multiset of statements; the symbol-set diff says no function was
+added, removed or renamed. In-order differences that remain are pure
+declaration reordering.
+
+**And for a "no behaviour change" REWRITE, drop the emitted C entirely —
+compare the program's OUTPUT.** The recipe above still assumes the source is
+additive. A refactor that claims to preserve behaviour while changing function
+BODIES (a loop rewritten onto a different iterator, a method renamed and
+delegated) makes the emitted C differ on purpose, so no C-level comparison
+— normalized or not — can pass without weakening it into meaninglessness.
+Measured 2026-08-26 on the D4 PR 2 migration: 13567 → 14139 lines and a
+different symbol set, from a change whose whole contract was "no behaviour
+change". The gate that has teeth:
+
+```bash
+# 1. BEFORE editing: a standalone driver over the touched surface, with a
+#    corpus that includes the inputs the refactor is ABOUT (multibyte, empty,
+#    boundary). Print every result AND its length, so a silent truncation
+#    shows up.
+yo compile tmp/probe.yo --std-path "$PWD/std" --release -o tmp/probe.bin
+./tmp/probe.bin > before.txt; shasum -a 256 before.txt
+# 2. AFTER: same binary rebuilt, same corpus.
+./tmp/probe.bin > after.txt; diff before.txt after.txt     # must be EMPTY
+```
+
+Two companions make it airtight. **Body-identity** where the refactor claims a
+pure rename: extract the old body with `git show HEAD:<file>` and compare it
+character-for-character to the new one — that covers call sites no runtime test
+can reach (compiler-internal code, which does not take effect until the tree is
+rebuilt). And a **simulated future state**: if the refactor exists to survive a
+change that has not landed yet, apply that change in a throwaway edit and run
+the new tests against it, then run them again with the pre-refactor file. The
+new tests must fail in the second run. If they pass both ways they are not
+testing the refactor.
+
 So for a rename sweep the gate is the FULL suite plus READING the cli-case
 golden diff — never check/build. A golden that gets SMALLER or reports FEWER
 findings (`Scanned 1 .yo file(s)` -> `Scanned 0`) is a regression signal, not

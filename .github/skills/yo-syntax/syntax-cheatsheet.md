@@ -182,6 +182,7 @@ impl(Counter,
   reflection reports source-module namespaces as `TypeInfo.Struct(...)`.
 - Wrap `fn` types in parentheses when they appear after `:`
 - **Forward references between methods in the same `impl` block are supported.** A method defined later in the block can be called by a method defined earlier. Both `self.method()` and `Self.method(...)` dispatch work. Only the canonical `name : (fn(...) -> R)(body)` method shape participates; bare lambdas do not get forward-ref shells.
+- **…but NOT between two `impl` blocks on the same type.** A method in an EARLIER `impl(T, …)` block cannot call one defined in a LATER `impl(T, …)` block — the failure is `Error: No matching call found with arguments: (self.X)()` at `yo check` time, which reads like a missing method rather than an ordering problem. Adding a method to a type in a fresh trailing `impl` block is therefore only safe for NEW call sites; if an existing method below needs it, move the definition up into a block that precedes every caller. (Measured twice while migrating `std/string/string.yo` for D4.)
 - **Module-level `::` function definitions are processed in order.** A function body that calls another function declared later in the same file will fail with "Variable not found". Always define leaf helpers first (bottom-up order): `eval_identifier` → `eval_atom` → `evaluate`.
 
 ### Named arguments and default values
@@ -1495,6 +1496,35 @@ while(i < s.len(), { b := s.byte_at(i); ... });
 // ❌ WRONG — rune index from index_of fed to byte_at
 match(s.index_of(w, from), .Some(idx) => s.byte_at(idx - usize(1)), ...);
 ```
+
+**Since 2026-08-26 there is a byte-safe vocabulary — prefer it over hand-rolled
+byte walks** (`std/string/string.yo`, same six on `std/imm/string.yo`, which also
+gained `chars()`):
+
+| call | basis | meaning |
+| --- | --- | --- |
+| `s.char_len()` | runes | the O(n) rune count. **Say this** when you mean runes; `len()` is scheduled to become the byte count (D4). |
+| `s.char_indices()` | — | iterator of `IterPair(byte_offset, rune)`; `p._0` is the BYTE offset, `p._1` the rune. Replaces `while(i < s.len()) { s.at(i) }`, which is O(n²). |
+| `s.is_char_boundary(i)` | byte | is byte `i` the start of a rune? `0` and `bytes_len()` are boundaries; past the end is not. |
+| `s.floor_char_boundary(i)` / `s.ceil_char_boundary(i)` | byte | snap an arbitrary byte offset back/forward onto a rune start (clamped to `bytes_len()`). |
+| `s.try_substring(a, b)` | **byte** | `Option(String)`; `.None` for `a > b`, `b > bytes_len()`, or an endpoint inside a rune. NOTE: byte offsets, unlike `substring`, which is still rune-indexed and clamps. |
+| `s.char_substring(a, b)` | runes | (added 2026-08-26) exactly what `substring` does today, under a name that says so. `substring` is now a one-line delegation to it, so **`substring` will change basis and `char_substring` will not.** Say `char_substring` at any site that means runes. |
+| `s.truncate_chars(n)` | runes | (added 2026-08-26) keep at most `n` runes. Never splits a rune, never lengthens. This is the right tool for "cut arbitrary human text to a display length". |
+
+So the byte-exact slice above is now `s.try_substring(from, to).unwrap()`, and a
+fixed-width truncation that must not split a codepoint is
+`s.truncate_chars(n)` (or, if you are working in byte offsets,
+`s.try_substring(usize(0), s.floor_char_boundary(n)).unwrap()`).
+
+**The migration rule, in one line:** if a site means runes, spell it
+`char_len`/`char_indices`/`char_substring`/`truncate_chars` *now*; if it means
+bytes, leave it on `len`/`substring` and it becomes correct when D4 flips them.
+`while(i < s.len()) { s.at(i).unwrap() }` is the shape to hunt — after the flip
+`at()` at a continuation byte is `.None`, so that `.unwrap()` **panics**.
+
+`char_len` and `char_indices` sit on `std/encoding/utf8`, so they inherit its
+malformed-input behaviour: `char_len` counts non-continuation bytes, and
+`char_indices` (like `chars()`) stops at the first sequence that will not decode.
 
 ## Async: await only at the async-closure statement level
 

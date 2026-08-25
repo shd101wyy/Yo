@@ -31,7 +31,8 @@ _collect_refs :: (
     e,
     .Atom(_, tok) => {
       if(tok.value == name, {
-        _push_location(out, uri.clone(), tok.row, tok.column, tok.value.len());
+        // `_push_location`'s `len` is a RUNE width (plans/STD_API_AUDIT_D4_PLAN.md §5.2 S11).
+        _push_location(out, uri.clone(), tok.row, tok.column, tok.value.char_len());
       });
     },
     .FnCall(_, func_box, args, _, _) => {
@@ -95,7 +96,7 @@ handle_references :: (
         tokens.get(ti),
         .Some(tk) => {
           if((tk.value == target.value) && (tk.kind == TokenKind.Identifier), {
-            _push_location(out, uri.clone(), tk.row, tk.column, tk.value.len());
+            _push_location(out, uri.clone(), tk.row, tk.column, tk.value.char_len());
           });
         },
         .None => ()
