@@ -177,7 +177,7 @@ test("find_yo_version_file: finds .yo-version in current directory", {
   base := path_join(temp_dir(), `yo_ver_cur`);
   io.await(fs_dir.create_dir_all(Path.new(base.clone()), io), ioexn);
   vfile := path_join(base.clone(), `.yo-version`);
-  io.await(fs_file.write_file(Path.new(vfile.clone()), String.from("0.1.12\n"), io), ioexn);
+  io.await(fs_file.write_string(Path.new(vfile.clone()), String.from("0.1.12\n"), io), ioexn);
   found := io.await(find_yo_version_file(Path.new(base.clone()), io), io);
   match(
     found,
@@ -202,7 +202,7 @@ test("find_yo_version_file: finds .yo-version in parent directory", {
   child := path_join(base.clone(), `child`);
   io.await(fs_dir.create_dir_all(Path.new(child.clone()), io), ioexn);
   vfile := path_join(base.clone(), `.yo-version`);
-  io.await(fs_file.write_file(Path.new(vfile.clone()), String.from("0.1.12\n"), io), ioexn);
+  io.await(fs_file.write_string(Path.new(vfile.clone()), String.from("0.1.12\n"), io), ioexn);
   found := io.await(find_yo_version_file(Path.new(child.clone()), io), io);
   match(
     found,
@@ -229,8 +229,8 @@ test("find_yo_version_file: picks nearest .yo-version in directory hierarchy", {
   io.await(fs_dir.create_dir_all(Path.new(inner.clone()), io), ioexn);
   outer_v := path_join(base.clone(), `.yo-version`);
   inner_v := path_join(inner.clone(), `.yo-version`);
-  io.await(fs_file.write_file(Path.new(outer_v.clone()), String.from("0.1.1\n"), io), ioexn);
-  io.await(fs_file.write_file(Path.new(inner_v.clone()), String.from("0.1.2\n"), io), ioexn);
+  io.await(fs_file.write_string(Path.new(outer_v.clone()), String.from("0.1.1\n"), io), ioexn);
+  io.await(fs_file.write_string(Path.new(inner_v.clone()), String.from("0.1.2\n"), io), ioexn);
   found := io.await(find_yo_version_file(Path.new(inner.clone()), io), io);
   match(
     found,
@@ -273,7 +273,7 @@ test("read_yo_version: reads and parses .yo-version", {
   base := path_join(temp_dir(), `yo_ver_read`);
   io.await(fs_dir.create_dir_all(Path.new(base.clone()), io), ioexn);
   vfile := path_join(base.clone(), `.yo-version`);
-  io.await(fs_file.write_file(Path.new(vfile.clone()), String.from("v0.1.12\n"), io), ioexn);
+  io.await(fs_file.write_string(Path.new(vfile.clone()), String.from("v0.1.12\n"), io), ioexn);
   got := io.await(read_yo_version(Path.new(base.clone()), io, exn), ioexn);
   match(
     got,
@@ -314,7 +314,7 @@ test("read_yo_version: throws on invalid content", {
   base := path_join(temp_dir(), `yo_ver_bad`);
   io.await(fs_dir.create_dir_all(Path.new(base.clone()), io), cleanup_ioexn);
   vfile := path_join(base.clone(), `.yo-version`);
-  io.await(fs_file.write_file(Path.new(vfile.clone()), String.from("not-a-version\n"), io), cleanup_ioexn);
+  io.await(fs_file.write_string(Path.new(vfile.clone()), String.from("not-a-version\n"), io), cleanup_ioexn);
   // The throw handler unwinds the test body, skipping the trailing
   // assert(false) — reaching it means read_yo_version accepted bad content.
   throw_exn := Exception(

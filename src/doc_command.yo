@@ -14,7 +14,7 @@ open(import("std/fmt"));
 { ArrayList } :: import("std/collections/array_list");
 { Path } :: import("std/path");
 { Exception, IoExn } :: import("std/error");
-{ read_file, write_file, exists } :: import("std/fs/file");
+{ read, write_string, exists } :: import("std/fs/file");
 { metadata } :: import("std/fs/metadata");
 { read_dir, create_dir_all } :: import("std/fs/dir");
 { Command } :: import("std/process");
@@ -268,7 +268,7 @@ _infer_project_name :: (
   pkg_path := Path.new(base_path.clone()).join(Path.new(String.from("package.json")));
   pkg_exists := io.await(exists(pkg_path, io), io);
   if(pkg_exists, {
-    pkg_bytes := io.await(read_file(Path.new(base_path.clone()).join(Path.new(String.from("package.json"))), io), IoExn(io : io, exn : exn));
+    pkg_bytes := io.await(read(Path.new(base_path.clone()).join(Path.new(String.from("package.json"))), io), IoExn(io : io, exn : exn));
     content := String.from_bytes(pkg_bytes);
     match(
       _scan_quoted_value_after(content, `"name"`, `:`),
@@ -281,7 +281,7 @@ _infer_project_name :: (
   build_path := Path.new(base_path.clone()).join(Path.new(String.from("build.yo")));
   build_exists := io.await(exists(build_path, io), io);
   if(build_exists, {
-    build_bytes := io.await(read_file(Path.new(base_path.clone()).join(Path.new(String.from("build.yo"))), io), IoExn(io : io, exn : exn));
+    build_bytes := io.await(read(Path.new(base_path.clone()).join(Path.new(String.from("build.yo"))), io), IoExn(io : io, exn : exn));
     content := String.from_bytes(build_bytes);
     match(
       _scan_quoted_value_after(content, `.name`, `=`),
@@ -315,7 +315,7 @@ _document_file :: (
   if(verbose, {
     println(`  Documenting: ${module_name}`);
   });
-  src_bytes := io.await(read_file(Path.new(file_path.clone()), io), IoExn(io : io, exn : exn));
+  src_bytes := io.await(read(Path.new(file_path.clone()), io), IoExn(io : io, exn : exn));
   src := String.from_bytes(src_bytes);
   // A lexer failure is caught locally so the walk continues (TS's
   // try/tokenize → warn → null).
@@ -356,7 +356,7 @@ _render_markdown_site :: (
   io.await(create_dir_all(Path.new(out_dir.clone()), io), ioexn);
   io.await(create_dir_all(Path.new(out_dir.clone()).join(Path.new(String.from("module"))), io), ioexn);
   io.await(
-    write_file(Path.new(out_dir.clone()).join(Path.new(String.from("README.md"))), render_index_md(model), io),
+    write_string(Path.new(out_dir.clone()).join(Path.new(String.from("README.md"))), render_index_md(model), io),
     ioexn
   );
   (i : usize) = usize(0);
@@ -376,7 +376,7 @@ _render_markdown_site :: (
           },
           .None => ()
         );
-        io.await(write_file(target, page, io), ioexn);
+        io.await(write_string(target, page, io), ioexn);
       },
       .None => ()
     );
@@ -459,7 +459,7 @@ run_doc :: (
       io.await(create_dir_all(Path.new(abs_output_dir.clone()), io), IoExn(io : io, exn : exn));
       json := render_doc_json_string(model, true);
       io.await(
-        write_file(Path.new(abs_output_dir.clone()).join(Path.new(String.from("doc.json"))), json, io),
+        write_string(Path.new(abs_output_dir.clone()).join(Path.new(String.from("doc.json"))), json, io),
         IoExn(io : io, exn : exn)
       );
       output_file = String.from("doc.json");

@@ -6,11 +6,11 @@
 //! # Example
 //!
 //! ```rust
-//! { File, read_to_string, write_file, OpenMode } :: import "std/fs/file";
+//! { File, read_to_string, write_string, OpenMode } :: import "std/fs/file";
 //!
 //! main :: (fn(io : Io, exn : Exception) -> unit)({
 //!   // Write a file
-//!   io.await(write_file(Path.new(`test.txt`), `hello world`, io), { io, exn });
+//!   io.await(write_string(Path.new(`test.txt`), `hello world`, io), { io, exn });
 //!
 //!   // Read it back
 //!   content := io.await(read_to_string(Path.new(`test.txt`), io), { io, exn });
@@ -263,7 +263,7 @@ read_to_string_cstr :: (fn(path : *(u8), io : Io) -> Impl(Future(String, IoExn))
   read_to_string(Path.from_cstr(path), io)
 );
 /// Read an entire file into a byte list (`ArrayList(u8)`).
-read_file :: (fn(path : Path, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))(
+read :: (fn(path : Path, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))(
   io.async((e) => {
     file := e.io.await(File.open(path, .Read, io), e);
     content := e.io.await(file.read_bytes(io), e);
@@ -272,15 +272,15 @@ read_file :: (fn(path : Path, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))(
   })
 );
 /// Read an entire file into bytes (`str` path variant).
-read_file_str :: (fn(path : str, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))(
-  read_file(Path.new(String.from(path)), io)
+read_str :: (fn(path : str, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))(
+  read(Path.new(String.from(path)), io)
 );
 /// Read an entire file into bytes (C string path variant).
-read_file_cstr :: (fn(path : *(u8), io : Io) -> Impl(Future(ArrayList(u8), IoExn)))(
-  read_file(Path.from_cstr(path), io)
+read_cstr :: (fn(path : *(u8), io : Io) -> Impl(Future(ArrayList(u8), IoExn)))(
+  read(Path.from_cstr(path), io)
 );
 /// Write a `String` to a file, creating or truncating it.
-write_file :: (fn(path : Path, data : String, io : Io) -> Impl(Future(unit, IoExn)))(
+write_string :: (fn(path : Path, data : String, io : Io) -> Impl(Future(unit, IoExn)))(
   io.async((e) => {
     file := e.io.await(File.open(path, .Write, io), e);
     e.io.await(file.write_string(data, io), e);
@@ -288,15 +288,15 @@ write_file :: (fn(path : Path, data : String, io : Io) -> Impl(Future(unit, IoEx
   })
 );
 /// Write a `str` to a file, creating or truncating it (`str` path variant).
-write_file_str :: (fn(path : str, data : str, io : Io) -> Impl(Future(unit, IoExn)))(
-  write_file(Path.new(String.from(path)), String.from(data), io)
+write_string_str :: (fn(path : str, data : str, io : Io) -> Impl(Future(unit, IoExn)))(
+  write_string(Path.new(String.from(path)), String.from(data), io)
 );
 /// Write a `str` to a file, creating or truncating it (C string path variant).
-write_file_cstr :: (fn(path : *(u8), data : str, io : Io) -> Impl(Future(unit, IoExn)))(
-  write_file(Path.from_cstr(path), String.from(data), io)
+write_string_cstr :: (fn(path : *(u8), data : str, io : Io) -> Impl(Future(unit, IoExn)))(
+  write_string(Path.from_cstr(path), String.from(data), io)
 );
 /// Write bytes to a file, creating or truncating it.
-write_bytes :: (fn(path : Path, data : ArrayList(u8), io : Io) -> Impl(Future(unit, IoExn)))(
+write :: (fn(path : Path, data : ArrayList(u8), io : Io) -> Impl(Future(unit, IoExn)))(
   io.async((e) => {
     file := e.io.await(File.open(path, .Write, io), e);
     e.io.await(file.write_bytes(data, io), e);
@@ -436,13 +436,13 @@ export(
   read_to_string,
   read_to_string_str,
   read_to_string_cstr,
-  read_file,
-  read_file_str,
-  read_file_cstr,
-  write_file,
-  write_file_str,
-  write_file_cstr,
-  write_bytes,
+  read,
+  read_str,
+  read_cstr,
+  write_string,
+  write_string_str,
+  write_string_cstr,
+  write,
   append_file,
   append_file_str,
   exists,

@@ -59,8 +59,15 @@ impl(
   accessed_time : (fn(self : Self) -> i64)(
     self._statx.atime_sec()
   ),
-  // Status change time (seconds since epoch).
-  created_time : (fn(self : Self) -> i64)(
+  // Status change time (seconds since epoch) — POSIX ctime.
+  //
+  // This is NOT the file's creation time: ctime moves whenever the inode's
+  // metadata changes (chmod, rename, link count), so it can be LATER than the
+  // modification time. A real creation time (statx btime / st_birthtime /
+  // Windows CreationTime) is not exposed yet — Statx requests
+  // STATX_BASIC_STATS (0x7ff), which does not include STATX_BTIME (0x800),
+  // and there is no btime_sec() accessor. See plans/STD_API_AUDIT.md §5.
+  status_changed_time : (fn(self : Self) -> i64)(
     self._statx.ctime_sec()
   ),
   // True if the file is read-only (no write permission for anyone).

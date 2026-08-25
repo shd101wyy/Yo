@@ -27,7 +27,7 @@ open(import("../fmt"));
 { Error, AnyError, Exception, IoExn } :: import("../error");
 IO_tcp :: import("../sys/tcp");
 SockInfo :: import("../sys/sockinfo");
-{ AF_INET, AF_INET6, SOCK_STREAM, SOL_SOCKET, SO_REUSEADDR, IPPROTO_TCP, TCP_NODELAY, SO_KEEPALIVE } :: import("../sys/socket");
+{ AF_INET, AF_INET6, SOCK_STREAM, SOL_SOCKET, SO_REUSEADDR, IPPROTO_TCP, TCP_NODELAY, SO_KEEPALIVE, SHUT_RD, SHUT_WR, SHUT_RDWR } :: import("../sys/socket");
 // ============================================================================
 // Internal helpers
 // ============================================================================
@@ -100,6 +100,26 @@ TcpStream :: ref(
 // ============================================================================
 // TcpListener
 // ============================================================================
+/// Which half of a TCP connection to shut down — the argument to
+/// `TcpStream.shutdown`.
+Shutdown :: enum(
+  /// Further receives are disallowed (SHUT_RD).
+  Read,
+  /// Further sends are disallowed (SHUT_WR).
+  Write,
+  /// Both further sends and receives are disallowed (SHUT_RDWR).
+  Both
+);
+// Convert Shutdown to the POSIX `how` argument.
+_shutdown_to_how :: (fn(how : Shutdown) -> i32)(
+  match(
+    how,
+    .Read => SHUT_RD,
+    .Write => SHUT_WR,
+    .Both => SHUT_RDWR
+  )
+);
+export(Shutdown);
 /// A TCP socket that listens for incoming connections.
 TcpListener :: ref(
   struct(
@@ -270,41 +290,41 @@ impl(
   ),
   /// Read bytes from the stream into `buf`.
   /// Returns the number of bytes read, or 0 if the peer closed the connection.
-  read : (fn(self : Self, buf : *(u8), size : usize, io : Io) -> Impl(Future(i32, IoExn)))({
+  read : (fn(self : Self, buf : *(u8), size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
     fd := self._fd;
     io.async((e) => {
       r := e.io.await(IO_tcp.recv(fd, buf, size, i32(0)), e.io);
-      NetError.check(r, e.exn)
+      usize(NetError.check(r, e.exn))
     })
   }),
   /// Write a `str` to the stream.
   /// Returns the number of bytes written.
-  write_str : (fn(self : Self, data : str, io : Io) -> Impl(Future(i32, IoExn)))({
+  write_str : (fn(self : Self, data : str, io : Io) -> Impl(Future(usize, IoExn)))({
     fd := self._fd;
     s := String.from(data);
     s_bytes := s.as_bytes();
     io.async((e) => {
       r := e.io.await(IO_tcp.send(fd, s_bytes.ptr().unwrap(), s_bytes.len(), i32(0)), e.io);
-      NetError.check(r, e.exn)
+      usize(NetError.check(r, e.exn))
     })
   }),
   /// Write a `String` to the stream.
   /// Returns the number of bytes written.
-  write_string : (fn(self : Self, data : String, io : Io) -> Impl(Future(i32, IoExn)))({
+  write_string : (fn(self : Self, data : String, io : Io) -> Impl(Future(usize, IoExn)))({
     fd := self._fd;
     data_bytes := data.as_bytes();
     io.async((e) => {
       r := e.io.await(IO_tcp.send(fd, data_bytes.ptr().unwrap(), data_bytes.len(), i32(0)), e.io);
-      NetError.check(r, e.exn)
+      usize(NetError.check(r, e.exn))
     })
   }),
   /// Write raw bytes from an `ArrayList(u8)` to the stream.
   /// Returns the number of bytes written.
-  write_bytes : (fn(self : Self, data : ArrayList(u8), io : Io) -> Impl(Future(i32, IoExn)))({
+  write_bytes : (fn(self : Self, data : ArrayList(u8), io : Io) -> Impl(Future(usize, IoExn)))({
     fd := self._fd;
     io.async((e) => {
       r := e.io.await(IO_tcp.send(fd, data.ptr().unwrap(), data.len(), i32(0)), e.io);
-      NetError.check(r, e.exn)
+      usize(NetError.check(r, e.exn))
     })
   }),
   /// Read all available data from the stream into a byte list.
@@ -340,11 +360,11 @@ impl(
     })
   }),
   /// Shut down part or all of the connection.
-  /// `how`: 0 = read, 1 = write, 2 = both.
-  shutdown : (fn(self : Self, how : i32, io : Io) -> Impl(Future(unit, IoExn)))({
+  shutdown : (fn(self : Self, how : Shutdown, io : Io) -> Impl(Future(unit, IoExn)))({
     fd := self._fd;
+    raw_how := _shutdown_to_how(how);
     io.async((e) => {
-      r := e.io.await(IO_tcp.shutdown(fd, how), e.io);
+      r := e.io.await(IO_tcp.shutdown(fd, raw_how), e.io);
       cond(
         (r < i32(0)) => {
           _throw_io(i32(0) - r, e.exn);

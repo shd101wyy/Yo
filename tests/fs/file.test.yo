@@ -14,7 +14,7 @@ open(import("std/fmt"));
 // ============================================================================
 // Convenience function tests
 // ============================================================================
-test("write_file and read_to_string round-trip", {
+test("write_string and read_to_string round-trip", {
   exn := Exception(
     throw : (
       (err) -> {
@@ -26,7 +26,7 @@ test("write_file and read_to_string round-trip", {
   );
   tmp := temp_dir();
   fpath := Path.new(path_join(tmp, `yo_fs_file_write_read.txt`));
-  io.await(fs_file.write_file(fpath, String.from("hello world"), io), IoExn(io : io, exn : exn));
+  io.await(fs_file.write_string(fpath, String.from("hello world"), io), IoExn(io : io, exn : exn));
   unsafe(printf("  write ok\n"));
   s := io.await(fs_file.read_to_string(fpath, io), IoExn(io : io, exn : exn));
   unsafe(printf("  read: %s\n", s.to_cstr().ptr().unwrap()));
@@ -34,7 +34,7 @@ test("write_file and read_to_string round-trip", {
   // Cleanup
   io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
 });
-test("write_file_cstr and read_to_string_cstr", {
+test("write_string_cstr and read_to_string_cstr", {
   exn := Exception(
     throw : (
       (err) -> {
@@ -47,14 +47,14 @@ test("write_file_cstr and read_to_string_cstr", {
   fpath_s := path_join(tmp, `yo_fs_file_str_test.txt`);
   fpath_cstr := fpath_s.to_cstr();
   fpath_c := fpath_cstr.ptr().unwrap();
-  io.await(fs_file.write_file_cstr(fpath_c, "str path test", io), IoExn(io : io, exn : exn));
+  io.await(fs_file.write_string_cstr(fpath_c, "str path test", io), IoExn(io : io, exn : exn));
   unsafe(printf("  write ok\n"));
   s := io.await(fs_file.read_to_string_cstr(fpath_c, io), IoExn(io : io, exn : exn));
   unsafe(printf("  read: %s\n", s.to_cstr().ptr().unwrap()));
   assert(s == `str path test`, "content mismatch");
   io.await(fs_dir.remove_file(Path.new(fpath_s), io), IoExn(io : io, exn : exn));
 });
-test("read_file returns bytes", {
+test("read returns bytes", {
   exn := Exception(
     throw : (
       (err) -> {
@@ -65,8 +65,8 @@ test("read_file returns bytes", {
   );
   tmp := temp_dir();
   fpath := Path.new(path_join(tmp, `yo_fs_file_read_bytes.txt`));
-  io.await(fs_file.write_file(fpath, String.from("ABC"), io), IoExn(io : io, exn : exn));
-  bytes := io.await(fs_file.read_file(fpath, io), IoExn(io : io, exn : exn));
+  io.await(fs_file.write_string(fpath, String.from("ABC"), io), IoExn(io : io, exn : exn));
+  bytes := io.await(fs_file.read(fpath, io), IoExn(io : io, exn : exn));
   unsafe(printf("  bytes len = %lld\n", i64(bytes.len())));
   assert(bytes.len() == usize(3), "expected 3 bytes");
   assert(bytes(usize(0)) == u8(65), "A=65");
@@ -85,7 +85,7 @@ test("append_file appends to existing content", {
   );
   tmp := temp_dir();
   fpath := Path.new(path_join(tmp, `yo_fs_file_append.txt`));
-  io.await(fs_file.write_file(fpath, String.from("first"), io), IoExn(io : io, exn : exn));
+  io.await(fs_file.write_string(fpath, String.from("first"), io), IoExn(io : io, exn : exn));
   io.await(fs_file.append_file(fpath, String.from(" second"), io), IoExn(io : io, exn : exn));
   s := io.await(fs_file.read_to_string(fpath, io), IoExn(io : io, exn : exn));
   unsafe(printf("  read: %s\n", s.to_cstr().ptr().unwrap()));
@@ -103,7 +103,7 @@ test("exists returns true for existing file", {
   );
   tmp := temp_dir();
   fpath := Path.new(path_join(tmp, `yo_fs_file_exists.txt`));
-  io.await(fs_file.write_file(fpath, String.from("exists"), io), IoExn(io : io, exn : exn));
+  io.await(fs_file.write_string(fpath, String.from("exists"), io), IoExn(io : io, exn : exn));
   e := io.await(fs_file.exists(fpath, io), io);
   unsafe(printf("  exists = %d\n", cond(e => i32(1), true => i32(0))));
   assert(e, "file should exist");
@@ -175,7 +175,7 @@ test("File.size returns correct size", {
   );
   tmp := temp_dir();
   fpath := Path.new(path_join(tmp, `yo_fs_file_size.txt`));
-  io.await(fs_file.write_file(fpath, String.from("twelve chars"), io), IoExn(io : io, exn : exn));
+  io.await(fs_file.write_string(fpath, String.from("twelve chars"), io), IoExn(io : io, exn : exn));
   f := io.await(File.open(fpath, .Read, io), IoExn(io : io, exn : exn));
   sz := f.size();
   unsafe(printf("  size = %lld\n", sz));
@@ -194,7 +194,7 @@ test("File.path returns correct path", {
   );
   tmp := temp_dir();
   fpath := Path.new(path_join(tmp, `yo_fs_file_path.txt`));
-  io.await(fs_file.write_file(fpath, String.from("x"), io), IoExn(io : io, exn : exn));
+  io.await(fs_file.write_string(fpath, String.from("x"), io), IoExn(io : io, exn : exn));
   f := io.await(File.open(fpath, .Read, io), IoExn(io : io, exn : exn));
   p := f.path().to_string();
   expected := fpath.to_string();
@@ -215,7 +215,7 @@ test("OpenMode.CreateNew fails if file exists", {
       }
     )
   );
-  io.await(fs_file.write_file(fpath, String.from("first"), io), IoExn(io : io, exn : setup_exn));
+  io.await(fs_file.write_string(fpath, String.from("first"), io), IoExn(io : io, exn : setup_exn));
   // Try CreateNew on existing file - should fail
   exn := Exception(
     throw : (
@@ -264,7 +264,7 @@ test("File.open_cstr convenience", {
   fpath := Path.new(path_join(tmp, `yo_fs_file_open_str.txt`));
   fpath_cstr := fpath.to_string().to_cstr();
   fpath_c := fpath_cstr.ptr().unwrap();
-  io.await(fs_file.write_file(fpath, String.from("open_str test"), io), IoExn(io : io, exn : exn));
+  io.await(fs_file.write_string(fpath, String.from("open_str test"), io), IoExn(io : io, exn : exn));
   f := io.await(File.open_cstr(fpath_c, .Read, io), IoExn(io : io, exn : exn));
   s := io.await(f.read_to_string(io), IoExn(io : io, exn : exn));
   unsafe(printf("  read: %s\n", s.to_cstr().ptr().unwrap()));

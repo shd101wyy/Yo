@@ -8,7 +8,7 @@ open(import("std/fmt"));
 { Path } :: import("std/path");
 { env } :: import("std/env");
 { cwd } :: import("std/env");
-{ exists, read_file, write_file } :: import("std/fs/file");
+{ exists, read, write_string } :: import("std/fs/file");
 { BuildGitDependency, get_build_registry, clear_build_registry } :: import("./evaluator/builtins/build.yo");
 { FetchResult, fetch_all_deps } :: import("./fetch.yo");
 { mm_load_yo_file, mm_reset } :: import("./module_manager.yo");
@@ -51,16 +51,16 @@ ensure_gitignore :: (
     already := e.io.await(exists(Path.new(gitignore_str.clone()), e.io), e.io);
     cond(
       already => {
-        content := String.from_bytes(e.io.await(read_file(Path.new(gitignore_str.clone()), e.io), e));
+        content := String.from_bytes(e.io.await(read(Path.new(gitignore_str.clone()), e.io), e));
         cond(
           (content.contains(entry.clone())) => (),
           true => {
-            e.io.await(write_file(Path.new(gitignore_str.clone()), `${content}\n${entry}\n`, e.io), e);
+            e.io.await(write_string(Path.new(gitignore_str.clone()), `${content}\n${entry}\n`, e.io), e);
           }
         );
       },
       true => {
-        e.io.await(write_file(Path.new(gitignore_str.clone()), `${entry}\n`, e.io), e);
+        e.io.await(write_string(Path.new(gitignore_str.clone()), `${entry}\n`, e.io), e);
       }
     );
   })

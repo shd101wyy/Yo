@@ -18,7 +18,7 @@ open(import("std/error"));
 { assert } :: import("std/assert");
 { Path } :: import("std/path");
 { create_dir_all } :: import("std/fs/dir");
-{ write_file } :: import("std/fs/file");
+{ write_string } :: import("std/fs/file");
 { analyze_document, AnalyzeOutcome } :: import("../../src/lsp/diagnostics.yo");
 {
   mm_set_open_document,
@@ -65,8 +65,8 @@ test("B1: imported-file edit visible after overlay + invalidation", {
   io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
   lib_path := `${dir}/lib.yo`;
   app_path := `${dir}/app.yo`;
-  io.await(write_file(Path.new(lib_path.clone()), String.from(_LIB_V1), io), ioexn);
-  io.await(write_file(Path.new(app_path.clone()), String.from(_APP), io), ioexn);
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_LIB_V1), io), ioexn);
+  io.await(write_string(Path.new(app_path.clone()), String.from(_APP), io), ioexn);
   std_path := resolve_std_path();
   // Make sure no earlier state for these paths leaks between runs.
   mm_forget_open_document(lib_path.clone());
@@ -116,7 +116,7 @@ test("B2: repeated re-analysis keeps registry entry counts stable", {
   dir := `/tmp/yo_b1_invalidation_fixture`;
   io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
   doc_path := `${dir}/impl_doc.yo`;
-  io.await(write_file(Path.new(doc_path.clone()), String.from(_IMPL_DOC), io), ioexn);
+  io.await(write_string(Path.new(doc_path.clone()), String.from(_IMPL_DOC), io), ioexn);
   std_path := resolve_std_path();
   // Round 1 establishes the doc's registry generation; every later round
   // purges it (via the invalidation) before re-registering an identical

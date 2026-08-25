@@ -31,7 +31,7 @@ open(import("std/string"));
 open(import("std/error"));
 open(import("std/fmt"));
 { Path } :: import("std/path");
-{ read_file } :: import("std/fs/file");
+{ read } :: import("std/fs/file");
 { ArrayList } :: import("std/collections/array_list");
 { getenv } :: import("std/libc/stdlib");
 { current_exe } :: import("std/env");
@@ -399,7 +399,7 @@ _load_module_at_abs :: (fn(abs : String) -> Option(String))({
   std_path := match(g_loader_std_path, .Some(s) => s, .None => String.from(""));
   exn := match(g_loader_exn, .Some(e) => e, .None => return(Option(String).None));
   fs_path := abs.replace(String.from("file://"), String.from(""));
-  src_bytes := io.await(read_file(Path.new(fs_path.clone()), io), IoExn(io : io, exn : exn));
+  src_bytes := io.await(read(Path.new(fs_path.clone()), io), IoExn(io : io, exn : exn));
   (src : String) = String.from_bytes(src_bytes);
   // Open-buffer overlay (Phase B1): the editor's text wins over the disk
   // read above. The read still ALWAYS runs — the await stays a top-level
@@ -678,7 +678,7 @@ mm_load_file :: (
   if(verbose, {
     println(`check: parsing ${input_path}`);
   });
-  src_bytes := io.await(read_file(Path.new(input_path.clone()), io), IoExn(io : io, exn : exn));
+  src_bytes := io.await(read(Path.new(input_path.clone()), io), IoExn(io : io, exn : exn));
   src := String.from_bytes(src_bytes);
   exprs := parse(src, input_path.clone(), local_exn);
   if(verbose, {

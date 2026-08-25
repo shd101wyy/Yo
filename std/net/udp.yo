@@ -89,39 +89,39 @@ impl(
   ),
   /// Send a datagram to a specific address.
   /// Returns the number of bytes sent.
-  send_to : (fn(self : Self, data : ArrayList(u8), addr : SocketAddr, io : Io) -> Impl(Future(i32, IoExn)))({
+  send_to : (fn(self : Self, data : ArrayList(u8), addr : SocketAddr, io : Io) -> Impl(Future(usize, IoExn)))({
     fd := self._fd;
     io.async((e) => {
       saddr := _make_sockaddr(addr);
       r := e.io.await(IO_udp.sendto(fd, data.ptr().unwrap(), data.len(), i32(0), saddr.buf, saddr.len), e.io);
       IO_tcp.free_sockaddr(saddr);
-      NetError.check(r, e.exn)
+      usize(NetError.check(r, e.exn))
     })
   }),
   /// Receive a datagram into the provided buffer.
   /// Returns the number of bytes received.
-  recv : (fn(self : Self, buf : *(u8), size : usize, io : Io) -> Impl(Future(i32, IoExn)))({
+  recv : (fn(self : Self, buf : *(u8), size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
     fd := self._fd;
     io.async((e) => {
       r := e.io.await(IO_udp.recv(fd, buf, size, i32(0)), e.io);
-      NetError.check(r, e.exn)
+      usize(NetError.check(r, e.exn))
     })
   }),
   /// Receive a datagram and retrieve the sender's address.
   /// Returns the number of bytes received.
-  recv_from : (fn(self : Self, buf : *(u8), size : usize, src_addr : *(u8), src_addr_len : *(u32), io : Io) -> Impl(Future(i32, IoExn)))({
+  recv_from : (fn(self : Self, buf : *(u8), size : usize, src_addr : *(u8), src_addr_len : *(u32), io : Io) -> Impl(Future(usize, IoExn)))({
     fd := self._fd;
     io.async((e) => {
       r := e.io.await(IO_udp.recvfrom(fd, buf, size, i32(0), src_addr, src_addr_len), e.io);
-      NetError.check(r, e.exn)
+      usize(NetError.check(r, e.exn))
     })
   }),
   /// Send data on a connected socket (requires prior connect).
-  send : (fn(self : Self, data : ArrayList(u8), io : Io) -> Impl(Future(i32, IoExn)))({
+  send : (fn(self : Self, data : ArrayList(u8), io : Io) -> Impl(Future(usize, IoExn)))({
     fd := self._fd;
     io.async((e) => {
       r := e.io.await(IO_udp.send(fd, data.ptr().unwrap(), data.len(), i32(0)), e.io);
-      NetError.check(r, e.exn)
+      usize(NetError.check(r, e.exn))
     })
   }),
   /// Close the socket.

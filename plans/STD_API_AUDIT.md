@@ -564,6 +564,24 @@ reflects is exactly what the `ImmString` rename above is for.
 
 ### D5 — Async I/O traits + the fd problem
 
+**Byte-count carry-over from S2 chunk 2 (2026-08-25).** Chunk 2 moved the NET
+byte counts to `usize` (TcpStream read/write_str/write_string/write_bytes,
+UdpSocket send_to/recv/recv_from/send), which is the shape this section
+specifies. The FILE and BUFIO sides were deliberately NOT converted with them,
+and must land here rather than as a stray rename, because they are not merely a
+different integer type — they are three different error models:
+
+| | returns | error style |
+| --- | --- | --- |
+| `TcpStream.read` | `Future(usize, IoExn)` | throws (DONE) |
+| `File.read` | `Future(i32, IoExn)` | throws |
+| `BufReader.read` | `Future(Result(i32, IoError), Io)` | Result + `IoError` + `Io` effect |
+
+Converting `File.read` alone would still leave bufio split three ways, so the
+`usize` change rides with this section's `IoExn` adoption and the
+`std/sys/bufio` → `std/io` move. Until then `TcpStream.read` and `File.read`
+disagree on their count type — a KNOWN transient, tracked here.
+
 `std/io.Reader`/`Writer` are sync, orphaned (zero implementors), and
 incompatible with the async model. Redesign: async `Reader`/`Writer` traits
 (`read(buf, io) -> Future(usize, IoExn)`), implemented by `File`, `TcpStream`,
@@ -699,8 +717,13 @@ small number of PRs with tree-wide fixups (compiler + std + tests + docs):
   missing it — btree_map, deque, hash_map, hash_set, linked_list, ordered_map,
   priority_queue and String all already had one, so D2's "is_empty on EVERY
   container" was a one-method gap, landed additively ahead of the breaking
-  sweep); `remove(start,count)`→`drain(range)`, add single-`remove(idx) -> T`;
-  `iter()` pointer iterator for symmetry
+  sweep); `remove(start,count)`→`drain(range)`, add single-`remove(idx) -> T`,
+  and `iter()` pointer iterator for symmetry — **deferred to S2 chunk 3** (the
+  collections chunk) rather than chunk 2: `remove` is a name shared with
+  `HashMap.remove`/`HashSet.remove`, so it needs the compiler-as-oracle
+  treatment rather than a textual sweep, and it changes the return type from
+  `Result(usize, ArrayListError)` to an element — a different blast radius from
+  chunk 2's fs/net renames
 - ~~`HashMap.iter_ptr`→`iter`~~ **DONE 2026-08-25** (no collision: HashMap had
   `into_iter` for values and `iter_ptr` for pointers, exactly D2's split);
   OrderedMap iterators get real `Iterator` impls
@@ -710,18 +733,64 @@ small number of PRs with tree-wide fixups (compiler + std + tests + docs):
   2026-08-25** — the `canonical` FAMILY moved together
   (`canonical_str`/`canonical_cstr` too), since leaving the siblings behind would
   have created exactly the split-vocabulary D2 exists to prevent;
-  `created_time`→`status_changed_time` + real `created_time` (btime) still open
+  ~~`created_time`→`status_changed_time`~~ **DONE 2026-08-25 (S2 chunk 2)** — it
+  returned `ctime_sec()`, which on POSIX is the status-change time, so the old
+  name was actively wrong (ctime moves on chmod/rename/link-count changes and can
+  postdate mtime); the method's own comment already said "Status change time".
+  Zero call sites. A real `created_time` (btime) is **still open** and is a
+  feature, not a rename: `Statx` requests `STATX_BASIC_STATS` (0x7ff), which
+  excludes `STATX_BTIME` (0x800), and there is no `btime_sec()` accessor — plus
+  it needs per-platform work (statx btime / `st_birthtime` / Windows
+  CreationTime)
 - ~~`File.read_string`/free `read_string`→`read_to_string`~~ **DONE 2026-08-25**
-  (family: `read_string_str`/`read_string_cstr` moved with it); `read_file`→`read`
-  (bytes) mirroring `write_file`→`write` moves to S2 chunk 2 — its **collision
-  check is now DONE and clean**: `std/sys/file.yo` does export free `read`/`write`
-  at the fd level and `File.read` is a method, but nothing in std/, src/ or tests/
-  uses a glob `open(import(...))` on either module (every import is
-  destructuring), so there is no ambient collision — and it matches
-  `std::fs::read` in Rust
+  (family: `read_string_str`/`read_string_cstr` moved with it)
+- ~~`read_file`→`read` / `write_file`→`write`~~ **DONE 2026-08-25 (S2 chunk 2)**,
+  but NOT as this list originally specified. Writing it out exposed a flaw in the
+  spec: `read_file` returns BYTES while `write_file` takes a `String`, so
+  `read_file`→`read` + `write_file`→`write` would have produced a `read` that
+  returns bytes and a `write` that takes a String — leaving the actual byte
+  counterpart of `read` named `write_bytes`. That is precisely the split
+  vocabulary D2 exists to prevent. **Decision (user, 2026-08-25): symmetric
+  pairs.**
+
+  | new name | was | payload |
+  | --- | --- | --- |
+  | `read` | `read_file` | bytes |
+  | `write` | `write_bytes` | bytes |
+  | `read_to_string` | (unchanged) | String |
+  | `write_string` | `write_file` | String |
+
+  `read_str`/`read_cstr` and `write_string_str`/`write_string_cstr` moved with
+  their families. This matches `std::fs::read` / `std::fs::write` exactly (Rust
+  needs no `write_string` only because `AsRef<[u8]>` covers `&str`; Yo has no
+  such coercion, so the String half is a named function). 150 occurrences across
+  25 files.
+
+  Collision check, done before the rename and clean: `std/sys/file.yo` does
+  export free `read`/`write` at the fd level and `File.read` is a method, but
+  nothing in std/, src/ or tests/ uses a glob `open(import(...))` on either
+  module (every import is destructuring); no file imports both `fs/file` and
+  `sys/file`; neither name is in the prelude; and `std/fmt` (glob-imported by
+  `fs/file.yo`) exports only Alignment/Format/FormatSpec/ToString/Writer/
+  eprint/eprintln/print/println.
+
+  Method note: `write_bytes` and `write_string` are ALSO method names on four
+  writer types (File, TcpStream, Writer, BufWriter). Only the free functions
+  moved — the method vocabulary is deliberately shared and stays put.
 - `min()`/`max()` naming: maps `first_entry`/`last_entry`, sets keep `min`/`max`
-- `Http` inherent `to_string`→`ToString` impl; `TcpStream.shutdown(i32)`→
-  `shutdown(Shutdown)`; net `read/write` return `usize`
+- `Http` inherent `to_string`→`ToString` impl; ~~`TcpStream.shutdown(i32)`→
+  `shutdown(Shutdown)`~~ **DONE 2026-08-25 (S2 chunk 2)** — new `Shutdown` enum
+  (`Read`/`Write`/`Both`, matching `std::net::Shutdown`) plus a private
+  `_shutdown_to_how` mapping to SHUT_RD/SHUT_WR/SHUT_RDWR, following the existing
+  `SeekFrom`/`_seek_from_to_whence` idiom; the sys layer keeps its `i32` `how`,
+  since that IS the syscall boundary; ~~net `read/write` return `usize`~~ **DONE
+  2026-08-25 (S2 chunk 2)** — 8 methods (TcpStream `read`/`write_str`/
+  `write_string`/`write_bytes`, UdpSocket `send_to`/`recv`/`recv_from`/`send`).
+  `NetError.check` itself stays `i32`: it is also used for file descriptors
+  (`fd := NetError.check(raw_fd, ...)`), so the conversion is at the eight
+  byte-count call sites. This also SHARPENED `std/http/client.yo`, whose read
+  loop tested `n <= i32(0)` — conflating "error" with EOF. Errors throw, so a
+  count is never negative; the test is now `n == usize(0)`, i.e. EOF only
 - `punycode.to_ascii`/`to_unicode`→`domain_to_ascii`/`domain_to_unicode`
 - two `sleep`s → `time.sleep(Duration, io)` async + `time.sleep_blocking(Duration)`
 - `str.join(items)` receiver-as-separator: keep (Python style is fine) but
