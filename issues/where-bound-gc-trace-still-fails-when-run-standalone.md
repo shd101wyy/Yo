@@ -65,6 +65,31 @@ Until the root is fixed, the batch-composition dependence means any future
 change can silently re-trigger the C-compile failure and the suite will stay
 green.
 
+## A SECOND instance, in a different subsystem (2026-08-25)
+
+This is not one odd test. `tests/fs/temp.test.yo` shows the same split on the
+same `develop`:
+
+```
+$ yo test tests/fs/temp.test.yo --parallel 1
+  ✗ TempDir Dispose removes the directory on drop      exit code 6
+  ✗ TempFile Dispose removes the file on drop          exit code 6
+  8 passed  2 failed                                   (rc=1)
+
+$ yo test ./tests --exclude tests/internal --exclude tests/cli-cases
+  2905 passed 2905 total                               (rc=0)
+```
+
+Both tests are inside the suite's scope — `tests/fs/` is not excluded — so the
+suite runs them and they pass there. Two Dispose-on-drop assertions fail only
+when the file is batched alone.
+
+That makes the pattern general rather than a quirk of the era-copy family: the
+runner's BATCH COMPOSITION changes program behaviour, so "the suite is green"
+and "each test file is green" are different claims, and today only the first is
+checked. Anything that depends on drop timing, type instantiation order, or
+GC/RC interaction can differ between the two.
+
 ## Suggested handling
 
 1. Make the failure visible: this file should be run in a batch where the
