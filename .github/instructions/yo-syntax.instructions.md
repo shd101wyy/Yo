@@ -480,7 +480,7 @@ Use destructured imports for files in the same directory:
 
 ```rust
 // CORRECT — destructured import with relative path:
-{ RegexNode, NodeKind, CharRange } :: import("./node.yo");
+{ RegexNode, CharRange, GroupNameEntry } :: import("./node.yo");
 
 // CORRECT - Named module
 node_module :: import("./node.yo");
