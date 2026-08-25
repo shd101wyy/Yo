@@ -1,6 +1,6 @@
 //! Condition variable for thread synchronization.
 pragma(Pragma.AllowUnsafe);
-{ __YO_THREAD_SYNC_TYPE, mutex_t } :: import("./mutex");
+{ __YO_THREAD_SYNC_TYPE } :: import("./mutex");
 extern(
   "Yo",
   __YO_COND_TYPE : Type,
@@ -16,28 +16,6 @@ extern(
 // trivially Acyclic — opaque C types don't participate in ARC.
 impl(__YO_COND_TYPE, Send());
 impl(__YO_COND_TYPE, Acyclic());
-/// Low-level condition variable (manual lifetime via `destroy`).
-cond_t :: newtype(
-  cv : __YO_COND_TYPE
-);
-impl(
-  cond_t,
-  new : (fn() -> Self)({
-    return(Self(__yo_cond_create()));
-  }),
-  wait : (fn(inout(self) : Self, inout(mutex) : mutex_t) -> unit)({
-    return(__yo_cond_wait(&(self.cv), &(mutex.mutex)));
-  }),
-  signal : (fn(inout(self) : Self) -> unit)({
-    return(__yo_cond_signal(&(self.cv)));
-  }),
-  broadcast : (fn(inout(self) : Self) -> unit)({
-    return(__yo_cond_broadcast(&(self.cv)));
-  }),
-  destroy : (fn(inout(self) : Self) -> unit)({
-    return(__yo_cond_destroy(&(self.cv)));
-  })
-);
 /// Reference-counted condition variable with automatic cleanup via `Dispose`.
 /// Uses atomic reference counting for safe cross-thread sharing.
 Cond :: atomic(
@@ -70,7 +48,4 @@ impl(
     })
   )
 );
-export(
-  cond_t,
-  Cond
-);
+export(Cond);

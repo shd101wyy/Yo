@@ -22,26 +22,6 @@ extern(
 impl(__YO_THREAD_SYNC_TYPE, Send());
 impl(__YO_THREAD_SYNC_TYPE, Acyclic());
 
-/// Low-level mutex (manual lifetime via `destroy`).
-mutex_t :: newtype(
-  mutex : __YO_THREAD_SYNC_TYPE
-);
-impl(
-  mutex_t,
-  new : (fn() -> Self)({
-    return(Self(__yo_mutex_create()));
-  }),
-  lock : (fn(inout(self) : Self) -> unit)({
-    return(__yo_mutex_lock(&(self.mutex)));
-  }),
-  unlock : (fn(inout(self) : Self) -> unit)({
-    return(__yo_mutex_unlock(&(self.mutex)));
-  }),
-  destroy : (fn(inout(self) : Self) -> unit)({
-    return(__yo_mutex_destroy(&(self.mutex)));
-  })
-);
-
 // ============================================================================
 // Mutex(T) — atomic-object mutex wrapper with closure-scoped lock API
 // ============================================================================
@@ -121,6 +101,5 @@ impl(
 
 export(
   __YO_THREAD_SYNC_TYPE,
-  mutex_t,
   Mutex
 );
