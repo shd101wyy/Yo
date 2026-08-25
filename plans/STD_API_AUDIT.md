@@ -382,12 +382,17 @@ landmine with a pointer at the issue.
     `${name:T}` with no space, where `T` is both a spec kind letter and a type in
     scope, is a silent reinterpretation rather than an error, and `yo fmt` cannot
     normalize it away because it re-emits templates from the raw source slice.
-    Zero occurrences exist today — all 7 colon-bearing interpolations in the tree
-    are inside a doc comment or have the colon inside a string literal within
-    parens, so the split is safe on the current corpus.
+    Zero occurrences exist today. Re-verified 2026-08-25 across the whole tree:
+    of the 9 colon-bearing `${…}` matches, 7 end in `)` before the colon is
+    reached (the colon sits inside a call's arguments or inside `String.from(":")`),
+    1 is in a doc comment, and 1 is a plain `str` literal that is not a template
+    at all. The backward walk stops on `)` at its first character in every case,
+    so the split is safe on the current corpus.
 
-    **Stage 1 (the engine) is WRITTEN, on branch `d310/format-specs`, and NOT
-    merged.** `std/fmt/spec.yo` (the `FormatSpec` vocabulary: total `parse`,
+    **Stage 1 (the engine) LANDED 2026-08-25 (PR #259)** — full battery: suite
+    2886/2886, CLI scorecard 51/0/0, gates green, `STAGE3_RC=0 FIXPOINT_HOLDS`,
+    hollow sweep `SWEEP_GATE_OK` with zero allowlisted failures; tests in
+    `tests/format_specs.test.yo` (7). `std/fmt/spec.yo` (the `FormatSpec` vocabulary: total `parse`,
     `pad`, and a `pad_numeric` that puts zero fill BETWEEN the sign/prefix and
     the digits — `write_padded` pads outside the sign, which made `-0000042` and
     `0x0000002a` unreachable) plus `std/fmt/format.yo` (the `Format` protocol:
