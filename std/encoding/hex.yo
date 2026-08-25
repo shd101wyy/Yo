@@ -12,33 +12,8 @@
 //! ```
 open(import("../string"));
 { ArrayList } :: import("../collections/array_list");
+{ EncodingError } :: import("./error");
 { Error, AnyError, Exception } :: import("../error");
-{ ToString } :: import("../fmt");
-// ============================================================================
-// Error type
-// ============================================================================
-/// Encoding/decoding error type.
-EncodingError :: enum(
-  /// Invalid character encountered during decoding.
-  InvalidChar(ch : u8),
-  /// Input string has odd length (hex requires even length).
-  OddLength
-);
-impl(
-  EncodingError,
-  ToString(
-    to_string : (
-      self ->
-        match(
-          self,
-          .InvalidChar(ch) => `encoding error: invalid character ${ch}`,
-          .OddLength => `encoding error: odd length`
-        )
-    )
-  )
-);
-impl(EncodingError, Error());
-export(EncodingError);
 // ============================================================================
 // Encoding
 // ============================================================================

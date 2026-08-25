@@ -4,13 +4,7 @@ pragma(Pragma.AllowUnsafe);
 /// Memory allocation error variants.
 AllocError :: enum(
   /// Allocator ran out of memory.
-  OutOfMemory,
-  /// Requested size is invalid (e.g., zero or too large).
-  InvalidSize,
-  /// Requested alignment is not a power of two.
-  InvalidAlignment,
-  /// Pointer passed to dealloc/realloc is invalid.
-  InvalidPointer
+  OutOfMemory
 );
 /// Describes the size and alignment requirements for a memory allocation.
 Layout :: struct(
@@ -36,22 +30,6 @@ size_would_overflow ::
       true => (count > (SIZE_MAX / type_size))
     )
   });
-/// User-implementable memory allocator interface.
-/// Implement this trait to provide custom allocation strategies.
-CustomAllocator :: trait(
-  /// Allocate memory for `count` items of type T.
-  alloc : (fn(inout(self) : Self, comptime(T) : Type, count : usize) -> Result(?(*(T)), AllocError)),
-  /// Allocate zeroed memory for `count` items of type T.
-  alloc_zeroed : (fn(inout(self) : Self, comptime(T) : Type, count : usize) -> Result(?(*(T)), AllocError)),
-  /// Allocate aligned memory for `count` items of type T with the given alignment.
-  alloc_aligned : (fn(inout(self) : Self, comptime(T) : Type, count : usize, alignment : usize) -> Result(?(*(T)), AllocError)),
-  /// Reallocate memory to `new_count` items, preserving existing data.
-  realloc : (fn(generic(T : Type), inout(self) : Self, old_ptr : ?(*(T)), new_count : usize) -> Result(?(*(T)), AllocError)),
-  /// Deallocate memory pointed to by `ptr`.
-  dealloc : (fn(generic(T : Type), inout(self) : Self, ptr : *(T)) -> Result(unit, AllocError))
-);
-/// Type-erased dynamic allocator wrapping any `CustomAllocator` implementation.
-Allocator :: Dyn(CustomAllocator);
 extern(
   "Yo",
   __yo_malloc :
@@ -84,8 +62,6 @@ GlobalAllocator :: impl({
 });
 export(
   size_would_overflow,
-  CustomAllocator,
-  Allocator,
   Layout,
   layout_of,
   AllocError,

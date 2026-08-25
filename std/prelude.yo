@@ -164,15 +164,9 @@ extern(
   // array indexing builtin (used by Index trait impls)
   __yo_array_index :
     (fn(generic(T : Type, N : usize), self : *(Array(T, N)), idx : usize) -> *(T)),
-  // C macro related
-  __yo_c_macro_defined : (fn(comptime(name) : comptime_str) -> comptime(bool)),
-  __yo_c_macro_value : (fn(comptime(name) : comptime_str) -> comptime(comptime_str)),
   // Process related functions
   __yo_process_platform : (fn() -> comptime(comptime_str)),
-  __yo_process_arch : (fn() -> comptime(comptime_str)),
-  __yo_process_cwd : (fn() -> comptime(comptime_str)),
-  __yo_process_env_get : (fn(comptime(key) : comptime_str) -> comptime(comptime_str)),
-  __yo_process_node_version : (fn() -> comptime(comptime_str))
+  __yo_process_arch : (fn() -> comptime(comptime_str))
 );
 export(__yo_as);
 /// The `unsafe` module — provides low-level unwind hatches.
@@ -184,33 +178,6 @@ unsafe :: impl({
   export(cast);
 });
 export(unsafe);
-// IDEA:
-// c_macro :: impl {
-//   /// Check if a C macro is defined
-//   /// Returns true if the macro exists, false otherwise
-//   defined :: (fn(comptime(name) : comptime_str) -> comptime(bool))(
-//     __yo_c_macro_defined(name)
-//   );
-//   export defined;
-//
-//   /// Get the value of a C macro as a compile-time string
-//   /// Returns the macro's value as a string, or empty string "" if not defined
-//   /// Note: For function-like macros, returns the definition without expansion
-//   value :: (fn(comptime(name) : comptime_str) -> comptime(comptime_str))(
-//     __yo_c_macro_value(name)
-//   );
-//   export value;
-//
-//   /// Get a macro value with a default fallback
-//   value_or :: (fn(comptime(name) : comptime_str, comptime(default_val) : comptime_str) -> comptime(comptime_str))(
-//     cond(
-//       defined(name) => value(name),
-//       true => default_val
-//     )
-//   );
-//   export value_or;
-// };
-// export c_macro;
 /// Send trait — indicates a type that can be safely transferred between threads.
 Send :: trait(
   id := "Send"

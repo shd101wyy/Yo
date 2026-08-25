@@ -2329,13 +2329,14 @@ evaluate_begin_expression :: (
   out_info.control_flow = last_info.control_flow;
   out_info.comptime_ref = last_info.comptime_ref;
   out_info.capture_type = last_info.capture_type;
-  // NOTE: `out_info.popped_env_frame = current_frame_opt` REMOVED. The field is
-  // WRITE-ONLY DEAD STATE — nothing in yo-self ever reads popped_env_frame (grep:
-  // only the field def + this former write). Storing every block's popped frame
-  // pinned its bound Variables (the per-call `new_variable` env Variables — the
-  // dominant self-compile eval leaker, 2.7M live) on the whole-compile
-  // expr_info_table forever. Not storing it lets `current_frame_opt` (and its
-  // Variables) be RC-freed at scope end. See issues/fixed/yo-self-fixpoint-eval-phase-leak.md.
+  // NOTE: the popped frame is deliberately NOT stored on `out_info`. It used to
+  // be, via an `ExprInfo.popped_env_frame` field that nothing ever read; the
+  // write went first (the eval-phase leak fix) and the write-only field itself
+  // was deleted afterwards. Storing every block's popped frame pinned its bound
+  // Variables (the per-call `new_variable` env Variables — the dominant
+  // self-compile eval leaker, 2.7M live) on the whole-compile expr_info_table
+  // forever. Not storing it lets `current_frame_opt` (and its Variables) be
+  // RC-freed at scope end. See issues/fixed/yo-self-fixpoint-eval-phase-leak.md.
   // Runtime-RESULT gate for the clears below: a bare runtime call
   // (UnknownVal), a unit-returning call (UnitVal), no value, OR a RUNTIME
   // enum/struct construction whose shell carries an UnknownVal payload

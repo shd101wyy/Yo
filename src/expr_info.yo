@@ -58,7 +58,7 @@ extern(
   BF_UNWIND,
   BK_BREAK
 } :: import("./expr.yo");
-{ Environment, Variable, Frame, snapshot_env } :: import("./env.yo");
+{ Environment, Variable, snapshot_env } :: import("./env.yo");
 { AwaitAnalysisResult } :: import("./evaluator/async/await_analysis_types.yo");
 { EffectAnalysisResult } :: import("./evaluator/effects/effect_analysis_types.yo");
 // ---------------------------------------------------------------------------
@@ -424,8 +424,6 @@ ExprInfo :: ref(
     rare : Option(ExprInfoRare),
     /// Evaluated macro-expanded expression.
     macro_expansion : Option(AstExpr),
-    /// Environment frame popped after a begin block.
-    popped_env_frame : Option(Frame),
     /// Original un-evaluated expression (used for test codegen).
     original_expr : Option(AstExpr),
     /// Variable object for identifier expressions (used by compile-time pointer creation).
@@ -482,7 +480,6 @@ new_expr_info :: (fn(env : Environment, ty : TypeValue) -> ExprInfo)(
     origin_type : Option(TypeValue).None,
     rare : Option(ExprInfoRare).None,
     macro_expansion : Option(AstExpr).None,
-    popped_env_frame : Option(Frame).None,
     original_expr : Option(AstExpr).None,
     source_variable : Option(Variable).None,
     comptime_ref : Option(ComptimeRef).None,
@@ -504,8 +501,7 @@ new_expr_info :: (fn(env : Environment, ty : TypeValue) -> ExprInfo)(
 /// field is copied from the inner expression's info (sharing payloads,
 /// including the whole `rare` group) and only what the begin level owns is
 /// overridden here — `env` (the post-pop scope snapshot), `ty` (the begin's
-/// return type), `path_collection` (begin-owned, empty), and
-/// `popped_env_frame` (never stored — the eval-phase leak fix, see begin.yo).
+/// return type) and `path_collection` (begin-owned, empty).
 /// The caller applies the remaining begin-level overrides (`value`,
 /// `deferred_drop_expressions`) and the conditional CLEARS (`variable_name`,
 /// `runtime_arg_exprs_in_order`, the index-field group) — see begin.yo's
@@ -531,7 +527,6 @@ clone_expr_info_for_shared_begin_result :: (fn(src : ExprInfo, env : Environment
     origin_type : src.origin_type,
     rare : src.rare,
     macro_expansion : src.macro_expansion,
-    popped_env_frame : Option(Frame).None,
     original_expr : src.original_expr,
     source_variable : src.source_variable,
     comptime_ref : src.comptime_ref,
