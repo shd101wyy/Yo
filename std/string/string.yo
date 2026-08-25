@@ -24,8 +24,13 @@ StringError :: enum(
   /// The index is out of bounds for the string's byte length.
   IndexOutOfBounds(index : usize, length : usize)
 );
-/// Immutable UTF-8 encoded string.
-/// All operations return new strings; mutable operations require a pointer to self.
+/// Growable UTF-8 encoded string — the same shape as Rust's `String`.
+///
+/// NOT immutable: `push_str` / `push_string` / `push_byte` / `reserve` / `clear`
+/// take `inout(self)` and mutate in place. Operators such as `+` still return a
+/// new string. For an immutable, atomically reference-counted string that is safe
+/// to share across threads, see `std/imm/string`.
+///
 /// Empty strings use zero allocation (represented as `Option.None` internally).
 String :: newtype(
   _bytes : Option(ArrayList(u8))
