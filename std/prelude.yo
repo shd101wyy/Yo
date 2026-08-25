@@ -5997,6 +5997,16 @@ impl(
   neq : (fn(comptime(a) : Type, comptime(b) : Type) -> comptime(bool))({
     return(!(__yo_are_types_equal(a, b)));
   }),
+  /// Render this type for DISPLAY — diagnostics, comptime_assert messages,
+  /// generated comments.
+  ///
+  /// NOT a source renderer: the result is not guaranteed to reparse. An
+  /// instantiated generic has no written name to return, so it renders as a
+  /// placeholder (`<struct:struct_yo_id_5916>`, `<enum:enum_yo_id_3586>`).
+  /// Metaprogramming that needs to NAME a type in generated code must not use
+  /// this — construct through `Self`, or reach the type as a value via
+  /// `Type.get_struct_fields(Self).get(i).field_type`, which needs no name and
+  /// no import at the use site.
   to_comptime_string : (fn(comptime(self) : Type) -> comptime(comptime_str))({
     return(__yo_type_to_comptime_string(self));
   })
@@ -6866,7 +6876,6 @@ __derive_clone :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptim
     info.is_struct() => {
       fields :: Type.get_struct_fields(T);
       fc :: fields.len();
-      type_name :: Type.to_comptime_string(T);
       cloned_fields :: __yo_comptime_fold_range(
         fc,
         "",
@@ -6879,7 +6888,11 @@ __derive_clone :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptim
           )
         })
       );
-      clone_body :: __s3(type_name, "(", __s2(cloned_fields, ")"));
+      // Construct through `Self`, NOT through a rendered type name:
+      // `Type.to_comptime_string` is a DISPLAY renderer and returns an
+      // unusable `<struct:…>` placeholder for an instantiated generic, which
+      // made `derive(Clone)` fail outright on every generic struct.
+      clone_body :: __s3("Self(", cloned_fields, ")");
       ctx.make_impl(
         quote(
           Clone(
@@ -7241,6 +7254,58 @@ __derive_ord :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(
   )
 });
 derive_rule(Ord, __derive_ord);
+// --- derive_rule for Default ---
+/// `derive(Default)` for structs: every field takes its own type's default.
+///
+/// Each field's type is named by INDEXING the struct's own field list —
+/// `(Type.get_struct_fields(Self).get(i).field_type <: Default).default()` —
+/// rather than by rendering the type back to source. Rendering does not work
+/// here: `Type.to_comptime_string` returns an unusable `<struct:…>` / `<enum:…>`
+/// placeholder for every INSTANTIATED generic (`Option(i32)`, `ArrayList(i32)`,
+/// any user generic), so a rendered `Option(String)` field would not reparse.
+/// Indexing sidesteps that entirely and needs no field type to be in scope at
+/// the impl site. See issues/type-to-comptime-string-placeholder-for-generics.md.
+///
+/// Structs only. An enum has no canonical default variant — Rust needs an
+/// explicit `#[default]` attribute to pick one, and Yo has no such attribute,
+/// so guessing (say, the first variant) would be a silent choice rather than a
+/// declared one.
+__derive_default :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr))({
+  info :: Type.get_info(T);
+  comptime_assert(
+    info.is_struct(),
+    "derive(Default) supports structs only — an enum has no canonical default variant, so write the impl by hand"
+  );
+  fields :: Type.get_struct_fields(T);
+  fc :: fields.len();
+  default_fields :: __yo_comptime_fold_range(
+    fc,
+    "",
+    (fn(comptime(a) : comptime_str, comptime(fi) : usize) -> comptime(comptime_str))({
+      fname :: fields.get(fi).name;
+      part :: __s5(
+        fname,
+        " : (Type.get_struct_fields(Self).get(",
+        fi.to_comptime_string(),
+        ").field_type <: Default).default()",
+        ""
+      );
+      cond(
+        (a == "") => part,
+        true => __s3(a, ", ", part)
+      )
+    })
+  );
+  default_body :: __s3("Self(", default_fields, ")");
+  ctx.make_impl(
+    quote(
+      Default(
+        default : (() -> #(default_body.to_expr()))
+      )
+    )
+  )
+});
+derive_rule(Default, __derive_default);
 /// Result — a value that is either success (`Ok`) or failure (`Err`).
 ///
 /// `Result(OkType, ErrorType)` has two variants:
