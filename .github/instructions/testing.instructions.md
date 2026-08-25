@@ -299,6 +299,20 @@ Use `scripts/count-transpile-failures.sh <emitted.c>` — do not hand-roll a
   `__yo_tN tmp = // Failed to transpile <expr>;`, and anchoring calls those
   clean. That is the mistake that let a hollow `io.async` closure body ship
   green (`issues/ftt-stub-in-live-closure-falls-off-non-void-function.md`).
+- **Invisible since PR #275.** When the untranspilable body sits in a
+  **value-returning** function, codegen no longer emits markers at all — the
+  whole body becomes
+  `abort(); /* untranspilable body in a value-returning fn: ... */`, because
+  falling off the end is UB and `-Werror=return-type` rejects it. Such a file
+  scores **`0 real`** and the program dies rc=134 at runtime. The script prints
+  an `N abort-stub` field for exactly this; **`0 real` alone is not proof a
+  file is clean — read the stub count too**, and for an async change also run
+  the binary. MEASURED 2026-08-26 on a closure nested inside an `io.async`
+  closure body: `0 real (0 string-literal floor, 1 abort-stub)`, rc=134.
+- **A missing file used to score clean.** `grep` on a path that does not exist
+  printed nothing and the script answered `0 real`, exit 0. It now exits 2 with
+  `MISSING FILE`. Check that first when a gate reports a suspiciously clean
+  number (`fixpoint_only.sh` scores `/tmp/$P_stage2.c` through this script).
 
 The rule that separates them: a **string-literal** occurrence is immediately
 preceded by a double quote; an **emitted marker** never is. Match anywhere on

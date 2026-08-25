@@ -84,7 +84,13 @@ _(env : impl_dbg_env) :: import("std/env");
 { random_id } :: import("../../utils.yo");
 { register_func_type } :: import("../../function_value.yo");
 { EvalValue, FuncValData, create_type_value, create_unknown_val } :: import("../../value.yo");
-{ EvalContext, ExpectedTypeCtx, in_def_time_trial, set_in_def_time_trial } :: import("../context.yo");
+{
+  EvalContext,
+  ExpectedTypeCtx,
+  create_function_body_evaluation_context,
+  in_def_time_trial,
+  set_in_def_time_trial
+} :: import("../context.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { evaluate_anonymous_module_begin_exprs } :: import("./anonymous_module.yo");
 { format_error_message } :: import("../../error.yo");
@@ -2352,14 +2358,68 @@ _substitute_self_in_method_ty :: (
 /// ExprInfos (Self is bound by the caller via ctx.self_type), which is what
 /// codegen needs to emit the per-impl default directly (impl.test.yo
 /// heterogeneous `!=` — see issues/retired/yo-self-hollow-root-cause-map.md layer 8).
+///
+/// The body is a FUNCTION BODY and must be evaluated as one: `fn_ty` (the
+/// Self-substituted method type) and `fn_id` build the same
+/// `create_function_body_evaluation_context` every other def-time body eval
+/// uses (`_trial_eval_fn_body`, closure_type.yo, anonymous_function.yo).
+/// Evaluating it under the IMPL's ambient context instead — which is what this
+/// helper did before — left two things unset, and both were silently swallowed
+/// here:
+///   * `ctx.expected_type` (the declared return type). `io.async`'s Step 6b
+///     (calls/helper.yo) pre-binds the effect-bundle generic `E` FROM the
+///     expected `Impl(Future(T, E))`; with no expected type `E` stays a SomeT,
+///     so `e.io.await(...)` in the default's async closure fails to resolve
+///     ("No matching call found"), the closure body gets no ExprInfos, and
+///     codegen emits an all-`// Failed to transpile` body (rewritten to
+///     `abort()` since PR #275).
+///     See issues/fixed/trait-default-awaiting-self-async-method-emits-hollow-fn.md.
+///   * `ctx.is_evaluating_function_body_or_async_block`, without which a
+///     `return(...)` anywhere in a default body evaluates as an ordinary
+///     identifier and throws `Variable "return" not found`.
 _materialize_default_body :: (
-  fn(body : AstExpr, env : Environment, ctx : EvalContext, out : ArrayList(AstExpr)) -> unit
+  fn(
+    body : AstExpr,
+    fn_ty : TypeValue,
+    fn_id : String,
+    env : Environment,
+    ctx : EvalContext,
+    out : ArrayList(AstExpr)
+  ) -> unit
 )({
-  inner_exn := Exception(throw : ((_err) -> unwind(())));
+  inner_exn := Exception(
+    throw : (
+      (_err) -> {
+        if(impl_dbg_env.get(`YO_DEBUG_SWALLOW`).is_some(), {
+          eprintln(`[mat-default-swallow] ${_err.to_string()}`);
+        });
+        unwind(())
+      }
+    )
+  );
+  // A separate preliminary FuncVal for the body-eval context (EvalValue is not
+  // Clone and the caller still needs the registered one). Same pattern as
+  // anonymous_function.yo's `body_ctx_func_val`.
+  body_ctx_fv := EvalValue.FuncVal(
+    box(
+      FuncValData(
+        forall_names : ArrayList(String).new(),
+        params : ArrayList(String).new(),
+        param_type_names : ArrayList(String).new(),
+        evidence_params : ArrayList(String).new(),
+        body : body.clone(),
+        cap_names : ArrayList(String).new(),
+        cap_tys : ArrayList(TypeValue).new(),
+        func_id : fn_id.clone()
+      )
+    ),
+    ArrayList(EvalValue).new()
+  );
+  body_ctx := create_function_body_evaluation_context(fn_ty, body_ctx_fv, env, ctx);
   // A DEF-time contained-swallow evaluation like _trial_eval_fn_body — the
   // in_def_time_trial flag is set/restored AT THE CALL SITES (a swallowed
   // error unwinds out of this helper, skipping any in-fn restore).
-  evaluated := evaluate_expression_raw(body, env, ctx, inner_exn);
+  evaluated := evaluate_expression_raw(body, env, body_ctx, inner_exn);
   out.push(evaluated);
 });
 _trial_eval_fn_type_head :: (
@@ -4101,7 +4161,7 @@ evaluate_module_value :: (
                             d_pi = (d_pi + usize(1));
                           });
                           d_out := ArrayList(AstExpr).new();
-                          _materialize_default_body(d_body_clone, env, ctx, d_out);
+                          _materialize_default_body(d_body_clone, d_sub_ty.clone(), d_fresh_id.clone(), env, ctx, d_out);
                           env.pop_frame();
                           ctx.self_type = d_saved_self;
                           // Only adopt the clone when its body eval SUCCEEDED
