@@ -19,7 +19,7 @@ main :: (fn() -> unit) {
   use_id(dyn(box(42)));
   use_id(dyn(box(true)));
 
-  // Object types can be used directly
+  // Reference-semantics types can be used directly
   point := Point(3, 4);
   use_id(dyn(point));
 };
@@ -33,7 +33,7 @@ main :: (fn() -> unit) {
 
 ```c
 typedef struct {
-  void* data;                    // MUST point to object type (has ref_header)
+  void* data;                    // MUST point to reference-semantics type (has ref_header)
   const TraitVtable* vtable;    // Static vtable pointer
 } __yo_dyn_trait_id;
 ```
@@ -41,22 +41,22 @@ typedef struct {
 **Key Points:**
 
 - `Dyn` is a **value type** - copied by value like a struct
-- `data` **must** point to an object type (always has ref_header)
+- `data` **must** point to an reference-semantics type (always has ref_header)
 - When you copy a `Dyn`, you `___dup` the `data` pointer
 - When you drop a `Dyn`, you `___drop` the `data` pointer
 - The `Dyn` struct itself is not heap-allocated
 
-### 2. Data Storage (Object Type Constraint)
+### 2. Data Storage (Reference-Semantics Type Constraint)
 
-The `data` field **must** point to an object type (reference counted). Value types must be wrapped in `Box(T)`.
+The `data` field **must** point to an reference-semantics type (reference counted). Value types must be wrapped in `Box(T)`.
 
 ```c
 // For value types - MUST use Box(T)
-Box_i32* boxed = /* box(42) */;  // Box(i32) is an object type
+Box_i32* boxed = /* box(42) */;  // Box(i32) is an reference-semantics type
 void* data = boxed;               // Store Box pointer
 
-// For object types - use directly
-Point* point = /* Point(3, 4) */;  // Point is an object type
+// For reference-semantics types - use directly
+Point* point = /* Point(3, 4) */;  // Point is an reference-semantics type
 void* data = point;                // Store Point pointer
 ```
 
@@ -91,7 +91,7 @@ typedef struct {
 
 **Wrapper Functions:**
 
-- **Object types**: Use direct casts (no wrapper needed)
+- **Reference-semantics types**: Use direct casts (no wrapper needed)
 - **Boxed value types**: Generate wrappers to unwrap `Box(T)` before calling impl
 
 ## Object-Safety Constraint (Following Rust)
@@ -127,9 +127,9 @@ TestDyn :: trait(
 
 The constraint is **enforced at method call time**, not at trait definition. You can define traits with non-object-safe methods, but you cannot call those methods on Dyn values.
 
-## Object Type Requirement for dyn(...)
+## Reference-Semantics Type Requirement for dyn(...)
 
-**Rule**: `dyn(value)` requires `value` to have an **object type** (pointer to RC'd data). If it's a value type then it will be auto `box`ed.
+**Rule**: `dyn(value)` requires `value` to have an **reference-semantics type** (pointer to RC'd data). If it's a value type then it will be auto `box`ed.
 
 **Rationale**: The `data` field in `Dyn` must point to reference-counted memory. This ensures safe memory management without adding a ref_header to `Dyn` itself.
 
@@ -137,12 +137,12 @@ The constraint is **enforced at method call time**, not at trait definition. You
 
 ```rust
 // Value types must be boxed
-dyn(box(42));           // OK: box(42) returns Box(i32), which is an object type
+dyn(box(42));           // OK: box(42) returns Box(i32), which is an reference-semantics type
 dyn(box(true));         // OK: box(true) returns Box(bool)
 
-// Object types can be used directly
-point := Point(3, 4);   // point : Point, Point is object type
-dyn(point);             // OK: point is an object type
+// Reference-semantics types can be used directly
+point := Point(3, 4);   // point : Point, Point is reference-semantics type
+dyn(point);             // OK: point is an reference-semantics type
 
 // Direct value will be automatically boxed
 dyn(42);                // 42 becomes box(42) automatically
@@ -171,7 +171,7 @@ static const __yo_dyn_trait_Id_vtable __yo_vtable_Box_i32_Id = {
 };
 ```
 
-**For object types:**
+**For reference-semantics types:**
 
 ```c
 // Original method implementation for Point
@@ -187,7 +187,7 @@ static const __yo_dyn_trait_Printer_vtable __yo_vtable_Point_Printer = {
 
 ## Construction: `dyn(value)`
 
-When constructing a `Dyn`, the value must be an object type. The `Dyn` struct is created on the stack and stores the data pointer.
+When constructing a `Dyn`, the value must be an reference-semantics type. The `Dyn` struct is created on the stack and stores the data pointer.
 
 ```c
 // For dyn(box(42)):
@@ -234,7 +234,7 @@ When copying a `Dyn`, increment the `data` pointer's RC:
 ```c
 __yo_dyn_trait_id __yo_dup_dyn_trait_Id(__yo_dyn_trait_id dyn) {
   if (dyn.data) {
-    __yo_incr_rc(dyn.data);  // data is always an object type
+    __yo_incr_rc(dyn.data);  // data is always an reference-semantics type
   }
   return dyn;  // Return the copied struct
 }
@@ -247,7 +247,7 @@ When dropping a `Dyn`, decrement the `data` pointer's RC:
 ```c
 void __yo_drop_dyn_trait_Id(__yo_dyn_trait_id dyn) {
   if (dyn.data) {
-    __yo_decr_rc(dyn.data);  // data is always an object type
+    __yo_decr_rc(dyn.data);  // data is always an reference-semantics type
   }
 }
 ```
@@ -261,9 +261,9 @@ void __yo_drop_dyn_trait_Id(__yo_dyn_trait_id dyn) {
 ## Summary of Design
 
 1. **`Dyn` is a value type**: Simple struct with `{ void* data, vtable* }`, no ref_header
-2. **`data` must be object type**: Enforces that data is always reference counted
-3. **Value types use `box()`**: `dyn(box(42))` wraps value in `Box(T)` object type
-4. **Object types direct**: `dyn(Point(3, 4))` uses Point pointer directly
+2. **`data` must be reference-semantics type**: Enforces that data is always reference counted
+3. **Value types use `box()`**: `dyn(box(42))` wraps value in `Box(T)` reference-semantics type
+4. **Reference-semantics types direct**: `dyn(Point(3, 4))` uses Point pointer directly
 5. **Wrappers for Box**: Generated wrappers unwrap `Box(T)` before calling impl methods
 6. **Simple RC**: Only `data` is reference counted, `Dyn` struct is copied by value
 7. **Dup/Drop functions**: Standard functions that dup/drop the `data` pointer

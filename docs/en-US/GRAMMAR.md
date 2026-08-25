@@ -178,7 +178,7 @@ Modifiers wrap the **label**, never the type:
 ```abnf
 Parameter ::= ParameterLabel ':' Type
 ParameterLabel ::=
-  | Identifier                  ;; by value (object types: a shared handle)
+  | Identifier                  ;; by value (reference-semantics types: a shared handle)
   | 'inout' '(' Identifier ')'  ;; second-class reference to a caller lvalue (binding write-back)
   | 'own' '(' Identifier ')'    ;; consumes the caller's handle (move)
   | 'comptime' '(' Identifier ')' ;; compile-time-only parameter
