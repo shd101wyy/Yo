@@ -9,6 +9,13 @@
 //! lock). It is likewise not bound to a thread: the releaser need not be the
 //! acquirer, which is precisely what distinguishes it from `Mutex`.
 //!
+//! **Acquisition is not fair.** A thread that calls `acquire()` while a permit
+//! happens to be available takes it on the spot, even if other threads have
+//! been blocked in `acquire()` for longer — the same barging behaviour as
+//! Java's default (non-fair) constructor. There is no FIFO guarantee, and a
+//! waiter can in principle be starved under sustained contention. Build
+//! fairness on top if you need it.
+//!
 //! Typical use is bounding concurrency — at most K threads inside a region:
 //!
 //! ```rust
