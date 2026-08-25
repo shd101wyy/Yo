@@ -30,27 +30,7 @@ IO_temp :: import("../sys/temp");
 IO_file :: import("../sys/file");
 { memcpy } :: import("../libc/string");
 { platform, Platform } :: import("../process");
-{ env } :: import("../env");
-_default_tmp_dir :: (fn() -> String)(
-  cond(
-    (platform == Platform.Windows) => {
-      temp := env.get(`TEMP`);
-      match(
-        temp,
-        .Some(v) => v,
-        .None => {
-          tmp := env.get(`TMP`);
-          match(
-            tmp,
-            .Some(v2) => v2,
-            .None => `C:\\Temp`
-          )
-        }
-      )
-    },
-    true => `/tmp`
-  )
-);
+{ temp_dir } :: import("../env");
 /// Temporary directory that can be cleaned up with `remove`.
 TempDir :: ref(
   struct(
@@ -93,7 +73,7 @@ impl(
   ),
   // Create a temporary directory in the system temp dir.
   new : (fn(io : Io) -> Impl(Future(TempDir, IoExn)))(
-    TempDir.new_in(Path.new(_default_tmp_dir()), io)
+    TempDir.new_in(Path.new(temp_dir()), io)
   ),
   // Get the path of the temporary directory.
   path : (fn(self : Self) -> Path)(
@@ -188,7 +168,7 @@ impl(
   ),
   // Create a temporary file in the system temp dir.
   new : (fn(io : Io) -> Impl(Future(TempFile, IoExn)))(
-    TempFile.new_in(Path.new(_default_tmp_dir()), io)
+    TempFile.new_in(Path.new(temp_dir()), io)
   ),
   // Get the underlying File object.
   file : (fn(self : Self) -> _file_mod.File)(
