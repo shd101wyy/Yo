@@ -33,7 +33,8 @@ _(env : proc_env) :: import("std/env");
 { sha256_hex } :: import("std/crypto/sha256");
 { metadata } :: import("std/fs/metadata");
 { read_dir, FileType, remove_file, create_dir_all } :: import("std/fs/dir");
-{ sleep } :: import("std/time/sleep");
+{ sleep_blocking } :: import("std/time/sleep");
+{ Duration } :: import("std/time/duration");
 { Command } :: import("std/process/command");
 { exit } :: import("std/libc/stdlib");
 { ArrayList } :: import("std/collections/array_list");
@@ -901,7 +902,7 @@ _remove_batch_artifact :: (fn(path : String, io : Io) -> unit)({
     attempt = (attempt + usize(1));
     // No pause after the FINAL failed attempt — it would only delay the warning.
     if(!(removed) && (attempt < usize(8)), {
-      sleep(pause_ms);
+      sleep_blocking(Duration.from_millis(i64(pause_ms)));
       pause_ms = (pause_ms * usize(2));
     });
   });

@@ -54,6 +54,17 @@ paren-less prefix calls inside `src/`/`std/`
 release CONTAINING those features becomes the seed, i.e. typically the
 bump after next.
 
+**Added 2026-08-25:** collapse `std/time/sleep.yo`'s `sleep_blocking` to its
+natural one-expression body,
+`__yo_ms_sleep(usize(duration.as_millis()))`. It is written as a two-statement
+body only because the seed predates the codegen fix in
+`issues/fixed/inline-builtin-alias-drops-body-arguments.md` and miscompiles the
+one-expression form. Unlike the three above, this one fails LOUDLY if attempted
+early — the seed's output makes clang report `invalid operands to binary
+expression ('__yo_t1035' (aka Duration) and 'int')` — so it is safe to just try
+it at each bump. Only `std/` and `src/` are gated; `tests/` are compiled by the
+stage-1 built from the tree, which already carries the fix.
+
 ## Status addendum (2026-08-22)
 
 Landed in #200; guard live in test.yml's `changes` job. The auto-bump's

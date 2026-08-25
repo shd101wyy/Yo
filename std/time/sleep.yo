@@ -1,16 +1,61 @@
-//! Synchronous sleep — blocks the current thread.
+//! Sleeping — one async form and one blocking form, both taking a `Duration`.
+//!
+//! `sleep` suspends the calling async task and lets the event loop run other
+//! work; `sleep_blocking` parks the whole OS thread. Prefer `sleep` inside
+//! async code — `sleep_blocking` there would stall every other task on the
+//! loop.
+//!
+//! The underlying timers take whole milliseconds, so sub-millisecond
+//! precision in the `Duration` is truncated.
 //!
 //! # Example
 //!
 //! ```rust
-//! { sleep } :: import "std/time/sleep";
-//! sleep(usize(100)); // sleep 100ms
+//! { sleep, sleep_blocking } :: import "std/time/sleep";
+//! { Duration } :: import "std/time/duration";
+//!
+//! // Blocking: parks this thread for 100ms.
+//! sleep_blocking(Duration.from_millis(i64(100)));
+//!
+//! // Async: suspends this task for 100ms.
+//! main :: (fn(io : Io) -> unit)({
+//!   io.await(sleep(Duration.from_millis(i64(100)), io), io);
+//! });
 //! ```
 pragma(Pragma.AllowUnsafe);
+{ Duration } :: import("./duration");
+IO_timer :: import("../sys/timer");
 extern(
   "Yo",
   __yo_ms_sleep : (fn(ms : usize) -> unit)
 );
-/// Block the current thread for the given number of milliseconds.
-sleep :: __yo_ms_sleep;
-export(sleep);
+/// Suspend the current async task for `duration`, letting other tasks on the
+/// event loop run in the meantime.
+sleep :: (fn(duration : Duration, io : Io) -> Impl(Future(unit)))({
+  ms := u64(duration.as_millis());
+  io.async((io : Io) => {
+    io.await(IO_timer.sleep(ms), io);
+    return(());
+  })
+});
+/// Block the current thread for `duration`. Nothing else runs on this thread
+/// until it returns — inside async code use `sleep` instead.
+///
+/// SEED-GATED, not style: the `ms` binding must stay until a released seed
+/// carries the codegen fix in
+/// `issues/fixed/inline-builtin-alias-drops-body-arguments.md`. A function body
+/// that is a SINGLE inline-builtin call is elided by codegen and re-emitted
+/// with the CALLER's arguments, so the one-expression form hands the raw
+/// `Duration` to `usleep`. The compiler in this tree rejects that form loudly
+/// — `error: invalid operands to binary expression ('__yo_t1035' (aka Duration)
+/// and 'int')` at `usleep((...) * 1000)` — but `yo build` compiles this tree
+/// with the SEED, which predates the fix, so collapsing this body breaks the
+/// bootstrap. Collapse it at the next seed bump.
+sleep_blocking :: (fn(duration : Duration) -> unit)({
+  ms := usize(duration.as_millis());
+  __yo_ms_sleep(ms)
+});
+export(
+  sleep,
+  sleep_blocking
+);

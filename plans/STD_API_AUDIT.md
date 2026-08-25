@@ -615,8 +615,9 @@ Converting `File.read` alone would still leave bufio split three ways, so the
 `std/sys/bufio` → `std/io` move. Until then `TcpStream.read` and `File.read`
 disagree on their count type — a KNOWN transient, tracked here.
 
-`std/io.Reader`/`Writer` are sync, orphaned (zero implementors), and
-incompatible with the async model. Redesign: async `Reader`/`Writer` traits
+`std/io.Reader`/`Writer` were sync, orphaned (zero implementors), and
+incompatible with the async model — **DELETED 2026-08-25** (§6 round 2), so
+`std/io/` is now an empty namespace waiting for this redesign. Redesign: async `Reader`/`Writer` traits
 (`read(buf, io) -> Future(usize, IoExn)`), implemented by `File`, `TcpStream`,
 `BufReader`, `BufWriter`, `Stdin`/`Stdout`; default methods `read_to_end`,
 `read_to_string`, `write_all`, `lines()`; `io.copy(r, w)`. BufReader/BufWriter
@@ -635,8 +636,11 @@ implementing the D5 traits.** Until it lands, std honestly refuses https.
 
 - `Mutex(T).with_lock` closure style is the flagship — extend it: `RwLock(T)`
   becomes generic with `with_read`/`with_write` guards.
-- Delete the parallel C-tier (`mutex_t`, `cond_t`); introduce opaque `RawMutex`
-  for `Cond`'s signature; stop exporting `__MutexUnlocker`, `__YO_THREAD_SYNC_TYPE`.
+- Delete the parallel C-tier (`mutex_t`, `cond_t`) — **DONE 2026-08-25** (§6
+  round 2); no `RawMutex` was needed after all, `Cond.wait` already took
+  `*(__YO_THREAD_SYNC_TYPE)` and only the deleted `cond_t.wait` wanted
+  `mutex_t`. Still to do: stop exporting `__MutexUnlocker` (**DONE**, round 1)
+  and `__YO_THREAD_SYNC_TYPE` (blocked — the compiler itself consumes it).
 - Atomics: `fetch_add/sub/and/or/xor/min/max` for ALL integer atomics (today
   only `AtomicI32` has add/sub), `fence`, receiver convention unified.
 - `Once` gains `OnceCell(T)`-style `get_or_init`.
@@ -644,7 +648,8 @@ implementing the D5 traits.** Until it lands, std honestly refuses https.
   `spawn -> JoinHandle`-analog, `join_all`, `shutdown`); `Thread.spawn` should
   carry a result (`join() -> T`) and panic propagation.
 - `WaitGroup`: delete (Go transplant) — replaced by `ThreadPool.join_all` +
-  a new `Barrier`/`Semaphore` pair.
+  a new `Barrier`/`Semaphore` pair. **Do it in that order**: §6 round 2 measured
+  5 live test-file consumers, so the deletion must ride WITH the replacement.
 - **Async-aware sync is a P0 addition** (§7): async `Channel`, async `Mutex`,
   `select`/timeout — today any `ch.recv()` inside a future parks the entire
   single-threaded event loop, and the prelude DOCUMENTS `Channel` as the way to
@@ -689,9 +694,9 @@ implementing the D5 traits.** Until it lands, std honestly refuses https.
 | cli | EXTEND or DROP-TO-PACKAGE | typed values, required enforcement, `--` , repeated opts, help-not-an-error; needs tty/color access (D8 wrappers). Recommendation: keep minimal-but-correct in std |
 | net | FIX + EXTEND | C2/C3; `Shutdown` enum; `Reader`/`Writer` impls (D5); `incoming()`; UDP `connect` (its own doc references it), typed `recv_from`; `UnixStream`/`UnixListener` (sys/unix.yo fully plumbed — lowest-effort high-value gap); `parse_v6`, `SocketAddr.parse`, `Eq`/`Hash` on addr types; RFC 5952 V6 formatting |
 | http | FIX + EXTEND | C1; timeouts (dead `Timeout` variant becomes real), redirects (needs `Url.join`), chunked decoding, binary bodies (`Output`-style bytes + `text()`/`json()` accessors), keep-alive; **server (P1)**: `parse_request`, `HttpServer` on `TcpListener`, router-free minimal core; collapse `FetchOptions` into `HttpRequest` |
-| async | PROMOTE | becomes the combinator home: `join_all`, `race`, `any`, `timeout`, async `sleep(Duration)`, interval, cancellation story for `JoinHandle` (`abort()`), async channel/mutex (D7) |
+| async | PROMOTE | becomes the combinator home: `join_all`, `race`, `any`, `timeout`, ~~async `sleep(Duration)`~~ (LANDED 2026-08-25 as `std/time/sleep.yo`'s `sleep(Duration, io)` per §5 — do NOT add a second one here; re-export it if `std/async` wants the name), interval, cancellation story for `JoinHandle` (`abort()`), async channel/mutex (D7) |
 | thread/worker/sync | REDESIGN (D7) | |
-| time | EXTEND | `Duration`: `Add/Sub` operator impls, `Eq/Ord/Hash`, `from_secs_f64`, `subsec_*`, consts; **make std USE it** (timeouts, sleeps — today zero consumers outside time/); `Instant` `add/sub`, `Eq/Ord`; `DateTime`: RFC3339 `parse`/`format` (C4 fix first), component ctor, arithmetic, `Eq/Ord`; ONE `sleep(Duration, io)` async + `sleep_blocking(Duration)` |
+| time | EXTEND | `Duration`: `Add/Sub` operator impls, `Eq/Ord/Hash`, `from_secs_f64`, `subsec_*`, consts; **make std USE it** (timeouts, sleeps — today zero consumers outside time/); `Instant` `add/sub`, `Eq/Ord`; `DateTime`: RFC3339 `parse`/`format` (C4 fix first), component ctor, arithmetic, `Eq/Ord`; ~~ONE `sleep(Duration, io)` async + `sleep_blocking(Duration)`~~ **DONE 2026-08-25 (§5)** |
 | crypto | EXTEND | streaming `Digest` trait unifying Sha256/Md5 (+ streaming Md5); SHA-1, SHA-512, **HMAC** (blocks JWT/SigV4/webhooks), CRC32, constant-time compare; fix C5; new `std/rand` module: seedable PCG/xoshiro PRNG, `shuffle`, `choice`, ranges — infallible, non-crypto, clearly separated from `crypto/random` |
 | log | REWRITE (zero users = free window) | levels + `Off`, `ToString`-generic message, lazy eval, timestamps, target/module, writer sink (file/buffer), thread-safe; keep the free-function facade |
 | testing | EXTEND | `assert_eq`/`assert_ne`/`assert_approx` (diff-printing), `bench`: auto-calibration, black_box, stddev/percentiles |
@@ -881,7 +886,31 @@ small number of PRs with tree-wide fixups (compiler + std + tests + docs):
   nothing left to rename. Verified: zero `punycode` references in std/, src/
   or tests/. If IDN support returns it comes back with tests and a `Url`
   integration, and it gets these names then
-- two `sleep`s → `time.sleep(Duration, io)` async + `time.sleep_blocking(Duration)`
+- ~~two `sleep`s → `time.sleep(Duration, io)` async + `time.sleep_blocking(Duration)`~~
+  **DONE 2026-08-25 (S2, branch `s2/sleep-duration`)** — `std/time/sleep.yo` now
+  exports both: `sleep(Duration, io) -> Impl(Future(unit))` (an `io.async` block
+  awaiting the sys timer) and `sleep_blocking(Duration) -> unit`. `std/sys/timer.yo`
+  is UNCHANGED and keeps its raw `sleep(milliseconds : u64) -> IoFuture`: `sys/` is
+  the syscall boundary, the same call the `Shutdown`/`SeekFrom` split already makes.
+  16 blocking call sites migrated (`src/main.yo` ×1, `tests/sync/{channel,rwlock,
+  waitgroup}.test.yo` ×15); `tests/imm_threading.test.yo` had an unused `sleep`
+  import, dropped. The async call sites left on `std/sys/timer` are the sys-layer
+  tests themselves plus `src/check_watch.yo` — see the deferred note below.
+  New coverage: `tests/time/sleep.test.yo` (4 tests), including an overlap test
+  proving `sleep` suspends rather than blocks the loop.
+  **Found en route and FIXED in the same batch:** a codegen miscompilation — a
+  function whose body is ONE inline-builtin call was emitted with the CALLER's
+  arguments, silently discarding the body's own argument expressions
+  (`issues/fixed/inline-builtin-alias-drops-body-arguments.md`). The predicate
+  now also requires the body to pass its parameters through unchanged and in
+  order. `sleep_blocking` still ships the two-statement body, but as a SEED
+  GATE rather than a workaround: `yo build` compiles this tree with the seed,
+  which predates the fix, so the one-expression form breaks the bootstrap
+  (loudly — clang rejects the seed's output). Scheduled at
+  `plans/backlog/SEED_VERSION_AUTOMATION.md`.
+  **Deferred:** migrating `src/check_watch.yo` off `std/sys/timer` — it is the one
+  non-test consumer of the async sleep, and an async call-shape change inside the
+  compiler tree cannot be validated without a `yo build` / `compile src/main.yo`.
 - `str.join(items)` receiver-as-separator: keep (Python style is fine) but
   document; `index_of`/`last_index_of` keep (JS names are the local norm) —
   the D2 table is the arbiter wherever vocabularies mix
@@ -930,6 +959,92 @@ collection pair that cannot be verified to still reproduce the original bug, so
 the deletion would trade a real regression test for 514 lines. Revisit if that
 test is ever re-expressed without it.
 
+**Progress (S2 deletions, round 2 — the remainder, 2026-08-25, branch
+`s2/s6r2-rest`).** Every remaining §6 row was re-measured against `std/`, `src/`,
+`tests/`, a POPULATED `vendor/` and both `docs/` trees before acting.
+
+DELETED (each verified zero consumers repo-wide, including vendor and docs):
+
+- **`mutex_t` (`std/sync/mutex.yo`) and `cond_t` (`std/sync/cond.yo`)** — the
+  parallel C-tier D7 asks to delete. Their only cross-file link was `cond.yo`
+  importing `mutex_t` for `cond_t.wait`; nothing else in the repo named either.
+  D7's "introduce opaque `RawMutex` for `Cond`'s signature" turned out to be
+  unnecessary: `Cond.wait` already takes `*(__YO_THREAD_SYNC_TYPE)`, so only
+  `cond_t.wait` needed `mutex_t` and both went together. `Mutex(T)`/`Cond` and
+  everything built on them (`RwLock`, `Channel`, `WaitGroup`) are untouched.
+- **`std/io/reader.yo` + `std/io/writer.yo`** — zero implementors, as the row
+  says; the sole consumer was `tests/io/reader_writer.test.yo`, whose `TestBuf`
+  implements both. The two trait declarations MOVED INTO that test rather than
+  dying with the files: it is the only coverage in the suite of a user trait
+  whose methods take raw `*(u8)` plus an `Exception`. `std/io/` is now empty and
+  gone — which is the namespace D5 wants for the async `Reader`/`Writer` and the
+  `std/sys/bufio` move.
+- **`std/env.yo`'s `raw_args`, `argv`, `argc`** — see the row correction below.
+- **`std/prelude.yo`'s `export();` no-op and the commented-out `c_macro` IDEA
+  block** (25 lines).
+- **`ArgKind`/`ArgDef` came off `std/cli/arg_parser.yo`'s `export(...)`** — they
+  appear only inside `ArgParser`'s private `_args` field, never in a public
+  signature, and nothing outside the file names them.
+
+**Row correction — the `raw_args`/`argc`/`argv` row is misfiled and misnamed.**
+It sits under "underscore-private names in `export(...)`", but none of the three
+is underscore-prefixed and they are not "duplicates" of each other. Measured:
+
+- `raw_args` — 2 hits, its own declaration and its own `export`. Zero consumers
+  anywhere. Genuinely dead; deleted.
+- `argv` — declaration + `export`, zero callers. `args()` reads the `__yo_argv`
+  extern DIRECTLY rather than going through it. Deleted.
+- `argc` — declaration + `export`, and ONE internal caller: `args()`. So the
+  function was live but its export was not. Deleted by inlining the extern at
+  the single call site (`len := usize(__yo_argc)`), which also makes `args()`
+  symmetric with the `__yo_argv` read two lines below it.
+
+`src/public_safe_report.yo`'s `_name_is_raw_pointer_api` hardcodes `"argv"` and
+`"argc"` in its raw-pointer-API exemption list. That is a name-pattern allowlist
+mirroring the retired TS `RAW_POINTER_API_PATTERNS`, not a consumer, and its
+cli-case golden runs against its own fixture — left alone deliberately.
+
+NOT DELETED, with the measurement that blocks each:
+
+- **`WaitGroup` — KEEP.** The row says "Go transplant; replaced per D7", but D7's
+  replacement (`ThreadPool.join_all` + a `Barrier`/`Semaphore` pair) does not
+  exist yet, and `WaitGroup` is not dead: FIVE test files use it as a real
+  primitive (`tests/imm_threading`, `tests/sync/{channel,once,rwlock,waitgroup}`),
+  `plans/THREAD_SAFETY.md` records it as an in-scope fixed primitive (finding 2,
+  `_count` → `AtomicI32`), and `src/doc/render_html_assets.yo` lists it as a
+  highlighter builtin. Delete it WITH its replacement, not before.
+- **`base64_decode_string` — NEEDS-DECISION; the row's evidence is only half
+  true.** `base64_encode_string` really is a pure duplicate — it is literally
+  `_encode_with(input.as_bytes(), _STD_ALPHA, true)`, i.e. `base64_encode` with
+  an `as_bytes()`. `base64_decode_string` is NOT: it strips ASCII whitespace
+  before decoding (`tests/encoding/base64.test.yo` has a "decode_string with
+  whitespace" case), returns `Result(String, String)` instead of throwing via
+  `Exception`, and yields a `String` rather than `ArrayList(u8)`. "Fold into the
+  primary pair" therefore means deciding whether `base64_decode` GAINS
+  whitespace tolerance — a behaviour change, not a deletion. Deleting only the
+  encode half would leave the API asymmetric, so both were left in place.
+- **Regex internals (`parser`/`node`/`compiler`/`vm` exports) — D8, not a
+  sweep.** Same shape as the `fs/types` converters the round-1 note describes:
+  `index.yo` imports `RegexParser`, `NfaCompiler`, `NfaProgram`, `Instr`,
+  `InstrKind`, `ClassEntry`, `GroupNameEntry`, `NfaVm`, `VmMatch`, and
+  `vm`/`match`/`parser`/`compiler`/`unicode` import `node`'s types from each
+  other. Unexporting breaks the imports; Yo has no module-private visibility.
+- **`ExprInfo.popped_env_frame` — clean but out of scope here.** Confirmed dead:
+  the only write was removed with the eval-phase leak fix, and what remains is
+  the field declaration plus two `Option(Frame).None` initialisers in
+  `src/expr_info.yo`. Removing it is a COMPILER struct change that needs a
+  rebuild + fixpoint battery to land safely, which this std-scoped branch cannot
+  run — schedule it with a compiler change, not with a std deletion.
+
+**New finding, not in the table: `__yo_c_macro_defined` / `__yo_c_macro_value`
+(`std/prelude.yo:168-169`) are dead externs.** They are declared in the prelude's
+`extern("Yo", ...)` block, but `grep -rn c_macro src/` returns NOTHING — there is
+no `BF_*` constant and no evaluator handler for either, so a call could never
+resolve. The commented-out `c_macro` block deleted above was their only textual
+justification. Deleting the two declarations is a follow-up (it needs its own
+verification that an unresolved prelude extern is not load-bearing elsewhere).
+
+
 
 | Target | Evidence |
 |---|---|
@@ -937,14 +1052,14 @@ test is ever re-expressed without it.
 | ~~`std/encoding/punycode.yo`~~ **DELETED** | zero importers incl. url; 343 untested spec-sensitive lines; ALSO duplicated at `vendor/markdown_yo` — deleted in §6 round 1 |
 | `std/collections/list_view.yo` | test-only, no Index/iter/consumers; superseded by `slice_copy` |
 | `std/collections/linked_list.yo` | test-only, 510 lines; `Deque` covers it (decide: delete vs keep-as-is; recommend delete) |
-| `mutex_t`, `cond_t` | zero in-tree users, duplicate `Mutex`/`Cond` unsafely |
-| `WaitGroup` | Go transplant; replaced per D7 |
-| `std/io/{reader,writer}.yo` current traits | zero implementors — replaced by D5 redesign |
+| ~~`mutex_t`, `cond_t`~~ **DELETED** | zero in-tree users, duplicate `Mutex`/`Cond` unsafely — deleted in §6 round 2; `Cond.wait` already took `*(__YO_THREAD_SYNC_TYPE)`, so D7's `RawMutex` was not needed |
+| `WaitGroup` **KEPT** | Go transplant, but NOT dead: 5 test files use it, `THREAD_SAFETY.md` records it as fixed-and-in-scope, and D7's replacement (`ThreadPool.join_all` + `Barrier`/`Semaphore`) does not exist yet — delete WITH the replacement, see the round-2 note |
+| ~~`std/io/{reader,writer}.yo` current traits~~ **DELETED** | zero implementors — replaced by D5 redesign; deleted in §6 round 2, the two trait decls moved into `tests/io/reader_writer.test.yo` (its `TestBuf` was the only implementor and the only coverage of a `*(u8)`+`Exception` user trait). `std/io/` is now empty, which is the namespace D5 wants |
 | `std/fmt/display.yo` | zero call sites, not re-exported, malformed trait shape |
 | ~~`StringError`~~, ~~`PathError`~~ **DELETED**, dead variants (`HashMapError.KeyNotFound` — dead but BLOCKED, `HttpError.Timeout`* etc.) | never constructed (*Timeout/TooManyRedirects/ResponseTooLarge become REAL when the features land — don't delete, implement). **`StringError` RECLASSIFIED 2026-08-25 — see the note below; it belongs with the starred ones.** |
-| `base64_{encode,decode}_string` | duplicate logic, second error style; fold into primary pair |
-| `ExprInfo.popped_env_frame`-class dead fields, prelude commented-out blocks, `export();` no-op | listed in core report |
-| underscore-private names in `export(...)` (fs/types converters, `__MutexUnlocker`, regex internals, `ArgDef`, `raw_args`/`argc`/`argv` duplicates) | export hygiene sweep |
+| `base64_{encode,decode}_string` **NEEDS-DECISION** | only `encode_string` is a pure duplicate (`base64_encode(s.as_bytes())`); `decode_string` ALSO strips whitespace and returns `Result` — "fold in" is a behaviour decision about `base64_decode`, not a deletion. See the round-2 note |
+| ~~`ExprInfo.popped_env_frame`-class dead fields, prelude commented-out blocks, `export();` no-op~~ **ALL DELETED** | the two prelude items in §6 round 2; `popped_env_frame` in PR #283 — it is a COMPILER struct change, so it took the rebuild + full fixpoint battery round 2 said to schedule it with |
+| underscore-private names in `export(...)` (fs/types converters, ~~`__MutexUnlocker`~~, regex internals, ~~`ArgDef`~~, ~~`raw_args`/`argc`/`argv`~~) | export hygiene sweep. `ArgDef` (+`ArgKind`) unexported and all three env fns DELETED in round 2 — but the row MISNAMES that last group: none is underscore-prefixed and they are not duplicates of each other (round-2 note has the per-name measurement). Regex internals are cross-module consumed = D8, like fs/types |
 
 **§6 CORRECTION (2026-08-25): do NOT delete `StringError` — wire it up.** The row
 above groups it with `PathError` on the evidence "never constructed". Both halves

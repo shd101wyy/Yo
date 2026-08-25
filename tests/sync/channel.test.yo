@@ -4,7 +4,8 @@ pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
 open(import("std/libc/stdio"));
 { Channel } :: import("std/sync/channel");
 { Thread } :: import("std/thread");
-{ sleep } :: import("std/time/sleep");
+{ sleep_blocking } :: import("std/time/sleep");
+{ Duration } :: import("std/time/duration");
 { WaitGroup } :: import("std/sync/waitgroup");
 Worker :: import("std/worker");
 // ============================================================================
@@ -227,7 +228,7 @@ test("Channel consumer thread blocks until producer sends", {
     assert(val.unwrap() == i32(999), "value should be 999");
   });
   // Sleep briefly so consumer has time to block on recv
-  sleep(usize(50));
+  sleep_blocking(Duration.from_millis(i64(50)));
   ch.send(i32(999));
   consumer.join();
 });
@@ -239,7 +240,7 @@ test("Channel close wakes blocked consumer Thread", {
     assert(val.is_none(), "recv should return None after close");
   });
   // Sleep briefly so consumer blocks on recv
-  sleep(usize(50));
+  sleep_blocking(Duration.from_millis(i64(50)));
   ch.close();
   consumer.join();
 });
@@ -258,7 +259,7 @@ test("Channel bounded capacity blocks producer", {
     ch.send(i32(3)); // Blocks until consumer drains
   });
   // Sleep briefly to let producer block
-  sleep(usize(50));
+  sleep_blocking(Duration.from_millis(i64(50)));
   // Channel should still have 2 items (producer is blocked)
   assert(ch.len() == usize(2), "channel should still have 2 items");
   // Drain one item to unblock the producer
@@ -279,7 +280,7 @@ test("Channel capacity 1 works as rendezvous", {
     ch.send(i32(200));
   });
   // Small delay to let first send complete
-  sleep(usize(50));
+  sleep_blocking(Duration.from_millis(i64(50)));
   v1 := ch.recv();
   assert(v1.unwrap() == i32(100), "first value should be 100");
   v2 := ch.recv();

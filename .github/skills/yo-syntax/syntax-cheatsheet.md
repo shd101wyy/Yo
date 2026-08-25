@@ -54,6 +54,8 @@ total := {
 
 Remember: `{ expr }` without semicolons is a struct literal, not a block. The parser now detects this mistake and emits a clear error if the single expression is not a valid struct field.
 
+**`yo fmt` is not a syntax gate for this.** It parses `{ single_expr }` happily as a struct literal and pretty-prints it, so a `yo fmt` that says "Formatted 1 Yo file(s)" tells you nothing about whether you wrote the block you meant. Measured 2026-08-25: an `if(cond, { single_expr }, other)` passed `yo fmt` and then failed `yo check` with exactly that struct-literal error. **Run `yo check <file>` on every file you edit — and pass `YO_STD=<worktree>/std` when working in a worktree**, or `check` silently validates against the INSTALLED std instead of yours.
+
 In struct literals, keep spaces around `:` and parenthesize infix field values: `{ x : (1 + 2), y : 3 }`, not `{ x: 1 + 2, y: 3 }`.
 
 ## Control flow
