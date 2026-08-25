@@ -18,6 +18,36 @@ Key facts:
 - An expr-info whose value is `.None` means the value is a **runtime value**, not an `UnknownVal`.
 - `EvalValue.UnknownVal(ty, is_runtime_only)` is a compile-time value where we only know its type but not the real value.
 
+## Swallowed definition-time errors (`YO_DEBUG_SWALLOW=1`)
+
+The evaluator evaluates function and closure bodies at DEFINITION time behind a
+"def-eval wall": a failing body is swallowed so a yo-self porting gap cannot
+reject valid code. The cost is that a body which fails to evaluate produces NO
+diagnostic — codegen simply has no `ExprInfo`s for it and emits
+`// Failed to transpile` markers (rewritten to `abort()` since PR #275). That is
+the single most common cause of a hollow function, and `YO_DEBUG_SWALLOW=1` is
+the fastest way to see which body failed and why:
+
+| line | emitted by | covers |
+| --- | --- | --- |
+| `[trial] <pos>` / `[swallow] <err>` | `evaluator/calls/function_type.yo` | named `fn`/`ctl` bodies |
+| `[anon-trial] <pos>` / `[anon-swallow] <err>` | `evaluator/values/anonymous_function.yo` | closure (`=>`) and `->` bodies, including every `io.async` closure |
+| `[shell-head-swallow] <err>` | `evaluator/values/impl.yo` | impl forward-shell signature evaluation |
+| `[mat-default-swallow] <err>` | `evaluator/values/impl.yo` | the per-impl materialization of a trait `?=` default |
+
+A `[…swallow]` line belongs to the most recent `[…trial]` line above it (the
+swallow handlers are capture-free `->` effect handlers, so they cannot print the
+owner themselves). Output is large — redirect stderr and grep:
+
+```bash
+YO_DEBUG_SWALLOW=1 yo compile tmp/fixme.yo --emit-c --skip-c-compiler --release 2>swallow.txt
+grep -n 'swallow' swallow.txt | tail
+```
+
+Sibling channels, same shape: `YO_DEBUG_CTFE` / `YO_DEBUG_CTFE2` (CTFE call
+failures), `YO_DEBUG_DISPATCH` (method dispatch), `YO_DEBUG_BIND=<name>`
+(type-variable binding), `YO_DEBUG_RRE` (return-type re-evaluation).
+
 ## GDB for generated C code
 
 - Run `gdb` on `./a.out` to debug generated C code.
