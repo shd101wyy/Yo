@@ -738,10 +738,34 @@ test is ever re-expressed without it.
 | `WaitGroup` | Go transplant; replaced per D7 |
 | `std/io/{reader,writer}.yo` current traits | zero implementors — replaced by D5 redesign |
 | `std/fmt/display.yo` | zero call sites, not re-exported, malformed trait shape |
-| `StringError`, `PathError`, dead variants (`HashMapError.KeyNotFound`, `HttpError.Timeout`* etc.) | never constructed (*Timeout/TooManyRedirects/ResponseTooLarge become REAL when the features land — don't delete, implement) |
+| ~~`StringError`~~, `PathError`, dead variants (`HashMapError.KeyNotFound`, `HttpError.Timeout`* etc.) | never constructed (*Timeout/TooManyRedirects/ResponseTooLarge become REAL when the features land — don't delete, implement). **`StringError` RECLASSIFIED 2026-08-25 — see the note below; it belongs with the starred ones.** |
 | `base64_{encode,decode}_string` | duplicate logic, second error style; fold into primary pair |
 | `ExprInfo.popped_env_frame`-class dead fields, prelude commented-out blocks, `export();` no-op | listed in core report |
 | underscore-private names in `export(...)` (fs/types converters, `__MutexUnlocker`, regex internals, `ArgDef`, `raw_args`/`argc`/`argv` duplicates) | export hygiene sweep |
+
+**§6 CORRECTION (2026-08-25): do NOT delete `StringError` — wire it up.** The row
+above groups it with `PathError` on the evidence "never constructed". Both halves
+of that are true, but they mean opposite things:
+
+- `PathError` is genuinely dead: declared at `std/path.yo:7`, exported at :13, and
+  referenced nowhere else in std, src, tests or vendor. Delete (or make `Path.new`
+  fallible, as the path row already suggests).
+- `StringError` is the declared error type of `String.from_cstr`, whose every
+  path returns `.Ok` — so the `Result` is VACUOUS and callers unwrap for nothing.
+  The reason no variant is ever constructed is that `from_cstr` never validates:
+  it `strlen`s and copies the bytes. `String.from_bytes` (`:55`) does not validate
+  either, and does not even return a `Result`.
+
+  So `StringError.InvalidUtf8` is not a leftover — it is the error a MISSING check
+  would raise. Deleting it locks in the missing validation and throws away the
+  vocabulary needed to add it. D8 already asks for exactly that check
+  ("`String.from_bytes` starts validating (or gains `from_bytes_unchecked`)"), so
+  the two items are the same work: validate in `from_bytes`/`from_cstr`, construct
+  `InvalidUtf8`, and the type becomes live. That also makes `from_cstr`'s `Result`
+  honest instead of vacuous.
+
+  `StringError.IndexOutOfBounds(index, length)` should be reviewed in the same
+  pass — it is the natural error for the D4 byte-indexed API's bounds failures.
 
 ## 7. Additions ranked (post-sweep, additive, batteries-included)
 
