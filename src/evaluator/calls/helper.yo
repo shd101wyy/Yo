@@ -2710,6 +2710,20 @@ create_specialized_function_inline :: (
           // Declared param types (the SomeT `Impl(Fn(...))` for a closure param),
           // used below to keep a closure param CALLABLE during body eval.
           decl_param_types := match(func_type, .Func({ param_types : dpt }) => dpt, _ => ArrayList(TypeValue).new());
+          // The declared `inout(p)` flags. The runtime-placeholder re-bind below
+          // MUST carry them onto the new binding: `add_variable_to_env`
+          // hardcodes `is_ref : false`, and the re-bound Variable SHADOWS the
+          // correct parameter binding made by `check_param` (this file, ~1129)
+          // for the whole specialized body eval — so codegen's `_var_read_code`
+          // (codegen/exprs/atom.yo) rendered a by-`ref` param as a bare value
+          // while the C prototype (from the spec Func meta's `param_is_ref`,
+          // still true) kept it a pointer. Same defect, same fix as
+          // calls/function.yo:5265.
+          decl_param_is_ref := match(
+            func_type,
+            .Func({ meta : __fm_rb }) => __fm_rb.*.param_is_ref,
+            _ => ArrayList(bool).new()
+          );
           (rbp_i : usize) = usize(0);
           n_rbp := params.len();
           while(rbp_i < n_rbp, {
@@ -2912,6 +2926,10 @@ create_specialized_function_inline :: (
                 _rbc,
                 .Some(rbc_var) => {
                   rbc_var.is_parameter = true;
+                  if(match(decl_param_is_ref.get(rbp_i), .Some(b) => b, .None => false), {
+                    rbc_var.is_ref = true;
+                    rbc_var.is_reassignable = true;
+                  });
                 },
                 .None => ()
               );
@@ -2936,6 +2954,10 @@ create_specialized_function_inline :: (
                     _rb,
                     .Some(rb_var) => {
                       rb_var.is_parameter = true;
+                      if(match(decl_param_is_ref.get(rbp_i), .Some(b) => b, .None => false), {
+                        rb_var.is_ref = true;
+                        rb_var.is_reassignable = true;
+                      });
                     },
                     .None => ()
                   );

@@ -1,0 +1,57 @@
+{ assert } :: import("std/assert");
+open(import("std/string"));
+open(import("std/fmt"));
+/// Regression: a SPECIALIZED (generic) function whose parameter is declared
+/// `inout(p)` must keep its by-ref binding when the argument folds to a
+/// COMPILE-TIME constant.
+///
+/// `create_specialized_function_inline` re-binds a folded-const parameter to a
+/// runtime placeholder; that re-bind used to drop `is_ref`, so the specialized
+/// body was emitted as if the pointer parameter were a value:
+///   - a body that READS the param emitted `(x).tag` on `__yo_t9*`
+///     (invalid C — hard clang error);
+///   - a body that FORWARDS the param to another `inout` callee emitted
+///     `f((&(x)))`, a `T**` where `T*` is expected — silently wrong under
+///     `--release` (which passes `-w`).
+/// Root cause: the folded-const re-bind in `create_specialized_function_inline`
+/// (src/evaluator/calls/helper.yo) used `add_variable_to_env`, which hardcodes
+/// `is_ref : false`; the same defect was fixed once before in
+/// src/evaluator/calls/function.yo:5265.
+show :: (fn(generic(T : Type), inout(x) : Option(T), where(T <: ToString)) -> String)(
+  match(x, .Some(v) => `Some(${v})`, .None => `None`)
+);
+
+forward :: (fn(generic(T : Type), inout(x) : Option(T), where(T <: ToString)) -> String)(
+  show(x)
+);
+
+bump :: (fn(generic(T : Type), inout(n) : i32, tag : T, where(T <: ToString)) -> i32)({
+  n = (n + i32(1));
+  n
+});
+
+test("specialized inout param reads correctly with a comptime-known arg", {
+  // Inline (comptime-folded) receiver — the failing shape.
+  assert(show(Option(i32).Some(i32(4))) == `Some(4)`, "inline Some");
+  assert(show(Option(i32).None) == `None`, "inline None");
+  // Named local — the shape that already worked; must stay working.
+  o := Option(i32).Some(i32(7));
+  assert(show(o) == `Some(7)`, "named local Some");
+});
+
+test("specialized inout param forwarded to another inout callee", {
+  assert(forward(Option(i32).Some(i32(4))) == `Some(4)`, "forwarded inline Some");
+  b := Option(bool).Some(true);
+  assert(forward(b) == `Some(true)`, "forwarded named local");
+});
+
+test("specialized inout param stays writable with a comptime-known arg", {
+  n := i32(41);
+  assert(bump(n, i32(0)) == i32(42), "returns incremented");
+  assert(n == i32(42), "wrote through to the caller");
+});
+
+test("plain to_string on a comptime-known Option", {
+  assert(Option(i32).Some(i32(4)).to_string() == `Some(4)`, "inline to_string");
+  assert(Option(str).None.to_string() == `None`, "inline None to_string");
+});
