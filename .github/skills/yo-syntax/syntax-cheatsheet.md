@@ -1478,53 +1478,68 @@ total := sums.fold(i32(0), (fn(acc : i32, x : i32) -> i32)((acc + x)));
 
 **Test API format**: Use `evaluate_module_body(exprs, &(env))` (reference syntax, returns `Option`). Match with function-style `match(result, .None => ..., .Some(m) => ...)`. Do NOT use block-style `match(result) { ... }` — it causes a parse error ("Paren-less function and operator calls are not supported").
 
-**String indexing: `len()`/`substring`/`index_of` are RUNE-based; `byte_at`/`as_bytes` are BYTE-based — never mix.** `String.from("a→b").len()` is `3` (runes) while `.as_bytes().len()` is `5`. A loop `while(i < s.len(), { b := s.byte_at(i); ... })` UNDER-WALKS multibyte content by `bytes − runes` (this truncated emitted C in yo-self codegen: an `assert(_, "… → …")` message chopped the compound literal's closing `}`). `index_of` returns a RUNE index — never feed it to `byte_at`, and never feed a byte index to `substring`. Rules:
+**String indexing is BYTE-based, everywhere.** Since 2026-08-26
+(`plans/STD_API_AUDIT_D4_PLAN.md` D4 PR 3) `String.len()`, `at`, `substring`,
+the `s(a..b)` / `s(a..=b)` sugar, `index_of`, `last_index_of`,
+`contains(from_index)`, `starts_with(position)`, `ends_with(end_position)` and
+the whole `Pattern` trait all speak BYTE offsets — the same unit as
+`byte_at` / `as_bytes` / `Index(usize)` / `str.len()` / `StringBuilder.len()`.
+`String.from("a→b").len()` is `5`, not `3`. **This is the reverse of what it
+used to be**: before that flip they were rune-based, and mixing the two bases
+was the standing hazard. Now the only rune-based names are the `char_*` family
+below.
 
 ```
-// ✅ byte loop: byte bound
-n := s.as_bytes().len();
-while(i < n, { b := s.byte_at(i); ... });
-
-// ✅ byte-exact slicing: rebuild from bytes (substring is rune-indexed)
-bytes := s.as_bytes();
-inner := ArrayList(u8).new();
-// push bytes[from..to), then:
-String.from_bytes(inner)
-
-// ❌ WRONG — rune bound, byte reads
+// ✅ byte loop, byte bound — the bases now agree
 while(i < s.len(), { b := s.byte_at(i); ... });
-// ❌ WRONG — rune index from index_of fed to byte_at
-match(s.index_of(w, from), .Some(idx) => s.byte_at(idx - usize(1)), ...);
+
+// ✅ index_of's answer feeds straight back into substring
+match(s.index_of(w), .Some(idx) => s.substring(idx, idx + w.len()), .None => ...);
+
+// ✅ rune iteration with the byte offset of each rune
+it := s.char_indices();
+// p._0 is the BYTE offset, p._1 the rune
+
+// ❌ WRONG — a rune count is not a byte offset
+while(i < s.char_len(), { b := s.byte_at(i); ... });
+// ❌ PANICS — an endpoint inside a rune
+s.substring(usize(0), usize(1)) // on "→…", byte 1 is a continuation byte
 ```
 
-**Since 2026-08-26 there is a byte-safe vocabulary — prefer it over hand-rolled
-byte walks** (`std/string/string.yo`, same six on `std/imm/string.yo`, which also
-gained `chars()`):
+**Boundary policy for `substring` (and the `s(a..b)` sugar):** out-of-range
+CLAMPS, but a **non-boundary index PANICS** — an offset inside a rune is a
+programmer error, not a range condition. The escape hatches:
+`try_substring(a, b)` returns `.None` instead, and
+`floor_char_boundary` / `ceil_char_boundary` snap an arbitrary offset onto a
+boundary first. `index_of` / `starts_with` / `ends_with` never panic: a
+valid-UTF-8 needle simply cannot match at a continuation byte, so a mid-rune
+argument answers `false` / `.None`.
+
+**The rune vocabulary** (`std/string/string.yo`; the same names exist on
+`std/imm/string.yo`, whose own `len()` is still rune-based until D4 PR 4):
 
 | call | basis | meaning |
 | --- | --- | --- |
-| `s.char_len()` | runes | the O(n) rune count. **Say this** when you mean runes; `len()` is scheduled to become the byte count (D4). |
-| `s.char_indices()` | — | iterator of `IterPair(byte_offset, rune)`; `p._0` is the BYTE offset, `p._1` the rune. Replaces `while(i < s.len()) { s.at(i) }`, which is O(n²). |
-| `s.is_char_boundary(i)` | byte | is byte `i` the start of a rune? `0` and `bytes_len()` are boundaries; past the end is not. |
-| `s.floor_char_boundary(i)` / `s.ceil_char_boundary(i)` | byte | snap an arbitrary byte offset back/forward onto a rune start (clamped to `bytes_len()`). |
-| `s.try_substring(a, b)` | **byte** | `Option(String)`; `.None` for `a > b`, `b > bytes_len()`, or an endpoint inside a rune. NOTE: byte offsets, unlike `substring`, which is still rune-indexed and clamps. |
-| `s.char_substring(a, b)` | runes | (added 2026-08-26) exactly what `substring` does today, under a name that says so. `substring` is now a one-line delegation to it, so **`substring` will change basis and `char_substring` will not.** Say `char_substring` at any site that means runes. |
-| `s.truncate_chars(n)` | runes | (added 2026-08-26) keep at most `n` runes. Never splits a rune, never lengthens. This is the right tool for "cut arbitrary human text to a display length". |
-
-So the byte-exact slice above is now `s.try_substring(from, to).unwrap()`, and a
-fixed-width truncation that must not split a codepoint is
-`s.truncate_chars(n)` (or, if you are working in byte offsets,
-`s.try_substring(usize(0), s.floor_char_boundary(n)).unwrap()`).
-
-**The migration rule, in one line:** if a site means runes, spell it
-`char_len`/`char_indices`/`char_substring`/`truncate_chars` *now*; if it means
-bytes, leave it on `len`/`substring` and it becomes correct when D4 flips them.
-`while(i < s.len()) { s.at(i).unwrap() }` is the shape to hunt — after the flip
-`at()` at a continuation byte is `.None`, so that `.unwrap()` **panics**.
+| `s.char_len()` | runes | the O(n) rune count. **Say this** whenever you mean "how many characters" — `len()` is bytes. |
+| `s.char_indices()` | — | iterator of `IterPair(byte_offset, rune)`; `p._0` is the BYTE offset, `p._1` the rune. This is the replacement for `while(i < s.len()) { s.at(i) }`, which now visits continuation bytes and yields `.None` at each of them. |
+| `s.char_substring(a, b)` | runes | the rune-indexed slice — what `substring` meant before the flip. Clamps, never panics. |
+| `s.truncate_chars(n)` | runes | keep at most `n` runes. Never splits a rune, never lengthens. The right tool for "cut arbitrary human text to a display length". |
+| `s.is_char_boundary(i)` | byte | is byte `i` the start of a rune? `0` and `len()` are boundaries; past the end is not. |
+| `s.floor_char_boundary(i)` / `s.ceil_char_boundary(i)` | byte | snap an arbitrary byte offset back/forward onto a rune start (clamped to `len()`). |
+| `s.try_substring(a, b)` | byte | `Option(String)`; `.None` for `a > b`, `b > len()`, or an endpoint inside a rune. The non-panicking `substring`. |
+| `s.bytes_len()` | byte | DEPRECATED alias of `len()`. It existed to say "bytes, not runes"; that distinction is gone. Write `len()`. |
 
 `char_len` and `char_indices` sit on `std/encoding/utf8`, so they inherit its
 malformed-input behaviour: `char_len` counts non-continuation bytes, and
 `char_indices` (like `chars()`) stops at the first sequence that will not decode.
+
+**Lexer/AST note:** `Token.character` is a RUNE offset into `Token.input`
+(the lexer walks `input.chars()`); `Token.byte_offset` is the byte offset of
+the same position. **Never index `input` with `character`** — that was
+`issues/fixed/yo-self-formatter-corrupts-files-with-non-ascii.md`, where `yo
+fmt` silently destroyed non-ASCII source at rc=0. `Token.column` is likewise a
+rune column, so a width added to it must be `value.char_len()`, not
+`value.len()`.
 
 ## Async: await only at the async-closure statement level
 

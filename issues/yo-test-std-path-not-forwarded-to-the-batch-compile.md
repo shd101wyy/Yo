@@ -4,6 +4,16 @@
 `RwLock`/`OnceCell` change, where it caused a whole test run to score the
 INSTALLED std instead of the working tree's.
 
+**Hit again, in its DANGEROUS form, during D4 PR 3 (2026-08-26.)** With
+`String`'s index basis flipped in the working tree,
+`yo test ./tests/string/string.test.yo --std-path ./std` reported a clean
+**253 passed / 253 total**. The same command with `YO_STD=$PWD/std` reported
+**36 failures**. Nothing in the first run's output hints that the flag was
+dropped — there is no "using std from ..." line and no warning. That is the
+silent case this issue warns about, and it cost a full re-run to notice.
+**Until this is fixed, use `YO_STD=$PWD/std yo test ...` for anything that
+depends on the working tree's `std`, never `--std-path`.**
+
 ## Symptom
 
 From a worktree whose `std/` differs from the installed bundle's:

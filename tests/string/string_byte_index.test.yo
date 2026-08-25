@@ -1,0 +1,321 @@
+//! The BYTE index basis of `String` — `plans/STD_API_AUDIT_D4_PLAN.md` D4 PR 3.
+//!
+//! Every assertion here is against multibyte content with HAND-COMPUTED byte
+//! offsets, and every one of them has a DIFFERENT answer under the pre-D4
+//! rune basis. That is the point: a basis error is invisible to ASCII input by
+//! construction, so an ASCII test of these methods proves nothing
+//! (`plans/STD_API_AUDIT_D4_PLAN.md` §6.1-§6.2). The pre-D4 answer is written
+//! beside each assertion that has one, so the discrimination is auditable
+//! without running the old code.
+//!
+//! The canonical subject covers all four UTF-8 widths in one string:
+//!
+//! ```text
+//!   rune   a      é         中           𝄞
+//!   width  1B     2B        3B           4B          10 bytes, 4 runes
+//!   bytes  61     C3 A9     E4 B8 AD     F0 9D 84 9E
+//!   offset 0      1  2      3  4  5      6  7  8  9
+//! ```
+//!
+//! Boundary policy under test (`String.substring`'s doc comment is the
+//! contract): out-of-range CLAMPS, a non-boundary index PANICS, and
+//! `try_substring` is the non-panicking form. The panic arm cannot be
+//! asserted from inside a test batch — a panic aborts the process and takes
+//! every other test in the file with it — so it is covered by a standalone
+//! driver instead; `try_substring`'s `.None` at the same indices is what is
+//! asserted here.
+{ assert } :: import("std/assert");
+open(import("std/fmt"));
+open(import("std/string"));
+open(import("std/collections/array_list"));
+/// The four-width subject string, rebuilt per test so nothing is shared.
+_subject :: (fn() -> String)(
+  `aé中𝄞`
+);
+// ===========================================================================
+// len — BYTES, O(1)
+// ===========================================================================
+test("String len counts bytes, not runes", {
+  s := _subject();
+  // pre-D4: 4
+  assert(s.len() == usize(10), "10 bytes");
+  assert(s.char_len() == usize(4), "4 runes");
+  assert(s.len() == s.as_bytes().len(), "len IS the buffer length");
+  // pre-D4: 2 / 2 / 3
+  assert(`你好`.len() == usize(6), "two 3-byte runes");
+  assert(`😀😁`.len() == usize(8), "two 4-byte runes");
+  assert(`abc`.len() == usize(3), "ASCII agrees in both bases");
+  assert(String.new().len() == usize(0), "empty");
+});
+test("String bytes_len is a deprecated alias of len", {
+  s := _subject();
+  assert(s.bytes_len() == s.len(), "alias tracks len");
+  assert(s.bytes_len() == usize(10), "and is still the byte count");
+});
+// ===========================================================================
+// at — decode the rune STARTING at a byte offset
+// ===========================================================================
+test("String at takes a byte offset and refuses continuation bytes", {
+  s := _subject();
+  // pre-D4: at(1) was 'é' (rune index 1); now byte 1 is where 'é' STARTS,
+  // so the value coincides — but at(2) diverges hard.
+  assert(s.at(usize(0)).unwrap().to_u32() == u32(0x61), "byte 0 -> 'a'");
+  assert(s.at(usize(1)).unwrap().to_u32() == u32(0xE9), "byte 1 -> 'é'");
+  // pre-D4: at(2) was '中'; it is now the SECOND byte of 'é'.
+  assert(s.at(usize(2)).is_none(), "byte 2 is inside 'é'");
+  assert(s.at(usize(3)).unwrap().to_u32() == u32(0x4E2D), "byte 3 -> '中'");
+  assert(s.at(usize(4)).is_none(), "byte 4 is inside '中'");
+  assert(s.at(usize(5)).is_none(), "byte 5 is inside '中'");
+  assert(s.at(usize(6)).unwrap().to_u32() == u32(0x1D11E), "byte 6 -> '𝄞'");
+  assert(s.at(usize(7)).is_none(), "byte 7 is inside '𝄞'");
+  assert(s.at(usize(8)).is_none(), "byte 8 is inside '𝄞'");
+  assert(s.at(usize(9)).is_none(), "byte 9 is inside '𝄞'");
+  assert(s.at(usize(10)).is_none(), "byte 10 is past the end");
+  assert(s.at(usize(99)).is_none(), "far past the end");
+});
+test("String at agrees with char_indices at every rune start", {
+  s := _subject();
+  it := s.char_indices();
+  (n : usize) = usize(0);
+  while(true, {
+    match(
+      it.next(),
+      .None => {
+        break;
+      },
+      .Some(p) => {
+        assert(s.at(p._0).is_some(), "char_indices offsets decode");
+        assert(s.at(p._0).unwrap().to_u32() == p._1.to_u32(), "same rune");
+        n = (n + usize(1));
+      }
+    );
+  });
+  assert(n == usize(4), "walked all four runes");
+});
+// ===========================================================================
+// substring — BYTE range, clamping out of range
+// ===========================================================================
+test("String substring slices by byte offsets", {
+  s := _subject();
+  // pre-D4: substring(1, 3) was "é中"; it is now exactly "é".
+  assert(s.substring(usize(1), usize(3)) == `é`, "bytes 1..3 是 'é'");
+  // pre-D4: substring(3, 6) was the empty string (rune 3..6 past the end
+  // after clamping start=3 to the last rune); it is now "中".
+  assert(s.substring(usize(3), usize(6)) == `中`, "bytes 3..6");
+  assert(s.substring(usize(6), usize(10)) == `𝄞`, "bytes 6..10");
+  assert(s.substring(usize(0), usize(1)) == `a`, "byte 0..1");
+  assert(s.substring(usize(0), usize(10)) == s, "the whole string");
+});
+test("String substring clamps out-of-range endpoints", {
+  s := _subject();
+  assert(s.substring(usize(0), usize(999)) == s, "end past the buffer clamps");
+  assert(s.substring(usize(999), usize(1000)) == String.new(), "start past the buffer");
+  assert(s.substring(usize(6), usize(3)) == String.new(), "start >= end is empty");
+  assert(s.substring(usize(3), usize(3)) == String.new(), "empty range");
+});
+test("String substring round-trips through char_indices", {
+  // §6.1 item 2: for every pair of boundaries produced by char_indices, the
+  // slice between them must be exactly the runes in that span.
+  s := _subject();
+  offsets := ArrayList(usize).new();
+  {
+    it := s.char_indices();
+    while(true, {
+      match(
+        it.next(),
+        .None => {
+          break;
+        },
+        .Some(p) => offsets.push(p._0)
+      );
+    });
+  };
+  offsets.push(s.len());
+  (i : usize) = usize(0);
+  while(i < offsets.len(), {
+    (j : usize) = i;
+    while(j < offsets.len(), {
+      a := offsets(i);
+      b := offsets(j);
+      piece := s.substring(a, b);
+      assert(piece.char_len() == (j - i), "rune count of the span");
+      assert(piece.len() == (b - a), "byte count of the span");
+      assert(piece == s.char_substring(i, j), "agrees with the rune slice");
+      j = (j + usize(1));
+    });
+    i = (i + usize(1));
+  });
+});
+test("String is_char_boundary agrees with char_indices, byte for byte", {
+  // §6.1 item 2: `is_char_boundary(i)` must be true exactly at the offsets
+  // char_indices yields, plus len().
+  s := _subject();
+  starts := ArrayList(bool).new();
+  (k : usize) = usize(0);
+  while(k <= s.len(), {
+    starts.push(false);
+    k = (k + usize(1));
+  });
+  {
+    it := s.char_indices();
+    while(true, {
+      match(
+        it.next(),
+        .None => {
+          break;
+        },
+        .Some(p) => {
+          starts(p._0) = true;
+        }
+      );
+    });
+  };
+  starts(s.len()) = true;
+  (i : usize) = usize(0);
+  while(i <= s.len(), {
+    assert(s.is_char_boundary(i) == starts(i), `boundary disagreement at ${i}`);
+    i = (i + usize(1));
+  });
+});
+// ===========================================================================
+// try_substring — the non-panicking form of the same contract
+// ===========================================================================
+test("String try_substring refuses exactly what substring panics on", {
+  s := _subject();
+  assert(s.try_substring(usize(3), usize(6)).is_some(), "boundary range is fine");
+  assert(s.try_substring(usize(1), usize(2)).is_none(), "end inside 'é'");
+  assert(s.try_substring(usize(2), usize(3)).is_none(), "start inside 'é'");
+  assert(s.try_substring(usize(4), usize(6)).is_none(), "start inside '中'");
+  assert(s.try_substring(usize(0), usize(11)).is_none(), "end past the buffer");
+  assert(s.try_substring(usize(6), usize(3)).is_none(), "start > end");
+  assert(s.try_substring(usize(10), usize(10)).unwrap() == String.new(), "empty at the end");
+});
+// ===========================================================================
+// slice_copy — the `s(a..b)` / `s(a..=b)` sugar
+// ===========================================================================
+test("String range slicing uses the same byte offsets", {
+  s := _subject();
+  // pre-D4: s(3 .. 6) was empty; s(1 .. 3) was "é中".
+  assert(s(usize(3) .. usize(6)) == `中`, "exclusive range");
+  assert(s(usize(1) .. usize(3)) == `é`, "exclusive range, 2-byte rune");
+  // Inclusive form keeps the LAST byte, so `..=` must end on a rune's last
+  // byte for `end + 1` to be a boundary.
+  assert(s(usize(3) ..= usize(5)) == `中`, "inclusive range");
+  assert(s(usize(0) ..= usize(0)) == `a`, "inclusive ASCII");
+});
+// ===========================================================================
+// index_of / last_index_of / contains — BYTE offsets in AND out
+// ===========================================================================
+test("String index_of answers a byte offset that feeds back into substring", {
+  s := _subject();
+  // pre-D4: 2 (rune index)
+  m := s.index_of(`中`);
+  assert(m.is_some(), "found");
+  assert(m.unwrap() == usize(3), "byte offset of 中");
+  assert(s.substring(m.unwrap(), m.unwrap() + `中`.len()) == `中`, "round trip");
+  // pre-D4: 3
+  assert(s.index_of(`𝄞`).unwrap() == usize(6), "byte offset of 𝄞");
+  assert(s.index_of(`a`).unwrap() == usize(0), "byte offset of a");
+  assert(s.index_of(`é`).unwrap() == usize(1), "byte offset of é");
+  assert(s.index_of(`zz`).is_none(), "absent");
+});
+test("String index_of from_index is a byte offset", {
+  s := `你好世界你好`;
+  // 你@0 好@3 世@6 界@9 你@12 好@15 — 18 bytes, 6 runes.
+  assert(s.len() == usize(18), "18 bytes");
+  // pre-D4: index_of("你好", 1) was 4 (rune index of the second occurrence)
+  assert(s.index_of(`你好`, usize(1)).unwrap() == usize(12), "second occurrence");
+  assert(s.index_of(`你好`, usize(0)).unwrap() == usize(0), "first occurrence");
+  assert(s.index_of(`你好`, usize(13)).is_none(), "past the last start");
+  // A mid-rune from_index cannot invent a match: UTF-8 is self-synchronizing.
+  assert(s.index_of(`好`, usize(4)).unwrap() == usize(15), "skips the match at 3");
+});
+test("String last_index_of answers a byte offset", {
+  s := `你好世界你好`;
+  // pre-D4: 4
+  assert(s.last_index_of(`你好`).unwrap() == usize(12), "last occurrence");
+  // pre-D4 `from_index` was a rune cap; it is now a byte cap.
+  assert(s.last_index_of(`你好`, usize(11)).unwrap() == usize(0), "capped before the last");
+  assert(s.last_index_of(`你好`, usize(12)).unwrap() == usize(12), "cap ON the last start");
+  assert(s.last_index_of(``).unwrap() == s.len(), "empty needle is at len()");
+});
+test("String contains from_index is a byte offset", {
+  s := _subject();
+  // pre-D4: contains(中, 2) was true (rune 2 IS 中); byte 2 is inside é, and
+  // the byte scan from there still finds 中 at 3.
+  assert(s.contains(`中`, usize(3)), "at the byte it starts on");
+  // pre-D4: contains(中, 3) was FALSE (rune 3 is 𝄞, past 中).
+  assert(s.contains(`𝄞`, usize(6)), "4-byte rune at its own offset");
+  assert(!(s.contains(`中`, usize(4))), "past 中's start");
+  assert(!(s.contains(`é`, usize(2))), "past é's start");
+});
+// ===========================================================================
+// starts_with(position) / ends_with(end_position)
+// ===========================================================================
+test("String starts_with position is a byte offset — the 1.3(a) fix", {
+  // Before D4 `_has_prefix` advanced a rune counter and ALSO stepped one byte
+  // per iteration, so `"你好".starts_with("好", 1)` stopped at byte 1 — the
+  // middle of 你 — and answered false. `position` was neither a rune index
+  // nor a byte offset (plans/STD_API_AUDIT_D4_PLAN.md §1.3(a)). It is now
+  // plainly a byte offset, and the walk that caused the defect is gone.
+  s := `你好`;
+  assert(s.len() == usize(6), "6 bytes");
+  assert(s.starts_with(`你`, usize(0)), "prefix at 0");
+  // pre-D4: FALSE for every `position` — the defect.
+  assert(s.starts_with(`好`, usize(3)), "prefix at the second rune");
+  assert(!(s.starts_with(`好`, usize(1))), "mid-rune position cannot match");
+  assert(!(s.starts_with(`好`, usize(2))), "mid-rune position cannot match");
+  t := _subject();
+  assert(t.starts_with(`中`, usize(3)), "3-byte rune at byte 3");
+  assert(t.starts_with(`𝄞`, usize(6)), "4-byte rune at byte 6");
+  assert(t.starts_with(``, usize(999)), "empty prefix is everywhere");
+  assert(!(t.starts_with(`a`, usize(999))), "position past the end");
+});
+test("String ends_with end_position counts bytes", {
+  s := _subject();
+  // pre-D4: ends_with('é', 2) — 2 runes of "aé" — was true; the byte form is 3.
+  assert(s.ends_with(`é`, usize(3)), "first 3 bytes end with é");
+  assert(!(s.ends_with(`é`, usize(2))), "cutting inside é cannot match");
+  assert(s.ends_with(`中`, usize(6)), "first 6 bytes end with 中");
+  assert(s.ends_with(`𝄞`, usize(10)), "the whole string ends with 𝄞");
+  assert(s.ends_with(`𝄞`), "default end_position is the whole string");
+  assert(s.ends_with(`𝄞`, usize(999)), "end_position past the end clamps");
+  assert(s.ends_with(``, usize(4)), "empty suffix is everywhere");
+});
+// ===========================================================================
+// The Pattern trait — a `str` literal pattern must answer the same offsets
+// ===========================================================================
+test("Pattern methods answer byte offsets for str patterns too", {
+  s := _subject();
+  assert(s.index_of("中").unwrap() == usize(3), "str pattern index_of");
+  assert(s.last_index_of("中").unwrap() == usize(3), "str pattern last_index_of");
+  assert(s.contains("中", usize(3)), "str pattern contains");
+  assert(s.starts_with("中", usize(3)), "str pattern starts_with");
+  assert(s.ends_with("中", usize(6)), "str pattern ends_with");
+  // The String-pattern and str-pattern paths must not disagree.
+  assert(s.index_of("中") == s.index_of(`中`), "both Pattern impls agree");
+});
+// ===========================================================================
+// Byte access that was ALREADY byte-based must be unchanged
+// ===========================================================================
+test("String byte_at and Index still read raw bytes", {
+  s := _subject();
+  assert(s.byte_at(usize(1)) == u8(0xC3), "lead byte of é");
+  assert(s.byte_at(usize(2)) == u8(0xA9), "continuation byte of é");
+  assert(s(usize(0)) == u8(0x61), "Index yields a byte");
+  assert(s(usize(9)) == u8(0x9E), "last byte of 𝄞");
+});
+// ===========================================================================
+// split("") must STAY rune-based — it is pinned to the char vocabulary
+// ===========================================================================
+test("String split with an empty separator still splits into runes", {
+  // A byte split would hand back fragments that are not valid UTF-8
+  // (plans/STD_API_AUDIT_D4_PLAN.md §5.2 S5).
+  s := _subject();
+  parts := s.split(``);
+  assert(parts.len() == usize(4), "4 runes, not 10 bytes");
+  assert(parts(usize(0)) == `a`, "a");
+  assert(parts(usize(1)) == `é`, "é");
+  assert(parts(usize(2)) == `中`, "中");
+  assert(parts(usize(3)) == `𝄞`, "𝄞");
+});

@@ -43,20 +43,29 @@ test("String char_len counts runes across all four UTF-8 widths", {
   assert(s.byte_at(usize(8)) == u8(0x84), "byte 8 continues '𝄞'");
   assert(s.byte_at(usize(9)) == u8(0x9E), "byte 9 continues '𝄞'");
 });
-test("String char_len equals len() today — the D4 cross-PR golden", {
-  // PR 3 flips `len()` to bytes. `char_len()` must return the SAME number
-  // before and after that flip, so this is the regression gate that isolates
-  // "did the rune count change?" from "did len() change?".
+test("String char_len holds its pre-flip values — the D4 cross-PR golden", {
+  // PR 3 flipped `len()` to bytes. `char_len()` must return the SAME number
+  // it did before that flip, so this is the regression gate that isolates
+  // "did the rune count change?" (must be NO) from "did len() change?"
+  // (must be YES). Every value below was recorded in PR 1, when `char_len()`
+  // and `len()` still agreed, and is unchanged.
   // (plans/STD_API_AUDIT_D4_PLAN.md §6.1 item 3.)
-  assert(_subject().char_len() == _subject().len(), "four-width subject");
-  assert(`你好世界`.char_len() == `你好世界`.len(), "CJK");
-  assert(`héllo`.char_len() == `héllo`.len(), "latin-1 supplement");
-  assert(`😀🎉`.char_len() == `😀🎉`.len(), "astral emoji");
-  assert(`abc`.char_len() == `abc`.len(), "ASCII");
-  assert(String.new().char_len() == String.new().len(), "empty");
-  // And the absolute values, so the golden is readable without running len().
-  assert(`你好世界`.char_len() == usize(4), "4 CJK runes");
-  assert(`😀🎉`.char_len() == usize(2), "2 emoji runes");
+  assert(_subject().char_len() == usize(4), "four-width subject");
+  assert(`你好世界`.char_len() == usize(4), "CJK");
+  assert(`héllo`.char_len() == usize(5), "latin-1 supplement");
+  assert(`😀🎉`.char_len() == usize(2), "astral emoji");
+  assert(`abc`.char_len() == usize(3), "ASCII");
+  assert(String.new().char_len() == usize(0), "empty");
+  // The other half of the gate: `len()` now DIFFERS from `char_len()` on
+  // exactly the multibyte cases, and still agrees on the ASCII ones.
+  assert(_subject().len() == usize(10), "four-width subject is 10 bytes");
+  assert(`你好世界`.len() == usize(12), "CJK is 12 bytes");
+  assert(`héllo`.len() == usize(6), "latin-1 supplement is 6 bytes");
+  assert(`😀🎉`.len() == usize(8), "astral emoji is 8 bytes");
+  assert(`abc`.len() == usize(3), "ASCII agrees in both bases");
+  assert(String.new().len() == usize(0), "empty agrees in both bases");
+  // `bytes_len()` is a deprecated alias of `len()` and must track it exactly.
+  assert(`😀🎉`.bytes_len() == `😀🎉`.len(), "bytes_len is len");
   assert(`😀🎉`.bytes_len() == usize(8), "8 emoji bytes");
 });
 test("String char_len on the empty string", {

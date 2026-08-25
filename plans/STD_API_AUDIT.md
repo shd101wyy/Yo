@@ -603,11 +603,37 @@ replace past the end of a multibyte identifier. The review also replaced a
 **vacuous** `pad_numeric` test (it asserted only through `String.format`, which
 never reaches `pad_numeric`) and recorded a **9th** live mixed-basis bug,
 duplicated across `src/unsafe_report.yo` and `src/public_safe_report.yo`
-(`issues/unsafe-report-relative-path-uses-a-byte-prefix-length.md`).
+(`issues/fixed/unsafe-report-relative-path-uses-a-byte-prefix-length.md`).
 **Only now is PR 3's review question "does this site want bytes?" — and the
 answer is yes everywhere left except S8 and S9, which are open by design.**
 
-The remaining D4 steps (PRs 3-9) are unchanged and still in
+~~**Step 3 of that plan (PR 3, THE FLIP)**~~ **LANDED 2026-08-26.**
+`String.len()` is now the BYTE count at O(1), and `at`, `substring`,
+`slice_copy`/`slice_copy_inclusive` (the `s(a..b)` sugar), `index_of`,
+`last_index_of`, `contains(from_index)`, `starts_with(position)`,
+`ends_with(end_position)` and the `Pattern` trait's five index-carrying methods
+all take and return BYTE offsets. `bytes_len()` is a deprecated alias of
+`len()`. **Boundary policy, stated on every flipped method:** out-of-range
+CLAMPS, a non-boundary index PANICS in the infallible `substring`,
+`try_substring` returns `.None` instead, and `floor_char_boundary` /
+`ceil_char_boundary` are there for callers doing arithmetic; the search
+methods never panic, because a valid-UTF-8 needle cannot match at a
+continuation byte. §1.3(a)'s broken `starts_with(position)` rune walk is fixed
+BY CONSTRUCTION — byte indexing deletes the walk rather than repairing it.
+`src/` migrated in the same commit, `Token.byte_offset` was added and
+`src/formatter.yo`'s `_byte_offset_of_char_index` retired, and the LSP grew a
+`rune_col_to_byte_offset` / `byte_offset_to_rune_col` pair so the three
+handlers that SLICE a line convert instead of mixing bases.
+PR 3 found a **10th** live mixed-basis bug the survey had missed —
+`std/http/client.yo:325` sent a RUNE count as `Content-Length` — and confirmed
+that `std/regex/` is basis-INDEPENDENT (it works entirely on `ArrayList(u8)`),
+so PR 6 is a cleanup, not a repair. Gates: `yo build`, `fixpoint_only.sh`
+FIXPOINT_HOLDS with stage-2 hollow=0, `gates_fast.sh` all seven gates,
+codegen corpus 155/155 with its goldens UNCHANGED, and a new
+`tests/string/string_byte_index.test.yo` (19 tests) of which **15 fail against
+the pre-flip `std` and pass against the flipped one**.
+
+The remaining D4 steps (PRs 4-9) are unchanged and still in
 `plans/STD_API_AUDIT_D4_PLAN.md` §4.
 
 **SCOPE EXTENDED (user, 2026-08-25): `std/imm/string` is IN, and so is the

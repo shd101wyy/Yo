@@ -217,29 +217,36 @@ _scan_quoted_value_after :: (fn(content : String, marker : String, connector : S
       }
     );
     (j : usize) = (idx + marker.len());
-    // Skip whitespace.
+    // Skip whitespace. These peeks read a BYTE rather than cutting a one-unit
+    // `substring`: `content` is byte-indexed since
+    // `plans/STD_API_AUDIT_D4_PLAN.md` D4, so a one-unit slice landing on the
+    // lead byte of a multibyte rune would split that rune — and `substring`
+    // panics rather than hand back invalid UTF-8. Everything being tested for
+    // here is ASCII (space, tab, CR, LF, the `:`/`=` connector, `"`), and an
+    // ASCII byte can only ever match a whole rune, so a byte compare is both
+    // safe and cheaper than allocating a one-rune String per position.
     (moved : bool) = true;
     while(moved && (j < content.len()), {
-      c := content.substring(j, j + usize(1));
-      if((c == ` `) || (c == String.from("\t")) || (c == String.from("\n")) || (c == String.from("\r")), {
+      b := content.byte_at(j);
+      if(((b == u8(32)) || (b == u8(9))) || ((b == u8(10)) || (b == u8(13))), {
         j = (j + usize(1));
       }, {
         moved = false;
       });
     });
     // Expect the connector (":" or "=").
-    if((j < content.len()) && (content.substring(j, j + usize(1)) == connector), {
-      j = (j + usize(1));
+    if((j < content.len()) && content.starts_with(connector, j), {
+      j = (j + connector.len());
       (moved2 : bool) = true;
       while(moved2 && (j < content.len()), {
-        c := content.substring(j, j + usize(1));
-        if((c == ` `) || (c == String.from("\t")) || (c == String.from("\n")) || (c == String.from("\r")), {
+        b2 := content.byte_at(j);
+        if(((b2 == u8(32)) || (b2 == u8(9))) || ((b2 == u8(10)) || (b2 == u8(13))), {
           j = (j + usize(1));
         }, {
           moved2 = false;
         });
       });
-      if((j < content.len()) && (content.substring(j, j + usize(1)) == `"`), {
+      if((j < content.len()) && (content.byte_at(j) == u8(34)), {
         j = (j + usize(1));
         end := match(
           content.index_of(`"`, j),

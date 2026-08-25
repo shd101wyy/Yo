@@ -912,3 +912,82 @@ test("closed operator set: unknown operator run is a lex error", {
   _toks := tokenize(`a @@ b`, `test.yo`, exn);
   assert(false, "expected a LexerError for '@@'");
 });
+// ─── Token.byte_offset (D4 PR 3) ─────────────────────────────────────────────
+test("Token.byte_offset is a BYTE offset while character stays a rune index", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected error");
+        unwind(());
+      }
+    )
+  );
+  // `名` and `前` are 3 bytes each, so every token after the string literal
+  // has byte_offset > character. `Token.character` is the lexer's
+  // `input.chars()` counter; `Token.byte_offset` is what may index `input`
+  // (issues/fixed/yo-self-formatter-corrupts-files-with-non-ascii.md).
+  src := `a := "名前"; b := 1;`;
+  toks := non_ws(lex_or_panic(src, exn));
+  // a  :=  "名前"  ;  b  :=  1  ;  → 8 tokens
+  assert(toks.len() == usize(8), "expected 8 non-whitespace tokens");
+  match(
+    toks.get(usize(2)),
+    .None => assert(false, "no token at 2"),
+    .Some(tok) => {
+      assert(tok.kind == TokenKind.StringLit, "token 2 is the string literal");
+      assert(tok.character == usize(5), "rune index of the opening quote");
+      assert(tok.byte_offset == usize(5), "byte offset agrees before any multibyte");
+    }
+  );
+  match(
+    toks.get(usize(3)),
+    .None => assert(false, "no token at 3"),
+    .Some(tok) => {
+      assert(tok.value == `;`, "token 3 is the semicolon");
+      // "a := \"名前\"" is 5 + 1 + 6 + 1 = 13 bytes but 5 + 1 + 2 + 1 = 9 runes.
+      assert(tok.character == usize(9), "rune index after the literal");
+      assert(tok.byte_offset == usize(13), "byte offset after the literal");
+    }
+  );
+  // Every token's byte_offset must index `input` back to its own first byte.
+  (i : usize) = usize(0);
+  while(i < toks.len(), {
+    match(
+      toks.get(i),
+      .None => (),
+      .Some(tok) => {
+        assert(tok.input.is_char_boundary(tok.byte_offset), "byte_offset is a rune boundary");
+        assert(
+          tok.input.starts_with(tok.value.substring(usize(0), usize(1)), tok.byte_offset),
+          "byte_offset points at the token's own first byte"
+        );
+      }
+    );
+    i = (i + usize(1));
+  });
+});
+test("Token.byte_offset tracks a multibyte operator run correctly", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected error");
+        unwind(());
+      }
+    )
+  );
+  // The operator-run splitter advances `column`, `character` and
+  // `byte_offset` by the same `k`, which is only sound because every
+  // operator char is one ASCII byte.
+  src := `名 <= 名`;
+  toks := non_ws(lex_or_panic(src, exn));
+  assert(toks.len() == usize(3), "名 <= 名");
+  match(
+    toks.get(usize(1)),
+    .None => assert(false, "no token at 1"),
+    .Some(tok) => {
+      assert(tok.value == `<=`, "the operator token");
+      assert(tok.character == usize(2), "rune index 2");
+      assert(tok.byte_offset == usize(4), "byte offset 4 (名 is 3 bytes + space)");
+    }
+  );
+});

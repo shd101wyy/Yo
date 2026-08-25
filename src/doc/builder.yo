@@ -230,8 +230,15 @@ _slice_token_text :: (
       return(String.new());
     }
   );
-  start := start_tok.character;
-  end := (end_tok.character + end_tok.value.len());
+  // BYTE offsets, both of them. `Token.character` is a RUNE offset and
+  // `input` is byte-indexed, so slicing with `character` cut at the wrong
+  // place on any source containing a multibyte character (the same defect as
+  // `issues/fixed/yo-self-formatter-corrupts-files-with-non-ascii.md`).
+  // `Token.byte_offset` is that issue's named follow-up field; `value.len()`
+  // is the token's byte width, which is the matching unit
+  // (plans/STD_API_AUDIT_D4_PLAN.md §5.2 S8).
+  start := start_tok.byte_offset;
+  end := (end_tok.byte_offset + end_tok.value.len());
   end_tok.input.substring(start, end).trim()
 });
 /// Skip one comma-delimited argument at any nesting depth. Returns the index

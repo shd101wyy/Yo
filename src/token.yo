@@ -35,7 +35,25 @@ Token :: ref(
     value : String,
     row : usize,
     column : usize,
+    /// RUNE offset of this token's first character within `input` — the
+    /// lexer's `input.chars()` loop counter. Used as an expression identity
+    /// key (`await_analysis`, `effect_analysis`) and served straight to the
+    /// LSP as a `character` position. **Never index `input` with it** — see
+    /// `byte_offset`.
     character : usize,
+    /// BYTE offset of this token's first character within `input`.
+    ///
+    /// `character` is a rune offset, so slicing `input` (which is byte-indexed
+    /// since `plans/STD_API_AUDIT_D4_PLAN.md` D4) with it corrupts any source
+    /// containing a multibyte character — that is exactly what
+    /// `issues/fixed/yo-self-formatter-corrupts-files-with-non-ascii.md` was,
+    /// and that issue's "Fix direction" named this field as the follow-up.
+    /// Every consumer that INDEXES `input` reads this one.
+    ///
+    /// Defaults to 0 for the synthetic tokens the parser and evaluator mint:
+    /// they have no source text to index, and their `character` is 0 or copied
+    /// (in which case `byte_offset` is copied alongside it).
+    (byte_offset : usize) ?= usize(0),
     module_path : String,
     input : String
   )
