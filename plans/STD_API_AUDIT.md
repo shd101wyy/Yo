@@ -832,10 +832,37 @@ implementing the D5 traits.** Until it lands, std honestly refuses https.
 - `WaitGroup`: delete (Go transplant) — replaced by `ThreadPool.join_all` +
   a new `Barrier`/`Semaphore` pair. **Do it in that order**: §6 round 2 measured
   5 live test-file consumers, so the deletion must ride WITH the replacement.
-  `ThreadPool.join_all` now exists (2026-08-26), so the blocker is down to the
-  `Barrier`/`Semaphore` pair. Note the 5 consumers use `WaitGroup` for
-  *per-task* waiting inside a shared pool, which `join_all` (a whole-pool
-  barrier) does not cover on its own.
+  **BOTH blockers are now gone, and `WaitGroup` still should not be deleted
+  yet.** Each half landed in this batch, and merging their two notes exposes a
+  gap neither saw alone:
+
+  **The replacement pair LANDED 2026-08-26** — `std/sync/semaphore.yo` and
+  `std/sync/barrier.yo`, covered by `tests/sync/semaphore.test.yo` (10 tests)
+  and `tests/sync/barrier.test.yo` (5 tests). `Semaphore` is the counting
+  model (Dijkstra P/V: `acquire` / `try_acquire` / `release` /
+  `available_permits`, `release` uncapped so it doubles as a signal, negative
+  initial counts legal); `Barrier` is the generation model (Rust
+  `std::sync::Barrier` / `pthread_barrier_t`: reusable, `wait() -> bool`
+  returns `true` in the one party per generation that tripped it). Both are
+  built on `Mutex` + `Cond`, both hold their state under the mutex rather than
+  in atomics — a permit released between a waiter's predicate test and its
+  `wait()` must not be lost.
+  **`WaitGroup`'s deletion now waits on ONE thing: `ThreadPool.join_all`.**
+  Neither new primitive is a drop-in for `add(n)`/`done()`/`wait()` — a
+  `Semaphore.new(-(n - 1))` plus one `release()` per task emulates it, and so
+  does a `Barrier` of `n + 1` when the waiter is itself a party — but "wait for
+  N spawned tasks" is what `join_all` is for, and it is what all five consumers
+  use `WaitGroup` for: `tests/imm_threading.test.yo`,
+  `tests/sync/channel.test.yo`, `tests/sync/once.test.yo`,
+  `tests/sync/rwlock.test.yo`, `tests/sync/waitgroup.test.yo`. Do not touch
+  `std/sync/waitgroup.yo` until `join_all` exists and those five are migrated.
+
+  **The gap:** `ThreadPool.join_all` is a WHOLE-POOL barrier, while all five
+  consumers use `WaitGroup` for PER-TASK waiting inside a shared pool. So
+  `join_all` is not a drop-in for them either, and neither is `Semaphore` or
+  `Barrier` without an emulation. What remains is therefore a MIGRATION
+  DECISION per consumer, not a missing primitive — decide it before deleting
+  anything, and record the decision here.
 - **Async-aware sync is a P0 addition** (§7): async `Channel`, async `Mutex`,
   `select`/timeout — today any `ch.recv()` inside a future parks the entire
   single-threaded event loop, and the prelude DOCUMENTS `Channel` as the way to
@@ -1380,12 +1407,14 @@ cli-case golden runs against its own fixture — left alone deliberately.
 NOT DELETED, with the measurement that blocks each:
 
 - **`WaitGroup` — KEEP.** The row says "Go transplant; replaced per D7", but D7's
-  replacement (`ThreadPool.join_all` + a `Barrier`/`Semaphore` pair) does not
-  exist yet, and `WaitGroup` is not dead: FIVE test files use it as a real
-  primitive (`tests/imm_threading`, `tests/sync/{channel,once,rwlock,waitgroup}`),
+  replacement (`ThreadPool.join_all` + a `Barrier`/`Semaphore` pair) was only
+  half built (the `Barrier`/`Semaphore` half landed 2026-08-26 — see the D7
+  bullet; `join_all` still does not exist), and `WaitGroup` is not dead: FIVE
+  test files use it as a real primitive (`tests/imm_threading`,
+  `tests/sync/{channel,once,rwlock,waitgroup}`),
   `plans/THREAD_SAFETY.md` records it as an in-scope fixed primitive (finding 2,
   `_count` → `AtomicI32`), and `src/doc/render_html_assets.yo` lists it as a
-  highlighter builtin. Delete it WITH its replacement, not before.
+  highlighter builtin. Delete it WITH `ThreadPool.join_all`, not before.
 - **`base64_decode_string` — NEEDS-DECISION; the row's evidence is only half
   true.** `base64_encode_string` really is a pure duplicate — it is literally
   `_encode_with(input.as_bytes(), _STD_ALPHA, true)`, i.e. `base64_encode` with
@@ -1426,7 +1455,7 @@ verification that an unresolved prelude extern is not load-bearing elsewhere).
 | `std/collections/list_view.yo` | test-only, no Index/iter/consumers; superseded by `slice_copy` |
 | `std/collections/linked_list.yo` | test-only, 510 lines; `Deque` covers it (decide: delete vs keep-as-is; recommend delete) |
 | ~~`mutex_t`, `cond_t`~~ **DELETED** | zero in-tree users, duplicate `Mutex`/`Cond` unsafely — deleted in §6 round 2; `Cond.wait` already took `*(__YO_THREAD_SYNC_TYPE)`, so D7's `RawMutex` was not needed |
-| `WaitGroup` **KEPT** | Go transplant, but NOT dead: 5 test files use it, `THREAD_SAFETY.md` records it as fixed-and-in-scope, and D7's replacement (`ThreadPool.join_all` + `Barrier`/`Semaphore`) does not exist yet — delete WITH the replacement, see the round-2 note |
+| `WaitGroup` **KEPT** | Go transplant, but NOT dead: 5 test files use it, `THREAD_SAFETY.md` records it as fixed-and-in-scope, and D7's replacement was incomplete — `Barrier`/`Semaphore` landed 2026-08-26, `ThreadPool.join_all` has not, and `join_all` is the one the 5 consumers need. Delete WITH `join_all`, see the round-2 note |
 | ~~`std/io/{reader,writer}.yo` current traits~~ **DELETED** | zero implementors — replaced by D5 redesign; deleted in §6 round 2, the two trait decls moved into `tests/io/reader_writer.test.yo` (its `TestBuf` was the only implementor and the only coverage of a `*(u8)`+`Exception` user trait). `std/io/` is now empty, which is the namespace D5 wants |
 | `std/fmt/display.yo` | zero call sites, not re-exported, malformed trait shape |
 | ~~`StringError`~~, ~~`PathError`~~ **DELETED**, dead variants (`HashMapError.KeyNotFound` — dead but BLOCKED, `HttpError.Timeout`* etc.) | never constructed (*Timeout/TooManyRedirects/ResponseTooLarge become REAL when the features land — don't delete, implement). **`StringError` RECLASSIFIED 2026-08-25 — see the note below; it belongs with the starred ones.** |
@@ -1532,7 +1561,7 @@ the changed declarations at runtime, not on the nearest existing test file.
 **P1 — expected of a modern std**
 HTTP server + chunked/redirect/timeout client; TLS (D6); CSV; DateTime
 parse/format; `fs.watch`; testing `assert_eq` family; log rewrite; glob
-expansion; `Semaphore`/`Barrier`; `ThreadPool`; format specs; entry API +
+expansion; ~~`Semaphore`/`Barrier`~~ **DONE 2026-08-26**; `ThreadPool`; format specs; entry API +
 `binary_search` + real sort; tty/terminal-size wrappers (cli needs them)
 
 **P2 — nice-to-have / decide-later**

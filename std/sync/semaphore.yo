@@ -1,0 +1,112 @@
+//! Counting semaphore — Dijkstra's P/V, the same model Java's
+//! `java.util.concurrent.Semaphore` and Rust's `tokio::sync::Semaphore` carry.
+//!
+//! A semaphore holds a non-negative-by-convention count of *permits*.
+//! `acquire()` takes one permit, blocking while none is available; `release()`
+//! returns one. The count is not capped: `release()` may be called more times
+//! than `acquire()`, which simply raises the number of permits in flight (this
+//! is what makes a semaphore usable as a signalling device and not only as a
+//! lock). It is likewise not bound to a thread: the releaser need not be the
+//! acquirer, which is precisely what distinguishes it from `Mutex`.
+//!
+//! **Acquisition is not fair.** A thread that calls `acquire()` while a permit
+//! happens to be available takes it on the spot, even if other threads have
+//! been blocked in `acquire()` for longer — the same barging behaviour as
+//! Java's default (non-fair) constructor. There is no FIFO guarantee, and a
+//! waiter can in principle be starved under sustained contention. Build
+//! fairness on top if you need it.
+//!
+//! Typical use is bounding concurrency — at most K threads inside a region:
+//!
+//! ```rust
+//! { Semaphore } :: import "std/sync/semaphore";
+//! { Thread } :: import "std/thread";
+//!
+//! sem := Semaphore.new(i32(2)); // at most 2 workers in the region
+//! t := Thread.spawn((io) => {
+//!   sem.acquire();
+//!   // ... at most 2 threads are ever here ...
+//!   sem.release();
+//! });
+//! t.join();
+//! ```
+pragma(Pragma.AllowUnsafe);
+{ Mutex } :: import("./mutex");
+{ Cond } :: import("./cond");
+/// Counting semaphore built on `Mutex` and `Cond`.
+/// Uses atomic reference counting for safe cross-thread sharing.
+///
+/// The permit count lives under `_mutex` rather than in an atomic: every
+/// mutation has to be serialized with the `_permits <= 0` observation made by
+/// a waiter in `acquire`, otherwise a permit released between a waiter's test
+/// and its `wait()` would be lost.
+Semaphore :: atomic(
+  ref(
+    struct(
+      _permits : i32,
+      _mutex : Mutex(bool),
+      _cv : Cond
+    )
+  )
+);
+impl(
+  Semaphore,
+  /// Create a semaphore holding `permits` permits.
+  ///
+  /// A negative initial count is legal and means "the first `-permits + 1`
+  /// releases unblock nothing", the classic way to make N threads wait for a
+  /// batch of work.
+  new : (fn(permits : i32) -> Self)(
+    Self(
+      _permits : permits,
+      _mutex : Mutex(bool).new(false),
+      _cv : Cond.new()
+    )
+  ),
+  /// Take one permit, blocking until one is available.
+  acquire : (fn(self : Self) -> unit)({
+    self._mutex._raw_lock();
+    while(runtime(self._permits <= i32(0)), {
+      self._cv.wait(self._mutex._raw_handle_ptr());
+    });
+    self._permits = (self._permits - i32(1));
+    self._mutex._raw_unlock();
+  }),
+  /// Take one permit if one is available right now. Never blocks.
+  /// Returns `true` when a permit was taken.
+  try_acquire : (fn(self : Self) -> bool)({
+    self._mutex._raw_lock();
+    taken := false;
+    cond(
+      (self._permits > i32(0)) => {
+        self._permits = (self._permits - i32(1));
+        taken = true;
+      },
+      true => ()
+    );
+    self._mutex._raw_unlock();
+    taken
+  }),
+  /// Return one permit, waking one waiter if any is blocked in `acquire`.
+  ///
+  /// `signal()` and not `broadcast()`: one permit can satisfy exactly one
+  /// waiter, since `acquire` never takes more than one. A wakeup that loses
+  /// the race to a thread that never blocked is harmless — the loser re-tests
+  /// `_permits` in its `while` loop and parks again, and the permit it lost
+  /// was consumed by the winner, so no release goes unmatched.
+  release : (fn(self : Self) -> unit)({
+    self._mutex._raw_lock();
+    self._permits = (self._permits + i32(1));
+    self._cv.signal();
+    self._mutex._raw_unlock();
+  }),
+  /// The permits available at the instant of the call. Informational only —
+  /// by the time the caller looks at it another thread may have taken one.
+  available_permits : (fn(self : Self) -> i32)({
+    self._mutex._raw_lock();
+    n := self._permits;
+    self._mutex._raw_unlock();
+    n
+  })
+);
+export(Semaphore);
