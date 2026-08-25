@@ -1182,7 +1182,7 @@ implementing the D5 traits.** Until it lands, std honestly refuses https.
 | spec/ | FREEZE AS DOC | identity stubs; mark experimental, exclude from stability promise |
 | collections/* | RENAME + EXTEND | §5 renames; entry API, `retain/extend/drain`, `binary_search`, real `sort` (not O(n²) insertion), `sort_by`; HashSet = HashMap(T, unit) to kill ~500 duplicated SwissTable lines; hide pub `ctrl/data/…` fields; `BTreeMap` → rename `FlatMap` OR implement a real B-tree with `range()` (recommend: real B-tree, keep name); add `BTreeSet`; `PriorityQueue`: keep name, add comparator ctor, DOCUMENT min-heap |
 | imm/* | KEEP (O4) + FIX | stays in std (decided 2026-08-23); require `Acyclic` element bounds per O7, add iteration + `Index` where doc'd, rename `imm.String` → `ImmString` (**folded into D4** 2026-08-25 — decided, no longer conditional on COW `String`), dedupe set pair; mark unstable until exercised |
-| string | FIX + EXTEND | D4 indexing; Unicode-correct `to_lowercase` (+ `to_ascii_*` variants); `Pattern` impl for `rune` + `Regex`; `replace*` Pattern-generic; `parse_f64`/radix; `split_once`, `strip_prefix/suffix`, ~~`char_indices`~~ (landed 2026-08-26 with the rest of the D4 PR-1 vocabulary); move `panic_dyn`/`assert_dyn` to assert; delete dead `StringError`, one of `to_cstr`/`to_c_str` |
+| string | FIX + EXTEND | ~~D4 indexing~~ (**byte-indexed 2026-08-26**, D4 PR 3; `imm.String` is D4 PR 4); Unicode-correct `to_lowercase` (+ `to_ascii_*` variants); `Pattern` impl for `rune` + `Regex`; `replace*` Pattern-generic; `parse_f64`/radix; `split_once`, `strip_prefix/suffix`, ~~`char_indices`~~ (landed 2026-08-26 with the rest of the D4 PR-1 vocabulary); move `panic_dyn`/`assert_dyn` to assert; delete dead `StringError`, one of `to_cstr`/`to_c_str` |
 | encoding | STANDARDIZE | D2 verbs; one error style per D1; utf8 module; add `html_encode` (XSS!); percent-encoding module (P0 — nothing in std can build a safe query string); base32; CSV (P1); toml: floats/arrays/dates/serializer + `ToToml`/`FromToml` derives to mirror json (P1) |
 | json | EXTEND | enum representation for derives (open question O3); `JsonValue.Object` O(n) parallel arrays → keep repr, add index map if profiling demands |
 | regex | POLISH | `Regex.escape`, optional-flags `new`, callback replace, lazy `find_iter`, group byte-spans, ~~typed error, private internals~~ (**both DONE 2026-08-25**, D8) |
@@ -1677,9 +1677,12 @@ mmap/file-lock/statfs wrappers; `gc.stats`; DNS SRV/TXT/reverse
   find/slice APIs byte-indexed with a char-boundary contract. The additive half
   (`char_len`/`char_indices`/`is_char_boundary`/`floor_char_boundary`/
   `ceil_char_boundary`/`try_substring`, on both string types) **landed
-  2026-08-26**, and so did the char-semantics pin (PR 2, plus
-  `char_substring`/`truncate_chars`); the basis flip itself is still ahead
-  (D4 plan PRs 3-9).
+  2026-08-26**, so did the char-semantics pin (PR 2, plus
+  `char_substring`/`truncate_chars`), **and so did the basis flip itself (PR 3,
+  2026-08-26)** — `String` is byte-indexed, with clamping for out-of-range and
+  a panic for a non-boundary index. What remains is `imm.String` (PR 4), the
+  `ImmString` rename (PR 5), regex's `index()` (PR 6), the comptime basis
+  (PR 7), the docs sweep (PR 8) and the decoder dedup (PR 9).
 - **O2 (D6)**: **DECIDED — platform TLS libraries via `pkg_config`**
   (SecureTransport/Schannel/OpenSSL), behind one `TlsStream` implementing the
   D5 traits. Until it lands, https throws `UnsupportedScheme` (C1).
