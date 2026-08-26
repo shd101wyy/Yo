@@ -29,7 +29,15 @@ impl(
   value : (fn(self : Self) -> String)(
     self._value
   ),
-  // Get the start position (character index) of the match
+  /// Start position of the match as a **byte** offset into the input.
+  ///
+  /// **Basis change (D4, 2026-08-26):** this used to be a *character*
+  /// (rune) index; it is now a **byte** index, matching `String`'s
+  /// byte-indexed API. The offset is always on a UTF-8 character
+  /// boundary (a valid pattern cannot match at a continuation byte), so
+  /// it can be fed directly to `String.substring` / `index_of` on the
+  /// input. Use `input().substring(usize(0), m.index()).char_len()` if
+  /// a rune count is really needed.
   index : (fn(self : Self) -> usize)(
     self._index
   ),

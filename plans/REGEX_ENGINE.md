@@ -52,7 +52,7 @@ Regex :: object(
 // Match result from exec()
 Match :: struct(
   value     : String,            // Matched text
-  index     : usize,             // Start position (character index)
+  index     : usize,             // Start position (BYTE offset — char index before D4 PR 6, 2026-08-26)
   groups    : ArrayList(Option(String)),  // Captured groups (index 0 = full match)
   input     : String             // Original input string
 );
@@ -222,6 +222,8 @@ Key design decisions:
 **Next**: Phase 10 (Performance Optimization)
 
 Phase 10 completed: Added literal prefix extraction and fast-scan optimization — the compiler extracts leading literal ASCII bytes from the pattern, and `exec`/`match_all` use `_find_prefix_pos` to skip non-matching start positions. Added early-break in `_codepoint_in_class` loops to stop once a match is found. Disabled prefix optimization for case-insensitive patterns. Fixed unsigned underflow in `_find_prefix_pos` when input is shorter than prefix. 8 new tests added (85 total).
+
+**2026-08-26 — `RegexMatch.index()` is a BYTE offset (D4 PR 6, `plans/STD_API_AUDIT_D4_PLAN.md` §4).** It had been a *character* index, manufactured by an O(n) `_byte_to_char_index` walk at match construction and undone by O(n) char→byte re-walks in `replace`, `replace_all`, `split`, and `_apply_replacement`'s `` $` ``/`$'` arms. With `String` byte-indexed (D4 PR 3), all six walks were deleted: the VM's byte-offset slots now flow straight through `_build_match` to `index()` (and `Regex.search`), and a match index feeds `String.substring` without conversion. Public API basis change — release-note item. 10 multibyte index tests added (166 total).
 
 Phase 9 completed: Added `search`, `replace`, `replace_all`, and `split` methods to Regex. Replacement patterns support `$&`, `$1`-`$9`, `${name}`, `` $` ``, `$'`, and `$$`. Split includes captured groups in results (JS-compatible). Avoided early returns in `split` and `replace_all` to prevent RC memory leaks detected by ASan.
 

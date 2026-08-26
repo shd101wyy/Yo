@@ -101,17 +101,6 @@ impl(
     });
     String.from_bytes(result_bytes)
   }),
-  _byte_to_char_index : (fn(self : Self, bytes : ArrayList(u8), byte_pos : usize) -> usize)({
-    char_idx := usize(0);
-    i := usize(0);
-    while(i < byte_pos, {
-      b := bytes(i);
-      char_len := utf8.step_len(b);
-      i = (i + char_len);
-      char_idx = (char_idx + usize(1));
-    });
-    char_idx
-  }),
   // Fast-scan: find the next byte position where the literal prefix matches.
   // Returns the byte position or input_len if not found.
   _find_prefix_pos : (fn(self : Self, input_bytes : ArrayList(u8), from_byte : usize) -> usize)({
@@ -170,7 +159,6 @@ impl(
     match_start_byte := slots(usize(0));
     match_end_byte := slots(usize(1));
     match_text := self._extract_substring(bytes, match_start_byte, match_end_byte);
-    match_char_index := self._byte_to_char_index(bytes, match_start_byte);
     groups := ArrayList(Option(String)).new();
     g := usize(1);
     while(g <= self._n_groups, g = (g + usize(1)), {
@@ -195,7 +183,7 @@ impl(
         }
       );
     });
-    RegexMatch.new(match_text, match_char_index, input, groups, self._group_names)
+    RegexMatch.new(match_text, match_start_byte, input, groups, self._group_names)
   })
 );
 // Block 3: exec, match_all (depend on Block 2)
@@ -359,6 +347,9 @@ impl(
     result := self.exec(input);
     result.is_some()
   }),
+  /// Find the first match and return its start position as a **byte**
+  /// offset into `input` (`RegexMatch.index()` basis — a char index
+  /// before D4, 2026-08-26). `.None` when nothing matches.
   search : (fn(self : Self, input : String) -> Option(usize))({
     result := self.exec(input);
     match(
@@ -402,16 +393,8 @@ impl(
             (next_b == u8(96)) => {
               // $` → pre-match (text before match)
               input_bytes := m.input().as_bytes();
-              // Convert char index to byte index
-              char_idx := m.index();
-              byte_idx := usize(0);
-              ci := usize(0);
-              while(ci < char_idx, {
-                cb := input_bytes(byte_idx);
-                cbl := utf8.step_len(cb);
-                byte_idx = (byte_idx + cbl);
-                ci = (ci + usize(1));
-              });
+              // m.index() is the match's start BYTE offset
+              byte_idx := m.index();
               pi := usize(0);
               while(pi < byte_idx, pi = (pi + usize(1)), {
                 result.push(input_bytes(pi));
@@ -421,19 +404,8 @@ impl(
             (next_b == u8(39)) => {
               // $' → post-match (text after match)
               input_bytes := m.input().as_bytes();
-              // Find byte position after match end
-              char_idx := m.index();
-              byte_idx := usize(0);
-              ci := usize(0);
-              while(ci < char_idx, {
-                cb := input_bytes(byte_idx);
-                cbl := utf8.step_len(cb);
-                byte_idx = (byte_idx + cbl);
-                ci = (ci + usize(1));
-              });
-              // Advance past the matched text
-              match_bytes := m.value().as_bytes();
-              byte_idx = (byte_idx + match_bytes.len());
+              // Byte position after match end: start byte offset + matched byte length
+              byte_idx := (m.index() + m.value().as_bytes().len());
               pi := byte_idx;
               while(pi < input_bytes.len(), pi = (pi + usize(1)), {
                 result.push(input_bytes(pi));
@@ -529,16 +501,8 @@ impl(
       .None => input,
       .Some(m) => {
         input_bytes := input.as_bytes();
-        // Convert char index to byte index for match start
-        char_idx := m.index();
-        (match_start_byte : usize) = usize(0);
-        ci := usize(0);
-        while(ci < char_idx, {
-          cb := input_bytes(match_start_byte);
-          cbl := utf8.step_len(cb);
-          match_start_byte = (match_start_byte + cbl);
-          ci = (ci + usize(1));
-        });
+        // m.index() is the match's start BYTE offset
+        match_start_byte := m.index();
         match_end_byte := (match_start_byte + m.value().as_bytes().len());
         // Build result: pre-match + replacement + post-match
         out := ArrayList(u8).new();
@@ -571,16 +535,8 @@ impl(
         mi := usize(0);
         while(mi < all_matches.len(), mi = (mi + usize(1)), {
           m := all_matches(mi);
-          // Convert char index to byte index for match start
-          char_idx := m.index();
-          (match_start_byte : usize) = usize(0);
-          ci := usize(0);
-          while(ci < char_idx, {
-            cb := input_bytes(match_start_byte);
-            cbl := utf8.step_len(cb);
-            match_start_byte = (match_start_byte + cbl);
-            ci = (ci + usize(1));
-          });
+          // m.index() is the match's start BYTE offset
+          match_start_byte := m.index();
           match_end_byte := (match_start_byte + m.value().as_bytes().len());
           // Copy text between last match end and this match start
           pi := last_end_byte;
@@ -618,16 +574,8 @@ impl(
         mi := usize(0);
         while(mi < all_matches.len(), mi = (mi + usize(1)), {
           m := all_matches(mi);
-          // Convert char index to byte index for match start
-          char_idx := m.index();
-          (match_start_byte : usize) = usize(0);
-          ci := usize(0);
-          while(ci < char_idx, {
-            cb := input_bytes(match_start_byte);
-            cbl := utf8.step_len(cb);
-            match_start_byte = (match_start_byte + cbl);
-            ci = (ci + usize(1));
-          });
+          // m.index() is the match's start BYTE offset
+          match_start_byte := m.index();
           match_end_byte := (match_start_byte + m.value().as_bytes().len());
           // Extract text from last_end_byte to match_start_byte
           part_bytes := ArrayList(u8).new();

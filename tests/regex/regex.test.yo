@@ -743,6 +743,71 @@ test("emoji matching", {
   assert(m.is_some(), "should match emoji");
   assert(m.unwrap().value() == `😀`, "should match exact emoji");
 });
+// ===== Byte-offset match indices (D4 PR 6: RegexMatch.index() is a BYTE index) =====
+test("index after non-ASCII prefix is a byte offset", {
+  re := Regex.new(`世界`, ``).unwrap();
+  m := re.exec(`你好世界`);
+  assert(m.is_some(), "should match 世界");
+  idx := m.unwrap().index();
+  assert(idx == usize(6), "世界 starts at byte 6 (你好 is 6 bytes), not char 2");
+});
+test("search returns a byte offset", {
+  re := Regex.new(`llo`, ``).unwrap();
+  pos := re.search(`héllo`);
+  assert(pos.is_some(), "should find llo");
+  assert(pos.unwrap() == usize(3), "llo starts at byte 3 (h=1 + é=2), not char 2");
+});
+test("index after 4-byte emoji is a byte offset", {
+  re := Regex.new(`world`, ``).unwrap();
+  m := re.exec(`hi😀world`);
+  assert(m.is_some(), "should match world");
+  idx := m.unwrap().index();
+  assert(idx == usize(6), "world starts at byte 6 (hi=2 + 😀=4), not char 3");
+});
+test("match index feeds String.substring directly", {
+  input := `你好世界再见`;
+  re := Regex.new(`世界`, ``).unwrap();
+  m := re.exec(input).unwrap();
+  start := m.index();
+  end_pos := (start + m.value().len());
+  assert(input.substring(start, end_pos) == `世界`, "byte index slices the match back out");
+  assert(input.substring(usize(0), start) == `你好`, "byte index slices the pre-match text");
+});
+test("match_all over multibyte subject reports byte offsets", {
+  re := Regex.new(`你好`, ``).unwrap();
+  matches := re.match_all(`你好a你好`);
+  assert(matches.len() == usize(2), "two occurrences");
+  assert(matches(usize(0)).index() == usize(0), "first at byte 0");
+  assert(matches(usize(1)).index() == usize(7), "second at byte 7 (你好=6 bytes + a)");
+});
+test("replace after multibyte prefix", {
+  re := Regex.new(`world`, ``).unwrap();
+  result := re.replace(`你好world!`, `世界`);
+  assert(result == `你好世界!`, "replacement lands at the byte-correct position");
+});
+test("replace_all with multibyte text between matches", {
+  re := Regex.new(`,`, ``).unwrap();
+  result := re.replace_all(`你好,世界,再见`, `、`);
+  assert(result == `你好、世界、再见`, "every separator replaced at byte-correct positions");
+});
+test("replacement $` uses byte-offset pre-match", {
+  re := Regex.new(`世界`, ``).unwrap();
+  rep := String.from("<$`>");
+  result := re.replace(`你好世界后`, rep);
+  assert(result == `你好<你好>后`, "$` is the byte-correct pre-match text");
+});
+test("replacement $' uses byte-offset post-match", {
+  re := Regex.new(`世界`, ``).unwrap();
+  result := re.replace(`你好世界后`, `<$'>`);
+  assert(result == `你好<后>后`, "$' is the byte-correct post-match text");
+});
+test("split over multibyte subject with match index consumers", {
+  re := Regex.new(`世界`, ``).unwrap();
+  parts := re.split(`你好世界再见`);
+  assert(parts.len() == usize(2), "split into 2 parts");
+  assert(parts(usize(0)) == `你好`, "pre-match part is byte-correct");
+  assert(parts(usize(1)) == `再见`, "post-match part is byte-correct");
+});
 // ===== Flag tests =====
 // --- ignore_case (i) flag ---
 test("flag i: basic case insensitive", {
