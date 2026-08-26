@@ -1025,6 +1025,8 @@ impl(
 );
 impl(
   comptime_str,
+  /// Length in BYTES (UTF-8), matching the runtime `String.len()` / `str.len()`
+  /// (D4 PR 7 — this counted runes before the byte-basis alignment).
   len : (fn(comptime(self) : comptime_str) -> comptime(comptime_int))(
     __yo_comptime_string_length(self)
   ),
@@ -1034,6 +1036,8 @@ impl(
   (to_lower) : (fn(comptime(self) : comptime_str) -> comptime(comptime_str))(
     __yo_comptime_string_to_lower(self)
   ),
+  /// Slice by BYTE offsets `[start, end)`, matching the runtime `substring`.
+  /// Out-of-range clamps; an offset inside a rune is a compile error.
   slice : (fn(comptime(self) : comptime_str, comptime(start) : comptime_int, comptime(end) : comptime_int) -> comptime(comptime_str))(
     __yo_comptime_string_slice(self, start, end)
   ),

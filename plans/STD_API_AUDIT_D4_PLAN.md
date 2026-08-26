@@ -5,7 +5,8 @@
 > live regression the flip introduced, `_capitalize_last_segment`, §5.1's last
 > row, and one contract hole, the empty needle, §1.4. Both are fixed on the
 > same branch; the review's full method and measurements are §6.1.2**);
-> PRs 4-9 still PLAN.
+> PRs 4-6 and 8-9 still PLAN; **PR 7 (comptime basis) LANDED 2026-08-26** —
+> see its §4 row.
 > **PR 3 was the flip.** `String` is byte-indexed from here on; the numbers in
 > §0/§2/§3 below are the pre-flip survey and are kept as the historical record
 > of what the migration measured, not as a description of the tree today.
@@ -167,8 +168,13 @@ most. That is a stronger argument for the change than the one in the audit.
 > the unit moved, rune→byte); what was new in PR 3 was the doc comments'
 > universally-quantified claim that "every index this returns is a rune
 > boundary", which was false. Docs corrected, behaviour untouched, and
-> `tests/string/string_byte_index.test.yo` pins it. O1c is unchanged: comptime stays pinned to
-> `char_len`/`char_substring` (S10) and is PR 7's to align.
+> `tests/string/string_byte_index.test.yo` pins it. ~~O1c is unchanged: comptime stays pinned to
+> `char_len`/`char_substring` (S10) and is PR 7's to align.~~ **O1c SETTLED IN
+> PR 7 (2026-08-26): comptime is byte-based** — indices are byte offsets
+> everywhere; `s[i]` yields the rune starting at byte `i` as a 1-rune `StrLit`
+> (the result-TYPE split against runtime's `u8` is kept deliberately); a
+> mid-rune offset is a compile error where the runtime `substring` panics.
+> See the §4 PR 7 row.
 
 - **O1a — what does `at()` mean after the flip?** Options: (i) `at(byte_index)`
   decodes the rune starting at that byte (Rust's `s[i..].chars().next()`),
@@ -445,7 +451,7 @@ no-op and PR 3 only has to change definitions.
 | **4** | `imm.String`: `len()` → bytes, `at()` aligned, `bytes_len()` aliased, `chars()`/`char_indices()`/`char_len()` wired. | `tests/imm_string.test.yo` (rewritten per §6.2), `imm_vec`, `imm_threading` |
 | **5** | `imm.String` → `ImmString` rename. ~15 lines: the `String ::` binding + `export`, 3 test imports, 4 doc lines × 2 languages. | suite + docs both languages |
 | **6** | **Regex.** Delete `_byte_to_char_index` (`std/regex/index.yo:70`) and the three char→byte re-walks at `:535-545`, `:582-592`, `:634-644`. `RegexMatch.index()` becomes a **byte** index — a silent public API change that needs its own release note. Adopt `std/encoding/utf8.yo`. | `tests/regex/regex.test.yo` + new multibyte index assertions |
-| **7** | **Comptime basis** (O1c): align `comptime_str.len()`/`slice`/`s[i]` with the runtime basis, or document the split deliberately. **Seed note:** the seed binary evaluates the *new* tree's comptime code with the *old* engine while building stage 1. Measured safe: every `comptime_str` use in `std/` + `src/` is ASCII (`std/build.yo` option names; `tests/comptime.test.yo` `len()` assertions are ASCII), so the flip is not seed-gated. | fixpoint (`s2 == s3`) is the real gate here |
+| ~~**7**~~ **LANDED 2026-08-26** | **Comptime basis** (O1c): aligned to BYTES. All 14 `char_len`/`char_substring` occurrences across S10's 10 pinned sites (`comptime_string_fns.yo` 6, `comptime_index_fns.yo` 4, `index_trait.yo` 4) flipped to `len`/`substring`. `s[i]` takes a byte offset and yields the rune STARTING there (`substring(i, ceil_char_boundary(i+1))`) — the result stays a 1-rune `StrLit`, i.e. the comptime-vs-runtime result-TYPE split (`StrLit` vs `u8`) is kept DELIBERATELY and documented (`docs/*/STRINGS.md`): a `comptime_str` is text, not a byte buffer. A mid-rune offset is a **compile error** (new checks in all three files) where the runtime `substring` panics; out-of-range keeps its existing behaviour (`slice` clamps, `s[i]`/`s(a..b)` error). Prelude `comptime_str.len`/`slice` gained basis doc comments. **The seed-safety claim was re-measured and is STRONGER than stated:** there are ZERO comptime string `len`/`slice`/`[i]`/`(a..b)` call sites in `std/` + `src/` + `build.yo` at all (`.slice(` grep = 0 outside tests; every `:: "..."`-bound constant checked against `.len()`/`.slice(`/`[` = 0 hits; `std/build.yo` only DECLARES `comptime_str` params) — the only traffic is `tests/comptime.test.yo` + `tests/index.test.yo`, all ASCII, run under tree-built compilers in CI. Gates run: `yo check ./src` 262/262; full-tree `compile src/main.yo --skip-c-compiler` emits 169.9 MB with 0 transpile markers; a `tmp/fixme.yo` probe under the SEED engine prints the old split (comptime `len`=4 / `slice(1,3)`="é中" vs runtime 10 / "é") — the new engine cannot be run locally without `yo build`, so the new-basis demonstration is the discriminating tests: `tests/comptime.test.yo` 30/31 under the seed with the ONE new byte-basis test the only failure, and `tests/index.test.yo`'s three new tests abort the seed's batch compile by construction (comptime errors), both green under a tree-built compiler. | fixpoint (`s2 == s3`) is the real gate here — runs centrally at integration |
 | **8** | Docs + skills sweep: rewrite `.github/skills/yo-syntax/syntax-cheatsheet.md:1456-1475`, extend `docs/{en-US,zh-CN}/DESIGN.md:1397/1389`, update `IMMUTABLE_COLLECTIONS.md`, add a `docs/*/STRINGS.md` stating the byte contract + boundary policy in both languages. | `yo fmt --check`; both language versions present |
 | **9** | Dedup the 10 hand-rolled UTF-8 sequence-length decoders onto `std/encoding/utf8.yo`: `std/imm/string.yo`, `std/regex/{parser,index,vm}.yo`, `std/string/string.yo`, `src/formatter.yo`, `vendor/markdown_yo/src/{inline/link,common/normalize_link,block/reference,common/utils}.yo`. Vendor needs **companion upstream commits** + a pointer bump. | suite; vendor's 3 pre-existing failures stay pre-existing |
 
@@ -610,7 +616,7 @@ corruption in the stage-2 binary") and
 | ~~**S7**~~ **DONE (PR 2)** | `src/error.yo:43` | rune column + token-value length | `char_len()` |
 | ~~**S8**~~ **DONE (PR 3)** | `src/doc/builder.yo:233-235` | `Token.character` (rune) into `substring` | `Token.byte_offset`, a new `(byte_offset : usize) ?= usize(0)` field on `Token`. The lexer fills it from a `char_indices()` pass that builds `chars` and a parallel `char_byte_offsets` in one walk; the operator-run splitter adds the same `k` to `column`/`character`/`byte_offset`, which is sound only because every operator char is one ASCII byte. The default is what kept this to ~20 edited construction sites (the ones that COPY a source token's position) instead of all 98. |
 | ~~**S9**~~ **DONE (PR 3), minus the UTF-16 half** | `src/lsp/completion.yo:875, 1010` (the `762-780` sites are downstream of them and needed no change — they pair an `index_of` with a `substring` in one basis) | LSP `character` into `substring` | `rune_col_to_byte_offset` / `byte_offset_to_rune_col` in `src/lsp/protocol.yo`. `handle_completion` converts the incoming rune column to a byte offset ONCE and works in bytes from there; `dot_col` converts back before it is compared against `Token.column`. The same pair fixed `src/lsp/diagnostics.yo:_ident_len_at`, §5.1's 6th live bug, which the plan said D4 would NOT fix. **The UTF-16 correction of §5.4 was deliberately NOT done** — see the note there. |
-| ~~**S10**~~ **DONE (PR 2)** | comptime string builtins — **10 sites, not 4**: `comptime_string_fns.yo` (1 `len` + 4 `len` defaults + 1 `substring`), `comptime_index_fns.yo` (2 `len` + 2 `substring`), `index_trait.yo` (2 `len` + 2 `substring`) | semantics ride on `substring` | pinned to `char_len`/`char_substring`, each with a `COMPTIME BASIS PIN` comment naming O1c. PR 7 now changes the comptime basis only by editing these names. |
+| ~~**S10**~~ **DONE (PR 2)** | comptime string builtins — **10 sites, not 4**: `comptime_string_fns.yo` (1 `len` + 4 `len` defaults + 1 `substring`), `comptime_index_fns.yo` (2 `len` + 2 `substring`), `index_trait.yo` (2 `len` + 2 `substring`) | semantics ride on `substring` | pinned to `char_len`/`char_substring`, each with a `COMPTIME BASIS PIN` comment naming O1c. ~~PR 7 now changes the comptime basis only by editing these names.~~ **PR 7 did exactly that (2026-08-26)** — every `char_len`/`char_substring` call in these three files is gone (the comptime-builtin consumers; 15 `char_len`/`char_substring` calls remain elsewhere in `src/` — the S7/S11/S6/S4-family sites plus `async.yo` and `render_html.yo` — for the follow-up rune-vocabulary sweep). |
 | ~~**S11**~~ **DONE (review pass, 2026-08-26)** | `src/formatter.yo:1246`; `src/lsp/hover.yo:50,292`; `src/lsp/symbols.yo:98`; `src/lsp/definition.yo:104`; `src/lsp/references.yo:34,98`; `src/lsp/rename.yo:35`; `src/lsp/completion.yo:926,930`; `src/doc/builder.yo:379` — **11 sites in 6 files this plan never named** | Exactly S7's shape: a RUNE column (`Token.column` / `Token.character`, both produced by the lexer's `ArrayList(rune)` walk at `src/lexer.yo:97-99`) added to `tok.value.len()`. After PR 3 the width becomes BYTES, so every one of them overruns on a multibyte token: hover matches the wrong token, `definition`/`references`/`symbols`/`rename` emit ranges longer than the identifier (**rename would replace past the end of the name**), completion's `ends_at_dot`/`before_dot` stop finding the receiver, `fmt`'s tight-call adjacency test changes formatting, and doc-comment adjacency inserts a stray space. | `char_len()` at all 11. Inert by the same construction as S7 (`char_len`'s body IS `len`'s body). **PR 2's original claim that "every site that needs char semantics now says so" was FALSE until this row landed** — §5.2 had listed only the `src/error.yo` instance of the pattern. |
 
 ### 5.3 (b) regex `_byte_to_char_index` — see S3
@@ -680,7 +686,10 @@ insurance*, not *bug removal* — and the cheapness (§2.4) is the argument.
   `std` without flipping `src` in the same commit. There is no two-step.
 - **Comptime string semantics are evaluated by the *seed* while stage 1 is
   built.** Measured safe (§4 PR 7): all `comptime_str` traffic in `std/` +
-  `src/` is ASCII.
+  `src/` is ASCII. **Re-measured in PR 7 (2026-08-26) and found STRONGER:
+  there is NO comptime string `len`/`slice`/index traffic in `std/` + `src/` +
+  `build.yo` at all** — zero call sites, so the seed never evaluates the
+  flipped builtins over anything while building stage 1.
 - **`--release` only.** Per the standing directive, validate under `-O2`; an
   `-O0` `rc=139` here is the known stack ceiling, not a string bug.
 - **Fixpoint before/after.** A basis flip changes nothing structural, so

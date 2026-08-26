@@ -186,10 +186,12 @@ evaluate_yo_comptime_string_functions :: (
             av,
             .StrLit(raw) => {
               unquoted := str_lit_unquote(raw);
-              // COMPTIME BASIS PIN (STD_API_AUDIT_D4_PLAN §1.4 O1c): comptime
-              // `length` counts CHARACTERS. Spelled `char_len` so D4's byte
-              // flip cannot change the comptime language silently.
-              EvalValue.IntLit(unquoted.char_len().to_string())
+              // COMPTIME BYTE BASIS (STD_API_AUDIT_D4_PLAN §4 PR 7, O1c):
+              // comptime `len` counts BYTES, matching the runtime
+              // `String.len()` / `str.len()` after the D4 flip. This was
+              // pinned to `char_len` in PR 2 so the flip could not change the
+              // comptime language silently; PR 7 is the deliberate alignment.
+              EvalValue.IntLit(unquoted.len().to_string())
             },
             _ => create_unknown_val(t_comptime_int())
           ),
@@ -308,17 +310,53 @@ evaluate_yo_comptime_string_functions :: (
                       .IntLit(end_raw) => match(
                         end_raw.parse_i64(),
                         .Some(n) => usize(n),
-                        .None => unquoted.char_len()
+                        .None => unquoted.len()
                       ),
-                      _ => unquoted.char_len()
+                      _ => unquoted.len()
                     ),
-                    .None => unquoted.char_len()
+                    .None => unquoted.len()
                   ),
-                  .None => unquoted.char_len()
+                  .None => unquoted.len()
                 );
-                // COMPTIME BASIS PIN (STD_API_AUDIT_D4_PLAN §1.4 O1c):
-                // comptime `slice` indexes CHARACTERS.
-                sliced := unquoted.char_substring(start_idx, end_idx);
+                // COMPTIME BYTE BASIS (STD_API_AUDIT_D4_PLAN §4 PR 7, O1c):
+                // comptime `slice` takes BYTE offsets, matching the runtime
+                // `substring`. Out-of-range clamps, as this builtin always
+                // has; an offset INSIDE a rune is a compile error here where
+                // the runtime `substring` panics.
+                total_bytes := unquoted.len();
+                start_b := cond(
+                  (start_idx > total_bytes) => total_bytes,
+                  true => start_idx
+                );
+                end_b := cond(
+                  (end_idx > total_bytes) => total_bytes,
+                  true => end_idx
+                );
+                if(!(unquoted.is_char_boundary(start_b)), {
+                  exn.throw(
+                    dyn(
+                      format_error_message(
+                        ast_expr_token(expr),
+                        `comptime slice start ${start_b} is not on a UTF-8 character boundary`,
+                        false,
+                        .None
+                      )
+                    )
+                  );
+                });
+                if(!(unquoted.is_char_boundary(end_b)), {
+                  exn.throw(
+                    dyn(
+                      format_error_message(
+                        ast_expr_token(expr),
+                        `comptime slice end ${end_b} is not on a UTF-8 character boundary`,
+                        false,
+                        .None
+                      )
+                    )
+                  );
+                });
+                sliced := unquoted.substring(start_b, end_b);
                 EvalValue.StrLit(str_lit_quote(sliced))
               },
               _ => create_unknown_val(t_comptime_string())

@@ -633,7 +633,8 @@ codegen corpus 155/155 with its goldens UNCHANGED, and a new
 `tests/string/string_byte_index.test.yo` (19 tests) of which **15 fail against
 the pre-flip `std` and pass against the flipped one**.
 
-The remaining D4 steps (PRs 4-9) are unchanged and still in
+The remaining D4 steps (PRs 4-6, 8-9 — **PR 7, the comptime basis, LANDED
+2026-08-26**, see O1 in §8) are unchanged and still in
 `plans/STD_API_AUDIT_D4_PLAN.md` §4.
 
 **SCOPE EXTENDED (user, 2026-08-25): `std/imm/string` is IN, and so is the
@@ -1686,9 +1687,16 @@ mmap/file-lock/statfs wrappers; `gc.stats`; DNS SRV/TXT/reverse
   2026-08-26**, so did the char-semantics pin (PR 2, plus
   `char_substring`/`truncate_chars`), **and so did the basis flip itself (PR 3,
   2026-08-26)** — `String` is byte-indexed, with clamping for out-of-range and
-  a panic for a non-boundary index. What remains is `imm.String` (PR 4), the
-  `ImmString` rename (PR 5), regex's `index()` (PR 6), the comptime basis
-  (PR 7), the docs sweep (PR 8) and the decoder dedup (PR 9).
+  a panic for a non-boundary index. **The comptime basis (PR 7, O1c) landed
+  2026-08-26**: comptime `len`/`slice`/`s[i]`/`s(a..b)` are byte-based like the
+  runtime; `s[i]` yields the rune STARTING at that byte as a 1-rune string
+  (the result-TYPE split against runtime's `u8` is deliberate); a mid-rune
+  offset is a compile error where the runtime `substring` panics. Re-measured
+  seed-safety: `std/` + `src/` + `build.yo` carry ZERO comptime string
+  `len`/`slice`/index call sites, so the seed evaluates none of it building
+  stage 1. What remains is `imm.String` (PR 4), the `ImmString` rename (PR 5),
+  regex's `index()` (PR 6), the docs sweep (PR 8) and the decoder dedup
+  (PR 9).
 - **O2 (D6)**: **DECIDED — platform TLS libraries via `pkg_config`**
   (SecureTransport/Schannel/OpenSSL), behind one `TlsStream` implementing the
   D5 traits. Until it lands, https throws `UnsupportedScheme` (C1).
