@@ -158,5 +158,6 @@ comptime_assert(s(3 .. 6) == "中");     // 字节区间
   `s.len()`。
 - `Content-Length` 这类协议字段数的是字节；如今 `len()` 默认就是正确答案。
 
-`std/imm` 中的不可变字符串正在同一迁移的后续步骤中对齐到同样的契约；见
+`std/imm` 中的不可变字符串（`ImmString`）遵循同样的契约：`len()` 以 O(1)
+返回字节数，`at()` 解码从给定字节偏移开始的字符；见
 `plans/STD_API_AUDIT_D4_PLAN.md`。
