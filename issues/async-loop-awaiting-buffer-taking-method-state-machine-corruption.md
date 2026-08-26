@@ -58,6 +58,25 @@ locals whose pointer is held across suspension) + (the awaited call carrying
 that pointer as an argument). Hoisting the `chunk.ptr()` match out of the loop
 does not help; swapping `self.read(...)`/`Self.read(self, ...)` does not help.
 
+## Two sharper facets, measured after filing (2026-08-26, same session)
+
+1. **A GENERIC fn's async closure DROPS the enclosing function's parameters
+   from its capture struct** — the emitted C references `buf`/`size`/`io` as
+   bare identifiers (loud clang failure: "use of undeclared identifier").
+   Workaround that works: hoist each param into a LOCAL before `io.async`
+   (`the_r := r; the_buf := buf; …` — locals capture correctly, the same
+   pattern std/fs/file.yo's `fd := self._fd` hoist uses), and reach the `io`
+   effect as `e.io` inside the body (the hoisted-`io` spelling was not
+   tried — `io`-named params are structurally special). With that
+   discipline a SINGLE-await generic helper works end-to-end:
+   `tests/io/async_traits.test.yo`'s `read_once`/`write_once` are the green
+   proof.
+2. **The LOOPING await segfaults even with the full hoist discipline**
+   (`issues/repros/async-loop-buffer-await-free-generic-hoisted.yo` — same
+   as the free-generic repro plus `the_r`/`e.io`; still rc=139). So the loop
+   case is a second, deeper state-machine fault, not just the dropped
+   capture.
+
 ## Notes for the fixer
 
 - The rc=139 binaries carry **zero** `Failed to transpile` markers and zero

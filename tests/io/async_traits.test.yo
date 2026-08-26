@@ -1,0 +1,118 @@
+//! STD_API_AUDIT D5: the async `Reader`/`Writer` traits and their concrete
+//! implementors — `File`, `TcpStream` (impl registration), `Stdout`/`Stderr`.
+//!
+//! What is deliberately NOT here, blocked on
+//! issues/async-loop-awaiting-buffer-taking-method-state-machine-corruption.md:
+//! any generic helper that LOOPS awaiting `read`/`write` (read_to_end,
+//! io.copy) — an async body looping over a buffer-taking await miscompiles
+//! today. The generic helpers below make exactly ONE await, the shape the
+//! bug's control reproducers prove green.
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+open(import("std/collections/array_list"));
+open(import("std/string"));
+{ IoExn } :: import("std/error");
+{ Reader, Writer } :: import("std/io");
+{ Stdout, Stderr, stdout, stderr } :: import("std/io/stdio");
+{ File, OpenMode } :: import("std/fs/file");
+{ TcpStream } :: import("std/net/tcp");
+{ Path } :: import("std/path");
+{ remove_file } :: import("std/fs/dir");
+
+// A generic single-await passthrough: proves the WHERE-BOUND trait dispatch
+// works for both traits (the control shape from the filed bug).
+read_once :: (
+  fn(generic(R : Type), r : R, buf : *(u8), size : usize, io : Io, where(R <: Reader)) -> Impl(Future(usize, IoExn))
+)({
+  // Hoist params into locals before io.async: a GENERIC fn's async closure
+  // drops enclosing PARAMETERS from its capture struct (same filed family;
+  // locals capture correctly — the pattern std/fs/file.yo's fd-hoist uses).
+  the_r := r;
+  the_buf := buf;
+  the_size := size;
+  io.async((e) => e.io.await(the_r.read(the_buf, the_size, e.io), e))
+});
+write_once :: (
+  fn(generic(W : Type), w : W, buf : *(u8), size : usize, io : Io, where(W <: Writer)) -> Impl(Future(usize, IoExn))
+)({
+  the_w := w;
+  the_buf := buf;
+  the_size := size;
+  io.async((e) => e.io.await(the_w.write(the_buf, the_size, e.io), e))
+});
+
+test("File implements Reader and Writer — trait-dispatched round trip", {
+  path := Path.new(`/tmp/yo_d5_traits_roundtrip.bin`.to_string());
+  f := io.await(File.open(path, OpenMode.Write, io), { io });
+  payload := ArrayList(u8).new();
+  payload.push(u8(0xDE));
+  payload.push(u8(0xAD));
+  payload.push(u8(0xBE));
+  payload.push(u8(0xEF));
+  // Write through the GENERIC Writer bound (one await).
+  wrote := io.await(write_once(f, payload.ptr().unwrap(), payload.len(), io), { io });
+  assert(wrote == usize(4), "wrote four bytes through the Writer bound");
+  io.await(f.flush(io), { io });
+  io.await(f.close(io), { io });
+  // Read back through the GENERIC Reader bound (one await).
+  f2 := io.await(File.open(path, OpenMode.Read, io), { io });
+  buf := ArrayList(u8).with_capacity(usize(8));
+  (bi : usize) = usize(0);
+  while(bi < usize(8), bi = (bi + usize(1)), {
+    buf.push(u8(0));
+  });
+  got := io.await(read_once(f2, buf.ptr().unwrap(), usize(8), io), { io });
+  assert(got == usize(4), "read the four bytes back through the Reader bound");
+  assert(buf(usize(0)) == u8(0xDE), "byte 0");
+  assert(buf(usize(3)) == u8(0xEF), "byte 3");
+  // A second read at EOF resolves 0 — the Reader EOF contract.
+  got2 := io.await(read_once(f2, buf.ptr().unwrap(), usize(8), io), { io });
+  assert(got2 == usize(0), "EOF is 0, not an error");
+  io.await(f2.close(io), { io });
+  io.await(remove_file(path, io), { io });
+});
+test("File.read/write_string/write_bytes count in usize now", {
+  path := Path.new(`/tmp/yo_d5_usize_counts.txt`.to_string());
+  f := io.await(File.open(path, OpenMode.Write, io), { io });
+  n1 := io.await(f.write_string(`héllo`.to_string(), io), { io });
+  assert(n1 == usize(6), "write_string returns a usize byte count (6 UTF-8 bytes)");
+  more := ArrayList(u8).new();
+  more.push(u8(0x21));
+  n2 := io.await(f.write_bytes(more, io), { io });
+  assert(n2 == usize(1), "write_bytes returns a usize count");
+  io.await(f.close(io), { io });
+  f2 := io.await(File.open(path, OpenMode.Read, io), { io });
+  s := io.await(f2.read_to_string(io), { io });
+  assert(s == `héllo!`, "round trip");
+  io.await(f2.close(io), { io });
+  io.await(remove_file(path, io), { io });
+});
+test("Stdout and Stderr implement Writer", {
+  msg := `d5 stdio writer ok\n`.to_string();
+  b := msg.as_bytes();
+  o := stdout();
+  n := io.await(write_once(o, b.ptr().unwrap(), b.len(), io), { io });
+  assert(n == b.len(), "stdout write count");
+  io.await(o.flush(io), { io });
+  e2 := stderr();
+  n2 := io.await(e2.write(b.ptr().unwrap(), b.len(), io), { io });
+  assert(n2 == b.len(), "stderr write count");
+});
+test("TcpStream carries the Reader and Writer impls", {
+  // Registration-level check without opening sockets: the where-bound
+  // helpers must ACCEPT a TcpStream-typed argument at compile time. The
+  // trait methods delegate to the inherent read/write, whose behavior the
+  // tcp tests cover.
+  taker_r :: (fn(generic(R : Type), r : R, where(R <: Reader)) -> bool)(true);
+  taker_w :: (fn(generic(W : Type), w : W, where(W <: Writer)) -> bool)(true);
+  fake :: (fn() -> Option(TcpStream))(Option(TcpStream).None);
+  match(
+    fake(),
+    .Some(s) => {
+      assert(taker_r(s), "TcpStream satisfies Reader");
+      assert(taker_w(s), "TcpStream satisfies Writer");
+    },
+    .None => ()
+  );
+  assert(true, "TcpStream trait registration type-checks");
+});

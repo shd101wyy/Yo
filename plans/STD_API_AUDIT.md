@@ -757,6 +757,32 @@ section as written:
 - **C22** — do not write a nested closure inside an `io.async` body in these
   defaults; it silently becomes `abort()`.
 
+**D5 SLICE 1 LANDED (2026-08-26)** — what the probes proved landable, landed:
+`std/io/index.yo` (async `Reader`/`Writer` traits, required methods only —
+`read`/`write`/`flush`, `*(u8)`+len, `IoExn`), `std/io/stdio.yo`
+(`Stdin`/`Stdout`/`Stderr` handles over fds 0/1/2 with offset bookkeeping,
+implementing the traits — the typed replacement for `BufReader.new(i32(0))`),
+`File` and `TcpStream` trait impls (delegating to their inherent methods),
+`File.read` → `(buf, size : usize) -> Future(usize, IoExn)` plus a new raw
+`File.write`, and `File.write_string`/`write_bytes` → `usize` (the D5
+byte-count carry-over; zero external consumers of the old `i32` shapes —
+compiler-as-oracle plus the suite). Tests:
+`tests/io/async_traits.test.yo` (4) — a File round trip THROUGH where-bound
+generic helpers, usize counts, stdio writers, TcpStream registration.
+
+**D5 SLICE 2 is BLOCKED on a NEW filed compiler bug** —
+`issues/async-loop-awaiting-buffer-taking-method-state-machine-corruption.md`
+(three faces + two sharpened facets, five reproducers, two green controls):
+an async body LOOPING over a buffer-taking await segfaults (defaults, free
+generics — even with the param-hoist discipline) or emits invalid C
+(generic impls); separately, a generic fn's async closure drops enclosing
+params from its capture (workaround: hoist to locals + `e.io`). Blocked
+items: `read_to_end`/`read_to_string`/`write_all` as defaults or free
+generics, `io.copy`, `BufReader(R)`/`BufWriter(W)`, and the
+`std/sys/bufio` → `std/io` move (pointless before the wrappers can go
+generic). The per-type INHERENT conveniences (`File.read_to_string`,
+`read_bytes`, ...) remain the safe surface meanwhile.
+
 ### D6 — TLS position
 
 No TLS in tree; C1 makes https throw for now. **DECIDED (O2, 2026-08-23):
