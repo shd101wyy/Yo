@@ -123,12 +123,12 @@ S0 correctness, S1 (D1–D3 conventions + prelude traits), and **almost all of S
 
 ## 3. What is LEFT
 
-### 3.1 D4, PRs 4–6 and 9 (7–8 done 2026-08-26) — `plans/STD_API_AUDIT_D4_PLAN.md` §4 has the full table
+### 3.1 D4 — PRs 4–8 ALL DONE 2026-08-26; only PR 9 remains — `plans/STD_API_AUDIT_D4_PLAN.md` §4 has the full table
 
 | PR | content | note |
 | --- | --- | --- |
-| 4 | `imm.String`: `len()` → bytes, `at()` aligned, `bytes_len()` aliased, `chars()`/`char_indices()`/`char_len()` wired | **low urgency, measured**: `imm.String` has ZERO production consumers and there are ZERO cross-type index feeds, so this is insurance, not a bug fix |
-| 5 | `imm.String` → `ImmString` rename | ~15 lines |
+| ~~4~~ **DONE 2026-08-26** | `imm.String`: `len()` → bytes O(1), `at()` byte-indexed | deviation: `bytes_len()` DELETED (measured dead), not aliased; imm_string tests 34→44 with an 8-test red-first split |
+| ~~5~~ **DONE 2026-08-26** | `imm.String` → `ImmString` rename | also renamed the iterators (`ImmStringChars`/`ImmStringCharIndices`); four consumer test files, not three |
 | ~~6~~ **DONE 2026-08-26** | ~~Regex: delete `_byte_to_char_index` and the three char→byte re-walks; `RegexMatch.index()` becomes a byte index~~ | landed on `s2/d4-pr6-regex` — SIX walks deleted, not four (the `` $` ``/`$'` replacement arms re-walked too, and the third listed site was `split`, not `replace_all_fn`); regex suite 156→166 with 5 tests that fail against the pre-PR6 std; corrections recorded in the D4 plan §4 row 6 + §5.3. **Release note still owed at release time**: `RegexMatch.index()` / `Regex.search` now return BYTE offsets |
 | ~~7~~ **DONE 2026-08-26** | Comptime basis (O1c) — aligned to bytes; `s[i]` yields the rune starting at byte `i` (result-type split vs runtime `u8` kept deliberately); mid-rune offsets are compile errors | seed-safety re-measured STRONGER: `std/`+`src/`+`build.yo` have ZERO comptime string len/slice/index call sites |
 | ~~8~~ **DONE 2026-08-26** | Docs + skills sweep, `docs/{en-US,zh-CN}` both — new `STRINGS.md` pages; rune-count idiom documented as `s.chars().count()` per the newer no-char-indexed-slicing decision (`char_len`/`char_substring`/`truncate_chars` deprecated pending removal) | see the §4 PR 8 row in the D4 plan |
