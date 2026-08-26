@@ -96,7 +96,7 @@ otherwise COMPLETE.
 | C20 | **A callback generic over its RESULT miscompiles when the closure returns unit** — `fn(generic(R), body : Impl(Fn(...) -> R)) -> R` specialized at `R = unit` emits `void* tmp = <void call>;`, which clang rejects. That signature IS `Mutex(T).with_lock`, so the flagship std/sync form `m.with_lock((v) => { v = i32(7); })` does not C-compile today; `tests/sync/mutex.test.yo` misses it because all three cases return a value. `yo check` and `--emit-c` are both clean — only the C compiler objects. Root-caused to one predicate in `src/codegen/exprs/other_fn_call.yo` (the fn-pointer `ou_may_unwind` branch tests `is_unit_type(result_type)` while the registered-callee path consults the SomeT spelling). **FIXED 2026-08-26** — the patch was validated and applied; the fn-pointer path's void-result test now also fires for a SomeT-typed unit result, excluding the generic-ResumeType `ctl` case. Red-first regression tests added to `tests/sync/mutex.test.yo` and `tests/sync/rwlock.test.yo`; they were the missing coverage, since no test used the unit-body shape at all. Unblocks `RwLock.with_write((v) => { ... })` and Phase D's unwind-safe `Once.call`. issues/fixed/generic-r-callback-with-unit-closure-emits-void-star-temp.md | compiler |
 | C21 | **A materialized async trait `?=` default resolves its `Impl(Future(...))` return to ONE concrete state-machine type for ALL implementors** — the call site for implementor A declares implementor B's `_state_t*` and clang warns `-Wincompatible-pointer-types`, the diagnostic `src/main.yo` deliberately re-enables because "both sides are written by this compiler". Harmless only because every async state struct shares a common prefix and `__capture` sits after it (verified with 56-byte-skewed implementors). Live in `tests/async_trait_default_await.test.yo` and in the C16 reproducer. Found reviewing C16, NOT caused by it. OPEN — issues/async-trait-default-shares-one-impl-future-concrete-type.md | compiler |
 | C22 | **A closure defined INSIDE an `io.async` closure body makes that body untranspilable** — compile exits 0, clang is clean, the binary is rc=134 (`abort()` stub from #275) and the future is a `_sync_fut_t`. Independent of traits and of `Self`; pre-existing on develop. Scored `0 real` by `count-transpile-failures.sh` until that script learned to print the stub count (2026-08-26). OPEN — issues/closure-nested-inside-io-async-closure-body-emits-abort-stub.md | compiler |
-| C23 | **A GENERIC implementor (`impl(generic(T), Wrap(T), …)`) whose async method awaits `Self.<async method>` emits C that does not compile** — 4–5 clang errors, the `Impl(...)` placeholder `__yo_t0` survives into the emitted C and one future comes out `_sync_fut_t`. Happens with the body provided explicitly AND from a `?=` default; the non-generic implementor of the same trait is fine. **This is what still blocks D5's `BufReader(R)`/`BufWriter(W)`.** Pre-existing on develop. OPEN — issues/generic-implementor-async-method-awaiting-self-emits-uncompilable-c.md | compiler |
+| C23 | ~~A GENERIC implementor (`impl(generic(T), Wrap(T), …)`) whose async method awaits `Self.<async method>` emits C that does not compile~~ **FIXED 2026-08-26.** The row's "`Impl(...)` placeholder `__yo_t0` survives" read was wrong on the mechanism: `__yo_t0` was the RECEIVER (`Wrap(usize)`), not the placeholder. TWO defects, both only reachable through a generic implementor (only its methods take the per-receiver specialization arm): (1) `_evaluate_funcval_runtime_call`'s static-dot `-> Self` resolution clobbered EVERY SomeT return with the receiver — `Self.read(...)`'s declared `Impl(Future(...))` return re-registered as `Wrap(usize)` (fix: gate on the SomeT being NAMED "Self"; `src/evaluator/calls/function.yo`); (2) `substitute` was not capture-avoiding, so the impl's `T := usize` rewrote the UNRELATED `T` binder inside `Io.async : fn(generic(T, E), …)` and the corrupted `Io` keyed a second C type (fix: `_mask_func_own_binders`, nested-Func name shadowing with the root exempt for `_freshen_io_builtin_callee`; `src/types/substitution.yo`). Test: `tests/generic_impl_async_self.test.yo` (explicit body, `?=` default, non-generic control, two-type-arg implementor). Issue: issues/fixed/generic-implementor-async-method-awaiting-self-emits-uncompilable-c.md | compiler |
 
 ---
 
@@ -740,12 +740,16 @@ hollow `abort()` body, including the loop-until-done shape `read_to_end` needs
 issues/fixed/trait-default-awaiting-self-async-method-emits-hollow-fn.md and
 `tests/async_trait_default_await.test.yo`.
 
-Three things measured in the same review still stand between here and the
-section as written, so do NOT read C16 as "D5 is implementable now":
+**C23 is ALSO CLEARED (2026-08-26)** — a GENERIC implementor of an async trait
+(`impl(generic(T), Wrap(T), …)` awaiting `Self.<async method>`, the exact
+`BufReader(R)`/`BufWriter(W)` shape) now compiles and runs, explicit body or
+`?=` default, including a two-type-argument implementor
+(`tests/generic_impl_async_self.test.yo`,
+issues/fixed/generic-implementor-async-method-awaiting-self-emits-uncompilable-c.md).
 
-- **C23 blocks `BufReader(R)`/`BufWriter(W)` outright.** A GENERIC implementor of
-  an async trait emits C that does not compile, default or no default. Concrete
-  implementors (`File`, a socket) are fine.
+Two things measured in the same review still stand between here and the
+section as written:
+
 - **C17** still blocks the `Dyn(Reader)` spelling of the same wrapper.
 - **C21** makes the emitted C for a two-implementor async default trip
   `-Wincompatible-pointer-types`. It does not miscompile today, but the whole
