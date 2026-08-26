@@ -108,16 +108,13 @@ on.
 ### 3.2 D5 — async `Reader`/`Writer` traits — SLICE 1 LANDED 2026-08-26
 
 Slice 1 (traits + stdio + File/TcpStream impls + the usize/IoExn unification)
-merged as #293. The slice-2 blocker
-(issues/async-loop-awaiting-buffer-taking-method-state-machine-corruption.md)
-had its silent facets FIXED in #294 + #295, so **`read_to_end` /
-`read_to_string` / `write_all` as trait defaults or free generics, and
-`io.copy`, are now implementable** (tests/async_loop_buffer_await.test.yo
-proves both loop shapes). Still blocked: generic `BufReader(R)`/`BufWriter(W)`
-— the issue's generic-impl face (OPEN) plus C17 — and therefore the
-`std/sys/bufio` → `std/io` move. Cautions while implementing: C21
-(cross-implementor pointer-type warning) and C22 (no nested closures inside
-`io.async` bodies). Full current state: `plans/STD_API_AUDIT.md` §D5.
+merged as #293; slice 2 (the `read_to_end`/`read_to_string`/`write_all`
+defaults, `copy`, `IoError.InvalidData`/`WriteZero`, validating
+`File.read_to_string`) LANDED 2026-08-26 after #294/#295 unblocked it — C25
+(the unit tail await) was found and fixed en route. Still blocked: generic
+`BufReader(R)`/`BufWriter(W)` — the loop-await issue's generic-impl face
+(OPEN) plus C17 — and therefore the `std/sys/bufio` → `std/io` move and a
+buffered `lines()`. Full current state: `plans/STD_API_AUDIT.md` §D5.
 
 ### 3.3 §7 additions — S3 (P0) and S4 (P1)
 

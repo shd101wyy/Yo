@@ -1,0 +1,47 @@
+// A where-bound generic whose io.async body TAIL-awaits a unit-resolving
+// trait-default method emitted `sm->await_result_N;` in the completion
+// segment — but the state struct never declares that field for an
+// effectively-unit result (real unit, or an unresolved SomeT), so clang
+// fails with "no member named 'await_result_0'".
+// Pre-fix: compile rc=1 (C error). Post-fix: compiles, runs rc=0.
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+{ IoExn } :: import("std/error");
+
+Sink :: trait(
+  put : (fn(self : Self, v : u8, io : Io) -> Impl(Future(usize, IoExn))),
+  (put_all : (fn(self : Self, v : u8, io : Io) -> Impl(Future(unit, IoExn)))) ?=
+    (
+      (self, v, io) ->
+        io.async((e) => {
+          n := e.io.await(Self.put(self, v, io), e);
+          assert(n == usize(1), "one put");
+          ()
+        })
+    )
+);
+Tally :: ref(struct(count : u8));
+impl(
+  Tally,
+  Sink(
+    put : (fn(self : Self, v : u8, io : Io) -> Impl(Future(usize, IoExn)))(
+      io.async((e) => {
+        self.count = (self.count + v);
+        usize(1)
+      })
+    )
+  )
+);
+// The failing shape: the closure body IS the tail await of the unit default.
+put_all_generic :: (
+  fn(generic(S : Type), s : S, v : u8, io : Io, where(S <: Sink)) -> Impl(Future(unit, IoExn))
+)(
+  io.async((e) => e.io.await(s.put_all(v, io), e))
+);
+main :: (fn(io : Io) -> unit)({
+  t := Tally(count : u8(0));
+  io.await(put_all_generic(t, u8(5), io), { io });
+  io.await(put_all_generic(t, u8(7), io), { io });
+  assert(t.count == u8(12), "both puts landed");
+});
+export(main);

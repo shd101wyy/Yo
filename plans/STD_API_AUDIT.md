@@ -82,6 +82,7 @@ records; mechanisms and reproducers are in the named `issues/fixed/` docs.
 | C22 | a closure defined INSIDE an `io.async` closure body makes that body untranspilable — compile exits 0, clang clean, binary is rc=134 (`abort()` stub), future is `_sync_fut_t` | **OPEN** — issues/closure-nested-inside-io-async-closure-body-emits-abort-stub.md |
 | C23 | generic implementor (`impl(generic(T), Wrap(T), …)`) awaiting `Self.<async method>` emitted uncompilable C — two defects: static-dot `-> Self` resolution clobbered SomeT returns with the receiver, and `substitute` was not capture-avoiding (the impl's `T := usize` rewrote `Io.async`'s own `T` binder) | **FIXED** 2026-08-26 — issues/fixed/generic-implementor-async-method-awaiting-self-emits-uncompilable-c.md, tests/generic_impl_async_self.test.yo |
 | C24 | **async loop over a buffer-taking await** (the D5 slice-2 blocker, found by D5 work): (a) a generic fn's `io.async` closure DROPPED the enclosing params from its capture (the `.AsyncBlock` classifier arm kept a generation-unsafe frame-level test); (b) the nullable-ptr match's payload binding (`.Some(q) => q` over `chunk.ptr()`) declared a C local while arm reads consulted the never-written hoisted `sm->var_N` slot — silent rc=139 on fully-transpiled C. Both **FIXED** 2026-08-26 (PRs #294 + #295; tests/async_generic_param_capture.test.yo, tests/async_loop_buffer_await.test.yo). REMAINING OPEN: the generic-impl face — the same loop inside `impl(generic(R), …)` resolves the binding to a never-declared minted temp (loud C failure) | partly **FIXED**, generic-impl face **OPEN** — issues/async-loop-awaiting-buffer-taking-method-state-machine-corruption.md |
+| C25 | **a unit-resolving TAIL await emitted `sm->await_result_N;`** — a field the state struct never declares for an effectively-unit result (unit, or the unresolved SomeT a where-bound trait default's `Impl(Future(unit, IoExn))` return looks like), so clang failed with "no member named 'await_result_0'". Found by D5 slice 2's first `write_all` wrapper; the completion-segment substitution lacked the effectively-unit guard the struct allocator and the extraction both had | **FIXED** 2026-08-26 — issues/fixed/unit-tail-await-of-trait-default-reads-missing-await-result.md, tests/async_unit_tail_await.test.yo |
 
 ---
 
@@ -260,22 +261,37 @@ impls, and the byte-count unification (`File.read`/`write`/`write_string`/
 `write_bytes` → `usize`, closing the transient where net returned `usize` but
 file/bufio didn't). Tests: `tests/io/async_traits.test.yo`.
 
-**D5 SLICE 2 state:** the blocking compiler bug (C24 — async loop over a
-buffer-taking await) had its silent-segv facets **FIXED 2026-08-26**, so
-`read_to_end`/`read_to_string`/`write_all` as trait defaults or free generics,
-and `io.copy`, are now implementable (proven by
-`tests/async_loop_buffer_await.test.yo`, which runs both loop shapes).
-Still blocked: **generic `BufReader(R)`/`BufWriter(W)`** — C24's generic-impl
-face plus **C17** (the `Dyn(Reader)` spelling); the `std/sys/bufio` → `std/io`
-move waits for the wrappers to go generic. Cautions while implementing:
+**D5 SLICE 2 LANDED 2026-08-26** (unblocked by C24's fixes; C25 was found and
+fixed en route — its first `write_all` wrapper did not C-compile):
 
-- **C21** — two-implementor async defaults trip `-Wincompatible-pointer-types`
-  (benign today, watch it).
-- **C22** — do NOT write a nested closure inside an `io.async` body in these
-  defaults; it silently becomes `abort()`.
-- BufWriter's `Dispose` is a SYNC flush that cannot await an async
-  `Writer.write` (C12 note) — the structural tension in "BufWriter wraps any
-  Writer".
+- `Reader` gained `?=` defaults **`read_to_end`** (chunked loop over the raw
+  `read`, no caller pointers) and **`read_to_string`** (a default chained onto
+  a default — `Self.read_to_end` then `String.from_utf8`; malformed bytes
+  throw the NEW **`IoError.InvalidData`**). `Writer` gained **`write_all`**
+  (loops short counts; a 0-byte write throws the NEW **`IoError.WriteZero`**).
+  Both variants are Rust's names; `NetError.from_io` has a `_` catch-all so
+  the enum growth is safe.
+- **`copy(r, w, io) -> Future(u64, IoExn)`** — the free generic, draining any
+  `Reader` into any `Writer` via `write_all`; does not flush.
+- The INHERENT `File.read_to_string` (and with it the free
+  `fs read_to_string` family) now **validates UTF-8** and throws
+  `InvalidData`, so the inherent and trait surfaces agree — it had shipped on
+  the unchecked `from_bytes`.
+- Tests: `tests/io/async_traits.test.yo` 4 → 8 (chunk-looping read_to_end
+  through the bound AND as a direct method call, default-onto-default
+  read_to_string, copy with byte total, InvalidData throw), vacuity-probed;
+  `tests/async_unit_tail_await.test.yo` (C25 red-first).
+
+**D5 remaining:** generic `BufReader(R)`/`BufWriter(W)` — C24's generic-impl
+face plus **C17** (the `Dyn(Reader)` spelling); with them the
+`std/sys/bufio` → `std/io` move + its `IoExn` adoption, and a buffered
+`lines()`. Inherent-vs-trait NAME duplication (`File.read_bytes` vs the trait's
+`read_to_end`, the inherent `read_to_string`) is a D2 question to settle when
+the wrappers land. Cautions that still stand: **C21**
+(`-Wincompatible-pointer-types` across implementors — the two warnings are
+live in the slice-2 emit), **C22** (no nested closures inside `io.async`
+bodies), and the C12 note (BufWriter's SYNC `Dispose` flush cannot await an
+async `Writer.write`).
 
 ### D6 — TLS position
 
@@ -411,7 +427,7 @@ Open D7 items:
 | json | EXTEND | enum representation DECIDED externally-tagged (O3); `JsonValue.Object` O(n) parallel arrays → keep repr, add index map if profiling demands |
 | regex | POLISH | typed error + private internals DONE (D8); byte `index()` DONE (D4 PR 6); still: `Regex.escape`, optional-flags `new`, callback replace, lazy `find_iter`, group byte-spans |
 | url | EXTEND | percent-encode/decode integration, `query_pairs`/`SearchParams`, `join` (RFC 3986 §5 — needed by http redirects), builder/setters; punycode DELETED (§6) |
-| io | REDESIGN | D5 — slice 1 DONE, slice 2 in progress |
+| io | REDESIGN | D5 — slices 1–2 DONE; generic wrappers + bufio move remain |
 | fs | EXTEND + POLISH | wrappers: `copy`, `remove_dir_all` (compiler implements it TWICE as workaround — `src/fetch.yo:80`, `src/version_cache.yo:72`), `read_link`, `set_permissions`, `set_len`, `try_exists`, `watch` (sys/events exists); `OpenOptions` builder; `File.from_fd`; Metadata: real `btime`, `permissions()`, stop `metadata` re-stat by path; DirEntry `path()`; walker: lazy option + glob filter; collapse the `_str`/`_cstr` matrix with an `AsPath` trait |
 | path | FIX + EXTEND | `join(str)`, `push`, `Hash`/`Ord`/`Clone`, Windows separator in `to_string`, `ancestors`, PATH split/join; revisit eager `..` normalization (symlink semantics); `PathError` deleted (§6) — or make `new` fallible |
 | env | MERGE (D8) | + `remove`, `vars()` iteration, `str` keys |
@@ -544,7 +560,7 @@ declarations at runtime.
 **P0 — unblock real programs**
 1. `std/encoding/percent.yo` (percent-encode/decode) + URL/query integration
 2. ~~`std/encoding/utf8.yo` (D8)~~ **DONE 2026-08-25** + `html_encode` (open)
-3. `std/io` redesign with stdio handles (D5) — slice 1 DONE, slice 2 in progress
+3. `std/io` redesign with stdio handles (D5) — slices 1–2 DONE; generic wrappers + bufio move remain
 4. `fs.copy`, `fs.remove_dir_all`, `read_link`, `set_permissions`, `try_exists`
 5. `process.Child`/`spawn`/`Stdio`
 6. async combinators + async channel/mutex + `timeout` (D7)
@@ -602,8 +618,8 @@ mmap/file-lock/statfs wrappers; `gc.stats`; DNS SRV/TXT/reverse
 1. **S0 — correctness:** §2 — **DONE** (open compiler rows tracked in §2).
 2. **S1 — conventions ADR + prelude traits (D1–D3):** **DONE** (D3.9 blocked).
 3. **S2 — the breaking sweep (§5 + §6 + D4/D5/D7/D8):** **essentially DONE** —
-   remaining: D4 PR 9, D5 slice 2, D8 env-merge/EncodingError/glob rows, O7
-   bound.
+   remaining: D4 PR 9, D5's generic wrappers + bufio move, D8
+   env-merge/EncodingError/glob rows, O7 bound.
 4. **S3 — P0 additions.** ← next after D5 slice 2
 5. **S4 — P1 additions.**
 6. **S5 — stability freeze:** stable/unstable markers in `yo doc` output,

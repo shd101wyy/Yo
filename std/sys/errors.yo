@@ -72,6 +72,14 @@ IoError :: enum(
   NetworkDown,
   /// Already connected (EISCONN).
   AlreadyConnected,
+  /// The stream contained malformed data for the operation — e.g.
+  /// `Reader.read_to_string` over bytes that are not valid UTF-8. Not an
+  /// errno; the Rust `ErrorKind::InvalidData` counterpart.
+  InvalidData,
+  /// A `write` accepted 0 bytes, so the remaining data can never be
+  /// delivered (`Writer.write_all`). Not an errno; the Rust
+  /// `ErrorKind::WriteZero` counterpart.
+  WriteZero,
   /// Other error with raw errno code.
   Other(code : i32)
 );
@@ -160,6 +168,8 @@ impl(
           .HostUnreachable => String.from("host unreachable"),
           .NetworkDown => String.from("network is down"),
           .AlreadyConnected => String.from("socket already connected"),
+          .InvalidData => String.from("stream contained malformed data"),
+          .WriteZero => String.from("write returned zero bytes"),
           .Other(errno) => String.from("unknown I/O error")
         );
         return(s);
