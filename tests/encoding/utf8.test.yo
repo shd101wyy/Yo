@@ -495,9 +495,9 @@ test("validate_range checks a sub-range and never reads past it", {
 test("String round-trips through the shared decoder", {
   s := `aé€😀`;
   // `len()` counts BYTES and `at()` takes a BYTE offset since
-  // plans/STD_API_AUDIT_D4_PLAN.md D4 PR 3; `char_len()` is the rune count.
+  // plans/STD_API_AUDIT_D4_PLAN.md D4 PR 3; `chars().count()` is the rune count.
   // a@0 (1B) é@1 (2B) €@3 (3B) 😀@6 (4B).
-  assert(s.char_len() == usize(4), "four runes");
+  assert(s.chars().count() == usize(4), "four runes");
   assert(s.len() == usize(10), "1 + 2 + 3 + 4 bytes");
   assert(s.as_bytes().len() == usize(10), "1 + 2 + 3 + 4 bytes");
   assert(_valid_kind(validate(s.as_bytes())) == "ok", "the template string is valid UTF-8");
@@ -511,7 +511,7 @@ test("String.from_utf8 validates and from_bytes does not", {
   match(
     String.from_utf8(good),
     .Ok(s) => {
-      assert(s.char_len() == usize(1), "e-acute is one rune");
+      assert(s.chars().count() == usize(1), "e-acute is one rune");
       assert(s.len() == usize(2), "and two bytes");
     },
     .Err(_) => assert(false, "valid bytes must be accepted")

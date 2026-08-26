@@ -681,7 +681,7 @@ Runtime builtins generate inline C code (`(&(arr->data[idx]))`). Comptime builti
 (2026-08-26) the indices are **BYTE offsets**, matching the runtime basis:
 
 - `"Hello"(0)` → `"H"` — the RUNE starting at byte 0, as a 1-rune comptime_str
-  (runtime `s[i]` yields the `u8` instead; that result-type split is
+  (runtime `s(i)` yields the `u8` instead; that result-type split is
   deliberate — see `docs/en-US/STRINGS.md`)
 - `"Hello"(0..3)` → `"Hel"` (byte-range slicing)
 - `"Hello"(0..=2)` → `"Hel"` (inclusive byte-range slicing)

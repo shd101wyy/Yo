@@ -5,7 +5,7 @@ test("ImmString new creates empty string", {
   s := ImmString.new();
   assert(s.is_empty(), "new string should be empty");
   assert(s.len() == usize(0), "new string should have 0 bytes");
-  assert(s.char_len() == usize(0), "new string should have 0 runes");
+  assert(s.chars().count() == usize(0), "new string should have 0 runes");
 });
 test("ImmString from str", {
   s := ImmString.from("hello");
@@ -126,14 +126,14 @@ test("ImmString equality with str", {
   assert(s.eq_str("hello"), "should equal str literal");
   assert(!(s.eq_str("world")), "should not equal different str");
 });
-test("ImmString len is bytes, char_len is runes", {
+test("ImmString len is bytes, chars().count() is runes", {
   ascii := ImmString.from("hello");
   assert(ascii.len() == usize(5), "ASCII: byte count and rune count coincide");
-  assert(ascii.char_len() == usize(5), "ASCII: 5 runes too");
+  assert(ascii.chars().count() == usize(5), "ASCII: 5 runes too");
   // Each Chinese char is 3 UTF-8 bytes
   cjk := ImmString.from("你好");
   assert(cjk.len() == usize(6), "CJK is 6 BYTES — len() flipped in D4 PR 4 (pre-flip: 2)");
-  assert(cjk.char_len() == usize(2), "CJK is 2 runes");
+  assert(cjk.chars().count() == usize(2), "CJK is 2 runes");
 });
 test("ImmString at decodes the rune starting at a BYTE offset", {
   //   rune   a      é         中           𝄞
@@ -227,19 +227,19 @@ test("ImmString COW concat chain", {
 //   bytes  61     C3 A9     E4 B8 AD     F0 9D 84 9E
 //   offset 0      1  2      3  4  5      6  7  8  9
 // ===========================================================================
-test("ImmString char_len counts runes across all four UTF-8 widths", {
+test("ImmString chars().count() counts runes across all four UTF-8 widths", {
   s := ImmString.from("aé中𝄞");
   assert(s.len() == usize(10), "subject must be 10 bytes");
-  assert(s.char_len() == usize(4), "subject must be 4 runes");
+  assert(s.chars().count() == usize(4), "subject must be 4 runes");
   // The PR 4 golden, stated as two halves so it discriminates both ways:
   // the rune count is UNCHANGED by the flip, and len() now counts bytes.
-  assert(s.char_len() == usize(4), "rune count unchanged by the PR 4 flip");
+  assert(s.chars().count() == usize(4), "rune count unchanged by the PR 4 flip");
   assert(s.len() == usize(10), "len() is the byte count since the PR 4 flip (pre-flip: 4)");
   assert(s.byte_at(usize(0)).unwrap() == u8(0x61), "byte 0 is 'a'");
   assert(s.byte_at(usize(1)).unwrap() == u8(0xC3), "byte 1 leads 'é'");
   assert(s.byte_at(usize(3)).unwrap() == u8(0xE4), "byte 3 leads '中'");
   assert(s.byte_at(usize(6)).unwrap() == u8(0xF0), "byte 6 leads '𝄞'");
-  assert(ImmString.new().char_len() == usize(0), "empty is 0 runes");
+  assert(ImmString.new().chars().count() == usize(0), "empty is 0 runes");
 });
 test("ImmString is_char_boundary marks every byte of a 4-byte sequence", {
   s := ImmString.from("aé中𝄞");
@@ -388,14 +388,14 @@ test("ImmString len counts BYTES across all four UTF-8 widths", {
   assert(ImmString.from("é").len() == usize(2), "'é' is 2 bytes, 1 rune");
   assert(ImmString.from("中").len() == usize(3), "'中' is 3 bytes, 1 rune");
   assert(ImmString.from("𝄞").len() == usize(4), "'𝄞' is 4 bytes, 1 rune");
-  assert(ImmString.from("你好").char_len() == usize(2), "char_len stays the rune count");
+  assert(ImmString.from("你好").chars().count() == usize(2), "the rune count is unchanged");
 });
 test("ImmString len is O(1) field access and agrees with the std ImmString byte count", {
   subject := `aé中𝄞`;
   s := ImmString.from_string(subject);
   assert(s.len() == subject.len(), "imm and std ImmString agree on the byte count");
   assert(s.len() == usize(10), "and it is 10");
-  assert(s.char_len() == subject.char_len(), "and on the rune count");
+  assert(s.chars().count() == subject.chars().count(), "and on the rune count");
 });
 test("ImmString index_of returns BYTE offsets on multibyte haystacks", {
   s := ImmString.from("aé中𝄞");
@@ -423,7 +423,7 @@ test("ImmString slice takes BYTE offsets on multibyte content", {
   assert(s.slice(usize(3), usize(6)) == ImmString.from("中"), "[3,6) is '中' (a rune-based slice(3,6) would have been '𝄞' alone)");
   assert(s.slice(usize(6), usize(10)) == ImmString.from("𝄞"), "[6,10) is '𝄞'");
   assert(s.slice(usize(0), usize(10)) == s, "the whole string");
-  assert(s.slice(usize(3), usize(10)).char_len() == usize(2), "'中𝄞' is 2 runes");
+  assert(s.slice(usize(3), usize(10)).chars().count() == usize(2), "'中𝄞' is 2 runes");
 });
 test("ImmString slice + index_of compose in one basis", {
   s := ImmString.from("aé中𝄞");
@@ -460,5 +460,5 @@ test("ImmString replace with multibyte search and replacement", {
   r := s.replace(ImmString.from("中"), ImmString.from("你好"));
   assert(r == ImmString.from("aé你好𝄞"), "replaced at the right BYTE offset");
   assert(r.len() == usize(13), "1 + 2 + 6 + 4 bytes");
-  assert(r.char_len() == usize(5), "5 runes after the swap");
+  assert(r.chars().count() == usize(5), "5 runes after the swap");
 });

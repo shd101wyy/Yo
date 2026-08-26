@@ -365,16 +365,19 @@ _first_struct_effect_type :: (fn(future_trait_type : TypeValue) -> Option(TypeVa
 /// `plans/STD_API_AUDIT_D4_PLAN.md` D4 PR 3 made `substring` byte-indexed and
 /// non-boundary-PANICKING, `substring(0, 1)` on such a label aborted the whole
 /// compiler with `String.substring: end is not on a UTF-8 character boundary`
-/// and no source location. `char_substring` is the rune-indexed slice and
-/// restores exactly the pre-flip cut, which is what this function always meant.
+/// and no source location. `ceil_char_boundary(1)` is the byte width of the
+/// FIRST rune (1 for ASCII, snapped up to the rune's end otherwise), so
+/// slicing at it restores exactly the pre-flip cut, which is what this
+/// function always meant.
 _capitalize_last_segment :: (fn(label : String) -> String)({
   parts := label.split(".");
   last := if(parts.len() > usize(0), match(parts.get(parts.len() - usize(1)), .Some(p) => p, .None => label.clone()), label.clone());
   if(last.len() == usize(0), {
     return(last);
   });
-  head := last.char_substring(usize(0), usize(1)).to_uppercase();
-  head.push_string(last.char_substring(usize(1), last.char_len()));
+  first_end := last.ceil_char_boundary(usize(1));
+  head := last.substring(usize(0), first_end).to_uppercase();
+  head.push_string(last.substring(first_end, last.len()));
   head
 });
 /// Emit the future's `set_effect` callback: a `strcmp(field, …)` chain that copies

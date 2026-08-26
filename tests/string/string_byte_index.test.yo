@@ -39,18 +39,13 @@ test("String len counts bytes, not runes", {
   s := _subject();
   // pre-D4: 4
   assert(s.len() == usize(10), "10 bytes");
-  assert(s.char_len() == usize(4), "4 runes");
+  assert(s.chars().count() == usize(4), "4 runes");
   assert(s.len() == s.as_bytes().len(), "len IS the buffer length");
   // pre-D4: 2 / 2 / 3
   assert(`你好`.len() == usize(6), "two 3-byte runes");
   assert(`😀😁`.len() == usize(8), "two 4-byte runes");
   assert(`abc`.len() == usize(3), "ASCII agrees in both bases");
   assert(String.new().len() == usize(0), "empty");
-});
-test("String bytes_len is a deprecated alias of len", {
-  s := _subject();
-  assert(s.bytes_len() == s.len(), "alias tracks len");
-  assert(s.bytes_len() == usize(10), "and is still the byte count");
 });
 // ===========================================================================
 // at — decode the rune STARTING at a byte offset
@@ -138,9 +133,8 @@ test("String substring round-trips through char_indices", {
       a := offsets(i);
       b := offsets(j);
       piece := s.substring(a, b);
-      assert(piece.char_len() == (j - i), "rune count of the span");
+      assert(piece.chars().count() == (j - i), "rune count of the span");
       assert(piece.len() == (b - a), "byte count of the span");
-      assert(piece == s.char_substring(i, j), "agrees with the rune slice");
       j = (j + usize(1));
     });
     i = (i + usize(1));

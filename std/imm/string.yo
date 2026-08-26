@@ -83,7 +83,7 @@ impl(
   /// agrees with `std/string`'s `String.len()`, `str.len()` and Rust's
   /// `str::len()`.
   ///
-  /// For "how many runes" use `char_len()` (O(n)); to walk runes together with
+  /// For "how many runes" use `chars().count()` (O(n)); to walk runes together with
   /// the byte offset each one starts at, use `char_indices()`.
   /// (`plans/STD_API_AUDIT_D4_PLAN.md` D4 PR 4 — this returned a RUNE count
   /// before that flip, and a `bytes_len()` alias carried the byte count; the
@@ -577,14 +577,13 @@ impl(
 /// === Rune-aware indexing (D4 vocabulary) ===
 ///
 /// The same six additions `std/string/string.yo` grew, plus the rune iterator
-/// this type never had. Offsets are **BYTES** throughout (except `char_len`,
-/// which counts runes) — and since D4 PR 4 flipped `len()` and `at()`, that
+/// this type never had. Offsets are **BYTES** throughout — the rune count
+/// is `chars().count()` — and since D4 PR 4 flipped `len()` and `at()`, that
 /// is the basis the WHOLE type speaks: this block is the rune vocabulary on
 /// top of it. See `plans/STD_API_AUDIT_D4_PLAN.md`.
 ///
-/// `char_len` and `char_indices` are built on `std/encoding/utf8` and inherit
-/// its malformed-input behaviour: `char_len` counts non-continuation bytes
-/// (what `len()` counted before D4 PR 4), `char_indices` and `chars` stop at
+/// `char_indices` is built on `std/encoding/utf8` and inherits its
+/// malformed-input behaviour: `char_indices` and `chars` stop at
 /// the first sequence that will not decode. The boundary functions and
 /// `try_substring` are pure byte classification and cannot fail.
 /// Rune iterator for `ImmString` — created by `chars()`.
@@ -652,31 +651,6 @@ impl(
   char_indices : (fn(self : Self) -> ImmStringCharIndices)(
     ImmStringCharIndices(_string : self, _byte_index : usize(0))
   ),
-  /// Number of Unicode scalar values (runes) in the string — O(n).
-  ///
-  /// **RUNE basis**, and the only length on this type that is: `len()` counts
-  /// BYTES (D4 PR 4). Use this wherever a count is a display/character count
-  /// rather than a buffer size.
-  char_len : (fn(self : Self) -> usize)({
-    count := usize(0);
-    i := usize(0);
-    n := self._len;
-    while(i < n, i = (i + usize(1)), {
-      match(
-        self.byte_at(i),
-        .Some(b) => {
-          cond(
-            utf8.is_boundary(b) => {
-              count = (count + usize(1));
-            },
-            true => ()
-          );
-        },
-        .None => ()
-      );
-    });
-    count
-  }),
   /// True when byte offset `index` sits on a rune boundary.
   ///
   /// `0` and `len()` are always boundaries; an index past the end never

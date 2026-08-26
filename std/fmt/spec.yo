@@ -67,9 +67,9 @@ _apply_width :: (
   fn(fill : rune, align : Option(Alignment), width : usize, text : String, dflt : Alignment) -> String
 )({
   // `width` is a CHARACTER count (the field doc says so, and Rust counts
-  // chars here too), so the measurement has to say `char_len` — otherwise
+  // chars here too), so the measurement is a rune count — otherwise
   // D4's byte flip would silently start padding `é` to two columns.
-  len := text.char_len();
+  len := text.chars().count();
   cond(
     (len >= width) => text,
     true => {
@@ -206,12 +206,18 @@ impl(
     match(
       self.precision,
       .Some(p) => {
-        // `.N` on text is a truncation length in CHARACTERS. `truncate_chars`
-        // is boundary-safe, so the cut can never split a rune and emit
-        // invalid UTF-8 (STD_API_AUDIT_D4_PLAN §5.2 S2).
-        if(text.char_len() > p, {
-          text = text.truncate_chars(p);
-        });
+        // `.N` on text is a truncation length in CHARACTERS. `nth(p)` hands
+        // back the byte offset rune `p` starts at — a rune boundary by
+        // construction, so the cut can never split a rune and emit invalid
+        // UTF-8; `.None` means the text has at most `p` runes and stays
+        // whole (STD_API_AUDIT_D4_PLAN §5.2 S2).
+        match(
+          text.char_indices().nth(p),
+          .Some(pair) => {
+            text = text.substring(usize(0), pair._0);
+          },
+          .None => ()
+        );
       },
       .None => ()
     );
@@ -224,8 +230,8 @@ impl(
   pad_numeric : (fn(self : Self, sign : String, prefix : String, digits : String) -> String)({
     // Same CHARACTER basis as `_apply_width` — the two are compared against
     // the same `self.width`, so they must measure the same thing.
-    head_len := (sign.char_len() + prefix.char_len());
-    total_len := (head_len + digits.char_len());
+    head_len := (sign.chars().count() + prefix.chars().count());
+    total_len := (head_len + digits.chars().count());
     use_zero := (self.zero && self.align.is_none());
     cond(
       (use_zero && (self.width > total_len)) => {

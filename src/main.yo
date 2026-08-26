@@ -335,7 +335,7 @@ collect_module_deps :: (
   (effective_path : String) = path_str.clone();
   (effective_base : String) = base_dir.clone();
   if(path_str.starts_with("std/"), {
-    if(std_base.bytes_len() == usize(0), {
+    if(std_base.len() == usize(0), {
       return(());
     });
     rest := path_str.substring(usize(4), path_str.len());
@@ -351,7 +351,7 @@ collect_module_deps :: (
   // When std_base is empty, also skip paths that resolve into std/ (e.g.
   // relative imports like "../string" from within std/imm/). With std_base
   // set, std/ resolves into std_base and these paths should be followed.
-  if((std_base.bytes_len() == usize(0)) &&
+  if((std_base.len() == usize(0)) &&
     abs_path_raw.clone().starts_with(String.from("std/")), {
     return(());
   });

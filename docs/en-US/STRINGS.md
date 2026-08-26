@@ -124,9 +124,9 @@ first := s.chars().next(); // Option(rune)
 malformed-input behaviour: they stop at the first sequence that will not
 decode.
 
-(`bytes_len()` survives as a deprecated alias of `len()`; `char_len()`,
-`char_substring()` and `truncate_chars()` still exist but are deprecated
-pending removal — write the idioms above instead.)
+(The one-shot methods this replaced — `bytes_len()`, `char_len()`,
+`char_substring()` and `truncate_chars()` — were removed on 2026-08-26;
+`len()` and the idioms above are the whole vocabulary.)
 
 ## Element access: `s(i)` is a byte
 

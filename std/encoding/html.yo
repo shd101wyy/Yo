@@ -126,7 +126,7 @@ _slice_runes :: (
   if(start >= end, {
     return(String.new());
   });
-  total_bytes := s.bytes_len();
+  total_bytes := s.len();
   start_byte := _byte_offset_of(table, start, total_bytes);
   end_byte := _byte_offset_of(table, end, total_bytes);
   if(start_byte >= end_byte, {
@@ -144,7 +144,7 @@ _slice_runes :: (
 /// references. Legacy mode — entities without trailing semicolons are also decoded.
 decode_html :: (fn(input : String) -> String)({
   _ensure_init();
-  if(input.char_len() == usize(0), {
+  if(input.chars().count() == usize(0), {
     return(input);
   });
   // Quick check: if no '&', return as-is

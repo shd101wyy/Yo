@@ -68,18 +68,18 @@ test("chunked emission: the linkage split assembles a header + N linkable units"
   // The ranges are byte offsets into exactly that concatenation.
   code := String.new();
   code.push_str(_RUNTIME);
-  borrow_start := code.bytes_len();
+  borrow_start := code.len();
   code.push_str(_BORROW);
-  borrow_end := code.bytes_len();
-  alpha_start := code.bytes_len();
+  borrow_end := code.len();
+  alpha_start := code.len();
   code.push_str(_FN_ALPHA);
-  alpha_end := code.bytes_len();
-  beta_start := code.bytes_len();
+  alpha_end := code.len();
+  beta_start := code.len();
   code.push_str(_FN_BETA);
-  beta_end := code.bytes_len();
-  rc_start := code.bytes_len();
+  beta_end := code.len();
+  rc_start := code.len();
   code.push_str(_RC_DROP);
-  rc_end := code.bytes_len();
+  rc_end := code.len();
   code.push_str(_TAIL);
   header_ranges := ArrayList(ChunkRange).new();
   header_ranges.push(ChunkRange(c_name : String.from("__borrow_primitives"), start_b : borrow_start, end_b : borrow_end));
@@ -139,9 +139,9 @@ test("chunked emission: the linkage split assembles a header + N linkable units"
 test("chunked emission: N=1 is degenerate — one unit holding everything", {
   code := String.new();
   code.push_str(_RUNTIME);
-  alpha_start := code.bytes_len();
+  alpha_start := code.len();
   code.push_str(_FN_ALPHA);
-  alpha_end := code.bytes_len();
+  alpha_end := code.len();
   fn_ranges := ArrayList(ChunkRange).new();
   fn_ranges.push(ChunkRange(c_name : String.from("fn_alpha"), start_b : alpha_start, end_b : alpha_end));
   asm1 := assemble_chunks(
@@ -162,9 +162,9 @@ test("chunked emission: N=1 is degenerate — one unit holding everything", {
 });
 test("chunked emission: more chunks than functions leaves the extra units empty but valid", {
   code := String.new();
-  alpha_start := code.bytes_len();
+  alpha_start := code.len();
   code.push_str(_FN_ALPHA);
-  alpha_end := code.bytes_len();
+  alpha_end := code.len();
   fn_ranges := ArrayList(ChunkRange).new();
   fn_ranges.push(ChunkRange(c_name : String.from("fn_alpha"), start_b : alpha_start, end_b : alpha_end));
   asm8 := assemble_chunks(

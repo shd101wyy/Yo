@@ -557,9 +557,9 @@ impl(
           colon_byte := match(
             toff.get(k - usize(1)),
             .Some(b) => b,
-            .None => text.bytes_len()
+            .None => text.len()
           );
-          spec_byte := match(toff.get(k), .Some(b) => b, .None => text.bytes_len());
+          spec_byte := match(toff.get(k), .Some(b) => b, .None => text.len());
           _SpecSplit(
             expr_text : match(
               text.try_substring(usize(0), colon_byte),
@@ -567,7 +567,7 @@ impl(
               .None => String.new()
             ),
             spec : match(
-              text.try_substring(spec_byte, text.bytes_len()),
+              text.try_substring(spec_byte, text.len()),
               .Some(sub) => sub,
               .None => String.new()
             )
