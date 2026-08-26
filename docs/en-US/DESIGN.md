@@ -1394,7 +1394,12 @@ Combinator chains (`coll.into_iter().map(f)`, `.filter(p)`, `.fold(init, f)`, et
 
 The old borrow form `for(coll, inout(x) => body)` was removed (interior refs into reallocatable storage are inexpressible — see [FLOWABILITY.md](./FLOWABILITY.md)); using it produces a compile error with the migration recipe.
 
-Strings have explicit `chars()` (rune iteration) and `bytes()` (byte iteration).
+Strings have explicit `chars()` (rune iteration), `char_indices()` (rune
+iteration carrying each rune's byte offset) and `bytes()` (byte iteration).
+String indexing itself is BYTE-based, like Rust and Go: `len()` is the byte
+count at O(1), and every index a string method takes or returns is a byte
+offset on a UTF-8 character boundary. The rune count is `s.chars().count()`.
+See [STRINGS.md](./STRINGS.md) for the full contract.
 
 ## Algebraic Data Types (ADT)
 

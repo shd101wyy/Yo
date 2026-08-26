@@ -71,13 +71,14 @@ Use `recur(args)` only when calling the type constructor with **different** type
 
 - `char` is the C character type (8-bit)
 - `rune` represents Unicode code points (32-bit, like Go's rune)
-- File: `std/data/rune.yo`
+- File: `std/string/rune.yo`
 
 ## Strings
 
 - Double quote string returns `str` type (contains `[u8]` byte slice)
 - Template string returns `String` type (utf-8 encoded reference-semantics type). Its syntax is the same as JavaScript template strings. The `${...}` interpolation is also supported for types that implement `ToString` trait.
 - `str` is a builtin type — don't use it as a variable or type name.
+- **String indexing is BYTE-based, everywhere** (D4, `plans/STD_API_AUDIT_D4_PLAN.md`, 2026-08-26): `String.len()` is the byte count at O(1), and `at` / `substring` / `s(a..b)` / `index_of` / `last_index_of` / the positional arguments of `contains` / `starts_with` / `ends_with` / the `Pattern` trait all take and return byte offsets — the same unit as `str.len()` and `StringBuilder.len()`, which were always bytes. `substring` clamps out-of-range but PANICS on an offset inside a rune; `try_substring` is the non-panicking form, `floor_char_boundary` / `ceil_char_boundary` snap arbitrary offsets. Rune work goes through `chars()` / `char_indices()` composed with iterator methods — the rune count is `s.chars().count()` (the iterator spelling keeps the O(n) cost visible; `len()` is O(1) everywhere in std). Comptime strings share the byte basis (D4 PR 7). Full contract: `docs/en-US/STRINGS.md` / `docs/zh-CN/STRINGS.md`.
 - **Use template strings for constant `String` values**: Instead of `String.from("hello")`, write `` `hello` ``. Template strings without interpolation produce the same result but are more concise. This applies anywhere a `String` value is needed — return values, comparisons, arguments, etc.
 - Use `println` or `print` function from `std/fmt` to print instead of `printf`. You can pass template string or any value whose type implements `ToString` trait to both `println` and `print`.
 
@@ -676,11 +677,16 @@ Runtime builtins generate inline C code (`(&(arr->data[idx]))`). Comptime builti
 
 ### comptime_str indexing
 
-`comptime_str` supports indexing via `ComptimeIndex`:
+`comptime_str` supports indexing via `ComptimeIndex`. Since D4 PR 7
+(2026-08-26) the indices are **BYTE offsets**, matching the runtime basis:
 
-- `"Hello"(0)` → `"H"` (single character as comptime_str)
-- `"Hello"(0..3)` → `"Hel"` (range slicing)
-- `"Hello"(0..=2)` → `"Hel"` (inclusive range slicing)
+- `"Hello"(0)` → `"H"` — the RUNE starting at byte 0, as a 1-rune comptime_str
+  (runtime `s[i]` yields the `u8` instead; that result-type split is
+  deliberate — see `docs/en-US/STRINGS.md`)
+- `"Hello"(0..3)` → `"Hel"` (byte-range slicing)
+- `"Hello"(0..=2)` → `"Hel"` (inclusive byte-range slicing)
+- an offset inside a rune is a **compile error** (where the runtime
+  `substring` panics); out of range is a compile error too
 
 Builtins: `__yo_comptime_string_index`, `__yo_comptime_string_index_range`, `__yo_comptime_string_index_range_inclusive`
 

@@ -658,7 +658,8 @@ just imports it. Docs updated in both languages
 bare-`String` naming decision carries a SUPERSEDED banner pointing here.
 `grep -rn "imm\.String" std src tests docs .github` answers zero.
 
-The remaining D4 steps (PRs 6-9) are unchanged and still in
+The remaining D4 step is PR 9 (**PRs 6-8 also LANDED 2026-08-26** —
+see O1 in §8); details still in
 `plans/STD_API_AUDIT_D4_PLAN.md` §4.
 
 **SCOPE EXTENDED (user, 2026-08-25): `std/imm/string` is IN, and so is the
@@ -1716,8 +1717,19 @@ mmap/file-lock/statfs wrappers; `gc.stats`; DNS SRV/TXT/reverse
   deleted (measured dead) — **and the `ImmString` rename (PR 5, 2026-08-26)**,
   which also renamed the iterators to `ImmStringChars`/`ImmStringCharIndices`
   — **and regex's `index()` (PR 6, 2026-08-26)**: a byte index, six
-  conversion walks deleted (release-note item). What remains is the comptime
-  basis (PR 7), the docs sweep (PR 8) and the decoder dedup (PR 9).
+  conversion walks deleted (release-note item). **The comptime basis (PR 7,
+  O1c) landed 2026-08-26**: comptime `len`/`slice`/`s[i]`/`s(a..b)` are
+  byte-based like the runtime; `s[i]` yields the rune STARTING at that byte
+  as a 1-rune string (the result-TYPE split against runtime's `u8` is
+  deliberate); a mid-rune offset is a compile error where the runtime
+  `substring` panics. Re-measured seed-safety: `std/` + `src/` + `build.yo`
+  carry ZERO comptime string `len`/`slice`/index call sites, so the seed
+  evaluates none of it building stage 1. **The docs sweep (PR 8) landed the
+  same day** — new `docs/{en-US,zh-CN}/STRINGS.md` state the byte contract,
+  and per a newer user decision the documented rune-count idiom is
+  `s.chars().count()` (`char_len`/`char_substring`/`truncate_chars` are
+  deprecated pending removal; the final API has no char-indexed slicing).
+  What remains is the decoder dedup (PR 9).
 - **O2 (D6)**: **DECIDED — platform TLS libraries via `pkg_config`**
   (SecureTransport/Schannel/OpenSSL), behind one `TlsStream` implementing the
   D5 traits. Until it lands, https throws `UnsupportedScheme` (C1).
