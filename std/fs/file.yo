@@ -194,11 +194,18 @@ impl(
       result
     })
   }),
-  /// Read the entire file contents into a `String`.
+  /// Read the entire file contents into a `String`. Validates UTF-8:
+  /// malformed bytes throw `IoError.InvalidData` (matching the D5
+  /// `Reader.read_to_string` default; use `read_bytes` + `String.from_utf8`
+  /// to see the exact offset).
   read_to_string : (fn(self : Self, io : Io) -> Impl(Future(String, IoExn)))(
     io.async((e) => {
       bytes := e.io.await(self.read_bytes(io), e);
-      String.from_bytes(bytes)
+      match(
+        String.from_utf8(bytes),
+        .Ok(s) => s,
+        .Err(_) => e.exn.throw(dyn(IoError.InvalidData))
+      )
     })
   ),
   /// Flush (fsync) file data to disk.

@@ -1,18 +1,17 @@
-//! STD_API_AUDIT D5: the async `Reader`/`Writer` traits and their concrete
-//! implementors — `File`, `TcpStream` (impl registration), `Stdout`/`Stderr`.
-//!
-//! What is deliberately NOT here, blocked on
-//! issues/async-loop-awaiting-buffer-taking-method-state-machine-corruption.md:
-//! any generic helper that LOOPS awaiting `read`/`write` (read_to_end,
-//! io.copy) — an async body looping over a buffer-taking await miscompiles
-//! today. The generic helpers below make exactly ONE await, the shape the
-//! bug's control reproducers prove green.
+//! STD_API_AUDIT D5: the async `Reader`/`Writer` traits, their concrete
+//! implementors — `File`, `TcpStream` (impl registration), `Stdout`/`Stderr` —
+//! and the slice-2 surface: the `read_to_end`/`read_to_string`/`write_all`
+//! trait defaults and `copy`, unblocked by PRs #294/#295 (the loop-await
+//! state-machine fixes) and the unit-tail-await substitution fix
+//! (issues/fixed/unit-tail-await-of-trait-default-reads-missing-await-result.md).
+//! Still NOT here: generic `BufReader(R)`/`BufWriter(W)` (the filed bug's
+//! generic-impl face + C17).
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 open(import("std/collections/array_list"));
 open(import("std/string"));
-{ IoExn } :: import("std/error");
-{ Reader, Writer } :: import("std/io");
+{ IoExn, Exception } :: import("std/error");
+{ Reader, Writer, copy } :: import("std/io");
 { Stdout, Stderr, stdout, stderr } :: import("std/io/stdio");
 { File, OpenMode } :: import("std/fs/file");
 { TcpStream } :: import("std/net/tcp");
@@ -41,6 +40,107 @@ write_once :: (
   io.async((e) => e.io.await(the_w.write(the_buf, the_size, e.io), e))
 });
 
+// Slice-2 generic helpers: the defaults reached through where bounds.
+read_all_generic :: (
+  fn(generic(R : Type), r : R, io : Io, where(R <: Reader)) -> Impl(Future(ArrayList(u8), IoExn))
+)(
+  io.async((e) => e.io.await(r.read_to_end(io), e))
+);
+read_string_generic :: (
+  fn(generic(R : Type), r : R, io : Io, where(R <: Reader)) -> Impl(Future(String, IoExn))
+)(
+  io.async((e) => e.io.await(r.read_to_string(io), e))
+);
+write_all_generic :: (
+  fn(generic(W : Type), w : W, buf : *(u8), size : usize, io : Io, where(W <: Writer)) -> Impl(Future(unit, IoExn))
+)(
+  io.async((e) => e.io.await(w.write_all(buf, size, io), e))
+);
+test("read_to_end default loops chunks; write_all default delivers everything", {
+  path := Path.new(`/tmp/yo_d5s2_defaults.bin`.to_string());
+  // 10000 bytes so read_to_end must loop three 4096-byte chunks.
+  payload := ArrayList(u8).new();
+  (i : usize) = usize(0);
+  while(i < usize(10000), i = (i + usize(1)), {
+    payload.push(u8(usize(65) + (i % usize(26))));
+  });
+  f := io.await(File.open(path, OpenMode.Write, io), { io });
+  io.await(write_all_generic(f, payload.ptr().unwrap(), payload.len(), io), { io });
+  io.await(f.close(io), { io });
+  // Through the where bound...
+  r1 := io.await(File.open(path, OpenMode.Read, io), { io });
+  all := io.await(read_all_generic(r1, io), { io });
+  io.await(r1.close(io), { io });
+  assert(all.len() == usize(10000), "read_to_end got all bytes");
+  assert(all(usize(0)) == u8(65), "first byte");
+  assert(all(usize(9999)) == u8(65 + (9999 % 26)), "last byte");
+  // ...and as a direct method call.
+  r2 := io.await(File.open(path, OpenMode.Read, io), { io });
+  all2 := io.await(r2.read_to_end(io), { io });
+  io.await(r2.close(io), { io });
+  assert(all2.len() == usize(10000), "direct read_to_end got all bytes");
+  io.await(remove_file(path, io), { io });
+});
+test("read_to_string default validates UTF-8 (default chained onto default)", {
+  path := Path.new(`/tmp/yo_d5s2_rts.txt`.to_string());
+  f := io.await(File.open(path, OpenMode.Write, io), { io });
+  n := io.await(f.write_string(`héllo world`.to_string(), io), { io });
+  assert(n == usize(12), "12 UTF-8 bytes written");
+  io.await(f.close(io), { io });
+  r := io.await(File.open(path, OpenMode.Read, io), { io });
+  s := io.await(read_string_generic(r, io), { io });
+  io.await(r.close(io), { io });
+  assert(s == `héllo world`, "round trip through the trait default");
+  io.await(remove_file(path, io), { io });
+});
+test("copy drains a Reader into a Writer and counts bytes", {
+  pa := Path.new(`/tmp/yo_d5s2_copy_a.bin`.to_string());
+  pb := Path.new(`/tmp/yo_d5s2_copy_b.bin`.to_string());
+  payload := ArrayList(u8).new();
+  (i : usize) = usize(0);
+  while(i < usize(5000), i = (i + usize(1)), {
+    payload.push(u8(i % usize(251)));
+  });
+  f := io.await(File.open(pa, OpenMode.Write, io), { io });
+  io.await(write_all_generic(f, payload.ptr().unwrap(), payload.len(), io), { io });
+  io.await(f.close(io), { io });
+  cr := io.await(File.open(pa, OpenMode.Read, io), { io });
+  cw := io.await(File.open(pb, OpenMode.Write, io), { io });
+  total := io.await(copy(cr, cw, io), { io });
+  io.await(cr.close(io), { io });
+  io.await(cw.close(io), { io });
+  assert(total == u64(5000), "copy resolves the byte total");
+  vb := io.await(File.open(pb, OpenMode.Read, io), { io });
+  copied := io.await(vb.read_to_end(io), { io });
+  io.await(vb.close(io), { io });
+  assert(copied.len() == usize(5000), "copied length");
+  assert(copied(usize(2500)) == payload(usize(2500)), "copied middle byte");
+  io.await(remove_file(pa, io), { io });
+  io.await(remove_file(pb, io), { io });
+});
+test("read_to_string throws IoError.InvalidData on malformed UTF-8", {
+  path := Path.new(`/tmp/yo_d5s2_badutf8.bin`.to_string());
+  bad := ArrayList(u8).new();
+  bad.push(u8(0xFF));
+  bad.push(u8(0xFE));
+  fw := io.await(File.open(path, OpenMode.Write, io), { io });
+  io.await(fw.write(bad.ptr().unwrap(), bad.len(), io), { io });
+  io.await(fw.close(io), { io });
+  exn := Exception(
+    throw : (
+      (err) -> {
+        msg := err.to_string();
+        assert(msg.contains(`malformed data`), `expected InvalidData, got: ${msg}`);
+        unwind(());
+      }
+    )
+  );
+  // The INHERENT File.read_to_string validates too (aligned with the trait
+  // default in the same change) — exercise it through the throw handler.
+  r := io.await(File.open(path, OpenMode.Read, io), { io });
+  s := io.await(r.read_to_string(io), IoExn(io : io, exn : exn));
+  assert(false, `read_to_string must throw on malformed UTF-8, got: ${s}`);
+});
 test("File implements Reader and Writer — trait-dispatched round trip", {
   path := Path.new(`/tmp/yo_d5_traits_roundtrip.bin`.to_string());
   f := io.await(File.open(path, OpenMode.Write, io), { io });

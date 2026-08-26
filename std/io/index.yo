@@ -10,25 +10,69 @@
 //! same shape `TcpStream.read` and the sys layer already speak. Raw
 //! pointers are not available in safe code, so IMPLEMENTING or calling the
 //! raw methods directly needs `pragma(Pragma.AllowUnsafe);`; safe code uses
-//! the pointer-free conveniences on each concrete type (`read_to_string`,
-//! `read_bytes`, `write_string`, `write_bytes`, ...).
+//! the pointer-free defaults (`read_to_end`, `read_to_string`) and the
+//! per-type conveniences on each concrete type.
 //!
-//! DEFERRED, blocked on a filed compiler bug
-//! (issues/async-loop-awaiting-buffer-taking-method-state-machine-corruption.md):
-//! `read_to_end`/`read_to_string`/`write_all` as trait `?=` defaults or free
-//! generic functions, `copy(r, w)`, and the generic `BufReader(R)` /
-//! `BufWriter(W)` wrappers. An async body that LOOPS awaiting a
-//! buffer-taking method today either segfaults (concrete/default, free
-//! generic) or emits invalid C (generic impl). The per-type inherent
-//! conveniences dispatch directly and are unaffected.
+//! DEFERRED, blocked on the generic-impl face of a filed compiler bug
+//! (issues/async-loop-awaiting-buffer-taking-method-state-machine-corruption.md)
+//! plus C17: the generic `BufReader(R)` / `BufWriter(W)` wrappers and the
+//! `std/sys/bufio` → `std/io` move, and with them a buffered `lines()`.
 pragma(Pragma.AllowUnsafe);
 { IoExn } :: import("../error");
+{ IoError } :: import("../sys/errors");
+{ ArrayList } :: import("../collections/array_list");
+{ String } :: import("../string");
 
 /// An async source of bytes.
 Reader :: trait(
   /// Read up to `size` bytes into `buf`. Resolves to the number of bytes
   /// actually read; `0` means end-of-stream. Throws `IoExn` on failure.
-  read : (fn(self : Self, buf : *(u8), size : usize, io : Io) -> Impl(Future(usize, IoExn)))
+  read : (fn(self : Self, buf : *(u8), size : usize, io : Io) -> Impl(Future(usize, IoExn))),
+  /// Read until end-of-stream, resolving to all remaining bytes. Loops the
+  /// raw `read` with an internal chunk buffer, so implementors get it for
+  /// free and callers never touch a raw pointer.
+  (read_to_end : (fn(self : Self, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))) ?=
+    (
+      (self, io) ->
+        io.async((e) => {
+          out := ArrayList(u8).new();
+          chunk := ArrayList(u8).with_capacity(usize(4096));
+          (ci : usize) = usize(0);
+          while(ci < usize(4096), ci = (ci + usize(1)), {
+            chunk.push(u8(0));
+          });
+          p := match(chunk.ptr(), .Some(q) => q, .None => *(u8)(""));
+          (done : bool) = false;
+          while(!(done), {
+            n := e.io.await(Self.read(self, p, usize(4096), io), e);
+            if(n == usize(0), {
+              done = true;
+            }, {
+              (i : usize) = usize(0);
+              while(i < n, i = (i + usize(1)), {
+                out.push(chunk(i));
+              });
+            });
+          });
+          out
+        })
+    ),
+  /// Read until end-of-stream and decode as UTF-8. Unlike the UNCHECKED
+  /// per-type conveniences that predate D5, this validates: malformed bytes
+  /// throw `IoError.InvalidData` (use `read_to_end` + `String.from_utf8`
+  /// to see the exact offset).
+  (read_to_string : (fn(self : Self, io : Io) -> Impl(Future(String, IoExn)))) ?=
+    (
+      (self, io) ->
+        io.async((e) => {
+          bytes := e.io.await(Self.read_to_end(self, io), e);
+          match(
+            String.from_utf8(bytes),
+            .Ok(s) => s,
+            .Err(_) => e.exn.throw(dyn(IoError.InvalidData))
+          )
+        })
+    )
 );
 /// An async sink of bytes.
 Writer :: trait(
@@ -38,6 +82,52 @@ Writer :: trait(
   write : (fn(self : Self, buf : *(u8), size : usize, io : Io) -> Impl(Future(usize, IoExn))),
   /// Flush any buffered bytes through to the underlying sink. Unbuffered
   /// writers resolve immediately.
-  flush : (fn(self : Self, io : Io) -> Impl(Future(unit, IoExn)))
+  flush : (fn(self : Self, io : Io) -> Impl(Future(unit, IoExn))),
+  /// Write ALL `size` bytes from `buf`, looping the raw `write` over short
+  /// counts. Throws `IoError.WriteZero` if the sink stops accepting bytes
+  /// before everything is delivered.
+  (write_all : (fn(self : Self, buf : *(u8), size : usize, io : Io) -> Impl(Future(unit, IoExn)))) ?=
+    (
+      (self, buf, size, io) ->
+        io.async((e) => {
+          (written : usize) = usize(0);
+          while(written < size, {
+            n := e.io.await(Self.write(self, buf.add(written), size - written, io), e);
+            cond(
+              (n == usize(0)) => e.exn.throw(dyn(IoError.WriteZero)),
+              true => ()
+            );
+            written = (written + n);
+          });
+          ()
+        })
+    )
 );
-export(Reader, Writer);
+/// Copy everything from `r` to `w` until `r` reaches end-of-stream,
+/// resolving to the total number of bytes copied (`u64` so totals larger
+/// than a 32-bit `usize` cannot overflow). Does NOT flush `w`.
+copy :: (
+  fn(generic(R : Type, W : Type), r : R, w : W, io : Io, where(R <: Reader, W <: Writer)) -> Impl(Future(u64, IoExn))
+)(
+  io.async((e) => {
+    (total : u64) = u64(0);
+    chunk := ArrayList(u8).with_capacity(usize(4096));
+    (ci : usize) = usize(0);
+    while(ci < usize(4096), ci = (ci + usize(1)), {
+      chunk.push(u8(0));
+    });
+    p := match(chunk.ptr(), .Some(q) => q, .None => *(u8)(""));
+    (done : bool) = false;
+    while(!(done), {
+      n := e.io.await(r.read(p, usize(4096), e.io), e);
+      if(n == usize(0), {
+        done = true;
+      }, {
+        e.io.await(w.write_all(p, n, e.io), e);
+        total = (total + u64(n));
+      });
+    });
+    total
+  })
+);
+export(Reader, Writer, copy);

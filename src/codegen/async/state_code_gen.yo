@@ -1160,8 +1160,31 @@ generate_state_segment_code :: (
   (had_substitution : bool) = false;
   (previous_substitution : String) = String.new();
   (substitution_key : usize) = usize(0);
+  (registered_substitution : bool) = false;
   match(
     segment.hoisted_await_point,
+    .Some(hp) => {
+      // An effectively-unit hoisted await has NO `await_result_N`: the state
+      // struct never allocates the field and the extraction never writes it
+      // (both guard on the same predicate — `_await_result_is_unit` in
+      // exprs/async.yo, inlined in state_machine.yo's extraction). Registering
+      // `sm->await_result_N` here anyway made the completion segment of
+      // `io.async((e) => e.io.await(<unit future>, e))` read a nonexistent
+      // struct member. Skip the substitution instead: `generate_await` then
+      // renders "", and both emit paths below skip empty code.
+      hp_is_unit := (
+        is_unit_type(hp.result_type) || (
+          is_some_type(hp.result_type) && match(hp.result_type, .SomeT({ id }) => lookup_some_resolved_concrete(id).is_none(), _ => false)
+        )
+      );
+      if(!(hp_is_unit), {
+        registered_substitution = true;
+      });
+    },
+    .None => ()
+  );
+  match(
+    if(registered_substitution, segment.hoisted_await_point, Option(AwaitPoint).None),
     .Some(hp) => {
       if(context.await_result_substitutions.is_none(), {
         context.await_result_substitutions = Option(HashMap(usize, String)).Some(HashMap(usize, String).new());
@@ -1244,9 +1267,10 @@ generate_state_segment_code :: (
     i = (i + usize(1));
   });
   // Restore the substitution — segments are generated in sequence and the map
-  // is shared across the whole async block.
+  // is shared across the whole async block. (Nothing to restore when the
+  // effectively-unit guard above skipped registration.)
   match(
-    segment.hoisted_await_point,
+    if(registered_substitution, segment.hoisted_await_point, Option(AwaitPoint).None),
     .Some(_) => match(
       context.await_result_substitutions,
       .Some(subs) => if(had_substitution, {
