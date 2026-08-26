@@ -1386,7 +1386,11 @@ while(i < usize(3), {
 
 旧的借用形式 `for(coll, inout(x) => body)` 已移除（指向可重分配存储的内部引用已无法表达 —— 见 [FLOWABILITY.md](./FLOWABILITY.md)）；使用它会产生带迁移指引的编译错误。
 
-字符串有专门的 `chars()`（rune 迭代）和 `bytes()`（字节迭代）方法。
+字符串有专门的 `chars()`（rune 迭代）、`char_indices()`（携带每个 rune
+字节偏移的 rune 迭代）和 `bytes()`（字节迭代）方法。字符串索引本身以
+**字节**为单位，与 Rust 和 Go 一致：`len()` 以 O(1) 返回字节数，字符串方法
+接受和返回的每个索引都是位于 UTF-8 字符边界上的字节偏移。rune 数量用
+`s.chars().count()` 获得。完整契约见 [STRINGS.md](./STRINGS.md)。
 
 ## 代数数据类型 (ADT)
 

@@ -892,6 +892,7 @@ The parser rewrites `{...}` to `_(...)` and turns bare atoms into `(name: name)`
 - `*(u8)("literal")` works — casting `comptime_str` to pointer is valid.
 - Only pointer-to-pointer and `comptime_str`-to-pointer casts are allowed. Integer-to-pointer casts like `*(void)(usize(0))` are NOT supported.
 - **Template strings for constant `String` values**: Use `` `hello` `` instead of `String.from("hello")`. Template strings without interpolation produce the same `String` result in fewer characters.
+- **String indexing is BYTE-based** (D4, 2026-08-26): `len()` is the byte count (O(1)); `at` / `substring` / `s(a..b)` / `index_of` and every positional string argument speak byte offsets, at compile time (`comptime_str`) and at runtime alike. `substring` panics on an offset inside a rune (`try_substring` is the non-panicking form); rune work goes through `chars()` / `char_indices()`, and the rune count is `s.chars().count()`. Full contract: `docs/en-US/STRINGS.md`; pitfalls: the string-indexing section of `.github/skills/yo-syntax/syntax-cheatsheet.md`.
 
 ## Trait method dispatch syntax
 

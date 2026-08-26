@@ -633,8 +633,8 @@ codegen corpus 155/155 with its goldens UNCHANGED, and a new
 `tests/string/string_byte_index.test.yo` (19 tests) of which **15 fail against
 the pre-flip `std` and pass against the flipped one**.
 
-The remaining D4 steps (PRs 4-6, 8-9 — **PR 7, the comptime basis, LANDED
-2026-08-26**, see O1 in §8) are unchanged and still in
+The remaining D4 steps (PRs 4-6 and 9 — **PRs 7 and 8, the comptime basis and
+the docs sweep, LANDED 2026-08-26**, see O1 in §8) are unchanged and still in
 `plans/STD_API_AUDIT_D4_PLAN.md` §4.
 
 **SCOPE EXTENDED (user, 2026-08-25): `std/imm/string` is IN, and so is the
@@ -1694,9 +1694,13 @@ mmap/file-lock/statfs wrappers; `gc.stats`; DNS SRV/TXT/reverse
   offset is a compile error where the runtime `substring` panics. Re-measured
   seed-safety: `std/` + `src/` + `build.yo` carry ZERO comptime string
   `len`/`slice`/index call sites, so the seed evaluates none of it building
-  stage 1. What remains is `imm.String` (PR 4), the `ImmString` rename (PR 5),
-  regex's `index()` (PR 6), the docs sweep (PR 8) and the decoder dedup
-  (PR 9).
+  stage 1. **The docs sweep (PR 8) landed the same day** — new
+  `docs/{en-US,zh-CN}/STRINGS.md` state the byte contract, and per a newer
+  user decision the documented rune-count idiom is `s.chars().count()`
+  (`char_len`/`char_substring`/`truncate_chars` are deprecated pending
+  removal; the final API has no char-indexed slicing). What remains is
+  `imm.String` (PR 4), the `ImmString` rename (PR 5), regex's `index()`
+  (PR 6) and the decoder dedup (PR 9).
 - **O2 (D6)**: **DECIDED — platform TLS libraries via `pkg_config`**
   (SecureTransport/Schannel/OpenSSL), behind one `TlsStream` implementing the
   D5 traits. Until it lands, https throws `UnsupportedScheme` (C1).

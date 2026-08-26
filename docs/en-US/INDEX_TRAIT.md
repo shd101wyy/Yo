@@ -233,7 +233,7 @@ O(1) random access, correctly handles ring buffer wrapping.
 b := s(usize(0));  // u8(72) — byte-level access ('H')
 ```
 
-Returns `u8` — byte-level indexing into the internal UTF-8 buffer. For character-level access, use the `chars()` iterator.
+Returns `u8` — byte-level indexing into the internal UTF-8 buffer. For character-level access, use the `chars()` iterator. All other string indices (`substring`, `index_of`, the `s(a..b)` sugar, …) are byte offsets too — see [STRINGS.md](./STRINGS.md) for the full contract.
 
 ## Error Handling
 
