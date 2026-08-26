@@ -1,0 +1,116 @@
+//! std/net/unix — UnixListener / UnixStream over a socket file
+//! (plans/STD_API_AUDIT.md §7 P0 item 10). Mirrors the tcp tests' shapes:
+//! connect BEFORE accept (the listen backlog holds it).
+pragma(Pragma.AllowUnsafe);
+pragma(Pragma.SkipWasm32Wasi); // no AF_UNIX in standalone WASI
+{ assert } :: import("std/assert");
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ Error, AnyError, Exception, IoExn } :: import("std/error");
+{ UnixListener, UnixStream } :: import("std/net/unix");
+{ Reader, Writer } :: import("std/io");
+{ Path } :: import("std/path");
+{ remove_file } :: import("std/fs/dir");
+{ temp_dir } :: import("std/env");
+
+_sock :: (fn(name : str) -> Path)(
+  Path.new((temp_dir() + `/yo_unix_`.to_string()) + String.from(name))
+);
+test("bind, connect, accept, echo round-trip", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  path := _sock("echo.sock");
+  listener := io.await(UnixListener.bind(path, io), e);
+  assert(listener.fd() >= i32(0), "listener fd valid");
+  assert(listener.local_path().contains(`yo_unix_echo.sock`), "local_path");
+  client := io.await(UnixStream.connect(path, io), e);
+  server := io.await(listener.accept(io), e);
+  assert(server.fd() >= i32(0), "accepted fd valid");
+  n := io.await(client.write_str("héllo unix", io), e);
+  assert(n == usize(11), "wrote 11 UTF-8 bytes");
+  buf := ArrayList(u8).new();
+  (i : usize) = usize(0);
+  while(i < usize(32), i = (i + usize(1)), {
+    buf.push(u8(0));
+  });
+  got := io.await(server.read(buf.ptr().unwrap(), usize(32), io), e);
+  assert(got == usize(11), "read the 11 bytes");
+  assert(buf(usize(0)) == u8(104), "h");
+  // Echo back through write_bytes.
+  reply := ArrayList(u8).new();
+  (j : usize) = usize(0);
+  while(j < got, j = (j + usize(1)), {
+    reply.push(buf(j));
+  });
+  wn := io.await(server.write_bytes(reply, io), e);
+  assert(wn == usize(11), "echoed 11");
+  buf2 := ArrayList(u8).new();
+  (k : usize) = usize(0);
+  while(k < usize(32), k = (k + usize(1)), {
+    buf2.push(u8(0));
+  });
+  rn := io.await(client.read(buf2.ptr().unwrap(), usize(32), io), e);
+  assert(rn == usize(11), "client read the echo");
+  io.await(server.close(io), e);
+  io.await(client.close(io), e);
+  io.await(listener.close(io), e);
+  io.await(remove_file(path, io), e);
+});
+test("UnixStream satisfies the Reader/Writer bounds (D5)", {
+  taker_r :: (fn(generic(R : Type), r : R, where(R <: Reader)) -> bool)(true);
+  taker_w :: (fn(generic(W : Type), w : W, where(W <: Writer)) -> bool)(true);
+  fake :: (fn() -> Option(UnixStream))(Option(UnixStream).None);
+  match(
+    fake(),
+    .Some(s) => {
+      assert(taker_r(s), "UnixStream satisfies Reader");
+      assert(taker_w(s), "UnixStream satisfies Writer");
+    },
+    .None => ()
+  );
+  assert(true, "trait registration type-checks");
+});
+test("binding an existing path throws AddressInUse", {
+  e0 := Exception(
+    throw : (
+      (err0) -> {
+        assert(false, "setup failed");
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : e0);
+  path := _sock("dup.sock");
+  first := io.await(UnixListener.bind(path, io), e);
+  exn := Exception(
+    throw : (
+      (err) -> {
+        msg := err.to_string();
+        assert(msg.contains(`in use`) || msg.contains(`already`), `expected AddressInUse, got: ${msg}`);
+        unwind(());
+      }
+    )
+  );
+  second := io.await(UnixListener.bind(path, io), IoExn(io : io, exn : exn));
+  assert(false, "second bind must throw");
+});
+test("dup.sock cleanup", {
+  e0 := Exception(
+    throw : (
+      (err0) -> {
+        assert(true, "already clean");
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : e0);
+  io.await(remove_file(_sock("dup.sock"), io), e);
+  assert(true, "cleaned");
+});
