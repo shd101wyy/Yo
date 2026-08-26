@@ -140,7 +140,14 @@ capability, and is a pre-existing defect unrelated to `String`'s basis. The
 rune⟷byte helpers PR 3 added to `src/lsp/protocol.yo` are the seam to build it
 on.
 
-### 3.2 D5 — async `Reader`/`Writer` traits
+### 3.2 D5 — async `Reader`/`Writer` traits — SLICE 1 LANDED 2026-08-26
+
+Slice 1 (traits + stdio + File/TcpStream impls + the usize/IoExn
+unification) landed; slice 2 (read_to_end family, io.copy, generic
+BufReader/BufWriter, the bufio move) is blocked on
+issues/async-loop-awaiting-buffer-taking-method-state-machine-corruption.md
+— fix that compiler bug first. Original section follows.
+
 
 Unblocked by #289 and **not started**. Content is in `plans/STD_API_AUDIT.md`
 §D5: async `Reader`/`Writer` with default methods (`read_to_end`,

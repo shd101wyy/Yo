@@ -1,0 +1,45 @@
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+open(import("std/collections/array_list"));
+{ IoExn } :: import("std/error");
+
+Reader :: trait(
+  read : (fn(self : Self, buf : *(u8), size : usize, io : Io) -> Impl(Future(usize, IoExn)))
+);
+FakeSrc :: struct(v : u8);
+impl(
+  FakeSrc,
+  Reader(
+    read : (fn(self : Self, buf : *(u8), size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+      io.async((e) => {
+        (n : usize) = usize(0);
+        if(size > usize(0), {
+          (buf.add(usize(0))).* = self.v;
+          n = usize(1);
+        });
+        n
+      })
+    )
+  )
+);
+BufReader :: (fn(comptime(R) : Type) -> comptime(Type))(struct(_inner : R));
+impl(
+  generic(R : Type),
+  where(R <: Reader),
+  BufReader(R),
+  fill : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn)))(
+    io.async((e) => {
+      tmp := ArrayList(u8).with_capacity(usize(8));
+      tmp.push(u8(0));
+      p := match(tmp.ptr(), .Some(q) => q, .None => *(u8)(""));
+      n := e.io.await(self._inner.read(p, usize(8), io), e);
+      n
+    })
+  )
+);
+main :: (fn(io : Io) -> unit)({
+  br := BufReader(FakeSrc)(_inner : FakeSrc(v : u8(42)));
+  n := io.await(br.fill(io), { io });
+  assert(n == usize(1), "one byte read through the generic wrapper");
+});
+export(main);

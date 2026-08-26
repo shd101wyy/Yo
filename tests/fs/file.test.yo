@@ -316,12 +316,12 @@ test("File sequential read calls advance the position", {
   io.await(fs_file.write_string(fpath, `ABCDEF`, io), IoExn(io : io, exn : exn));
   f := io.await(File.open(fpath, .Read, io), IoExn(io : io, exn : exn));
   buf := *(u8)(malloc(usize(8)).unwrap());
-  n1 := io.await(f.read(buf, u32(3), io), IoExn(io : io, exn : exn));
-  assert(n1 == i32(3), "first read should return 3 bytes");
+  n1 := io.await(f.read(buf, usize(3), io), IoExn(io : io, exn : exn));
+  assert(n1 == usize(3), "first read should return 3 bytes");
   first := ((((buf).* == u8(65)) && ((buf.add(usize(1))).* == u8(66))) && ((buf.add(usize(2))).* == u8(67)));
   assert(first, "first read should be ABC");
-  n2 := io.await(f.read(buf, u32(3), io), IoExn(io : io, exn : exn));
-  assert(n2 == i32(3), "second read should return 3 bytes");
+  n2 := io.await(f.read(buf, usize(3), io), IoExn(io : io, exn : exn));
+  assert(n2 == usize(3), "second read should return 3 bytes");
   second := ((((buf).* == u8(68)) && ((buf.add(usize(1))).* == u8(69))) && ((buf.add(usize(2))).* == u8(70)));
   assert(second, "second read must be DEF — the position must advance");
   free(.Some(*(void)(buf)));
@@ -345,8 +345,8 @@ test("File.seek positions the next read", {
   moved := f.seek(i64(5), .Start, exn);
   assert(moved == i64(5), "seek should report the new offset");
   buf := *(u8)(malloc(usize(8)).unwrap());
-  n := io.await(f.read(buf, u32(3), io), IoExn(io : io, exn : exn));
-  assert(n == i32(3), "read after seek should return 3 bytes");
+  n := io.await(f.read(buf, usize(3), io), IoExn(io : io, exn : exn));
+  assert(n == usize(3), "read after seek should return 3 bytes");
   got := ((((buf).* == u8(53)) && ((buf.add(usize(1))).* == u8(54))) && ((buf.add(usize(2))).* == u8(55)));
   assert(got, "read after seek(5) must be 567, not 012");
   free(.Some(*(void)(buf)));

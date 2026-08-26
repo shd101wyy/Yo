@@ -36,6 +36,7 @@ _metadata_mod :: import("./metadata");
 IO_path :: import("../sys/path");
 { OpenMode, FilePermission, SeekFrom, _open_mode_to_flags, _open_mode_needs_perm } :: import("./types");
 IO_file :: import("../sys/file");
+IoTraits :: import("../io");
 { AT_FDCWD, AT_STATX_SYNC_AS_STAT, STATX_BASIC_STATS, O_RDONLY, O_WRONLY, O_RDWR, O_CREAT, O_TRUNC, O_APPEND, O_CLOEXEC, DEFAULT_FILE_MODE } :: import("../sys/constants");
 // ============================================================================
 // File
@@ -109,45 +110,56 @@ impl(
   ),
   /// Read up to `size` bytes into the buffer `buf`.
   /// Returns the number of bytes actually read.
-  read : (fn(self : Self, buf : *(u8), size : u32, io : Io) -> Impl(Future(i32, IoExn)))({
+  read : (fn(self : Self, buf : *(u8), size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
     fd := self._fd;
     io.async((e) => {
-      result := e.io.await(IO_file.read(fd, buf, size, self._pos), e.io);
+      result := e.io.await(IO_file.read(fd, buf, u32(size), self._pos), e.io);
       n := IoError.check(result, e.exn);
       self._pos = (self._pos + u64(n));
-      n
+      usize(n)
+    })
+  }),
+  /// Write up to `size` raw bytes from `buf` at the file's current position.
+  /// Returns the number of bytes written.
+  write : (fn(self : Self, buf : *(u8), size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
+    fd := self._fd;
+    io.async((e) => {
+      result := e.io.await(IO_file.write(fd, buf, u32(size), self._pos), e.io);
+      n := IoError.check(result, e.exn);
+      self._pos = (self._pos + u64(n));
+      usize(n)
     })
   }),
   /// Write a `String` to the file.
   /// Returns the number of bytes written.
-  write_string : (fn(self : Self, data : String, io : Io) -> Impl(Future(i32, IoExn)))({
+  write_string : (fn(self : Self, data : String, io : Io) -> Impl(Future(usize, IoExn)))({
     fd := self._fd;
     io.async((e) => {
       data_bytes := data.as_bytes();
       cond(
-        (data_bytes.len() == usize(0)) => i32(0),
+        (data_bytes.len() == usize(0)) => usize(0),
         true => {
           result := e.io.await(IO_file.write(fd, data_bytes.ptr().unwrap(), u32(data_bytes.len()), self._pos), e.io);
           n := IoError.check(result, e.exn);
           self._pos = (self._pos + u64(n));
-          n
+          usize(n)
         }
       )
     })
   }),
   /// Write bytes from an `ArrayList(u8)` to the file.
   /// Returns the number of bytes written.
-  write_bytes : (fn(self : Self, data : ArrayList(u8), io : Io) -> Impl(Future(i32, IoExn)))({
+  write_bytes : (fn(self : Self, data : ArrayList(u8), io : Io) -> Impl(Future(usize, IoExn)))({
     fd := self._fd;
     io.async(
       (e) =>
         cond(
-          (data.len() == usize(0)) => i32(0),
+          (data.len() == usize(0)) => usize(0),
           true => {
             result := e.io.await(IO_file.write(fd, data.ptr().unwrap(), u32(data.len()), self._pos), e.io);
             n := IoError.check(result, e.exn);
             self._pos = (self._pos + u64(n));
-            n
+            usize(n)
           }
         )
     )
@@ -495,4 +507,26 @@ export(
   canonicalize,
   canonicalize_str,
   canonicalize_cstr
+);
+
+// === std/io async trait impls (STD_API_AUDIT D5) ===
+impl(
+  File,
+  IoTraits.Reader(
+    read : (fn(self : Self, buf : *(u8), size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+      self.read(buf, size, io)
+    )
+  )
+);
+impl(
+  File,
+  IoTraits.Writer(
+    write : (fn(self : Self, buf : *(u8), size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+      self.write(buf, size, io)
+    ),
+    // fd writes are unbuffered — nothing to flush.
+    flush : (fn(self : Self, io : Io) -> Impl(Future(unit, IoExn)))(
+      io.async((e) => ())
+    )
+  )
 );

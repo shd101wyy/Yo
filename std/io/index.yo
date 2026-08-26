@@ -1,0 +1,43 @@
+//! Async I/O traits — the D5 redesign (`plans/STD_API_AUDIT.md` §D5).
+//!
+//! `Reader` and `Writer` are the async byte-stream interfaces every I/O
+//! source/sink implements: `File` (std/fs), `TcpStream` (std/net), and the
+//! `Stdin`/`Stdout`/`Stderr` handles in `std/io/stdio`. All methods run on
+//! the single-threaded async event loop and report failure by throwing
+//! `IoExn` (D1 style 1 — everything on the `io` path throws).
+//!
+//! The raw `read`/`write` take a caller buffer as `*(u8)` + length — the
+//! same shape `TcpStream.read` and the sys layer already speak. Raw
+//! pointers are not available in safe code, so IMPLEMENTING or calling the
+//! raw methods directly needs `pragma(Pragma.AllowUnsafe);`; safe code uses
+//! the pointer-free conveniences on each concrete type (`read_to_string`,
+//! `read_bytes`, `write_string`, `write_bytes`, ...).
+//!
+//! DEFERRED, blocked on a filed compiler bug
+//! (issues/async-loop-awaiting-buffer-taking-method-state-machine-corruption.md):
+//! `read_to_end`/`read_to_string`/`write_all` as trait `?=` defaults or free
+//! generic functions, `copy(r, w)`, and the generic `BufReader(R)` /
+//! `BufWriter(W)` wrappers. An async body that LOOPS awaiting a
+//! buffer-taking method today either segfaults (concrete/default, free
+//! generic) or emits invalid C (generic impl). The per-type inherent
+//! conveniences dispatch directly and are unaffected.
+pragma(Pragma.AllowUnsafe);
+{ IoExn } :: import("../error");
+
+/// An async source of bytes.
+Reader :: trait(
+  /// Read up to `size` bytes into `buf`. Resolves to the number of bytes
+  /// actually read; `0` means end-of-stream. Throws `IoExn` on failure.
+  read : (fn(self : Self, buf : *(u8), size : usize, io : Io) -> Impl(Future(usize, IoExn)))
+);
+/// An async sink of bytes.
+Writer :: trait(
+  /// Write up to `size` bytes from `buf`. Resolves to the number of bytes
+  /// actually written (which may be less than `size`). Throws `IoExn` on
+  /// failure.
+  write : (fn(self : Self, buf : *(u8), size : usize, io : Io) -> Impl(Future(usize, IoExn))),
+  /// Flush any buffered bytes through to the underlying sink. Unbuffered
+  /// writers resolve immediately.
+  flush : (fn(self : Self, io : Io) -> Impl(Future(unit, IoExn)))
+);
+export(Reader, Writer);

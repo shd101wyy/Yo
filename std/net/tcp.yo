@@ -26,6 +26,7 @@ open(import("../fmt"));
 { IpAddr, SocketAddr } :: import("./addr");
 { Error, AnyError, Exception, IoExn } :: import("../error");
 IO_tcp :: import("../sys/tcp");
+IoTraits :: import("../io");
 SockInfo :: import("../sys/sockinfo");
 { AF_INET, AF_INET6, SOCK_STREAM, SOL_SOCKET, SO_REUSEADDR, IPPROTO_TCP, TCP_NODELAY, SO_KEEPALIVE, SHUT_RD, SHUT_WR, SHUT_RDWR } :: import("../sys/socket");
 // ============================================================================
@@ -297,6 +298,15 @@ impl(
       usize(NetError.check(r, e.exn))
     })
   }),
+  /// Write up to `size` raw bytes from `buf` to the stream.
+  /// Returns the number of bytes written.
+  write : (fn(self : Self, buf : *(u8), size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
+    fd := self._fd;
+    io.async((e) => {
+      r := e.io.await(IO_tcp.send(fd, buf, size, i32(0)), e.io);
+      usize(NetError.check(r, e.exn))
+    })
+  }),
   /// Write a `str` to the stream.
   /// Returns the number of bytes written.
   write_str : (fn(self : Self, data : str, io : Io) -> Impl(Future(usize, IoExn)))({
@@ -447,3 +457,28 @@ impl(
   )
 );
 export(TcpStream);
+
+// === std/io async trait impls (STD_API_AUDIT D5) ===
+//
+// The trait methods DELEGATE to the inherent `read`/`write` above (inherent-
+// first resolution keeps direct calls on the fast path); `flush` resolves
+// immediately — a TCP socket has no userspace buffer here.
+impl(
+  TcpStream,
+  IoTraits.Reader(
+    read : (fn(self : Self, buf : *(u8), size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+      self.read(buf, size, io)
+    )
+  )
+);
+impl(
+  TcpStream,
+  IoTraits.Writer(
+    write : (fn(self : Self, buf : *(u8), size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+      self.write(buf, size, io)
+    ),
+    flush : (fn(self : Self, io : Io) -> Impl(Future(unit, IoExn)))(
+      io.async((e) => ())
+    )
+  )
+);
