@@ -1,0 +1,244 @@
+//! Unix domain sockets — `UnixListener` / `UnixStream`
+//! (`plans/STD_API_AUDIT.md` §7 P0 item 10: the sys layer was fully plumbed
+//! with no typed wrapper). The API mirrors `TcpListener`/`TcpStream`
+//! one-to-one, with a filesystem `Path` where TCP has a `SocketAddr`.
+//!
+//! The LISTENER's socket file is NOT removed on `close` — like Rust, the
+//! caller unlinks it (`fs_dir.remove_file`); binding to a path that already
+//! exists throws `AddressInUse`.
+pragma(Pragma.AllowUnsafe);
+{ ArrayList } :: import("../collections/array_list");
+open(import("../string"));
+{ Path } :: import("../path");
+{ NetError } :: import("./errors");
+{ IoError } :: import("../sys/errors");
+{ Error, AnyError, Exception, IoExn } :: import("../error");
+IO_unix :: import("../sys/unix");
+IoTraits :: import("../io");
+{ GlobalAllocator } :: import("../allocator");
+{ malloc, free } :: GlobalAllocator;
+
+_throw_io :: (fn(errno_val : i32, exn : Exception) -> unit)(
+  exn.throw(dyn(NetError.from_io(IoError.from_errno(errno_val))))
+);
+/// A connected Unix-domain stream socket.
+UnixStream :: ref(
+  struct(
+    _fd : i32,
+    _is_closed : bool
+  )
+);
+/// A Unix-domain socket listening on a filesystem path.
+UnixListener :: ref(
+  struct(
+    _fd : i32,
+    _path : String,
+    _is_closed : bool
+  )
+);
+impl(
+  UnixListener,
+  /// Bind to a filesystem path and start listening. The path must not
+  /// already exist (`AddressInUse` otherwise) and is NOT unlinked on close.
+  bind : (fn(path : Path, io : Io) -> Impl(Future(UnixListener, IoExn)))(
+    io.async((e) => {
+      raw_fd := e.io.await(IO_unix.socket_stream(), e.io);
+      fd := NetError.check(raw_fd, e.exn);
+      path_s := path.to_string();
+      cstr_bytes := path_s.to_cstr();
+      addr := IO_unix.make_sockaddr_un(cstr_bytes.ptr().unwrap());
+      addr_buf := match(
+        addr.buf,
+        .Some(p) => p,
+        .None => {
+          e.io.await(IO_unix.close(fd), e.io);
+          e.exn.throw(dyn(NetError.from_io(IoError.NotSupported)));
+          *(u8)("")
+        }
+      );
+      bind_result := e.io.await(IO_unix.bind(fd, addr_buf, addr.len), e.io);
+      IO_unix.free_addr(addr);
+      cond(
+        (bind_result < i32(0)) => {
+          e.io.await(IO_unix.close(fd), e.io);
+          _throw_io(i32(0) - bind_result, e.exn);
+        },
+        true => ()
+      );
+      listen_result := e.io.await(IO_unix.listen(fd, i32(128)), e.io);
+      cond(
+        (listen_result < i32(0)) => {
+          e.io.await(IO_unix.close(fd), e.io);
+          _throw_io(i32(0) - listen_result, e.exn);
+        },
+        true => ()
+      );
+      return(UnixListener(_fd : fd, _path : path_s, _is_closed : false));
+    })
+  ),
+  /// Accept an incoming connection, returning a new `UnixStream`.
+  accept : (fn(self : Self, io : Io) -> Impl(Future(UnixStream, IoExn)))({
+    fd := self._fd;
+    io.async((e) => {
+      addr_buf := *(u8)(malloc(usize(128)).unwrap());
+      addr_len := *(u32)(malloc(usize(4)).unwrap());
+      addr_len.* = u32(128);
+      client_fd := e.io.await(IO_unix.accept(fd, addr_buf, addr_len), e.io);
+      free(.Some(*(void)(addr_buf)));
+      free(.Some(*(void)(addr_len)));
+      cond(
+        (client_fd < i32(0)) => _throw_io(i32(0) - client_fd, e.exn),
+        true => ()
+      );
+      return(UnixStream(_fd : client_fd, _is_closed : false));
+    })
+  }),
+  /// The filesystem path this listener is bound to.
+  local_path : (fn(self : Self) -> String)(
+    self._path
+  ),
+  /// Close the listener socket (the socket FILE stays — unlink it yourself).
+  close : (fn(self : Self, io : Io) -> Impl(Future(unit, IoExn)))({
+    fd := self._fd;
+    io.async((e) => {
+      cond(
+        self._is_closed => (),
+        true => {
+          r := e.io.await(IO_unix.close(fd), e.io);
+          self._is_closed = true;
+          cond(
+            (r < i32(0)) => {
+              _throw_io(i32(0) - r, e.exn);
+            },
+            true => ()
+          );
+        }
+      );
+    })
+  }),
+  /// Get the underlying file descriptor.
+  fd : (fn(self : Self) -> i32)(
+    self._fd
+  )
+);
+export(UnixListener);
+impl(
+  UnixStream,
+  /// Connect to a Unix-domain socket at `path`, returning a new stream.
+  connect : (fn(path : Path, io : Io) -> Impl(Future(UnixStream, IoExn)))(
+    io.async((e) => {
+      raw_fd := e.io.await(IO_unix.socket_stream(), e.io);
+      fd := NetError.check(raw_fd, e.exn);
+      path_s := path.to_string();
+      cstr_bytes := path_s.to_cstr();
+      addr := IO_unix.make_sockaddr_un(cstr_bytes.ptr().unwrap());
+      addr_buf := match(
+        addr.buf,
+        .Some(p) => p,
+        .None => {
+          e.io.await(IO_unix.close(fd), e.io);
+          e.exn.throw(dyn(NetError.from_io(IoError.NotSupported)));
+          *(u8)("")
+        }
+      );
+      conn_result := e.io.await(IO_unix.connect(fd, addr_buf, addr.len), e.io);
+      IO_unix.free_addr(addr);
+      cond(
+        (conn_result < i32(0)) => {
+          e.io.await(IO_unix.close(fd), e.io);
+          _throw_io(i32(0) - conn_result, e.exn);
+        },
+        true => ()
+      );
+      return(UnixStream(_fd : fd, _is_closed : false));
+    })
+  ),
+  /// Read bytes from the stream into `buf`.
+  /// Returns the number of bytes read, or 0 if the peer closed.
+  read : (fn(self : Self, buf : *(u8), size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
+    fd := self._fd;
+    io.async((e) => {
+      r := e.io.await(IO_unix.recv(fd, buf, size, i32(0)), e.io);
+      usize(NetError.check(r, e.exn))
+    })
+  }),
+  /// Write up to `size` raw bytes from `buf` to the stream.
+  write : (fn(self : Self, buf : *(u8), size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
+    fd := self._fd;
+    io.async((e) => {
+      r := e.io.await(IO_unix.send(fd, buf, size, i32(0)), e.io);
+      usize(NetError.check(r, e.exn))
+    })
+  }),
+  /// Write a `str` to the stream. Returns the number of bytes written.
+  write_str : (fn(self : Self, data : str, io : Io) -> Impl(Future(usize, IoExn)))({
+    fd := self._fd;
+    s := String.from(data);
+    s_bytes := s.as_bytes();
+    io.async((e) => {
+      r := e.io.await(IO_unix.send(fd, s_bytes.ptr().unwrap(), s_bytes.len(), i32(0)), e.io);
+      usize(NetError.check(r, e.exn))
+    })
+  }),
+  /// Write a `String` to the stream. Returns the number of bytes written.
+  write_string : (fn(self : Self, data : String, io : Io) -> Impl(Future(usize, IoExn)))({
+    fd := self._fd;
+    data_bytes := data.as_bytes();
+    io.async((e) => {
+      r := e.io.await(IO_unix.send(fd, data_bytes.ptr().unwrap(), data_bytes.len(), i32(0)), e.io);
+      usize(NetError.check(r, e.exn))
+    })
+  }),
+  /// Write raw bytes from an `ArrayList(u8)`. Returns the count written.
+  write_bytes : (fn(self : Self, data : ArrayList(u8), io : Io) -> Impl(Future(usize, IoExn)))({
+    fd := self._fd;
+    io.async((e) => {
+      r := e.io.await(IO_unix.send(fd, data.ptr().unwrap(), data.len(), i32(0)), e.io);
+      usize(NetError.check(r, e.exn))
+    })
+  }),
+  /// Close the stream.
+  close : (fn(self : Self, io : Io) -> Impl(Future(unit, IoExn)))({
+    fd := self._fd;
+    io.async((e) => {
+      cond(
+        self._is_closed => (),
+        true => {
+          r := e.io.await(IO_unix.close(fd), e.io);
+          self._is_closed = true;
+          cond(
+            (r < i32(0)) => {
+              _throw_io(i32(0) - r, e.exn);
+            },
+            true => ()
+          );
+        }
+      );
+    })
+  }),
+  /// Get the underlying file descriptor.
+  fd : (fn(self : Self) -> i32)(
+    self._fd
+  )
+);
+export(UnixStream);
+// === std/io async trait impls (STD_API_AUDIT D5) ===
+impl(
+  UnixStream,
+  IoTraits.Reader(
+    read : (fn(self : Self, buf : *(u8), size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+      self.read(buf, size, io)
+    )
+  )
+);
+impl(
+  UnixStream,
+  IoTraits.Writer(
+    write : (fn(self : Self, buf : *(u8), size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+      self.write(buf, size, io)
+    ),
+    flush : (fn(self : Self, io : Io) -> Impl(Future(unit, IoExn)))(
+      io.async((e) => ())
+    )
+  )
+);
