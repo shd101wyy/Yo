@@ -1879,4 +1879,16 @@ export(attach_temp_variable_to_expr);
 export(doc_comment_lookup_key_from_token);
 export(consume_case_body_temp_var, merge_and_check_envs);
 export(are_values_equal);
-export(parse_raw_int, parse_raw_float);
+/// Render an f64 with ROUND-TRIP precision (`%.17g`) for a FloatLit raw.
+/// The naive `v.to_string()` is C `%g` — SIX significant digits — and
+/// "normalizing" literals through it truncated every float constant in
+/// every program past the 6th digit (`0.6303102` and `0.6303103` became
+/// the SAME C constant `0.63031`). `%.17g` round-trips every IEEE double.
+f64_raw_roundtrip :: (fn(v : f64) -> String)({
+  { snprintf } :: import("std/libc/stdio");
+  buffer := Array(u8, usize(40)).fill(u8(0));
+  buffer_ptr := &(buffer(usize(0)));
+  _n := unsafe(snprintf(*(char)(buffer_ptr), usize(40), "%.17g", v));
+  String.from_cstr(buffer_ptr).unwrap()
+});
+export(parse_raw_int, parse_raw_float, f64_raw_roundtrip);
