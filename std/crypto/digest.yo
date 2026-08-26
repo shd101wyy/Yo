@@ -1,0 +1,30 @@
+//! The streaming `Digest` trait — one interface over `Sha256` / `Sha512` /
+//! `Sha1` / `Md5` (`plans/STD_API_AUDIT.md` §7 P0 item 7).
+//!
+//! The trait speaks `ArrayList(u8)` for the digest so one type covers every
+//! algorithm (the per-type inherent `finish()` keeps its fixed-size
+//! `Array(u8, N)` for callers that want it). `new` and the sizes are
+//! statics/constants of the implementor, which is what lets generic code —
+//! `hmac` (std/crypto/hmac.yo) is the flagship — construct and drive any
+//! hasher through a `where(D <: Digest)` bound.
+{ ArrayList } :: import("../collections/array_list");
+{ hex_encode } :: import("../encoding/hex");
+open(import("../string"));
+
+Digest :: trait(
+  /// A fresh hasher.
+  new : (fn() -> Self),
+  /// Feed more data.
+  update : (fn(self : Self, data : ArrayList(u8)) -> Self),
+  /// The digest length in bytes (32/64/20/16).
+  digest_size : (fn() -> usize),
+  /// The compression block size in bytes (64, or 128 for SHA-512) — what
+  /// HMAC pads keys to.
+  block_size : (fn() -> usize),
+  /// Finalise and return the digest as bytes.
+  finish_bytes : (fn(self : Self) -> ArrayList(u8)),
+  /// Finalise and return the lowercase hex digest.
+  (finish_hex : (fn(self : Self) -> String)) ?=
+    ((self) -> hex_encode(Self.finish_bytes(self)))
+);
+export(Digest);

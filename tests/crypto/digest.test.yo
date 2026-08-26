@@ -1,0 +1,119 @@
+//! std/crypto: SHA-1, SHA-512, streaming Md5, the Digest trait, HMAC and
+//! CRC-32 — all pinned to published vectors (FIPS 180-4, RFC 2202,
+//! RFC 4231, the CRC catalog check value). plans/STD_API_AUDIT.md §7 P0.
+{ assert } :: import("std/assert");
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ Digest } :: import("std/crypto/digest");
+{ Sha1, sha1_hex } :: import("std/crypto/sha1");
+{ Sha512, sha512_hex } :: import("std/crypto/sha512");
+{ Sha256, sha256_hex } :: import("std/crypto/sha256");
+{ Md5, md5_hex } :: import("std/crypto/md5");
+{ hmac_sha1_hex, hmac_sha256_hex, hmac_sha512_hex, constant_time_eq } :: import("std/crypto/hmac");
+{ crc32 } :: import("std/crypto/crc32");
+
+_b :: (fn(s : str) -> ArrayList(u8))(
+  String.from(s).as_bytes()
+);
+_rep :: (fn(byte : u8, count : usize) -> ArrayList(u8))({
+  out := ArrayList(u8).with_capacity(count);
+  (i : usize) = usize(0);
+  while(i < count, i = (i + usize(1)), {
+    out.push(byte);
+  });
+  out
+});
+test("SHA-1 FIPS vectors", {
+  assert(sha1_hex(_b("abc")) == `a9993e364706816aba3e25717850c26c9cd0d89d`, "abc");
+  assert(sha1_hex(_b("")) == `da39a3ee5e6b4b0d3255bfef95601890afd80709`, "empty");
+  assert(
+    sha1_hex(_b("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq")) == `84983e441c3bd26ebaae4aa1f95129e5e54670f1`,
+    "two-block FIPS vector"
+  );
+});
+test("SHA-512 FIPS vectors", {
+  assert(
+    sha512_hex(_b("abc")) == `ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f`,
+    "abc"
+  );
+  assert(
+    sha512_hex(_b("")) == `cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e`,
+    "empty"
+  );
+  assert(
+    sha512_hex(_b("abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu")) == `8e959b75dae313da8cf4f72814fc143f8f7779c6eb9f7fa17299aeadb6889018501d289e4900f7e4331b99dec4b5433ac7d329eeb6dd26545e96e55b874be909`,
+    "two-block FIPS vector"
+  );
+});
+test("streaming split updates equal the one-shot digest", {
+  whole := `the quick brown fox jumps over the lazy dog, repeatedly, across block boundaries`.to_string();
+  wb := whole.as_bytes();
+  half := usize(37);
+  first := ArrayList(u8).new();
+  second := ArrayList(u8).new();
+  (i : usize) = usize(0);
+  while(i < wb.len(), i = (i + usize(1)), {
+    b := wb(i);
+    cond(
+      (i < half) => first.push(b),
+      true => second.push(b)
+    );
+  });
+  split1 := Sha1.new().update(first).update(second).finish_hex();
+  assert(split1 == sha1_hex(whole.as_bytes()), "sha1 split == one-shot");
+  split512 := Sha512.new().update(first).update(second).finish_hex();
+  assert(split512 == sha512_hex(whole.as_bytes()), "sha512 split == one-shot");
+  split256 := Sha256.new().update(first).update(second).finish_hex();
+  assert(split256 == sha256_hex(whole.as_bytes()), "sha256 split == one-shot");
+  splitmd5 := Md5.new().update(first).update(second).finish_hex();
+  assert(splitmd5 == md5_hex(whole.as_bytes()), "md5 streaming == one-shot");
+});
+test("Md5 streaming type matches RFC 1321 vectors", {
+  assert(Md5.new().update(_b("abc")).finish_hex() == `900150983cd24fb0d6963f7d28e17f72`, "abc");
+  assert(Md5.new().finish_hex() == `d41d8cd98f00b204e9800998ecf8427e`, "empty");
+});
+// The trait surface: a where-bound generic drives ANY hasher and gets
+// `finish_hex` from the trait DEFAULT.
+_hash_with :: (
+  fn(comptime(D) : Type, data : ArrayList(u8), where(D <: Digest)) -> String
+)(
+  (D <: Digest).finish_hex((D <: Digest).update((D <: Digest).new(), data))
+);
+test("Digest trait: generic dispatch + the finish_hex default", {
+  assert(_hash_with(Sha1, _b("abc")) == `a9993e364706816aba3e25717850c26c9cd0d89d`, "sha1 through the trait");
+  assert(_hash_with(Sha256, _b("abc")) == `ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad`, "sha256 through the trait");
+  assert(_hash_with(Md5, _b("abc")) == `900150983cd24fb0d6963f7d28e17f72`, "md5 through the trait");
+  assert((Sha512 <: Digest).digest_size() == usize(64), "sha512 digest_size");
+  assert((Sha512 <: Digest).block_size() == usize(128), "sha512 block_size");
+});
+test("HMAC RFC 2202 / RFC 4231 case 1 (20-byte 0x0b key)", {
+  key := _rep(u8(0x0b), usize(20));
+  msg := _b("Hi There");
+  assert(hmac_sha1_hex(key.clone(), msg.clone()) == `b617318655057264e28bc0b6fb378c8ef146be00`, "HMAC-SHA1");
+  assert(
+    hmac_sha256_hex(key.clone(), msg.clone()) == `b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7`,
+    "HMAC-SHA256"
+  );
+  assert(
+    hmac_sha512_hex(key, msg) == `87aa7cdea5ef619d4ff0b4241a1d6cb02379f4e2ce4ec2787ad0b30545e17cdedaa833b7d6b8a702038b274eaea3f4e4be9d914eeb61f1702e696c203a126854`,
+    "HMAC-SHA512"
+  );
+});
+test("HMAC RFC 4231 case 6: key longer than the block hashes down first", {
+  key := _rep(u8(0xaa), usize(131));
+  msg := _b("Test Using Larger Than Block-Size Key - Hash Key First");
+  assert(
+    hmac_sha256_hex(key, msg) == `60e431591ee0b67f0d8a26aacbf5b77f8e0bc6213728c5140546040f0ee37f54`,
+    "HMAC-SHA256 long key"
+  );
+});
+test("crc32 catalog check value", {
+  assert(crc32(_b("123456789")) == u32(0xcbf43926), "the CRC-32/ISO-HDLC check value");
+  assert(crc32(_b("")) == u32(0), "empty is zero");
+  assert(crc32(_b("The quick brown fox jumps over the lazy dog")) == u32(0x414fa339), "fox");
+});
+test("constant_time_eq", {
+  assert(constant_time_eq(_b("secret"), _b("secret")), "equal");
+  assert(constant_time_eq(_b("secret"), _b("secreT")) == false, "one byte off");
+  assert(constant_time_eq(_b("short"), _b("longer")) == false, "length mismatch");
+});

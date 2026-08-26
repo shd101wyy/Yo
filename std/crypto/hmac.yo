@@ -1,0 +1,81 @@
+//! HMAC (RFC 2104) — generic over any `Digest` implementor
+//! (`plans/STD_API_AUDIT.md` §7 P0 item 7: "blocks JWT/SigV4/webhooks").
+//!
+//! ```rust
+//! { hmac_sha256_hex } :: import "std/crypto/hmac";
+//! sig := hmac_sha256_hex(key_bytes, message_bytes);
+//! ```
+{ ArrayList } :: import("../collections/array_list");
+{ hex_encode } :: import("../encoding/hex");
+open(import("../string"));
+{ Digest } :: import("./digest");
+{ Sha256 } :: import("./sha256");
+{ Sha512 } :: import("./sha512");
+{ Sha1 } :: import("./sha1");
+
+/// HMAC over any `Digest`: `H((K' ^ opad) || H((K' ^ ipad) || message))`,
+/// with `K'` the key hashed down (if longer than the block) then
+/// zero-padded to the block size.
+hmac :: (
+  fn(comptime(D) : Type, key : ArrayList(u8), message : ArrayList(u8), where(D <: Digest)) -> ArrayList(u8)
+)({
+  block := (D <: Digest).block_size();
+  // K': hash an over-long key, then zero-pad to the block size.
+  (k : ArrayList(u8)) = key;
+  if(k.len() > block, {
+    k = (D <: Digest).finish_bytes((D <: Digest).update((D <: Digest).new(), k));
+  });
+  ikey := ArrayList(u8).with_capacity(block);
+  okey := ArrayList(u8).with_capacity(block);
+  (i : usize) = usize(0);
+  while(i < block, i = (i + usize(1)), {
+    kb := match(k.get(i), .Some(b) => b, .None => u8(0));
+    ikey.push(kb ^ u8(0x36));
+    okey.push(kb ^ u8(0x5c));
+  });
+  inner_h := (D <: Digest).update((D <: Digest).update((D <: Digest).new(), ikey), message);
+  inner := (D <: Digest).finish_bytes(inner_h);
+  (D <: Digest).finish_bytes((D <: Digest).update((D <: Digest).update((D <: Digest).new(), okey), inner))
+});
+/// HMAC-SHA256.
+hmac_sha256 :: (fn(key : ArrayList(u8), message : ArrayList(u8)) -> ArrayList(u8))(
+  hmac(Sha256, key, message)
+);
+/// HMAC-SHA256, lowercase hex.
+hmac_sha256_hex :: (fn(key : ArrayList(u8), message : ArrayList(u8)) -> String)(
+  hex_encode(hmac_sha256(key, message))
+);
+/// HMAC-SHA512.
+hmac_sha512 :: (fn(key : ArrayList(u8), message : ArrayList(u8)) -> ArrayList(u8))(
+  hmac(Sha512, key, message)
+);
+/// HMAC-SHA512, lowercase hex.
+hmac_sha512_hex :: (fn(key : ArrayList(u8), message : ArrayList(u8)) -> String)(
+  hex_encode(hmac_sha512(key, message))
+);
+/// HMAC-SHA1 (for protocols that still require it — see std/crypto/sha1's
+/// security note).
+hmac_sha1 :: (fn(key : ArrayList(u8), message : ArrayList(u8)) -> ArrayList(u8))(
+  hmac(Sha1, key, message)
+);
+/// HMAC-SHA1, lowercase hex.
+hmac_sha1_hex :: (fn(key : ArrayList(u8), message : ArrayList(u8)) -> String)(
+  hex_encode(hmac_sha1(key, message))
+);
+/// Constant-time byte comparison — verify MACs with this, never `==`:
+/// an early-exit compare leaks WHERE the first mismatch sits, which lets an
+/// attacker forge a MAC byte-by-byte over the network.
+constant_time_eq :: (fn(a : ArrayList(u8), b : ArrayList(u8)) -> bool)({
+  if(a.len() != b.len(), {
+    return(false);
+  });
+  (acc : u8) = u8(0);
+  (i : usize) = usize(0);
+  while(i < a.len(), i = (i + usize(1)), {
+    av := match(a.get(i), .Some(x) => x, .None => u8(0));
+    bv := match(b.get(i), .Some(x) => x, .None => u8(0));
+    acc = (acc | (av ^ bv));
+  });
+  acc == u8(0)
+});
+export(hmac, hmac_sha256, hmac_sha256_hex, hmac_sha512, hmac_sha512_hex, hmac_sha1, hmac_sha1_hex, constant_time_eq);

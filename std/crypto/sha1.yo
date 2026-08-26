@@ -1,0 +1,195 @@
+//! SHA-1 (FIPS 180-4) — streaming hasher + one-shot helpers
+//! (`plans/STD_API_AUDIT.md` §7 P0 item 7).
+//!
+//! SHA-1 is cryptographically BROKEN for collision resistance (SHAttered,
+//! 2017) — do not use it for signatures or content addressing of untrusted
+//! input. It remains required by existing protocols (git object ids, HMAC-SHA1
+//! in OAuth 1 / AWS SigV2-era APIs), which is why std ships it.
+//!
+//! ```rust
+//! { sha1_hex } :: import "std/crypto/sha1";
+//! digest := sha1_hex(data); // 40-char lowercase hex
+//! ```
+pragma(Pragma.AllowUnsafe);
+{ ArrayList } :: import("../collections/array_list");
+{ hex_encode } :: import("../encoding/hex");
+{ Digest } :: import("./digest");
+open(import("../string"));
+_rotl32 :: (fn(x : u32, n : u32) -> u32)(
+  (x << n) | (x >> (u32(32) - n))
+);
+/// One 64-byte block: the 80-round compression over `h[0..5]`.
+_sha1_block :: (fn(block : *(u8), h : *(u32)) -> unit)({
+  w := Array(u32, usize(80)).fill(u32(0));
+  (t : usize) = usize(0);
+  while(t < usize(16), t = (t + usize(1)), {
+    b0 := u32((block.add(t * usize(4))).*);
+    b1 := u32((block.add((t * usize(4)) + usize(1))).*);
+    b2 := u32((block.add((t * usize(4)) + usize(2))).*);
+    b3 := u32((block.add((t * usize(4)) + usize(3))).*);
+    w(t) = ((b0 << u32(24)) | ((b1 << u32(16)) | ((b2 << u32(8)) | b3)));
+  });
+  while(t < usize(80), t = (t + usize(1)), {
+    w(t) = _rotl32((w(t - usize(3)) ^ w(t - usize(8))) ^ (w(t - usize(14)) ^ w(t - usize(16))), u32(1));
+  });
+  a := (h.add(usize(0))).*;
+  b := (h.add(usize(1))).*;
+  c := (h.add(usize(2))).*;
+  d := (h.add(usize(3))).*;
+  e := (h.add(usize(4))).*;
+  (i : usize) = usize(0);
+  while(i < usize(80), i = (i + usize(1)), {
+    (f : u32) = u32(0);
+    (k : u32) = u32(0);
+    cond(
+      (i < usize(20)) => {
+        f = ((b & c) | ((~(b)) & d));
+        k = u32(0x5a827999);
+      },
+      (i < usize(40)) => {
+        f = ((b ^ c) ^ d);
+        k = u32(0x6ed9eba1);
+      },
+      (i < usize(60)) => {
+        f = (((b & c) | (b & d)) | (c & d));
+        k = u32(0x8f1bbcdc);
+      },
+      true => {
+        f = ((b ^ c) ^ d);
+        k = u32(0xca62c1d6);
+      }
+    );
+    temp := ((_rotl32(a, u32(5)) + f) + ((e + k) + w(i)));
+    e = d;
+    d = c;
+    c = _rotl32(b, u32(30));
+    b = a;
+    a = temp;
+  });
+  (h.add(usize(0))).* = ((h.add(usize(0))).* + a);
+  (h.add(usize(1))).* = ((h.add(usize(1))).* + b);
+  (h.add(usize(2))).* = ((h.add(usize(2))).* + c);
+  (h.add(usize(3))).* = ((h.add(usize(3))).* + d);
+  (h.add(usize(4))).* = ((h.add(usize(4))).* + e);
+});
+/// SHA-1 streaming state (the Sha256 skeleton).
+Sha1 :: ref(
+  struct(
+    _h : Array(u32, usize(5)),
+    _buf : Array(u8, usize(64)),
+    _buflen : usize,
+    _total : u64
+  )
+);
+impl(
+  Sha1,
+  // Initialise a new hasher.
+  new : (fn() -> Self)(
+    Self(
+      _h : Array(u32, usize(5))(u32(0x67452301), u32(0xefcdab89), u32(0x98badcfe), u32(0x10325476), u32(0xc3d2e1f0)),
+      _buf : Array(u8, usize(64)).fill(u8(0)),
+      _buflen : usize(0),
+      _total : u64(0)
+    )
+  ),
+  // Feed more data into the hasher.
+  update : (fn(self : Self, data : ArrayList(u8)) -> Self)({
+    i := usize(0);
+    while(i < data.len(), i = (i + usize(1)), {
+      self._buf(self._buflen) = data(i);
+      self._buflen = (self._buflen + usize(1));
+      self._total = (self._total + u64(1));
+      cond(
+        (self._buflen == usize(64)) => {
+          buf_ptr := &(self._buf(usize(0)));
+          h_ptr := &(self._h(usize(0)));
+          _sha1_block(buf_ptr, h_ptr);
+          self._buflen = usize(0);
+        },
+        true => ()
+      );
+    });
+    self
+  }),
+  // Finalise and return the 20-byte digest.
+  finish : (fn(self : Self) -> Array(u8, usize(20)))({
+    bit_len := (self._total * u64(8));
+    self._buf(self._buflen) = u8(0x80);
+    self._buflen = (self._buflen + usize(1));
+    cond(
+      (self._buflen > usize(56)) => {
+        while(self._buflen < usize(64), self._buflen = (self._buflen + usize(1)), {
+          self._buf(self._buflen) = u8(0);
+        });
+        buf_ptr := &(self._buf(usize(0)));
+        h_ptr := &(self._h(usize(0)));
+        _sha1_block(buf_ptr, h_ptr);
+        self._buflen = usize(0);
+      },
+      true => ()
+    );
+    while(self._buflen < usize(56), self._buflen = (self._buflen + usize(1)), {
+      self._buf(self._buflen) = u8(0);
+    });
+    self._buf(usize(56)) = u8(bit_len >> u64(56));
+    self._buf(usize(57)) = u8(bit_len >> u64(48));
+    self._buf(usize(58)) = u8(bit_len >> u64(40));
+    self._buf(usize(59)) = u8(bit_len >> u64(32));
+    self._buf(usize(60)) = u8(bit_len >> u64(24));
+    self._buf(usize(61)) = u8(bit_len >> u64(16));
+    self._buf(usize(62)) = u8(bit_len >> u64(8));
+    self._buf(usize(63)) = u8(bit_len);
+    buf_ptr := &(self._buf(usize(0)));
+    h_ptr := &(self._h(usize(0)));
+    _sha1_block(buf_ptr, h_ptr);
+    digest := Array(u8, usize(20)).fill(u8(0));
+    j := usize(0);
+    while(j < usize(5), j = (j + usize(1)), {
+      word := self._h(j);
+      digest(j * usize(4)) = u8(word >> u32(24));
+      digest((j * usize(4)) + usize(1)) = u8(word >> u32(16));
+      digest((j * usize(4)) + usize(2)) = u8(word >> u32(8));
+      digest((j * usize(4)) + usize(3)) = u8(word);
+    });
+    digest
+  })
+);
+export(Sha1);
+// === Digest trait impl (std/crypto/digest) ===
+impl(
+  Sha1,
+  Digest(
+    new : (fn() -> Self)(Self.new()),
+    update : (fn(self : Self, data : ArrayList(u8)) -> Self)(self.update(data)),
+    digest_size : (fn() -> usize)(usize(20)),
+    block_size : (fn() -> usize)(usize(64)),
+    finish_bytes : (fn(self : Self) -> ArrayList(u8))({
+      d := self.finish();
+      out := ArrayList(u8).with_capacity(usize(20));
+      (fbi : usize) = usize(0);
+      while(fbi < usize(20), fbi = (fbi + usize(1)), {
+        out.push(d(fbi));
+      });
+      out
+    })
+  )
+);
+
+// ============================================================================
+// Convenience functions
+// ============================================================================
+// Hash data and return the 20-byte digest.
+sha1 :: (fn(data : ArrayList(u8)) -> Array(u8, usize(20)))(
+  Sha1.new().update(data).finish()
+);
+// Hash data and return the 40-character lowercase hex digest.
+sha1_hex :: (fn(data : ArrayList(u8)) -> String)({
+  digest := sha1(data);
+  bytes := ArrayList(u8).with_capacity(usize(20));
+  i := usize(0);
+  while(i < usize(20), i = (i + usize(1)), {
+    bytes.push(digest(i));
+  });
+  hex_encode(bytes)
+});
+export(sha1, sha1_hex);
