@@ -946,6 +946,29 @@ Bind it to a local first:
   `${where}\`io.await\` is not supported in this position inside an \`io.async\` block (expression: ${expr_tag}${fn_note}).
 Hoist it into a local first: \`result := io.await(f, io);\``
 });
+/// True for `x = io.await(...)` where `x` is a plain identifier — the ONE
+/// `=` shape the := arm must also take (no future store existed for it
+/// anywhere). `target = cond/match(...await...)` and deref/field targets keep
+/// flowing to the dedicated `=` arm below (target_assignment_code channel) —
+/// intercepting them broke the primitive-match write-back
+/// (`result.* = match(...)`, async_await tests 53/54).
+_is_ident_bare_await_reassign :: (fn(expr : AstExpr) -> bool)({
+  if(!(ast_expr_is_fn_call(expr) && ast_expr_is_fn_call_of(expr, "=", Option(usize).Some(usize(2)))), {
+    return(false);
+  });
+  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+  lhs_ok := match(
+    args.get(usize(0)),
+    .Some(lhs) => (ast_expr_is_atom(lhs) && (ast_expr_token(lhs).kind == TokenKind.Identifier)),
+    .None => false
+  );
+  rhs_ok := match(
+    args.get(usize(1)),
+    .Some(rhs) => (ast_expr_is_fn_call(rhs) && is_io_await_call(rhs)),
+    .None => false
+  );
+  lhs_ok && rhs_ok
+});
 generate_await_expression :: (
   fn(
     expr : AstExpr,
@@ -979,8 +1002,12 @@ generate_await_expression :: (
     );
     return();
   });
-  // Assignment with await: varName := await/cond/match(...)
-  if(ast_expr_is_fn_call(expr) && ast_expr_is_fn_call_of(expr, ":=", Option(usize).None), {
+  // Assignment with await: varName := await/cond/match(...) — and the
+  // RE-assignment form `varName = await(...)` (identifier target, bare-await
+  // value ONLY — see _is_ident_bare_await_reassign), which fell through
+  // every arm and emitted NOTHING (no future store), silently no-oping the
+  // await.
+  if(ast_expr_is_fn_call(expr) && (ast_expr_is_fn_call_of(expr, ":=", Option(usize).None) || _is_ident_bare_await_reassign(expr)), {
     args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
     match(
       args.get(usize(0)),
@@ -1730,8 +1757,12 @@ generate_cond_branch_with_await :: (
         if(branch_has_await(expr), {
           found_await = true;
           is_last := (i == (n - usize(1)));
-          // varName := await(futureExpr)
-          if(ast_expr_is_fn_call(expr) && ast_expr_is_fn_call_of(expr, ":=", Option(usize).None), {
+          // varName := await(futureExpr) — and `varName = await(...)`
+          // (identifier target, bare-await value; see the same extension in
+          // generate_await_expression and in extract_target_variable_id —
+          // all three must agree or the branch future store is silently
+          // skipped).
+          if(ast_expr_is_fn_call(expr) && (ast_expr_is_fn_call_of(expr, ":=", Option(usize).None) || _is_ident_bare_await_reassign(expr)), {
             a_args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
             match(
               a_args.get(usize(1)),

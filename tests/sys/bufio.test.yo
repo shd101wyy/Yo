@@ -1,0 +1,892 @@
+pragma(Pragma.SkipWasm32Wasi); // Emscripten syscalls (__syscall_*) not available in standalone WASI
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+open(import("std/libc/stdio"));
+open(import("std/string"));
+{ println } :: import("std/fmt");
+{ Path } :: import("std/path");
+{ IoError } :: import("std/sys/errors");
+{ Error, AnyError, Exception, IoExn } :: import("std/error");
+fs_file :: import("std/fs/file");
+{ File, OpenMode } :: import("std/fs/file");
+fs_dir :: import("std/fs/dir");
+{ BufReader } :: import("std/sys/bufio/buf_reader");
+{ BufWriter } :: import("std/sys/bufio/buf_writer");
+{ temp_dir, path_join } :: import("../helper");
+{ ArrayList } :: import("std/collections/array_list");
+{ GlobalAllocator } :: import("std/allocator");
+{ malloc, free } :: GlobalAllocator;
+// ============================================================================
+// BufReader tests
+// ============================================================================
+test("BufReader new creates reader", {
+  reader := BufReader.new(i32(0));
+  assert(reader.fd() == i32(0), "fd should be 0");
+  assert(reader.buffered() == usize(0), "should have no buffered data");
+});
+test("BufReader with_capacity creates reader with custom size", {
+  reader := BufReader.with_capacity(i32(1), usize(8192));
+  assert(reader.fd() == i32(1), "fd should be 1");
+  assert(reader.buffered() == usize(0), "should have no buffered data");
+});
+test("BufReader read_line reads single line", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        println(`  unexpected error: ${err}`);
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  tmp := temp_dir();
+  fpath := Path.new(path_join(tmp, `yo_bufio_readline_single.txt`));
+  io.await(fs_file.write_string(fpath, String.from("hello world\n"), io), IoExn(io : io, exn : exn));
+  f := io.await(File.open(fpath, .Read, io), IoExn(io : io, exn : exn));
+  fd := f.fd();
+  reader := BufReader.new(fd);
+  line := io.await(reader.read_line(io), io);
+  match(
+    line,
+    .Ok(opt) => {
+      match(
+        opt,
+        .Some(s) => {
+          unsafe(printf("  line: %s\n", s.to_cstr().ptr().unwrap()));
+          assert(s == `hello world`, "should read the line without newline");
+        },
+        .None => assert(false, "should not get EOF")
+      );
+    },
+    .Err(e) => assert(false, "should not get error")
+  );
+  io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
+});
+test("BufReader read_line reads multiple lines", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        println(`  unexpected error: ${err}`);
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  tmp := temp_dir();
+  fpath := Path.new(path_join(tmp, `yo_bufio_readline_multi.txt`));
+  io.await(fs_file.write_string(fpath, String.from("line1\nline2\nline3\n"), io), IoExn(io : io, exn : exn));
+  f := io.await(File.open(fpath, .Read, io), IoExn(io : io, exn : exn));
+  fd := f.fd();
+  reader := BufReader.new(fd);
+  line1 := io.await(reader.read_line(io), io);
+  match(
+    line1,
+    .Ok(opt) => {
+      match(
+        opt,
+        .Some(s) => {
+          unsafe(printf("  line1: %s\n", s.to_cstr().ptr().unwrap()));
+          assert(s == `line1`, "first line should be line1");
+        },
+        .None => assert(false, "should get line1")
+      );
+    },
+    .Err(e) => assert(false, "should get line1")
+  );
+  line2 := io.await(reader.read_line(io), io);
+  match(
+    line2,
+    .Ok(opt) => {
+      match(
+        opt,
+        .Some(s) => {
+          unsafe(printf("  line2: %s\n", s.to_cstr().ptr().unwrap()));
+          assert(s == `line2`, "second line should be line2");
+        },
+        .None => assert(false, "should get line2")
+      );
+    },
+    .Err(e) => assert(false, "should get line2")
+  );
+  line3 := io.await(reader.read_line(io), io);
+  match(
+    line3,
+    .Ok(opt) => {
+      match(
+        opt,
+        .Some(s) => {
+          unsafe(printf("  line3: %s\n", s.to_cstr().ptr().unwrap()));
+          assert(s == `line3`, "third line should be line3");
+        },
+        .None => assert(false, "should get line3")
+      );
+    },
+    .Err(e) => assert(false, "should get line3")
+  );
+  // Should get EOF
+  line4 := io.await(reader.read_line(io), io);
+  match(
+    line4,
+    .Ok(opt) => {
+      match(
+        opt,
+        .Some(_) => assert(false, "should get EOF after all lines"),
+        .None => {
+          unsafe(printf("  got EOF correctly\n"));
+        }
+      );
+    },
+    .Err(e) => assert(false, "should get EOF after all lines")
+  );
+  io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
+});
+test("BufReader read_line handles line without trailing newline", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        println(`  unexpected error: ${err}`);
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  tmp := temp_dir();
+  fpath := Path.new(path_join(tmp, `yo_bufio_readline_notrail.txt`));
+  io.await(fs_file.write_string(fpath, String.from("no newline at end"), io), IoExn(io : io, exn : exn));
+  f := io.await(File.open(fpath, .Read, io), IoExn(io : io, exn : exn));
+  fd := f.fd();
+  reader := BufReader.new(fd);
+  line := io.await(reader.read_line(io), io);
+  match(
+    line,
+    .Ok(opt) => {
+      match(
+        opt,
+        .Some(s) => {
+          unsafe(printf("  line: %s\n", s.to_cstr().ptr().unwrap()));
+          assert(s == `no newline at end`, "should read partial line");
+        },
+        .None => assert(false, "should get partial line")
+      );
+    },
+    .Err(e) => assert(false, "should get partial line")
+  );
+  // Now should get EOF
+  line2 := io.await(reader.read_line(io), io);
+  match(
+    line2,
+    .Ok(opt) => {
+      match(
+        opt,
+        .Some(_) => assert(false, "should get EOF"),
+        .None => {
+          unsafe(printf("  got EOF correctly\n"));
+        }
+      );
+    },
+    .Err(e) => assert(false, "should get EOF")
+  );
+  io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
+});
+test("BufReader read_line on empty file returns None", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        println(`  unexpected error: ${err}`);
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  tmp := temp_dir();
+  fpath := Path.new(path_join(tmp, `yo_bufio_readline_empty.txt`));
+  io.await(fs_file.write_string(fpath, String.from(""), io), IoExn(io : io, exn : exn));
+  f := io.await(File.open(fpath, .Read, io), IoExn(io : io, exn : exn));
+  fd := f.fd();
+  reader := BufReader.new(fd);
+  line := io.await(reader.read_line(io), io);
+  match(
+    line,
+    .Ok(opt) => {
+      match(
+        opt,
+        .Some(_) => assert(false, "should get None on empty file"),
+        .None => {
+          unsafe(printf("  got None for empty file\n"));
+        }
+      );
+    },
+    .Err(e) => assert(false, "should get None on empty file")
+  );
+  io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
+});
+test("BufReader read_bytes reads entire file", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        println(`  unexpected error: ${err}`);
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  tmp := temp_dir();
+  fpath := Path.new(path_join(tmp, `yo_bufio_readall.txt`));
+  io.await(fs_file.write_string(fpath, String.from("all data here"), io), IoExn(io : io, exn : exn));
+  f := io.await(File.open(fpath, .Read, io), IoExn(io : io, exn : exn));
+  fd := f.fd();
+  reader := BufReader.new(fd);
+  result := io.await(reader.read_bytes(io), io);
+  match(
+    result,
+    .Ok(bytes) => {
+      s := String.from_bytes(bytes);
+      unsafe(printf("  read_bytes: %s\n", s.to_cstr().ptr().unwrap()));
+      assert(s == `all data here`, "should read all data");
+    },
+    .Err(e) => assert(false, "should not error")
+  );
+  io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
+});
+test("BufReader read_to_string reads entire file as String", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        println(`  unexpected error: ${err}`);
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  tmp := temp_dir();
+  fpath := Path.new(path_join(tmp, `yo_bufio_readtostring.txt`));
+  io.await(fs_file.write_string(fpath, String.from("string content"), io), IoExn(io : io, exn : exn));
+  f := io.await(File.open(fpath, .Read, io), IoExn(io : io, exn : exn));
+  fd := f.fd();
+  reader := BufReader.new(fd);
+  result := io.await(reader.read_to_string(io), io);
+  match(
+    result,
+    .Ok(s) => {
+      unsafe(printf("  content: %s\n", s.to_cstr().ptr().unwrap()));
+      assert(s == `string content`, "should match content");
+    },
+    .Err(e) => assert(false, "should not error")
+  );
+  io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
+});
+// ============================================================================
+// BufWriter tests
+// ============================================================================
+test("BufWriter new creates writer", {
+  writer := BufWriter.new(i32(1));
+  assert(writer.fd() == i32(1), "fd should be 1");
+  assert(writer.buffered() == usize(0), "should have no buffered data");
+});
+test("BufWriter write and flush", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        println(`  unexpected error: ${err}`);
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  tmp := temp_dir();
+  fpath := Path.new(path_join(tmp, `yo_bufio_write_flush.txt`));
+  f := io.await(File.open(fpath, .Write, io), IoExn(io : io, exn : exn));
+  fd := f.fd();
+  writer := BufWriter.new(fd);
+  data := `buffered write test`;
+  data_bytes := data.as_bytes();
+  io.await(writer.write(data_bytes.ptr().unwrap(), u32(data_bytes.len()), io), io);
+  io.await(writer.flush(io), io);
+  // Read back
+  content := io.await(fs_file.read_to_string(fpath, io), IoExn(io : io, exn : exn));
+  unsafe(printf("  content: %s\n", content.to_cstr().ptr().unwrap()));
+  assert(content == `buffered write test`, "content mismatch");
+  io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
+});
+test("BufWriter write_string", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        println(`  unexpected error: ${err}`);
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  tmp := temp_dir();
+  fpath := Path.new(path_join(tmp, `yo_bufio_write_string.txt`));
+  f := io.await(File.open(fpath, .Write, io), IoExn(io : io, exn : exn));
+  fd := f.fd();
+  writer := BufWriter.new(fd);
+  io.await(writer.write_string(`hello from bufwriter`, io), io);
+  io.await(writer.flush(io), io);
+  content := io.await(fs_file.read_to_string(fpath, io), IoExn(io : io, exn : exn));
+  unsafe(printf("  content: %s\n", content.to_cstr().ptr().unwrap()));
+  assert(content == `hello from bufwriter`, "content mismatch");
+  io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
+});
+test("BufWriter with small buffer flushes automatically", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        println(`  unexpected error: ${err}`);
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  tmp := temp_dir();
+  fpath := Path.new(path_join(tmp, `yo_bufio_auto_flush.txt`));
+  f := io.await(File.open(fpath, .Write, io), IoExn(io : io, exn : exn));
+  fd := f.fd();
+  // Very small buffer (8 bytes)
+  writer := BufWriter.with_capacity(fd, usize(8));
+  // Write more data than buffer size to trigger auto-flush
+  io.await(writer.write_string(`abcdefghijklmnop`, io), io);
+  io.await(writer.flush(io), io);
+  content := io.await(fs_file.read_to_string(fpath, io), IoExn(io : io, exn : exn));
+  unsafe(printf("  content: %s\n", content.to_cstr().ptr().unwrap()));
+  assert(content == `abcdefghijklmnop`, "should have all data after auto-flush");
+  io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
+});
+// ============================================================================
+// BufReader + BufWriter round-trip
+// ============================================================================
+test("BufWriter then BufReader round-trip", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        println(`  unexpected error: ${err}`);
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  tmp := temp_dir();
+  fpath := Path.new(path_join(tmp, `yo_bufio_roundtrip.txt`));
+  // Write with BufWriter
+  wf := io.await(File.open(fpath, .Write, io), IoExn(io : io, exn : exn));
+  wfd := wf.fd();
+  writer := BufWriter.new(wfd);
+  io.await(writer.write_string(String.from("line one\nline two\nline three\n"), io), io);
+  io.await(writer.flush(io), io);
+  // Read with BufReader
+  rf := io.await(File.open(fpath, .Read, io), IoExn(io : io, exn : exn));
+  rfd := rf.fd();
+  reader := BufReader.new(rfd);
+  l1 := io.await(reader.read_line(io), io);
+  match(
+    l1,
+    .Ok(opt) => {
+      match(
+        opt,
+        .Some(s) => {
+          unsafe(printf("  l1: %s\n", s.to_cstr().ptr().unwrap()));
+          assert(s == `line one`, "first line");
+        },
+        .None => assert(false, "should get first line")
+      );
+    },
+    .Err(e) => assert(false, "should get first line")
+  );
+  l2 := io.await(reader.read_line(io), io);
+  match(
+    l2,
+    .Ok(opt) => {
+      match(
+        opt,
+        .Some(s) => {
+          unsafe(printf("  l2: %s\n", s.to_cstr().ptr().unwrap()));
+          assert(s == `line two`, "second line");
+        },
+        .None => assert(false, "should get second line")
+      );
+    },
+    .Err(e) => assert(false, "should get second line")
+  );
+  l3 := io.await(reader.read_line(io), io);
+  match(
+    l3,
+    .Ok(opt) => {
+      match(
+        opt,
+        .Some(s) => {
+          unsafe(printf("  l3: %s\n", s.to_cstr().ptr().unwrap()));
+          assert(s == `line three`, "third line");
+        },
+        .None => assert(false, "should get third line")
+      );
+    },
+    .Err(e) => assert(false, "should get third line")
+  );
+  l4 := io.await(reader.read_line(io), io);
+  match(
+    l4,
+    .Ok(opt) => {
+      match(
+        opt,
+        .Some(_) => assert(false, "should get EOF"),
+        .None => {
+          unsafe(printf("  got EOF\n"));
+        }
+      );
+    },
+    .Err(e) => assert(false, "should get EOF")
+  );
+  io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
+});
+// ============================================================================
+// BufReader.read tests
+// ============================================================================
+test("BufReader read returns bytes from file", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        println(`  unexpected error: ${err}`);
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  tmp := temp_dir();
+  fpath := Path.new(path_join(tmp, `yo_bufio_read_bytes.txt`));
+  io.await(fs_file.write_string(fpath, String.from("abcde"), io), IoExn(io : io, exn : exn));
+  f := io.await(File.open(fpath, .Read, io), IoExn(io : io, exn : exn));
+  fd := f.fd();
+  reader := BufReader.new(fd);
+  buf := *(u8)(malloc(usize(10)).unwrap());
+  result := io.await(reader.read(buf, u32(5), io), io);
+  match(
+    result,
+    .Ok(n) => {
+      unsafe(printf("  read %d bytes\n", n));
+      assert(n == i32(5), "should read 5 bytes");
+      assert((buf.add(usize(0))).* == u8(97), "first byte should be 'a'");
+      assert((buf.add(usize(4))).* == u8(101), "last byte should be 'e'");
+    },
+    .Err(e) => assert(false, "should not error")
+  );
+  free(.Some(*(void)(buf)));
+  io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
+});
+test("BufReader read on empty file returns zero", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        println(`  unexpected error: ${err}`);
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  tmp := temp_dir();
+  fpath := Path.new(path_join(tmp, `yo_bufio_read_empty.txt`));
+  io.await(fs_file.write_string(fpath, String.from(""), io), IoExn(io : io, exn : exn));
+  f := io.await(File.open(fpath, .Read, io), IoExn(io : io, exn : exn));
+  fd := f.fd();
+  reader := BufReader.new(fd);
+  buf := *(u8)(malloc(usize(10)).unwrap());
+  result := io.await(reader.read(buf, u32(10), io), io);
+  match(
+    result,
+    .Ok(n) => {
+      unsafe(printf("  read %d bytes from empty file\n", n));
+      assert(n == i32(0), "should read 0 bytes from empty file");
+    },
+    .Err(e) => assert(false, "should not error")
+  );
+  free(.Some(*(void)(buf)));
+  io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
+});
+test("BufReader read partial then remaining", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        println(`  unexpected error: ${err}`);
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  tmp := temp_dir();
+  fpath := Path.new(path_join(tmp, `yo_bufio_read_partial.txt`));
+  io.await(fs_file.write_string(fpath, String.from("hello world"), io), IoExn(io : io, exn : exn));
+  f := io.await(File.open(fpath, .Read, io), IoExn(io : io, exn : exn));
+  fd := f.fd();
+  reader := BufReader.new(fd);
+  // Read first 5 bytes
+  buf := *(u8)(malloc(usize(20)).unwrap());
+  r1 := io.await(reader.read(buf, u32(5), io), io);
+  match(
+    r1,
+    .Ok(n) => {
+      unsafe(printf("  first read: %d bytes\n", n));
+      assert(n == i32(5), "should read 5 bytes");
+    },
+    .Err(e) => assert(false, "first read failed")
+  );
+  // Now buffered() should be positive (rest of buffer from initial read)
+  buffered := reader.buffered();
+  unsafe(printf("  buffered after first read: %zu\n", buffered));
+  assert(buffered > usize(0), "should have buffered data");
+  // Read rest
+  r2 := io.await(reader.read(buf, u32(6), io), io);
+  match(
+    r2,
+    .Ok(n) => {
+      unsafe(printf("  second read: %d bytes\n", n));
+      assert(n == i32(6), "should read remaining 6 bytes");
+      // Verify it reads " world"
+      assert((buf.add(usize(0))).* == u8(32), "first byte should be space");
+      assert((buf.add(usize(5))).* == u8(100), "last byte should be 'd'");
+    },
+    .Err(e) => assert(false, "second read failed")
+  );
+  free(.Some(*(void)(buf)));
+  io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
+});
+// ============================================================================
+// BufReader with small buffer
+// ============================================================================
+test("BufReader with small buffer reads multiple chunks", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        println(`  unexpected error: ${err}`);
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  tmp := temp_dir();
+  fpath := Path.new(path_join(tmp, `yo_bufio_small_buf.txt`));
+  // Write data larger than small buffer
+  io.await(fs_file.write_string(fpath, String.from("abcdefghijklmnopqrstuvwxyz"), io), IoExn(io : io, exn : exn));
+  f := io.await(File.open(fpath, .Read, io), IoExn(io : io, exn : exn));
+  fd := f.fd();
+  // Use a small buffer (8 bytes) to force multiple refills
+  reader := BufReader.with_capacity(fd, usize(8));
+  result := io.await(reader.read_to_string(io), io);
+  match(
+    result,
+    .Ok(s) => {
+      unsafe(printf("  content: %s\n", s.to_cstr().ptr().unwrap()));
+      assert(s == `abcdefghijklmnopqrstuvwxyz`, "should read all data through small buffer");
+    },
+    .Err(e) => assert(false, "should not error")
+  );
+  io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
+});
+test("BufReader with small buffer reads lines across chunks", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        println(`  unexpected error: ${err}`);
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  tmp := temp_dir();
+  fpath := Path.new(path_join(tmp, `yo_bufio_small_buf_lines.txt`));
+  // Lines that span multiple 8-byte buffer fills
+  io.await(fs_file.write_string(fpath, String.from("hello world\ngoodbye world\n"), io), IoExn(io : io, exn : exn));
+  f := io.await(File.open(fpath, .Read, io), IoExn(io : io, exn : exn));
+  fd := f.fd();
+  reader := BufReader.with_capacity(fd, usize(8));
+  line1 := io.await(reader.read_line(io), io);
+  match(
+    line1,
+    .Ok(opt) => {
+      match(
+        opt,
+        .Some(s) => {
+          unsafe(printf("  line1: %s\n", s.to_cstr().ptr().unwrap()));
+          assert(s == `hello world`, "first line via small buffer");
+        },
+        .None => assert(false, "should get line1")
+      );
+    },
+    .Err(e) => assert(false, "should get line1")
+  );
+  line2 := io.await(reader.read_line(io), io);
+  match(
+    line2,
+    .Ok(opt) => {
+      match(
+        opt,
+        .Some(s) => {
+          unsafe(printf("  line2: %s\n", s.to_cstr().ptr().unwrap()));
+          assert(s == `goodbye world`, "second line via small buffer");
+        },
+        .None => assert(false, "should get line2")
+      );
+    },
+    .Err(e) => assert(false, "should get line2")
+  );
+  io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
+});
+// ============================================================================
+// BufReader edge cases
+// ============================================================================
+test("BufReader read_line with only newlines", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        println(`  unexpected error: ${err}`);
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  tmp := temp_dir();
+  fpath := Path.new(path_join(tmp, `yo_bufio_only_newlines.txt`));
+  io.await(fs_file.write_string(fpath, String.from("\n\n\n"), io), IoExn(io : io, exn : exn));
+  f := io.await(File.open(fpath, .Read, io), IoExn(io : io, exn : exn));
+  fd := f.fd();
+  reader := BufReader.new(fd);
+  // First line should be empty string (newline by itself)
+  l1 := io.await(reader.read_line(io), io);
+  match(
+    l1,
+    .Ok(opt) => {
+      match(
+        opt,
+        .Some(s) => {
+          unsafe(printf("  l1 len: %zu\n", s.len()));
+          assert(s.len() == usize(0), "first empty line");
+        },
+        .None => assert(false, "should get empty line, not EOF")
+      );
+    },
+    .Err(e) => assert(false, "should not error")
+  );
+  l2 := io.await(reader.read_line(io), io);
+  match(
+    l2,
+    .Ok(opt) => {
+      match(
+        opt,
+        .Some(s) => {
+          assert(s.len() == usize(0), "second empty line");
+        },
+        .None => assert(false, "should get empty line, not EOF")
+      );
+    },
+    .Err(e) => assert(false, "should not error")
+  );
+  l3 := io.await(reader.read_line(io), io);
+  match(
+    l3,
+    .Ok(opt) => {
+      match(
+        opt,
+        .Some(s) => {
+          assert(s.len() == usize(0), "third empty line");
+        },
+        .None => assert(false, "should get empty line, not EOF")
+      );
+    },
+    .Err(e) => assert(false, "should not error")
+  );
+  // Now should get EOF
+  l4 := io.await(reader.read_line(io), io);
+  match(
+    l4,
+    .Ok(opt) => {
+      match(
+        opt,
+        .Some(_) => assert(false, "should get EOF after all newlines"),
+        .None => {
+          unsafe(printf("  got EOF after newlines\n"));
+        }
+      );
+    },
+    .Err(e) => assert(false, "should get EOF")
+  );
+  io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
+});
+// ============================================================================
+// BufWriter additional tests
+// ============================================================================
+test("BufWriter write_bytes", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        println(`  unexpected error: ${err}`);
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  tmp := temp_dir();
+  fpath := Path.new(path_join(tmp, `yo_bufio_write_bytes.txt`));
+  f := io.await(File.open(fpath, .Write, io), IoExn(io : io, exn : exn));
+  fd := f.fd();
+  writer := BufWriter.new(fd);
+  data := ArrayList(u8).new();
+  data.push(u8(104)); // h
+  data.push(u8(101)); // e
+  data.push(u8(108)); // l
+  data.push(u8(108)); // l
+  data.push(u8(111)); // o
+  io.await(writer.write_bytes(data, io), io);
+  io.await(writer.flush(io), io);
+  content := io.await(fs_file.read_to_string(fpath, io), IoExn(io : io, exn : exn));
+  unsafe(printf("  content: %s\n", content.to_cstr().ptr().unwrap()));
+  assert(content == `hello`, "should write bytes correctly");
+  io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
+});
+test("BufWriter buffered returns pending bytes", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        println(`  unexpected error: ${err}`);
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  tmp := temp_dir();
+  fpath := Path.new(path_join(tmp, `yo_bufio_buffered_count.txt`));
+  f := io.await(File.open(fpath, .Write, io), IoExn(io : io, exn : exn));
+  fd := f.fd();
+  writer := BufWriter.new(fd);
+  assert(writer.buffered() == usize(0), "initially no buffered data");
+  io.await(writer.write_string(`test`, io), io);
+  unsafe(printf("  buffered after write: %zu\n", writer.buffered()));
+  assert(writer.buffered() == usize(4), "should have 4 buffered bytes");
+  io.await(writer.flush(io), io);
+  unsafe(printf("  buffered after flush: %zu\n", writer.buffered()));
+  assert(writer.buffered() == usize(0), "should have 0 buffered after flush");
+  io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
+});
+test("BufWriter multiple writes then single flush", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        println(`  unexpected error: ${err}`);
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  tmp := temp_dir();
+  fpath := Path.new(path_join(tmp, `yo_bufio_multi_write.txt`));
+  f := io.await(File.open(fpath, .Write, io), IoExn(io : io, exn : exn));
+  fd := f.fd();
+  writer := BufWriter.new(fd);
+  io.await(writer.write_string(`aaa`, io), io);
+  io.await(writer.write_string(`bbb`, io), io);
+  io.await(writer.write_string(`ccc`, io), io);
+  io.await(writer.flush(io), io);
+  content := io.await(fs_file.read_to_string(fpath, io), IoExn(io : io, exn : exn));
+  unsafe(printf("  content: %s\n", content.to_cstr().ptr().unwrap()));
+  assert(content == `aaabbbccc`, "should concatenate all writes");
+  io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
+});
+test("BufReader read_exact reads exactly n bytes and leaves the rest", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        println(`  unexpected error: ${err}`);
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  tmp := temp_dir();
+  fpath := Path.new(path_join(tmp, `yo_bufio_read_exact.txt`));
+  io.await(fs_file.write_string(fpath, String.from("HEAD\nabcdefghijTAIL\n"), io), IoExn(io : io, exn : exn));
+  f := io.await(File.open(fpath, .Read, io), IoExn(io : io, exn : exn));
+  reader := BufReader.new(f.fd());
+  // A header line, then a fixed-size payload, then the remainder — the shape a
+  // length-prefixed protocol needs. read_exact must stop ON the boundary so the
+  // next read_line still sees the tail.
+  io.await(reader.read_line(io), io);
+  body := io.await(reader.read_exact(usize(10), io), io);
+  match(
+    body,
+    .Ok(opt) => match(
+      opt,
+      .Some(bytes) => {
+        assert(bytes.len() == usize(10), "should read exactly 10 bytes");
+        assert(String.from_bytes(bytes) == `abcdefghij`, "should read the payload");
+      },
+      .None => assert(false, "should not hit EOF")
+    ),
+    .Err(e) => assert(false, "should not get error")
+  );
+  rest := io.await(reader.read_line(io), io);
+  match(
+    rest,
+    .Ok(opt2) => match(
+      opt2,
+      .Some(s) => assert(s == `TAIL`, "the byte after the payload must still be there"),
+      .None => assert(false, "should not hit EOF before the tail")
+    ),
+    .Err(e2) => assert(false, "should not get error reading the tail")
+  );
+  io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
+});
+test("BufReader read_exact reports EOF when short", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        println(`  unexpected error: ${err}`);
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  tmp := temp_dir();
+  fpath := Path.new(path_join(tmp, `yo_bufio_read_exact_short.txt`));
+  io.await(fs_file.write_string(fpath, String.from("tiny"), io), IoExn(io : io, exn : exn));
+  f := io.await(File.open(fpath, .Read, io), IoExn(io : io, exn : exn));
+  reader := BufReader.new(f.fd());
+  // Asking for more than exists must be distinguishable from a clean read, so a
+  // truncated frame is never mistaken for a valid short one.
+  truncated := io.await(reader.read_exact(usize(100), io), io);
+  match(
+    truncated,
+    .Ok(opt) => match(
+      opt,
+      .Some => assert(false, "should not return a partial buffer"),
+      .None => assert(true, "EOF before n bytes reports None")
+    ),
+    .Err(e) => assert(false, "should not get error")
+  );
+  io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
+});
+// S0 C12 (plans/STD_API_AUDIT.md §2): dropping a BufWriter with buffered
+// bytes must flush them (best-effort) instead of silently losing them.
+test("BufWriter Dispose flushes buffered bytes on drop", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        println(`  unexpected error: ${err}`);
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  tmp := temp_dir();
+  fpath := Path.new(path_join(tmp, `yo_bufio_dispose_flush.txt`));
+  f := io.await(File.open(fpath, .Write, io), IoExn(io : io, exn : exn));
+  {
+    writer := BufWriter.new(f.fd());
+    r := io.await(writer.write_string(`buffered bytes`, io), io);
+    assert(r.is_ok(), "write into the buffer succeeds");
+    assert(writer.buffered() == usize(14), "bytes sit in the buffer, unflushed");
+    // no flush() — Dispose must flush on drop
+  };
+  s := io.await(fs_file.read_to_string(fpath, io), IoExn(io : io, exn : exn));
+  assert(s == `buffered bytes`, "Dispose flushed the buffered bytes to the fd");
+  io.await(f.close(io), IoExn(io : io, exn : exn));
+  io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
+});

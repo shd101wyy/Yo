@@ -77,3 +77,15 @@ Hardening (branch `ci/release-tail-hardening`): bump moved to its own
 `seed-bump` job, Publish made rerun-idempotent, manual `deploy-site.yml`
 lever added, v0.2.14→v0.2.15 pins bumped manually via PR. Remaining USER
 ACTION: add the Workflows permission to `RELEASE_PAT`.
+
+## Seed-gated follow-up (2026-08-27): migrate the compiler off `std/sys/bufio`
+
+`src/lsp/server.yo`, `src/lsp/transport.yo` and `src/check_watch.yo` should
+move from the fd-based `std/sys/bufio` BufReader onto the D5 generic
+`std/io/bufio` `BufReader(Stdin)` — and `std/sys/bufio` + its test then
+DELETE. Blocked until the seed carries #299 (the nullable-ptr match
+shadow-registration fix): `yo build` compiles `src/` with the SEED, which
+mis-emits `std/io/bufio`'s match bindings
+(`use of undeclared identifier '_..._priv_temp_N'`). The migration itself is
+already written — it was committed and then reverted on branch
+d5/bufio-wrappers (see that branch's history for the exact diffs).

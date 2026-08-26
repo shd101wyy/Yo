@@ -141,6 +141,6 @@ Tree-built binary (`yo build`, `YO_STD=$PWD/std`): `check ./src` 262/262,
 - C16 (`issues/fixed/trait-default-awaiting-self-async-method-emits-hollow-fn.md`)
   fixed the default-body materialization context; this bug was in the
   per-receiver specialization of the (materialized or explicit) method.
-- C21 (`issues/async-trait-default-shares-one-impl-future-concrete-type.md`),
+- C21 (`issues/fixed/async-trait-default-shares-one-impl-future-concrete-type.md`),
   C17 (dyn vtable splice) and C22 (nested closure in io.async) are separate
   and remain OPEN.

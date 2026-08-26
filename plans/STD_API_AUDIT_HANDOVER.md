@@ -112,11 +112,11 @@ merged as #293; slice 2 (the `read_to_end`/`read_to_string`/`write_all`
 defaults, `copy`, `IoError.InvalidData`/`WriteZero`, validating
 `File.read_to_string`) LANDED 2026-08-26 after #294/#295 unblocked it — C25
 (the unit tail await) was found and fixed en route. The loop-await issue is
-FIXED on all three facets, and the generic wrappers + bufio move are
-IMPLEMENTED on branch `d5/bufio-wrappers` — but that branch is NOT MERGEABLE:
-**C21 escalated to a hard C error on it** (abstract never-emitted state
-struct for a materialized trait default; test-arm-only, repros in the C21
-issue). Fix C21 first, then land the branch. C17 still blocks only the
+FIXED on all three facets, C21 is FIXED (both layers) and the generic
+wrappers LANDED 2026-08-27 (`std/io/bufio.yo`, 11 tests) — fixing C26 (the
+silent `=`-assign await no-op) en route. Remaining: the compiler's
+`std/sys/bufio` consumers migrate (SEED-GATED, see
+plans/backlog/SEED_VERSION_AUTOMATION.md) and C17 blocks only the
 `Dyn(Reader)` spelling. Full current state: `plans/STD_API_AUDIT.md` §D5.
 
 ### 3.3 §7 additions — S3 (P0) and S4 (P1)

@@ -103,7 +103,15 @@ extract_target_variable_id :: (
     },
     .Some(x) => x
   );
-  if(!(ast_expr_is_fn_call_of(pe.clone(), ":=", Option(usize).None)), {
+  // `:=` binds a fresh target; `=` re-assigns an existing one. BOTH make the
+  // await's result land in the LHS variable, and codegen's extraction writes
+  // it through this target id — without the `=` arm, a cond/match branch's
+  // `out = e.io.await(...)` extracted NO target, the branch's future store
+  // was skipped, and the whole awaiting branch silently no-oped (the
+  // sibling-cond wrong-value bug found by D5's BufReader bypass test).
+  is_define := ast_expr_is_fn_call_of(pe.clone(), ":=", Option(usize).None);
+  is_assign := ast_expr_is_fn_call_of(pe.clone(), "=", Option(usize).Some(usize(2)));
+  if(!(is_define || is_assign), {
     return(Option(String).None);
   });
   // Extract args[0] from the FnCall

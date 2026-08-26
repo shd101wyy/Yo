@@ -1,0 +1,347 @@
+//! Buffered reader for file descriptors.
+//!
+//! Wraps a file descriptor with an internal buffer for efficient reads.
+//! Reduces the number of system calls by reading data in larger chunks.
+//!
+//! # Example
+//!
+//! ```rust
+//! { BufReader } :: import "std/sys/bufio/buf_reader";
+//! IO_file :: import "std/sys/file";
+//!
+//! reader := BufReader.new(fd);
+//! line := io.await(reader.read_line(io));
+//! match(line,
+//!   .Ok(.Some(s)) => println(s),
+//!   .Ok(.None) => println("EOF"),
+//!   .Err(e) => println(e.to_string())
+//! );
+//! ```
+pragma(Pragma.AllowUnsafe);
+{ ArrayList } :: import("../../collections/array_list");
+open(import("../../string"));
+{ IoError } :: import("../errors");
+IO_file :: import("../file");
+{ GlobalAllocator } :: import("../../allocator");
+{ malloc, free } :: GlobalAllocator;
+_DEFAULT_BUF_SIZE :: usize(4096);
+_NEWLINE :: u8(10); // '\n'
+BufReader :: ref(
+  struct(
+    _fd : i32,
+    _buf : ArrayList(u8),
+    _pos : usize,
+    _filled : usize,
+    _offset : u64,
+    _capacity : usize
+  )
+);
+impl(
+  BufReader,
+  // Create a buffered reader with default buffer size (4096 bytes).
+  new : (fn(fd : i32) -> Self)(
+    Self(
+      _fd : fd,
+      _buf : ArrayList(u8).with_capacity(_DEFAULT_BUF_SIZE),
+      _pos : usize(0),
+      _filled : usize(0),
+      _offset : u64(0),
+      _capacity : _DEFAULT_BUF_SIZE
+    )
+  ),
+  // Create a buffered reader with a custom buffer size.
+  with_capacity : (fn(fd : i32, capacity : usize) -> Self)(
+    Self(
+      _fd : fd,
+      _buf : ArrayList(u8).with_capacity(capacity),
+      _pos : usize(0),
+      _filled : usize(0),
+      _offset : u64(0),
+      _capacity : capacity
+    )
+  ),
+  // Return the underlying file descriptor.
+  fd : (fn(self : Self) -> i32)(
+    self._fd
+  ),
+  // Return the number of buffered bytes available to read without I/O.
+  buffered : (fn(self : Self) -> usize)(
+    self._filled - self._pos
+  ),
+  // Read a line from the reader (up to and including '\n').
+  // Returns .None on EOF when no data is available.
+  // Returns .Some(line) with the line content (without the trailing '\n').
+  read_line : (fn(self : Self, io : Io) -> Impl(Future(Result(Option(String), IoError), Io)))({
+    the_fd := self._fd;
+    io.async((io) => {
+      line_bytes := ArrayList(u8).new();
+      found_newline := false;
+      hit_eof := false;
+      (read_err : Option(IoError)) = .None;
+      while(runtime(((!(found_newline)) && (!(hit_eof))) && read_err.is_none()), {
+        cond(
+          (self._pos < self._filled) => {
+            scan := self._pos;
+            while(runtime((scan < self._filled) && (!(found_newline))), {
+              b := self._buf(scan);
+              cond(
+                (b == _NEWLINE) => {
+                  found_newline = true;
+                },
+                true => {
+                  line_bytes.push(b);
+                }
+              );
+              scan = (scan + usize(1));
+            });
+            self._pos = scan;
+          },
+          true => {
+            raw_buf := *(u8)(malloc(self._capacity).unwrap());
+            n := io.await(IO_file.read(the_fd, raw_buf, u32(self._capacity), self._offset), io);
+            cond(
+              (n < i32(0)) => {
+                free(.Some(*(void)(raw_buf)));
+                read_err = .Some(IoError.from_errno(i32(0) - n));
+              },
+              (n == i32(0)) => {
+                free(.Some(*(void)(raw_buf)));
+                hit_eof = true;
+              },
+              true => {
+                self._offset = (self._offset + u64(n));
+                self._buf = ArrayList(u8).with_capacity(self._capacity);
+                i := usize(0);
+                while(runtime(i < usize(n)), {
+                  self._buf.push((raw_buf.add(i)).*);
+                  i = (i + usize(1));
+                });
+                self._pos = usize(0);
+                self._filled = usize(n);
+                free(.Some(*(void)(raw_buf)));
+              }
+            );
+          }
+        );
+      });
+      match(
+        read_err,
+        .Some(e) => .Err(e),
+        .None =>
+          cond(
+            (hit_eof && (line_bytes.len() == usize(0))) => .Ok(.None),
+            true => .Ok(.Some(String.from_bytes(line_bytes)))
+          )
+      )
+    })
+  }),
+  // Read up to `size` bytes into a provided buffer.
+  // Returns the number of bytes actually read.
+  read : (fn(self : Self, buf : *(u8), size : u32, io : Io) -> Impl(Future(Result(i32, IoError), Io)))({
+    the_fd := self._fd;
+    io.async((io) => {
+      available := (self._filled - self._pos);
+      (read_err : Option(IoError)) = .None;
+      (read_n : i32) = i32(0);
+      done := false;
+      // If there's data already buffered, serve from buffer
+      cond(
+        (available > usize(0)) => {
+          to_copy := cond(
+            (available < usize(size)) => available,
+            true => usize(size)
+          );
+          i := usize(0);
+          while(runtime(i < to_copy), {
+            b := self._buf(self._pos + i);
+            (buf.add(i)).* = b;
+            i = (i + usize(1));
+          });
+          self._pos = (self._pos + to_copy);
+          read_n = i32(to_copy);
+          done = true;
+        },
+        true => ()
+      );
+      // Buffer is empty and large read: bypass buffer
+      cond(
+        ((!(done)) && (usize(size) >= self._capacity)) => {
+          n := io.await(IO_file.read(the_fd, buf, size, self._offset), io);
+          cond(
+            (n < i32(0)) => {
+              read_err = .Some(IoError.from_errno(i32(0) - n));
+            },
+            true => {
+              self._offset = (self._offset + u64(n));
+              read_n = n;
+            }
+          );
+          done = true;
+        },
+        true => ()
+      );
+      // Buffer is empty and small read: fill buffer first
+      cond(
+        (!(done)) => {
+          raw_buf := *(u8)(malloc(self._capacity).unwrap());
+          n := io.await(IO_file.read(the_fd, raw_buf, u32(self._capacity), self._offset), io);
+          cond(
+            (n < i32(0)) => {
+              free(.Some(*(void)(raw_buf)));
+              read_err = .Some(IoError.from_errno(i32(0) - n));
+            },
+            (n == i32(0)) => {
+              free(.Some(*(void)(raw_buf)));
+              read_n = i32(0);
+            },
+            true => {
+              self._offset = (self._offset + u64(n));
+              self._buf = ArrayList(u8).with_capacity(self._capacity);
+              i := usize(0);
+              while(runtime(i < usize(n)), {
+                self._buf.push((raw_buf.add(i)).*);
+                i = (i + usize(1));
+              });
+              self._pos = usize(0);
+              self._filled = usize(n);
+              free(.Some(*(void)(raw_buf)));
+              to_copy := cond(
+                (usize(n) < usize(size)) => usize(n),
+                true => usize(size)
+              );
+              j := usize(0);
+              while(runtime(j < to_copy), {
+                b := self._buf(j);
+                (buf.add(j)).* = b;
+                j = (j + usize(1));
+              });
+              self._pos = to_copy;
+              read_n = i32(to_copy);
+            }
+          );
+        },
+        true => ()
+      );
+      match(
+        read_err,
+        .Some(e) => .Err(e),
+        .None => .Ok(read_n)
+      )
+    })
+  }),
+  // Read all remaining data into an ArrayList of bytes.
+  /// Read EXACTLY `n` bytes, looping over short reads.
+  ///
+  /// Neither existing reader fits a length-prefixed protocol: `read` may return
+  /// fewer bytes than asked for (a pipe delivers only what has arrived so far),
+  /// and `read_bytes` stops only at EOF, but such a stream stays open between
+  /// frames. This is the operation a framed protocol needs — LSP's
+  /// `Content-Length: N` header followed by exactly N bytes of body.
+  ///
+  /// Returns `.Ok(.None)` when EOF arrives before `n` bytes are available, so a
+  /// clean shutdown between frames is distinguishable from a truncated one.
+  /// Bytes consumed by a truncated read are discarded with it: the stream is no
+  /// longer frame-aligned, so there is nothing useful to hand back.
+  read_exact : (fn(self : Self, n : usize, io : Io) -> Impl(Future(Result(Option(ArrayList(u8)), IoError), Io)))({
+    the_fd := self._fd;
+    io.async((io) => {
+      result := ArrayList(u8).new();
+      // Drain whatever the buffer already holds before touching the fd.
+      while(runtime((result.len() < n) && (self._pos < self._filled)), {
+        result.push(self._buf(self._pos));
+        self._pos = (self._pos + usize(1));
+      });
+      (read_err : Option(IoError)) = .None;
+      (hit_eof : bool) = false;
+      if(result.len() < n, {
+        raw_buf := *(u8)(malloc(self._capacity).unwrap());
+        while(runtime(result.len() < n), {
+          want := (n - result.len());
+          chunk := if(want < self._capacity, want, self._capacity);
+          rn := io.await(IO_file.read(the_fd, raw_buf, u32(chunk), self._offset), io);
+          cond(
+            (rn < i32(0)) => {
+              read_err = .Some(IoError.from_errno(i32(0) - rn));
+              break;
+            },
+            (rn == i32(0)) => {
+              hit_eof = true;
+              break;
+            },
+            true => {
+              self._offset = (self._offset + u64(rn));
+              j := usize(0);
+              while(runtime(j < usize(rn)), {
+                result.push((raw_buf.add(j)).*);
+                j = (j + usize(1));
+              });
+            }
+          );
+        });
+        free(.Some(*(void)(raw_buf)));
+      });
+      match(
+        read_err,
+        .Some(e) => .Err(e),
+        .None => if(hit_eof, .Ok(.None), .Ok(.Some(result)))
+      )
+    })
+  }),
+  read_bytes : (fn(self : Self, io : Io) -> Impl(Future(Result(ArrayList(u8), IoError), Io)))({
+    the_fd := self._fd;
+    io.async((io) => {
+      result := ArrayList(u8).new();
+      // First drain any buffered data
+      cond(
+        (self._pos < self._filled) => {
+          i := self._pos;
+          while(runtime(i < self._filled), {
+            result.push(self._buf(i));
+            i = (i + usize(1));
+          });
+          self._pos = self._filled;
+        },
+        true => ()
+      );
+      // Then read the rest from fd
+      raw_buf := *(u8)(malloc(self._capacity).unwrap());
+      (read_err : Option(IoError)) = .None;
+      while(runtime(true), {
+        n := io.await(IO_file.read(the_fd, raw_buf, u32(self._capacity), self._offset), io);
+        cond(
+          (n < i32(0)) => {
+            read_err = .Some(IoError.from_errno(i32(0) - n));
+            break;
+          },
+          (n == i32(0)) => break,
+          true => {
+            self._offset = (self._offset + u64(n));
+            j := usize(0);
+            while(runtime(j < usize(n)), {
+              result.push((raw_buf.add(j)).*);
+              j = (j + usize(1));
+            });
+          }
+        );
+      });
+      free(.Some(*(void)(raw_buf)));
+      match(
+        read_err,
+        .Some(e) => .Err(e),
+        .None => .Ok(result)
+      )
+    })
+  }),
+  // Read all remaining data as a String.
+  read_to_string : (fn(self : Self, io : Io) -> Impl(Future(Result(String, IoError), Io)))(
+    io.async((io) => {
+      bytes_result := io.await(self.read_bytes(io), io);
+      match(
+        bytes_result,
+        .Ok(bytes) => .Ok(String.from_bytes(bytes)),
+        .Err(e) => .Err(e)
+      )
+    })
+  )
+);
+export(BufReader);

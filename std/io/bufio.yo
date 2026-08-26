@@ -1,6 +1,6 @@
 //! Buffered wrappers over ANY async `Reader`/`Writer` — the D5 generic
-//! `BufReader(R)` / `BufWriter(W)` (`plans/STD_API_AUDIT.md` §D5), replacing
-//! the fd-only `std/sys/bufio` pair.
+//! `BufReader(R)` / `BufWriter(W)` (`plans/STD_API_AUDIT.md` §D5), the
+//! replacement for the fd-only `std/sys/bufio` pair.
 //!
 //! `BufReader(R)` reduces the number of inner reads by filling an internal
 //! buffer in `capacity`-sized chunks; `BufWriter(W)` batches small writes and
@@ -17,6 +17,12 @@
 //!
 //! `lines()` is deliberately absent: Yo has no async iterator protocol, so
 //! the line primitive is `read_line` (`.None` on clean EOF).
+//!
+//! The fd-based `std/sys/bufio` pair still exists: the compiler's own three
+//! consumers (lsp/server, lsp/transport, check_watch) cannot migrate here
+//! until a SEED ships with #299's shadow-registration fix — `yo build`
+//! compiles src/ with the seed, which mis-emits this module's match
+//! bindings. Scheduled in plans/backlog/SEED_VERSION_AUTOMATION.md.
 pragma(Pragma.AllowUnsafe);
 { Reader, Writer } :: import("./index");
 { IoExn } :: import("../error");

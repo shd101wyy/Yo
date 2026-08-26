@@ -1,5 +1,35 @@
 # A materialized async trait `?=` default resolves its `Impl(Future(...))` return to ONE concrete state machine for ALL implementors
 
+**Status: FIXED 2026-08-27**, in two layers:
+
+1. **Per-impl return cells** (`_freshen_return_only_somes`,
+   `src/evaluator/values/impl.yo`): `substitute` shares unchanged subtrees,
+   so a `?=` default whose return contains no `Self` handed every
+   implementor's materialization the SAME return SomeT as the trait
+   declaration — one global resolution cell, last writer wins. Each
+   materialization (non-generic per-impl fill AND the generic-impl defaults
+   table) now rebuilds RETURN-position SomeTs with fresh ids/cells, leaving
+   alone any SomeT that also occurs in params/foralls/where/implicit
+   positions. The issue's gate — the two-implementor reproducer with ZERO
+   `incompatible pointer` warnings — passes.
+2. **Callee-channel future types at emission**
+   (`awaited_future_c_type_override`, `src/codegen/functions/declarations.yo`,
+   consumed by the sm `await_future_N` field emitter in `exprs/async.yo` and
+   the call-temp declaration in `exprs/other_fn_call.yo`): a call's STAMPED
+   future type can still carry a stale generation — a state machine minted
+   during a def-time TRIAL of the same call and never emitted, which
+   escalated this issue to a hard `incomplete definition of type ..._state_t`
+   C error on D5's generic BufReader (test-arm context). The C truth is the
+   CALLEE's emitted return spelling (the same `_async_override_return_type`
+   its prototype uses); both the temp and the field now prefer that channel,
+   so the static type always names the dynamic object.
+
+The escalation section's SECOND repro (`bufio-large-read-test-arm-abort-stub`)
+turned out to be a DIFFERENT bug entirely — the `=`-assign await no-op,
+issues/fixed/assign-await-to-existing-variable-silently-noops.md.
+
+Original report follows.
+
 **Status: OPEN.** Found 2026-08-26 while reviewing the C16 fix
 (`issues/fixed/trait-default-awaiting-self-async-method-emits-hollow-fn.md`).
 Not a regression from that fix — before it the body did not evaluate at all —

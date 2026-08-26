@@ -72,7 +72,7 @@ open(import("std/string"));
 { Emitter } :: import("../../emitter.yo");
 { generate_atom, _generate_sm_atom } :: import("./atom.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ get_evidence_parameters } :: import("../functions/declarations.yo");
+{ get_evidence_parameters, awaited_future_c_type_override } :: import("../functions/declarations.yo");
 {
   type_key,
   get_type_string,
@@ -776,7 +776,17 @@ emit_async_block_struct_definition :: (
                     .Some(ei) => ei.ty,
                     .None => __yo_panic("Internal error: await expression missing type info for future argument")
                   );
-                  awaited_future_type_c_name := get_type_string(future_type, context.base);
+                  (awaited_future_type_c_name : String) = get_type_string(future_type, context.base);
+                  // Prefer the CALLEE's emitted return spelling — the stamped
+                  // future type can be a stale trial-era machine that is
+                  // never defined (see awaited_future_c_type_override).
+                  match(
+                    awaited_future_c_type_override(future_expr, context.base),
+                    .Some(af_ovr) => {
+                      awaited_future_type_c_name = af_ovr;
+                    },
+                    .None => ()
+                  );
                   if(!(emitted_header), {
                     em.emit_declaration_line("  // Future references for awaits");
                     emitted_header = true;
