@@ -7,50 +7,15 @@ only large piece still in flight).
 
 ---
 
-## 0. THE ONE THING TO DO FIRST
+## 0. THE ONE THING TO DO FIRST — **DONE 2026-08-26**
 
-**Branch `s2/d4-pr3-flip` is finished and reviewed but has NOT had a full
-battery and is NOT merged.** It is the D4 byte-indexing flip — the change the
-audit says cannot be made after stability.
-
-```
-6ca247773 review(D4 PR 3): one live regression the flip introduced, one contract hole, and the measurements re-derived
-7466ca440 plans: strike the D4-indexing rows PR 3 closed in STD_API_AUDIT
-898705c8a tests: base64 decode_string's multibyte payload asserts both bases
-6efc980f0 std: D4 PR 3 — the flip. String is byte-indexed
-```
-
-It is currently **checked out in the main worktree** (`git branch --show-current`
-→ `s2/d4-pr3-flip`), tree clean.
-
-What it already has, self-reported and then independently re-derived by a second
-agent (see §6 for why that second pass matters):
-
-- `yo build` green, `fixpoint_only.sh` → `FIXPOINT_HOLDS` with `stage2 hollow=0`,
-  `gates_fast.sh` → `T1_DONE failures=0`, cli-diff 52 PASS / 0 GOLDEN-DIFF,
-  `check ./std` 154/154, `check ./src` 262/262.
-- What it does **not** have: `hollow_sweep69.sh` (the full-corpus ratchet) and a
-  single end-to-end battery run over the merged result.
-
-**Action:** merge it into an integration branch off `develop`, run the battery in
-§1, and if green open a PR and admin-merge. Do not skip the sweep — it is the
-arm that catches a per-file regression the aggregate suite hides.
-
-Two findings from its review that should go in the PR body, because they are the
-argument for the change rather than footnotes:
-
-- **A live regression the flip introduced, now fixed on the branch.**
-  `src/codegen/exprs/async.yo:366` `_capitalize_last_segment` used
-  `substring(0, 1)` to take the first *character*. Yo identifiers may start with
-  a non-ASCII rune, so post-flip that is a continuation byte and `substring`
-  panics — the compiler would abort at rc=134 while emitting an effect setter.
-- **A contract hole, docs corrected and behaviour deliberately left alone.** The
-  empty needle: `index_of("", 2)` returns `Some(2)` — a continuation byte — and
-  `index_of("", 99)` returns `Some(99)`, past `len()`. Both are pre-D4
-  behaviours, verified at the parent commit. What was new was PR 3's doc comment
-  claiming *every* returned index is a rune boundary, which is false and matters
-  because the same comment invites feeding results straight into `substring`,
-  which now panics. Two tests pin it.
+The D4 byte-indexing flip merged as **PR #290** after the full battery
+(including the hollow sweep), followed the same day by #291 (D4 PRs 4–8),
+#292 (the Rust-shape amendment: iterator-only rune work), #293 (D5 slice 1),
+#294 + #295 (the C24 async-capture/loop-await fixes) and #296 (the audit doc
+condensed to current state — read it fresh, it is no longer 1815 lines).
+The main worktree is back on `develop`. There is no pending unmerged branch;
+the next work item is D5 slice 2 (§3.2).
 
 ---
 
@@ -115,8 +80,8 @@ S0 correctness, S1 (D1–D3 conventions + prelude traits), and **almost all of S
 | D1 error styles, D2 naming, D3 prelude traits | **DONE** |
 | D7 sync/concurrency | **DONE** (#287) |
 | D8 module layout | **DONE** (#283, #286) |
-| **D4 string indexing** | PRs 0–3 merged (#286, #288, #290); PRs 7–8 done 2026-08-26 (comptime basis + docs); PRs 4–6, 9 open |
-| **D5 async io traits** | **UNBLOCKED** (#289) but not started |
+| **D4 string indexing** | PRs 0–8 ALL MERGED (#286, #288, #290, #291, #292 — incl. the Rust-shape amendment); only PR 9 (decoder dedup, vendor-gated) open |
+| **D5 async io traits** | slice 1 MERGED (#293); slice 2 unblocked by #294/#295 except generic wrappers — see §3.2 |
 | D6 TLS | untouched, decided (O2) |
 
 ---
@@ -142,27 +107,17 @@ on.
 
 ### 3.2 D5 — async `Reader`/`Writer` traits — SLICE 1 LANDED 2026-08-26
 
-Slice 1 (traits + stdio + File/TcpStream impls + the usize/IoExn
-unification) landed; slice 2 (read_to_end family, io.copy, generic
-BufReader/BufWriter, the bufio move) is blocked on
-issues/async-loop-awaiting-buffer-taking-method-state-machine-corruption.md
-— fix that compiler bug first. Original section follows.
-
-
-Unblocked by #289 and **not started**. Content is in `plans/STD_API_AUDIT.md`
-§D5: async `Reader`/`Writer` with default methods (`read_to_end`,
-`read_to_string`, `write_all`, `lines()`), implemented by `File`, `TcpStream`,
-`BufReader`, `BufWriter`, `Stdin`/`Stdout`; `BufReader`/`BufWriter` move from
-`std/sys/bufio` to `std/io` and adopt `IoExn`; new `std/io/stdio.yo`.
-
-Carry-over that must land *with* it, not before: `File.read` and the bufio side
-still return `i32`/`Result(i32, IoError)` while net already returns
-`Future(usize, IoExn)`. Three error models, one conversion — the audit says do
-them together.
-
-`std/io/` is currently an **empty namespace** — its two orphaned sync traits were
-deleted in #283 and moved into `tests/io/reader_writer.test.yo`, which was their
-only implementor.
+Slice 1 (traits + stdio + File/TcpStream impls + the usize/IoExn unification)
+merged as #293. The slice-2 blocker
+(issues/async-loop-awaiting-buffer-taking-method-state-machine-corruption.md)
+had its silent facets FIXED in #294 + #295, so **`read_to_end` /
+`read_to_string` / `write_all` as trait defaults or free generics, and
+`io.copy`, are now implementable** (tests/async_loop_buffer_await.test.yo
+proves both loop shapes). Still blocked: generic `BufReader(R)`/`BufWriter(W)`
+— the issue's generic-impl face (OPEN) plus C17 — and therefore the
+`std/sys/bufio` → `std/io` move. Cautions while implementing: C21
+(cross-implementor pointer-type warning) and C22 (no nested closures inside
+`io.async` bodies). Full current state: `plans/STD_API_AUDIT.md` §D5.
 
 ### 3.3 §7 additions — S3 (P0) and S4 (P1)
 
@@ -290,8 +245,8 @@ Re-measure every row before executing it, and correct the row in the same PR.
   `yo check ./src`, `yo build`, or vendor grep — a vendor grep in an
   uninitialised worktree is vacuous, and one agent's load-bearing count was
   taken that way.
-- The main worktree is currently on `s2/d4-pr3-flip`. Switch it back to
-  `develop` once that branch is merged.
+- ~~The main worktree is currently on `s2/d4-pr3-flip`.~~ Merged (#290); the
+  main worktree is back on `develop`.
 - A stale memory note in the operator's private store says
   "`String.len()` = CHARACTER count". **PR 3 makes that false.** It is outside
   the repo; flagging it here because it will otherwise mislead.
