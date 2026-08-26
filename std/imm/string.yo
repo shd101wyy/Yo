@@ -19,16 +19,16 @@ _alloc_bytes :: (fn(n : usize) -> *(u8))(
   match(
     malloc(n),
     .Some(p) => *(u8)(p),
-    .None => __yo_panic("imm.String: allocation failed")
+    .None => __yo_panic("ImmString: allocation failed")
   )
 );
 /// Immutable, thread-safe UTF-8 string.
 ///
 /// Uses atomic RC — cheap to clone, safe to share across threads.
-/// No mutable operations. All "modification" methods return a new String.
+/// No mutable operations. All "modification" methods return a new ImmString.
 ///
 /// Empty strings are zero-allocation (null pointer, zero length).
-String :: atomic(
+ImmString :: atomic(
   ref(
     struct(
       _ptr : ?(*(u8)),
@@ -38,7 +38,7 @@ String :: atomic(
   )
 );
 impl(
-  String,
+  ImmString,
   Dispose(
     dispose : (fn(self : Self) -> unit)({
       match(
@@ -50,7 +50,7 @@ impl(
   )
 );
 impl(
-  String,
+  ImmString,
   /// Create a new empty string (zero allocation).
   new : (fn() -> Self)(
     Self(_ptr : .None, _len : usize(0), _capacity : usize(0))
@@ -278,13 +278,13 @@ impl(
     self.index_of(needle, usize(0)).is_some()
   ),
   /// Split the string by a separator, returning an immutable List of Strings.
-  split : (fn(self : Self, sep : Self) -> imm_list.List(String))({
-    result := imm_list.List(String).new();
+  split : (fn(self : Self, sep : Self) -> imm_list.List(ImmString))({
+    result := imm_list.List(ImmString).new();
     if(sep._len == usize(0), {
       return(result.prepend(self));
     });
     pos := usize(0);
-    segments := imm_list.List(String).new();
+    segments := imm_list.List(ImmString).new();
     while(runtime(true), {
       match(
         self.index_of(sep, pos),
@@ -587,13 +587,13 @@ impl(
 /// (what `len()` counted before D4 PR 4), `char_indices` and `chars` stop at
 /// the first sequence that will not decode. The boundary functions and
 /// `try_substring` are pure byte classification and cannot fail.
-/// Rune iterator for `imm.String` — created by `chars()`.
-StringChars :: struct(
-  _string : String,
+/// Rune iterator for `ImmString` — created by `chars()`.
+ImmStringChars :: struct(
+  _string : ImmString,
   _byte_index : usize
 );
 impl(
-  StringChars,
+  ImmStringChars,
   Iterator(
     Item : rune,
     next : (fn(inout(self) : Self) -> Option(rune))(
@@ -612,14 +612,14 @@ impl(
     )
   )
 );
-/// `(byte_offset, rune)` iterator for `imm.String` — created by
-/// `char_indices()`. Walks in lockstep with `StringChars`.
-StringCharIndices :: struct(
-  _string : String,
+/// `(byte_offset, rune)` iterator for `ImmString` — created by
+/// `char_indices()`. Walks in lockstep with `ImmStringChars`.
+ImmStringCharIndices :: struct(
+  _string : ImmString,
   _byte_index : usize
 );
 impl(
-  StringCharIndices,
+  ImmStringCharIndices,
   Iterator(
     Item : IterPair(usize, rune),
     next : (fn(inout(self) : Self) -> Option(IterPair(usize, rune)))(
@@ -643,14 +643,14 @@ impl(
   )
 );
 impl(
-  String,
+  ImmString,
   /// Iterate the string's runes.
-  chars : (fn(self : Self) -> StringChars)(
-    StringChars(_string : self, _byte_index : usize(0))
+  chars : (fn(self : Self) -> ImmStringChars)(
+    ImmStringChars(_string : self, _byte_index : usize(0))
   ),
   /// Iterate `(byte_offset, rune)` pairs — Rust's `char_indices()`.
-  char_indices : (fn(self : Self) -> StringCharIndices)(
-    StringCharIndices(_string : self, _byte_index : usize(0))
+  char_indices : (fn(self : Self) -> ImmStringCharIndices)(
+    ImmStringCharIndices(_string : self, _byte_index : usize(0))
   ),
   /// Number of Unicode scalar values (runes) in the string — O(n).
   ///
@@ -765,8 +765,8 @@ impl(
 );
 /// Equality by byte content.
 impl(
-  String,
-  Eq(String)(
+  ImmString,
+  Eq(ImmString)(
     (==) : (fn(self : Self, other : Self) -> bool)({
       if(self._len != other._len, {
         return(false);
@@ -796,7 +796,7 @@ impl(
 // TODO: Eq(str) impl — "Variable str not found" inside impl blocks for atomic object types.
 // Provide eq_str method instead.
 impl(
-  String,
+  ImmString,
   /// Compare with a `str` for equality.
   eq_str : (fn(self : Self, other : str) -> bool)({
     other_len := other.len();
@@ -815,8 +815,8 @@ impl(
 );
 /// Lexicographic ordering.
 impl(
-  String,
-  Ord(String)(
+  ImmString,
+  Ord(ImmString)(
     (<) : (fn(self : Self, other : Self) -> bool)({
       min_len := _min(self._len, other._len);
       if(min_len > usize(0), {
@@ -850,7 +850,7 @@ impl(
 );
 /// FNV-1a hash over the string's bytes.
 impl(
-  String,
+  ImmString,
   Hash(
     (hash) : (fn(inout(self) : Self) -> u64)({
       h := u64(14695981039346656037);
@@ -874,7 +874,7 @@ impl(
 );
 /// ToString returns a std.String for compatibility with println/print.
 impl(
-  String,
+  ImmString,
   ToString(
     to_string : (fn(inout(self) : Self) -> std_string.String)({
       bytes := ArrayList(u8).new();
@@ -887,4 +887,4 @@ impl(
     })
   )
 );
-export(String, StringChars, StringCharIndices);
+export(ImmString, ImmStringChars, ImmStringCharIndices);

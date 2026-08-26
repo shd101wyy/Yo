@@ -1,144 +1,144 @@
 { assert } :: import("std/assert");
 open(import("std/fmt"));
-{ String } :: import("std/imm/string");
-test("imm.String new creates empty string", {
-  s := String.new();
+{ ImmString } :: import("std/imm/string");
+test("ImmString new creates empty string", {
+  s := ImmString.new();
   assert(s.is_empty(), "new string should be empty");
   assert(s.len() == usize(0), "new string should have 0 bytes");
   assert(s.char_len() == usize(0), "new string should have 0 runes");
 });
-test("imm.String from str", {
-  s := String.from("hello");
+test("ImmString from str", {
+  s := ImmString.from("hello");
   assert(!(s.is_empty()), "should not be empty");
   assert(s.len() == usize(5), "should have 5 bytes");
-  assert(s == String.from("hello"), "should equal same content");
+  assert(s == ImmString.from("hello"), "should equal same content");
 });
-test("imm.String from empty str", {
-  s := String.from("");
-  assert(s.is_empty(), "empty str should create empty String");
-  assert(s == String.new(), "should equal new()");
+test("ImmString from empty str", {
+  s := ImmString.from("");
+  assert(s.is_empty(), "empty str should create empty ImmString");
+  assert(s == ImmString.new(), "should equal new()");
 });
-test("imm.String as_str round-trip", {
-  s := String.from("world");
+test("ImmString as_str round-trip", {
+  s := ImmString.from("world");
   (view : str) = s.as_str();
   assert(view == "world", "as_str should return original content");
 });
-test("imm.String byte_at", {
-  s := String.from("abc");
+test("ImmString byte_at", {
+  s := ImmString.from("abc");
   assert(s.byte_at(usize(0)).unwrap() == u8(0x61), "byte 0 should be 'a'");
   assert(s.byte_at(usize(1)).unwrap() == u8(0x62), "byte 1 should be 'b'");
   assert(s.byte_at(usize(2)).unwrap() == u8(0x63), "byte 2 should be 'c'");
   assert(s.byte_at(usize(3)).is_none(), "out of bounds should be None");
 });
-test("imm.String concat", {
-  a := String.from("hello");
-  b := String.from(" world");
+test("ImmString concat", {
+  a := ImmString.from("hello");
+  b := ImmString.from(" world");
   // own(self) transfers ownership of first arg
   c := a.concat(b);
-  assert(c == String.from("hello world"), "concat should join strings");
+  assert(c == ImmString.from("hello world"), "concat should join strings");
 });
-test("imm.String concat with empty", {
-  s := String.from("test");
-  empty := String.new();
+test("ImmString concat with empty", {
+  s := ImmString.from("test");
+  empty := ImmString.new();
   r1 := s.concat(empty);
-  assert(r1 == String.from("test"), "concat with empty should preserve");
-  s2 := String.from("test");
-  empty2 := String.new();
+  assert(r1 == ImmString.from("test"), "concat with empty should preserve");
+  s2 := ImmString.from("test");
+  empty2 := ImmString.new();
   r2 := empty2.concat(s2);
-  assert(r2 == String.from("test"), "empty concat should return other");
+  assert(r2 == ImmString.from("test"), "empty concat should return other");
 });
-test("imm.String slice", {
-  s := String.from("hello world");
+test("ImmString slice", {
+  s := ImmString.from("hello world");
   sub := s.slice(usize(0), usize(5));
-  assert(sub == String.from("hello"), "slice 0..5 should be 'hello'");
+  assert(sub == ImmString.from("hello"), "slice 0..5 should be 'hello'");
   sub2 := s.slice(usize(6), usize(11));
-  assert(sub2 == String.from("world"), "slice 6..11 should be 'world'");
+  assert(sub2 == ImmString.from("world"), "slice 6..11 should be 'world'");
   sub3 := s.slice(usize(0), usize(0));
   assert(sub3.is_empty(), "empty slice should be empty");
 });
-test("imm.String slice clamping", {
-  s := String.from("abc");
+test("ImmString slice clamping", {
+  s := ImmString.from("abc");
   clamped := s.slice(usize(1), usize(100));
-  assert(clamped == String.from("bc"), "over-range should clamp to end");
+  assert(clamped == ImmString.from("bc"), "over-range should clamp to end");
 });
-test("imm.String starts_with and ends_with", {
-  s := String.from("hello world");
-  assert(s.starts_with(String.from("hello")), "should start with 'hello'");
-  assert(!(s.starts_with(String.from("world"))), "should not start with 'world'");
-  assert(s.ends_with(String.from("world")), "should end with 'world'");
-  assert(!(s.ends_with(String.from("hello"))), "should not end with 'hello'");
-  assert(s.starts_with(String.new()), "empty prefix always matches");
-  assert(s.ends_with(String.new()), "empty suffix always matches");
+test("ImmString starts_with and ends_with", {
+  s := ImmString.from("hello world");
+  assert(s.starts_with(ImmString.from("hello")), "should start with 'hello'");
+  assert(!(s.starts_with(ImmString.from("world"))), "should not start with 'world'");
+  assert(s.ends_with(ImmString.from("world")), "should end with 'world'");
+  assert(!(s.ends_with(ImmString.from("hello"))), "should not end with 'hello'");
+  assert(s.starts_with(ImmString.new()), "empty prefix always matches");
+  assert(s.ends_with(ImmString.new()), "empty suffix always matches");
 });
-test("imm.String contains and index_of", {
-  s := String.from("abcdef");
-  assert(s.contains(String.from("cde")), "should contain 'cde'");
-  assert(!(s.contains(String.from("xyz"))), "should not contain 'xyz'");
-  assert(s.index_of(String.from("cd"), usize(0)).unwrap() == usize(2), "index_of 'cd' should be 2");
-  assert(s.index_of(String.from("cd"), usize(3)).is_none(), "index_of past match should be None");
+test("ImmString contains and index_of", {
+  s := ImmString.from("abcdef");
+  assert(s.contains(ImmString.from("cde")), "should contain 'cde'");
+  assert(!(s.contains(ImmString.from("xyz"))), "should not contain 'xyz'");
+  assert(s.index_of(ImmString.from("cd"), usize(0)).unwrap() == usize(2), "index_of 'cd' should be 2");
+  assert(s.index_of(ImmString.from("cd"), usize(3)).is_none(), "index_of past match should be None");
 });
-test("imm.String split", {
-  s := String.from("a,b,c");
-  parts := s.split(String.from(","));
+test("ImmString split", {
+  s := ImmString.from("a,b,c");
+  parts := s.split(ImmString.from(","));
   assert(parts.len() == usize(3), "split should produce 3 parts");
   head := parts.head();
   assert(head.is_some(), "split result should have a head");
-  assert(head.unwrap() == String.from("a"), "first part should be 'a'");
+  assert(head.unwrap() == ImmString.from("a"), "first part should be 'a'");
 });
-test("imm.String trim", {
-  s := String.from("  hello  ");
-  assert(s.trim() == String.from("hello"), "trim should remove whitespace");
-  assert(s.trim_start() == String.from("hello  "), "trim_start should remove leading");
-  assert(s.trim_end() == String.from("  hello"), "trim_end should remove trailing");
-  no_ws := String.from("abc");
+test("ImmString trim", {
+  s := ImmString.from("  hello  ");
+  assert(s.trim() == ImmString.from("hello"), "trim should remove whitespace");
+  assert(s.trim_start() == ImmString.from("hello  "), "trim_start should remove leading");
+  assert(s.trim_end() == ImmString.from("  hello"), "trim_end should remove trailing");
+  no_ws := ImmString.from("abc");
   assert(no_ws.trim() == no_ws, "trim no-op should return same");
 });
-test("imm.String to_uppercase and to_lowercase", {
-  s1 := String.from("Hello World");
-  assert(s1.to_uppercase() == String.from("HELLO WORLD"), "uppercase");
-  s2 := String.from("Hello World");
-  assert(s2.to_lowercase() == String.from("hello world"), "lowercase");
+test("ImmString to_uppercase and to_lowercase", {
+  s1 := ImmString.from("Hello World");
+  assert(s1.to_uppercase() == ImmString.from("HELLO WORLD"), "uppercase");
+  s2 := ImmString.from("Hello World");
+  assert(s2.to_lowercase() == ImmString.from("hello world"), "lowercase");
 });
-test("imm.String replace", {
-  s := String.from("foo bar foo");
-  r := s.replace(String.from("foo"), String.from("baz"));
-  assert(r == String.from("baz bar foo"), "replace first occurrence");
-  ra := s.replace_all(String.from("foo"), String.from("baz"));
-  assert(ra == String.from("baz bar baz"), "replace all occurrences");
+test("ImmString replace", {
+  s := ImmString.from("foo bar foo");
+  r := s.replace(ImmString.from("foo"), ImmString.from("baz"));
+  assert(r == ImmString.from("baz bar foo"), "replace first occurrence");
+  ra := s.replace_all(ImmString.from("foo"), ImmString.from("baz"));
+  assert(ra == ImmString.from("baz bar baz"), "replace all occurrences");
 });
-test("imm.String repeat", {
-  s := String.from("ab");
-  assert(s.repeat(usize(3)) == String.from("ababab"), "repeat 3 times");
-  assert(s.repeat(usize(0)) == String.new(), "repeat 0 times");
+test("ImmString repeat", {
+  s := ImmString.from("ab");
+  assert(s.repeat(usize(3)) == ImmString.from("ababab"), "repeat 3 times");
+  assert(s.repeat(usize(0)) == ImmString.new(), "repeat 0 times");
   assert(s.repeat(usize(1)) == s, "repeat 1 time");
 });
-test("imm.String equality and ordering", {
-  a := String.from("abc");
-  b := String.from("abc");
-  c := String.from("abd");
+test("ImmString equality and ordering", {
+  a := ImmString.from("abc");
+  b := ImmString.from("abc");
+  c := ImmString.from("abd");
   assert(a == b, "equal strings");
   assert(a != c, "unequal strings");
   assert(a < c, "abc < abd");
   assert(c > a, "abd > abc");
 });
-test("imm.String equality with str", {
-  s := String.from("hello");
+test("ImmString equality with str", {
+  s := ImmString.from("hello");
   assert(s.eq_str("hello"), "should equal str literal");
   assert(!(s.eq_str("world")), "should not equal different str");
 });
-test("imm.String len is bytes, char_len is runes", {
-  ascii := String.from("hello");
+test("ImmString len is bytes, char_len is runes", {
+  ascii := ImmString.from("hello");
   assert(ascii.len() == usize(5), "ASCII: byte count and rune count coincide");
   assert(ascii.char_len() == usize(5), "ASCII: 5 runes too");
   // Each Chinese char is 3 UTF-8 bytes
-  cjk := String.from("你好");
+  cjk := ImmString.from("你好");
   assert(cjk.len() == usize(6), "CJK is 6 BYTES — len() flipped in D4 PR 4 (pre-flip: 2)");
   assert(cjk.char_len() == usize(2), "CJK is 2 runes");
 });
-test("imm.String at decodes the rune starting at a BYTE offset", {
+test("ImmString at decodes the rune starting at a BYTE offset", {
   //   rune   a      é         中           𝄞
   //   offset 0      1  2      3  4  5      6  7  8  9      10 bytes
-  s := String.from("aé中𝄞");
+  s := ImmString.from("aé中𝄞");
   match(
     s.at(usize(0)),
     .Some(r) => assert(r.char == u32(0x61), "at(0) is 'a'"),
@@ -165,58 +165,58 @@ test("imm.String at decodes the rune starting at a BYTE offset", {
   );
   assert(s.at(usize(9)).is_none(), "at(9) is inside '𝄞'");
   assert(s.at(usize(10)).is_none(), "at(10) is past the end");
-  assert(String.new().at(usize(0)).is_none(), "empty string has no rune at 0");
+  assert(ImmString.new().at(usize(0)).is_none(), "empty string has no rune at 0");
 });
-test("imm.String Send check", {
-  comptime_assert(Type.impls(String, Send), "imm.String should implement Send");
+test("ImmString Send check", {
+  comptime_assert(Type.impls(ImmString, Send), "ImmString should implement Send");
 });
-test("imm.String toString", {
-  s := String.from("hello");
+test("ImmString toString", {
+  s := ImmString.from("hello");
   println(s);
 });
-test("imm.String hash consistency", {
-  a := String.from("test");
-  b := String.from("test");
+test("ImmString hash consistency", {
+  a := ImmString.from("test");
+  b := ImmString.from("test");
   assert(a.hash() == b.hash(), "equal strings should have equal hashes");
-  c := String.from("other");
+  c := ImmString.from("other");
   // Hash collision is theoretically possible but extremely unlikely for these inputs
   assert(a.hash() != c.hash(), "different strings should likely have different hashes");
 });
-test("imm.String COW concat unique", {
+test("ImmString COW concat unique", {
   // When rc==1, concat should reuse buffer in-place
-  s := String.from("hello");
-  s = s.concat(String.from(" world"));
-  assert(s == String.from("hello world"), "COW concat unique");
+  s := ImmString.from("hello");
+  s = s.concat(ImmString.from(" world"));
+  assert(s == ImmString.from("hello world"), "COW concat unique");
 });
-test("imm.String COW concat shared", {
+test("ImmString COW concat shared", {
   // When shared, concat must allocate a new buffer
-  a := String.from("hello");
+  a := ImmString.from("hello");
   b := a;
-  c := a.concat(String.from(" world"));
-  assert(c == String.from("hello world"), "COW concat shared result");
-  assert(b == String.from("hello"), "shared copy unchanged");
+  c := a.concat(ImmString.from(" world"));
+  assert(c == ImmString.from("hello world"), "COW concat shared result");
+  assert(b == ImmString.from("hello"), "shared copy unchanged");
 });
-test("imm.String COW to_lowercase unique", {
-  s := String.from("HELLO");
+test("ImmString COW to_lowercase unique", {
+  s := ImmString.from("HELLO");
   s = s.to_lowercase();
-  assert(s == String.from("hello"), "COW lowercase unique");
+  assert(s == ImmString.from("hello"), "COW lowercase unique");
 });
-test("imm.String COW to_uppercase unique", {
-  s := String.from("hello");
+test("ImmString COW to_uppercase unique", {
+  s := ImmString.from("hello");
   s = s.to_uppercase();
-  assert(s == String.from("HELLO"), "COW uppercase unique");
+  assert(s == ImmString.from("HELLO"), "COW uppercase unique");
 });
-test("imm.String COW concat chain", {
-  s := String.from("a");
-  s = s.concat(String.from("b"));
-  s = s.concat(String.from("c"));
-  s = s.concat(String.from("d"));
-  assert(s == String.from("abcd"), "chained COW concat");
+test("ImmString COW concat chain", {
+  s := ImmString.from("a");
+  s = s.concat(ImmString.from("b"));
+  s = s.concat(ImmString.from("c"));
+  s = s.concat(ImmString.from("d"));
+  assert(s == ImmString.from("abcd"), "chained COW concat");
 });
 // ===========================================================================
 // D4 PR 1 — the rune-aware vocabulary (plans/STD_API_AUDIT_D4_PLAN.md §4).
 //
-// `imm.String` already indexed in BYTES everywhere it indexed at all
+// `ImmString` already indexed in BYTES everywhere it indexed at all
 // (`slice`, `index_of`, `byte_at`); PR 4 flipped the two rune-based outliers
 // (`len()` and `at()`), so the type now speaks one basis. The rune vocabulary
 // below is what rune-meaning call sites migrate onto; every assertion is
@@ -227,8 +227,8 @@ test("imm.String COW concat chain", {
 //   bytes  61     C3 A9     E4 B8 AD     F0 9D 84 9E
 //   offset 0      1  2      3  4  5      6  7  8  9
 // ===========================================================================
-test("imm.String char_len counts runes across all four UTF-8 widths", {
-  s := String.from("aé中𝄞");
+test("ImmString char_len counts runes across all four UTF-8 widths", {
+  s := ImmString.from("aé中𝄞");
   assert(s.len() == usize(10), "subject must be 10 bytes");
   assert(s.char_len() == usize(4), "subject must be 4 runes");
   // The PR 4 golden, stated as two halves so it discriminates both ways:
@@ -239,10 +239,10 @@ test("imm.String char_len counts runes across all four UTF-8 widths", {
   assert(s.byte_at(usize(1)).unwrap() == u8(0xC3), "byte 1 leads 'é'");
   assert(s.byte_at(usize(3)).unwrap() == u8(0xE4), "byte 3 leads '中'");
   assert(s.byte_at(usize(6)).unwrap() == u8(0xF0), "byte 6 leads '𝄞'");
-  assert(String.new().char_len() == usize(0), "empty is 0 runes");
+  assert(ImmString.new().char_len() == usize(0), "empty is 0 runes");
 });
-test("imm.String is_char_boundary marks every byte of a 4-byte sequence", {
-  s := String.from("aé中𝄞");
+test("ImmString is_char_boundary marks every byte of a 4-byte sequence", {
+  s := ImmString.from("aé中𝄞");
   assert(s.is_char_boundary(usize(0)), "0 starts 'a'");
   assert(s.is_char_boundary(usize(1)), "1 starts 'é'");
   assert(!(s.is_char_boundary(usize(2))), "2 is inside 'é'");
@@ -255,12 +255,12 @@ test("imm.String is_char_boundary marks every byte of a 4-byte sequence", {
   assert(!(s.is_char_boundary(usize(9))), "9 is inside '𝄞'");
   assert(s.is_char_boundary(usize(10)), "10 is the end, a boundary");
   assert(!(s.is_char_boundary(usize(11))), "11 is past the end");
-  e := String.new();
+  e := ImmString.new();
   assert(e.is_char_boundary(usize(0)), "0 is a boundary of the empty string");
   assert(!(e.is_char_boundary(usize(1))), "1 is past the empty string");
 });
-test("imm.String floor/ceil char boundary snap onto rune starts", {
-  s := String.from("aé中𝄞");
+test("ImmString floor/ceil char boundary snap onto rune starts", {
+  s := ImmString.from("aé中𝄞");
   assert(s.floor_char_boundary(usize(2)) == usize(1), "2 floors into 'é'");
   assert(s.floor_char_boundary(usize(5)) == usize(3), "5 floors into '中'");
   assert(s.floor_char_boundary(usize(9)) == usize(6), "9 floors into '𝄞'");
@@ -277,11 +277,11 @@ test("imm.String floor/ceil char boundary snap onto rune starts", {
     assert((s.floor_char_boundary(i) == i) == on, "floor fixes exactly the boundaries");
     assert((s.ceil_char_boundary(i) == i) == on, "ceil fixes exactly the boundaries");
   });
-  assert(String.new().floor_char_boundary(usize(7)) == usize(0), "empty floors to 0");
-  assert(String.new().ceil_char_boundary(usize(7)) == usize(0), "empty ceils to 0");
+  assert(ImmString.new().floor_char_boundary(usize(7)) == usize(0), "empty floors to 0");
+  assert(ImmString.new().ceil_char_boundary(usize(7)) == usize(0), "empty ceils to 0");
 });
-test("imm.String chars and char_indices walk the same runes", {
-  s := String.from("aé中𝄞");
+test("ImmString chars and char_indices walk the same runes", {
+  s := ImmString.from("aé中𝄞");
   ci := s.char_indices();
   ch := s.chars();
   expected_offset := usize(0);
@@ -312,8 +312,8 @@ test("imm.String chars and char_indices walk the same runes", {
   assert(seen == usize(4), "four runes");
   assert(expected_offset == usize(10), "every byte consumed");
 });
-test("imm.String char_indices yields BYTE offsets, not character offsets", {
-  s := String.from("aé中𝄞");
+test("ImmString char_indices yields BYTE offsets, not character offsets", {
+  s := ImmString.from("aé中𝄞");
   it := s.char_indices();
   match(
     it.next(),
@@ -348,16 +348,16 @@ test("imm.String char_indices yields BYTE offsets, not character offsets", {
     .None => assert(false, "expected '𝄞'")
   );
   match(it.next(), .Some(_) => assert(false, "expected exhaustion"), .None => ());
-  match(String.new().char_indices().next(), .Some(_) => assert(false, "empty yields nothing"), .None => ());
+  match(ImmString.new().char_indices().next(), .Some(_) => assert(false, "empty yields nothing"), .None => ());
 });
-test("imm.String try_substring slices on boundaries and refuses interior offsets", {
-  s := String.from("aé中𝄞");
-  assert(s.try_substring(usize(0), usize(1)).unwrap() == String.from("a"), "[0,1)");
-  assert(s.try_substring(usize(1), usize(3)).unwrap() == String.from("é"), "[1,3)");
-  assert(s.try_substring(usize(3), usize(6)).unwrap() == String.from("中"), "[3,6)");
-  assert(s.try_substring(usize(6), usize(10)).unwrap() == String.from("𝄞"), "[6,10)");
+test("ImmString try_substring slices on boundaries and refuses interior offsets", {
+  s := ImmString.from("aé中𝄞");
+  assert(s.try_substring(usize(0), usize(1)).unwrap() == ImmString.from("a"), "[0,1)");
+  assert(s.try_substring(usize(1), usize(3)).unwrap() == ImmString.from("é"), "[1,3)");
+  assert(s.try_substring(usize(3), usize(6)).unwrap() == ImmString.from("中"), "[3,6)");
+  assert(s.try_substring(usize(6), usize(10)).unwrap() == ImmString.from("𝄞"), "[6,10)");
   assert(s.try_substring(usize(0), usize(10)).unwrap() == s, "the whole string");
-  assert(s.try_substring(usize(3), usize(3)).unwrap() == String.new(), "empty range");
+  assert(s.try_substring(usize(3), usize(3)).unwrap() == ImmString.new(), "empty range");
   // Every interior byte of the 4-byte rune, both as start and as end.
   assert(s.try_substring(usize(6), usize(7)).is_none(), "end 7 splits '𝄞'");
   assert(s.try_substring(usize(6), usize(8)).is_none(), "end 8 splits '𝄞'");
@@ -383,82 +383,82 @@ test("imm.String try_substring slices on boundaries and refuses interior offsets
 //   bytes  61     C3 A9     E4 B8 AD     F0 9D 84 9E
 //   offset 0      1  2      3  4  5      6  7  8  9
 // ===========================================================================
-test("imm.String len counts BYTES across all four UTF-8 widths", {
-  assert(String.from("aé中𝄞").len() == usize(10), "10 bytes (pre-PR-4 len(): 4 runes)");
-  assert(String.from("é").len() == usize(2), "'é' is 2 bytes, 1 rune");
-  assert(String.from("中").len() == usize(3), "'中' is 3 bytes, 1 rune");
-  assert(String.from("𝄞").len() == usize(4), "'𝄞' is 4 bytes, 1 rune");
-  assert(String.from("你好").char_len() == usize(2), "char_len stays the rune count");
+test("ImmString len counts BYTES across all four UTF-8 widths", {
+  assert(ImmString.from("aé中𝄞").len() == usize(10), "10 bytes (pre-PR-4 len(): 4 runes)");
+  assert(ImmString.from("é").len() == usize(2), "'é' is 2 bytes, 1 rune");
+  assert(ImmString.from("中").len() == usize(3), "'中' is 3 bytes, 1 rune");
+  assert(ImmString.from("𝄞").len() == usize(4), "'𝄞' is 4 bytes, 1 rune");
+  assert(ImmString.from("你好").char_len() == usize(2), "char_len stays the rune count");
 });
-test("imm.String len is O(1) field access and agrees with the std String byte count", {
+test("ImmString len is O(1) field access and agrees with the std ImmString byte count", {
   subject := `aé中𝄞`;
-  s := String.from_string(subject);
-  assert(s.len() == subject.len(), "imm and std String agree on the byte count");
+  s := ImmString.from_string(subject);
+  assert(s.len() == subject.len(), "imm and std ImmString agree on the byte count");
   assert(s.len() == usize(10), "and it is 10");
   assert(s.char_len() == subject.char_len(), "and on the rune count");
 });
-test("imm.String index_of returns BYTE offsets on multibyte haystacks", {
-  s := String.from("aé中𝄞");
-  assert(s.index_of(String.from("中"), usize(0)).unwrap() == usize(3), "'中' starts at BYTE 3 (rune index would say 2)");
-  assert(s.index_of(String.from("𝄞"), usize(0)).unwrap() == usize(6), "'𝄞' starts at BYTE 6 (rune index would say 3)");
-  assert(s.index_of(String.from("é"), usize(0)).unwrap() == usize(1), "'é' starts at byte 1");
-  assert(s.index_of(String.from("é中"), usize(0)).unwrap() == usize(1), "a multibyte needle matches at its lead byte");
-  assert(s.index_of(String.from("x"), usize(0)).is_none(), "absent needle");
+test("ImmString index_of returns BYTE offsets on multibyte haystacks", {
+  s := ImmString.from("aé中𝄞");
+  assert(s.index_of(ImmString.from("中"), usize(0)).unwrap() == usize(3), "'中' starts at BYTE 3 (rune index would say 2)");
+  assert(s.index_of(ImmString.from("𝄞"), usize(0)).unwrap() == usize(6), "'𝄞' starts at BYTE 6 (rune index would say 3)");
+  assert(s.index_of(ImmString.from("é"), usize(0)).unwrap() == usize(1), "'é' starts at byte 1");
+  assert(s.index_of(ImmString.from("é中"), usize(0)).unwrap() == usize(1), "a multibyte needle matches at its lead byte");
+  assert(s.index_of(ImmString.from("x"), usize(0)).is_none(), "absent needle");
 });
-test("imm.String index_of from_index is a BYTE offset", {
+test("ImmString index_of from_index is a BYTE offset", {
   // 6 runes, 3 bytes each, 18 bytes total:
   //   你@0  好@3  你@6  你@9  好@12  你@15
-  s := String.from("你好你你好你");
-  assert(s.index_of(String.from("你"), usize(0)).unwrap() == usize(0), "first hit at byte 0");
-  assert(s.index_of(String.from("你"), usize(1)).unwrap() == usize(6), "from byte 1 skips the rune at 0 (a rune-based from_index of 1 would find byte 3's 好 neighbour instead)");
-  assert(s.index_of(String.from("好"), usize(4)).unwrap() == usize(12), "from byte 4 (inside 好@3) finds the next 好 at byte 12");
-  assert(s.index_of(String.from("你"), usize(16)).is_none(), "from byte 16 there is no room left for a 3-byte needle");
+  s := ImmString.from("你好你你好你");
+  assert(s.index_of(ImmString.from("你"), usize(0)).unwrap() == usize(0), "first hit at byte 0");
+  assert(s.index_of(ImmString.from("你"), usize(1)).unwrap() == usize(6), "from byte 1 skips the rune at 0 (a rune-based from_index of 1 would find byte 3's 好 neighbour instead)");
+  assert(s.index_of(ImmString.from("好"), usize(4)).unwrap() == usize(12), "from byte 4 (inside 好@3) finds the next 好 at byte 12");
+  assert(s.index_of(ImmString.from("你"), usize(16)).is_none(), "from byte 16 there is no room left for a 3-byte needle");
   // The empty needle matches everywhere, VERBATIM — the same §1.4 contract
   // hole `std/string` documents: the answer can be a continuation byte.
-  assert(s.index_of(String.new(), usize(4)).unwrap() == usize(4), "empty needle answers from_index verbatim, even mid-rune");
+  assert(s.index_of(ImmString.new(), usize(4)).unwrap() == usize(4), "empty needle answers from_index verbatim, even mid-rune");
 });
-test("imm.String slice takes BYTE offsets on multibyte content", {
-  s := String.from("aé中𝄞");
-  assert(s.slice(usize(1), usize(3)) == String.from("é"), "[1,3) is 'é'");
-  assert(s.slice(usize(3), usize(6)) == String.from("中"), "[3,6) is '中' (a rune-based slice(3,6) would have been '𝄞' alone)");
-  assert(s.slice(usize(6), usize(10)) == String.from("𝄞"), "[6,10) is '𝄞'");
+test("ImmString slice takes BYTE offsets on multibyte content", {
+  s := ImmString.from("aé中𝄞");
+  assert(s.slice(usize(1), usize(3)) == ImmString.from("é"), "[1,3) is 'é'");
+  assert(s.slice(usize(3), usize(6)) == ImmString.from("中"), "[3,6) is '中' (a rune-based slice(3,6) would have been '𝄞' alone)");
+  assert(s.slice(usize(6), usize(10)) == ImmString.from("𝄞"), "[6,10) is '𝄞'");
   assert(s.slice(usize(0), usize(10)) == s, "the whole string");
   assert(s.slice(usize(3), usize(10)).char_len() == usize(2), "'中𝄞' is 2 runes");
 });
-test("imm.String slice + index_of compose in one basis", {
-  s := String.from("aé中𝄞");
-  idx := s.index_of(String.from("中"), usize(0)).unwrap();
-  needle_len := String.from("中").len();
-  assert(s.slice(idx, idx + needle_len) == String.from("中"), "an index_of result feeds slice directly");
+test("ImmString slice + index_of compose in one basis", {
+  s := ImmString.from("aé中𝄞");
+  idx := s.index_of(ImmString.from("中"), usize(0)).unwrap();
+  needle_len := ImmString.from("中").len();
+  assert(s.slice(idx, idx + needle_len) == ImmString.from("中"), "an index_of result feeds slice directly");
   assert(s.is_char_boundary(idx), "a non-empty search hit is a rune boundary");
 });
-test("imm.String byte_at is unchanged by the flip", {
-  s := String.from("aé中𝄞");
+test("ImmString byte_at is unchanged by the flip", {
+  s := ImmString.from("aé中𝄞");
   assert(s.byte_at(usize(1)).unwrap() == u8(0xC3), "byte 1 leads 'é'");
   assert(s.byte_at(usize(9)).unwrap() == u8(0x9E), "byte 9 ends '𝄞'");
   assert(s.byte_at(usize(10)).is_none(), "byte 10 is past the end");
 });
-test("imm.String starts_with/ends_with on multibyte content", {
-  s := String.from("aé中𝄞");
-  assert(s.starts_with(String.from("aé")), "multibyte prefix");
-  assert(!(s.starts_with(String.from("é"))), "'é' is not the prefix");
-  assert(s.ends_with(String.from("中𝄞")), "multibyte suffix");
-  assert(!(s.ends_with(String.from("中"))), "'中' is not the suffix");
+test("ImmString starts_with/ends_with on multibyte content", {
+  s := ImmString.from("aé中𝄞");
+  assert(s.starts_with(ImmString.from("aé")), "multibyte prefix");
+  assert(!(s.starts_with(ImmString.from("é"))), "'é' is not the prefix");
+  assert(s.ends_with(ImmString.from("中𝄞")), "multibyte suffix");
+  assert(!(s.ends_with(ImmString.from("中"))), "'中' is not the suffix");
 });
-test("imm.String split on a multibyte separator yields byte-correct parts", {
+test("ImmString split on a multibyte separator yields byte-correct parts", {
   //  a  ，  é  ，  中        ， is U+FF0C, 3 bytes
-  s := String.from("a，é，中");
-  parts := s.split(String.from("，"));
+  s := ImmString.from("a，é，中");
+  parts := s.split(ImmString.from("，"));
   assert(parts.len() == usize(3), "three parts");
-  assert(parts.head().unwrap() == String.from("a"), "first part");
-  assert(parts.tail().head().unwrap() == String.from("é"), "second part");
-  assert(parts.tail().tail().head().unwrap() == String.from("中"), "third part");
+  assert(parts.head().unwrap() == ImmString.from("a"), "first part");
+  assert(parts.tail().head().unwrap() == ImmString.from("é"), "second part");
+  assert(parts.tail().tail().head().unwrap() == ImmString.from("中"), "third part");
   assert(parts.tail().head().unwrap().len() == usize(2), "'é' survives as its 2 bytes");
 });
-test("imm.String replace with multibyte search and replacement", {
-  s := String.from("aé中𝄞");
-  r := s.replace(String.from("中"), String.from("你好"));
-  assert(r == String.from("aé你好𝄞"), "replaced at the right BYTE offset");
+test("ImmString replace with multibyte search and replacement", {
+  s := ImmString.from("aé中𝄞");
+  r := s.replace(ImmString.from("中"), ImmString.from("你好"));
+  assert(r == ImmString.from("aé你好𝄞"), "replaced at the right BYTE offset");
   assert(r.len() == usize(13), "1 + 2 + 6 + 4 bytes");
   assert(r.char_len() == usize(5), "5 runes after the swap");
 });

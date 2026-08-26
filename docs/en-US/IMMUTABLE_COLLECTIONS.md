@@ -21,7 +21,7 @@ per-module API surface, prefer the generated `yo doc` output (locally or from CI
 | Module               | Type              | Best for                                                  | Backing structure            |
 | -------------------- | ----------------- | --------------------------------------------------------- | ---------------------------- |
 | `std/imm/list`       | `List(T)`         | Cheap prepend, stack-like workloads, recursive algorithms | Cons list                    |
-| `std/imm/string`     | `String`          | Shared immutable UTF-8 text                               | Immutable byte buffer        |
+| `std/imm/string`     | `ImmString`       | Shared immutable UTF-8 text                               | Immutable byte buffer        |
 | `std/imm/vec`        | `Vec(T)`          | Indexed reads and append-heavy immutable workflows        | Flat-array copy-on-write     |
 | `std/imm/map`        | `Map(K, V)`       | Fast hash-based lookup                                    | HAMT                         |
 | `std/imm/set`        | `Set(T)`          | Hash-based membership tests                               | `Map(T, bool)` wrapper       |
@@ -54,7 +54,7 @@ s = s.insert(i32(5)).insert(i32(1)).insert(i32(3));
 - Choose **`Vec(T)`** when you want immutable indexed reads or slice-like workflows.
 - Choose **`Map(K, V)`** / **`Set(T)`** for hash-based lookup and membership.
 - Choose **`SortedMap(K, V)`** / **`SortedSet(T)`** when ordering is part of the API.
-- Choose **`imm.String`** when you need a shareable immutable string; keep using `std/string.String` for mutable string-building APIs.
+- Choose **`ImmString`** when you need a shareable immutable string; keep using `std/string.String` for mutable string-building APIs.
 
 ## API reference
 
@@ -106,7 +106,7 @@ and manually declared otherwise.
 
 ## Copy-on-write (COW) optimization
 
-`Vec(T)` and `imm.String` use **copy-on-write** semantics via `own(self)`
+`Vec(T)` and `ImmString` use **copy-on-write** semantics via `own(self)`
 parameters on mutation methods (`push`, `set`, `pop`, `concat`, `reverse`,
 `dedup`, `to_lowercase`, `to_uppercase`).
 
@@ -152,7 +152,7 @@ so in-place mutation is safe (no TOCTOU race).
 | Collection   | COW support | Notes                                    |
 | ------------ | ----------- | ---------------------------------------- |
 | `Vec(T)`     | ✓           | `push`, `set`, `pop`, `concat`, etc.     |
-| `imm.String` | ✓           | `concat`, `to_lowercase`, `to_uppercase` |
+| `ImmString` | ✓           | `concat`, `to_lowercase`, `to_uppercase` |
 | `Map(K, V)`  | —           | Structural sharing via HAMT              |
 | `SortedMap`  | —           | Structural sharing via LLRB tree         |
 | `List(T)`    | —           | `prepend` is already O(1)                |
