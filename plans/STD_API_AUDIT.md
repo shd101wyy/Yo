@@ -64,7 +64,7 @@ records; mechanisms and reproducers are in the named `issues/fixed/` docs.
 | C4 | `DateTime.to_string` always emitted `Z`, ignoring `utc_offset_secs` | **FIXED** PR #229 |
 | C5 | `crypto.random_range` modulo-biased; `random_f64` closed `[0,1]` | **FIXED** PR #229 |
 | C6 | float bitwise / unsigned `Negate` prelude impls (the bool-arithmetic half of the row was stale — no such impls existed) | **FIXED** 2026-08-23 |
-| C7 | reclassified → **O7** (imm atomic-RC cycle leak): require `Acyclic` on imm element types. DECIDED; the breaking bound is still to land with imm work | decided, enforcement OPEN |
+| C7 | reclassified → **O7** (imm atomic-RC cycle leak): require `Acyclic` on imm element types. **LANDED 2026-08-27** (see O7 — enforcement verified both ways; sync-container residual recorded there) | **FIXED** |
 | C8 | `Channel.send` dropped the value on failure | **FIXED** 2026-08-23 |
 | C9 | `WalkOptions.follow_symlinks` declared, never read | **FIXED** PR #229 |
 | C10 | `clock_gettime` return code discarded (failing clock yields epoch) | **FIXED** 2026-08-23 (failure unreachable in test) |
@@ -436,7 +436,7 @@ Open D7 items:
 | fmt | FIX + EXTEND | `display.yo` deleted (§6); format specs DONE (D3.10); still: collapse 4 print bodies; dedupe 15 snprintf helpers |
 | spec/ | FREEZE AS DOC | identity stubs; mark experimental, exclude from stability promise |
 | collections/* | RENAME + EXTEND | §5 renames DONE; still: entry API, `retain/extend/drain`, `binary_search`, real `sort` (not O(n²) insertion), `sort_by`; HashSet = HashMap(T, unit) to kill ~500 duplicated SwissTable lines; hide pub `ctrl/data/…` fields; `BTreeMap` → real B-tree with `range()` (recommend: real B-tree, keep name); add `BTreeSet`; `PriorityQueue`: comparator ctor, DOCUMENT min-heap |
-| imm/* | KEEP (O4) + FIX | stays in std; **require `Acyclic` element bounds per O7 (still to land)**; iteration + `Index` where doc'd; `ImmString` rename DONE (D4 PR 5); dedupe set pair; mark unstable until exercised |
+| imm/* | KEEP (O4) + FIX | stays in std; `Acyclic` element bounds LANDED (O7, 2026-08-27); still: iteration + `Index` where doc'd, dedupe set pair, mark unstable until exercised |
 | string | FIX + EXTEND | D4 byte-indexing DONE (both types); still: Unicode-correct `to_lowercase` (+ `to_ascii_*`; see the locale issue), `Pattern` impl for `rune` + `Regex`, `replace*` Pattern-generic, `parse_f64`/radix, `split_once`, `strip_prefix/suffix`, move `panic_dyn`/`assert_dyn` to assert, delete one of `to_cstr`/`to_c_str`; `StringError` is live now (from_utf8) |
 | encoding | STANDARDIZE | utf8 DONE; still: one error style per D1 (base64's `Result(_, String)`), `html_encode` (XSS!), percent-encoding module (P0), base32, CSV (P1), toml floats/arrays/dates/serializer + derives (P1) |
 | json | EXTEND | enum representation DECIDED externally-tagged (O3); `JsonValue.Object` O(n) parallel arrays → keep repr, add index map if profiling demands |
@@ -625,16 +625,29 @@ mmap/file-lock/statfs wrappers; `gc.stats`; DNS SRV/TXT/reverse
   already proves out), not a type parameter.
 - **O7**: **require `Acyclic` on imm element types, like `Arc`.** Atomic RC is
   only sound for acyclic data; `atomic(...)` of a non-`Acyclic` type is a BUG.
-  Breaking bound **still to land**; additionally audit that no other std
-  surface hands out atomic RC over non-`Acyclic` payloads.
+  **LANDED 2026-08-27**: every element/key/value bound across the imm family
+  (`List`/`Vec`/`Set`/`Map`/`SortedSet`/`SortedMap`, ~80 where-sites) now
+  requires `Acyclic` alongside `Send`; the public wrappers and `ImmString`
+  carry `Acyclic` impls so containers nest; module docs state the contract
+  instead of warning about the leak. Enforcement verified BOTH ways:
+  structurally-acyclic types derive the trait automatically (zero existing
+  consumers broke — all 212 imm tests pass unchanged), and a
+  SELF-REFERENTIAL element fails instantiation with "does not implement
+  required trait Acyclic" (pinned by a `comptime_expect_error` test in
+  `tests/imm_vec.test.yo`). **Audit residual, needs a decision:** the
+  `std/sync` atomic containers (`Channel(T)`/`Mutex(T)`/`RwLock(T)`/
+  `OnceCell(T)`) are still `Send`-only — the same hazard class (a cyclic
+  ATOMIC payload, e.g. `atomic(ref(struct(next : Option(Self))))`, leaks
+  through them). Requiring `Acyclic` there is a further breaking change to
+  decide separately.
 
 ## 9. Phasing
 
 1. **S0 — correctness:** §2 — **DONE** (open compiler rows tracked in §2).
 2. **S1 — conventions ADR + prelude traits (D1–D3):** **DONE** (D3.9 blocked).
 3. **S2 — the breaking sweep (§5 + §6 + D4/D5/D7/D8):** **essentially DONE** —
-   remaining: D4 PR 9, D5's generic wrappers + bufio move, D8
-   env-merge/EncodingError/glob rows, O7 bound.
+   remaining: D4 PR 9, the seed-gated bufio consumer migration, D8
+   env-merge/EncodingError/glob rows.
 4. **S3 — P0 additions.** ← next after D5 slice 2
 5. **S4 — P1 additions.**
 6. **S5 — stability freeze:** stable/unstable markers in `yo doc` output,

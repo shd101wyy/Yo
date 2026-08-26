@@ -364,3 +364,12 @@ test("Vec of ImmString with struct element", {
   assert(v.len() == usize(2), "length");
   assert(v(usize(0)).text == ImmString.from("item1"), "text 0");
 });
+test("O7: a cyclic element type is rejected — atomic RC cannot collect cycles", {
+  // Structurally-acyclic types derive Acyclic automatically; a
+  // SELF-REFERENTIAL element must be rejected at instantiation
+  // (plans/STD_API_AUDIT.md O7/C7: a cycle routed through an imm structure
+  // would leak silently and unavoidably).
+  CyclicNode :: ref(struct(v : i32, next : Option(Self)));
+  comptime_expect_error(Vec(CyclicNode));
+  assert(true, "rejected at comptime");
+});
