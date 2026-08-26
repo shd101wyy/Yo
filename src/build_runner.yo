@@ -741,7 +741,7 @@ compile_artifact :: (
       });
       Result(unit, String).Ok(())
     }, {
-      code := st.code();
+      code := st.code().unwrap_or(i32(-1));
       Result(unit, String).Err(`Compilation failed (exit ${code})`)
     })
   })
@@ -816,7 +816,7 @@ run_executable :: (
     st := e.io.await(cmd.status(e.io), e);
     _cd_back := chdir(Path.new(prev_dir));
     if(st.success(), Result(unit, String).Ok(()), {
-      code := st.code();
+      code := st.code().unwrap_or(i32(-1));
       Result(unit, String).Err(`Executable exited with code ${code}`)
     })
   })
@@ -867,18 +867,24 @@ run_test_suite :: (
       );
       exi = (exi + usize(1));
     });
-    if(suite.verbose, cmd.arg(String.from("--verbose")));
-    if(suite.bail, cmd.arg(String.from("--bail")));
+    if(suite.verbose, {
+      _arg_c := cmd.arg(String.from("--verbose"));
+    });
+    if(suite.bail, {
+      _arg_c := cmd.arg(String.from("--bail"));
+    });
     if(suite.parallel > i32(1), {
       cmd.arg(String.from("--parallel"));
       cmd.arg(suite.parallel.to_string());
     });
-    if(ctx.verbose, cmd.arg(String.from("--verbose")));
+    if(ctx.verbose, {
+      _arg_c := cmd.arg(String.from("--verbose"));
+    });
     // Streamed, not captured — `runTestSuite` in src/build-runner.ts inherits
     // stdio, so the test runner's own report is the point of running it.
     st := e.io.await(cmd.status(e.io), e);
     if(st.success(), Result(unit, String).Ok(()), {
-      code := st.code();
+      code := st.code().unwrap_or(i32(-1));
       Result(unit, String).Err(`Tests failed (exit ${code})`)
     })
   })

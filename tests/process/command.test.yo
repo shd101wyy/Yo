@@ -1,7 +1,7 @@
 pragma(Pragma.SkipWasm32Emscripten); // no process model in WASM
 pragma(Pragma.SkipWasm32Wasi); // no process model in WASM
 { assert } :: import("std/assert");
-{ Command, ExitStatus, Output } :: import("std/process/command");
+{ Command, ExitStatus, Output, Child, Stdio } :: import("std/process/command");
 { Exception, AnyError, IoExn } :: import("std/error");
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
@@ -30,7 +30,7 @@ test("Command.new + status (echo exits 0)", {
   );
   st := io.await(cmd.status(io), IoExn(io : io, exn : exn));
   assert(st.success(), "echo should succeed");
-  assert(st.code() == i32(0), "echo exit code 0");
+  assert(st.code().unwrap() == i32(0), "echo exit code 0");
 });
 test("Command.output captures stdout", {
   exn := Exception(
@@ -82,5 +82,94 @@ test("Command.status non-zero exit", {
   );
   st := io.await(cmd.status(io), IoExn(io : io, exn : exn));
   assert(!(st.success()), "should not be success");
-  assert(st.code() == i32(1), "exit code 1");
+  assert(st.code().unwrap() == i32(1), "exit code 1");
+});
+
+// ============================================================================
+// S3 P0 item 5: Child / spawn / Stdio / env (plans/STD_API_AUDIT.md)
+// ============================================================================
+test("spawn with piped stdin/stdout: write, EOF, read back, wait", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  cmd := Command.new(`/bin/cat`.to_string());
+  cmd.stdin(Stdio.Piped).stdout(Stdio.Piped);
+  child := io.await(cmd.spawn(io), e);
+  assert(child.pid() > i32(0), "got a pid");
+  payload := `piped héllo`.to_string().as_bytes();
+  n := io.await(child.write_stdin(payload, io), e);
+  assert(n == usize(12), "wrote 12 UTF-8 bytes");
+  io.await(child.close_stdin(io), e);
+  out := io.await(child.read_stdout_to_end(io), e);
+  assert(out.len() == usize(12), "cat echoed everything");
+  assert(out(usize(0)) == u8(112), "p");
+  st := io.await(child.wait(io), e);
+  assert(st.success(), "cat exits 0");
+  assert(st.code().unwrap() == i32(0), "code Some(0)");
+});
+test("env override and env_clear reach the child", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  cmd := Command.new(`/bin/sh`.to_string());
+  cmd.arg(`-c`.to_string()).arg(`printf %s "$YO_CMD_TEST-$HOME"`.to_string());
+  cmd.env(`YO_CMD_TEST`.to_string(), `injected`.to_string());
+  out := io.await(cmd.output(io), e);
+  s := String.from_bytes(out.stdout);
+  assert(s.starts_with("injected-"), "override visible, HOME inherited");
+  assert(s.len() > usize(9), "HOME non-empty when inherited");
+  cmd2 := Command.new(`/bin/sh`.to_string());
+  cmd2.arg(`-c`.to_string()).arg(`printf %s "$YO_CMD_TEST-$HOME"`.to_string());
+  cmd2.env(`YO_CMD_TEST`.to_string(), `only`.to_string()).env_clear();
+  out2 := io.await(cmd2.output(io), e);
+  s2 := String.from_bytes(out2.stdout);
+  assert(s2 == `only-`, "env_clear drops HOME, keeps the override");
+});
+test("a signal death is code None, not exit 0", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  cmd := Command.new(`/bin/sleep`.to_string());
+  cmd.arg(`5`.to_string());
+  child := io.await(cmd.spawn(io), e);
+  k := child.kill(i32(9));
+  assert(k == i32(0), "kill delivered");
+  st := io.await(child.wait(io), e);
+  assert(st.code().is_none(), "signal death has NO exit code");
+  assert(st.signal() == i32(9), "SIGKILL recorded");
+  assert(st.success() == false, "not a success");
+});
+test("Stdio.Null discards child stdout", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  cmd := Command.new(`/bin/echo`.to_string());
+  cmd.arg(`discarded`.to_string()).stdout(Stdio.Null);
+  child := io.await(cmd.spawn(io), e);
+  st := io.await(child.wait(io), e);
+  assert(st.success(), "echo to /dev/null exits 0");
 });
