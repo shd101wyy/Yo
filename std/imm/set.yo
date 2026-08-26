@@ -24,12 +24,14 @@ pragma(Pragma.AllowUnsafe);
 /// Persistent immutable hash set backed by a HAMT.
 ///
 /// Wraps `Map(T, bool)` internally. The bool values are always `true`.
-Set :: (fn(comptime(T) : Type, where(T <: (Eq(T), Hash, Send))) -> comptime(Type))(
+Set :: (fn(comptime(T) : Type, where(T <: (Eq(T), Hash, Send, Acyclic))) -> comptime(Type))(
   struct(_inner : Map(T, bool))
 );
+// O7: nesting support — see Map's impl.
+impl(generic(T : Type), where(T <: (Eq(T), Hash, Send, Acyclic)), Set(T), Acyclic());
 impl(
   generic(T : Type),
-  where(T <: (Eq(T), Hash, Send)),
+  where(T <: (Eq(T), Hash, Send, Acyclic)),
   Set(T),
   /// Create an empty set.
   new : (fn() -> Self)(
@@ -165,7 +167,7 @@ impl(
 );
 impl(
   generic(T : Type),
-  where(T <: (Eq(T), Hash, Send)),
+  where(T <: (Eq(T), Hash, Send, Acyclic)),
   Set(T),
   Eq(Set(T))(
     (==) : (fn(lhs : Self, rhs : Self) -> bool)(

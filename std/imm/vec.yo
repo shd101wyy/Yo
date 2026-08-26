@@ -6,14 +6,13 @@
 //!
 //! All elements must implement `Send` to guarantee thread safety.
 //!
-//! # Cycle warning
+//! # Cycle safety
 //!
 //! `Vec` uses ATOMIC reference counting, and the cycle collector does not
-//! scan atomic objects (the Arc pattern). A reference cycle routed through a
-//! `Vec` is never reclaimed. Unlike `Arc(V)` (which requires `V <: Acyclic`),
-//! elements here are only required to be `Send` — storing a cycle-capable
-//! type is allowed today but LEAKS if a cycle forms
-//! (plans/STD_API_AUDIT.md O7).
+//! scan atomic objects (the Arc pattern) — so, like `Arc(V)`, element types
+//! must be `Acyclic` (plans/STD_API_AUDIT.md O7, landed 2026-08-27).
+//! Structurally-acyclic types satisfy the bound automatically; a
+//! self-referential type is rejected at instantiation.
 //!
 //! # Examples
 //!
@@ -35,7 +34,7 @@ pragma(Pragma.AllowUnsafe);
 /// Backed by a shared flat array with copy-on-write semantics.
 /// All mutations create a new vector, sharing the backing buffer via
 /// atomic reference counting when possible.
-Vec :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
+Vec :: (fn(comptime(T) : Type, where(T <: (Send, Acyclic))) -> comptime(Type))(
   atomic(
     ref(
       struct(
@@ -46,9 +45,12 @@ Vec :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
     )
   )
 );
+// O7: an Acyclic-element Vec cannot form a cycle — lets Vec nest as another
+// imm container's element.
+impl(generic(T : Type), where(T <: (Send, Acyclic)), Vec(T), Acyclic());
 impl(
   generic(T : Type),
-  where(T <: Send),
+  where(T <: (Send, Acyclic)),
   Vec(T),
   Dispose(
     dispose : (fn(self : Self) -> unit)({
@@ -61,12 +63,12 @@ impl(
   )
 );
 /// Result of a pop operation.
-PopResult :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
+PopResult :: (fn(comptime(T) : Type, where(T <: (Send, Acyclic))) -> comptime(Type))(
   struct(vec : Vec(T), value : Option(T))
 );
 impl(
   generic(T : Type),
-  where(T <: Send),
+  where(T <: (Send, Acyclic)),
   Vec(T),
   /// Allocate raw buffer without creating an intermediate atomic object.
   _raw_alloc : (fn(cap : usize) -> *(T))({
@@ -283,7 +285,7 @@ impl(
     result
   }),
   /// Apply a function to each element, producing a new vector.
-  map : (fn(generic(U : Type), self : Self, f : Impl(Fn(a : T) -> U), where(U <: Send)) -> Vec(U))({
+  map : (fn(generic(U : Type), self : Self, f : Impl(Fn(a : T) -> U), where(U <: (Send, Acyclic))) -> Vec(U))({
     new_ptr := Vec(U)._raw_alloc(self._len);
     i := usize(0);
     while(i < self._len, i = (i + usize(1)), {
@@ -412,7 +414,7 @@ impl(
     result
   }),
   /// Zip two vectors together using a combining function.
-  zip_with : (fn(generic(U : Type, V : Type), self : Self, other : Vec(U), f : Impl(Fn(a : T, b : U) -> V), where(U <: Send, V <: Send)) -> Vec(V))({
+  zip_with : (fn(generic(U : Type, V : Type), self : Self, other : Vec(U), f : Impl(Fn(a : T, b : U) -> V), where(U <: (Send, Acyclic), V <: (Send, Acyclic))) -> Vec(V))({
     min_len := cond(
       (self._len < other._len) => self._len,
       true => other._len
@@ -445,7 +447,7 @@ impl(
 /// Eq trait for Vec(T) — element-wise equality.
 impl(
   generic(T : Type),
-  where(T <: (Send, Eq(T))),
+  where(T <: (Send, Acyclic, Eq(T))),
   Vec(T),
   Eq(Vec(T))(
     (==) : (fn(lhs : Self, rhs : Self) -> bool)({
@@ -468,7 +470,7 @@ impl(
 /// passes the right C-ABI shape. See plans/archive/ITERATOR_REDESIGN.md.
 impl(
   generic(T : Type),
-  where(T <: Send),
+  where(T <: (Send, Acyclic)),
   Vec(T),
   Index(usize)(
     Output : T,

@@ -28,7 +28,7 @@ RBNode :: (
   fn(
     comptime(K) : Type,
     comptime(V) : Type,
-    where(K <: (Eq(K), Ord(K), Send), V <: Send)
+    where(K <: (Eq(K), Ord(K), Send, Acyclic), V <: (Send, Acyclic))
   ) -> comptime(Type)
 )(
   atomic(
@@ -46,19 +46,26 @@ RBNode :: (
 // SAFETY: Manual Acyclic impl — RBNode is self-referential, so auto-derivation skips it.
 // This is safe because RBNode is immutable: all tree operations create new nodes
 // and never mutate existing ones, making it impossible to form cycles at runtime.
-impl(generic(K : Type, V : Type), where(K <: (Eq(K), Ord(K), Send), V <: Send), RBNode(K, V), Acyclic());
+impl(generic(K : Type, V : Type), where(K <: (Eq(K), Ord(K), Send, Acyclic), V <: (Send, Acyclic)), RBNode(K, V), Acyclic());
 /// Persistent immutable sorted map backed by a left-leaning red-black tree.
 SortedMap :: (
   fn(
     comptime(K) : Type,
     comptime(V) : Type,
-    where(K <: (Eq(K), Ord(K), Send), V <: Send)
+    where(K <: (Eq(K), Ord(K), Send, Acyclic), V <: (Send, Acyclic))
   ) -> comptime(Type)
 )(
   struct(
     _root : Option(RBNode(K, V)),
     _len : usize
   )
+);
+// O7: an Acyclic-element SortedMap cannot form a cycle — nesting support.
+impl(
+  generic(K : Type, V : Type),
+  where(K <: (Eq(K), Ord(K), Send, Acyclic), V <: (Send, Acyclic)),
+  SortedMap(K, V),
+  Acyclic()
 );
 // ---------------------------------------------------------------------------
 // Helper standalone functions
@@ -68,7 +75,7 @@ _is_red :: (
     comptime(K) : Type,
     comptime(V) : Type,
     node : Option(RBNode(K, V)),
-    where(K <: (Eq(K), Ord(K), Send), V <: Send)
+    where(K <: (Eq(K), Ord(K), Send, Acyclic), V <: (Send, Acyclic))
   ) -> bool
 )(
   match(
@@ -90,7 +97,7 @@ _new_node :: (
     color : Color,
     left : Option(RBNode(K, V)),
     right : Option(RBNode(K, V)),
-    where(K <: (Eq(K), Ord(K), Send), V <: Send)
+    where(K <: (Eq(K), Ord(K), Send, Acyclic), V <: (Send, Acyclic))
   ) -> RBNode(K, V)
 )(
   RBNode(K, V)(
@@ -107,7 +114,7 @@ _rotate_left :: (
     comptime(K) : Type,
     comptime(V) : Type,
     h : RBNode(K, V),
-    where(K <: (Eq(K), Ord(K), Send), V <: Send)
+    where(K <: (Eq(K), Ord(K), Send, Acyclic), V <: (Send, Acyclic))
   ) -> RBNode(K, V)
 )({
   // x = h.right (must be Some)
@@ -125,7 +132,7 @@ _rotate_right :: (
     comptime(K) : Type,
     comptime(V) : Type,
     h : RBNode(K, V),
-    where(K <: (Eq(K), Ord(K), Send), V <: Send)
+    where(K <: (Eq(K), Ord(K), Send, Acyclic), V <: (Send, Acyclic))
   ) -> RBNode(K, V)
 )({
   (x : RBNode(K, V)) = match(
@@ -142,7 +149,7 @@ _flip_colors :: (
     comptime(K) : Type,
     comptime(V) : Type,
     h : RBNode(K, V),
-    where(K <: (Eq(K), Ord(K), Send), V <: Send)
+    where(K <: (Eq(K), Ord(K), Send, Acyclic), V <: (Send, Acyclic))
   ) -> RBNode(K, V)
 )({
   new_color := match(
@@ -182,7 +189,7 @@ _fixup :: (
     comptime(K) : Type,
     comptime(V) : Type,
     h : RBNode(K, V),
-    where(K <: (Eq(K), Ord(K), Send), V <: Send)
+    where(K <: (Eq(K), Ord(K), Send, Acyclic), V <: (Send, Acyclic))
   ) -> RBNode(K, V)
 )({
   (node : RBNode(K, V)) = h;
@@ -214,7 +221,7 @@ _node_insert :: (
     node : Option(RBNode(K, V)),
     key : K,
     value : V,
-    where(K <: (Eq(K), Ord(K), Send), V <: Send)
+    where(K <: (Eq(K), Ord(K), Send, Acyclic), V <: (Send, Acyclic))
   ) -> RBNode(K, V)
 )(
   match(
@@ -256,7 +263,7 @@ _node_get :: (
     comptime(V) : Type,
     node : Option(RBNode(K, V)),
     key : K,
-    where(K <: (Eq(K), Ord(K), Send), V <: Send)
+    where(K <: (Eq(K), Ord(K), Send, Acyclic), V <: (Send, Acyclic))
   ) -> Option(V)
 )(
   match(
@@ -276,7 +283,7 @@ _node_contains :: (
     comptime(V) : Type,
     node : Option(RBNode(K, V)),
     key : K,
-    where(K <: (Eq(K), Ord(K), Send), V <: Send)
+    where(K <: (Eq(K), Ord(K), Send, Acyclic), V <: (Send, Acyclic))
   ) -> bool
 )(
   match(
@@ -298,7 +305,7 @@ _move_red_left :: (
     comptime(K) : Type,
     comptime(V) : Type,
     h : RBNode(K, V),
-    where(K <: (Eq(K), Ord(K), Send), V <: Send)
+    where(K <: (Eq(K), Ord(K), Send, Acyclic), V <: (Send, Acyclic))
   ) -> RBNode(K, V)
 )({
   (node : RBNode(K, V)) = _flip_colors(K, V, h);
@@ -325,7 +332,7 @@ _move_red_right :: (
     comptime(K) : Type,
     comptime(V) : Type,
     h : RBNode(K, V),
-    where(K <: (Eq(K), Ord(K), Send), V <: Send)
+    where(K <: (Eq(K), Ord(K), Send, Acyclic), V <: (Send, Acyclic))
   ) -> RBNode(K, V)
 )({
   (node : RBNode(K, V)) = _flip_colors(K, V, h);
@@ -346,7 +353,7 @@ _node_min :: (
     comptime(K) : Type,
     comptime(V) : Type,
     h : RBNode(K, V),
-    where(K <: (Eq(K), Ord(K), Send), V <: Send)
+    where(K <: (Eq(K), Ord(K), Send, Acyclic), V <: (Send, Acyclic))
   ) -> RBNode(K, V)
 )(
   match(
@@ -361,7 +368,7 @@ _delete_min :: (
     comptime(K) : Type,
     comptime(V) : Type,
     h : RBNode(K, V),
-    where(K <: (Eq(K), Ord(K), Send), V <: Send)
+    where(K <: (Eq(K), Ord(K), Send, Acyclic), V <: (Send, Acyclic))
   ) -> Option(RBNode(K, V))
 )(
   match(
@@ -394,7 +401,7 @@ _node_remove :: (
     comptime(V) : Type,
     h : RBNode(K, V),
     key : K,
-    where(K <: (Eq(K), Ord(K), Send), V <: Send)
+    where(K <: (Eq(K), Ord(K), Send, Acyclic), V <: (Send, Acyclic))
   ) -> Option(RBNode(K, V))
 )({
   (node : RBNode(K, V)) = h;
@@ -486,7 +493,7 @@ _collect_keys :: (
     comptime(V) : Type,
     node : Option(RBNode(K, V)),
     acc : List(K),
-    where(K <: (Eq(K), Ord(K), Send), V <: Send)
+    where(K <: (Eq(K), Ord(K), Send, Acyclic), V <: (Send, Acyclic))
   ) -> List(K)
 )(
   match(
@@ -506,7 +513,7 @@ _collect_values :: (
     comptime(V) : Type,
     node : Option(RBNode(K, V)),
     acc : List(V),
-    where(K <: (Eq(K), Ord(K), Send), V <: Send)
+    where(K <: (Eq(K), Ord(K), Send, Acyclic), V <: (Send, Acyclic))
   ) -> List(V)
 )(
   match(
@@ -524,7 +531,7 @@ _collect_values :: (
 // ---------------------------------------------------------------------------
 impl(
   generic(K : Type, V : Type),
-  where(K <: (Eq(K), Ord(K), Send), V <: Send),
+  where(K <: (Eq(K), Ord(K), Send, Acyclic), V <: (Send, Acyclic)),
   SortedMap(K, V),
   /// Create an empty sorted map.
   new : (fn() -> Self)(
@@ -630,7 +637,7 @@ impl(
 );
 impl(
   generic(K : Type, V : Type),
-  where(K <: (Eq(K), Ord(K), Send), V <: (Eq(V), Send)),
+  where(K <: (Eq(K), Ord(K), Send, Acyclic), V <: (Eq(V), Send, Acyclic)),
   SortedMap(K, V),
   Eq(SortedMap(K, V))(
     (==) : (fn(lhs : Self, rhs : Self) -> bool)({
