@@ -40,3 +40,28 @@ the shadowing decision.
 Either way the fix must land in BOTH compilers (dispatch sites above + the
 yo-self mirrors in `yo-self/evaluator/exprs/_expr.yo` /
 `yo-self/codegen/exprs/generation.yo`).
+
+## Third face (2026-08-26): a LOCAL cannot shadow a prelude TYPE NAME as a method receiver
+
+Found writing D5's `tests/io/bufio.test.yo` — a local named `short` (the
+C-interop integer type) broke method calls on it:
+
+```rust
+short := Option(i32).Some(i32(1));
+short.is_none()   // Error: No matching call found with arguments: (short.is_none)()
+```
+
+The dot-call receiver resolution treats `short` as the TYPE (static-dispatch
+path) before consulting the environment, so the local is unreachable as a
+receiver. Any in-scope type name behaves this way (`int`, `long`, `uint`,
+`String`, …). The failure is loud but the diagnostic names neither the
+shadowing nor the type — it cost a multi-probe bisect to trace, because the
+same test passed verbatim with the local renamed `b`.
+
+Repro: `issues/repros/local-named-short-not-usable-as-receiver.yo`.
+
+Same decision as above, sharpened: either locals shadow (env-first receiver
+resolution), or declaring a binding whose name collides with an in-scope
+type/builtin is REJECTED with a diagnostic that says so. The silent
+middle — declaration legal, use broken — is the worst option and is what
+ships today.

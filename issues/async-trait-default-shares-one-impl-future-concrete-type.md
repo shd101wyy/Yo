@@ -71,3 +71,41 @@ yo compile issues/repros/async-trait-default-await-self-method.yo \
 ```
 
 Fixed means `0`.
+
+## ESCALATION (2026-08-26): from benign warning to a hard C error — and it now BLOCKS D5's BufReader
+
+Implementing the D5 generic `BufReader(R)`/`BufWriter(W)` (`std/io/bufio`,
+branch d5/bufio-wrappers) hit this class as an ERROR, not a warning: with TWO
+`Reader` implementors in scope (`File` and the generic `BufReader(R)`), a
+test-arm call to `br.read_to_string(io)` (a trait default chained onto
+`read_to_end`, both materialized for the generic implementor) emits an await
+whose callee's mangled name still contains the ABSTRACT `R`
+(`fn_yo_id_6982_rtparam0_R_gs_yo_id_7037_R_struct_decl…`) and whose future is
+typed as that abstract specialization's state struct — which is never
+defined:
+
+```
+error: incomplete definition of type '_file____priv_temp_8578_state_t'
+```
+
+Two repros, BOTH green as a plain `main` program and RED inside a `test(...)`
+arm (the main-vs-test-arm divergence the repro-hygiene memory warns about):
+
+- `issues/repros/bufio-trait-default-test-arm-abstract-state-struct.yo` —
+  the incomplete-type C error above.
+- `issues/repros/bufio-large-read-test-arm-abort-stub.yo` — the sibling
+  face: the buffer-bypass `read` path on `BufReader(File)` runs an `abort()`
+  stub (exit 6, fully "transpiled" C, #275 class) in a test arm.
+
+Both need `std/io/bufio.yo` from branch d5/bufio-wrappers (or its PR) —
+they exercise the generic wrapper. `tests/generic_impl_async_self.test.yo`'s
+shapes stay green, so the trigger needs the two-implementor + cross-module
+(+ test-arm cond) pile-up, not just a generic implementor with a default.
+
+This is the same under-resolution family as
+issues/iterator-chain-shared-stamp-cross-item-pollution.md (shared stamped
+return instance + per-call SomeT cells; see also the gap-6 campaign notes) —
+but through THIS issue's mechanism: the default's `Impl(Future(...))` return
+resolving to one (here: abstract, never-emitted) concrete state type. Fixing
+this row is now the prerequisite for landing `std/io/bufio` with honest
+tests.

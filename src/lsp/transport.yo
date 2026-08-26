@@ -3,7 +3,7 @@
 //! An editor speaks to a language server over a pipe with
 //! `Content-Length: N\r\n\r\n<N bytes of JSON>` framing (the LSP "base
 //! protocol"). Reading a pipe positionally fails with ESPIPE, so the reader
-//! is a `BufReader` on fd 0 — the plans/P4_LSP.md spike proved
+//! is a `BufReader(Stdin)` — the plans/P4_LSP.md spike proved
 //! `read_line`/`read_exact` work on pipes. Writing goes through libc stdio,
 //! which BLOCK-buffers on a pipe, so every outgoing message is followed by
 //! an `fflush(stdout)` — without it the client waits forever on a reply
@@ -11,7 +11,8 @@
 pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
-{ BufReader } :: import("std/sys/bufio/buf_reader");
+{ BufReader } :: import("std/io/bufio");
+{ Stdin } :: import("std/io/stdio");
 open(import("std/fmt"));
 { fflush, stdout } :: import("std/libc/stdio");
 open(import("std/error"));
@@ -23,77 +24,64 @@ open(import("std/error"));
 /// the `exit` notification terminate a server). A malformed frame
 /// (headers without Content-Length, or EOF mid-frame) throws.
 read_lsp_message :: (
-  fn(reader : BufReader, io : Io, exn : Exception) -> Option(String)
+  fn(reader : BufReader(Stdin), io : Io, exn : Exception) -> Option(String)
 )({
   (content_len : usize) = usize(0);
   (saw_header : bool) = false;
   (done_headers : bool) = false;
   while(!(done_headers), {
-    line_res := io.await(reader.read_line(io), IoExn(io : io, exn : exn));
+    line_opt := io.await(reader.read_line(io), IoExn(io : io, exn : exn));
     match(
-      line_res,
-      .Ok(line_opt) => match(
-        line_opt,
-        .Some(raw_line) => {
-          // read_line strips the trailing \n; the base protocol
-          // terminates header lines with \r\n, so strip a trailing \r.
-          (line : String) = raw_line.clone();
-          if(line.ends_with(String.from("\r")), {
-            line = line.substring(usize(0), line.len() - usize(1));
-          });
-          cond(
-            (line.len() == usize(0)) => {
-              // Blank line: end of headers.
-              done_headers = true;
-            },
-            true => {
-              saw_header = true;
-              lower := line.to_lowercase();
-              if(lower.starts_with(String.from("content-length:")), {
-                value := line.substring(usize(15), line.len()).trim();
-                match(
-                  value.parse_u64(),
-                  .Some(n) => {
-                    content_len = usize(n);
-                  },
-                  .None => {
-                    exn.throw(dyn(`lsp: malformed Content-Length header: ${line}`));
-                  }
-                );
-              });
-              // Content-Type and unknown headers are ignored.
-            }
-          );
-        },
-        .None => {
-          // EOF.
-          if(saw_header, {
-            exn.throw(dyn(`lsp: EOF inside a message frame's headers`));
-          });
-          return(Option(String).None);
-        }
-      ),
-      .Err(e) => {
-        exn.throw(dyn(`lsp: failed reading frame headers: ${e.to_string()}`));
+      line_opt,
+      .Some(raw_line) => {
+        // read_line strips the trailing \n; the base protocol
+        // terminates header lines with \r\n, so strip a trailing \r.
+        (line : String) = raw_line.clone();
+        if(line.ends_with(String.from("\r")), {
+          line = line.substring(usize(0), line.len() - usize(1));
+        });
+        cond(
+          (line.len() == usize(0)) => {
+            // Blank line: end of headers.
+            done_headers = true;
+          },
+          true => {
+            saw_header = true;
+            lower := line.to_lowercase();
+            if(lower.starts_with(String.from("content-length:")), {
+              value := line.substring(usize(15), line.len()).trim();
+              match(
+                value.parse_u64(),
+                .Some(n) => {
+                  content_len = usize(n);
+                },
+                .None => {
+                  exn.throw(dyn(`lsp: malformed Content-Length header: ${line}`));
+                }
+              );
+            });
+            // Content-Type and unknown headers are ignored.
+          }
+        );
+      },
+      .None => {
+        // EOF.
+        if(saw_header, {
+          exn.throw(dyn(`lsp: EOF inside a message frame's headers`));
+        });
+        return(Option(String).None);
       }
     );
   });
   if(content_len == usize(0), {
     exn.throw(dyn(`lsp: frame without a Content-Length header`));
   });
-  body_res := io.await(reader.read_exact(content_len, io), IoExn(io : io, exn : exn));
+  bytes_opt := io.await(reader.read_exact(content_len, io), IoExn(io : io, exn : exn));
   match(
-    body_res,
-    .Ok(bytes_opt) => match(
-      bytes_opt,
-      .Some(bytes) => Option(String).Some(String.from_bytes(bytes)),
-      .None => {
-        exn.throw(dyn(`lsp: EOF inside a message frame's body (expected ${content_len} bytes)`));
-        return(Option(String).None);
-      }
-    ),
-    .Err(e2) => {
-      exn.throw(dyn(`lsp: failed reading frame body: ${e2.to_string()}`));
+    bytes_opt,
+    .Some(bytes) => Option(String).Some(String.from_bytes(bytes)),
+    .None => {
+      exn.throw(dyn(`lsp: EOF inside a message frame's body (expected ${content_len} bytes)`));
       return(Option(String).None);
     }
   )

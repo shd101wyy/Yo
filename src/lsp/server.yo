@@ -37,7 +37,8 @@ open(import("std/fmt"));
 { handle_completion } :: import("./completion.yo");
 { format_yo_source } :: import("../formatter.yo");
 { resolve_std_path, mm_invalidate_document, mm_set_open_document, mm_forget_open_document } :: import("../module_manager.yo");
-{ BufReader } :: import("std/sys/bufio/buf_reader");
+{ BufReader } :: import("std/io/bufio");
+{ Stdin, stdin } :: import("std/io/stdio");
 
 /// Per-document retained analysis: editor text + the last evaluation's
 /// program/ExprInfo (read by hover and the later feature slices).
@@ -789,7 +790,7 @@ _handle_message :: (
 
 /// `yo lsp` entry: serve LSP over stdio until `exit` or EOF.
 run_lsp_server :: (fn(io : Io, exn : Exception) -> unit)({
-  reader := BufReader.new(i32(0));
+  reader := BufReader(Stdin).new(stdin());
   docs := HashMap(String, DocState).new();
   std_path := resolve_std_path();
   // No startup banner: the cli-case harness merges stderr into stdout, and

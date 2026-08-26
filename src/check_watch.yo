@@ -38,7 +38,8 @@ pragma(Pragma.AllowUnsafe);
 { stdout, fflush } :: import("std/libc/stdio");
 { Instant } :: import("std/time/instant");
 sleep_mod :: import("std/sys/timer");
-buf_reader :: import("std/sys/bufio/buf_reader");
+{ BufReader } :: import("std/io/bufio");
+{ Stdin, stdin } :: import("std/io/stdio");
 {
   mm_load_file,
   mm_invalidate_document,
@@ -138,24 +139,18 @@ run_watch_once :: (
   ) -> unit
 )({
   changed := ArrayList(String).new();
-  rd := buf_reader.BufReader.new(i32(0));
+  rd := BufReader(Stdin).new(stdin());
   (eof : bool) = false;
   while(!(eof), {
     match(
       io.await(rd.read_line(io), IoExn(io : io, exn : exn)),
-      .Ok(line_opt) => match(
-        line_opt,
-        .Some(line) => {
-          t := line.trim();
-          if(t.len() > usize(0), {
-            changed.push(t);
-          });
-        },
-        .None => {
-          eof = true;
-        }
-      ),
-      .Err(_) => {
+      .Some(line) => {
+        t := line.trim();
+        if(t.len() > usize(0), {
+          changed.push(t);
+        });
+      },
+      .None => {
         eof = true;
       }
     );
