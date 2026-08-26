@@ -440,7 +440,7 @@ Open D7 items:
 | collections/* | RENAME + EXTEND | §5 renames DONE; still: entry API, `retain/extend/drain`, `binary_search`, real `sort` (not O(n²) insertion), `sort_by`; HashSet = HashMap(T, unit) to kill ~500 duplicated SwissTable lines; hide pub `ctrl/data/…` fields; `BTreeMap` → real B-tree with `range()` (recommend: real B-tree, keep name); add `BTreeSet`; `PriorityQueue`: comparator ctor, DOCUMENT min-heap |
 | imm/* | KEEP (O4) + FIX | stays in std; `Acyclic` element bounds LANDED (O7, 2026-08-27); still: iteration + `Index` where doc'd, dedupe set pair, mark unstable until exercised |
 | string | FIX + EXTEND | D4 byte-indexing DONE (both types); still: Unicode-correct `to_lowercase` (+ `to_ascii_*`; see the locale issue), `Pattern` impl for `rune` + `Regex`, `replace*` Pattern-generic, `parse_f64`/radix, `split_once`, `strip_prefix/suffix`, move `panic_dyn`/`assert_dyn` to assert, delete one of `to_cstr`/`to_c_str`; `StringError` is live now (from_utf8) |
-| encoding | STANDARDIZE | utf8 DONE; still: one error style per D1 (base64's `Result(_, String)`), `html_encode` (XSS!), percent-encoding module (P0), base32, CSV (P1), toml floats/arrays/dates/serializer + derives (P1) |
+| encoding | STANDARDIZE | utf8, percent, `html_encode` + the `html_decode` rename DONE; still: one error style per D1 (base64's `Result(_, String)`), base32, CSV (P1), toml floats/arrays/dates/serializer + derives (P1) |
 | json | EXTEND | enum representation DECIDED externally-tagged (O3); `JsonValue.Object` O(n) parallel arrays → keep repr, add index map if profiling demands |
 | regex | POLISH | typed error + private internals DONE (D8); byte `index()` DONE (D4 PR 6); still: `Regex.escape`, optional-flags `new`, callback replace, lazy `find_iter`, group byte-spans |
 | url | EXTEND | percent-encode/decode integration, `query_pairs`/`SearchParams`, `join` (RFC 3986 §5 — needed by http redirects), builder/setters; punycode DELETED (§6) |
@@ -575,8 +575,8 @@ declarations at runtime.
 ## 7. Additions ranked (post-sweep, additive, batteries-included)
 
 **P0 — unblock real programs**
-1. `std/encoding/percent.yo` (percent-encode/decode) + URL/query integration
-2. ~~`std/encoding/utf8.yo` (D8)~~ **DONE 2026-08-25** + `html_encode` (open)
+1. ~~`std/encoding/percent.yo` (percent-encode/decode)~~ **DONE 2026-08-27** (RFC 3986 component codec: `percent_encode`, `percent_decode` (UTF-8-validated) + `percent_decode_bytes`, typed `PercentError` with byte indexes; `+` deliberately NOT a space — the form dialect can be added additively). URL/query integration still open (rides the `Url` extension work)
+2. ~~`std/encoding/utf8.yo` (D8)~~ **DONE 2026-08-25**; ~~`html_encode`~~ **DONE 2026-08-27** (the five XSS-critical characters; `html_decode(html_encode(s)) == s` pinned) — the D2 rename `decode_html` → `html_decode` landed with it
 3. `std/io` redesign with stdio handles (D5) — slices 1–2 DONE; generic wrappers + bufio move remain
 4. ~~`fs.copy`, `fs.remove_dir_all`, `read_link`, `set_permissions`, `try_exists`~~ **DONE 2026-08-27** — `copy` (contents + permission bits + byte count), `try_exists` (throws instead of lying `false` on a denied parent), `set_permissions` in `std/fs/file`; `read_link` in `std/fs/dir`; `remove_dir_all` in **`std/fs/walker`** (its implementation IS the walker, and `fs/walker` imports `fs/dir` — the reverse would cycle); `src/fetch` + `src/version_cache` dropped their private copies. En route: the libc `chmod`/`fchmod` bindings declared their mode as the OPAQUE `mode_t : Type`, which no Yo caller can construct (`mode_t(384)` is a SomeT-callee error — silently swallowed in async bodies); rebound as `u32`
 5. `process.Child`/`spawn`/`Stdio`

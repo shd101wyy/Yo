@@ -6,9 +6,9 @@
 //! # Example
 //!
 //! ```rust
-//! { decode_html } :: import "std/encoding/html";
+//! { html_decode } :: import "std/encoding/html";
 //!
-//! result := decode_html(`&amp; &lt; &#38; &#x26;`);
+//! result := html_decode(`&amp; &lt; &#38; &#x26;`);
 //! assert((result == `& < & &`), "decoded entities");
 //! ```
 open(import("../string"));
@@ -76,7 +76,7 @@ _is_alpha_numeric :: (fn(c : rune) -> bool)(
 // ---------------------------------------------------------------------------
 // A rune-indexed view of the input.
 //
-// `decode_html` is a BACKTRACKING scanner: it seeks forward over digits and
+// `html_decode` is a BACKTRACKING scanner: it seeks forward over digits and
 // entity names, then walks `try_end` back down one rune at a time looking for
 // a legacy prefix. That needs random access by rune, which `chars()` alone
 // cannot give — so the input is materialized once as a table of
@@ -142,7 +142,7 @@ _slice_runes :: (
 ///
 /// Supports named (`&amp;`), decimal (`&#38;`), and hexadecimal (`&#x26;`) character
 /// references. Legacy mode — entities without trailing semicolons are also decoded.
-decode_html :: (fn(input : String) -> String)({
+html_decode :: (fn(input : String) -> String)({
   _ensure_init();
   if(input.chars().count() == usize(0), {
     return(input);
@@ -310,4 +310,28 @@ decode_html :: (fn(input : String) -> String)({
   });
   result
 });
-export(decode_html, is_valid_entity_code, from_code_point);
+/// Escape a string for safe embedding in HTML text or attribute values:
+/// the five XSS-critical characters become entities (`&` `<` `>` `"` `'` →
+/// `&amp;` `&lt;` `&gt;` `&quot;` `&#39;`). Everything else — including all
+/// multibyte UTF-8 — passes through byte-identically, so
+/// `html_decode(html_encode(s)) == s` for any `s`
+/// (plans/STD_API_AUDIT.md D2 + §7 P0).
+html_encode :: (fn(input : String) -> String)({
+  out := String.with_capacity(input.len());
+  bytes := input.as_bytes();
+  n := bytes.len();
+  (i : usize) = usize(0);
+  while(i < n, i = (i + usize(1)), {
+    b := match(bytes.get(i), .Some(x) => x, .None => u8(0));
+    cond(
+      (b == u8(38)) => out.push_str("&amp;"),
+      (b == u8(60)) => out.push_str("&lt;"),
+      (b == u8(62)) => out.push_str("&gt;"),
+      (b == u8(34)) => out.push_str("&quot;"),
+      (b == u8(39)) => out.push_str("&#39;"),
+      true => out.push_byte(b)
+    );
+  });
+  out
+});
+export(html_decode, html_encode, is_valid_entity_code, from_code_point);
