@@ -1,0 +1,28 @@
+//! CRC-32 (IEEE 802.3, reflected, polynomial 0xEDB88320) — the checksum
+//! zip/png/gzip use (`plans/STD_API_AUDIT.md` §7 P0 item 7). NOT a
+//! cryptographic hash — it detects accidental corruption only.
+{ ArrayList } :: import("../collections/array_list");
+
+/// One byte-step of the reflected CRC-32 (bitwise; the compiler folds the
+/// eight iterations — a 256-entry table would be a comptime win later, but
+/// correctness first and the byte loop is branch-free).
+_crc32_byte :: (fn(crc : u32, byte : u8) -> u32)({
+  (c : u32) = (crc ^ u32(byte));
+  (k : usize) = usize(0);
+  while(k < usize(8), k = (k + usize(1)), {
+    mask := (u32(0) - (c & u32(1)));
+    c = ((c >> u32(1)) ^ (u32(0xedb88320) & mask));
+  });
+  c
+});
+/// CRC-32 of `data` (init 0xFFFFFFFF, final xor 0xFFFFFFFF).
+crc32 :: (fn(data : ArrayList(u8)) -> u32)({
+  (crc : u32) = u32(0xffffffff);
+  (i : usize) = usize(0);
+  while(i < data.len(), i = (i + usize(1)), {
+    b := match(data.get(i), .Some(x) => x, .None => u8(0));
+    crc = _crc32_byte(crc, b);
+  });
+  crc ^ u32(0xffffffff)
+});
+export(crc32);

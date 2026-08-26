@@ -455,7 +455,7 @@ Open D7 items:
 | async | PROMOTE | combinator home: `join_all`, `race`, `any`, `timeout`, interval, cancellation for `JoinHandle` (`abort()`), async channel/mutex (D7). `sleep(Duration, io)` lives in `std/time/sleep.yo` — do NOT add a second one; re-export if wanted |
 | thread/worker/sync | REDESIGN (D7) | ThreadPool DONE; `join() -> T` + panic propagation blocked below std — see D7 |
 | time | EXTEND | `Duration`: `Add/Sub` operators, `Eq/Ord/Hash`, `from_secs_f64`, `subsec_*`, consts; **make std USE it** (timeouts, sleeps); `Instant` `add/sub`, `Eq/Ord`; `DateTime`: RFC3339 `parse`/`format`, component ctor, arithmetic, `Eq/Ord`; sleep unification DONE (§5) |
-| crypto | EXTEND | streaming `Digest` trait unifying Sha256/Md5; SHA-1, SHA-512, **HMAC** (blocks JWT/SigV4/webhooks), CRC32, constant-time compare; new `std/rand`: seedable PCG/xoshiro, `shuffle`, `choice`, ranges — infallible, non-crypto, separate from `crypto/random` |
+| crypto | EXTEND | `Digest` trait + SHA-1 + SHA-512 + streaming Md5 + HMAC + CRC32 + `constant_time_eq` DONE 2026-08-27; still: new `std/rand` (seedable PCG/xoshiro, `shuffle`, `choice`, ranges — infallible, non-crypto, separate from `crypto/random`) |
 | log | REWRITE (zero users = free window) | levels + `Off`, `ToString`-generic message, lazy eval, timestamps, target/module, writer sink, thread-safe; keep the free-function facade |
 | testing | EXTEND | `assert_eq`/`assert_ne`/`assert_approx` (diff-printing), `bench`: auto-calibration, black_box, stddev/percentiles |
 | gc/allocator | POLISH | `gc.stats()`; `CustomAllocator` deleted (O6) |
@@ -581,7 +581,7 @@ declarations at runtime.
 4. ~~`fs.copy`, `fs.remove_dir_all`, `read_link`, `set_permissions`, `try_exists`~~ **DONE 2026-08-27** — `copy` (contents + permission bits + byte count), `try_exists` (throws instead of lying `false` on a denied parent), `set_permissions` in `std/fs/file`; `read_link` in `std/fs/dir`; `remove_dir_all` in **`std/fs/walker`** (its implementation IS the walker, and `fs/walker` imports `fs/dir` — the reverse would cycle); `src/fetch` + `src/version_cache` dropped their private copies. En route: the libc `chmod`/`fchmod` bindings declared their mode as the OPAQUE `mode_t : Type`, which no Yo caller can construct (`mode_t(384)` is a SomeT-callee error — silently swallowed in async bodies); rebound as `u32`
 5. `process.Child`/`spawn`/`Stdio`
 6. async combinators + async channel/mutex + `timeout` (D7)
-7. `crypto`: HMAC, SHA-1, SHA-512, CRC32, `Digest` trait; `std/rand`
+7. ~~`crypto`: HMAC, SHA-1, SHA-512, CRC32, `Digest` trait~~ **DONE 2026-08-27** (streaming `Sha1`/`Sha512`/`Md5` on the Sha256 skeleton; the `Digest` trait — `new`/`update`/`digest_size`/`block_size`/`finish_bytes` + a `finish_hex` `?=` default — implemented by all four; generic `hmac` via `(D <: Digest)` statics + `hmac_sha{1,256,512}(_hex)` + `constant_time_eq`; bitwise reflected `crc32`; all pinned to FIPS 180-4 / RFC 2202 / RFC 4231 / CRC-catalog vectors). `std/rand` still open
 8. ~~prelude D3 items 1–8~~ **DONE** (D3.9 Hasher blocked, D3.10 done)
 9. `Duration` integration everywhere a timeout/interval appears
 10. `net.UnixStream`/`UnixListener`

@@ -1,0 +1,279 @@
+//! SHA-512 (FIPS 180-4) — streaming hasher + one-shot helpers
+//! (`plans/STD_API_AUDIT.md` §7 P0 item 7).
+//!
+//! 64-bit words, 128-byte blocks, 80 rounds. The message-length field is
+//! 128 bits in the spec; this implementation tracks the total as a `u64`
+//! BYTE count (caps input at 2^61 bytes — two exbibytes) and writes the
+//! high 64 bits of the bit length as `total >> 61`.
+pragma(Pragma.AllowUnsafe);
+{ ArrayList } :: import("../collections/array_list");
+{ hex_encode } :: import("../encoding/hex");
+{ Digest } :: import("./digest");
+open(import("../string"));
+_K512 :: Array(u64, usize(80))(
+  u64(0x428a2f98d728ae22),
+  u64(0x7137449123ef65cd),
+  u64(0xb5c0fbcfec4d3b2f),
+  u64(0xe9b5dba58189dbbc),
+  u64(0x3956c25bf348b538),
+  u64(0x59f111f1b605d019),
+  u64(0x923f82a4af194f9b),
+  u64(0xab1c5ed5da6d8118),
+  u64(0xd807aa98a3030242),
+  u64(0x12835b0145706fbe),
+  u64(0x243185be4ee4b28c),
+  u64(0x550c7dc3d5ffb4e2),
+  u64(0x72be5d74f27b896f),
+  u64(0x80deb1fe3b1696b1),
+  u64(0x9bdc06a725c71235),
+  u64(0xc19bf174cf692694),
+  u64(0xe49b69c19ef14ad2),
+  u64(0xefbe4786384f25e3),
+  u64(0x0fc19dc68b8cd5b5),
+  u64(0x240ca1cc77ac9c65),
+  u64(0x2de92c6f592b0275),
+  u64(0x4a7484aa6ea6e483),
+  u64(0x5cb0a9dcbd41fbd4),
+  u64(0x76f988da831153b5),
+  u64(0x983e5152ee66dfab),
+  u64(0xa831c66d2db43210),
+  u64(0xb00327c898fb213f),
+  u64(0xbf597fc7beef0ee4),
+  u64(0xc6e00bf33da88fc2),
+  u64(0xd5a79147930aa725),
+  u64(0x06ca6351e003826f),
+  u64(0x142929670a0e6e70),
+  u64(0x27b70a8546d22ffc),
+  u64(0x2e1b21385c26c926),
+  u64(0x4d2c6dfc5ac42aed),
+  u64(0x53380d139d95b3df),
+  u64(0x650a73548baf63de),
+  u64(0x766a0abb3c77b2a8),
+  u64(0x81c2c92e47edaee6),
+  u64(0x92722c851482353b),
+  u64(0xa2bfe8a14cf10364),
+  u64(0xa81a664bbc423001),
+  u64(0xc24b8b70d0f89791),
+  u64(0xc76c51a30654be30),
+  u64(0xd192e819d6ef5218),
+  u64(0xd69906245565a910),
+  u64(0xf40e35855771202a),
+  u64(0x106aa07032bbd1b8),
+  u64(0x19a4c116b8d2d0c8),
+  u64(0x1e376c085141ab53),
+  u64(0x2748774cdf8eeb99),
+  u64(0x34b0bcb5e19b48a8),
+  u64(0x391c0cb3c5c95a63),
+  u64(0x4ed8aa4ae3418acb),
+  u64(0x5b9cca4f7763e373),
+  u64(0x682e6ff3d6b2b8a3),
+  u64(0x748f82ee5defb2fc),
+  u64(0x78a5636f43172f60),
+  u64(0x84c87814a1f0ab72),
+  u64(0x8cc702081a6439ec),
+  u64(0x90befffa23631e28),
+  u64(0xa4506cebde82bde9),
+  u64(0xbef9a3f7b2c67915),
+  u64(0xc67178f2e372532b),
+  u64(0xca273eceea26619c),
+  u64(0xd186b8c721c0c207),
+  u64(0xeada7dd6cde0eb1e),
+  u64(0xf57d4f7fee6ed178),
+  u64(0x06f067aa72176fba),
+  u64(0x0a637dc5a2c898a6),
+  u64(0x113f9804bef90dae),
+  u64(0x1b710b35131c471b),
+  u64(0x28db77f523047d84),
+  u64(0x32caab7b40c72493),
+  u64(0x3c9ebe0a15c9bebc),
+  u64(0x431d67c49c100d4c),
+  u64(0x4cc5d4becb3e42b6),
+  u64(0x597f299cfc657e2a),
+  u64(0x5fcb6fab3ad6faec),
+  u64(0x6c44198c4a475817)
+);
+_rotr64 :: (fn(x : u64, n : u64) -> u64)(
+  (x >> n) | (x << (u64(64) - n))
+);
+/// One 128-byte block: the 80-round compression over `h[0..8]`.
+_sha512_block :: (fn(block : *(u8), h : *(u64)) -> unit)({
+  w := Array(u64, usize(80)).fill(u64(0));
+  (t : usize) = usize(0);
+  while(t < usize(16), t = (t + usize(1)), {
+    (word : u64) = u64(0);
+    (bi : usize) = usize(0);
+    while(bi < usize(8), bi = (bi + usize(1)), {
+      word = ((word << u64(8)) | u64((block.add((t * usize(8)) + bi)).*));
+    });
+    w(t) = word;
+  });
+  while(t < usize(80), t = (t + usize(1)), {
+    s0 := ((_rotr64(w(t - usize(15)), u64(1)) ^ _rotr64(w(t - usize(15)), u64(8))) ^ (w(t - usize(15)) >> u64(7)));
+    s1 := ((_rotr64(w(t - usize(2)), u64(19)) ^ _rotr64(w(t - usize(2)), u64(61))) ^ (w(t - usize(2)) >> u64(6)));
+    w(t) = ((w(t - usize(16)) + s0) + (w(t - usize(7)) + s1));
+  });
+  a := (h.add(usize(0))).*;
+  b := (h.add(usize(1))).*;
+  c := (h.add(usize(2))).*;
+  d := (h.add(usize(3))).*;
+  e := (h.add(usize(4))).*;
+  f := (h.add(usize(5))).*;
+  g := (h.add(usize(6))).*;
+  hh := (h.add(usize(7))).*;
+  (i : usize) = usize(0);
+  while(i < usize(80), i = (i + usize(1)), {
+    ep1 := ((_rotr64(e, u64(14)) ^ _rotr64(e, u64(18))) ^ _rotr64(e, u64(41)));
+    ch := ((e & f) ^ ((~(e)) & g));
+    temp1 := ((hh + ep1) + ((ch + _K512(i)) + w(i)));
+    ep0 := ((_rotr64(a, u64(28)) ^ _rotr64(a, u64(34))) ^ _rotr64(a, u64(39)));
+    maj := (((a & b) ^ (a & c)) ^ (b & c));
+    temp2 := (ep0 + maj);
+    hh = g;
+    g = f;
+    f = e;
+    e = (d + temp1);
+    d = c;
+    c = b;
+    b = a;
+    a = (temp1 + temp2);
+  });
+  (h.add(usize(0))).* = ((h.add(usize(0))).* + a);
+  (h.add(usize(1))).* = ((h.add(usize(1))).* + b);
+  (h.add(usize(2))).* = ((h.add(usize(2))).* + c);
+  (h.add(usize(3))).* = ((h.add(usize(3))).* + d);
+  (h.add(usize(4))).* = ((h.add(usize(4))).* + e);
+  (h.add(usize(5))).* = ((h.add(usize(5))).* + f);
+  (h.add(usize(6))).* = ((h.add(usize(6))).* + g);
+  (h.add(usize(7))).* = ((h.add(usize(7))).* + hh);
+});
+/// SHA-512 streaming state (the Sha256 skeleton at 64-bit width).
+Sha512 :: ref(
+  struct(
+    _h : Array(u64, usize(8)),
+    _buf : Array(u8, usize(128)),
+    _buflen : usize,
+    _total : u64
+  )
+);
+impl(
+  Sha512,
+  // Initialise a new hasher.
+  new : (fn() -> Self)(
+    Self(
+      _h : Array(u64, usize(8))(
+        u64(0x6a09e667f3bcc908),
+        u64(0xbb67ae8584caa73b),
+        u64(0x3c6ef372fe94f82b),
+        u64(0xa54ff53a5f1d36f1),
+        u64(0x510e527fade682d1),
+        u64(0x9b05688c2b3e6c1f),
+        u64(0x1f83d9abfb41bd6b),
+        u64(0x5be0cd19137e2179)
+      ),
+      _buf : Array(u8, usize(128)).fill(u8(0)),
+      _buflen : usize(0),
+      _total : u64(0)
+    )
+  ),
+  // Feed more data into the hasher.
+  update : (fn(self : Self, data : ArrayList(u8)) -> Self)({
+    i := usize(0);
+    while(i < data.len(), i = (i + usize(1)), {
+      self._buf(self._buflen) = data(i);
+      self._buflen = (self._buflen + usize(1));
+      self._total = (self._total + u64(1));
+      cond(
+        (self._buflen == usize(128)) => {
+          buf_ptr := &(self._buf(usize(0)));
+          h_ptr := &(self._h(usize(0)));
+          _sha512_block(buf_ptr, h_ptr);
+          self._buflen = usize(0);
+        },
+        true => ()
+      );
+    });
+    self
+  }),
+  // Finalise and return the 64-byte digest.
+  finish : (fn(self : Self) -> Array(u8, usize(64)))({
+    bit_len_low := (self._total << u64(3));
+    bit_len_high := (self._total >> u64(61));
+    self._buf(self._buflen) = u8(0x80);
+    self._buflen = (self._buflen + usize(1));
+    cond(
+      (self._buflen > usize(112)) => {
+        while(self._buflen < usize(128), self._buflen = (self._buflen + usize(1)), {
+          self._buf(self._buflen) = u8(0);
+        });
+        buf_ptr := &(self._buf(usize(0)));
+        h_ptr := &(self._h(usize(0)));
+        _sha512_block(buf_ptr, h_ptr);
+        self._buflen = usize(0);
+      },
+      true => ()
+    );
+    while(self._buflen < usize(112), self._buflen = (self._buflen + usize(1)), {
+      self._buf(self._buflen) = u8(0);
+    });
+    // 128-bit big-endian bit length: high word then low word.
+    (wi : usize) = usize(0);
+    while(wi < usize(8), wi = (wi + usize(1)), {
+      shift := (u64(56) - (u64(8) * u64(wi)));
+      self._buf(usize(112) + wi) = u8(bit_len_high >> shift);
+      self._buf(usize(120) + wi) = u8(bit_len_low >> shift);
+    });
+    buf_ptr := &(self._buf(usize(0)));
+    h_ptr := &(self._h(usize(0)));
+    _sha512_block(buf_ptr, h_ptr);
+    digest := Array(u8, usize(64)).fill(u8(0));
+    j := usize(0);
+    while(j < usize(8), j = (j + usize(1)), {
+      word := self._h(j);
+      (bi2 : usize) = usize(0);
+      while(bi2 < usize(8), bi2 = (bi2 + usize(1)), {
+        shift2 := (u64(56) - (u64(8) * u64(bi2)));
+        digest((j * usize(8)) + bi2) = u8(word >> shift2);
+      });
+    });
+    digest
+  })
+);
+export(Sha512);
+// === Digest trait impl (std/crypto/digest) ===
+impl(
+  Sha512,
+  Digest(
+    new : (fn() -> Self)(Self.new()),
+    update : (fn(self : Self, data : ArrayList(u8)) -> Self)(self.update(data)),
+    digest_size : (fn() -> usize)(usize(64)),
+    block_size : (fn() -> usize)(usize(128)),
+    finish_bytes : (fn(self : Self) -> ArrayList(u8))({
+      d := self.finish();
+      out := ArrayList(u8).with_capacity(usize(64));
+      (fbi : usize) = usize(0);
+      while(fbi < usize(64), fbi = (fbi + usize(1)), {
+        out.push(d(fbi));
+      });
+      out
+    })
+  )
+);
+
+// ============================================================================
+// Convenience functions
+// ============================================================================
+// Hash data and return the 64-byte digest.
+sha512 :: (fn(data : ArrayList(u8)) -> Array(u8, usize(64)))(
+  Sha512.new().update(data).finish()
+);
+// Hash data and return the 128-character lowercase hex digest.
+sha512_hex :: (fn(data : ArrayList(u8)) -> String)({
+  digest := sha512(data);
+  bytes := ArrayList(u8).with_capacity(usize(64));
+  i := usize(0);
+  while(i < usize(64), i = (i + usize(1)), {
+    bytes.push(digest(i));
+  });
+  hex_encode(bytes)
+});
+export(sha512, sha512_hex);
