@@ -1,0 +1,94 @@
+//! std/encoding/percent — RFC 3986 component percent-encoding
+//! (plans/STD_API_AUDIT.md §7 P0 item 1). Multibyte cases carry
+//! hand-computed byte sequences; error cases pin the INDEX.
+{ assert } :: import("std/assert");
+open(import("std/string"));
+{ percent_encode, percent_decode, percent_decode_bytes, PercentError } :: import("std/encoding/percent");
+
+test("unreserved characters pass through untouched", {
+  s := `AZaz09-_.~`.to_string();
+  assert(percent_encode(s.clone()) == s, "unreserved set identity");
+});
+test("reserved and space encode as uppercase %XX", {
+  assert(percent_encode(`a b&c=d`.to_string()) == `a%20b%26c%3Dd`, "space, amp, equals");
+  assert(percent_encode(`/?#[]@`.to_string()) == `%2F%3F%23%5B%5D%40`, "gen-delims all encode");
+  assert(percent_encode(`+`.to_string()) == `%2B`, "+ is encoded, not a space");
+});
+test("multibyte UTF-8 encodes byte-by-byte", {
+  assert(percent_encode(`é`.to_string()) == `%C3%A9`, "two-byte scalar");
+  assert(percent_encode(`你`.to_string()) == `%E4%BD%A0`, "three-byte scalar");
+});
+test("decode round-trips encode, case-insensitively", {
+  original := `héllo wörld/?&=+`.to_string();
+  enc := percent_encode(original.clone());
+  match(
+    percent_decode(enc),
+    .Ok(back) => assert(back == original, "round trip"),
+    .Err(_) => assert(false, "round trip must decode")
+  );
+  match(
+    percent_decode(`%c3%a9`.to_string()),
+    .Ok(low) => assert(low == `é`, "lowercase hex accepted"),
+    .Err(_) => assert(false, "lowercase hex must decode")
+  );
+});
+test("plus passes through decode unchanged (RFC 3986, not the form dialect)", {
+  match(
+    percent_decode(`a+b`.to_string()),
+    .Ok(s) => assert(s == `a+b`, "+ stays +"),
+    .Err(_) => assert(false, "must decode")
+  );
+});
+test("truncated escape reports its index", {
+  match(
+    percent_decode(`ab%4`.to_string()),
+    .Ok(_) => assert(false, "must fail"),
+    .Err(e) => match(
+      e,
+      .TruncatedEscape(index) => assert(index == usize(2), "index of the %"),
+      _ => assert(false, "wrong variant")
+    )
+  );
+  match(
+    percent_decode(`ab%`.to_string()),
+    .Ok(_) => assert(false, "must fail"),
+    .Err(e2) => match(
+      e2,
+      .TruncatedEscape(i2) => assert(i2 == usize(2), "bare trailing %"),
+      _ => assert(false, "wrong variant")
+    )
+  );
+});
+test("invalid hex digit reports index and byte", {
+  match(
+    percent_decode(`%GG`.to_string()),
+    .Ok(_) => assert(false, "must fail"),
+    .Err(e) => match(
+      e,
+      .InvalidHexDigit(index, byte) => {
+        assert(index == usize(1), "first bad digit position");
+        assert(byte == u8(71), "the G byte");
+      },
+      _ => assert(false, "wrong variant")
+    )
+  );
+});
+test("decoded non-UTF-8 is an error for Strings but fine as bytes", {
+  match(
+    percent_decode(`%FF%FE`.to_string()),
+    .Ok(_) => assert(false, "must fail UTF-8 validation"),
+    .Err(e) => match(
+      e,
+      .InvalidUtf8(cause) => assert(cause.index() == usize(0), "fault at byte 0"),
+      _ => assert(false, "wrong variant")
+    )
+  );
+  match(
+    percent_decode_bytes(`%FF%FE`.to_string()),
+    .Ok(bytes) => {
+      assert(bytes.len() == usize(2), "two raw bytes");
+      assert(bytes(usize(0)) == u8(255), "0xFF preserved");
+    },
+    .Err(_) => assert(false, "bytes form must succeed")
+  );
+});

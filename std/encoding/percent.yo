@@ -1,0 +1,123 @@
+//! Percent-encoding (RFC 3986) — the URI component codec
+//! (`plans/STD_API_AUDIT.md` §7 P0 item 1).
+//!
+//! `percent_encode` keeps the RFC 3986 UNRESERVED set (`A-Z a-z 0-9 - _ . ~`)
+//! and encodes every other BYTE as `%XX` (uppercase hex), so multibyte UTF-8
+//! is encoded byte-by-byte — the component form (`encodeURIComponent` /
+//! Rust's `percent-encoding` NON_ALPHANUMERIC minus the unreserved marks).
+//!
+//! `percent_decode` reverses it: `%XX` → byte, validated as UTF-8 on the way
+//! back into a `String` (D1 style 2: a pure fallible transform returning
+//! `Result(_, PercentError)`); `percent_decode_bytes` returns the raw bytes
+//! for callers decoding non-text data.
+//!
+//! `+` is NOT treated as a space: that is the `application/x-www-form-urlencoded`
+//! FORM dialect, not RFC 3986 — a form variant can be added additively.
+open(import("../string"));
+{ ArrayList } :: import("../collections/array_list");
+utf8 :: import("./utf8");
+
+/// Percent-decoding error — carries the byte index of the fault.
+PercentError :: enum(
+  /// A `%` with fewer than two following characters.
+  TruncatedEscape(index : usize),
+  /// A `%XY` whose `X` or `Y` is not a hex digit; carries the bad byte.
+  InvalidHexDigit(index : usize, byte : u8),
+  /// The decoded bytes are not valid UTF-8 (only from `percent_decode`;
+  /// `percent_decode_bytes` never yields it).
+  InvalidUtf8(cause : utf8.Utf8Error)
+);
+/// True for the RFC 3986 unreserved set: `A-Z a-z 0-9 - _ . ~`.
+_is_unreserved :: (fn(b : u8) -> bool)(
+  ((b >= u8(65)) && (b <= u8(90))) || (((b >= u8(97)) && (b <= u8(122))) || (((b >= u8(48)) && (b <= u8(57))) || ((b == u8(45)) || ((b == u8(95)) || ((b == u8(46)) || (b == u8(126)))))))
+);
+_HEX_UPPER :: "0123456789ABCDEF";
+/// The value of an ASCII hex digit, or `.None`.
+_hex_val :: (fn(b : u8) -> Option(u8))(
+  cond(
+    ((b >= u8(48)) && (b <= u8(57))) => Option(u8).Some(b - u8(48)),
+    ((b >= u8(65)) && (b <= u8(70))) => Option(u8).Some((b - u8(65)) + u8(10)),
+    ((b >= u8(97)) && (b <= u8(102))) => Option(u8).Some((b - u8(97)) + u8(10)),
+    true => Option(u8).None
+  )
+);
+/// Percent-encode `input` for use as a URI component.
+percent_encode :: (fn(input : String) -> String)({
+  bytes := input.as_bytes();
+  n := bytes.len();
+  out := String.with_capacity(n);
+  hex := _HEX_UPPER.to_string().as_bytes();
+  (i : usize) = usize(0);
+  while(i < n, i = (i + usize(1)), {
+    b := match(bytes.get(i), .Some(x) => x, .None => u8(0));
+    cond(
+      _is_unreserved(b) => out.push_byte(b),
+      true => {
+        out.push_byte(u8(37));
+        out.push_byte(match(hex.get(usize(b >> u8(4))), .Some(h) => h, .None => u8(48)));
+        out.push_byte(match(hex.get(usize(b & u8(15))), .Some(h) => h, .None => u8(48)));
+      }
+    );
+  });
+  out
+});
+/// Percent-decode `input` to raw bytes. `%XX` becomes one byte; every other
+/// byte passes through (including `+`, which stays `+` — RFC 3986, not the
+/// form dialect).
+percent_decode_bytes :: (fn(input : String) -> Result(ArrayList(u8), PercentError))({
+  bytes := input.as_bytes();
+  n := bytes.len();
+  out := ArrayList(u8).with_capacity(n);
+  (i : usize) = usize(0);
+  while(i < n, {
+    b := match(bytes.get(i), .Some(x) => x, .None => u8(0));
+    cond(
+      (b == u8(37)) => {
+        if((i + usize(2)) >= n, {
+          return(Result(ArrayList(u8), PercentError).Err(PercentError.TruncatedEscape(i)));
+        });
+        hi_b := match(bytes.get(i + usize(1)), .Some(x) => x, .None => u8(0));
+        lo_b := match(bytes.get(i + usize(2)), .Some(x) => x, .None => u8(0));
+        hi := match(
+          _hex_val(hi_b),
+          .Some(v) => v,
+          .None => {
+            return(Result(ArrayList(u8), PercentError).Err(PercentError.InvalidHexDigit(i + usize(1), hi_b)));
+          }
+        );
+        lo := match(
+          _hex_val(lo_b),
+          .Some(v) => v,
+          .None => {
+            return(Result(ArrayList(u8), PercentError).Err(PercentError.InvalidHexDigit(i + usize(2), lo_b)));
+          }
+        );
+        out.push((hi << u8(4)) | lo);
+        i = (i + usize(3));
+      },
+      true => {
+        out.push(b);
+        i = (i + usize(1));
+      }
+    );
+  });
+  Result(ArrayList(u8), PercentError).Ok(out)
+});
+/// Percent-decode `input` to a `String`, validating the decoded bytes as
+/// UTF-8.
+percent_decode :: (fn(input : String) -> Result(String, PercentError))(
+  match(
+    percent_decode_bytes(input),
+    .Err(e) => Result(String, PercentError).Err(e),
+    .Ok(bytes) => match(
+      String.from_utf8(bytes),
+      .Ok(s) => Result(String, PercentError).Ok(s),
+      .Err(se) => match(
+        se,
+        .InvalidUtf8(cause) => Result(String, PercentError).Err(PercentError.InvalidUtf8(cause)),
+        _ => Result(String, PercentError).Err(PercentError.TruncatedEscape(usize(0)))
+      )
+    )
+  )
+);
+export(PercentError, percent_encode, percent_decode, percent_decode_bytes);
