@@ -20,7 +20,7 @@
 | 模块                 | 类型              | 适用场景                             | 底层结构                  |
 | -------------------- | ----------------- | ------------------------------------ | ------------------------- |
 | `std/imm/list`       | `List(T)`         | 高效前置插入、栈式工作负载、递归算法 | Cons 链表                 |
-| `std/imm/string`     | `String`          | 可共享的不可变 UTF-8 文本            | 不可变字节缓冲区          |
+| `std/imm/string`     | `ImmString`       | 可共享的不可变 UTF-8 文本            | 不可变字节缓冲区          |
 | `std/imm/vec`        | `Vec(T)`          | 带索引读取、偏向追加的不可变工作流   | 写时复制平坦数组          |
 | `std/imm/map`        | `Map(K, V)`       | 基于哈希的快速查找                   | HAMT                      |
 | `std/imm/set`        | `Set(T)`          | 基于哈希的成员测试                   | `Map(T, bool)` 包装       |
@@ -53,7 +53,7 @@ s = s.insert(i32(5)).insert(i32(1)).insert(i32(3));
 - 当你需要不可变的索引访问或切片式工作流时，选择 **`Vec(T)`**。
 - 当你需要基于哈希的查找与成员判断时，选择 **`Map(K, V)`** / **`Set(T)`**。
 - 当顺序本身就是 API 的一部分时，选择 **`SortedMap(K, V)`** / **`SortedSet(T)`**。
-- 当你需要可共享的不可变字符串时，选择 **`imm.String`**；如果需要可变字符串构建能力，继续使用 `std/string.String`。
+- 当你需要可共享的不可变字符串时，选择 **`ImmString`**；如果需要可变字符串构建能力，继续使用 `std/string.String`。
 
 ## API 参考
 
@@ -95,7 +95,7 @@ impl(generic(T : Type), where(T <: Send), ListNode(T), Acyclic());
 
 ## 写时复制（COW）优化
 
-`Vec(T)` 和 `imm.String` 通过 `own(self)` 参数在变更方法上实现了**写时复制**
+`Vec(T)` 和 `ImmString` 通过 `own(self)` 参数在变更方法上实现了**写时复制**
 语义（`push`、`set`、`pop`、`concat`、`reverse`、`dedup`、`to_lowercase`、
 `to_uppercase`）。
 
@@ -139,7 +139,7 @@ v = v.push(i32(3));    // rc=2，走复制路径
 | 集合         | COW 支持 | 说明                                     |
 | ------------ | -------- | ---------------------------------------- |
 | `Vec(T)`     | ✓        | `push`、`set`、`pop`、`concat` 等        |
-| `imm.String` | ✓        | `concat`、`to_lowercase`、`to_uppercase` |
+| `ImmString` | ✓        | `concat`、`to_lowercase`、`to_uppercase` |
 | `Map(K, V)`  | —        | 通过 HAMT 实现结构共享                   |
 | `SortedMap`  | —        | 通过左倾红黑树实现结构共享               |
 | `List(T)`    | —        | `prepend` 本身已经是 O(1)                |

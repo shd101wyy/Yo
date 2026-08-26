@@ -2,8 +2,8 @@
 // Tests for std/imm/vec — Persistent immutable vector
 { Vec, PopResult } :: import("../std/imm/vec");
 { ArrayList } :: import("../std/collections/array_list");
-{ String } :: import("../std/imm/string");
-VecRcEntry :: struct(text : String);
+{ ImmString } :: import("../std/imm/string");
+VecRcEntry :: struct(text : ImmString);
 test("Vec new creates empty vector", {
   v := Vec(i32).new();
   assert(v.len() == usize(0), "length should be 0");
@@ -264,15 +264,15 @@ test("Vec from_list equality", {
   assert(v1 == v2, "from_list equals manual push");
 });
 test("Vec supports RC-backed Send elements", {
-  v1 := Vec(VecRcEntry).new().push(VecRcEntry(text : String.from("a"))).push(VecRcEntry(text : String.from("b")));
+  v1 := Vec(VecRcEntry).new().push(VecRcEntry(text : ImmString.from("a"))).push(VecRcEntry(text : ImmString.from("b")));
   v1a := v1;
-  v2 := v1a.push(VecRcEntry(text : String.from("c")));
+  v2 := v1a.push(VecRcEntry(text : ImmString.from("c")));
   v2a := v2;
-  v3 := v2a.set(usize(0), VecRcEntry(text : String.from("z")));
+  v3 := v2a.set(usize(0), VecRcEntry(text : ImmString.from("z")));
   v3a := v3;
   popped := v3a.pop();
   v1b := v1;
-  v4 := v1b.concat(Vec(VecRcEntry).new().push(VecRcEntry(text : String.from("d"))));
+  v4 := v1b.concat(Vec(VecRcEntry).new().push(VecRcEntry(text : ImmString.from("d"))));
   v5 := v4.slice(usize(1), usize(3));
   assert(v1(usize(0)).text.eq_str("a"), "v1 keeps first value");
   assert(v2(usize(2)).text.eq_str("c"), "push appends rc value");
@@ -336,28 +336,31 @@ test("Vec COW dedup unique path", {
   assert(v(usize(1)) == i32(2), "dedup 1");
   assert(v(usize(2)) == i32(3), "dedup 2");
 });
-// Regression test: Vec(ImmString) exercises genericImplMethodCache with
+// Regression test: Vec(ImmString) exercised genericImplMethodCache with
 // same-named types from different modules (std/imm/string::String vs
-// std/string::String).
+// std/string::String) — see issues/fixed/generic-impl-method-cache-key-collision.md.
+// D4 PR 5 (2026-08-26) renamed the imm type to ImmString, so that name
+// collision no longer exists in the tree; these tests stay as plain
+// Vec(ImmString) coverage.
 test("Vec of ImmString push and get", {
-  v := Vec(String).new();
-  v = v.push(String.from("hello"));
-  v = v.push(String.from("world"));
+  v := Vec(ImmString).new();
+  v = v.push(ImmString.from("hello"));
+  v = v.push(ImmString.from("world"));
   assert(v.len() == usize(2), "length should be 2");
-  assert(v(usize(0)) == String.from("hello"), "elem 0");
-  assert(v(usize(1)) == String.from("world"), "elem 1");
+  assert(v(usize(0)) == ImmString.from("hello"), "elem 0");
+  assert(v(usize(1)) == ImmString.from("world"), "elem 1");
 });
 test("Vec of ImmString concat", {
-  a := Vec(String).new().push(String.from("a")).push(String.from("b"));
-  b := Vec(String).new().push(String.from("c"));
+  a := Vec(ImmString).new().push(ImmString.from("a")).push(ImmString.from("b"));
+  b := Vec(ImmString).new().push(ImmString.from("c"));
   c := a.concat(b);
   assert(c.len() == usize(3), "concat length");
-  assert(c(usize(2)) == String.from("c"), "concat elem 2");
+  assert(c(usize(2)) == ImmString.from("c"), "concat elem 2");
 });
 test("Vec of ImmString with struct element", {
   v := Vec(VecRcEntry).new();
-  v = v.push(VecRcEntry(text : String.from("item1")));
-  v = v.push(VecRcEntry(text : String.from("item2")));
+  v = v.push(VecRcEntry(text : ImmString.from("item1")));
+  v = v.push(VecRcEntry(text : ImmString.from("item2")));
   assert(v.len() == usize(2), "length");
-  assert(v(usize(0)).text == String.from("item1"), "text 0");
+  assert(v(usize(0)).text == ImmString.from("item1"), "text 0");
 });

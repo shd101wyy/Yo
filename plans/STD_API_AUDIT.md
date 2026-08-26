@@ -633,7 +633,32 @@ codegen corpus 155/155 with its goldens UNCHANGED, and a new
 `tests/string/string_byte_index.test.yo` (19 tests) of which **15 fail against
 the pre-flip `std` and pass against the flipped one**.
 
-The remaining D4 steps (PRs 4-9) are unchanged and still in
+~~**Step 4 of that plan (PR 4, the `imm.String` flip)**~~ **LANDED 2026-08-26.**
+`imm.String.len()` is the byte count at O(1) and `at()` decodes the rune
+starting at a BYTE offset (mirroring `String.at` — `.None` at/past `len()`, at
+a continuation byte, and on bytes that do not decode), so the type now speaks
+one basis everywhere (`slice`/`index_of`/`byte_at` were already bytes).
+**One deviation from the plan's row, driven by measurement:** `bytes_len()`
+was DELETED rather than kept as a deprecated alias — it had zero consumers
+outside `std/imm/string.yo` itself and `tests/imm_string.test.yo` (every other
+`.bytes_len(` in the tree is a `std/string` `String` receiver), so an alias
+would have shipped dead. `tests/imm_string.test.yo` grew from 34 to 44 tests
+(the §6.2 byte battery, all multibyte with hand-computed offsets); 8 of the 44
+fail against a pre-PR-4 `std/imm/string.yo` and pass against the flipped one.
+
+~~**Step 5 of that plan (PR 5, the `ImmString` rename)**~~ **LANDED 2026-08-26.**
+`std/imm/string` now exports **`ImmString`** (and `ImmStringChars` /
+`ImmStringCharIndices` — the iterators had the same same-name-as-`std/string`
+collision and zero external consumers, so they were renamed in the same
+stroke). The four consumer test files (§2.4 said three; it was four —
+`tests/imm_map.test.yo` too) import the new name; `imm_threading` had been
+aliasing `{ String : ImmString }` by hand since before the decision and now
+just imports it. Docs updated in both languages
+(`IMMUTABLE_COLLECTIONS.md` ×2), and `plans/IMMUTABLE_COLLECTIONS.md`'s
+bare-`String` naming decision carries a SUPERSEDED banner pointing here.
+`grep -rn "imm\.String" std src tests docs .github` answers zero.
+
+The remaining D4 steps (PRs 6-9) are unchanged and still in
 `plans/STD_API_AUDIT_D4_PLAN.md` §4.
 
 **SCOPE EXTENDED (user, 2026-08-25): `std/imm/string` is IN, and so is the
@@ -1187,8 +1212,8 @@ implementing the D5 traits.** Until it lands, std honestly refuses https.
 | fmt | FIX + EXTEND | delete `display.yo` (zero users) or wire it; format specs (D3.10); collapse 4 print bodies; dedupe 15 snprintf helpers |
 | spec/ | FREEZE AS DOC | identity stubs; mark experimental, exclude from stability promise |
 | collections/* | RENAME + EXTEND | §5 renames; entry API, `retain/extend/drain`, `binary_search`, real `sort` (not O(n²) insertion), `sort_by`; HashSet = HashMap(T, unit) to kill ~500 duplicated SwissTable lines; hide pub `ctrl/data/…` fields; `BTreeMap` → rename `FlatMap` OR implement a real B-tree with `range()` (recommend: real B-tree, keep name); add `BTreeSet`; `PriorityQueue`: keep name, add comparator ctor, DOCUMENT min-heap |
-| imm/* | KEEP (O4) + FIX | stays in std (decided 2026-08-23); require `Acyclic` element bounds per O7, add iteration + `Index` where doc'd, rename `imm.String` → `ImmString` (**folded into D4** 2026-08-25 — decided, no longer conditional on COW `String`), dedupe set pair; mark unstable until exercised |
-| string | FIX + EXTEND | ~~D4 indexing~~ (**byte-indexed 2026-08-26**, D4 PR 3; `imm.String` is D4 PR 4); Unicode-correct `to_lowercase` (+ `to_ascii_*` variants); `Pattern` impl for `rune` + `Regex`; `replace*` Pattern-generic; `parse_f64`/radix; `split_once`, `strip_prefix/suffix`, ~~`char_indices`~~ (landed 2026-08-26 with the rest of the D4 PR-1 vocabulary); move `panic_dyn`/`assert_dyn` to assert; delete dead `StringError`, one of `to_cstr`/`to_c_str` |
+| imm/* | KEEP (O4) + FIX | stays in std (decided 2026-08-23); require `Acyclic` element bounds per O7, add iteration + `Index` where doc'd, ~~rename `imm.String` → `ImmString`~~ (**folded into D4** 2026-08-25; **RENAMED 2026-08-26**, D4 PR 5 — iterators too: `ImmStringChars`/`ImmStringCharIndices`), dedupe set pair; mark unstable until exercised |
+| string | FIX + EXTEND | ~~D4 indexing~~ (**byte-indexed 2026-08-26**, D4 PR 3; ~~`imm.String` is D4 PR 4~~ **flipped 2026-08-26**, D4 PR 4); Unicode-correct `to_lowercase` (+ `to_ascii_*` variants); `Pattern` impl for `rune` + `Regex`; `replace*` Pattern-generic; `parse_f64`/radix; `split_once`, `strip_prefix/suffix`, ~~`char_indices`~~ (landed 2026-08-26 with the rest of the D4 PR-1 vocabulary); move `panic_dyn`/`assert_dyn` to assert; delete dead `StringError`, one of `to_cstr`/`to_c_str` |
 | encoding | STANDARDIZE | D2 verbs; one error style per D1; utf8 module; add `html_encode` (XSS!); percent-encoding module (P0 — nothing in std can build a safe query string); base32; CSV (P1); toml: floats/arrays/dates/serializer + `ToToml`/`FromToml` derives to mirror json (P1) |
 | json | EXTEND | enum representation for derives (open question O3); `JsonValue.Object` O(n) parallel arrays → keep repr, add index map if profiling demands |
 | regex | POLISH | `Regex.escape`, optional-flags `new`, callback replace, lazy `find_iter`, group byte-spans, ~~typed error, private internals~~ (**both DONE 2026-08-25**, D8) |
@@ -1686,9 +1711,12 @@ mmap/file-lock/statfs wrappers; `gc.stats`; DNS SRV/TXT/reverse
   2026-08-26**, so did the char-semantics pin (PR 2, plus
   `char_substring`/`truncate_chars`), **and so did the basis flip itself (PR 3,
   2026-08-26)** — `String` is byte-indexed, with clamping for out-of-range and
-  a panic for a non-boundary index. What remains is `imm.String` (PR 4), the
-  `ImmString` rename (PR 5), regex's `index()` (PR 6), the comptime basis
-  (PR 7), the docs sweep (PR 8) and the decoder dedup (PR 9).
+  a panic for a non-boundary index — **and so did `imm.String` (PR 4,
+  2026-08-26)**: `len()` bytes O(1), `at()` byte-indexed, `bytes_len()`
+  deleted (measured dead) — **and the `ImmString` rename (PR 5, 2026-08-26)**,
+  which also renamed the iterators to `ImmStringChars`/`ImmStringCharIndices`.
+  What remains is regex's `index()` (PR 6), the comptime basis (PR 7), the
+  docs sweep (PR 8) and the decoder dedup (PR 9).
 - **O2 (D6)**: **DECIDED — platform TLS libraries via `pkg_config`**
   (SecureTransport/Schannel/OpenSSL), behind one `TlsStream` implementing the
   D5 traits. Until it lands, https throws `UnsupportedScheme` (C1).
