@@ -1486,8 +1486,15 @@ the whole `Pattern` trait all speak BYTE offsets — the same unit as
 `byte_at` / `as_bytes` / `Index(usize)` / `str.len()` / `StringBuilder.len()`.
 `String.from("a→b").len()` is `5`, not `3`. **This is the reverse of what it
 used to be**: before that flip they were rune-based, and mixing the two bases
-was the standing hazard. Now the only rune-based names are the `char_*` family
-below.
+was the standing hazard. Rune work goes through `chars()` / `char_indices()`
+composed with iterator methods (see the vocabulary below).
+
+**Comptime strings share the byte basis** (D4 PR 7, 2026-08-26): comptime
+`s.len()`, `s.slice(a, b)`, `s[i]` and `s(a..b)` all speak byte offsets too.
+Comptime `s[i]` yields the RUNE starting at byte `i` as a 1-rune `comptime_str`
+(mirroring runtime `at(i)`; runtime `s[i]` yields the `u8` — that result-type
+split is deliberate), and a mid-rune offset is a compile error where the
+runtime `substring` would panic.
 
 ```
 // ✅ byte loop, byte bound — the bases now agree
@@ -1501,7 +1508,7 @@ it := s.char_indices();
 // p._0 is the BYTE offset, p._1 the rune
 
 // ❌ WRONG — a rune count is not a byte offset
-while(i < s.char_len(), { b := s.byte_at(i); ... });
+while(i < s.chars().count(), { b := s.byte_at(i); ... });
 // ❌ PANICS — an endpoint inside a rune
 s.substring(usize(0), usize(1)) // on "→…", byte 1 is a continuation byte
 ```
@@ -1516,30 +1523,50 @@ valid-UTF-8 needle simply cannot match at a continuation byte, so a mid-rune
 argument answers `false` / `.None`.
 
 **The rune vocabulary** (`std/string/string.yo`; the same names exist on
-`std/imm/string.yo`, whose own `len()` is still rune-based until D4 PR 4):
+`std/imm/string.yo`, whose `len()` and `at()` are byte-based the same way
+since D4 PR 4 — note its `bytes_len()` was DELETED there rather than
+deprecated, because it had zero consumers left; only `std/string`'s `String`
+keeps the deprecated alias). The shape is Rust's exactly: byte slicing +
+iterators for rune work; there is no char-indexed slicing in the final API:
 
 | call | basis | meaning |
 | --- | --- | --- |
-| `s.char_len()` | runes | the O(n) rune count. **Say this** whenever you mean "how many characters" — `len()` is bytes. |
+| `s.chars().count()` | runes | **THE rune count.** O(n) — and the iterator spelling keeps that cost visible at the call site (Rust reserves `len()` for `ExactSizeIterator`, which a chars iterator is not). Say this whenever you mean "how many characters" — `len()` is bytes. |
 | `s.char_indices()` | — | iterator of `IterPair(byte_offset, rune)`; `p._0` is the BYTE offset, `p._1` the rune. This is the replacement for `while(i < s.len()) { s.at(i) }`, which now visits continuation bytes and yields `.None` at each of them. |
-| `s.char_substring(a, b)` | runes | the rune-indexed slice — what `substring` meant before the flip. Clamps, never panics. |
-| `s.truncate_chars(n)` | runes | keep at most `n` runes. Never splits a rune, never lengthens. The right tool for "cut arbitrary human text to a display length". |
 | `s.is_char_boundary(i)` | byte | is byte `i` the start of a rune? `0` and `len()` are boundaries; past the end is not. |
 | `s.floor_char_boundary(i)` / `s.ceil_char_boundary(i)` | byte | snap an arbitrary byte offset back/forward onto a rune start (clamped to `len()`). |
 | `s.try_substring(a, b)` | byte | `Option(String)`; `.None` for `a > b`, `b > len()`, or an endpoint inside a rune. The non-panicking `substring`. |
 | `s.bytes_len()` | byte | DEPRECATED alias of `len()`. It existed to say "bytes, not runes"; that distinction is gone. Write `len()`. |
 
-`char_len` and `char_indices` sit on `std/encoding/utf8`, so they inherit its
-malformed-input behaviour: `char_len` counts non-continuation bytes, and
-`char_indices` (like `chars()`) stops at the first sequence that will not decode.
+`char_len()`, `char_substring(a, b)` and `truncate_chars(n)` still exist on
+this branch but are **deprecated pending removal** — do not write them in new
+code. The iterator idioms replace them (all three verified with a compiled
+multibyte probe):
+
+```
+// rune count
+n := s.chars().count();
+// truncate to at most n runes: byte offset where rune n starts, byte-slice to it
+cut := match(
+  s.char_indices().nth(n),
+  .Some(p) => s.substring(usize(0), p._0),
+  .None => s // fewer than n+1 runes — keep the whole string
+);
+// first rune + the rest
+first := s.chars().next(); // Option(rune)
+```
+
+`chars()` / `char_indices()` sit on `std/encoding/utf8`, so they inherit its
+malformed-input behaviour: they stop at the first sequence that will not
+decode.
 
 **Lexer/AST note:** `Token.character` is a RUNE offset into `Token.input`
 (the lexer walks `input.chars()`); `Token.byte_offset` is the byte offset of
 the same position. **Never index `input` with `character`** — that was
 `issues/fixed/yo-self-formatter-corrupts-files-with-non-ascii.md`, where `yo
 fmt` silently destroyed non-ASCII source at rc=0. `Token.column` is likewise a
-rune column, so a width added to it must be `value.char_len()`, not
-`value.len()`.
+rune column, so a width added to it must be a RUNE count
+(`value.chars().count()`), never `value.len()`.
 
 ## Async: await only at the async-closure statement level
 

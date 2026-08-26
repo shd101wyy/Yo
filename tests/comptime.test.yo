@@ -2890,6 +2890,36 @@ test("Test comptime_str", {
     comptime_assert(combined == "HELLO WORLD");
   };
 });
+test("Comptime string basis is BYTES (D4 PR 7, O1c)", {
+  // Subject covers all four UTF-8 widths:
+  //  a=1B @0   é=2B @1   中=3B @3   𝄞=4B @6   — 10 bytes, 4 runes.
+  s :: "aé中𝄞";
+  // len() counts BYTES, matching the runtime String.len()/str.len().
+  // The pre-PR-7 engine answered 4 (runes) here.
+  comptime_assert(s.len() == 10);
+  // slice takes BYTE offsets [start, end) on rune boundaries.
+  // The pre-PR-7 engine read these as RUNE indices (slice(1, 3) was "é中").
+  first :: s.slice(0, 1); // "a"
+  second :: s.slice(1, 3); // "é"
+  third :: s.slice(3, 6); // "中"
+  fourth :: s.slice(6, s.len()); // "𝄞"
+  comptime_assert(first == "a");
+  comptime_assert(second == "é");
+  comptime_assert(third == "中");
+  comptime_assert(fourth == "𝄞");
+  // Out-of-range still clamps, as slice always has.
+  comptime_assert(s.slice(12, s.len()) == "");
+  // Runtime-observable: the folded comptime values agree with the runtime
+  // byte basis (a vacuously-green comptime fold cannot fake these). `str` is
+  // the prelude's byte-based string; a comptime_str converts to it.
+  (runtime_len : usize) = usize(s.len());
+  (rs : str) = s;
+  assert(runtime_len == rs.len());
+  assert(runtime_len == usize(10));
+  (runtime_third : str) = third;
+  assert(runtime_third.len() == usize(3));
+  assert(runtime_third == "中");
+});
 test("Test mutation", {
   // Value semantics
   /// struct

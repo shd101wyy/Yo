@@ -96,7 +96,7 @@ otherwise COMPLETE.
 | C20 | **A callback generic over its RESULT miscompiles when the closure returns unit** — `fn(generic(R), body : Impl(Fn(...) -> R)) -> R` specialized at `R = unit` emits `void* tmp = <void call>;`, which clang rejects. That signature IS `Mutex(T).with_lock`, so the flagship std/sync form `m.with_lock((v) => { v = i32(7); })` does not C-compile today; `tests/sync/mutex.test.yo` misses it because all three cases return a value. `yo check` and `--emit-c` are both clean — only the C compiler objects. Root-caused to one predicate in `src/codegen/exprs/other_fn_call.yo` (the fn-pointer `ou_may_unwind` branch tests `is_unit_type(result_type)` while the registered-callee path consults the SomeT spelling). **FIXED 2026-08-26** — the patch was validated and applied; the fn-pointer path's void-result test now also fires for a SomeT-typed unit result, excluding the generic-ResumeType `ctl` case. Red-first regression tests added to `tests/sync/mutex.test.yo` and `tests/sync/rwlock.test.yo`; they were the missing coverage, since no test used the unit-body shape at all. Unblocks `RwLock.with_write((v) => { ... })` and Phase D's unwind-safe `Once.call`. issues/fixed/generic-r-callback-with-unit-closure-emits-void-star-temp.md | compiler |
 | C21 | **A materialized async trait `?=` default resolves its `Impl(Future(...))` return to ONE concrete state-machine type for ALL implementors** — the call site for implementor A declares implementor B's `_state_t*` and clang warns `-Wincompatible-pointer-types`, the diagnostic `src/main.yo` deliberately re-enables because "both sides are written by this compiler". Harmless only because every async state struct shares a common prefix and `__capture` sits after it (verified with 56-byte-skewed implementors). Live in `tests/async_trait_default_await.test.yo` and in the C16 reproducer. Found reviewing C16, NOT caused by it. OPEN — issues/async-trait-default-shares-one-impl-future-concrete-type.md | compiler |
 | C22 | **A closure defined INSIDE an `io.async` closure body makes that body untranspilable** — compile exits 0, clang is clean, the binary is rc=134 (`abort()` stub from #275) and the future is a `_sync_fut_t`. Independent of traits and of `Self`; pre-existing on develop. Scored `0 real` by `count-transpile-failures.sh` until that script learned to print the stub count (2026-08-26). OPEN — issues/closure-nested-inside-io-async-closure-body-emits-abort-stub.md | compiler |
-| C23 | **A GENERIC implementor (`impl(generic(T), Wrap(T), …)`) whose async method awaits `Self.<async method>` emits C that does not compile** — 4–5 clang errors, the `Impl(...)` placeholder `__yo_t0` survives into the emitted C and one future comes out `_sync_fut_t`. Happens with the body provided explicitly AND from a `?=` default; the non-generic implementor of the same trait is fine. **This is what still blocks D5's `BufReader(R)`/`BufWriter(W)`.** Pre-existing on develop. OPEN — issues/generic-implementor-async-method-awaiting-self-emits-uncompilable-c.md | compiler |
+| C23 | ~~A GENERIC implementor (`impl(generic(T), Wrap(T), …)`) whose async method awaits `Self.<async method>` emits C that does not compile~~ **FIXED 2026-08-26.** The row's "`Impl(...)` placeholder `__yo_t0` survives" read was wrong on the mechanism: `__yo_t0` was the RECEIVER (`Wrap(usize)`), not the placeholder. TWO defects, both only reachable through a generic implementor (only its methods take the per-receiver specialization arm): (1) `_evaluate_funcval_runtime_call`'s static-dot `-> Self` resolution clobbered EVERY SomeT return with the receiver — `Self.read(...)`'s declared `Impl(Future(...))` return re-registered as `Wrap(usize)` (fix: gate on the SomeT being NAMED "Self"; `src/evaluator/calls/function.yo`); (2) `substitute` was not capture-avoiding, so the impl's `T := usize` rewrote the UNRELATED `T` binder inside `Io.async : fn(generic(T, E), …)` and the corrupted `Io` keyed a second C type (fix: `_mask_func_own_binders`, nested-Func name shadowing with the root exempt for `_freshen_io_builtin_callee`; `src/types/substitution.yo`). Test: `tests/generic_impl_async_self.test.yo` (explicit body, `?=` default, non-generic control, two-type-arg implementor). Issue: issues/fixed/generic-implementor-async-method-awaiting-self-emits-uncompilable-c.md | compiler |
 
 ---
 
@@ -633,7 +633,33 @@ codegen corpus 155/155 with its goldens UNCHANGED, and a new
 `tests/string/string_byte_index.test.yo` (19 tests) of which **15 fail against
 the pre-flip `std` and pass against the flipped one**.
 
-The remaining D4 steps (PRs 4-9) are unchanged and still in
+~~**Step 4 of that plan (PR 4, the `imm.String` flip)**~~ **LANDED 2026-08-26.**
+`imm.String.len()` is the byte count at O(1) and `at()` decodes the rune
+starting at a BYTE offset (mirroring `String.at` — `.None` at/past `len()`, at
+a continuation byte, and on bytes that do not decode), so the type now speaks
+one basis everywhere (`slice`/`index_of`/`byte_at` were already bytes).
+**One deviation from the plan's row, driven by measurement:** `bytes_len()`
+was DELETED rather than kept as a deprecated alias — it had zero consumers
+outside `std/imm/string.yo` itself and `tests/imm_string.test.yo` (every other
+`.bytes_len(` in the tree is a `std/string` `String` receiver), so an alias
+would have shipped dead. `tests/imm_string.test.yo` grew from 34 to 44 tests
+(the §6.2 byte battery, all multibyte with hand-computed offsets); 8 of the 44
+fail against a pre-PR-4 `std/imm/string.yo` and pass against the flipped one.
+
+~~**Step 5 of that plan (PR 5, the `ImmString` rename)**~~ **LANDED 2026-08-26.**
+`std/imm/string` now exports **`ImmString`** (and `ImmStringChars` /
+`ImmStringCharIndices` — the iterators had the same same-name-as-`std/string`
+collision and zero external consumers, so they were renamed in the same
+stroke). The four consumer test files (§2.4 said three; it was four —
+`tests/imm_map.test.yo` too) import the new name; `imm_threading` had been
+aliasing `{ String : ImmString }` by hand since before the decision and now
+just imports it. Docs updated in both languages
+(`IMMUTABLE_COLLECTIONS.md` ×2), and `plans/IMMUTABLE_COLLECTIONS.md`'s
+bare-`String` naming decision carries a SUPERSEDED banner pointing here.
+`grep -rn "imm\.String" std src tests docs .github` answers zero.
+
+The remaining D4 step is PR 9 (**PRs 6-8 also LANDED 2026-08-26** —
+see O1 in §8); details still in
 `plans/STD_API_AUDIT_D4_PLAN.md` §4.
 
 **SCOPE EXTENDED (user, 2026-08-25): `std/imm/string` is IN, and so is the
@@ -714,12 +740,16 @@ hollow `abort()` body, including the loop-until-done shape `read_to_end` needs
 issues/fixed/trait-default-awaiting-self-async-method-emits-hollow-fn.md and
 `tests/async_trait_default_await.test.yo`.
 
-Three things measured in the same review still stand between here and the
-section as written, so do NOT read C16 as "D5 is implementable now":
+**C23 is ALSO CLEARED (2026-08-26)** — a GENERIC implementor of an async trait
+(`impl(generic(T), Wrap(T), …)` awaiting `Self.<async method>`, the exact
+`BufReader(R)`/`BufWriter(W)` shape) now compiles and runs, explicit body or
+`?=` default, including a two-type-argument implementor
+(`tests/generic_impl_async_self.test.yo`,
+issues/fixed/generic-implementor-async-method-awaiting-self-emits-uncompilable-c.md).
 
-- **C23 blocks `BufReader(R)`/`BufWriter(W)` outright.** A GENERIC implementor of
-  an async trait emits C that does not compile, default or no default. Concrete
-  implementors (`File`, a socket) are fine.
+Two things measured in the same review still stand between here and the
+section as written:
+
 - **C17** still blocks the `Dyn(Reader)` spelling of the same wrapper.
 - **C21** makes the emitted C for a two-implementor async default trip
   `-Wincompatible-pointer-types`. It does not miscompile today, but the whole
@@ -1187,11 +1217,11 @@ implementing the D5 traits.** Until it lands, std honestly refuses https.
 | fmt | FIX + EXTEND | delete `display.yo` (zero users) or wire it; format specs (D3.10); collapse 4 print bodies; dedupe 15 snprintf helpers |
 | spec/ | FREEZE AS DOC | identity stubs; mark experimental, exclude from stability promise |
 | collections/* | RENAME + EXTEND | §5 renames; entry API, `retain/extend/drain`, `binary_search`, real `sort` (not O(n²) insertion), `sort_by`; HashSet = HashMap(T, unit) to kill ~500 duplicated SwissTable lines; hide pub `ctrl/data/…` fields; `BTreeMap` → rename `FlatMap` OR implement a real B-tree with `range()` (recommend: real B-tree, keep name); add `BTreeSet`; `PriorityQueue`: keep name, add comparator ctor, DOCUMENT min-heap |
-| imm/* | KEEP (O4) + FIX | stays in std (decided 2026-08-23); require `Acyclic` element bounds per O7, add iteration + `Index` where doc'd, rename `imm.String` → `ImmString` (**folded into D4** 2026-08-25 — decided, no longer conditional on COW `String`), dedupe set pair; mark unstable until exercised |
-| string | FIX + EXTEND | ~~D4 indexing~~ (**byte-indexed 2026-08-26**, D4 PR 3; `imm.String` is D4 PR 4); Unicode-correct `to_lowercase` (+ `to_ascii_*` variants); `Pattern` impl for `rune` + `Regex`; `replace*` Pattern-generic; `parse_f64`/radix; `split_once`, `strip_prefix/suffix`, ~~`char_indices`~~ (landed 2026-08-26 with the rest of the D4 PR-1 vocabulary); move `panic_dyn`/`assert_dyn` to assert; delete dead `StringError`, one of `to_cstr`/`to_c_str` |
+| imm/* | KEEP (O4) + FIX | stays in std (decided 2026-08-23); require `Acyclic` element bounds per O7, add iteration + `Index` where doc'd, ~~rename `imm.String` → `ImmString`~~ (**folded into D4** 2026-08-25; **RENAMED 2026-08-26**, D4 PR 5 — iterators too: `ImmStringChars`/`ImmStringCharIndices`), dedupe set pair; mark unstable until exercised |
+| string | FIX + EXTEND | ~~D4 indexing~~ (**byte-indexed 2026-08-26**, D4 PR 3; ~~`imm.String` is D4 PR 4~~ **flipped 2026-08-26**, D4 PR 4); Unicode-correct `to_lowercase` (+ `to_ascii_*` variants); `Pattern` impl for `rune` + `Regex`; `replace*` Pattern-generic; `parse_f64`/radix; `split_once`, `strip_prefix/suffix`, ~~`char_indices`~~ (landed 2026-08-26 with the rest of the D4 PR-1 vocabulary); move `panic_dyn`/`assert_dyn` to assert; delete dead `StringError`, one of `to_cstr`/`to_c_str` |
 | encoding | STANDARDIZE | D2 verbs; one error style per D1; utf8 module; add `html_encode` (XSS!); percent-encoding module (P0 — nothing in std can build a safe query string); base32; CSV (P1); toml: floats/arrays/dates/serializer + `ToToml`/`FromToml` derives to mirror json (P1) |
 | json | EXTEND | enum representation for derives (open question O3); `JsonValue.Object` O(n) parallel arrays → keep repr, add index map if profiling demands |
-| regex | POLISH | `Regex.escape`, optional-flags `new`, callback replace, lazy `find_iter`, group byte-spans, ~~typed error, private internals~~ (**both DONE 2026-08-25**, D8) |
+| regex | POLISH | `Regex.escape`, optional-flags `new`, callback replace, lazy `find_iter`, group byte-spans, ~~typed error, private internals~~ (**both DONE 2026-08-25**, D8); ~~`RegexMatch.index()` char→byte basis (D4 PR 6)~~ (**DONE 2026-08-26** — byte index, all six conversion walks deleted, not the four the D4 plan counted: the `` $` ``/`$'` replacement arms re-walked too, and the third listed site was `split`, not the nonexistent `replace_all_fn`; release-note item; 10 multibyte index tests added, regex suite 156→166) |
 | url | EXTEND | percent-encode/decode integration, `query_pairs`/`SearchParams`, `join` (RFC 3986 §5 — needed by http redirects), builder/setters; ~~wire punycode into host handling (or delete punycode)~~ — DELETED, §6 round 1 |
 | io | REDESIGN | D5 |
 | fs | EXTEND + POLISH | wrappers: `copy`, `remove_dir_all` (compiler implements it TWICE as workaround — `src/fetch.yo:80`, `src/version_cache.yo:72`), `read_link`, `set_permissions`, `set_len`, `try_exists`, `watch` (sys/events exists); `OpenOptions` builder; `File.from_fd`; Metadata: real `btime`, `permissions()`, stop `metadata` re-stat by path; DirEntry `path()`; walker: lazy option + glob filter; complete the `_str`/`_cstr` variant matrix or (better) collapse it with a `Pattern`-style `AsPath` trait |
@@ -1686,9 +1716,24 @@ mmap/file-lock/statfs wrappers; `gc.stats`; DNS SRV/TXT/reverse
   2026-08-26**, so did the char-semantics pin (PR 2, plus
   `char_substring`/`truncate_chars`), **and so did the basis flip itself (PR 3,
   2026-08-26)** — `String` is byte-indexed, with clamping for out-of-range and
-  a panic for a non-boundary index. What remains is `imm.String` (PR 4), the
-  `ImmString` rename (PR 5), regex's `index()` (PR 6), the comptime basis
-  (PR 7), the docs sweep (PR 8) and the decoder dedup (PR 9).
+  a panic for a non-boundary index — **and so did `imm.String` (PR 4,
+  2026-08-26)**: `len()` bytes O(1), `at()` byte-indexed, `bytes_len()`
+  deleted (measured dead) — **and the `ImmString` rename (PR 5, 2026-08-26)**,
+  which also renamed the iterators to `ImmStringChars`/`ImmStringCharIndices`
+  — **and regex's `index()` (PR 6, 2026-08-26)**: a byte index, six
+  conversion walks deleted (release-note item). **The comptime basis (PR 7,
+  O1c) landed 2026-08-26**: comptime `len`/`slice`/`s[i]`/`s(a..b)` are
+  byte-based like the runtime; `s[i]` yields the rune STARTING at that byte
+  as a 1-rune string (the result-TYPE split against runtime's `u8` is
+  deliberate); a mid-rune offset is a compile error where the runtime
+  `substring` panics. Re-measured seed-safety: `std/` + `src/` + `build.yo`
+  carry ZERO comptime string `len`/`slice`/index call sites, so the seed
+  evaluates none of it building stage 1. **The docs sweep (PR 8) landed the
+  same day** — new `docs/{en-US,zh-CN}/STRINGS.md` state the byte contract,
+  and per a newer user decision the documented rune-count idiom is
+  `s.chars().count()` (`char_len`/`char_substring`/`truncate_chars` are
+  deprecated pending removal; the final API has no char-indexed slicing).
+  What remains is the decoder dedup (PR 9).
 - **O2 (D6)**: **DECIDED — platform TLS libraries via `pkg_config`**
   (SecureTransport/Schannel/OpenSSL), behind one `TlsStream` implementing the
   D5 traits. Until it lands, https throws `UnsupportedScheme` (C1).

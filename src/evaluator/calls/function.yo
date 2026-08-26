@@ -2246,11 +2246,23 @@ _evaluate_funcval_runtime_call :: (
         // "has_generic_return" (declarations.yo skip2), so e.g. the
         // specialized `Thread.spawn -> Self` would never be emitted.
         // Resolve `Self` to the concrete static-dot receiver here (the
-        // body constructs that concrete type). Gated to a SomeT return so
-        // concrete returns are untouched.
-        if(is_some_type(resolved_ret), {
+        // body constructs that concrete type). Gated to a SomeT return
+        // NAMED "Self" — only the `-> Self` shape means the receiver. A
+        // reserved-name wrapper return (`Impl(Future(...))` on a generic
+        // implementor's `Self.read(...)` await chain) is NOT the receiver:
+        // clobbering it re-registered the spec's return as the receiver
+        // struct, so the emitted C returned `Wrap(usize)` while the body
+        // built a `_sync_fut_t*` (C23,
+        // issues/fixed/generic-implementor-async-method-awaiting-self-emits-uncompilable-c.md).
+        // Concrete returns are untouched as before.
+        ret_some_is_self := match(
+          resolved_ret,
+          .SomeT({ name : sdr_nm }) => (sdr_nm == "Self"),
+          _ => false
+        );
+        if(ret_some_is_self, {
           resolved_ret = spec_st.clone();
-        }, {
+        }, if(is_some_type(resolved_ret), (), {
           // Gap-6 attempt-8(a): a PATTERN-ERA `Self` return instance (baked
           // at impl def-eval; unresolved `T#N` only in type_arguments) is
           // swapped for the concrete receiver instance — the receiver IS the
@@ -2268,7 +2280,7 @@ _evaluate_funcval_runtime_call :: (
             },
             .None => ()
           );
-        });
+        }));
         ctx.self_type = Option(TypeValue).Some(spec_st);
       },
       .None => match(
