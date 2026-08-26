@@ -75,7 +75,7 @@ _(env : impl_dbg_env) :: import("std/env");
 } :: import("./type_trait_methods.yo");
 { FuncMeta, TypeValue } :: import("../../types/definitions.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ t_unit, t_type, t_some_t, t_usize, register_some_binder_kind, clear_some_binder_kind } :: import("../../types/creators.yo");
+{ t_unit, t_type, t_some_t, t_usize, register_some_binder_kind, clear_some_binder_kind, generate_some_type_id } :: import("../../types/creators.yo");
 { is_some_type, is_function_type, is_expr_type } :: import("../../types/guards.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { subst_new, subst_add, subst_set_self, substitute } :: import("../../types/substitution.yo");
@@ -2307,6 +2307,127 @@ _retype_with_value_param_labels :: (fn(ty : TypeValue, fv : EvalValue) -> TypeVa
     _ => ty
   )
 });
+/// Rebuild a method type so its RETURN-position SomeTs get FRESH ids (and
+/// therefore fresh resolution cells). `substitute` shares unchanged
+/// subtrees, so every per-impl materialization of a trait `?=` default whose
+/// return contains no `Self` — e.g. `-> Impl(Future(ArrayList(u8), IoExn))`
+/// — otherwise carries the SAME return SomeT as the trait declaration and as
+/// every OTHER implementor: one global resolution cell, last writer wins.
+/// That is C21 (issues/fixed/async-trait-default-shares-one-impl-future-concrete-type.md):
+/// implementor A's call site declared implementor B's state-machine type,
+/// and on the generic BufReader(R) it escalated to a never-emitted ABSTRACT
+/// state struct (a hard C error). SomeTs that also occur in the params /
+/// foralls / where / implicit positions are left alone — freshening only the
+/// return half of a linked pair would split an identity the signature relies
+/// on.
+_freshen_return_only_somes :: (fn(method_ty : TypeValue) -> TypeValue)(
+  match(
+    method_ty,
+    .Func({ forall_types : fr_fts, param_types : fr_pts, implicit_types : fr_its, where_types : fr_wts, result : fr_res, meta : fr_m, variadic_types : fr_vts }) => {
+      res_somes := get_all_some_types(fr_res);
+      if(res_somes.len() == usize(0), {
+        return(method_ty);
+      });
+      // (name, level) pairs used OUTSIDE the return — do not freshen those.
+      keep := ArrayList(String).new();
+      outside := ArrayList(ArrayList(TypeValue)).new();
+      outside.push(fr_pts);
+      outside.push(fr_fts);
+      outside.push(fr_wts);
+      outside.push(fr_its);
+      (oi : usize) = usize(0);
+      while(oi < outside.len(), {
+        tys := match(outside.get(oi), .Some(t) => t, .None => ArrayList(TypeValue).new());
+        (ci : usize) = usize(0);
+        while(ci < tys.len(), {
+          match(
+            tys.get(ci),
+            .Some(ct) => {
+              c_somes := get_all_some_types(ct);
+              (cj : usize) = usize(0);
+              while(cj < c_somes.len(), {
+                match(
+                  c_somes.get(cj),
+                  .Some(cst) => match(
+                    cst,
+                    .SomeT(_, c_nm, c_lvl, _, _, _, _, _, _, _, _) => {
+                      keep.push(`${c_nm}@${c_lvl.to_string()}`);
+                    },
+                    _ => ()
+                  ),
+                  .None => ()
+                );
+                cj = (cj + usize(1));
+              });
+            },
+            .None => ()
+          );
+          ci = (ci + usize(1));
+        });
+        oi = (oi + usize(1));
+      });
+      fs := subst_new();
+      (added : usize) = usize(0);
+      (ri : usize) = usize(0);
+      while(ri < res_somes.len(), {
+        match(
+          res_somes.get(ri),
+          .Some(rst) => match(
+            rst,
+            .SomeT({ name : r_nm, frame_level : r_lvl, parent_type : r_pt, required_trait_types : r_rtt, required_trait_levels : r_rtl, negative_trait_types : r_ntt, negative_trait_levels : r_ntl, is_effects_row : r_ier, kind_function_type : r_kft }) => {
+              r_key := `${r_nm}@${r_lvl.to_string()}`;
+              (r_kept : bool) = false;
+              (ki : usize) = usize(0);
+              while(ki < keep.len(), {
+                if(match(keep.get(ki), .Some(k) => (k == r_key), .None => false), {
+                  r_kept = true;
+                });
+                ki = (ki + usize(1));
+              });
+              if(!(r_kept), {
+                subst_add(
+                  fs,
+                  r_nm.clone(),
+                  r_lvl,
+                  TypeValue.SomeT(
+                    generate_some_type_id(),
+                    r_nm.clone(),
+                    r_lvl,
+                    r_pt.clone(),
+                    r_rtt.clone(),
+                    r_rtl.clone(),
+                    r_ntt.clone(),
+                    r_ntl.clone(),
+                    r_ier,
+                    r_kft.clone(),
+                    ArrayList(TypeValue).new()
+                  )
+                );
+                added = (added + usize(1));
+              });
+            },
+            _ => ()
+          ),
+          .None => ()
+        );
+        ri = (ri + usize(1));
+      });
+      if(added == usize(0), {
+        return(method_ty);
+      });
+      TypeValue.Func(
+        fr_fts,
+        fr_pts,
+        fr_its,
+        fr_wts,
+        substitute(fs, fr_res),
+        fr_m,
+        fr_vts
+      )
+    },
+    _ => method_ty
+  )
+);
 _substitute_self_in_method_ty :: (
   fn(method_ty : TypeValue, self_concrete : TypeValue) -> TypeValue
 )({
@@ -3368,7 +3489,7 @@ evaluate_module_value :: (
                   get_trait_default(gd_trait_id.clone(), gd_label.clone()),
                   .Some(gd_val) => {
                     g_method_names.push(gd_label.clone());
-                    g_method_types.push(_substitute_self_in_method_ty(gd_ty, receiver_type_pattern));
+                    g_method_types.push(_freshen_return_only_somes(_substitute_self_in_method_ty(gd_ty, receiver_type_pattern)));
                     g_method_values.push(_stamp_impl_forall_on_method(gd_val, forall_names));
                   },
                   .None => ()
@@ -4103,7 +4224,7 @@ evaluate_module_value :: (
                   match(
                     get_trait_default(dtf_trait_id.clone(), d_label.clone()),
                     .Some(d_val) => {
-                      d_sub_ty := _substitute_self_in_method_ty(d_ty, receiver_ty);
+                      d_sub_ty := _freshen_return_only_somes(_substitute_self_in_method_ty(d_ty, receiver_ty));
                       // PER-IMPL MATERIALIZATION (TS trait-type.ts:418-489
                       // materializes defaults in the impl's env where Self is
                       // concrete): the shared default FuncVal's body was

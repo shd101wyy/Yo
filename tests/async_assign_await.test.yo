@@ -1,0 +1,70 @@
+//! Regression (issues/fixed/assign-await-to-existing-variable-silently-noops.md):
+//! `out = e.io.await(...)` — RE-assignment (`=`) of an await result to an
+//! EXISTING variable — fell through every arm of the await-statement
+//! emitters: no future store, no target extraction, so inside a cond/match
+//! branch the ENTIRE awaiting branch silently no-oped (`sm->await_future_N`
+//! stayed NULL and the machinery skipped ahead), and every call returned the
+//! fallthrough value. Found by D5's BufReader bypass test (`read` returned
+//! the refill count instead of the bypass count). Three emitters had the
+//! `:=`-only guard: extract_target_variable_id (suspension_analysis.yo),
+//! generate_await_expression and generate_cond_branch_with_await
+//! (state_code_gen.yo).
+{ assert } :: import("std/assert");
+{ IoExn } :: import("std/error");
+
+give_a :: (fn(io : Io) -> Impl(Future(usize, IoExn)))(
+  io.async((e) => usize(11))
+);
+give_b :: (fn(x : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+  io.async((e) => (x + usize(100)))
+);
+// The pre-fix silent wrong-value shape: sibling conds, each branch
+// RE-assigning `out` from an await; every pick() returned 999 before.
+pick :: (fn(which : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+  io.async((e) => {
+    (out : usize) = usize(0);
+    (done : bool) = false;
+    cond(
+      (which == usize(1)) => {
+        out = e.io.await(give_a(io), e);
+        done = true;
+      },
+      true => ()
+    );
+    cond(
+      (!(done) && (which == usize(2))) => {
+        out = e.io.await(give_b(usize(7), io), e);
+        done = true;
+      },
+      true => ()
+    );
+    cond(
+      (!(done)) => {
+        out = usize(999);
+      },
+      true => ()
+    );
+    out
+  })
+);
+// Linear (no cond) re-assignment of an await result.
+lin :: (fn(io : Io) -> Impl(Future(usize, IoExn)))(
+  io.async((e) => {
+    (out : usize) = usize(0);
+    out = e.io.await(give_a(io), e);
+    out = (out + usize(1));
+    out
+  })
+);
+test("await re-assigned into an existing var runs its cond branch", {
+  a := io.await(pick(usize(1), io), { io });
+  assert(a == usize(11), "branch 1 awaited give_a");
+  b := io.await(pick(usize(2), io), { io });
+  assert(b == usize(107), "branch 2 awaited give_b");
+  c := io.await(pick(usize(3), io), { io });
+  assert(c == usize(999), "fallthrough untouched");
+});
+test("linear re-assignment of an await result lands", {
+  a := io.await(lin(io), { io });
+  assert(a == usize(12), "await result written then incremented");
+});

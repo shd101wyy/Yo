@@ -78,10 +78,11 @@ records; mechanisms and reproducers are in the named `issues/fixed/` docs.
 | C18 | **A struct literal that OMITS a required field is silently accepted** — `yo check` green, field uninitialised, program SIGSEGVs. Directly undermines §1's "additive-only" promise: adding a field to a stable struct silently breaks every construction site not updated | **OPEN** — issues/struct-literal-missing-field-silently-accepted.md |
 | C19 | C `int` passed where `i32` declared is accepted by the evaluator; codegen splices a Yo type expr into a C identifier, clang fails with a diagnostic naming nothing the user wrote | **OPEN** — issues/int-vs-i32-mismatch-reaches-codegen-and-emits-malformed-c.md |
 | C20 | generic-`R` callback with a unit-returning closure emitted `void* tmp = <void call>;` — `Mutex.with_lock((v) => { … })`, the flagship std/sync form, did not C-compile | **FIXED** 2026-08-26 — issues/fixed/generic-r-callback-with-unit-closure-emits-void-star-temp.md |
-| C21 | a materialized async trait `?=` default resolves its `Impl(Future(...))` return to ONE concrete state-machine type for ALL implementors — call sites for implementor A declare implementor B's `_state_t*` (`-Wincompatible-pointer-types`). Harmless today only because every async state struct shares a common prefix (verified with 56-byte-skewed implementors) — but this class has silently miscompiled before. **ESCALATED 2026-08-26 to a hard C error** on D5's generic BufReader (abstract never-emitted state struct; incomplete-type), now the prerequisite for finishing D5 — see the issue's escalation section + two repros | **OPEN, load-bearing** — issues/async-trait-default-shares-one-impl-future-concrete-type.md |
+| C21 | a materialized async trait `?=` default resolved its `Impl(Future(...))` return to ONE concrete state-machine type for ALL implementors (`-Wincompatible-pointer-types` across implementors), ESCALATING to a hard `incomplete definition of type` C error on D5's generic BufReader (a TRIAL-era never-emitted state struct). **FIXED 2026-08-27** in two layers: per-materialization fresh RETURN SomeT cells (`_freshen_return_only_somes`, impl.yo) + emission-layer callee-channel future types (`awaited_future_c_type_override` — the sm field and the call temp now name the CALLEE's emitted return, so the static type always matches the dynamic object). Gate: the two-implementor reproducer compiles with ZERO incompatible-pointer warnings | **FIXED** — issues/fixed/async-trait-default-shares-one-impl-future-concrete-type.md |
 | C22 | a closure defined INSIDE an `io.async` closure body makes that body untranspilable — compile exits 0, clang clean, binary is rc=134 (`abort()` stub), future is `_sync_fut_t` | **OPEN** — issues/closure-nested-inside-io-async-closure-body-emits-abort-stub.md |
 | C23 | generic implementor (`impl(generic(T), Wrap(T), …)`) awaiting `Self.<async method>` emitted uncompilable C — two defects: static-dot `-> Self` resolution clobbered SomeT returns with the receiver, and `substitute` was not capture-avoiding (the impl's `T := usize` rewrote `Io.async`'s own `T` binder) | **FIXED** 2026-08-26 — issues/fixed/generic-implementor-async-method-awaiting-self-emits-uncompilable-c.md, tests/generic_impl_async_self.test.yo |
 | C24 | **async loop over a buffer-taking await** (the D5 slice-2 blocker, found by D5 work): (a) a generic fn's `io.async` closure DROPPED the enclosing params from its capture (the `.AsyncBlock` classifier arm kept a generation-unsafe frame-level test); (b) the nullable-ptr match's payload binding (`.Some(q) => q` over `chunk.ptr()`) declared a C local while arm reads consulted the never-written hoisted `sm->var_N` slot — silent rc=139 on fully-transpiled C. Both **FIXED** 2026-08-26 (PRs #294 + #295; tests/async_generic_param_capture.test.yo, tests/async_loop_buffer_await.test.yo). (c) the generic-impl face — a materialized generic-impl arm body read the match binding through an evaluator-stamped temp the nullable-ptr emitter never shadow-registered (`_shadow_add`, the mechanism the tagged-union path always used) — **FIXED** 2026-08-26 too. ALL THREE FACETS CLOSED; generic `BufReader(R)`/`BufWriter(W)` unblocked (C17 still blocks only the `Dyn(Reader)` spelling) | **FIXED** — issues/fixed/async-loop-awaiting-buffer-taking-method-state-machine-corruption.md |
+| C26 | **`out = e.io.await(...)` — RE-assigning (`=`) an await result to an existing variable silently NO-OPED the await**: three await-statement recognizers guarded on `:=` only, so inside a cond/match branch no future was stored and the whole awaiting branch skipped (every call returned the fallthrough — silent wrong values). Found by D5's BufReader bypass test; pre-existing on develop. **FIXED 2026-08-27** (extract_target_variable_id + generate_await_expression + generate_cond_branch_with_await now accept `=`) | **FIXED** — issues/fixed/assign-await-to-existing-variable-silently-noops.md, tests/async_assign_await.test.yo |
 | C25 | **a unit-resolving TAIL await emitted `sm->await_result_N;`** — a field the state struct never declares for an effectively-unit result (unit, or the unresolved SomeT a where-bound trait default's `Impl(Future(unit, IoExn))` return looks like), so clang failed with "no member named 'await_result_0'". Found by D5 slice 2's first `write_all` wrapper; the completion-segment substitution lacked the effectively-unit guard the struct allocator and the extraction both had | **FIXED** 2026-08-26 — issues/fixed/unit-tail-await-of-trait-default-reads-missing-await-result.md, tests/async_unit_tail_await.test.yo |
 
 ---
@@ -282,19 +283,24 @@ fixed en route — its first `write_all` wrapper did not C-compile):
   read_to_string, copy with byte total, InvalidData throw), vacuity-probed;
   `tests/async_unit_tail_await.test.yo` (C25 red-first).
 
-**D5 remaining:** the generic wrappers are IMPLEMENTED on branch
-`d5/bufio-wrappers` (2026-08-26: `std/io/bufio.yo` — `BufReader(R)` with
-`read_line`/`read_exact` + a full `Reader` impl, `BufWriter(W)` batching with
-NO dispose-flush per the tokio contract; the three compiler consumers
-migrated off `std/sys/bufio`, which is deleted with its test re-expressed as
-`tests/io/bufio.test.yo`) — but the branch is **NOT MERGEABLE: C21 ESCALATED
-from a warning to a hard C error** on it (a materialized default's
-`Impl(Future)` return pinned to an ABSTRACT, never-emitted state struct;
-plus an abort-stub face on the bypass read). Both reproduce ONLY in test-arm
-context — green as plain main programs — with repros recorded in the C21
-issue. **Fixing C21 is now the prerequisite for finishing D5**; C17 still
-additionally blocks the `Dyn(Reader)` spelling, and a buffered `lines()`
-waits on an async iterator protocol (deliberately not faked). Inherent-vs-trait NAME duplication (`File.read_bytes` vs the trait's
+**D5 GENERIC WRAPPERS LANDED 2026-08-27** (`std/io/bufio.yo`):
+`BufReader(R)` — `read_line`/`read_exact`/`buffered` plus a full `Reader`
+impl (buffered serve, large-read bypass, refill), so `read_to_end`/
+`read_to_string` arrive as trait defaults — and `BufWriter(W)` — batching
+`write`, `flush`, and NO dispose-flush (the tokio contract, documented
+loudly and pinned by a test: a `Dispose` cannot await the inner writer).
+Landing them required fixing C21 (both layers) and C26, both found by this
+work. `tests/io/bufio.test.yo` (11) carries the `tests/sys/bufio.test.yo`
+coverage re-expressed generically plus the new contracts.
+
+**D5 remaining:** (a) migrating the compiler's three `std/sys/bufio`
+consumers onto `BufReader(Stdin)` and deleting `std/sys/bufio` is
+**SEED-GATED** — `yo build` compiles `src/` with the seed, which predates
+the #299 match-binding fix and mis-emits `std/io/bufio`; the migration is
+written (reverted on branch d5/bufio-wrappers) and scheduled in
+`plans/backlog/SEED_VERSION_AUTOMATION.md`. (b) **C17** blocks the
+`Dyn(Reader)` spelling. (c) a buffered `lines()` waits on an async iterator
+protocol (deliberately not faked). Inherent-vs-trait NAME duplication (`File.read_bytes` vs the trait's
 `read_to_end`, the inherent `read_to_string`) is a D2 question to settle when
 the wrappers land. Cautions that still stand: **C21**
 (`-Wincompatible-pointer-types` across implementors — the two warnings are
