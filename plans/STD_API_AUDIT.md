@@ -376,9 +376,11 @@ Open D7 items:
 
 ### D8 — module layout
 
-- **OPEN:** `std/os/env.yo` merges into `std/env.yo` (dir helpers return
-  `Path`); `std/os/` then holds only `signal.yo` — flatten. `fs/temp` uses the
-  merged `temp_dir()` (kills the 3rd copy; also consult `TMPDIR` on macOS).
+- ~~`std/os/env.yo` merges into `std/env.yo`; flatten `std/os/`~~ **ROW WAS
+  STALE (measured 2026-08-27): `std/os/` does not exist** — the merge
+  happened before this audit's execution reached it, and `fs/temp` already
+  uses the merged `temp_dir()`. The one live grain: `temp_dir()` ignored
+  `TMPDIR` on POSIX — fixed 2026-08-27 (`$TMPDIR` else `/tmp`).
 - **`std/encoding/utf8.yo` — DONE 2026-08-25** (#286). One shared UTF-8
   module (15 exported names), every private copy in `std/` routed through it
   (eleven files carried bit-twiddling, not the row's six — three were
@@ -412,7 +414,7 @@ Open D7 items:
   (every `${x}` — the bytes are snprintf output). One behaviour change
   measured: `${rune}` for NUL and hand-built surrogates (both previously
   broken outputs; no std behaviour moved).
-- **OPEN:** `EncodingError` moves out of `hex.yo` into `std/encoding/error.yo`.
+- ~~`EncodingError` moves out of `hex.yo` into `std/encoding/error.yo`~~ **ROW WAS STALE (measured 2026-08-27)** — it already lives in `std/encoding/error.yo`, imported by hex and base64.
 - **Regex internals private + typed `RegexError` — DONE 2026-08-25.** Findings
   against the row: "go private" has no language mechanism (Yo's only
   visibility control is `export(...)` and siblings must import each other) —
@@ -645,9 +647,11 @@ mmap/file-lock/statfs wrappers; `gc.stats`; DNS SRV/TXT/reverse
 
 1. **S0 — correctness:** §2 — **DONE** (open compiler rows tracked in §2).
 2. **S1 — conventions ADR + prelude traits (D1–D3):** **DONE** (D3.9 blocked).
-3. **S2 — the breaking sweep (§5 + §6 + D4/D5/D7/D8):** **essentially DONE** —
-   remaining: D4 PR 9, the seed-gated bufio consumer migration, D8
-   env-merge/EncodingError/glob rows.
+3. **S2 — the breaking sweep (§5 + §6 + D4/D5/D7/D8):** **DONE 2026-08-27**
+   except two parked items: D4 PR 9 (vendor-gated) and the seed-gated bufio
+   consumer migration. (The D8 env-merge and EncodingError rows measured
+   STALE — already done; the glob row is an S3 addition, not a breaking
+   change.)
 4. **S3 — P0 additions.** ← next after D5 slice 2
 5. **S4 — P1 additions.**
 6. **S5 — stability freeze:** stable/unstable markers in `yo doc` output,
