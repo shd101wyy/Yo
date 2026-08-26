@@ -1529,7 +1529,12 @@ generate_while_with_await :: (
   });
   wli_s := while_loop_index.to_string();
   em.emit_string_line(`${indent}sm->while_loop_${wli_s}_active = true;`);
-  em.emit_string_line(`${indent}while_loop_${wli_s}_start:`);
+  // The null statement keeps the label legal strict C11: a label must be
+  // followed by a statement, and whatever comes next here may be a local
+  // declaration (clang rejects `label: int x = ...;` outside C23). Same
+  // pattern as the plain `while` lowering in exprs/while_loop.yo, which
+  // emits `loop_<id>:;` / `continue_<id>:;`.
+  em.emit_string_line(`${indent}while_loop_${wli_s}_start:;`);
   // The loop's suspension point is the CONDITION itself. Store its future and
   // suspend — the test, the body and the step all run in the next state, where
   // the result is live. Jumping back here re-stores the future, which is what
@@ -1537,7 +1542,7 @@ generate_while_with_await :: (
   // Mirrors state-code-gen.ts.
   if(expr_is_bare_await(Option(AstExpr).Some(condition_expr), await_point), {
     emit_hoisted_await_future_store(await_point, indent, context);
-    em.emit_string_line(`${indent}while_loop_${wli_s}_end:`);
+    em.emit_string_line(`${indent}while_loop_${wli_s}_end:;`);
     if(context.async_while_loop_info.is_none(), {
       context.async_while_loop_info = Option(HashMap(usize, WhileLoopInfo)).Some(HashMap(usize, WhileLoopInfo).new());
     });
@@ -1584,7 +1589,7 @@ generate_while_with_await :: (
   }, {
     body_exprs_after_await = generate_while_body_with_await(body_expr, await_point, indent, context, while_loop_index);
   });
-  em.emit_string_line(`${indent}while_loop_${wli_s}_end:`);
+  em.emit_string_line(`${indent}while_loop_${wli_s}_end:;`);
   // Store loop info for the resume generator.
   if(context.async_while_loop_info.is_none(), {
     context.async_while_loop_info = Option(HashMap(usize, WhileLoopInfo)).Some(HashMap(usize, WhileLoopInfo).new());

@@ -98,11 +98,14 @@ $ curl -sSL https://raw.githubusercontent.com/shd101wyy/Yo/develop/scripts/insta
 $ curl -sSL https://raw.githubusercontent.com/shd101wyy/Yo/develop/scripts/install.sh | sh -s -- -cc=gcc -cflags='-march=native'
 ```
 
-**Platforms without a prebuilt bundle** — pass `--from-source`. The installer
-downloads the release's single-file `yo.c` and compiles it with your own C
-compiler, so it links against your own libc and loader. This is the answer on
-NixOS, where the prebuilt binary's hardcoded ELF interpreter
-(`/lib64/ld-linux-x86-64.so.2`) does not exist.
+**Platforms without a prebuilt bundle** — the installer falls back to the
+source build automatically on NixOS-compatible loader problems and on
+**HarmonyOS** (which has no bundles; dependencies come from
+[harmonybrew](https://harmonybrew.atomgit.com/)), or pass `--from-source`
+explicitly. The source build downloads the release's single-file `yo.c` and
+compiles it with your own C compiler, so it links against your own libc and
+loader — the answer on NixOS, where the prebuilt binary's hardcoded ELF
+interpreter (`/lib64/ld-linux-x86-64.so.2`) does not exist.
 
 > **Note:** `--from-source` needs a release that publishes the single-file
 > `yo.c`. Releases up to and including `v0.2.4` predate that artifact, so the
@@ -119,6 +122,7 @@ toolchain by hand, or for diagnosing a failed install.
 - **[Linux](./docs/en-US/INSTALL_LINUX.md)**
 - **[macOS](./docs/en-US/INSTALL_MACOS.md)**
 - **[Windows](./docs/en-US/INSTALL_WINDOWS.md)**
+- **[HarmonyOS](./docs/en-US/INSTALL_HARMONYOS.md)**
 
 Targeting WebAssembly needs Emscripten as well —
 **[WASM setup](./docs/en-US/INSTALL_WASM.md)**.

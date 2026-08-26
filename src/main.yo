@@ -942,6 +942,78 @@ _probe_liburing :: (fn(io : Io, out : ArrayList(bool)) -> unit)({
   st := io.await(probe.status(io), IoExn(io : io, exn : probe_exn));
   out.push(st.raw == i32(0));
 });
+/// The full link flags for liburing: `pkg-config --cflags --libs liburing`,
+/// word-split. `--cflags` is included because the emitted C gates its io_uring
+/// runtime on `#if __has_include(<liburing.h>)` — on brew-style prefixes the
+/// header is NOT on the compiler's default include path, so without the -I the
+/// runtime silently compiles to stubs. Same swallowing-probe shape as
+/// `_probe_liburing`; a missing or failing pkg-config leaves `out` empty and
+/// the caller falls back to the bare `-luring` flag.
+_probe_liburing_flags :: (fn(io : Io, out : ArrayList(String)) -> unit)({
+  probe_exn := Exception(
+    throw : (
+      (_e) -> {
+        unwind(());
+      }
+    )
+  );
+  probe := Command.new(String.from("pkg-config"));
+  probe.arg(String.from("--cflags"));
+  probe.arg(String.from("--libs"));
+  probe.arg(String.from("liburing"));
+  res := io.await(probe.output(io), IoExn(io : io, exn : probe_exn));
+  if(res.status.raw == i32(0), {
+    txt := String.from_bytes(res.stdout);
+    parts := txt.split(" ");
+    (pi : usize) = usize(0);
+    while(pi < parts.len(), {
+      match(
+        parts.get(pi),
+        .Some(p) => {
+          // pkg-config ends its output with a newline, so the last part would
+          // otherwise carry a trailing "\n" into the C compiler's argv.
+          pt := p.trim();
+          if(pt.len() > usize(0), {
+            out.push(pt.clone());
+          });
+        },
+        .None => ()
+      );
+      pi = (pi + usize(1));
+    });
+  });
+});
+/// Is the host HarmonyOS? `uname -s` reports "HarmonyOS" there (HongMeng
+/// kernel; musl; harmonybrew provides packages). Needed because the OHOS
+/// toolchain differences in the link line below are loader/runtime
+/// properties, not visible through the compile-time platform constants —
+/// the OHOS clang defines `__linux__`, so the host folds to Linux at the
+/// compiler's own build. Cached process-wide (one spawn), same pattern as
+/// `g_asan_usable`.
+(g_is_harmonyos : Option(bool)) = Option(bool).None;
+_is_harmonyos :: (fn(io : Io) -> bool)({
+  match(
+    g_is_harmonyos,
+    .Some(b) => {
+      return(b);
+    },
+    .None => ()
+  );
+  inner_exn := Exception(
+    throw : (
+      (_e) -> {
+        unwind(false);
+      }
+    )
+  );
+  urn := Command.new(String.from("uname"));
+  urn.arg(String.from("-s"));
+  uout := io.await(urn.output(io), IoExn(io : io, exn : inner_exn));
+  utxt := String.from_bytes(uout.stdout);
+  _is_harmonyos_helper_result := utxt.contains(String.from("HarmonyOS"));
+  g_is_harmonyos = Option(bool).Some(_is_harmonyos_helper_result);
+  _is_harmonyos_helper_result
+});
 /// AddressSanitizer functionality probe — faithful port of TS
 /// `asanRuntimeIsUsable` (src/compiler-utils.ts): compile a trivial C program
 /// with `-fsanitize=address` via the SYSTEM `cc` (matching TS, which probes
@@ -2101,13 +2173,45 @@ run_compile :: (
     cmd.arg(String.from("-lm"));
     cmd.arg(String.from("-pthread"));
   });
-  // liburing for async I/O (io_uring) on Linux — see `_probe_liburing`. Without
-  // it every emitted `io_uring_*` reference is an undefined symbol at link time.
+  // liburing for async I/O (io_uring) on Linux — see `_probe_liburing` and
+  // `_probe_liburing_flags`. Without it every emitted `io_uring_*` reference
+  // is an undefined symbol at link time.
   if(is_target_linux(target), {
     ur := ArrayList(bool).new();
     _probe_liburing(io, ur);
     if(match(ur.get(usize(0)), .Some(b) => b, .None => false), {
-      cmd.arg(String.from("-luring"));
+      // Full `pkg-config --cflags --libs liburing` output: on ordinary Linux
+      // distros the header and library live in default paths and this is just
+      // `-luring` (the historical behavior); on brew-style prefixes (the
+      // harmonybrew toolchain on HarmonyOS, Homebrew-on-Linux) the `-I` and
+      // `-L` are load-bearing — without the `-I`, `__has_include(<liburing.h>)`
+      // is false in the emitted C and the async runtime silently compiles to
+      // stubs, and without the `-L` the link cannot find the library at all.
+      flags := ArrayList(String).new();
+      _probe_liburing_flags(io, flags);
+      if(flags.len() == usize(0), {
+        flags.push(String.from("-luring"));
+      });
+      // On HarmonyOS, link liburing STATICALLY. Two loader facts force this:
+      // (1) brew's lib dir is not on the musl loader path file
+      // (`/etc/ld-musl-aarch64.path`), so a dynamically linked liburing cannot
+      // be found at runtime; (2) setting `LD_LIBRARY_PATH` to the brew prefix
+      // makes the loader refuse to resolve lld's own bundled libxml2 —
+      // clang's linker then dies with "Error relocating ... xmlFreeDoc:
+      // symbol not found". Statically linking liburing makes both the
+      // compiler and every program it builds self-contained (verified: the
+      // only DT_NEEDED left is libc.so), so no brew directory is ever needed.
+      if(_is_harmonyos(io), {
+        cmd.arg(String.from("-Wl,-Bstatic"));
+      });
+      (fi : usize) = usize(0);
+      while(fi < flags.len(), {
+        match(flags.get(fi), .Some(f) => cmd.arg(f.clone()), .None => ());
+        fi = (fi + usize(1));
+      });
+      if(_is_harmonyos(io), {
+        cmd.arg(String.from("-Wl,-Bdynamic"));
+      });
     });
   });
   (xi : usize) = usize(0);

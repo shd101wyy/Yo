@@ -1,13 +1,16 @@
 #!/bin/sh -e
 
 #-----------------------------------------------------------------------------
-# Installation script for Yo on Linux and macOS; use -h to see options.
+# Installation script for Yo on Linux, macOS and HarmonyOS; use -h to see options.
 #
 #   curl -fsSL https://raw.githubusercontent.com/shd101wyy/Yo/develop/scripts/install.sh | sh
 #
-# Installs a prebuilt release bundle. Yo is self-hosted: the bundle carries the
-# native compiler plus the standard library and the vendored mimalloc sources,
-# so there is no toolchain to build and nothing to compile at install time.
+# Installs a prebuilt release bundle, or on platforms with no bundle (NixOS,
+# Alpine-of-old, HarmonyOS) builds the published single-file yo.c with the
+# local C compiler. Yo is self-hosted: the bundle carries the native compiler
+# plus the standard library and the vendored mimalloc sources, so there is no
+# toolchain to build and nothing to compile at install time — except on the
+# source path, which compiles exactly that one file.
 #-----------------------------------------------------------------------------
 
 VERSION=""              # empty => resolve the latest release tag
@@ -95,14 +98,29 @@ detect_osarch() {
   <https://github.com/$YO_REPO#building-from-source>";;
   esac
 
-  case "$(uname)" in
+  # YO_FAKE_UNAME_S is a TEST-ONLY hook: it replaces the `uname -s` output so
+  # the HarmonyOS branches can be dry-run-tested on ordinary Linux CI runners
+  # (there is no HongMeng runner; without it every harmonyos branch is dead
+  # code, like the musl branches were before the Alpine leg). Never set it in
+  # production commands.
+  uname_s="${YO_FAKE_UNAME_S:-$(uname)}"
+  case "$uname_s" in
     [Ll]inux)  OSNAME="linux";;
     [Dd]arwin) OSNAME="macos";;
-    *) stop "Unsupported OS: $(uname). This installer supports Linux and macOS.
+    [Hh]armony[Oo][Ss]) OSNAME="harmonyos";;
+    *) stop "Unsupported OS: $uname_s. This installer supports Linux, macOS and HarmonyOS.
   On Windows use scripts/install.ps1 instead.";;
   esac
 
-  OSARCH="$OSNAME-$arch"
+  if [ "$OSNAME" = "harmonyos" ]; then
+    # HarmonyOS compiles the published single-file yo.c: the release has no
+    # HarmonyOS bundles, but the per-target linux-<arch> artifact builds with
+    # the OHOS toolchain (a musl system on a Linux-derived kernel).
+    OSDISTRO="harmonyos"
+    OSARCH="linux-$arch"
+  else
+    OSARCH="$OSNAME-$arch"
+  fi
 
   if [ "$OSNAME" = "linux" ]; then
     distrocfg=""
@@ -147,6 +165,10 @@ is_immutable_distro() {
     nixos|steamos|ostree|microos) return 0;;
     *) return 1;;
   esac
+}
+
+is_harmonyos() {
+  [ "$OSDISTRO" = "harmonyos" ]
 }
 
 immutable_distro_advice() {
@@ -355,7 +377,7 @@ compute_missing_deps() {
   MISSING_CC=""; MISSING_GIT=""; MISSING_PKGCONFIG=""; MISSING_LIBURING=""
   if ! has_cmd clang && ! has_cmd gcc && ! has_cmd cc; then MISSING_CC="yes"; fi
   if ! has_cmd git; then MISSING_GIT="yes"; fi
-  if [ "$OSNAME" = "linux" ]; then
+  if [ "$OSNAME" = "linux" ] || is_harmonyos; then
     if ! has_cmd pkg-config && ! has_cmd pkgconf; then MISSING_PKGCONFIG="yes"; fi
     # "Installed" for liburing means pkg-config can SEE it, since that is
     # exactly the test the compiler makes before adding -luring.
@@ -401,6 +423,61 @@ install_dependencies() {
       warn "Missing developer tools. Install Apple's Command Line Tools:"
       warn "    xcode-select --install"
       warn "That provides both clang and git. Then re-run this installer."
+    fi
+    return 0
+  fi
+
+  if is_harmonyos; then
+    # HarmonyOS has no apt/dnf/pacman; package management is harmonybrew —
+    # a Homebrew reimplementation whose 'brew' works like macOS's, provided
+    # by https://harmonybrew.atomgit.com/. It likewise CANNOT be installed
+    # from inside this script (it needs its own installer), and the whole
+    # HarmonyOS route (source build with the OHOS clang) needs it, so stop
+    # rather than limp on. `stop` (not `return 1`): this script is usually
+    # launched as `sh install.sh`, which does NOT carry the shebang's -e, so
+    # a plain non-zero return would be ignored and the run would continue
+    # into a compile with no compiler.
+    if ! has_cmd brew; then
+      stop "HarmonyOS detected, but 'brew' is not on PATH.
+  Install harmonybrew first — a Homebrew reimplementation for HarmonyOS
+  that provides the 'brew' command like macOS:
+      https://harmonybrew.atomgit.com/
+  Then re-run this installer."
+    fi
+
+    # brew installs into <prefix>/bin; make that visible for the rest of the
+    # script even when the user has not added it to their shell profile.
+    brew_bin="$(brew --prefix 2>/dev/null)/bin"
+    if [ -d "$brew_bin" ] && ! on_path "$brew_bin"; then
+      PATH="$brew_bin:$PATH"
+      info "Added $brew_bin to PATH for this run."
+    fi
+
+    # Install only the absent formulas; brew list --formula is the check.
+    brew_install_if_missing() {  # <formula...>
+      missing=""
+      for f in "$@"; do
+        if ! brew list --formula "$f" >/dev/null 2>&1; then
+          missing="$missing $f"
+        fi
+      done
+      if [ -n "$missing" ]; then
+        info "Installing:$missing"
+        # shellcheck disable=SC2086
+        brew install $missing || return 1
+      fi
+      return 0
+    }
+
+    brew_install_if_missing ohos-sdk || true   # the OHOS clang/llvm toolchain
+    if [ -n "$MISSING_GIT" ]; then brew_install_if_missing git || true; fi
+    if ! has_cmd curl; then brew_install_if_missing curl || true; fi
+    # pkgconf pairs with liburing EXACTLY as on Linux: the compiler adds
+    # -luring only when `pkg-config --exists liburing` succeeds, so a box
+    # with the header but no pkg-config emits io_uring calls that cannot
+    # link (the header-without-pkg-config trap).
+    if [ -n "$MISSING_PKGCONFIG$MISSING_LIBURING" ]; then
+      brew_install_if_missing pkgconf liburing || true
     fi
     return 0
   fi
@@ -458,6 +535,8 @@ check_git() {
   warn "dependencies with 'git ls-remote' and 'git clone' and will fail."
   if [ "$OSNAME" = "macos" ]; then
     warn "    xcode-select --install"
+  elif is_harmonyos; then
+    warn "    brew install git"
   else
     warn "    e.g. 'apt-get install git' or 'dnf install git'"
   fi
@@ -474,6 +553,8 @@ check_c_compiler() {
   warn "Yo compiles to C, so 'yo compile' will fail until you install one."
   if [ "$OSNAME" = "macos" ]; then
     warn "    xcode-select --install"
+  elif is_harmonyos; then
+    warn "    brew install ohos-sdk   # provides clang and llvm"
   else
     warn "    e.g. 'apt-get install clang' or 'dnf install clang'"
   fi
@@ -727,6 +808,32 @@ install_from_source() {
   gzip -dc "$YO_TEMP_DIR/$cfile" > "$YO_TEMP_DIR/yo.c" \
     || stop "Failed to decompress $cfile"
 
+  # On HarmonyOS, releases cut BEFORE the strict-C11 codegen fixes (the
+  # v0.2.14/v0.2.15 era) emit C the OHOS clang rejects: loop labels standing
+  # directly before a declaration, and `struct statx` uses with no definition
+  # in the OHOS sysroot's <sys/stat.h>. Patch the released C in place — both
+  # transforms are IDEMPOTENT, so a post-fix release passes through unchanged
+  # (and the label fix would also repair any future regression to bare labels).
+  if is_harmonyos; then
+    info "HarmonyOS: applying strict-C11 compatibility patches to the released yo.c"
+    if ! grep -q "^#include <linux/stat.h>$" "$YO_TEMP_DIR/yo.c"; then
+      # Insert the statx definition include right after the first
+      # <sys/stat.h> (guarded: OHOS-only, no-op elsewhere).
+      sed -e '1,/#include <sys\/stat.h>$/s|^#include <sys/stat.h>$|#include <sys/stat.h>\n#if defined(__OHOS__)\n#include <linux/stat.h>\n#endif|' \
+        "$YO_TEMP_DIR/yo.c" > "$YO_TEMP_DIR/yo.c.patched" \
+        || stop "Failed to patch the released yo.c for HarmonyOS (struct statx)"
+      mv "$YO_TEMP_DIR/yo.c.patched" "$YO_TEMP_DIR/yo.c"
+    fi
+    # Append a null statement to every bare label line (`L:` -> `L:;`), which
+    # keeps every such label legal strict C11 (a label must be followed by a
+    # statement). `default:`/`case X:` lines are not affected (the pattern is
+    # anchored on a bare identifier + colon, end of line).
+    sed -e 's|^\([[:space:]]*\)\([a-zA-Z_][a-zA-Z0-9_]*\):$|\1\2:;|' \
+      "$YO_TEMP_DIR/yo.c" > "$YO_TEMP_DIR/yo.c.patched" \
+      || stop "Failed to patch the released yo.c for HarmonyOS (C11 labels)"
+    mv "$YO_TEMP_DIR/yo.c.patched" "$YO_TEMP_DIR/yo.c"
+  fi
+
   info "Downloading the standard library.."
   download_file "$src_url" "$YO_TEMP_DIR/src.tar.gz" \
     || stop "Unable to download the source tarball: $src_url"
@@ -753,21 +860,39 @@ install_from_source() {
   # pkg-config is the same oracle the compiler itself consults before adding
   # -luring, so this stays consistent with a bundle-built compiler.
   uring_libs=""
-  if [ "$OSNAME" = "linux" ] && has_cmd pkg-config && pkg-config --exists liburing 2>/dev/null; then
+  uring_cflags=""
+  if { [ "$OSNAME" = "linux" ] || is_harmonyos; } && has_cmd pkg-config && pkg-config --exists liburing 2>/dev/null; then
     uring_libs="$(pkg-config --libs liburing 2>/dev/null || echo -luring)"
+    # The brew prefix is not a default include path (unlike /usr/include on
+    # Linux), so the -I that locates liburing.h must come from pkg-config too.
+    # Without it __has_include(<liburing.h>) is false at the user's compile
+    # and the async runtime is silently stubbed out. Harmless elsewhere.
+    uring_cflags="$(pkg-config --cflags liburing 2>/dev/null || true)"
+    if is_harmonyos; then
+      # The OHOS loader does not search brew's lib dir, and any
+      # LD_LIBRARY_PATH pointing into the brew prefix breaks clang's linker
+      # entirely (the loader refuses lld's bundled libxml2). Linking liburing
+      # STATICALLY keeps `yo` runnable without any of that: the async runtime
+      # comes out of liburing.a and the only DT_NEEDED left is libc.so.
+      uring_libs="-Wl,-Bstatic $uring_libs -Wl,-Bdynamic"
+    fi
     info "  liburing: $uring_libs (async I/O compiled in)"
-  elif [ "$OSNAME" = "linux" ]; then
+  elif is_harmonyos || [ "$OSNAME" = "linux" ]; then
     warn "liburing is not visible to pkg-config, so async I/O will be compiled OUT"
     warn "and the resulting compiler cannot read source files. Install it first"
-    warn "(e.g. 'apt-get install pkg-config liburing-dev') and re-run."
+    warn "(e.g. 'apt-get install pkg-config liburing-dev', or on HarmonyOS"
+    warn "'brew install pkgconf liburing') and re-run."
   fi
 
-  info "Compiling yo.c (this takes a minute).."
-  # shellcheck disable=SC2086  # CFLAGS_OVERRIDE and uring_libs are intentionally word-split
+  info "Compiling yo.c (a -O2 pass over ~100 MB of C — measure in tens of minutes, not seconds).."
+  # shellcheck disable=SC2086  # CFLAGS_OVERRIDE, uring_cflags and uring_libs are intentionally word-split
   "$CC_BIN" -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
-    "$YO_TEMP_DIR/yo.c" -o "$YO_TEMP_DIR/yo" $CFLAGS_OVERRIDE -lpthread -lm $uring_libs \
+    "$YO_TEMP_DIR/yo.c" -o "$YO_TEMP_DIR/yo" $CFLAGS_OVERRIDE $uring_cflags -lpthread -lm $uring_libs \
     || stop "Failed to compile yo.c with $CC_BIN.
-  On Linux, install the liburing development headers first (see --help)."
+  On Linux, install the liburing development headers first (see --help).$(if is_harmonyos; then echo "
+  On HarmonyOS the released yo.c is patched automatically for the strict
+  OHOS clang (C11 labels + struct statx); if compilation still fails, this
+  release carries a different incompatibility — please report it."; fi)"
 
   info "Installing.."
   stage="$YO_TEMP_DIR/stage"
@@ -843,6 +968,12 @@ YOEOF
   if ! "$PREFIX/lib/yo/$VERSION/bin/yo" compile "$YO_TEMP_DIR/hello.yo" -o "$YO_TEMP_DIR/hello" > "$YO_TEMP_DIR/verify.log" 2>&1 ; then
     warn "Verification FAILED. Compiler output:"
     warn "$(cat "$YO_TEMP_DIR/verify.log")"
+    if is_harmonyos; then
+      warn "On HarmonyOS, an immediate 'Bad system call' (rc=159/SIGSYS) usually"
+      warn "means a sandbox/seccomp policy blocks io_uring — the compiler reads"
+      warn "every source file through io_uring and cannot fall back to blocking"
+      warn "I/O. Check for seccomp/container restrictions on this device."
+    fi
     stop "The install is present but cannot compile. See the output above."
   fi
   out="$("$YO_TEMP_DIR/hello" 2>&1 || true)"
@@ -946,12 +1077,38 @@ main_help() {
   echo "  install.sh --from-source                    # compile yo.c locally"
   echo "  install.sh -cc=gcc -cflags='-march=native'  # source build, chosen toolchain"
   echo ""
-  echo "The source build works where no bundle can run - notably Alpine/musl and"
-  echo "NixOS, whose loaders the prebuilt glibc binary cannot use."
+  echo "The source build works where no bundle can run - notably Alpine/musl,"
+  echo "NixOS, whose loaders the prebuilt glibc binary cannot use, and"
+  echo "HarmonyOS, which has no bundles (dependencies come from harmonybrew)."
 }
 
 main_install() {
   detect_osarch
+  if is_harmonyos; then
+    # No HarmonyOS bundles are published; the linux-<arch> single-file yo.c
+    # compiles with the OHOS clang, so the source path is the only path.
+    FROM_SOURCE="yes"
+
+    # The OHOS loader cannot symbol-resolve the ohos-sdk's bundled libxml2
+    # that clang's linker (lld) needs, and an LD_LIBRARY_PATH pointing into
+    # the brew prefix makes that failure CERTAIN (the loader then refuses
+    # the resolution entirely, even with LD_PRELOAD). Nothing in this
+    # installer needs the variable: liburing is statically linked and the
+    # -L flags come from pkg-config, so drop it for the run and say why.
+    # (The compiler also static-links liburing into user programs, so Yo
+    # never needs brew lib dirs at runtime either.)
+    if [ -n "${LD_LIBRARY_PATH:-}" ]; then
+      warn ""
+      warn "WARNING: LD_LIBRARY_PATH=$LD_LIBRARY_PATH"
+      warn "points into the brew prefix, which breaks the OHOS clang's"
+      warn "linker (lld cannot load its libxml2 dependency). Yo does not"
+      warn "need it — liburing is statically linked into yo and your"
+      warn "programs. Unsetting it for this run; consider removing it from"
+      warn "your shell profile."
+      warn ""
+      unset LD_LIBRARY_PATH
+    fi
+  fi
   resolve_version
   install_dependencies
   # check_dynamic_loader detects the two distros where the published Linux

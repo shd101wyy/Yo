@@ -169,6 +169,65 @@ jobs:
             fi
           '
 
+  harmonyos-simulation:
+    name: install.sh harmonyos branches (simulated dry-run)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # No GitHub runner exists for HongMeng, so the HarmonyOS branches of
+    # install.sh are exercised through YO_FAKE_UNAME_S — a TEST-ONLY hook that
+    # replaces `uname -s` output — asserting branch behavior on ordinary
+    # Linux. DRY-RUN only: the real path needs harmonybrew + the OHOS
+    # toolchain and can only run on an actual HarmonyOS machine.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: HarmonyOS — brew missing → installer refuses with guidance
+        run: |
+          set -e
+          out="$(YO_FAKE_UNAME_S=HarmonyOS sh scripts/install.sh --dry-run --version=v0.2.14 2>&1 || true)"
+          echo "$out" | grep -q "Install harmonybrew first" || {
+            echo "::error::harmonyos path did not ask for harmonybrew"; echo "$out"; exit 1
+          }
+          echo "$out" | grep -q "https://harmonybrew.atomgit.com/" || {
+            echo "::error::harmonyos path did not name the harmonybrew URL"; echo "$out"; exit 1
+          }
+          # The run must STOP (rc 1), not continue into a compiler-less build.
+          if YO_FAKE_UNAME_S=HarmonyOS sh scripts/install.sh --dry-run --version=v0.2.14 \
+            >/dev/null 2>&1; then
+            echo "::error::harmonyos path continued past the missing brew"; exit 1
+          fi
+
+      - name: HarmonyOS — source path forced with the linux-<arch> yo.c
+        run: |
+          set -e
+          out="$(YO_FAKE_UNAME_S=HarmonyOS sh scripts/install.sh --dry-run --no-deps --version=v0.2.14 2>&1)"
+          echo "$out" | grep -q "FROM SOURCE" || {
+            echo "::error::harmonyos path did not force the source build"; echo "$out"; exit 1
+          }
+          # No bundle may be probed: the per-target linux-<arch> yo.c URL is
+          # the artifact HarmonyOS builds from.
+          case "$(uname -m)" in
+            x86_64*) want="yo-v0.2.14-linux-x64.c.gz";;
+            *)        want="yo-v0.2.14-linux-arm64.c.gz";;
+          esac
+          echo "$out" | grep -q "$want" || {
+            echo "::error::harmonyos path did not name $want"; echo "$out"; exit 1
+          }
+          echo "$out" | grep -q "bundle:" && {
+            echo "::error::harmonyos path probed a bundle"; echo "$out"; exit 1
+          } || true
+
+      - name: HarmonyOS — poisoned LD_LIBRARY_PATH is dropped with a warning
+        run: |
+          set -e
+          out="$(LD_LIBRARY_PATH=/tmp/fake-brew/lib YO_FAKE_UNAME_S=HarmonyOS \
+            sh scripts/install.sh --dry-run --no-deps --version=v0.2.14 2>&1)"
+          # The warning wraps across lines; grep the line fragment that ends a
+          # physical line.
+          echo "$out" | grep -q "breaks the OHOS clang's" || {
+            echo "::error::harmonyos path did not warn about LD_LIBRARY_PATH"; echo "$out"; exit 1
+          }
+
   windows:
     name: install.ps1 (windows-x64)
     runs-on: windows-latest

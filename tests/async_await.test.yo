@@ -4083,6 +4083,52 @@ test("an awaiting match arm keeps its locals alive across a nested awaiting whil
   );
   assert(io.await(drive(io), io) == usize(2), "both inner iterations ran");
 });
+test("async while loops emit C11-legal labels: post-loop locals, await-in-condition", {
+  // The async state machine used to emit `after_while_loop_N:` /
+  // `while_loop_N_start: / _end:` BARE. In C11 a label must be followed by a
+  // STATEMENT and the very next line was often a local declaration, making
+  // the emitted C ill-formed. GCC tolerates it as an extension, and so do
+  // modern clangs, but the HarmonyOS OHOS clang (strict C11) rejects it with
+  // "expected expression" — which is how this surfaced. The emitters now
+  // append a null statement (`label:;`, same as the plain-while lowering in
+  // codegen/exprs/while_loop.yo), and this
+  // test pins the shapes that used to break: an awaiting WHILE CONDITION (the
+  // hoisted-store path emits `while_loop_N_end:` straight into declarations)
+  // and post-loop code starting with fresh locals (which sit directly after
+  // `after_while_loop_N:`). See issues/async-while-labels-strict-c11.md.
+  drive := (fn(rio : Io) -> Impl(Future(usize, Io)))(
+    rio.async((aio : Io) => {
+      items := ArrayList(usize).new();
+      items.push(usize(1));
+      items.push(usize(2));
+      total := usize(0);
+      i := usize(0);
+      while(runtime(i < items.len()), {
+        aio.await(yield(aio), aio);
+        match(
+          items.get(i),
+          .None => (),
+          .Some(d) => {
+            total = (total + d);
+          }
+        );
+        i = (i + usize(1));
+      });
+      // Post-loop code starts with fresh locals; the emitted C must place
+      // these after the loop's exit labels without crossing a declaration.
+      after := usize(100);
+      aio.await(yield(aio), aio);
+      total = (total + after);
+      fresh := ArrayList(usize).new();
+      fresh.push(total);
+      fresh(0)
+    })
+  );
+  assert(
+    io.await(drive(io), io) == usize(103),
+    "1 + 2 + 100 across an awaiting while and post-loop awaits"
+  );
+});
 test("an outer non-awaiting while keeps a match arm's locals across a nested awaiting while", {
   // Hole 1 of issues/fixed/nested-await-loop-remaining-holes.md: the outer
   // loop has NO await of its own — the only suspension is inside the nested

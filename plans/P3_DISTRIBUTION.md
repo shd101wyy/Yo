@@ -7,6 +7,12 @@ traps recorded as found. Drafted 2026-08-11; **item 1 landed 2026-08-12**.
 
 ## Status 2026-08-21 — every item PROVEN by shipped releases; only the gate run remains
 
+**Open 2026-08-22 — HarmonyOS (new item 5, see below).** The codegen fixes it
+needs are in `develop`; they reach users on the next release (`yo.c` plus
+everything `yo compile` emits). No CI leg can exercise HarmonyOS (no GitHub
+hosted HongMeng runner); the route was developed and verified ON a real
+HarmonyOS box.
+
 **v0.2.14 (2026-08-21) is the first release through the fully reworked
 machinery, and every leg was green on the first dispatch:**
 
@@ -590,6 +596,95 @@ Watch that job, and promote it off `continue-on-error` once it is green.
   **Sequencing:** the CI leg stays red until a release ships this and
   `SEED_VERSION` bumps, because the crash is in the released SEED, built by the
   old codegen. That is release ordering, not an outstanding defect.
+
+## Item 5 — HarmonyOS: source-build route via harmonybrew
+
+**CI-COMPLETE 2026-08-22 — the PR's full gate battery is green** (fmt,
+language suite incl. the async-labels regression test, bootstrap fixpoint
+`check ./src`, stage-3 byte-identity, static musl bundle, hollow sweep,
+internal-test shards, TSan, wasm legs, cross-emit legs, and the
+install-scripts matrix + harmonyos-simulation). Device finding: on real
+HarmonyOS 7 hardware (MateBook W24) the `io_uring_enter` block comes from
+the TERMINAL APP's sandbox context (`u:r:hishell_hap:s0`, Seccomp:2), not
+the kernel — `hdc shell` from a PC provides a system context with real
+io_uring, so true async is preserved there; a blocking-I/O fallback in the
+runtime remains the documented plan B for fully sandboxed contexts.
+
+**Open 2026-08-22.** HarmonyOS PC has no bundles and no apt/dnf/pacman.
+`install.sh` now detects it (`uname -s` = `HarmonyOS`), requires harmonybrew,
+installs `git curl pkgconf liburing ohos-sdk` through it, and builds the
+published `yo-v<tag>-linux-<arch>.c.gz` with the OHOS clang (liburing
+compiled in via `pkg-config --cflags` — the brew prefix is not a default
+include path; linked STATICALLY on harmonyos so no loader-path tricks are
+needed to run `yo`). Verified on a real HarmonyOS box (HongMeng Kernel
+1.13.0, ohos-sdk clang 15.0.4, harmonybrew): the fixed `yo.c` compiles with
+the OHOS clang, the built `yo` runs (`--version`), and the emit pipeline
+works. A full user-program compile could NOT be completed in that
+environment: its sandbox seccomp blocks `io_uring_enter` (SIGSYS, rc=159)
+and the compiler reads every source file through io_uring — the Docker
+seccomp precedent from item 3 (`--security-opt seccomp=unconfined`). On
+real (unseccomp'd) HarmonyOS hardware the remaining question is simply
+whether the HongMeng kernel allows `io_uring_enter`.
+
+Two codegen fixes were required for the OHOS toolchain — both are strict-C11
+compliance, so they are user-visible for every `yo compile` there, not just
+the build:
+
+1. **Labels before declarations.** The async state machine emitted
+   `while_loop_N_start:/_end:` and `after_while_loop_N:` bare; C11 requires a
+   statement after a label (C23 relaxed it). GCC and modern clangs tolerate
+   it as an extension — the portable-C gate (`gcc -std=c11 -fsyntax-only`,
+   release.yml) is exactly why it shipped — but the OHOS clang 15 hard-rejects
+   it. Emitters now append a null statement (`:;`).
+   Record: `issues/async-while-labels-strict-c11.md`.
+2. **`struct statx`.** The OHOS musl sysroot does not define it in
+   `<sys/stat.h>`; the Linux runtime template now includes `<linux/stat.h>`
+   under `#if defined(__OHOS__)`.
+
+**Old releases install too.** Because a release is needed to carry the
+codegen fixes into `yo.c`, `install.sh` patches the downloaded C on
+HarmonyOS before compiling (idempotent: statx include insertion gated on
+the file lacking `<linux/stat.h>`, and `L:` → `L:;` on every bare label
+line). A post-fix release passes through unchanged; v0.2.15 — the current
+latest — installs today. Verified: the patched `yo-v0.2.15-linux-arm64.c.gz`
+passes `clang -fsyntax-only` with the OHOS clang, and a full
+`bash scripts/install.sh` ran end to end on the box (installed yo 0.2.15
+runs, DT_NEEDED = libc.so only). **Compile time measured:** the -O2 pass
+over ~100 MB of C is the whole story — ~20 min idle, ~1 h under normal
+load, ~2 h on this heavily loaded box (load 20+).
+
+Runtime constraint worth recording: the compiler reads every source file
+through io_uring, and the async runtime `exit(1)`s if `io_uring_queue_init`
+fails — a HarmonyOS kernel without io_uring cannot run Yo at all (blocking-I/O
+fallback would be a separate project).
+
+**OHOS loader facts (measured on the box, deterministic env matrix):** the
+loader resolves libs from `/etc/ld-musl-aarch64.path` (brew's lib dir not
+listed), and ANY `LD_LIBRARY_PATH` pointing into the brew prefix makes it
+refuse to resolve the ohos-sdk's bundled libxml2 that lld needs — clang's
+linker dies with `Error relocating ... xmlFreeDoc: symbol not found`, and
+`LD_PRELOAD` of brew's libxml2 does NOT survive that environment either
+(preload-only works, preload+brew-libpath fails). The fix is to need no
+brew directory at runtime: `install.sh` static-links liburing into `yo`
+(verified: the only `DT_NEEDED` left is `libc.so`), and `yo compile` now
+does the same for user programs on HarmonyOS (`_is_harmonyos` uname probe in
+main.yo wraps the liburing flags in `-Wl,-Bstatic`/`-Wl,-Bdynamic`), plus
+forwards `pkg-config --cflags` so `__has_include(<liburing.h>)` fires at
+all. install.sh also drops a poisoned `LD_LIBRARY_PATH` for its run with a
+warning (the compile needs no runtime lib paths).
+
+Also fixed on the way: `install.sh --from-source` now passes
+`pkg-config --cflags liburing` (not just `--libs`) to the C compiler — the
+include path is required for brew-style prefixes and harmless elsewhere.
+
+**Untestable in CI** — no hosted HongMeng runner exists for REAL runs, so the
+HarmonyOS branches get a **simulated dry-run leg** instead
+(`install-scripts.yml` `harmonyos-simulation`): `YO_FAKE_UNAME_S` — a
+TEST-ONLY hook in `install.sh` that replaces `uname -s` output — drives the
+branch logic (brew-missing abort, forced source path with the
+`linux-<arch>` yo.c URL, poisoned-`LD_LIBRARY_PATH` warning) on ordinary
+Linux runners. The real end-to-end (brew + ohos-sdk + compile + verify) can
+only run on an actual HarmonyOS machine.
 
 ## Gate
 
