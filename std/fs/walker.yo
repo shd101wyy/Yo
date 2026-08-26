@@ -34,7 +34,7 @@ _FOLLOW_SUPPORTED :: cond(
 { IoError } :: import("../sys/errors");
 { Error, AnyError, Exception, IoExn } :: import("../error");
 { FileType } :: import("./dir");
-{ DirEntry } :: import("./dir");
+{ DirEntry, remove_dir, remove_file } :: import("./dir");
 _dir :: import("./dir");
 /// Entry returned by the directory walker.
 WalkEntry :: struct(
@@ -43,6 +43,7 @@ WalkEntry :: struct(
   depth : u32,
   file_type : FileType
 );
+
 export(WalkEntry);
 /// Options controlling directory walk behavior.
 WalkOptions :: struct(
@@ -207,3 +208,41 @@ walk_with_cstr :: (fn(root : *(u8), options : WalkOptions, io : Io) -> Impl(Futu
 walk :: (fn(root : Path, io : Io) -> Impl(Future(ArrayList(WalkEntry), IoExn)))(walk_with(root, WalkOptions.defaults(), io));
 walk_cstr :: (fn(root : *(u8), io : Io) -> Impl(Future(ArrayList(WalkEntry), IoExn)))(walk(Path.from_cstr(root), io));
 export(walk, walk_cstr, walk_with, walk_with_cstr);
+/// Recursively remove a directory and everything under it
+/// (`std::fs::remove_dir_all`). Does NOT follow symlinks — a symlinked
+/// directory is removed as a LINK, its target untouched.
+///
+/// Lives HERE rather than in `std/fs/dir` because the implementation is the
+/// walker (collect the whole tree, delete deepest-first) and `fs/walker`
+/// imports `fs/dir` — the reverse import would be a cycle. This is the same
+/// implementation the compiler ran in production as a private helper
+/// (src/fetch.yo) before it moved into std.
+remove_dir_all :: (fn(path : Path, io : Io) -> Impl(Future(unit, IoExn)))(
+  io.async((e : IoExn) => {
+    opts := WalkOptions(max_depth : .None, follow_symlinks : false, include_dirs : true);
+    entries := e.io.await(walk_with(path, opts, e.io), e);
+    n := entries.len();
+    // Delete deepest entries first (reverse order from walk output).
+    while(n > usize(0), {
+      n = (n - usize(1));
+      match(
+        entries.get(n),
+        .None => (),
+        .Some(entry) =>
+          match(
+            entry.file_type,
+            .Directory => {
+              e.io.await(remove_dir(entry.path, e.io), e);
+            },
+            _ => {
+              e.io.await(remove_file(entry.path, e.io), e);
+            }
+          )
+      );
+    });
+    e.io.await(remove_dir(path, e.io), e);
+  })
+);
+/// `remove_dir_all` (`str` path variant).
+remove_dir_all_str :: (fn(path : str, io : Io) -> Impl(Future(unit, IoExn)))(remove_dir_all(Path.new(String.from(path)), io));
+export(remove_dir_all, remove_dir_all_str);

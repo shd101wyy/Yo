@@ -17,11 +17,14 @@ c_include(
   // Directory creation
   mkdir :
     (fn(pathname : *(char), mode : mode_t) -> int),
-  // File mode operations
+  // File mode operations. The mode parameter is bound as `u32`, not the
+  // opaque `mode_t : Type`: an opaque extern type has NO Yo-side
+  // constructor (`mode_t(384)` is a SomeT-callee error), so a caller could
+  // never produce a value for it — C implicitly converts the integer.
   chmod :
-    (fn(pathname : *(char), mode : mode_t) -> int),
+    (fn(pathname : *(char), mode : u32) -> int),
   fchmod :
-    (fn(fd : int, mode : mode_t) -> int),
+    (fn(fd : int, mode : u32) -> int),
   // File creation mask
   umask :
     (fn(mask : mode_t) -> mode_t),

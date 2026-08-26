@@ -230,6 +230,35 @@ symlink :: (fn(src : Path, dst : Path, io : Io) -> Impl(Future(unit, IoExn)))(
   })
 );
 symlink_str :: (fn(src : str, dst : str, io : Io) -> Impl(Future(unit, IoExn)))(symlink(Path.new(String.from(src)), Path.new(String.from(dst)), io));
+/// Read a symlink's target (`std::fs::read_link`). Throws for a path that is
+/// not a symlink (EINVAL) — like Rust.
+read_link :: (fn(path : Path, io : Io) -> Impl(Future(Path, IoExn)))(
+  io.async((e) => {
+    cstr_bytes := path.to_string().to_cstr();
+    cstr := cstr_bytes.ptr().unwrap();
+    bufsize := usize(4096);
+    buf := *(u8)(malloc(bufsize).unwrap());
+    n := IO_dir.readlink(AT_FDCWD, cstr, buf, bufsize);
+    cond(
+      (n < i32(0)) => {
+        free(.Some(*(void)(buf)));
+        e.exn.throw(dyn(IoError.from_errno(i32(0) - n)))
+      },
+      true => {
+        target_bytes := ArrayList(u8).with_capacity(usize(n));
+        (rli : usize) = usize(0);
+        while(rli < usize(n), rli = (rli + usize(1)), {
+          target_bytes.push((buf.add(rli)).*);
+        });
+        free(.Some(*(void)(buf)));
+        Path.new(String.from_bytes(target_bytes))
+      }
+    )
+  })
+);
+/// `read_link` (`str` path variant).
+read_link_str :: (fn(path : str, io : Io) -> Impl(Future(Path, IoExn)))(read_link(Path.new(String.from(path)), io));
+
 // ============================================================================
 // Directory listing
 // ============================================================================
@@ -313,5 +342,7 @@ export(
   symlink,
   symlink_str,
   read_dir,
-  read_dir_str
+  read_dir_str,
+  read_link,
+  read_link_str
 );
