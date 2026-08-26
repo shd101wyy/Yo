@@ -4,13 +4,13 @@ open(import("std/fmt"));
 test("imm.String new creates empty string", {
   s := String.new();
   assert(s.is_empty(), "new string should be empty");
-  assert(s.bytes_len() == usize(0), "new string should have 0 bytes");
-  assert(s.len() == usize(0), "new string should have 0 rune count");
+  assert(s.len() == usize(0), "new string should have 0 bytes");
+  assert(s.char_len() == usize(0), "new string should have 0 runes");
 });
 test("imm.String from str", {
   s := String.from("hello");
   assert(!(s.is_empty()), "should not be empty");
-  assert(s.bytes_len() == usize(5), "should have 5 bytes");
+  assert(s.len() == usize(5), "should have 5 bytes");
   assert(s == String.from("hello"), "should equal same content");
 });
 test("imm.String from empty str", {
@@ -126,27 +126,46 @@ test("imm.String equality with str", {
   assert(s.eq_str("hello"), "should equal str literal");
   assert(!(s.eq_str("world")), "should not equal different str");
 });
-test("imm.String Unicode rune count", {
+test("imm.String len is bytes, char_len is runes", {
   ascii := String.from("hello");
-  assert(ascii.len() == usize(5), "ASCII rune count should match byte count");
+  assert(ascii.len() == usize(5), "ASCII: byte count and rune count coincide");
+  assert(ascii.char_len() == usize(5), "ASCII: 5 runes too");
   // Each Chinese char is 3 UTF-8 bytes
   cjk := String.from("你好");
-  assert(cjk.bytes_len() == usize(6), "CJK should be 6 bytes");
-  assert(cjk.len() == usize(2), "CJK should be 2 runes");
+  assert(cjk.len() == usize(6), "CJK is 6 BYTES — len() flipped in D4 PR 4 (pre-flip: 2)");
+  assert(cjk.char_len() == usize(2), "CJK is 2 runes");
 });
-test("imm.String at (rune access)", {
-  s := String.from("abc");
+test("imm.String at decodes the rune starting at a BYTE offset", {
+  //   rune   a      é         中           𝄞
+  //   offset 0      1  2      3  4  5      6  7  8  9      10 bytes
+  s := String.from("aé中𝄞");
   match(
     s.at(usize(0)),
-    .Some(r) => assert(r.char == u32(0x61), "at(0) should be 'a'"),
+    .Some(r) => assert(r.char == u32(0x61), "at(0) is 'a'"),
     .None => assert(false, "at(0) should not be None")
   );
   match(
-    s.at(usize(2)),
-    .Some(r) => assert(r.char == u32(0x63), "at(2) should be 'c'"),
-    .None => assert(false, "at(2) should not be None")
+    s.at(usize(1)),
+    .Some(r) => assert(r.char == u32(0xE9), "at(1) decodes 'é' starting at byte 1"),
+    .None => assert(false, "at(1) should not be None")
   );
-  assert(s.at(usize(3)).is_none(), "at(3) out of bounds");
+  // Pre-flip, at(2) was the THIRD RUNE ('中'); byte-based it is a
+  // continuation byte of 'é' and answers .None.
+  assert(s.at(usize(2)).is_none(), "at(2) is inside 'é' — .None, not the 3rd rune");
+  match(
+    s.at(usize(3)),
+    .Some(r) => assert(r.char == u32(0x4E2D), "at(3) decodes '中' starting at byte 3"),
+    .None => assert(false, "at(3) should not be None")
+  );
+  assert(s.at(usize(4)).is_none(), "at(4) is inside '中'");
+  match(
+    s.at(usize(6)),
+    .Some(r) => assert(r.char == u32(0x1D11E), "at(6) decodes '𝄞' starting at byte 6"),
+    .None => assert(false, "at(6) should not be None")
+  );
+  assert(s.at(usize(9)).is_none(), "at(9) is inside '𝄞'");
+  assert(s.at(usize(10)).is_none(), "at(10) is past the end");
+  assert(String.new().at(usize(0)).is_none(), "empty string has no rune at 0");
 });
 test("imm.String Send check", {
   comptime_assert(Type.impls(String, Send), "imm.String should implement Send");
@@ -197,10 +216,11 @@ test("imm.String COW concat chain", {
 // ===========================================================================
 // D4 PR 1 — the rune-aware vocabulary (plans/STD_API_AUDIT_D4_PLAN.md §4).
 //
-// `imm.String` already indexes in BYTES everywhere it indexes at all
-// (`slice`, `index_of`, `byte_at`); `len()` is the one rune-based outlier and
-// PR 4 flips it. These additions are what rune-meaning call sites migrate
-// onto, so every assertion below is multibyte with hand-computed byte offsets.
+// `imm.String` already indexed in BYTES everywhere it indexed at all
+// (`slice`, `index_of`, `byte_at`); PR 4 flipped the two rune-based outliers
+// (`len()` and `at()`), so the type now speaks one basis. The rune vocabulary
+// below is what rune-meaning call sites migrate onto; every assertion is
+// multibyte with hand-computed byte offsets.
 //
 //   rune   a      é         中           𝄞
 //   width  1B     2B        3B           4B          10 bytes, 4 runes
@@ -209,9 +229,12 @@ test("imm.String COW concat chain", {
 // ===========================================================================
 test("imm.String char_len counts runes across all four UTF-8 widths", {
   s := String.from("aé中𝄞");
-  assert(s.bytes_len() == usize(10), "subject must be 10 bytes");
+  assert(s.len() == usize(10), "subject must be 10 bytes");
   assert(s.char_len() == usize(4), "subject must be 4 runes");
-  assert(s.char_len() == s.len(), "char_len is today's len() — the PR 4 golden");
+  // The PR 4 golden, stated as two halves so it discriminates both ways:
+  // the rune count is UNCHANGED by the flip, and len() now counts bytes.
+  assert(s.char_len() == usize(4), "rune count unchanged by the PR 4 flip");
+  assert(s.len() == usize(10), "len() is the byte count since the PR 4 flip (pre-flip: 4)");
   assert(s.byte_at(usize(0)).unwrap() == u8(0x61), "byte 0 is 'a'");
   assert(s.byte_at(usize(1)).unwrap() == u8(0xC3), "byte 1 leads 'é'");
   assert(s.byte_at(usize(3)).unwrap() == u8(0xE4), "byte 3 leads '中'");
@@ -249,7 +272,7 @@ test("imm.String floor/ceil char boundary snap onto rune starts", {
   assert(s.ceil_char_boundary(usize(10)) == usize(10), "the end ceils to itself");
   assert(s.ceil_char_boundary(usize(999)) == usize(10), "far past clamps");
   i := usize(0);
-  while(i <= s.bytes_len(), i = (i + usize(1)), {
+  while(i <= s.len(), i = (i + usize(1)), {
     on := s.is_char_boundary(i);
     assert((s.floor_char_boundary(i) == i) == on, "floor fixes exactly the boundaries");
     assert((s.ceil_char_boundary(i) == i) == on, "ceil fixes exactly the boundaries");
@@ -349,4 +372,93 @@ test("imm.String try_substring slices on boundaries and refuses interior offsets
   // `slice` CLAMPS the same bad range instead of refusing it — that contrast
   // is exactly why the checked form exists.
   assert(s.slice(usize(0), usize(11)) == s, "slice clamps a past-the-end range");
+});
+// ===========================================================================
+// D4 PR 4 — the byte battery (plans/STD_API_AUDIT_D4_PLAN.md §6.2 asked for
+// it: `len()` → bytes was guarded by ONE test before this section).
+// Subject layout, hand-computed:
+//
+//   rune   a      é         中           𝄞
+//   width  1B     2B        3B           4B          10 bytes, 4 runes
+//   bytes  61     C3 A9     E4 B8 AD     F0 9D 84 9E
+//   offset 0      1  2      3  4  5      6  7  8  9
+// ===========================================================================
+test("imm.String len counts BYTES across all four UTF-8 widths", {
+  assert(String.from("aé中𝄞").len() == usize(10), "10 bytes (pre-PR-4 len(): 4 runes)");
+  assert(String.from("é").len() == usize(2), "'é' is 2 bytes, 1 rune");
+  assert(String.from("中").len() == usize(3), "'中' is 3 bytes, 1 rune");
+  assert(String.from("𝄞").len() == usize(4), "'𝄞' is 4 bytes, 1 rune");
+  assert(String.from("你好").char_len() == usize(2), "char_len stays the rune count");
+});
+test("imm.String len is O(1) field access and agrees with the std String byte count", {
+  subject := `aé中𝄞`;
+  s := String.from_string(subject);
+  assert(s.len() == subject.len(), "imm and std String agree on the byte count");
+  assert(s.len() == usize(10), "and it is 10");
+  assert(s.char_len() == subject.char_len(), "and on the rune count");
+});
+test("imm.String index_of returns BYTE offsets on multibyte haystacks", {
+  s := String.from("aé中𝄞");
+  assert(s.index_of(String.from("中"), usize(0)).unwrap() == usize(3), "'中' starts at BYTE 3 (rune index would say 2)");
+  assert(s.index_of(String.from("𝄞"), usize(0)).unwrap() == usize(6), "'𝄞' starts at BYTE 6 (rune index would say 3)");
+  assert(s.index_of(String.from("é"), usize(0)).unwrap() == usize(1), "'é' starts at byte 1");
+  assert(s.index_of(String.from("é中"), usize(0)).unwrap() == usize(1), "a multibyte needle matches at its lead byte");
+  assert(s.index_of(String.from("x"), usize(0)).is_none(), "absent needle");
+});
+test("imm.String index_of from_index is a BYTE offset", {
+  // 6 runes, 3 bytes each, 18 bytes total:
+  //   你@0  好@3  你@6  你@9  好@12  你@15
+  s := String.from("你好你你好你");
+  assert(s.index_of(String.from("你"), usize(0)).unwrap() == usize(0), "first hit at byte 0");
+  assert(s.index_of(String.from("你"), usize(1)).unwrap() == usize(6), "from byte 1 skips the rune at 0 (a rune-based from_index of 1 would find byte 3's 好 neighbour instead)");
+  assert(s.index_of(String.from("好"), usize(4)).unwrap() == usize(12), "from byte 4 (inside 好@3) finds the next 好 at byte 12");
+  assert(s.index_of(String.from("你"), usize(16)).is_none(), "from byte 16 there is no room left for a 3-byte needle");
+  // The empty needle matches everywhere, VERBATIM — the same §1.4 contract
+  // hole `std/string` documents: the answer can be a continuation byte.
+  assert(s.index_of(String.new(), usize(4)).unwrap() == usize(4), "empty needle answers from_index verbatim, even mid-rune");
+});
+test("imm.String slice takes BYTE offsets on multibyte content", {
+  s := String.from("aé中𝄞");
+  assert(s.slice(usize(1), usize(3)) == String.from("é"), "[1,3) is 'é'");
+  assert(s.slice(usize(3), usize(6)) == String.from("中"), "[3,6) is '中' (a rune-based slice(3,6) would have been '𝄞' alone)");
+  assert(s.slice(usize(6), usize(10)) == String.from("𝄞"), "[6,10) is '𝄞'");
+  assert(s.slice(usize(0), usize(10)) == s, "the whole string");
+  assert(s.slice(usize(3), usize(10)).char_len() == usize(2), "'中𝄞' is 2 runes");
+});
+test("imm.String slice + index_of compose in one basis", {
+  s := String.from("aé中𝄞");
+  idx := s.index_of(String.from("中"), usize(0)).unwrap();
+  needle_len := String.from("中").len();
+  assert(s.slice(idx, idx + needle_len) == String.from("中"), "an index_of result feeds slice directly");
+  assert(s.is_char_boundary(idx), "a non-empty search hit is a rune boundary");
+});
+test("imm.String byte_at is unchanged by the flip", {
+  s := String.from("aé中𝄞");
+  assert(s.byte_at(usize(1)).unwrap() == u8(0xC3), "byte 1 leads 'é'");
+  assert(s.byte_at(usize(9)).unwrap() == u8(0x9E), "byte 9 ends '𝄞'");
+  assert(s.byte_at(usize(10)).is_none(), "byte 10 is past the end");
+});
+test("imm.String starts_with/ends_with on multibyte content", {
+  s := String.from("aé中𝄞");
+  assert(s.starts_with(String.from("aé")), "multibyte prefix");
+  assert(!(s.starts_with(String.from("é"))), "'é' is not the prefix");
+  assert(s.ends_with(String.from("中𝄞")), "multibyte suffix");
+  assert(!(s.ends_with(String.from("中"))), "'中' is not the suffix");
+});
+test("imm.String split on a multibyte separator yields byte-correct parts", {
+  //  a  ，  é  ，  中        ， is U+FF0C, 3 bytes
+  s := String.from("a，é，中");
+  parts := s.split(String.from("，"));
+  assert(parts.len() == usize(3), "three parts");
+  assert(parts.head().unwrap() == String.from("a"), "first part");
+  assert(parts.tail().head().unwrap() == String.from("é"), "second part");
+  assert(parts.tail().tail().head().unwrap() == String.from("中"), "third part");
+  assert(parts.tail().head().unwrap().len() == usize(2), "'é' survives as its 2 bytes");
+});
+test("imm.String replace with multibyte search and replacement", {
+  s := String.from("aé中𝄞");
+  r := s.replace(String.from("中"), String.from("你好"));
+  assert(r == String.from("aé你好𝄞"), "replaced at the right BYTE offset");
+  assert(r.len() == usize(13), "1 + 2 + 6 + 4 bytes");
+  assert(r.char_len() == usize(5), "5 runes after the swap");
 });

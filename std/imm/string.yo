@@ -67,7 +67,7 @@ impl(
   }),
   /// Create a string from a standard (mutable) String by copying its bytes.
   from_string : (fn(s : std_string.String) -> Self)({
-    slen := s.bytes_len();
+    slen := s.len();
     if(slen == usize(0), {
       return(Self(_ptr : .None, _len : usize(0), _capacity : usize(0)));
     });
@@ -76,31 +76,21 @@ impl(
     unsafe(memcpy(*(void)(ptr), *(void)(rb.ptr), slen));
     return(Self(_ptr : .Some(ptr), _len : slen, _capacity : slen));
   }),
-  /// Byte length of the string.
-  bytes_len : (fn(self : Self) -> usize)(
+  /// Number of BYTES in this string's UTF-8 encoding — O(1).
+  ///
+  /// **BYTE basis**, the unit every index on this type speaks: `slice`,
+  /// `index_of`, `byte_at` and `at` all take or return byte offsets, and it
+  /// agrees with `std/string`'s `String.len()`, `str.len()` and Rust's
+  /// `str::len()`.
+  ///
+  /// For "how many runes" use `char_len()` (O(n)); to walk runes together with
+  /// the byte offset each one starts at, use `char_indices()`.
+  /// (`plans/STD_API_AUDIT_D4_PLAN.md` D4 PR 4 — this returned a RUNE count
+  /// before that flip, and a `bytes_len()` alias carried the byte count; the
+  /// alias was DELETED with the flip because it had no consumer left.)
+  len : (fn(self : Self) -> usize)(
     self._len
   ),
-  /// Number of Unicode characters (runes) in the string.
-  len : (fn(self : Self) -> usize)({
-    if(self._len == usize(0), {
-      return(usize(0));
-    });
-    count := usize(0);
-    i := usize(0);
-    match(
-      self._ptr,
-      .None => (),
-      .Some(p) => {
-        while(i < self._len, i = (i + usize(1)), {
-          (b : u8) = (p.add(i)).*;
-          if(utf8.is_boundary(b), {
-            count = (count + usize(1));
-          });
-        });
-      }
-    );
-    count
-  }),
   /// Check if the string is empty.
   is_empty : (fn(self : Self) -> bool)(
     self._len == usize(0)
@@ -569,48 +559,34 @@ impl(
       }
     )
   }),
-  /// Get the Unicode character (rune) at a given character index.
-  at : (fn(self : Self, index : usize) -> Option(rune))({
-    if(self._len == usize(0), {
-      return(.None);
-    });
-    match(
-      self._ptr,
-      .None => {
-        return(.None);
-      },
-      .Some(p) => {
-        char_count := usize(0);
-        byte_index := usize(0);
-        while(byte_index < self._len, (), {
-          if(char_count == index, {
-            return(self._decode_rune_at(byte_index));
-          });
-          (b : u8) = (p.add(byte_index)).*;
-          byte_index = (byte_index + utf8.step_len(b));
-          char_count = (char_count + usize(1));
-        });
-        return(.None);
-      }
-    )
-  })
+  /// Decode the rune that STARTS at byte offset `index`.
+  ///
+  /// **BYTE basis** (`plans/STD_API_AUDIT_D4_PLAN.md` D4 PR 4 — this took a
+  /// rune index before the flip; it now mirrors `std/string`'s `String.at`).
+  /// `.None` is returned for the three ways a byte offset can fail to name a
+  /// rune: at or past `len()`, inside a rune (a UTF-8 continuation byte), or
+  /// on bytes that do not decode.
+  ///
+  /// `while(i < s.len(), { s.at(i) })` therefore visits continuation bytes and
+  /// yields `.None` at each of them — use `char_indices()` (or `chars()`) to
+  /// walk runes.
+  at : (fn(self : Self, index : usize) -> Option(rune))(
+    self._decode_rune_at(index)
+  )
 );
 /// === Rune-aware indexing (D4 vocabulary) ===
 ///
 /// The same six additions `std/string/string.yo` grew, plus the rune iterator
 /// this type never had. Offsets are **BYTES** throughout (except `char_len`,
-/// which counts runes) — `slice`, `index_of` and `byte_at` on this type are
-/// already byte-based, so this block is what makes the rest of the API
-/// sayable in one basis. See `plans/STD_API_AUDIT_D4_PLAN.md`.
-///
-/// Until `len()` becomes a byte count, `char_len()` returns exactly what
-/// `len()` returns; migrate rune-counting call sites onto it now.
+/// which counts runes) — and since D4 PR 4 flipped `len()` and `at()`, that
+/// is the basis the WHOLE type speaks: this block is the rune vocabulary on
+/// top of it. See `plans/STD_API_AUDIT_D4_PLAN.md`.
 ///
 /// `char_len` and `char_indices` are built on `std/encoding/utf8` and inherit
 /// its malformed-input behaviour: `char_len` counts non-continuation bytes
-/// (what `len()` does today), `char_indices` and `chars` stop at the first
-/// sequence that will not decode. The boundary functions and `try_substring`
-/// are pure byte classification and cannot fail.
+/// (what `len()` counted before D4 PR 4), `char_indices` and `chars` stop at
+/// the first sequence that will not decode. The boundary functions and
+/// `try_substring` are pure byte classification and cannot fail.
 /// Rune iterator for `imm.String` — created by `chars()`.
 StringChars :: struct(
   _string : String,
@@ -622,7 +598,7 @@ impl(
     Item : rune,
     next : (fn(inout(self) : Self) -> Option(rune))(
       cond(
-        (self._byte_index >= self._string.bytes_len()) => .None,
+        (self._byte_index >= self._string.len()) => .None,
         true => match(
           self._string.byte_at(self._byte_index),
           .Some(first_byte) => {
@@ -648,7 +624,7 @@ impl(
     Item : IterPair(usize, rune),
     next : (fn(inout(self) : Self) -> Option(IterPair(usize, rune)))(
       cond(
-        (self._byte_index >= self._string.bytes_len()) => .None,
+        (self._byte_index >= self._string.len()) => .None,
         true => match(
           self._string.byte_at(self._byte_index),
           .Some(first_byte) => {
@@ -676,10 +652,11 @@ impl(
   char_indices : (fn(self : Self) -> StringCharIndices)(
     StringCharIndices(_string : self, _byte_index : usize(0))
   ),
-  /// Number of Unicode scalar values (runes) in the string.
+  /// Number of Unicode scalar values (runes) in the string — O(n).
   ///
-  /// O(n) in the byte length. Identical to what `len()` returns today; it
-  /// stays a rune count after `len()` becomes a byte count.
+  /// **RUNE basis**, and the only length on this type that is: `len()` counts
+  /// BYTES (D4 PR 4). Use this wherever a count is a display/character count
+  /// rather than a buffer size.
   char_len : (fn(self : Self) -> usize)({
     count := usize(0);
     i := usize(0);
@@ -702,7 +679,7 @@ impl(
   }),
   /// True when byte offset `index` sits on a rune boundary.
   ///
-  /// `0` and `bytes_len()` are always boundaries; an index past the end never
+  /// `0` and `len()` are always boundaries; an index past the end never
   /// is. Mirrors Rust's `str::is_char_boundary`.
   is_char_boundary : (fn(self : Self, index : usize) -> bool)(
     cond(
@@ -718,7 +695,7 @@ impl(
   ),
   /// The largest byte offset `<= index` that sits on a rune boundary.
   ///
-  /// `index` is clamped to `bytes_len()` first, so the answer is always a
+  /// `index` is clamped to `len()` first, so the answer is always a
   /// boundary of THIS string.
   floor_char_boundary : (fn(self : Self, index : usize) -> usize)(
     cond(
@@ -742,7 +719,7 @@ impl(
   ),
   /// The smallest byte offset `>= index` that sits on a rune boundary.
   ///
-  /// `index` at or past `bytes_len()` clamps to `bytes_len()`, which is a
+  /// `index` at or past `len()` clamps to `len()`, which is a
   /// boundary, so this always terminates on a valid one.
   ceil_char_boundary : (fn(self : Self, index : usize) -> usize)(
     cond(
@@ -767,7 +744,7 @@ impl(
   /// Byte-range slice that REFUSES a bad range instead of clamping it —
   /// Rust's `s.get(start..end)`, and the checked counterpart of `slice`.
   ///
-  /// `.None` for `start > end`, for `end` past `bytes_len()`, and for an
+  /// `.None` for `start > end`, for `end` past `len()`, and for an
   /// endpoint inside a rune (which would produce invalid UTF-8). An empty but
   /// valid range yields `.Some` of the empty string.
   try_substring : (fn(self : Self, start : usize, end : usize) -> Option(Self))({

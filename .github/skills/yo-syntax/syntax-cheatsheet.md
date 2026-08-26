@@ -1516,7 +1516,10 @@ valid-UTF-8 needle simply cannot match at a continuation byte, so a mid-rune
 argument answers `false` / `.None`.
 
 **The rune vocabulary** (`std/string/string.yo`; the same names exist on
-`std/imm/string.yo`, whose own `len()` is still rune-based until D4 PR 4):
+`std/imm/string.yo`, whose `len()` and `at()` are byte-based the same way
+since D4 PR 4 — note its `bytes_len()` was DELETED there rather than
+deprecated, because it had zero consumers left; only `std/string`'s `String`
+keeps the deprecated alias):
 
 | call | basis | meaning |
 | --- | --- | --- |
