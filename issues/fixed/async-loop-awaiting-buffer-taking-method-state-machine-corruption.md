@@ -1,5 +1,11 @@
 # An async loop awaiting a buffer-taking method emits a state machine that segfaults (or invalid C, in a generic impl)
 
+**Status: FIXED 2026-08-26 on all three facets** — facet 1 (dropped param
+captures, PR #294), facet 2 (unwritten hoisted slot for the match payload
+binding, PR #295), facet 3 (the generic-impl face: unregistered arm-binding
+shadow — record below). Tests: `tests/async_generic_param_capture.test.yo`
+(2), `tests/async_loop_buffer_await.test.yo` (4).
+
 **FACET 1 FIXED 2026-08-26** (branch fix/async-capture-and-swallows). Root
 cause of the dropped-parameter face, traced through the new
 `YO_DEBUG_CAPTURE=1` channels: the call-time param binding derived
@@ -37,14 +43,28 @@ steps). Red-first: `tests/async_loop_buffer_await.test.yo` (both the
 trait-default and free-generic loop shapes; rc=1 on the pre-fix binary,
 2/2 after). All three loop reproducers now run rc=0; controls unchanged.
 
-**REMAINING OPEN — the generic-impl face only**: `BufReader(R)`-style
-generic inherent impls still fail LOUDLY at C compile — the arm's read of
-the pattern binding resolves to a MINTED TEMP name
-(`_file____priv_temp_NNNN`) that is never declared (a rename/remap on the
-read side the binding does not mirror), distinct from the fixed
-slot-store split. `issues/repros/async-loop-buffer-await-generic-impl.yo`
-still reproduces. This is the one remaining blocker for the generic
-`BufReader(R)`/`BufWriter(W)` (together with C17 for the Dyn spelling).
+**FACET 3 (the generic-impl face) FIXED 2026-08-26 — the issue is now
+CLOSED on every face.** Mechanism: `_gen_nullable_ptr_match`
+(codegen/exprs/match.yo) declared the payload binding under its sanitized
+SOURCE name (`uint8_t* q = …`) but never registered it in
+`local_shadowed_variables` — the shadow set that exists precisely so an arm
+body's reads resolve to the arm-block C declaration instead of the
+evaluator's stamped temp `variable_name`. The TAGGED-UNION arm path
+(`_emit_destructure_binds`) always registered its binds; the
+nullable-pointer fast path forgot. A MATERIALIZED generic-impl arm body
+carries such a stamped temp on the binding read, so the emitted C referenced
+a never-declared `_<module>__priv_temp_N`. Fix: `_shadow_add(dvn)` at the
+binding declaration, `_shadow_remove` after the ptr-case body (the shadow
+helpers moved above the function — Yo evaluates module definitions in
+order). The single-await shape was the red case; the LOOP shape's binding is
+sm-hoisted and was already covered by the facet-2 slot store (verified: it
+compiled AND ran pre-fix). Red-first:
+`issues/repros/async-loop-buffer-await-generic-impl.yo` (rc=1 pre-fix with
+exactly `use of undeclared identifier '_file____priv_temp_…'`, compile+run
+rc=0 after); tests: two generic-impl cases added to
+`tests/async_loop_buffer_await.test.yo` (2 → 4, rc=1 against the pre-fix
+binary). With this, generic `BufReader(R)`/`BufWriter(W)` is unblocked; only
+C17 still blocks the `Dyn(Reader)` spelling.
 
 
 **Found 2026-08-26 while implementing STD_API_AUDIT D5** (async `Reader`/`Writer`).

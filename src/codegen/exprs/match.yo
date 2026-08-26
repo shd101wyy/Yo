@@ -572,6 +572,33 @@ _variant_name :: (fn(case_value : AstExpr) -> String)(
 );
 /// Nullable-pointer-optimized enum match → if/else (null vs pointer case).
 /// Mirrors the `nullablePointerType` branch of `generateMatchExpression`.
+/// Add a name to the function's local-shadowed-variables set (creating it if
+/// absent). A shadowed name resolves in `generate_atom` to its sanitized
+/// SOURCE name (the arm-block C declaration), not the evaluator's temp.
+_shadow_add :: (fn(context : FunctionGenerationContext, name : String) -> unit)({
+  match(
+    context.local_shadowed_variables,
+    .Some(s) => {
+      _a := s.insert(name);
+    },
+    .None => {
+      ns := HashSet(String).new();
+      _a := ns.insert(name);
+      context.local_shadowed_variables = Option(HashSet(String)).Some(ns);
+    }
+  );
+});
+/// Remove a name from the local-shadowed-variables set (after an arm body, so
+/// the shadow does not leak to sibling arms / outer scope).
+_shadow_remove :: (fn(context : FunctionGenerationContext, name : String) -> unit)({
+  match(
+    context.local_shadowed_variables,
+    .Some(s) => {
+      _r := s.remove(name);
+    },
+    .None => ()
+  );
+});
 _gen_nullable_ptr_match :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext, matched_value_code : String, nullable_inner : TypeValue, is_ptr : bool, temp_var_opt : Option(String), is_unit : bool) -> String)({
   em := context.base.emitter;
   body_indent := indent.clone();
@@ -636,13 +663,22 @@ _gen_nullable_ptr_match :: (fn(expr : AstExpr, indent : String, context : Functi
             decl.push_string(matched_value_code.clone());
             decl.push_str(";");
             em.emit_string_line(decl);
+            // Shadow-register the binding like _emit_destructure_binds does
+            // for tagged-union arms: the arm body must resolve `q` to THIS
+            // local C declaration. Without it, a GENERIC-IMPL materialized
+            // arm body — whose ExprInfo carries an evaluator-stamped temp
+            // `variable_name` — rendered the read as a never-declared
+            // `_<module>__priv_temp_N` (the generic-impl face of
+            // issues/fixed/async-loop-awaiting-buffer-taking-method-state-machine-corruption.md).
+            // Removed after the ptr-case body below.
+            _shadow_add(context, dvn.clone());
             // STATE-MACHINE STORAGE PARITY: identifier READS of an
             // sm-hoisted variable emit `sm->var_N` (atom.yo consults
             // state_machine_variables), so when THIS pattern binding's
             // variable was hoisted, the local decl above leaves the slot
             // uninitialized and the arm's result reads garbage — the
             // facet-2 loop-await rc=139
-            // (issues/async-loop-awaiting-buffer-taking-method-state-machine-corruption.md).
+            // (issues/fixed/async-loop-awaiting-buffer-taking-method-state-machine-corruption.md).
             // Resolve the binding's slot: env id (owning-alias + remapping,
             // init_assignment.yo:206's steps) first, then a NAME scan over
             // the hoister's map (_find_sm_var_id_by_name's recovery) —
@@ -783,6 +819,23 @@ _gen_nullable_ptr_match :: (fn(expr : AstExpr, indent : String, context : Functi
     },
     .None => ()
   );
+  // Un-shadow the payload binding (added at its declaration above) so the
+  // shadow does not leak into the null arm or the outer scope.
+  match(
+    ptr_pattern,
+    .Some(pat2) => match(
+      pat2,
+      .FnCall(_, _, pargs2, _, _) => match(
+        pargs2.get(usize(0)),
+        .Some(dvar2) => if(ast_expr_is_atom(dvar2), {
+          _shadow_remove(context, sanitize_for_c_identifier(ast_expr_token(dvar2).value, false));
+        }),
+        .None => ()
+      ),
+      .Atom(_, _) => ()
+    ),
+    .None => ()
+  );
   mid := indent.clone();
   mid.push_str("} else {");
   em.emit_string_line(mid);
@@ -886,33 +939,6 @@ _gen_simple_enum_match :: (fn(expr : AstExpr, indent : String, context : Functio
   close.push_str("}");
   em.emit_string_line(close);
   if(is_unit, String.from(""), match(temp_var_opt, .Some(tv) => tv, .None => String.from("")))
-});
-/// Add a name to the function's local-shadowed-variables set (creating it if
-/// absent). A shadowed name resolves in `generate_atom` to its sanitized
-/// SOURCE name (the arm-block C declaration), not the evaluator's temp.
-_shadow_add :: (fn(context : FunctionGenerationContext, name : String) -> unit)({
-  match(
-    context.local_shadowed_variables,
-    .Some(s) => {
-      _a := s.insert(name);
-    },
-    .None => {
-      ns := HashSet(String).new();
-      _a := ns.insert(name);
-      context.local_shadowed_variables = Option(HashSet(String)).Some(ns);
-    }
-  );
-});
-/// Remove a name from the local-shadowed-variables set (after an arm body, so
-/// the shadow does not leak to sibling arms / outer scope).
-_shadow_remove :: (fn(context : FunctionGenerationContext, name : String) -> unit)({
-  match(
-    context.local_shadowed_variables,
-    .Some(s) => {
-      _r := s.remove(name);
-    },
-    .None => ()
-  );
 });
 /// Remove the shadows a tagged-union arm's destructuring added, mirroring the
 /// var extraction in `_emit_destructure_binds` (labeled `label : var` → var is

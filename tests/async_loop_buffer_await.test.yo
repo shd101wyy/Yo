@@ -1,5 +1,5 @@
 //! Regression (facet 2 of
-//! issues/async-loop-awaiting-buffer-taking-method-state-machine-corruption.md):
+//! issues/fixed/async-loop-awaiting-buffer-taking-method-state-machine-corruption.md):
 //! an async body LOOPING over a buffer-taking await segfaulted (rc=139,
 //! fully-transpiled C). The nullable-pointer match's payload binding
 //! (`.Some(q) => q` over `chunk.ptr()`) declared `q` as a plain C local while
@@ -85,6 +85,63 @@ read_to_end_free :: (
     });
     out
   })
+});
+// The GENERIC-IMPL face (the last one fixed): a materialized generic-impl
+// arm body carries an evaluator-stamped temp `variable_name` on the binding
+// read, so without shadow-registration the emitted C referenced a
+// never-declared `_<module>__priv_temp_N`. The SINGLE-await shape was the
+// red case (the loop shape's binding is sm-hoisted, covered by the facet-2
+// slot store); both are pinned.
+Wrap :: (fn(comptime(R) : Type) -> comptime(Type))(struct(_inner : R));
+impl(
+  generic(R : Type),
+  where(R <: Reader),
+  Wrap(R),
+  fill_once : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn)))(
+    io.async((e) => {
+      tmp := ArrayList(u8).with_capacity(usize(8));
+      tmp.push(u8(0));
+      p := match(tmp.ptr(), .Some(q) => q, .None => *(u8)(""));
+      n := e.io.await(self._inner.read(p, usize(8), io), e);
+      n
+    })
+  ),
+  drain : (fn(self : Self, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))(
+    io.async((e) => {
+      out := ArrayList(u8).new();
+      chunk := ArrayList(u8).with_capacity(usize(4));
+      (ci : usize) = usize(0);
+      while(ci < usize(4), ci = (ci + usize(1)), {
+        chunk.push(u8(0));
+      });
+      p := match(chunk.ptr(), .Some(q) => q, .None => *(u8)(""));
+      (done : bool) = false;
+      while(!(done), {
+        n := e.io.await(self._inner.read(p, usize(4), io), e);
+        if(n == usize(0), {
+          done = true;
+        }, {
+          (i : usize) = usize(0);
+          while(i < n, i = (i + usize(1)), {
+            out.push(chunk(i));
+          });
+        });
+      });
+      out
+    })
+  )
+);
+test("generic-impl single buffer-taking await (the shadow-registration face)", {
+  w := Wrap(TenSrc)(_inner : TenSrc(pos : u8(0)));
+  n := io.await(w.fill_once(io), { io });
+  assert(n == usize(8), "eight bytes on the first fill");
+});
+test("generic-impl loop over a buffer-taking await (the BufReader shape)", {
+  w := Wrap(TenSrc)(_inner : TenSrc(pos : u8(0)));
+  all := io.await(w.drain(io), { io });
+  assert(all.len() == usize(10), "ten bytes drained");
+  assert(all(usize(0)) == u8(1), "first byte");
+  assert(all(usize(9)) == u8(10), "last byte");
 });
 test("trait-default read_to_end loops a buffer-taking await", {
   src := TenSrc(pos : u8(0));
