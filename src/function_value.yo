@@ -18,6 +18,8 @@
 //! Both registries are keyed by `func_id : String` (the unique
 //! `FuncValueId` from src/function-value.ts).
 open(import("std/string"));
+_(env : fnval_dbg_env) :: import("std/env");
+{ eprintln } :: import("std/fmt");
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
 { Frame } :: import("./env.yo");
@@ -95,6 +97,9 @@ ClosureCaptureInfo :: ref(struct(capture_type : TypeValue, frame_level : usize))
 (g_closure_capture_by_source : HashMap(String, ClosureCaptureInfo)) = HashMap(String, ClosureCaptureInfo).new();
 /// Record the source key for a closure fid (at FuncVal mint).
 register_closure_fid_source :: (fn(func_id : String, src_key : String) -> unit)({
+  if(fnval_dbg_env.get(`YO_DEBUG_CAPTURE`).is_some(), {
+    eprintln(`[fid-src] fid=${func_id} src=${src_key}`);
+  });
   g_closure_fid_source.insert(func_id, src_key);
   ()
 });
@@ -102,6 +107,28 @@ _capture_struct_field_count :: (fn(t : TypeValue) -> usize)(
   match(t, .Struct({ field_labels : cfl }) => cfl.len(), _ => usize(0))
 );
 register_closure_capture_info :: (fn(func_id : String, info : ClosureCaptureInfo) -> unit)({
+  if(fnval_dbg_env.get(`YO_DEBUG_CAPTURE`).is_some(), {
+    (reg_flds : String) = String.new();
+    match(
+      info.capture_type,
+      .Struct({ field_labels : rfl }) => {
+        (rgi : usize) = usize(0);
+        while(rgi < rfl.len(), rgi = (rgi + usize(1)), {
+          match(
+            rfl.get(rgi),
+            .Some(rfn) => {
+              reg_flds.push_string(rfn);
+              reg_flds.push_str(",");
+            },
+            .None => ()
+          );
+        });
+      },
+      _ => ()
+    );
+    reg_src := match(g_closure_fid_source.get(func_id.clone()), .Some(sv) => sv, .None => `NO-SRC`.to_string());
+    eprintln(`[cap-reg] fid=${func_id} src=${reg_src} fields=${reg_flds}`);
+  });
   // KEEP-LARGER: a closure definition can be re-evaluated (def-time trial,
   // enclosing-fn specialization, deferred-generic completion) and each eval
   // re-registers its own capture struct — but the capture TRACKER records an

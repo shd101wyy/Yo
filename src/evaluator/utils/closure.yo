@@ -11,6 +11,8 @@
 //!     explicit capture struct type deferred to Phase 4.
 //!   - `autoDeriveTraitsAndAddRcFunctions…`     → calls auto_derive_traits_for_struct_type
 open(import("std/string"));
+_(env : clo_dbg_env) :: import("std/env");
+{ eprintln } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 {
@@ -162,6 +164,21 @@ enrich_captured_variables :: (
           .Some(cap_info) => {
             fl := cap_info.frame_level;
             n_frames := env.frames.len();
+            if(clo_dbg_env.get(`YO_DEBUG_CAPTURE`).is_some(), {
+              enr_found := get_variables_from_env(env, var_name.clone());
+              (enr_cto : usize) = usize(0);
+              (enr_k : usize) = usize(0);
+              while(enr_k < enr_found.len(), enr_k = (enr_k + usize(1)), {
+                match(
+                  enr_found.get(enr_k),
+                  .Some(ev) => if(ev.is_compile_time_only, {
+                    enr_cto = (enr_cto + usize(1));
+                  }),
+                  .None => ()
+                );
+              });
+              eprintln(`[cap-enr] name=${var_name} fl=${fl.to_string()} n_frames=${n_frames.to_string()} found=${enr_found.len().to_string()} cto=${enr_cto.to_string()}`);
+            });
             if(fl < n_frames, {
               vars := get_variables_from_env(env, var_name.clone());
               m := vars.len();

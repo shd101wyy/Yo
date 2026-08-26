@@ -5256,7 +5256,18 @@ Fix: wrap the call:
           // the field → undeclared `get_info` in the emitted C). TS binds
           // isCompileTimeOnly from the PARAMETER declaration, never from
           // arg-value presence (helper.ts:573).
-          (is_ct : bool) = match(arg_info.value, .Some(av) => !(is_func_val(av)), .None => false);
+          // An UnknownVal argument is a RUNTIME value (type known, value not
+          // — the project-wide meaning of UnknownVal, and TS helper.ts:36's
+          // own words: "A runtime value is either undefined (no value) or a
+          // runtime-only UnknownValue"). Binding such a param compile-time-
+          // only excluded it from closure-capture tracking, so a generic
+          // fn's async closure emitted the param as a bare undeclared C
+          // identifier (issues/async-loop-awaiting-buffer-taking-method-
+          // state-machine-corruption.md, facet 1). TS derives the binding's
+          // isCompileTimeOnly from the DECLARED param flag alone
+          // (helper.ts:671); the value-derived heuristic here keeps genuine
+          // comptime VALUES comptime but must not claim runtime unknowns.
+          (is_ct : bool) = match(arg_info.value, .Some(av) => (!(is_func_val(av)) && !(is_unknown_val(av))), .None => false);
           if((is_comptime_string_type(arg_info.ty) && (!(is_some_type(resolved_decl_pt)))) && (!(is_comptime_string_type(resolved_decl_pt))), {
             bind_ty = resolved_decl_pt.clone();
             bind_val = Option(EvalValue).Some(create_unknown_val(resolved_decl_pt));

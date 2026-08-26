@@ -120,3 +120,31 @@ Each `.test.yo` file has its own import set. Check whether a test file imports `
 - Files with `open(import("std/fmt"))` → `println` available
 - Files without it → use `assert` only, or add the import
 - Match the existing style of the test file when adding new tests
+
+## `YO_DEBUG_CAPTURE=1` — the closure-capture pipeline channels
+
+Added 2026-08-26 while fixing the generic-fn async-closure capture loss
+(issues/async-loop-awaiting-buffer-taking-method-state-machine-corruption.md).
+All are stderr prints, active only with `YO_DEBUG_CAPTURE` set:
+
+- `[cap-fb]` (exprs/identifer_and_operator.yo) — every FunctionBody-arm
+  capture classification: name, the frame the lookup found it at, the ctx
+  snapshot's frame count, the stamped frame level, the inner verdict, plus
+  the eval_env/current-env top-frame ids (generation mismatches show here).
+- `[cap-track]` (context.yo) — track_variable_usage's gate decisions:
+  re-found frame, own-param top-frame exclusion, compile-time-only flag.
+- `[cap-enr]` (utils/closure.yo) — enrichment input per name: recorded
+  level, env frame count, how many same-named bindings were found and how
+  many are comptime.
+- `[cap-reg]` / `[fid-src]` (function_value.yo) — every capture-struct
+  registration (fid, source key, field list) and every fid→source-key mint.
+- `[fbctx-closure-call]` / `[fbctx-fnty-rp]` / `[fbctx-fnty-flow]`
+  (calls/closure_type.yo, calls/function_type.yo) — which site created a
+  FunctionBody evaluation context.
+
+Read them together: a name that is `inner=false` in `[cap-fb]`, survives
+`[cap-track]`, appears in `[cap-enr]`, and still misses the `[cap-reg]`
+field list pins the drop to capture-struct creation; a name missing from
+`[cap-track]` was never tracked (classifier); `cto=true` in `[cap-track]`
+against a runtime binding was the UnknownVal-argument mis-port this channel
+was built to catch.

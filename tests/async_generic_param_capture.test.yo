@@ -1,0 +1,66 @@
+//! Regression: a GENERIC function's `io.async` closure DROPPED the enclosing
+//! function's PARAMETERS from its capture struct — the emitted C referenced
+//! them as bare identifiers (clang: "use of undeclared identifier") or read
+//! garbage. Root cause: the capture classifier's `.AsyncBlock` arm still used
+//! the generation-UNSAFE `variable.frame_level < async_frame_level` test that
+//! the `.FunctionBody` arm was already cured of (the dyn+Impl(Fn) capture
+//! loss) — a SPECIALIZED generic fn's params carry deep call-time generation
+//! stamps and were misclassified as inner.
+//! See issues/async-loop-awaiting-buffer-taking-method-state-machine-corruption.md
+//! (facet 1).
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+open(import("std/collections/array_list"));
+{ IoExn } :: import("std/error");
+{ Reader, Writer } :: import("std/io");
+{ File, OpenMode } :: import("std/fs/file");
+{ Path } :: import("std/path");
+{ remove_file } :: import("std/fs/dir");
+
+// The EXACT pre-fix failing shape: params used DIRECTLY inside the async
+// closure, no hoist-to-locals workaround.
+read_once_params :: (
+  fn(generic(R : Type), r : R, buf : *(u8), size : usize, io : Io, where(R <: Reader)) -> Impl(Future(usize, IoExn))
+)(io.async((e) => e.io.await(r.read(buf, size, io), e)));
+write_once_params :: (
+  fn(generic(W : Type), w : W, buf : *(u8), size : usize, io : Io, where(W <: Writer)) -> Impl(Future(usize, IoExn))
+)(io.async((e) => e.io.await(w.write(buf, size, io), e)));
+// Non-generic control of the same shape — always worked; pins that the fix
+// did not disturb the plain path.
+write_once_file :: (fn(f : File, buf : *(u8), size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+  io.async((e) => e.io.await(f.write(buf, size, io), e))
+);
+
+test("generic fn async closure captures the enclosing params", {
+  path := Path.new(`/tmp/yo_generic_param_capture.bin`.to_string());
+  f := io.await(File.open(path, OpenMode.Write, io), { io });
+  payload := ArrayList(u8).new();
+  payload.push(u8(0x41));
+  payload.push(u8(0x42));
+  payload.push(u8(0x43));
+  wrote := io.await(write_once_params(f, payload.ptr().unwrap(), payload.len(), io), { io });
+  assert(wrote == usize(3), "generic write captured w/buf/size/io");
+  io.await(f.close(io), { io });
+  f2 := io.await(File.open(path, OpenMode.Read, io), { io });
+  buf := ArrayList(u8).with_capacity(usize(8));
+  (bi : usize) = usize(0);
+  while(bi < usize(8), bi = (bi + usize(1)), {
+    buf.push(u8(0));
+  });
+  got := io.await(read_once_params(f2, buf.ptr().unwrap(), usize(8), io), { io });
+  assert(got == usize(3), "generic read captured r/buf/size/io");
+  assert(buf(usize(0)) == u8(0x41), "byte 0 round-tripped");
+  assert(buf(usize(2)) == u8(0x43), "byte 2 round-tripped");
+  io.await(f2.close(io), { io });
+  io.await(remove_file(path, io), { io });
+});
+test("non-generic control of the same shape still works", {
+  path := Path.new(`/tmp/yo_generic_param_capture_ctl.bin`.to_string());
+  f := io.await(File.open(path, OpenMode.Write, io), { io });
+  payload := ArrayList(u8).new();
+  payload.push(u8(0x58));
+  wrote := io.await(write_once_file(f, payload.ptr().unwrap(), payload.len(), io), { io });
+  assert(wrote == usize(1), "plain fn param capture unchanged");
+  io.await(f.close(io), { io });
+  io.await(remove_file(path, io), { io });
+});

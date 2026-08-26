@@ -17,6 +17,8 @@
 //! * TypeScript `PathCollection` (Path[]) → `PathCollection :: ArrayList(ArrayList(String))`
 //!   imported from `src/expr_info.yo` (Phase 2k).
 open(import("std/string"));
+_(env : ctx_dbg_env) :: import("std/env");
+{ eprintln } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
@@ -619,13 +621,27 @@ get_pointer_type_call_result :: (fn(ftc : FunctionToCall) -> Option(PointerTypeC
 /// - Promotes usage type: `own` > `write` > `read`.
 ///
 /// `context` is modified in-place.
-track_variable_usage :: (
+/// `track_variable_usage`, with the CALLER-RESOLVED binding's
+/// `is_compile_time_only` flag. The tracker re-finds the name in the
+/// closure ctx's `eval_env`, which for a DEFERRED generic fn is the
+/// DEF-TIME generation — where concrete-typed params are bound
+/// compile-time-only placeholders. Gating on THAT stale binding dropped
+/// runtime params (`buf`/`size`) from the closure capture while keeping
+/// `r`/`io` (whose def-time bindings happen to be runtime), so the emitted
+/// C read the dropped names as bare identifiers or garbage
+/// (issues/async-loop-awaiting-buffer-taking-method-state-machine-corruption.md,
+/// facet 1). TS is immune: its envs are per-generation, so the re-found
+/// binding IS the resolved one. Pass `.Some(resolved.is_compile_time_only)`
+/// from identifier resolution; `.None` keeps the legacy stale-binding gate
+/// for callers that have no resolved binding at hand.
+track_variable_usage_resolved :: (
   fn(
     variable_name : String,
     frame_level : usize,
     usage : CaptureUsage,
     token : Token,
-    context : EvalContext
+    context : EvalContext,
+    resolved_is_comptime : Option(bool)
   ) -> unit
 )(
   // Only track when we are inside a function body or async block.
@@ -714,11 +730,18 @@ track_variable_usage :: (
           // referenced (issues/fixed/own-param-discard-leak.md). Mirrors
           // src/evaluator/context.ts trackVariableUsage.
           is_fn_body := match(sub_ctx.kind, .FunctionBody => true, _ => false);
+          if(ctx_dbg_env.get(`YO_DEBUG_CAPTURE`).is_some(), {
+            trk_top := (is_fn_body && (actual_frame_level == (eval_env.frame_count() - usize(1))));
+            eprintln(`[cap-track] name=${variable_name} actual_fl=${actual_frame_level.to_string()} ev_count=${eval_env.frame_count().to_string()} top_excl=${trk_top.to_string()} cto=${v.is_compile_time_only.to_string()}`);
+          });
           if(is_fn_body && (actual_frame_level == (eval_env.frame_count() - usize(1))), {
             return(());
           });
-          // Don't track compile-time-only variables.
-          if(v.is_compile_time_only, {
+          // Don't track compile-time-only variables — judged by the
+          // CALLER-RESOLVED binding when provided (current generation), not
+          // the re-found one (possibly a stale def-time placeholder).
+          effective_cto := match(resolved_is_comptime, .Some(rc) => rc, .None => v.is_compile_time_only);
+          if(effective_cto, {
             return(());
           });
           // Ensure the capturedVariables map exists.
@@ -913,6 +936,21 @@ create_function_body_evaluation_context :: (
   )
 });
 
+track_variable_usage :: (
+  fn(
+    variable_name : String,
+    frame_level : usize,
+    usage : CaptureUsage,
+    token : Token,
+    context : EvalContext
+  ) -> unit
+)(
+  // Legacy entry: no resolved-binding flag — the compile-time-only gate
+  // falls back to the re-found binding (see the note in the _resolved
+  // variant).
+  track_variable_usage_resolved(variable_name, frame_level, usage, token, context, Option(bool).None)
+);
+
 export(
   PathCollection,
   path_collection_new,
@@ -955,6 +993,7 @@ export(
   get_index_call_result,
   get_pointer_type_call_result,
   track_variable_usage,
+  track_variable_usage_resolved,
   set_rerun_pending_def_evals_fn,
   call_rerun_pending_def_evals,
   in_def_time_trial,
