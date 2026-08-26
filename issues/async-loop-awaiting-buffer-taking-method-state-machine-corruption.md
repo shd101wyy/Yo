@@ -19,11 +19,32 @@ already had (identifer_and_operator.yo). Red-first:
 `tests/async_generic_param_capture.test.yo` (undeclared-identifier clang
 failure before, 2/2 after).
 
-**FACET 2 REMAINS OPEN** — the LOOPING buffer-await still segfaults
-(rc=139) on all three loop reproducers and the generic-impl face still emits
-an undeclared `_priv_temp`; re-measured identically after the facet-1 fix,
-so it is a distinct state-machine capture/restore fault across loop
-suspensions. The controls stay green. This is what still blocks D5 slice 2.
+**FACET 2 (the three silent segvs) FIXED 2026-08-26** (branch
+fix/async-loop-state-restore). Mechanism, read straight off the emitted C:
+the nullable-pointer match's payload binding (`.Some(q) => q` over
+`chunk.ptr()`) declared `q` as a plain C LOCAL while the arm's reads —
+which consult `state_machine_variables` — emitted the hoisted
+`sm->var_N` slot, which no code ever wrote; the buffer pointer the loop
+awaited through was therefore uninitialized garbage. Two repairs:
+`codegen/exprs/match.yo`'s `_gen_nullable_ptr_match` binding now ALSO
+stores the hoisted slot (env-id resolution with owning-alias + remapping,
+then a name-scan over the hoister's map — pattern bindings are often
+absent from the recorded env entirely), and
+`codegen/async/state_code_gen.yo`'s `_resolve_pattern_binding_sm_field`
+no longer short-circuits past its name-scan fallback when the env lookup
+finds a stale-generation id (it also gained the owning-alias + remapping
+steps). Red-first: `tests/async_loop_buffer_await.test.yo` (both the
+trait-default and free-generic loop shapes; rc=1 on the pre-fix binary,
+2/2 after). All three loop reproducers now run rc=0; controls unchanged.
+
+**REMAINING OPEN — the generic-impl face only**: `BufReader(R)`-style
+generic inherent impls still fail LOUDLY at C compile — the arm's read of
+the pattern binding resolves to a MINTED TEMP name
+(`_file____priv_temp_NNNN`) that is never declared (a rename/remap on the
+read side the binding does not mirror), distinct from the fixed
+slot-store split. `issues/repros/async-loop-buffer-await-generic-impl.yo`
+still reproduces. This is the one remaining blocker for the generic
+`BufReader(R)`/`BufWriter(W)` (together with C17 for the Dyn spelling).
 
 
 **Found 2026-08-26 while implementing STD_API_AUDIT D5** (async `Reader`/`Writer`).

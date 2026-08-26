@@ -1,0 +1,101 @@
+//! Regression (facet 2 of
+//! issues/async-loop-awaiting-buffer-taking-method-state-machine-corruption.md):
+//! an async body LOOPING over a buffer-taking await segfaulted (rc=139,
+//! fully-transpiled C). The nullable-pointer match's payload binding
+//! (`.Some(q) => q` over `chunk.ptr()`) declared `q` as a plain C local while
+//! the arm's reads consulted the sm-hoisted `sm->var_N` slot — which stayed
+//! uninitialized, so the buffer pointer the loop awaited through was garbage.
+//! Fixed by storing the slot at the binding (codegen/exprs/match.yo) and by
+//! repairing `_resolve_pattern_binding_sm_field`'s short-circuit past its
+//! name-scan fallback (codegen/async/state_code_gen.yo).
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+open(import("std/collections/array_list"));
+{ IoExn } :: import("std/error");
+
+Reader :: trait(
+  read : (fn(self : Self, buf : *(u8), size : usize, io : Io) -> Impl(Future(usize, IoExn))),
+  (read_to_end : (fn(self : Self, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))) ?=
+    (
+      (self, io) ->
+        io.async((e) => {
+          out := ArrayList(u8).new();
+          chunk := ArrayList(u8).with_capacity(usize(4));
+          (ci : usize) = usize(0);
+          while(ci < usize(4), ci = (ci + usize(1)), {
+            chunk.push(u8(0));
+          });
+          (done : bool) = false;
+          p := match(chunk.ptr(), .Some(q) => q, .None => *(u8)(""));
+          while(!(done), {
+            n := e.io.await(Self.read(self, p, usize(4), io), e);
+            if(n == usize(0), {
+              done = true;
+            }, {
+              (i : usize) = usize(0);
+              while(i < n, i = (i + usize(1)), {
+                out.push(chunk(i));
+              });
+            });
+          });
+          out
+        })
+    )
+);
+TenSrc :: ref(struct(pos : u8));
+impl(
+  TenSrc,
+  Reader(
+    read : (fn(self : Self, buf : *(u8), size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+      io.async((e) => {
+        (n : usize) = usize(0);
+        while((n < size) && (self.pos < u8(10)), {
+          self.pos = (self.pos + u8(1));
+          (buf.add(n)).* = self.pos;
+          n = (n + usize(1));
+        });
+        n
+      })
+    )
+  )
+);
+read_to_end_free :: (
+  fn(generic(R : Type), r : R, io : Io, where(R <: Reader)) -> Impl(Future(ArrayList(u8), IoExn))
+)({
+  the_r := r;
+  io.async((e) => {
+    out := ArrayList(u8).new();
+    chunk := ArrayList(u8).with_capacity(usize(4));
+    (ci : usize) = usize(0);
+    while(ci < usize(4), ci = (ci + usize(1)), {
+      chunk.push(u8(0));
+    });
+    p := match(chunk.ptr(), .Some(q) => q, .None => *(u8)(""));
+    (done : bool) = false;
+    while(!(done), {
+      n := e.io.await(the_r.read(p, usize(4), e.io), e);
+      if(n == usize(0), {
+        done = true;
+      }, {
+        (i : usize) = usize(0);
+        while(i < n, i = (i + usize(1)), {
+          out.push(chunk(i));
+        });
+      });
+    });
+    out
+  })
+});
+test("trait-default read_to_end loops a buffer-taking await", {
+  src := TenSrc(pos : u8(0));
+  all := io.await(src.read_to_end(io), { io });
+  assert(all.len() == usize(10), "ten bytes total");
+  assert(all(usize(0)) == u8(1), "first byte");
+  assert(all(usize(9)) == u8(10), "last byte");
+});
+test("free generic read_to_end loops a buffer-taking await", {
+  src := TenSrc(pos : u8(0));
+  all := io.await(read_to_end_free(src, io), { io });
+  assert(all.len() == usize(10), "ten bytes total");
+  assert(all(usize(4)) == u8(5), "middle byte");
+});

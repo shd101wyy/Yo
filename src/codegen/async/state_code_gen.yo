@@ -2848,18 +2848,45 @@ _resolve_pattern_binding_sm_field :: (
       .Some(ei) => {
         vars := get_variables_from_env(ei.env, binding_name.clone());
         if(vars.len() > usize(0), {
-          env_id := match(vars.get(vars.len() - usize(1)), .Some(v) => v.id.to_string(), .None => String.from(""));
-          return(
-            match(
-              context.state_machine_variables,
-              .Some(m) => match(
-                m.get(env_id.clone()),
-                .Some(_) => Option(String).Some(env_id),
-                .None => Option(String).None
-              ),
-              .None => Option(String).None
-            )
+          // Owning-alias deref + id remapping, the same two steps the READ
+          // side (atom.yo) and init_assignment.yo:206 apply — without them
+          // an env hit resolved a different id spelling than the map key.
+          (env_id : String) = match(
+            vars.get(vars.len() - usize(1)),
+            .Some(v) => match(
+              v.is_owning_the_same_rc_value_as,
+              .Some(ob) => ob.*.id.to_string(),
+              .None => v.id.to_string()
+            ),
+            .None => String.from("")
           );
+          match(
+            context.variable_id_remapping,
+            .Some(rm) => match(
+              rm.get(env_id.clone()),
+              .Some(mapped) => {
+                env_id = mapped;
+              },
+              .None => ()
+            ),
+            .None => ()
+          );
+          env_hit := match(
+            context.state_machine_variables,
+            .Some(m) => m.get(env_id.clone()).is_some(),
+            .None => false
+          );
+          if(env_hit, {
+            return(Option(String).Some(env_id));
+          });
+          // A same-named env hit whose id is NOT in the map is a
+          // STALE-GENERATION binding (yo-self def-time envs are copies);
+          // fall through to the name scan instead of declaring a local the
+          // reads will never see — the facet-2 loop-await rc=139: the
+          // pattern binding declared `q` locally while the arm's reads
+          // consulted the hoisted `sm->var_N` slot, which stayed
+          // uninitialized
+          // (issues/async-loop-awaiting-buffer-taking-method-state-machine-corruption.md).
         });
       },
       .None => ()
