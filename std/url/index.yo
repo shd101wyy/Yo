@@ -99,13 +99,13 @@ impl(
   // Also supports scheme:path (opaque URIs like mailto:user@example.com)
   parse : (fn(s : String, exn : Exception) -> Url)({
     cond(
-      (s.bytes_len() == usize(0)) => {
+      (s.len() == usize(0)) => {
         exn.throw(dyn(UrlError.EmptyInput));
       },
       true => ()
     );
     pos := usize(0);
-    src_len := s.bytes_len();
+    src_len := s.len();
     // --- Parse scheme ---
     // scheme = ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )
     scheme_end := usize(0);

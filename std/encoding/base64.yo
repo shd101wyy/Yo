@@ -78,7 +78,7 @@ _decode_char :: (fn(c : u8, alpha : str, exn : Exception) -> u8)({
 });
 _decode_with :: (fn(s : String, alpha : str, exn : Exception) -> ArrayList(u8))({
   // Strip trailing padding
-  len := s.bytes_len();
+  len := s.len();
   while((len > usize(0)) && (s.byte_at(len - usize(1)) == _PAD), len = (len - usize(1)), ());
   out := ArrayList(u8).with_capacity((len * usize(3)) / usize(4));
   i := usize(0);
@@ -144,7 +144,7 @@ _base64_index :: (fn(c : u8) -> i32)({
 base64_decode_string :: (fn(input : String) -> Result(String, String))({
   cleaned := ArrayList(u8).new();
   i := usize(0);
-  while(i < input.bytes_len(), i = (i + usize(1)), {
+  while(i < input.len(), i = (i + usize(1)), {
     ch := input.byte_at(i);
     cond(
       (((ch == u8(32)) || (ch == u8(9))) || ((ch == u8(10)) || (ch == u8(13)))) => (),

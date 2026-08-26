@@ -1,7 +1,9 @@
-//! The rune-aware `String` vocabulary added by D4 PR 1
-//! (`plans/STD_API_AUDIT_D4_PLAN.md` §4): `char_len`, `char_indices`,
-//! `is_char_boundary`, `floor_char_boundary`, `ceil_char_boundary` and
-//! `try_substring`.
+//! The rune-aware `String` vocabulary (D4, final Rust shape 2026-08-26):
+//! `chars()` / `char_indices()` composed with iterator methods (`count`,
+//! `nth`) for all rune work, plus `is_char_boundary`, `floor_char_boundary`,
+//! `ceil_char_boundary` and `try_substring`. The one-shot methods
+//! `char_len` / `char_substring` / `truncate_chars` were deleted; the tests
+//! below pin that the documented iterator idioms produce the same values.
 //!
 //! EVERY assertion here is against multibyte content with hand-computed byte
 //! offsets. That is the point: a byte-vs-rune basis error is invisible to
@@ -25,12 +27,12 @@ _subject :: (fn() -> String)(
   `aé中𝄞`
 );
 // ===========================================================================
-// char_len
+// chars().count() — the rune count
 // ===========================================================================
-test("String char_len counts runes across all four UTF-8 widths", {
+test("String chars().count() counts runes across all four UTF-8 widths", {
   s := _subject();
-  assert(s.bytes_len() == usize(10), "subject must be 10 bytes");
-  assert(s.char_len() == usize(4), "subject must be 4 runes");
+  assert(s.len() == usize(10), "subject must be 10 bytes");
+  assert(s.chars().count() == usize(4), "subject must be 4 runes");
   // Pin the corpus: if these bytes ever change, every offset below is wrong.
   assert(s.byte_at(usize(0)) == u8(0x61), "byte 0 is 'a'");
   assert(s.byte_at(usize(1)) == u8(0xC3), "byte 1 leads 'é'");
@@ -43,20 +45,20 @@ test("String char_len counts runes across all four UTF-8 widths", {
   assert(s.byte_at(usize(8)) == u8(0x84), "byte 8 continues '𝄞'");
   assert(s.byte_at(usize(9)) == u8(0x9E), "byte 9 continues '𝄞'");
 });
-test("String char_len holds its pre-flip values — the D4 cross-PR golden", {
-  // PR 3 flipped `len()` to bytes. `char_len()` must return the SAME number
-  // it did before that flip, so this is the regression gate that isolates
+test("String chars().count() holds the pre-flip rune counts — the D4 cross-PR golden", {
+  // PR 3 flipped `len()` to bytes. The rune count must be the SAME number
+  // it was before that flip, so this is the regression gate that isolates
   // "did the rune count change?" (must be NO) from "did len() change?"
-  // (must be YES). Every value below was recorded in PR 1, when `char_len()`
-  // and `len()` still agreed, and is unchanged.
+  // (must be YES). Every value below was recorded in PR 1, when the rune
+  // count and `len()` still agreed, and is unchanged.
   // (plans/STD_API_AUDIT_D4_PLAN.md §6.1 item 3.)
-  assert(_subject().char_len() == usize(4), "four-width subject");
-  assert(`你好世界`.char_len() == usize(4), "CJK");
-  assert(`héllo`.char_len() == usize(5), "latin-1 supplement");
-  assert(`😀🎉`.char_len() == usize(2), "astral emoji");
-  assert(`abc`.char_len() == usize(3), "ASCII");
-  assert(String.new().char_len() == usize(0), "empty");
-  // The other half of the gate: `len()` now DIFFERS from `char_len()` on
+  assert(_subject().chars().count() == usize(4), "four-width subject");
+  assert(`你好世界`.chars().count() == usize(4), "CJK");
+  assert(`héllo`.chars().count() == usize(5), "latin-1 supplement");
+  assert(`😀🎉`.chars().count() == usize(2), "astral emoji");
+  assert(`abc`.chars().count() == usize(3), "ASCII");
+  assert(String.new().chars().count() == usize(0), "empty");
+  // The other half of the gate: `len()` now DIFFERS from the rune count on
   // exactly the multibyte cases, and still agrees on the ASCII ones.
   assert(_subject().len() == usize(10), "four-width subject is 10 bytes");
   assert(`你好世界`.len() == usize(12), "CJK is 12 bytes");
@@ -64,13 +66,11 @@ test("String char_len holds its pre-flip values — the D4 cross-PR golden", {
   assert(`😀🎉`.len() == usize(8), "astral emoji is 8 bytes");
   assert(`abc`.len() == usize(3), "ASCII agrees in both bases");
   assert(String.new().len() == usize(0), "empty agrees in both bases");
-  // `bytes_len()` is a deprecated alias of `len()` and must track it exactly.
-  assert(`😀🎉`.bytes_len() == `😀🎉`.len(), "bytes_len is len");
-  assert(`😀🎉`.bytes_len() == usize(8), "8 emoji bytes");
+  assert(`😀🎉`.len() == usize(8), "8 emoji bytes");
 });
-test("String char_len on the empty string", {
-  assert(String.new().char_len() == usize(0), "empty is 0 runes");
-  assert(String.from("").char_len() == usize(0), "from empty str is 0 runes");
+test("String chars().count() on the empty string", {
+  assert(String.new().chars().count() == usize(0), "empty is 0 runes");
+  assert(String.from("").chars().count() == usize(0), "from empty str is 0 runes");
 });
 // ===========================================================================
 // is_char_boundary — every byte of every width, including all four bytes of
@@ -95,8 +95,8 @@ test("String is_char_boundary marks every byte of the four-width subject", {
 test("String is_char_boundary over a standalone 4-byte sequence", {
   // The 4-byte width alone, so the offsets are not shifted by anything else.
   s := `𝄞`;
-  assert(s.bytes_len() == usize(4), "U+1D11E is 4 bytes");
-  assert(s.char_len() == usize(1), "U+1D11E is 1 rune");
+  assert(s.len() == usize(4), "U+1D11E is 4 bytes");
+  assert(s.chars().count() == usize(1), "U+1D11E is 1 rune");
   assert(s.is_char_boundary(usize(0)), "byte 0 is the lead");
   assert(!(s.is_char_boundary(usize(1))), "byte 1 is a continuation");
   assert(!(s.is_char_boundary(usize(2))), "byte 2 is a continuation");
@@ -150,7 +150,7 @@ test("String floor/ceil agree exactly on the boundaries themselves", {
   // is_char_boundary(i)  <=>  floor(i) == i  <=>  ceil(i) == i.
   s := _subject();
   i := usize(0);
-  while(i <= s.bytes_len(), i = (i + usize(1)), {
+  while(i <= s.len(), i = (i + usize(1)), {
     on := s.is_char_boundary(i);
     assert((s.floor_char_boundary(i) == i) == on, "floor fixes exactly the boundaries");
     assert((s.ceil_char_boundary(i) == i) == on, "ceil fixes exactly the boundaries");
@@ -200,7 +200,7 @@ test("String char_indices yields BYTE offsets, not character offsets", {
 });
 test("String char_indices offsets are exactly the char boundaries", {
   // The §6.1 property: i is a char_indices key <=> is_char_boundary(i),
-  // for every i in [0, bytes_len). (bytes_len itself is a boundary but is
+  // for every i in [0, len()). (len() itself is a boundary but is
   // not a key, since no rune starts there.)
   s := _subject();
   offsets := ArrayList(usize).new();
@@ -216,12 +216,12 @@ test("String char_indices offsets are exactly the char boundaries", {
       }
     );
   });
-  assert(offsets.len() == s.char_len(), "one key per rune");
+  assert(offsets.len() == s.chars().count(), "one key per rune");
   i := usize(0);
-  while(i < s.bytes_len(), i = (i + usize(1)), {
+  while(i < s.len(), i = (i + usize(1)), {
     assert(offsets.contains(i) == s.is_char_boundary(i), "key set matches the boundary set");
   });
-  assert(!(offsets.contains(s.bytes_len())), "no rune starts at the end offset");
+  assert(!(offsets.contains(s.len())), "no rune starts at the end offset");
 });
 test("String char_indices walks in lockstep with chars()", {
   s := `héllo, 世界! 😀`;
@@ -253,8 +253,8 @@ test("String char_indices walks in lockstep with chars()", {
       break;
     });
   });
-  assert(seen == s.char_len(), "both iterators yielded every rune");
-  assert(expected_offset == s.bytes_len(), "both iterators consumed every byte");
+  assert(seen == s.chars().count(), "both iterators yielded every rune");
+  assert(expected_offset == s.len(), "both iterators consumed every byte");
 });
 test("String char_indices on the empty string yields nothing", {
   it := String.new().char_indices();
@@ -310,54 +310,73 @@ test("String try_substring composes with floor/ceil to make any range safe", {
   assert(s.try_substring(usize(0), cut).is_none(), "byte 8 splits a rune");
   head := s.try_substring(usize(0), s.floor_char_boundary(cut)).unwrap();
   assert(head == `aé中`, "floored cut keeps whole runes");
-  tail := s.try_substring(s.ceil_char_boundary(cut), s.bytes_len()).unwrap();
+  tail := s.try_substring(s.ceil_char_boundary(cut), s.len()).unwrap();
   assert(tail == String.new(), "ceiled cut lands at the end here");
-  mid := s.try_substring(s.floor_char_boundary(cut), s.bytes_len()).unwrap();
+  mid := s.try_substring(s.floor_char_boundary(cut), s.len()).unwrap();
   assert(mid == `𝄞`, "floored start keeps the whole rune");
 });
 // ===========================================================================
-// char_substring / truncate_chars — the RUNE-indexed slice PR 2 pins onto
+// Rune-indexed slicing via the ITERATOR idioms. `char_substring` and
+// `truncate_chars` were deleted (Rust-shape decision, 2026-08-26); these are
+// the documented compositions — `char_indices().nth(n)` is the byte offset
+// rune `n` starts at, `.None` means "at most n runes" — pinned to the exact
+// values the deleted methods returned.
 // ===========================================================================
-test("String char_substring slices by RUNE index, not byte offset", {
+_rune_slice :: (fn(s : String, start : usize, end : usize) -> String)({
+  start_b := match(s.char_indices().nth(start), .Some(p) => p._0, .None => s.len());
+  end_b := match(s.char_indices().nth(end), .Some(p) => p._0, .None => s.len());
+  if(start_b >= end_b, {
+    return(String.new());
+  });
+  s.substring(start_b, end_b)
+});
+_truncate_runes :: (fn(s : String, max_runes : usize) -> String)(
+  match(
+    s.char_indices().nth(max_runes),
+    .Some(p) => s.substring(usize(0), p._0),
+    .None => s.clone()
+  )
+);
+test("rune slicing via char_indices().nth slices by RUNE index, not byte offset", {
   s := _subject();
-  assert(s.char_substring(usize(0), usize(1)) == `a`, "rune 0");
-  assert(s.char_substring(usize(1), usize(2)) == `é`, "rune 1 is 2 bytes wide");
-  assert(s.char_substring(usize(2), usize(3)) == `中`, "rune 2 starts at byte 3");
-  assert(s.char_substring(usize(3), usize(4)) == `𝄞`, "rune 3 starts at byte 6");
-  assert(s.char_substring(usize(0), usize(4)) == s, "the whole string");
-  assert(s.char_substring(usize(1), usize(3)) == `é中`, "an interior run");
+  assert(_rune_slice(s, usize(0), usize(1)) == `a`, "rune 0");
+  assert(_rune_slice(s, usize(1), usize(2)) == `é`, "rune 1 is 2 bytes wide");
+  assert(_rune_slice(s, usize(2), usize(3)) == `中`, "rune 2 starts at byte 3");
+  assert(_rune_slice(s, usize(3), usize(4)) == `𝄞`, "rune 3 starts at byte 6");
+  assert(_rune_slice(s, usize(0), usize(4)) == s, "the whole string");
+  assert(_rune_slice(s, usize(1), usize(3)) == `é中`, "an interior run");
   // A BYTE slice of the same numbers is something else entirely — that gap is
-  // exactly what D4's flip opens, and what `char_substring` closes.
+  // exactly what D4's flip opens, and what the rune idiom closes.
   assert(s.try_substring(usize(1), usize(3)).unwrap() == `é`, "BYTES 1..3 is just 'é'");
-  assert(s.char_substring(usize(1), usize(3)) == `é中`, "RUNES 1..3 is 'é中'");
+  assert(_rune_slice(s, usize(1), usize(3)) == `é中`, "RUNES 1..3 is 'é中'");
 });
-test("String char_substring clamps exactly the way substring always has", {
+test("rune slicing clamps exactly the way the deleted method did", {
   s := _subject();
-  assert(s.char_substring(usize(0), usize(99)) == s, "end past the rune count clamps");
-  assert(s.char_substring(usize(2), usize(99)) == `中𝄞`, "clamped tail");
-  assert(s.char_substring(usize(4), usize(9)) == String.new(), "start at the rune count");
-  assert(s.char_substring(usize(9), usize(99)) == String.new(), "start past the rune count");
-  assert(s.char_substring(usize(2), usize(2)) == String.new(), "empty range");
-  assert(s.char_substring(usize(3), usize(1)) == String.new(), "inverted range");
-  assert(String.new().char_substring(usize(0), usize(3)) == String.new(), "empty receiver");
+  assert(_rune_slice(s, usize(0), usize(99)) == s, "end past the rune count clamps");
+  assert(_rune_slice(s, usize(2), usize(99)) == `中𝄞`, "clamped tail");
+  assert(_rune_slice(s, usize(4), usize(9)) == String.new(), "start at the rune count");
+  assert(_rune_slice(s, usize(9), usize(99)) == String.new(), "start past the rune count");
+  assert(_rune_slice(s, usize(2), usize(2)) == String.new(), "empty range");
+  assert(_rune_slice(s, usize(3), usize(1)) == String.new(), "inverted range");
+  assert(_rune_slice(String.new(), usize(0), usize(3)) == String.new(), "empty receiver");
 });
-test("String truncate_chars keeps whole runes and never lengthens", {
+test("truncation via char_indices().nth keeps whole runes and never lengthens", {
   s := _subject();
-  assert(s.truncate_chars(usize(0)) == String.new(), "zero runes");
-  assert(s.truncate_chars(usize(1)) == `a`, "one rune");
-  assert(s.truncate_chars(usize(2)) == `aé`, "two runes — 3 BYTES, not 2");
-  assert(s.truncate_chars(usize(2)).bytes_len() == usize(3), "byte length of the cut");
-  assert(s.truncate_chars(usize(3)) == `aé中`, "three runes");
-  assert(s.truncate_chars(usize(4)) == s, "exactly the rune count");
-  assert(s.truncate_chars(usize(5)) == s, "more than the rune count is a no-op");
-  assert(s.truncate_chars(usize(999)) == s, "far more is still a no-op");
+  assert(_truncate_runes(s, usize(0)) == String.new(), "zero runes");
+  assert(_truncate_runes(s, usize(1)) == `a`, "one rune");
+  assert(_truncate_runes(s, usize(2)) == `aé`, "two runes — 3 BYTES, not 2");
+  assert(_truncate_runes(s, usize(2)).len() == usize(3), "byte length of the cut");
+  assert(_truncate_runes(s, usize(3)) == `aé中`, "three runes");
+  assert(_truncate_runes(s, usize(4)) == s, "exactly the rune count");
+  assert(_truncate_runes(s, usize(5)) == s, "more than the rune count is a no-op");
+  assert(_truncate_runes(s, usize(999)) == s, "far more is still a no-op");
   // The property that makes it safe for arbitrary text: every result is a
   // prefix that ends on a rune boundary.
   i := usize(0);
   while(i <= usize(6), i = (i + usize(1)), {
-    cut := s.truncate_chars(i);
-    assert(s.is_char_boundary(cut.bytes_len()), "the cut lands on a boundary");
-    assert(cut.char_len() == if(i < usize(4), i, usize(4)), "rune count of the cut");
+    cut := _truncate_runes(s, i);
+    assert(s.is_char_boundary(cut.len()), "the cut lands on a boundary");
+    assert(cut.chars().count() == if(i < usize(4), i, usize(4)), "rune count of the cut");
   });
 });
 test("String split on the EMPTY separator stays character-based", {
@@ -370,8 +389,8 @@ test("String split on the EMPTY separator stays character-based", {
   assert(parts(usize(1)) == `é`, "part 1");
   assert(parts(usize(2)) == `中`, "part 2");
   assert(parts(usize(3)) == `𝄞`, "part 3");
-  assert(parts(usize(1)).bytes_len() == usize(2), "'é' is two bytes");
-  assert(parts(usize(3)).bytes_len() == usize(4), "'𝄞' is four bytes");
+  assert(parts(usize(1)).len() == usize(2), "'é' is two bytes");
+  assert(parts(usize(3)).len() == usize(4), "'𝄞' is four bytes");
   rejoined := String.new();
   i := usize(0);
   while(i < parts.len(), i = (i + usize(1)), {

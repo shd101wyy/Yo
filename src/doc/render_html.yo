@@ -405,9 +405,13 @@ _first_sentence :: (fn(text : String) -> String)({
   // Doc text is arbitrary human prose, so the cut must land on a rune
   // boundary — a fixed byte cut would emit invalid UTF-8 into the search
   // index (plans/STD_API_AUDIT_D4_PLAN.md §5.2 S6).
-  if(result.char_len() > usize(120), {
-    result = result.truncate_chars(usize(120)).trim();
-  });
+  match(
+    result.char_indices().nth(usize(120)),
+    .Some(pair) => {
+      result = result.substring(usize(0), pair._0).trim();
+    },
+    .None => ()
+  );
   result
 });
 _first_sentence_opt :: (fn(doc : Option(String)) -> Option(String))(

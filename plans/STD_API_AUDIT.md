@@ -1722,8 +1722,8 @@ mmap/file-lock/statfs wrappers; `gc.stats`; DNS SRV/TXT/reverse
   which also renamed the iterators to `ImmStringChars`/`ImmStringCharIndices`
   — **and regex's `index()` (PR 6, 2026-08-26)**: a byte index, six
   conversion walks deleted (release-note item). **The comptime basis (PR 7,
-  O1c) landed 2026-08-26**: comptime `len`/`slice`/`s[i]`/`s(a..b)` are
-  byte-based like the runtime; `s[i]` yields the rune STARTING at that byte
+  O1c) landed 2026-08-26**: comptime `len`/`slice`/`s(i)`/`s(a..b)` are
+  byte-based like the runtime; `s(i)` yields the rune STARTING at that byte
   as a 1-rune string (the result-TYPE split against runtime's `u8` is
   deliberate); a mid-rune offset is a compile error where the runtime
   `substring` panics. Re-measured seed-safety: `std/` + `src/` + `build.yo`
@@ -1734,6 +1734,19 @@ mmap/file-lock/statfs wrappers; `gc.stats`; DNS SRV/TXT/reverse
   `s.chars().count()` (`char_len`/`char_substring`/`truncate_chars` are
   deprecated pending removal; the final API has no char-indexed slicing).
   What remains is the decoder dedup (PR 9).
+  **Rust-shape amendment (user decision, 2026-08-26, EXECUTED the same
+  day):** the transitional one-shot methods were deleted — `char_len()`
+  (→ `s.chars().count()`, the Iterator blanket `count`), `char_substring()`
+  and `truncate_chars()` (→ `char_indices().nth(n)` + byte `substring`),
+  and the `bytes_len()` alias (→ `len()`), on `String` and `ImmString`
+  both. Rationale: every `len()` in std is now O(1) bytes (a freezable
+  law); the iterator spelling keeps the O(n) rune-count cost visible
+  (Rust reserves `len()` for `ExactSizeIterator`); and there is no
+  char-indexed slicing in Rust's API either. `_split_impl`'s empty-sep
+  arm moved from a per-index rune-slice loop (O(n^2)) to one
+  `utf8.step_len` pass; `_capitalize_last_segment` cuts the first rune
+  via `ceil_char_boundary(1)`; `fmt` precision and the doc summary cap
+  use `char_indices().nth`. Docs updated in both languages.
 - **O2 (D6)**: **DECIDED — platform TLS libraries via `pkg_config`**
   (SecureTransport/Schannel/OpenSSL), behind one `TlsStream` implementing the
   D5 traits. Until it lands, https throws `UnsupportedScheme` (C1).

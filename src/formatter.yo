@@ -253,7 +253,7 @@ _trim_trailing_h_ws :: (fn(s : String) -> String)({
 /// Count the leading `[ \t]*` characters of `line`. Mirrors
 /// `leadingWhitespaceLength`.
 leading_whitespace_length :: (fn(line : String) -> usize)({
-  n := line.bytes_len();
+  n := line.len();
   (i : usize) = usize(0);
   (done : bool) = false;
   while((i < n) && (!(done)), {
@@ -1246,7 +1246,7 @@ is_tightly_bound_operator :: (
                 // RUNE columns (the lexer indexes an ArrayList(rune)), so the
                 // token width added to one has to be a rune count
                 // (plans/STD_API_AUDIT_D4_PLAN.md §5.2 S11).
-                (n.column == (token.column + token.value.char_len()))
+                (n.column == (token.column + token.value.chars().count()))
             )
           );
           cond(

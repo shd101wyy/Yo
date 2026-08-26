@@ -1490,9 +1490,9 @@ was the standing hazard. Rune work goes through `chars()` / `char_indices()`
 composed with iterator methods (see the vocabulary below).
 
 **Comptime strings share the byte basis** (D4 PR 7, 2026-08-26): comptime
-`s.len()`, `s.slice(a, b)`, `s[i]` and `s(a..b)` all speak byte offsets too.
-Comptime `s[i]` yields the RUNE starting at byte `i` as a 1-rune `comptime_str`
-(mirroring runtime `at(i)`; runtime `s[i]` yields the `u8` — that result-type
+`s.len()`, `s.slice(a, b)`, `s(i)` and `s(a..b)` all speak byte offsets too.
+Comptime `s(i)` yields the RUNE starting at byte `i` as a 1-rune `comptime_str`
+(mirroring runtime `at(i)`; runtime `s(i)` yields the `u8` — that result-type
 split is deliberate), and a mid-rune offset is a compile error where the
 runtime `substring` would panic.
 
@@ -1524,10 +1524,10 @@ argument answers `false` / `.None`.
 
 **The rune vocabulary** (`std/string/string.yo`; the same names exist on
 `std/imm/string.yo`, whose `len()` and `at()` are byte-based the same way
-since D4 PR 4 — note its `bytes_len()` was DELETED there rather than
-deprecated, because it had zero consumers left; only `std/string`'s `String`
-keeps the deprecated alias). The shape is Rust's exactly: byte slicing +
-iterators for rune work; there is no char-indexed slicing in the final API:
+since D4 PR 4). The shape is Rust's exactly: byte slicing + iterators for
+rune work; there is no char-indexed slicing and no second length method
+(`bytes_len`/`char_len`/`char_substring`/`truncate_chars` were all removed
+2026-08-26):
 
 | call | basis | meaning |
 | --- | --- | --- |
@@ -1536,12 +1536,9 @@ iterators for rune work; there is no char-indexed slicing in the final API:
 | `s.is_char_boundary(i)` | byte | is byte `i` the start of a rune? `0` and `len()` are boundaries; past the end is not. |
 | `s.floor_char_boundary(i)` / `s.ceil_char_boundary(i)` | byte | snap an arbitrary byte offset back/forward onto a rune start (clamped to `len()`). |
 | `s.try_substring(a, b)` | byte | `Option(String)`; `.None` for `a > b`, `b > len()`, or an endpoint inside a rune. The non-panicking `substring`. |
-| `s.bytes_len()` | byte | DEPRECATED alias of `len()`. It existed to say "bytes, not runes"; that distinction is gone. Write `len()`. |
 
-`char_len()`, `char_substring(a, b)` and `truncate_chars(n)` still exist on
-this branch but are **deprecated pending removal** — do not write them in new
-code. The iterator idioms replace them (all three verified with a compiled
-multibyte probe):
+The iterator idioms replace the removed one-shot methods (all three verified
+with a compiled multibyte probe):
 
 ```
 // rune count

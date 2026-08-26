@@ -47,7 +47,7 @@ _ca_bget :: (fn(bytes : ArrayList(u8), i : usize) -> u8)(
 );
 /// True iff `bytes[pos..]` starts with `pat`'s bytes.
 _ca_matches :: (fn(bytes : ArrayList(u8), pos : usize, pat : String) -> bool)({
-  n := pat.bytes_len();
+  n := pat.len();
   (i : usize) = usize(0);
   while(i < n, {
     if(_ca_bget(bytes, pos + i) != pat.byte_at(i), {
@@ -82,14 +82,14 @@ _ca_parse_static_fn_line :: (
 )({
   (p : usize) = (ls + usize(7));
   if(_ca_matches(bytes, p, inline_pat), {
-    p = (p + inline_pat.bytes_len());
+    p = (p + inline_pat.len());
   });
   // Generic `__attribute__((...)) ` skip — paren-depth over the attribute so
   // its inner parens are not mistaken for the parameter list. The pattern
   // ends after the double-open, so the depth starts at 2.
   if(_ca_matches(bytes, p, attr_pat), {
     (ad : usize) = usize(2);
-    (a : usize) = (p + attr_pat.bytes_len());
+    (a : usize) = (p + attr_pat.len());
     (adone : bool) = false;
     while(!(adone) && (a < n), {
       ab := _ca_bget(bytes, a);

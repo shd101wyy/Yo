@@ -116,9 +116,9 @@ first := s.chars().next(); // Option(rune)
 `chars()` 与 `char_indices()` 建立在 `std/encoding/utf8` 之上，继承其对畸形
 输入的行为：在第一个无法解码的序列处停止。
 
-（`bytes_len()` 作为 `len()` 的弃用别名保留；`char_len()`、
-`char_substring()` 和 `truncate_chars()` 目前仍存在，但已弃用并将被移除
-—— 请改写上面的惯用法。）
+（被取代的一次性方法 —— `bytes_len()`、`char_len()`、`char_substring()`
+和 `truncate_chars()` —— 已于 2026-08-26 移除；`len()` 加上面的惯用法就是
+全部词汇。）
 
 ## 元素访问：`s(i)` 是一个字节
 
