@@ -43,7 +43,7 @@ open(import("std/error"));
 { type_id_or_empty, get_type_trait_methods_for_type } :: import("../evaluator/values/type_trait_methods.yo");
 { get_generic_impl_doc_entries } :: import("../evaluator/values/impl.yo");
 { JsonValue } :: import("std/encoding/json");
-{ jb, jstr, jnum } :: import("./protocol.yo");
+{ jb, jstr, jnum, rune_col_to_byte_offset, byte_offset_to_rune_col } :: import("./protocol.yo");
 { _find_token_at, _collect_candidates, _best_candidate, _select_best_variable } :: import("./hover.yo");
 
 // LSP CompletionItemKind constants (the protocol's numeric encoding).
@@ -868,10 +868,14 @@ handle_completion :: (
   lines := text.split(String.from("\n"));
   line_text := match(lines.get(line), .Some(l) => l, .None => String.new());
   bytes := line_text.as_bytes();
-  (cur : usize) = character;
-  if(cur > bytes.len(), {
-    cur = bytes.len();
-  });
+  // `character` is a RUNE column (what this server serves and receives — see
+  // `rune_col_to_byte_offset`), while `bytes` and `line_text` are BYTE
+  // indexed. Everything below this line works in BYTES; `dot_col` converts
+  // back before it is compared against `Token.column`
+  // (plans/STD_API_AUDIT_D4_PLAN.md §5.2 S9). The previous shape clamped the
+  // rune column against a byte length and then sliced with it — two bases in
+  // one expression, wrong on any line containing a multibyte character.
+  (cur : usize) = rune_col_to_byte_offset(line_text, character);
   up_to := line_text.substring(usize(0), cur);
   // 1. Import-path completion (works even while the document fails analysis
   //    — typing inside the string literal usually breaks the parse).
@@ -895,7 +899,9 @@ handle_completion :: (
     true => false
   );
   if(dot_before, {
-    dot_col := (ws - usize(1));
+    // `ws - 1` is the BYTE offset of the `.`; `t.column` below is a RUNE
+    // column, so convert before comparing.
+    dot_col := byte_offset_to_rune_col(line_text, ws - usize(1));
     lex_exn := Exception(
       throw : (
         (_err) -> unwind(JsonValue.Array(items : ArrayList(JsonValue).new()))

@@ -1,8 +1,41 @@
 # `yo test --std-path <dir>` is silently ignored — the batch compile is a CHILD process that never receives the flag
 
+> **RETIRED 2026-08-26 — this is a DUPLICATE of an already-fixed issue, and its
+> "Fix sketch (not applied)" is wrong.**
+>
+> The forwarding fix landed in **#286** and is in the tree today:
+> `src/main.yo`'s per-batch child-compile block forwards
+> `get_std_path_override()` as `--std-path` right after `--c-compiler` /
+> `--target`, and `tests/cli-cases/test-std-path-forwarded` is its regression
+> gate. The write-up is `issues/fixed/yo-test-does-not-forward-std-path-to-batch-compile.md`.
+> **This file was created afterwards, in #287, by someone who hit the symptom
+> and did not find the fixed issue.**
+>
+> **What is actually true, and why the symptom is still real:** the `yo` on
+> `PATH` is a released SEED (v0.2.17) built before #286, so it still drops the
+> flag. Every measurement made with the seed must therefore use
+> `YO_STD=$PWD/std`, exactly as the sections below say — but the compiler this
+> tree BUILDS honours `--std-path`, and nothing needs implementing.
+> Re-measured 2026-08-26 during the D4 PR-3 review: with the seed,
+> `yo test ./tests/string/string_byte_index.test.yo --std-path $PWD/std`
+> fails in the CHILD compile (`char_len` is absent from the installed std)
+> while `YO_STD=$PWD/std yo test …` scores 19/19.
+>
+> The historical report follows unchanged.
+
 **Status: OPEN.** Found 2026-08-26 while reviewing the STD_API_AUDIT §D7
 `RwLock`/`OnceCell` change, where it caused a whole test run to score the
 INSTALLED std instead of the working tree's.
+
+**Hit again, in its DANGEROUS form, during D4 PR 3 (2026-08-26.)** With
+`String`'s index basis flipped in the working tree,
+`yo test ./tests/string/string.test.yo --std-path ./std` reported a clean
+**253 passed / 253 total**. The same command with `YO_STD=$PWD/std` reported
+**36 failures**. Nothing in the first run's output hints that the flag was
+dropped — there is no "using std from ..." line and no warning. That is the
+silent case this issue warns about, and it cost a full re-run to notice.
+**Until this is fixed, use `YO_STD=$PWD/std yo test ...` for anything that
+depends on the working tree's `std`, never `--std-path`.**
 
 ## Symptom
 

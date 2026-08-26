@@ -66,7 +66,11 @@ test("String UTF-8 2-byte character length", {
   bytes.push(u8(0xC2));
   bytes.push(u8(0xA9));
   s := String.from_bytes(bytes);
-  assert(s.len() == usize(1));
+  // U+00A9 © is one rune in two bytes. `len()` counts BYTES since D4
+  // (plans/STD_API_AUDIT_D4_PLAN.md PR 3); `char_len()` is the rune count
+  // this used to assert.
+  assert(s.len() == usize(2));
+  assert(s.char_len() == usize(1));
 });
 test("String UTF-8 2-byte character decode", {
   bytes := ArrayList(u8).new();
@@ -86,16 +90,21 @@ test("String UTF-8 2-byte multiple characters", {
   bytes.push(u8(0xC3));
   bytes.push(u8(0xB1));
   s := String.from_bytes(bytes);
-  assert(s.len() == usize(3));
+  // é ç ñ — three 2-byte runes at byte offsets 0, 2, 4.
+  assert(s.len() == usize(6));
+  assert(s.char_len() == usize(3));
   first := s.at(usize(0));
   assert(first.is_some());
   assert(first.unwrap().to_u32() == u32(0xE9));
-  second := s.at(usize(1));
+  second := s.at(usize(2));
   assert(second.is_some());
   assert(second.unwrap().to_u32() == u32(0xE7));
-  third := s.at(usize(2));
+  third := s.at(usize(4));
   assert(third.is_some());
   assert(third.unwrap().to_u32() == u32(0xF1));
+  // A continuation byte is not the start of a rune, so `at` answers `.None`.
+  assert(s.at(usize(1)).is_none());
+  assert(s.at(usize(3)).is_none());
 });
 // ===== UTF-8 3-byte Character Tests =====
 test("String UTF-8 3-byte character length", {
@@ -104,7 +113,9 @@ test("String UTF-8 3-byte character length", {
   bytes.push(u8(0xB8));
   bytes.push(u8(0xAD));
   s := String.from_bytes(bytes);
-  assert(s.len() == usize(1));
+  // U+4E2D 中 is one rune in three bytes.
+  assert(s.len() == usize(3));
+  assert(s.char_len() == usize(1));
 });
 test("String UTF-8 3-byte character decode", {
   bytes := ArrayList(u8).new();
@@ -125,11 +136,13 @@ test("String UTF-8 3-byte multiple characters", {
   bytes.push(u8(0x96));
   bytes.push(u8(0x87));
   s := String.from_bytes(bytes);
-  assert(s.len() == usize(2));
+  // 中 文 — two 3-byte runes at byte offsets 0 and 3.
+  assert(s.len() == usize(6));
+  assert(s.char_len() == usize(2));
   first := s.at(usize(0));
   assert(first.is_some());
   assert(first.unwrap().to_u32() == u32(0x4E2D));
-  second := s.at(usize(1));
+  second := s.at(usize(3));
   assert(second.is_some());
   assert(second.unwrap().to_u32() == u32(0x6587));
 });
@@ -141,7 +154,9 @@ test("String UTF-8 4-byte character length", {
   bytes.push(u8(0x98));
   bytes.push(u8(0x80));
   s := String.from_bytes(bytes);
-  assert(s.len() == usize(1));
+  // U+1F600 😀 is one rune in four bytes.
+  assert(s.len() == usize(4));
+  assert(s.char_len() == usize(1));
 });
 test("String UTF-8 4-byte character decode", {
   bytes := ArrayList(u8).new();
@@ -165,11 +180,13 @@ test("String UTF-8 4-byte multiple characters", {
   bytes.push(u8(0x98));
   bytes.push(u8(0x81));
   s := String.from_bytes(bytes);
-  assert(s.len() == usize(2));
+  // 😀 😁 — two 4-byte runes at byte offsets 0 and 4.
+  assert(s.len() == usize(8));
+  assert(s.char_len() == usize(2));
   first := s.at(usize(0));
   assert(first.is_some());
   assert(first.unwrap().to_u32() == u32(0x1F600));
-  second := s.at(usize(1));
+  second := s.at(usize(4));
   assert(second.is_some());
   assert(second.unwrap().to_u32() == u32(0x1F601));
 });
@@ -185,14 +202,16 @@ test("String mixed ASCII and UTF-8", {
   bytes.push(u8(0x96));
   bytes.push(u8(0x87));
   s := String.from_bytes(bytes);
-  assert(s.len() == usize(4));
+  // "He中文" — H@0 e@1 中@2..5 文@5..8.
+  assert(s.len() == usize(8));
+  assert(s.char_len() == usize(4));
   first := s.at(usize(0));
   assert(first.unwrap().to_u32() == u32(72));
   second := s.at(usize(1));
   assert(second.unwrap().to_u32() == u32(101));
   third := s.at(usize(2));
   assert(third.unwrap().to_u32() == u32(0x4E2D));
-  fourth := s.at(usize(3));
+  fourth := s.at(usize(5));
   assert(fourth.unwrap().to_u32() == u32(0x6587));
 });
 test("String mixed 1,2,3,4 byte characters", {
@@ -208,14 +227,16 @@ test("String mixed 1,2,3,4 byte characters", {
   bytes.push(u8(0x98));
   bytes.push(u8(0x80));
   s := String.from_bytes(bytes);
-  assert(s.len() == usize(4));
+  // "A©中😀" — A@0 (1B), ©@1 (2B), 中@3 (3B), 😀@6 (4B); 10 bytes, 4 runes.
+  assert(s.len() == usize(10));
+  assert(s.char_len() == usize(4));
   char0 := s.at(usize(0));
   assert(char0.unwrap().to_u32() == u32(65));
   char1 := s.at(usize(1));
   assert(char1.unwrap().to_u32() == u32(0xA9));
-  char2 := s.at(usize(2));
+  char2 := s.at(usize(3));
   assert(char2.unwrap().to_u32() == u32(0x4E2D));
-  char3 := s.at(usize(3));
+  char3 := s.at(usize(6));
   assert(char3.unwrap().to_u32() == u32(0x1F600));
 });
 // ===== Concat Tests =====
@@ -271,9 +292,11 @@ test("String concat UTF-8 strings", {
   str1 := String.from_bytes(bytes1);
   str2 := String.from_bytes(bytes2);
   result := str1.concat(str2);
-  assert(result.len() == usize(2));
+  // 中 @0, 文 @3.
+  assert(result.len() == usize(6));
+  assert(result.char_len() == usize(2));
   assert(result.at(usize(0)).unwrap().to_u32() == u32(0x4E2D));
-  assert(result.at(usize(1)).unwrap().to_u32() == u32(0x6587));
+  assert(result.at(usize(3)).unwrap().to_u32() == u32(0x6587));
 });
 test("String concat preserves original strings", {
   bytes1 := ArrayList(u8).new();
@@ -325,7 +348,7 @@ test("String at() on single character", {
   invalid := s.at(usize(1));
   assert(invalid.is_none());
 });
-test("String length with continuation bytes only counts starts", {
+test("String len counts bytes while char_len only counts rune starts", {
   bytes := ArrayList(u8).new();
   bytes.push(u8(0xE4));
   bytes.push(u8(0xB8));
@@ -335,9 +358,11 @@ test("String length with continuation bytes only counts starts", {
   bytes.push(u8(0x87));
   s := String.from_bytes(bytes);
   byte_count := s.as_bytes().len();
-  char_count := s.len();
   assert(byte_count == usize(6));
-  assert(char_count == usize(2));
+  // `len()` IS the byte count since D4; `char_len()` is the one that skips
+  // UTF-8 continuation bytes.
+  assert(s.len() == byte_count);
+  assert(s.char_len() == usize(2));
 });
 test("String multiple concat operations", {
   bytes1 := ArrayList(u8).new();
@@ -428,7 +453,9 @@ test("String.from_cstr with UTF-8", {
   match(
     result,
     .Ok(s) => {
-      assert(s.len() == usize(8));
+      // "Hello " is 6 ASCII bytes, 世界 is 3 + 3 → 12 bytes, 8 runes.
+      assert(s.len() == usize(12));
+      assert(s.char_len() == usize(8));
     },
     .Err(_) => assert(false, "Should handle UTF-8 in C string")
   );
@@ -460,13 +487,15 @@ test("String.from with empty string literal", {
 });
 test("String.from with UTF-8 literal", {
   s := String.from("你好");
-  assert(s.len() == usize(2));
+  assert(s.len() == usize(6));
+  assert(s.char_len() == usize(2));
 });
 test("String.from with emoji literal", {
   s := String.from("😀😁");
-  assert(s.len() == usize(2));
+  assert(s.len() == usize(8));
+  assert(s.char_len() == usize(2));
   assert(s.at(usize(0)).unwrap().to_u32() == u32(0x1F600));
-  assert(s.at(usize(1)).unwrap().to_u32() == u32(0x1F601));
+  assert(s.at(usize(4)).unwrap().to_u32() == u32(0x1F601));
 });
 // ===== Large String Tests =====
 test("String with many ASCII characters", {
@@ -519,12 +548,14 @@ test("String Greek characters", {
   bytes.push(u8(0xCE));
   bytes.push(u8(0xB3));
   s := String.from_bytes(bytes);
-  assert(s.len() == usize(3));
+  // α β γ — three 2-byte runes at byte offsets 0, 2, 4.
+  assert(s.len() == usize(6));
+  assert(s.char_len() == usize(3));
   alpha := s.at(usize(0));
   assert(alpha.unwrap().to_u32() == u32(0x3B1));
-  beta := s.at(usize(1));
+  beta := s.at(usize(2));
   assert(beta.unwrap().to_u32() == u32(0x3B2));
-  gamma := s.at(usize(2));
+  gamma := s.at(usize(4));
   assert(gamma.unwrap().to_u32() == u32(0x3B3));
 });
 test("String Cyrillic characters", {
@@ -536,12 +567,14 @@ test("String Cyrillic characters", {
   bytes.push(u8(0xD0));
   bytes.push(u8(0xB8));
   s := String.from_bytes(bytes);
-  assert(s.len() == usize(3));
+  // П р и — three 2-byte runes at byte offsets 0, 2, 4.
+  assert(s.len() == usize(6));
+  assert(s.char_len() == usize(3));
   p := s.at(usize(0));
   assert(p.unwrap().to_u32() == u32(0x41F));
-  r := s.at(usize(1));
+  r := s.at(usize(2));
   assert(r.unwrap().to_u32() == u32(0x440));
-  i := s.at(usize(2));
+  i := s.at(usize(4));
   assert(i.unwrap().to_u32() == u32(0x438));
 });
 test("String Arabic characters", {
@@ -551,10 +584,12 @@ test("String Arabic characters", {
   bytes.push(u8(0xD9));
   bytes.push(u8(0x84));
   s := String.from_bytes(bytes);
-  assert(s.len() == usize(2));
+  // ا ل — two 2-byte runes at byte offsets 0 and 2.
+  assert(s.len() == usize(4));
+  assert(s.char_len() == usize(2));
   alef := s.at(usize(0));
   assert(alef.unwrap().to_u32() == u32(0x627));
-  lam := s.at(usize(1));
+  lam := s.at(usize(2));
   assert(lam.unwrap().to_u32() == u32(0x644));
 });
 test("String Hebrew characters", {
@@ -564,10 +599,12 @@ test("String Hebrew characters", {
   bytes.push(u8(0xD7));
   bytes.push(u8(0x9C));
   s := String.from_bytes(bytes);
-  assert(s.len() == usize(2));
+  // ש ל — two 2-byte runes at byte offsets 0 and 2.
+  assert(s.len() == usize(4));
+  assert(s.char_len() == usize(2));
   shin := s.at(usize(0));
   assert(shin.unwrap().to_u32() == u32(0x5E9));
-  lamed := s.at(usize(1));
+  lamed := s.at(usize(2));
   assert(lamed.unwrap().to_u32() == u32(0x5DC));
 });
 test("String Japanese Hiragana", {
@@ -579,10 +616,12 @@ test("String Japanese Hiragana", {
   bytes.push(u8(0x81));
   bytes.push(u8(0x84));
   s := String.from_bytes(bytes);
-  assert(s.len() == usize(2));
+  // あ い — two 3-byte runes at byte offsets 0 and 3.
+  assert(s.len() == usize(6));
+  assert(s.char_len() == usize(2));
   a := s.at(usize(0));
   assert(a.unwrap().to_u32() == u32(0x3042));
-  i := s.at(usize(1));
+  i := s.at(usize(3));
   assert(i.unwrap().to_u32() == u32(0x3044));
 });
 test("String Korean Hangul", {
@@ -594,10 +633,12 @@ test("String Korean Hangul", {
   bytes.push(u8(0xB8));
   bytes.push(u8(0x80));
   s := String.from_bytes(bytes);
-  assert(s.len() == usize(2));
+  // 한 글 — two 3-byte runes at byte offsets 0 and 3.
+  assert(s.len() == usize(6));
+  assert(s.char_len() == usize(2));
   han := s.at(usize(0));
   assert(han.unwrap().to_u32() == u32(0xD55C));
-  gul := s.at(usize(1));
+  gul := s.at(usize(3));
   assert(gul.unwrap().to_u32() == u32(0xAE00));
 });
 // ===== More Emoji Tests =====
@@ -616,12 +657,14 @@ test("String various emojis", {
   bytes.push(u8(0x8E));
   bytes.push(u8(0x89));
   s := String.from_bytes(bytes);
-  assert(s.len() == usize(3));
+  // 😀 👍 🎉 — three 4-byte runes at byte offsets 0, 4, 8.
+  assert(s.len() == usize(12));
+  assert(s.char_len() == usize(3));
   grinning := s.at(usize(0));
   assert(grinning.unwrap().to_u32() == u32(0x1F600));
-  thumbsup := s.at(usize(1));
+  thumbsup := s.at(usize(4));
   assert(thumbsup.unwrap().to_u32() == u32(0x1F44D));
-  tada := s.at(usize(2));
+  tada := s.at(usize(8));
   assert(tada.unwrap().to_u32() == u32(0x1F389));
 });
 // ===== Whitespace and Special Character Tests =====
@@ -655,7 +698,9 @@ test("String concat with special characters", {
   str1 := String.from("Hello");
   str2 := String.from(" 世界");
   result := str1.concat(str2);
-  assert(result.len() == usize(8));
+  // 5 ASCII + 1 space + 3 + 3 = 12 bytes, 8 runes.
+  assert(result.len() == usize(12));
+  assert(result.char_len() == usize(8));
 });
 test("String concat three strings", {
   str1 := String.from("A");
@@ -705,13 +750,16 @@ test("String + operator UTF-8 strings", {
   str1 := String.from("你");
   str2 := String.from("好");
   result := (str1 + str2);
-  assert(result.len() == usize(2));
+  assert(result.len() == usize(6));
+  assert(result.char_len() == usize(2));
 });
 test("String + operator mixed ASCII and UTF-8", {
   str1 := String.from("Hello ");
   str2 := String.from("世界");
   result := (str1 + str2);
-  assert(result.len() == usize(8));
+  // 6 ASCII + 3 + 3 = 12 bytes, 8 runes.
+  assert(result.len() == usize(12));
+  assert(result.char_len() == usize(8));
 });
 test("String + operator chain", {
   str1 := String.from("A");
@@ -839,12 +887,14 @@ test("String alternating ASCII and UTF-8", {
   bytes.push(u8(0x87));
   bytes.push(u8(67));
   s := String.from_bytes(bytes);
-  assert(s.len() == usize(5));
+  // "A中B文C" — A@0, 中@1..4, B@4, 文@5..8, C@8; 9 bytes, 5 runes.
+  assert(s.len() == usize(9));
+  assert(s.char_len() == usize(5));
   assert(s.at(usize(0)).unwrap().to_u32() == u32(65));
   assert(s.at(usize(1)).unwrap().to_u32() == u32(0x4E2D));
-  assert(s.at(usize(2)).unwrap().to_u32() == u32(66));
-  assert(s.at(usize(3)).unwrap().to_u32() == u32(0x6587));
-  assert(s.at(usize(4)).unwrap().to_u32() == u32(67));
+  assert(s.at(usize(4)).unwrap().to_u32() == u32(66));
+  assert(s.at(usize(5)).unwrap().to_u32() == u32(0x6587));
+  assert(s.at(usize(8)).unwrap().to_u32() == u32(67));
 });
 // ===== substring Tests =====
 test("String substring ASCII basic", {
@@ -878,34 +928,41 @@ test("String substring from middle to end", {
   assert(sub == expected);
 });
 test("String substring UTF-8 characters", {
+  // 你@0..3 好@3..6 世@6..9 界@9..12 — BYTE offsets since D4.
   s := String.from("你好世界");
-  sub1 := s.substring(usize(0), usize(2));
+  sub1 := s.substring(usize(0), usize(6));
   expected1 := String.from("你好");
   assert(sub1 == expected1);
-  sub2 := s.substring(usize(2), usize(4));
+  sub2 := s.substring(usize(6), usize(12));
   expected2 := String.from("世界");
   assert(sub2 == expected2);
-  sub3 := s.substring(usize(1), usize(3));
+  sub3 := s.substring(usize(3), usize(9));
   expected3 := String.from("好世");
   assert(sub3 == expected3);
+  // `char_substring` keeps the pre-D4 rune indexing.
+  assert(s.char_substring(usize(1), usize(3)) == expected3);
 });
 test("String substring mixed ASCII and UTF-8", {
+  // "Hello "@0..6, 世@6..9, 界@9..12, "!"@12.
   s := String.from("Hello 世界!");
   sub1 := s.substring(usize(0), usize(5));
   expected1 := String.from("Hello");
   assert(sub1 == expected1);
-  sub2 := s.substring(usize(6), usize(8));
+  sub2 := s.substring(usize(6), usize(12));
   expected2 := String.from("世界");
   assert(sub2 == expected2);
+  assert(s.char_substring(usize(6), usize(8)) == expected2);
 });
 test("String substring with emojis", {
+  // 😀@0..4 😁@4..8 😂@8..12.
   s := String.from("😀😁😂");
-  sub1 := s.substring(usize(0), usize(2));
+  sub1 := s.substring(usize(0), usize(8));
   expected1 := String.from("😀😁");
   assert(sub1 == expected1);
-  sub2 := s.substring(usize(1), usize(3));
+  sub2 := s.substring(usize(4), usize(12));
   expected2 := String.from("😁😂");
   assert(sub2 == expected2);
+  assert(s.char_substring(usize(1), usize(3)) == expected2);
 });
 test("String substring beyond end", {
   s := String.from("Hello");
@@ -959,16 +1016,18 @@ test("String index_of substring longer than string", {
   assert(result.is_none());
 });
 test("String index_of UTF-8 characters", {
+  // BYTE offsets out, so the answer feeds straight back into `substring`.
   s := String.from("你好世界");
   result1 := s.index_of(String.from("世界"));
   assert(result1.is_some());
-  assert(result1.unwrap() == usize(2));
+  assert(result1.unwrap() == usize(6));
   result2 := s.index_of(String.from("你好"));
   assert(result2.is_some());
   assert(result2.unwrap() == usize(0));
   result3 := s.index_of(String.from("好世"));
   assert(result3.is_some());
-  assert(result3.unwrap() == usize(1));
+  assert(result3.unwrap() == usize(3));
+  assert(s.substring(result3.unwrap(), result3.unwrap() + usize(6)) == String.from("好世"));
 });
 test("String index_of mixed ASCII and UTF-8", {
   s := String.from("Hello 世界!");
@@ -980,7 +1039,7 @@ test("String index_of with emojis", {
   s := String.from("😀😁😂");
   result := s.index_of(String.from("😁"));
   assert(result.is_some());
-  assert(result.unwrap() == usize(1));
+  assert(result.unwrap() == usize(4));
 });
 test("String index_of case sensitive", {
   s := String.from("Hello World");
@@ -1192,13 +1251,17 @@ test("String index_of with from_index beyond string", {
   assert(result.is_none());
 });
 test("String index_of with from_index UTF-8", {
+  // 你@0 好@3 世@6 界@9 你@12 好@15 — 18 bytes.
   s := String.from("你好世界你好");
   result1 := s.index_of(String.from("你好"), usize(0));
   assert(result1.is_some());
   assert(result1.unwrap() == usize(0));
+  // `from_index` is a BYTE offset, and it need not be a rune boundary:
+  // a valid-UTF-8 needle can never match starting inside a rune, so
+  // starting the scan at byte 1 skips the match at 0 and finds the one at 12.
   result2 := s.index_of(String.from("你好"), usize(1));
   assert(result2.is_some());
-  assert(result2.unwrap() == usize(4));
+  assert(result2.unwrap() == usize(12));
 });
 // ===== last_index_of Tests =====
 test("String last_index_of finds last occurrence", {
@@ -1234,7 +1297,12 @@ test("String last_index_of UTF-8", {
   s := String.from("你好世界你好");
   result := s.last_index_of(String.from("你好"));
   assert(result.is_some());
-  assert(result.unwrap() == usize(4));
+  assert(result.unwrap() == usize(12));
+  // Capping the start at byte 11 excludes the last occurrence and finds the
+  // first one instead.
+  capped := s.last_index_of(String.from("你好"), usize(11));
+  assert(capped.is_some());
+  assert(capped.unwrap() == usize(0));
 });
 test("String last_index_of multiple same characters", {
   s := String.from("aaaa");
@@ -1625,10 +1693,16 @@ test("String starts_with position skips prefix", {
   assert(s.starts_with(String.from("def"), usize(3)));
 });
 test("String starts_with position UTF-8", {
+  // `position` is a BYTE offset. Before D4 this was a rune walk that stopped
+  // one byte past a lead byte, so `starts_with("世界", 2)` could not be
+  // expressed at all (plans/STD_API_AUDIT_D4_PLAN.md §1.3(a)).
   s := String.from("你好世界");
   assert(s.starts_with(String.from("你好"), usize(0)));
-  assert(s.starts_with(String.from("世界"), usize(2)));
-  assert(s.starts_with(String.from("好世"), usize(1)));
+  assert(s.starts_with(String.from("世界"), usize(6)));
+  assert(s.starts_with(String.from("好世"), usize(3)));
+  // A mid-rune position simply cannot match — no panic, just `false`.
+  assert(not(s.starts_with(String.from("世界"), usize(5))));
+  assert(not(s.starts_with(String.from("好世"), usize(1))));
 });
 test("String starts_with position beyond length", {
   s := String.from("Hello");
@@ -1637,8 +1711,8 @@ test("String starts_with position beyond length", {
 test("String starts_with position with emojis", {
   s := String.from("😀😁😂");
   assert(s.starts_with(String.from("😀"), usize(0)));
-  assert(s.starts_with(String.from("😁"), usize(1)));
-  assert(s.starts_with(String.from("😂"), usize(2)));
+  assert(s.starts_with(String.from("😁"), usize(4)));
+  assert(s.starts_with(String.from("😂"), usize(8)));
 });
 test("String starts_with position empty prefix", {
   s := String.from("Hello");
@@ -1668,11 +1742,14 @@ test("String ends_with end_position middle", {
   assert(s.ends_with(String.from("c"), usize(3)));
 });
 test("String ends_with end_position UTF-8", {
+  // `end_position` is how many BYTES of `s` to consider.
   s := String.from("你好世界");
-  assert(s.ends_with(String.from("你好"), usize(2)));
-  assert(s.ends_with(String.from("好"), usize(2)));
-  assert(s.ends_with(String.from("你"), usize(1)));
-  assert(s.ends_with(String.from("世界"), usize(4)));
+  assert(s.ends_with(String.from("你好"), usize(6)));
+  assert(s.ends_with(String.from("好"), usize(6)));
+  assert(s.ends_with(String.from("你"), usize(3)));
+  assert(s.ends_with(String.from("世界"), usize(12)));
+  // Cutting mid-rune cannot match a valid-UTF-8 suffix.
+  assert(not(s.ends_with(String.from("好"), usize(5))));
 });
 test("String ends_with end_position zero", {
   s := String.from("Hello");
@@ -1685,9 +1762,9 @@ test("String ends_with end_position beyond length", {
 });
 test("String ends_with end_position with emojis", {
   s := String.from("😀😁😂");
-  assert(s.ends_with(String.from("😀"), usize(1)));
-  assert(s.ends_with(String.from("😀😁"), usize(2)));
-  assert(s.ends_with(String.from("😂"), usize(3)));
+  assert(s.ends_with(String.from("😀"), usize(4)));
+  assert(s.ends_with(String.from("😀😁"), usize(8)));
+  assert(s.ends_with(String.from("😂"), usize(12)));
 });
 test("String ends_with end_position empty suffix", {
   s := String.from("Hello");
@@ -1695,9 +1772,10 @@ test("String ends_with end_position empty suffix", {
   assert(s.ends_with(String.from(""), usize(3)));
 });
 test("String ends_with end_position mixed ASCII and UTF-8", {
+  // "Hello "@0..6, 世@6..9, 界@9..12.
   s := String.from("Hello 世界");
   assert(s.ends_with(String.from("Hello"), usize(5)));
-  assert(s.ends_with(String.from(" 世"), usize(7)));
+  assert(s.ends_with(String.from(" 世"), usize(9)));
   assert(not(s.ends_with(String.from("世界"), usize(5))));
 });
 test("String ends_with end_position single character", {

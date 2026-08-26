@@ -219,20 +219,20 @@ prefix_operator_needs_leading_space :: (
 /// closing delimiters and statement terminators to absorb the placeholder
 /// space added by `ensureSpace`-style helpers.
 _trim_trailing_h_ws :: (fn(s : String) -> String)({
-  // Count how many trailing space/tab BYTES there are. Space and tab are
-  // single-byte ASCII, so that count is also a CHARACTER count — which is what
-  // matters, because `String.substring` is CHAR-indexed.
+  // Count how many trailing space/tab BYTES there are, then cut that many
+  // units off the end. Space and tab are single-byte ASCII, so the count is
+  // the same number in either basis — which is why this shape survived D4's
+  // flip of `substring` from rune to byte indices unchanged.
   //
-  // Handing `substring` a BYTE index (the previous shape: walk `i` down from
-  // `bytes.len()` and slice `[0, i)`) made this a silent NO-OP for any buffer
-  // that already contained a multi-byte character: `i` then exceeded the
-  // character count, `substring` never found that character index and clamped
-  // to the whole string, so the trailing space survived. That is the entire
+  // It is written as a COUNT rather than an index deliberately. The earlier
+  // shape walked `i` down from `bytes.len()` and sliced `[0, i)`, feeding a
+  // BYTE index to a then-CHAR-indexed `substring`: on any buffer containing a
+  // multibyte character `i` exceeded the character count, `substring` clamped
+  // to the whole string, and the trailing space survived. That was the entire
   // remaining `fmt` divergence — `(== )`, `(.. )`, `(..= )`, `quote(&& )` and
-  // the C-variadic `... )` — and it only ever showed up in files with an em
-  // dash (or any non-ASCII) EARLIER in the output, which is why it looked like
-  // a "multiline paren frame" rule and never reproduced in an ASCII repro.
-  // Same class as the `read_raw_template_string` char-index-as-byte-offset bug.
+  // the C-variadic `... )` — visible only in files with an em dash (or any
+  // non-ASCII) EARLIER in the output, which is why it looked like a "multiline
+  // paren frame" rule and never reproduced in an ASCII repro.
   bytes := s.as_bytes();
   n := bytes.len();
   (k : usize) = usize(0);
@@ -1479,42 +1479,25 @@ normalize_multiline_block_comment :: (fn(raw : String) -> ArrayList(String))({
 /// Read a backtick template-string starting at byte offset `start` in `input`,
 /// returning the literal slice from `` ` `` to the matching closing `` ` ``.
 /// Mirrors `readRawTemplateString`.
-/// Convert a CHARACTER index into a BYTE offset within `bytes`.
+/// `start` is a BYTE offset into `input` — pass `Token.byte_offset`, never
+/// `Token.character`.
 ///
-/// `Token.character` is a CHARACTER index — the lexer walks `input.chars()` and
-/// stores that loop's counter (`lexer.yo:82` `char_idx := i`). Everything here
-/// slices `input.as_bytes()`. On ASCII input the two coincide exactly, which is
-/// why the mismatch survived every test: the whole test corpus is ASCII.
+/// This used to take `Token.character` (a RUNE index) and re-walk the byte
+/// buffer to convert it, because `Token` carried no byte offset. Handing the
+/// rune index straight to a byte slice is what
+/// `issues/fixed/yo-self-formatter-corrupts-files-with-non-ascii.md` was: with
+/// any multibyte character earlier in the file the rune index is SMALLER than
+/// the byte offset, so the slice started early and swallowed the source before
+/// the backtick — `input.contains(\`&\`)` came out as `input.contains(s(\`))`,
+/// which does not parse, with `fmt` still exiting 0. Em dashes in doc comments
+/// made it fire across std: 23 of 40 sampled files with a backtick became
+/// non-parseable.
 ///
-/// With ANY multi-byte character earlier in the file the character index is
-/// SMALLER than the byte offset, so the slice started early and swallowed the
-/// source preceding the backtick — `input.contains(\`&\`)` was rewritten to
-/// `input.contains(s(\`))`, which does not parse, with `fmt` still exiting 0.
-/// Em dashes in doc comments made this fire across std: 23 of 40 sampled files
-/// with a backtick came out non-parseable.
-/// See issues/fixed/yo-self-formatter-corrupts-files-with-non-ascii.md.
-///
-/// Counts UTF-8 LEAD bytes: a continuation byte matches `0b10xxxxxx`, i.e.
-/// `(b & 0xC0) == 0x80`, and never starts a character.
-_byte_offset_of_char_index :: (fn(bytes : ArrayList(u8), char_index : usize) -> usize)({
-  n := bytes.len();
-  (bi : usize) = usize(0);
-  (ci : usize) = usize(0);
-  while((ci < char_index) && (bi < n), {
-    bi = (bi + usize(1));
-    while((bi < n) && ((match(bytes.get(bi), .Some(x) => x, .None => u8(0)) & u8(0xC0)) == u8(0x80)), {
-      bi = (bi + usize(1));
-    });
-    ci = (ci + usize(1));
-  });
-  bi
-});
-/// `start` is a CHARACTER index (a `Token.character`); it is converted to a byte
-/// offset before any slicing — see `_byte_offset_of_char_index`.
-read_raw_template_string :: (fn(input : String, start_char : usize) -> String)({
+/// `Token.byte_offset` (added by `plans/STD_API_AUDIT_D4_PLAN.md` D4 PR 3) is
+/// that issue's named follow-up, and it removes the conversion walk entirely.
+read_raw_template_string :: (fn(input : String, start : usize) -> String)({
   bytes := input.as_bytes();
   n := bytes.len();
-  start := _byte_offset_of_char_index(bytes, start_char);
   (index : usize) = (start + usize(1));
   (brace_depth : usize) = usize(0);
   (end_index : usize) = n; // default: until EOF
@@ -1584,7 +1567,7 @@ raw_token_value :: (fn(input : String, tokens : ArrayList(Token), index : usize)
     tokens.get(index),
     .None => String.new(),
     .Some(t) => cond(
-      (t.kind == TokenKind.TemplateString) => read_raw_template_string(input, t.character),
+      (t.kind == TokenKind.TemplateString) => read_raw_template_string(input, t.byte_offset),
       true => t.value
     )
   )

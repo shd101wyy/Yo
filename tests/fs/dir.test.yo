@@ -117,6 +117,35 @@ test("create_dir_all creates nested directories", {
   io.await(fs_dir.remove_dir(Path.new(path_join(path_join(tmp, `yo_fs_dir_all`), `sub1`)), io), IoExn(io : io, exn : exn));
   io.await(fs_dir.remove_dir(Path.new(path_join(tmp, `yo_fs_dir_all`)), io), IoExn(io : io, exn : exn));
 });
+test("create_dir_all creates nested directories with a multibyte component", {
+  // The ENOENT recovery path walks `path_s.as_bytes()` and hands each
+  // separator's BYTE offset to `substring`. While `substring` was rune-indexed
+  // that cut the prefix in the wrong place for any non-ASCII component, so
+  // `create_dir_all` created the WRONG parent and then failed or built the
+  // wrong tree (issues/fixed/mkdir-all-uses-a-byte-index-as-a-rune-index.md,
+  // plans/STD_API_AUDIT_D4_PLAN.md §5.1). Byte-indexing `substring` (D4 PR 3)
+  // makes the two agree. This test is ASCII-invariant by construction — it
+  // only discriminates because the component is multibyte.
+  exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  tmp := temp_dir();
+  root := path_join(tmp, `yo_fs_dir_all_日本語`);
+  lvl1 := path_join(root, `sub1`);
+  nested := Path.new(path_join(lvl1, `sub2`));
+  io.await(fs_dir.create_dir_all(nested, io), IoExn(io : io, exn : exn));
+  assert(io.await(fs_file.exists(nested, io), io), "the full nested path must exist");
+  assert(io.await(fs_file.exists(Path.new(lvl1), io), io), "the middle level must exist");
+  assert(io.await(fs_file.exists(Path.new(root), io), io), "the multibyte root must exist");
+  io.await(fs_dir.remove_dir(nested, io), IoExn(io : io, exn : exn));
+  io.await(fs_dir.remove_dir(Path.new(lvl1), io), IoExn(io : io, exn : exn));
+  io.await(fs_dir.remove_dir(Path.new(root), io), IoExn(io : io, exn : exn));
+});
 test("create_dir_all on existing directory succeeds", {
   exn := Exception(
     throw : (

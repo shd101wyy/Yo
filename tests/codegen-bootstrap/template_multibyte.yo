@@ -2,13 +2,18 @@ open(import("std/fmt"));
 open(import("std/string"));
 
 // Multibyte (em-dash) content in a template-string segment: byte loops in
-// codegen must bound by as_bytes().len() (BYTES), not String.len()
-// (CHARACTERS) — a char-counted bound truncated the segment's tail bytes and
-// skipped the quote-strip (the stage-2-binary corruption family).
+// codegen must bound by the BYTE length, never a rune count — a char-counted
+// bound truncated the segment's tail bytes and skipped the quote-strip (the
+// stage-2-binary corruption family).
+//
+// Since plans/STD_API_AUDIT_D4_PLAN.md D4 PR 3, `String.len()` IS the byte
+// length and `char_len()` is the rune count; the two figures printed below are
+// therefore unchanged in VALUE (15 runes, 17 bytes) while the spellings that
+// produce them swapped. That keeps this golden a live check on both.
 main :: (fn() -> unit)({
   path := String.from("abc.yo");
   println(`check: ${path} — evaluator OK`);
   s := String.from(" — evaluator OK");
-  println(`chars=${s.len()} bytes=${s.as_bytes().len()}`);
+  println(`chars=${s.char_len()} bytes=${s.len()}`);
 });
 export(main);

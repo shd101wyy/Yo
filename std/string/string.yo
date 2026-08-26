@@ -145,44 +145,27 @@ impl(
     bytes_with_null.push(u8(0));
     return(bytes_with_null);
   }),
-  /**
-  * Get the length of the string in Unicode characters (runes)
-  * For "你好世界", this returns 4
-  */
-  len : (fn(self : Self) -> usize)({
-    (inner : Option(ArrayList(u8))) = self._bytes;
-    match(
-      inner,
-      .None => {
-        return(usize(0));
-      },
-      .Some(al) => {
-        count := usize(0);
-        byte_index := usize(0);
-        total_bytes := al.len();
-        while(byte_index < total_bytes, byte_index = (byte_index + usize(1)), {
-          byte_opt := al.get(byte_index);
-          match(
-            byte_opt,
-            .Some(byte) => {
-              cond(
-                utf8.is_boundary(byte) => {
-                  count = (count + usize(1));
-                },
-                true => ()
-              );
-            },
-            .None => ()
-          );
-        });
-        return(count);
-      }
-    )
-  }),
-  /// Number of Unicode scalar values (runes) in the string.
+  /// Number of BYTES in this string's UTF-8 encoding — O(1).
   ///
-  /// O(n) in the byte length. Identical to what `len()` returns today; it
-  /// stays a rune count after `len()` becomes a byte count.
+  /// **BYTE basis.** This is the unit every index-taking method on `String`
+  /// speaks: `at`, `substring`, the `s(a..b)` / `s(a..=b)` slice sugar,
+  /// `index_of`, `last_index_of`, `contains(from_index)`,
+  /// `starts_with(position)`, `ends_with(end_position)` and the `Pattern`
+  /// trait. It agrees with `str.len()`, `StringBuilder.len()`, `Index(usize)`
+  /// (which yields a `u8`) and Rust's `str::len()`.
+  ///
+  /// For "how many runes" use `char_len()` (O(n)); to walk runes together with
+  /// the byte offset each one starts at, use `char_indices()`.
+  /// (`plans/STD_API_AUDIT_D4_PLAN.md` D4 PR 3 — this returned a RUNE count
+  /// before that flip.)
+  len : (fn(self : Self) -> usize)(
+    match(self._bytes, .Some(b) => b.len(), .None => usize(0))
+  ),
+  /// Number of Unicode scalar values (runes) in the string — O(n).
+  ///
+  /// **RUNE basis**, and the only length on `String` that is: `len()` counts
+  /// BYTES. Use this wherever a count is a display/character count rather
+  /// than a buffer size.
   char_len : (fn(self : Self) -> usize)(
     match(
       self._bytes,
@@ -295,47 +278,43 @@ impl(
         )
     )
   ),
-  /**
-  * Get the rune at the specified character index (0-based)
-  * Returns None if index is out of bounds
-  * For "你好世界", at(0) returns '你', at(1) returns '好', etc.
-  */
-  at : (fn(self : Self, index : usize) -> Option(rune))(
+  /// True when byte offset `index` sits on a rune boundary.
+  ///
+  /// `0` and `len()` are always boundaries; an index past the end never is.
+  /// Mirrors Rust's `str::is_char_boundary`. (Defined here, beside `at` and
+  /// `substring`, because an `impl` block cannot call forward into a later
+  /// one and both of those need it.)
+  is_char_boundary : (fn(self : Self, index : usize) -> bool)(
     match(
       self._bytes,
-      .None => {
-        return(.None);
-      },
+      .None => (index == usize(0)),
       .Some(al) => {
-        char_count := usize(0);
-        byte_index := usize(0);
-        total_bytes := al.len();
-        while(byte_index < total_bytes, byte_index = (byte_index + usize(1)), {
-          byte_opt := al.get(byte_index);
-          match(
-            byte_opt,
-            .Some(byte) => {
-              is_start := utf8.is_boundary(byte);
-              cond(
-                is_start => {
-                  cond(
-                    (char_count == index) => {
-                      return(Self._decode_rune_at(self, byte_index));
-                    },
-                    true => {
-                      char_count = (char_count + usize(1));
-                    }
-                  );
-                },
-                true => ()
-              );
-            },
-            .None => ()
-          );
-        });
-        return(.None);
+        n := al.len();
+        cond(
+          (index == usize(0)) => true,
+          (index == n) => true,
+          (index > n) => false,
+          true => match(
+            al.get(index),
+            .Some(b) => utf8.is_boundary(b),
+            .None => false
+          )
+        )
       }
     )
+  ),
+  /// Decode the rune that STARTS at byte offset `index`.
+  ///
+  /// **BYTE basis** (`plans/STD_API_AUDIT_D4_PLAN.md` D4 PR 3 — this took a
+  /// rune index before the flip). `.None` is returned for the three ways a
+  /// byte offset can fail to name a rune: at or past `len()`, inside a rune
+  /// (a UTF-8 continuation byte), or on bytes that do not decode.
+  ///
+  /// `while(i < s.len(), { s.at(i) })` therefore visits continuation bytes and
+  /// yields `.None` at each of them — use `char_indices()` (or `chars()`) to
+  /// walk runes.
+  at : (fn(self : Self, index : usize) -> Option(rune))(
+    self._decode_rune_at(index)
   ),
   /**
   * Concatenate two strings (like JavaScript +)
@@ -451,13 +430,15 @@ impl(
   // (Inherent `clone` removed; the Clone trait impl below provides
   // the same semantics via inout(self) : Self after the Phase D
   // migration. Calling `s.clone()` resolves to the trait method.)
-  /// Get the number of bytes in the string (not Unicode characters).
-  /// Use `len()` for Unicode character count.
+  /// DEPRECATED alias for `len()`, which counts bytes since D4.
+  ///
+  /// It existed to say "bytes, not runes" back when `len()` meant runes.
+  /// Kept so pre-D4 spellings keep compiling; new code should say `len()`.
   bytes_len : (fn(self : Self) -> usize)(
-    match(self._bytes, .Some(b) => b.len(), .None => usize(0))
+    self.len()
   ),
   /// Get the byte at the given index. Panics if the index is out of
-  /// bounds (mirrors `str`'s byte indexing). Use `bytes_len()` for the
+  /// bounds (mirrors `str`'s byte indexing). Use `len()` for the
   /// valid range and `bytes()` for sequential iteration.
   byte_at : (fn(self : Self, index : usize) -> u8)(
     match(
@@ -470,33 +451,82 @@ impl(
       .None => __yo_panic("String.byte_at: index out of bounds")
     )
   ),
-  /**
-  * Owned copy of the characters in `[r.start, r.end)` — `s(a..b)` lowers
-  * to this (JS-style range slicing; rune indices like `substring`).
-  */
+  /// Owned copy of the BYTES in `[r.start, r.end)` — `s(a..b)` lowers to this.
+  ///
+  /// Same contract as `substring`, including the boundary policy: an endpoint
+  /// inside a rune panics.
   slice_copy : (fn(self : Self, r : Range(usize)) -> Self)(
     self.substring(r.start, r.end)
   ),
-  /// Inclusive-range companion (`s(a..=b)`).
+  /// Inclusive-range companion (`s(a..=b)`) — BYTE offsets, `r.end` included.
+  ///
+  /// Because `r.end` is the LAST byte kept, it must be the last byte of a
+  /// rune for `r.end + 1` to land on a boundary; otherwise this panics like
+  /// `substring`.
   slice_copy_inclusive : (fn(self : Self, r : RangeInclusive(usize)) -> Self)(
     self.substring(r.start, r.end + usize(1))
   ),
-  /**
-  * Extract a substring from start to end character indices (like JavaScript substring)
-  * Returns a new string containing characters from start (inclusive) to end (exclusive)
-  * If end is greater than length, it will substring to the end of the string
-  */
-  substring : (fn(self : Self, start : usize, end : usize) -> Self)(
-    self.char_substring(start, end)
-  ),
-  /// Slice by RUNE indices — what `substring` does today, under a name that
-  /// says so.
+  /// Owned copy of the bytes in `[start, end)`.
   ///
-  /// `plans/STD_API_AUDIT_D4_PLAN.md` moves `substring` to BYTE offsets; every
-  /// call site that genuinely means "runes" says `char_substring` instead, so
-  /// the flip cannot change it silently. Out-of-range indices clamp (a start
-  /// at or past the rune count, or `start >= end`, yields the empty string),
-  /// which is the behaviour `substring` has always had.
+  /// **BYTE basis** (`plans/STD_API_AUDIT_D4_PLAN.md` D4 PR 3 — these were
+  /// rune indices before the flip; `char_substring` still is).
+  ///
+  /// **Boundary policy, in full:**
+  /// - Out-of-range CLAMPS. `start` and `end` past `len()` are pulled back to
+  ///   `len()`, and `start >= end` yields the empty string. This is the
+  ///   forgiving behaviour `substring` has always had, and it is kept.
+  /// - A non-boundary index PANICS. An endpoint inside a rune is a programmer
+  ///   error — a byte offset that came from the wrong basis — not a range
+  ///   condition, and honouring it would hand back invalid UTF-8.
+  /// - `try_substring(start, end)` is the non-panicking form: it returns
+  ///   `.None` for a bad range instead of clamping or panicking.
+  /// - `floor_char_boundary` / `ceil_char_boundary` snap an arbitrary offset
+  ///   onto a boundary first, for callers doing byte arithmetic.
+  /// - `char_substring(start, end)` is the rune-indexed slice.
+  substring : (fn(self : Self, start : usize, end : usize) -> Self)(
+    match(
+      self._bytes,
+      .None => {
+        return(Self(_bytes : .None));
+      },
+      .Some(al) => {
+        (total_bytes : usize) = al.len();
+        (start_byte : usize) = cond(
+          (start > total_bytes) => total_bytes,
+          true => start
+        );
+        (end_byte : usize) = cond(
+          (end > total_bytes) => total_bytes,
+          true => end
+        );
+        if(!(self.is_char_boundary(start_byte)), {
+          __yo_panic("String.substring: start is not on a UTF-8 character boundary");
+        });
+        if(!(self.is_char_boundary(end_byte)), {
+          __yo_panic("String.substring: end is not on a UTF-8 character boundary");
+        });
+        if(start_byte >= end_byte, {
+          return(Self(_bytes : .None));
+        });
+        (count : usize) = (end_byte - start_byte);
+        new_bytes := ArrayList(u8).with_capacity(count);
+        match(
+          al.ptr(),
+          .Some(src_p) => new_bytes.extend_from_ptr(src_p.add(start_byte), count),
+          .None => ()
+        );
+        Self(_bytes : .Some(new_bytes))
+      }
+    )
+  ),
+  /// Slice by RUNE indices — what `substring` meant before D4, under a name
+  /// that says so.
+  ///
+  /// `substring` now takes BYTE offsets; every call site that genuinely means
+  /// "runes" says `char_substring` instead, which is what kept that flip from
+  /// changing anything silently. Out-of-range indices clamp (a start at or
+  /// past the rune count, or `start >= end`, yields the empty string), and an
+  /// endpoint can never fall inside a rune, so this never panics.
   char_substring : (fn(self : Self, start : usize, end : usize) -> Self)(
     match(
       self._bytes,
@@ -545,11 +575,29 @@ impl(
       }
     )
   ),
-  /**
-  * Find the first occurrence of a substring (like JavaScript indexOf)
-  * Returns the character index of the first match, or None if not found
-  * from_index specifies the character index to start searching from
-  */
+  /// Byte offset of the first occurrence of `substr` at or after `from_index`.
+  ///
+  /// **BYTE basis, in AND out** (`plans/STD_API_AUDIT_D4_PLAN.md` D4 PR 3 —
+  /// both were rune indices before the flip). `from_index` is a byte offset;
+  /// the returned index is the byte offset the match starts at, so it can be
+  /// fed straight back into `substring`.
+  ///
+  /// `from_index` needs no boundary check and gets none: UTF-8 is
+  /// self-synchronizing, so a valid-UTF-8 needle can never match starting at a
+  /// continuation byte. Starting the scan mid-rune therefore cannot invent a
+  /// match, and for a NON-EMPTY needle every index this returns is a rune
+  /// boundary at or before `len()`.
+  ///
+  /// **The empty needle is the one exception, and it is deliberate.** It
+  /// matches everywhere, so `index_of(``, i)` answers `.Some(i)` verbatim —
+  /// including an `i` inside a rune and an `i` past `len()` (JavaScript's
+  /// `indexOf("")` clamps to the length; this does not, and neither did the
+  /// pre-D4 rune-indexed version). An offset past the end is harmless
+  /// downstream because `substring` clamps, but a MID-RUNE one is not:
+  /// `substring` panics there. Callers that feed a search result straight back
+  /// into a slice and can be handed an empty needle should go through
+  /// `try_substring`, or snap with `floor_char_boundary`.
+  /// Not called directly — go through `index_of`.
   _index_of_impl : (fn(self : Self, substr : Self, (from_index : usize) ?= 0) -> Option(usize))(
     cond(
       substr.is_empty() => .Some(from_index),
@@ -558,6 +606,7 @@ impl(
         (sub_bytes : usize) = match(substr._bytes, .Some(b) => b.len(), .None => usize(0));
         cond(
           (sub_bytes > self_bytes) => .None,
+          (from_index > (self_bytes - sub_bytes)) => .None,
           true => match(
             self._bytes,
             .None => .None,
@@ -565,25 +614,9 @@ impl(
               substr._bytes,
               .None => .None,
               .Some(sub_al) => {
-                char_index := usize(0);
-                byte_index := usize(0);
-                while((byte_index < self_bytes) && (char_index < from_index), byte_index = (byte_index + usize(1)), {
-                  first_byte_opt := self_al.get(byte_index);
-                  match(
-                    first_byte_opt,
-                    .Some(first_byte) => {
-                      is_start := utf8.is_boundary(first_byte);
-                      cond(
-                        is_start => {
-                          char_index = (char_index + usize(1));
-                        },
-                        true => ()
-                      );
-                    },
-                    .None => ()
-                  );
-                });
-                while(byte_index <= (self_bytes - sub_bytes), byte_index = (byte_index + usize(1)), {
+                (last_start : usize) = (self_bytes - sub_bytes);
+                byte_index := from_index;
+                while(byte_index <= last_start, byte_index = (byte_index + usize(1)), {
                   matches := true;
                   j := usize(0);
                   while(j < sub_bytes, j = (j + usize(1)), {
@@ -616,23 +649,9 @@ impl(
                   });
                   cond(
                     matches => {
-                      return(.Some(char_index));
+                      return(.Some(byte_index));
                     },
                     true => ()
-                  );
-                  first_byte_opt := self_al.get(byte_index);
-                  match(
-                    first_byte_opt,
-                    .Some(first_byte) => {
-                      is_start := utf8.is_boundary(first_byte);
-                      cond(
-                        is_start => {
-                          char_index = (char_index + usize(1));
-                        },
-                        true => ()
-                      );
-                    },
-                    .None => ()
                   );
                 });
                 return(.None);
@@ -643,9 +662,11 @@ impl(
       }
     )
   ),
-  /**
-  * Check if the string contains a substring
-  */
+  /// Private: is `substr` present at or after BYTE offset `from_index`?
+  ///
+  /// **BYTE basis** for `from_index` (`plans/STD_API_AUDIT_D4_PLAN.md` D4
+  /// PR 3 — it was a rune index before the flip). Not called directly — go
+  /// through `contains`.
   _contains_impl : (fn(self : Self, substr : Self, (from_index : usize) ?= 0) -> bool)(
     match(
       self._index_of_impl(substr, from_index),
@@ -763,11 +784,20 @@ impl(
       )
     )
   }),
-  /**
-  * Find the last occurrence of a substring (like JavaScript lastIndexOf)
-  * Returns the character index of the last match, or None if not found
-  * from_index specifies the character index to start searching backwards from
-  */
+  /// Byte offset of the LAST occurrence of `substr` starting at or before
+  /// `from_index`.
+  ///
+  /// **BYTE basis, in AND out** (`plans/STD_API_AUDIT_D4_PLAN.md` D4 PR 3 —
+  /// both were rune indices before the flip). `from_index` is the highest byte
+  /// offset a match is allowed to START at; the default `usize.MAX` means
+  /// "anywhere". The result is the byte offset of the match, and for a
+  /// non-empty needle it is always a rune boundary.
+  ///
+  /// **The empty needle answers `len()` regardless of `from_index`** (Rust's
+  /// `rfind("")` shape), so it is the one case where the result can exceed the
+  /// cap the caller asked for. That is the pre-D4 behaviour carried over
+  /// unchanged — only the unit changed, from a rune count to a byte count.
+  /// Not called directly — go through `last_index_of`.
   _last_index_of_impl : (fn(self : Self, substr : Self, (from_index : usize) ?= usize.MAX) -> Option(usize))(
     cond(
       substr.is_empty() => .Some(self.len()),
@@ -783,92 +813,55 @@ impl(
             cond(
               (sub_bytes > self_bytes) => .None,
               true => {
-                char_positions := ArrayList(usize).new();
-                byte_positions := ArrayList(usize).new();
-                byte_idx := usize(0);
-                char_idx := usize(0);
-                while(byte_idx < self_bytes, byte_idx = (byte_idx + usize(1)), {
-                  byte_opt := self_al.get(byte_idx);
-                  match(
-                    byte_opt,
-                    .Some(byte) => {
-                      is_start := utf8.is_boundary(byte);
-                      cond(
-                        is_start => {
-                          char_positions.push(char_idx);
-                          byte_positions.push(byte_idx);
-                          char_idx = (char_idx + usize(1));
-                        },
-                        true => ()
-                      );
-                    },
-                    .None => ()
-                  );
-                });
-                max_char_index := cond(
-                  (from_index >= char_idx) => char_idx,
-                  true => (from_index + usize(1))
+                (last_start : usize) = (self_bytes - sub_bytes);
+                (highest : usize) = cond(
+                  (from_index > last_start) => last_start,
+                  true => from_index
                 );
-                (last_match : Option(usize)) = .None;
-                i := usize(0);
-                while(i < char_positions.len(), i = (i + usize(1)), {
-                  char_pos_opt := char_positions.get(i);
-                  byte_pos_opt := byte_positions.get(i);
-                  match(
-                    char_pos_opt,
-                    .Some(char_pos) =>
-                      match(
-                        byte_pos_opt,
-                        .Some(byte_pos) => {
-                          cond(
-                            (char_pos >= max_char_index) => break,
-                            ((byte_pos + sub_bytes) <= self_bytes) => {
-                              matches := true;
-                              j := usize(0);
-                              while(j < sub_bytes, j = (j + usize(1)), {
-                                self_byte_opt := self_al.get(byte_pos + j);
-                                sub_byte_opt := sub_al.get(j);
-                                match(
-                                  self_byte_opt,
-                                  .Some(self_byte) =>
-                                    match(
-                                      sub_byte_opt,
-                                      .Some(sub_byte) => {
-                                        cond(
-                                          (self_byte != sub_byte) => {
-                                            matches = false;
-                                            break;
-                                          },
-                                          true => ()
-                                        );
-                                      },
-                                      .None => {
-                                        matches = false;
-                                        break;
-                                      }
-                                    ),
-                                  .None => {
-                                    matches = false;
-                                    break;
-                                  }
-                                );
-                              });
-                              cond(
-                                matches => {
-                                  last_match = .Some(char_pos);
-                                },
-                                true => ()
-                              );
-                            },
-                            true => ()
-                          );
-                        },
-                        .None => ()
-                      ),
-                    .None => ()
+                // Walk DOWN from the highest allowed start, so the first hit is
+                // the last occurrence. `cursor` is one past the candidate so
+                // that candidate 0 is still examined without underflowing.
+                cursor := (highest + usize(1));
+                while(cursor > usize(0), {
+                  cursor = (cursor - usize(1));
+                  matches := true;
+                  j := usize(0);
+                  while(j < sub_bytes, j = (j + usize(1)), {
+                    self_byte_opt := self_al.get(cursor + j);
+                    sub_byte_opt := sub_al.get(j);
+                    match(
+                      self_byte_opt,
+                      .Some(self_byte) =>
+                        match(
+                          sub_byte_opt,
+                          .Some(sub_byte) => {
+                            cond(
+                              (self_byte != sub_byte) => {
+                                matches = false;
+                                break;
+                              },
+                              true => ()
+                            );
+                          },
+                          .None => {
+                            matches = false;
+                            break;
+                          }
+                        ),
+                      .None => {
+                        matches = false;
+                        break;
+                      }
+                    );
+                  });
+                  cond(
+                    matches => {
+                      return(.Some(cursor));
+                    },
+                    true => ()
                   );
                 });
-                return(last_match);
+                return(.None);
               }
             )
           }
@@ -876,17 +869,33 @@ impl(
       )
     )
   ),
-  /**
-  * Private: does this string have `prefix` (a String) starting at `position`?
-  * The UTF-8-aware byte-compare reused by the `Pattern` impls behind the generic
-  * `starts_with<P : Pattern>` (see plans/backlog/OVERLOADING_REDESIGN.md §4). Not called
-  * directly — go through `starts_with`.
-  */
+  /// Private: does this string have `prefix` starting at BYTE offset
+  /// `position`?
+  ///
+  /// **BYTE basis** (`plans/STD_API_AUDIT_D4_PLAN.md` D4 PR 3). Before the
+  /// flip `position` was walked rune-by-rune — and walked WRONG: the counter
+  /// advanced on a lead byte while the loop also stepped one byte, so
+  /// `"你好".starts_with("好", 1)` stopped at byte 1, in the middle of `你`.
+  /// That is §1.3(a) of the plan, and byte indexing removes the walk that
+  /// caused it rather than repairing it.
+  ///
+  /// `position` is never boundary-checked: a valid-UTF-8 prefix cannot match
+  /// starting at a continuation byte, so a mid-rune `position` simply answers
+  /// `false`. An empty prefix is present anywhere, including past the end.
+  ///
+  /// The UTF-8-aware byte-compare reused by the `Pattern` impls behind the
+  /// generic `starts_with<P : Pattern>` (see
+  /// plans/backlog/OVERLOADING_REDESIGN.md §4). Not called directly — go
+  /// through `starts_with`.
   _has_prefix : (fn(self : Self, prefix : Self, (position : usize) ?= 0) -> bool)({
     (prefix_bytes : usize) = match(prefix._bytes, .Some(b) => b.len(), .None => usize(0));
     (self_bytes : usize) = match(self._bytes, .Some(b) => b.len(), .None => usize(0));
     cond(
       (prefix_bytes == usize(0)) => true,
+      // Ordered so `position + prefix_bytes` cannot overflow: the first arm
+      // has already rejected every `position` beyond the byte length.
+      (position > self_bytes) => false,
+      ((position + prefix_bytes) > self_bytes) => false,
       true => match(
         self._bytes,
         .None => false,
@@ -894,76 +903,62 @@ impl(
           prefix._bytes,
           .None => true,
           .Some(prefix_al) => {
-            char_index := usize(0);
-            byte_index := usize(0);
-            while((byte_index < self_bytes) && (char_index < position), byte_index = (byte_index + usize(1)), {
-              byte_opt := self_al.get(byte_index);
+            i := usize(0);
+            matches := true;
+            while(i < prefix_bytes, i = (i + usize(1)), {
+              self_byte_opt := self_al.get(position + i);
+              prefix_byte_opt := prefix_al.get(i);
               match(
-                byte_opt,
-                .Some(byte) => {
-                  is_start := utf8.is_boundary(byte);
-                  cond(
-                    is_start => {
-                      byte_len := utf8.step_len(byte);
-                      byte_index = ((byte_index + byte_len) - usize(1));
-                      char_index = (char_index + usize(1));
-                    },
-                    true => ()
-                  );
-                },
-                .None => ()
-              );
-            });
-            cond(
-              ((byte_index + prefix_bytes) > self_bytes) => false,
-              true => {
-                i := usize(0);
-                matches := true;
-                while(i < prefix_bytes, i = (i + usize(1)), {
-                  self_byte_opt := self_al.get(byte_index + i);
-                  prefix_byte_opt := prefix_al.get(i);
+                self_byte_opt,
+                .Some(self_byte) =>
                   match(
-                    self_byte_opt,
-                    .Some(self_byte) =>
-                      match(
-                        prefix_byte_opt,
-                        .Some(prefix_byte) => {
-                          cond(
-                            (self_byte != prefix_byte) => {
-                              matches = false;
-                              break;
-                            },
-                            true => ()
-                          );
-                        },
-                        .None => {
+                    prefix_byte_opt,
+                    .Some(prefix_byte) => {
+                      cond(
+                        (self_byte != prefix_byte) => {
                           matches = false;
                           break;
-                        }
-                      ),
+                        },
+                        true => ()
+                      );
+                    },
                     .None => {
                       matches = false;
                       break;
                     }
-                  );
-                });
-                return(matches);
-              }
-            )
+                  ),
+                .None => {
+                  matches = false;
+                  break;
+                }
+              );
+            });
+            return(matches);
           }
         )
       )
     )
   }),
-  /**
-  * Check if the string ends with the specified substring (like JavaScript endsWith)
-  * end_position: The character length to consider (default is string length)
-  */
+  /// Private: does the first `end_position` BYTES of this string end with
+  /// `suffix`?
+  ///
+  /// **BYTE basis** (`plans/STD_API_AUDIT_D4_PLAN.md` D4 PR 3 —
+  /// `end_position` was a rune count before the flip). The default
+  /// `usize.MAX` means "the whole string"; anything past `len()` clamps to it.
+  /// Like `_has_prefix`, a mid-rune `end_position` needs no rejection: a
+  /// valid-UTF-8 suffix cannot end there, so the answer is simply `false`.
+  ///
+  /// Not called directly — go through `ends_with`.
   _ends_with_impl : (fn(self : Self, suffix : Self, (end_position : usize) ?= usize.MAX) -> bool)({
     (suffix_bytes : usize) = match(suffix._bytes, .Some(b) => b.len(), .None => usize(0));
     (self_bytes : usize) = match(self._bytes, .Some(b) => b.len(), .None => usize(0));
+    (effective_end : usize) = cond(
+      (end_position > self_bytes) => self_bytes,
+      true => end_position
+    );
     cond(
       (suffix_bytes == usize(0)) => true,
+      (suffix_bytes > effective_end) => false,
       true => match(
         self._bytes,
         .None => false,
@@ -971,76 +966,38 @@ impl(
           suffix._bytes,
           .None => true,
           .Some(suffix_al) => {
-            string_char_len := self.len();
-            effective_end := cond(
-              (end_position == usize.MAX) => string_char_len,
-              (end_position > string_char_len) => string_char_len,
-              true => end_position
-            );
-            char_index := usize(0);
-            byte_index := usize(0);
-            end_byte_index := self_bytes;
-            while(byte_index < self_bytes, byte_index = (byte_index + usize(1)), {
-              byte_opt := self_al.get(byte_index);
+            offset := (effective_end - suffix_bytes);
+            i := usize(0);
+            matches := true;
+            while(i < suffix_bytes, i = (i + usize(1)), {
+              self_byte_opt := self_al.get(offset + i);
+              suffix_byte_opt := suffix_al.get(i);
               match(
-                byte_opt,
-                .Some(byte) => {
-                  is_start := utf8.is_boundary(byte);
-                  cond(
-                    is_start => {
-                      cond(
-                        (char_index == effective_end) => {
-                          end_byte_index = byte_index;
-                          break;
-                        },
-                        true => {
-                          char_index = (char_index + usize(1));
-                        }
-                      );
-                    },
-                    true => ()
-                  );
-                },
-                .None => ()
-              );
-            });
-            cond(
-              (suffix_bytes > end_byte_index) => false,
-              true => {
-                offset := (end_byte_index - suffix_bytes);
-                i := usize(0);
-                matches := true;
-                while(i < suffix_bytes, i = (i + usize(1)), {
-                  self_byte_opt := self_al.get(offset + i);
-                  suffix_byte_opt := suffix_al.get(i);
+                self_byte_opt,
+                .Some(self_byte) =>
                   match(
-                    self_byte_opt,
-                    .Some(self_byte) =>
-                      match(
-                        suffix_byte_opt,
-                        .Some(suffix_byte) => {
-                          cond(
-                            (self_byte != suffix_byte) => {
-                              matches = false;
-                              break;
-                            },
-                            true => ()
-                          );
-                        },
-                        .None => {
+                    suffix_byte_opt,
+                    .Some(suffix_byte) => {
+                      cond(
+                        (self_byte != suffix_byte) => {
                           matches = false;
                           break;
-                        }
-                      ),
+                        },
+                        true => ()
+                      );
+                    },
                     .None => {
                       matches = false;
                       break;
                     }
-                  );
-                });
-                return(matches);
-              }
-            )
+                  ),
+                .None => {
+                  matches = false;
+                  break;
+                }
+              );
+            });
+            return(matches);
           }
         )
       )
@@ -1580,8 +1537,8 @@ impl(
   String,
   Ord(String)(
     (<) : (fn(lhs : Self, rhs : Self) -> bool)({
-      lhs_len := lhs.bytes_len();
-      rhs_len := rhs.bytes_len();
+      lhs_len := lhs.len();
+      rhs_len := rhs.len();
       min_len := cond((lhs_len < rhs_len) => lhs_len, true => rhs_len);
       i := usize(0);
       while(i < min_len, i = (i + usize(1)), {
@@ -1613,11 +1570,25 @@ impl(
 /// match, so a single generic method per operation accepts any pattern type with no
 /// overload resolution. Implemented by `str` and `String` (and, later, `char`).
 /// See plans/backlog/OVERLOADING_REDESIGN.md §4.
+///
+/// **Every index in this trait is a BYTE offset into `haystack`**, in both
+/// directions (`plans/STD_API_AUDIT_D4_PLAN.md` D4 PR 3 — they were rune
+/// indices before the flip). No index is boundary-checked: UTF-8 is
+/// self-synchronizing, so a valid-UTF-8 pattern can only ever match at a rune
+/// boundary, and a mid-rune argument answers `false` / `.None` rather than
+/// producing a bogus hit.
 Pattern :: trait(
+  /// BYTE offset in `haystack` to test the prefix at.
   is_prefix_of : (fn(self : Self, haystack : String, position : usize) -> bool),
+  /// Number of BYTES of `haystack` to consider; `usize.MAX` means all of it.
   is_suffix_of : (fn(self : Self, haystack : String, end_position : usize) -> bool),
+  /// BYTE offset in `haystack` to start searching from.
   is_contained_in : (fn(self : Self, haystack : String, from_index : usize) -> bool),
+  /// BYTE offset in AND out: searches from byte `from_index`, answers with the
+  /// byte offset of the match.
   index_in : (fn(self : Self, haystack : String, from_index : usize) -> Option(usize)),
+  /// BYTE offset in AND out: the highest byte offset a match may start at,
+  /// answering with the byte offset of the last such match.
   last_index_in : (fn(self : Self, haystack : String, from_index : usize) -> Option(usize)),
   split_of : (fn(self : Self, haystack : String) -> ArrayList(String))
 );
@@ -1672,20 +1643,33 @@ impl(
 /// `X(arg : String)` + `StrPattern.X(arg : str)` overload pairs: `s.X("lit")`
 /// (P = str) and `s.X(other)` (P = String) both resolve to the one generic method via
 /// trait dispatch — no overload resolution. See plans/backlog/OVERLOADING_REDESIGN.md §4.
+///
+/// **Every index below is a BYTE offset** (`plans/STD_API_AUDIT_D4_PLAN.md`
+/// D4 PR 3), matching `len()` and `substring`, so `index_of`'s answer can be
+/// fed straight back into `substring` with nothing in between.
 impl(
   String,
+  /// Does `self` have `prefix` starting at BYTE offset `position` (default 0)?
   starts_with : (fn(generic(P : Type), self : Self, prefix : P, (position : usize) ?= 0, where(P <: Pattern)) -> bool)(
     prefix.is_prefix_of(self, position)
   ),
+  /// Does the first `end_position` BYTES of `self` end with `suffix`?
+  /// `end_position` defaults to `usize.MAX`, meaning the whole string, and
+  /// clamps to `len()`.
   ends_with : (fn(generic(P : Type), self : Self, suffix : P, (end_position : usize) ?= usize.MAX, where(P <: Pattern)) -> bool)(
     suffix.is_suffix_of(self, end_position)
   ),
+  /// Does `substr` occur at or after BYTE offset `from_index` (default 0)?
   contains : (fn(generic(P : Type), self : Self, substr : P, (from_index : usize) ?= 0, where(P <: Pattern)) -> bool)(
     substr.is_contained_in(self, from_index)
   ),
+  /// BYTE offset of the first occurrence of `substr` at or after BYTE offset
+  /// `from_index` (default 0), or `.None`.
   index_of : (fn(generic(P : Type), self : Self, substr : P, (from_index : usize) ?= 0, where(P <: Pattern)) -> Option(usize))(
     substr.index_in(self, from_index)
   ),
+  /// BYTE offset of the last occurrence of `substr` starting at or before BYTE
+  /// offset `from_index` (default `usize.MAX`, meaning anywhere), or `.None`.
   last_index_of : (fn(generic(P : Type), self : Self, substr : P, (from_index : usize) ?= usize.MAX, where(P <: Pattern)) -> Option(usize))(
     substr.last_index_in(self, from_index)
   ),
@@ -1862,58 +1846,39 @@ impl(
 /// === Rune-aware indexing (D4 vocabulary) ===
 ///
 /// Everything in this block is stated in **BYTE** offsets, except `char_len`
-/// which counts runes. That is deliberate: `plans/STD_API_AUDIT_D4_PLAN.md`
-/// moves `String`'s index basis from characters to bytes, and these names are
-/// the vocabulary that migration is written in. They are new, so they carry
-/// the final contract from the start rather than flipping under callers later.
+/// and `truncate_chars` which count runes. `plans/STD_API_AUDIT_D4_PLAN.md`
+/// moved `String`'s index basis from characters to bytes, and these names are
+/// the vocabulary that migration was written in — so they carried the final
+/// contract from the start rather than flipping under their callers.
 ///
-/// Until that flip lands, `char_len()` returns the same number as `len()` —
-/// use `char_len()` at any site that genuinely means "how many runes", so the
-/// intent survives the flip.
+/// Now that the flip has landed, the division of labour is: `len()` and every
+/// index-taking method speak bytes; `char_len()` / `char_indices()` /
+/// `char_substring()` / `truncate_chars()` speak runes; and
+/// `is_char_boundary` / `floor_char_boundary` / `ceil_char_boundary` /
+/// `try_substring` are how byte arithmetic stays on boundaries.
 ///
 /// `char_len` and `char_indices` are built on `std/encoding/utf8`, and inherit
-/// its handling of malformed input: `char_len` counts non-continuation bytes
-/// (byte-for-byte what `len()` does today), while `char_indices` — like
-/// `chars()` — stops at the first byte sequence that will not decode.
-/// The three boundary functions and `try_substring` are pure byte
-/// classification (`utf8.is_boundary`) and cannot fail.
+/// its handling of malformed input: `char_len` counts non-continuation bytes,
+/// while `char_indices` — like `chars()` — stops at the first byte sequence
+/// that will not decode. The boundary functions and `try_substring` are pure
+/// byte classification (`utf8.is_boundary`) and cannot fail.
+///
+/// (`is_char_boundary` is NOT defined here — it lives beside `at` in the main
+/// `impl` block, because an `impl` block cannot call forward into a later one
+/// and `at`/`substring` need it.)
 impl(
   String,
   /// Iterate `(byte_offset, rune)` pairs — Rust's `char_indices()`.
   ///
   /// `_0` is the byte offset the rune starts at, `_1` is the rune. This is
-  /// the replacement for the `while(i < s.len()) { s.at(i) }` shape, which is
-  /// O(n²) today and, once `at()` takes a byte offset, hands back `.None` at
-  /// every continuation byte.
+  /// the replacement for the `while(i < s.len()) { s.at(i) }` shape, which
+  /// now visits continuation bytes and hands back `.None` at each of them.
   char_indices : (fn(self : Self) -> StringCharIndices)(
     StringCharIndices(_string : self, _byte_index : usize(0))
   ),
-  /// True when byte offset `index` sits on a rune boundary.
-  ///
-  /// `0` and `bytes_len()` are always boundaries; an index past the end never
-  /// is. Mirrors Rust's `str::is_char_boundary`.
-  is_char_boundary : (fn(self : Self, index : usize) -> bool)(
-    match(
-      self._bytes,
-      .None => (index == usize(0)),
-      .Some(al) => {
-        n := al.len();
-        cond(
-          (index == usize(0)) => true,
-          (index == n) => true,
-          (index > n) => false,
-          true => match(
-            al.get(index),
-            .Some(b) => utf8.is_boundary(b),
-            .None => false
-          )
-        )
-      }
-    )
-  ),
   /// The largest byte offset `<= index` that sits on a rune boundary.
   ///
-  /// `index` is clamped to `bytes_len()` first, so the answer is always a
+  /// `index` is clamped to `len()` first, so the answer is always a
   /// boundary of THIS string. Pair it with `ceil_char_boundary` to widen or
   /// narrow a byte range onto boundaries before slicing.
   floor_char_boundary : (fn(self : Self, index : usize) -> usize)(
@@ -1941,8 +1906,8 @@ impl(
   ),
   /// The smallest byte offset `>= index` that sits on a rune boundary.
   ///
-  /// `index` at or past `bytes_len()` clamps to `bytes_len()`, which is a
-  /// boundary, so this always terminates on a valid one.
+  /// `index` at or past `len()` clamps to `len()`, which is a boundary, so
+  /// this always terminates on a valid one.
   ceil_char_boundary : (fn(self : Self, index : usize) -> usize)(
     match(
       self._bytes,
@@ -1969,11 +1934,11 @@ impl(
   /// Byte-range slice that REFUSES a bad range instead of guessing —
   /// Rust's `s.get(start..end)`.
   ///
-  /// **BYTE offsets**, unlike `substring`, which takes character offsets and
-  /// clamps them. `.None` is returned for the three ranges a byte slice
-  /// cannot honour: `start > end`, `end` past `bytes_len()`, or an endpoint
-  /// inside a rune (which would produce invalid UTF-8). An empty but valid
-  /// range yields `.Some` of the empty string.
+  /// Same BYTE basis as `substring`, but REFUSING where `substring` clamps or
+  /// panics: `.None` is returned for each of the three ranges a byte slice
+  /// cannot honour — `start > end`, `end` past `len()`, or an endpoint inside
+  /// a rune (which would produce invalid UTF-8). An empty but valid range
+  /// yields `.Some` of the empty string.
   try_substring : (fn(self : Self, start : usize, end : usize) -> Option(Self))({
     (n : usize) = match(self._bytes, .Some(b) => b.len(), .None => usize(0));
     if(start > end, {
@@ -2116,7 +2081,7 @@ impl(
       (n == usize(0)) => Self(_bytes : .None),
       self.is_empty() => Self(_bytes : .None),
       true => {
-        self_byte_len := self.bytes_len();
+        self_byte_len := self.len();
         total := (self_byte_len * n);
         buf := ArrayList(u8).with_capacity(total);
         i := usize(0);
@@ -2162,7 +2127,7 @@ impl(
     cond(
       (count == usize(0)) => Self(_bytes : .None),
       true => {
-        sep_byte_len := self.bytes_len();
+        sep_byte_len := self.len();
         total_bytes := usize(0);
         k := usize(0);
         while(k < count, k = (k + usize(1)), {
@@ -2170,7 +2135,7 @@ impl(
           match(
             item_opt,
             .Some(item) => {
-              total_bytes = (total_bytes + item.bytes_len());
+              total_bytes = (total_bytes + item.len());
             },
             .None => ()
           );

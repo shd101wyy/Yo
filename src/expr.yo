@@ -886,6 +886,7 @@ _synth_desugar_tok :: (fn(kind : TokenKind, value : str, ref_tok : Token) -> Tok
     row : ref_tok.row,
     column : ref_tok.column,
     character : ref_tok.character,
+    byte_offset : ref_tok.byte_offset,
     // SHARE module_path and input — never .clone() them. String.clone()
     // deep-copies the buffer, and `input` is the ENTIRE SOURCE FILE: the
     // original desugar cloned it into every synthesized (and, worse, every
@@ -1148,6 +1149,7 @@ wrap_body_in_begin :: (fn(body : AstExpr) -> AstExpr)({
     row : tok.row,
     column : tok.column,
     character : tok.character,
+    byte_offset : tok.byte_offset,
     module_path : tok.module_path,
     input : tok.input
   );
