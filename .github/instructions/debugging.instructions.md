@@ -124,7 +124,7 @@ Each `.test.yo` file has its own import set. Check whether a test file imports `
 ## `YO_DEBUG_CAPTURE=1` — the closure-capture pipeline channels
 
 Added 2026-08-26 while fixing the generic-fn async-closure capture loss
-(issues/async-loop-awaiting-buffer-taking-method-state-machine-corruption.md).
+(issues/fixed/async-loop-awaiting-buffer-taking-method-state-machine-corruption.md).
 All are stderr prints, active only with `YO_DEBUG_CAPTURE` set:
 
 - `[cap-fb]` (exprs/identifer_and_operator.yo) — every FunctionBody-arm

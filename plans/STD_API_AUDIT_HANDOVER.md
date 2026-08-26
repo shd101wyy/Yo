@@ -111,10 +111,11 @@ Slice 1 (traits + stdio + File/TcpStream impls + the usize/IoExn unification)
 merged as #293; slice 2 (the `read_to_end`/`read_to_string`/`write_all`
 defaults, `copy`, `IoError.InvalidData`/`WriteZero`, validating
 `File.read_to_string`) LANDED 2026-08-26 after #294/#295 unblocked it — C25
-(the unit tail await) was found and fixed en route. Still blocked: generic
-`BufReader(R)`/`BufWriter(W)` — the loop-await issue's generic-impl face
-(OPEN) plus C17 — and therefore the `std/sys/bufio` → `std/io` move and a
-buffered `lines()`. Full current state: `plans/STD_API_AUDIT.md` §D5.
+(the unit tail await) was found and fixed en route. The loop-await issue is now
+FIXED on all three facets (the generic-impl face closed 2026-08-26), so
+generic `BufReader(R)`/`BufWriter(W)`, the `std/sys/bufio` → `std/io` move
+and a buffered `lines()` are UNBLOCKED and are the next D5 slice; C17 still
+blocks only the `Dyn(Reader)` spelling. Full current state: `plans/STD_API_AUDIT.md` §D5.
 
 ### 3.3 §7 additions — S3 (P0) and S4 (P1)
 
