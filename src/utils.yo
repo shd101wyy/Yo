@@ -97,14 +97,15 @@ random_id :: (fn(_module_path : String) -> String)({
   `yo_id_${count.to_string()}`
 });
 /// Byte-exact StrLit unquote: drop the first and last BYTE (the ASCII `"`
-/// delimiters yo-self's StrLit convention keeps). The historical pattern
-/// `raw.substring(1, raw.len()-1)` mixed `len()` (BYTES) with `substring`
-/// (CHAR-indexed) — correct for ASCII, CORRUPTING for multibyte content
-/// (the em-dash template-segment corruption in the stage-2 binary). Only
-/// strips when both ends are `"`; anything else passes through unchanged.
+/// delimiters yo-self's StrLit convention keeps). It was written because the
+/// historical pattern `raw.substring(1, raw.len()-1)` mixed a BYTE length with
+/// a then-CHAR-indexed `substring` — correct for ASCII, CORRUPTING for
+/// multibyte content (the em-dash template-segment corruption in the stage-2
+/// binary). `substring` is byte-indexed since
+/// `plans/STD_API_AUDIT_D4_PLAN.md` D4, so that mismatch no longer exists;
+/// this stays as the explicit byte-level spelling. Only strips when both ends
+/// are `"`; anything else passes through unchanged.
 str_lit_unquote_bytes :: (fn(raw : String) -> String)({
-  // BYTE count — String.len() counts CHARACTERS (std skips UTF-8
-  // continuation bytes); this helper walks bytes.
   n := raw.as_bytes().len();
   if((n >= usize(2)) && ((raw.byte_at(usize(0)) == u8(34)) && (raw.byte_at(n - usize(1)) == u8(34))), {
     bytes := raw.as_bytes();

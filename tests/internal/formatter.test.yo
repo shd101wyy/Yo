@@ -94,3 +94,28 @@ test("format_yo_source: fixture corpus from formatter.test.ts", {
   assert(failed == usize(0), "some formatter fixtures diverged (see above)");
   assert(checked >= usize(46), "fixture corpus missing (cwd must be the repo root)");
 });
+test("format_yo_source: a template string AFTER a multibyte character survives", {
+  // `read_raw_template_string` re-reads the template literal out of `input`
+  // by byte offset. It used to be handed `Token.character` — a RUNE index —
+  // and re-walked the buffer to convert; D4 PR 3 gave `Token` a real
+  // `byte_offset` and deleted that walk. Either way the failure mode is the
+  // same class: with a multibyte character EARLIER in the file the slice
+  // starts early and swallows the source before the backtick, producing
+  // non-parseable output at rc=0
+  // (issues/fixed/yo-self-formatter-corrupts-files-with-non-ascii.md — 23 of
+  // 40 sampled std files with a backtick came out broken).
+  //
+  // The em dash below is what makes this test discriminating; the same source
+  // with an ASCII hyphen passes under a broken conversion.
+  src := String.from("//! doc — with an em dash\nf :: (fn(x : String) -> String)(`v=${x}`);\nexport(f);\n");
+  out := _fmt(src);
+  assert(out.contains(String.from("`v=${x}`")), "the template literal is intact");
+  assert(!(out.contains(String.from("`v=${x}`;\n`"))), "no duplicated tail");
+  assert(_fmt(out) == out, "and formatting is idempotent");
+});
+test("format_yo_source: multibyte content inside a template string is preserved", {
+  src := String.from("g :: (fn() -> String)(`名前 → ${String.new()}`);\nexport(g);\n");
+  out := _fmt(src);
+  assert(out.contains(String.from("名前 → ${String.new()}")), "multibyte body intact");
+  assert(_fmt(out) == out, "idempotent");
+});

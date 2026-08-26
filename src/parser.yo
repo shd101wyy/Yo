@@ -191,6 +191,7 @@ impl(
       row : ref_tok.row,
       column : ref_tok.column,
       character : ref_tok.character,
+      byte_offset : ref_tok.byte_offset,
       module_path : ref_tok.module_path,
       input : ref_tok.input
     );
@@ -513,13 +514,12 @@ impl(
     _is_spec_char :: (fn(c : rune) -> bool)(
       (((((c.char >= u32(0x30)) && (c.char <= u32(0x39))) || ((c.char >= u32(0x41)) && (c.char <= u32(0x5A)))) || ((c.char >= u32(0x61)) && (c.char <= u32(0x7A)))) || (((c.char == u32(0x2E)) || (c.char == u32(0x3C))) || ((c.char == u32(0x3E)) || (c.char == u32(0x5E))))) || ((((c.char == u32(0x2B)) || (c.char == u32(0x2D))) || ((c.char == u32(0x23)) || (c.char == u32(0x2A)))) || (((c.char == u32(0x5F)) || (c.char == u32(0x3D))) || (c.char == u32(0x7E))))
     );
-    // `k` and `tn` are RUNE indices into `tc`, so the two cuts at the end have
-    // to be resolved through the rune->byte map `char_indices()` gives, not
-    // fed to `substring` and left to whatever basis it has. This is
-    // plans/STD_API_AUDIT_D4_PLAN.md §5.2 S4: today `substring` reads them as
-    // rune indices and agrees by accident; after D4's flip it would read them
-    // as byte offsets and cut a template string like `${名前:>8}` apart in the
-    // middle of a codepoint.
+    // `k` and `tn` are RUNE indices into `tc`, so the two cuts at the end are
+    // resolved through the rune->byte map `char_indices()` gives rather than
+    // handed to `substring`. This is plans/STD_API_AUDIT_D4_PLAN.md §5.2 S4:
+    // `substring` takes BYTE offsets since D4, so feeding it these rune
+    // indices would cut a template string like `${名前:>8}` apart in the
+    // middle of a codepoint (and panic on the non-boundary).
     _peel_spec :: (fn(text : String) -> _SpecSplit)({
       tc := ArrayList(rune).new();
       // `toff(i)` is the byte offset rune `i` starts at.
@@ -608,6 +608,7 @@ impl(
                 row : tok.row,
                 column : tok.column,
                 character : tok.character,
+                byte_offset : tok.byte_offset,
                 module_path : tok.module_path,
                 input : tok.input
               );
@@ -637,6 +638,7 @@ impl(
             row : tok.row,
             column : tok.column,
             character : tok.character,
+            byte_offset : tok.byte_offset,
             module_path : tok.module_path,
             input : tok.input
           );
@@ -772,6 +774,7 @@ impl(
         row : tok.row,
         column : tok.column,
         character : tok.character,
+        byte_offset : tok.byte_offset,
         module_path : tok.module_path,
         input : tok.input
       );
@@ -861,6 +864,7 @@ impl(
       row : tok.row,
       column : tok.column,
       character : tok.character,
+      byte_offset : tok.byte_offset,
       module_path : tok.module_path,
       input : tok.input
     );
@@ -953,6 +957,7 @@ impl(
       row : tok.row,
       column : tok.column,
       character : tok.character,
+      byte_offset : tok.byte_offset,
       module_path : tok.module_path,
       input : tok.input
     );
@@ -1059,6 +1064,7 @@ impl(
             row : last_tok.row,
             column : last_tok.column,
             character : last_tok.character,
+            byte_offset : last_tok.byte_offset,
             module_path : last_tok.module_path,
             input : last_tok.input
           );
@@ -1120,6 +1126,7 @@ impl(
                     row : tok.row,
                     column : tok.column,
                     character : tok.character,
+                    byte_offset : tok.byte_offset,
                     module_path : tok.module_path,
                     input : tok.input
                   );
@@ -1139,6 +1146,7 @@ impl(
           row : tok.row,
           column : tok.column,
           character : tok.character,
+          byte_offset : tok.byte_offset,
           module_path : tok.module_path,
           input : tok.input
         );
@@ -1155,6 +1163,7 @@ impl(
           row : tok.row,
           column : tok.column,
           character : tok.character,
+          byte_offset : tok.byte_offset,
           module_path : tok.module_path,
           input : tok.input
         );
@@ -1601,6 +1610,7 @@ impl(
               row : last_tok.row,
               column : last_tok.column,
               character : last_tok.character,
+              byte_offset : last_tok.byte_offset,
               module_path : last_tok.module_path,
               input : last_tok.input
             );

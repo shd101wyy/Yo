@@ -24,6 +24,7 @@ open(import("std/error"));
 { parse } :: import("../parser.yo");
 { AstExpr } :: import("../expr.yo");
 { ExprInfoTable, expr_info_table_new } :: import("../expr_info.yo");
+{ rune_col_to_byte_offset } :: import("./protocol.yo");
 {
   mm_resolve_entry_abs,
   mm_eval_entry_exprs,
@@ -68,16 +69,27 @@ _is_ident_byte :: (fn(b : u8) -> bool)(
     )
 );
 
-/// Length of the identifier starting at (row, col) in `text`, minimum 1.
+/// Length of the identifier starting at RUNE column `col` of row `row` in
+/// `text`, minimum 1. The answer is a RUNE count, because the caller adds it
+/// to `col` to build an LSP range.
+///
+/// `col` is a rune column (the formatted error text prints `token.column + 1`,
+/// and `Token.column` is a rune column) while `line.as_bytes()` is byte
+/// indexed — indexing one with the other put the underline in the wrong place
+/// on any line containing a multibyte character before the identifier
+/// (plans/STD_API_AUDIT_D4_PLAN.md §5.1, the `_ident_len_at` row). The count
+/// itself needs no conversion back: `_is_ident_byte` matches only ASCII, so
+/// every byte counted is exactly one rune.
 _ident_len_at :: (fn(text : String, row : usize, col : usize) -> usize)({
   lines := text.split(String.from("\n"));
   line := match(lines.get(row), .Some(l) => l, .None => return(usize(1)));
   bytes := line.as_bytes();
-  if(col >= bytes.len(), {
+  start := rune_col_to_byte_offset(line, col);
+  if(start >= bytes.len(), {
     return(usize(1));
   });
   (n : usize) = usize(0);
-  (i : usize) = col;
+  (i : usize) = start;
   while(i < bytes.len(), {
     b := match(bytes.get(i), .Some(x) => x, .None => u8(0));
     if(_is_ident_byte(b), {

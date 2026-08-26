@@ -1,9 +1,18 @@
 # `mkdir_all` feeds a BYTE index to the rune-indexed `substring`
 
-**Status:** OPEN. Found 2026-08-26 while migrating call sites for
-`plans/STD_API_AUDIT_D4_PLAN.md` PR 2. **Deliberately not fixed there** — PR 2's
-contract is that it changes no behaviour. **D4 PR 3 fixes it for free** by
-making `substring` byte-indexed, which is the basis `i` already has.
+**Status: FIXED 2026-08-26 by `plans/STD_API_AUDIT_D4_PLAN.md` D4 PR 3** —
+with no edit to `std/fs/dir.yo` at all. `String.substring` is byte-indexed now,
+which is the basis `i` always had, so the two agree.
+
+Found 2026-08-26 while migrating call sites for D4 PR 2, and deliberately not
+fixed there because PR 2's contract was that it changed no behaviour.
+
+**Witnessed, not assumed.** `tests/fs/dir.test.yo` gained
+"create_dir_all creates nested directories with a multibyte component", which
+builds `<tmp>/yo_fs_dir_all_日本語/sub1/sub2` through the ENOENT recovery path
+and asserts all three levels exist. Measured 2026-08-26: it **fails** against a
+`std` tree whose only difference is the pre-flip `std/string/string.yo`, and
+passes against the flipped one (13/14 vs 14/14 in the same file).
 
 ## Where
 

@@ -1,10 +1,26 @@
 # `yo unsafe-report` / `yo public-safe-report` cut the relative path with a BYTE length
 
-**Status:** OPEN. Found 2026-08-26 while reviewing
-`plans/STD_API_AUDIT_D4_PLAN.md` PR 2. **Deliberately not fixed there** — PR 2's
-contract is that it changes no behaviour. **D4 PR 3 fixes it for free** by
-making `substring` byte-indexed, which is the basis `root_prefix_len` already
-has.
+**Status: FIXED 2026-08-26 by `plans/STD_API_AUDIT_D4_PLAN.md` D4 PR 3** —
+with no edit to either file. `String.substring` is byte-indexed now, which is
+the basis `root_prefix_len` always had.
+
+Found 2026-08-26 while reviewing D4 PR 2, and deliberately not fixed there
+because PR 2's contract was that it changed no behaviour.
+
+**Re-measured on the same standalone reproducer after the flip** (the exact two
+lines, compiled `--release`, 2026-08-26):
+
+```
+ascii  root -> "a.yo"        (want "a.yo")     ✓
+cjk    root -> "a.yo"        (want "a.yo")     ✓   was "yo"
+accent root -> "src/a.yo"    (want "src/a.yo") ✓   was "rc/a.yo"
+```
+
+**Not covered by a repo test**, honestly stated: `_walk_yo_files` is private to
+each of the two files and neither subcommand has a test harness, so the
+reproducer above is the whole evidence. A regression here would be caught only
+by the `substring` contract tests in
+`tests/string/string_byte_index.test.yo`.
 
 This is an **8th** instance of the §5.1 "mixed-basis" family; the plan's §5.1
 table lists 7 and does not name these two files.

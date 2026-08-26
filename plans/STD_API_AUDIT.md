@@ -603,11 +603,37 @@ replace past the end of a multibyte identifier. The review also replaced a
 **vacuous** `pad_numeric` test (it asserted only through `String.format`, which
 never reaches `pad_numeric`) and recorded a **9th** live mixed-basis bug,
 duplicated across `src/unsafe_report.yo` and `src/public_safe_report.yo`
-(`issues/unsafe-report-relative-path-uses-a-byte-prefix-length.md`).
+(`issues/fixed/unsafe-report-relative-path-uses-a-byte-prefix-length.md`).
 **Only now is PR 3's review question "does this site want bytes?" — and the
 answer is yes everywhere left except S8 and S9, which are open by design.**
 
-The remaining D4 steps (PRs 3-9) are unchanged and still in
+~~**Step 3 of that plan (PR 3, THE FLIP)**~~ **LANDED 2026-08-26.**
+`String.len()` is now the BYTE count at O(1), and `at`, `substring`,
+`slice_copy`/`slice_copy_inclusive` (the `s(a..b)` sugar), `index_of`,
+`last_index_of`, `contains(from_index)`, `starts_with(position)`,
+`ends_with(end_position)` and the `Pattern` trait's five index-carrying methods
+all take and return BYTE offsets. `bytes_len()` is a deprecated alias of
+`len()`. **Boundary policy, stated on every flipped method:** out-of-range
+CLAMPS, a non-boundary index PANICS in the infallible `substring`,
+`try_substring` returns `.None` instead, and `floor_char_boundary` /
+`ceil_char_boundary` are there for callers doing arithmetic; the search
+methods never panic, because a valid-UTF-8 needle cannot match at a
+continuation byte. §1.3(a)'s broken `starts_with(position)` rune walk is fixed
+BY CONSTRUCTION — byte indexing deletes the walk rather than repairing it.
+`src/` migrated in the same commit, `Token.byte_offset` was added and
+`src/formatter.yo`'s `_byte_offset_of_char_index` retired, and the LSP grew a
+`rune_col_to_byte_offset` / `byte_offset_to_rune_col` pair so the three
+handlers that SLICE a line convert instead of mixing bases.
+PR 3 found a **10th** live mixed-basis bug the survey had missed —
+`std/http/client.yo:325` sent a RUNE count as `Content-Length` — and confirmed
+that `std/regex/` is basis-INDEPENDENT (it works entirely on `ArrayList(u8)`),
+so PR 6 is a cleanup, not a repair. Gates: `yo build`, `fixpoint_only.sh`
+FIXPOINT_HOLDS with stage-2 hollow=0, `gates_fast.sh` all seven gates,
+codegen corpus 155/155 with its goldens UNCHANGED, and a new
+`tests/string/string_byte_index.test.yo` (19 tests) of which **15 fail against
+the pre-flip `std` and pass against the flipped one**.
+
+The remaining D4 steps (PRs 4-9) are unchanged and still in
 `plans/STD_API_AUDIT_D4_PLAN.md` §4.
 
 **SCOPE EXTENDED (user, 2026-08-25): `std/imm/string` is IN, and so is the
@@ -743,9 +769,15 @@ implementing the D5 traits.** Until it lands, std honestly refuses https.
   D sketch, which gave BOTH `with_read` and `with_write` a `ref(v) : T` body
   parameter; splitting them into by-value / `inout` is what makes the read/write
   distinction mean anything. Found while reviewing: `yo test --std-path <dir>` is
-  silently ignored (the per-batch compile is a child process and the flag is not
-  forwarded), so a `--std-path` test run scores the INSTALLED std —
-  issues/yo-test-std-path-not-forwarded-to-the-batch-compile.md.
+  silently ignored, so a `--std-path` test run scores the INSTALLED std.
+  **Correction (D4 PR-3 review, 2026-08-26): that is the SEED's behaviour, not
+  the tree's.** The forwarding fix landed in #286
+  (issues/fixed/yo-test-does-not-forward-std-path-to-batch-compile.md, gated by
+  `tests/cli-cases/test-std-path-forwarded`); the write-up filed here was a
+  duplicate and is now
+  issues/retired/yo-test-std-path-not-forwarded-to-the-batch-compile.md. The
+  practical rule stands while the seed on `PATH` predates #286: use
+  `YO_STD=$PWD/std`.
 - **BLOCKER found while doing the row above:** a callback generic over its
   result — the `with_lock` / `with_read` / `with_write` signature itself —
   emits `void* tmp = <void call>;` when the closure returns unit, so
@@ -1156,7 +1188,7 @@ implementing the D5 traits.** Until it lands, std honestly refuses https.
 | spec/ | FREEZE AS DOC | identity stubs; mark experimental, exclude from stability promise |
 | collections/* | RENAME + EXTEND | §5 renames; entry API, `retain/extend/drain`, `binary_search`, real `sort` (not O(n²) insertion), `sort_by`; HashSet = HashMap(T, unit) to kill ~500 duplicated SwissTable lines; hide pub `ctrl/data/…` fields; `BTreeMap` → rename `FlatMap` OR implement a real B-tree with `range()` (recommend: real B-tree, keep name); add `BTreeSet`; `PriorityQueue`: keep name, add comparator ctor, DOCUMENT min-heap |
 | imm/* | KEEP (O4) + FIX | stays in std (decided 2026-08-23); require `Acyclic` element bounds per O7, add iteration + `Index` where doc'd, rename `imm.String` → `ImmString` (**folded into D4** 2026-08-25 — decided, no longer conditional on COW `String`), dedupe set pair; mark unstable until exercised |
-| string | FIX + EXTEND | D4 indexing; Unicode-correct `to_lowercase` (+ `to_ascii_*` variants); `Pattern` impl for `rune` + `Regex`; `replace*` Pattern-generic; `parse_f64`/radix; `split_once`, `strip_prefix/suffix`, ~~`char_indices`~~ (landed 2026-08-26 with the rest of the D4 PR-1 vocabulary); move `panic_dyn`/`assert_dyn` to assert; delete dead `StringError`, one of `to_cstr`/`to_c_str` |
+| string | FIX + EXTEND | ~~D4 indexing~~ (**byte-indexed 2026-08-26**, D4 PR 3; `imm.String` is D4 PR 4); Unicode-correct `to_lowercase` (+ `to_ascii_*` variants); `Pattern` impl for `rune` + `Regex`; `replace*` Pattern-generic; `parse_f64`/radix; `split_once`, `strip_prefix/suffix`, ~~`char_indices`~~ (landed 2026-08-26 with the rest of the D4 PR-1 vocabulary); move `panic_dyn`/`assert_dyn` to assert; delete dead `StringError`, one of `to_cstr`/`to_c_str` |
 | encoding | STANDARDIZE | D2 verbs; one error style per D1; utf8 module; add `html_encode` (XSS!); percent-encoding module (P0 — nothing in std can build a safe query string); base32; CSV (P1); toml: floats/arrays/dates/serializer + `ToToml`/`FromToml` derives to mirror json (P1) |
 | json | EXTEND | enum representation for derives (open question O3); `JsonValue.Object` O(n) parallel arrays → keep repr, add index map if profiling demands |
 | regex | POLISH | `Regex.escape`, optional-flags `new`, callback replace, lazy `find_iter`, group byte-spans, ~~typed error, private internals~~ (**both DONE 2026-08-25**, D8) |
@@ -1651,9 +1683,12 @@ mmap/file-lock/statfs wrappers; `gc.stats`; DNS SRV/TXT/reverse
   find/slice APIs byte-indexed with a char-boundary contract. The additive half
   (`char_len`/`char_indices`/`is_char_boundary`/`floor_char_boundary`/
   `ceil_char_boundary`/`try_substring`, on both string types) **landed
-  2026-08-26**, and so did the char-semantics pin (PR 2, plus
-  `char_substring`/`truncate_chars`); the basis flip itself is still ahead
-  (D4 plan PRs 3-9).
+  2026-08-26**, so did the char-semantics pin (PR 2, plus
+  `char_substring`/`truncate_chars`), **and so did the basis flip itself (PR 3,
+  2026-08-26)** — `String` is byte-indexed, with clamping for out-of-range and
+  a panic for a non-boundary index. What remains is `imm.String` (PR 4), the
+  `ImmString` rename (PR 5), regex's `index()` (PR 6), the comptime basis
+  (PR 7), the docs sweep (PR 8) and the decoder dedup (PR 9).
 - **O2 (D6)**: **DECIDED — platform TLS libraries via `pkg_config`**
   (SecureTransport/Schannel/OpenSSL), behind one `TlsStream` implementing the
   D5 traits. Until it lands, https throws `UnsupportedScheme` (C1).
