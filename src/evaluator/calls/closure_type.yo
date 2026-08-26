@@ -22,6 +22,8 @@
 //!   - No `attachTempVariableToExpr` for DynType (deferred to Phase 4).
 pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
+_(env : cap_dbg_env_closure_call) :: import("std/env");
+{ eprintln } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { AstExpr, ast_expr_token, ast_expr_id, make_err_expr }
@@ -245,6 +247,9 @@ try_to_implement_closure_by_fn_module_type :: (
   // time (mirrors anonymous_function.yo:806 `register_func_type(func_id, ...)`).
   register_func_type(closure_id.clone(), synthetic_func_ty.clone());
   // Create the function body evaluation context.
+  if(cap_dbg_env_closure_call.get(`YO_DEBUG_CAPTURE`).is_some(), {
+    eprintln(`[fbctx-closure-call]`);
+  });
   eval_ctx := create_function_body_evaluation_context(
     synthetic_func_ty,
     func_val_pre,

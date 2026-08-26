@@ -1,5 +1,31 @@
 # An async loop awaiting a buffer-taking method emits a state machine that segfaults (or invalid C, in a generic impl)
 
+**FACET 1 FIXED 2026-08-26** (branch fix/async-capture-and-swallows). Root
+cause of the dropped-parameter face, traced through the new
+`YO_DEBUG_CAPTURE=1` channels: the call-time param binding derived
+`is_compile_time_only` FROM THE ARGUMENT'S VALUE (`arg has a value && not a
+FuncVal`) — and **`UnknownVal` counted as a value**, so any param whose
+argument evaluated to a runtime unknown (e.g. `list.ptr().unwrap()`) was
+bound compile-time-only; capture tracking then excluded it as comptime and
+the async closure's C read it as a bare undeclared identifier. TS derives the
+flag from the DECLARED param alone (helper.ts:671) and its own comment calls
+UnknownValue "a runtime-only" value — the yo-self heuristic was a mis-port.
+Three fixes landed together: (1) `is_ct` no longer counts `UnknownVal`
+(calls/function.yo); (2) capture tracking's comptime gate judges the
+CALLER-RESOLVED binding, not a name-re-found stale one
+(`track_variable_usage_resolved`, context.yo); (3) the `.AsyncBlock`
+classifier arm gained the generation-safe inner test the `.FunctionBody` arm
+already had (identifer_and_operator.yo). Red-first:
+`tests/async_generic_param_capture.test.yo` (undeclared-identifier clang
+failure before, 2/2 after).
+
+**FACET 2 REMAINS OPEN** — the LOOPING buffer-await still segfaults
+(rc=139) on all three loop reproducers and the generic-impl face still emits
+an undeclared `_priv_temp`; re-measured identically after the facet-1 fix,
+so it is a distinct state-machine capture/restore fault across loop
+suspensions. The controls stay green. This is what still blocks D5 slice 2.
+
+
 **Found 2026-08-26 while implementing STD_API_AUDIT D5** (async `Reader`/`Writer`).
 This is THE blocker for D5's `read_to_end`/`read_to_string`/`write_all`
 defaults, for `io.copy`, and (together with its generic-impl face) for
