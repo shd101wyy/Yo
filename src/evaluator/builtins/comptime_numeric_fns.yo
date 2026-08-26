@@ -35,7 +35,7 @@ open(import("std/string"));
 { IntRange, get_integer_type_range, get_integer_type_bits } :: import("../../types/utils.yo");
 { Token } :: import("../../token.yo");
 { evaluate_expression } :: import("../exprs/expr.yo");
-{ parse_raw_int, parse_raw_float } :: import("../utils.yo");
+{ parse_raw_int, parse_raw_float, f64_raw_roundtrip } :: import("../utils.yo");
 { Exception } :: import("std/error");
 // ---------------------------------------------------------------------------
 // str_lit_quote: wrap an unquoted string with double-quote chars.
@@ -260,7 +260,9 @@ make_float_val :: (fn(v : f64, ty : TypeValue) -> EvalValue)(
   if(
     is_c_compatible_type(ty),
     create_unknown_val(ty),
-    EvalValue.FloatLit(v.to_string())
+    // ROUND-TRIP rendering — see f64_raw_roundtrip (utils.yo): plain
+    // to_string is %g and truncated computed comptime floats to 6 digits.
+    EvalValue.FloatLit(f64_raw_roundtrip(v))
   )
 );
 // ---------------------------------------------------------------------------
