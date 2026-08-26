@@ -32,7 +32,7 @@ open(import("std/fmt"));
   remove_file,
   rename
 } :: import("std/fs/dir");
-{ walk_with, WalkOptions } :: import("std/fs/walker");
+{ remove_dir_all } :: import("std/fs/walker");
 { TempDir } :: import("std/fs/temp");
 { env } :: import("std/env");
 {
@@ -68,38 +68,6 @@ _releases_download_url :: (fn() -> String)(`https://github.com/${_github_repo()}
 // ---------------------------------------------------------------------------
 // Local helpers
 // ---------------------------------------------------------------------------
-/// Recursively remove a directory and all its contents.
-_remove_dir_all :: (
-  fn(
-    path : Path,
-    io : Io,
-    exn : Exception
-  ) -> Impl(Future(unit, IoExn))
-)(
-  io.async((e : IoExn) => {
-    opts := WalkOptions(max_depth : .None, follow_symlinks : false, include_dirs : true);
-    entries := e.io.await(walk_with(path, opts, e.io), e);
-    n := entries.len();
-    while(n > usize(0), {
-      n = (n - usize(1));
-      match(
-        entries.get(n),
-        .None => (),
-        .Some(entry) =>
-          match(
-            entry.file_type,
-            .Directory => {
-              e.io.await(remove_dir(entry.path, e.io), e);
-            },
-            _ => {
-              e.io.await(remove_file(entry.path, e.io), e);
-            }
-          )
-      );
-    });
-    e.io.await(remove_dir(path, e.io), e);
-  })
-);
 /// Extract the string value of a JSON field named `key`.
 /// Handles both `"key":"value"` and `"key": "value"` forms.
 /// Returns `.None` if the field is not found.
@@ -426,14 +394,14 @@ clean_version_cache :: (
         version_dir := get_version_cache_dir(version);
         dir_exists := e.io.await(exists(Path.new(version_dir), e.io), e.io);
         if(dir_exists, {
-          e.io.await(_remove_dir_all(Path.new(version_dir), e.io, e.exn), e);
+          e.io.await(remove_dir_all(Path.new(version_dir), e.io), e);
         });
       },
       .None => {
         versions_dir := get_global_versions_cache_dir();
         dir_exists := e.io.await(exists(Path.new(versions_dir), e.io), e.io);
         if(dir_exists, {
-          e.io.await(_remove_dir_all(Path.new(versions_dir), e.io, e.exn), e);
+          e.io.await(remove_dir_all(Path.new(versions_dir), e.io), e);
         });
       }
     );
@@ -625,9 +593,9 @@ _cleanup_failed_download :: (
   io.async((e : IoExn) => {
     ver_exists := e.io.await(exists(Path.new(version_dir), e.io), e.io);
     if(ver_exists, {
-      e.io.await(_remove_dir_all(Path.new(version_dir), e.io, e.exn), e);
+      e.io.await(remove_dir_all(Path.new(version_dir), e.io), e);
     });
-    e.io.await(_remove_dir_all(tmp_path, e.io, e.exn), e);
+    e.io.await(remove_dir_all(tmp_path, e.io), e);
   })
 );
 /// Download a specific Yo version's native bundle from GitHub Releases and
@@ -656,7 +624,7 @@ download_version :: (
     (url : String) = `${_releases_download_url()}/v${version}/${bundle_name}.tar.gz`;
     (tarball_path : String) = `${tmp_path_str}/${bundle_name}.tar.gz`;
     println(`Downloading Yo v${version} (${bundle_name}) from GitHub Releases...`);
-    code_str := e.io.await(_download_file(url, tarball_path, e.io, e.exn), e);
+    code_str := e.io.await(_download_file(url, tarball_path, e.io), e);
     (code : i64) = match(code_str.parse_i64(), .None => i64(0), .Some(c) => c);
     // Linux glibc-era fallback: releases that predate the musl legs only
     // published `yo-v<v>-linux-<arch>` bundles. On a glibc host that bundle
@@ -668,18 +636,18 @@ download_version :: (
       bundle_name = legacy;
       url = `${_releases_download_url()}/v${version}/${bundle_name}.tar.gz`;
       tarball_path = `${tmp_path_str}/${bundle_name}.tar.gz`;
-      legacy_code_str := e.io.await(_download_file(url, tarball_path, e.io, e.exn), e);
+      legacy_code_str := e.io.await(_download_file(url, tarball_path, e.io), e);
       code = match(legacy_code_str.parse_i64(), .None => i64(0), .Some(c2) => c2);
     });
     if(code == i64(404), {
-      e.io.await(_cleanup_failed_download(version_dir, tmp_dir.path(), e.io, e.exn), e);
+      e.io.await(_cleanup_failed_download(version_dir, tmp_dir.path(), e.io), e);
       msg := `Yo v${version} has no ${bundle_name}.tar.gz release asset.`;
       msg.push_string(String.from("\nRun `yo version list --remote` to see the published releases, or check "));
       msg.push_string(`https://github.com/${_github_repo()}/releases`);
       e.exn.throw(dyn(msg));
     });
     if(code >= i64(400), {
-      e.io.await(_cleanup_failed_download(version_dir, tmp_dir.path(), e.io, e.exn), e);
+      e.io.await(_cleanup_failed_download(version_dir, tmp_dir.path(), e.io), e);
       e.exn.throw(dyn(`HTTP ${code.to_string()} downloading ${url}`));
     });
     // 2. Extract; the tarball root is a `<bundleName>/` directory holding
@@ -692,27 +660,27 @@ download_version :: (
     tar_cmd.arg(tmp_path_str);
     tar_out := e.io.await(tar_cmd.output(e.io), e);
     if(!(tar_out.status.success()), {
-      e.io.await(_cleanup_failed_download(version_dir, tmp_dir.path(), e.io, e.exn), e);
+      e.io.await(_cleanup_failed_download(version_dir, tmp_dir.path(), e.io), e);
       e.exn.throw(dyn(`Failed to extract ${bundle_name}.tar.gz for Yo v${version}`));
     });
     extracted_dir := `${tmp_path_str}/${bundle_name}`;
     bin_exists := e.io.await(exists(Path.new(`${extracted_dir}/bin`), e.io), e.io);
     std_exists := e.io.await(exists(Path.new(`${extracted_dir}/std`), e.io), e.io);
     if(!(bin_exists && std_exists), {
-      e.io.await(_cleanup_failed_download(version_dir, tmp_dir.path(), e.io, e.exn), e);
+      e.io.await(_cleanup_failed_download(version_dir, tmp_dir.path(), e.io), e);
       e.exn.throw(dyn(`Unexpected bundle layout in ${bundle_name}.tar.gz (missing bin/ or std/).`));
     });
     // 3. Remove any existing partial extraction (or a dead npm-shaped
     // entry), then MOVE the extracted bundle root to the version directory.
     ver_exists := e.io.await(exists(Path.new(version_dir), e.io), e.io);
     if(ver_exists, {
-      e.io.await(_remove_dir_all(Path.new(version_dir), e.io, e.exn), e);
+      e.io.await(remove_dir_all(Path.new(version_dir), e.io), e);
     });
     e.io.await(create_dir_all(Path.new(get_global_versions_cache_dir()), e.io), e);
     e.io.await(rename(Path.new(extracted_dir), Path.new(version_dir), e.io), e);
     println(`Installed Yo v${version} to ${version_dir}`);
     // 4. Clean up the temp directory (the tarball stays behind in it).
-    e.io.await(_remove_dir_all(tmp_dir.path(), e.io, e.exn), e);
+    e.io.await(remove_dir_all(tmp_dir.path(), e.io), e);
     version_dir
   })
 );
@@ -726,7 +694,7 @@ ensure_cached_version :: (
   ) -> Impl(Future(String, IoExn))
 )(
   io.async((e : IoExn) => {
-    cached := e.io.await(is_version_cached(version, e.io, e.exn), e);
+    cached := e.io.await(is_version_cached(version, e.io), e);
     if(cached, {
       return(get_version_cache_dir(version));
     });
@@ -749,7 +717,7 @@ fetch_remote_versions :: (
     done := false;
     while((page <= i64(3)) && (!(done)), {
       url := `${_releases_api_url()}?per_page=100&page=${page}`;
-      body := e.io.await(_http_get(url, e.io, e.exn), e);
+      body := e.io.await(_http_get(url, e.io), e);
       trimmed := body.trim();
       if(!(trimmed.starts_with(String.from("["))), {
         e.exn.throw(dyn(`Unexpected GitHub Releases API response shape.`));

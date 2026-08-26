@@ -19,7 +19,7 @@ open(import("std/string"));
   remove_file,
   rename
 } :: import("std/fs/dir");
-{ walk, walk_with, WalkEntry, WalkOptions } :: import("std/fs/walker");
+{ remove_dir_all } :: import("std/fs/walker");
 { Sha256 } :: import("std/crypto/sha256");
 { hex_encode } :: import("std/encoding/hex");
 {
@@ -75,34 +75,6 @@ SIDECAR_FILENAME :: ".yo-content-hash";
 // ---------------------------------------------------------------------------
 // Utilities
 // ---------------------------------------------------------------------------
-/// Recursive directory removal.
-/// Walks the tree (parents first), then deletes in reverse order.
-remove_dir_all :: (fn(path : Path, io : Io, exn : Exception) -> Impl(Future(unit, IoExn)))(
-  io.async((e : IoExn) => {
-    opts := WalkOptions(max_depth : .None, follow_symlinks : false, include_dirs : true);
-    entries := e.io.await(walk_with(path, opts, e.io), e);
-    n := entries.len();
-    // Delete deepest entries first (reverse order from walk output)
-    while(n > usize(0), {
-      n = (n - usize(1));
-      match(
-        entries.get(n),
-        .None => (),
-        .Some(entry) =>
-          match(
-            entry.file_type,
-            .Directory => {
-              e.io.await(remove_dir(entry.path, e.io), e);
-            },
-            _ => {
-              e.io.await(remove_file(entry.path, e.io), e);
-            }
-          )
-      );
-    });
-    e.io.await(remove_dir(path, e.io), e);
-  })
-);
 /// Selection-sort a list of DirEntry values by name (ascending ASCII order).
 sort_dir_entries :: (fn(entries : ArrayList(DirEntry)) -> ArrayList(DirEntry))({
   n := entries.len();
@@ -586,7 +558,7 @@ clone_repo :: (
     };
     git_dir_exists := e.io.await(exists(Path.new(git_dir_path), e.io), e.io);
     if(git_dir_exists, {
-      e.io.await(remove_dir_all(Path.new(git_dir_path), e.io, e.exn), e);
+      e.io.await(remove_dir_all(Path.new(git_dir_path), e.io), e);
     });
     // Atomic rename to final location
     e.io.await(rename(Path.new(temp_dir), Path.new(target_dir), e.io), e);
@@ -704,7 +676,7 @@ fetch_dep :: (
       // Evict corrupt / hash-mismatch cache entry
       path_exists := e.io.await(exists(Path.new(state.cached_path), e.io), e.io);
       if(path_exists, {
-        e.io.await(remove_dir_all(Path.new(state.cached_path), e.io, e.exn), e);
+        e.io.await(remove_dir_all(Path.new(state.cached_path), e.io), e);
       });
     });
     // Clone the repo

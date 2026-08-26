@@ -578,7 +578,7 @@ declarations at runtime.
 1. `std/encoding/percent.yo` (percent-encode/decode) + URL/query integration
 2. ~~`std/encoding/utf8.yo` (D8)~~ **DONE 2026-08-25** + `html_encode` (open)
 3. `std/io` redesign with stdio handles (D5) — slices 1–2 DONE; generic wrappers + bufio move remain
-4. `fs.copy`, `fs.remove_dir_all`, `read_link`, `set_permissions`, `try_exists`
+4. ~~`fs.copy`, `fs.remove_dir_all`, `read_link`, `set_permissions`, `try_exists`~~ **DONE 2026-08-27** — `copy` (contents + permission bits + byte count), `try_exists` (throws instead of lying `false` on a denied parent), `set_permissions` in `std/fs/file`; `read_link` in `std/fs/dir`; `remove_dir_all` in **`std/fs/walker`** (its implementation IS the walker, and `fs/walker` imports `fs/dir` — the reverse would cycle); `src/fetch` + `src/version_cache` dropped their private copies. En route: the libc `chmod`/`fchmod` bindings declared their mode as the OPAQUE `mode_t : Type`, which no Yo caller can construct (`mode_t(384)` is a SomeT-callee error — silently swallowed in async bodies); rebound as `u32`
 5. `process.Child`/`spawn`/`Stdio`
 6. async combinators + async channel/mutex + `timeout` (D7)
 7. `crypto`: HMAC, SHA-1, SHA-512, CRC32, `Digest` trait; `std/rand`

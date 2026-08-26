@@ -38,6 +38,9 @@ IO_path :: import("../sys/path");
 IO_file :: import("../sys/file");
 IoTraits :: import("../io");
 { AT_FDCWD, AT_STATX_SYNC_AS_STAT, STATX_BASIC_STATS, O_RDONLY, O_WRONLY, O_RDWR, O_CREAT, O_TRUNC, O_APPEND, O_CLOEXEC, DEFAULT_FILE_MODE } :: import("../sys/constants");
+{ ENOENT, ENOTDIR } :: import("../libc/errno");
+{ chmod } :: import("../libc/sys/stat");
+{ metadata } :: import("./metadata");
 // ============================================================================
 // File
 // ============================================================================
@@ -374,7 +377,10 @@ append_file_str :: (fn(path : str, data : str, io : Io) -> Impl(Future(unit, IoE
 );
 extern(
   "Yo",
-  __yo_statx_buf_size : (fn() -> usize)
+  __yo_statx_buf_size : (fn() -> usize),
+  // errno as a CALL — the C macro is an int LVALUE, not a pointer (same
+  // pattern as std/crypto/random.yo).
+  __yo_errno : (fn() -> i32)
 );
 /// Check if a path exists. Returns `false` for any error including file not found.
 /// Does not use the `Exception` effect.
@@ -397,6 +403,63 @@ exists_str :: (fn(path : str, io : Io) -> Impl(Future(bool, Io)))(
 exists_cstr :: (fn(path : *(u8), io : Io) -> Impl(Future(bool, Io)))(
   exists(Path.from_cstr(path), io)
 );
+/// Check if a path exists, PROPAGATING errors (`std::fs::try_exists`):
+/// `.false` only for a definitive not-there answer (ENOENT/ENOTDIR); a
+/// permission failure or any other error THROWS instead of masquerading as
+/// absence — the honest form `exists` cannot give
+/// (plans/STD_API_AUDIT.md §7 P0).
+try_exists :: (fn(path : Path, io : Io) -> Impl(Future(bool, IoExn)))(
+  io.async((e) => {
+    cstr_bytes := path.to_string().to_cstr();
+    cstr := cstr_bytes.ptr().unwrap();
+    buf_size := __yo_statx_buf_size();
+    buf := *(u8)(malloc(buf_size).unwrap());
+    result := e.io.await(IO_file.statx(AT_FDCWD, cstr, AT_STATX_SYNC_AS_STAT, STATX_BASIC_STATS, buf), e.io);
+    free(.Some(*(void)(buf)));
+    cond(
+      (result >= i32(0)) => true,
+      (((i32(0) - result) == i32(ENOENT)) || ((i32(0) - result) == i32(ENOTDIR))) => false,
+      true => e.exn.throw(dyn(IoError.from_errno(i32(0) - result)))
+    )
+  })
+);
+/// `try_exists` (`str` path variant).
+try_exists_str :: (fn(path : str, io : Io) -> Impl(Future(bool, IoExn)))(
+  try_exists(Path.new(String.from(path)), io)
+);
+/// Set a path's POSIX permission bits.
+set_permissions :: (fn(path : Path, perm : FilePermission, io : Io) -> Impl(Future(unit, IoExn)))(
+  io.async((e) => {
+    cstr_bytes := path.to_string().to_cstr();
+    cstr := cstr_bytes.ptr().unwrap();
+    r := unsafe(chmod(*(char)(cstr), perm.mode));
+    cond(
+      (r < int(0)) => e.exn.throw(dyn(IoError.from_errno(__yo_errno()))),
+      true => ()
+    )
+  })
+);
+/// `set_permissions` (`str` path variant).
+set_permissions_str :: (fn(path : str, perm : FilePermission, io : Io) -> Impl(Future(unit, IoExn)))(
+  set_permissions(Path.new(String.from(path)), perm, io)
+);
+/// Copy a file's CONTENTS and permission bits from `from` to `to`
+/// (`std::fs::copy`), resolving to the number of bytes copied. `to` is
+/// created or truncated.
+copy :: (fn(from : Path, to : Path, io : Io) -> Impl(Future(u64, IoExn)))(
+  io.async((e) => {
+    bytes := e.io.await(read(from, e.io), e);
+    e.io.await(write(to, bytes, e.io), e);
+    md := e.io.await(metadata(from, e.io), e);
+    e.io.await(set_permissions(to, FilePermission(mode : (md.mode() & u32(4095))), e.io), e);
+    u64(bytes.len())
+  })
+);
+/// `copy` (`str` path variant).
+copy_str :: (fn(from : str, to : str, io : Io) -> Impl(Future(u64, IoExn)))(
+  copy(Path.new(String.from(from)), Path.new(String.from(to)), io)
+);
+
 /// Check if a path is a regular file. Returns `false` for any error.
 is_file :: (fn(path : Path, io : Io) -> Impl(Future(bool, Io)))(
   io.async((io) => {
@@ -513,7 +576,13 @@ export(
   is_dir_cstr,
   canonicalize,
   canonicalize_str,
-  canonicalize_cstr
+  canonicalize_cstr,
+  try_exists,
+  try_exists_str,
+  set_permissions,
+  set_permissions_str,
+  copy,
+  copy_str
 );
 
 // === std/io async trait impls (STD_API_AUDIT D5) ===
