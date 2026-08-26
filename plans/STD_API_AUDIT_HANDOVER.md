@@ -206,8 +206,9 @@ Every batch surfaced at least one real compiler bug. All are in `issues/fixed/`:
 `fmt-not-idempotent-call-wrapped-match-in-block.md`,
 `ftt-stub-in-live-closure-falls-off-non-void-function.md` (partially fixed; the
 `unit`-returning residue is described concretely enough to act on),
-`closure-nested-inside-io-async-closure-body-emits-abort-stub.md`,
-`generic-implementor-async-method-awaiting-self-emits-uncompilable-c.md`.
+`closure-nested-inside-io-async-closure-body-emits-abort-stub.md`.
+(`generic-implementor-async-method-awaiting-self-emits-uncompilable-c.md` —
+C23 — was FIXED 2026-08-26 and moved to `issues/fixed/`.)
 
 ---
 

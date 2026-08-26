@@ -1,0 +1,103 @@
+// Regression (C23): a GENERIC implementor (`impl(generic(T), Wrap(T), …)`)
+// whose async method awaits `Self.<async method>` used to emit C that clang
+// rejected (4-5 errors): the specialized method's registered return type kept
+// the declared `Impl(...)` SomeT, whose id-keyed resolution was poisoned to the
+// RECEIVER type, so the emitted C returned `__yo_t0` (= Wrap(usize)) while the
+// body built a `_sync_fut_t*`; the awaiting method's capture struct kept the
+// def-era `void*` fields. A NON-generic implementor of the same trait was fine.
+// See issues/fixed/generic-implementor-async-method-awaiting-self-emits-uncompilable-c.md.
+{ assert } :: import("std/assert");
+{ IoExn } :: import("std/error");
+AR :: trait(
+  read : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn))),
+  twice : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn)))
+);
+// Trait with a `?=` default of the same awaiting shape (the C16 fix covers the
+// default materialization; this file covers it on a GENERIC implementor).
+ARD :: trait(
+  read_d : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn))),
+  (twice_d : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn)))) ?=
+    (
+      (self, io) ->
+        io.async((e) => {
+          a := e.io.await(Self.read_d(self, io), e);
+          b := e.io.await(Self.read_d(self, io), e);
+          a + b
+        })
+    )
+);
+Wrap :: (fn(comptime(T) : Type) -> comptime(Type))(struct(v : T));
+// Generic implementor, EXPLICIT async bodies, `twice` awaits `Self.read` twice.
+impl(
+  generic(T : Type),
+  Wrap(T),
+  AR(
+    read : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn)))(io.async((e) => usize(5))),
+    twice : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn)))(
+      io.async((e) => {
+        a := e.io.await(Self.read(self, io), e);
+        b := e.io.await(Self.read(self, io), e);
+        a + b
+      })
+    )
+  )
+);
+// Generic implementor taking the trait's `?=` DEFAULT for the awaiting method.
+impl(
+  generic(T : Type),
+  Wrap(T),
+  ARD(
+    read_d : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn)))(io.async((e) => usize(9)))
+  )
+);
+// Non-generic implementor of the same trait — the control that always worked.
+Conc :: struct(k : usize);
+impl(
+  Conc,
+  AR(
+    read : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn)))(io.async((e) => self.k)),
+    twice : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn)))(
+      io.async((e) => {
+        a := e.io.await(Self.read(self, io), e);
+        b := e.io.await(Self.read(self, io), e);
+        a + b
+      })
+    )
+  )
+);
+// Two-type-argument generic implementor.
+Pair2 :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type))(struct(a : A, b : B));
+impl(
+  generic(A : Type, B : Type),
+  Pair2(A, B),
+  AR(
+    read : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn)))(io.async((e) => usize(21))),
+    twice : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn)))(
+      io.async((e) => {
+        a := e.io.await(Self.read(self, io), e);
+        b := e.io.await(Self.read(self, io), e);
+        a + b
+      })
+    )
+  )
+);
+test("generic implementor: explicit async method awaiting Self method", {
+  w := Wrap(usize)(v : usize(1));
+  v := io.await(w.twice(io), io);
+  assert(v == usize(10), "Wrap(usize).twice: 5 + 5");
+});
+test("generic implementor: awaiting method via trait ?= default", {
+  w := Wrap(usize)(v : usize(1));
+  v := io.await(w.twice_d(io), io);
+  assert(v == usize(18), "Wrap(usize).twice_d: 9 + 9");
+});
+test("non-generic implementor control", {
+  c := Conc(k : usize(4));
+  v := io.await(c.twice(io), io);
+  assert(v == usize(8), "Conc.twice: 4 + 4");
+});
+test("two-type-argument generic implementor", {
+  p := Pair2(usize, bool)(a : usize(2), b : true);
+  v := io.await(p.twice(io), io);
+  assert(v == usize(42), "Pair2(usize, bool).twice: 21 + 21");
+});
