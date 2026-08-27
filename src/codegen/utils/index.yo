@@ -1250,9 +1250,18 @@ get_type_string :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
       // codegen emits as a concrete C typedef named X (e.g. `__yo_thread_t`,
       // hard-coded in the parallelism runtime) — lower it to that name, not
       // `void*`. Mirrors TS lowering an extern SomeType to its C name.
+      // A heap-backed extern future reached WITHOUT a resolved-concrete
+      // cell — e.g. a NAMED local bound to an `IoFuture` in a sync function:
+      // the evaluator collapses the variable's type to the BARE extern SomeT
+      // (no Future requirement left), so it is recognized here by the
+      // runtime's contractual future type name, exactly as this function's
+      // own unregistered-extern fallback below hard-codes it. Same TS rule
+      // as the resolved branch above (utils/index.ts:660-668): pointer, not
+      // the bare struct — every use site (`->state`, drops) is pointer-shaped
+      // (issues/fixed/io-future-named-local-declared-by-value.md).
       .None => if(
         is_extern_type_name(snm),
-        snm.clone(),
+        if(_some_t_requires_future(t) || (snm == "__yo_io_future_t"), `${snm.clone()}*`, snm.clone()),
         match(
           context.get_type_c_name(type_key(t)),
           .Some(cn) => cn,

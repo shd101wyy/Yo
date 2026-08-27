@@ -1,0 +1,88 @@
+//! Async (event-loop) channel — `std/async/channel`
+//! (`plans/STD_API_AUDIT.md` §7 P0 item 6 / D7).
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+{ Channel } :: import("std/async/channel");
+{ sleep } :: import("std/sys/timer");
+
+// ---------------------------------------------------------------------------
+// 1. try_send / try_recv — FIFO, capacity, empty
+// ---------------------------------------------------------------------------
+test("Test channel try ops", {
+  ch := Channel(i32).new(usize(2));
+  assert(ch.len() == usize(0), "new channel should be empty");
+  assert(match(ch.try_recv(), .Some(_) => false, .None => true), "try_recv on empty should be .None");
+  s1 := ch.try_send(i32(1));
+  s2 := ch.try_send(i32(2));
+  assert(match(s1, .Ok(_) => true, .Err(_) => false), "first try_send should fit");
+  assert(match(s2, .Ok(_) => true, .Err(_) => false), "second try_send should fit");
+  s3 := ch.try_send(i32(3));
+  assert(match(s3, .Ok(_) => false, .Err(v) => (v == i32(3))), "over-capacity try_send should hand the value back");
+  r1 := ch.try_recv();
+  r2 := ch.try_recv();
+  assert(match(r1, .Some(v) => (v == i32(1)), .None => false), "FIFO: first out is 1");
+  assert(match(r2, .Some(v) => (v == i32(2)), .None => false), "FIFO: second out is 2");
+});
+// ---------------------------------------------------------------------------
+// 2. async producer → awaiting consumer, buffer smaller than the stream
+// ---------------------------------------------------------------------------
+test("Test channel producer consumer", {
+  ch := Channel(i32).new(usize(2));
+  producer := io.async((io : Io) => {
+    (i : i32) = i32(0);
+    (going : bool) = true;
+    while(going, {
+      s := io.await(ch.send(i, io), io);
+      assert(match(s, .Ok(_) => true, .Err(_) => false), "send should succeed while open");
+      i = (i + i32(1));
+      if(i >= i32(5), {
+        going = false;
+      });
+    });
+    return(());
+  });
+  h := io.spawn(producer, io);
+  (expected : i32) = i32(0);
+  (receiving : bool) = true;
+  while(receiving, {
+    r := io.await(ch.recv(io), io);
+    v := match(r, .Some(x) => x, .None => i32(-1));
+    assert(v == expected, "values should arrive in send order");
+    expected = (expected + i32(1));
+    if(expected >= i32(5), {
+      receiving = false;
+    });
+  });
+  _done := h.await(io);
+  assert(ch.len() == usize(0), "channel should be drained");
+});
+// ---------------------------------------------------------------------------
+// 3. close — sends fail, recv drains then .None
+// ---------------------------------------------------------------------------
+test("Test channel close semantics", {
+  ch := Channel(i32).new(usize(4));
+  _s1 := ch.try_send(i32(42));
+  ch.close();
+  assert(ch.is_closed(), "channel should report closed");
+  s2 := ch.try_send(i32(7));
+  assert(match(s2, .Ok(_) => false, .Err(v) => (v == i32(7))), "send after close should fail with the value");
+  r1 := io.await(ch.recv(io), io);
+  assert(match(r1, .Some(v) => (v == i32(42)), .None => false), "recv should drain the buffer after close");
+  r2 := io.await(ch.recv(io), io);
+  assert(match(r2, .Some(_) => false, .None => true), "drained closed channel should recv .None");
+});
+// ---------------------------------------------------------------------------
+// 4. a waiting recv wakes when a spawned task sends later
+// ---------------------------------------------------------------------------
+test("Test channel recv waits for sender", {
+  ch := Channel(i32).new(usize(1));
+  late_sender := io.async((io : Io) => {
+    io.await(sleep(u64(10)), io);
+    _s := io.await(ch.send(i32(99), io), io);
+    return(());
+  });
+  h := io.spawn(late_sender, io);
+  r := io.await(ch.recv(io), io);
+  assert(match(r, .Some(v) => (v == i32(99)), .None => false), "recv should wake for the late send");
+  _done := h.await(io);
+});

@@ -10384,3 +10384,36 @@ impl(
   JoinHandle(T),
   await : __yo_join_handle_await
 );
+/// JoinHandle introspection + cancellation. The raw helpers read/write the
+/// common spawned-future header (`{__yo_ref_header_t; int state;}`) emitted
+/// by the async runtime; state mapping follows `io.state`: any positive step
+/// index reads as Running.
+extern(
+  "Yo",
+  __yo_join_handle_state_raw : (fn(fut : *(void)) -> FutureState),
+  __yo_join_handle_abort_raw : (fn(fut : *(void)) -> unit)
+);
+impl(
+  generic(T : Type),
+  JoinHandle(T),
+  /// The task's current `FutureState`, read without blocking or driving the
+  /// event loop (unlike `await`, which polls the loop to completion).
+  state : (fn(self : JoinHandle(T)) -> FutureState)(
+    __yo_join_handle_state_raw(*(void)(self.__future))
+  ),
+  /// True once the task is terminal — `Completed` or `Aborted`.
+  is_finished : (fn(self : JoinHandle(T)) -> bool)({
+    s := __yo_join_handle_state_raw(*(void)(self.__future));
+    (s == FutureState.Completed) || (s == FutureState.Aborted)
+  }),
+  /// Cancel the task: a non-terminal task is marked `Aborted` and will not
+  /// resume past its current suspension point (its pending completion, if
+  /// any, releases the state machine instead of resuming it). Completed and
+  /// already-aborted tasks are left untouched. `await` on an aborted handle
+  /// returns `.None`. NOTE: abort cancels the TASK, not any in-flight I/O
+  /// operation it is suspended on — a task parked on I/O that never
+  /// completes stays allocated until process exit.
+  abort : (fn(self : JoinHandle(T)) -> unit)(
+    __yo_join_handle_abort_raw(*(void)(self.__future))
+  )
+);

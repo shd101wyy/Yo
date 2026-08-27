@@ -1,0 +1,76 @@
+//! Async (event-loop) mutex — `std/async/mutex`
+//! (`plans/STD_API_AUDIT.md` §7 P0 item 6 / D7).
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+{ Mutex } :: import("std/async/mutex");
+{ sleep } :: import("std/sys/timer");
+
+// ---------------------------------------------------------------------------
+// 1. try_lock / unlock / is_locked
+// ---------------------------------------------------------------------------
+test("Test mutex try_lock and unlock", {
+  m := Mutex(i64).new(i64(5));
+  assert(!(m.is_locked()), "new mutex should be unlocked");
+  assert(m.try_lock(), "try_lock on unlocked should succeed");
+  assert(m.is_locked(), "mutex should report locked");
+  assert(!(m.try_lock()), "second try_lock should fail");
+  assert(m.get() == i64(5), "protected value should read back");
+  m.set(i64(6));
+  m.unlock();
+  assert(!(m.is_locked()), "unlock should release");
+  assert(m.get() == i64(6), "set should have written through");
+});
+// ---------------------------------------------------------------------------
+// 2. exclusion across awaits — a critical section spanning a sleep is not
+//    entered by the other task until released
+// ---------------------------------------------------------------------------
+test("Test mutex excludes across awaits", {
+  m := Mutex(i64).new(i64(0));
+  in_section := Box(bool)(false);
+  overlaps := Box(i64)(0);
+  worker :: (fn(m2 : Mutex(i64), ins : Box(bool), ovl : Box(i64), io : Io) -> Impl(Future(unit, Io)))(
+    io.async((io : Io) => {
+      io.await(m2.lock(io), io);
+      cond(
+        ins.* => {
+          ovl.* = (ovl.* + i64(1));
+        },
+        true => ()
+      );
+      ins.* = true;
+      before := m2.get();
+      io.await(sleep(u64(5)), io);
+      m2.set(before + i64(1));
+      ins.* = false;
+      m2.unlock();
+      return(());
+    })
+  );
+  h1 := io.spawn(worker(m, in_section, overlaps, io), io);
+  h2 := io.spawn(worker(m, in_section, overlaps, io), io);
+  h3 := io.spawn(worker(m, in_section, overlaps, io), io);
+  _r1 := h1.await(io);
+  _r2 := h2.await(io);
+  _r3 := h3.await(io);
+  assert(overlaps.* == i64(0), "no task may enter the section while another holds the lock");
+  assert(m.get() == i64(3), "read-modify-write across an await must not lose updates");
+  assert(!(m.is_locked()), "all sections released");
+});
+// ---------------------------------------------------------------------------
+// 3. lock() waits for a holder to release
+// ---------------------------------------------------------------------------
+test("Test mutex lock waits", {
+  m := Mutex(i64).new(i64(0));
+  assert(m.try_lock(), "main takes the lock first");
+  releaser := io.async((io : Io) => {
+    io.await(sleep(u64(10)), io);
+    m.set(i64(1));
+    m.unlock();
+    return(());
+  });
+  h := io.spawn(releaser, io);
+  io.await(m.lock(io), io);
+  assert(m.get() == i64(1), "lock should only be acquired after the releaser ran");
+  m.unlock();
+  _done := h.await(io);
+});

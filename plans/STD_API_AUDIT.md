@@ -84,6 +84,7 @@ records; mechanisms and reproducers are in the named `issues/fixed/` docs.
 | C24 | **async loop over a buffer-taking await** (the D5 slice-2 blocker, found by D5 work): (a) a generic fn's `io.async` closure DROPPED the enclosing params from its capture (the `.AsyncBlock` classifier arm kept a generation-unsafe frame-level test); (b) the nullable-ptr match's payload binding (`.Some(q) => q` over `chunk.ptr()`) declared a C local while arm reads consulted the never-written hoisted `sm->var_N` slot — silent rc=139 on fully-transpiled C. Both **FIXED** 2026-08-26 (PRs #294 + #295; tests/async_generic_param_capture.test.yo, tests/async_loop_buffer_await.test.yo). (c) the generic-impl face — a materialized generic-impl arm body read the match binding through an evaluator-stamped temp the nullable-ptr emitter never shadow-registered (`_shadow_add`, the mechanism the tagged-union path always used) — **FIXED** 2026-08-26 too. ALL THREE FACETS CLOSED; generic `BufReader(R)`/`BufWriter(W)` unblocked (C17 still blocks only the `Dyn(Reader)` spelling) | **FIXED** — issues/fixed/async-loop-awaiting-buffer-taking-method-state-machine-corruption.md |
 | C26 | **`out = e.io.await(...)` — RE-assigning (`=`) an await result to an existing variable silently NO-OPED the await**: three await-statement recognizers guarded on `:=` only, so inside a cond/match branch no future was stored and the whole awaiting branch skipped (every call returned the fallthrough — silent wrong values). Found by D5's BufReader bypass test; pre-existing on develop. **FIXED 2026-08-27** (extract_target_variable_id + generate_await_expression + generate_cond_branch_with_await now accept `=`) | **FIXED** — issues/fixed/assign-await-to-existing-variable-silently-noops.md, tests/async_assign_await.test.yo |
 | C25 | **a unit-resolving TAIL await emitted `sm->await_result_N;`** — a field the state struct never declares for an effectively-unit result (unit, or the unresolved SomeT a where-bound trait default's `Impl(Future(unit, IoExn))` return looks like), so clang failed with "no member named 'await_result_0'". Found by D5 slice 2's first `write_all` wrapper; the completion-segment substitution lacked the effectively-unit guard the struct allocator and the extraction both had | **FIXED** 2026-08-26 — issues/fixed/unit-tail-await-of-trait-default-reads-missing-await-result.md, tests/async_unit_tail_await.test.yo |
+| C27 | **generic impl method with a closure param: `io.async` return type collapses** — fixed-`T` variant awaits to `unit`; `generic(R)` variant types the method call as the CLOSURE's own fn type (future wrapper vanishes). Self-only captures and plain-`R` returns are fine — the trigger is the closure param in the async block's capture, on a generic impl. Blocks async `Mutex.with_lock` (removed from v1, restore on fix) | **OPEN** — issues/generic-impl-async-method-closure-param-return-type-collapse.md |
 
 ---
 
@@ -369,10 +370,10 @@ Open D7 items:
   nor `Semaphore`/`Barrier` is a drop-in. Decide per consumer
   (`tests/imm_threading`, `tests/sync/{channel,once,rwlock,waitgroup}`),
   record here, then delete.
-- **Async-aware sync is a P0 addition** (§7): async `Channel`, async `Mutex`,
-  `select`/timeout — today any `ch.recv()` inside a future parks the entire
-  single-threaded event loop, and the prelude DOCUMENTS `Channel` as the way
-  to deliver results from `!Send` JoinHandles. Footgun with no safe path.
+- ~~**Async-aware sync is a P0 addition** (§7): async `Channel`, async `Mutex`,
+  `select`/timeout~~ **DONE 2026-08-27** — §7 P0 item 6 (`std/async/channel`,
+  `std/async/mutex`, `race`/`any`/`timeout` in `std/async`; `select` is
+  covered by `race` over handles).
 
 ### D8 — module layout
 
@@ -580,7 +581,23 @@ declarations at runtime.
 3. `std/io` redesign with stdio handles (D5) — slices 1–2 DONE; generic wrappers + bufio move remain
 4. ~~`fs.copy`, `fs.remove_dir_all`, `read_link`, `set_permissions`, `try_exists`~~ **DONE 2026-08-27** — `copy` (contents + permission bits + byte count), `try_exists` (throws instead of lying `false` on a denied parent), `set_permissions` in `std/fs/file`; `read_link` in `std/fs/dir`; `remove_dir_all` in **`std/fs/walker`** (its implementation IS the walker, and `fs/walker` imports `fs/dir` — the reverse would cycle); `src/fetch` + `src/version_cache` dropped their private copies. En route: the libc `chmod`/`fchmod` bindings declared their mode as the OPAQUE `mode_t : Type`, which no Yo caller can construct (`mode_t(384)` is a SomeT-callee error — silently swallowed in async bodies); rebound as `u32`
 5. ~~`process.Child`/`spawn`/`Stdio`~~ **DONE 2026-08-27** (`Stdio` Inherit/Piped/Null; chainable builders returning `Self` incl. `env`/`env_clear` over a real envp built from `environ` + overrides; `spawn() -> Child` with `pid`/`write_stdin`/`close_stdin`/`read_std{out,err}_to_end`/`kill`/`wait`; parent pipe ends CLOEXEC — without it a child held the parent's stdin write end and never saw EOF; `ExitStatus.code()` is now `Option(i32)` — a signal death is `.None`, 13 consumers swept). `current_dir` DEFERRED: needs `posix_spawn_file_actions_addchdir` in the runtime shim — a new extern, i.e. SEED-GATED (plans/backlog/SEED_VERSION_AUTOMATION.md)
-6. async combinators + async channel/mutex + `timeout` (D7)
+6. ~~async combinators + async channel/mutex + `timeout` (D7)~~ **DONE
+   2026-08-27** (branch `s3/async-combinators`, merge pending the CI-red
+   triage). Delivered: **JoinHandle `state()`/`is_finished()`/`abort()`**
+   (prelude + two C runtime helpers over the spawned-future common header + a
+   resume-entry guard so an externally-aborted, suspended task's pending
+   completion releases the state machine instead of falling through the state
+   switch); **`std/async` → directory** — `index.yo` keeps `yield` and adds
+   the blocking-poll combinators `join_all`/`race`/`any`/`timeout` (they
+   drive the loop via `__yo_async_poll_step`, exact deadlines — `timeout`'s
+   deadline is a spawned TASK, not a bare `IoFuture` local, see
+   issues/pending-io-future-local-drop-uaf.md); **`std/async/channel`**
+   (bounded FIFO `Channel(T)`: suspending `send`/`recv` + `try_*`/`close`,
+   1ms-tick waits, same-thread by design); **`std/async/mutex`** (`Mutex(T)`:
+   suspending `lock`, `try_lock`/`unlock`/`get`/`set`; `with_lock` PARKED on
+   C27). 19 tests in tests/async/. En route fixed
+   issues/fixed/io-future-named-local-declared-by-value.md; en route found
+   C27 + the io-future drop-ownership hole (both filed)
 7. ~~`crypto`: HMAC, SHA-1, SHA-512, CRC32, `Digest` trait~~ **DONE 2026-08-27** (streaming `Sha1`/`Sha512`/`Md5` on the Sha256 skeleton; the `Digest` trait — `new`/`update`/`digest_size`/`block_size`/`finish_bytes` + a `finish_hex` `?=` default — implemented by all four; generic `hmac` via `(D <: Digest)` statics + `hmac_sha{1,256,512}(_hex)` + `constant_time_eq`; bitwise reflected `crc32`; all pinned to FIPS 180-4 / RFC 2202 / RFC 4231 / CRC-catalog vectors). `std/rand` **DONE 2026-08-27** (seedable PCG-XSH-RR 64/32 `Rng`: `new`/`with_stream`/`next_u32`/`next_u64`/`next_f64`/rejection-sampled `next_below`+`range`/Fisher–Yates `shuffle`/`choice`, pinned to the pcg-random.org reference sequence — landing it surfaced and fixed the 6-digit float-literal truncation, issues/fixed/float-literals-normalized-through-6-digit-percent-g.md)
 8. ~~prelude D3 items 1–8~~ **DONE** (D3.9 Hasher blocked, D3.10 done)
 9. `Duration` integration everywhere a timeout/interval appears
