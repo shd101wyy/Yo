@@ -47,15 +47,37 @@ failure.
 containers, while their error enums declared the `CapacityOverflow` variant for
 exactly that condition and nothing ever produced it.
 
-## Also fixed: the power-of-two rounding dropped its last step
+## Also fixed: the power-of-two rounding was width-wrong BOTH ways
 
 `HashMap.with_capacity` / `HashSet.with_capacity` round the request up to a
 power of two by smearing the top bit down with shifts of 1, 2, 4, 8, 16 — and
-stopped there. `usize` is 64-bit, so the `>> 32` step was missing and any
-request above 2^32 rounded to a value that is **not** a power of two, though the
-doc and the bucket masking (`hash & (capacity - 1)`) both require one. Not
-independently observable (a >4 GB control allocation fails first), but the code
-now does what it says.
+stopped there. On a 64-bit `usize` the `>> 32` step was missing, so any request
+above 2^32 rounded to a value that is **not** a power of two, though the doc and
+the bucket masking (`hash & (capacity - 1)`) both require one. Not independently
+observable there (a >4 GB control allocation fails first).
+
+**But hardcoding `>> 32` is wrong on wasm32, where `usize` is 32 bits**: a shift
+equal to the operand width is undefined, and `with_capacity` rounding really did
+break — `tests/collections/hash_map.test.yo`'s "rounds up to power of 2" and
+"creates map with specified capacity" both failed under `--target wasm-wasi`
+while the whole native suite stayed green (3240/3240). Caught by the per-file
+WASI sweep, which is why that sweep is in the battery.
+
+The smear is therefore width-generic now, deriving its shifts from
+`sizeof(usize)`:
+
+```rust
+sh := usize(1);
+while(sh < (sizeof(usize) * usize(8)), {
+  c = (c | (c >> sh));
+  sh = (sh * usize(2));
+});
+```
+
+1/2/4/8/16 on wasm32, 1/2/4/8/16/32 on 64-bit hosts, and no shift ever equals
+the width. `tests/allocator.test.yo`'s wrap-to-zero cases are derived from
+`sizeof(usize)` for the same reason — `usize(1) << usize(61)` is meaningless on
+a 32-bit target.
 
 ## Fix
 

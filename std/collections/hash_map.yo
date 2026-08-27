@@ -130,16 +130,19 @@ impl(
       true => {
         c := requested_capacity;
         c = (c - usize(1));
-        c = (c | (c >> usize(1)));
-        c = (c | (c >> usize(2)));
-        c = (c | (c >> usize(4)));
-        c = (c | (c >> usize(8)));
-        c = (c | (c >> usize(16)));
-        // usize is 64-bit: without this step a `requested_capacity` above 2^32
-        // rounds to a value that is NOT a power of two, while the bucket
-        // masking (`hash & (capacity - 1)`) and the doc both require one
-        // (issues/fixed/collection-capacity-overflow-unchecked.md).
-        c = (c | (c >> usize(32)));
+        // Smear the top bit down over the WHOLE width, deriving the shifts from
+        // `sizeof(usize)` rather than hardcoding them: the unrolled 1/2/4/8/16
+        // stopped short of a 64-bit usize (so a request above 2^32 rounded to a
+        // non-power-of-two, though the bucket masking `hash & (capacity - 1)`
+        // requires one), and hardcoding a `>> 32` instead breaks wasm32, where
+        // usize is 32 bits and a shift equal to the width is undefined —
+        // `with_capacity` really did round wrong there while every native test
+        // stayed green (issues/fixed/collection-capacity-overflow-unchecked.md).
+        sh := usize(1);
+        while(sh < (sizeof(usize) * usize(8)), {
+          c = (c | (c >> sh));
+          sh = (sh * usize(2));
+        });
         c + usize(1)
       }
     );

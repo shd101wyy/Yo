@@ -26,15 +26,18 @@ test("size_would_overflow at the exact boundary", {
   );
 });
 test("size_would_overflow catches the wrap-to-zero cases", {
-  // 8 * 2^61 == 2^64 == 0 (mod 2^64) — the malloc(0) case that corrupted the
-  // heap before the guard existed.
+  // The count whose byte size is exactly 2^BITS, i.e. 0 after wrapping — the
+  // malloc(0) case that corrupted the heap before the guard existed. Derived
+  // from the real width: `usize` is 64 bits on the hosts but 32 on wasm32, and
+  // `usize(1) << usize(61)` is meaningless there.
+  bits :: (sizeof(usize) * usize(8));
   assert(
-    size_would_overflow(u64, usize(1) << usize(61)),
-    "u64 * 2^61 wraps to zero"
+    size_would_overflow(u64, usize(1) << (bits - usize(3))),
+    "an 8-byte element count of 2^(BITS-3) wraps to zero"
   );
   assert(
-    size_would_overflow(u32, usize(1) << usize(62)),
-    "u32 * 2^62 wraps to zero"
+    size_would_overflow(u32, usize(1) << (bits - usize(2))),
+    "a 4-byte element count of 2^(BITS-2) wraps to zero"
   );
   assert(size_would_overflow(u64, SIZE_MAX), "u64 * SIZE_MAX overflows");
 });
