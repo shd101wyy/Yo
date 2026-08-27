@@ -1551,7 +1551,11 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    # 32 min is this leg's real cost; 360 was inherited headroom that let a
+    # DEADLOCKED test burn 3.4 h unnoticed on the sibling WASI leg
+    # (issues/wasi-thread-pool-submit-deadlock.md). 90 keeps ~2.8x margin and
+    # turns a hang into a timely failure.
+    timeout-minutes: 90
 
     steps:
       - name: Checkout repository
@@ -1619,7 +1623,9 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    # See the emscripten leg: 360 let a deadlocked test spin for 3.4 h here
+    # (issues/wasi-thread-pool-submit-deadlock.md) before anyone looked.
+    timeout-minutes: 90
 
     steps:
       - name: Checkout repository

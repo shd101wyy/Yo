@@ -18,6 +18,7 @@ open(import("std/libc/stdio"));
 { Exception, Error, AnyError } :: import("std/error");
 { yield } :: import("std/async");
 { ThreadPool, spawn } :: import("std/thread");
+{ platform, Platform } :: import("std/process");
 // Top-level fn with a locally installed effect handler that escapes.
 // The body pattern mirrors a server accept loop: install handler,
 // perform some async operations, return via `return ()` on early exit.
@@ -55,6 +56,14 @@ test("control fn called as regular function from multiple sites", {
   assert(c == i32(21), "sum 0..6");
 });
 test("control fn called from worker closures", {
+  // Standalone WASI has no pthreads, so the pool never runs its task and
+  // `join_all` waits forever — the CI leg hung 3.4 h on this line
+  // (issues/wasi-thread-pool-submit-deadlock.md). Emscripten's pthread
+  // emulation does run it, so the skip is WASI-only.
+  if(platform == Platform.Wasi, {
+    unsafe(printf("  skipped on wasi (no pthreads)\n"));
+    return(());
+  });
   // Match the yo_http_benchmark multi-threaded pattern: call the
   // control fn from main AND from a ThreadPool task closure.
   pool := ThreadPool.new(usize(2));
