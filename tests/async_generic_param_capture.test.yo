@@ -10,12 +10,14 @@
 //! (facet 1).
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
+{ temp_dir, path_join } :: import("./helper");
 open(import("std/collections/array_list"));
 { IoExn, Exception } :: import("std/error");
 { Reader, Writer } :: import("std/io");
 { File, OpenMode } :: import("std/fs/file");
 { Path } :: import("std/path");
 { remove_file } :: import("std/fs/dir");
+{ arch, Arch } :: import("std/process");
 
 // The EXACT pre-fix failing shape: params used DIRECTLY inside the async
 // closure, no hoist-to-locals workaround.
@@ -46,7 +48,7 @@ write_once_file :: (fn(f : File, buf : *(u8), size : usize, io : Io) -> Impl(Fut
 );
 
 test("generic fn async closure captures the enclosing params", {
-  path := Path.new(`/tmp/yo_generic_param_capture.bin`.to_string());
+  path := Path.new(path_join(temp_dir(), `yo_generic_param_capture.bin`.to_string()));
   f := io.await(File.open(path, OpenMode.Write, io), _ioexn(io));
   payload := ArrayList(u8).new();
   payload.push(u8(0x41));
@@ -66,15 +68,22 @@ test("generic fn async closure captures the enclosing params", {
   assert(buf(usize(0)) == u8(0x41), "byte 0 round-tripped");
   assert(buf(usize(2)) == u8(0x43), "byte 2 round-tripped");
   io.await(f2.close(io), _ioexn(io));
-  io.await(remove_file(path, io), _ioexn(io));
+  // Cleanup only: file DELETION is the one fs op the standalone-wasm/WASI
+  // runtime lacks (`env::__syscall_unlinkat` unresolved under wasmtime); the
+  // leftover temp file is harmless. Same Arch.Wasm32 convention as tests/fs.
+  if(arch != Arch.Wasm32, {
+    io.await(remove_file(path, io), _ioexn(io));
+  });
 });
 test("non-generic control of the same shape still works", {
-  path := Path.new(`/tmp/yo_generic_param_capture_ctl.bin`.to_string());
+  path := Path.new(path_join(temp_dir(), `yo_generic_param_capture_ctl.bin`.to_string()));
   f := io.await(File.open(path, OpenMode.Write, io), _ioexn(io));
   payload := ArrayList(u8).new();
   payload.push(u8(0x58));
   wrote := io.await(write_once_file(f, payload.ptr().unwrap(), payload.len(), io), _ioexn(io));
   assert(wrote == usize(1), "plain fn param capture unchanged");
   io.await(f.close(io), _ioexn(io));
-  io.await(remove_file(path, io), _ioexn(io));
+  if(arch != Arch.Wasm32, {
+    io.await(remove_file(path, io), _ioexn(io));
+  });
 });

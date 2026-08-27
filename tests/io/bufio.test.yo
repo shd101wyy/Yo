@@ -6,6 +6,7 @@
 //! deliberately does NOT flush on drop (tokio contract — flush explicitly).
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
+{ temp_dir, path_join } :: import("../helper");
 open(import("std/collections/array_list"));
 open(import("std/string"));
 { IoExn, Exception } :: import("std/error");
@@ -31,7 +32,7 @@ _ioexn :: (fn(io : Io) -> IoExn)(
   IoExn(io : io, exn : _noexn())
 );
 _p :: (fn(name : str) -> Path)(
-  Path.new(`/tmp/yo_io_bufio_`.to_string() + String.from(name))
+  Path.new(path_join(temp_dir(), `yo_io_bufio_`.to_string() + String.from(name)))
 );
 test("BufReader read_line: single line, multiple lines, no trailing newline", {
   path := _p("lines.txt");
