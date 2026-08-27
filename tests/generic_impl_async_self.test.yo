@@ -7,7 +7,21 @@
 // def-era `void*` fields. A NON-generic implementor of the same trait was fine.
 // See issues/fixed/generic-implementor-async-method-awaiting-self-emits-uncompilable-c.md.
 { assert } :: import("std/assert");
-{ IoExn } :: import("std/error");
+{ IoExn, Exception } :: import("std/error");
+/// Effect bundle for awaiting IoExn futures in tests: any throw FAILS the test.
+_noexn :: (fn() -> Exception)(
+  Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  )
+);
+_ioexn :: (fn(io : Io) -> IoExn)(
+  IoExn(io : io, exn : _noexn())
+);
 AR :: trait(
   read : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn))),
   twice : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn)))
@@ -83,21 +97,21 @@ impl(
 );
 test("generic implementor: explicit async method awaiting Self method", {
   w := Wrap(usize)(v : usize(1));
-  v := io.await(w.twice(io), io);
+  v := io.await(w.twice(io), _ioexn(io));
   assert(v == usize(10), "Wrap(usize).twice: 5 + 5");
 });
 test("generic implementor: awaiting method via trait ?= default", {
   w := Wrap(usize)(v : usize(1));
-  v := io.await(w.twice_d(io), io);
+  v := io.await(w.twice_d(io), _ioexn(io));
   assert(v == usize(18), "Wrap(usize).twice_d: 9 + 9");
 });
 test("non-generic implementor control", {
   c := Conc(k : usize(4));
-  v := io.await(c.twice(io), io);
+  v := io.await(c.twice(io), _ioexn(io));
   assert(v == usize(8), "Conc.twice: 4 + 4");
 });
 test("two-type-argument generic implementor", {
   p := Pair2(usize, bool)(a : usize(2), b : true);
-  v := io.await(p.twice(io), io);
+  v := io.await(p.twice(io), _ioexn(io));
   assert(v == usize(42), "Pair2(usize, bool).twice: 21 + 21");
 });

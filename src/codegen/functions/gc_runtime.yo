@@ -1031,9 +1031,12 @@ static void __yo_init_process_cleanup(void) {
   }, {
     em.emit_string_line(
       `static void __yo_init_process_cleanup(void) {
-  static bool cleanup_initialized = false;
-  if (cleanup_initialized) return;
-  cleanup_initialized = true;
+  // Atomic once-guard: every spawned thread runs this via __yo_gc_init_thread,
+  // so a plain static bool is a data race (TSan: read/write of
+  // 'cleanup_initialized' from two worker threads). The Windows branch uses
+  // InitOnceExecuteOnce; this is the POSIX/wasm equivalent.
+  static _Atomic bool cleanup_initialized = false;
+  if (atomic_exchange_explicit(&cleanup_initialized, true, memory_order_acq_rel)) return;
   atexit(__yo_process_cleanup);
 }`
     );

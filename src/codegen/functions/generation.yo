@@ -76,6 +76,28 @@ _copy_expr_list :: (fn(opt : Option(ArrayList(AstExpr))) -> ArrayList(AstExpr))(
   );
   out
 });
+/// A ctl handler (effect-record-member fn) can complete its body WITHOUT
+/// `return(...)`/`unwind(...)` — an implicit RESUME WITH UNIT. Its C
+/// signature, rendered from the UNRESOLVED ResumeType SomeT (the erm decl
+/// passes body=None), is a `void*`-family pointer, while the body side
+/// resolves the result to unit and emits a statement tail with NO `return` —
+/// `-Werror=return-type` (PR #275, load-bearing against FTT stubs) rightly
+/// rejects the fall-through. Close it with the unit resume payload, exactly
+/// the value the escaped-branch epilogue already returns. Emitted only when
+/// the signature-side rendering is a pointer, so a genuinely `void` C
+/// signature never gains an illegal return
+/// (issues/fixed/ctl-handler-unit-tail-missing-c-return.md).
+_emit_erm_unit_resume_tail :: (fn(function_type : TypeValue, indent : String, context : FunctionGenerationContext) -> unit)({
+  if(!(context.is_effect_record_member_function), {
+    return(());
+  });
+  ret_c := match(function_type, .Func({ result : erm_r }) => get_type_string(erm_r, context.base), _ => String.from("void"));
+  if(ret_c.ends_with("*"), {
+    erm_em := context.base.emitter;
+    erm_line := `${indent.clone()}return (${ret_c.clone()}){0};  // implicit unit resume (ctl handler fall-through)`;
+    erm_em.emit_string_line(erm_line);
+  });
+});
 /// Generate a function's body with proper return handling. Mirrors
 /// `generateFunctionBody` (corpus path).
 generate_function_body :: (fn(body_expr : AstExpr, function_type : TypeValue, indent : String, context : FunctionGenerationContext) -> unit)({
@@ -377,6 +399,10 @@ generate_function_body :: (fn(body_expr : AstExpr, function_type : TypeValue, in
       generate_implicit_return_statement(body_expr, indent.clone(), context);
     });
   });
+  // Both body shapes (begin and non-begin) can fall through with a unit tail
+  // in a pointer-returning ctl handler; a path that already returned makes
+  // this unreachable, which is legal C.
+  _emit_erm_unit_resume_tail(function_type, indent.clone(), context);
 });
 /// Generate a single function (signature + linkage + body). Mirrors `generateFunction`.
 /// Comma-separated parameter names for a thunk's forwarding call, matching the

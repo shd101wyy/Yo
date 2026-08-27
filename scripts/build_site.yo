@@ -25,7 +25,8 @@ open(import("std/string"));
 { HashMap } :: import("std/collections/hash_map");
 { args, cwd } :: import("std/env");
 { Path } :: import("std/path");
-{ read_file, write_file, exists } :: import("std/fs/file");
+{ read_to_string, write_string, exists, copy } :: import("std/fs/file");
+{ metadata } :: import("std/fs/metadata");
 { FileType, create_dir_all, read_dir, remove_dir, remove_file } :: import("std/fs/dir");
 { Command } :: import("std/process/command");
 { exit } :: import("std/libc/stdlib");
@@ -43,7 +44,13 @@ _git :: (fn(root : String, git_args : ArrayList(String), io : Io) -> Option(Stri
   cmd.arg(root.clone());
   (i : usize) = usize(0);
   while(i < git_args.len(), {
-    match(git_args.get(i), .Some(a) => cmd.arg(a), .None => ());
+    match(
+      git_args.get(i),
+      .Some(a) => {
+        _arg_c := cmd.arg(a);
+      },
+      .None => ()
+    );
     i = (i + usize(1));
   });
   // Any process failure unwinds _git with None (TS try/catch-to-undefined).
@@ -85,54 +92,68 @@ _detect_git_version :: (fn(root : String, io : Io) -> Option(String))({
 });
 
 // ── HTML helpers ─────────────────────────────────────────────────────
-/// One character at `i` as a String (String.at returns a rune; the scanners
-/// below compare against string literals).
-_ch :: (fn(s : String, i : usize) -> String)(s.substring(i, i + usize(1)));
-/// First byte of a (single-character) String — ASCII classification helper.
-_byte0 :: (fn(s : String) -> u8)({
-  bs := s.as_bytes();
-  match(bs.get(usize(0)), .Some(b) => b, .None => u8(0))
+// All scanners below are BYTE-wise: String is byte-indexed since D4 (PR
+// #290) and `substring` PANICS off a UTF-8 boundary, so the old
+// one-byte-substring "_ch" helper died on the README's first multi-byte
+// character. Scanning bytes is also semantically right here — every marker
+// matched ("<", ">", "&", attr needles) is ASCII, and non-ASCII bytes are
+// copied through untouched.
+/// Byte at `i` (0 past the end).
+_byte_at :: (fn(bs : ArrayList(u8), i : usize) -> u8)(
+  match(bs.get(i), .Some(b) => b, .None => u8(0))
+);
+/// Append an ASCII literal's bytes.
+_push_ascii :: (fn(out_b : ArrayList(u8), lit : str) -> unit)({
+  lb := String.from(lit).as_bytes();
+  (k : usize) = usize(0);
+  while(k < lb.len(), k = (k + usize(1)), {
+    out_b.push(_byte_at(lb, k));
+  });
 });
 _escape_html :: (fn(text : String) -> String)({
-  out := String.new();
+  bs := text.as_bytes();
+  out_b := ArrayList(u8).new();
   (i : usize) = usize(0);
-  n := text.len();
-  while(i < n, {
-    c := _ch(text, i);
+  n := bs.len();
+  while(i < n, i = (i + usize(1)), {
+    b := _byte_at(bs, i);
     cond(
-      (c == "&") => out.push_str("&amp;"),
-      (c == "<") => out.push_str("&lt;"),
-      (c == ">") => out.push_str("&gt;"),
-      (c == "\"") => out.push_str("&quot;"),
-      true => out.push_string(c)
+      (b == u8(38)) => _push_ascii(out_b, "&amp;"),
+      (b == u8(60)) => _push_ascii(out_b, "&lt;"),
+      (b == u8(62)) => _push_ascii(out_b, "&gt;"),
+      (b == u8(34)) => _push_ascii(out_b, "&quot;"),
+      true => {
+        _p := out_b.push(b);
+      }
     );
-    i = (i + usize(1));
   });
-  out
+  String.from_bytes(out_b)
 });
 /// GitHub-compatible slug: strip tags, lowercase, spaces→hyphens, drop
 /// non-alphanumerics, collapse/trim hyphens.
 _slugify :: (fn(text : String) -> String)({
-  // Strip HTML tags.
-  stripped := String.new();
+  // Strip HTML tags (byte-wise; tag delimiters are ASCII).
+  text_b := text.as_bytes();
+  stripped_b := ArrayList(u8).new();
   (in_tag : bool) = false;
   (i : usize) = usize(0);
-  n := text.len();
-  while(i < n, {
-    c := _ch(text, i);
+  n := text_b.len();
+  while(i < n, i = (i + usize(1)), {
+    b := _byte_at(text_b, i);
     cond(
-      (c == "<") => {
+      (b == u8(60)) => {
         in_tag = true;
       },
-      (c == ">") => {
+      (b == u8(62)) => {
         in_tag = false;
       },
-      !(in_tag) => stripped.push_string(c),
+      !(in_tag) => {
+        _p := stripped_b.push(b);
+      },
       true => ()
     );
-    i = (i + usize(1));
   });
-  lowered := stripped.trim().to_lowercase();
+  lowered := String.from_bytes(stripped_b).trim().to_lowercase();
   // Byte-wise classification: the TS regex [^a-z0-9-] drops every non-ASCII
   // character, so scanning UTF-8 bytes yields the same slug.
   bs := lowered.as_bytes();
@@ -174,46 +195,53 @@ _slugify :: (fn(text : String) -> String)({
 /// get -1, -2, … suffixes (TS injectHeadingIds).
 _inject_heading_ids :: (fn(html : String) -> String)({
   counts := HashMap(String, u32).new();
-  out := String.new();
+  html_b := html.as_bytes();
+  out_b := ArrayList(u8).new();
   (i : usize) = usize(0);
-  n := html.len();
+  n := html_b.len();
   while(i < n, {
-    c := _ch(html, i);
     (emitted : bool) = false;
-    if((c == "<") && ((i + usize(3)) < n), {
-      lvl := _ch(html, i + usize(2));
-      lvl_b := _byte0(lvl.clone());
-      is_h := ((_ch(html, i + usize(1)) == "h") && ((lvl_b >= u8(49)) && (lvl_b <= u8(54))));
-      if(is_h && (_ch(html, i + usize(3)) == ">"), {
-        close := `</h${lvl}>`;
-        match(
-          html.index_of(close, i),
-          .Some(end_i) => {
-            content := html.substring(i + usize(4), end_i);
-            slug := _slugify(content.clone());
-            count := match(counts.get(slug.clone()), .Some(k) => k, .None => u32(0));
-            _c := counts.set(slug.clone(), count + u32(1));
-            final_slug := if(count > u32(0), `${slug}-${count.to_string()}`, slug);
-            out.push_string(`<h${lvl} id="${final_slug}">${content}</h${lvl}>`);
-            i = (end_i + close.len());
-            emitted = true;
-          },
-          .None => ()
-        );
-      });
+    // `<hN>` — all four marker bytes are ASCII, so byte tests suffice.
+    lvl_b := _byte_at(html_b, i + usize(2));
+    is_h := (((_byte_at(html_b, i) == u8(60)) && ((i + usize(3)) < n)) && ((_byte_at(html_b, i + usize(1)) == u8(104)) && (((lvl_b >= u8(49)) && (lvl_b <= u8(54))) && (_byte_at(html_b, i + usize(3)) == u8(62)))));
+    if(is_h, {
+      lvl_s := ArrayList(u8).new();
+      lvl_s.push(lvl_b);
+      lvl := String.from_bytes(lvl_s);
+      close := `</h${lvl}>`;
+      match(
+        html.index_of(close, i),
+        .Some(end_i) => {
+          // Both cut points sit on ASCII markers — boundary-safe.
+          content := html.substring(i + usize(4), end_i);
+          slug := _slugify(content.clone());
+          count := match(counts.get(slug.clone()), .Some(k) => k, .None => u32(0));
+          _c := counts.insert(slug.clone(), count + u32(1));
+          final_slug := if(count > u32(0), `${slug}-${count.to_string()}`, slug);
+          heading := `<h${lvl} id="${final_slug}">${content}</h${lvl}>`;
+          hb := heading.as_bytes();
+          (hk : usize) = usize(0);
+          while(hk < hb.len(), hk = (hk + usize(1)), {
+            out_b.push(_byte_at(hb, hk));
+          });
+          i = (end_i + close.len());
+          emitted = true;
+        },
+        .None => ()
+      );
     });
     if(!(emitted), {
-      out.push_string(c);
+      out_b.push(_byte_at(html_b, i));
       i = (i + usize(1));
     });
   });
-  out
+  String.from_bytes(out_b)
 });
-/// True when `s` starts with `prefix` at offset `at`.
-_starts_with_at :: (fn(s : String, prefix : str, at : usize) -> bool)({
-  p := String.from(prefix);
-  if((at + p.len()) > s.len(), false, s.substring(at, at + p.len()) == p)
-});
+/// True when `s` starts with `prefix` at offset `at` (byte position;
+/// `starts_with` is boundary-tolerant — a mid-rune `at` answers false).
+_starts_with_at :: (fn(s : String, prefix : str, at : usize) -> bool)(
+  s.starts_with(String.from(prefix), at)
+);
 /// The TS rewriteReadmeLinks URL policy for a single href/src value.
 _rewrite_url :: (fn(url : String, github_blob : String, is_src : bool) -> String)({
   keep := (((_starts_with_at(url, "http", usize(0)) || _starts_with_at(url, "#", usize(0))) || _starts_with_at(url, "std/", usize(0))) || _starts_with_at(url, "mailto:", usize(0)));
@@ -494,8 +522,9 @@ ${body_html}
 
 // ── Filesystem helpers ───────────────────────────────────────────────
 _copy_file :: (fn(src : String, dest : String, ie : IoExn) -> unit)({
-  bytes := ie.io.await(read_file(Path.new(src.clone()), ie.io), ie);
-  ie.io.await(write_file(Path.new(dest.clone()), String.from_bytes(bytes), ie.io), ie);
+  // Binary-safe: assets include PNGs — `read_to_string` validates UTF-8 and
+  // dies on them ("stream contained malformed data").
+  _n := ie.io.await(copy(Path.new(src.clone()), Path.new(dest.clone()), ie.io), ie);
   ()
 });
 _remove_dir_recursive :: (fn(dir : String, ie : IoExn) -> unit)({
@@ -536,8 +565,10 @@ _dir_size_kb :: (fn(dir : String, ie : IoExn) -> u64)({
             total = (total + recur(child, ie));
           },
           _ => {
-            bytes := ie.io.await(read_file(Path.new(child.clone()), ie.io), ie);
-            total = (total + u64(bytes.len()));
+            // Size from metadata — reading CONTENTS died on binary assets
+            // (read_to_string validates UTF-8; the tree has PNGs).
+            md := ie.io.await(metadata(Path.new(child.clone()), ie.io), ie);
+            total = (total + u64(md.size()));
           }
         );
       },
@@ -551,8 +582,7 @@ _dir_size_kb :: (fn(dir : String, ie : IoExn) -> u64)({
 _inject_home_link :: (fn(file : String, home_href : str, ie : IoExn) -> unit)({
   file_exists := ie.io.await(exists(Path.new(file.clone()), ie.io), ie.io);
   if(file_exists, {
-    bytes := ie.io.await(read_file(Path.new(file.clone()), ie.io), ie);
-    content := String.from_bytes(bytes);
+    content := ie.io.await(read_to_string(Path.new(file.clone()), ie.io), ie);
     marker := String.from("<div class=\"sidebar-header\">");
     link := `<a href="${home_href}" style="display:block;margin-bottom:8px;font-size:0.85em;color:var(--text-secondary);text-decoration:none;">← Home</a>`;
     match(
@@ -562,7 +592,7 @@ _inject_home_link :: (fn(file : String, home_href : str, ie : IoExn) -> unit)({
         updated.push_string(content.substring(usize(0), at + marker.len()));
         updated.push_string(`\n  ${link}`);
         updated.push_string(content.substring(at + marker.len(), content.len()));
-        ie.io.await(write_file(Path.new(file.clone()), updated, ie.io), ie);
+        ie.io.await(write_string(Path.new(file.clone()), updated, ie.io), ie);
       },
       .None => ()
     );
@@ -634,7 +664,10 @@ main :: (fn(io : Io) -> unit)({
   // otherwise the exact tag on HEAD; otherwise "develop".
   looks_like_tag := match(
     site_version,
-    .Some(v) => ((v.len() >= usize(2)) && ((_ch(v, usize(0)) == "v") && ((_byte0(_ch(v, usize(1))) >= u8(48)) && (_byte0(_ch(v, usize(1))) <= u8(57))))),
+    .Some(v) => {
+      vb := v.as_bytes();
+      (v.len() >= usize(2)) && ((_byte_at(vb, usize(0)) == u8(118)) && ((_byte_at(vb, usize(1)) >= u8(48)) && (_byte_at(vb, usize(1)) <= u8(57))))
+    },
     .None => false
   );
   github_ref := if(
@@ -653,8 +686,7 @@ main :: (fn(io : Io) -> unit)({
   io.await(create_dir_all(Path.new(output_dir.clone()), io), ie);
   // ── Step 1: README.md → homepage ──
   println(String.from("\n[1/3] Rendering homepage from README.md..."));
-  readme_bytes := io.await(read_file(Path.new(`${root}/README.md`), io), ie);
-  readme_src := String.from_bytes(readme_bytes);
+  readme_src := io.await(read_to_string(Path.new(`${root}/README.md`), io), ie);
   (opts : Options) = default_options();
   opts.html = true;
   opts.enable_subscript = true;
@@ -673,7 +705,7 @@ main :: (fn(io : Io) -> unit)({
   readme_html = _rewrite_attr(readme_html, "href", github_blob.clone(), false);
   readme_html = _rewrite_attr(readme_html, "src", github_blob.clone(), true);
   homepage := _wrap_homepage(String.from("Yo Programming Language"), readme_html, _homepage_css(), site_version.clone(), github_blob.clone());
-  io.await(write_file(Path.new(`${output_dir}/index.html`), homepage, io), ie);
+  io.await(write_string(Path.new(`${output_dir}/index.html`), homepage, io), ie);
   println(String.from("  ✓ index.html"));
   // ── Step 2: static assets ──
   println(String.from("\n[2/3] Copying static assets..."));

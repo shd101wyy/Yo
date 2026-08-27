@@ -39,6 +39,12 @@ yo build > /tmp/${P}_build.txt 2>&1; rc=$?; echo "build rc=$rc"
 [ $rc -ne 0 ] && { tail -8 /tmp/${P}_build.txt; exit 1; }
 unset YO_STD
 S1=$PWD/yo-out/aarch64-macos/bin/yo
+# FRESH-BINARY check: the seed `yo check` above lacks any evaluator gate the
+# change itself introduces (2026-08-27 lesson: the io.await effect-bundle
+# contract check only exists in the BUILT compiler — seed-check green told
+# us nothing about the tree's own violations).
+YO_STD=$PWD/std "$S1" check ./std > /tmp/${P}_fcstd.txt 2>&1; echo "fresh check std rc=$? ($(tail -1 /tmp/${P}_fcstd.txt))"
+YO_STD=$PWD/std "$S1" check ./src > /tmp/${P}_fcsrc.txt 2>&1; echo "fresh check src rc=$? ($(tail -1 /tmp/${P}_fcsrc.txt))"
 echo "full suite"
 "$S1" test ./tests --exclude tests/internal --exclude tests/cli-cases --bail --disable-sanitize > /tmp/${P}_suite.txt 2>&1
 echo "suite rc=$? :: $(tail -3 /tmp/${P}_suite.txt | tr '\n' ' ')"
