@@ -1,5 +1,14 @@
 # D6 — `std/crypto/tls`: TlsStream over OpenSSL (measured execution plan)
 
+**Status: PR-1 LANDED (2026-08-28)** — `std/crypto/tls.yo` connects, verifies
+(system trust store + hostname + SNI), reads and writes over memory BIOs,
+implements the D5 `Reader`/`Writer` traits, and is proven by a LIVE handshake
+to example.com:443 (HTTP/1.1 200 OK over the encrypted stream, in
+tests/crypto/tls.test.yo — guarded to skip offline). The `_probe_openssl`
+flag plumbing is in `src/main.yo` (liburing pattern + Homebrew keg
+PKG_CONFIG_PATH fallbacks). Two follow-ups remain (PR-2, PR-3 below).
+Original plan text follows.
+
 **Status: PLAN (measured 2026-08-28).** The O2 decision (2026-08-23) stands:
 one `TlsStream` type implementing the D5 `Reader`/`Writer` traits, over
 platform libraries. This document turns that row into an executable plan by
@@ -73,9 +82,12 @@ throwing `UnsupportedScheme` — std stays honest.
 
 ## Order of work (one PR each)
 
-1. `_probe_openssl` + flag plumbing in main.yo, plus `std/crypto/tls.yo`
-   with bindings + `TlsStream` + tests. Battery: the usual + a macos and
-   linux CI run proves both probe paths.
+1. ~~`_probe_openssl` + flag plumbing in main.yo, plus `std/crypto/tls.yo`
+   with bindings + `TlsStream` + tests.~~ **LANDED 2026-08-28.** En route:
+   the connect body FTT'd on an unreachable `*(void)("")` post-throw
+   placeholder (fixed by nullable-check-then-unwrap, no placeholder), and
+   the read pump needed a single post-cond awaiting `if` instead of two
+   (issues/async-postwhile-multiple-await-ifs.md).
 2. `std/http/client.yo`: route `https://` through TlsStream (C1's throw
    becomes the fallback when the probe failed at build time — the error
    message should say "built without OpenSSL").

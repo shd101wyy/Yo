@@ -928,6 +928,92 @@ _remove_batch_artifact :: (fn(path : String, io : Io) -> unit)({
 /// at all, in which case spawning throws (TS wraps the same probe in try/catch).
 /// A swallowed probe leaves `out` empty, read as "not available", so a box
 /// without liburing still links — matching TS, which warns and omits the flag.
+/// OpenSSL discovery for `std/crypto/tls` (plans/D6_TLS_PLAN.md): run
+/// `pkg-config --cflags --libs openssl`, retrying under the Homebrew keg
+/// pkg-config paths on failure (brew does not put keg `.pc` dirs on the
+/// default path). Pushes `-I` dirs into `includes`, `-L` dirs into
+/// `libdirs`, and `true` into `ok` on success. Same swallowing-handler
+/// stance as `_probe_liburing`: no pkg-config / no openssl simply leaves
+/// `ok` empty and only tls users fail (at their own link) — everything
+/// else is unaffected. Result cached process-wide.
+(g_openssl_probe : Option(bool)) = Option(bool).None;
+(g_openssl_includes : ArrayList(String)) = ArrayList(String).new();
+(g_openssl_libdirs : ArrayList(String)) = ArrayList(String).new();
+_probe_openssl :: (fn(io : Io) -> bool)({
+  match(
+    g_openssl_probe,
+    .Some(p) => {
+      return(p);
+    },
+    .None => ()
+  );
+  probe_exn := Exception(
+    throw : (
+      (_e) -> {
+        unwind(());
+      }
+    )
+  );
+  (flags : Option(String)) = Option(String).None;
+  probe := Command.new(String.from("pkg-config"));
+  probe.arg(String.from("--cflags"));
+  probe.arg(String.from("--libs"));
+  probe.arg(String.from("openssl"));
+  out := io.await(probe.output(io), IoExn(io : io, exn : probe_exn));
+  cond(
+    (out.status.raw == i32(0)) => {
+      flags = Option(String).Some(String.from_bytes(out.stdout));
+    },
+    true => ()
+  );
+  // Homebrew keg fallbacks (macOS): apple/arm and intel prefixes.
+  (ki : usize) = usize(0);
+  kegs := ArrayList(String).new();
+  kegs.push(String.from("/opt/homebrew/opt/openssl/lib/pkgconfig"));
+  kegs.push(String.from("/usr/local/opt/openssl/lib/pkgconfig"));
+  while((ki < kegs.len()) && flags.is_none(), {
+    keg := kegs(ki);
+    kprobe := Command.new(String.from("pkg-config"));
+    kprobe.env(String.from("PKG_CONFIG_PATH"), keg);
+    kprobe.arg(String.from("--cflags"));
+    kprobe.arg(String.from("--libs"));
+    kprobe.arg(String.from("openssl"));
+    kout := io.await(kprobe.output(io), IoExn(io : io, exn : probe_exn));
+    cond(
+      (kout.status.raw == i32(0)) => {
+        flags = Option(String).Some(String.from_bytes(kout.stdout));
+      },
+      true => ()
+    );
+    ki = (ki + usize(1));
+  });
+  match(
+    flags,
+    .Some(fl) => {
+      toks := fl.trim().split(String.from(" "));
+      (ti : usize) = usize(0);
+      while(ti < toks.len(), {
+        t := toks(ti);
+        cond(
+          (t.starts_with("-I") && (t.len() > usize(2))) => {
+            g_openssl_includes.push(t.substring(usize(2), t.len()));
+          },
+          (t.starts_with("-L") && (t.len() > usize(2))) => {
+            g_openssl_libdirs.push(t.substring(usize(2), t.len()));
+          },
+          true => ()
+        );
+        ti = (ti + usize(1));
+      });
+      g_openssl_probe = Option(bool).Some(true);
+      true
+    },
+    .None => {
+      g_openssl_probe = Option(bool).Some(false);
+      false
+    }
+  )
+});
 _probe_liburing :: (fn(io : Io, out : ArrayList(bool)) -> unit)({
   probe_exn := Exception(
     throw : (
@@ -2156,6 +2242,29 @@ run_compile :: (
       cmd.arg(String.from("-luring"));
     });
   });
+  // OpenSSL for std/crypto/tls — the same probe-and-add stance as liburing
+  // (plans/D6_TLS_PLAN.md): when pkg-config finds it, its include/lib dirs
+  // and -lssl -lcrypto are added so a program importing the tls module
+  // compiles and links; when absent, only tls users fail, at their own
+  // build, with the linker naming the missing library.
+  if(!(is_target_windows(target)) && !(is_target_wasm(target)), {
+    if(_probe_openssl(io), {
+      (oi : usize) = usize(0);
+      while(oi < g_openssl_includes.len(), {
+        oinc := match(g_openssl_includes.get(oi), .Some(x) => x, .None => String.new());
+        _arg_c := cmd.arg(`-I${oinc}`);
+        oi = (oi + usize(1));
+      });
+      (ol : usize) = usize(0);
+      while(ol < g_openssl_libdirs.len(), {
+        olib := match(g_openssl_libdirs.get(ol), .Some(x) => x, .None => String.new());
+        _arg_c := cmd.arg(`-L${olib}`);
+        ol = (ol + usize(1));
+      });
+      cmd.arg(String.from("-lssl"));
+      cmd.arg(String.from("-lcrypto"));
+    });
+  });
   (xi : usize) = usize(0);
   while(xi < libraries.len(), {
     match(
@@ -2442,6 +2551,41 @@ run_test :: (
       println(`Skipping ${skipped_n.to_string()} test file(s) with pragma(Pragma.SkipWasm*) for target ${wasm_target_kind}`);
     });
     files = kept_files;
+  });
+  // Native Windows skip: files carrying `pragma(Pragma.SkipWindows)` are
+  // dropped when the test runner is on a Windows host (a POSIX-only or
+  // not-yet-ported platform dependency — e.g. std/crypto/tls needs OpenSSL,
+  // absent on the Windows runners). Mirrors the wasm pre-scan above.
+  if(is_target_windows(host_target()), {
+    win_kept := ArrayList(String).new();
+    (win_skipped : usize) = usize(0);
+    (wfi : usize) = usize(0);
+    while(wfi < files.len(), {
+      wf := match(files.get(wfi), .Some(f) => f, .None => String.from(""));
+      wfi = (wfi + usize(1));
+      wf_bytes := io.await(read(Path.new(wf.clone()), io), IoExn(io : io, exn : exn));
+      wf_src := String.from_bytes(wf_bytes);
+      wf_lines := wf_src.split("\n");
+      (win_skip : bool) = false;
+      (wli : usize) = usize(0);
+      while((wli < wf_lines.len()) && ((wli < usize(50)) && !(win_skip)), {
+        wline := match(wf_lines.get(wli), .Some(l) => l, .None => String.from(""));
+        wli = (wli + usize(1));
+        wstripped := wline.replace(String.from(" "), String.from("")).replace(String.from("\t"), String.from(""));
+        if(wstripped.contains("pragma(Pragma.SkipWindows)"), {
+          win_skip = true;
+        });
+      });
+      if(win_skip, {
+        win_skipped = (win_skipped + usize(1));
+      }, {
+        win_kept.push(wf);
+      });
+    });
+    if(win_skipped > usize(0), {
+      println(`Skipping ${win_skipped.to_string()} test file(s) with pragma(Pragma.SkipWindows) on the Windows host`);
+    });
+    files = win_kept;
   });
   if(files.len() == usize(0), {
     println(String.from("No test files found."));
