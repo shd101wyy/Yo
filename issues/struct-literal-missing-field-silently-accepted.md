@@ -247,3 +247,18 @@ the evaluator, and codegen then emitted a C identifier with a Yo type expression
 spliced into it (`__yo_dyn_box_unknown_fn(T : Type) -> Type`), which fails the C
 compile with "expected ')'" rather than reporting a type error. That one is at
 least LOUD; this one is silent.
+
+
+## Live incident (2026-08-28, PR #315)
+
+`WalkOptions` gained a `pattern : Option(String)` field; the two TEST
+construction sites were updated, but `remove_dir_all`'s internal fieldwise
+`WalkOptions(...)` in the same module was missed. `yo check` stayed green
+(this bug), the uninitialized Option read as garbage on the Linux legs, and
+`tests/fs/fs_convenience.test.yo`'s remove_dir_all test ABORTED (exit 134)
+after its own asserts passed — five CI legs red. The fix was one field at
+one call site; the finding is that the ledger row's prediction ("adding a
+field to a stable struct silently breaks every construction site not
+updated") now has a measured in-tree casualty, which raises this bug's
+priority for the stability freeze: the §1 additive-only promise is
+unsound until construction sites are checked.

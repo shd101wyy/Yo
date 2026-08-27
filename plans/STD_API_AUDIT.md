@@ -430,8 +430,14 @@ Open D7 items:
   `RegexError` is a closed 14-variant enum with `ToString`+`Error()`, no
   `Other(msg)` escape hatch. Filed en route:
   issues/template-string-backslash-before-interpolation-eats-both.md.
-- **OPEN:** `std/glob` stays the matcher; `fs.walker` gains `pattern` option +
-  a `glob(pattern, io)` expansion function (the Python/Node meaning).
+- ~~**OPEN:** `std/glob` stays the matcher; `fs.walker` gains `pattern` option +
+  a `glob(pattern, io)` expansion function (the Python/Node meaning).~~
+  **DONE 2026-08-28** (`WalkOptions.pattern` filters root-relative paths via
+  glob_match — dirs still descended so `**` finds deep files; `glob(pattern,
+  io)` walks from the pattern's static prefix. En route surfaced an OPEN
+  codegen hazard: a match/return tail after an awaiting loop hangs the state
+  machine — issues/async-tail-match-return-hangs-state-machine.md; the filter
+  lives in a sync helper instead).
 
 ---
 
