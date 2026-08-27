@@ -2552,6 +2552,41 @@ run_test :: (
     });
     files = kept_files;
   });
+  // Native Windows skip: files carrying `pragma(Pragma.SkipWindows)` are
+  // dropped when the test runner is on a Windows host (a POSIX-only or
+  // not-yet-ported platform dependency — e.g. std/crypto/tls needs OpenSSL,
+  // absent on the Windows runners). Mirrors the wasm pre-scan above.
+  if(is_target_windows(host_target()), {
+    win_kept := ArrayList(String).new();
+    (win_skipped : usize) = usize(0);
+    (wfi : usize) = usize(0);
+    while(wfi < files.len(), {
+      wf := match(files.get(wfi), .Some(f) => f, .None => String.from(""));
+      wfi = (wfi + usize(1));
+      wf_bytes := io.await(read(Path.new(wf.clone()), io), IoExn(io : io, exn : exn));
+      wf_src := String.from_bytes(wf_bytes);
+      wf_lines := wf_src.split("\n");
+      (win_skip : bool) = false;
+      (wli : usize) = usize(0);
+      while((wli < wf_lines.len()) && ((wli < usize(50)) && !(win_skip)), {
+        wline := match(wf_lines.get(wli), .Some(l) => l, .None => String.from(""));
+        wli = (wli + usize(1));
+        wstripped := wline.replace(String.from(" "), String.from("")).replace(String.from("\t"), String.from(""));
+        if(wstripped.contains("pragma(Pragma.SkipWindows)"), {
+          win_skip = true;
+        });
+      });
+      if(win_skip, {
+        win_skipped = (win_skipped + usize(1));
+      }, {
+        win_kept.push(wf);
+      });
+    });
+    if(win_skipped > usize(0), {
+      println(`Skipping ${win_skipped.to_string()} test file(s) with pragma(Pragma.SkipWindows) on the Windows host`);
+    });
+    files = win_kept;
+  });
   if(files.len() == usize(0), {
     println(String.from("No test files found."));
     return(());
