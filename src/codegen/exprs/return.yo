@@ -24,7 +24,7 @@ open(import("std/string"));
 { _call_generate_expr } :: import("./_expr.yo");
 { emit_async_future_escape, emit_async_future_completion } :: import("./async_completion.yo");
 { resolve_some_type_to_concrete } :: import("./closures.yo");
-{ extract_future_trait_from_type } :: import("../../evaluator/trait_checking.yo");
+{ extract_future_trait_from_type, type_implements_future } :: import("../../evaluator/trait_checking.yo");
 { t_unit } :: import("../../types/creators.yo");
 { generate_atom } :: import("./atom.yo");
 
@@ -569,10 +569,21 @@ handle_func_call_deferred_dup :: (fn(expr : AstExpr, indent : String, context : 
           expr_temp_var := get_variable_name_for_codegen(saved.clone(), Option(Environment).Some(ei.env));
           if(!(expr_temp_var == raw_code), {
             line := indent.clone();
-            line.push_string(get_type_string(ei.ty, context.base));
+            rt_ct := get_type_string(ei.ty, context.base);
+            line.push_string(rt_ct.clone());
             line.push_str(" ");
             line.push_string(expr_temp_var.clone());
             line.push_str(" = ");
+            // Future-typed tail: cast the initializer to the declared type —
+            // a trait-method thunk's stamped type is the future INTERFACE
+            // struct while the delegated call returns its concrete state
+            // machine (prefix-compatible by design; clang 16+ C hard-errors
+            // on the bare initializer — the windows-arm cross-emit leg).
+            if(type_implements_future(ei.ty) && rt_ct.ends_with("*"), {
+              line.push_str("(");
+              line.push_string(rt_ct.clone());
+              line.push_str(")");
+            });
             line.push_string(raw_code);
             line.push_str(";");
             em.emit_string_line(line);
@@ -772,10 +783,16 @@ generate_return :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
         return_temp_var,
         .Some(rtv) => if((!(handled_deferred_dup) && !(is_unit)) && !(rtv == arg_code), {
           line := indent.clone();
-          line.push_string(return_type);
+          line.push_string(return_type.clone());
           line.push_str(" ");
           line.push_string(rtv.clone());
           line.push_str(" = ");
+          // Same future-interface cast as the tail-temp site above.
+          if(type_implements_future(ei.ty) && return_type.ends_with("*"), {
+            line.push_str("(");
+            line.push_string(return_type.clone());
+            line.push_str(")");
+          });
           line.push_string(arg_code.clone());
           line.push_str(";");
           em := context.base.emitter;

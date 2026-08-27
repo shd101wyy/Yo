@@ -717,7 +717,7 @@ emit_hoisted_await_future_store :: (
     args.get(usize(0)),
     .Some(future_expr) => {
       future_code := _call_generate_expr(future_expr, indent, context);
-      em.emit_string_line(`${indent}sm->await_future_${idx_s} = ${future_code};`);
+      em.emit_string_line(`${indent}sm->await_future_${idx_s} = (void*)(${future_code});`);
     },
     .None => ()
   );
@@ -993,7 +993,7 @@ generate_await_expression :: (
         .None => {
           future_code := _call_generate_expr(future_expr, indent, context);
           em.emit_string_line(`${indent}// Store pattern-matched Future for await ${idx_s}`);
-          em.emit_string_line(`${indent}sm->await_future_${idx_s} = ${future_code};`);
+          em.emit_string_line(`${indent}sm->await_future_${idx_s} = (void*)(${future_code});`);
         },
         .Some(_) => {
           em.emit_string_line(`${indent}// Prepare for await (future already stored in state machine variable)`);
@@ -1033,7 +1033,7 @@ generate_await_expression :: (
                 .None => {
                   future_code := _call_generate_expr(future_expr, indent, context);
                   em.emit_string_line(`${indent}// Store Future for await (assignment)`);
-                  em.emit_string_line(`${indent}sm->await_future_${idx_s} = ${future_code};`);
+                  em.emit_string_line(`${indent}sm->await_future_${idx_s} = (void*)(${future_code});`);
                 },
                 .Some(_) => {
                   em.emit_string_line(`${indent}// Store Future for await (assignment) - future already in state machine`);
@@ -1438,7 +1438,7 @@ generate_while_body_with_await :: (
           .Some(future_expr) => {
             future_code := _call_generate_expr(future_expr, indent, context);
             em.emit_string_line(`${indent}// Store Future for await ${idx_s} (while loop body)`);
-            em.emit_string_line(`${indent}sm->await_future_${idx_s} = ${future_code};`);
+            em.emit_string_line(`${indent}sm->await_future_${idx_s} = (void*)(${future_code});`);
           },
           .None => ()
         );
@@ -1456,7 +1456,7 @@ generate_while_body_with_await :: (
           .None => {
             future_code := _call_generate_expr(future_expr, indent, context);
             em.emit_string_line(`${indent}// Store Future for await ${idx_s} (while loop body)`);
-            em.emit_string_line(`${indent}sm->await_future_${idx_s} = ${future_code};`);
+            em.emit_string_line(`${indent}sm->await_future_${idx_s} = (void*)(${future_code});`);
           },
           .Some(_) => ()
         ),
@@ -1778,7 +1778,7 @@ generate_cond_branch_with_await :: (
                   }, {
                     future_code := _call_generate_expr(future_expr, indent, context);
                     em.emit_string_line(`${indent}// Store Future for await ${idx_s} (cond branch)`);
-                    em.emit_string_line(`${indent}sm->await_future_${idx_s} = ${future_code};`);
+                    em.emit_string_line(`${indent}sm->await_future_${idx_s} = (void*)(${future_code});`);
                   }),
                   .None => ()
                 );
@@ -1803,7 +1803,7 @@ generate_cond_branch_with_await :: (
                     .None => {
                       future_code := _call_generate_expr(future_expr, indent, context);
                       em.emit_string_line(`${indent}// Store Future for await ${idx_s} (cond branch)`);
-                      em.emit_string_line(`${indent}sm->await_future_${idx_s} = ${future_code};`);
+                      em.emit_string_line(`${indent}sm->await_future_${idx_s} = (void*)(${future_code});`);
                     },
                     .Some(fv) => {
                       em.emit_string_line(`${indent}// Await will use Future from sm->var_${fv}`);
