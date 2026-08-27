@@ -34,6 +34,14 @@ four PR #308 tests in `tests/process/command.test.yo` skip on Windows the
 same way; the Windows process story (CreateProcess, handles instead of fds,
 job objects for kill) is part of this same audit.
 
+## Also: winsock errno translation
+
+`tests/net/unix.test.yo`'s AddressInUse pin aborts on Windows: AF_UNIX
+itself WORKS there (the echo round-trip passes), but the second-bind failure
+comes back as an untranslated winsock error ("unknown I/O error") instead of
+`AddressInUse` — the sys error mapping needs a WSA* table. The two tests
+skip on Windows until then.
+
 ## What a fix needs
 
 A Windows-semantics pass over the PR #303 wrappers: real Windows
