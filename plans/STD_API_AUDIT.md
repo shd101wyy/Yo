@@ -97,6 +97,7 @@ records; mechanisms and reproducers are in the named `issues/fixed/` docs.
 | C30 | **ctl handler falling through with a unit tail emitted a value-returning C fn with NO return** — the erm C signature renders the unresolved ResumeType (`void*`) while the body path treats unit as statement-tail; exposed by #275's load-bearing `-Werror=return-type` (CI internal shards 2/3: check_watch/module_invalidation batches). Fall-through = implicit RESUME WITH UNIT; codegen now closes every pointer-signature erm with `return (T*){0}` | **FIXED 2026-08-27** — issues/fixed/ctl-handler-unit-tail-missing-c-return.md |
 | C31 | **`__yo_init_process_cleanup`'s lazy-init flag raced across worker threads** (TSan data race on `cleanup_initialized`, mislabeled as an RwLock test failure on the TSan CI leg) — every spawned thread runs it via `__yo_gc_init_thread`; Windows already used InitOnceExecuteOnce, POSIX/wasm had a plain static bool. Now an atomic exchange | **FIXED 2026-08-27** — src/codegen/functions/gc_runtime.yo |
 | C32 | **`ThreadPool` accepts work no thread can run, then `join_all` deadlocks forever** — on standalone WASI `pthread_create` fails; pool init handles that (`running = 0`) but `__yo_worker_spawn` ignores it and queues to the dead worker, so `join_all`'s per-worker sentinels never run and `drained.recv()` blocks with no diagnostic (a CI leg spun **3.4 h** on one test). `Thread.spawn` has the same swallow (null handle, closure never runs, `join` a no-op). Test skipped on WASI meanwhile — the runtime fix re-emits the parallelism runtime for every platform, so it lands with its own battery | **OPEN** — issues/wasi-thread-pool-submit-deadlock.md |
+| C33 | **`HttpError` declares three failures the client cannot produce** — `Timeout`, `TooManyRedirects`, `ResponseTooLarge` are documented and formatted but never constructed: `FetchOptions` has no deadline, no redirect cap and no size limit, so a hung server blocks `fetch` forever, a 3xx is returned verbatim, and an unbounded body streams into memory. C9's class on a public error type, and it must close BEFORE S5 — freezing the enum locks in the lie, removing the variants later is breaking. Fix is additive (`with_timeout(Duration)` over §7 item 6's `std/async.timeout`, a redirect cap that still throws `UnsupportedScheme` on a cross-scheme hop per C1, a max-body ceiling in `_read_http_response`) | **OPEN** — issues/http-client-error-variants-never-raised.md |
 
 ---
 
@@ -623,7 +624,14 @@ declarations at runtime.
    C27 + the io-future drop-ownership hole (both filed)
 7. ~~`crypto`: HMAC, SHA-1, SHA-512, CRC32, `Digest` trait~~ **DONE 2026-08-27** (streaming `Sha1`/`Sha512`/`Md5` on the Sha256 skeleton; the `Digest` trait — `new`/`update`/`digest_size`/`block_size`/`finish_bytes` + a `finish_hex` `?=` default — implemented by all four; generic `hmac` via `(D <: Digest)` statics + `hmac_sha{1,256,512}(_hex)` + `constant_time_eq`; bitwise reflected `crc32`; all pinned to FIPS 180-4 / RFC 2202 / RFC 4231 / CRC-catalog vectors). `std/rand` **DONE 2026-08-27** (seedable PCG-XSH-RR 64/32 `Rng`: `new`/`with_stream`/`next_u32`/`next_u64`/`next_f64`/rejection-sampled `next_below`+`range`/Fisher–Yates `shuffle`/`choice`, pinned to the pcg-random.org reference sequence — landing it surfaced and fixed the 6-digit float-literal truncation, issues/fixed/float-literals-normalized-through-6-digit-percent-g.md)
 8. ~~prelude D3 items 1–8~~ **DONE** (D3.9 Hasher blocked, D3.10 done)
-9. `Duration` integration everywhere a timeout/interval appears
+9. `Duration` integration everywhere a timeout/interval appears — **SURVEYED
+   2026-08-27, all but one surface already done**: `std/time/sleep` +
+   `sleep_blocking` and `std/async`'s `timeout` take `Duration`;
+   `std/sys/timer.sleep(milliseconds : u64)` and its extern stay raw BY DESIGN
+   (the sys layer mirrors the syscall). The only remaining `Duration` surface is
+   the HTTP client, which has no deadline at all — folded into **C33**
+   (issues/http-client-error-variants-never-raised.md) with the two other
+   never-raised `HttpError` variants
 10. ~~`net.UnixStream`/`UnixListener`~~ **DONE 2026-08-27** (`std/net/unix.yo` mirroring the Tcp pair one-to-one — bind/accept/connect/read/write family + `Reader`/`Writer` impls; the socket FILE is not unlinked on close, like Rust; echo round-trip + AddressInUse pinned)
 
 **P0+ — user-requested (2026-08-23), tracked with this campaign**
