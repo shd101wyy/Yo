@@ -1,6 +1,6 @@
 //! Hash map using SwissTable algorithm with SIMD-accelerated lookup.
 pragma(Pragma.AllowUnsafe);
-{ GlobalAllocator, AllocError } :: import("../allocator.yo");
+{ GlobalAllocator, AllocError, size_would_overflow } :: import("../allocator.yo");
 { MapEntry } :: import("./entry.yo");
 { malloc, calloc, realloc, free } :: GlobalAllocator;
 /// Error variants for HashMap operations.
@@ -68,6 +68,13 @@ impl(
   */
   _alloc_with_capacity : (fn(capacity : usize) -> Result(Self, HashMapError))({
     bucket_size :: sizeof(MapEntry(K, V));
+    // `capacity * bucket_size` is computed in usize and WRAPS, which would hand
+    // malloc a tiny size while the map still believes it owns `capacity`
+    // buckets. This is the check `CapacityOverflow` was declared for and never
+    // performed (issues/fixed/collection-capacity-overflow-unchecked.md).
+    if(size_would_overflow(MapEntry(K, V), capacity), {
+      return(.Err(.CapacityOverflow));
+    });
     ctrl_size := capacity;
     data_size := (capacity * bucket_size);
     ctrl_result := malloc(ctrl_size);
@@ -128,6 +135,11 @@ impl(
         c = (c | (c >> usize(4)));
         c = (c | (c >> usize(8)));
         c = (c | (c >> usize(16)));
+        // usize is 64-bit: without this step a `requested_capacity` above 2^32
+        // rounds to a value that is NOT a power of two, while the bucket
+        // masking (`hash & (capacity - 1)`) and the doc both require one
+        // (issues/fixed/collection-capacity-overflow-unchecked.md).
+        c = (c | (c >> usize(32)));
         c + usize(1)
       }
     );

@@ -953,3 +953,21 @@ test("ArrayList.is_empty agrees with len on a with_capacity list", {
   list.clear();
   assert(list.is_empty(), "clear leaves it empty");
 });
+test("ensure_total_capacity keeps doubling and preserves elements", {
+  // The overflow guard added an overflow-only clamp to the doubling loop
+  // (issues/fixed/collection-capacity-overflow-unchecked.md); ordinary growth
+  // must still double rather than allocate exactly what was asked for.
+  list := ArrayList(u64).with_capacity(usize(4));
+  list.push(u64(1));
+  list.push(u64(2));
+  list.ensure_total_capacity(usize(10));
+  assert(list.capacity() == usize(16), "4 doubles to 16, not to the 10 asked");
+  assert(list.len() == usize(2), "reserving does not change length");
+  list.push(u64(3));
+  assert(list(usize(0)) == u64(1), "element 0 survived the realloc");
+  assert(list(usize(1)) == u64(2), "element 1 survived the realloc");
+  assert(list(usize(2)) == u64(3), "the push after reserving landed");
+  // A request already covered by the capacity is a no-op.
+  list.ensure_total_capacity(usize(8));
+  assert(list.capacity() == usize(16), "no shrink, no realloc");
+});

@@ -1,7 +1,8 @@
 //! Dynamic array (vector) with amortized O(1) push and O(1) indexed access.
 pragma(Pragma.AllowUnsafe);
-{ GlobalAllocator, AllocError } :: import("../allocator.yo");
+{ GlobalAllocator, AllocError, size_would_overflow } :: import("../allocator.yo");
 { memmove, memcpy, memset } :: import("../libc/string.yo");
+{ SIZE_MAX } :: import("../libc/stdint.yo");
 { malloc, calloc, realloc, free, aligned_alloc } :: GlobalAllocator;
 /// Error variants for ArrayList operations.
 ArrayListError :: enum(
@@ -123,6 +124,14 @@ impl(
     cond(
       (cap == usize(0)) =>
         Self.new(),
+      // `sizeof(T) * cap` is computed in usize and WRAPS. Without this guard a
+      // capacity from untrusted input (a length prefix off a socket, say) hands
+      // malloc a tiny — or zero — size while the list still reports `cap`, so
+      // the first pushes write outside the allocation: silent heap corruption
+      // (issues/fixed/collection-capacity-overflow-unchecked.md). Rust's
+      // `Vec::with_capacity` panics with "capacity overflow" here too.
+      size_would_overflow(T, cap) =>
+        __yo_panic("ArrayList.with_capacity: capacity overflow"),
       true => {
         ptr_result := malloc(sizeof(T) * cap);
         match(
@@ -436,13 +445,25 @@ impl(
   ensure_total_capacity : (fn(self : Self, min_cap : usize) -> unit)({
     cond(
       (min_cap <= self._capacity) => (),
+      // Same wrap as `with_capacity` — and the doubling loop below has a second
+      // face: once `cap * 2` wraps to 0 the loop can never reach `min_cap`, so
+      // an oversized request SPINS FOREVER instead of failing
+      // (issues/fixed/collection-capacity-overflow-unchecked.md).
+      size_would_overflow(T, min_cap) =>
+        __yo_panic("ArrayList.ensure_total_capacity: capacity overflow"),
       true => {
         new_capacity := cond(
           (self._capacity == usize(0)) => min_cap,
           true => {
             cap := self._capacity;
+            // `min_cap` is known not to overflow `sizeof(T) * min_cap`, but the
+            // doubling itself can still wrap. Fall back to `min_cap` in that
+            // one case; every reachable growth keeps the usual doubling.
             while(cap < min_cap, {
-              cap = (cap * usize(2));
+              cap = cond(
+                (cap > (SIZE_MAX / usize(2))) => min_cap,
+                true => (cap * usize(2))
+              );
             });
             cap
           }
