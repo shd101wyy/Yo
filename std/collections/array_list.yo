@@ -744,39 +744,104 @@ impl(
     );
   })
 );
+/// In-place heapsort over raw storage with a caller-supplied strict "less"
+/// — O(n log n) worst case, no allocation, no recursion. NOT stable (equal
+/// elements may reorder); shared by `sort` and `sort_by`. The sift-down is
+/// written inline in both phases: a nested named fn cannot capture `ptr`/
+/// `less`, and a bare closure binding has no target type to infer from.
+_heapsort_by :: (
+  fn(generic(T : Type), ptr : *(T), n : usize, less : Impl(Fn(a : T, b : T) -> bool)) -> unit
+)({
+  // Phase 1: heapify (sift-down from the last parent to the root).
+  (i : usize) = (n / usize(2));
+  while(i > usize(0), {
+    i = (i - usize(1));
+    (root : usize) = i;
+    (going : bool) = true;
+    while(going, {
+      child := ((root * usize(2)) + usize(1));
+      cond(
+        (child >= n) => {
+          going = false;
+        },
+        true => {
+          (largest : usize) = child;
+          cond(
+            (((child + usize(1)) < n) && less((ptr.add(child)).*, (ptr.add(child + usize(1))).*)) => {
+              largest = (child + usize(1));
+            },
+            true => ()
+          );
+          cond(
+            less((ptr.add(root)).*, (ptr.add(largest)).*) => {
+              tmp := (ptr.add(root)).*;
+              (ptr.add(root)).* = (ptr.add(largest)).*;
+              (ptr.add(largest)).* = tmp;
+              root = largest;
+            },
+            true => {
+              going = false;
+            }
+          );
+        }
+      );
+    });
+  });
+  // Phase 2: pop the max to the tail, shrinking the heap.
+  (end : usize) = n;
+  while(end > usize(1), {
+    end = (end - usize(1));
+    head := (ptr.add(usize(0))).*;
+    (ptr.add(usize(0))).* = (ptr.add(end)).*;
+    (ptr.add(end)).* = head;
+    (root : usize) = usize(0);
+    (going : bool) = true;
+    while(going, {
+      child := ((root * usize(2)) + usize(1));
+      cond(
+        (child >= end) => {
+          going = false;
+        },
+        true => {
+          (largest : usize) = child;
+          cond(
+            (((child + usize(1)) < end) && less((ptr.add(child)).*, (ptr.add(child + usize(1))).*)) => {
+              largest = (child + usize(1));
+            },
+            true => ()
+          );
+          cond(
+            less((ptr.add(root)).*, (ptr.add(largest)).*) => {
+              tmp := (ptr.add(root)).*;
+              (ptr.add(root)).* = (ptr.add(largest)).*;
+              (ptr.add(largest)).* = tmp;
+              root = largest;
+            },
+            true => {
+              going = false;
+            }
+          );
+        }
+      );
+    });
+  });
+});
 impl(
   generic(T : Type),
   where(T <: Ord(T)),
   ArrayList(T),
   /**
-  * Sort elements in ascending order using insertion sort
+  * Sort elements in ascending order (heapsort — see _heapsort_by).
   */
   sort : (fn(self : Self) -> unit)({
+    // Heapsort (was O(n²) insertion sort — plans/STD_API_AUDIT.md §7
+    // collections row): O(n log n) worst case, in place, not stable.
     cond(
       (self._length <= usize(1)) => (),
       true =>
         match(
           self._ptr,
-          .Some(_ptr) => {
-            i := usize(1);
-            while(i < self._length, i = (i + usize(1)), {
-              key := (_ptr.add(i)).*;
-              j := i;
-              shifting := cond(
-                (j > usize(0)) => ((_ptr.add(j - usize(1))).* > key),
-                true => false
-              );
-              while(shifting, (), {
-                (_ptr.add(j)).* = (_ptr.add(j - usize(1))).*;
-                j = (j - usize(1));
-                shifting = cond(
-                  (j > usize(0)) => ((_ptr.add(j - usize(1))).* > key),
-                  true => false
-                );
-              });
-              (_ptr.add(j)).* = key;
-            });
-          },
+          .Some(_ptr) => _heapsort_by(_ptr, self._length, (a, b) => (a < b)),
           .None => ()
         )
     );
@@ -955,5 +1020,99 @@ impl(
       acc
     })
   )
+);
+
+// ============================================================================
+// Real sort (heapsort), sort_by, binary_search, retain, extend
+// (plans/STD_API_AUDIT.md §7 collections row)
+// ============================================================================
+impl(
+  generic(T : Type),
+  ArrayList(T),
+  /// Sort ascending by a strict "less" closure — `less(a, b)` true when `a`
+  /// must come before `b`. Heapsort: O(n log n) worst case, in place, not
+  /// stable.
+  sort_by : (fn(self : Self, less : Impl(Fn(a : T, b : T) -> bool)) -> unit)({
+    cond(
+      (self._length <= usize(1)) => (),
+      true => match(
+        self._ptr,
+        .Some(_ptr) => _heapsort_by(_ptr, self._length, less),
+        .None => ()
+      )
+    );
+  }),
+  /// Keep only the elements `pred` accepts, in place and in order; the
+  /// rejected elements are dropped.
+  retain : (fn(self : Self, pred : Impl(Fn(v : T) -> bool)) -> unit)({
+    match(
+      self._ptr,
+      .Some(_ptr) => {
+        (write : usize) = usize(0);
+        (read : usize) = usize(0);
+        while(read < self._length, read = (read + usize(1)), {
+          v := (_ptr.add(read)).*;
+          cond(
+            pred(v) => {
+              cond(
+                (write != read) => {
+                  (_ptr.add(write)).* = v;
+                },
+                true => ()
+              );
+              write = (write + usize(1));
+            },
+            true => {
+              slot := _ptr.add(read);
+              unsafe.drop(slot.*);
+            }
+          );
+        });
+        self.set_len(write);
+      },
+      .None => ()
+    );
+  }),
+  /// Append a copy of every element of `other`.
+  extend : (fn(self : Self, other : ArrayList(T)) -> unit)({
+    (i : usize) = usize(0);
+    n := other.len();
+    while(i < n, i = (i + usize(1)), {
+      self.push(other(i));
+    });
+  })
+);
+impl(
+  generic(T : Type),
+  where(T <: Ord(T)),
+  ArrayList(T),
+  /// Binary search over a SORTED list (ascending, `sort`'s order):
+  /// `.Ok(index)` of a matching element (any one of an equal run), or
+  /// `.Err(insertion_index)` where the value would keep the order.
+  binary_search : (fn(self : Self, value : T) -> Result(usize, usize))({
+    (lo : usize) = usize(0);
+    (hi : usize) = self.len();
+    (found : Option(usize)) = Option(usize).None;
+    while((lo < hi) && found.is_none(), {
+      mid := (lo + ((hi - lo) / usize(2)));
+      cur := self(mid);
+      cond(
+        (cur < value) => {
+          lo = (mid + usize(1));
+        },
+        (value < cur) => {
+          hi = mid;
+        },
+        true => {
+          found = Option(usize).Some(mid);
+        }
+      );
+    });
+    match(
+      found,
+      .Some(at) => Result(usize, usize).Ok(at),
+      .None => Result(usize, usize).Err(lo)
+    )
+  })
 );
 export(array_list);
