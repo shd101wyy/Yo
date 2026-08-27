@@ -4,6 +4,7 @@
 //! header), plus the new contracts: the wrappers satisfy the `Reader`/`Writer` bounds themselves,
 //! `read_to_end`/`read_to_string` arrive as trait defaults, and `BufWriter`
 //! deliberately does NOT flush on drop (tokio contract — flush explicitly).
+pragma(Pragma.SkipWasm32Wasi); // File I/O — the async open/read/write path is host-only; standalone WASI lacks it (same skip as tests/fs)
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 { temp_dir, path_join } :: import("../helper");
