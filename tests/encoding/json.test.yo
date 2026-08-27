@@ -333,6 +333,60 @@ test("json_parse unclosed string error", {
   json_parse("\"hello", exn);
   assert(false, "unclosed string should throw");
 });
+// The number grammar is RFC 8259 section 6:
+//   number = [ minus ] int [ frac ] [ exp ]
+//   int    = zero / ( digit1-9 *DIGIT )      ← so "01" is INVALID
+//   frac   = decimal-point 1*DIGIT           ← so "1." is INVALID
+//   exp    = e [ minus / plus ] 1*DIGIT      ← so "1e" is INVALID
+// `parse_number` used to scan those characters without validating any of it and
+// always return `.Ok(atof(...))`, so every malformed form below was accepted —
+// and because `_parse_value` routes any unrecognized leading byte to
+// `parse_number`, "hello" and "<html>" parsed as the NUMBER 0. `.InvalidNumber`
+// was declared, documented and formatted, but nothing ever produced it
+// (issues/fixed/json-number-parser-accepts-invalid-and-any-garbage.md).
+_rejects :: (fn(src : str) -> bool)(
+  match(json_parse_result(String.from(src)), .Err(_) => true, .Ok(_) => false)
+);
+test("json_parse rejects malformed numbers", {
+  assert(_rejects("-"), "bare minus is not a number");
+  assert(_rejects("1."), "trailing decimal point needs a digit");
+  assert(_rejects("1e"), "exponent marker needs digits");
+  assert(_rejects("1e+"), "signed exponent needs digits");
+  assert(_rejects("1E-"), "signed exponent needs digits (uppercase E)");
+  assert(_rejects("01"), "leading zeros are not allowed");
+  assert(_rejects("-01"), "leading zeros are not allowed after minus");
+  assert(_rejects("+1"), "JSON numbers have no leading plus");
+  assert(_rejects(".5"), "a fraction needs an integer part");
+  assert(_rejects("-.5"), "a fraction needs an integer part after minus");
+});
+test("json_parse rejects garbage instead of reading it as 0", {
+  assert(_rejects("@"), "an unrecognized byte is not the number 0");
+  assert(_rejects("hello"), "a bare word is not the number 0");
+  assert(_rejects("<html>"), "an HTML error page is not the number 0");
+  assert(_rejects("--1"), "a doubled minus is not a number");
+});
+test("json_parse still accepts every valid number form", {
+  _num :: (fn(src : str) -> f64)(
+    match(
+      json_parse_result(String.from(src)),
+      .Ok(v) => v.as_number().unwrap(),
+      .Err(_) => {
+        assert(false, `valid number rejected: ${src}`);
+        f64(0)
+      }
+    )
+  );
+  assert(_num("0") == f64(0), "0");
+  assert(_num("-0") == f64(0), "-0");
+  assert(_num("42") == f64(42), "42");
+  assert(_num("-17") == f64(-(17)), "-17");
+  assert(_num("0.5") == f64(0.5), "0.5");
+  assert(_num("-1.5e3") == f64(-(1500)), "-1.5e3");
+  assert(_num("1E+2") == f64(100), "1E+2");
+  assert(_num("1e-2") == f64(0.01), "1e-2");
+  assert(_num("0e0") == f64(0), "0e0");
+  assert(_num("123456789") == f64(123456789), "123456789");
+});
 // ===== Stringify =====
 test("json_stringify null", {
   result := json_stringify(.Null);
