@@ -328,7 +328,7 @@ export(walk, walk_cstr, walk_with, walk_with_cstr, glob);
 /// (src/fetch.yo) before it moved into std.
 remove_dir_all :: (fn(path : Path, io : Io) -> Impl(Future(unit, IoExn)))(
   io.async((e : IoExn) => {
-    opts := WalkOptions(max_depth : .None, follow_symlinks : false, include_dirs : true);
+    opts := WalkOptions(max_depth : .None, follow_symlinks : false, include_dirs : true, pattern : .None);
     entries := e.io.await(walk_with(path, opts, e.io), e);
     n := entries.len();
     // Delete deepest entries first (reverse order from walk output).
