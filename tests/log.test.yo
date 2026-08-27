@@ -1,0 +1,52 @@
+//! std/log rewrite (`plans/STD_API_AUDIT.md` §7 log row): Off level,
+//! ToString-generic + target + lazy messages, level filtering. Output goes
+//! to a real fd, so these tests assert on the FILTER behavior (which is
+//! observable without capturing bytes); the format is exercised by the
+//! module's own doc example and manual runs.
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+log :: import("std/log");
+open(import("std/string"));
+
+test("level filtering incl. Off", {
+  log.set_level(log.Level.Warn);
+  assert(!(log.enabled(log.Level.Trace)), "Trace off at Warn");
+  assert(!(log.enabled(log.Level.Info)), "Info off at Warn");
+  assert(log.enabled(log.Level.Warn), "Warn on at Warn");
+  assert(log.enabled(log.Level.Error), "Error on at Warn");
+  log.set_level(log.Level.Off);
+  assert(!(log.enabled(log.Level.Error)), "Off disables even Error");
+  assert(!(log.enabled(log.Level.Trace)), "Off disables Trace");
+  log.set_level(log.Level.Trace);
+  assert(log.enabled(log.Level.Trace), "Trace on at Trace");
+  assert(log.get_level() == log.Level.Trace, "get_level round-trips");
+});
+test("lazy closures run only when the level admits them", {
+  log.set_level(log.Level.Error);
+  filtered := Box(bool)(false);
+  log.info_lazy(() => {
+    filtered.* = true;
+    `should not build`.to_string()
+  });
+  assert(!(filtered.*), "below-level lazy closure is skipped");
+  emitted := Box(bool)(false);
+  log.error_lazy(() => {
+    emitted.* = true;
+    `built`.to_string()
+  });
+  assert(emitted.*, "at-or-above-level lazy closure runs");
+});
+test("generic ToString messages and targets compile and emit", {
+  log.set_level(log.Level.Trace);
+  log.set_output(log.LogOutput.Stdout);
+  // Any ToString value — no explicit .to_string() at the call site.
+  log.info(i32(7));
+  log.debug(true);
+  log.warn(`a template ${i32(3)}`);
+  log.error_target("subsystem", u64(99));
+  // Timestamps toggle (RFC 3339 prefix) — smoke only.
+  log.set_timestamps(true);
+  log.info(`timestamped`);
+  log.set_timestamps(false);
+  assert(true, "all forms emitted without error");
+});
