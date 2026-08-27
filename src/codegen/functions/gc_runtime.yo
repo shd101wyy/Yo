@@ -357,10 +357,15 @@ static _Thread_local int __yo_gc_collecting = 0;
 // GC tracking state + thresholds (declared here so __yo_decr_rc, below, can buffer
 // possible cycle roots and trigger collection — Bacon-Rajan).
 static _Thread_local __yo_thread_gc_state_t* __yo_current_thread_gc = NULL;  // Current thread's GC state
-static size_t __yo_gc_min_threshold = 256;       // Minimum / configured collection threshold (floor)
-static size_t __yo_gc_collect_threshold = 256;   // Incremental: collect when possible_roots reaches this
-static size_t __yo_gc_full_threshold = 256;      // Full: allocation-driven full-heap scan when tracked_count reaches this (adaptive Nx-live)
-static size_t __yo_gc_full_pct = 200;            // Full-scan growth factor as a percent of post-collection live (default 200 = 2x-live). Lower to cap peak memory on constrained boxes; raise for fewer (but larger) scans. Env: YO_GC_FULL_PCT.
+// THREAD-LOCAL like the rest of the GC state: these are mutated by the
+// adaptive re-threshold after every collection, and process-global copies
+// raced across worker threads (TSan on the sync-primitives leg; the env-read
+// once-flag below was the first face). Per-thread adaptation is the
+// per-thread collector's design intent anyway.
+static _Thread_local size_t __yo_gc_min_threshold = 256;       // Minimum / configured collection threshold (floor)
+static _Thread_local size_t __yo_gc_collect_threshold = 256;   // Incremental: collect when possible_roots reaches this
+static _Thread_local size_t __yo_gc_full_threshold = 256;      // Full: allocation-driven full-heap scan when tracked_count reaches this (adaptive Nx-live)
+static _Thread_local size_t __yo_gc_full_pct = 200;            // Full-scan growth factor as a percent of post-collection live (default 200 = 2x-live). Lower to cap peak memory on constrained boxes; raise for fewer (but larger) scans. Env: YO_GC_FULL_PCT.
 `
   );
   // Chunked emission: the RC primitives are THE hot path (__yo_decr_rc has
@@ -593,7 +598,7 @@ static void __yo_init_thread_gc() {
   // both the live threshold and the adaptive floor. Default (env unset) keeps
   // the adaptive 256 behavior. Mirrors the YO_MAIN_STACK_MB knob.
   {
-    static int __yo_gc_thr_env_read = 0;
+    static _Thread_local int __yo_gc_thr_env_read = 0;
     if (!__yo_gc_thr_env_read) {
       __yo_gc_thr_env_read = 1;
       const char* __yo_gc_thr = getenv("YO_GC_THRESHOLD");
@@ -1031,9 +1036,12 @@ static void __yo_init_process_cleanup(void) {
   }, {
     em.emit_string_line(
       `static void __yo_init_process_cleanup(void) {
-  static bool cleanup_initialized = false;
-  if (cleanup_initialized) return;
-  cleanup_initialized = true;
+  // Atomic once-guard: every spawned thread runs this via __yo_gc_init_thread,
+  // so a plain static bool is a data race (TSan: read/write of
+  // 'cleanup_initialized' from two worker threads). The Windows branch uses
+  // InitOnceExecuteOnce; this is the POSIX/wasm equivalent.
+  static _Atomic bool cleanup_initialized = false;
+  if (atomic_exchange_explicit(&cleanup_initialized, true, memory_order_acq_rel)) return;
   atexit(__yo_process_cleanup);
 }`
     );

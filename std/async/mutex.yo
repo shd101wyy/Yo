@@ -1,0 +1,89 @@
+//! Async (event-loop) mutex — a critical section that may SPAN AWAITS
+//! (`plans/STD_API_AUDIT.md` §7 P0 item 6 / D7). `std/sync/mutex`'s blocking
+//! lock inside a future parks the entire single-threaded event loop; this
+//! one suspends the waiting task instead.
+//!
+//! NOT thread-safe — same-thread tasks only (no `Send` bound, no atomics, by
+//! design: Yo's async runtime is per-thread). It exists because a task that
+//! awaits INSIDE a critical section yields the loop mid-section; plain
+//! variables are only task-safe between suspension points.
+//!
+//! Lock acquisition re-checks on a 1ms timer tick when contended (never on
+//! the uncontended fast path) and is unfair: no FIFO ordering among waiters.
+//!
+//! ```rust
+//! { Mutex } :: import "std/async/mutex";
+//! m := Mutex(i64).new(i64(0));
+//! io.await(m.lock(io), io);
+//! // ... awaits allowed here — the section stays exclusive ...
+//! m.set(m.get() + i64(1));
+//! m.unlock();
+//! ```
+{ assert } :: import("../assert");
+IO_timer :: import("../sys/timer");
+
+/// A mutual-exclusion lock for same-thread async tasks, protecting a `T`.
+Mutex :: (fn(comptime(T) : Type) -> comptime(Type))(
+  ref(
+    struct(
+      _locked : bool,
+      _value : T
+    )
+  )
+);
+impl(
+  generic(T : Type),
+  Mutex(T),
+  /// A new unlocked mutex protecting `value`.
+  new : (fn(value : T) -> Self)(
+    Self(_locked : false, _value : value)
+  ),
+  /// Acquire the lock, suspending while another task holds it. The check
+  /// and the acquisition happen with no suspension between them, so tasks
+  /// cannot interleave inside the handoff.
+  lock : (fn(self : Self, io : Io) -> Impl(Future(unit)))(
+    io.async((io : Io) => {
+      (waiting : bool) = true;
+      while(waiting, {
+        if(!(self._locked), {
+          self._locked = true;
+          waiting = false;
+        });
+        if(waiting, {
+          io.await(IO_timer.sleep(u64(1)), io);
+        });
+      });
+      return(());
+    })
+  ),
+  /// Acquire the lock without suspending: true on success.
+  try_lock : (fn(self : Self) -> bool)(
+    cond(
+      self._locked => false,
+      true => {
+        self._locked = true;
+        true
+      }
+    )
+  ),
+  /// Release the lock. Panics if the mutex is not locked.
+  unlock : (fn(self : Self) -> unit)({
+    assert(self._locked, "Mutex.unlock: not locked");
+    self._locked = false;
+  }),
+  /// True while some task holds the lock.
+  is_locked : (fn(self : Self) -> bool)(
+    self._locked
+  ),
+  /// Read the protected value. Meaningful only while YOU hold the lock —
+  /// single-threaded cooperation makes an unlocked read a logic bug, not a
+  /// data race, so it is not prevented.
+  get : (fn(self : Self) -> T)(
+    self._value
+  ),
+  /// Replace the protected value (same locking contract as `get`).
+  set : (fn(self : Self, value : T) -> unit)({
+    self._value = value;
+  })
+);
+export(Mutex);

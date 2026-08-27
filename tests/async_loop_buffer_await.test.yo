@@ -11,8 +11,22 @@
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 open(import("std/collections/array_list"));
-{ IoExn } :: import("std/error");
+{ IoExn, Exception } :: import("std/error");
 
+/// Effect bundle for awaiting IoExn futures in tests: any throw FAILS the test.
+_noexn :: (fn() -> Exception)(
+  Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  )
+);
+_ioexn :: (fn(io : Io) -> IoExn)(
+  IoExn(io : io, exn : _noexn())
+);
 Reader :: trait(
   read : (fn(self : Self, buf : *(u8), size : usize, io : Io) -> Impl(Future(usize, IoExn))),
   (read_to_end : (fn(self : Self, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))) ?=
@@ -133,26 +147,26 @@ impl(
 );
 test("generic-impl single buffer-taking await (the shadow-registration face)", {
   w := Wrap(TenSrc)(_inner : TenSrc(pos : u8(0)));
-  n := io.await(w.fill_once(io), { io });
+  n := io.await(w.fill_once(io), _ioexn(io));
   assert(n == usize(8), "eight bytes on the first fill");
 });
 test("generic-impl loop over a buffer-taking await (the BufReader shape)", {
   w := Wrap(TenSrc)(_inner : TenSrc(pos : u8(0)));
-  all := io.await(w.drain(io), { io });
+  all := io.await(w.drain(io), _ioexn(io));
   assert(all.len() == usize(10), "ten bytes drained");
   assert(all(usize(0)) == u8(1), "first byte");
   assert(all(usize(9)) == u8(10), "last byte");
 });
 test("trait-default read_to_end loops a buffer-taking await", {
   src := TenSrc(pos : u8(0));
-  all := io.await(src.read_to_end(io), { io });
+  all := io.await(src.read_to_end(io), _ioexn(io));
   assert(all.len() == usize(10), "ten bytes total");
   assert(all(usize(0)) == u8(1), "first byte");
   assert(all(usize(9)) == u8(10), "last byte");
 });
 test("free generic read_to_end loops a buffer-taking await", {
   src := TenSrc(pos : u8(0));
-  all := io.await(read_to_end_free(src, io), { io });
+  all := io.await(read_to_end_free(src, io), _ioexn(io));
   assert(all.len() == usize(10), "ten bytes total");
   assert(all(usize(4)) == u8(5), "middle byte");
 });

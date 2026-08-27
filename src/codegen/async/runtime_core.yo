@@ -292,6 +292,31 @@ static __yo_yield_future_t __yo_async_yield(void) {
   future.continuation_fn = NULL;
   future.continuation_sm = NULL;
   return future;
+}
+
+// JoinHandle introspection/cancellation — every spawned future starts with
+// this common header (the same layout JoinHandle.await casts to).
+typedef struct {
+  __yo_ref_header_t header;
+  int state;
+} __yo_spawned_future_header_t;
+
+// Non-blocking FutureState read: positive step indices read as Running (1),
+// matching io.state's mapping (0 Pending, -1 Completed, -2 Aborted).
+static int32_t __yo_join_handle_state_raw(void* fut) {
+  int s = ((__yo_spawned_future_header_t*)fut)->state;
+  return (s > 0) ? 1 : s;
+}
+
+// Cancel a spawned task: mark a non-terminal state machine Aborted. Its
+// pending continuation (if any) fires into the resume function's aborted-entry
+// guard, which releases the resume-path reference instead of resuming.
+// Terminal tasks (Completed/Aborted) are left untouched.
+static void __yo_join_handle_abort_raw(void* fut) {
+  __yo_spawned_future_header_t* h = (__yo_spawned_future_header_t*)fut;
+  if (h->state >= 0) {
+    h->state = -2;
+  }
 }`
   );
 });

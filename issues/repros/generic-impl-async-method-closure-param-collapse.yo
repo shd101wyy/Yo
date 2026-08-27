@@ -1,0 +1,29 @@
+{ assert } :: import("std/assert");
+Holder :: (fn(comptime(T) : Type) -> comptime(Type))(
+  ref(struct(_value : T))
+);
+impl(
+  generic(T : Type),
+  Holder(T),
+  new : (fn(value : T) -> Self)(Self(_value : value)),
+  // Variant A: generic R, closure param, PLAIN R return (no Impl(Future))
+  apply : (fn(generic(R : Type), self : Self, body : Impl(Fn(inout(v) : T) -> R), io : Io) -> R)(
+    body(self._value)
+  ),
+  // Variant B: R = T fixed, Impl(Future(T)) return
+  apply_async_t : (fn(self : Self, body : Impl(Fn(inout(v) : T) -> T), io : Io) -> Impl(Future(T)))(
+    io.async((io : Io) => {
+      r := body(self._value);
+      return(r);
+    })
+  )
+);
+main :: (fn(io : Io) -> unit)({
+  h := Holder(i64).new(i64(10));
+  a := h.apply((v) => v, io);
+  assert(a == i64(10), "plain R return works");
+  f := h.apply_async_t((v) => v, io);
+  r := io.await(f, io);
+  assert(r == i64(10), "fixed-T future works");
+});
+export(main);

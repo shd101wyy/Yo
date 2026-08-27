@@ -381,7 +381,15 @@ jobs:
           version: ${{ env.SEED_VERSION }}
 
       - name: Generate documentation website
+        env:
+          YO_STD: ${{ github.workspace }}/std
         run: |
+          # YO_STD: the SEED's BUNDLED std predates the tree's API (the D2/S2
+          # renames — `insert`, `read_to_string` — landed 2026-08-25); the
+          # vendored markdown_yo and build_site.yo speak the TREE std, so both
+          # the site-builder compile and the `yo doc` runs the site binary
+          # spawns must resolve std from the checkout, exactly like the
+          # `yo build` bootstrap does.
           yo compile scripts/build_site.yo --release -o /tmp/build-site
           /tmp/build-site --output yo-out/site --version "v${{ steps.version.outputs.version }}" --yo yo
 

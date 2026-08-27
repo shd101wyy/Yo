@@ -1062,6 +1062,10 @@ ${ast_expr_to_string(actual_arg)}`
   callee_env_r = synth.expected_env;
   // Step 7: Re-evaluate param type with the updated callee_env.
   final_pt := evaluate_function_parameter_type_again(resolved_pt, callee_env_r, ctx);
+  // Debug hook (like YO_DEBUG_BIND): trace every param compatibility check.
+  if(match(helper_dbg_env.get(`YO_DEBUG_PARAMCHECK`), .Some(pdbg) => (pdbg.len() > usize(0)), .None => false), {
+    eprintln(`[param-check] label=${param_label} declared=${type_to_string(param_type)} final=${type_to_string(final_pt)} arg=${type_to_string(arg_type)} compat=${are_types_compatible(final_pt, arg_type).to_string()}`);
+  });
   // Step 8: Type-compatibility check.
   if(!(are_types_compatible(final_pt, arg_type)), {
     exn.throw(
@@ -5925,6 +5929,73 @@ try_to_call_function_with_arguments :: (
           rt_args.push(v_evaled);
           vai = (vai + usize(1));
         });
+      });
+      // Step 7c: io.await/io.spawn EFFECT-BUNDLE contract check. The callee's
+      // `e : E` must be the future's OWN effect bundle: codegen's set_effect
+      // memcpy's sizeof(E-of-the-future's-state-machine) from the caller's
+      // bundle local, so a smaller/different record reads out of bounds
+      // (`io.await(fut_over_IoExn, { io })` — the ASan stack-buffer-overflow
+      // that broke every CI test leg). Neither generic unification nor
+      // `are_types_compatible` can catch it: the signature's two `E` mentions
+      // resolve through separate SomeT lineages, and struct compatibility is
+      // structurally lenient in BOTH directions
+      // (issues/generic-type-var-rebinds-per-argument.md). Enforced here by
+      // LAYOUT: when both the future's effect type and the effect argument
+      // are top-level structs, they must share the struct id or the exact
+      // field-label list (an anonymous `{ io, exn }` record has IoExn's
+      // layout and stays legal, per std/error's documented construction).
+      // Non-struct/unresolved sides skip — def-time generic bodies re-check
+      // at each concrete call.
+      if((is_io_await_call(expr) || is_io_spawn_call(expr)) && (arg_vals.len() >= usize(2)), {
+        ebc_fut_ty := match(arg_vals.get(usize(0)), .Some(ebc_f) => ebc_f.arg_type, .None => t_unit());
+        ebc_eff_ty := match(arg_vals.get(usize(1)), .Some(ebc_e) => ebc_e.arg_type, .None => t_unit());
+        match(
+          extract_future_trait_from_type(ebc_fut_ty),
+          .Some(ebc_ft) => match(
+            ebc_ft,
+            .FutureTraitT({ effect_types : ebc_ets }) => if(ebc_ets.len() == usize(1), {
+              ebc_te := match(ebc_ets.get(usize(0)), .Some(ebc_t0) => ebc_t0, .None => t_unit());
+              match(
+                ebc_te,
+                .Struct({ id : ebc_tid, field_labels : ebc_tlabels }) => match(
+                  ebc_eff_ty,
+                  .Struct({ id : ebc_eid, field_labels : ebc_elabels }) => {
+                    (ebc_layout_ok : bool) = (ebc_tid == ebc_eid);
+                    if(!(ebc_layout_ok) && (ebc_tlabels.len() == ebc_elabels.len()), {
+                      ebc_layout_ok = true;
+                      (ebc_li : usize) = usize(0);
+                      while(ebc_li < ebc_tlabels.len(), {
+                        ebc_tn := match(ebc_tlabels.get(ebc_li), .Some(x) => x, .None => String.from(""));
+                        ebc_en := match(ebc_elabels.get(ebc_li), .Some(x) => x, .None => String.from(""));
+                        if(ebc_tn != ebc_en, {
+                          ebc_layout_ok = false;
+                        });
+                        ebc_li = (ebc_li + usize(1));
+                      });
+                    });
+                    if(!(ebc_layout_ok), {
+                      ebc_arg := match(adjusted_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
+                      exn.throw(
+                        dyn(
+                          format_error_message(
+                            ast_expr_token(ebc_arg),
+                            `Effect argument does not match the future's effect bundle:\n- The future's effect type: ${type_to_string(ebc_te)}\n- The argument's type      : ${type_to_string(ebc_eff_ty)}\nPass the future's own bundle (e.g. \`IoExn(io : io, exn : exn)\` or a record with exactly its fields, or forward \`e\` inside a handler) — a mismatched record corrupts the task's effect state.`,
+                            false,
+                            .None
+                          )
+                        )
+                      );
+                    });
+                  },
+                  _ => ()
+                ),
+                _ => ()
+              );
+            }),
+            _ => ()
+          ),
+          .None => ()
+        );
       });
       // v4.1: validate the PLACES bound to ref parameters (after argument
       // evaluation so the chain types are resolved). Mirrors TS

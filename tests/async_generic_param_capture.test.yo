@@ -8,17 +8,34 @@
 //! stamps and were misclassified as inner.
 //! See issues/fixed/async-loop-awaiting-buffer-taking-method-state-machine-corruption.md
 //! (facet 1).
+pragma(Pragma.SkipWasm32Wasi); // File I/O — the async open/read/write path is host-only; standalone WASI lacks it (same skip as tests/fs)
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
+{ temp_dir, path_join } :: import("./helper");
 open(import("std/collections/array_list"));
-{ IoExn } :: import("std/error");
+{ IoExn, Exception } :: import("std/error");
 { Reader, Writer } :: import("std/io");
 { File, OpenMode } :: import("std/fs/file");
 { Path } :: import("std/path");
 { remove_file } :: import("std/fs/dir");
+{ arch, Arch } :: import("std/process");
 
 // The EXACT pre-fix failing shape: params used DIRECTLY inside the async
 // closure, no hoist-to-locals workaround.
+/// Effect bundle for awaiting IoExn futures in tests: any throw FAILS the test.
+_noexn :: (fn() -> Exception)(
+  Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  )
+);
+_ioexn :: (fn(io : Io) -> IoExn)(
+  IoExn(io : io, exn : _noexn())
+);
 read_once_params :: (
   fn(generic(R : Type), r : R, buf : *(u8), size : usize, io : Io, where(R <: Reader)) -> Impl(Future(usize, IoExn))
 )(io.async((e) => e.io.await(r.read(buf, size, io), e)));
@@ -32,35 +49,42 @@ write_once_file :: (fn(f : File, buf : *(u8), size : usize, io : Io) -> Impl(Fut
 );
 
 test("generic fn async closure captures the enclosing params", {
-  path := Path.new(`/tmp/yo_generic_param_capture.bin`.to_string());
-  f := io.await(File.open(path, OpenMode.Write, io), { io });
+  path := Path.new(path_join(temp_dir(), `yo_generic_param_capture.bin`.to_string()));
+  f := io.await(File.open(path, OpenMode.Write, io), _ioexn(io));
   payload := ArrayList(u8).new();
   payload.push(u8(0x41));
   payload.push(u8(0x42));
   payload.push(u8(0x43));
-  wrote := io.await(write_once_params(f, payload.ptr().unwrap(), payload.len(), io), { io });
+  wrote := io.await(write_once_params(f, payload.ptr().unwrap(), payload.len(), io), _ioexn(io));
   assert(wrote == usize(3), "generic write captured w/buf/size/io");
-  io.await(f.close(io), { io });
-  f2 := io.await(File.open(path, OpenMode.Read, io), { io });
+  io.await(f.close(io), _ioexn(io));
+  f2 := io.await(File.open(path, OpenMode.Read, io), _ioexn(io));
   buf := ArrayList(u8).with_capacity(usize(8));
   (bi : usize) = usize(0);
   while(bi < usize(8), bi = (bi + usize(1)), {
     buf.push(u8(0));
   });
-  got := io.await(read_once_params(f2, buf.ptr().unwrap(), usize(8), io), { io });
+  got := io.await(read_once_params(f2, buf.ptr().unwrap(), usize(8), io), _ioexn(io));
   assert(got == usize(3), "generic read captured r/buf/size/io");
   assert(buf(usize(0)) == u8(0x41), "byte 0 round-tripped");
   assert(buf(usize(2)) == u8(0x43), "byte 2 round-tripped");
-  io.await(f2.close(io), { io });
-  io.await(remove_file(path, io), { io });
+  io.await(f2.close(io), _ioexn(io));
+  // Cleanup only: file DELETION is the one fs op the standalone-wasm/WASI
+  // runtime lacks (`env::__syscall_unlinkat` unresolved under wasmtime); the
+  // leftover temp file is harmless. Same Arch.Wasm32 convention as tests/fs.
+  if(arch != Arch.Wasm32, {
+    io.await(remove_file(path, io), _ioexn(io));
+  });
 });
 test("non-generic control of the same shape still works", {
-  path := Path.new(`/tmp/yo_generic_param_capture_ctl.bin`.to_string());
-  f := io.await(File.open(path, OpenMode.Write, io), { io });
+  path := Path.new(path_join(temp_dir(), `yo_generic_param_capture_ctl.bin`.to_string()));
+  f := io.await(File.open(path, OpenMode.Write, io), _ioexn(io));
   payload := ArrayList(u8).new();
   payload.push(u8(0x58));
-  wrote := io.await(write_once_file(f, payload.ptr().unwrap(), payload.len(), io), { io });
+  wrote := io.await(write_once_file(f, payload.ptr().unwrap(), payload.len(), io), _ioexn(io));
   assert(wrote == usize(1), "plain fn param capture unchanged");
-  io.await(f.close(io), { io });
-  io.await(remove_file(path, io), { io });
+  io.await(f.close(io), _ioexn(io));
+  if(arch != Arch.Wasm32, {
+    io.await(remove_file(path, io), _ioexn(io));
+  });
 });

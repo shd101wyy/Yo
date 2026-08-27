@@ -1,6 +1,8 @@
+pragma(Pragma.AllowUnsafe); // unsafe(printf) in the Windows skip guards
 pragma(Pragma.SkipWasm32Emscripten); // no process model in WASM
 pragma(Pragma.SkipWasm32Wasi); // no process model in WASM
 { assert } :: import("std/assert");
+open(import("std/libc/stdio"));
 { Command, ExitStatus, Output, Child, Stdio } :: import("std/process/command");
 { Exception, AnyError, IoExn } :: import("std/error");
 open(import("std/string"));
@@ -89,6 +91,13 @@ test("Command.status non-zero exit", {
 // S3 P0 item 5: Child / spawn / Stdio / env (plans/STD_API_AUDIT.md)
 // ============================================================================
 test("spawn with piped stdin/stdout: write, EOF, read back, wait", {
+  // POSIX-only (the Child/spawn plumbing is posix_spawn + pipes + fcntl;
+  // /bin/* paths besides — see issues/s3-fs-wrappers-windows-semantics-audit.md
+  // for the recorded Windows-coverage debt).
+  if(platform == Platform.Windows, {
+    unsafe(printf("  skipped on windows\n"));
+    return(());
+  });
   exn := Exception(
     throw : (
       (err) -> {
@@ -114,6 +123,13 @@ test("spawn with piped stdin/stdout: write, EOF, read back, wait", {
   assert(st.code().unwrap() == i32(0), "code Some(0)");
 });
 test("env override and env_clear reach the child", {
+  // POSIX-only (the Child/spawn plumbing is posix_spawn + pipes + fcntl;
+  // /bin/* paths besides — see issues/s3-fs-wrappers-windows-semantics-audit.md
+  // for the recorded Windows-coverage debt).
+  if(platform == Platform.Windows, {
+    unsafe(printf("  skipped on windows\n"));
+    return(());
+  });
   exn := Exception(
     throw : (
       (err) -> {
@@ -138,6 +154,13 @@ test("env override and env_clear reach the child", {
   assert(s2 == `only-`, "env_clear drops HOME, keeps the override");
 });
 test("a signal death is code None, not exit 0", {
+  // POSIX-only (the Child/spawn plumbing is posix_spawn + pipes + fcntl;
+  // /bin/* paths besides — see issues/s3-fs-wrappers-windows-semantics-audit.md
+  // for the recorded Windows-coverage debt).
+  if(platform == Platform.Windows, {
+    unsafe(printf("  skipped on windows\n"));
+    return(());
+  });
   exn := Exception(
     throw : (
       (err) -> {
@@ -158,6 +181,13 @@ test("a signal death is code None, not exit 0", {
   assert(st.success() == false, "not a success");
 });
 test("Stdio.Null discards child stdout", {
+  // POSIX-only (the Child/spawn plumbing is posix_spawn + pipes + fcntl;
+  // /bin/* paths besides — see issues/s3-fs-wrappers-windows-semantics-audit.md
+  // for the recorded Windows-coverage debt).
+  if(platform == Platform.Windows, {
+    unsafe(printf("  skipped on windows\n"));
+    return(());
+  });
   exn := Exception(
     throw : (
       (err) -> {

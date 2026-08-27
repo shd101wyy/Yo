@@ -301,7 +301,15 @@ jobs:
       # The same two commands release.yml runs, with the version read from the
       # same source of truth the release computes its bump from.
       - name: Generate documentation website
+        env:
+          YO_STD: ${{ github.workspace }}/std
         run: |
+          # YO_STD: the SEED's BUNDLED std predates the tree's API (the D2/S2
+          # renames — `insert`, `read_to_string` — landed 2026-08-25); the
+          # vendored markdown_yo and build_site.yo speak the TREE std, so both
+          # the site-builder compile and the `yo doc` runs the site binary
+          # spawns must resolve std from the checkout, exactly like the
+          # `yo build` bootstrap does.
           VERSION=$(perl -ne 'print $1 if /^CURRENT_YO_VERSION :: "([^"]+)";/' src/version.yo)
           [ -n "$VERSION" ] || { echo "::error::could not read CURRENT_YO_VERSION from src/version.yo"; exit 1; }
           yo compile scripts/build_site.yo --release -o /tmp/build-site
@@ -1543,7 +1551,11 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    # 32 min is this leg's real cost; 360 was inherited headroom that let a
+    # DEADLOCKED test burn 3.4 h unnoticed on the sibling WASI leg
+    # (issues/wasi-thread-pool-submit-deadlock.md). 90 keeps ~2.8x margin and
+    # turns a hang into a timely failure.
+    timeout-minutes: 90
 
     steps:
       - name: Checkout repository
@@ -1611,7 +1623,9 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    # See the emscripten leg: 360 let a deadlocked test spin for 3.4 h here
+    # (issues/wasi-thread-pool-submit-deadlock.md) before anyone looked.
+    timeout-minutes: 90
 
     steps:
       - name: Checkout repository

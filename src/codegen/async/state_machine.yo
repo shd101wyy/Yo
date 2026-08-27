@@ -3344,6 +3344,34 @@ generate_async_block_resume_function :: (
   em.emit_string_line(`// Resume function for async block ${async_block_id}`);
   em.emit_string_line(`void ${resume_function_name}(${struct_name}* sm) {`);
   em.emit_string_line(`  ASYNC_DEBUG("${async_block_id}_resume: state=%d\\n", sm->state);`);
+  // Externally-aborted entry guard: JoinHandle.abort marks a suspended/queued
+  // task -2 from OUTSIDE, so the continuation that later wakes it must not
+  // fall through the state switch (no case matches -2 — the resume-path
+  // reference and any stored awaited future would leak). Release the
+  // dedicated `await_future_N` slots (exclusively owned by the suspension
+  // machinery and NULLed at every consumption site) and the state machine
+  // itself, then return without resuming. Named-future capture fields are
+  // deliberately NOT touched here — they are ordinary captures, dropped by
+  // the dispose function when the refcount reaches zero.
+  em.emit_string_line(`  if (sm->state == -2) {`);
+  guard_slots_seen := HashSet(String).new();
+  (guard_i : usize) = usize(0);
+  while(guard_i < analysis.await_points.len(), guard_i = (guard_i + usize(1)), {
+    match(
+      analysis.await_points.get(guard_i),
+      .Some(guard_ap) => {
+        guard_ffn := get_future_field_name(guard_ap, analysis);
+        if(guard_ffn.starts_with("await_future_") && !(guard_slots_seen.contains(guard_ffn.clone())), {
+          guard_slots_seen.insert(guard_ffn.clone());
+          em.emit_string_line(`    if (sm->${guard_ffn.clone()}) { __yo_decr_rc((void*)sm->${guard_ffn.clone()}); sm->${guard_ffn.clone()} = NULL; }`);
+        });
+      },
+      .None => ()
+    );
+  });
+  em.emit_string_line(`    __yo_decr_rc((void*)sm);`);
+  em.emit_string_line(`    return;`);
+  em.emit_string_line(`  }`);
   em.emit_string_line(`  int __yo_inline_budget = 32;  // bounded inline fast-path for sync-completed awaits`);
   em.emit_string_line(`  switch (sm->state) {`);
   local_var_drop_codes := ArrayList(String).new();

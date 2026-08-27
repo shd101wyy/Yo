@@ -29,7 +29,7 @@ read_lsp_message :: (
   (saw_header : bool) = false;
   (done_headers : bool) = false;
   while(!(done_headers), {
-    line_res := io.await(reader.read_line(io), IoExn(io : io, exn : exn));
+    line_res := io.await(reader.read_line(io), io);
     match(
       line_res,
       .Ok(line_opt) => match(
@@ -81,7 +81,7 @@ read_lsp_message :: (
   if(content_len == usize(0), {
     exn.throw(dyn(`lsp: frame without a Content-Length header`));
   });
-  body_res := io.await(reader.read_exact(content_len, io), IoExn(io : io, exn : exn));
+  body_res := io.await(reader.read_exact(content_len, io), io);
   match(
     body_res,
     .Ok(bytes_opt) => match(

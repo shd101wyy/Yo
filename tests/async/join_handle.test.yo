@@ -1,0 +1,95 @@
+//! JoinHandle introspection + cancellation (`plans/STD_API_AUDIT.md` §7 P0
+//! item 6): `state()` (non-blocking FutureState read), `is_finished()`, and
+//! `abort()` — cancel a spawned task at its next suspension point.
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+open(import("std/libc/stdio"));
+{ yield } :: import("std/async");
+{ sleep } :: import("std/sys/timer");
+
+// ---------------------------------------------------------------------------
+// 1. state() on a completed task reads Completed without blocking
+// ---------------------------------------------------------------------------
+test("Test JoinHandle state after completion", {
+  fut := io.async((io : Io) => {
+    return(u64(7));
+  });
+  h := io.spawn(fut, io);
+  // A body with no suspension points runs to completion inside io.spawn.
+  s := h.state();
+  assert(s == FutureState.Completed, "no-await task should be Completed right after spawn");
+  assert(h.is_finished(), "is_finished should be true for a completed task");
+  r := h.await(io);
+  assert(match(r, .Some(v) => (v == u64(7)), .None => false), "await after completion should read the result");
+});
+// ---------------------------------------------------------------------------
+// 2. state() on a suspended task is non-terminal and does not block
+// ---------------------------------------------------------------------------
+test("Test JoinHandle state while suspended", {
+  fut := io.async((io : Io) => {
+    io.await(sleep(u64(20)), io);
+    return(i32(1));
+  });
+  h := io.spawn(fut, io);
+  s := h.state();
+  assert((s != FutureState.Completed) && (s != FutureState.Aborted), "sleeping task should not be terminal");
+  assert(!(h.is_finished()), "is_finished should be false while suspended");
+  r := h.await(io);
+  assert(match(r, .Some(v) => (v == i32(1)), .None => false), "task should still complete normally");
+});
+// ---------------------------------------------------------------------------
+// 3. abort() of a suspended task: await returns .None
+// ---------------------------------------------------------------------------
+test("Test JoinHandle abort returns None", {
+  ran := Box(bool)(false);
+  fut := io.async((io : Io) => {
+    io.await(sleep(u64(50)), io);
+    ran.* = true;
+    return(i32(9));
+  });
+  h := io.spawn(fut, io);
+  h.abort();
+  assert(h.state() == FutureState.Aborted, "abort should mark the task Aborted");
+  r := h.await(io);
+  assert(match(r, .Some(_) => false, .None => true), "awaiting an aborted task should give .None");
+  assert(!(ran.*), "the aborted body must not resume past its suspension point");
+});
+// ---------------------------------------------------------------------------
+// 4. The aborted task's pending timer completion fires safely afterwards
+//    (the resume entry guard releases the state machine instead of falling
+//    through the state switch).
+// ---------------------------------------------------------------------------
+test("Test aborted task pending completion is safe", {
+  ran2 := Box(bool)(false);
+  fut := io.async((io : Io) => {
+    io.await(sleep(u64(10)), io);
+    ran2.* = true;
+    return(i32(3));
+  });
+  h := io.spawn(fut, io);
+  h.abort();
+  r := h.await(io);
+  assert(match(r, .Some(_) => false, .None => true), "aborted task should give .None");
+  // Outlive the aborted task's 10ms timer so its continuation fires into the
+  // aborted state machine while the loop is still alive.
+  io.await(sleep(u64(30)), io);
+  assert(!(ran2.*), "aborted body must not have resumed when its timer fired");
+});
+// ---------------------------------------------------------------------------
+// 5. abort() after completion is a no-op
+// ---------------------------------------------------------------------------
+test("Test abort after completion is a no-op", {
+  fut := io.async((io : Io) => {
+    io.await(yield(io), io);
+    return(u64(11));
+  });
+  h := io.spawn(fut, io);
+  // Drive the loop until the spawned task has finished, WITHOUT consuming the
+  // handle (a handle must be awaited at most once, and never after await).
+  io.await(sleep(u64(5)), io);
+  assert(h.is_finished(), "yield task should have finished during the sleep");
+  h.abort();
+  assert(h.state() == FutureState.Completed, "abort of a completed task must not change its state");
+  r := h.await(io);
+  assert(match(r, .Some(v) => (v == u64(11)), .None => false), "completed result should be intact");
+});
