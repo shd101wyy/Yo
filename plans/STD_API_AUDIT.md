@@ -463,7 +463,7 @@ Open D7 items:
 | time | EXTEND | `Duration`: `Add/Sub` operators, `Eq/Ord/Hash`, `from_secs_f64`, `subsec_*`, consts; **make std USE it** (timeouts, sleeps); `Instant` `add/sub`, `Eq/Ord`; `DateTime`: RFC3339 `parse`/`format`, component ctor, arithmetic, `Eq/Ord`; sleep unification DONE (§5) |
 | crypto | EXTEND | `Digest` trait + SHA-1 + SHA-512 + streaming Md5 + HMAC + CRC32 + `constant_time_eq` DONE 2026-08-27; `std/rand` DONE 2026-08-27 (PCG32) |
 | log | REWRITE (zero users = free window) | levels + `Off`, `ToString`-generic message, lazy eval, timestamps, target/module, writer sink, thread-safe; keep the free-function facade |
-| testing | EXTEND | `assert_eq`/`assert_ne`/`assert_approx` (diff-printing), `bench`: auto-calibration, black_box, stddev/percentiles |
+| testing | EXTEND | ~~`assert_eq`/`assert_ne`/`assert_approx` (diff-printing)~~ **DONE 2026-08-28** (std/assert: both-sides / shared-value / |diff|-vs-epsilon panics; optional msg; `Eq(A)+ToString` bounds; tests/assert_eq.test.yo); `bench`: auto-calibration, black_box, stddev/percentiles |
 | gc/allocator | POLISH | `gc.stats()`; `CustomAllocator` deleted (O6) |
 | build | KEEP (already coherent) | Zig-shaped, comptime-correct; only additive evolution |
 
