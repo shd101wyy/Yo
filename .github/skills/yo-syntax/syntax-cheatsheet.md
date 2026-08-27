@@ -1215,6 +1215,25 @@ sep := `, `;
 lines.push(`**Implements:** ${sep.join(names)}`);
 ```
 
+#### The same trap inside EMITTED C — including in its comments
+
+Every C emitter in `src/codegen/` writes its C through backtick templates, so a
+backtick ANYWHERE in that text ends the string — a `${...}` interpolation is not
+required. Writing Markdown-style `` `identifier` `` in a C comment (a very
+natural habit when the comment cites a Yo name) is enough:
+
+```rust
+em.emit_declaration_string_line(
+  `// this runtime writes `{0}` into the handle    ← ❌ the 2nd backtick ends the
+   #define __YO_THREAD_HANDLE_IS_NULL(t) ((t) == 0)`  //   string; the rest is
+);                                                    //   parsed as Yo code
+```
+
+The failure is doubly confusing: `yo fmt` reformats the now-"code" text (`{0}`
+becomes `{ 0 }`), and the parse error lands on the COMMENT line with a message
+about paren-less calls. Write such comments with plain quotes or no delimiter at
+all.
+
 ### A literal `\\` immediately before `${...}` silently kills the interpolation
 
 `\\` is the escape for one literal backslash and works everywhere EXCEPT
