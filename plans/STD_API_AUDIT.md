@@ -707,6 +707,35 @@ mmap/file-lock/statfs wrappers; `gc.stats`; DNS SRV/TXT/reverse
 6. **S5 — stability freeze:** stable/unstable markers in `yo doc` output,
    additive-only policy documented in `yo-design.instructions.md`.
 
+   **Two inputs measured 2026-08-27, to be worked before the freeze:**
+
+   - **Dead public surface.** A scripted sweep of every `enum` in `std/` found
+     25 variants with no production site. Most are legitimate user-supplied
+     INPUTS (`Optimize.ReleaseFast`, `SeekFrom.Current`, `Signal.Interrupt` — the
+     library matches on them, user code produces them), but the library-produced
+     ERROR variants that can never occur are lies the freeze would lock in:
+     `HttpError.{Timeout,TooManyRedirects,ResponseTooLarge}` (**C33**, fix them
+     rather than delete), `JsonError.InvalidNumber` (**C34** — it turned out the
+     validation was missing, now FIXED), `Hash{Map,Set}Error.CapacityOverflow`
+     (**C35** — same, the check was missing, now FIXED), and
+     `HashMapError.KeyNotFound` / `HashSetError.ElementNotFound`, which are dead
+     BY DESIGN (lookups return `Option`) and want DELETING here, in §6, since
+     removing a public variant is breaking. `std/allocator`'s `Layout` /
+     `layout_of` are unconsumed too — no `alloc(Layout)` entry point exists —
+     which needs the same delete-or-implement decision. The struct-field face of
+     the sweep came back clean apart from reflection metadata and
+     `DateTime.nanosecond` (correctly populated, just never rendered — RFC 3339
+     permits that, so no defect).
+   - **Test coverage of the exported surface.** 1132 of 1829 `std` exports are
+     never NAMED anywhere under `tests/`. That number badly overstates the gap —
+     it is a name grep, so `std/sys/*` + `std/libc/*` constants dominate it and
+     any type exercised only structurally (iterators reached through `for`, error
+     enums appearing only in signatures) scores zero — but 183 of them sit
+     outside those raw layers and want a real read before anything is marked
+     stable. Freezing an export no test exercises is how a broken API becomes
+     permanent (C34 was exactly that: `json_parse`'s number path had no negative
+     test, so a parser that accepted `"<html>"` as `0` looked green for months).
+
 Every stage gates on: `yo check ./std && yo check ./src`, the full language
 suite, the internal suite for touched areas, `gates_fast.sh` + fixpoint, and
 docs in both `docs/en-US` and `docs/zh-CN` for user-visible surface.
