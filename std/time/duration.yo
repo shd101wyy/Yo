@@ -94,4 +94,110 @@ impl(
     })
   )
 );
+
+// ============================================================================
+// Operators, comparison, hashing, float/subsecond accessors, consts
+// (plans/STD_API_AUDIT.md §7 time row)
+// ============================================================================
+impl(
+  Duration,
+  /// One second.
+  SECOND : (fn() -> Self)(Self(secs : i64(1), nanos : i64(0))),
+  /// One millisecond.
+  MILLISECOND : (fn() -> Self)(Self(secs : i64(0), nanos : i64(1000000))),
+  /// One microsecond.
+  MICROSECOND : (fn() -> Self)(Self(secs : i64(0), nanos : i64(1000))),
+  /// One nanosecond.
+  NANOSECOND : (fn() -> Self)(Self(secs : i64(0), nanos : i64(1))),
+  /// One minute.
+  MINUTE : (fn() -> Self)(Self(secs : i64(60), nanos : i64(0))),
+  /// One hour.
+  HOUR : (fn() -> Self)(Self(secs : i64(3600), nanos : i64(0))),
+  /// From fractional seconds (`Duration.from_secs_f64(0.25)` = 250ms).
+  /// Sub-nanosecond precision truncates toward zero; negative inputs clamp
+  /// to zero (a Duration is a non-negative span, like `sub`'s saturation).
+  from_secs_f64 : (fn(secs : f64) -> Self)(
+    cond(
+      (secs <= f64(0)) => Self.zero(),
+      true => {
+        whole := i64(secs);
+        frac_nanos := i64((secs - f64(whole)) * f64(1000000000.0));
+        Self(secs : whole, nanos : frac_nanos)
+      }
+    )
+  ),
+  /// The sub-second part in milliseconds (0..999).
+  subsec_millis : (fn(inout(self) : Self) -> i64)(
+    self.nanos / i64(1000000)
+  ),
+  /// The sub-second part in microseconds (0..999_999).
+  subsec_micros : (fn(inout(self) : Self) -> i64)(
+    self.nanos / i64(1000)
+  ),
+  /// The sub-second part in nanoseconds (0..999_999_999).
+  subsec_nanos : (fn(inout(self) : Self) -> i64)(
+    self.nanos
+  )
+);
+/// `a + b` — same carry rule as `add`.
+impl(
+  Duration,
+  Add(Duration)(
+    Output : Duration,
+    (+) : (fn(self : Self, other : Self) -> Self.Output)(
+      self.add(other)
+    )
+  )
+);
+/// `a - b` — same zero-saturation as `sub`.
+impl(
+  Duration,
+  Sub(Duration)(
+    Output : Duration,
+    (-) : (fn(self : Self, other : Self) -> Self.Output)(
+      self.sub(other)
+    )
+  )
+);
+impl(
+  Duration,
+  Eq(Duration)(
+    (==) : (fn(lhs : Self, rhs : Self) -> bool)(
+      (lhs.secs == rhs.secs) && (lhs.nanos == rhs.nanos)
+    ),
+    (!=) : (fn(lhs : Self, rhs : Self) -> bool)(
+      !(lhs == rhs)
+    )
+  )
+);
+impl(
+  Duration,
+  Ord(Duration)(
+    (<) : (fn(lhs : Self, rhs : Self) -> bool)(
+      cond(
+        (lhs.secs != rhs.secs) => (lhs.secs < rhs.secs),
+        true => (lhs.nanos < rhs.nanos)
+      )
+    ),
+    (<=) : (fn(lhs : Self, rhs : Self) -> bool)(
+      !(rhs < lhs)
+    ),
+    (>) : (fn(lhs : Self, rhs : Self) -> bool)(
+      rhs < lhs
+    ),
+    (>=) : (fn(lhs : Self, rhs : Self) -> bool)(
+      !(lhs < rhs)
+    )
+  )
+);
+impl(
+  Duration,
+  Hash(
+    (hash) : (fn(inout(self) : Self) -> u64)(
+      // Total nanoseconds is the value's identity (secs/nanos are kept
+      // normalized by every constructor), so hashing it keeps Eq's contract.
+      u64(self.as_nanos()) * u64(1099511628211)
+    )
+  )
+);
 export(Duration);

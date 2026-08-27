@@ -49,3 +49,16 @@ test("Instant.duration_since earlier returns zero", {
   d := t1.duration_since(t2);
   assert(d.is_zero(), "earlier.duration_since(later) should be zero");
 });
+// ============================================================================
+// add/sub(Duration) + Eq/Ord (plans/STD_API_AUDIT.md §7 time row)
+// ============================================================================
+test("Instant add/sub shift and Eq/Ord order", {
+  base := Instant.now();
+  later := base.add(Duration.from_millis(i64(1500)));
+  assert(later > base, "add moves forward");
+  assert(base < later, "Ord symmetric");
+  assert(later.duration_since(base) == Duration.from_millis(i64(1500)), "shift distance exact");
+  round := later.sub(Duration.from_millis(i64(1500)));
+  assert(round == base, "add then sub round-trips");
+  assert(base >= base, "reflexive");
+});
