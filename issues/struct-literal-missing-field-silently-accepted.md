@@ -182,6 +182,36 @@ module, ref struct reached module-qualified (`_thing_mod.Thing(...)`, the shape
 The cure is still to stop swallowing the evaluator error for async-closure
 bodies (the wider strict-mode campaign).
 
+### A cheap first step that closes the silence without any new rejection
+
+Before attempting the strict-mode campaign (~220 swallow classes, many of them
+load-bearing today), one measurement decides a much smaller move: **how many
+`// Failed to transpile` markers does a HEALTHY tree emit?**
+
+    yo compile src/main.yo --emit-c --skip-c-compiler --release
+    grep -c "Failed to transpile" <emitted .c>
+
+If that count is zero on a green tree — which the hollow-sweep gate's whole
+design suggests, since it treats an FTT'd batch `__yo_user_main` as a vacuous
+pass — then codegen can simply REPORT when it emits one, printing the evaluator
+error it currently discards along with the source line. That:
+
+- ends the silence for the `unit`-returning hole above, which no
+  `-Werror=return-type` can ever reach,
+- gives the user `Type member "_probe" is not provided` at the real literal
+  instead of a C-level "does not return a value" against a generated line,
+- and adds NO new rejection, so it cannot over-reject: it only speaks about
+  statements that were already being dropped.
+
+If the count is NOT zero, the same reporting is still available scoped to
+codegen-time closure-body evaluation (the context this bug lives in), with the
+pre-existing markers left alone. Either way the diagnostic that was computed
+stops being thrown away.
+
+Do the measurement on an idle machine: a full `src/main.yo` emit alongside a
+running suite is what manufactures the runner's 600 s evaluator-deadline
+failures.
+
 ### The codegen arity assertion is NOT a fix for this — it would be dead code
 
 An assertion in the constructor / compound-literal emit paths
