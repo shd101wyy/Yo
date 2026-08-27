@@ -1043,35 +1043,23 @@ impl(
     );
   }),
   /// Keep only the elements `pred` accepts, in place and in order; the
-  /// rejected elements are dropped.
+  /// rejected elements are dropped. Built on `remove` (backward walk), whose
+  /// RC handling is the module's proven path — the first cut compacted
+  /// through raw pointers and double-released RC elements (the Linux-ASan
+  /// heap-use-after-free on PR #313's first run; local ASan is
+  /// non-functional, so CI was the first to see it).
   retain : (fn(self : Self, pred : Impl(Fn(v : T) -> bool)) -> unit)({
-    match(
-      self._ptr,
-      .Some(_ptr) => {
-        (write : usize) = usize(0);
-        (read : usize) = usize(0);
-        while(read < self._length, read = (read + usize(1)), {
-          v := (_ptr.add(read)).*;
-          cond(
-            pred(v) => {
-              cond(
-                (write != read) => {
-                  (_ptr.add(write)).* = v;
-                },
-                true => ()
-              );
-              write = (write + usize(1));
-            },
-            true => {
-              slot := _ptr.add(read);
-              unsafe.drop(slot.*);
-            }
-          );
-        });
-        self.set_len(write);
-      },
-      .None => ()
-    );
+    (i : usize) = self.len();
+    while(i > usize(0), {
+      i = (i - usize(1));
+      v := self(i);
+      cond(
+        pred(v) => (),
+        true => {
+          _r := self.remove(i, usize(1));
+        }
+      );
+    });
   }),
   /// Append a copy of every element of `other`.
   extend : (fn(self : Self, other : ArrayList(T)) -> unit)({

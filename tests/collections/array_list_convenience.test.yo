@@ -212,3 +212,17 @@ test("extend appends copies", {
   assert(a(usize(2)) == i32(3), "tail from other");
   assert(b.len() == usize(2), "source untouched");
 });
+test("sort and sort_by handle RC (String) elements", {
+  list := ArrayList(String).new();
+  list.push(`pear`.to_string());
+  list.push(`apple`.to_string());
+  list.push(`mango`.to_string());
+  list.push(`fig`.to_string());
+  list.sort();
+  assert(list(usize(0)) == `apple`, "sorted head");
+  assert(list(usize(3)) == `pear`, "sorted tail");
+  list.sort_by((a, b) => (b < a));
+  assert(list(usize(0)) == `pear`, "descending head");
+  assert(list(usize(3)) == `apple`, "descending tail");
+  assert(list.len() == usize(4), "no element lost");
+});
