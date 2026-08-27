@@ -90,3 +90,41 @@ test("Duration.to_string", {
   assert(s.contains(`2s`), "should contain 2s");
   assert(s.contains(`500000000ns`), "should contain 500000000ns");
 });
+// ============================================================================
+// Operators, Eq/Ord/Hash, from_secs_f64, subsec_*, consts
+// (plans/STD_API_AUDIT.md §7 time row)
+// ============================================================================
+test("operators + and - with carry and saturation", {
+  a := Duration.from_millis(i64(750));
+  b := Duration.from_millis(i64(500));
+  s := (a + b);
+  assert(s.as_secs() == i64(1), "carry into secs");
+  assert(s.subsec_millis() == i64(250), "carry remainder");
+  d := (b - a);
+  assert(d.is_zero(), "subtraction saturates at zero");
+  d2 := (a - b);
+  assert(d2.as_millis() == i64(250), "normal subtraction");
+});
+test("Eq and Ord order spans", {
+  assert(Duration.from_millis(i64(1500)) == Duration.from_nanos(i64(1500000000)), "normalized equality");
+  assert(Duration.from_secs(i64(1)) < Duration.from_millis(i64(1001)), "nanos tiebreak");
+  assert(Duration.from_secs(i64(2)) > Duration.from_millis(i64(1999)), "secs dominate");
+  assert(Duration.zero() <= Duration.zero(), "reflexive");
+});
+test("from_secs_f64 and subsec accessors", {
+  q := Duration.from_secs_f64(f64(1.25));
+  assert(q.as_secs() == i64(1), "whole part");
+  assert(q.subsec_millis() == i64(250), "fraction to millis");
+  assert(q.subsec_micros() == i64(250000), "micros");
+  assert(q.subsec_nanos() == i64(250000000), "nanos");
+  assert(Duration.from_secs_f64(f64(-3)).is_zero(), "negative clamps to zero");
+});
+test("consts and hash contract", {
+  assert(Duration.SECOND() == Duration.from_millis(i64(1000)), "SECOND");
+  assert(Duration.MINUTE() == Duration.from_secs(i64(60)), "MINUTE");
+  assert(Duration.HOUR() == Duration.from_secs(i64(3600)), "HOUR");
+  assert(Duration.MILLISECOND().as_nanos() == i64(1000000), "MILLISECOND");
+  a := Duration.from_millis(i64(1500));
+  b := Duration.from_nanos(i64(1500000000));
+  assert(a.hash() == b.hash(), "Eq values hash equal");
+});

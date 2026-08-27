@@ -54,4 +54,64 @@ impl(
     current.duration_since(self)
   })
 );
+
+// ============================================================================
+// add/sub(Duration) + Eq/Ord (plans/STD_API_AUDIT.md §7 time row)
+// ============================================================================
+impl(
+  Instant,
+  /// This instant shifted forward by `d`.
+  add : (fn(inout(self) : Self, d : Duration) -> Self)({
+    total := (self.nanos + (d.as_nanos() % i64(1000000000)));
+    carry := (total / i64(1000000000));
+    Self(
+      secs : ((self.secs + d.as_secs()) + carry),
+      nanos : (total % i64(1000000000))
+    )
+  }),
+  /// This instant shifted backward by `d` (clamps at the clock's zero, the
+  /// same non-negative stance as `duration_since`).
+  sub : (fn(inout(self) : Self, d : Duration) -> Self)({
+    self_ns := ((self.secs * i64(1000000000)) + self.nanos);
+    d_ns := d.as_nanos();
+    cond(
+      (self_ns <= d_ns) => Self(secs : i64(0), nanos : i64(0)),
+      true => {
+        left := (self_ns - d_ns);
+        Self(secs : (left / i64(1000000000)), nanos : (left % i64(1000000000)))
+      }
+    )
+  })
+);
+impl(
+  Instant,
+  Eq(Instant)(
+    (==) : (fn(lhs : Self, rhs : Self) -> bool)(
+      (lhs.secs == rhs.secs) && (lhs.nanos == rhs.nanos)
+    ),
+    (!=) : (fn(lhs : Self, rhs : Self) -> bool)(
+      !(lhs == rhs)
+    )
+  )
+);
+impl(
+  Instant,
+  Ord(Instant)(
+    (<) : (fn(lhs : Self, rhs : Self) -> bool)(
+      cond(
+        (lhs.secs != rhs.secs) => (lhs.secs < rhs.secs),
+        true => (lhs.nanos < rhs.nanos)
+      )
+    ),
+    (<=) : (fn(lhs : Self, rhs : Self) -> bool)(
+      !(rhs < lhs)
+    ),
+    (>) : (fn(lhs : Self, rhs : Self) -> bool)(
+      rhs < lhs
+    ),
+    (>=) : (fn(lhs : Self, rhs : Self) -> bool)(
+      !(lhs < rhs)
+    )
+  )
+);
 export(Instant);
