@@ -326,7 +326,12 @@ async `Writer.write`).
 No TLS in tree; C1 makes https throw for now. **DECIDED (O2, 2026-08-23):
 `std/crypto/tls.yo` over platform libraries (SecureTransport/Schannel/OpenSSL)
 via the existing `pkg_config` mechanism, behind one `TlsStream` type
-implementing the D5 traits.** Until it lands, std honestly refuses https.
+implementing the D5 traits.** **PR-1 LANDED 2026-08-28**: `TlsStream` over
+OpenSSL (memory-BIO async pump, cert+hostname+SNI on, D5 Reader/Writer),
+proven by a live example.com:443 handshake; `_probe_openssl` in src/main.yo
+(plans/D6_TLS_PLAN.md). Remaining: route `std/http` https through it (PR-2)
+and the P0+ curl→std/http swap (PR-3); Windows Schannel joins the Windows
+platform audit.
 
 ### D7 — sync/concurrency shape
 
