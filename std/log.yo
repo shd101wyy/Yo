@@ -1,10 +1,53 @@
-//! Structured logging with configurable level and output destination.
+//! Structured logging — level-filtered, optionally timestamped and
+//! target-tagged, thread-safe, with a free-function facade
+//! (`plans/STD_API_AUDIT.md` §7 log row: the zero-user rewrite window).
+//!
+//! ```rust
+//! log :: import "std/log";
+//! log.set_level(log.Level.Debug);
+//! log.info(`server started on ${port}`);         // any ToString value
+//! log.info_lazy(() => expensive_summary());        // String, built only if it passes
+//! log.set_timestamps(true);
+//! log.warn_target(`db`, `slow query: ${ms}ms`);   // "[WARN ] [db] ..."
+//! ```
+//!
+//! The level filter runs BEFORE the message is rendered — the plain forms
+//! still evaluate their argument at the call site (the value already
+//! exists), but the `*_lazy` forms take a `() -> String` closure CALLED ONLY when
+//! the message will actually be emitted. A single mutex serializes the
+//! filter check and the write, so lines from different OS threads never
+//! interleave (the parallelism runtime is the multi-threaded path; the async
+//! runtime is single-threaded and never contends).
 pragma(Pragma.AllowUnsafe);
 open(import("./string"));
 { ToString } :: import("./fmt");
 { fwrite, stdout, stderr, FILE } :: import("./libc/stdio");
-/// Log severity level.
-Level :: enum(Trace, Debug, Info, Warn, Error);
+{ DateTime } :: import("./time/datetime");
+// Reuse the parallelism runtime's mutex type + primitives (the same C
+// __YO_THREAD_SYNC_TYPE std/sync/mutex uses). Declaring our own extern type
+// alias emitted an undefined C typedef and clashed with std/sync/mutex when
+// both were imported; importing the shared type avoids both.
+{ __YO_THREAD_SYNC_TYPE } :: import("./sync/mutex");
+extern(
+  "Yo",
+  __yo_mutex_create : (fn() -> __YO_THREAD_SYNC_TYPE),
+  __yo_mutex_lock : (fn(mutex : *(__YO_THREAD_SYNC_TYPE)) -> unit),
+  __yo_mutex_unlock : (fn(mutex : *(__YO_THREAD_SYNC_TYPE)) -> unit)
+);
+/// Log severity, ascending. `Off` disables all output — filtering against it
+/// drops every message, including `Error`.
+Level :: enum(Trace, Debug, Info, Warn, Error, Off);
+_level_value :: (fn(l : Level) -> i32)(
+  match(
+    l,
+    .Trace => i32(0),
+    .Debug => i32(1),
+    .Info => i32(2),
+    .Warn => i32(3),
+    .Error => i32(4),
+    .Off => i32(5)
+  )
+);
 impl(
   Level,
   ToString(
@@ -15,47 +58,57 @@ impl(
         .Debug => String.from("DEBUG"),
         .Info => String.from("INFO "),
         .Warn => String.from("WARN "),
-        .Error => String.from("ERROR")
+        .Error => String.from("ERROR"),
+        .Off => String.from("OFF  ")
       )
     )
   )
 );
-export(Level);
-/// Where log messages are written.
-LogOutput :: enum(
-  Stderr,
-  Stdout
+impl(
+  Level,
+  Eq(Level)(
+    (==) : ((lhs, rhs) -> __yo_op_eq(lhs, rhs)),
+    (!=) : ((lhs, rhs) -> __yo_op_neq(lhs, rhs))
+  )
 );
+export(Level);
+/// Where log lines are written.
+LogOutput :: enum(Stderr, Stdout);
 export(LogOutput);
 // ============================================================================
-// Global logger state (module-level mutable)
+// Global state (module-level, mutex-guarded)
 // ============================================================================
 _global_level := Level.Info;
 _global_output := LogOutput.Stderr;
+_global_timestamps := false;
+_log_mutex := __yo_mutex_create();
 // ============================================================================
 // Configuration
 // ============================================================================
+/// Set the minimum level that is emitted (`Off` silences everything).
 set_level :: (fn(level : Level) -> unit)({
   _global_level = level;
 });
+/// The current minimum level.
+get_level :: (fn() -> Level)(_global_level);
+/// Choose stdout or stderr (default stderr).
 set_output :: (fn(output : LogOutput) -> unit)({
   _global_output = output;
 });
-export(set_level, set_output);
+/// Prefix each line with an RFC 3339 UTC timestamp when true.
+set_timestamps :: (fn(on : bool) -> unit)({
+  _global_timestamps = on;
+});
+export(set_level, get_level, set_output, set_timestamps);
 // ============================================================================
-// Core log function
+// Core
 // ============================================================================
-_level_value :: (fn(l : Level) -> i32)(
-  match(
-    l,
-    .Trace => i32(0),
-    .Debug => i32(1),
-    .Info => i32(2),
-    .Warn => i32(3),
-    .Error => i32(4)
-  )
+/// True iff a message at `level` would be emitted right now — the guard the
+/// lazy forms check before building their message.
+enabled :: (fn(level : Level) -> bool)(
+  (_level_value(level) >= _level_value(_global_level)) && (_level_value(_global_level) < _level_value(Level.Off))
 );
-// Write all bytes from a String to the file handle.
+export(enabled);
 _write_string :: (fn(s : String, dest : *(FILE)) -> unit)({
   bytes := s.as_bytes();
   cond(
@@ -66,33 +119,77 @@ _write_string :: (fn(s : String, dest : *(FILE)) -> unit)({
     true => ()
   );
 });
-log :: (fn(level : Level, msg : String) -> unit)({
+/// Emit one already-rendered line: `[TS ]?[LEVEL] [target ]?msg\n`. The
+/// filter check and the whole write are under one lock, so concurrent
+/// threads never interleave a line.
+_emit :: (fn(level : Level, target : String, msg : String) -> unit)({
+  unsafe(__yo_mutex_lock(&(_log_mutex)));
   cond(
-    (_level_value(level) < _level_value(_global_level)) => {
+    !(enabled(level)) => {
+      unsafe(__yo_mutex_unlock(&(_log_mutex)));
       return(());
     },
     true => ()
   );
-  level_str := level.to_string();
-  dest := match(
-    _global_output,
-    .Stdout => stdout,
-    .Stderr => stderr
+  dest := match(_global_output, .Stdout => stdout, .Stderr => stderr);
+  cond(
+    _global_timestamps => {
+      ts := DateTime.now_utc();
+      _write_string(ts.to_string(), dest);
+      _write_string(String.from(" "), dest);
+    },
+    true => ()
   );
-  // Write "[LEVEL] msg\n"
-  unsafe(fwrite(*(void)(*(u8)("[")), usize(1), usize(1), dest));
-  _write_string(level_str, dest);
-  unsafe(fwrite(*(void)(*(u8)("] ")), usize(1), usize(2), dest));
+  _write_string(String.from("["), dest);
+  _write_string(level.to_string(), dest);
+  _write_string(String.from("] "), dest);
+  cond(
+    (target.len() > usize(0)) => {
+      _write_string(String.from("["), dest);
+      _write_string(target, dest);
+      _write_string(String.from("] "), dest);
+    },
+    true => ()
+  );
   _write_string(msg, dest);
-  unsafe(fwrite(*(void)(*(u8)("\n")), usize(1), usize(1), dest));
+  _write_string(String.from("\n"), dest);
+  unsafe(__yo_mutex_unlock(&(_log_mutex)));
 });
-export(log);
+/// Log a `ToString` value at `level`.
+log :: (fn(generic(T : Type), level : Level, msg : T, where(T <: ToString)) -> unit)(
+  _emit(level, String.new(), msg.to_string())
+);
+/// Log a `ToString` value at `level`, tagged with a `target`/module string.
+log_target :: (fn(generic(T : Type), level : Level, target : str, msg : T, where(T <: ToString)) -> unit)(
+  _emit(level, String.from(target), msg.to_string())
+);
+/// Log at `level`, building the message from `make` ONLY when it passes the
+/// filter — for messages that are costly to construct.
+log_lazy :: (fn(level : Level, make : Impl(Fn() -> String)) -> unit)(
+  cond(
+    enabled(level) => _emit(level, String.new(), make()),
+    true => ()
+  )
+);
+export(log, log_target, log_lazy);
 // ============================================================================
-// Convenience functions
+// Free-function facade
 // ============================================================================
-trace :: (fn(msg : String) -> unit)(log(.Trace, msg));
-debug :: (fn(msg : String) -> unit)(log(.Debug, msg));
-info :: (fn(msg : String) -> unit)(log(.Info, msg));
-warn :: (fn(msg : String) -> unit)(log(.Warn, msg));
-error :: (fn(msg : String) -> unit)(log(.Error, msg));
+trace :: (fn(generic(T : Type), msg : T, where(T <: ToString)) -> unit)(log(Level.Trace, msg));
+debug :: (fn(generic(T : Type), msg : T, where(T <: ToString)) -> unit)(log(Level.Debug, msg));
+info :: (fn(generic(T : Type), msg : T, where(T <: ToString)) -> unit)(log(Level.Info, msg));
+warn :: (fn(generic(T : Type), msg : T, where(T <: ToString)) -> unit)(log(Level.Warn, msg));
+error :: (fn(generic(T : Type), msg : T, where(T <: ToString)) -> unit)(log(Level.Error, msg));
 export(trace, debug, info, warn, error);
+trace_target :: (fn(generic(T : Type), target : str, msg : T, where(T <: ToString)) -> unit)(log_target(Level.Trace, target, msg));
+debug_target :: (fn(generic(T : Type), target : str, msg : T, where(T <: ToString)) -> unit)(log_target(Level.Debug, target, msg));
+info_target :: (fn(generic(T : Type), target : str, msg : T, where(T <: ToString)) -> unit)(log_target(Level.Info, target, msg));
+warn_target :: (fn(generic(T : Type), target : str, msg : T, where(T <: ToString)) -> unit)(log_target(Level.Warn, target, msg));
+error_target :: (fn(generic(T : Type), target : str, msg : T, where(T <: ToString)) -> unit)(log_target(Level.Error, target, msg));
+export(trace_target, debug_target, info_target, warn_target, error_target);
+trace_lazy :: (fn(make : Impl(Fn() -> String)) -> unit)(log_lazy(Level.Trace, make));
+debug_lazy :: (fn(make : Impl(Fn() -> String)) -> unit)(log_lazy(Level.Debug, make));
+info_lazy :: (fn(make : Impl(Fn() -> String)) -> unit)(log_lazy(Level.Info, make));
+warn_lazy :: (fn(make : Impl(Fn() -> String)) -> unit)(log_lazy(Level.Warn, make));
+error_lazy :: (fn(make : Impl(Fn() -> String)) -> unit)(log_lazy(Level.Error, make));
+export(trace_lazy, debug_lazy, info_lazy, warn_lazy, error_lazy);
