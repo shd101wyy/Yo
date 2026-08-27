@@ -1,6 +1,7 @@
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 open(import("std/collections/hash_map"));
+open(import("std/string"));
 // ===== Construction Tests =====
 test("HashMap.new creates empty map", {
   map := HashMap(i32, i32).new();
@@ -587,4 +588,32 @@ test("HashMap values - manual next() iteration terminates", {
   });
   assert(steps == i32(2), "values() must terminate after yielding each value once");
   assert(val_sum == i32(31));
+});
+// ============================================================================
+// Entry-style accessors (plans/STD_API_AUDIT.md §7 collections row)
+// ============================================================================
+test("get_or_insert inserts once and reads thereafter", {
+  m := HashMap(String, i32).new();
+  a := m.get_or_insert(`hits`.to_string(), i32(1));
+  assert(a == i32(1), "inserted default");
+  b := m.get_or_insert(`hits`.to_string(), i32(99));
+  assert(b == i32(1), "existing wins over default");
+  assert(m.len() == usize(1), "one entry");
+});
+test("get_or_insert_with defers construction", {
+  m := HashMap(String, String).new();
+  v := m.get_or_insert_with(`k`.to_string(), () => `built`.to_string());
+  assert(v == `built`, "constructed on miss");
+  v2 := m.get_or_insert_with(`k`.to_string(), () => `never`.to_string());
+  assert(v2 == `built`, "hit skips make");
+});
+test("update_with maps present values only", {
+  m := HashMap(String, i32).new();
+  _i := m.insert(`n`.to_string(), i32(10));
+  did := m.update_with(`n`.to_string(), (v) => (v + i32(5)));
+  assert(did, "updated");
+  assert(match(m.get(`n`.to_string()), .Some(v) => (v == i32(15)), .None => false), "value mapped");
+  did2 := m.update_with(`absent`.to_string(), (v) => v);
+  assert(!(did2), "absent is a no-op");
+  assert(m.len() == usize(1), "no phantom insert");
 });

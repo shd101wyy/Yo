@@ -436,6 +436,50 @@ impl(
     self.size = usize(0);
   })
 );
+/// The entry-style accessors (plans/STD_API_AUDIT.md §7 collections row):
+/// Yo's pragmatic shape of Rust's Entry — no borrow object, just
+/// get-or-insert in one probe-and-settle call.
+impl(
+  generic(K : Type, V : Type),
+  where(K <: (Eq(K), Hash)),
+  HashMap(K, V),
+  /// The value for `key`, inserting `default` first when absent.
+  get_or_insert : (fn(self : Self, key : K, default : V) -> V)(
+    match(
+      self.get(key),
+      .Some(v) => v,
+      .None => {
+        _r := self.insert(key, default);
+        default
+      }
+    )
+  ),
+  /// The value for `key`, inserting `make()`'s result first when absent —
+  /// use over `get_or_insert` when constructing the default is costly.
+  get_or_insert_with : (fn(self : Self, key : K, make : Impl(Fn() -> V)) -> V)(
+    match(
+      self.get(key),
+      .Some(v) => v,
+      .None => {
+        made := make();
+        _r := self.insert(key, made);
+        made
+      }
+    )
+  ),
+  /// Update the value for `key` through `f` when present; no-op when absent.
+  /// Returns true when an update happened.
+  update_with : (fn(self : Self, key : K, f : Impl(Fn(v : V) -> V)) -> bool)(
+    match(
+      self.get(key),
+      .Some(v) => {
+        _r := self.insert(key, f(v));
+        true
+      },
+      .None => false
+    )
+  )
+);
 impl(
   generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash)),
