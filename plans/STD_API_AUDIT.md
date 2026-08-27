@@ -2,8 +2,15 @@
 
 **Status: IN PROGRESS.** Audit complete 2026-08-22; all §8 open questions
 DECIDED by the user 2026-08-23; **S0, S1 and almost all of S2 are LANDED**
-(PRs #229–#294, 2026-08-23 → 2026-08-26). Remaining: D4 PR 9, D5 slice 2,
-D6 (TLS), §7 S3/S4 additions, §9 S5 stability freeze.
+(PRs #229–#294, 2026-08-23 → 2026-08-26). Remaining: D6 (TLS —
+executable plan in plans/D6_TLS_PLAN.md), the §7 S4/P1 tail, §9 S5 stability
+freeze, and the seed-gated queue (plans/backlog/SEED_VERSION_AUTOMATION.md).
+D4 PR 9 closed BY EVENTS 2026-08-28: the vendor migrated upstream
+(markdown_yo ff51f91 — zero substring sites remain, and its byte-based
+decoders are CORRECT by construction under the byte-indexed String), the
+pointer is at the migrated commit, and the docs pipeline runs it green end
+to end. D5 closed except the SEED-GATED bufio consumer migration (recorded
+in the backlog doc).
 
 > **Condensed 2026-08-26.** The execution narratives for landed work were
 > trimmed to short records; the full history lives in this file's git history,
@@ -449,7 +456,7 @@ Open D7 items:
 | error/assert | EXTEND | downcast, derive(Error), context; narrow `error.yo`'s blanket `open(import(./string|./fmt))` re-export |
 | fmt | FIX + EXTEND | `display.yo` deleted (§6); format specs DONE (D3.10); still: collapse 4 print bodies; dedupe 15 snprintf helpers |
 | spec/ | FREEZE AS DOC | identity stubs; mark experimental, exclude from stability promise |
-| collections/* | RENAME + EXTEND | §5 renames DONE; ~~`retain/extend`, `binary_search`, real `sort` (not O(n²) insertion), `sort_by`~~ **DONE 2026-08-28** (in-place heapsort shared by sort/sort_by, Ok/Err-insertion-point binary_search, order-preserving RC-correct retain, copying extend); still: entry API, `drain`; HashSet = HashMap(T, unit) to kill ~500 duplicated SwissTable lines; hide pub `ctrl/data/…` fields; `BTreeMap` → real B-tree with `range()` (recommend: real B-tree, keep name); add `BTreeSet`; `PriorityQueue`: comparator ctor, DOCUMENT min-heap |
+| collections/* | RENAME + EXTEND | §5 renames DONE; ~~`retain/extend`, `binary_search`, real `sort` (not O(n²) insertion), `sort_by`~~ **DONE 2026-08-28** (in-place heapsort shared by sort/sort_by, Ok/Err-insertion-point binary_search, order-preserving RC-correct retain, copying extend); ~~entry API~~ **DONE 2026-08-28** (PR #316: `get_or_insert`/`get_or_insert_with`/`update_with` — Yo-shaped, no borrow object); still: `drain`; HashSet = HashMap(T, unit) to kill ~500 duplicated SwissTable lines; hide pub `ctrl/data/…` fields; `BTreeMap` → real B-tree with `range()` (recommend: real B-tree, keep name); add `BTreeSet`; `PriorityQueue`: comparator ctor, DOCUMENT min-heap |
 | imm/* | KEEP (O4) + FIX | stays in std; `Acyclic` element bounds LANDED (O7, 2026-08-27); still: iteration + `Index` where doc'd, dedupe set pair, mark unstable until exercised |
 | string | FIX + EXTEND | D4 byte-indexing DONE (both types); still: Unicode-correct `to_lowercase` (+ `to_ascii_*`; see the locale issue), `Pattern` impl for `rune` + `Regex`, `replace*` Pattern-generic, `parse_f64`/radix, `split_once`, `strip_prefix/suffix`, move `panic_dyn`/`assert_dyn` to assert, delete one of `to_cstr`/`to_c_str`; `StringError` is live now (from_utf8) |
 | encoding | STANDARDIZE | utf8, percent, `html_encode` + the `html_decode` rename DONE; still: one error style per D1 (base64's `Result(_, String)`), base32, CSV (P1), toml floats/arrays/dates/serializer + derives (P1) |
@@ -466,7 +473,7 @@ Open D7 items:
 | http | FIX + EXTEND | C1 DONE; still: timeouts (dead `Timeout` variant becomes real), redirects (needs `Url.join`), chunked decoding, binary bodies, keep-alive; **server (P1)**: `parse_request`, `HttpServer` on `TcpListener`; collapse `FetchOptions` into `HttpRequest` |
 | async | PROMOTE | combinator home: `join_all`, `race`, `any`, `timeout`, interval, cancellation for `JoinHandle` (`abort()`), async channel/mutex (D7). `sleep(Duration, io)` lives in `std/time/sleep.yo` — do NOT add a second one; re-export if wanted |
 | thread/worker/sync | REDESIGN (D7) | ThreadPool DONE; `join() -> T` + panic propagation blocked below std — see D7 |
-| time | EXTEND | `Duration`: `Add/Sub` operators, `Eq/Ord/Hash`, `from_secs_f64`, `subsec_*`, consts; **make std USE it** (timeouts, sleeps); `Instant` `add/sub`, `Eq/Ord`; ~~`DateTime`: RFC3339 `parse`/`format`, component ctor, arithmetic, `Eq/Ord`~~ **DONE 2026-08-28** (leap-aware `parse` incl. lowercase t/z + space separator + nano fractions + numeric offsets, typed `DateTimeError`, validating `new`, `add`/`sub(Duration)` offset-preserving, INSTANT-basis `Eq`/`Ord` + `to_unix_utc`; `to_string` was already RFC3339 — round-trip pinned); sleep unification DONE (§5) |
+| time | EXTEND | ~~`Duration`: `Add/Sub` operators, `Eq/Ord/Hash`, `from_secs_f64`, `subsec_*`, consts~~ + ~~`Instant` `add/sub`, `Eq/Ord`~~ **DONE 2026-08-28** (PR #312: operators mirror add/sub incl. zero-saturation, total-nanos Hash, from_secs_f64 clamps negatives, SECOND…HOUR consts, Instant.sub clamps at clock zero); **make std USE it** (timeouts, sleeps); ~~`DateTime`: RFC3339 `parse`/`format`, component ctor, arithmetic, `Eq/Ord`~~ **DONE 2026-08-28** (leap-aware `parse` incl. lowercase t/z + space separator + nano fractions + numeric offsets, typed `DateTimeError`, validating `new`, `add`/`sub(Duration)` offset-preserving, INSTANT-basis `Eq`/`Ord` + `to_unix_utc`; `to_string` was already RFC3339 — round-trip pinned); sleep unification DONE (§5) |
 | crypto | EXTEND | `Digest` trait + SHA-1 + SHA-512 + streaming Md5 + HMAC + CRC32 + `constant_time_eq` DONE 2026-08-27; `std/rand` DONE 2026-08-27 (PCG32) |
 | log | REWRITE (zero users = free window) | levels + `Off`, `ToString`-generic message, lazy eval, timestamps, target/module, writer sink, thread-safe; keep the free-function facade |
 | testing | EXTEND | ~~`assert_eq`/`assert_ne`/`assert_approx` (diff-printing)~~ **DONE 2026-08-28** (std/assert: both-sides / shared-value / |diff|-vs-epsilon panics; optional msg; `Eq(A)+ToString` bounds; tests/assert_eq.test.yo); `bench`: auto-calibration, black_box, stddev/percentiles |
