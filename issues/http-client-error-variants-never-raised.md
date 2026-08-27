@@ -59,12 +59,34 @@ makes the first one cheap):
   surface in std already speaks `Duration` (`std/time/sleep`, `std/async`);
   `std/sys/timer.sleep(milliseconds : u64)` stays raw by design as the sys
   layer.
+
+  **Structural constraint, worked out 2026-08-27:** `timeout` takes a
+  `JoinHandle`, so the request body has to be spawnable — and the body currently
+  IS `fetch_with`'s own `io.async((e) => { … })` closure. It cannot simply be
+  wrapped in place: a closure nested inside an `io.async` body is **C22**
+  (`issues/closure-nested-inside-io-async-closure-body-emits-abort-stub.md`,
+  still OPEN — compile exits 0, clang is clean, the binary is an `abort()`
+  stub). The shape that avoids C22 is to lift the body to a TOP-LEVEL
+  `_fetch_inner(url, opts, io) -> Impl(Future(HttpResponse, IoExn))` and have
+  `fetch_with` spawn that and race it:
+  `h := e.io.spawn(_fetch_inner(url_str, opts, e.io), e)` then
+  `timeout(h, limit, e.io)`, throwing `.Timeout` on `.None`.
+
+  Checking elapsed time inside `_read_http_response`'s loop instead would be
+  much smaller, but it can only fire BETWEEN awaits — it cannot interrupt a hung
+  `TcpStream.connect` or a read that never returns, which is the case a timeout
+  exists for. Do it with the race.
 - **TooManyRedirects**: follow 3xx `Location` up to a `FetchOptions` cap
   (default ~10), throwing when exceeded. Note the cross-scheme case: a redirect
   to `https://` must throw `UnsupportedScheme`, not silently downgrade (C1).
-- **ResponseTooLarge**: a max-body-bytes option enforced in
+- **ResponseTooLarge**: a max-bytes option threaded into
   `_read_http_response`, which today appends into an `ArrayList(u8)` with no
-  ceiling.
+  ceiling. Note this client buffers the WHOLE response into a `String`, so an
+  unbounded response is already an OOM waiting to happen — a default ceiling
+  (64 MiB, generous for a buffering client) with
+  `with_max_response_bytes(n)` to raise it, and `0` meaning unlimited, protects
+  by default. That default is a behaviour change for anyone pulling >64 MiB into
+  memory, which is fine pre-1.0 and belongs in the release notes.
 
 All three are additive (new `FetchOptions` fields + real behaviour), so they can
 land without breaking callers — unlike removing the variants, which is why this
