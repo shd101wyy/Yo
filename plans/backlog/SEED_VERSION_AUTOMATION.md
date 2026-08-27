@@ -89,3 +89,10 @@ mis-emits `std/io/bufio`'s match bindings
 (`use of undeclared identifier '_..._priv_temp_N'`). The migration itself is
 already written — it was committed and then reverted on branch
 d5/bufio-wrappers (see that branch's history for the exact diffs).
+
+## Seed-gated follow-up (2026-08-27): `Command.current_dir`
+
+Needs `posix_spawn_file_actions_addchdir_np` (macOS) / `addchdir` (glibc
+2.29+) wired into `__yo_async_spawn_start` as a new cwd parameter — a
+runtime-shim extern signature change the seed cannot compile against.
+Add at the next seed bump alongside the other generation-gated items.

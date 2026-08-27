@@ -1035,7 +1035,13 @@ _cc_command :: (fn(program : String, argv : ArrayList(String)) -> Command)({
   c := Command.new(program.clone());
   (i : usize) = usize(0);
   while(i < argv.len(), {
-    match(argv.get(i), .Some(a) => c.arg(a.clone()), .None => ());
+    match(
+      argv.get(i),
+      .Some(a) => {
+        _arg_c := c.arg(a.clone());
+      },
+      .None => ()
+    );
     i = (i + usize(1));
   });
   c
@@ -1167,7 +1173,7 @@ _compile_chunks_parallel :: (
         seq.arg(obj.clone());
         sst := io.await(seq.status(io), IoExn(io : io, exn : exn));
         if(sst.raw != i32(0), {
-          exn.throw(dyn(`compile: C compiler failed (exit ${sst.code().to_string()}) on ${cf}`));
+          exn.throw(dyn(`compile: C compiler failed (exit ${sst.code().unwrap_or(i32(-1)).to_string()}) on ${cf}`));
           return(objs);
         });
         li = (li + usize(1));
@@ -1196,7 +1202,7 @@ _compile_chunks_parallel :: (
       shcmd.arg(script_path.clone());
       shst := io.await(shcmd.status(io), IoExn(io : io, exn : exn));
       if(shst.raw != i32(0), {
-        exn.throw(dyn(`compile: C compiler failed (exit ${shst.code().to_string()}) compiling chunks — see ${script_path}`));
+        exn.throw(dyn(`compile: C compiler failed (exit ${shst.code().unwrap_or(i32(-1)).to_string()}) compiling chunks — see ${script_path}`));
         return(objs);
       });
     }
@@ -1921,7 +1927,9 @@ run_compile :: (
         eprintln(String.from("AddressSanitizer is not functional with this compiler setup (likely a version mismatch between clang and the ASAN runtime library). Skipping sanitizer. Install a matching ASAN runtime or use --cc with a compatible compiler."));
       });
     },
-    (sanitize == "leak") => cmd.arg(String.from("-fsanitize=leak")),
+    (sanitize == "leak") => {
+      _arg_c := cmd.arg(String.from("-fsanitize=leak"));
+    },
     (sanitize == "thread") => {
       cmd.arg(String.from("-fsanitize=thread"));
       cmd.arg(String.from("-fno-omit-frame-pointer"));
@@ -1931,17 +1939,35 @@ run_compile :: (
   // -I include paths, -D defines, -L library search paths.
   (ii : usize) = usize(0);
   while(ii < include_paths.len(), {
-    match(include_paths.get(ii), .Some(p) => cmd.arg(`-I${p}`), .None => ());
+    match(
+      include_paths.get(ii),
+      .Some(p) => {
+        _arg_c := cmd.arg(`-I${p}`);
+      },
+      .None => ()
+    );
     ii = (ii + usize(1));
   });
   (di : usize) = usize(0);
   while(di < defines.len(), {
-    match(defines.get(di), .Some(d) => cmd.arg(`-D${d}`), .None => ());
+    match(
+      defines.get(di),
+      .Some(d) => {
+        _arg_c := cmd.arg(`-D${d}`);
+      },
+      .None => ()
+    );
     di = (di + usize(1));
   });
   (li : usize) = usize(0);
   while(li < library_paths.len(), {
-    match(library_paths.get(li), .Some(p) => cmd.arg(`-L${p}`), .None => ());
+    match(
+      library_paths.get(li),
+      .Some(p) => {
+        _arg_c := cmd.arg(`-L${p}`);
+      },
+      .None => ()
+    );
     li = (li + usize(1));
   });
   // Arbitrary custom flags (--cflags "a b c").
@@ -1949,7 +1975,13 @@ run_compile :: (
     parts := cflags.split(" ");
     (ci : usize) = usize(0);
     while(ci < parts.len(), {
-      match(parts.get(ci), .Some(f) => if(f.len() > usize(0), cmd.arg(f.clone())), .None => ());
+      match(
+        parts.get(ci),
+        .Some(f) => if(f.len() > usize(0), {
+          _arg_c := cmd.arg(f.clone());
+        }),
+        .None => ()
+      );
       ci = (ci + usize(1));
     });
   });
@@ -2034,7 +2066,7 @@ run_compile :: (
     cmd.arg(obj_path.clone());
     cst := io.await(_cc_command(cc.clone(), cmd.recorded).status(io), IoExn(io : io, exn : exn));
     if(cst.raw != i32(0), {
-      exn.throw(dyn(`compile: C compiler failed (exit ${cst.code().to_string()}) on ${c_path}`));
+      exn.throw(dyn(`compile: C compiler failed (exit ${cst.code().unwrap_or(i32(-1)).to_string()}) on ${c_path}`));
       return(())
     });
     ar_out := if(output.clone().ends_with(".a"), output.clone(), `${output}.a`);
@@ -2044,7 +2076,7 @@ run_compile :: (
     arcmd.arg(obj_path.clone());
     ast := io.await(arcmd.status(io), IoExn(io : io, exn : exn));
     if(ast.raw != i32(0), {
-      exn.throw(dyn(`compile: ar failed (exit ${ast.code().to_string()}) creating ${ar_out}`));
+      exn.throw(dyn(`compile: ar failed (exit ${ast.code().unwrap_or(i32(-1)).to_string()}) creating ${ar_out}`));
     });
     return(())
   });
@@ -2073,15 +2105,29 @@ run_compile :: (
       chunk_used_cache = match(chunk_hits.get(usize(0)), .Some(h) => (h > usize(0)), .None => false);
       (cci : usize) = usize(0);
       while(cci < chunk_objs.len(), {
-        match(chunk_objs.get(cci), .Some(f) => cmd.arg(f.clone()), .None => ());
+        match(
+          chunk_objs.get(cci),
+          .Some(f) => {
+            _arg_c := cmd.arg(f.clone());
+          },
+          .None => ()
+        );
         cci = (cci + usize(1));
       });
     },
-    true => cmd.arg(c_path.clone())
+    true => {
+      _arg_c := cmd.arg(c_path.clone());
+    }
   );
   (ei : usize) = usize(0);
   while(ei < externs.len(), {
-    match(externs.get(ei), .Some(f) => cmd.arg(f.clone()), .None => ());
+    match(
+      externs.get(ei),
+      .Some(f) => {
+        _arg_c := cmd.arg(f.clone());
+      },
+      .None => ()
+    );
     ei = (ei + usize(1));
   });
   cmd.arg(String.from("-o"));
@@ -2112,7 +2158,13 @@ run_compile :: (
   });
   (xi : usize) = usize(0);
   while(xi < libraries.len(), {
-    match(libraries.get(xi), .Some(lib) => cmd.arg(`-l${lib}`), .None => ());
+    match(
+      libraries.get(xi),
+      .Some(lib) => {
+        _arg_c := cmd.arg(`-l${lib}`);
+      },
+      .None => ()
+    );
     xi = (xi + usize(1));
   });
   if(is_target_windows(target), {
@@ -2146,11 +2198,11 @@ run_compile :: (
       );
       st2 := io.await(_cc_command(cc.clone(), cmd.recorded).status(io), IoExn(io : io, exn : exn));
       if(st2.raw != i32(0), {
-        exn.throw(dyn(`compile: C compiler failed (exit ${st2.code().to_string()}) on ${c_path}`));
+        exn.throw(dyn(`compile: C compiler failed (exit ${st2.code().unwrap_or(i32(-1)).to_string()}) on ${c_path}`));
       });
       return(())
     });
-    exn.throw(dyn(`compile: C compiler failed (exit ${st.code().to_string()}) on ${c_path}`));
+    exn.throw(dyn(`compile: C compiler failed (exit ${st.code().unwrap_or(i32(-1)).to_string()}) on ${c_path}`));
   });
 });
 /// Recursively collect `*.test.yo` files under `path_str` (or `[path_str]`
@@ -2619,7 +2671,7 @@ run_test :: (
         });
         bst := io.await(ccmd.status(io), IoExn(io : io, exn : exn));
         if(bst.raw != i32(0), {
-          exn.throw(dyn(`test: batch compile failed (exit ${bst.code().to_string()}) for ${tmp_yo}`));
+          exn.throw(dyn(`test: batch compile failed (exit ${bst.code().unwrap_or(i32(-1)).to_string()}) for ${tmp_yo}`));
         });
         // Run each test: YO_TEST_INDEX in the PARENT env (the spawn runtime
         // passes environ through when envp is NULL). The ASan run environment
