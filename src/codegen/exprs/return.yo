@@ -560,6 +560,15 @@ handle_func_call_deferred_dup :: (fn(expr : AstExpr, indent : String, context : 
     ei.deferred_dup_expressions,
     .Some(dups) => if(dups.len() > usize(0), {
       em := context.base.emitter;
+      // The value is generated ONCE. When the evaluator gave the call a temp
+      // variable, that temp is what the caller must read back — the tail of
+      // `pick :: (fn(rows, r, f) -> String)(rows(r)(f))` used to emit
+      // `T temp = <index call>;` for the dup and then `return <index call>`
+      // AGAIN (the fallthrough below regenerated `expr`), evaluating the
+      // expression twice and, for a chained Index call, declaring its
+      // `__yo_idx_tmp_<id>` spill twice — a C redefinition error
+      // (issues/fixed/deferred-dup-return-regenerates-the-call.md).
+      (value_var : Option(String)) = Option(String).None;
       match(
         ei.variable_name,
         .Some(saved) => {
@@ -567,6 +576,7 @@ handle_func_call_deferred_dup :: (fn(expr : AstExpr, indent : String, context : 
           raw_code := _call_generate_expr(expr, indent.clone(), context);
           ei.variable_name = Option(String).Some(saved.clone());
           expr_temp_var := get_variable_name_for_codegen(saved.clone(), Option(Environment).Some(ei.env));
+          value_var = Option(String).Some(expr_temp_var.clone());
           if(!(expr_temp_var == raw_code), {
             line := indent.clone();
             rt_ct := get_type_string(ei.ty, context.base);
@@ -603,7 +613,16 @@ handle_func_call_deferred_dup :: (fn(expr : AstExpr, indent : String, context : 
       );
       generate_deferred_dup_expressions(expr, indent.clone(), context);
       match(dups.get(usize(0)), .Some(dup_expr) => if(ast_expr_is_fn_call(dup_expr), match(context.base.get_expr_info(dup_expr), .Some(dei) => match(dei.variable_name, .Some(dvn) => return(get_variable_name_for_codegen(dvn, Option(Environment).Some(dei.env))), .None => ()), .None => ()), ()), .None => ());
-      _call_generate_expr(expr, indent.clone(), context)
+      match(
+        value_var,
+        // The declared temp already holds the (now dup'd) value.
+        .Some(vv) => vv,
+        // No temp was assigned by the evaluator: the value statement above
+        // ran for its effects only, and TS's handleFuncCallDeferredDup also
+        // regenerates here. Kept as is — a second evaluation on this arm is
+        // a suspected sibling with no reproducer yet (see the issue).
+        .None => _call_generate_expr(expr, indent.clone(), context)
+      )
     }, _call_generate_expr(expr, indent.clone(), context)),
     .None => _call_generate_expr(expr, indent.clone(), context)
   )
