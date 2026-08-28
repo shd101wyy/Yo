@@ -1352,7 +1352,6 @@ run_compile :: (
   (compile_timeout_ms : String) = String.new();
   (skip_cc : bool) = false;
   (skip_codegen : bool) = false;
-  (release : bool) = false;
   (debug_gc : bool) = false;
   (debug_parallelism : bool) = false;
   (debug_async_await : bool) = false;
@@ -1518,8 +1517,10 @@ run_compile :: (
         ai = (ai + usize(1));
       },
       (a == "--release") => {
-        release = true;
-        ai = (ai + usize(1));
+        // Removed 2026-08-28: it was a pure alias of `--optimize 2` (no
+        // profile, no NDEBUG, no warning difference). Say so instead of
+        // failing as an unknown flag.
+        exn.throw(dyn(String.from("compile: --release was removed; use --optimize 2 (it was exactly that)")));
       },
       (a == "--debug-gc") => {
         debug_gc = true;
@@ -1590,16 +1591,6 @@ run_compile :: (
   });
   if((optimize != "") && (((optimize != "0") && (optimize != "1")) && ((optimize != "2") && (optimize != "3"))), {
     exn.throw(dyn(`compile: invalid --optimize "${optimize}". Choices: 0, 1, 2, 3`));
-  });
-  // `--release` is an ALIAS for `--optimize 2` — it selects no profile, gates
-  // nothing semantic, and never reaches `compile_module`, so the emitted C is
-  // identical with or without it. Collapse it into `optimize` HERE, so exactly
-  // ONE mechanism reaches the flag emission and the LTO gate below and the
-  // "explicit --optimize wins" precedence rule stops being a special case that
-  // every reader has to reconstruct. An explicit `--optimize` still wins simply
-  // by already being set.
-  if(release && (optimize == ""), {
-    optimize = String.from("2");
   });
   if((sanitize != "") && (((sanitize != "address") && (sanitize != "leak")) && (sanitize != "thread")), {
     exn.throw(dyn(`compile: invalid --sanitize "${sanitize}". Choices: address, leak, thread`));
@@ -1897,9 +1888,8 @@ run_compile :: (
   if(get_needs_intel_asm_syntax() && !(is_target_wasm(target)), {
     cmd.arg(String.from("-masm=intel"));
   });
-  // Optimization + warnings. `--release` was already collapsed into `optimize`
-  // above, so there is ONE mechanism here: an empty or "0" level means the -O0
-  // default, anything else is an optimized build.
+  // Optimization + warnings. `--optimize` is the ONE mechanism here: an empty
+  // or "0" level means the -O0 default, anything else is an optimized build.
   //
   // WARNINGS ARE NOT PURELY A FUNCTION OF THE OPTIMIZATION LEVEL. Generated C is
   // full of harmless noise (unused temporaries, redundant parens, pointer-sign
@@ -3779,10 +3769,10 @@ Examples:
   $ yo compile main.yo --target x86_64-unknown-linux-gnu -o app
   $ yo compile main.yo -l m -o app
   $ yo compile main.yo -I./include -L./lib -l mylib -o app
-  $ yo compile main.yo --release -D NDEBUG -o app
+  $ yo compile main.yo --optimize 2 -D NDEBUG -o app
   $ yo compile main.yo -g -o app_debug
-  $ yo compile main.yo --release -s --cflags='-march=native' -o app
-  $ yo compile main.yo --release --emit-chunks 16 -o app
+  $ yo compile main.yo --optimize 2 -s --cflags='-march=native' -o app
+  $ yo compile main.yo --optimize 2 --emit-chunks 16 -o app
                                  Split the emitted C into 16 translation units
                                  (opt-in; implies -flto=thin, --no-chunk-lto opts out)
 
@@ -3858,12 +3848,10 @@ Compile a '.yo' source file to a native executable (via C11).
 
 Options:
   -o <path>                 Output binary path
-  --release                 Optimized build (-O2; default is -O0). The usual
-                            way to build for real use.
-  --optimize <level>        Explicit C optimization level (0|1|2|3). --release
-                            is exactly --optimize 2; an explicit --optimize
-                            wins. Any level above 0 also enables the ThinLTO
-                            pairing that --emit-chunks requires.
+  --optimize <level>        C optimization level (0|1|2|3); default is -O0.
+                            Use 2 for real builds. Any level above 0 also
+                            enables the ThinLTO pairing that --emit-chunks
+                            requires.
   -g, --debug-symbols       Emit debug symbols
   -s, --strip               Strip the output binary
   --cc, --c-compiler <cc>   C compiler to use (clang|gcc|zig|emcc)
@@ -3894,8 +3882,8 @@ Options:
 
 Examples:
   $ yo compile main.yo -o app
-  $ yo compile main.yo --release --target x86_64-unknown-linux-gnu -o app
-  $ yo compile main.yo --emit-c --skip-c-compiler --release`
+  $ yo compile main.yo --optimize 2 --target x86_64-unknown-linux-gnu -o app
+  $ yo compile main.yo --emit-c --skip-c-compiler --optimize 2`
     ),
     (subcmd == "build") => Option(String).Some(
       `Usage: yo build [steps...] [options]

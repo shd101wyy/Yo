@@ -18,7 +18,7 @@ $ ./emsdk activate latest
 $ source ./emsdk_env.sh
 
 # 将 Yo 程序编译为 WASM
-$ yo compile main.yo --cc emcc --release -o app
+$ yo compile main.yo --cc emcc --optimize 2 -o app
 
 # 生成：app.html + app.js + app.wasm
 # 使用 Node.js 运行：

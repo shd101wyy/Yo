@@ -12,7 +12,7 @@ open(import("std/fmt"));
 ///     (invalid C — hard clang error);
 ///   - a body that FORWARDS the param to another `inout` callee emitted
 ///     `f((&(x)))`, a `T**` where `T*` is expected — silently wrong under
-///     `--release` (which passes `-w`).
+///     `--optimize 2` (which passes `-w`).
 /// Root cause: the folded-const re-bind in `create_specialized_function_inline`
 /// (src/evaluator/calls/helper.yo) used `add_variable_to_env`, which hardcodes
 /// `is_ref : false`; the same defect was fixed once before in

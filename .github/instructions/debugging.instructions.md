@@ -40,7 +40,7 @@ swallow handlers are capture-free `->` effect handlers, so they cannot print the
 owner themselves). Output is large — redirect stderr and grep:
 
 ```bash
-YO_DEBUG_SWALLOW=1 yo compile tmp/fixme.yo --emit-c --skip-c-compiler --release 2>swallow.txt
+YO_DEBUG_SWALLOW=1 yo compile tmp/fixme.yo --emit-c --skip-c-compiler --optimize 2 2>swallow.txt
 grep -n 'swallow' swallow.txt | tail
 ```
 
@@ -56,7 +56,7 @@ failures), `YO_DEBUG_DISPATCH` (method dispatch), `YO_DEBUG_BIND=<name>`
 ## Output debugging
 
 - Always use `| head` or `| tail` to limit command output.
-- If a command produces no output for a long time, redirect: `yo compile tmp/fixme.yo --release &> compile_output.txt`
+- If a command produces no output for a long time, redirect: `yo compile tmp/fixme.yo --optimize 2 &> compile_output.txt`
 
 ## Evaluator-only checking
 
@@ -69,7 +69,7 @@ CI's ubuntu job with `Direct leak of N byte(s)` is invisible in a local macOS
 ASan run. Reproduce locally with the macOS `leaks` tool instead:
 
 ```bash
-yo compile repro.yo --release -o repro_bin
+yo compile repro.yo --optimize 2 -o repro_bin
 leaks --atExit -- ./repro_bin   # "0 leaks for 0 total leaked bytes" = clean
 ```
 

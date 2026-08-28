@@ -30,7 +30,7 @@ Alternatively, you can use `zig` as the C compiler (no Visual Studio needed):
 
 ```bash
 $ choco install zig
-$ yo compile main.yo --cc zig --release -o main
+$ yo compile main.yo --cc zig --optimize 2 -o main
 ```
 
 For system library discovery, install **vcpkg**:

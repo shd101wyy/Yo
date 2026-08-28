@@ -51,7 +51,7 @@ bash scripts/count-transpile-failures.sh tests/sync/.yo_selftest_batch_1_0.bin.c
 ## Scratch experiments
 
 - `tmp/fixme.yo` is the scratch file for one-off experiments (`tmp*` is gitignored). It replaces the old `src/tests/fixme.yo`.
-- Type-check it with `yo check tmp/fixme.yo`; compile and run it with `yo compile tmp/fixme.yo --release -o a.out && ./a.out`.
+- Type-check it with `yo check tmp/fixme.yo`; compile and run it with `yo compile tmp/fixme.yo --optimize 2 -o a.out && ./a.out`.
 - Its contents are disposable — there is no need to restore them after modifying it.
 
 ## C codegen tests
@@ -172,7 +172,7 @@ change". The gate that has teeth:
 #    corpus that includes the inputs the refactor is ABOUT (multibyte, empty,
 #    boundary). Print every result AND its length, so a silent truncation
 #    shows up.
-yo compile tmp/probe.yo --std-path "$PWD/std" --release -o tmp/probe.bin
+yo compile tmp/probe.yo --std-path "$PWD/std" --optimize 2 -o tmp/probe.bin
 ./tmp/probe.bin > before.txt; shasum -a 256 before.txt
 # 2. AFTER: same binary rebuilt, same corpus.
 ./tmp/probe.bin > after.txt; diff before.txt after.txt     # must be EMPTY

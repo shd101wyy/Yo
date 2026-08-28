@@ -93,7 +93,7 @@ The strongest evaluator gate is not the unit suite but the self-hosted
 binary itself:
 
 ```bash
-yo compile src/main.yo --release -o /tmp/yo-self-bin         # ~6 min (always --release; -O0 hits stack ceilings)
+yo compile src/main.yo --optimize 2 -o /tmp/yo-self-bin         # ~6 min (always --optimize 2; -O0 hits stack ceilings)
 /tmp/yo-self-bin check ./std                                     # 153/153
 /tmp/yo-self-bin test ./tests --exclude tests/internal --parallel 1   # fast language suite
 # Stage-2 self-compile + fixpoint (the strongest gate of all):
@@ -104,10 +104,10 @@ bash scripts/bootstrap/fixpoint_only.sh                          # emit + clang 
 
 Compiled Yo programs run `main` on a worker thread with a 1 GiB default
 stack, overridable via `YO_MAIN_STACK_MB`. Always build the self-hosted
-binary with `--release`: at `-O0` the big evaluator functions have
+binary with `--optimize 2`: at `-O0` the big evaluator functions have
 multi-MB frames and deep compile-time recursion exhausts the stack
 (rc=139) — see the pitfall entry in `AGENTS.md`. If a deep input still
-crashes a `--release` binary, raise the stack:
+crashes a `--optimize 2` binary, raise the stack:
 
 ```bash
 YO_MAIN_STACK_MB=4096 /tmp/yo-self-bin check ./src

@@ -312,7 +312,7 @@ jobs:
           # `yo build` bootstrap does.
           VERSION=$(perl -ne 'print $1 if /^CURRENT_YO_VERSION :: "([^"]+)";/' src/version.yo)
           [ -n "$VERSION" ] || { echo "::error::could not read CURRENT_YO_VERSION from src/version.yo"; exit 1; }
-          yo compile scripts/build_site.yo --release -o /tmp/build-site
+          yo compile scripts/build_site.yo --optimize 2 -o /tmp/build-site
           /tmp/build-site --output yo-out/site --version "v$VERSION" --yo yo
 
       # A site build that emits nothing exits 0 exactly as happily as one that
@@ -409,7 +409,7 @@ jobs:
       # release target, which is what caught the Windows POSIX-isms at v0.2.0
       # (issues/fixed/windows-native-selfhosted-build-fails.md).
       # P2.5 step 24b (user directive): `yo build` is the canonical yo-self
-      # builder. VERIFIED equivalent to the raw `compile --release --allocator
+      # builder. VERIFIED equivalent to the raw `compile --optimize 2 --allocator
       # mimalloc` it replaces — build.yo carries the same flags (ReleaseSmall +
       # Mimalloc) and the two routes land 16 bytes apart on an 8.8 MB binary;
       # the residual ~0.77% byte delta also appears between two SAME-route
@@ -525,7 +525,7 @@ jobs:
           set +e
           sudo systemd-run --scope -p MemoryHigh=11G -p MemoryMax=14G \
             env YO_MAIN_STACK_MB=4096 nice -n 10 "$YO_BIN" compile src/main.yo \
-              --release --allocator mimalloc --std-path ./std \
+              --optimize 2 --allocator mimalloc --std-path ./std \
               --emit-c --skip-c-compiler -o /tmp/stage1 > /dev/null
           EMIT_RC=$?
           set -e
@@ -675,7 +675,7 @@ jobs:
       - name: Build the candidate compiler (previous seed, native)
         env:
           YO_MAIN_STACK_MB: "4096"
-        run: yo compile src/main.yo --release --allocator mimalloc --std-path ./std -o yo-candidate
+        run: yo compile src/main.yo --optimize 2 --allocator mimalloc --std-path ./std -o yo-candidate
 
       # Built ONCE and shared: the retired weekly workflow rebuilt the
       # candidate inside each of its four cross-emit legs — at per-PR
@@ -745,7 +745,7 @@ jobs:
         run: |
           chmod +x yo-candidate
           mkdir -p cross
-          ./yo-candidate compile src/main.yo --release --allocator system \
+          ./yo-candidate compile src/main.yo --optimize 2 --allocator system \
             --std-path ./std --target ${{ matrix.yo_target }} \
             --emit-c --skip-c-compiler -o "cross/yo-${{ matrix.target }}" > /dev/null
           ls -la "cross/yo-${{ matrix.target }}.c"
@@ -961,7 +961,7 @@ jobs:
           SAMPLER=$!
           sudo systemd-run --scope -p MemoryHigh=11G -p MemoryMax=14G \
             env YO_MAIN_STACK_MB=4096 nice -n 10 /usr/bin/time -v \
-            /tmp/yo-stage1 compile src/main.yo --release --emit-c --skip-c-compiler --allocator mimalloc -o /tmp/yo-stage2
+            /tmp/yo-stage1 compile src/main.yo --optimize 2 --emit-c --skip-c-compiler --allocator mimalloc -o /tmp/yo-stage2
           kill $SAMPLER || true
           markers=$(grep -cE '^\s*// (Failed to transpile|Unknown type:)' /tmp/yo-stage2.c || true)
           echo "stage-2 markers: $markers"
@@ -1053,7 +1053,7 @@ jobs:
           SAMPLER=$!
           sudo systemd-run --scope -p MemoryHigh=11G -p MemoryMax=14G \
             env YO_MAIN_STACK_MB=4096 nice -n 10 /usr/bin/time -v \
-            /tmp/stage2/yo-stage2-bin compile src/main.yo --release --emit-c --skip-c-compiler --allocator mimalloc -o /tmp/yo-stage3
+            /tmp/stage2/yo-stage2-bin compile src/main.yo --optimize 2 --emit-c --skip-c-compiler --allocator mimalloc -o /tmp/yo-stage3
           kill $SAMPLER || true
           if cmp -s /tmp/stage2/yo-stage2.c /tmp/yo-stage3.c; then
             echo "FIXPOINT_HOLDS: stage-2 and stage-3 C are byte-identical"
@@ -1395,7 +1395,7 @@ jobs:
         env:
           YO_MAIN_STACK_MB: "4096"
         run: |
-          yo compile src/main.yo --release --allocator mimalloc --std-path ./std \
+          yo compile src/main.yo --optimize 2 --allocator mimalloc --std-path ./std \
             --emit-c --skip-c-compiler -o yo-musl
           ls -la yo-musl.c
 

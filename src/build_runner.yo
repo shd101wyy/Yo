@@ -635,10 +635,8 @@ compile_artifact :: (
     // every level except debug/release-safe, `mapOptimize` sends
     // release-safe/-small to -O2 and release-fast to -O3, allocator is passed
     // unconditionally, sanitize only when not "none".
-    // NOTE: no `--release` is emitted. Every level that would have set it
-    // (release-fast, release-small) also emits an explicit `--optimize` below,
-    // which supersedes it — so the flag never changed a single argv. `yo compile`
-    // now collapses `--release` into `--optimize` anyway.
+    // Only `--optimize <level>` is emitted: `yo compile` has no `--release`
+    // flag any more (it was a pure alias of `--optimize 2`, removed 2026-08-28).
     optimize_num := cond(
       (artifact.optimize == "release-safe") => String.from("2"),
       (artifact.optimize == "release-fast") => String.from("3"),

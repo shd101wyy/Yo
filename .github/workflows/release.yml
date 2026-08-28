@@ -393,7 +393,7 @@ jobs:
           # the site-builder compile and the `yo doc` runs the site binary
           # spawns must resolve std from the checkout, exactly like the
           # `yo build` bootstrap does.
-          yo compile scripts/build_site.yo --release -o /tmp/build-site
+          yo compile scripts/build_site.yo --optimize 2 -o /tmp/build-site
           /tmp/build-site --output yo-out/site --version "v${{ steps.version.outputs.version }}" --yo yo
 
       # Uploaded here, DEPLOYED by the deploy-site job at the bottom of this
@@ -568,7 +568,7 @@ jobs:
         shell: bash
         env:
           YO_MAIN_STACK_MB: "4096"
-        run: yo compile src/main.yo --release --allocator mimalloc --std-path ./std -o yo-candidate
+        run: yo compile src/main.yo --optimize 2 --allocator mimalloc --std-path ./std -o yo-candidate
 
       # Two emits by the candidate: the mimalloc-flavored C for the bundle
       # binary, and the libc-flavored portable arm (published as
@@ -585,10 +585,10 @@ jobs:
           # (369.8s vs 418-429s wall on equal input) and needs no vendored
           # mimalloc in the assemble job's clang line. Linux/CI stay mimalloc
           # (glibc malloc inflates the emit's RSS ~72%).
-          ./yo-candidate compile src/main.yo --release --allocator ${{ matrix.bundle_allocator }} \
+          ./yo-candidate compile src/main.yo --optimize 2 --allocator ${{ matrix.bundle_allocator }} \
             --std-path ./std --target ${{ matrix.yo_target }} \
             --emit-c --skip-c-compiler -o "cross/yo-${{ matrix.target }}" > /dev/null
-          ./yo-candidate compile src/main.yo --release --allocator system \
+          ./yo-candidate compile src/main.yo --optimize 2 --allocator system \
             --std-path ./std --target ${{ matrix.yo_target }} \
             --emit-c --skip-c-compiler -o "portable-arm/${{ matrix.target }}" > /dev/null
           # Travel the allocator WITH the C rather than repeating it in the
@@ -815,7 +815,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/seed-smoke" && cd "$RUNNER_TEMP/seed-smoke"
           printf '%s\n' 'open(import("std/fmt"));' 'main :: (fn() -> unit)(println("hello from the yo seed"));' 'export(main);' > hello.yo
           if [ -f "$BUNDLE_DIR/bin/yo.exe" ]; then YO="$BUNDLE_DIR/bin/yo.exe"; else YO="$BUNDLE_DIR/bin/yo"; fi
-          YO_STD="$BUNDLE_DIR/std" "$YO" compile hello.yo --release -o hello 2>compile.err || { cat compile.err; exit 1; }
+          YO_STD="$BUNDLE_DIR/std" "$YO" compile hello.yo --optimize 2 -o hello 2>compile.err || { cat compile.err; exit 1; }
           cat compile.err
           if grep -q "mimalloc: error" compile.err; then
             echo "::error::The bundled compiler reported allocator errors on its own stderr — refusing to ship this bundle."
@@ -881,7 +881,7 @@ jobs:
       # The one seed-driven self-emit in this file that had NO swapfile, while
       # seed-cross-emit and test.yml's musl leg all provision
       # one. That asymmetry killed the v0.2.10 release: this job ran the same
-      # `yo compile src/main.yo --release --allocator mimalloc` its test.yml
+      # `yo compile src/main.yo --optimize 2 --allocator mimalloc` its test.yml
       # twin runs, on a bare 16 GB runner, and the runner DIED at 50 min —
       # "The hosted runner lost communication with the server ... starves it
       # for CPU/Memory", the documented starvation signature. The identical
@@ -950,7 +950,7 @@ jobs:
         env:
           YO_MAIN_STACK_MB: "4096"
         run: |
-          yo compile src/main.yo --release --allocator mimalloc \
+          yo compile src/main.yo --optimize 2 --allocator mimalloc \
             --std-path ./std --emit-c --skip-c-compiler -o yo-musl > /dev/null
           ls -la yo-musl.c
 
@@ -987,7 +987,7 @@ jobs:
         env:
           YO_MAIN_STACK_MB: "4096"
         run: |
-          ./yo-musl compile src/main.yo --release --allocator mimalloc \
+          ./yo-musl compile src/main.yo --optimize 2 --allocator mimalloc \
             --std-path ./std --emit-c --skip-c-compiler -o gate-stage2 > /dev/null
           test -s gate-stage2.c
           SIZE=$(wc -c < gate-stage2.c)
@@ -1036,7 +1036,7 @@ jobs:
             -v "$PWD:/w" -w /w/smoke -e BUNDLE="$BUNDLE" alpine:3.20 sh -euc '
               apk add --no-cache build-base liburing-dev
               YO=/w/$BUNDLE/bin/yo
-              YO_STD=/w/$BUNDLE/std $YO compile hello.yo --release -o hello 2>compile.err || { cat compile.err; exit 1; }
+              YO_STD=/w/$BUNDLE/std $YO compile hello.yo --optimize 2 -o hello 2>compile.err || { cat compile.err; exit 1; }
               cat compile.err
               # The bundled binary is built with mimalloc, whose diagnostics are
               # a correctness gate: a cross-allocator free prints
@@ -1063,7 +1063,7 @@ jobs:
           BUNDLE_DIR="$PWD/$BUNDLE"
           mkdir -p "$RUNNER_TEMP/musl-smoke" && cd "$RUNNER_TEMP/musl-smoke"
           printf '%s\n' 'open(import("std/fmt"));' 'main :: (fn() -> unit)(println("hello from the yo seed"));' 'export(main);' > hello.yo
-          YO_STD="$BUNDLE_DIR/std" "$BUNDLE_DIR/bin/yo" compile hello.yo --release -o hello 2>compile.err || { cat compile.err; exit 1; }
+          YO_STD="$BUNDLE_DIR/std" "$BUNDLE_DIR/bin/yo" compile hello.yo --optimize 2 -o hello 2>compile.err || { cat compile.err; exit 1; }
           cat compile.err
           if grep -q "mimalloc: error" compile.err; then
             echo "::error::the bundled compiler reported allocator errors on its own stderr — refusing to ship this bundle"
@@ -1090,7 +1090,7 @@ jobs:
           YO_MAIN_STACK_MB: "4096"
         run: |
           mkdir -p portable-arm
-          yo compile src/main.yo --release --allocator system \
+          yo compile src/main.yo --optimize 2 --allocator system \
             --std-path ./std --emit-c --skip-c-compiler \
             -o "portable-arm/${{ matrix.portable_target }}" > /dev/null
           ls -la "portable-arm/${{ matrix.portable_target }}.c"
