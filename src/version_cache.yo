@@ -209,6 +209,51 @@ _host_bundle_name_base :: (fn(version : String, exn : Exception) -> String)({
   );
   `yo-v${version}-${os_name}-${arch_name}`
 });
+/// The release-bundle basename in canonical target-triple form,
+/// e.g. `yo-v0.2.19-aarch64-apple-darwin` / `yo-v0.2.19-x86_64-unknown-linux-musl`.
+///
+/// This is the name releases carry from the one after v0.2.18
+/// (plans/RELEASE_ASSET_TRIPLES.md); `download_version` bridges the changeover
+/// by falling back to the short `host_bundle_name` form. The triple is the
+/// PUBLISHED asset name only — the compiler's own `--target` vocabulary stays
+/// vendor-less (`aarch64-macos`), see that plan's "what does NOT change".
+host_bundle_triple_name :: (fn(version : String, exn : Exception) -> String)({
+  target := host_target();
+  triple := cond(
+    is_target_macos(target) =>
+      match(
+        target.arch,
+        .X86_64 => `x86_64-apple-darwin`,
+        .Aarch64 => `aarch64-apple-darwin`,
+        _ => String.new()
+      ),
+    // Linux is musl-only: the static musl bundle IS the Linux bundle and runs
+    // on glibc hosts too (see `host_bundle_name`).
+    is_target_linux(target) =>
+      match(
+        target.arch,
+        .X86_64 => `x86_64-unknown-linux-musl`,
+        .Aarch64 => `aarch64-unknown-linux-musl`,
+        _ => String.new()
+      ),
+    is_target_windows(target) =>
+      match(
+        target.arch,
+        .X86_64 => `x86_64-pc-windows-msvc`,
+        .Aarch64 => `aarch64-pc-windows-msvc`,
+        _ => String.new()
+      ),
+    true => String.new()
+  );
+  if(triple.is_empty(), {
+    // Reuse the short-name builder's diagnostics: it throws naming the
+    // supported platforms and architectures. If it ever stops throwing for a
+    // host this table has no triple for, refuse rather than build a bogus name.
+    ___ := _host_bundle_name_base(version, exn);
+    exn.throw(dyn(`No release-bundle target triple for this host.`));
+  });
+  `yo-v${version}-${triple}`
+});
 /// The release-bundle basename for a version on the HOST platform,
 /// e.g. `yo-v0.2.13-linux-x64-musl` / `yo-v0.2.13-macos-arm64`. Mirrors
 /// scripts/install.sh. Linux is musl-only (2026-08-20): the static musl
@@ -616,7 +661,12 @@ download_version :: (
         )
       );
     });
-    (bundle_name : String) = host_bundle_name(version, e.exn);
+    // Releases from the one after v0.2.18 name their assets by canonical target
+    // triple; v0.2.18 and earlier carry only the short form. Try the triple,
+    // then fall back — this BRIDGES the changeover so the current release stays
+    // installable, and is removable once nothing in use predates it
+    // (plans/RELEASE_ASSET_TRIPLES.md).
+    (bundle_name : String) = host_bundle_triple_name(version, e.exn);
     version_dir := get_version_cache_dir(version);
     // 1. Download the tarball to a temp directory.
     tmp_dir := e.io.await(TempDir.new(e.io), e);
@@ -626,6 +676,16 @@ download_version :: (
     println(`Downloading Yo v${version} (${bundle_name}) from GitHub Releases...`);
     code_str := e.io.await(_download_file(url, tarball_path, e.io), e);
     (code : i64) = match(code_str.parse_i64(), .None => i64(0), .Some(c) => c);
+    // Pre-triple fallback: the short `yo-v<v>-<os>-<arch>[-musl]` name.
+    if(code == i64(404), {
+      short := host_bundle_name(version, e.exn);
+      println(`No ${bundle_name}.tar.gz on v${version} — retrying the pre-triple bundle name (${short})...`);
+      bundle_name = short;
+      url = `${_releases_download_url()}/v${version}/${bundle_name}.tar.gz`;
+      tarball_path = `${tmp_path_str}/${bundle_name}.tar.gz`;
+      short_code_str := e.io.await(_download_file(url, tarball_path, e.io), e);
+      code = match(short_code_str.parse_i64(), .None => i64(0), .Some(c1) => c1);
+    });
     // Linux glibc-era fallback: releases that predate the musl legs only
     // published `yo-v<v>-linux-<arch>` bundles. On a glibc host that bundle
     // is fully functional; on a musl host it will not run, but a download
@@ -663,12 +723,30 @@ download_version :: (
       e.io.await(_cleanup_failed_download(version_dir, tmp_dir.path(), e.io), e);
       e.exn.throw(dyn(`Failed to extract ${bundle_name}.tar.gz for Yo v${version}`));
     });
-    extracted_dir := `${tmp_path_str}/${bundle_name}`;
-    bin_exists := e.io.await(exists(Path.new(`${extracted_dir}/bin`), e.io), e.io);
-    std_exists := e.io.await(exists(Path.new(`${extracted_dir}/std`), e.io), e.io);
-    if(!(bin_exists && std_exists), {
+    // The tarball root is conventionally named after the asset, but do not
+    // REQUIRE that: the asset-name/directory-name coupling is what forced the
+    // triple rename to ship duplicate tarballs rather than duplicate upload
+    // names (plans/RELEASE_ASSET_TRIPLES.md). Find the extracted root by
+    // looking for the directory that holds bin/ and std/, and fall back to the
+    // conventional name only for the error message.
+    (extracted_dir : String) = `${tmp_path_str}/${bundle_name}`;
+    (found_root : bool) = false;
+    entries := e.io.await(read_dir(Path.new(tmp_path_str), e.io), e);
+    (ei : usize) = usize(0);
+    while(runtime((ei < entries.len()) && (found_root == false)), {
+      entry := entries(ei);
+      cand := `${tmp_path_str}/${entry.name}`;
+      cand_bin := e.io.await(exists(Path.new(`${cand}/bin`), e.io), e.io);
+      cand_std := e.io.await(exists(Path.new(`${cand}/std`), e.io), e.io);
+      if(cand_bin && cand_std, {
+        extracted_dir = cand;
+        found_root = true;
+      });
+      ei = (ei + usize(1));
+    });
+    if(found_root == false, {
       e.io.await(_cleanup_failed_download(version_dir, tmp_dir.path(), e.io), e);
-      e.exn.throw(dyn(`Unexpected bundle layout in ${bundle_name}.tar.gz (missing bin/ or std/).`));
+      e.exn.throw(dyn(`Unexpected bundle layout in ${bundle_name}.tar.gz (no directory with bin/ and std/).`));
     });
     // 3. Remove any existing partial extraction (or a dead npm-shaped
     // entry), then MOVE the extracted bundle root to the version directory.
@@ -749,6 +827,7 @@ export(
   compare_semver,
   cached_binary_path,
   host_bundle_name,
+  host_bundle_triple_name,
   is_version_cached,
   resolve_version_dir,
   list_cached_versions,

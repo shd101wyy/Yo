@@ -792,7 +792,9 @@ jobs:
       - name: Assemble the bundle
         shell: bash
         run: |
-          BUNDLE="yo-v${{ needs.release.outputs.version }}-${{ matrix.target }}"
+          . scripts/release_asset_triple.sh
+          ASSET=$(asset_triple "${{ matrix.target }}")
+          BUNDLE="yo-v${{ needs.release.outputs.version }}-$ASSET"
           mkdir -p "$BUNDLE/bin"
           if [ -f yo-seed.exe ]; then cp yo-seed.exe "$BUNDLE/bin/yo.exe"; else cp yo-seed "$BUNDLE/bin/yo"; fi
           cp -R std "$BUNDLE/std"
@@ -1002,7 +1004,9 @@ jobs:
 
       - name: Assemble the bundle
         run: |
-          BUNDLE="yo-v${{ needs.release.outputs.version }}-${{ matrix.target }}"
+          . scripts/release_asset_triple.sh
+          ASSET=$(asset_triple "${{ matrix.target }}")
+          BUNDLE="yo-v${{ needs.release.outputs.version }}-$ASSET"
           mkdir -p "$BUNDLE/bin"
           cp yo-musl "$BUNDLE/bin/yo"
           cp -R std "$BUNDLE/std"
@@ -1159,9 +1163,10 @@ jobs:
             test -s "arms/$required.c" || { echo "::error::missing portable arm $required — refusing to publish a partial set"; exit 1; }
           done
           VER="${{ needs.release.outputs.version }}"
+          . scripts/release_asset_triple.sh
           for arm in arms/*.c; do
             t=$(basename "$arm" .c)
-            gzip -9 -c "$arm" > "yo-v${VER}-${t}.c.gz"
+            gzip -9 -c "$arm" > "yo-v${VER}-$(asset_triple "$t").c.gz"
           done
           ls -la yo-v*.c.gz
           gh release upload "v${VER}" yo-v${VER}-*.c.gz --clobber
