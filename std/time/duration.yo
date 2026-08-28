@@ -193,10 +193,10 @@ impl(
 impl(
   Duration,
   Hash(
-    (hash) : (fn(inout(self) : Self) -> u64)(
+    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)(
       // Total nanoseconds is the value's identity (secs/nanos are kept
       // normalized by every constructor), so hashing it keeps Eq's contract.
-      u64(self.as_nanos()) * u64(1099511628211)
+      hasher.write_i64(self.as_nanos())
     )
   )
 );

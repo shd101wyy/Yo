@@ -825,27 +825,21 @@ impl(
     })
   )
 );
-/// FNV-1a hash over the string's bytes.
+/// Feeds the string's bytes then a 0xFF terminator — the same bytes as
+/// `String`'s impl, so an `ImmString` and a `String` with equal contents hash
+/// alike under one hasher.
 impl(
   ImmString,
   Hash(
-    (hash) : (fn(inout(self) : Self) -> u64)({
-      h := u64(14695981039346656037);
+    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)({
       match(
         self._ptr,
         .None => (),
-        .Some(p) => {
-          i := usize(0);
-          while(i < self._len, i = (i + usize(1)), {
-            // SAFETY: `p` points at the Rc-managed UTF-8 byte
-            // buffer of length `self._len`; the loop guard
-            // `i < self._len` keeps `p &+ i` inside the allocation.
-            h = (h ^ u64(unsafe((p.add(i)).*)));
-            h = (h * u64(1099511628211));
-          });
-        }
+        // SAFETY: `p` points at the Rc-managed UTF-8 byte buffer of length
+        // `self._len`.
+        .Some(p) => hasher.write(p, self._len)
       );
-      h
+      hasher.write_u8(u8(255));
     })
   )
 );

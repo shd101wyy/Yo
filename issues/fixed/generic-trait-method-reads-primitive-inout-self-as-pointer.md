@@ -1,6 +1,13 @@
 # A trait method with its OWN `generic(...)` reads a primitive `inout(self)` as a POINTER
 
-**Status:** OPEN
+**Status:** FIXED BY EVENTS — re-measured 2026-08-28 under the v0.2.19 seed AND
+the tree binary: the reproducer prints `got 42 want 42`, and the exact D3.9
+shape (`hash(generic(H), inout(self) : Self, inout(hasher) : H)` on `i32`/`u8`
+receivers) feeds VALUES to the hasher (verified against a manual FNV run, then
+by `tests/hash.test.yo`, which pins SipHash-1-3 values through primitive
+receivers). Presumably closed by the `Variable.is_ref` repairs that followed
+#258; the sibling site the Hasher work DID hit is the trait-default binder —
+issues/fixed/trait-default-inout-self-bound-by-value.md. Original record below.
 **Found:** 2026-08-25, during the D3.9 Hasher design round (STD_API_AUDIT), which
 needs exactly this shape.
 **Severity:** HIGH — silent wrong answer, no diagnostic, no crash.

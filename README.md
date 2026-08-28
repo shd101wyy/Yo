@@ -69,12 +69,12 @@ Installs a native prebuilt compiler.
 
 ```bash
 # macOS / Linux
-$ curl -sSL https://raw.githubusercontent.com/shd101wyy/Yo/develop/scripts/install.sh | sh
+$ curl -sSL https://shd101wyy.github.io/Yo/install.sh | sh
 ```
 
 ```powershell
 # Windows (PowerShell)
-> irm https://raw.githubusercontent.com/shd101wyy/Yo/develop/scripts/install.ps1 | iex
+> irm https://shd101wyy.github.io/Yo/install.ps1 | iex
 ```
 
 This installs to `<prefix>/lib/yo/<tag>` and links `<prefix>/bin/yo`, with the
@@ -92,10 +92,10 @@ prefix defaulting to `$HOME/.local`. Useful options:
 
 ```bash
 # a specific release, system-wide
-$ curl -sSL https://raw.githubusercontent.com/shd101wyy/Yo/develop/scripts/install.sh | sh -s -- --version=v0.2.4 --prefix=/usr/local
+$ curl -sSL https://shd101wyy.github.io/Yo/install.sh | sh -s -- --version=v0.2.4 --prefix=/usr/local
 
 # build from source with your own toolchain
-$ curl -sSL https://raw.githubusercontent.com/shd101wyy/Yo/develop/scripts/install.sh | sh -s -- -cc=gcc -cflags='-march=native'
+$ curl -sSL https://shd101wyy.github.io/Yo/install.sh | sh -s -- -cc=gcc -cflags='-march=native'
 ```
 
 **Platforms without a prebuilt bundle** — pass `--from-source`. The installer

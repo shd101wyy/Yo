@@ -87,7 +87,7 @@ main :: (fn() -> unit)({
 
 Use cases:
 
-- Stdlib trait methods that mutate (`Hash.hash`, `Clone.clone`, `Iterator.next`) all take `inout(self) : Self`. You write `value.hash()`, `it.next()` — no `&()` needed.
+- Stdlib trait methods that mutate (`Hasher.write`, `Clone.clone`, `Iterator.next`) all take `inout(self) : Self`. You write `hasher.write_u64(v)`, `it.next()` — no `&()` needed; the same goes for `inout` arguments such as `value.hash(hasher)`.
 - Your own mutation helpers (`swap`, `increment`, `clear`, ...) take `inout(name) : T`.
 - Callback APIs that lend a value for a scope: `Mutex.with_lock(body : Impl(Fn(inout(v) : T) -> R))`.
 

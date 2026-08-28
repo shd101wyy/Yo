@@ -4,12 +4,11 @@
 { ImmString } :: import("std/imm/string");
 CollisionKey :: struct(id : i32);
 derive(CollisionKey, Eq(CollisionKey));
+// Every key hashes alike, so the HAMT's collision path is exercised.
 impl(
   CollisionKey,
   Hash(
-    (hash) : (fn(inout(self) : Self) -> u64)(
-      u64(1)
-    )
+    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_u64(u64(1)))
   )
 );
 test("Map new is empty", {

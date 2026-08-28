@@ -1606,8 +1606,7 @@ impl(
 impl(
   String,
   Hash(
-    (hash) : (fn(inout(self) : Self) -> u64)({
-      h := u64(14695981039346656037);
+    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)({
       match(
         self._bytes,
         .None => (),
@@ -1616,20 +1615,14 @@ impl(
           match(
             al.ptr(),
             // SAFETY: `ptr()` is Some only for a live buffer of exactly
-            // `len` bytes; reads stay in [0, len).
-            .Some(p) => {
-              i := usize(0);
-              while(i < len, i = (i + usize(1)), {
-                b := unsafe((p.add(i)).*);
-                h = (h ^ u64(b));
-                h = (h * u64(1099511628211));
-              });
-            },
+            // `len` bytes; the hasher reads [0, len).
+            .Some(p) => hasher.write(p, len),
             .None => ()
           );
         }
       );
-      h
+      // Terminator, so adjacent strings stay prefix-free (Rust does the same).
+      hasher.write_u8(u8(255));
     })
   )
 );

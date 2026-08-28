@@ -4264,6 +4264,22 @@ evaluate_module_value :: (
                           ctx.self_type = Option(TypeValue).Some(receiver_ty.clone());
                           ___df := env.push_frame(false);
                           d_pts := match(d_sub_ty, .Func({ param_types : d_ppts }) => d_ppts, _ => ArrayList(TypeValue).new());
+                          // The declared `inout` flags, read off the same
+                          // Self-substituted type the signature is emitted
+                          // from. Pointer-ness travels through TWO channels
+                          // (issues/fixed/specialized-inout-param-loses-ref-with-comptime-arg.md):
+                          // the C signature from `FuncMeta.param_is_ref`, the
+                          // body's `p` vs `(*p)` from `Variable.is_ref` on the
+                          // binding the body's atoms record. Binding the
+                          // params here with `is_ref` unset made every
+                          // `inout(self)` default body read `self.field` on a
+                          // pointer and pass `&(self)` — a `T**` — to sibling
+                          // methods (issues/fixed/trait-default-inout-self-bound-by-value.md).
+                          d_p_is_ref := match(
+                            d_sub_ty,
+                            .Func({ meta : d_fm }) => d_fm.*.param_is_ref,
+                            _ => ArrayList(bool).new()
+                          );
                           (d_pi : usize) = usize(0);
                           while(d_pi < d_fvd.*.params.len(), {
                             d_pn := match(d_fvd.*.params.get(d_pi), .Some(n) => n, .None => String.from(""));
@@ -4278,6 +4294,17 @@ evaluate_module_value :: (
                               false,
                               false,
                               synthetic_token(d_pn, env.module_path)
+                            );
+                            match(
+                              ___dpv,
+                              .Some(d_pvar) => {
+                                d_pvar.is_parameter = true;
+                                if(match(d_p_is_ref.get(d_pi), .Some(b) => b, .None => false), {
+                                  d_pvar.is_ref = true;
+                                  d_pvar.is_reassignable = true;
+                                });
+                              },
+                              .None => ()
                             );
                             d_pi = (d_pi + usize(1));
                           });

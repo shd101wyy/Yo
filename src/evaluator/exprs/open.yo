@@ -240,15 +240,21 @@ evaluate_open :: (
                 match(ty_labels.get(i), .Some(tl) => (tl == field_name), .None => false) => ty_types.get(i),
                 true => Option(TypeValue).None
               );
+              // Every other member takes the DECLARED type too: a comptime
+              // constant `K :: u64(7)` is an `IntVal` whose
+              // `type_of_eval_value` is the literal default `i32`, so
+              // `open(import(m))` re-typed every exported integer constant
+              // (`K + u64(1)` failed to unify) while the named import
+              // `{ K } :: import(m)` kept `u64`
+              // (issues/fixed/open-import-retypes-integer-constants.md).
               field_ty := match(
                 field_val,
                 .FuncVal(__fvd1, _) => get_func_type(__fvd1.*.func_id),
-                .StructVal(_, _, _) => match(
+                _ => match(
                   declared_ty_opt,
                   .Some(declared_ty) => declared_ty,
                   .None => type_of_eval_value(field_val)
-                ),
-                _ => type_of_eval_value(field_val)
+                )
               );
               _added := add_variable_to_env(
                 next_env,

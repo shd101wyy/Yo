@@ -2,6 +2,7 @@
 pragma(Pragma.AllowUnsafe);
 { GlobalAllocator, AllocError, size_would_overflow } :: import("../allocator.yo");
 { MapEntry } :: import("./entry.yo");
+{ DefaultHasher, DEFAULT_KEY_0, DEFAULT_KEY_1 } :: import("../hash.yo");
 { malloc, calloc, realloc, free } :: GlobalAllocator;
 /// Error variants for HashMap operations.
 HashMapError :: enum(
@@ -54,7 +55,11 @@ HashMap :: (
       ctrl : ?(*(u8)),
       data : ?(*(MapEntry(K, V))),
       capacity : usize,
-      size : usize
+      size : usize,
+      /// SipHash-1-3 keys (`std/hash`). `new` uses the fixed defaults so
+      /// iteration order is reproducible; `with_keys` keys this map alone.
+      k0 : u64,
+      k1 : u64
     )
   )
 );
@@ -101,13 +106,21 @@ impl(
                 ctrl : .Some(ctrl_ptr),
                 data : .Some(data_ptr),
                 capacity : capacity,
-                size : usize(0)
+                size : usize(0),
+                k0 : DEFAULT_KEY_0,
+                k1 : DEFAULT_KEY_1
               )
             )
           }
         )
       }
     )
+  }),
+  /// The bucket hash of `key` under this map's keys.
+  _hash : (fn(inout(self) : Self, inout(key) : K) -> u64)({
+    h := DefaultHasher.new_with_keys(self.k0, self.k1);
+    key.hash(h);
+    h.finish()
   }),
   /**
   * Create a new empty HashMap with default capacity
@@ -119,6 +132,19 @@ impl(
       .Ok(map) => map,
       .Err(_) => __yo_panic("Failed to allocate HashMap")
     )
+  }),
+  /**
+  * Create a new empty HashMap whose hashes are keyed by `k0`, `k1`
+  * (SipHash-1-3 keys). Two maps with different keys place the same key in
+  * different buckets, so a map fed by untrusted input can be given
+  * per-process random keys (`std/crypto/random`) to defeat collision
+  * flooding; `new()` uses fixed keys so iteration order is reproducible.
+  */
+  with_keys : (fn(k0 : u64, k1 : u64) -> Self)({
+    map := Self.new();
+    map.k0 = k0;
+    map.k1 = k1;
+    map
   }),
   /**
   * Create a HashMap with a specific initial capacity
@@ -240,6 +266,8 @@ impl(
       result,
       .Err(err) => .Err(err),
       .Ok(new_map) => {
+        new_map.k0 = self.k0;
+        new_map.k1 = self.k1;
         i := usize(0);
         ctrl_ptr := Self._ctrl_ptr(self);
         data_ptr := Self._data_ptr(self);
@@ -248,7 +276,7 @@ impl(
           cond(
             ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
               bucket := (data_ptr.add(i)).*;
-              hash := (bucket.key).hash();
+              hash := self._hash(bucket.key);
               h2 := h2_hash(hash);
               new_index := Self._find_insert_bucket(new_map, hash);
               new_ctrl_ptr := Self._ctrl_ptr(new_map);
@@ -309,7 +337,7 @@ impl(
   * Returns Ok(Some(old_value)) if key existed, Ok(None) if new key
   */
   insert : (fn(self : Self, key : K, value : V) -> Result(Option(V), HashMapError))({
-    hash := key.hash();
+    hash := self._hash(key);
     bucket_opt := Self._find_bucket(self, key, hash);
     match(
       bucket_opt,
@@ -357,7 +385,7 @@ impl(
   * Returns Some(value) if found, None otherwise
   */
   get : (fn(self : Self, key : K) -> Option(V))({
-    hash := key.hash();
+    hash := self._hash(key);
     bucket_opt := Self._find_bucket(self, key, hash);
     match(
       bucket_opt,
@@ -373,7 +401,7 @@ impl(
   * Check if a key exists in the map
   */
   contains_key : (fn(self : Self, key : K) -> bool)({
-    hash := key.hash();
+    hash := self._hash(key);
     bucket_opt := Self._find_bucket(self, key, hash);
     match(
       bucket_opt,
@@ -386,7 +414,7 @@ impl(
   * Returns Some(value) if the key was found and removed, None otherwise
   */
   remove : (fn(self : Self, key : K) -> Option(V))({
-    hash := key.hash();
+    hash := self._hash(key);
     bucket_opt := Self._find_bucket(self, key, hash);
     match(
       bucket_opt,
@@ -750,7 +778,7 @@ impl(
   Index(K)(
     Output : V,
     index : (fn(inout(self) : Self, idx : K, where(K <: (Eq(K), Hash))) -> *(Self.Output))({
-      hash := idx.hash();
+      hash := self._hash(idx);
       bucket_opt := Self._find_bucket(self, idx, hash);
       match(
         bucket_opt,
@@ -770,7 +798,7 @@ impl(
   HashMap(K, V),
   Clone(
     clone : (fn(inout(self) : Self) -> Self)({
-      result := Self.new();
+      result := Self.with_keys(self.k0, self.k1);
       it := self.iter();
       running := true;
       while(running, {

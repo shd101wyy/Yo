@@ -1,7 +1,10 @@
 # Generic type parameters inside a spawn closure are emitted as `void*`
 
-**Status:** OPEN — blocks `Thread.spawn` carrying a result (`join() -> T`),
-plans/STD_API_AUDIT.md D7.
+**Status:** FIXED BY EVENTS — re-measured 2026-08-28 under the v0.2.19 seed:
+`issues/repros/spawn-closure-generic-capture-void-ptr.yo` compiles cleanly and
+its `assert(v == i32(42))` passes (rc 0). D7's `Thread.spawn` result carry
+(`join() -> T`) is therefore unblocked at the compiler layer; panic propagation
+stays impossible (no unwinding runtime). Original record below.
 
 ## Symptom
 

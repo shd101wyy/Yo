@@ -2,9 +2,10 @@
 
 **Status: IN PROGRESS.** Audit complete 2026-08-22; all §8 open questions
 DECIDED by the user 2026-08-23; **S0, S1 and almost all of S2 are LANDED**
-(PRs #229–#294, 2026-08-23 → 2026-08-26). Remaining: D6 (TLS —
-executable plan in plans/D6_TLS_PLAN.md), the §7 S4/P1 tail, §9 S5 stability
-freeze, and the seed-gated queue (plans/backlog/SEED_VERSION_AUTOMATION.md).
+(PRs #229–#294, 2026-08-23 → 2026-08-26). Remaining: D6 PR-3 (the
+curl swap, plans/D6_TLS_PLAN.md), the §7 S4/P1 tail, §9 S5 stability freeze,
+and the seed-gated queue (plans/backlog/SEED_VERSION_AUTOMATION.md). D3.9
+(Hasher) LANDED 2026-08-28 — plans/HASHER_REDESIGN.md.
 D4 PR 9 closed BY EVENTS 2026-08-28: the vendor migrated upstream
 (markdown_yo ff51f91 — zero substring sites remain, and its byte-based
 decoders are CORRECT by construction under the byte-indexed String), the
@@ -104,6 +105,10 @@ records; mechanisms and reproducers are in the named `issues/fixed/` docs.
 | C37 | **`io.await` in a plain (non-`io.async`) function is a nested BLOCKING event loop** — called from inside a task it froze every task below it on the C stack (deadlock the moment the awaited I/O depended on one of them). `_read_http_response` was the only std instance (made an `io.async` future in #333). **FIXED 2026-08-28**: the runtime tracks task depth and `__yo_async_poll_step` PANICS when driven from inside a task — armed by `YO_ASYNC_STRICT=1`, which `yo test` sets for every test child (the suite is enforced); default relaxed until C42; cli-case `async-blocking-await-inside-task` | **FIXED** — issues/fixed/sync-await-in-plain-fn-nests-the-event-loop.md |
 | C38 | **A while-with-await inside one arm of a match/cond whose other arm awaits: the state struct never declares `while_loop_N_active`** (the merge takes the first arm's point as representative, which is not in a loop) — clang error, `yo check` green. std keeps the deadline race in its own future (`_fetch_with_deadline`) | **FIXED** 2026-08-29 (per-branch loop-ness on the merged point + dispatch-mode continuation; `fetch_with` holds the race inline again) — issues/fixed/while-await-inside-match-arm-missing-loop-field.md |
 | C39 | **An `Exception(throw : (err) -> {…})` handler that assigns a captured `Box` fails inference** (`Got: Type(1)`, error pinned to line 1) | **CLOSED** 2026-08-29 — BY DESIGN (handlers are capture-free, ALGEBRAIC_EFFECTS rule 4); the swallowed diagnostic now propagates — issues/fixed/exception-handler-closure-with-box-capture-fails-inference.md |
+| C43 | **A trait `?=` default method bound its `inout(self)` BY VALUE** in the per-impl materialized body: `self.field` on a pointer (clang error) or `&(self)` — a `T**` — passed to a sibling method (silent wrong value under `-w`). Every `Hasher.write_*` default is this shape | **FIXED** 2026-08-28 — issues/fixed/trait-default-inout-self-bound-by-value.md |
+| C44 | **`open(import(m))` re-typed every exported integer constant from its VALUE** (`K :: u64(7)` arrived as `i32`; the named import kept `u64`) — the open loop consulted the declared type only for struct-valued members | **FIXED** 2026-08-28 — issues/fixed/open-import-retypes-integer-constants.md |
+| C45 | **Non-exact compatibility unifies same-named generic instantiations by NAME only** — `(x : Result(i32, BErr)) = <Result(i32, AErr)>` type-checks (equal-name fast accept, no recursion into payload types; the struct arm has the same fast path). Sibling of the exact-comparison hole fixed as the enum-collision bug | **OPEN** — issues/lenient-generic-enum-compatibility-by-name.md |
+| C46 | **Two same-shaped declared enums were ONE type to the exact comparison** (`AErr`/`BErr`, or the trimmed `HashMapError`/`HashSetError`): the CTFE memo served `Result(unit, BErr)` the `Result(unit, AErr)` instance | **FIXED** 2026-08-29 (nominal reject by declared name under `require_exact`) — issues/fixed/structurally-identical-error-enums-in-two-generic-impls-collide.md |
 | C40 | **A task that re-enqueues itself on every resume (a loop awaiting `yield`) starved the I/O poll** — `__yo_async_run_ready_tasks` drained the queue until empty, so `__yo_io_poll` never ran; `fetch_with`'s deadline race spun forever. **FIXED 2026-08-28** — the drain is bounded to the queue length at entry (the async-`main` loop already capped at 100) | **FIXED** — issues/fixed/async-yield-loop-starves-io-poll.md |
 | C41 | **Linux: `__yo_io_poll` never entered the kernel** — the ring runs with `IORING_SETUP_DEFER_TASKRUN`, so a busy loop that never reaches `__yo_io_wait` never saw a timer or socket complete (the C33 Timeout tests hung ONLY on the Linux legs; kqueue polls via a syscall). **FIXED 2026-08-28** — one zero-timeout `io_uring_wait_cqe_timeout` per poll | **FIXED** — issues/fixed/io-uring-defer-taskrun-poll-never-enters-kernel.md |
 | C42 | **The compiler's own build scheduler nests the event loop** — `build_runner`'s DAG levels and `_compile_chunks_parallel` spawn tasks whose bodies call plain awaiting helpers (`_cache_read_file`, `_write_stamp`, `_chunk_read`, …); found the moment C37's guard first ran in CI (`yo build run` aborted). Cannot deadlock (their I/O never depends on a sibling task) but keeps the guard from being armed by default. Make the helpers futures, then flip the default | **OPEN** — issues/compiler-build-runner-nests-event-loop.md |
@@ -196,17 +201,19 @@ the git history and the named issue docs. The record, one line each:
    `unit`). En route fixed: `unit` in C storage positions emitted `void`
    (issues/fixed/unit-typed-params-and-fields-emit-c-void.md,
    issues/fixed/inout-unit-receiver-void-ref-spill.md).
-9. **Hasher redesign** — **DECIDED (user, 2026-08-24): full Rust-style `Hasher`
-   trait** (`hash(self, hasher : inout(H))`, streaming `write_*`/`finish`,
-   pluggable seeded algorithms, derive(Hash) rework, every impl + map driver
-   rewritten). **BLOCKED on a prerequisite compiler fix:** the decided trait
-   shape — a trait method with its own `generic(H)` and an `inout(self)`
-   PRIMITIVE receiver — reads the receiver as a pointer (`(uint64_t)(self)`
-   where `(*self)` is meant), silently feeding ADDRESSES to the hasher.
-   issues/generic-trait-method-reads-primitive-inout-self-as-pointer.md — third
-   site in the `Variable.is_ref` family; attack together with its siblings.
-   (Syntax note kept from probing: `inout` goes on the LABEL —
-   `inout(hasher) : H`; `hasher : inout(H)` does not parse.)
+9. ~~**Hasher redesign**~~ **DONE 2026-08-28** (plans/HASHER_REDESIGN.md):
+   Rust-style `Hasher` (`write(buf, size)`/`finish` required, `write_u8..u64`,
+   `write_usize`, `write_i8..i64`, `write_isize` defaulted) + `Hash.hash(self,
+   inout(hasher) : H, where(H <: Hasher))` in the prelude; `std/hash` with
+   `SipHasher13` (keyed, streaming, pinned against an independent C
+   reference), `Fnv1aHasher`, `DefaultHasher`, `hash_one`; every prelude impl,
+   `String`/`ImmString` (bytes + 0xFF), `Duration`, `Option`/`Result`/`Box`,
+   `derive(Hash)`, the HAMT and both SwissTable drivers rewritten; maps carry
+   `k0/k1` (`new()` fixed keys for reproducible iteration — the fixpoint gate
+   compares emitted C — `with_keys` for per-instance keys). The blocker
+   (issues/fixed/generic-trait-method-reads-primitive-inout-self-as-pointer.md)
+   had been FIXED BY EVENTS under v0.2.19; the work surfaced and fixed its
+   sibling, **C43** below.
 10. **Format specs** — DONE, stages 1+2 (2026-08-25, PR #259 + follow-up).
     **Separator DECIDED (user): `:`** — `${total:>10.2}`, matching Rust/Python.
     Accepted cost, recorded so it is not rediscovered: `${name:T}` where `T` is
@@ -397,9 +404,11 @@ items follow.
 
 Open D7 items:
 
-- **`Thread.spawn` result carry (`join() -> T`) + panic propagation — BLOCKED
-  below std.** `join() -> T` needs spawn-closure re-specialization
-  (issues/spawn-closure-generic-captures-erased-to-void-ptr.md). Panic
+- **`Thread.spawn` result carry (`join() -> T`) + panic propagation.**
+  `join() -> T`'s compiler blocker
+  (issues/fixed/spawn-closure-generic-captures-erased-to-void-ptr.md) measured
+  FIXED BY EVENTS 2026-08-28 under v0.2.19 — the result carry is now an S4
+  std item. Panic
   propagation is not implementable at any layer today: `panic` lowers to
   `fprintf` + `abort()`, no unwinding runtime, no per-thread recovery point.
   Do NOT accept a `join() -> Result(T, E)` signature that cannot actually
@@ -590,16 +599,21 @@ battery). Export hygiene: `__MutexUnlocker`, `ArgKind`/`ArgDef` unexported.
 - **`std/collections/linked_list.yo` — KEEP**: load-bearing half of the #249
   regression trigger (`tests/where_clause_fn_inference.test.yo`'s minimal
   era-copy/GC-trace reproducer). Revisit if that test is re-expressed.
-- **`base64_{encode,decode}_string` — NEEDS-DECISION**: `encode_string` is a
-  pure duplicate, but `decode_string` also strips whitespace and returns
-  `Result` — "fold in" is a behaviour decision about `base64_decode`, and
-  deleting only the encode half would be asymmetric.
-- **`HashMapError`/`HashSetError` dead-variant trim — BLOCKED by a compiler
-  bug**: removing them makes the two enums structurally identical, which
-  collides (`issues/structurally-identical-error-enums-in-two-generic-impls-collide.md`,
-  repro `issues/repros/hashmap-hashset-error-enums-collide.yo`). Fix the
-  compiler first. (`HttpError.Timeout` etc. become REAL when the features
-  land — implement, don't delete.)
+- ~~**`base64_{encode,decode}_string`**~~ **DELETED 2026-08-29**: text is
+  bytes in / bytes out — `base64_encode(s.as_bytes())` and
+  `String.from_utf8(base64_decode(s, exn))`. `decode_string`'s
+  `Result(String, String)` was a stringly-typed error (against D1) and its
+  whitespace skipping was a lenience `base64_decode` never had; only tests
+  used either. The tests now pin the byte idiom, including that whitespace is
+  rejected like any other non-alphabet byte.
+- **`HashMapError`/`HashSetError` dead-variant trim — compiler bug FIXED
+  2026-08-29, trim SEED-GATED**: removing them makes the two enums
+  structurally identical, which the exact enum comparison conflated
+  (`issues/fixed/structurally-identical-error-enums-in-two-generic-impls-collide.md`
+  — enums are nominal by declared name now). The compiler imports both
+  collections, so the trim itself waits for a seed carrying the fix
+  (plans/backlog/SEED_VERSION_AUTOMATION.md). (`HttpError.Timeout` etc. became
+  REAL with C33.)
 - **`StringError` — WIRED UP, not deleted** (2026-08-25 correction): it was
   "never constructed" because `from_cstr` never validates. `from_utf8`
   constructs `InvalidUtf8(cause : Utf8Error)` now; `IndexOutOfBounds` is the
@@ -609,10 +623,9 @@ battery). Export hygiene: `__MutexUnlocker`, `ArgKind`/`ArgDef` unexported.
   either module-private visibility (Yo has none) or an internal-but-shared
   rename; a sweep cannot do it. `std/libc/*` underscore names are REAL C
   symbols and must keep them (~90 of ~101 underscore exports).
-- **Follow-up:** `__yo_c_macro_defined`/`__yo_c_macro_value`
-  (`std/prelude.yo`) are dead externs — no evaluator handler exists; deleting
-  them needs its own verification that an unresolved prelude extern is not
-  load-bearing.
+- ~~**Follow-up:** `__yo_c_macro_defined`/`__yo_c_macro_value`~~ **ROW WAS
+  STALE (measured 2026-08-29): neither name exists anywhere in `std/` or
+  `src/` any more.**
 
 **Method note:** a passing targeted test can be VACUOUS here — the enum
 collision was caught only by a standalone compile+RUN of a program importing
@@ -716,7 +729,7 @@ mmap/file-lock/statfs wrappers; `gc.stats`; DNS SRV/TXT/reverse
 ## 9. Phasing
 
 1. **S0 — correctness:** §2 — **DONE** (open compiler rows tracked in §2).
-2. **S1 — conventions ADR + prelude traits (D1–D3):** **DONE** (D3.9 blocked).
+2. **S1 — conventions ADR + prelude traits (D1–D3):** **DONE** (D3.9 landed 2026-08-28).
 3. **S2 — the breaking sweep (§5 + §6 + D4/D5/D7/D8):** **DONE 2026-08-27**
    except two parked items: D4 PR 9 (vendor-gated) and the seed-gated bufio
    consumer migration. (The D8 env-merge and EncodingError rows measured
