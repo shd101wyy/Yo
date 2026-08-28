@@ -687,24 +687,79 @@ ComptimeOrd :: (
 );
 export(ComptimeOrd);
 /**
+* Hasher — turns a stream of bytes into a `u64` (Rust's `std::hash::Hasher`).
+*
+* A `Hash` impl feeds a value's identity bytes to a hasher through the
+* `write*` methods; `finish` reads the hash of everything written so far
+* (it does not reset the hasher). `write` and `finish` are required; the
+* fixed-width `write_*` methods default to the value's native-endian bytes,
+* and an algorithm with a fast word path overrides them (`std/hash`'s
+* `SipHasher13` overrides `write_u64`).
+*
+* Implementations live in `std/hash`: `SipHasher13` (keyed, the `HashMap`
+* default), `Fnv1aHasher`, and the `hash_one` helper.
+*/
+Hasher :: trait(
+  /// Feed `size` bytes starting at `buf`.
+  write : (fn(inout(self) : Self, buf : *(u8), size : usize) -> unit),
+  /// The hash of everything written so far.
+  finish : (fn(inout(self) : Self) -> u64),
+  (write_u8 : (fn(inout(self) : Self, v : u8) -> unit)) ?=
+    (
+      (self, v) -> {
+        b := v;
+        self.write(&(b), usize(1));
+      }
+    ),
+  (write_u16 : (fn(inout(self) : Self, v : u16) -> unit)) ?=
+    (
+      (self, v) -> {
+        b := v;
+        self.write(unsafe.cast(&(b), *(u8)), usize(2));
+      }
+    ),
+  (write_u32 : (fn(inout(self) : Self, v : u32) -> unit)) ?=
+    (
+      (self, v) -> {
+        b := v;
+        self.write(unsafe.cast(&(b), *(u8)), usize(4));
+      }
+    ),
+  (write_u64 : (fn(inout(self) : Self, v : u64) -> unit)) ?=
+    (
+      (self, v) -> {
+        b := v;
+        self.write(unsafe.cast(&(b), *(u8)), usize(8));
+      }
+    ),
+  (write_usize : (fn(inout(self) : Self, v : usize) -> unit)) ?= ((self, v) -> self.write_u64(u64(v))),
+  (write_i8 : (fn(inout(self) : Self, v : i8) -> unit)) ?= ((self, v) -> self.write_u8(u8(v))),
+  (write_i16 : (fn(inout(self) : Self, v : i16) -> unit)) ?= ((self, v) -> self.write_u16(u16(v))),
+  (write_i32 : (fn(inout(self) : Self, v : i32) -> unit)) ?= ((self, v) -> self.write_u32(u32(v))),
+  (write_i64 : (fn(inout(self) : Self, v : i64) -> unit)) ?= ((self, v) -> self.write_u64(u64(v))),
+  (write_isize : (fn(inout(self) : Self, v : isize) -> unit)) ?= ((self, v) -> self.write_u64(u64(v)))
+);
+export(Hasher);
+/**
 * Hash trait - Similar to Rust's std::hash::Hash
 *
-* This trait defines the ability to hash a value into a u64.
-* Types that implement Hash can be used as keys in HashMap and HashSet.
+* A type says which bytes make up its identity by feeding them to a
+* `Hasher`; the hasher (any `Hasher`, chosen by the caller) turns them into
+* a `u64`. Types that implement Hash can be used as keys in HashMap and
+* HashSet.
 *
-* The hash function should satisfy:
-* 1. Deterministic: The same value always produces the same hash
-* 2. Consistent with Eq: If a == b, then hash(a) == hash(b)
+* The contract, as in Rust:
+* 1. Consistent with Eq: if a == b, then a and b feed identical bytes.
+* 2. Prefix-free where it matters: variable-length data writes a length or
+*    a terminator (String writes its bytes then 0xFF), so `("ab","c")` and
+*    `("a","bc")` differ.
 *
-* Note: Unlike Rust which uses a Hasher trait for incremental hashing,
-* we use a simpler approach where each type directly produces a u64 hash.
+* To hash a single value use `std/hash`'s `hash_one(value)`; to hash into a
+* hasher you already hold, call `value.hash(hasher)`.
 */
 Hash :: trait(
-  /**
-  * Compute the hash of a value
-  * Returns a u64 hash value
-  */
-  (hash) : (fn(inout(self) : Self) -> u64)
+  /// Feed this value's identity into `hasher`.
+  hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)
 );
 export(Hash);
 /// Clone trait — deep-copy a value.
@@ -1081,13 +1136,7 @@ impl(
 impl(
   bool,
   Hash(
-    (hash) : (
-      (self) ->
-        cond(
-          self => u64(1),
-          true => u64(0)
-        )
-    )
+    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_u8(cond(self => u8(1), true => u8(0))))
   )
 );
 impl(
@@ -1230,7 +1279,7 @@ impl(
 impl(
   i8,
   Hash(
-    (hash) : ((self) -> u64(self))
+    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_i8(self))
   )
 );
 impl(
@@ -1520,7 +1569,7 @@ impl(
 impl(
   i16,
   Hash(
-    (hash) : ((self) -> u64(self))
+    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_i16(self))
   )
 );
 impl(
@@ -1870,12 +1919,7 @@ impl(
 impl(
   i32,
   Hash(
-    (hash) : (
-      (self) -> {
-        u32_value := u32(self);
-        u64(u32_value)
-      }
-    )
+    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_i32(self))
   )
 );
 impl(
@@ -2108,7 +2152,7 @@ impl(
 impl(
   i64,
   Hash(
-    (hash) : ((self) -> u64(self))
+    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_i64(self))
   )
 );
 impl(
@@ -2391,7 +2435,7 @@ impl(
 impl(
   u8,
   Hash(
-    (hash) : ((self) -> u64(self))
+    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_u8(self))
   )
 );
 impl(
@@ -2664,7 +2708,7 @@ impl(
 impl(
   u16,
   Hash(
-    (hash) : ((self) -> u64(self))
+    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_u16(self))
   )
 );
 impl(
@@ -2937,7 +2981,7 @@ impl(
 impl(
   u32,
   Hash(
-    (hash) : ((self) -> u64(self))
+    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_u32(self))
   )
 );
 impl(
@@ -3210,7 +3254,7 @@ impl(
 impl(
   u64,
   Hash(
-    (hash) : ((self) -> self)
+    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_u64(self))
   )
 );
 impl(
@@ -3871,7 +3915,7 @@ impl(
 impl(
   isize,
   Hash(
-    (hash) : ((self) -> u64(self))
+    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_isize(self))
   )
 );
 impl(
@@ -4157,7 +4201,7 @@ impl(
 impl(
   usize,
   Hash(
-    (hash) : ((self) -> u64(self))
+    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_usize(self))
   )
 );
 impl(
@@ -4554,7 +4598,7 @@ impl(
 impl(
   char,
   Hash(
-    (hash) : ((self) -> u64(self))
+    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_u32(u32(self)))
   )
 );
 impl(
@@ -4664,7 +4708,7 @@ impl(
 impl(
   int,
   Hash(
-    (hash) : ((self) -> u64(self))
+    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_i32(i32(self)))
   )
 );
 impl(
@@ -4774,7 +4818,7 @@ impl(
 impl(
   uint,
   Hash(
-    (hash) : ((self) -> u64(self))
+    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_u32(u32(self)))
   )
 );
 impl(
@@ -4884,7 +4928,7 @@ impl(
 impl(
   short,
   Hash(
-    (hash) : ((self) -> u64(self))
+    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_i16(i16(self)))
   )
 );
 impl(
@@ -4994,7 +5038,7 @@ impl(
 impl(
   ushort,
   Hash(
-    (hash) : ((self) -> u64(self))
+    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_u16(u16(self)))
   )
 );
 impl(
@@ -5104,7 +5148,7 @@ impl(
 impl(
   long,
   Hash(
-    (hash) : ((self) -> u64(self))
+    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_i64(i64(self)))
   )
 );
 impl(
@@ -5214,7 +5258,7 @@ impl(
 impl(
   ulong,
   Hash(
-    (hash) : ((self) -> u64(self))
+    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_u64(u64(self)))
   )
 );
 impl(
@@ -5324,7 +5368,7 @@ impl(
 impl(
   longlong,
   Hash(
-    (hash) : ((self) -> u64(self))
+    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_i64(i64(self)))
   )
 );
 impl(
@@ -5434,7 +5478,7 @@ impl(
 impl(
   ulonglong,
   Hash(
-    (hash) : ((self) -> u64(self))
+    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_u64(u64(self)))
   )
 );
 impl(
@@ -5544,7 +5588,7 @@ impl(
 impl(
   longdouble,
   Hash(
-    (hash) : ((self) -> u64(i64(self)))
+    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_i64(i64(self)))
   )
 );
 impl(
@@ -6946,41 +6990,27 @@ __derive_clone :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptim
 });
 derive_rule(Clone, __derive_clone);
 // --- derive_rule for Hash ---
+// Struct: feed every field, in declaration order. Enum: the variant index
+// (as u64) then that variant's fields. Both are prefix-free because every
+// field type's own Hash impl is.
 __derive_hash :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr))({
   info :: Type.get_info(T);
-  cond(
+  body :: cond(
     info.is_struct() => {
       fields :: Type.get_struct_fields(T);
       fc :: fields.len();
       cond(
-        (fc == 0) =>
-          ctx.make_impl(
-            quote(
-              Hash(
-                (hash) : ((self) -> u64(0))
-              )
-            )
-          ),
+        (fc == 0) => __s2("{ ();", " }"),
         true => {
           hash_stmts :: __yo_comptime_fold_range(
             fc,
             "",
             (fn(comptime(a) : comptime_str, comptime(fi) : usize) -> comptime(comptime_str))({
               fname :: fields.get(fi).name;
-              cond(
-                (fi == 0) => __s3("(h : u64) = self.", fname, ".hash()"),
-                true => __s4(a, ";\n    h = ((h * u64(31)) + self.", fname, ".hash())")
-              )
+              __s4(a, "\n    self.", fname, ".hash(hasher);")
             })
           );
-          hash_body :: __s3("{\n    ", hash_stmts, ";\n    return(h);\n  }");
-          ctx.make_impl(
-            quote(
-              Hash(
-                (hash) : ((self) -> #(hash_body.to_expr()))
-              )
-            )
-          )
+          __s3("{", hash_stmts, "\n  }")
         }
       )
     },
@@ -6994,7 +7024,7 @@ __derive_hash :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime
           v :: variants.get(vi);
           vi_str :: __yo_comptime_usize_to_comptime_string(vi);
           branch :: cond(
-            (v.fields.len() == 0) => __s4(".", v.name, " => u64(", __s2(vi_str, ")")),
+            (v.fields.len() == 0) => __s4(".", v.name, " => hasher.write_u64(u64(", __s2(vi_str, "))")),
             true => {
               bindings :: __yo_comptime_fold_range(
                 v.fields.len(),
@@ -7009,18 +7039,18 @@ __derive_hash :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime
               );
               hash_stmts :: __yo_comptime_fold_range(
                 v.fields.len(),
-                __s3("(h : u64) = u64(", vi_str, ")"),
+                __s3("hasher.write_u64(u64(", vi_str, "));"),
                 (fn(comptime(a) : comptime_str, comptime(fi) : usize) -> comptime(comptime_str))({
                   fname :: v.fields.get(fi).name;
-                  __s4(a, "; h = ((h * u64(31)) + __v_", fname, ".hash())")
+                  __s4(a, " __v_", fname, ".hash(hasher);")
                 })
               );
               __s5(
                 __s3(".", v.name, "("),
                 bindings,
                 ") => { ",
-                __s2(hash_stmts, "; h"),
-                "; }"
+                hash_stmts,
+                " }"
               )
             }
           );
@@ -7030,23 +7060,16 @@ __derive_hash :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime
           )
         })
       );
-      match_body :: __s3("match(self,\n    ", hash_branches, "\n  )");
-      ctx.make_impl(
-        quote(
-          Hash(
-            (hash) : ((self) -> #(match_body.to_expr()))
-          )
-        )
-      )
+      __s3("{ match(self,\n    ", hash_branches, "\n  ); }")
     },
-    true =>
-      ctx.make_impl(
-        quote(
-          Hash(
-            (hash) : ((self) -> u64(0))
-          )
-        )
+    true => __s2("{ ();", " }")
+  );
+  ctx.make_impl(
+    quote(
+      Hash(
+        hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)(#(body.to_expr()))
       )
+    )
   )
 });
 derive_rule(Hash, __derive_hash);
@@ -7695,14 +7718,16 @@ impl(
   where(T <: Hash),
   Option(T),
   Hash(
-    (hash) : (
-      (self) ->
-        match(
-          self,
-          .None => u64(0),
-          .Some(v) => ((v.hash() * u64(31)) + u64(1))
-        )
-    )
+    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)({
+      match(
+        self,
+        .None => hasher.write_u64(u64(0)),
+        .Some(v) => {
+          hasher.write_u64(u64(1));
+          v.hash(hasher);
+        }
+      );
+    })
   )
 );
 /// Clone for `Result(T, E)` — clones the inner value or error.
@@ -7825,14 +7850,19 @@ impl(
   where(T <: Hash, E <: Hash),
   Result(T, E),
   Hash(
-    (hash) : (
-      (self) ->
-        match(
-          self,
-          .Ok(v) => ((v.hash() * u64(31)) + u64(1)),
-          .Err(e) => ((e.hash() * u64(31)) + u64(2))
-        )
-    )
+    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)({
+      match(
+        self,
+        .Ok(v) => {
+          hasher.write_u64(u64(1));
+          v.hash(hasher);
+        },
+        .Err(e) => {
+          hasher.write_u64(u64(2));
+          e.hash(hasher);
+        }
+      );
+    })
   )
 );
 export(Result);
@@ -7866,7 +7896,7 @@ impl(
   where(T <: Hash),
   Box(T),
   Hash(
-    (hash) : ((self) -> self.*.hash())
+    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)(self.*.hash(hasher))
   )
 );
 impl(

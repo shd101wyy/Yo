@@ -45,12 +45,20 @@ assert((.Circle(i32(5)) == .Circle(i32(5))), "same circle");
 
 ### Hash
 
-Generates a hash function by combining the hashes of all fields using FNV-style hash combining (`h * 31 + field_hash`). For enums, the variant index is included in the hash.
+Generates `hash(self, hasher)` — the Rust-style `Hash` method that feeds a value's identity into any `Hasher`. A struct feeds every field in declaration order; an enum feeds its variant index (as `u64`) and then that variant's fields. The algorithm is the hasher's business: `HashMap`/`HashSet` drive SipHash-1-3 (`std/hash`'s `DefaultHasher`), and `hash_one(value)` hashes a single value with it.
 
 ```rust
+{ hash_one, DefaultHasher } :: import("std/hash");
 derive(Point, Hash);
 // Point now implements the Hash trait
+h := hash_one(Point(i32(1), i32(2)));   // one value → u64
+hasher := DefaultHasher.new();          // or stream several values into one hasher
+Point(i32(1), i32(2)).hash(hasher);
+Point(i32(3), i32(4)).hash(hasher);
+combined := hasher.finish();
 ```
+
+Equal values (by the derived `Eq`) feed identical bytes, so they hash alike under every hasher. Field types must implement `Hash`; floats deliberately do not.
 
 ### Clone
 

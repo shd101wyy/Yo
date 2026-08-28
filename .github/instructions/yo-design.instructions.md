@@ -526,6 +526,14 @@ Two conventions that are easy to miss:
 - **Traits are the API.** An inherent method that duplicates a trait method
   becomes a trait impl, so generic code can dispatch on it. Types that should
   compose get `Eq` / `Ord` / `Hash` / `Clone` / `ToString`.
+- **Hashing is Rust-shaped (plans/HASHER_REDESIGN.md).** `Hash.hash(self,
+  inout(hasher) : H)` FEEDS bytes; a `Hasher` (`std/hash`: `SipHasher13` =
+  `DefaultHasher`, `Fnv1aHasher`) turns them into the `u64`. Never write a
+  `-> u64` hash method or fold hashes with `* 31`; a new type's impl calls
+  `hasher.write_*` per field (or `derive(Hash)`), variable-length data writes a
+  terminator/length, and `hash_one(v)` is the one-value helper. Maps use FIXED
+  default keys so emitted C and printed maps are reproducible (the fixpoint
+  gate compares C byte for byte); `HashMap.with_keys` is the per-instance opt-in.
 
 ## UTF-8 lives in exactly one module
 

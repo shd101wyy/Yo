@@ -1,0 +1,77 @@
+// A trait `?=` default method with an `inout(self)` receiver must see `self`
+// by reference in its per-impl materialized body
+// (issues/fixed/trait-default-inout-self-bound-by-value.md). Before the fix
+// `direct` failed to compile (`self.state` on a pointer) and `twice` silently
+// did nothing (`bump` received `&(self)`, a `Counter**`).
+{ assert } :: import("std/assert");
+Bumpable :: trait(
+  bump : (fn(inout(self) : Self, v : u64) -> unit),
+  peek : (fn(inout(self) : Self) -> u64),
+  // default calling sibling inout methods
+  (twice : (fn(inout(self) : Self, v : u64) -> unit)) ?=
+    (
+      (self, v) -> {
+        self.bump(v);
+        self.bump(v);
+      }
+    ),
+  // default writing a field through self
+  (direct : (fn(inout(self) : Self, v : u64) -> unit)) ?=
+    (
+      (self, v) -> {
+        self.state = (self.state + v);
+      }
+    ),
+  // default reading through a sibling
+  (ro : (fn(inout(self) : Self) -> u64)) ?= ((self) -> self.peek()),
+  // explicit fn spelling of a default
+  (thrice : (fn(inout(self) : Self, v : u64) -> unit)) ?=
+    (fn(inout(self) : Self, v : u64) -> unit)({
+      self.bump(v);
+      self.twice(v);
+    }),
+  // by-value receiver default — the control that always worked
+  (snapshot : (fn(self : Self) -> u64)) ?= ((self) -> self.state)
+);
+Counter :: struct(state : u64);
+impl(
+  Counter,
+  Bumpable(
+    bump : (fn(inout(self) : Self, v : u64) -> unit)({
+      self.state = (self.state + v);
+    }),
+    peek : (fn(inout(self) : Self) -> u64)(self.state)
+  )
+);
+test("inout(self) default calling sibling inout methods mutates the receiver", {
+  c := Counter(state : u64(0));
+  c.twice(u64(1));
+  assert(c.state == u64(2), "twice bumped twice");
+  c.thrice(u64(5));
+  assert(c.state == u64(17), "thrice = bump + twice");
+});
+test("inout(self) default writing a field through self", {
+  c := Counter(state : u64(1));
+  c.direct(u64(10));
+  assert(c.state == u64(11), "direct wrote through self");
+  assert(c.ro() == u64(11), "ro reads through a sibling");
+  assert(c.snapshot() == u64(11), "by-value default still fine");
+});
+// A ref (heap) receiver takes the other pointer path; it must keep working.
+RefCounter :: ref(struct(state : u64));
+impl(
+  RefCounter,
+  Bumpable(
+    bump : (fn(inout(self) : Self, v : u64) -> unit)({
+      self.state = (self.state + v);
+    }),
+    peek : (fn(inout(self) : Self) -> u64)(self.state)
+  )
+);
+test("ref-struct receiver: the same defaults", {
+  r := RefCounter(state : u64(0));
+  r.twice(u64(3));
+  r.direct(u64(1));
+  assert(r.state == u64(7), "ref receiver: 3+3+1");
+  assert(r.ro() == u64(7), "ref receiver ro");
+});

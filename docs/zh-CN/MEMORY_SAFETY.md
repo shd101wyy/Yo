@@ -87,7 +87,7 @@ main :: (fn() -> unit)({
 
 使用场景：
 
-- 标准库中带变异的 trait 方法（`Hash.hash`、`Clone.clone`、`Iterator.next`）都接收 `inout(self) : Self`。你写 `value.hash()`、`it.next()` —— 不需要 `&()`。
+- 标准库中带变异的 trait 方法（`Hasher.write`、`Clone.clone`、`Iterator.next`）都接收 `inout(self) : Self`。你写 `hasher.write_u64(v)`、`it.next()` —— 不需要 `&()`；`inout` 参数同理，例如 `value.hash(hasher)`。
 - 你自己的变异辅助函数（`swap`、`increment`、`clear` 等）使用 `inout(name) : T`。
 - 在一个作用域内出借值的回调 API：`Mutex.with_lock(body : Impl(Fn(inout(v) : T) -> R))`。
 

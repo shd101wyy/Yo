@@ -45,12 +45,20 @@ assert((.Circle(i32(5)) == .Circle(i32(5))), "same circle");
 
 ### Hash
 
-通过使用 FNV 风格哈希组合（`h * 31 + field_hash`）组合所有字段的哈希值来生成哈希函数。对于枚举类型，变体索引也会包含在哈希中。
+生成 `hash(self, hasher)` —— Rust 风格的 `Hash` 方法，把值的"身份"字节喂给任意 `Hasher`。结构体按声明顺序喂入每个字段；枚举先喂入变体序号（`u64`），再喂入该变体的字段。具体算法由 hasher 决定：`HashMap`/`HashSet` 使用 SipHash-1-3（`std/hash` 的 `DefaultHasher`），`hash_one(value)` 用它对单个值求哈希。
 
 ```rust
+{ hash_one, DefaultHasher } :: import("std/hash");
 derive(Point, Hash);
 // Point 现在实现了 Hash 特征
+h := hash_one(Point(i32(1), i32(2)));   // 单个值 → u64
+hasher := DefaultHasher.new();          // 或把多个值流式喂进同一个 hasher
+Point(i32(1), i32(2)).hash(hasher);
+Point(i32(3), i32(4)).hash(hasher);
+combined := hasher.finish();
 ```
+
+（按派生的 `Eq`）相等的值喂入完全相同的字节，因此在任何 hasher 下哈希都相同。字段类型必须实现 `Hash`；浮点数刻意不实现。
 
 ### Clone
 
