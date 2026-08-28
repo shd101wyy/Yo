@@ -107,6 +107,8 @@ records; mechanisms and reproducers are in the named `issues/fixed/` docs.
 | C39 | **An `Exception(throw : (err) -> {…})` handler that assigns a captured `Box` fails inference** (`Got: Type(1)`, error pinned to line 1) | **OPEN** — issues/exception-handler-closure-with-box-capture-fails-inference.md |
 | C43 | **A trait `?=` default method bound its `inout(self)` BY VALUE** in the per-impl materialized body: `self.field` on a pointer (clang error) or `&(self)` — a `T**` — passed to a sibling method (silent wrong value under `-w`). Every `Hasher.write_*` default is this shape | **FIXED** 2026-08-28 — issues/fixed/trait-default-inout-self-bound-by-value.md |
 | C44 | **`open(import(m))` re-typed every exported integer constant from its VALUE** (`K :: u64(7)` arrived as `i32`; the named import kept `u64`) — the open loop consulted the declared type only for struct-valued members | **FIXED** 2026-08-28 — issues/fixed/open-import-retypes-integer-constants.md |
+| C45 | **Non-exact compatibility unifies same-named generic instantiations by NAME only** — `(x : Result(i32, BErr)) = <Result(i32, AErr)>` type-checks (equal-name fast accept, no recursion into payload types; the struct arm has the same fast path). Sibling of the exact-comparison hole fixed as the enum-collision bug | **OPEN** — issues/lenient-generic-enum-compatibility-by-name.md |
+| C46 | **Two same-shaped declared enums were ONE type to the exact comparison** (`AErr`/`BErr`, or the trimmed `HashMapError`/`HashSetError`): the CTFE memo served `Result(unit, BErr)` the `Result(unit, AErr)` instance | **FIXED** 2026-08-29 (nominal reject by declared name under `require_exact`) — issues/fixed/structurally-identical-error-enums-in-two-generic-impls-collide.md |
 | C40 | **A task that re-enqueues itself on every resume (a loop awaiting `yield`) starved the I/O poll** — `__yo_async_run_ready_tasks` drained the queue until empty, so `__yo_io_poll` never ran; `fetch_with`'s deadline race spun forever. **FIXED 2026-08-28** — the drain is bounded to the queue length at entry (the async-`main` loop already capped at 100) | **FIXED** — issues/fixed/async-yield-loop-starves-io-poll.md |
 | C41 | **Linux: `__yo_io_poll` never entered the kernel** — the ring runs with `IORING_SETUP_DEFER_TASKRUN`, so a busy loop that never reaches `__yo_io_wait` never saw a timer or socket complete (the C33 Timeout tests hung ONLY on the Linux legs; kqueue polls via a syscall). **FIXED 2026-08-28** — one zero-timeout `io_uring_wait_cqe_timeout` per poll | **FIXED** — issues/fixed/io-uring-defer-taskrun-poll-never-enters-kernel.md |
 | C42 | **The compiler's own build scheduler nests the event loop** — `build_runner`'s DAG levels and `_compile_chunks_parallel` spawn tasks whose bodies call plain awaiting helpers (`_cache_read_file`, `_write_stamp`, `_chunk_read`, …); found the moment C37's guard first ran in CI (`yo build run` aborted). Cannot deadlock (their I/O never depends on a sibling task) but keeps the guard from being armed by default. Make the helpers futures, then flip the default | **OPEN** — issues/compiler-build-runner-nests-event-loop.md |
@@ -597,16 +599,21 @@ battery). Export hygiene: `__MutexUnlocker`, `ArgKind`/`ArgDef` unexported.
 - **`std/collections/linked_list.yo` — KEEP**: load-bearing half of the #249
   regression trigger (`tests/where_clause_fn_inference.test.yo`'s minimal
   era-copy/GC-trace reproducer). Revisit if that test is re-expressed.
-- **`base64_{encode,decode}_string` — NEEDS-DECISION**: `encode_string` is a
-  pure duplicate, but `decode_string` also strips whitespace and returns
-  `Result` — "fold in" is a behaviour decision about `base64_decode`, and
-  deleting only the encode half would be asymmetric.
-- **`HashMapError`/`HashSetError` dead-variant trim — BLOCKED by a compiler
-  bug**: removing them makes the two enums structurally identical, which
-  collides (`issues/structurally-identical-error-enums-in-two-generic-impls-collide.md`,
-  repro `issues/repros/hashmap-hashset-error-enums-collide.yo`). Fix the
-  compiler first. (`HttpError.Timeout` etc. become REAL when the features
-  land — implement, don't delete.)
+- ~~**`base64_{encode,decode}_string`**~~ **DELETED 2026-08-29**: text is
+  bytes in / bytes out — `base64_encode(s.as_bytes())` and
+  `String.from_utf8(base64_decode(s, exn))`. `decode_string`'s
+  `Result(String, String)` was a stringly-typed error (against D1) and its
+  whitespace skipping was a lenience `base64_decode` never had; only tests
+  used either. The tests now pin the byte idiom, including that whitespace is
+  rejected like any other non-alphabet byte.
+- **`HashMapError`/`HashSetError` dead-variant trim — compiler bug FIXED
+  2026-08-29, trim SEED-GATED**: removing them makes the two enums
+  structurally identical, which the exact enum comparison conflated
+  (`issues/fixed/structurally-identical-error-enums-in-two-generic-impls-collide.md`
+  — enums are nominal by declared name now). The compiler imports both
+  collections, so the trim itself waits for a seed carrying the fix
+  (plans/backlog/SEED_VERSION_AUTOMATION.md). (`HttpError.Timeout` etc. became
+  REAL with C33.)
 - **`StringError` — WIRED UP, not deleted** (2026-08-25 correction): it was
   "never constructed" because `from_cstr` never validates. `from_utf8`
   constructs `InvalidUtf8(cause : Utf8Error)` now; `IndexOutOfBounds` is the
@@ -616,10 +623,9 @@ battery). Export hygiene: `__MutexUnlocker`, `ArgKind`/`ArgDef` unexported.
   either module-private visibility (Yo has none) or an internal-but-shared
   rename; a sweep cannot do it. `std/libc/*` underscore names are REAL C
   symbols and must keep them (~90 of ~101 underscore exports).
-- **Follow-up:** `__yo_c_macro_defined`/`__yo_c_macro_value`
-  (`std/prelude.yo`) are dead externs — no evaluator handler exists; deleting
-  them needs its own verification that an unresolved prelude extern is not
-  load-bearing.
+- ~~**Follow-up:** `__yo_c_macro_defined`/`__yo_c_macro_value`~~ **ROW WAS
+  STALE (measured 2026-08-29): neither name exists anywhere in `std/` or
+  `src/` any more.**
 
 **Method note:** a passing targeted test can be VACUOUS here — the enum
 collision was caught only by a standalone compile+RUN of a program importing
