@@ -233,20 +233,20 @@ yo check ./std
 yo check ./tmp/fixme.yo
 
 # Emit C only (inspect generated code)
-yo compile tmp/fixme.yo --emit-c --skip-c-compiler --release
+yo compile tmp/fixme.yo --emit-c --skip-c-compiler --optimize 2
 
 # Full compile + run
-yo compile tmp/fixme.yo --release -o a.out && ./a.out
+yo compile tmp/fixme.yo --optimize 2 -o a.out && ./a.out
 
 # Compile with AddressSanitizer
-yo compile tmp/fixme.yo --release --sanitize address --allocator system -o test && ./test
+yo compile tmp/fixme.yo --optimize 2 --sanitize address --allocator system -o test && ./test
 ```
 
 Always save verbose output to a file to avoid terminal truncation:
 
 ```bash
 yo test file.yo --bail -v &> output.txt
-yo compile tmp/fixme.yo --release &> compile_output.txt
+yo compile tmp/fixme.yo --optimize 2 &> compile_output.txt
 ```
 
 ### Build system commands
@@ -325,7 +325,7 @@ yo version clean      # Remove all cached versions
 - **`yo fetch` auto-prunes stale lock entries.** When a dep is removed from `build.yo`, running `yo fetch` removes it from `yo.lock`. Global cache is not auto-cleaned.
 - **`GIT_TERMINAL_PROMPT=0`** must be set when running `git ls-remote` on potentially non-existent repos to prevent interactive credential prompts.
 - **A "move" of a named local into a struct/enum field is NOT a consumption in the evaluator.** `set_expr_as_consumed` (`src/evaluator/utils.yo`) only fires for owning temps and `own` parameters; a named local passed to a struct literal gets a deferred `___dup` (copy semantics), and the move you see in the emitted C is manufactured by the **dup/drop pair optimizer** (`_optimize_dup_drop_pairs` in `src/evaluator/exprs/begin.yo`) cancelling that dup against the scope-end drop. So a missing drop in the C is an optimizer bug, not a consumption-marking bug — and any tree walk in that optimizer family must follow `ExprInfo.macro_expansion` for macro calls (`for`, collection literals, user macros — their calls keep the macro head in the AST; the expansion is where branch structure is visible). `if(...)` no longer needs this: since 2026-08-21 it is desugared to `cond(...)` at parse time (`desugar_if_calls`, plans/MACRO_POLICY.md), so passes see the real `cond` node. See `issues/fixed/where-constraints-arraylist-96b-leak.md`.
-- **A `-O0` binary that SIGSEGVs (rc=139) on deep recursion is stack exhaustion, NOT heap corruption — don't chase ASan/malloc.** Compiled Yo programs run `main` on a worker thread whose stack defaults to 1 GiB (`__yo_main_stack` in `src/codegen/functions/generation.yo`) and is overridable at runtime via the `YO_MAIN_STACK_MB` env var. At `-O0` (the default, non-`--release` build) clang gives every temporary its own stack slot, so the big evaluator functions (`evaluate_match` ~9 MB, `evaluate_function_call` ~8 MB) have multi-MB frames; deep compile-time recursion — e.g. `derive(Eq)` over a ~46-variant enum unrolling `__yo_comptime_fold_range` once per variant — then exhausts a 1 GiB stack at ~45 levels (≈22 MB/level). This is why `check ./src` crashed under `is_executing`. **`--release` (-O2, `src/main.yo`) shrinks frames ~100× via LLVM stack coloring (only runs at `-O1`+), needing <1 MB/level — it handles 1000+ levels on 1 GiB and never hits this.** So: validate the self-hosted compiler under deep recursion either with `--release`, or keep the fast `-O0` loop and bump the stack: `YO_MAIN_STACK_MB=4096 <binary> check ./src`. Diagnose this class of crash by rc=139 with no ASan output + a sharp deterministic depth threshold (it scales linearly with the stack size). The default is kept at 1 GiB (reserved lazily) so CI runners are not asked to reserve gigabytes.
+- **A `-O0` binary that SIGSEGVs (rc=139) on deep recursion is stack exhaustion, NOT heap corruption — don't chase ASan/malloc.** Compiled Yo programs run `main` on a worker thread whose stack defaults to 1 GiB (`__yo_main_stack` in `src/codegen/functions/generation.yo`) and is overridable at runtime via the `YO_MAIN_STACK_MB` env var. At `-O0` (the default, non-`--optimize 2` build) clang gives every temporary its own stack slot, so the big evaluator functions (`evaluate_match` ~9 MB, `evaluate_function_call` ~8 MB) have multi-MB frames; deep compile-time recursion — e.g. `derive(Eq)` over a ~46-variant enum unrolling `__yo_comptime_fold_range` once per variant — then exhausts a 1 GiB stack at ~45 levels (≈22 MB/level). This is why `check ./src` crashed under `is_executing`. **`--optimize 2` (-O2, `src/main.yo`) shrinks frames ~100× via LLVM stack coloring (only runs at `-O1`+), needing <1 MB/level — it handles 1000+ levels on 1 GiB and never hits this.** So: validate the self-hosted compiler under deep recursion either with `--optimize 2`, or keep the fast `-O0` loop and bump the stack: `YO_MAIN_STACK_MB=4096 <binary> check ./src`. Diagnose this class of crash by rc=139 with no ASan output + a sharp deterministic depth threshold (it scales linearly with the stack size). The default is kept at 1 GiB (reserved lazily) so CI runners are not asked to reserve gigabytes.
 
 ## Debugging codegen / C compilation issues
 

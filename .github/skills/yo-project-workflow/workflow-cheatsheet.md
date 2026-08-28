@@ -14,7 +14,7 @@ These commands and patterns are aimed at normal Yo projects that use the public 
 | Build and run             | `yo build run`                                            |
 | Run project test step     | `yo build test`                                           |
 | List build steps          | `yo build --list-steps`                                   |
-| Compile one file          | `yo compile main.yo --release -o app`                     |
+| Compile one file          | `yo compile main.yo --optimize 2 -o app`                     |
 | Inspect generated C       | `yo compile main.yo --emit-c --skip-c-compiler`           |
 | Run tests in one file     | `yo test ./tests/main.test.yo --parallel 1`               |
 | Filter tests by name      | `yo test ./tests/main.test.yo --test-name-pattern "Name"` |
@@ -157,7 +157,7 @@ test("Async test", {
 ```bash
 yo compile main.yo --cc clang -o app
 yo compile main.yo --cc zig -o app
-yo compile main.yo --cc emcc --release -o app
+yo compile main.yo --cc emcc --optimize 2 -o app
 yo test ./tests/main.test.yo --target wasm32-wasip1
 ```
 

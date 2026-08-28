@@ -210,7 +210,7 @@ main :: (fn() -> unit)({
 
 export(main);
 
-// $ yo compile main.yo --release -o main
+// $ yo compile main.yo --optimize 2 -o main
 // $ ./main
 ```
 

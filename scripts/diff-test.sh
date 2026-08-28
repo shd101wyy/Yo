@@ -72,7 +72,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --parallel) PARALLEL="$2"; shift 2 ;;
     --cc)       CC="$2"; shift 2 ;;
-    --release)  RELEASE="--release"; shift ;;
+    --release)  RELEASE="--optimize 2"; shift ;;  # yo compile has no --release any more
     --filter)   FILTER="$2"; shift 2 ;;
     -v|--verbose) VERBOSE=1; shift ;;
     --golden)   shift ;;   # no-op: golden scoring is the only mode

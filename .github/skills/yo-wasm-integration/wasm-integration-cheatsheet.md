@@ -6,9 +6,9 @@ Patterns for building Yo libraries as WebAssembly modules and consuming them fro
 
 | Target               | Command                                            | Output                        |
 | -------------------- | -------------------------------------------------- | ----------------------------- |
-| Emscripten (browser) | `yo compile src/api.yo --cc emcc --release -o api` | `.js` + `.wasm`               |
+| Emscripten (browser) | `yo compile src/api.yo --cc emcc --optimize 2 -o api` | `.js` + `.wasm`               |
 | WASI (standalone)    | `yo compile src/api.yo --target wasm32-wasip1 -o api`  | `.wasm` (runs via `wasmtime`) |
-| Native (testing)     | `yo compile src/api.yo --release -o api`           | Native binary                 |
+| Native (testing)     | `yo compile src/api.yo --optimize 2 -o api`           | Native binary                 |
 
 ## WASM API design pattern
 
@@ -225,10 +225,10 @@ function readStringWithStoredLength(mod, ptr, lenPtr) {
 
 ```bash
 # Test native first (fast iteration, AddressSanitizer)
-yo compile src/wasm_api.yo --release --sanitize address -o test && ./test
+yo compile src/wasm_api.yo --optimize 2 --sanitize address -o test && ./test
 
 # Test Emscripten WASM
-yo compile src/wasm_api.yo --cc emcc --release -o npm/my_lib_wasm_api
+yo compile src/wasm_api.yo --cc emcc --optimize 2 -o npm/my_lib_wasm_api
 
 # Test WASI
 yo compile src/wasm_api.yo --target wasm32-wasip1 -o test.wasm && wasmtime test.wasm

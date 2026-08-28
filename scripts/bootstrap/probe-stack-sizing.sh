@@ -61,7 +61,7 @@ main :: (fn() -> unit)({
 export(main);
 YO
 
-"$YO" compile "$WORK/probe.yo" --release -o "$WORK/probe" > "$WORK/compile.log" 2>&1 || {
+"$YO" compile "$WORK/probe.yo" --optimize 2 -o "$WORK/probe" > "$WORK/compile.log" 2>&1 || {
   echo "::error::probe failed to compile"; tail -20 "$WORK/compile.log"; exit 1; }
 
 # Subshells with stderr closed: the SMALL run is EXPECTED to die on a signal,

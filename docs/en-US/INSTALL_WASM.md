@@ -19,7 +19,7 @@ $ ./emsdk activate latest
 $ source ./emsdk_env.sh
 
 # Compile a Yo program to WASM
-$ yo compile main.yo --cc emcc --release -o app
+$ yo compile main.yo --cc emcc --optimize 2 -o app
 
 # This produces: app.html + app.js + app.wasm
 # Run with Node.js:

@@ -41,7 +41,7 @@ dump_log() {
 echo "=== T1 GATE 0: repros ==="
 for r in issues/repros/box-eq-comptime-int-forall-leak.yo issues/repros/arc-spawn-capture-split.yo; do
   n=$(basename "$r" .yo)
-  timeout 900 "$S1" compile "$r" --release -o "/tmp/${P}_${n}" &> "/tmp/${P}_${n}.log"
+  timeout 900 "$S1" compile "$r" --optimize 2 -o "/tmp/${P}_${n}" &> "/tmp/${P}_${n}.log"
   rc=$?
   echo "$n compile_rc=$rc"
   if [ "$rc" != "0" ]; then
@@ -96,7 +96,7 @@ echo "=== T1 GATE 2: corpus golden scoring ==="
 # with src/ (P2.5 step 13); diff-test.sh is golden-only now, so this gate
 # ABSORBED the former GATE 2b, which ran the identical command with --golden.
 #
-# The goldens were recorded with THIS GATE'S OWN FLAGS (--release) — they are
+# The goldens were recorded with THIS GATE'S OWN FLAGS (--optimize 2; diff-test.sh's --release option emits exactly that) — they are
 # behavior-affecting, so score with the same ones. An intended behavior change
 # re-records in the same commit:
 #   scripts/diff-test.sh tests/codegen-bootstrap --release --parallel 4 --record

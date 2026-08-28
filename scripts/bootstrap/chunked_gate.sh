@@ -27,11 +27,11 @@ N=${N:-4}
 P=${P:-chgate}
 
 echo "== building the compiler normally =="
-"$S1" compile src/main.yo --release -o "/tmp/${P}_single" --std-path ./std > "/tmp/${P}_single_build.log" 2>&1
+"$S1" compile src/main.yo --optimize 2 -o "/tmp/${P}_single" --std-path ./std > "/tmp/${P}_single_build.log" 2>&1
 echo "SINGLE_BUILD_RC=$?"
 
 echo "== building the compiler with --emit-chunks $N =="
-"$S1" compile src/main.yo --release --emit-chunks "$N" -o "/tmp/${P}_chunked" --std-path ./std > "/tmp/${P}_chunked_build.log" 2>&1
+"$S1" compile src/main.yo --optimize 2 --emit-chunks "$N" -o "/tmp/${P}_chunked" --std-path ./std > "/tmp/${P}_chunked_build.log" 2>&1
 echo "CHUNKED_BUILD_RC=$?"
 grep -E '^chunks: ' "/tmp/${P}_chunked_build.log" || true
 
@@ -40,10 +40,10 @@ for b in "/tmp/${P}_single" "/tmp/${P}_chunked"; do
 done
 
 echo "== both binaries emit the compiler's own C =="
-"/tmp/${P}_single" compile src/main.yo --release --skip-c-compiler \
+"/tmp/${P}_single" compile src/main.yo --optimize 2 --skip-c-compiler \
   --emit-c-to "/tmp/${P}_emit_single.c" --std-path ./std > "/tmp/${P}_emit_single.log" 2>&1
 echo "SINGLE_EMIT_RC=$?"
-"/tmp/${P}_chunked" compile src/main.yo --release --skip-c-compiler \
+"/tmp/${P}_chunked" compile src/main.yo --optimize 2 --skip-c-compiler \
   --emit-c-to "/tmp/${P}_emit_chunked.c" --std-path ./std > "/tmp/${P}_emit_chunked.log" 2>&1
 echo "CHUNKED_EMIT_RC=$?"
 
