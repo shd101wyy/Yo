@@ -338,3 +338,82 @@ test("fetch throws Timeout when the server never answers", {
   _r := io.await(fetch_with(`http://127.0.0.1:19964/hang`, opts, io), IoExn(io : io, exn : exn));
   assert(false, "fetch must throw Timeout");
 });
+// ============================================================================
+// Transfer-Encoding: chunked (plans/STD_API_AUDIT.md §7 P1 "chunked client";
+// issues/fixed/http-client-does-not-decode-chunked-bodies.md). The body must
+// be the concatenated chunk DATA — no hex sizes, no chunk extensions, no
+// trailers — and the read must stop at the terminating `0\r\n\r\n`.
+// ============================================================================
+_hex :: (fn(n : usize) -> String)({
+  digits := `0123456789abcdef`;
+  cond(
+    (n == usize(0)) => `0`,
+    true => {
+      s := String.new();
+      m := n;
+      while(m > usize(0), m = (m / usize(16)), {
+        s = `${digits.substring(m % usize(16), (m % usize(16)) + usize(1))}${s}`;
+      });
+      s
+    }
+  )
+});
+_chunked :: (fn(chunks : ArrayList(String), trailer : String) -> String)({
+  out := `HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n`;
+  i := usize(0);
+  while(i < chunks.len(), i = (i + usize(1)), {
+    c := chunks(i);
+    out = `${out}${_hex(c.as_bytes().len())}\r\n${c}\r\n`;
+  });
+  `${out}0\r\n${trailer}\r\n`
+});
+test("fetch decodes a chunked body (sizes, extensions and trailers stripped)", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, `unexpected exception: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  addr := SocketAddr.loopback(u16(19965));
+  listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
+  chunks := ArrayList(String).new();
+  chunks.push(`hello, `);
+  chunks.push(`chunked `);
+  chunks.push(`world — 16+ bytes so a size needs two hex digits`);
+  responses := ArrayList(String).new();
+  responses.push(_chunked(chunks, `X-Trailer: t\r\n`));
+  // Same body, but the first chunk carries a chunk extension (`;name=value`)
+  // and sizes use UPPER-case hex — both legal per RFC 9112 §7.1.
+  responses.push(`HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n7;ext=1\r\nhello, \r\nA\r\nchunked!!!\r\n0\r\n\r\n`);
+  seen := ArrayList(String).new();
+  server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
+  r1 := io.await(fetch_with(`http://127.0.0.1:19965/one`, FetchOptions.new(), io), IoExn(io : io, exn : exn));
+  assert(r1.status_code == i32(200), `status ${r1.status_code}`);
+  assert(r1.body == "hello, chunked world — 16+ bytes so a size needs two hex digits", `decoded body, got "${r1.body}"`);
+  assert(r1.get_header(`Transfer-Encoding`).is_some(), `the header itself is kept`);
+  r2 := io.await(fetch_with(`http://127.0.0.1:19965/two`, FetchOptions.new(), io), IoExn(io : io, exn : exn));
+  assert(r2.body == "hello, chunked!!!", `chunk extension + upper-case size, got "${r2.body}"`);
+  server.await(io);
+  io.await(listener.close(io), IoExn(io : io, exn : exn));
+});
+test("a malformed chunk size is a typed HttpError, not a garbage body", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        msg := err.to_string();
+        assert(msg.contains(`chunk`), `expected a chunked-encoding error, got: ${msg}`);
+        unwind(());
+      }
+    )
+  );
+  addr := SocketAddr.loopback(u16(19966));
+  listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
+  responses := ArrayList(String).new();
+  responses.push(`HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\nzz\r\nhello\r\n0\r\n\r\n`);
+  seen := ArrayList(String).new();
+  server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
+  _r := io.await(fetch_with(`http://127.0.0.1:19966/bad`, FetchOptions.new(), io), IoExn(io : io, exn : exn));
+  assert(false, "a non-hex chunk size must throw");
+});
