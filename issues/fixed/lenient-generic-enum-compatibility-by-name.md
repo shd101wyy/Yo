@@ -1,6 +1,19 @@
 # Non-exact type compatibility accepts `Result(i32, AErr)` where `Result(i32, BErr)` is expected — same-named generic instantiations unify by NAME only
 
-**Status:** OPEN (evaluator, `src/types/compatibility.yo`). **Found:** 2026-08-29
+**Status:** **FIXED 2026-08-29** (`src/types/compatibility.yo`): under equal
+(or empty) names the non-exact enum arm walks the variant payloads and the
+struct arm the recorded `type_arguments` pairwise; two SomeT-free positions
+that are not themselves non-exact-compatible make the types different.
+Placeholders are read through one level of their resolution cell (an
+instantiation keeps the declaration's `SomeT` in its field lists — the first
+attempt never fired for that reason); an unresolved placeholder stays a
+wildcard, so def-time bodies and `Option(T)` vs `Option(i32)` are untouched.
+Cycle-guarded with the existing visited keys (an unguarded first cut SIGBUSed
+`check ./std` on a recursive type). Field-type recursion for structs was
+tried and dropped — it broke prelude evaluation (derive rules, `Pragma`).
+Same-shaped twin enums additionally need C46's nominal exact rule; the test
+`tests/generic_instantiation_compat.test.yo` covers both faces and passes with
+both in the tree. **Found:** 2026-08-29
 while pinning issues/fixed/structurally-identical-error-enums-in-two-generic-impls-collide.md
 (the EXACT comparison's nominal fix); this is the NON-exact comparison's
 sibling hole. **Severity:** MEDIUM — a soundness gap in the type checker
@@ -63,8 +76,8 @@ compatibility globally (assignment, calls, returns, the era-convergence cases
 the struct-arm comment lists), so it must land alone with the full battery —
 which is why it is filed rather than folded into the exact-comparison fix.
 
-## Pinned today
+## Pinned
 
-`tests/nominal_enum_identity.test.yo` pins the direct case (rejected) and the
-exact-comparison fix; the generic-instantiation case above is the RED test to
-add with the fix.
+`tests/generic_instantiation_compat.test.yo` (RED on develop before the fix:
+"Expected compile error, but the expression was evaluated successfully") and
+`tests/nominal_enum_identity.test.yo` for the direct case.
