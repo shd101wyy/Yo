@@ -1,8 +1,30 @@
 # `io.await` in a plain (non-`io.async`) function is a nested blocking event loop — called from inside a task it deadlocks
 
 **Found**: 2026-08-28, while adding loopback-server tests for C33
-(`std/http/client.yo`). **Status**: OPEN (compiler/runtime diagnostic wanted);
-the two in-tree instances are FIXED in the C33 change.
+(`std/http/client.yo`). **Status**: FIXED 2026-08-28 — the diagnostic proposed
+below is implemented: `__yo_async_run_ready_tasks` (and the async-`main` and
+`wait_all` loops) track `__yo_async_task_depth` around each resume, and
+`__yo_async_poll_step` panics when entered with depth > 0 **and `YO_ASYNC_STRICT=1`** — `yo test` sets that for every test child, so `tests/` is enforced; ordinary programs stay relaxed until the compiler's own build scheduler stops nesting (issues/compiler-build-runner-nests-event-loop.md, C42), after which the default flips:
+
+```
+panic: a blocking await ran inside an async task: an io.await in a non-io.async
+function, JoinHandle.await, or a std/async combinator (join_all/race/any/timeout)
+was called from a spawned or awaited task. That nests the event loop and can
+deadlock. Make the function an io.async future and await it; to race tasks from
+inside a task, poll is_finished() and await yield().
+```
+
+Depth counts SCHEDULER resumes only: a task's cold start runs inline inside
+`io.spawn`/`io.await` at the caller's depth, so a blocking await in a task body
+that has not yet suspended, spawned from `main`, is not nested (nothing below it
+on the stack is a frozen task) and does not panic — the repro
+`issues/repros/sync-await-in-plain-fn-deadlock.yo` is therefore timing-dependent
+(it only nests once `accept` has suspended). The cli-case suspends first.
+
+Pinned by `tests/cli-cases/async-blocking-await-inside-task` (`build run` of a
+task calling a plain awaiting helper → the panic, non-zero rc). The two std
+instances were fixed in the C33 change (#333). The suite was the measurement
+of how many other sites fired — see the landing PR.
 
 ## Symptom
 
