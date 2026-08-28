@@ -1,0 +1,91 @@
+//! C33 (issues/http-client-error-variants-never-raised.md): `HttpError`'s
+//! `Timeout`, `TooManyRedirects` and `ResponseTooLarge` were declared but
+//! never constructed — no deadline, redirect cap or size limit existed.
+//! `FetchOptions` now carries all three; these tests drive each to its error.
+//!
+//! Network-dependent (real endpoints over HTTPS); guarded off the wasm and
+//! Windows runners (no sockets / no OpenSSL). On CI (which has egress) they
+//! assert the specific error; the handlers unwind so a wrong outcome fails.
+pragma(Pragma.SkipWasm32Emscripten); // no network stack in WASM
+pragma(Pragma.SkipWasm32Wasi); // no network stack in WASM
+pragma(Pragma.SkipWindows); // OpenSSL absent on the Windows runners
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+{ fetch, fetch_with, FetchOptions, HttpError } :: import("std/http");
+{ Exception, IoExn } :: import("std/error");
+{ Duration } :: import("std/time/duration");
+open(import("std/string"));
+
+test("with_timeout drives a too-short deadline to HttpError.Timeout", {
+  // 1 ms is far shorter than any real connect + TLS handshake + read, so the
+  // deadline wins and `fetch` throws Timeout.
+  exn := Exception(
+    throw : (
+      (err) -> {
+        assert(err.to_string().contains(`timed out`), `expected Timeout`);
+        unwind(());
+      }
+    )
+  );
+  opts := FetchOptions.new().with_timeout(Duration.from_millis(i64(1)));
+  _r := io.await(fetch_with(`https://example.com`.to_string(), opts, io), IoExn(io : io, exn : exn));
+  assert(false, "fetch must throw Timeout under a 1ms deadline");
+});
+test("with_max_response_bytes drives an over-cap body to ResponseTooLarge", {
+  // example.com's response is ~571 bytes; a 16-byte ceiling is exceeded.
+  exn := Exception(
+    throw : (
+      (err) -> {
+        assert(err.to_string().contains(`too large`), `expected ResponseTooLarge`);
+        unwind(());
+      }
+    )
+  );
+  opts := FetchOptions.new().with_max_response_bytes(u64(16));
+  _r := io.await(fetch_with(`https://example.com`.to_string(), opts, io), IoExn(io : io, exn : exn));
+  assert(false, "fetch must throw ResponseTooLarge over a 16-byte cap");
+});
+test("a redirect chain over the cap throws TooManyRedirects", {
+  // httpbin's /redirect/15 emits 15 sequential 302s (all https); the default
+  // cap of 10 is exceeded.
+  exn := Exception(
+    throw : (
+      (err) -> {
+        assert(err.to_string().contains(`Too many redirects`), `expected TooManyRedirects`);
+        unwind(());
+      }
+    )
+  );
+  _r := io.await(fetch(`https://httpbin.org/redirect/15`.to_string(), io), IoExn(io : io, exn : exn));
+  assert(false, "a 15-hop redirect must throw TooManyRedirects");
+});
+test("a redirect chain under the cap is followed to its 200", {
+  reached := Box(bool)(false);
+  ok := Box(bool)(false);
+  exn := Exception(
+    throw : (
+      (err) -> {
+        println(`  redirect-follow skipped (no egress?): ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  r := io.await(fetch(`https://httpbin.org/redirect/3`.to_string(), io), IoExn(io : io, exn : exn));
+  reached.* = true;
+  good := (r.status_code == i32(200));
+  ok.* = good;
+  cond(
+    reached.* => assert(ok.*, `expected a 200 after following 3 redirects, got ${r.status_code}`),
+    true => assert(true, "skipped: no network")
+  );
+});
+test("FetchOptions builders set the new fields", {
+  o := FetchOptions.new().with_timeout(Duration.from_secs(i64(5))).with_max_redirects(u32(3)).with_max_response_bytes(u64(1024));
+  assert(o.max_redirects == u32(3), "max_redirects set");
+  assert(o.max_response_bytes == u64(1024), "max_response_bytes set");
+  assert(match(o.timeout, .Some(_) => true, .None => false), "timeout set");
+  d := FetchOptions.new();
+  assert(d.max_redirects == u32(10), "default cap 10");
+  assert(d.max_response_bytes == u64(67108864), "default 64 MiB ceiling");
+  assert(match(d.timeout, .Some(_) => false, .None => true), "no default timeout");
+});

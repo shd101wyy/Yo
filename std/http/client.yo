@@ -25,6 +25,8 @@ open(import("../fmt"));
 { IpAddr, SocketAddr } :: import("../net/addr");
 { lookup_host } :: import("../net/dns");
 { Url, UrlError } :: import("../url");
+{ Duration } :: import("../time/duration");
+{ timeout } :: import("../async");
 { HttpMethod, HttpHeader, HttpRequest, HttpResponse, parse_response, http_status_text } :: import("./http.yo");
 // ============================================================================
 // HttpError
@@ -73,21 +75,40 @@ export(HttpError);
 // FetchOptions
 // ============================================================================
 /// Options for configuring an HTTP request.
+/// 64 MiB — the default response-body ceiling. This client buffers the WHOLE
+/// response into a `String`, so an unbounded response is an OOM; the ceiling
+/// protects by default. `with_max_response_bytes(0)` lifts it.
+_DEFAULT_MAX_RESPONSE_BYTES :: (fn() -> u64)(u64(67108864));
+/// Default redirect cap (matches curl / most browsers).
+_DEFAULT_MAX_REDIRECTS :: (fn() -> u32)(u32(10));
 FetchOptions :: ref(
   struct(
     method : HttpMethod,
     headers : ArrayList(HttpHeader),
-    body : String
+    body : String,
+    /// Deadline for the whole request (connect + send + read + redirects).
+    /// `.None` waits forever (the historical behaviour).
+    timeout : Option(Duration),
+    /// Maximum 3xx redirects to follow before throwing `TooManyRedirects`.
+    /// `0` disables following (a 3xx is returned verbatim).
+    max_redirects : u32,
+    /// Maximum response-body bytes before throwing `ResponseTooLarge`.
+    /// `0` means unlimited.
+    max_response_bytes : u64
   )
 );
 impl(
   FetchOptions,
-  /// Create default options (GET, no headers, empty body).
+  /// Create default options (GET, no headers, empty body, no timeout, up to
+  /// 10 redirects, 64 MiB response ceiling).
   new : (fn() -> Self)(
     Self(
       method : .GET,
       headers : ArrayList(HttpHeader).new(),
-      body : ``
+      body : ``,
+      timeout : Option(Duration).None,
+      max_redirects : _DEFAULT_MAX_REDIRECTS(),
+      max_response_bytes : _DEFAULT_MAX_RESPONSE_BYTES()
     )
   ),
   /// Set the HTTP method.
@@ -103,6 +124,21 @@ impl(
   /// Set the request body.
   with_body : (fn(self : Self, body : String) -> Self)({
     self.body = body;
+    self
+  }),
+  /// Set a whole-request deadline; on expiry `fetch` throws `Timeout`.
+  with_timeout : (fn(self : Self, limit : Duration) -> Self)({
+    self.timeout = Option(Duration).Some(limit);
+    self
+  }),
+  /// Set the redirect cap (`0` = do not follow redirects).
+  with_max_redirects : (fn(self : Self, n : u32) -> Self)({
+    self.max_redirects = n;
+    self
+  }),
+  /// Set the response-body ceiling in bytes (`0` = unlimited).
+  with_max_response_bytes : (fn(self : Self, n : u64) -> Self)({
+    self.max_response_bytes = n;
     self
   })
 );
@@ -183,7 +219,7 @@ _find_content_length :: (fn(data : ArrayList(u8), header_end : usize) -> i32)({
 // ============================================================================
 // Internal: read full HTTP response from a TCP stream
 // ============================================================================
-_read_http_response :: (fn(generic(R : Type), stream : R, e : IoExn, where(R <: Reader)) -> String)({
+_read_http_response :: (fn(generic(R : Type), stream : R, max_bytes : u64, e : IoExn, where(R <: Reader)) -> String)({
   buf_size := usize(8192);
   buf := *(u8)(malloc(buf_size).unwrap());
   result := ArrayList(u8).new();
@@ -204,6 +240,17 @@ _read_http_response :: (fn(generic(R : Type), stream : R, e : IoExn, where(R <: 
           result.push((buf.add(i)).*);
           i = (i + usize(1));
         });
+        // Response-body ceiling (0 = unlimited). Enforced on the FULL buffer
+        // (headers + body); the header prologue is negligible against a
+        // 64 MiB default and keeps this cheap. C33: without this a hostile
+        // server streams an unbounded body into memory.
+        cond(
+          ((max_bytes > u64(0)) && (u64(result.len()) > max_bytes)) => {
+            free(.Some(*(void)(buf)));
+            e.exn.throw(dyn(HttpError.ResponseTooLarge));
+          },
+          true => ()
+        );
         // Check if we've received the full response by looking for
         // Content-Length or end of chunked transfer
         // For simplicity, check if the header section is complete
@@ -244,34 +291,69 @@ _read_http_response :: (fn(generic(R : Type), stream : R, e : IoExn, where(R <: 
 // ============================================================================
 // fetch — High-level async HTTP request (like JavaScript's fetch)
 // ============================================================================
-/// Perform an HTTP request with custom options.
-///
-/// # Example
-///
-/// ```rust
-/// opts := FetchOptions.new().with_method(.POST).with_body(`{"key": "value"}`);
-/// resp := io.await(fetch_with(`http://example.com/api`, opts, io), { io, exn });
-/// ```
-fetch_with :: (
+/// Resolve a redirect `Location` against the request URL (C33). Handles the
+/// three real forms without a full `Url.join`: an absolute URL
+/// (`http(s)://…`) is used as-is; an absolute path (`/x`) keeps the base's
+/// scheme/host/port; any other relative reference resolves against the
+/// base's directory. Throws `InvalidUrl` on a malformed base.
+_resolve_url :: (fn(base : String, location : String, exn : Exception) -> String)({
+  loc := location.trim();
+  cond(
+    (loc.starts_with(`http://`) || loc.starts_with(`https://`)) => {
+      return(loc);
+    },
+    true => ()
+  );
+  bu := Url.parse(base, exn);
+  bscheme := bu.scheme();
+  bhost := match(
+    bu.host(),
+    .Some(h) => h,
+    .None => {
+      exn.throw(dyn(HttpError.InvalidUrl(`redirect base has no host`)));
+      return(loc);
+    }
+  );
+  authority := match(
+    bu.port(),
+    .Some(p) => `${bhost}:${p.to_string()}`,
+    .None => bhost.clone()
+  );
+  cond(
+    // Absolute path.
+    loc.starts_with(`/`) => `${bscheme}://${authority}${loc}`,
+    // Relative reference: resolve against the base path's directory.
+    true => {
+      bpath := bu.path();
+      dir := match(
+        bpath.last_index_of(`/`),
+        .Some(slash) => bpath.substring(usize(0), slash + usize(1)),
+        .None => `/`.to_string()
+      );
+      `${bscheme}://${authority}${dir}${loc}`
+    }
+  )
+});
+/// One HTTP round-trip against `url_str` (no redirect following). The body of
+/// the old `fetch_with`; split out so the redirect loop and the timeout race
+/// can drive it.
+_fetch_once :: (
   fn(url_str : String, opts : FetchOptions, io : Io) ->
     Impl(Future(HttpResponse, IoExn))
 )(
   io.async((e) => {
-    // Parse URL
     url := Url.parse(url_str, e.exn);
-    // Validate scheme
     scheme := url.scheme();
     is_http := (scheme == `http`);
     is_https := (scheme == `https`);
-    // Only http/https. https now speaks real TLS (std/crypto/tls, D6); other
-    // schemes are refused before any DNS or socket work.
+    // Only http/https. https speaks real TLS (D6); other schemes are refused
+    // before any DNS or socket work (also enforced on redirect hops — C1).
     cond(
       (is_http || is_https) => (),
       true => {
         e.exn.throw(dyn(HttpError.UnsupportedScheme(scheme)));
       }
     );
-    // Extract host
     host := match(
       url.host(),
       .Some(h) => h,
@@ -280,10 +362,8 @@ fetch_with :: (
         `_` // unreachable
       }
     );
-    // Determine port (default: 80 for http, 443 for https)
     default_port := cond(is_https => u16(443), true => u16(80));
     port := match(url.port(), .Some(p) => p, .None => default_port);
-    // Build the request path (include query string if present)
     req_path := url.path();
     cond(
       req_path.is_empty() => {
@@ -298,17 +378,14 @@ fetch_with :: (
       },
       .None => ()
     );
-    // Build HTTP request
     req := HttpRequest.new(opts.method, req_path);
     req.set_host(host);
-    // Add user-provided headers
     hi := usize(0);
     while(runtime(hi < opts.headers.len()), {
       h := opts.headers(hi);
       req.set_header(h.name, h.value);
       hi = (hi + usize(1));
     });
-    // Set Content-Length if body is provided
     cond(
       (!(opts.body.is_empty())) => {
         req.set_body(opts.body);
@@ -316,17 +393,15 @@ fetch_with :: (
       },
       true => ()
     );
-    // Set Connection: close to ensure the server closes after response
     req.set_header(`Connection`, `close`);
     req_str := req.to_string();
-    // Transport: plaintext TCP for http, TLS for https. Both streams
-    // implement the D5 Reader trait, so the response reader is shared.
+    cap := opts.max_response_bytes;
     (raw_response : String) = ``;
     cond(
       is_https => {
         tls := e.io.await(TlsStream.connect(host.clone(), port, e.io), e);
         _wn := e.io.await(tls.write_string(req_str, e.io), e);
-        raw_response = _read_http_response(tls, e);
+        raw_response = _read_http_response(tls, cap, e);
         e.io.await(tls.close(e.io), e);
       },
       true => {
@@ -340,11 +415,10 @@ fetch_with :: (
         addr := SocketAddr.new(addrs(usize(0)), port);
         stream := e.io.await(TcpStream.connect(addr, e.io), e);
         e.io.await(stream.write_string(req_str, e.io), e);
-        raw_response = _read_http_response(stream, e);
+        raw_response = _read_http_response(stream, cap, e);
         e.io.await(stream.close(e.io), e);
       }
     );
-    // Parse response
     match(
       parse_response(raw_response),
       .Ok(resp) => resp,
@@ -354,6 +428,107 @@ fetch_with :: (
       }
     )
   })
+);
+/// `_fetch_once` plus redirect following (C33): a 3xx with a `Location` is
+/// followed, resolving relative locations, up to `opts.max_redirects` before
+/// throwing `TooManyRedirects`. `max_redirects == 0` returns the 3xx verbatim.
+_fetch_redirecting :: (
+  fn(url_str : String, opts : FetchOptions, io : Io) ->
+    Impl(Future(HttpResponse, IoExn))
+)(
+  io.async((e) => {
+    (current : String) = url_str.clone();
+    (redirects : u32) = u32(0);
+    (out : Option(HttpResponse)) = Option(HttpResponse).None;
+    while(out.is_none(), {
+      resp := e.io.await(_fetch_once(current.clone(), opts, e.io), e);
+      loc_opt := resp.get_header(`Location`);
+      follow := ((resp.is_redirect() && (opts.max_redirects > u32(0))) && loc_opt.is_some());
+      cond(
+        follow => {
+          cond(
+            (redirects >= opts.max_redirects) => {
+              e.exn.throw(dyn(HttpError.TooManyRedirects));
+            },
+            true => ()
+          );
+          loc := match(loc_opt, .Some(l) => l, .None => ``);
+          current = _resolve_url(current.clone(), loc, e.exn);
+          redirects = (redirects + u32(1));
+        },
+        true => {
+          out = Option(HttpResponse).Some(resp);
+        }
+      );
+    });
+    out.unwrap()
+  })
+);
+/// `_fetch_redirecting` with its errors CAPTURED into a `Result` instead of
+/// thrown — so a spawned copy always COMPLETES with a value (never aborts).
+/// This is what lets the timeout race distinguish a genuine deadline
+/// (`timeout` returns `.None`) from a connection error (`.Some(.Err(msg))`):
+/// a JoinHandle cannot carry an exception, so an un-captured error would be
+/// indistinguishable from a timeout.
+_fetch_capturing :: (
+  fn(url_str : String, opts : FetchOptions, io : Io) ->
+    Impl(Future(Result(HttpResponse, String), IoExn))
+)(
+  io.async((e) => {
+    inner_exn := Exception(
+      throw : (
+        (err) -> {
+          unwind(Result(HttpResponse, String).Err(err.to_string()));
+        }
+      )
+    );
+    resp := e.io.await(_fetch_redirecting(url_str, opts, e.io), IoExn(io : e.io, exn : inner_exn));
+    Result(HttpResponse, String).Ok(resp)
+  })
+);
+/// Perform an HTTP request with custom options.
+///
+/// # Example
+///
+/// ```rust
+/// opts := FetchOptions.new().with_method(.POST).with_body(`{"key": "value"}`);
+/// resp := io.await(fetch_with(`http://example.com/api`, opts, io), { io, exn });
+/// ```
+fetch_with :: (
+  fn(url_str : String, opts : FetchOptions, io : Io) ->
+    Impl(Future(HttpResponse, IoExn))
+)(
+  io.async(
+    (e) =>
+      match(
+        opts.timeout,
+        // No deadline: drive the request directly so real errors propagate
+        // with their own type.
+        .None => e.io.await(_fetch_redirecting(url_str, opts, e.io), e),
+        .Some(limit) => {
+          // Deadline: spawn the capturing request and race the clock. `.None`
+          // is an UNAMBIGUOUS timeout (the capturing body never aborts), a
+          // captured `.Err` re-throws as `Other`, `.Ok` is the response.
+          handle := e.io.spawn(_fetch_capturing(url_str, opts, e.io), e);
+          raced := timeout(handle, limit, e.io);
+          match(
+            raced,
+            .None => {
+              e.exn.throw(dyn(HttpError.Timeout));
+              HttpResponse.new(i32(0), ``) // unreachable
+            },
+            .Some(res) => match(
+              res,
+              .Ok(resp) => resp,
+              .Err(msg) => {
+                e.exn.throw(dyn(HttpError.Other(msg)));
+                HttpResponse.new(i32(0), ``) // unreachable
+              }
+            )
+          )
+        }
+      )
+  )
 );
 export(fetch_with);
 /// Perform an HTTP GET request to the given URL string.
