@@ -29,6 +29,7 @@ pragma(Pragma.AllowUnsafe);
 { GlobalAllocator } :: import("../allocator.yo");
 { ArrayList } :: import("../collections/array_list.yo");
 { MapEntry } :: import("../collections/entry.yo");
+{ hash_one } :: import("../hash.yo");
 { malloc, free } :: GlobalAllocator;
 /// Number of bits per HAMT level.
 BITS :: usize(5);
@@ -877,7 +878,7 @@ impl(
   get : (fn(self : Self, key : K) -> Option(V))(
     match(
       self._root,
-      .Some(root) => _node_get(K, V, root, usize(0), key.hash(), key),
+      .Some(root) => _node_get(K, V, root, usize(0), hash_one(key), key),
       .None => .None
     )
   ),
@@ -890,12 +891,12 @@ impl(
     match(
       self._root,
       .Some(root) => {
-        result := _node_insert(K, V, root, usize(0), key.hash(), key, value);
+        result := _node_insert(K, V, root, usize(0), hash_one(key), key, value);
         new_len := cond(result.added => (self._len + usize(1)), true => self._len);
         return(Self(_root : .Some(result.node), _len : new_len));
       },
       .None => Self(
-        _root : .Some(.Leaf(MapLeaf(K, V)(hash : key.hash(), key : key, value : value))),
+        _root : .Some(.Leaf(MapLeaf(K, V)(hash : hash_one(key), key : key, value : value))),
         _len : usize(1)
       )
     )
@@ -905,7 +906,7 @@ impl(
     match(
       self._root,
       .Some(root) => {
-        result := _node_remove(K, V, root, usize(0), key.hash(), key);
+        result := _node_remove(K, V, root, usize(0), hash_one(key), key);
         if(!(result.removed), {
           return(self);
         });

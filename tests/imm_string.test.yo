@@ -1,6 +1,7 @@
 { assert } :: import("std/assert");
 open(import("std/fmt"));
 { ImmString } :: import("std/imm/string");
+{ hash_one } :: import("std/hash");
 test("ImmString new creates empty string", {
   s := ImmString.new();
   assert(s.is_empty(), "new string should be empty");
@@ -177,10 +178,10 @@ test("ImmString toString", {
 test("ImmString hash consistency", {
   a := ImmString.from("test");
   b := ImmString.from("test");
-  assert(a.hash() == b.hash(), "equal strings should have equal hashes");
+  assert(hash_one(a) == hash_one(b), "equal strings should have equal hashes");
   c := ImmString.from("other");
   // Hash collision is theoretically possible but extremely unlikely for these inputs
-  assert(a.hash() != c.hash(), "different strings should likely have different hashes");
+  assert(hash_one(a) != hash_one(c), "different strings should likely have different hashes");
 });
 test("ImmString COW concat unique", {
   // When rc==1, concat should reuse buffer in-place

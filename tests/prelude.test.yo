@@ -1,5 +1,6 @@
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
+{ hash_one } :: import("std/hash");
 test("Test 'Box'", {
   // test `Box` Eq trait.
   {
@@ -283,12 +284,12 @@ test("float cmp is total: NaNs equal each other and sort after +inf", {
 test("float Hash is deleted — hashing a float is a compile error", {
   comptime_expect_error({
     f := f64(1.5);
-    h := f.hash();
+    h := hash_one(f);
     consume(h);
   });
   comptime_expect_error({
     g := f32(1.5);
-    h2 := g.hash();
+    h2 := hash_one(g);
     consume(h2);
   });
 });
@@ -375,8 +376,8 @@ test("Option and Result order totally and hash consistently with Eq", {
   assert(two >= two, ">= reflexive");
   assert(match(none.cmp(one), .Less => true, _ => false), "cmp default via <");
   assert(match(one.cmp(one), .Equal => true, _ => false), "cmp Equal");
-  assert(one.hash() == Option(i32).Some(i32(1)).hash(), "equal options hash equally");
-  assert(none.hash() != one.hash(), "None and Some(1) hash differently");
+  assert(hash_one(one) == hash_one(Option(i32).Some(i32(1))), "equal options hash equally");
+  assert(hash_one(none) != hash_one(one), "None and Some(1) hash differently");
   ok1 := Result(i32, u8).Ok(i32(1));
   ok2 := Result(i32, u8).Ok(i32(2));
   err0 := Result(i32, u8).Err(u8(0));
@@ -384,8 +385,8 @@ test("Option and Result order totally and hash consistently with Eq", {
   assert(ok2 < err0, "every Ok sorts before every Err");
   assert(err0 > ok1, "Err > Ok");
   assert(match(ok1.cmp(err0), .Less => true, _ => false), "Result cmp default");
-  assert(ok1.hash() == Result(i32, u8).Ok(i32(1)).hash(), "equal results hash equally");
-  assert(ok1.hash() != err0.hash(), "Ok and Err hash differently");
+  assert(hash_one(ok1) == hash_one(Result(i32, u8).Ok(i32(1))), "equal results hash equally");
+  assert(hash_one(ok1) != hash_one(err0), "Ok and Err hash differently");
 });
 test("Option and Result to_string render variant and payload", {
   { println } :: import("std/fmt");

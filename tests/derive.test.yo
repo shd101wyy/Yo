@@ -3,6 +3,7 @@
 open(import("std/string"));
 open(import("std/fmt"));
 { ArrayList } :: import("std/collections/array_list");
+{ hash_one } :: import("std/hash");
 // === Basic struct for testing ===
 Point :: struct(x : i32, y : i32);
 derive(Point, Eq(Point));
@@ -40,9 +41,9 @@ test("derive Hash for struct", {
   p1 := Point(i32(1), i32(2));
   p2 := Point(i32(1), i32(2));
   p3 := Point(i32(3), i32(4));
-  h1 := p1.hash();
-  h2 := p2.hash();
-  h3 := p3.hash();
+  h1 := hash_one(p1);
+  h2 := hash_one(p2);
+  h3 := hash_one(p3);
   assert(h1 == h2, "equal points should have equal hashes");
   assert(h1 != h3, "different points should likely have different hashes");
 });
@@ -91,7 +92,7 @@ test("multiple derives in one call", {
   assert(c1 == c2, "same colors should be equal");
   assert(c1 != c3, "different colors should not be equal");
   // Hash
-  assert(c1.hash() == c2.hash(), "same colors should have same hash");
+  assert(hash_one(c1) == hash_one(c2), "same colors should have same hash");
   // Clone
   c4 := c1.clone();
   assert(c1 == c4, "cloned color should equal original");
@@ -129,8 +130,8 @@ test("derive Hash for fieldless enum", {
   d1 := Direction.North;
   d2 := Direction.North;
   d3 := Direction.South;
-  assert(d1.hash() == d2.hash(), "same direction should have same hash");
-  assert(d1.hash() != d3.hash(), "different directions should have different hashes");
+  assert(hash_one(d1) == hash_one(d2), "same direction should have same hash");
+  assert(hash_one(d1) != hash_one(d3), "different directions should have different hashes");
 });
 // === Test derive Clone for fieldless enum ===
 derive(Direction, Clone);
@@ -214,8 +215,8 @@ test("derive with multiple explicit trait args", {
   v1 := Vec3(i32(1), i32(2), i32(3));
   v2 := v1.clone();
   assert(v1 == v2, "mixed args: clone equals original");
-  h1 := v1.hash();
-  h2 := v2.hash();
+  h1 := hash_one(v1);
+  h2 := hash_one(v2);
   assert(h1 == h2, "mixed args: equal values same hash");
 });
 // ============================================================

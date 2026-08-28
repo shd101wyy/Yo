@@ -1,0 +1,267 @@
+// std/hash — the Hasher/Hash split (plans/STD_API_AUDIT.md D3.9).
+//
+// SipHash-1-3 values are pinned against an independent C implementation of
+// the algorithm (scratch reference written for this test, key = bytes 0..15,
+// message = bytes 0..n-1), the same shape as the vectors in the SipHash paper.
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+open(import("std/string"));
+open(import("std/hash"));
+{ HashMap } :: import("std/collections/hash_map");
+{ HashSet } :: import("std/collections/hash_set");
+{ ImmString } :: import("std/imm/string");
+{ ArrayList } :: import("std/collections/array_list");
+// key bytes 00 01 .. 0f as two little-endian u64s
+K0 :: u64(506097522914230528);
+K1 :: u64(1084818905618843912);
+_msg :: (fn(n : usize) -> ArrayList(u8))({
+  al := ArrayList(u8).new();
+  i := usize(0);
+  while(i < n, i = (i + usize(1)), {
+    al.push(u8(i));
+  });
+  al
+});
+_sip_of :: (fn(n : usize) -> u64)({
+  al := _msg(n);
+  h := SipHasher13.new_with_keys(K0, K1);
+  match(
+    al.ptr(),
+    .Some(p) => h.write(p, n),
+    .None => ()
+  );
+  h.finish()
+});
+test("SipHash-1-3 keyed vectors, 0..16 bytes (independent C reference)", {
+  assert(_sip_of(usize(0)) == u64(12370263754033579228), "n=0");
+  assert(_sip_of(usize(1)) == u64(14552427766023178899), "n=1");
+  assert(_sip_of(usize(2)) == u64(9424797079400076365), "n=2");
+  assert(_sip_of(usize(3)) == u64(10085823154776569851), "n=3");
+  assert(_sip_of(usize(4)) == u64(14948950610250269480), "n=4");
+  assert(_sip_of(usize(5)) == u64(16067107544691325799), "n=5");
+  assert(_sip_of(usize(6)) == u64(14199052826081960615), "n=6");
+  assert(_sip_of(usize(7)) == u64(15245385783003124032), "n=7");
+  assert(_sip_of(usize(8)) == u64(3931806377309739662), "n=8");
+  assert(_sip_of(usize(9)) == u64(2712449776846519780), "n=9");
+  assert(_sip_of(usize(10)) == u64(8781603583133944191), "n=10");
+  assert(_sip_of(usize(11)) == u64(8124802424143463250), "n=11");
+  assert(_sip_of(usize(12)) == u64(8692937602970737058), "n=12");
+  assert(_sip_of(usize(13)) == u64(3490138030451851175), "n=13");
+  assert(_sip_of(usize(14)) == u64(6943038873169124660), "n=14");
+  assert(_sip_of(usize(15)) == u64(15213397504630561110), "n=15");
+  assert(_sip_of(usize(16)) == u64(14722228812742953830), "n=16");
+});
+test("SipHash-1-3 with the default keys: empty, ascii, a long message", {
+  h := SipHasher13.new();
+  assert(h.finish() == u64(15130871412783076140), "empty");
+  s := String.from("hello");
+  al := s.as_bytes();
+  h2 := SipHasher13.new();
+  match(
+    al.ptr(),
+    .Some(p) => h2.write(p, al.len()),
+    .None => ()
+  );
+  assert(h2.finish() == u64(16350172494705860510), "hello");
+  fox := String.from("The quick brown fox jumps over the lazy dog");
+  fal := fox.as_bytes();
+  h3 := DefaultHasher.new();
+  match(
+    fal.ptr(),
+    .Some(p) => h3.write(p, fal.len()),
+    .None => ()
+  );
+  assert(h3.finish() == u64(10229494255719302430), "fox");
+});
+test("streaming: the result depends only on the concatenation", {
+  whole := _msg(usize(13));
+  a := SipHasher13.new_with_keys(K0, K1);
+  match(
+    whole.ptr(),
+    .Some(p) => a.write(p, usize(13)),
+    .None => ()
+  );
+  b := SipHasher13.new_with_keys(K0, K1);
+  match(
+    whole.ptr(),
+    .Some(p) => {
+      b.write(p, usize(3));
+      b.write(p.add(usize(3)), usize(5));
+      b.write(p.add(usize(8)), usize(1));
+      b.write(p.add(usize(9)), usize(4));
+    },
+    .None => ()
+  );
+  assert(a.finish() == b.finish(), "chunked == whole");
+  // finish() is a read-out, not a reset
+  assert(b.finish() == b.finish(), "finish twice");
+  b.write_u8(u8(1));
+  assert(a.finish() != b.finish(), "more input changes the hash");
+});
+test("write_u64 fast path equals the eight little-endian bytes", {
+  a := SipHasher13.new();
+  a.write_u64(u64(42));
+  assert(a.finish() == u64(8880661182590738257), "u64 42 as 8 bytes");
+  // with pending bytes the byte path is taken — both must agree with the
+  // byte-serial reference
+  b := SipHasher13.new_with_keys(K0, K1);
+  c := SipHasher13.new_with_keys(K0, K1);
+  m := _msg(usize(16));
+  match(
+    m.ptr(),
+    .Some(p) => {
+      b.write(p, usize(16));
+      c.write(p, usize(3));
+      // bytes 3..10 as a little-endian u64: 3,4,...,10
+      c.write_u64(u64(723118041428460547));
+      c.write(p.add(usize(11)), usize(5));
+    },
+    .None => ()
+  );
+  assert(b.finish() == c.finish(), "u64 spanning a block boundary");
+});
+test("reset returns to the keyed initial state", {
+  a := SipHasher13.new_with_keys(K0, K1);
+  a.write_u64(u64(7));
+  a.reset();
+  assert(a.finish() == u64(12370263754033579228), "== fresh keyed hasher of nothing");
+});
+test("Fnv1aHasher: FNV-1a 64 reference values", {
+  h := Fnv1aHasher.new();
+  assert(h.finish() == u64(14695981039346656037), "offset basis");
+  h.write_u8(u8(97));
+  assert(h.finish() == u64(12638187200555641996), "fnv1a64(\"a\")");
+});
+test("hash_one: primitives feed their width; equal values agree", {
+  assert(hash_one(u64(42)) == u64(8880661182590738257), "u64 through hash_one");
+  x := i32(7);
+  assert(hash_one(x) == hash_one(i32(7)), "runtime and comptime agree");
+  assert(hash_one(i32(7)) != hash_one(i64(7)), "i32 and i64 are different byte streams");
+  assert(hash_one(true) != hash_one(false), "bools differ");
+  assert(hash_one(hash_one(u8(1))) == hash_one(hash_one(u8(1))), "deterministic");
+});
+test("String and ImmString: bytes then 0xFF, prefix-free", {
+  s := String.from("hello");
+  assert(hash_one(s) == u64(16156531084128653017), "\"hello\" + 0xFF");
+  im := ImmString.from("hello");
+  assert(hash_one(im) == hash_one(s), "ImmString hashes like String");
+  ab := String.from("ab");
+  c := String.from("c");
+  a := String.from("a");
+  bc := String.from("bc");
+  h1 := DefaultHasher.new();
+  ab.hash(h1);
+  c.hash(h1);
+  h2 := DefaultHasher.new();
+  a.hash(h2);
+  bc.hash(h2);
+  assert(h1.finish() != h2.finish(), "(ab, c) != (a, bc)");
+  e := String.from("");
+  assert(hash_one(e) != SipHasher13.new().finish(), "empty string still writes its terminator");
+});
+test("Option and Result: tag then payload", {
+  o := Option(i32).Some(i32(7));
+  assert(hash_one(o) == u64(17576287410326509158), "Some(7) = u64 1 then i32 7");
+  n := Option(i32).None;
+  assert(hash_one(n) != hash_one(o), "None != Some");
+  ok := Result(i32, u8).Ok(i32(7));
+  assert(hash_one(ok) == hash_one(o), "Ok(7) and Some(7) feed the same bytes (tag 1, payload 7)");
+  err := Result(i32, u8).Err(u8(7));
+  assert(hash_one(err) != hash_one(ok), "Err != Ok");
+});
+Point :: struct(x : i32, y : i32);
+derive(Point, Eq(Point), Hash);
+Shape :: enum(Dot, Circle(r : i32), Rect(w : i32, h : i32));
+derive(Shape, Eq(Shape), Hash);
+Empty :: struct();
+derive(Empty, Eq(Empty), Hash);
+test("derive(Hash): struct fields in order, enum tag then fields", {
+  p := Point(i32(1), i32(2));
+  manual := DefaultHasher.new();
+  manual.write_i32(i32(1));
+  manual.write_i32(i32(2));
+  assert(hash_one(p) == manual.finish(), "struct == its fields");
+  assert(hash_one(Point(i32(2), i32(1))) != hash_one(p), "field order matters");
+  r := Shape.Rect(i32(3), i32(4));
+  manual2 := DefaultHasher.new();
+  manual2.write_u64(u64(2));
+  manual2.write_i32(i32(3));
+  manual2.write_i32(i32(4));
+  assert(hash_one(r) == manual2.finish(), "enum == tag then fields");
+  d := Shape.Dot;
+  manual3 := DefaultHasher.new();
+  manual3.write_u64(u64(0));
+  assert(hash_one(d) == manual3.finish(), "unit variant == tag");
+  assert(hash_one(Shape.Circle(i32(3))) != hash_one(Shape.Rect(i32(3), i32(4))), "variants differ");
+  e := Empty();
+  assert(hash_one(e) == SipHasher13.new().finish(), "empty struct writes nothing");
+});
+// A custom Hasher: counts bytes and xors them — proves the trait's default
+// write_* methods route through `write`.
+ByteXor :: struct(acc : u64, count : usize);
+impl(
+  ByteXor,
+  Hasher(
+    write : (fn(inout(self) : Self, buf : *(u8), size : usize) -> unit)({
+      i := usize(0);
+      while(i < size, i = (i + usize(1)), {
+        // byte position = bytes written so far, so a value split across
+        // several write calls lands where a single write would put it
+        self.acc = (self.acc ^ (u64(unsafe((buf.add(i)).*)) << (u64(8) * u64(self.count % usize(8)))));
+        self.count = (self.count + usize(1));
+      });
+    }),
+    finish : (fn(inout(self) : Self) -> u64)(self.acc)
+  )
+);
+test("a user Hasher gets the default write_* methods through write", {
+  h := ByteXor(acc : u64(0), count : usize(0));
+  h.write_u8(u8(1));
+  h.write_u16(u16(2));
+  h.write_u32(u32(3));
+  h.write_u64(u64(4));
+  h.write_i32(i32(-1));
+  h.write_usize(usize(9));
+  assert(h.count == usize(27), "1+2+4+8+4+8 bytes were written");
+  p := Point(i32(5), i32(6));
+  h2 := ByteXor(acc : u64(0), count : usize(0));
+  p.hash(h2);
+  assert(h2.count == usize(8), "a derived struct fed 8 bytes");
+  assert(h2.finish() == (u64(5) | (u64(6) << u64(32))), "little-endian i32 pair xor-packed");
+});
+test("HashMap.with_keys: keyed lookups work and keys survive resize and clone", {
+  m := HashMap(String, i32).with_keys(K0, K1);
+  i := i32(0);
+  while(i < i32(200), i = (i + i32(1)), {
+    m.insert(`k${i}`, i);
+  });
+  assert(m.len() == usize(200), "200 keys after several resizes");
+  assert(m.get(String.from("k0")).unwrap() == i32(0), "k0");
+  assert(m.get(String.from("k199")).unwrap() == i32(199), "k199");
+  assert(m.get(String.from("k200")).is_none(), "absent");
+  assert(m.k0 == K0, "k0 kept through resize");
+  assert(m.k1 == K1, "k1 kept through resize");
+  c := m.clone();
+  assert(c.k0 == K0, "clone keeps k0");
+  assert(c.get(String.from("k77")).unwrap() == i32(77), "clone finds keys");
+  d := HashMap(String, i32).new();
+  assert(d.k0 == DEFAULT_KEY_0, "new() uses the default keys");
+});
+test("HashSet.with_keys: keyed membership and resize", {
+  s := HashSet(i64).with_keys(K0, K1);
+  i := i64(0);
+  while(i < i64(300), i = (i + i64(1)), {
+    s.insert(i * i64(7));
+  });
+  assert(s.len() == usize(300), "300 elements");
+  assert(s.contains(i64(7 * 123)), "member");
+  assert(!(s.contains(i64(8))), "non-member");
+  assert(s.k1 == K1, "k1 kept through resize");
+});
+test("hash_one_with_keys matches a map's bucket hash inputs", {
+  s := String.from("key");
+  h := SipHasher13.new_with_keys(K0, K1);
+  s.hash(h);
+  assert(hash_one_with_keys(s, K0, K1) == h.finish(), "same bytes, same keys");
+  assert(hash_one_with_keys(s, K0, K1) != hash_one(s), "keys change the hash");
+});

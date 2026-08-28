@@ -1,0 +1,39 @@
+// `open(import(m))` must bind every export at its DECLARED type — the same
+// type the named form `{ K } :: import(m)` binds
+// (issues/fixed/open-import-retypes-integer-constants.md). Before the fix an
+// exported `K :: u64(7)` arrived through `open` as `i32` (typed from the
+// literal value), so `K + u64(1)` failed to unify.
+{ assert } :: import("std/assert");
+open(import("./open_import/constants.yo"));
+named :: import("./open_import/constants.yo");
+test("open(import): integer constants keep their declared width", {
+  a := (K_U8 + u8(1));
+  assert(a == u8(201), "u8");
+  b := (K_U16 + u16(1));
+  assert(b == u16(60001), "u16");
+  c := (K_U32 + u32(1));
+  assert(c == u32(4000000001), "u32");
+  d := (K_U64 + u64(1));
+  assert(d == u64(8), "u64");
+  z := (K_U64_ZERO + u64(1));
+  assert(z == u64(1), "u64 zero — the value that hid behind the i32 default");
+  e := (K_USIZE + usize(1));
+  assert(e == usize(4), "usize");
+  f := (K_I8 + i8(1));
+  assert(f == i8(-4), "i8");
+  g := (K_I64 - i64(1));
+  assert(g == i64(-9000000001), "i64");
+  h := (K_ISIZE + isize(1));
+  assert(h == isize(0), "isize");
+});
+test("open(import): non-integer constants and functions are unchanged", {
+  assert(K_BOOL, "bool");
+  assert((K_F64 * f64(2.0)) == f64(3.0), "f64");
+  assert(K_PT.x == i32(1), "struct constant field");
+  assert(twice(K_U64) == u64(14), "function export with a u64 argument");
+});
+test("open and named import agree", {
+  assert(K_U64 == named.K_U64, "u64 via both forms");
+  assert(K_USIZE == named.K_USIZE, "usize via both forms");
+  assert((named.K_U64_ZERO + K_U64) == u64(7), "mixed arithmetic across the two forms");
+});

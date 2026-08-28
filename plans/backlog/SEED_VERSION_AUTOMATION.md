@@ -109,3 +109,11 @@ passing NULL. Proven by tests/process/command.test.yo under the fresh binary.
 `__yo_async_spawn_start_cwd` in std/sys/externs.yo, make `std/sys/process.spawn`
 take `cwd : ?(*(u8))`, add `Command.current_dir(path)` + a test through the
 public API; then delete the 6-argument wrapper in a later generation.
+
+- **Hasher defaults (D3.9, 2026-08-28):** `std/hash.yo`'s `SipHasher13` spells
+  out every `write_*` because the v0.2.19 seed miscompiles `inout(self)` trait
+  defaults (C43, issues/fixed/trait-default-inout-self-bound-by-value.md) and
+  the compiler's own maps run this hasher. Once the seed carries C43 the
+  overrides are an optimisation only — nothing to collapse, but a NEW std
+  hasher may then rely on the defaults. Failure mode if violated: SILENT (the
+  built compiler hangs in `__yo_main_module_init`).

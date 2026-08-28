@@ -31,6 +31,7 @@ open(import("std/string"));
 open(import("std/fmt"));
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
+{ hash_one } :: import("std/hash");
 { cwd } :: import("std/env");
 // Pointer-identity builtin — `expr_info_paths_for_write` uses it to detect the
 // SHARED empty PathCollection before a push (same local-extern pattern as
@@ -939,12 +940,12 @@ is_module_level_global :: (fn(module_path : String, name : String) -> bool)(
   g_module_level_globals.get(`${_mg_canon(module_path)}|#|${name}`).is_some()
 );
 /// The C-name suffix for a module-level global declared in `module_path`
-/// (`_m<fnv1a-of-canonical-path>`). Hashes the CANONICAL path so the
+/// (`_m<hash_one-of-canonical-path>`). Hashes the CANONICAL path so the
 /// declaration and every read agree on the suffix regardless of which
 /// spelling the resolved variable's token carries.
 module_global_c_suffix :: (fn(module_path : String) -> String)({
   cp := _mg_canon(module_path);
-  `_m${cp.hash()}`
+  `_m${hash_one(cp)}`
 });
 // Phase 5 (async/effects): the resolved CONCRETE type for a `SomeT`, keyed by the
 // SomeT's unique `id`. TS stores this as a mutable `SomeType.resolvedConcreteType`

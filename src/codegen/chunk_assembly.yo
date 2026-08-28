@@ -30,6 +30,7 @@
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
 { HashMap } :: import("std/collections/hash_map");
+{ hash_one } :: import("std/hash");
 { ChunkRange } :: import("./utils/index.yo");
 /// The assembled chunked emission: the shared header text and one body text
 /// per translation unit (without the `#include` line — the driver knows the
@@ -644,7 +645,7 @@ assemble_chunks :: (
         assigned.push(n);
       }, {
         nm := fr.c_name.clone();
-        assigned.push(usize(nm.hash() % u64(n)));
+        assigned.push(usize(hash_one(nm) % u64(n)));
       }),
       .None => {
         assigned.push(n);
