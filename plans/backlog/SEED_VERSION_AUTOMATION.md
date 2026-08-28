@@ -54,7 +54,10 @@ paren-less prefix calls inside `src/`/`std/`
 release CONTAINING those features becomes the seed, i.e. typically the
 bump after next.
 
-**Added 2026-08-25:** collapse `std/time/sleep.yo`'s `sleep_blocking` to its
+**Added 2026-08-25, DONE 2026-08-28** (collapsed once v0.2.18 became the seed;
+verified by compiling a probe AND building the whole tree with the real v0.2.18
+bundle, both rc=0, and `tests/time/sleep.test.yo` 4/4): collapse
+`std/time/sleep.yo`'s `sleep_blocking` to its
 natural one-expression body,
 `__yo_ms_sleep(usize(duration.as_millis()))`. It is written as a two-statement
 body only because the seed predates the codegen fix in
@@ -78,17 +81,21 @@ Hardening (branch `ci/release-tail-hardening`): bump moved to its own
 lever added, v0.2.14→v0.2.15 pins bumped manually via PR. Remaining USER
 ACTION: add the Workflows permission to `RELEASE_PAT`.
 
-## Seed-gated follow-up (2026-08-27): migrate the compiler off `std/sys/bufio`
+## ~~Seed-gated follow-up (2026-08-27): migrate the compiler off `std/sys/bufio`~~ **DONE 2026-08-28**
 
-`src/lsp/server.yo`, `src/lsp/transport.yo` and `src/check_watch.yo` should
-move from the fd-based `std/sys/bufio` BufReader onto the D5 generic
-`std/io/bufio` `BufReader(Stdin)` — and `std/sys/bufio` + its test then
-DELETE. Blocked until the seed carries #299 (the nullable-ptr match
-shadow-registration fix): `yo build` compiles `src/` with the SEED, which
-mis-emits `std/io/bufio`'s match bindings
-(`use of undeclared identifier '_..._priv_temp_N'`). The migration itself is
-already written — it was committed and then reverted on branch
-d5/bufio-wrappers (see that branch's history for the exact diffs).
+Landed once v0.2.18 became the seed — that release carries #299 (the
+nullable-ptr match shadow-registration fix), so `yo build` no longer mis-emits
+`std/io/bufio`'s match bindings. **Verify the gate before assuming it, the way
+this one was**: download the actual seed bundle and compile the module with it
+(`yo compile` a two-line probe importing `std/io/bufio`) — the pre-#299 seed
+fails with `use of undeclared identifier '_..._priv_temp_N'`.
+
+`src/lsp/transport.yo`, `src/lsp/server.yo` and `src/check_watch.yo` now read
+stdin through `BufReader(Stdin)`; `std/sys/bufio` and its 25-test file are
+deleted. Note the API shape changed with the move: the fd reader returned
+`Result(Option(T), Error)` and the generic one throws through `IoExn`, so the
+consumers shed their `.Ok/.Err` arms — and `BufWriter(W)` regained
+`write_string`/`write_bytes`, which only the deleted fd writer had.
 
 ## Seed-gated follow-up (2026-08-27): `Command.current_dir`
 

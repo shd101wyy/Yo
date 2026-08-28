@@ -4,7 +4,7 @@
 (`issues/fixed/io-await-effect-arg-not-checked-memcpy-overflow.md`). **Status**:
 OPEN — the io-builtin face is fixed by a contract check at the call layer; the
 GENERAL unification hole remains. Related: C18
-(`issues/struct-literal-missing-field-silently-accepted.md`) supplies the
+(`issues/fixed/struct-literal-missing-field-silently-accepted.md`) supplies the
 second half (lenient struct compatibility).
 
 ## Repro (accepted today, should be errors)

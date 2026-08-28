@@ -82,7 +82,7 @@ records; mechanisms and reproducers are in the named `issues/fixed/` docs.
 | C15 | `RwLock.write_unlock` never woke blocked readers (red-first test HANGS 300 s) | **FIXED** 2026-08-25 |
 | C16 | async trait `?=` default hollowed (evaluated under the impl's ambient ctx, so `io.async` couldn't bind its effect generic; the def-eval-wall swallowed it) — was D5's blocker | **FIXED** 2026-08-26 — issues/fixed/trait-default-awaiting-self-async-method-emits-hollow-fn.md, tests/async_trait_default_await.test.yo |
 | C17 | `Dyn(trait)` whose method returns `Impl(Future(...))` emits the on-demand Future struct INTO the open vtable typedef; clang rejects with 7 errors. Blocks the `Dyn(Reader)` spelling of "BufReader wraps ANY Reader" | **OPEN** — issues/dyn-trait-with-future-returning-method-splices-struct-into-vtable.md |
-| C18 | **A struct literal that OMITS a required field is silently accepted** — `yo check` green, field uninitialised, program SIGSEGVs. Directly undermines §1's "additive-only" promise: adding a field to a stable struct silently breaks every construction site not updated | **OPEN** — issues/struct-literal-missing-field-silently-accepted.md |
+| C18 | **A struct literal that OMITS a required field is silently accepted** — `yo check` green, field uninitialised, program SIGSEGVs. Root: the check FIRED but was SWALLOWED in async-closure/generic def-eval, leaving codegen no ExprInfo → FTT object; **FIXED 2026-08-28** (missing-field error flags the flow-violation channel so the swallow re-raises it at check time — tests/struct_missing_field.test.yo). Directly undermines §1's "additive-only" promise: adding a field to a stable struct silently breaks every construction site not updated | **FIXED** — issues/fixed/struct-literal-missing-field-silently-accepted.md |
 | C19 | C `int` passed where `i32` declared is accepted by the evaluator; codegen splices a Yo type expr into a C identifier, clang fails with a diagnostic naming nothing the user wrote | **OPEN** — issues/int-vs-i32-mismatch-reaches-codegen-and-emits-malformed-c.md |
 | C20 | generic-`R` callback with a unit-returning closure emitted `void* tmp = <void call>;` — `Mutex.with_lock((v) => { … })`, the flagship std/sync form, did not C-compile | **FIXED** 2026-08-26 — issues/fixed/generic-r-callback-with-unit-closure-emits-void-star-temp.md |
 | C21 | a materialized async trait `?=` default resolved its `Impl(Future(...))` return to ONE concrete state-machine type for ALL implementors (`-Wincompatible-pointer-types` across implementors), ESCALATING to a hard `incomplete definition of type` C error on D5's generic BufReader (a TRIAL-era never-emitted state struct). **FIXED 2026-08-27** in two layers: per-materialization fresh RETURN SomeT cells (`_freshen_return_only_somes`, impl.yo) + emission-layer callee-channel future types (`awaited_future_c_type_override` — the sm field and the call temp now name the CALLEE's emitted return, so the static type always matches the dynamic object). Gate: the two-implementor reproducer compiles with ZERO incompatible-pointer warnings | **FIXED** — issues/fixed/async-trait-default-shares-one-impl-future-concrete-type.md |
@@ -309,13 +309,21 @@ Landing them required fixing C21 (both layers) and C26, both found by this
 work. `tests/io/bufio.test.yo` (11) carries the `tests/sys/bufio.test.yo`
 coverage re-expressed generically plus the new contracts.
 
-**D5 remaining:** (a) migrating the compiler's three `std/sys/bufio`
-consumers onto `BufReader(Stdin)` and deleting `std/sys/bufio` is
-**SEED-GATED** — `yo build` compiles `src/` with the seed, which predates
-the #299 match-binding fix and mis-emits `std/io/bufio`; the migration is
-written (reverted on branch d5/bufio-wrappers) and scheduled in
-`plans/backlog/SEED_VERSION_AUTOMATION.md`. (b) **C17** blocks the
-`Dyn(Reader)` spelling. (c) a buffered `lines()` waits on an async iterator
+**D5 BUFIO MOVE COMPLETED 2026-08-28** — the seed gate lifted with v0.2.18
+(which carries #299's shadow-registration fix, verified by building this tree
+with the actual v0.2.18 bundle before touching anything). The compiler's three
+consumers — `src/lsp/transport.yo`, `src/lsp/server.yo`, `src/check_watch.yo` —
+read stdin through `BufReader(Stdin)`, shedding the fd API's `Result` wrapper for
+the generic one's `IoExn` throw, and **`std/sys/bufio` + its 25-test file are
+DELETED**. `BufWriter(W)` regained `write_string`/`write_bytes` in the process:
+the deleted writer had them, the generic one had only the pointer-taking trait
+primitive, and losing them would have made "write a String to a buffered writer"
+a pointer exercise (2 tests; tests/io/bufio.test.yo 11 → 13). Gates: the
+v0.2.18 seed builds the migrated tree (rc=0), and the `lsp-handshake`,
+`lsp-completion` and `check-watch-once` goldens — which ARE the migrated stdin
+path — pass unchanged.
+
+**D5 remaining:** **C17** blocks the `Dyn(Reader)` spelling. (c) a buffered `lines()` waits on an async iterator
 protocol (deliberately not faked). Inherent-vs-trait NAME duplication (`File.read_bytes` vs the trait's
 `read_to_end`, the inherent `read_to_string`) is a D2 question to settle when
 the wrappers land. Cautions that still stand: **C21**
