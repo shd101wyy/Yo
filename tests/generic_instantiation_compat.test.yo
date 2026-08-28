@@ -1,0 +1,100 @@
+// Non-exact compatibility must not unify two instantiations of one generic
+// by NAME alone (issues/fixed/lenient-generic-enum-compatibility-by-name.md,
+// C45). `Result(i32, AErr)` and `Result(i32, CErr)` are both "Result", and
+// `Carrier(AErr)` / `Carrier(CErr)` are both "Carrier"; before the fix the
+// equal-name fast accept let a value of one flow where the other was expected
+// (`yo check` green, the wrong payload read at runtime).
+//
+// Two payload shapes are pinned: `CErr` differs from `AErr` structurally
+// (this fix alone rejects it), and `BErr` is a same-shaped twin — telling
+// those apart also needs the exact comparison's nominal rule (C46).
+{ assert } :: import("std/assert");
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+AErr :: enum(Boom(code : i32), Quiet);
+BErr :: enum(Boom(code : i32), Quiet);
+CErr :: enum(Crash(msg : String), Silent, Third);
+fa :: (fn(fail : bool) -> Result(i32, AErr))(
+  cond(
+    fail => .Err(.Boom(code : i32(1))),
+    true => .Ok(i32(10))
+  )
+);
+Carrier :: (fn(comptime(E) : Type) -> comptime(Type))(struct(inner : Result(unit, E)));
+take_c :: (fn(r : Result(i32, CErr)) -> i32)(
+  match(
+    r,
+    .Ok(v) => v,
+    .Err(_) => i32(-1)
+  )
+);
+take_b :: (fn(r : Result(i32, BErr)) -> i32)(
+  match(
+    r,
+    .Ok(v) => v,
+    .Err(_) => i32(-1)
+  )
+);
+test("Result instantiations over structurally different payloads are distinct", {
+  comptime_expect_error({
+    r := fa(true);
+    (x : Result(i32, CErr)) = r;
+    consume(x);
+  });
+  comptime_expect_error({
+    o := Option(AErr).Some(AErr.Quiet);
+    (p : Option(CErr)) = o;
+    consume(p);
+  });
+  comptime_expect_error({
+    v := take_c(fa(false));
+    consume(v);
+  });
+  assert(take_c(Result(i32, CErr).Ok(i32(5))) == i32(5), "matching instantiation accepted");
+});
+test("generic struct / collection instantiations over different payloads are distinct", {
+  comptime_expect_error({
+    ca := Carrier(AErr)(inner : Result(unit, AErr).Err(AErr.Quiet));
+    (cc : Carrier(CErr)) = ca;
+    consume(cc);
+  });
+  comptime_expect_error({
+    la := ArrayList(AErr).new();
+    (lc : ArrayList(CErr)) = la;
+    consume(lc);
+  });
+});
+test("same-shaped twin enums: instantiations are distinct too (with the nominal exact rule)", {
+  comptime_expect_error({
+    r := fa(true);
+    (x : Result(i32, BErr)) = r;
+    consume(x);
+  });
+  comptime_expect_error({
+    v := take_b(fa(false));
+    consume(v);
+  });
+  comptime_expect_error({
+    la := ArrayList(AErr).new();
+    (lb : ArrayList(BErr)) = la;
+    consume(lb);
+  });
+});
+test("same instantiation stays compatible, and generics with placeholders still type", {
+  a1 := fa(true);
+  (a2 : Result(i32, AErr)) = a1;
+  assert(match(a2, .Err(e) => match(e, .Boom({ code }) => (code == i32(1)), .Quiet => false), .Ok(_) => false), "same instantiation assignable");
+  // A generic helper over any Result — its parameter is a placeholder, so
+  // every instantiation flows through it.
+  is_ok :: (fn(generic(T : Type, E : Type), r : Result(T, E)) -> bool)(match(r, .Ok(_) => true, .Err(_) => false));
+  assert(is_ok(fa(false)), "AErr result through a generic");
+  assert(!(is_ok(Result(i32, CErr).Err(CErr.Silent))), "CErr result through the same generic");
+  assert(!(is_ok(Result(i32, BErr).Err(BErr.Quiet))), "BErr result through the same generic");
+  list := ArrayList(Result(i32, AErr)).new();
+  list.push(fa(false));
+  list.push(fa(true));
+  assert(list.len() == usize(2), "collections of a Result instantiation");
+  // Option payload widening through a generic still works.
+  first :: (fn(generic(T : Type), xs : ArrayList(T)) -> Option(T))(xs.get(usize(0)));
+  assert(first(list).is_some(), "Option(T) result of a generic");
+});

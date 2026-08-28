@@ -2839,7 +2839,8 @@ run_test :: (
           // Every test child runs with the nested-event-loop guard ARMED: a blocking
           // await inside a task (C37) is a deterministic panic under `yo test`, while
           // ordinary programs stay relaxed until the compiler's own build scheduler is
-          // made async (issues/compiler-build-runner-nests-event-loop.md).
+          // made async — measured 2026-08-29: strict mode is clean here
+          // (issues/retired/compiler-build-runner-nests-event-loop.md).
           _sv_strict := proc_env.set(String.from("YO_ASYNC_STRICT"), String.from("1"));
           // macOS: suppress the well-known system-library leak reports
           // (getMacOSLsanSuppressions, compiler-utils.ts:334-341).

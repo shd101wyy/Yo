@@ -4,7 +4,7 @@
 (`std/http/client.yo`). **Status**: FIXED 2026-08-28 — the diagnostic proposed
 below is implemented: `__yo_async_run_ready_tasks` (and the async-`main` and
 `wait_all` loops) track `__yo_async_task_depth` around each resume, and
-`__yo_async_poll_step` panics when entered with depth > 0 **and `YO_ASYNC_STRICT=1`** — `yo test` sets that for every test child, so `tests/` is enforced; ordinary programs stay relaxed until the compiler's own build scheduler stops nesting (issues/compiler-build-runner-nests-event-loop.md, C42), after which the default flips:
+`__yo_async_poll_step` panics when entered with depth > 0 **and `YO_ASYNC_STRICT=1`** — `yo test` sets that for every test child, so `tests/` is enforced; ordinary programs stay relaxed until the compiler's own build scheduler stops nesting (issues/retired/compiler-build-runner-nests-event-loop.md, C42), after which the default flips:
 
 ```
 panic: a blocking await ran inside an async task: an io.await in a non-io.async
