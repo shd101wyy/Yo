@@ -1,7 +1,7 @@
 //! The generic `BufReader(R)` / `BufWriter(W)` (`std/io/bufio`, D5) — the
 //! `tests/sys/bufio.test.yo` coverage re-expressed against the trait-generic
-//! API over `File` (the fd pair still exists, seed-gated — see the module
-//! header), plus the new contracts: the wrappers satisfy the `Reader`/`Writer` bounds themselves,
+//! API over `File` (that fd pair is now DELETED — 2026-08-28), plus the new
+//! contracts: the wrappers satisfy the `Reader`/`Writer` bounds themselves,
 //! `read_to_end`/`read_to_string` arrive as trait defaults, and `BufWriter`
 //! deliberately does NOT flush on drop (tokio contract — flush explicitly).
 pragma(Pragma.SkipWasm32Wasi); // File I/O — the async open/read/write path is host-only; standalone WASI lacks it (same skip as tests/fs)
@@ -233,4 +233,43 @@ test("copy drains a BufReader into a BufWriter (both satisfy the bounds)", {
   io.await(vf.close(io), _ioexn(io));
   io.await(remove_file(pa, io), _ioexn(io));
   io.await(remove_file(pb, io), _ioexn(io));
+});
+test("BufWriter write_string and write_bytes buffer without pointers", {
+  // These two came back with the std/sys/bufio deletion: the trait primitive
+  // takes a pointer, and "write a String to a buffered writer" should not be a
+  // pointer exercise. Both must batch like `write` does — nothing reaches the
+  // file until the buffer fills or `flush` runs.
+  dir := temp_dir();
+  p := Path.new(path_join(dir, String.from("yo_bufio_wstr.txt")));
+  fw := io.await(File.open(p, OpenMode.Write, io), _ioexn(io));
+  bw := BufWriter(File).with_capacity(fw, usize(64));
+  io.await(bw.write_string(String.from("hello "), io), _ioexn(io));
+  bs := ArrayList(u8).new();
+  bs.push(u8(119));
+  bs.push(u8(111));
+  bs.push(u8(114));
+  bs.push(u8(108));
+  bs.push(u8(100));
+  io.await(bw.write_bytes(bs, io), _ioexn(io));
+  assert(bw.buffered() == usize(11), "both writes are still buffered");
+  io.await(bw.flush(io), _ioexn(io));
+  assert(bw.buffered() == usize(0), "flush drains the buffer");
+  io.await(fw.close(io), _ioexn(io));
+  fr := io.await(File.open(p, OpenMode.Read, io), _ioexn(io));
+  got := io.await(fr.read_to_string(io), _ioexn(io));
+  assert(got == "hello world", `round-trip should be "hello world", got "${got}"`);
+  io.await(fr.close(io), _ioexn(io));
+  io.await(remove_file(p, io), _ioexn(io));
+});
+test("BufWriter write_string of an empty String is a no-op", {
+  dir := temp_dir();
+  p := Path.new(path_join(dir, String.from("yo_bufio_wempty.txt")));
+  fw := io.await(File.open(p, OpenMode.Write, io), _ioexn(io));
+  bw := BufWriter(File).new(fw);
+  io.await(bw.write_string(String.new(), io), _ioexn(io));
+  io.await(bw.write_bytes(ArrayList(u8).new(), io), _ioexn(io));
+  assert(bw.buffered() == usize(0), "nothing buffered for empty input");
+  io.await(bw.flush(io), _ioexn(io));
+  io.await(fw.close(io), _ioexn(io));
+  io.await(remove_file(p, io), _ioexn(io));
 });

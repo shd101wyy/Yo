@@ -306,13 +306,21 @@ Landing them required fixing C21 (both layers) and C26, both found by this
 work. `tests/io/bufio.test.yo` (11) carries the `tests/sys/bufio.test.yo`
 coverage re-expressed generically plus the new contracts.
 
-**D5 remaining:** (a) migrating the compiler's three `std/sys/bufio`
-consumers onto `BufReader(Stdin)` and deleting `std/sys/bufio` is
-**SEED-GATED** — `yo build` compiles `src/` with the seed, which predates
-the #299 match-binding fix and mis-emits `std/io/bufio`; the migration is
-written (reverted on branch d5/bufio-wrappers) and scheduled in
-`plans/backlog/SEED_VERSION_AUTOMATION.md`. (b) **C17** blocks the
-`Dyn(Reader)` spelling. (c) a buffered `lines()` waits on an async iterator
+**D5 BUFIO MOVE COMPLETED 2026-08-28** — the seed gate lifted with v0.2.18
+(which carries #299's shadow-registration fix, verified by building this tree
+with the actual v0.2.18 bundle before touching anything). The compiler's three
+consumers — `src/lsp/transport.yo`, `src/lsp/server.yo`, `src/check_watch.yo` —
+read stdin through `BufReader(Stdin)`, shedding the fd API's `Result` wrapper for
+the generic one's `IoExn` throw, and **`std/sys/bufio` + its 25-test file are
+DELETED**. `BufWriter(W)` regained `write_string`/`write_bytes` in the process:
+the deleted writer had them, the generic one had only the pointer-taking trait
+primitive, and losing them would have made "write a String to a buffered writer"
+a pointer exercise (2 tests; tests/io/bufio.test.yo 11 → 13). Gates: the
+v0.2.18 seed builds the migrated tree (rc=0), and the `lsp-handshake`,
+`lsp-completion` and `check-watch-once` goldens — which ARE the migrated stdin
+path — pass unchanged.
+
+**D5 remaining:** **C17** blocks the `Dyn(Reader)` spelling. (c) a buffered `lines()` waits on an async iterator
 protocol (deliberately not faked). Inherent-vs-trait NAME duplication (`File.read_bytes` vs the trait's
 `read_to_end`, the inherent `read_to_string`) is a D2 question to settle when
 the wrappers land. Cautions that still stand: **C21**

@@ -13,11 +13,14 @@
 //! the pointer-free defaults (`read_to_end`, `read_to_string`) and the
 //! per-type conveniences on each concrete type.
 //!
-//! STILL TO COME (unblocked 2026-08-26 — the loop-await compiler bug,
-//! issues/fixed/async-loop-awaiting-buffer-taking-method-state-machine-corruption.md,
-//! is fixed on all faces): the generic `BufReader(R)` / `BufWriter(W)`
-//! wrappers, the `std/sys/bufio` → `std/io` move, and a buffered `lines()`.
-//! C17 still blocks only the `Dyn(Reader)` spelling of the wrappers.
+//! The generic `BufReader(R)` / `BufWriter(W)` wrappers landed in
+//! `./bufio.yo`, and the `std/sys/bufio` → `std/io` move COMPLETED 2026-08-28
+//! (fd-based pair deleted; the compiler's three stdin consumers read through
+//! `BufReader(Stdin)`).
+//!
+//! STILL TO COME: a buffered `lines()`, which waits on an async iterator
+//! protocol rather than being faked. C17 blocks only the `Dyn(Reader)` spelling
+//! of the wrappers.
 pragma(Pragma.AllowUnsafe);
 { IoExn } :: import("../error");
 { IoError } :: import("../sys/errors");

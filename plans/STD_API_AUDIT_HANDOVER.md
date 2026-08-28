@@ -119,10 +119,11 @@ defaults, `copy`, `IoError.InvalidData`/`WriteZero`, validating
 `File.read_to_string`) LANDED 2026-08-26 after #294/#295 unblocked it — C25
 (the unit tail await) was found and fixed en route. The loop-await issue is
 FIXED on all three facets, C21 is FIXED (both layers) and the generic
-wrappers LANDED 2026-08-27 (`std/io/bufio.yo`, 11 tests) — fixing C26 (the
-silent `=`-assign await no-op) en route. Remaining: the compiler's
-`std/sys/bufio` consumers migrate (SEED-GATED, see
-plans/backlog/SEED_VERSION_AUTOMATION.md) and C17 blocks only the
+wrappers LANDED 2026-08-27 (`std/io/bufio.yo`, now 13 tests) — fixing C26 (the
+silent `=`-assign await no-op) en route. **The bufio MOVE completed 2026-08-28**
+once v0.2.18 became the seed: the three compiler consumers read stdin through
+`BufReader(Stdin)` and `std/sys/bufio` is deleted (`BufWriter` regained
+`write_string`/`write_bytes` with it). Remaining: C17 blocks only the
 `Dyn(Reader)` spelling. Full current state: `plans/STD_API_AUDIT.md` §D5.
 
 ### 3.3 §7 additions — S3 (P0) and S4 (P1)
@@ -139,7 +140,17 @@ CRC32, `Digest`) + `std/rand`, `Duration` integration, `net.UnixStream`.
 Stable/unstable markers in `yo doc` output, additive-only policy written into
 `.github/instructions/yo-design.instructions.md`.
 
-### 3.5 Known seed-gated item
+### 3.5 Known seed-gated items — how to clear one
+
+The pattern that worked on 2026-08-28: **prove the gate is lifted with the real
+seed before writing any code.** Download the bundle the CI `SEED_VERSION` names
+(`curl` the release asset, `tar --strip-components=1`), then compile a two-line
+probe that imports the module the old seed mis-emitted. That took two minutes
+and turned "should be unblocked now" into a fact; the migration then landed in
+one pass, and building the migrated tree WITH that seed (`YO_STD=$PWD/std
+<seed>/bin/yo build`) is the acceptance gate CI will apply.
+
+### 3.5b The remaining seed-gated item
 
 `std/time/sleep.yo`'s `sleep_blocking` keeps a two-statement body **only**
 because `yo build` compiles `std/`+`src/` with the SEED, which predates the
