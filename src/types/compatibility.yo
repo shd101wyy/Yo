@@ -230,27 +230,6 @@ _wrapper_carrier_args_concrete :: (fn(rtts : ArrayList(TypeValue)) -> bool)({
   });
   ok
 });
-/// A generic instantiation keeps the DECLARATION's placeholders in its
-/// field / variant-field lists (`Result(i32, AErr)`'s `Err` field is still
-/// `SomeT(E)`); the concrete payload lives in the placeholder's resolution
-/// cell. Payload comparison (issues/fixed/lenient-generic-enum-compatibility-by-name.md)
-/// reads through one level of that resolution so two instantiations can be
-/// told apart; an unresolved placeholder stays a wildcard.
-_payload_resolved :: (fn(t : TypeValue) -> TypeValue)(
-  match(
-    t,
-    .SomeT({ id : pr_id, resolved_concrete : pr_cell }) => match(
-      pr_cell.get(usize(0)),
-      .Some(pr_ty) => pr_ty,
-      .None => match(
-        g_compat_lookup_some_resolved,
-        .Some(pr_lookup) => match(pr_lookup(pr_id), .Some(pr_ty2) => pr_ty2, .None => t),
-        .None => t
-      )
-    ),
-    _ => t
-  )
-);
 _compat_impl :: (
   fn(
     actual : TypeValue,
@@ -691,7 +670,12 @@ _compat_impl :: (
           // A SomeT on either side of a position keeps it a wildcard (a
           // def-time placeholder, an unresolved instantiation), so
           // `Box(V)` vs `Box(i32)` is untouched; only two SomeT-free payloads
-          // that are not themselves non-exact-compatible disagree.
+          // that are not themselves non-exact-compatible disagree. The
+          // placeholder is NOT read through its resolution cell: cells are
+          // per-SomeT identity and can carry an EARLIER call's binding
+          // (a first cut did, and two eras of one iterator instantiation
+          // "disagreed"); substitution already rewrites an instantiation's
+          // payloads concretely where it can.
           ({
             (pay_differ : bool) = false;
             pa := ata;
@@ -704,9 +688,14 @@ _compat_impl :: (
               visited.push(vkey_pay);
               (pi : usize) = usize(0);
               while((pi < pa.len()) && !(pay_differ), {
-                pat := _payload_resolved(match(pa.get(pi), .Some(v) => v, .None => TypeValue.Unit));
-                pet := _payload_resolved(match(pe.get(pi), .Some(v) => v, .None => TypeValue.Unit));
-                if(!(type_contains_some_type(pat)) && !(type_contains_some_type(pet)), {
+                pat := match(pa.get(pi), .Some(v) => v, .None => TypeValue.Unit);
+                pet := match(pe.get(pi), .Some(v) => v, .None => TypeValue.Unit);
+                // A `Type` kind marker in an argument slot is a comptime
+                // VALUE binder's bookkeeping (recorded as `Type` in one era
+                // and `unit` in another — tests/iterator_combinators
+                // `__ii_sum`), never a payload type: skip the position.
+                pa_kind := (match(pat, .TypeUni(_) => true, _ => false) || match(pet, .TypeUni(_) => true, _ => false));
+                if(((!(pa_kind)) && !(type_contains_some_type(pat))) && !(type_contains_some_type(pet)), {
                   if(!(recur(pat, pet, false, visited)), {
                     pay_differ = true;
                   });
@@ -924,9 +913,10 @@ _compat_impl :: (
                   if(vafl.len() == vefl.len(), {
                     (vfi : usize) = usize(0);
                     while((vfi < vafl.len()) && !(vp_differ), {
-                      vat := _payload_resolved(match(vafl.get(vfi), .Some(v) => v, .None => TypeValue.Unit));
-                      vet := _payload_resolved(match(vefl.get(vfi), .Some(v) => v, .None => TypeValue.Unit));
-                      if(!(type_contains_some_type(vat)) && !(type_contains_some_type(vet)), {
+                      vat := match(vafl.get(vfi), .Some(v) => v, .None => TypeValue.Unit);
+                      vet := match(vefl.get(vfi), .Some(v) => v, .None => TypeValue.Unit);
+                      va_kind := (match(vat, .TypeUni(_) => true, _ => false) || match(vet, .TypeUni(_) => true, _ => false));
+                      if(((!(va_kind)) && !(type_contains_some_type(vat))) && !(type_contains_some_type(vet)), {
                         if(!(recur(vat, vet, false, visited)), {
                           vp_differ = true;
                         });
