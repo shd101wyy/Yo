@@ -27,4 +27,4 @@ $ node app.js
 # 或在浏览器中打开 app.html
 ```
 
-使用 `--cc emcc` 时，Yo 自动针对 `wasm32-emscripten` 目标并使用 `libc` 分配器。你也可以使用 `--target wasm-emscripten`（会自动选择 `emcc`）。Emscripten 生成一个 `.html` 文件（浏览器外壳）、一个 `.js` 文件（运行时胶水代码）和一个 `.wasm` 文件（编译后的二进制文件）。
+使用 `--cc emcc` 时，Yo 自动针对 `wasm32-unknown-emscripten` 目标并使用 `libc` 分配器。你也可以使用 `--target wasm32-unknown-emscripten`（会自动选择 `emcc`）。Emscripten 生成一个 `.html` 文件（浏览器外壳）、一个 `.js` 文件（运行时胶水代码）和一个 `.wasm` 文件（编译后的二进制文件）。

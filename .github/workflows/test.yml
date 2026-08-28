@@ -699,13 +699,13 @@ jobs:
       matrix:
         include:
           - target: macos-arm64
-            yo_target: aarch64-macos
+            yo_target: aarch64-apple-darwin
           - target: macos-x64
-            yo_target: x86_64-macos
+            yo_target: x86_64-apple-darwin
           - target: windows-x64
-            yo_target: x86_64-windows-msvc
+            yo_target: x86_64-pc-windows-msvc
           - target: windows-arm64
-            yo_target: aarch64-windows-msvc
+            yo_target: aarch64-pc-windows-msvc
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -1596,7 +1596,7 @@ jobs:
         run: |
           "$S1" init ./tmp/hello-world --name hello-world
           cd tmp/hello-world
-          sed -i 's|exe :: build.executable({ name: "hello-world", root: "./src/main.yo" });|exe :: build.executable({ name: "hello-world", root: "./src/main.yo", target: build.CompilationTarget.Wasm32_Emscripten });|' build.yo
+          sed -i 's|exe :: build.executable({ name: "hello-world", root: "./src/main.yo" });|exe :: build.executable({ name: "hello-world", root: "./src/main.yo", target: build.CompilationTarget.Wasm32_Unknown_Emscripten });|' build.yo
           # List what emcc actually produced on failure. `build run` executes
           # node on the .js shim emcc emits beside the .html, so "Cannot find
           # module ...hello-world.js" says nothing about WHY it is missing —
@@ -1675,7 +1675,7 @@ jobs:
       - name: Run WASI tests
         run: |
           "$S1" test ./tests --exclude tests/internal --exclude tests/cli-cases \
-            --parallel 2 --bail --verbose --target wasm-wasi --profile
+            --parallel 2 --bail --verbose --target wasm32-wasip1 --profile
 
   # Full-corpus HOLLOW SWEEP under the self-hosted binary.
   #

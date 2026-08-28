@@ -1,10 +1,32 @@
 /// Target system for the Yo compiler.
 ///
 /// Distinguishes between the host (machine running the compiler) and the target
-/// (machine the compiled binary will run on).  Target triples follow the standard
-/// `<arch>-<os>[-<abi>]` format, compatible with clang's `--target=` flag.
+/// (machine the compiled binary will run on).
 ///
-/// Mirrors: src/target.ts
+/// Targets are named by their canonical Rust-style triple — the same strings
+/// `rustc --target` takes and the same strings the release assets are named by:
+///
+///   <arch>-<vendor>-<os>[-<env>]      e.g. aarch64-apple-darwin,
+///                                          x86_64-unknown-linux-gnu,
+///                                          x86_64-pc-windows-msvc,
+///                                          wasm32-unknown-emscripten
+///   wasm32-wasip1                     (the one two-component form: WASI
+///                                      preview 1, where Rust folds the
+///                                      `p1` environment into the os word)
+///
+/// The vendor is determined by the OS (`apple` for darwin, `pc` for windows,
+/// `unknown` otherwise) and the environment is REQUIRED where it disambiguates
+/// an ABI (linux: gnu | musl, windows: msvc | gnu) and forbidden where the OS
+/// has exactly one (darwin, freebsd, emscripten). There are no shorthands and
+/// no aliases: an unknown spelling is an error that lists the supported set.
+///
+/// Two vocabularies live here, and they differ on purpose, exactly as Rust's
+/// `cfg(target_os)` differs from its triples: the TRIPLE spells macOS as
+/// `apple-darwin` and 32-bit x86 as `i686`, while the strings the comptime
+/// `__yo_process_platform()` / `__yo_process_arch()` builtins return — matched
+/// by `std/process`'s `Platform` / `Arch` enums — are the cfg names `macos` and
+/// `x86`. `os_to_str` / `arch_to_str` give the cfg names; `os_triple_str` /
+/// `arch_triple_str` give the triple words.
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { Path } :: import("std/path");
@@ -17,8 +39,9 @@ derive(Arch, Eq(Arch));
 // ── Supported operating systems ───────────────────────────────────────
 Os :: enum(Linux, Macos, Windows, FreeBSD, Wasi, Emscripten);
 derive(Os, Eq(Os));
-// ── Supported ABIs ────────────────────────────────────────────────────
-Abi :: enum(Gnu, Musl, Msvc, Wasm_);
+// ── Supported environments (Rust's `target_env`) ──────────────────────
+/// `P1` is WASI preview 1 — the `p1` of `wasm32-wasip1`.
+Abi :: enum(Gnu, Musl, Msvc, P1);
 derive(Abi, Eq(Abi));
 // ── Target info ───────────────────────────────────────────────────────
 TargetInfo :: ref(
@@ -27,6 +50,8 @@ TargetInfo :: ref(
     os : Os,
     abi : Option(Abi),
     pointer_size_bits : u32,
+    /// The canonical triple, e.g. `aarch64-apple-darwin`. Always the
+    /// normalized spelling, whatever the user typed.
     triple : String
   )
 );
@@ -37,7 +62,12 @@ HostInfo :: ref(
     arch : Arch
   )
 );
+/// The complete list of supported targets, for error messages. Kept in the
+/// order docs/en-US/BUILD_SYSTEM.md lists them.
+SUPPORTED_TARGETS :: "x86_64-unknown-linux-gnu, x86_64-unknown-linux-musl, aarch64-unknown-linux-gnu, aarch64-unknown-linux-musl, aarch64-apple-darwin, x86_64-apple-darwin, x86_64-pc-windows-msvc, aarch64-pc-windows-msvc, x86_64-pc-windows-gnu, x86_64-unknown-freebsd, aarch64-unknown-freebsd, wasm32-wasip1, wasm32-unknown-emscripten";
 // ── Enum ↔ string helpers ────────────────────────────────────────────
+/// The cfg-style architecture name — what `__yo_process_arch()` returns and
+/// what `std/process`'s `Arch` parses (`x86`, not `i686`).
 arch_to_str :: (fn(a : Arch) -> str)(
   match(
     a,
@@ -48,6 +78,19 @@ arch_to_str :: (fn(a : Arch) -> str)(
     .Wasm32 => "wasm32"
   )
 );
+/// The architecture word of the triple (`i686`, not `x86`).
+arch_triple_str :: (fn(a : Arch) -> str)(
+  match(
+    a,
+    .X86_64 => "x86_64",
+    .Aarch64 => "aarch64",
+    .X86 => "i686",
+    .Arm => "arm",
+    .Wasm32 => "wasm32"
+  )
+);
+/// The cfg-style OS name — what `__yo_process_platform()` returns and what
+/// `std/process`'s `Platform` parses (`macos`, not `darwin`).
 os_to_str :: (fn(o : Os) -> str)(
   match(
     o,
@@ -59,13 +102,37 @@ os_to_str :: (fn(o : Os) -> str)(
     .Emscripten => "emscripten"
   )
 );
-/// 1-to-1 alias of `os_to_str` matching the TS export name. The Yo
-/// `__yo_process_platform()` builtin returns one of these strings.
-/// Mirrors `targetOsToYoString` in `src/target.ts`.
+/// The OS word of the triple (`darwin`, not `macos`; `wasip1` for WASI, where
+/// the environment is folded into the word).
+os_triple_str :: (fn(o : Os) -> str)(
+  match(
+    o,
+    .Linux => "linux",
+    .Macos => "darwin",
+    .Windows => "windows",
+    .FreeBSD => "freebsd",
+    .Wasi => "wasip1",
+    .Emscripten => "emscripten"
+  )
+);
+/// The vendor word the triple carries for an OS. WASI has none — its triple
+/// is the two-component `wasm32-wasip1`.
+os_vendor_str :: (fn(o : Os) -> str)(
+  match(
+    o,
+    .Linux => "unknown",
+    .Macos => "apple",
+    .Windows => "pc",
+    .FreeBSD => "unknown",
+    .Wasi => "",
+    .Emscripten => "unknown"
+  )
+);
+/// 1-to-1 alias of `os_to_str`. The Yo `__yo_process_platform()` builtin
+/// returns one of these strings.
 target_os_to_yo_string :: (fn(o : Os) -> str)(os_to_str(o));
-/// 1-to-1 alias of `arch_to_str` matching the TS export name. The Yo
-/// `__yo_process_arch()` builtin returns one of these strings.
-/// Mirrors `targetArchToYoString` in `src/target.ts`.
+/// 1-to-1 alias of `arch_to_str`. The Yo `__yo_process_arch()` builtin
+/// returns one of these strings.
 target_arch_to_yo_string :: (fn(a : Arch) -> str)(arch_to_str(a));
 abi_to_str :: (fn(a : Abi) -> str)(
   match(
@@ -73,36 +140,39 @@ abi_to_str :: (fn(a : Abi) -> str)(
     .Gnu => "gnu",
     .Musl => "musl",
     .Msvc => "msvc",
-    .Wasm_ => "wasm"
+    .P1 => "p1"
   )
 );
+/// Parse the architecture word of a triple.
 parse_arch :: (fn(s : String) -> Option(Arch))(
   cond(
     (s == "x86_64") => Option(Arch).Some(Arch.X86_64),
     (s == "aarch64") => Option(Arch).Some(Arch.Aarch64),
-    (s == "x86") => Option(Arch).Some(Arch.X86),
+    (s == "i686") => Option(Arch).Some(Arch.X86),
     (s == "arm") => Option(Arch).Some(Arch.Arm),
     (s == "wasm32") => Option(Arch).Some(Arch.Wasm32),
     true => Option(Arch).None
   )
 );
+/// Parse the OS word of a triple.
 parse_os :: (fn(s : String) -> Option(Os))(
   cond(
     (s == "linux") => Option(Os).Some(Os.Linux),
-    (s == "macos") => Option(Os).Some(Os.Macos),
+    (s == "darwin") => Option(Os).Some(Os.Macos),
     (s == "windows") => Option(Os).Some(Os.Windows),
     (s == "freebsd") => Option(Os).Some(Os.FreeBSD),
-    (s == "wasi") => Option(Os).Some(Os.Wasi),
+    (s == "wasip1") => Option(Os).Some(Os.Wasi),
     (s == "emscripten") => Option(Os).Some(Os.Emscripten),
     true => Option(Os).None
   )
 );
+/// Parse the environment word of a triple.
 parse_abi :: (fn(s : String) -> Option(Abi))(
   cond(
     (s == "gnu") => Option(Abi).Some(Abi.Gnu),
     (s == "musl") => Option(Abi).Some(Abi.Musl),
     (s == "msvc") => Option(Abi).Some(Abi.Msvc),
-    (s == "wasm") => Option(Abi).Some(Abi.Wasm_),
+    (s == "p1") => Option(Abi).Some(Abi.P1),
     true => Option(Abi).None
   )
 );
@@ -117,29 +187,30 @@ pointer_size_for_arch :: (fn(a : Arch) -> u32)(
     .Wasm32 => u32(32)
   )
 );
-// ── Default ABI for a given OS ────────────────────────────────────────
-_default_abi_for_os :: (fn(o : Os) -> Option(Abi))(
+// ── Build TargetInfo ──────────────────────────────────────────────────
+/// The canonical triple for (arch, os, env). Inverse of `parse_target`.
+_build_triple :: (fn(a : Arch, o : Os, abi : Option(Abi)) -> String)({
+  s := String.from(arch_triple_str(a));
   match(
     o,
-    .Linux => Option(Abi).Some(Abi.Gnu),
-    .Windows => Option(Abi).Some(Abi.Msvc),
-    .Wasi => Option(Abi).Some(Abi.Wasm_),
-    .Emscripten => Option(Abi).Some(Abi.Wasm_),
-    .Macos => Option(Abi).None,
-    .FreeBSD => Option(Abi).None
-  )
-);
-// ── Build TargetInfo ──────────────────────────────────────────────────
-_build_triple :: (fn(a : Arch, o : Os, abi : Option(Abi)) -> String)({
-  s := String.from(arch_to_str(a));
-  s.push_str("-");
-  s.push_str(os_to_str(o));
-  match(
-    abi,
-    .None => (),
-    .Some(b) => {
+    .Wasi => {
+      // `wasm32-wasip1`: no vendor, and the environment IS the os word.
       s.push_str("-");
-      s.push_str(abi_to_str(b));
+      s.push_str(os_triple_str(o));
+    },
+    _ => {
+      s.push_str("-");
+      s.push_str(os_vendor_str(o));
+      s.push_str("-");
+      s.push_str(os_triple_str(o));
+      match(
+        abi,
+        .None => (),
+        .Some(b) => {
+          s.push_str("-");
+          s.push_str(abi_to_str(b));
+        }
+      );
     }
   );
   s
@@ -156,9 +227,8 @@ _build_target_info :: (fn(a : Arch, o : Os, abi : Option(Abi)) -> TargetInfo)(
 // ── Linux musl detection ──────────────────────────────────────────────
 /// Detect whether the host Linux system uses musl libc.
 /// Currently returns Abi.Gnu — musl detection via /lib filesystem reads
-/// requires synchronous I/O which is not yet available in yo-self's
-/// compile-time evaluation (Phase 1 tracker).
-/// TS: `detectLinuxAbi` in `src/target.ts`.
+/// requires synchronous I/O which is not yet available in the compiler's
+/// compile-time evaluation.
 detect_linux_abi :: (fn() -> Abi)(Abi.Gnu);
 // ── Host detection ────────────────────────────────────────────────────
 /// Detect the host machine's platform and architecture from compile-time constants.
@@ -183,16 +253,13 @@ detect_host :: (fn() -> HostInfo)({
   HostInfo(platform : host_os, arch : host_arch)
 });
 /// Return a TargetInfo representing the host machine (native compilation).
-/// Synchronous (matching TS `hostTarget` in `src/target.ts`).
-/// Linux musl detection is deferred to Phase 1.
 host_target :: (fn() -> TargetInfo)({
   host := detect_host();
   linux_abi := detect_linux_abi();
   abi := cond(
     (host.platform == Os.Linux) => Option(Abi).Some(linux_abi),
     (host.platform == Os.Windows) => Option(Abi).Some(Abi.Msvc),
-    (host.platform == Os.Wasi) => Option(Abi).Some(Abi.Wasm_),
-    (host.platform == Os.Emscripten) => Option(Abi).Some(Abi.Wasm_),
+    (host.platform == Os.Wasi) => Option(Abi).Some(Abi.P1),
     true => Option(Abi).None
   );
   _build_target_info(host.arch, host.platform, abi)
@@ -201,15 +268,14 @@ host_target :: (fn() -> TargetInfo)({
 // The target of the CURRENT compilation, set early in the pipeline
 // (before the evaluator or codegen runs) and read by the comptime
 // `__yo_process_platform` / `__yo_process_arch` / `__yo_pointer_size_bits`
-// builtins. TS: `currentTarget` + `setCurrentTarget`/`getCurrentTarget`,
-// src/target.ts:296-317.
+// builtins.
 //
 // WHY THIS EXISTS: those builtins used to answer from `detect_host()`, so
 // every target-conditional `cond(platform == ...)` in std/ folded for the
 // HOST even under `--target`. Cross-emission therefore baked host values —
 // `AT_FDCWD = -2` into a linux target
 // (issues/yo-self-cross-emit-host-constants.md) — and, under
-// `--target wasm-wasi`/`--cc emcc` on Linux, std/crypto/random.yo took its
+// `--target wasm32-wasip1`/`--cc emcc` on Linux, std/crypto/random.yo took its
 // Linux arm and the link failed with `undefined symbol: getrandom`.
 (g_current_target : Option(TargetInfo)) = Option(TargetInfo).None;
 /// Set the target for the current compilation.
@@ -218,112 +284,175 @@ set_current_target :: (fn(t : TargetInfo) -> unit)({
   ()
 });
 /// The current compilation target, falling back to the host when a caller
-/// (e.g. `check`) never set one — same fallback as TS.
+/// (e.g. `check`) never set one.
 get_current_target :: (fn() -> TargetInfo)(
   match(g_current_target, .Some(t) => t, .None => host_target())
 );
 // ── Parse target triple ───────────────────────────────────────────────
-/// Parse a target triple string like "x86_64-linux-gnu" into a TargetInfo.
-/// Returns Err(message) on invalid input.
+/// `parse_os` plus the two cfg names a user is likely to type into a triple
+/// by mistake (`macos`, `wasi`) — used ONLY to phrase a did-you-mean hint,
+/// never to accept a spelling.
+_parse_os_for_hint :: (fn(s : String) -> Option(Os))(
+  cond(
+    (s == "macos") => Option(Os).Some(Os.Macos),
+    (s == "wasi") => Option(Os).Some(Os.Wasi),
+    true => parse_os(s)
+  )
+);
+/// The environment to put in a did-you-mean hint: the one the user typed if
+/// it fits, else the OS's usual one.
+_hint_abi :: (fn(o : Os, typed : Option(Abi)) -> Option(Abi))(
+  match(
+    o,
+    .Linux => cond((typed == Option(Abi).Some(Abi.Musl)) => Option(Abi).Some(Abi.Musl), true => Option(Abi).Some(Abi.Gnu)),
+    .Windows => cond((typed == Option(Abi).Some(Abi.Gnu)) => Option(Abi).Some(Abi.Gnu), true => Option(Abi).Some(Abi.Msvc)),
+    .Wasi => Option(Abi).Some(Abi.P1),
+    _ => Option(Abi).None
+  )
+);
+_target_error :: (fn(triple : String, why : String) -> Result(TargetInfo, String))(
+  Result(TargetInfo, String).Err(`Invalid target "${triple}": ${why}\nSupported targets: ${SUPPORTED_TARGETS}`)
+);
+/// Parse a canonical target triple such as "x86_64-unknown-linux-gnu" into a
+/// TargetInfo. Returns Err(message) on any spelling that is not exactly one
+/// of the supported targets — there are no aliases.
 ///
-/// Accepted formats:
-///   - `<arch>-<os>`         (ABI defaults per OS)
-///   - `<arch>-<os>-<abi>`   (explicit ABI)
-///   - `wasm-emscripten`     (shorthand for `wasm32-emscripten`)
-///   - `wasm-wasi`           (shorthand for `wasm32-wasi`)
+/// Accepted forms:
+///   - `<arch>-<vendor>-<os>`         (darwin, freebsd, emscripten — no env)
+///   - `<arch>-<vendor>-<os>-<env>`   (linux: gnu | musl; windows: msvc | gnu)
+///   - `wasm32-wasip1`
 parse_target :: (fn(triple : String) -> Result(TargetInfo, String))({
-  // Expand "wasm-*" shorthand
-  expanded := cond(
-    triple.starts_with(String.from("wasm-")) => {
-      s := String.from("wasm32-");
-      s.push_string(triple.substring(usize(5), triple.len()));
-      s
-    },
-    true => triple.clone()
-  );
-  parts := expanded.split(String.from("-"));
+  parts := triple.split(String.from("-"));
   parts_n := parts.len();
-  if((parts_n < usize(2)) || (parts_n > usize(3)), {
-    return(Result(TargetInfo, String).Err(String.from("Invalid target triple. Expected format: <arch>-<os> or <arch>-<os>-<abi>")));
+  if((parts_n < usize(2)) || (parts_n > usize(4)), {
+    return(_target_error(triple, String.from("expected <arch>-<vendor>-<os>[-<env>] or wasm32-wasip1.")));
   });
   arch_str := match(parts.get(usize(0)), .None => String.new(), .Some(p) => p);
-  os_str := match(parts.get(usize(1)), .None => String.new(), .Some(p) => p);
-  abi_str := match(parts.get(usize(2)), .None => String.new(), .Some(p) => p);
-  arch_opt := parse_arch(arch_str);
-  os_opt := parse_os(os_str);
   a := match(
-    arch_opt,
+    parse_arch(arch_str),
     .None => {
-      return(Result(TargetInfo, String).Err(String.from("Unknown architecture in target triple")));
+      return(
+        _target_error(
+          triple,
+          cond(
+            (arch_str == "wasm") => `WebAssembly is "wasm32" — did you mean "wasm32-wasip1" or "wasm32-unknown-emscripten"?`,
+            true => `unknown architecture "${arch_str}".`
+          )
+        )
+      );
     },
     .Some(v) => v
+  );
+  // The two-component form is exactly `wasm32-wasip1`.
+  if(parts_n == usize(2), {
+    os_word := match(parts.get(usize(1)), .None => String.new(), .Some(p) => p);
+    if(os_word != "wasip1", {
+      // `aarch64-macos`, `wasm32-wasi`, `x86_64-linux`: an OS where the vendor
+      // belongs — the pre-triple vocabulary. Say what the triple is.
+      match(
+        _parse_os_for_hint(os_word),
+        .Some(vo) => {
+          return(_target_error(triple, `the triple needs a vendor — did you mean "${_build_triple(a, vo, _hint_abi(vo, Option(Abi).None))}"?`));
+        },
+        .None => ()
+      );
+      return(_target_error(triple, String.from("expected <arch>-<vendor>-<os>[-<env>] or wasm32-wasip1.")));
+    });
+    if(a != Arch.Wasm32, {
+      return(_target_error(triple, `WASI targets are wasm32 only, not "${arch_str}".`));
+    });
+    return(Result(TargetInfo, String).Ok(_build_target_info(Arch.Wasm32, Os.Wasi, Option(Abi).Some(Abi.P1))));
+  });
+  vendor_str := match(parts.get(usize(1)), .None => String.new(), .Some(p) => p);
+  os_str := match(parts.get(usize(2)), .None => String.new(), .Some(p) => p);
+  // `x86_64-linux-gnu`, `x86_64-windows-msvc`: an OS in the vendor slot is the
+  // pre-triple vocabulary. Say what the triple is, keeping a typed env.
+  match(
+    _parse_os_for_hint(vendor_str),
+    .Some(vo) => {
+      return(_target_error(triple, `"${vendor_str}" is an OS and the triple needs a vendor — did you mean "${_build_triple(a, vo, _hint_abi(vo, parse_abi(os_str)))}"?`));
+    },
+    .None => ()
   );
   o := match(
-    os_opt,
+    parse_os(os_str),
     .None => {
-      return(Result(TargetInfo, String).Err(String.from("Unknown OS in target triple")));
+      return(_target_error(triple, `unknown OS "${os_str}".`));
     },
     .Some(v) => v
   );
+  if(o == Os.Wasi, {
+    return(_target_error(triple, String.from("WASI is spelled wasm32-wasip1.")));
+  });
+  expected_vendor := os_vendor_str(o);
+  if(vendor_str != expected_vendor, {
+    return(_target_error(triple, `vendor "${vendor_str}" does not go with "${os_str}" (expected "${expected_vendor}").`));
+  });
+  // wasm32 runs only on the wasm OSes, and the wasm OSes only on wasm32.
+  if((a == Arch.Wasm32) != (o == Os.Emscripten), {
+    return(_target_error(triple, `architecture "${arch_str}" does not go with "${os_str}".`));
+  });
   abi := cond(
-    (parts_n < usize(3)) => _default_abi_for_os(o),
-    (abi_str == "none") => Option(Abi).None,
-    true => {
-      parsed := parse_abi(abi_str);
-      match(
-        parsed,
+    (parts_n == usize(4)) => {
+      env_str := match(parts.get(usize(3)), .None => String.new(), .Some(p) => p);
+      env := match(
+        parse_abi(env_str),
         .None => {
-          return(Result(TargetInfo, String).Err(String.from("Unknown ABI in target triple")));
+          return(_target_error(triple, `unknown environment "${env_str}".`));
         },
-        .Some(v) => Option(Abi).Some(v)
-      )
+        .Some(v) => v
+      );
+      allowed := match(
+        o,
+        .Linux => ((env == Abi.Gnu) || (env == Abi.Musl)),
+        .Windows => ((env == Abi.Msvc) || (env == Abi.Gnu)),
+        _ => false
+      );
+      if(!(allowed), {
+        return(
+          _target_error(
+            triple,
+            match(
+              o,
+              .Linux => `linux takes the environment gnu or musl, not "${env_str}".`,
+              .Windows => `windows takes the environment msvc or gnu, not "${env_str}".`,
+              _ => `${os_str} takes no environment.`
+            )
+          )
+        );
+      });
+      Option(Abi).Some(env)
+    },
+    true => {
+      match(
+        o,
+        .Linux => {
+          return(_target_error(triple, String.from("linux needs an environment: -gnu or -musl.")));
+        },
+        .Windows => {
+          return(_target_error(triple, String.from("windows needs an environment: -msvc or -gnu.")));
+        },
+        _ => ()
+      );
+      Option(Abi).None
     }
   );
   Result(TargetInfo, String).Ok(_build_target_info(a, o, abi))
 });
 // ── Clang triple ──────────────────────────────────────────────────────
-/// Convert a TargetInfo to the triple format clang expects for --target=.
+/// The triple to hand clang's `--target=`. The canonical triple is already
+/// what LLVM speaks, except where LLVM's own spelling differs: MinGW is
+/// `<arch>-w64-mingw32`, and WASI is `wasm32-wasi` (accepted by every
+/// wasi-sdk clang, where `wasm32-wasip1` needs LLVM ≥ 19).
 clang_triple :: (fn(target : TargetInfo) -> String)(
-  match(
-    target.os,
-    .Linux => {
-      s := String.from(arch_to_str(target.arch));
-      s.push_str("-linux-");
-      s.push_str(match(target.abi, .Some(b) => abi_to_str(b), .None => "gnu"));
+  cond(
+    ((target.os == Os.Windows) && (target.abi == Option(Abi).Some(Abi.Gnu))) => {
+      s := String.from(arch_triple_str(target.arch));
+      s.push_str("-w64-mingw32");
       s
     },
-    .Macos => {
-      s := String.from(arch_to_str(target.arch));
-      s.push_str("-apple-darwin");
-      s
-    },
-    .Windows => {
-      s := String.from(arch_to_str(target.arch));
-      cond(
-        (target.abi == Option(Abi).Some(Abi.Gnu)) => {
-          s.push_str("-w64-mingw32");
-        },
-        true => {
-          s.push_str("-pc-windows-msvc");
-        }
-      );
-      s
-    },
-    .FreeBSD => {
-      s := String.from(arch_to_str(target.arch));
-      s.push_str("-unknown-freebsd");
-      s
-    },
-    .Wasi => {
-      s := String.from(arch_to_str(target.arch));
-      s.push_str("-wasi");
-      s
-    },
-    .Emscripten => {
-      s := String.from(arch_to_str(target.arch));
-      s.push_str("-emscripten");
-      s
-    }
+    (target.os == Os.Wasi) => String.from("wasm32-wasi"),
+    true => target.triple.clone()
   )
 );
 // ── Convenience queries ───────────────────────────────────────────────
@@ -357,8 +486,12 @@ export(
   Abi,
   TargetInfo,
   HostInfo,
+  SUPPORTED_TARGETS,
   arch_to_str,
+  arch_triple_str,
   os_to_str,
+  os_triple_str,
+  os_vendor_str,
   abi_to_str,
   target_os_to_yo_string,
   target_arch_to_yo_string,

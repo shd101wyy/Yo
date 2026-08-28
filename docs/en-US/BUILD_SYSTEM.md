@@ -40,12 +40,12 @@ Build output goes to `yo-out/<target>/`, organized by target triple (like Cargo)
 
 ```
 yo-out/
-├── x86_64-linux-gnu/         ← Host target
+├── x86_64-unknown-linux-gnu/         ← Host target
 │   ├── bin/
 │   │   └── my-project
 │   └── lib/
 │       └── libmy-project-lib.a
-└── wasm32-emscripten/           ← Cross-compilation target (Emscripten)
+└── wasm32-unknown-emscripten/           ← Cross-compilation target (Emscripten)
     └── bin/
         ├── my-project.html
         ├── my-project.js
@@ -107,7 +107,7 @@ Build artifacts use struct types with default field values (like Zig's options p
 | ----------- | -------------- | ------------------ | ------------------------------------------ |
 | `name`      | `comptime_str` | _(required)_       | Artifact name                              |
 | `root`      | `comptime_str` | _(required)_       | Path to main source file                   |
-| `target`    | `comptime_str` | `target_host`      | Target triple (e.g. `"wasm32-emscripten"`) |
+| `target`    | `comptime_str` | `target_host`      | Target triple (e.g. `"wasm32-unknown-emscripten"`) |
 | `optimize`  | `Optimize`     | `Optimize.Debug`   | Optimization level                         |
 | `allocator` | `Allocator`    | `Allocator.System` | Memory allocator                           |
 | `sanitize`  | `Sanitize`     | `Sanitize.None`    | Sanitizer                                  |
@@ -170,16 +170,16 @@ Shared libraries compile with `-shared -fPIC` and produce `.so` (Linux), `.dylib
 
 | Value                                    | Target Triple          | Notes                         |
 | ---------------------------------------- | ---------------------- | ----------------------------- |
-| `CompilationTarget.X86_64_Linux_Gnu`     | `x86_64-linux-gnu`     | Linux x86-64 (glibc)          |
-| `CompilationTarget.X86_64_Linux_Musl`    | `x86_64-linux-musl`    | Linux x86-64 (musl, native)   |
-| `CompilationTarget.Aarch64_Linux_Gnu`    | `aarch64-linux-gnu`    | Linux ARM64                   |
-| `CompilationTarget.Aarch64_Linux_Musl`   | `aarch64-linux-musl`   | Linux ARM64 (musl, native)    |
-| `CompilationTarget.Aarch64_Macos`        | `aarch64-macos`        | macOS Apple Silicon           |
-| `CompilationTarget.X86_64_Macos`         | `x86_64-macos`         | macOS Intel                   |
-| `CompilationTarget.X86_64_Windows_Msvc`  | `x86_64-windows-msvc`  | Windows x86-64                |
-| `CompilationTarget.Aarch64_Windows_Msvc` | `aarch64-windows-msvc` | Windows ARM64                 |
-| `CompilationTarget.Wasm32_Emscripten`    | `wasm32-emscripten`    | WebAssembly (Emscripten)      |
-| `CompilationTarget.Wasm32_Wasi`          | `wasm32-wasi`          | WebAssembly (standalone WASI) |
+| `CompilationTarget.X86_64_Unknown_Linux_Gnu`     | `x86_64-unknown-linux-gnu`     | Linux x86-64 (glibc)          |
+| `CompilationTarget.X86_64_Unknown_Linux_Musl`    | `x86_64-unknown-linux-musl`    | Linux x86-64 (musl, native)   |
+| `CompilationTarget.Aarch64_Unknown_Linux_Gnu`    | `aarch64-unknown-linux-gnu`    | Linux ARM64                   |
+| `CompilationTarget.Aarch64_Unknown_Linux_Musl`   | `aarch64-unknown-linux-musl`   | Linux ARM64 (musl, native)    |
+| `CompilationTarget.Aarch64_Apple_Darwin`        | `aarch64-apple-darwin`        | macOS Apple Silicon           |
+| `CompilationTarget.X86_64_Apple_Darwin`         | `x86_64-apple-darwin`         | macOS Intel                   |
+| `CompilationTarget.X86_64_Pc_Windows_Msvc`  | `x86_64-pc-windows-msvc`  | Windows x86-64                |
+| `CompilationTarget.Aarch64_Pc_Windows_Msvc` | `aarch64-pc-windows-msvc` | Windows ARM64                 |
+| `CompilationTarget.Wasm32_Unknown_Emscripten`    | `wasm32-unknown-emscripten`    | WebAssembly (Emscripten)      |
+| `CompilationTarget.Wasm32_Wasip1`          | `wasm32-wasip1`          | WebAssembly (standalone WASI) |
 
 The host target is also available as `build.target_host`.
 
@@ -476,7 +476,7 @@ Running `yo build` produces:
 
 ```
 yo-out/
-└── x86_64-linux-gnu/
+└── x86_64-unknown-linux-gnu/
     ├── bin/
     │   └── demo          ← Executable (calls add from library)
     └── lib/
@@ -547,7 +547,7 @@ Run `yo build --help` to see all available project-specific options alongside st
 > architecture and OS. The only exception is **WebAssembly** (WASM), which can
 > always be targeted from any host via `emcc`.
 >
-> musl targets (`x86_64-linux-musl`) are only supported when running natively
+> musl targets (`x86_64-unknown-linux-musl`) are only supported when running natively
 > on a musl-based system (e.g. Alpine Linux).
 
 Yo supports targeting WASM via target triples. Specify the target in `build.yo` or on the command line:
@@ -558,7 +558,7 @@ Yo supports targeting WASM via target triples. Specify the target in `build.yo` 
 build.executable({
   name: "my-app-wasm",
   root: "./src/main.yo",
-  target: build.CompilationTarget.Wasm32_Emscripten,
+  target: build.CompilationTarget.Wasm32_Unknown_Emscripten,
   optimize: build.Optimize.ReleaseSmall
 });
 ```
@@ -569,7 +569,7 @@ You can also use raw target strings if preferred:
 build.executable({
   name: "my-app-wasm",
   root: "./src/main.yo",
-  target: "wasm32-emscripten",
+  target: "wasm32-unknown-emscripten",
   optimize: build.Optimize.ReleaseSmall
 });
 ```
@@ -578,29 +578,29 @@ build.executable({
 
 ```bash
 # Override target for all artifacts
-yo build --target wasm-emscripten
+yo build --target wasm32-unknown-emscripten
 ```
 
 ### Supported Targets
 
 | Target Triple          | Notes                         |
 | ---------------------- | ----------------------------- |
-| `x86_64-linux-gnu`     | Linux x86-64 (glibc)          |
-| `x86_64-linux-musl`    | Linux x86-64 (musl, native)   |
-| `aarch64-linux-gnu`    | Linux ARM64                   |
-| `aarch64-linux-musl`   | Linux ARM64 (musl, native)    |
-| `aarch64-macos`        | macOS Apple Silicon           |
-| `x86_64-macos`         | macOS Intel                   |
-| `x86_64-windows-msvc`  | Windows x86-64                |
-| `aarch64-windows-msvc` | Windows ARM64                 |
-| `wasm32-emscripten`    | WebAssembly (Emscripten)      |
-| `wasm32-wasi`          | WebAssembly (standalone WASI) |
+| `x86_64-unknown-linux-gnu`     | Linux x86-64 (glibc)          |
+| `x86_64-unknown-linux-musl`    | Linux x86-64 (musl, native)   |
+| `aarch64-unknown-linux-gnu`    | Linux ARM64                   |
+| `aarch64-unknown-linux-musl`   | Linux ARM64 (musl, native)    |
+| `aarch64-apple-darwin`        | macOS Apple Silicon           |
+| `x86_64-apple-darwin`         | macOS Intel                   |
+| `x86_64-pc-windows-msvc`  | Windows x86-64                |
+| `aarch64-pc-windows-msvc` | Windows ARM64                 |
+| `wasm32-unknown-emscripten`    | WebAssembly (Emscripten)      |
+| `wasm32-wasip1`          | WebAssembly (standalone WASI) |
 
-Shorthand aliases: `wasm-emscripten` → `wasm32-emscripten`, `wasm-wasi` → `wasm32-wasi`.
+Targets are spelled exactly as Rust spells them — there are no shorthands or aliases; an unrecognised spelling is rejected with the supported list.
 
 ### WASM Emscripten Environment
 
-When building for `wasm32-emscripten` via `yo build`, the output defaults to **browser** environment:
+When building for `wasm32-unknown-emscripten` via `yo build`, the output defaults to **browser** environment:
 
 - Output is `.html` + `.js` + `.wasm` (a complete browser shell)
 - `-sNODERAWFS` is **not** added (it uses `require('fs')` which doesn't exist in browsers)
@@ -624,7 +624,7 @@ When running WASM artifacts via `yo build run`, the build system always executes
 To serve the output, use a local HTTP server (WASM requires HTTP, not `file://`):
 
 ```bash
-cd yo-out/wasm32-emscripten/bin
+cd yo-out/wasm32-unknown-emscripten/bin
 python -m http.server 8080
 # Open http://localhost:8080/my-project.html
 ```
@@ -715,7 +715,7 @@ native :: build.executable({
 wasm :: build.executable({
   name: "my-app-wasm",
   root: "./src/main.yo",
-  target: build.CompilationTarget.Wasm32_Emscripten,
+  target: build.CompilationTarget.Wasm32_Unknown_Emscripten,
   optimize: build.Optimize.ReleaseSmall,
   allocator: build.Allocator.System
 });

@@ -917,7 +917,7 @@ _remove_batch_artifact :: (fn(path : String, io : Io) -> unit)({
 /// LOAD-BEARING ON LINUX. `codegen/async/runtime_io_linux.yo` emits io_uring
 /// calls guarded by `#if __has_include(<liburing.h>)`, so when the header IS
 /// present the emitted C references `io_uring_*` and the LINK fails without
-/// `-luring`. That is exactly how tests/sys/bufio, tests/fs/{file,temp,walker},
+/// `-luring`. That is exactly how tests/io/bufio, tests/fs/{file,temp,walker},
 /// async_await and imm_string failed in CI with "undefined reference to
 /// io_uring_peek_batch_cqe" etc. while passing on macOS, which uses kqueue and
 /// never references those symbols. TS adds the flag in TWO places
@@ -1636,9 +1636,9 @@ run_compile :: (
       }
     );
   });
-  // emcc implies wasm32-emscripten when no target was given (yo-cli.ts:488-490).
+  // emcc implies wasm32-unknown-emscripten when no target was given (yo-cli.ts:488-490).
   if((cc == "emcc") && (target_triple == ""), {
-    target_triple = String.from("wasm32-emscripten");
+    target_triple = String.from("wasm32-unknown-emscripten");
   });
   // Arm the cooperative evaluator deadline before anything is evaluated. A
   // malformed value disarms rather than failing the compile: this is runner
@@ -1663,7 +1663,7 @@ run_compile :: (
     ),
     .Ok(t) => t,
     .Err(e) => {
-      exn.throw(dyn(`compile: invalid --target "${target_triple}": ${e}`));
+      exn.throw(dyn(`compile: ${e}`));
       return(())
     }
   );
@@ -2088,10 +2088,13 @@ run_compile :: (
   });
   // Cross-compile target / sysroot pass-through. Skipped entirely for emcc,
   // which handles its own target internally (codegen/index.ts:636-641) — it
-  // rejects `--target=wasm32-emscripten`.
+  // rejects `--target=wasm32-unknown-emscripten`.
   if(cc != "emcc", {
     if(target_triple != "", {
-      cmd.arg(`--target=${target_triple}`);
+      // The canonical triple is what LLVM speaks, except MinGW
+      // (`<arch>-w64-mingw32`) and WASI (`wasm32-wasi`) — `clang_triple`
+      // owns those spellings, so never hand clang the raw --target string.
+      cmd.arg(`--target=${clang_triple(target)}`);
     }, {
       // Native compiles trust the C compiler's DEFAULT triple to equal the
       // host. On Windows that trust is misplaced: an x86_64 LLVM build runs
@@ -2475,7 +2478,7 @@ run_test :: (
   // corresponding wasm target is selected (via --target or --cc emcc).
   wasm_target_kind := cond(
     test_target.starts_with("wasm") => test_target.clone(),
-    (test_cc == "emcc") => String.from("wasm32-emscripten"),
+    (test_cc == "emcc") => String.from("wasm32-unknown-emscripten"),
     true => String.from("")
   );
   // HOW a compiled batch must be built and run. A wasm artifact is NOT a host
@@ -2494,7 +2497,7 @@ run_test :: (
   run_is_emcc := ((wasm_target_kind != "") && !(run_is_wasi));
   // The extension is LOAD-BEARING, not cosmetic: emcc selects its OUTPUT
   // FORMAT from it. With the flat `.bin` name this runner used, even
-  // `--target wasm-wasi` produced JS glue and the standalone `.wasm` the leg
+  // `--target wasm32-wasip1` produced JS glue and the standalone `.wasm` the leg
   // needs was never emitted — after which the failure merely LOOKS like a
   // missing run-command branch. Verified locally with emcc 4.0.12: `-o X.bin`
   // yields `JavaScript source` for BOTH wasm targets.
@@ -2510,7 +2513,7 @@ run_test :: (
       parse_target(wasm_target_kind.clone()),
       .Ok(t) => t,
       .Err(e) => {
-        exn.throw(dyn(`test: invalid --target "${wasm_target_kind}": ${e}`));
+        exn.throw(dyn(`test: ${e}`));
         host_target()
       }
     );
@@ -2805,7 +2808,7 @@ run_test :: (
           .None => String.from("address")
         );
         // `run_is_wasi` is part of the emcc test, not just the literal cc
-        // string: the WASI leg selects its compiler with `--target wasm-wasi`
+        // string: the WASI leg selects its compiler with `--target wasm32-wasip1`
         // and never sets `--c-compiler`, so `test_cc` is "" and this gate used
         // to hand `-fsanitize=address` to emcc. TS never does, because it
         // resolves the cc first and reads `isEmcc` off the RESULT.
@@ -3773,7 +3776,7 @@ yo compile <file> [options]      Compile a '.yo' file
 Examples:
   $ yo compile main.yo -o app
   $ yo compile main.yo -cc clang -o app
-  $ yo compile main.yo --target x86_64-linux-gnu -o app
+  $ yo compile main.yo --target x86_64-unknown-linux-gnu -o app
   $ yo compile main.yo -l m -o app
   $ yo compile main.yo -I./include -L./lib -l mylib -o app
   $ yo compile main.yo --release -D NDEBUG -o app
@@ -3864,7 +3867,7 @@ Options:
   -g, --debug-symbols       Emit debug symbols
   -s, --strip               Strip the output binary
   --cc, --c-compiler <cc>   C compiler to use (clang|gcc|zig|emcc)
-  -t, --target <triple>     Cross-compile target (e.g. x86_64-linux-gnu, wasm-wasi)
+  -t, --target <triple>     Cross-compile target (e.g. x86_64-unknown-linux-gnu, wasm32-wasip1)
   --sysroot <dir>           Sysroot for cross-compilation
   --cflags '<flags>'        Extra flags passed to the C compiler
   -D, --define <N[=V]>      Preprocessor define for the C compile
@@ -3891,7 +3894,7 @@ Options:
 
 Examples:
   $ yo compile main.yo -o app
-  $ yo compile main.yo --release --target x86_64-linux-gnu -o app
+  $ yo compile main.yo --release --target x86_64-unknown-linux-gnu -o app
   $ yo compile main.yo --emit-c --skip-c-compiler --release`
     ),
     (subcmd == "build") => Option(String).Some(
@@ -3932,7 +3935,7 @@ Options:
   -p, --parallel <n>        Accepted for compatibility (v1 runs sequentially)
   --test-batch-size <n>     Tests per generated C batch (default 100)
   --cc, --c-compiler <cc>   C compiler for test binaries
-  --target <triple>         Run tests for a cross target (e.g. wasm-wasi)
+  --target <triple>         Run tests for a cross target (e.g. wasm32-wasip1)
   --disable-sanitize        Skip AddressSanitizer linkage
   -k, --keep-generated-files  Keep generated batch files
   --profile                 Print per-phase timing
