@@ -4,10 +4,18 @@ pragma(Pragma.SkipWindows); // OpenSSL absent on the Windows runners
 { assert } :: import("std/assert");
 { HttpMethod, HttpRequest, HttpResponse, parse_response } :: import("std/http/http");
 { HttpHeader, http_status_text } :: import("std/http/http");
-{ fetch } :: import("std/http/client");
+{ fetch, fetch_with, FetchOptions } :: import("std/http/client");
 { Exception, IoExn } :: import("std/error");
-{ println } :: import("std/fmt");
+{ println, eprintln } :: import("std/fmt");
 open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ GlobalAllocator } :: import("std/allocator");
+{ malloc, free } :: GlobalAllocator;
+{ TcpListener, TcpStream } :: import("std/net/tcp");
+{ SocketAddr } :: import("std/net/addr");
+{ Duration } :: import("std/time/duration");
+{ sleep } :: import("std/time/sleep");
+pragma(Pragma.AllowUnsafe);
 test("HttpRequest build GET request", {
   req := HttpRequest.new(HttpMethod.GET, `/index.html`);
   req.set_host(`example.com`);
@@ -137,4 +145,196 @@ test("fetch over https returns a real response (skips offline)", {
     reached.* => assert(ok.*, `expected a 200 with a body over https, got ${resp.status_code}`),
     true => assert(true, "skipped: no network")
   );
+});
+
+// ============================================================================
+// C33 — the three HttpError variants that used to be unreachable
+// (issues/http-client-error-variants-never-raised.md). Each test runs a tiny
+// loopback server as a spawned task and drives `fetch_with` on the test's
+// own stack, so a thrown HttpError lands in the test's handler.
+// ============================================================================
+// Read one request off an accepted stream (a single read is enough for the
+// small requests fetch_with sends). An io.async future, not a plain fn with an
+// await inside — the latter is a nested blocking event loop and deadlocks
+// when called from the server TASK while the client waits underneath it
+// (issues/sync-await-in-plain-fn-nests-the-event-loop.md).
+_read_request :: (fn(stream : TcpStream, io : Io) -> Impl(Future(String, IoExn)))(
+  io.async((e) => {
+    buf := *(u8)(malloc(usize(4096)).unwrap());
+    n := e.io.await(stream.read(buf, usize(4096), e.io), e);
+    bytes := ArrayList(u8).new();
+    i := usize(0);
+    while(runtime(i < n), {
+      bytes.push((buf.add(i)).*);
+      i = (i + usize(1));
+    });
+    free(.Some(*(void)(buf)));
+    String.from_bytes(bytes)
+  })
+);
+// Serve `responses` in order, one connection each, recording every request
+// line into `seen`. Runs as a spawned task.
+_serve_scripted :: (
+  fn(listener : TcpListener, responses : ArrayList(String), seen : ArrayList(String), io : Io) ->
+    Impl(Future(unit, IoExn))
+)(
+  io.async((e) => {
+    k := usize(0);
+    while(runtime(k < responses.len()), {
+      s := e.io.await(listener.accept(e.io), e);
+      req := e.io.await(_read_request(s, e.io), e);
+      seen.push(req);
+      _w := e.io.await(s.write_string(responses(k), e.io), e);
+      e.io.await(s.close(e.io), e);
+      k = (k + usize(1));
+    });
+    return(());
+  })
+);
+_redirect_to :: (fn(location : String) -> String)(
+  `HTTP/1.1 302 Found\r\nLocation: ${location}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n`
+);
+_ok_body :: (fn(body : String) -> String)(
+  `HTTP/1.1 200 OK\r\nContent-Length: ${body.len()}\r\nConnection: close\r\n\r\n${body}`
+);
+test("fetch follows redirects, resolving relative and absolute-path Locations", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, `unexpected exception: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  addr := SocketAddr.loopback(u16(19960));
+  listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
+  responses := ArrayList(String).new();
+  responses.push(_redirect_to(`next`)); // relative → /dir/next
+  responses.push(_redirect_to(`/final`)); // absolute path → /final
+  responses.push(_ok_body(`done`));
+  seen := ArrayList(String).new();
+  server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
+  resp := io.await(fetch_with(`http://127.0.0.1:19960/dir/start`, FetchOptions.new(), io), IoExn(io : io, exn : exn));
+  assert(resp.status_code == i32(200), `final status should be 200, got ${resp.status_code}`);
+  assert(resp.body == "done", `final body should be the last hop's, got "${resp.body}"`);
+  assert(seen.len() == usize(3), `three requests should have been made, saw ${seen.len()}`);
+  assert(seen(usize(0)).starts_with(`GET /dir/start HTTP/1.1`), `hop 0: ${seen(usize(0))}`);
+  assert(seen(usize(1)).starts_with(`GET /dir/next HTTP/1.1`), `relative Location must resolve against the base directory: ${seen(usize(1))}`);
+  assert(seen(usize(2)).starts_with(`GET /final HTTP/1.1`), `absolute-path Location must resolve against the origin: ${seen(usize(2))}`);
+  server.await(io);
+  io.await(listener.close(io), IoExn(io : io, exn : exn));
+});
+test("fetch throws TooManyRedirects past max_redirects", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        msg := err.to_string();
+        assert(msg.contains(`Too many redirects`), `expected TooManyRedirects, got: ${msg}`);
+        unwind(());
+      }
+    )
+  );
+  addr := SocketAddr.loopback(u16(19961));
+  listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
+  responses := ArrayList(String).new();
+  responses.push(_redirect_to(`/again`));
+  responses.push(_redirect_to(`/again`));
+  responses.push(_redirect_to(`/again`));
+  seen := ArrayList(String).new();
+  server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
+  // max_redirects 2: hop 0 → hop 1 → hop 2 is the third 3xx, one too many.
+  opts := FetchOptions.new().with_max_redirects(usize(2));
+  _r := io.await(fetch_with(`http://127.0.0.1:19961/start`, opts, io), IoExn(io : io, exn : exn));
+  assert(false, "fetch must throw TooManyRedirects");
+});
+test("fetch with max_redirects 0 returns the 3xx verbatim", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, `unexpected exception: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  addr := SocketAddr.loopback(u16(19962));
+  listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
+  responses := ArrayList(String).new();
+  responses.push(_redirect_to(`/elsewhere`));
+  seen := ArrayList(String).new();
+  server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
+  opts := FetchOptions.new().with_max_redirects(usize(0));
+  resp := io.await(fetch_with(`http://127.0.0.1:19962/start`, opts, io), IoExn(io : io, exn : exn));
+  assert(resp.status_code == i32(302), `the 3xx itself should come back, got ${resp.status_code}`);
+  assert(match(resp.get_header(`Location`), .Some(l) => (l == "/elsewhere"), .None => false), "Location header should be preserved");
+  assert(seen.len() == usize(1), "exactly one request");
+  server.await(io);
+  io.await(listener.close(io), IoExn(io : io, exn : exn));
+});
+test("fetch throws ResponseTooLarge past max_response_bytes", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        msg := err.to_string();
+        assert(msg.contains(`Response too large`), `expected ResponseTooLarge, got: ${msg}`);
+        unwind(());
+      }
+    )
+  );
+  addr := SocketAddr.loopback(u16(19963));
+  listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
+  body := String.new();
+  i := usize(0);
+  while(runtime(i < usize(300)), {
+    body.push_str("x");
+    i = (i + usize(1));
+  });
+  responses := ArrayList(String).new();
+  responses.push(_ok_body(body));
+  seen := ArrayList(String).new();
+  server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
+  opts := FetchOptions.new().with_max_response_bytes(usize(100));
+  _r := io.await(fetch_with(`http://127.0.0.1:19963/big`, opts, io), IoExn(io : io, exn : exn));
+  assert(false, "fetch must throw ResponseTooLarge");
+});
+test("fetch default response ceiling is 64 MiB and 0 lifts it", {
+  d := FetchOptions.new();
+  assert(d.max_response_bytes == usize(67108864), "default ceiling is 64 MiB");
+  assert(d.max_redirects == usize(10), "default redirect cap is 10");
+  assert(match(d.timeout, .None => true, .Some(_) => false), "no deadline by default");
+  unlimited := FetchOptions.new().with_max_response_bytes(usize(0));
+  assert(unlimited.max_response_bytes == usize(0), "0 = unlimited");
+});
+// A server that accepts and then never answers — the case a deadline exists
+// for: fetch is parked inside a read that will not return on its own.
+_serve_silent :: (fn(listener : TcpListener, hold : Duration, io : Io) -> Impl(Future(unit, IoExn)))(
+  io.async((e) => {
+    s := e.io.await(listener.accept(e.io), e);
+    eprintln(`  [silent server] accepted`);
+    _req := e.io.await(_read_request(s, e.io), e);
+    eprintln(`  [silent server] got request, holding`);
+    e.io.await(sleep(hold, e.io), e.io);
+    eprintln(`  [silent server] hold over, closing`);
+    e.io.await(s.close(e.io), e);
+    eprintln(`  [silent server] closed`);
+    return(());
+  })
+);
+test("fetch throws Timeout when the server never answers", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        msg := err.to_string();
+        eprintln(`  [timeout test] handler: ${msg}`);
+        assert(msg.contains(`timed out`), `expected Timeout, got: ${msg}`);
+        unwind(());
+      }
+    )
+  );
+  addr := SocketAddr.loopback(u16(19964));
+  listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
+  server := io.spawn(_serve_silent(listener, Duration.from_millis(i64(400)), io), IoExn(io : io, exn : exn));
+  opts := FetchOptions.new().with_timeout(Duration.from_millis(i64(100)));
+  eprintln(`  [timeout test] fetching`);
+  _r := io.await(fetch_with(`http://127.0.0.1:19964/hang`, opts, io), IoExn(io : io, exn : exn));
+  assert(false, "fetch must throw Timeout");
 });

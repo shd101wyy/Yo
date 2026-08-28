@@ -674,6 +674,20 @@ static int __yo_io_poll(void) {
   // Flush any queued SQEs so their completions can be reaped.
   __yo_io_flush_sq();
 
+  // The ring runs with IORING_SETUP_DEFER_TASKRUN (see __yo_io_init): the
+  // kernel materialises completions only when this thread enters it with
+  // IORING_ENTER_GETEVENTS. A pure-userspace peek therefore never sees a
+  // timer or socket complete while some task is always ready and the loop
+  // never reaches __yo_io_wait — a poll-until-finished race spun forever on
+  // Linux while macOS (kqueue always syscalls) was fine
+  // (issues/fixed/io-uring-defer-taskrun-poll-never-enters-kernel.md).
+  // A zero-timeout wait is that non-blocking enter; it consumes nothing.
+  {
+    struct io_uring_cqe* probe = NULL;
+    struct __kernel_timespec zero_ts = {0, 0};
+    (void)io_uring_wait_cqe_timeout(&__yo_io_ring, &probe, &zero_ts);
+  }
+
   struct io_uring_cqe* cqes[64];
   int count = 0;
 

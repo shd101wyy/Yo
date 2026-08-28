@@ -1,0 +1,45 @@
+// A while-with-await inside ONE arm of a match whose other arm also awaits:
+// the suspension analyzer merges both arms' points into one representative
+// (the first arm's), which is not inside a loop, so the state struct never
+// declares `while_loop_0_active` — while the body emitter for the looping arm
+// still writes `sm->while_loop_0_active`. clang: "no member named
+// 'while_loop_0_active'". Compile: yo compile <this> --release -o r
+open(import("std/fmt"));
+{ Exception, IoExn } :: import("std/error");
+{ Duration } :: import("std/time/duration");
+{ sleep } :: import("std/time/sleep");
+{ yield } :: import("std/async");
+work :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
+  io.async((e) => {
+    e.io.await(sleep(Duration.from_millis(i64(5)), e.io), e.io);
+    i32(7)
+  })
+);
+race :: (fn(limit : Option(Duration), io : Io) -> Impl(Future(i32, IoExn)))(
+  io.async((e) => {
+    (result : i32) = i32(0);
+    match(
+      limit,
+      .None => {
+        result = e.io.await(work(e.io), e);
+      },
+      .Some(l) => {
+        h := e.io.spawn(work(e.io), e);
+        dh := e.io.spawn(sleep(l, e.io), e.io);
+        while(runtime(!(h.is_finished()) && !(dh.is_finished())), {
+          e.io.await(yield(e.io), e.io);
+        });
+        result = cond(h.is_finished() => i32(1), true => i32(2));
+      }
+    );
+    result
+  })
+);
+main :: (fn(io : Io, exn : Exception) -> unit)({
+  e := IoExn(io : io, exn : exn);
+  a := io.await(race(Option(Duration).None, io), e);
+  b := io.await(race(Option(Duration).Some(Duration.from_millis(i64(100))), io), e);
+  println(`${a} ${b}`);
+  ()
+});
+export(main);

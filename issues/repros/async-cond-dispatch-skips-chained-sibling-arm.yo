@@ -1,0 +1,36 @@
+open(import("std/fmt"));
+open(import("std/string"));
+{ Exception, IoExn } :: import("std/error");
+{ TcpListener, TcpStream } :: import("std/net/tcp");
+{ TlsStream } :: import("std/crypto/tls");
+{ SocketAddr } :: import("std/net/addr");
+{ lookup_host } :: import("std/net/dns");
+_client :: (fn(use_tls : bool, port : u16, io : Io) -> Impl(Future(i32, IoExn)))(
+  io.async((e) => {
+    (fd : i32) = i32(-1);
+    cond(
+      use_tls => {
+        tls := e.io.await(TlsStream.connect(`127.0.0.1`, port, e.io), e);
+        _wn := e.io.await(tls.write_string(`x`, e.io), e);
+        e.io.await(tls.close(e.io), e);
+      },
+      true => {
+        addrs := e.io.await(lookup_host(`127.0.0.1`, e.io), e);
+        c := e.io.await(TcpStream.connect(SocketAddr.new(addrs(usize(0)), port), e.io), e);
+        fd = c.fd();
+        _w := e.io.await(c.write_string(`hi`, e.io), e);
+        e.io.await(c.close(e.io), e);
+      }
+    );
+    fd
+  })
+);
+main :: (fn(io : Io, exn : Exception) -> unit)({
+  e := IoExn(io : io, exn : exn);
+  listener := io.await(TcpListener.bind(SocketAddr.loopback(u16(19993)), io), e);
+  fd := io.await(_client(false, u16(19993), io), e);
+  println(`h22 fd=${fd}`);
+  io.await(listener.close(io), e);
+  ()
+});
+export(main);

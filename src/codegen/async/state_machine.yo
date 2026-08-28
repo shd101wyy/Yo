@@ -15,7 +15,7 @@ open(import("std/string"));
 { lookup_macro_expansion, lookup_some_resolved_concrete } :: import("../../expr_info.yo");
 { AwaitAnalysisResult, AwaitPoint, CapturedVariable, CapturedVariableKind } :: import("../../evaluator/async/await_analysis_types.yo");
 { SuspensionCapturedVariable } :: import("../../evaluator/shared/suspension_analysis_types.yo");
-{ StateSegment, split_into_state_segments, generate_await_expression, generate_state_segment_code, hoist_non_splittable_awaits, await_is_while_condition, is_io_future_type, cond_await_point_needs_dispatch, cond_branch_future_access, CondBranchFutureAccess, collect_branch_await_exprs } :: import("./state_code_gen.yo");
+{ StateSegment, split_into_state_segments, generate_await_expression, generate_state_segment_code, hoist_non_splittable_awaits, await_is_while_condition, is_io_future_type, cond_await_point_needs_dispatch, cond_branch_future_access, CondBranchFutureAccess, collect_branch_await_exprs, _find_branch_await_target_variable_id } :: import("./state_code_gen.yo");
 { is_io_async_call, is_io_await_call } :: import("../../evaluator/async/await_analysis.yo");
 { AstExpr, ast_expr_id, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, BK_COND, BK_MATCH, BK_WHILE, BK_BEGIN } :: import("../../expr.yo");
 { _call_generate_expr } :: import("../exprs/_expr.yo");
@@ -1408,8 +1408,13 @@ generate_remaining_expr_future :: (
     dispatch_mode => `await_future_${await_point.base.index.to_string()}`,
     true => get_future_field_name(await_point, analysis)
   );
-  // varName := await(futureExpr)
-  if(ast_expr_is_fn_call(expr) && ast_expr_is_fn_call_of(expr, ":=", Option(usize).None), {
+  // varName := await(futureExpr)  |  varName = await(futureExpr)
+  // Both bind the result to the LHS; `=` (re-assigning an outer local, e.g.
+  // `raw_response = e.io.await(read(...), e)` in a cond arm) used to fall
+  // through to the warning below, so the future was never STORED and the
+  // await silently skipped (issues/fixed/async-cond-dispatch-skips-chained-sibling-arm.md).
+  is_bind := (ast_expr_is_fn_call_of(expr, ":=", Option(usize).None) || ast_expr_is_fn_call_of(expr, "=", Option(usize).Some(usize(2))));
+  if(ast_expr_is_fn_call(expr) && is_bind, {
     args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
     match(
       args.get(usize(1)),
@@ -1560,6 +1565,75 @@ _emit_await_suspension_core :: (
 /// `if (sm->await_future_N != NULL)` guard, which is meaningless for a named
 /// future (a bound variable is never NULL — shape 8's wrong cold-start). See
 /// issues/fixed/async-cond-shared-await-point-only-models-representative-branch.md.
+/// Every awaiting arm a dispatch-mode point must switch over: the entry's own
+/// `branches` PLUS the arms parked in `chained_branches`. A sibling arm whose
+/// additional await lands on an index another arm already claimed is recorded
+/// as a chained layer (`_chain_additional_remaining`); the dispatch switches
+/// used to read `cbd.branches` alone, so that arm got no `case` — its future
+/// was never awaited and its binding never extracted
+/// (issues/async-cond-dispatch-skips-chained-sibling-arm.md). Chained layers
+/// keyed on a DIFFERENT dispatch field cannot share the switch; there is no
+/// such shape in the corpus, so refuse loudly rather than mis-emit.
+_dispatch_branches :: (fn(cbd : AsyncCondBranchInfo, cond_field : usize, ap_index : usize) -> ArrayList(CondBranch))({
+  all := ArrayList(CondBranch).new();
+  (bi : usize) = usize(0);
+  while(bi < cbd.branches.len(), {
+    match(
+      cbd.branches.get(bi),
+      .Some(b) => {
+        all.push(b);
+      },
+      .None => ()
+    );
+    bi = (bi + usize(1));
+  });
+  match(
+    cbd.chained_branches,
+    .Some(groups) => {
+      (gi : usize) = usize(0);
+      while(gi < groups.len(), {
+        match(
+          groups.get(gi),
+          .Some(g) => {
+            if((g.cond_branch_field_index != cond_field) && (g.cond_branch_field_index != usize.MAX), {
+              codegen_fatal(`internal: dispatch-mode await point ${ap_index.to_string()} has a chained layer on cond_branch_${g.cond_branch_field_index.to_string()} but dispatches on cond_branch_${cond_field.to_string()}`);
+            });
+            (ci : usize) = usize(0);
+            while(ci < g.branches.len(), {
+              match(
+                g.branches.get(ci),
+                .Some(cb) => {
+                  // A code already present (the entry's own record) wins.
+                  (dup : bool) = false;
+                  (di : usize) = usize(0);
+                  while((di < all.len()) && !(dup), {
+                    match(
+                      all.get(di),
+                      .Some(ab) => if(ab.index == cb.index, {
+                        dup = true;
+                      }),
+                      .None => ()
+                    );
+                    di = (di + usize(1));
+                  });
+                  if(!(dup), {
+                    all.push(cb);
+                  });
+                },
+                .None => ()
+              );
+              ci = (ci + usize(1));
+            });
+          },
+          .None => ()
+        );
+        gi = (gi + usize(1));
+      });
+    },
+    .None => ()
+  );
+  all
+});
 _emit_await_suspension_dispatch :: (
   fn(
     ap : AwaitPoint,
@@ -1588,10 +1662,11 @@ _emit_await_suspension_dispatch :: (
   cf_s := cond_field.to_string();
   em.emit_string_line(`      // Await per branch — branches await differently-shaped futures (dispatch)`);
   em.emit_string_line(`      switch (sm->cond_branch_${cf_s}) {`);
+  dispatch_branches := _dispatch_branches(cbd, cond_field, ap.base.index);
   (bi : usize) = usize(0);
-  while(bi < cbd.branches.len(), {
+  while(bi < dispatch_branches.len(), {
     match(
-      cbd.branches.get(bi),
+      dispatch_branches.get(bi),
       .Some(branch) => if(branch.has_await, {
         ae_opt := match(
           branch.await_exprs,
@@ -1871,10 +1946,11 @@ _emit_prev_await_result_extraction_dispatch :: (
   slot := `sm->await_future_${prev_idx_s}`;
   em.emit_string_line(`      // Extract per branch — branches await differently-shaped futures (dispatch)`);
   em.emit_string_line(`      switch (sm->cond_branch_${cond_field.to_string()}) {`);
+  dispatch_branches := _dispatch_branches(cbd, cond_field, prev_await.base.index);
   (bi : usize) = usize(0);
-  while(bi < cbd.branches.len(), {
+  while(bi < dispatch_branches.len(), {
     match(
-      cbd.branches.get(bi),
+      dispatch_branches.get(bi),
       .Some(branch) => if(branch.has_await, {
         ae_opt := match(
           branch.await_exprs,
@@ -2142,7 +2218,12 @@ _chain_additional_remaining :: (
     branch_value : AstExpr,
     additional_remaining : ArrayList(AstExpr),
     deferred_drops : Option(ArrayList(AstExpr)),
-    cond_branch_field_index : usize
+    cond_branch_field_index : usize,
+    /// The variable THIS arm binds the await at this depth to (`c` in
+    /// `c := io.await(connect(...))` as the arm's SECOND await), so the
+    /// dispatch extraction can assign it. A nested-cond chain, whose await
+    /// result belongs to the inner cond's branch, passes `.None`.
+    await_target_variable_id : Option(String)
   ) -> unit
 )({
   has_await := (additional_remaining.len() > usize(0));
@@ -2156,9 +2237,7 @@ _chain_additional_remaining :: (
     has_await : has_await,
     remaining_exprs : Option(ArrayList(AstExpr)).Some(additional_remaining),
     deferred_drop_expressions : deferred_drops,
-    // A chained OUTER-cond continuation, not an arm with its own `x := await`
-    // binding — its await result (if any) belongs to the inner cond's branch.
-    await_target_variable_id : Option(String).None,
+    await_target_variable_id : await_target_variable_id,
     await_exprs : cond(
       has_await => Option(ArrayList(AstExpr)).Some(chained_awaits),
       true => Option(ArrayList(AstExpr)).None
@@ -2416,7 +2495,17 @@ _emit_cond_branch_remaining :: (
             .None => false
           );
           if(!(deferred_post_while), {
-            _chain_additional_remaining(context, ap.base.index, branch.index, branch.value, additional_remaining, branch.deferred_drop_expressions, cond_field);
+            // The binding of THIS arm's await at the next depth — the `c` in
+            // `c := io.await(...)` that carried the additional await. Without
+            // it the dispatch extraction had no destination for a sibling
+            // arm's second await and the binding stayed NULL
+            // (issues/async-cond-dispatch-skips-chained-sibling-arm.md).
+            additional_target := match(
+              additional_await_expr,
+              .Some(ae) => _find_branch_await_target_variable_id(ae, context),
+              .None => Option(String).None
+            );
+            _chain_additional_remaining(context, ap.base.index, branch.index, branch.value, additional_remaining, branch.deferred_drop_expressions, cond_field, additional_target);
           });
           true
         }, false),
@@ -2752,7 +2841,7 @@ _emit_post_while_cond_branch :: (
         .Some(ap) => if(found, {
           ccf := if(skip_check, usize.MAX, pw.cond_branch_field_index);
           bv := match(pw.exprs.get(usize(0)), .Some(e) => e, .None => body_expr);
-          _chain_additional_remaining(context, ap.base.index, pw.branch_index, bv, additional, pw.deferred_drop_expressions, ccf);
+          _chain_additional_remaining(context, ap.base.index, pw.branch_index, bv, additional, pw.deferred_drop_expressions, ccf, Option(String).None);
           true
         }, false),
         .None => false
