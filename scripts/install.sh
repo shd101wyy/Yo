@@ -3,7 +3,7 @@
 #-----------------------------------------------------------------------------
 # Installation script for Yo on Linux and macOS; use -h to see options.
 #
-#   curl -fsSL https://raw.githubusercontent.com/shd101wyy/Yo/develop/scripts/install.sh | sh
+#   curl -fsSL https://shd101wyy.github.io/Yo/install.sh | sh
 #
 # Installs a prebuilt release bundle. Yo is self-hosted: the bundle carries the
 # native compiler plus the standard library and the vendored mimalloc sources,

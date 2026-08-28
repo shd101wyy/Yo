@@ -941,6 +941,19 @@ _compat_impl :: (
             }) => false,
             true => (((aname == ename) || (aname.len() == usize(0))) || (ename.len() == usize(0)))
           ),
+          // Nominal REJECT (exact only): two DECLARED enums with different
+          // names are different types however alike their variants are. The
+          // name is stamped by the `Name :: enum(...)` binding
+          // (initialization_assignment.yo), so re-registered eras of ONE
+          // declaration still share it and keep converging structurally,
+          // and generic instantiations (`Option(i32)`/`Option(String)`)
+          // share "Option" and are still told apart by the field compare
+          // below. Without this, `HashMapError` and `HashSetError` reduced
+          // to the same single variant became ONE type to the CTFE memo —
+          // `Result(unit, HashSetError)` was served the
+          // `Result(unit, HashMapError)` instance
+          // (issues/fixed/structurally-identical-error-enums-in-two-generic-impls-collide.md).
+          (((aname.len() > usize(0)) && (ename.len() > usize(0))) && (aname != ename)) => false,
           (avns.len() != evns.len()) => false,
           true => {
             vkey := ((aid + String.from("=>")) + eid);

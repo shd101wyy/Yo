@@ -1,0 +1,79 @@
+// Two declared enums with identical variants are DIFFERENT types
+// (issues/fixed/structurally-identical-error-enums-in-two-generic-impls-collide.md).
+// The exact type comparison the CTFE memo uses compared enums structurally
+// only, so `Result(unit, BErr)` was served the `Result(unit, AErr)` instance
+// and a `.Err(err) => .Err(err)` propagation in the second generic impl
+// failed with "Expected AErr, Got BErr". Both halves are pinned: the direct
+// nominal check, and the production pair (HashMap + HashSet in one closure)
+// whose error enums are now the same single shape.
+{ assert } :: import("std/assert");
+{ HashMap } :: import("std/collections/hash_map");
+{ HashSet } :: import("std/collections/hash_set");
+AErr :: enum(Boom(code : i32), Quiet);
+BErr :: enum(Boom(code : i32), Quiet);
+fa :: (fn(fail : bool) -> Result(i32, AErr))(
+  cond(
+    fail => .Err(.Boom(code : i32(1))),
+    true => .Ok(i32(10))
+  )
+);
+fb :: (fn(fail : bool) -> Result(i32, BErr))(
+  cond(
+    fail => .Err(.Boom(code : i32(2))),
+    true => .Ok(i32(20))
+  )
+);
+// A generic carrier instantiated at both enums — the shape whose memo entry
+// was shared.
+Carrier :: (fn(comptime(E) : Type) -> comptime(Type))(struct(inner : Result(unit, E)));
+impl(
+  generic(E : Type),
+  Carrier(E),
+  pass_through : (fn(self : Self) -> Result(unit, E))(
+    match(
+      self.inner,
+      .Err(err) => .Err(err),
+      .Ok(v) => .Ok(v)
+    )
+  )
+);
+test("same-shaped enums stay distinct through a generic instantiation", {
+  ca := Carrier(AErr)(inner : Result(unit, AErr).Err(AErr.Boom(code : i32(1))));
+  cb := Carrier(BErr)(inner : Result(unit, BErr).Err(BErr.Boom(code : i32(2))));
+  ra := ca.pass_through();
+  rb := cb.pass_through();
+  assert(match(ra, .Err(e) => match(e, .Boom({ code }) => (code == i32(1)), .Quiet => false), .Ok(_) => false), "AErr carried");
+  assert(match(rb, .Err(e) => match(e, .Boom({ code }) => (code == i32(2)), .Quiet => false), .Ok(_) => false), "BErr carried");
+  assert(match(fa(false), .Ok(v) => (v == i32(10)), .Err(_) => false), "fa ok");
+  assert(match(fb(true), .Err(e) => match(e, .Boom({ code }) => (code == i32(2)), .Quiet => false), .Ok(_) => false), "fb err");
+});
+test("a value of one enum is not accepted where the other is expected", {
+  comptime_expect_error({
+    e := AErr.Quiet;
+    (y : BErr) = e;
+    consume(y);
+  });
+  // NOT pinned here: `(x : Result(i32, BErr)) = fa(true)` is still ACCEPTED —
+  // the non-exact comparison unifies same-named generic instantiations by
+  // name alone (issues/lenient-generic-enum-compatibility-by-name.md); that
+  // fix carries its own RED test.
+});
+test("HashMap and HashSet in one closure — error enums of the same shape", {
+  m := HashMap(i32, i32).new();
+  r := m.insert(i32(7), i32(42));
+  assert(match(r, .Ok(_) => true, .Err(_) => false), "insert must succeed");
+  s := HashSet(i32).new();
+  sr := s.insert(i32(9));
+  assert(match(sr, .Ok(_) => true, .Err(_) => false), "set insert must succeed");
+  assert(m.get(i32(7)).is_some(), "key 7 present");
+  assert(s.contains(i32(9)), "elem 9 present");
+  // Grow both past their initial capacity so `_resize` (the `.Err(err) =>
+  // .Err(err)` propagation site) runs in both specializations.
+  i := i32(0);
+  while(i < i32(100), i = (i + i32(1)), {
+    m.insert(i, i * i32(2));
+    s.insert(i * i32(3));
+  });
+  assert(m.len() == usize(100), "map grew");
+  assert(s.len() == usize(100), "set grew");
+});
