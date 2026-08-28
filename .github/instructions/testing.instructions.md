@@ -63,6 +63,29 @@ bash scripts/count-transpile-failures.sh tests/sync/.yo_selftest_batch_1_0.bin.c
 - `--test-name-pattern "Test XXX"` — run specific test by name
 - Tests automatically use AddressSanitizer for leak detection.
 
+## Windows: a FAILING test kills `yo test` with `unknown I/O error`
+
+On Windows, a test that fails (assert fires, binary exits nonzero) surfaces as
+`yo: error: unknown I/O error` — no `✗` line, no diagnostics, rc=1 — while
+passing tests report normally. The batch binary itself is fine: run it
+directly and it prints the assert message and exits nonzero. The failure is in
+the RUNNER's capture of a nonzero-exit child on Windows
+(`issues/yo-test-failing-child-windows-unknown-io-error.md`).
+
+Until that is fixed, get the real verdict of a red test with
+`YO_KEEP_BATCH=1` + a direct batch run (the artifacts land next to the test
+file):
+
+```bash
+YO_KEEP_BATCH=1 yo test ./tests/internal/lexer.test.yo --test-name-pattern "BOM" --parallel 1
+YO_TEST_INDEX=0 ./tests/internal/.yo_selftest_batch_1_0.bin   # index within the batch, 0-based
+echo $?
+```
+
+This is also the red/green loop for Windows: red = direct run prints the
+assert message and exits 127; green = the runner itself reports `✓` (passing
+children never hit the bug).
+
 ## Evaluator-only check (no codegen)
 
 - `yo check <file-or-dir>` — runs the evaluator on a single `.yo` file or every `.yo` under a directory and prints any type / evaluator errors. No C generation, no C compile.

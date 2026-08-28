@@ -991,3 +991,53 @@ test("Token.byte_offset tracks a multibyte operator run correctly", {
     }
   );
 });
+// ─── Leading UTF-8 BOM ───────────────────────────────────────────────────────
+test("Leading UTF-8 BOM is skipped, not lexed into the first token", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected error");
+        unwind(());
+      }
+    )
+  );
+  // Windows PowerShell 5.1 (`Set-Content -Encoding UTF8`) and several Windows
+  // editors write EF BB BF before an otherwise-ASCII file; decoded, that is
+  // U+FEFF, which used to be absorbed into the first identifier ("Variable
+  // '<BOM>open' not found" — issues/fixed/lexer-rejects-leading-utf8-bom.md).
+  sb := StringBuilder.new();
+  sb.write_rune(rune(u32(0xFEFF)));
+  sb.write_str("open(1)");
+  src := sb.to_string();
+  toks := non_ws(lex_or_panic(src, exn));
+  assert(toks.len() == usize(4), "open ( 1 ) — 4 non-whitespace tokens");
+  match(
+    toks.get(usize(0)),
+    .None => assert(false, "no token at 0"),
+    .Some(tok) => {
+      assert(tok.kind == TokenKind.Identifier, "expected Identifier");
+      assert(tok.value == `open`, "value must be 'open' with no BOM rune");
+      assert(tok.row == usize(0), "row must not count the BOM");
+      assert(tok.column == usize(0), "column must not count the BOM");
+      assert(tok.character == usize(0), "rune index must not count the BOM");
+      assert(
+        tok.byte_offset == usize(3),
+        "byte_offset still points past the 3 BOM bytes in input"
+      );
+    }
+  );
+});
+test("BOM-only input tokenizes to an empty stream", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected error");
+        unwind(());
+      }
+    )
+  );
+  sb := StringBuilder.new();
+  sb.write_rune(rune(u32(0xFEFF)));
+  toks := non_ws(lex_or_panic(sb.to_string(), exn));
+  assert(toks.len() == usize(0), "expected 0 tokens");
+});
