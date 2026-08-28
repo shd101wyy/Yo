@@ -1353,28 +1353,42 @@ static __yo_fs_event_entry_t* __yo_fs_event_snapshot_dir(const char* path, int* 
   return head;
 }
 
+// Directory watches: diff the entry snapshot and report EACH changed entry
+// by name — created/removed → 1 (rename class), modified → 2 (change class)
+// — through the callback, the way inotify and ReadDirectoryChangesW name
+// their entries. Returns the number of callbacks made (0 when nothing
+// changed); the directory itself vanishing is one nameless rename event.
+// File watches: returns the event mask for the caller to report (no
+// callback here).
 static int __yo_fs_event_detect_snapshot_changes(__yo_fs_event_t* handle) {
   int __yo_event = 0;
 
   if (handle->is_dir) {
     int snap_err = 0;
+    int emitted = 0;
     __yo_fs_event_entry_t* next_entries = __yo_fs_event_snapshot_dir(handle->path, &snap_err);
     if (snap_err != 0) {
-      if (snap_err == ENOENT) {
-        __yo_event |= 1;
+      if (snap_err == ENOENT && handle->callback && handle->active) {
+        handle->callback("", 1, handle->user_data);
+        emitted++;
       }
-      return __yo_event;
+      return emitted;
     }
 
     __yo_fs_event_entry_t* ne = next_entries;
     while (ne) {
       __yo_fs_event_entry_t* oe = __yo_fs_event_find_entry(handle->entries, ne->name);
+      int ev = 0;
       if (!oe) {
-        __yo_event |= 1;
+        ev = 1;
       } else if ((oe->mtime_sec != ne->mtime_sec) ||
                  (oe->mtime_nsec != ne->mtime_nsec) ||
                  (oe->size != ne->size)) {
-        __yo_event |= 2;
+        ev = 2;
+      }
+      if (ev != 0 && handle->callback && handle->active) {
+        handle->callback(ne->name, ev, handle->user_data);
+        emitted++;
       }
       ne = ne->next;
     }
@@ -1382,14 +1396,17 @@ static int __yo_fs_event_detect_snapshot_changes(__yo_fs_event_t* handle) {
     __yo_fs_event_entry_t* oe = handle->entries;
     while (oe) {
       if (!__yo_fs_event_find_entry(next_entries, oe->name)) {
-        __yo_event |= 1;
+        if (handle->callback && handle->active) {
+          handle->callback(oe->name, 1, handle->user_data);
+          emitted++;
+        }
       }
       oe = oe->next;
     }
 
     __yo_fs_event_free_entries(handle->entries);
     handle->entries = next_entries;
-    return __yo_event;
+    return emitted;
   }
 
   struct stat st;
@@ -1774,7 +1791,19 @@ static void __yo_poll_close(void* h) {
     while (fse) {
       __yo_fs_event_t* next = fse->next;
       if (fse->active && fse->watch_fd >= 0) {
-        int __yo_event = __yo_fs_event_detect_snapshot_changes(fse);
+        // Directory: the snapshot diff already reported each changed entry by
+        // name; the vnode's own kqueue flags then only add a nameless event
+        // when the diff saw nothing (e.g. an attribute change on the directory
+        // itself). File: the diff returns the mask and the event is reported
+        // under the file's own name.
+        int __yo_event = 0;
+        int named = 0;
+        if (fse->is_dir) {
+          named = __yo_fs_event_detect_snapshot_changes(fse);
+          count += named;
+        } else {
+          __yo_event = __yo_fs_event_detect_snapshot_changes(fse);
+        }
 
         struct kevent ev;
         struct timespec ts = {0, 0};
@@ -1788,9 +1817,14 @@ static void __yo_poll_close(void* h) {
           }
         }
 
-        if (__yo_event != 0) {
+        if (__yo_event != 0 && named == 0) {
           if (fse->callback && fse->active) {
-            fse->callback("", __yo_event, fse->user_data);
+            const char* own = "";
+            if (!fse->is_dir && fse->path) {
+              const char* slash = strrchr(fse->path, '/');
+              own = slash ? slash + 1 : fse->path;
+            }
+            fse->callback(own, __yo_event, fse->user_data);
             count++;
           }
         }

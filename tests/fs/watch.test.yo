@@ -1,0 +1,109 @@
+// std/fs/watch — file-system change notifications (plans/STD_API_AUDIT.md §7 P1).
+pragma(Pragma.SkipWasm32Emscripten); // no inotify/kqueue in WASM
+pragma(Pragma.SkipWasm32Wasi); // no inotify/kqueue in WASM
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+open(import("std/string"));
+open(import("std/fmt"));
+{ temp_dir, path_join } :: import("../helper");
+{ Path } :: import("std/path");
+{ watch, WatchOptions, FsEvent, FsEventKind, Watcher } :: import("std/fs/watch");
+{ Exception } :: import("std/error");
+{ sleep } :: import("std/sys/timer");
+file :: import("std/sys/file");
+dir :: import("std/sys/dir");
+{ AT_FDCWD, O_CREAT, O_WRONLY, O_TRUNC } :: import("std/sys/constants");
+_exn :: (fn() -> Exception)(
+  Exception(
+    throw : (
+      (err) -> {
+        assert(false, `unexpected error: ${err}`);
+        unwind(());
+      }
+    )
+  )
+);
+_touch :: (fn(path : String, content : String, io : Io) -> unit)({
+  c := path.to_cstr();
+  p := c.ptr().unwrap();
+  fd := io.await(file.openat(AT_FDCWD, p, O_CREAT | (O_WRONLY | O_TRUNC), i32(0o644)), io);
+  assert(fd >= i32(0), "open failed");
+  body := content.to_cstr();
+  wr := io.await(file.write(fd, body.ptr().unwrap(), u32(content.len()), u64(0)), io);
+  assert(wr >= i32(0), "write failed");
+  io.await(file.close(fd), io);
+});
+_unlink :: (fn(path : String, io : Io) -> unit)({
+  c := path.to_cstr();
+  io.await(dir.unlink(AT_FDCWD, c.ptr().unwrap(), i32(0)), io);
+});
+test("watch a directory: creating a file produces events, poll drains them", {
+  d := temp_dir();
+  target := path_join(d, `yo_watch_poll.txt`);
+  _unlink(target, io);
+  w := watch(Path.new(d), WatchOptions.defaults(), _exn());
+  assert(w.is_active(), "active after watch()");
+  assert(w.pending() == usize(0), "nothing queued yet");
+  _touch(target, String.from("hello"), io);
+  io.await(sleep(u64(250)), io);
+  first := w.poll();
+  assert(first.is_some(), "an event was queued for the new file");
+  (saw_target : bool) = false;
+  (ev : Option(FsEventKind)) = Option(FsEventKind).None;
+  cur := first;
+  while(cur.is_some(), {
+    e := cur.unwrap();
+    if(e.name == "yo_watch_poll.txt", {
+      saw_target = true;
+      ev = Option(FsEventKind).Some(e.kind);
+    });
+    cur = w.poll();
+  });
+  assert(saw_target, "the event names the created entry");
+  assert(w.pending() == usize(0), "poll drained the queue");
+  w.close();
+  assert(!(w.is_active()), "closed");
+  _unlink(target, io);
+});
+test("next(io) resolves when an event arrives and .None after close", {
+  d := temp_dir();
+  target := path_join(d, `yo_watch_next.txt`);
+  _unlink(target, io);
+  w := watch(Path.new(d), WatchOptions.defaults(), _exn());
+  _touch(target, String.from("x"), io);
+  ev := io.await(w.next(io), io);
+  assert(ev.is_some(), "next resolved with an event");
+  // drain whatever else the backend coalesced, then close: next must not hang
+  (more : Option(FsEvent)) = w.poll();
+  while(more.is_some(), {
+    more = w.poll();
+  });
+  w.close();
+  after := io.await(w.next(io), io);
+  assert(after.is_none(), "closed watcher's next is .None");
+  _unlink(target, io);
+});
+// The handler is installed in the function whose return the unwind exits —
+// a `ctl` handler is frame-bound (docs/en-US/ALGEBRAIC_EFFECTS.md).
+_try_watch :: (fn(p : String) -> Option(Watcher))({
+  exn := Exception(
+    throw : (
+      (err) -> {
+        unwind(Option(Watcher).None);
+      }
+    )
+  );
+  w := watch(Path.new(p), WatchOptions.defaults(), exn);
+  Option(Watcher).Some(w)
+});
+test("watching a missing path throws IoError", {
+  missing := _try_watch(`/nonexistent/yo_watch_dir_zzz`);
+  assert(missing.is_none(), "watch on a missing path unwinds through exn");
+  present := _try_watch(temp_dir());
+  assert(present.is_some(), "an existing directory is watchable");
+  match(present, .Some(w) => w.close(), .None => ());
+});
+test("FsEventKind renders", {
+  assert(FsEventKind.Rename.to_string() == "rename", "rename");
+  assert(FsEventKind.Change.to_string() == "change", "change");
+});

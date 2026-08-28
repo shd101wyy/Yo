@@ -29,7 +29,8 @@ _(env : fncall_dbg_env) :: import("std/env");
   ast_expr_is_atom_of,
   BF_DOT,
   is_function_boundary_arrow,
-  desugar_if_calls
+  desugar_if_calls,
+  BF_YO_AS
 } :: import("../../expr.yo");
 { is_auto_generated_expansion } :: import("../memory_safety.yo");
 {
@@ -6156,7 +6157,15 @@ Fix: wrap the call:
         // name, so the FSM struct typedef the code references is never
         // declared (sys/timer flag-on: `unknown type name
         // 'async_block_yo_id_6035_state_t'`).
-        attach_temp_variable_to_expr(expr, true, ctx);
+        // `__yo_as` (`unsafe.cast`) yields a BORROWED view, not a fresh +1 — see the
+        // valueless-callee branch below and
+        // issues/fixed/unsafe-cast-to-rc-type-is-treated-as-owned.md.
+        rt_is_yo_as := match(
+          callee_ty,
+          .Func({ meta : __fm_rt_as }) => match(__fm_rt_as.*.extern_name, .Some(en) => (en == BF_YO_AS), .None => false),
+          _ => false
+        );
+        attach_temp_variable_to_expr(expr, !(rt_is_yo_as), ctx);
         return(expr);
       }
     ),
@@ -6719,7 +6728,17 @@ ${ast_expr_to_string(expr)}`,
           out_none.deferred_drop_expressions = call_result_none.deferred_drop_expressions;
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_none);
           // Same temp attachment as the method arm (TS function.ts:2263).
-          attach_temp_variable_to_expr(expr, true, ctx);
+          // The result temp is OWNING (+1 the callee produced) — except for
+          // `__yo_as` (`unsafe.cast`): a cast conjures no new object, it is a
+          // BORROWED view of the caller's. Treating `w := unsafe.cast(ud, W)`
+          // as owned made the callee's scope-end drop free the caller's `W`
+          // (issues/fixed/unsafe-cast-to-rc-type-is-treated-as-owned.md).
+          none_is_yo_as := match(
+            callee_ty_none,
+            .Func({ meta : __fm_none }) => match(__fm_none.*.extern_name, .Some(en) => (en == BF_YO_AS), .None => false),
+            _ => false
+          );
+          attach_temp_variable_to_expr(expr, !(none_is_yo_as), ctx);
           return(expr);
         }
       )

@@ -1,0 +1,66 @@
+// An `inout(self)` trait method called directly on a payload-free enum
+// VARIANT LITERAL (`E.B.to_string()`) must work
+// (issues/fixed/inout-receiver-on-enum-variant-literal-takes-address-of-tag.md).
+// The receiver rendered as the C tag constant and the auto-`&` wrapper took
+// its address: "cannot take the address of an rvalue of type 'int'".
+{ assert } :: import("std/assert");
+open(import("std/string"));
+open(import("std/fmt"));
+E :: enum(A, B);
+impl(
+  E,
+  ToString(
+    to_string : (
+      self ->
+        match(
+          self,
+          .A => String.from("a"),
+          .B => String.from("b")
+        )
+    )
+  )
+);
+// Same enum shape with a payload-carrying variant: the payload-free variant
+// of a TAGGED enum is a struct literal, not a bare tag — both must work.
+F :: enum(A(v : i32), B);
+impl(
+  F,
+  ToString(
+    to_string : (
+      self ->
+        match(
+          self,
+          .A(v) => `fa${v}`,
+          .B => String.from("fb")
+        )
+    )
+  )
+);
+// A user trait with an explicit inout receiver, to rule out ToString specifics.
+Bump :: trait(
+  code : (fn(inout(self) : Self) -> i32)
+);
+impl(
+  E,
+  Bump(
+    code : (fn(inout(self) : Self) -> i32)(
+      match(
+        self,
+        .A => i32(1),
+        .B => i32(2)
+      )
+    )
+  )
+);
+test("inout(self) methods on enum variant literals", {
+  assert(E.A.to_string() == "a", "E.A literal receiver");
+  assert(E.B.to_string() == "b", "E.B literal receiver");
+  k := E.B;
+  assert(k.to_string() == "b", "bound receiver still fine");
+  assert(F.B.to_string() == "fb", "payload-free variant of a tagged enum");
+  assert(F.A(v : i32(7)).to_string() == "fa7", "payload-carrying literal");
+  assert(E.B.code() == i32(2), "user trait, literal receiver");
+  assert((E.A.code() + E.B.code()) == i32(3), "two literal receivers in one expression");
+  s := `${E.A} ${E.B}`;
+  assert(s == "a b", "interpolation goes through to_string on literals");
+});
