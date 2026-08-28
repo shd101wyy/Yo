@@ -1,3 +1,6 @@
+pragma(Pragma.SkipWasm32Emscripten); // https needs a network stack + TLS
+pragma(Pragma.SkipWasm32Wasi); // https needs a network stack + TLS
+pragma(Pragma.SkipWindows); // OpenSSL absent on the Windows runners
 { assert } :: import("std/assert");
 { HttpMethod, HttpRequest, HttpResponse, parse_response } :: import("std/http/http");
 { HttpHeader, http_status_text } :: import("std/http/http");
@@ -94,27 +97,44 @@ test("HttpMethod enum values", {
   assert(m_head.to_string() == `HEAD`, "HEAD to_string");
   assert(m_patch.to_string() == `PATCH`, "PATCH to_string");
 });
-test("fetch refuses https until TLS exists (no silent cleartext downgrade)", {
-  // SECURITY GATE (plans/STD_API_AUDIT.md C1): the client used to ACCEPT
-  // `https`, default to port 443, and then speak PLAINTEXT HTTP to it. Until
-  // std has TLS, an https URL must throw UnsupportedScheme BEFORE any DNS or
-  // socket work. The target is 127.0.0.1:1 so the pre-fix failure mode is a
-  // deterministic, instant connection-refused (a DIFFERENT error) rather
-  // than real network traffic.
+test("fetch still refuses an unsupported scheme", {
+  // http and https are supported (https over TLS as of D6); anything else
+  // must throw UnsupportedScheme BEFORE any DNS or socket work. ftp:// to
+  // 127.0.0.1:1 would be an instant connection-refused if it slipped past
+  // the scheme check.
   exn := Exception(
     throw : (
       (err) -> {
         msg := err.to_string();
-        println(`  fetch(https) threw: ${msg}`);
-        assert(
-          msg.contains(`Unsupported scheme`),
-          `expected UnsupportedScheme (thrown before any connect), got: ${msg}`
-        );
+        assert(msg.contains(`Unsupported scheme`), `expected UnsupportedScheme, got: ${msg}`);
         unwind(());
       }
     )
   );
-  resp := io.await(fetch(`https://127.0.0.1:1/`, io), IoExn(io : io, exn : exn));
-  println(`  unexpectedly got status ${resp.status_code}`);
-  assert(false, "fetch(https) must throw UnsupportedScheme until TLS exists");
+  _r := io.await(fetch(`ftp://127.0.0.1:1/`, io), IoExn(io : io, exn : exn));
+  assert(false, "fetch(ftp) must throw UnsupportedScheme");
+});
+test("fetch over https returns a real response (skips offline)", {
+  // https now speaks TLS (D6). Skips when the connection can't be made so
+  // an offline box stays green.
+  reached := Box(bool)(false);
+  ok := Box(bool)(false);
+  exn := Exception(
+    throw : (
+      (err) -> {
+        println(`  https fetch skipped (no egress?): ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  resp := io.await(fetch(`https://example.com`.to_string(), io), IoExn(io : io, exn : exn));
+  reached.* = true;
+  status_ok := (resp.status_code == i32(200));
+  body_ok := (resp.body.len() > usize(0));
+  good := (status_ok && body_ok);
+  ok.* = good;
+  cond(
+    reached.* => assert(ok.*, `expected a 200 with a body over https, got ${resp.status_code}`),
+    true => assert(true, "skipped: no network")
+  );
 });
