@@ -597,6 +597,7 @@ walk_expr_ :: (
                   // suspend on differently-shaped futures. See
                   // issues/fixed/async-cond-shared-await-point-only-models-representative-branch.md.
                   branch_exprs := ArrayList(AstExpr).new();
+                  branch_in_while := ArrayList(bool).new();
                   (bpi3 : usize) = usize(0);
                   while(bpi3 < n_branches, {
                     branch3 := match(
@@ -619,15 +620,21 @@ walk_expr_ :: (
                           // uniform and keeps a concretely-typed shared slot.
                           // Inner merges run before outer ones, so the nested
                           // list is already fully flattened.
+                          // A point already inside a `while` of its own arm
+                          // (the while walker flagged it before this merge —
+                          // inner exprs are walked first) is a looping branch.
+                          p3_in_while := match(p3.is_inside_while, .Some(b) => b, .None => false);
                           match(
                             p3.cond_branch_suspension_exprs,
                             .Some(nested) => {
+                              nested_in_while := match(p3.cond_branch_suspension_in_while, .Some(l) => l, .None => ArrayList(bool).new());
                               (ni : usize) = usize(0);
                               while(ni < nested.len(), {
                                 match(
                                   nested.get(ni),
                                   .Some(ne) => {
                                     branch_exprs.push(ne);
+                                    branch_in_while.push(p3_in_while || match(nested_in_while.get(ni), .Some(b) => b, .None => false));
                                   },
                                   .None => ()
                                 );
@@ -636,6 +643,7 @@ walk_expr_ :: (
                             },
                             .None => {
                               branch_exprs.push(p3.expr);
+                              branch_in_while.push(p3_in_while);
                             }
                           );
                         },
@@ -645,6 +653,7 @@ walk_expr_ :: (
                     bpi3 = (bpi3 + usize(1));
                   });
                   rep.cond_branch_suspension_exprs = Option(ArrayList(AstExpr)).Some(branch_exprs);
+                  rep.cond_branch_suspension_in_while = Option(ArrayList(bool)).Some(branch_in_while);
                   points.push(rep);
                 }
               );

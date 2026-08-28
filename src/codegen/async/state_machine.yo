@@ -15,7 +15,7 @@ open(import("std/string"));
 { lookup_macro_expansion, lookup_some_resolved_concrete } :: import("../../expr_info.yo");
 { AwaitAnalysisResult, AwaitPoint, CapturedVariable, CapturedVariableKind } :: import("../../evaluator/async/await_analysis_types.yo");
 { SuspensionCapturedVariable } :: import("../../evaluator/shared/suspension_analysis_types.yo");
-{ StateSegment, split_into_state_segments, generate_await_expression, generate_state_segment_code, hoist_non_splittable_awaits, await_is_while_condition, is_io_future_type, cond_await_point_needs_dispatch, cond_branch_future_access, CondBranchFutureAccess, collect_branch_await_exprs, _find_branch_await_target_variable_id } :: import("./state_code_gen.yo");
+{ StateSegment, split_into_state_segments, generate_await_expression, generate_state_segment_code, hoist_non_splittable_awaits, await_is_while_condition, is_io_future_type, cond_await_point_needs_dispatch, cond_branch_future_access, CondBranchFutureAccess, collect_branch_await_exprs, _find_branch_await_target_variable_id, cond_branch_expr_in_while } :: import("./state_code_gen.yo");
 { is_io_async_call, is_io_await_call } :: import("../../evaluator/async/await_analysis.yo");
 { AstExpr, ast_expr_id, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, BK_COND, BK_MATCH, BK_WHILE, BK_BEGIN } :: import("../../expr.yo");
 { _call_generate_expr } :: import("../exprs/_expr.yo");
@@ -1660,6 +1660,17 @@ _emit_await_suspension_dispatch :: (
   });
   depth := (ap.base.index - source);
   cf_s := cond_field.to_string();
+  // Loop-ness is per branch. `while_info` (from the representative's flags)
+  // applies to every branch only when the loop encloses the whole cond —
+  // i.e. the representative's own arm does not loop. When some arm loops on
+  // its own, only the flagged arms re-check `while_loop_N_active`; the plain
+  // arms await unconditionally
+  // (issues/fixed/while-await-inside-match-arm-missing-loop-field.md).
+  rep_arm_loops := cond_branch_expr_in_while(ap.base, ap.base.expr);
+  outer_loop_info := cond(
+    rep_arm_loops => Option(WhileLoopInfo).None,
+    true => while_info
+  );
   em.emit_string_line(`      // Await per branch — branches await differently-shaped futures (dispatch)`);
   em.emit_string_line(`      switch (sm->cond_branch_${cf_s}) {`);
   dispatch_branches := _dispatch_branches(cbd, cond_field, ap.base.index);
@@ -1695,8 +1706,13 @@ _emit_await_suspension_dispatch :: (
                 em.emit_string_line(`            goto state_${next_s};`);
                 em.emit_string_line(`          }`);
               });
+              branch_while_info := cond(
+                cond_branch_expr_in_while(ap.base, ae) =>
+                  match(context.async_while_loop_info, .Some(m) => m.get(ap.base.index), .None => Option(WhileLoopInfo).None),
+                true => outer_loop_info
+              );
               match(
-                while_info,
+                branch_while_info,
                 .Some(wi) => {
                   wli := match(wi.while_loop_origin_index, .Some(o) => o, .None => ap.base.index);
                   em.emit_string_line(`          // Only await if while loop is still active (not broken)`);

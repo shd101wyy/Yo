@@ -66,7 +66,15 @@ SuspensionPoint :: ref(
     /// io/state-machine future kinds — everything downstream that used to
     /// assume the representative's shape consults this list instead. See
     /// issues/fixed/async-cond-shared-await-point-only-models-representative-branch.md.
-    cond_branch_suspension_exprs : Option(ArrayList(AstExpr))
+    cond_branch_suspension_exprs : Option(ArrayList(AstExpr)),
+    /// Parallel to `cond_branch_suspension_exprs`: whether THAT branch's
+    /// suspension sits inside a `while` of its own arm. The representative's
+    /// `is_inside_while` describes only the arm it was taken from, so a
+    /// match whose `.None` arm awaits once and whose `.Some` arm awaits inside
+    /// a loop merged into a point with no loop-ness at all — the state struct
+    /// then never declared `while_loop_N_active` while the looping arm's body
+    /// wrote it (issues/fixed/while-await-inside-match-arm-missing-loop-field.md).
+    cond_branch_suspension_in_while : Option(ArrayList(bool))
   )
 );
 // ---------------------------------------------------------------------------
