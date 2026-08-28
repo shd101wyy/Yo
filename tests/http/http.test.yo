@@ -309,9 +309,13 @@ test("fetch default response ceiling is 64 MiB and 0 lifts it", {
 _serve_silent :: (fn(listener : TcpListener, hold : Duration, io : Io) -> Impl(Future(unit, IoExn)))(
   io.async((e) => {
     s := e.io.await(listener.accept(e.io), e);
+    println(`  [silent server] accepted`);
     _req := e.io.await(_read_request(s, e.io), e);
+    println(`  [silent server] got request, holding`);
     e.io.await(sleep(hold, e.io), e.io);
+    println(`  [silent server] hold over, closing`);
     e.io.await(s.close(e.io), e);
+    println(`  [silent server] closed`);
     return(());
   })
 );
@@ -320,6 +324,7 @@ test("fetch throws Timeout when the server never answers", {
     throw : (
       (err) -> {
         msg := err.to_string();
+        println(`  [timeout test] handler: ${msg}`);
         assert(msg.contains(`timed out`), `expected Timeout, got: ${msg}`);
         unwind(());
       }
@@ -329,6 +334,7 @@ test("fetch throws Timeout when the server never answers", {
   listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
   server := io.spawn(_serve_silent(listener, Duration.from_millis(i64(400)), io), IoExn(io : io, exn : exn));
   opts := FetchOptions.new().with_timeout(Duration.from_millis(i64(100)));
+  println(`  [timeout test] fetching`);
   _r := io.await(fetch_with(`http://127.0.0.1:19964/hang`, opts, io), IoExn(io : io, exn : exn));
   assert(false, "fetch must throw Timeout");
 });
