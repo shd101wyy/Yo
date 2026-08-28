@@ -99,7 +99,13 @@ consumers shed their `.Ok/.Err` arms — and `BufWriter(W)` regained
 
 ## Seed-gated follow-up (2026-08-27): `Command.current_dir`
 
-Needs `posix_spawn_file_actions_addchdir_np` (macOS) / `addchdir` (glibc
-2.29+) wired into `__yo_async_spawn_start` as a new cwd parameter — a
-runtime-shim extern signature change the seed cannot compile against.
-Add at the next seed bump alongside the other generation-gated items.
+**Generation A DONE 2026-08-28:** the runtime emits
+`__yo_async_spawn_start_cwd(file, argv, envp, stdin, stdout, stderr, cwd)` on
+all platforms (posix `posix_spawn_file_actions_addchdir_np`, weak-linked so an
+older libc reports ENOSYS; Windows `CreateProcessW` lpCurrentDirectory; wasm
+stub) and the 6-argument `__yo_async_spawn_start` std declares is a wrapper
+passing NULL. Proven by tests/process/command.test.yo under the fresh binary.
+**Generation B (once `SEED_VERSION` ≥ the release carrying this):** declare
+`__yo_async_spawn_start_cwd` in std/sys/externs.yo, make `std/sys/process.spawn`
+take `cwd : ?(*(u8))`, add `Command.current_dir(path)` + a test through the
+public API; then delete the 6-argument wrapper in a later generation.

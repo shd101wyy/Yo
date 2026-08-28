@@ -203,3 +203,83 @@ test("Stdio.Null discards child stdout", {
   st := io.await(child.wait(io), e);
   assert(st.success(), "echo to /dev/null exits 0");
 });
+
+// ============================================================================
+// Command.current_dir — GENERATION A (runtime symbol only)
+// ============================================================================
+// `__yo_async_spawn_start_cwd` is the spawn shim with a working directory.
+// std cannot declare it yet: `yo build` compiles std with the SEED's emitted
+// runtime, which predates the symbol (plans/backlog/SEED_VERSION_AUTOMATION.md).
+// Tests run under the FRESH binary, so this file declares the extern itself
+// and proves the symbol spawns in the requested directory on every platform.
+// Generation B (after the seed bump) switches std/sys/process to it and adds
+// `Command.current_dir`.
+{ IoFuture } :: import("std/sys/future");
+IO_process :: import("std/sys/process");
+{ GlobalAllocator } :: import("std/allocator");
+{ malloc, free } :: GlobalAllocator;
+{ create_dir_all_str, remove_dir, remove_file } :: import("std/fs/dir");
+{ exists } :: import("std/fs/file");
+{ Path } :: import("std/path");
+extern(
+  "Yo",
+  __yo_async_spawn_start_cwd : (
+    fn(
+      file : *(u8),
+      argv : *(?(*(u8))),
+      envp : ?(*(?(*(u8)))),
+      stdin_fd : i32,
+      stdout_fd : i32,
+      stderr_fd : i32,
+      cwd : ?(*(u8))
+    ) -> IoFuture
+  )
+);
+test("__yo_async_spawn_start_cwd runs the child in the requested directory (current_dir generation A)", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, `unexpected exception: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  dir := `yo_cwd_probe_dir`;
+  io.await(create_dir_all_str("yo_cwd_probe_dir", io), e);
+  // The child creates `marker.txt` in ITS cwd; the assertion is path-free.
+  storage := ArrayList(ArrayList(u8)).new();
+  cond(
+    (platform == Platform.Windows) => {
+      storage.push(`cmd.exe`.to_cstr());
+      storage.push(`/C`.to_cstr());
+      storage.push(`type nul > marker.txt`.to_cstr());
+    },
+    true => {
+      storage.push(`/bin/sh`.to_cstr());
+      storage.push(`-c`.to_cstr());
+      storage.push(`touch marker.txt`.to_cstr());
+    }
+  );
+  argc := storage.len();
+  argv_raw := malloc(sizeof(?(*(u8))) * (argc + usize(1))).unwrap();
+  argv_buf := *(?(*(u8)))(argv_raw);
+  j := usize(0);
+  while(runtime(j < argc), {
+    (argv_buf.add(j)).* = storage(j).ptr();
+    j = (j + usize(1));
+  });
+  (argv_buf.add(argc)).* = .None;
+  program_cstr := (argv_buf.add(usize(0))).*.unwrap();
+  cwd_c := dir.to_cstr();
+  pid := io.await(__yo_async_spawn_start_cwd(program_cstr, argv_buf, .None, i32(-1), i32(-1), i32(-1), cwd_c.ptr()), io);
+  assert(pid > i32(0), `spawn with cwd should return a pid, got ${pid}`);
+  status := io.await(IO_process.waitpid(pid, i32(0)), io);
+  assert(IO_process.exit_status(status) == i32(0), `child should exit 0, status ${status}`);
+  marker := Path.new(`yo_cwd_probe_dir/marker.txt`);
+  made := io.await(exists(marker, io), io);
+  assert(made, "the child must have run inside yo_cwd_probe_dir");
+  free(.Some(argv_raw));
+  io.await(remove_file(marker, io), e);
+  io.await(remove_dir(Path.new(dir), io), e);
+});
