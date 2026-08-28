@@ -1,9 +1,39 @@
 # Two structurally identical error enums in two generic impls are conflated
 
-**Status:** OPEN. Found 2026-08-25 while executing `plans/STD_API_AUDIT.md` §6
-round 2 (deleting measured-dead std declarations). It **blocked** the
-`HashMapError` / `HashSetError` half of that item; the other two items
-(`PathError`, `CustomAllocator`) landed.
+**Status:** **FIXED 2026-08-29.** Found 2026-08-25 while executing
+`plans/STD_API_AUDIT.md` §6 round 2 (deleting measured-dead std
+declarations). It **blocked** the `HashMapError` / `HashSetError` half of that
+item; the other two items (`PathError`, `CustomAllocator`) landed.
+
+**Root cause.** `are_types_compatible_exact`'s `EnumT` arm
+(`src/types/compatibility.yo`) compared enums PURELY STRUCTURALLY — variant
+names, field labels, field types — with no nominal check at all (the id
+fast-accept had been removed because generic instantiations share their
+declaration's id). The CTFE memo uses exact compatibility to decide whether a
+comptime call (`Result(unit, HashSetError)`) matches a cached instance
+(`Result(unit, HashMapError)`), so two same-shaped declared enums were ONE
+type to it. The narrowed reproducer needs no std patch at all:
+`AErr :: enum(Boom(code : i32))`, `BErr :: enum(Boom(code : i32))`, a generic
+`Carrier(E) :: struct(inner : Result(unit, E))` with an impl, and BOTH
+`Carrier(AErr)` and `Carrier(BErr)` constructed in one module — the second
+construction fails ("Failed to evaluate argument expression": its field type
+is the first instantiation's).
+
+**Fix.** Under `require_exact`, two enums whose NAMES are both non-empty and
+differ are different types. The name is stamped by the `Name :: enum(...)`
+binding, so re-registered eras of one declaration still share it and
+converge structurally, and generic instantiations (`Option(i32)` vs
+`Option(String)`) share "Option" and are still told apart by the field
+compare. Residual (documented, not fixed): two enums with the SAME name in
+two modules and identical shape are still conflated.
+
+**Regression test.** `tests/nominal_enum_identity.test.yo` — the user-level
+pair through a generic carrier (RED on the previous compiler), value
+non-assignability across the pair, and `HashMap` + `HashSet` in one closure.
+The std trim this unblocks (`KeyNotFound` / `ElementNotFound` deletion) is
+SEED-GATED: the compiler imports both collections, so the trim must wait for
+a seed that carries this fix (plans/backlog/SEED_VERSION_AUTOMATION.md).
+Original record follows.
 
 ## Symptom
 
