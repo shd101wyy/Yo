@@ -1,6 +1,6 @@
 # Installation script for Yo on Windows (PowerShell); use -Help to see options.
 #
-#   irm https://raw.githubusercontent.com/shd101wyy/Yo/develop/scripts/install.ps1 | iex
+#   irm https://shd101wyy.github.io/Yo/install.ps1 | iex
 #
 # Installs a prebuilt release bundle. Yo is self-hosted: the bundle carries the
 # native compiler plus the standard library and the vendored mimalloc sources,
