@@ -773,7 +773,7 @@ mmap/file-lock/statfs wrappers; `gc.stats`; DNS SRV/TXT/reverse
      `PATH_SEPARATOR`/`PATH_DELIMITER`, `stdin`, `get_hardware_threads`/
      `get_cpu_id`, `unicode_to_{lower,upper}case`, `is_valid_entity_code`,
      `step_len`, `bench`, the hash/http default constants — are now exercised by
-     `tests/std_export_coverage.test.yo`, and writing it surfaced C50 and C51.
+     `tests/std_export_coverage.test.yo`, and writing it surfaced C50 and C51 and re-surfaced the open unicode-locale bug (C52).
      Original count: 1132 of 1829 `std` exports were
      never NAMED anywhere under `tests/`. That number badly overstates the gap —
      it is a name grep, so `std/sys/*` + `std/libc/*` constants dominate it and
