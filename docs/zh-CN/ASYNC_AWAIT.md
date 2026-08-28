@@ -588,7 +588,7 @@ int main(int argc, char** argv) {
 
 #### WASM 异步支持
 
-WASM 目标（通过 emcc 的 `wasm32-emscripten`）支持核心异步调度器和真正的定时器支持——`io.async()`、`io.await()`、`io.spawn()`、`JoinHandle.await()` 和 `sleep()`（来自 `std/sys/timer`）均可正常工作。调度器使用 NODERAWFS 的 POSIX I/O 进行文件操作，使用排序定时器队列实现非阻塞 sleep。
+WASM 目标（通过 emcc 的 `wasm32-unknown-emscripten`）支持核心异步调度器和真正的定时器支持——`io.async()`、`io.await()`、`io.spawn()`、`JoinHandle.await()` 和 `sleep()`（来自 `std/sys/timer`）均可正常工作。调度器使用 NODERAWFS 的 POSIX I/O 进行文件操作，使用排序定时器队列实现非阻塞 sleep。
 
 WASM 上可用的功能：
 

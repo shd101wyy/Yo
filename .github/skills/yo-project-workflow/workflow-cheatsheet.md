@@ -158,17 +158,17 @@ test("Async test", {
 yo compile main.yo --cc clang -o app
 yo compile main.yo --cc zig -o app
 yo compile main.yo --cc emcc --release -o app
-yo test ./tests/main.test.yo --target wasm-wasi
+yo test ./tests/main.test.yo --target wasm32-wasip1
 ```
 
 - Common C compilers: `clang`, `gcc`, `zig`, `emcc`
 - `--cc emcc` targets Emscripten-based WebAssembly
-- `--target wasm-wasi` targets standalone WASI
+- `--target wasm32-wasip1` targets standalone WASI
 - Prefer the host target for routine development unless the task is explicitly cross-platform
 
 ### WASM library targets in build.yo
 
-For projects that compile to WASM npm packages, use `target: build.CompilationTarget.Wasm32_Emscripten` and `add_c_flags(...)` for Emscripten settings:
+For projects that compile to WASM npm packages, use `target: build.CompilationTarget.Wasm32_Unknown_Emscripten` and `add_c_flags(...)` for Emscripten settings:
 
 ```rust
 build :: import("std/build");
@@ -176,7 +176,7 @@ build :: import("std/build");
 wasm_api :: build.executable({
   name: "my_lib_wasm_api",
   root: "./src/wasm_api.yo",
-  target: build.CompilationTarget.Wasm32_Emscripten,
+  target: build.CompilationTarget.Wasm32_Unknown_Emscripten,
   optimize: build.Optimize.ReleaseSmall,
   allocator: build.Allocator.System
 });
@@ -191,8 +191,8 @@ Key API:
 - `build.executable({...})` — `Executable` struct fields: `name`, `root`, `target`, `optimize`, `allocator`, `sanitize`
 - `step.add_c_flags("...")` — append compiler/linker flags (Emscripten `-s` options go here)
 - `step.add_import_list(imports)` — add module dependencies
-- `build.CompilationTarget.Wasm32_Emscripten` — Emscripten target
-- `build.CompilationTarget.Wasm32_Wasi` — WASI target
+- `build.CompilationTarget.Wasm32_Unknown_Emscripten` — Emscripten target
+- `build.CompilationTarget.Wasm32_Wasip1` — WASI target
 
 See the [yo-wasm-integration](../yo-wasm-integration/SKILL.md) skill for full npm packaging patterns.
 

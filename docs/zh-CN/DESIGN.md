@@ -233,12 +233,12 @@ yo build run          # 构建并运行可执行文件
 yo build test         # 运行测试
 yo build --list-steps # 列出可用的构建步骤
 yo build --cc zig     # 使用 zig 作为 C 编译器
-yo build --target wasm-emscripten  # 交叉编译为 WASM（Emscripten）
+yo build --target wasm32-unknown-emscripten  # 交叉编译为 WASM（Emscripten）
 
 # 直接编译（单文件，无需 build.yo）
 yo compile hello.yo -o hello
 yo compile hello.yo --cc clang -o hello
-yo compile hello.yo --target wasm-emscripten -o hello.html
+yo compile hello.yo --target wasm32-unknown-emscripten -o hello.html
 
 # 格式化（固定风格，2 空格缩进）
 yo fmt                     # 格式化当前目录下所有 .yo 文件

@@ -28,4 +28,4 @@ $ node app.js
 # Or open app.html in a browser
 ```
 
-When using `--cc emcc`, Yo automatically targets `wasm32-emscripten` and uses the `libc` allocator. You can also use `--target wasm-emscripten` (which auto-selects `emcc`). Emscripten produces an `.html` file (browser shell), a `.js` file (runtime glue), and a `.wasm` file (compiled binary).
+When using `--cc emcc`, Yo automatically targets `wasm32-unknown-emscripten` and uses the `libc` allocator. You can also use `--target wasm32-unknown-emscripten` (which auto-selects `emcc`). Emscripten produces an `.html` file (browser shell), a `.js` file (runtime glue), and a `.wasm` file (compiled binary).

@@ -40,12 +40,12 @@ my-project/
 
 ```
 yo-out/
-├── x86_64-linux-gnu/         ← 宿主目标
+├── x86_64-unknown-linux-gnu/         ← 宿主目标
 │   ├── bin/
 │   │   └── my-project
 │   └── lib/
 │       └── libmy-project-lib.a
-└── wasm32-emscripten/           ← 交叉编译目标（Emscripten）
+└── wasm32-unknown-emscripten/           ← 交叉编译目标（Emscripten）
     └── bin/
         ├── my-project.html
         ├── my-project.js
@@ -107,7 +107,7 @@ test_step.depend_on(tests);
 | ----------- | -------------- | ------------------ | -------------------------------------- |
 | `name`      | `comptime_str` | _（必填）_         | 产物名称                               |
 | `root`      | `comptime_str` | _（必填）_         | 主源文件路径                           |
-| `target`    | `comptime_str` | `target_host`      | 目标三元组（如 `"wasm32-emscripten"`） |
+| `target`    | `comptime_str` | `target_host`      | 目标三元组（如 `"wasm32-unknown-emscripten"`） |
 | `optimize`  | `Optimize`     | `Optimize.Debug`   | 优化级别                               |
 | `allocator` | `Allocator`    | `Allocator.System` | 内存分配器                             |
 | `sanitize`  | `Sanitize`     | `Sanitize.None`    | 检测器                                 |
@@ -170,16 +170,16 @@ test_step.depend_on(tests);
 
 | 值                                       | 目标三元组             | 说明                       |
 | ---------------------------------------- | ---------------------- | -------------------------- |
-| `CompilationTarget.X86_64_Linux_Gnu`     | `x86_64-linux-gnu`     | Linux x86-64（glibc）      |
-| `CompilationTarget.X86_64_Linux_Musl`    | `x86_64-linux-musl`    | Linux x86-64（musl，原生） |
-| `CompilationTarget.Aarch64_Linux_Gnu`    | `aarch64-linux-gnu`    | Linux ARM64                |
-| `CompilationTarget.Aarch64_Linux_Musl`   | `aarch64-linux-musl`   | Linux ARM64（musl，原生）  |
-| `CompilationTarget.Aarch64_Macos`        | `aarch64-macos`        | macOS Apple Silicon        |
-| `CompilationTarget.X86_64_Macos`         | `x86_64-macos`         | macOS Intel                |
-| `CompilationTarget.X86_64_Windows_Msvc`  | `x86_64-windows-msvc`  | Windows x86-64             |
-| `CompilationTarget.Aarch64_Windows_Msvc` | `aarch64-windows-msvc` | Windows ARM64              |
-| `CompilationTarget.Wasm32_Emscripten`    | `wasm32-emscripten`    | WebAssembly（Emscripten）  |
-| `CompilationTarget.Wasm32_Wasi`          | `wasm32-wasi`          | WebAssembly（独立 WASI）   |
+| `CompilationTarget.X86_64_Unknown_Linux_Gnu`     | `x86_64-unknown-linux-gnu`     | Linux x86-64（glibc）      |
+| `CompilationTarget.X86_64_Unknown_Linux_Musl`    | `x86_64-unknown-linux-musl`    | Linux x86-64（musl，原生） |
+| `CompilationTarget.Aarch64_Unknown_Linux_Gnu`    | `aarch64-unknown-linux-gnu`    | Linux ARM64                |
+| `CompilationTarget.Aarch64_Unknown_Linux_Musl`   | `aarch64-unknown-linux-musl`   | Linux ARM64（musl，原生）  |
+| `CompilationTarget.Aarch64_Apple_Darwin`        | `aarch64-apple-darwin`        | macOS Apple Silicon        |
+| `CompilationTarget.X86_64_Apple_Darwin`         | `x86_64-apple-darwin`         | macOS Intel                |
+| `CompilationTarget.X86_64_Pc_Windows_Msvc`  | `x86_64-pc-windows-msvc`  | Windows x86-64             |
+| `CompilationTarget.Aarch64_Pc_Windows_Msvc` | `aarch64-pc-windows-msvc` | Windows ARM64              |
+| `CompilationTarget.Wasm32_Unknown_Emscripten`    | `wasm32-unknown-emscripten`    | WebAssembly（Emscripten）  |
+| `CompilationTarget.Wasm32_Wasip1`          | `wasm32-wasip1`          | WebAssembly（独立 WASI）   |
 
 宿主目标也可通过 `build.target_host` 获取。
 
@@ -476,7 +476,7 @@ install.depend_on(lib);
 
 ```
 yo-out/
-└── x86_64-linux-gnu/
+└── x86_64-unknown-linux-gnu/
     ├── bin/
     │   └── demo          ← 可执行文件（调用库中的 add 函数）
     └── lib/
@@ -546,7 +546,7 @@ yo build -Dstrip       # 等同于 -Dstrip=true
 > 目标必须与宿主机的架构和操作系统相匹配。唯一的例外是 **WebAssembly（WASM）**，
 > 可以通过 `emcc` 在任意宿主机上编译。
 >
-> musl 目标（`x86_64-linux-musl`）仅在 musl 原生系统（如 Alpine Linux）上受支持。
+> musl 目标（`x86_64-unknown-linux-musl`）仅在 musl 原生系统（如 Alpine Linux）上受支持。
 
 Yo 通过目标三元组支持 WASM 目标。可以在 `build.yo` 中或命令行上指定目标：
 
@@ -556,7 +556,7 @@ Yo 通过目标三元组支持 WASM 目标。可以在 `build.yo` 中或命令�
 build.executable({
   name: "my-app-wasm",
   root: "./src/main.yo",
-  target: build.CompilationTarget.Wasm32_Emscripten,
+  target: build.CompilationTarget.Wasm32_Unknown_Emscripten,
   optimize: build.Optimize.ReleaseSmall
 });
 ```
@@ -567,7 +567,7 @@ build.executable({
 build.executable({
   name: "my-app-wasm",
   root: "./src/main.yo",
-  target: "wasm32-emscripten",
+  target: "wasm32-unknown-emscripten",
   optimize: build.Optimize.ReleaseSmall
 });
 ```
@@ -576,29 +576,29 @@ build.executable({
 
 ```bash
 # 为所有产物覆盖目标
-yo build --target wasm-emscripten
+yo build --target wasm32-unknown-emscripten
 ```
 
 ### 支持的目标
 
 | 目标三元组             | 说明                       |
 | ---------------------- | -------------------------- |
-| `x86_64-linux-gnu`     | Linux x86-64（glibc）      |
-| `x86_64-linux-musl`    | Linux x86-64（musl，原生） |
-| `aarch64-linux-gnu`    | Linux ARM64                |
-| `aarch64-linux-musl`   | Linux ARM64（musl，原生）  |
-| `aarch64-macos`        | macOS Apple Silicon        |
-| `x86_64-macos`         | macOS Intel                |
-| `x86_64-windows-msvc`  | Windows x86-64             |
-| `aarch64-windows-msvc` | Windows ARM64              |
-| `wasm32-emscripten`    | WebAssembly（Emscripten）  |
-| `wasm32-wasi`          | WebAssembly（独立 WASI）   |
+| `x86_64-unknown-linux-gnu`     | Linux x86-64（glibc）      |
+| `x86_64-unknown-linux-musl`    | Linux x86-64（musl，原生） |
+| `aarch64-unknown-linux-gnu`    | Linux ARM64                |
+| `aarch64-unknown-linux-musl`   | Linux ARM64（musl，原生）  |
+| `aarch64-apple-darwin`        | macOS Apple Silicon        |
+| `x86_64-apple-darwin`         | macOS Intel                |
+| `x86_64-pc-windows-msvc`  | Windows x86-64             |
+| `aarch64-pc-windows-msvc` | Windows ARM64              |
+| `wasm32-unknown-emscripten`    | WebAssembly（Emscripten）  |
+| `wasm32-wasip1`          | WebAssembly（独立 WASI）   |
 
-缩写别名：`wasm-emscripten` → `wasm32-emscripten`，`wasm-wasi` → `wasm32-wasi`。
+目标名与 Rust 的拼写完全一致——没有缩写或别名；无法识别的拼写会被拒绝，并列出支持的目标。
 
 ### WASM Emscripten 环境
 
-通过 `yo build` 构建 `wasm32-emscripten` 目标时，默认输出为**浏览器**环境：
+通过 `yo build` 构建 `wasm32-unknown-emscripten` 目标时，默认输出为**浏览器**环境：
 
 - 输出为 `.html` + `.js` + `.wasm`（完整的浏览器页面）
 - **不**添加 `-sNODERAWFS`（该选项使用 `require('fs')`，浏览器中不存在）
@@ -622,7 +622,7 @@ yo build --target wasm-emscripten
 要运行输出文件，需使用本地 HTTP 服务器（WASM 需要 HTTP，不支持 `file://`）：
 
 ```bash
-cd yo-out/wasm32-emscripten/bin
+cd yo-out/wasm32-unknown-emscripten/bin
 python -m http.server 8080
 # 打开 http://localhost:8080/my-project.html
 ```
@@ -713,7 +713,7 @@ native :: build.executable({
 wasm :: build.executable({
   name: "my-app-wasm",
   root: "./src/main.yo",
-  target: build.CompilationTarget.Wasm32_Emscripten,
+  target: build.CompilationTarget.Wasm32_Unknown_Emscripten,
   optimize: build.Optimize.ReleaseSmall,
   allocator: build.Allocator.System
 });
