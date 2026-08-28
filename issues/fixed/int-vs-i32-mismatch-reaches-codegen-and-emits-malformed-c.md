@@ -1,6 +1,16 @@
 # Passing a C `int` where `i32` is declared is accepted by the evaluator, and codegen splices a Yo type expression into a C identifier
 
-**Status: OPEN.** Found 2026-08-25 while fixing
+**Status: FIXED 2026-08-28.** Root: the concrete/concrete argument-type
+mismatch check (calls/function.yo) DID fire but was SWALLOWED during
+def-time trial evaluation of `io.async` closure bodies (the C18 def-eval
+blind spot), so codegen got an unresolved receiver type and spliced a Yo
+type expression verbatim into C. In a PLAIN call the mismatch was already
+caught. FIX (same as C18): the mismatch now flags the flow-violation channel
+before throwing, so the async-closure-body swallow's Channel-1 re-raise
+surfaces `Cannot unify incompatible types: Expected "i32" Given "int"` at
+CHECK time. Guarded like C18. Pinned by tests/int_i32_mismatch.test.yo.
+
+**Was OPEN.** Found 2026-08-25 while fixing
 `issues/fixed/file-read-write-ignore-position-always-offset-zero.md`.
 
 ## Symptom
