@@ -111,6 +111,15 @@ static void __yo_async_spawn_task(void (*resume_fn)(void*), void* state_machine)
 // __yo_async_poll_step.
 static int __yo_async_task_depth = 0;
 
+static int __yo_async_strict_cached = -1;
+static int __yo_async_strict_nesting(void) {
+  if (__yo_async_strict_cached < 0) {
+    const char* v = getenv("YO_ASYNC_STRICT");
+    __yo_async_strict_cached = (v && v[0] && v[0] != '0') ? 1 : 0;
+  }
+  return __yo_async_strict_cached;
+}
+
 // Process the tasks that are ready NOW (non-blocking). Bounded to the queue
 // length at entry: a task that re-enqueues itself on every resume (a loop
 // awaiting 'yield', a poll-until-finished race) would otherwise keep this
@@ -144,7 +153,13 @@ static void __yo_async_poll_step(void) {
   // when that I/O depends on one of them the program deadlocks silently (or a
   // frozen frame is resumed underneath itself). Fail here, deterministically,
   // at the first offending call instead.
-  if (__yo_async_task_depth > 0) {
+  // Armed by YO_ASYNC_STRICT=1 (the test runner sets it for every test child,
+  // so tests/ is enforced). Off by default for now: the compiler's own build
+  // scheduler still drives spawned tasks that call plain awaiting helpers
+  // (issues/compiler-build-runner-nests-event-loop.md); those nestings cannot
+  // deadlock (their I/O never depends on a sibling task) but the guard cannot
+  // tell. Flip the default once that is refactored.
+  if (__yo_async_task_depth > 0 && __yo_async_strict_nesting()) {
     fprintf(stderr,
       "panic: a blocking await ran inside an async task: an io.await in a "
       "non-io.async function, JoinHandle.await, or a std/async combinator "
