@@ -2,7 +2,7 @@
 
 **Found**: 2026-08-27, during the §7 P0 item 9 (`Duration` integration) survey —
 grepping std for timeout surfaces turned up `HttpError.Timeout` with no knob
-behind it. **Status**: OPEN.
+behind it. **Status**: FIXED 2026-08-28 — FetchOptions.with_timeout/with_max_redirects/with_max_response_bytes drive Timeout/TooManyRedirects/ResponseTooLarge; all three verified live over HTTPS (tests/http/http_limits.test.yo). http->https redirect hops are blocked by the separate pre-existing issues/second-cond-internal-await-result-not-stored.md.
 
 ## The gap
 
