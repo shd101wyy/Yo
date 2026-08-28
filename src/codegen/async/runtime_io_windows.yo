@@ -3681,8 +3681,11 @@ static HANDLE __yo_win_dup_inheritable_handle(HANDLE handle) {
   return dup;
 }
 
-static __yo_io_future_t* __yo_async_spawn_start(const uint8_t* file, uint8_t** argv, uint8_t** envp,
-                                              int32_t stdin_fd, int32_t stdout_fd, int32_t stderr_fd) {
+// See runtime_io_common.yo: the cwd-taking shim, with the 6-argument name as
+// an inherit-cwd wrapper for the seed-gated std side.
+static __yo_io_future_t* __yo_async_spawn_start_cwd(const uint8_t* file, uint8_t** argv, uint8_t** envp,
+                                                  int32_t stdin_fd, int32_t stdout_fd, int32_t stderr_fd,
+                                                  const uint8_t* cwd) {
   __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
   memset(future, 0, sizeof(__yo_io_future_t));
 
@@ -3763,7 +3766,9 @@ static __yo_io_future_t* __yo_async_spawn_start(const uint8_t* file, uint8_t** a
   DWORD flags = 0;
   if (env_block) flags |= CREATE_UNICODE_ENVIRONMENT;
 
-  BOOL ok = CreateProcessW(NULL, cmdline, NULL, NULL, TRUE, flags, env_block, NULL, &si, &pi);
+  wchar_t* wcwd = cwd ? __yo_win_utf8_to_wide((const char*)cwd) : NULL;
+  BOOL ok = CreateProcessW(NULL, cmdline, NULL, NULL, TRUE, flags, env_block, wcwd, &si, &pi);
+  if (wcwd) __yo_free(wcwd);
 
   CloseHandle(hStdInInherit);
   CloseHandle(hStdOutInherit);
@@ -3783,6 +3788,11 @@ static __yo_io_future_t* __yo_async_spawn_start(const uint8_t* file, uint8_t** a
   future->result = (int32_t)pi.dwProcessId;
   atomic_init(&future->state, -1);
   return future;
+}
+
+static __yo_io_future_t* __yo_async_spawn_start(const uint8_t* file, uint8_t** argv, uint8_t** envp,
+                                              int32_t stdin_fd, int32_t stdout_fd, int32_t stderr_fd) {
+  return __yo_async_spawn_start_cwd(file, argv, envp, stdin_fd, stdout_fd, stderr_fd, NULL);
 }
 
 static __yo_io_future_t* __yo_async_waitpid_start(int32_t pid, int32_t options) {
