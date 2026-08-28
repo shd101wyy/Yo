@@ -87,3 +87,34 @@ compiles rc=0, `--release` binary SIGSEGVs (rc=139). Minimal synthetic: any
   `https://httpbin.org/redirect/15` → `TooManyRedirects`); an http→https hop
   hits this crash.
 - Blocks a general, correct multi-await-per-cond-arm pattern.
+
+## SHARPER ROOT CAUSE 2026-08-28 (measured deeper)
+
+It is NOT simply "the second await in an arm". The precise trigger is a
+SHARED/DISPATCH cond await POINT whose branches bind their await to DIFFERENT
+variables:
+
+- The transport `cond` has, at await POSITION 1, the https arm's
+  `_wn := await(tls.write_string(...))` and the http arm's
+  `stream := await(TcpStream.connect(...))` — both branches await at the same
+  point, differently shaped, so it is a dispatch point.
+- The await point carries a SINGLE `target_variable_id`, taken from the
+  representative branch (the https `write`, whose `_wn` is unused). The http
+  arm's `stream` is lost, so `_emit_prev_await_result_extraction` (state_machine.yo
+  ~2096) copies `await_result_1` into nothing for the http case.
+- https survives only because its position-1 result (`_wn`) is never read.
+
+### Fix direction (refined; a partial attempt was reverted)
+
+Targets must be PER BRANCH at a shared point, not one per point. A
+`collect_branch_await_targets(branch.value, out, context)` that walks a branch
+in lockstep with `collect_branch_await_exprs` and yields the `:=` target for
+each await (`.None` for a bare await) supplies `targets.get(depth)`. Wiring it
+into the DISPATCH extraction (`_emit_prev_await_result_extraction_dispatch`,
+state_machine.yo ~1922) alone was insufficient — the store is also emitted by
+the "Execute remaining code from chosen cond branch" path (~2512) and the
+linear `is_inside_cond`/`await_result_N` copy (~2096), and this shape reaches
+one of those. All THREE sites read the single `branch.await_target_variable_id`
+/ `prev_await.base.target_variable_id` and must instead resolve the target by
+(branch, await-depth). Each attempt must run the full battery: this is broad
+async-state-machine surface.
