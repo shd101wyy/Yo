@@ -1,0 +1,44 @@
+pragma(Pragma.AllowUnsafe);
+// A function whose tail is a call that returns an RC value with a deferred dup
+// must evaluate that call ONCE (issues/fixed/deferred-dup-return-regenerates-the-call.md).
+// The return emitter used to declare `T temp = <call>;` for the dup and then
+// emit `return <call>` again — two evaluations, and for a chained Index call
+// (`rows(r)(f)`) the inner spill temp was declared twice (C redefinition).
+{ assert } :: import("std/assert");
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+pick :: (fn(rows : ArrayList(ArrayList(String)), r : usize, f : usize) -> String)(rows(r)(f));
+// A counting collection: every index() call bumps `hits`, so a tail
+// `c(i)` that ran twice would show two hits.
+Counter :: ref(struct(items : ArrayList(String), hits : ArrayList(usize)));
+impl(
+  Counter,
+  Index(usize)(
+    Output : String,
+    index : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))({
+      self.hits.push(idx);
+      &(self.items(idx))
+    })
+  )
+);
+first_of :: (fn(c : Counter) -> String)(c(usize(0)));
+test("chained Index tail compiles and returns the inner element", {
+  rows := ArrayList(ArrayList(String)).new();
+  inner := ArrayList(String).new();
+  inner.push(String.from("x"));
+  inner.push(String.from("y"));
+  rows.push(inner);
+  assert(pick(rows, usize(0), usize(1)) == "y", "rows(0)(1)");
+  assert(pick(rows, usize(0), usize(0)) == "x", "rows(0)(0)");
+});
+test("the tail call is evaluated exactly once", {
+  items := ArrayList(String).new();
+  items.push(String.from("only"));
+  c := Counter(items : items, hits : ArrayList(usize).new());
+  v := first_of(c);
+  assert(v == "only", "value");
+  assert(c.hits.len() == usize(1), "index() ran once for one call");
+  v2 := first_of(c);
+  assert(v2 == "only", "value again");
+  assert(c.hits.len() == usize(2), "and once more for the second call");
+});

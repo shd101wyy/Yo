@@ -1,0 +1,263 @@
+//! CSV (RFC 4180) reader and writer.
+//!
+//! A document is a list of records, a record a list of fields — `String`s,
+//! byte-indexed like every other `String`. The reader accepts LF or CRLF
+//! record terminators, quoted fields (`"..."`) with `""` for an embedded
+//! quote and any bytes — delimiters, quotes, newlines — inside the quotes,
+//! and a final record with or without a terminator. The writer quotes a
+//! field only when it must (it contains the delimiter, a quote, CR or LF),
+//! so `csv_parse(csv_write(rows))` round-trips.
+//!
+//! Errors are a typed enum (`CsvError`) carrying byte positions, per the D1
+//! convention for pure decoders (plans/STD_API_AUDIT.md).
+//!
+//! ```rust
+//! { csv_parse, csv_write } :: import("std/encoding/csv");
+//! rows := csv_parse(String.from("a,b\n1,\"x,y\"\n"));   // Result(ArrayList(ArrayList(String)), CsvError)
+//! text := csv_write(rows.unwrap());                      // `a,b\n1,"x,y"\n`
+//! ```
+open(import("../string"));
+{ ArrayList } :: import("../collections/array_list");
+{ Error } :: import("../error");
+{ ToString } :: import("../fmt");
+/// A CSV decoding failure. Positions are byte offsets into the input.
+CsvError :: enum(
+  /// A quoted field ended (closing `"`) but was followed by something other
+  /// than the delimiter, a record terminator, or the end of input — e.g.
+  /// `"ab"c`. `pos` is the offending byte.
+  UnexpectedAfterQuote(pos : usize, byte : u8),
+  /// The input ended inside a quoted field (no closing `"`). `start` is the
+  /// byte of the opening quote.
+  UnterminatedQuote(start : usize),
+  /// A bare CR that is not followed by LF. `pos` is the CR.
+  BareCarriageReturn(pos : usize),
+  /// A record has a different number of fields than the first one (only
+  /// raised by `csv_parse_strict`). `record` is the 0-based record index.
+  UnevenRecord(record : usize, expected : usize, found : usize)
+);
+impl(
+  CsvError,
+  ToString(
+    to_string : (
+      self ->
+        match(
+          self,
+          .UnexpectedAfterQuote(pos, byte) => `unexpected byte ${byte} after closing quote at byte ${pos}`,
+          .UnterminatedQuote(start) => `unterminated quoted field starting at byte ${start}`,
+          .BareCarriageReturn(pos) => `bare carriage return at byte ${pos}`,
+          .UnevenRecord(record, expected, found) => `record ${record} has ${found} fields, expected ${expected}`
+        )
+    )
+  )
+);
+impl(CsvError, Error());
+/// The record separator the writer emits.
+LineEnding :: enum(
+  /// `\n`
+  Lf,
+  /// `\r\n`
+  CrLf
+);
+/// Reader/writer settings. `default()` is RFC 4180 with LF output:
+/// comma delimiter, `"` quote, LF line ending.
+CsvOptions :: struct(
+  /// Field delimiter byte (`,` by default; `\t` for TSV, `;` for locales
+  /// that use it).
+  delimiter : u8,
+  /// Line ending the WRITER emits; the reader always accepts both.
+  line_ending : LineEnding
+);
+impl(
+  CsvOptions,
+  default : (fn() -> Self)(Self(delimiter : u8(44), line_ending : LineEnding.Lf)),
+  /// `default()` with another delimiter.
+  with_delimiter : (fn(delimiter : u8) -> Self)(Self(delimiter : delimiter, line_ending : LineEnding.Lf))
+);
+_QUOTE :: u8(34);
+_CR :: u8(13);
+_LF :: u8(10);
+/// Parse `input` with `opts`. Records are returned in order; an empty input
+/// yields zero records, and a trailing terminator does not add an empty
+/// record. Fields are never trimmed. Records may have different lengths —
+/// use `csv_parse_strict` to reject that.
+csv_parse_with :: (
+  fn(input : String, opts : CsvOptions) -> Result(ArrayList(ArrayList(String)), CsvError)
+)({
+  bytes := input.as_bytes();
+  n := bytes.len();
+  records := ArrayList(ArrayList(String)).new();
+  record := ArrayList(String).new();
+  field := ArrayList(u8).new();
+  // Whether the current record has consumed at least one byte (so a
+  // terminator right after another terminator still yields an empty record,
+  // while the end of input after a terminator does not).
+  (in_record : bool) = false;
+  i := usize(0);
+  while(i < n, {
+    b := bytes(i);
+    cond(
+      (b == _QUOTE) => {
+        // Quoted field: everything up to the closing quote is literal;
+        // `""` is one quote.
+        start := i;
+        i = (i + usize(1));
+        (closed : bool) = false;
+        while((i < n) && !(closed), {
+          c := bytes(i);
+          cond(
+            (c == _QUOTE) => cond(
+              (((i + usize(1)) < n) && (bytes(i + usize(1)) == _QUOTE)) => {
+                field.push(_QUOTE);
+                i = (i + usize(2));
+              },
+              true => {
+                closed = true;
+                i = (i + usize(1));
+              }
+            ),
+            true => {
+              field.push(c);
+              i = (i + usize(1));
+            }
+          );
+        });
+        if(!(closed), {
+          return(.Err(.UnterminatedQuote(start : start)));
+        });
+        in_record = true;
+        // After the closing quote only a delimiter, a terminator or the end
+        // may follow.
+        if(i < n, {
+          nb := bytes(i);
+          if(((nb != opts.delimiter) && (nb != _CR)) && (nb != _LF), {
+            return(.Err(.UnexpectedAfterQuote(pos : i, byte : nb)));
+          });
+        });
+      },
+      (b == opts.delimiter) => {
+        record.push(String.from_bytes(field));
+        field = ArrayList(u8).new();
+        in_record = true;
+        i = (i + usize(1));
+      },
+      ((b == _CR) || (b == _LF)) => {
+        if(b == _CR, {
+          if(((i + usize(1)) >= n) || (bytes(i + usize(1)) != _LF), {
+            return(.Err(.BareCarriageReturn(pos : i)));
+          });
+          i = (i + usize(1));
+        });
+        i = (i + usize(1));
+        record.push(String.from_bytes(field));
+        field = ArrayList(u8).new();
+        records.push(record);
+        record = ArrayList(String).new();
+        in_record = false;
+      },
+      true => {
+        field.push(b);
+        in_record = true;
+        i = (i + usize(1));
+      }
+    );
+  });
+  // A final record without a terminator.
+  if(in_record || (field.len() > usize(0)), {
+    record.push(String.from_bytes(field));
+    records.push(record);
+  });
+  .Ok(records)
+});
+/// `csv_parse_with(input, CsvOptions.default())`.
+csv_parse :: (fn(input : String) -> Result(ArrayList(ArrayList(String)), CsvError))(
+  csv_parse_with(input, CsvOptions.default())
+);
+/// Like `csv_parse_with`, and additionally requires every record to have as
+/// many fields as the first one (`CsvError.UnevenRecord` otherwise).
+csv_parse_strict :: (
+  fn(input : String, opts : CsvOptions) -> Result(ArrayList(ArrayList(String)), CsvError)
+)(
+  match(
+    csv_parse_with(
+      input,
+      opts
+    ),
+    .Err(e) => .Err(e),
+    .Ok(records) => {
+      if(records.len() > usize(0), {
+        width := records(usize(0)).len();
+        r := usize(1);
+        while(r < records.len(), r = (r + usize(1)), {
+          found := records(r).len();
+          if(found != width, {
+            return(.Err(.UnevenRecord(record : r, expected : width, found : found)));
+          });
+        });
+      });
+      .Ok(records)
+    }
+  )
+);
+/// Whether `field` must be quoted under `opts`: it contains the delimiter,
+/// a quote, CR or LF (an empty field is written bare).
+_needs_quotes :: (fn(field : String, delimiter : u8) -> bool)({
+  bytes := field.as_bytes();
+  i := usize(0);
+  while(i < bytes.len(), i = (i + usize(1)), {
+    b := bytes(i);
+    if((((b == delimiter) || (b == _QUOTE)) || (b == _CR)) || (b == _LF), {
+      return(true);
+    });
+  });
+  false
+});
+/// Append one field to `out`, quoting and doubling quotes when needed.
+_write_field :: (fn(inout(out) : String, field : String, delimiter : u8) -> unit)({
+  cond(
+    _needs_quotes(field, delimiter) => {
+      out.push_byte(_QUOTE);
+      bytes := field.as_bytes();
+      i := usize(0);
+      while(i < bytes.len(), i = (i + usize(1)), {
+        b := bytes(i);
+        if(b == _QUOTE, {
+          out.push_byte(_QUOTE);
+        });
+        out.push_byte(b);
+      });
+      out.push_byte(_QUOTE);
+    },
+    true => out.push_string(field)
+  );
+});
+/// Serialize `records` with `opts`. Every record ends with the configured
+/// line ending, including the last (RFC 4180 allows either; a terminated
+/// last record concatenates cleanly).
+csv_write_with :: (fn(records : ArrayList(ArrayList(String)), opts : CsvOptions) -> String)({
+  out := String.new();
+  r := usize(0);
+  while(r < records.len(), r = (r + usize(1)), {
+    fields := records(r);
+    f := usize(0);
+    while(f < fields.len(), f = (f + usize(1)), {
+      if(f > usize(0), {
+        out.push_byte(opts.delimiter);
+      });
+      _write_field(out, fields(f), opts.delimiter);
+    });
+    match(
+      opts.line_ending,
+      .Lf => out.push_byte(_LF),
+      .CrLf => {
+        out.push_byte(_CR);
+        out.push_byte(_LF);
+      }
+    );
+  });
+  out
+});
+/// `csv_write_with(records, CsvOptions.default())`.
+csv_write :: (fn(records : ArrayList(ArrayList(String))) -> String)(
+  csv_write_with(records, CsvOptions.default())
+);
+export(CsvError, LineEnding, CsvOptions, csv_parse, csv_parse_with, csv_parse_strict, csv_write, csv_write_with);
