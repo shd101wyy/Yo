@@ -69,12 +69,12 @@ Yo 的目标是 **简单** 和 **快速**（比 C 语言慢约 0% - 15%）。
 
 ```bash
 # macOS / Linux
-$ curl -sSL https://raw.githubusercontent.com/shd101wyy/Yo/develop/scripts/install.sh | sh
+$ curl -sSL https://shd101wyy.github.io/Yo/install.sh | sh
 ```
 
 ```powershell
 # Windows（PowerShell）
-> irm https://raw.githubusercontent.com/shd101wyy/Yo/develop/scripts/install.ps1 | iex
+> irm https://shd101wyy.github.io/Yo/install.ps1 | iex
 ```
 
 安装到 `<prefix>/lib/yo/<tag>`，并在 `<prefix>/bin/yo` 创建链接，`prefix` 默认为
@@ -92,10 +92,10 @@ $ curl -sSL https://raw.githubusercontent.com/shd101wyy/Yo/develop/scripts/insta
 
 ```bash
 # 安装指定版本，系统级安装
-$ curl -sSL https://raw.githubusercontent.com/shd101wyy/Yo/develop/scripts/install.sh | sh -s -- --version=v0.2.4 --prefix=/usr/local
+$ curl -sSL https://shd101wyy.github.io/Yo/install.sh | sh -s -- --version=v0.2.4 --prefix=/usr/local
 
 # 使用自己的工具链从源码构建
-$ curl -sSL https://raw.githubusercontent.com/shd101wyy/Yo/develop/scripts/install.sh | sh -s -- -cc=gcc -cflags='-march=native'
+$ curl -sSL https://shd101wyy.github.io/Yo/install.sh | sh -s -- -cc=gcc -cflags='-march=native'
 ```
 
 **没有预编译包的平台** —— 使用 `--from-source`。安装脚本会下载该版本的单文件
