@@ -1,6 +1,36 @@
 # `unicode_to_lowercase` / `unicode_to_uppercase` leave every non-ASCII letter unchanged
 
-**Status:** OPEN. Found 2026-08-25 while routing `std/string/unicode.yo` through
+**Status: FIXED 2026-08-29** — fix option 1 below: `std/string/unicode.yo` is
+now table-driven and never calls `towlower`/`towupper` (the `<wctype.h>`
+c_include and the `AllowUnsafe` pragma are gone). Surfaced again by the S5
+coverage test (`tests/std_export_coverage.test.yo`: `ÉCOLE` → `École`).
+
+## Fix
+
+- Simple (one-to-one) mappings: a 321-entry range table in the shape of Go's
+  `unicode.CaseRanges` — `(_LO, _HI, _DU, _DL, _UL)` parallel `Array(i32, N)`
+  constants; `_UL = 1` marks an alternating Upper/Lower/Upper/Lower range
+  (Latin Extended-A, Cyrillic extensions, …). Binary search
+  (`_find_range`), then `to_upper_code_point` / `to_lower_code_point`
+  (exported).
+- One-to-many expansions: all 102 unconditional SpecialCasing uppercase
+  entries (`ß` → `SS`, `ﬁ` → `FI`, `ŉ` → `ʼN`, Armenian ligatures, Greek
+  with ypogegrammeni, …) in a 4-array table, plus the single lowercase one
+  (`İ` → `i` + U+0307). `ẞ` (U+1E9E) now LOWERCASES to `ß` (the Unicode
+  lowercase mapping) instead of the hand-written `ss` (a case-FOLDING
+  answer).
+- Context-sensitive rules (Greek final sigma, Lithuanian/Turkish `i`) are
+  deliberately not applied — per-code-point mapping, like Go.
+- Tables generated from Unicode 15.1.0 (Python `unicodedata`) by
+  `issues/repros/gen_unicode_case_table.py`, which also proves the range
+  compression lossless. **Verified exhaustively**: a Yo driver mapped every
+  scalar value ≥ U+0080 (1,111,936 code points) through both functions and a
+  Python diff against `str.upper()` / `str.lower()` found 0 mismatches.
+- Regression tests: `tests/std_export_coverage.test.yo` ("unicode_to_lowercase
+  / unicode_to_uppercase" — Latin-1, Greek, Cyrillic, Deseret, alternating
+  ranges, titlecase digraphs, expansions).
+
+**Original report (2026-08-25) follows.** Found 2026-08-25 while routing `std/string/unicode.yo` through
 the new `std/encoding/utf8.yo` (STD_API_AUDIT D8). **Pre-existing — not caused by
 that change** (A/B below).
 
