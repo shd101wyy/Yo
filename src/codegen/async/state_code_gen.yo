@@ -2186,7 +2186,14 @@ _find_branch_await_target_variable_id :: (
   if(is_io_async_call(expr.clone()), {
     return(Option(String).None);
   });
-  if(ast_expr_is_fn_call_of(expr.clone(), ":=", Option(usize).None), {
+  // `:=` binds a fresh target and `=` re-assigns an existing one — BOTH land
+  // the await's result in the LHS (extract_target_variable_id already accepts
+  // both). Missing the `=` arm left `raw_response = e.io.await(...)` in a
+  // cond arm with no destination: the branch's future was awaited and its
+  // result dropped (issues/fixed/async-cond-dispatch-skips-chained-sibling-arm.md).
+  is_define := ast_expr_is_fn_call_of(expr.clone(), ":=", Option(usize).None);
+  is_assign := ast_expr_is_fn_call_of(expr.clone(), "=", Option(usize).Some(usize(2)));
+  if(is_define || is_assign, {
     match(
       match(expr.clone(), .FnCall(_, _, a, _, _) => a.get(usize(1)), .Atom(_, _) => Option(AstExpr).None),
       .Some(rhs) => if(ast_expr_is_fn_call(rhs) && is_io_await_call(rhs.clone()), {
@@ -3450,6 +3457,7 @@ export(
   register_fsm_emitters_impl,
   is_io_future_type,
   collect_branch_await_exprs,
+  _find_branch_await_target_variable_id,
   await_call_future_arg,
   cond_await_point_needs_dispatch,
   CondBranchFutureAccess,

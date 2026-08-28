@@ -25,6 +25,9 @@ open(import("../fmt"));
 { IpAddr, SocketAddr } :: import("../net/addr");
 { lookup_host } :: import("../net/dns");
 { Url, UrlError } :: import("../url");
+{ Duration } :: import("../time/duration");
+{ yield } :: import("../async");
+{ sleep } :: import("../time/sleep");
 { HttpMethod, HttpHeader, HttpRequest, HttpResponse, parse_response, http_status_text } :: import("./http.yo");
 // ============================================================================
 // HttpError
@@ -35,16 +38,18 @@ HttpError :: enum(
   ConnectionFailed(msg : String),
   /// The URL could not be parsed.
   InvalidUrl(msg : String),
-  /// The request timed out.
+  /// The whole request (every connect, write, read and redirect hop) did not
+  /// finish within `FetchOptions.timeout`. Never raised without one.
   Timeout,
-  /// Too many HTTP redirects.
+  /// The server kept redirecting past `FetchOptions.max_redirects` hops.
   TooManyRedirects,
   /// The URL scheme is not supported. Only `http` is supported — `https`
   /// is REFUSED (not downgraded) until std has TLS: the client used to
   /// accept it, connect to :443, and speak plaintext HTTP
   /// (plans/STD_API_AUDIT.md C1).
   UnsupportedScheme(scheme : String),
-  /// The response body exceeds the size limit.
+  /// The raw response (status line, headers and body) grew past
+  /// `FetchOptions.max_response_bytes`; the connection is dropped there.
   ResponseTooLarge,
   /// An unclassified HTTP error.
   Other(msg : String)
@@ -77,17 +82,37 @@ FetchOptions :: ref(
   struct(
     method : HttpMethod,
     headers : ArrayList(HttpHeader),
-    body : String
+    body : String,
+    /// Deadline for the WHOLE request, redirects included — `.None` waits
+    /// forever. On expiry the in-flight connection is aborted and `fetch`
+    /// throws `HttpError.Timeout`.
+    timeout : Option(Duration),
+    /// How many 3xx `Location` hops to follow before throwing
+    /// `HttpError.TooManyRedirects`. `0` returns the first 3xx verbatim.
+    max_redirects : usize,
+    /// Ceiling on the raw response bytes (headers + body) buffered into
+    /// memory before `HttpError.ResponseTooLarge` is thrown; `0` = unlimited.
+    /// This client buffers the whole response into a `String`, so the
+    /// default (64 MiB) is what stands between an unbounded server and OOM.
+    max_response_bytes : usize
   )
 );
+/// Default redirect cap — what browsers and curl use.
+DEFAULT_MAX_REDIRECTS :: usize(10);
+/// Default response ceiling: 64 MiB.
+DEFAULT_MAX_RESPONSE_BYTES :: usize(67108864);
 impl(
   FetchOptions,
-  /// Create default options (GET, no headers, empty body).
+  /// Create default options (GET, no headers, empty body, no timeout,
+  /// 10 redirects, 64 MiB response ceiling).
   new : (fn() -> Self)(
     Self(
       method : .GET,
       headers : ArrayList(HttpHeader).new(),
-      body : ``
+      body : ``,
+      timeout : Option(Duration).None,
+      max_redirects : DEFAULT_MAX_REDIRECTS,
+      max_response_bytes : DEFAULT_MAX_RESPONSE_BYTES
     )
   ),
   /// Set the HTTP method.
@@ -104,9 +129,24 @@ impl(
   with_body : (fn(self : Self, body : String) -> Self)({
     self.body = body;
     self
+  }),
+  /// Give the whole request (redirects included) a deadline.
+  with_timeout : (fn(self : Self, limit : Duration) -> Self)({
+    self.timeout = Option(Duration).Some(limit);
+    self
+  }),
+  /// Cap the number of redirect hops followed (`0` = return 3xx verbatim).
+  with_max_redirects : (fn(self : Self, n : usize) -> Self)({
+    self.max_redirects = n;
+    self
+  }),
+  /// Cap the raw response bytes buffered into memory (`0` = unlimited).
+  with_max_response_bytes : (fn(self : Self, n : usize) -> Self)({
+    self.max_response_bytes = n;
+    self
   })
 );
-export(FetchOptions);
+export(FetchOptions, DEFAULT_MAX_REDIRECTS, DEFAULT_MAX_RESPONSE_BYTES);
 // ============================================================================
 // Internal helpers
 // ============================================================================
@@ -183,76 +223,87 @@ _find_content_length :: (fn(data : ArrayList(u8), header_end : usize) -> i32)({
 // ============================================================================
 // Internal: read full HTTP response from a TCP stream
 // ============================================================================
-_read_http_response :: (fn(generic(R : Type), stream : R, e : IoExn, where(R <: Reader)) -> String)({
-  buf_size := usize(8192);
-  buf := *(u8)(malloc(buf_size).unwrap());
-  result := ArrayList(u8).new();
-  // Read until connection closes or we've read the full response
-  done := false;
-  while(runtime(!(done)), {
-    n := e.io.await(stream.read(buf, buf_size, e.io), e);
-    cond(
-      // 0 bytes means the peer closed the connection. A negative count is
-      // no longer representable: NetError.check throws on error, so read()
-      // only ever returns a real byte count.
-      (n == usize(0)) => {
-        done = true;
-      },
-      true => {
-        i := usize(0);
-        while(runtime(i < n), {
-          result.push((buf.add(i)).*);
-          i = (i + usize(1));
-        });
-        // Check if we've received the full response by looking for
-        // Content-Length or end of chunked transfer
-        // For simplicity, check if the header section is complete
-        // and if Content-Length is satisfied
-        cond(
-          (result.len() > usize(4)) => {
-            // Check if we have a complete header section (\r\n\r\n)
-            header_end := _find_header_end(result);
-            cond(
-              (header_end > usize(0)) => {
-                // Check Content-Length
-                cl := _find_content_length(result, header_end);
-                cond(
-                  (cl >= i32(0)) => {
-                    body_start := (header_end + usize(4));
-                    body_len := (result.len() - body_start);
-                    cond(
-                      (body_len >= usize(cl)) => {
-                        done = true;
-                      },
-                      true => ()
-                    );
-                  },
-                  true => ()
-                );
-              },
-              true => ()
-            );
-          },
-          true => ()
-        );
-      }
-    );
-  });
-  free(.Some(*(void)(buf)));
-  String.from_bytes(result)
-});
+// An `io.async` future, NOT a plain function with `io.await` inside: a plain
+// function's await is a nested BLOCKING event loop, and running one from
+// inside a task (fetch_with's) freezes every other task on the loop until
+// this read returns — a deadlock the moment the peer is a sibling task
+// (issues/sync-await-in-plain-fn-nests-the-event-loop.md).
+_read_http_response :: (
+  fn(generic(R : Type), stream : R, max_bytes : usize, io : Io, where(R <: Reader)) ->
+    Impl(Future(String, IoExn))
+)(
+  io.async((e) => {
+    buf_size := usize(8192);
+    buf := *(u8)(malloc(buf_size).unwrap());
+    result := ArrayList(u8).new();
+    // Read until connection closes or we've read the full response
+    done := false;
+    while(runtime(!(done)), {
+      n := e.io.await(stream.read(buf, buf_size, e.io), e);
+      cond(
+        // 0 bytes means the peer closed the connection. A negative count is
+        // no longer representable: NetError.check throws on error, so read()
+        // only ever returns a real byte count.
+        (n == usize(0)) => {
+          done = true;
+        },
+        true => {
+          // The ceiling is checked BEFORE the bytes are buffered, so a
+          // hostile body never occupies more than max_bytes + one read.
+          cond(
+            ((max_bytes > usize(0)) && ((result.len() + n) > max_bytes)) => {
+              free(.Some(*(void)(buf)));
+              e.exn.throw(dyn(HttpError.ResponseTooLarge));
+            },
+            true => ()
+          );
+          i := usize(0);
+          while(runtime(i < n), {
+            result.push((buf.add(i)).*);
+            i = (i + usize(1));
+          });
+          // Check if we've received the full response by looking for
+          // Content-Length or end of chunked transfer
+          // For simplicity, check if the header section is complete
+          // and if Content-Length is satisfied
+          cond(
+            (result.len() > usize(4)) => {
+              // Check if we have a complete header section (\r\n\r\n)
+              header_end := _find_header_end(result);
+              cond(
+                (header_end > usize(0)) => {
+                  // Check Content-Length
+                  cl := _find_content_length(result, header_end);
+                  cond(
+                    (cl >= i32(0)) => {
+                      body_start := (header_end + usize(4));
+                      body_len := (result.len() - body_start);
+                      cond(
+                        (body_len >= usize(cl)) => {
+                          done = true;
+                        },
+                        true => ()
+                      );
+                    },
+                    true => ()
+                  );
+                },
+                true => ()
+              );
+            },
+            true => ()
+          );
+        }
+      );
+    });
+    free(.Some(*(void)(buf)));
+    String.from_bytes(result)
+  })
+);
 // ============================================================================
-// fetch — High-level async HTTP request (like JavaScript's fetch)
+// Internal: one request/response exchange — no redirects, no deadline
 // ============================================================================
-/// Perform an HTTP request with custom options.
-///
-/// # Example
-///
-/// ```rust
-/// opts := FetchOptions.new().with_method(.POST).with_body(`{"key": "value"}`);
-/// resp := io.await(fetch_with(`http://example.com/api`, opts, io), { io, exn });
-/// ```
-fetch_with :: (
+_fetch_once :: (
   fn(url_str : String, opts : FetchOptions, io : Io) ->
     Impl(Future(HttpResponse, IoExn))
 )(
@@ -326,7 +377,7 @@ fetch_with :: (
       is_https => {
         tls := e.io.await(TlsStream.connect(host.clone(), port, e.io), e);
         _wn := e.io.await(tls.write_string(req_str, e.io), e);
-        raw_response = _read_http_response(tls, e);
+        raw_response = e.io.await(_read_http_response(tls, opts.max_response_bytes, e.io), e);
         e.io.await(tls.close(e.io), e);
       },
       true => {
@@ -340,7 +391,7 @@ fetch_with :: (
         addr := SocketAddr.new(addrs(usize(0)), port);
         stream := e.io.await(TcpStream.connect(addr, e.io), e);
         e.io.await(stream.write_string(req_str, e.io), e);
-        raw_response = _read_http_response(stream, e);
+        raw_response = e.io.await(_read_http_response(stream, opts.max_response_bytes, e.io), e);
         e.io.await(stream.close(e.io), e);
       }
     );
@@ -353,6 +404,174 @@ fetch_with :: (
         HttpResponse.new(i32(0), ``) // unreachable
       }
     )
+  })
+);
+// ============================================================================
+// Internal: redirects
+// ============================================================================
+/// Resolve a `Location` header against the URL the response came from.
+/// Absolute URLs pass through (a cross-scheme hop then fails in
+/// `_fetch_once`'s scheme check as `UnsupportedScheme` — C1's rule — rather
+/// than being downgraded); `/abs` and `rel` paths resolve against the origin
+/// and the base path's directory.
+_resolve_location :: (fn(base_str : String, location : String, exn : Exception) -> String)(
+  cond(
+    location.contains(`://`) => location,
+    true => {
+      base := Url.parse(base_str, exn);
+      origin := base.origin();
+      cond(
+        location.starts_with(`/`) => `${origin}${location}`,
+        true => {
+          base_path := base.path();
+          dir := match(
+            base_path.last_index_of(`/`),
+            .Some(i) => base_path.substring(usize(0), i + usize(1)),
+            .None => `/`
+          );
+          `${origin}${dir}${location}`
+        }
+      )
+    }
+  )
+);
+/// The options for the next hop. 303 always becomes a GET, and so do 301/302
+/// for a POST (what browsers and `fetch` do); 307/308 replay the request as
+/// is. Headers are shared — they are read-only from here on.
+_redirect_options :: (fn(opts : FetchOptions, status : i32) -> FetchOptions)({
+  is_post := match(opts.method, .POST => true, _ => false);
+  to_get := ((status == i32(303)) || (((status == i32(301)) || (status == i32(302))) && is_post));
+  FetchOptions(
+    method : cond(to_get => HttpMethod.GET, true => opts.method),
+    headers : opts.headers,
+    body : cond(to_get => ``, true => opts.body),
+    timeout : opts.timeout,
+    max_redirects : opts.max_redirects,
+    max_response_bytes : opts.max_response_bytes
+  )
+});
+/// Follow 3xx `Location` hops up to `opts.max_redirects`, then throw
+/// `TooManyRedirects`. A 3xx without a `Location` is returned as is.
+_fetch_follow :: (
+  fn(url_str : String, opts : FetchOptions, io : Io) ->
+    Impl(Future(HttpResponse, IoExn))
+)(
+  io.async((e) => {
+    current := url_str.clone();
+    hop_opts := opts;
+    hops := usize(0);
+    (result : Option(HttpResponse)) = Option(HttpResponse).None;
+    // A `done` flag rather than break/continue: the awaiting loop is a
+    // state machine (C24).
+    done := false;
+    while(runtime(!(done)), {
+      resp := e.io.await(_fetch_once(current.clone(), hop_opts, e.io), e);
+      location := match(resp.get_header(`Location`), .Some(l) => l, .None => ``);
+      // `max_redirects == 0` means "do not follow": the first 3xx comes back
+      // verbatim (reqwest's `Policy::none`). Otherwise the cap counts hops
+      // FOLLOWED, so the (max+1)th 3xx throws.
+      follow := ((resp.is_redirect() && !(location.is_empty())) && (opts.max_redirects > usize(0)));
+      cond(
+        follow => {
+          cond(
+            (hops >= opts.max_redirects) => {
+              e.exn.throw(dyn(HttpError.TooManyRedirects));
+            },
+            true => ()
+          );
+          hops = (hops + usize(1));
+          current = _resolve_location(current, location, e.exn);
+          hop_opts = _redirect_options(hop_opts, resp.status_code);
+        },
+        true => {
+          result = Option(HttpResponse).Some(resp);
+          done = true;
+        }
+      );
+    });
+    match(result, .Some(r) => r, .None => HttpResponse.new(i32(0), ``))
+  })
+);
+// ============================================================================
+// Internal: the deadline race
+// ============================================================================
+/// Run the whole exchange as a spawned TASK raced against a spawned `sleep`,
+/// so the deadline can cut it off mid-connect or mid-read — an elapsed-time
+/// check inside the read loop could only fire BETWEEN awaits, which is exactly
+/// not the hung-server case a deadline exists for. The race is driven by
+/// awaiting `yield` (a real suspension point), NOT by `std/async`'s
+/// `timeout`/`JoinHandle.await`: those poll the event loop synchronously and,
+/// called from inside a task, nest the loop
+/// (issues/sync-await-in-plain-fn-nests-the-event-loop.md). The body is the
+/// top-level `_fetch_follow`, not a closure nested here (C22).
+///
+/// This is its own future rather than a `match` arm of `fetch_with` because
+/// a while-with-await inside one arm of a match whose other arm awaits is
+/// mis-emitted (issues/while-await-inside-match-arm-missing-loop-field.md).
+_fetch_with_deadline :: (
+  fn(url_str : String, opts : FetchOptions, limit : Duration, io : Io) ->
+    Impl(Future(HttpResponse, IoExn))
+)(
+  io.async((e) => {
+    h := e.io.spawn(_fetch_follow(url_str, opts, e.io), e);
+    dh := e.io.spawn(sleep(limit, e.io), e.io);
+    while(runtime(!(h.is_finished()) && !(dh.is_finished())), {
+      e.io.await(yield(e.io), e.io);
+    });
+    (result : HttpResponse) = HttpResponse.new(i32(0), ``);
+    cond(
+      h.is_finished() => {
+        // Finished first: the deadline task is cancelled and the handle,
+        // already terminal, is consumed without polling the loop.
+        dh.abort();
+        match(
+          h.await(e.io),
+          .Some(resp) => {
+            result = resp;
+          },
+          .None => {
+            e.exn.throw(dyn(HttpError.Other(`request task was aborted`)));
+          }
+        );
+      },
+      true => {
+        h.abort();
+        e.exn.throw(dyn(HttpError.Timeout));
+      }
+    );
+    result
+  })
+);
+// ============================================================================
+// fetch — High-level async HTTP request (like JavaScript's fetch)
+// ============================================================================
+/// Perform an HTTP request with custom options: follows redirects up to
+/// `opts.max_redirects`, refuses responses past `opts.max_response_bytes`,
+/// and — when `opts.timeout` is set — races the whole exchange against the
+/// deadline, throwing `HttpError.Timeout` if the deadline wins.
+///
+/// # Example
+///
+/// ```rust
+/// opts := FetchOptions.new().with_method(.POST).with_body(`{"key": "value"}`).with_timeout(Duration.from_secs(i64(10)));
+/// resp := io.await(fetch_with(`http://example.com/api`, opts, io), { io, exn });
+/// ```
+fetch_with :: (
+  fn(url_str : String, opts : FetchOptions, io : Io) ->
+    Impl(Future(HttpResponse, IoExn))
+)(
+  io.async((e) => {
+    (result : HttpResponse) = HttpResponse.new(i32(0), ``);
+    match(
+      opts.timeout,
+      .None => {
+        result = e.io.await(_fetch_follow(url_str, opts, e.io), e);
+      },
+      .Some(limit) => {
+        result = e.io.await(_fetch_with_deadline(url_str, opts, limit, e.io), e);
+      }
+    );
+    result
   })
 );
 export(fetch_with);
