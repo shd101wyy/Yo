@@ -94,6 +94,30 @@ function Get-OsArch {
   }
 }
 
+# The published asset name for this host, in canonical target-triple form
+# (plans/RELEASE_ASSET_TRIPLES.md). Kept in step with
+# scripts/release_asset_triple.sh and src/version_cache.yo; this script is
+# fetched standalone over HTTP, so it carries its own copy of the mapping.
+function Get-HostTriple {
+  switch (Get-OsArch) {
+    'windows-x64'   { return 'x86_64-pc-windows-msvc' }
+    'windows-arm64' { return 'aarch64-pc-windows-msvc' }
+    default         { return $null }
+  }
+}
+
+# $true when the asset exists, so the caller can prefer the triple name and fall
+# back to the pre-triple short name on releases up to and including v0.2.18.
+function Test-AssetExists {
+  param([string]$Url)
+  try {
+    Invoke-WebRequest -Uri $Url -Method Head -UseBasicParsing -ErrorAction Stop | Out-Null
+    return $true
+  } catch {
+    return $false
+  }
+}
+
 # ---------------------------------------------------------------------------
 # Dependencies
 #
@@ -264,7 +288,16 @@ Pass a version explicitly, e.g. -Version v0.2.3
 
 function Install-Dist {
   $osarch = Get-OsArch
-  $bundle = "yo-$Version-$osarch"
+  # Triple name first; the short name is what every release up to v0.2.18 has.
+  $bundle = $null
+  $triple = Get-HostTriple
+  if ($triple) {
+    $candidate = "yo-$Version-$triple"
+    if (Test-AssetExists "$DistBaseUrl/$Version/$candidate.tar.gz") {
+      $bundle = $candidate
+    }
+  }
+  if (-not $bundle) { $bundle = "yo-$Version-$osarch" }
   $url    = "$DistBaseUrl/$Version/$bundle.tar.gz"
   $target = Join-Path (Join-Path (Join-Path $Prefix 'lib') 'yo') $Version
   $binDir = Join-Path $Prefix 'bin'

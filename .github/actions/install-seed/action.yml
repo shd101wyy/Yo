@@ -18,15 +18,24 @@ runs:
           # runners are. Seeds older than the musl legs (x64: v0.2.7+,
           # arm64: v0.2.12+) would need the removed glibc names; SEED_VERSION
           # is pinned well past both.
-          Linux-X64) T=linux-x64-musl ;;
-          Linux-ARM64) T=linux-arm64-musl ;;
-          macOS-ARM64) T=macos-arm64 ;;
-          macOS-X64) T=macos-x64 ;;
-          Windows-X64) T=windows-x64 ;;
-          Windows-ARM64) T=windows-arm64 ;;
+          Linux-X64) T=linux-x64-musl; TRIPLE=x86_64-unknown-linux-musl ;;
+          Linux-ARM64) T=linux-arm64-musl; TRIPLE=aarch64-unknown-linux-musl ;;
+          macOS-ARM64) T=macos-arm64; TRIPLE=aarch64-apple-darwin ;;
+          macOS-X64) T=macos-x64; TRIPLE=x86_64-apple-darwin ;;
+          Windows-X64) T=windows-x64; TRIPLE=x86_64-pc-windows-msvc ;;
+          Windows-ARM64) T=windows-arm64; TRIPLE=aarch64-pc-windows-msvc ;;
           *) echo "::error::unsupported runner ${{ runner.os }}-${{ runner.arch }}"; exit 1 ;;
         esac
-        URL="https://github.com/${{ github.repository }}/releases/download/${{ inputs.version }}/yo-${{ inputs.version }}-${T}.tar.gz"
+        # Releases after v0.2.18 name their assets by target triple
+        # (plans/RELEASE_ASSET_TRIPLES.md); v0.2.18 and earlier carry the short
+        # label. SEED_VERSION crosses that line exactly once, so probe. Drop the
+        # short arm once no SEED_VERSION <= v0.2.18 is in use anywhere.
+        BASE="https://github.com/${{ github.repository }}/releases/download/${{ inputs.version }}"
+        URL="$BASE/yo-${{ inputs.version }}-${TRIPLE}.tar.gz"
+        if ! curl -fsSL -I -o /dev/null "$URL" 2>/dev/null; then
+          echo "no triple-named seed asset at $URL — falling back to the short label ${T}"
+          URL="$BASE/yo-${{ inputs.version }}-${T}.tar.gz"
+        fi
         # FAIL HARD on a missing bundle. This used to warn and set an
         # `installed=false` output that no caller read, so a retired or
         # never-built target degraded to "no yo on PATH" — or, worse, to an

@@ -588,25 +588,54 @@ is_musl() {
   [ "$OSDISTRO" = "alpine" ]
 }
 
+# The published asset name for this host, in canonical target-triple form
+# (plans/RELEASE_ASSET_TRIPLES.md). Kept in step with
+# scripts/release_asset_triple.sh and src/version_cache.yo — this file is
+# fetched standalone over HTTP, so it cannot source either of them.
+host_triple() {
+  case "$OSNAME-$arch" in
+    macos-x64)    echo "x86_64-apple-darwin";;
+    macos-arm64)  echo "aarch64-apple-darwin";;
+    linux-x64)    echo "x86_64-unknown-linux-musl";;
+    linux-arm64)  echo "aarch64-unknown-linux-musl";;
+    *) return 1;;
+  esac
+}
+
 install_dist() {
+  # Releases after v0.2.18 name their assets by target triple; v0.2.18 and
+  # earlier carry only the short form, so probe for the triple and fall back.
+  # This BRIDGES the changeover — it is what keeps `curl | sh` installing the
+  # current release — and is removable once nothing in use predates it
+  # (plans/RELEASE_ASSET_TRIPLES.md).
+  #
   # Linux is musl-only (2026-08-20): the static musl bundle is THE Linux
   # bundle — it runs on glibc and musl systems alike, so it is preferred on
   # EVERY Linux, not just detected-musl ones. The probe + glibc fallback
   # stays for releases that predate the musl legs (x64: v0.2.7+,
   # arm64: v0.2.12+); on a glibc host that fallback is fully functional,
   # on a musl host it will not run — hence the differentiated warning.
-  bundle="yo-$VERSION-$OSARCH"
-  if [ "$OSNAME" = "linux" ]; then
-    musl_bundle="yo-$VERSION-$OSARCH-musl"
-    if download_probe "$YO_DIST_BASE_URL/$VERSION/$musl_bundle.tar.gz"; then
-      info "Using the static musl Linux bundle (runs on glibc and musl alike)."
-      bundle="$musl_bundle"
-    elif is_musl; then
-      warn "musl libc detected, but $VERSION publishes no $musl_bundle bundle."
-      warn "Falling back to the glibc bundle, which will NOT run here."
-      warn "Prefer:  --from-source   (compiles yo.c with your own toolchain)"
-    else
-      info "$VERSION predates the static musl bundles — using its glibc bundle."
+  bundle=""
+  if triple="$(host_triple)"; then
+    triple_bundle="yo-$VERSION-$triple"
+    if download_probe "$YO_DIST_BASE_URL/$VERSION/$triple_bundle.tar.gz"; then
+      bundle="$triple_bundle"
+    fi
+  fi
+  if [ -z "$bundle" ]; then
+    bundle="yo-$VERSION-$OSARCH"
+    if [ "$OSNAME" = "linux" ]; then
+      musl_bundle="yo-$VERSION-$OSARCH-musl"
+      if download_probe "$YO_DIST_BASE_URL/$VERSION/$musl_bundle.tar.gz"; then
+        info "Using the static musl Linux bundle (runs on glibc and musl alike)."
+        bundle="$musl_bundle"
+      elif is_musl; then
+        warn "musl libc detected, but $VERSION publishes no $musl_bundle bundle."
+        warn "Falling back to the glibc bundle, which will NOT run here."
+        warn "Prefer:  --from-source   (compiles yo.c with your own toolchain)"
+      else
+        info "$VERSION predates the static musl bundles — using its glibc bundle."
+      fi
     fi
   fi
   url="$YO_DIST_BASE_URL/$VERSION/$bundle.tar.gz"

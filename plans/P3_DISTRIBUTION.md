@@ -20,6 +20,16 @@ machinery, and every leg was green on the first dispatch:**
 - **windows-arm64** is a full, non-experimental leg (first bundle shipped in
   v0.2.13; second in v0.2.14).
 
+**Asset names move to canonical target triples** from the release after v0.2.18
+— `yo-v0.2.19-aarch64-apple-darwin.tar.gz`,
+`yo-v0.2.19-x86_64-pc-windows-msvc.tar.gz`,
+`yo-v0.2.19-x86_64-unknown-linux-musl.tar.gz` and the matching `.c.gz` stems.
+The Windows bundles really are MSVC-ABI, and the unqualified `windows-x64` said
+nothing about that while Linux already qualified itself with `-musl`. The
+compiler's own `--target` vocabulary is NOT affected. Full decision, the mapping
+table, and where the name is produced and consumed:
+`plans/RELEASE_ASSET_TRIPLES.md`.
+
 **The language suite now runs on ALL SIX targets, per PR** — Linux both
 arches natively, and macos-arm64/macos-x64/windows-x64/windows-arm64 via the
 cross-emit chain in test.yml (`suite-candidate` → `suite-cross-emit` →

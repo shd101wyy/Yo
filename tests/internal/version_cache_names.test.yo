@@ -1,0 +1,88 @@
+//! Release-bundle asset names (`src/version_cache.yo`).
+//!
+//! These two functions ARE the download path for `yo version install`, and a
+//! wrong name is a silent 404 rather than a compile error — yet neither had any
+//! coverage. `host_bundle_triple_name` is what releases after v0.2.18 carry;
+//! `host_bundle_name` is the pre-triple short form the download falls back to
+//! (plans/RELEASE_ASSET_TRIPLES.md).
+//!
+//! Both are host-dependent, so the assertions branch on the running platform
+//! rather than hardcoding one triple.
+open(import("std/string"));
+open(import("std/fmt"));
+{ assert } :: import("std/assert");
+{ Exception } :: import("std/error");
+{ platform, Platform, arch, Arch } :: import("std/process");
+{ host_bundle_name, host_bundle_triple_name } :: import("../../src/version_cache.yo");
+
+_noexn :: (fn() -> Exception)(
+  Exception(
+    throw : (
+      (err) -> {
+        assert(false, "bundle-name helpers must not throw on a supported host");
+        unwind(());
+      }
+    )
+  )
+);
+
+test("host_bundle_triple_name is the canonical triple for this host", {
+  name := host_bundle_triple_name(String.from("9.9.9"), _noexn());
+  expected := cond(
+    (platform == Platform.Macos) =>
+      cond(
+        (arch == Arch.Aarch64) => `yo-v9.9.9-aarch64-apple-darwin`,
+        true => `yo-v9.9.9-x86_64-apple-darwin`
+      ),
+    (platform == Platform.Windows) =>
+      cond(
+        (arch == Arch.Aarch64) => `yo-v9.9.9-aarch64-pc-windows-msvc`,
+        true => `yo-v9.9.9-x86_64-pc-windows-msvc`
+      ),
+    // Linux is musl-only: the static musl bundle IS the Linux bundle.
+    true =>
+      cond(
+        (arch == Arch.Aarch64) => `yo-v9.9.9-aarch64-unknown-linux-musl`,
+        true => `yo-v9.9.9-x86_64-unknown-linux-musl`
+      )
+  );
+  assert(name == expected, `triple name should be ${expected}, got ${name}`);
+});
+test("host_bundle_name keeps the pre-triple short form", {
+  // The fallback for every release up to and including v0.2.18. It must NOT
+  // start speaking triples, or those releases become unreachable.
+  name := host_bundle_name(String.from("9.9.9"), _noexn());
+  expected := cond(
+    (platform == Platform.Macos) =>
+      cond(
+        (arch == Arch.Aarch64) => `yo-v9.9.9-macos-arm64`,
+        true => `yo-v9.9.9-macos-x64`
+      ),
+    (platform == Platform.Windows) =>
+      cond(
+        (arch == Arch.Aarch64) => `yo-v9.9.9-windows-arm64`,
+        true => `yo-v9.9.9-windows-x64`
+      ),
+    // Linux appends -musl to the short form: the static musl bundle is THE
+    // Linux bundle since 2026-08-20.
+    true =>
+      cond(
+        (arch == Arch.Aarch64) => `yo-v9.9.9-linux-arm64-musl`,
+        true => `yo-v9.9.9-linux-x64-musl`
+      )
+  );
+  assert(name == expected, `short name should be ${expected}, got ${name}`);
+});
+test("the two names differ — the fallback is a real second URL", {
+  // If these ever coincide, `download_version`'s retry is a no-op that hides a
+  // genuine 404 behind a second identical request.
+  // NB: not `short` — that is a C type name in scope, and a local shadowing it
+  // fails with "Cannot unify incompatible types: String and Type"
+  // (issues/builtin-name-shadows-user-definition.md).
+  triple_name := host_bundle_triple_name(String.from("9.9.9"), _noexn());
+  short_name := host_bundle_name(String.from("9.9.9"), _noexn());
+  assert(
+    triple_name != short_name,
+    `triple (${triple_name}) must differ from short (${short_name})`
+  );
+});
