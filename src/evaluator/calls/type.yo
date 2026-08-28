@@ -46,7 +46,7 @@ _(env : tycall_dbg_env) :: import("std/env");
 { EvalValue, value_to_string } :: import("../../value.yo");
 { TypeField } :: import("../types/field.yo");
 { set_expr_as_needs_to_call_dup } :: import("../utils.yo");
-{ evaluate_expression } :: import("../exprs/expr.yo");
+{ evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { format_error_message } :: import("../../error.yo");
 { Exception } :: import("std/error");
 /// Approximation for `isComptimeOnlyType` (Phase 2 — full version deferred).
@@ -246,10 +246,19 @@ try_to_call_type_with_arguments :: (
         )
       );
     });
-    // Evaluate the argument expression.
+    // Evaluate the argument expression — through the RAW evaluator, with the
+    // caller's handler. The non-raw wrapper is the def-eval SWALLOW: it eats
+    // every error and hands back an info-less expr, so the only thing this
+    // site could then report was the generic "Failed to evaluate argument
+    // expression" below, while the real cause — e.g. an `Exception(throw :
+    // (err) -> {...})` handler capturing a runtime local, which the
+    // anonymous-function evaluator rejects with a precise message — was
+    // lost (issues/fixed/exception-handler-closure-with-box-capture-fails-inference.md).
+    // A def-time trial around this call still catches the propagated error
+    // in its own swallow, exactly as before.
     saved_expected := ctx.expected_type;
     ctx.expected_type = .Some(ExpectedTypeCtx(ty : member_element.ty, env : env));
-    evaluated_arg := evaluate_expression(actual_arg_expr, env, ctx);
+    evaluated_arg := evaluate_expression_raw(actual_arg_expr, env, ctx, exn);
     ctx.expected_type = saved_expected;
     arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_arg));
     if(arg_info_opt.is_none(), {
