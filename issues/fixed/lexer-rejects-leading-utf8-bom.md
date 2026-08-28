@@ -85,9 +85,9 @@ yo: error: compile: failed to evaluate module "tmp/bom.yo"
 
 ## Verification
 
-- Red/green at the lexer level (batch binary run directly — the runner's
-  Windows failing-child bug, see
-  `issues/yo-test-failing-child-windows-unknown-io-error.md`, hides ✗
+- Red/green at the lexer level (batch binary run directly — at the time the
+  runner's Windows failing-child bug, see
+  `issues/fixed/yo-test-failing-child-windows-unknown-io-error.md`, hid ✗
   reports): with `src/lexer.yo` reverted to HEAD the two tests print
   `value must be 'open' with no BOM rune` / `expected 0 tokens` and exit 127;
   with the fix the runner reports `2 passed`.

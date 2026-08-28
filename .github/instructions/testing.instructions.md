@@ -63,28 +63,25 @@ bash scripts/count-transpile-failures.sh tests/sync/.yo_selftest_batch_1_0.bin.c
 - `--test-name-pattern "Test XXX"` — run specific test by name
 - Tests automatically use AddressSanitizer for leak detection.
 
-## Windows: a FAILING test kills `yo test` with `unknown I/O error`
+## Windows: failing tests report a SIGNAL status, and a runtime-template edit needs TWO builds
 
-On Windows, a test that fails (assert fires, binary exits nonzero) surfaces as
-`yo: error: unknown I/O error` — no `✗` line, no diagnostics, rc=1 — while
-passing tests report normally. The batch binary itself is fine: run it
-directly and it prints the assert message and exits nonzero. The failure is in
-the RUNNER's capture of a nonzero-exit child on Windows
-(`issues/yo-test-failing-child-windows-unknown-io-error.md`).
+`yo test` on Windows used to die with `yo: error: unknown I/O error` at the
+first failing test (the waitpid NTSTATUS bug — fixed 2026-08-29,
+`issues/fixed/yo-test-failing-child-windows-unknown-io-error.md`). A failing
+test now prints `✗` with `Test failed with exit code 22`-style raw statuses
+(SIGABRT), the summary, and exits 1 — same shape as Linux.
 
-Until that is fixed, get the real verdict of a red test with
-`YO_KEEP_BATCH=1` + a direct batch run (the artifacts land next to the test
-file):
+Two Windows-specific facts remain:
 
-```bash
-YO_KEEP_BATCH=1 yo test ./tests/internal/lexer.test.yo --test-name-pattern "BOM" --parallel 1
-YO_TEST_INDEX=0 ./tests/internal/.yo_selftest_batch_1_0.bin   # index within the batch, 0-based
-echo $?
-```
-
-This is also the red/green loop for Windows: red = direct run prints the
-assert message and exits 127; green = the runner itself reports `✓` (passing
-children never hit the bug).
+- An abnormal child termination (assert/abort) is a SIGNAL status:
+  `code() == None`, `signal() != 0`. Clean nonzero exits still give
+  `code() == Some(n)` for n in 0–255.
+- **A `src/codegen/async/runtime_io_*.yo` template edit takes effect in the
+  compiler's OWN runtime only after a SECOND build** — the stage-1 rule
+  again: one `yo build` gives a binary that emits the new runtime but still
+  runs the old one. And `yo build` invoked as `yo-out/<target>/bin/yo.exe`
+  cannot relink itself (LNK1104: Windows will not overwrite a running
+  executable) — compile to a different `-o` path instead.
 
 ## Evaluator-only check (no codegen)
 
