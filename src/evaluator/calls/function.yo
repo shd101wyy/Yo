@@ -154,7 +154,7 @@ _call_result_unknown :: (fn(ty : TypeValue, env : Environment) -> EvalValue)({
   create_runtime_unknown_val_with_name(ty, nm)
 });
 { format_error_message } :: import("../../error.yo");
-{ require_ref_own_argument_exclusivity, require_valid_ref_argument_places } :: import("../../types/flowability.yo");
+{ require_ref_own_argument_exclusivity, require_valid_ref_argument_places, flag_flow_violation, flow_violation_pending, propagate_def_time_errors } :: import("../../types/flowability.yo");
 { Exception } :: import("std/error");
 { SynthesizeOptions, TypePair, synthesize_types } :: import("../types/synthesizer.yo");
 { assert, panic } :: import("std/assert");
@@ -1830,11 +1830,21 @@ _evaluate_funcval_runtime_call :: (
                   );
                   if(((!(_ac_p_generic) && !(_ac_a_generic)) && !(_ac_a_comptime))
                   && !(are_types_compatible(_ac_pty, _ac_aty)), {
+                    // C19: a concrete/concrete argument-type mismatch (e.g. C
+                    // `int` where `i32` is declared) is ALWAYS a hard error.
+                    // Flag the flow-violation channel so an async-closure-body
+                    // swallow re-raises it at check time instead of leaving
+                    // codegen an unresolved receiver type it splices verbatim
+                    // into C. Same guard as C18 / helper.yo's overload re-raise.
+                    _ac_mmsg := `Cannot unify incompatible types:\nExpected: "${type_to_string(_ac_pty)}"\nGiven: "${type_to_string(_ac_aty)}"`;
+                    if(!(ctx.is_in_function_call_checking_phase) && !(propagate_def_time_errors()) && !(flow_violation_pending()), {
+                      flag_flow_violation(_ac_mmsg.clone());
+                    });
                     exn.throw(
                       dyn(
                         format_error_message(
                           ast_expr_token(expr),
-                          `Cannot unify incompatible types:\nExpected: "${type_to_string(_ac_pty)}"\nGiven: "${type_to_string(_ac_aty)}"`,
+                          _ac_mmsg,
                           false,
                           .None
                         )
