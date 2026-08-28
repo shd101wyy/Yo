@@ -15,7 +15,7 @@ open(import("std/string"));
 { lookup_macro_expansion, lookup_some_resolved_concrete } :: import("../../expr_info.yo");
 { AwaitAnalysisResult, AwaitPoint, CapturedVariable, CapturedVariableKind } :: import("../../evaluator/async/await_analysis_types.yo");
 { SuspensionCapturedVariable } :: import("../../evaluator/shared/suspension_analysis_types.yo");
-{ StateSegment, split_into_state_segments, generate_await_expression, generate_state_segment_code, hoist_non_splittable_awaits, await_is_while_condition, is_io_future_type, cond_await_point_needs_dispatch, cond_branch_future_access, CondBranchFutureAccess, collect_branch_await_exprs } :: import("./state_code_gen.yo");
+{ StateSegment, split_into_state_segments, generate_await_expression, generate_state_segment_code, hoist_non_splittable_awaits, await_is_while_condition, is_io_future_type, cond_await_point_needs_dispatch, cond_branch_future_access, CondBranchFutureAccess, collect_branch_await_exprs, collect_branch_await_targets } :: import("./state_code_gen.yo");
 { is_io_async_call, is_io_await_call } :: import("../../evaluator/async/await_analysis.yo");
 { AstExpr, ast_expr_id, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, BK_COND, BK_MATCH, BK_WHILE, BK_BEGIN } :: import("../../expr.yo");
 { _call_generate_expr } :: import("../exprs/_expr.yo");
@@ -1646,6 +1646,63 @@ _emit_await_suspension_dispatch :: (
     );
     bi = (bi + usize(1));
   });
+  // Chained branches: a cond arm with an EXTRA await beyond the shared point
+  // rides `chained_branches`, not `cbd.branches`. Without a case here its
+  // future is NEVER polled — it stays cold, its `->result` is null, and the
+  // extraction reads a null (issues/second-cond-internal-await-result-not-
+  // stored.md — every plain-HTTP request). Emit each chained arm's suspension
+  // for its depth-th await, mirroring the direct-branch case above.
+  match(
+    cbd.chained_branches,
+    .None => (),
+    .Some(layers) => {
+      (li : usize) = usize(0);
+      while(li < layers.len(), {
+        match(
+          layers.get(li),
+          .None => (),
+          .Some(layer) => if(!(layer.cond_branch_field_index == ap.base.index), {
+            (ci : usize) = usize(0);
+            while(ci < layer.branches.len(), {
+              match(
+                layer.branches.get(ci),
+                .None => (),
+                .Some(cb) => if(cb.has_await, {
+                  cae_opt := match(
+                    cb.await_exprs,
+                    .Some(aes) => aes.get(depth),
+                    .None => Option(AstExpr).None
+                  );
+                  match(
+                    cae_opt,
+                    .None => (),
+                    .Some(cae) => match(
+                      cond_branch_future_access(cae, ap, context),
+                      .None => (),
+                      .Some(cacc) => {
+                        em.emit_string_line(`        case ${cb.index.to_string()}: {`);
+                        if(!(cacc.is_named), {
+                          em.emit_string_line(`          if (sm->await_future_${ap.base.index.to_string()} == NULL) {`);
+                          em.emit_string_line(`            sm->state = ${next_s};`);
+                          em.emit_string_line(`            goto state_${next_s};`);
+                          em.emit_string_line(`          }`);
+                        });
+                        _emit_await_suspension_core(cacc.access.clone(), cacc.is_io_future, next_s.clone(), resume_function_name.clone(), cae, String.from("          "), context);
+                        em.emit_string_line(`          break;`);
+                        em.emit_string_line(`        }`);
+                      }
+                    )
+                  );
+                })
+              );
+              ci = (ci + usize(1));
+            });
+          })
+        );
+        li = (li + usize(1));
+      });
+    }
+  );
   em.emit_string_line(`        default: {`);
   em.emit_string_line(`          // Non-await cond branch was taken, skip directly to next state`);
   em.emit_string_line(`          sm->state = ${next_s};`);
@@ -1920,8 +1977,21 @@ _emit_prev_await_result_extraction_dispatch :: (
                 .None => true
               );
               (dest : Option(String)) = Option(String).None;
+              // Per-DEPTH target: a branch with several awaits binds a distinct
+              // variable at each (`a := await(f); b := await(g)`).
+              // `branch.await_target_variable_id` records only the FIRST, so at
+              // depth>0 the store went nowhere (the `b` slot stayed 0 —
+              // issues/second-cond-internal-await-result-not-stored.md). Resolve
+              // by await depth, falling back to the single field.
+              depth_targets := ArrayList(Option(String)).new();
+              collect_branch_await_targets(branch.value.clone(), depth_targets, context);
+              depth_target := match(
+                depth_targets.get(depth),
+                .Some(dt) => dt,
+                .None => branch.await_target_variable_id
+              );
               match(
-                branch.await_target_variable_id,
+                depth_target,
                 .Some(btvid) => if(_await_target_has_struct_field(btvid.clone(), cross_boundary_ids, context), {
                   fname := get_state_machine_field_name(btvid, Option(String).Some(String.from("local")), context.state_machine_field_aliases);
                   d := String.from("sm->");
@@ -2632,6 +2702,101 @@ _emit_cond_branch_continuation :: (
 /// field of a never-taken cond cannot match a case here. Mirrors the
 /// post-guard chained processing in `generateAsyncBlockResumeFunction`
 /// (state-machine.ts).
+/// Extract a CHAINED branch's own await result into its binding, before its
+/// remaining code runs. The dispatch extraction switch only emits cases for
+/// `cbd.branches`; a branch with an EXTRA await rides `chained_branches`, whose
+/// second await's result was never stored — the binding slot stayed null and
+/// using it SIGSEGVs (issues/second-cond-internal-await-result-not-stored.md —
+/// every plain-HTTP request). This mirrors the per-branch body of
+/// `_emit_prev_await_result_extraction_dispatch`, but resolves the target PER
+/// await via `collect_branch_await_targets` (a branch has one target per await,
+/// not one per branch). Runtime-guarded by the enclosing
+/// `if (sm->cond_branch_N == idx)`.
+_emit_chained_await_store :: (
+  fn(cb : CondBranch, prev_await : AwaitPoint, async_block_id : String, indent : String, context : FunctionGenerationContext) -> unit
+)({
+  em := context.base.emitter;
+  prev_idx_s := prev_await.base.index.to_string();
+  slot := `sm->await_future_${prev_idx_s}`;
+  // The await completing at THIS resume is the depth-th in the branch, where
+  // depth is the point's offset from the cond's first shared await — exactly
+  // how `_emit_prev_await_result_extraction_dispatch` indexes `aes`. Iterating
+  // ALL awaits instead double-extracts (an earlier await resolves too, nulls
+  // the shared future slot, and the real one is skipped).
+  source := match(prev_await.base.cond_branch_source_index, .Some(s) => s, .None => prev_await.base.index);
+  depth := (prev_await.base.index - source);
+  match(
+    cb.await_exprs,
+    .None => (),
+    .Some(aes) => {
+      targets := ArrayList(Option(String)).new();
+      collect_branch_await_targets(cb.value.clone(), targets, context);
+      (ai : usize) = depth;
+      while(ai < (depth + usize(1)), {
+        match(
+          aes.get(ai),
+          .None => (),
+          .Some(ae) => match(
+            cond_branch_future_access(ae, prev_await, context),
+            .None => (),
+            .Some(acc_info) => {
+              acc := acc_info.access;
+              rt_opt := acc_info.result_type;
+              is_unit_result := match(
+                rt_opt,
+                .Some(rt) => (
+                  is_unit_type(rt) || (
+                    is_some_type(rt) && match(rt, .SomeT({ id }) => lookup_some_resolved_concrete(id).is_none(), _ => false)
+                  )
+                ),
+                .None => true
+              );
+              tgt := match(targets.get(ai), .Some(t) => t, .None => Option(String).None);
+              match(
+                tgt,
+                .None => (),
+                .Some(btvid) => if((!(is_unit_result)) && _await_target_has_struct_field(btvid.clone(), Option(HashSet(String)).None, context), {
+                  fname := get_state_machine_field_name(btvid, Option(String).Some(String.from("local")), context.state_machine_field_aliases);
+                  rt := match(rt_opt, .Some(t) => t, .None => TypeValue.Unit);
+                  // Abort check (the awaited future escaped) + result copy.
+                  if(!(acc_info.is_named), {
+                    em.emit_string_line(`${indent}if (${slot} != NULL) {`);
+                  });
+                  em.emit_string_line(`${indent}// Check if the chained-branch awaited Future was aborted`);
+                  em.emit_string_line(`${indent}if (${acc}->state == -2) {`);
+                  if(!(acc_info.is_named), {
+                    em.emit_string_line(`${indent}  __yo_decr_rc((void*)${slot});`);
+                    em.emit_string_line(`${indent}  ${slot} = NULL;`);
+                  });
+                  emit_async_future_escape(em, `${indent}  `, Option(String).None, Option(String).Some(async_block_id.clone()));
+                  em.emit_string_line(`${indent}}`);
+                  em.emit_string_line(`${indent}// Extract chained await ${prev_idx_s} result into ${fname}`);
+                  if(type_contains_rc_type(rt), {
+                    match(
+                      get_dup_function_for_type(rt, context),
+                      .Some(dup) => em.emit_string_line(`${indent}sm->${fname} = ${dup}(${acc}->result);`),
+                      .None => {
+                        dup_code := generate_dup_code_for_value(`${acc}->result`, rt, context);
+                        em.emit_string_line(`${indent}sm->${fname} = ${dup_code};`);
+                      }
+                    );
+                  }, {
+                    em.emit_string_line(`${indent}sm->${fname} = ${acc}->result;`);
+                  });
+                  if(!(acc_info.is_named), {
+                    em.emit_string_line(`${indent}if (${slot} != NULL) { __yo_decr_rc((void*)${slot}); ${slot} = NULL; }`);
+                    em.emit_string_line(`${indent}}`);
+                  });
+                })
+              );
+            }
+          )
+        );
+        ai = (ai + usize(1));
+      });
+    }
+  );
+});
 _emit_outer_chained_branch_layers :: (
   fn(
     prev_await : AwaitPoint,
@@ -2663,6 +2828,10 @@ _emit_outer_chained_branch_layers :: (
                     .Some(cb) => if(cb.has_await && match(cb.remaining_exprs, .Some(r) => (r.len() > usize(0)), .None => false), {
                       em.emit_string_line(`      // Outer cond branch ${cb.index.to_string()} remaining code (chained)`);
                       em.emit_string_line(`      if (sm->cond_branch_${layer.cond_branch_field_index.to_string()} == ${cb.index.to_string()}) {`);
+                      // Extract THIS chained branch's own await result into its
+                      // binding before the remaining code reads it (the dispatch
+                      // switch above only covers cbd.branches, not chained ones).
+                      _emit_chained_await_store(cb, prev_await, prev_await.base.index.to_string(), `        `, context);
                       _emit_cond_branch_remaining(cb, prev_await, segment, body_expr, future_type, capture_type, analysis, layer.cond_branch_field_index, Option(String).None, `      `, context);
                       em.emit_string_line(`      }`);
                     }),

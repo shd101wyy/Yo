@@ -1,7 +1,20 @@
 # A SECOND `io.await` inside a `cond`/`match` branch never stores its result — the binding stays a null slot and using it SIGSEGVs
 
 **Found**: 2026-08-28, implementing C33 (http timeouts/redirects). **Status**:
-OPEN. **Pre-existing** — not introduced by C33; it is why **every plain-HTTP
+**FIXED 2026-08-28.** A cond/match arm with an EXTRA await beyond the shared
+point rides `chained_branches`; the dispatch SUSPENSION switch and the
+dispatch/chained EXTRACTION only modelled `cbd.branches` (the representative
+arm), so the other arm second await was (a) never POLLED — its future stayed
+cold, `->result` null — and (b) never STORED. THREE fixes in
+src/codegen/async/state_machine.yo, all keyed on `collect_branch_await_targets`
+(per-await targets, not one-per-branch): (1) the suspension dispatch emits a
+case for each CHAINED arm depth-th await; (2) `_emit_chained_await_store`
+extracts a chained arm own depth-th await result before its remaining code;
+(3) the dispatch extraction resolves the target PER DEPTH. Verified: plain
+HTTP now works (github http→https redirect → 200), the synthetic repro
+returns 49/10, tests/async/cond_multi_await.test.yo passes. Battery: suite
+3261/3261, FIXPOINT_HOLDS, sweep 229 GREEN (up 2 — two corpus files that hit
+this pattern now pass). **Pre-existing** — not introduced by C33; it is why **every plain-HTTP
 request has always crashed** (the client's live tests only ever exercised
 HTTPS and `parse_response` units).
 

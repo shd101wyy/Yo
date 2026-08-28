@@ -136,6 +136,71 @@ collect_branch_await_exprs :: (
     }
   );
 });
+/// The binding target (an `Option(String)` variable id) for EACH await in a
+/// branch, in the SAME order and count as `collect_branch_await_exprs`. A
+/// branch with several awaits (`n := await(f); w := await(g)`) needs one target
+/// PER await; `CondBranch.await_target_variable_id` records only the first, so a
+/// chained/dispatch second await's store was dropped — the `w` slot stayed null
+/// and using it SIGSEGVs (every plain-HTTP request:
+/// issues/second-cond-internal-await-result-not-stored.md). `.None` at a
+/// position means a BARE await (no `:=`), matching where the sibling collector
+/// pushes it.
+collect_branch_await_targets :: (
+  fn(expr : AstExpr, out : ArrayList(Option(String)), context : FunctionGenerationContext) -> unit
+)({
+  if(!(ast_expr_is_fn_call(expr)), {
+    return(());
+  });
+  if(is_io_async_call(expr.clone()), {
+    return(());
+  });
+  if(is_io_await_call(expr.clone()), {
+    out.push(Option(String).None);
+    return(());
+  });
+  // `x := await(...)`: the sibling collector pushes ONE await here (reaching
+  // the await call in arg[1] after the `:=` head and the LHS atom, neither of
+  // which awaits), so push exactly one target — `x`.
+  if(ast_expr_is_fn_call_of(expr.clone(), ":=", Option(usize).None), {
+    match(
+      match(expr.clone(), .FnCall(_, _, a, _, _) => a.get(usize(1)), .Atom(_, _) => Option(AstExpr).None),
+      .Some(rhs) => if(ast_expr_is_fn_call(rhs) && is_io_await_call(rhs.clone()), {
+        out.push(
+          extract_target_variable_id(
+            Option(AstExpr).Some(expr.clone()),
+            (e : AstExpr) => context.base.get_expr_info(e)
+          )
+        );
+        return(());
+      }),
+      .None => ()
+    );
+  });
+  match(
+    lookup_macro_expansion(ast_expr_id(expr)),
+    .Some(me) => {
+      recur(me, out, context);
+      return(());
+    },
+    .None => ()
+  );
+  match(
+    expr,
+    .Atom(_, _) => (),
+    .FnCall(_, f, args, _, _) => {
+      recur(f, out, context);
+      (i : usize) = usize(0);
+      while(i < args.len(), {
+        match(
+          args.get(i),
+          .Some(a) => recur(a, out, context),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    }
+  );
+});
 /// The future argument (arg 0) of an `io.await(...)` call expr.
 await_call_future_arg :: (fn(await_expr : AstExpr) -> Option(AstExpr))(
   match(
@@ -3450,6 +3515,7 @@ export(
   register_fsm_emitters_impl,
   is_io_future_type,
   collect_branch_await_exprs,
+  collect_branch_await_targets,
   await_call_future_arg,
   cond_await_point_needs_dispatch,
   CondBranchFutureAccess,
