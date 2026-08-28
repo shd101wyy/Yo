@@ -1,6 +1,19 @@
 # A struct literal that OMITS a required field is silently accepted — the field is uninitialised and the program SIGSEGVs
 
-**Status: OPEN**, but see the **CORRECTION 2026-08-25 (measured)** section
+**Status: FIXED 2026-08-28.** The missing-field check (type.yo:347-364) DID
+fire but was SWALLOWED during def-time trial evaluation of async-closure /
+generic bodies, leaving codegen with no ExprInfo → a `// Failed to transpile`
+object with an uninitialised field. FIX: the check now flags the
+flow-violation channel (`flag_flow_violation`) before throwing, so the
+async-closure-body swallow's Channel-1 re-raise
+(anonymous_function.yo:1491) surfaces the real diagnostic at CHECK time —
+guarded like helper.yo's overload re-raise (skipped in checking-phase trials
+and cee-propagate mode). Pinned by tests/struct_missing_field.test.yo (the
+missing-field-in-io.async case is caught; complete + defaulted-omit still
+pass). Verified: the exact `Type member "c" is not provided...` error now
+appears at `yo check` on a construction inside `io.async`.
+
+**Status: was OPEN**, but see the **CORRECTION 2026-08-25 (measured)** section
 below before acting on this: the title and the first root-cause analysis are
 both wrong. Nothing is emitted "short" — the statement is dropped as
 `// Failed to transpile`, and `-Werror=return-type` (PR #275) already rejects

@@ -44,7 +44,7 @@ mismatch left the receiver type unresolved and codegen printed the type
 expression verbatim.
 
 At least this one is LOUD. Its sibling —
-`issues/struct-literal-missing-field-silently-accepted.md` — is the same family
+`issues/fixed/struct-literal-missing-field-silently-accepted.md` — is the same family
 (evaluator accepts a malformed construction) but fails silently with
 uninitialised memory.
 
@@ -55,7 +55,7 @@ and the call site — the same as any other argument type mismatch.
 
 ## Related
 
-- `issues/struct-literal-missing-field-silently-accepted.md`
+- `issues/fixed/struct-literal-missing-field-silently-accepted.md`
 - `issues/yo-self-async-await-argcount-overpermissive.md`
 - the "~220 type-level swallow classes" recorded as still OPEN in
   `issues/fixed/self-hosted-compile-swallows-undefined-call.md`
