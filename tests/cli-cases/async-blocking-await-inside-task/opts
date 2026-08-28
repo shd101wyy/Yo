@@ -1,0 +1,9 @@
+# C37 (issues/fixed/sync-await-in-plain-fn-nests-the-event-loop.md): an
+# `io.await` in a NON-io.async function is a blocking poll loop; called from
+# inside a spawned task it nests the event loop and used to deadlock silently
+# (or resume a frozen frame underneath itself). The runtime now panics at the
+# first such call. The program compiles cleanly and PANICS at run time; `build
+# run` propagates that as a non-zero rc. The panic rides stderr with build
+# chatter, so stdout keeps only the shared diagnostic substring.
+stdout_keep_match=panic: a blocking await ran inside an async task.*
+timeout=300
