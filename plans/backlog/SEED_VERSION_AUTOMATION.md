@@ -117,3 +117,12 @@ public API; then delete the 6-argument wrapper in a later generation.
   overrides are an optimisation only — nothing to collapse, but a NEW std
   hasher may then rely on the defaults. Failure mode if violated: SILENT (the
   built compiler hangs in `__yo_main_module_init`).
+
+- **`HashMapError.KeyNotFound` / `HashSetError.ElementNotFound` deletion (§6,
+  2026-08-29):** dead by design (lookups return `Option`), but removing them
+  makes the two enums structurally identical, which the v0.2.19 seed conflates
+  (issues/fixed/structurally-identical-error-enums-in-two-generic-impls-collide.md,
+  fixed in the tree). `src/codegen/chunk_assembly.yo` imports BOTH collections,
+  so `yo build` under that seed would hit the collision. Apply the trim once
+  the seed carries the fix; failure mode if early: LOUD (`Type mismatch for
+  type member "error"` in `HashSet._resize`).
