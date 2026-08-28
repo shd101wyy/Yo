@@ -10,7 +10,23 @@ function, JoinHandle.await, or a std/async combinator (join_all/race/any/timeout
 was called from a spawned or awaited task. …
 ```
 
-**Status**: OPEN. The guard is therefore armed by `YO_ASYNC_STRICT=1` only;
+**Status**: **RETIRED 2026-08-29 — the premise did not survive measurement.**
+The smoke-test abort that motivated this record came from the guard's FIRST
+revision, whose task-depth counter was per PROCESS: the parallelism runtime's
+worker threads resumed continuations while the main thread sat in a blocking
+await, so main's await looked nested. #337 made the counter thread-local. With
+that compiler, `YO_ASYNC_STRICT=1` is clean across every compiler path
+exercised: `yo init` + `yo build run` on a fresh project (the CI smoke test),
+`check ./std`, `fmt --check`, `doc`, `test` of a language test file,
+`version list`. `src/` contains no `io.spawn` at all — the helpers listed
+below are called from `main`'s synchronous path, not from tasks. The guard
+stays env-gated for ordinary programs (a nested blocking await whose I/O does
+not depend on a sibling task still runs today; arming it by default would
+turn that into an abort, a policy change to make deliberately, with a release
+of strict `yo test` runs behind it); `yo test` arms it for every test child.
+Original record follows.
+
+**Status (original)**: OPEN. The guard is therefore armed by `YO_ASYNC_STRICT=1` only;
 `yo test` sets it for every test child (so `tests/` is enforced — the whole
 suite passes strict), and ordinary programs, including the compiler itself,
 stay relaxed.

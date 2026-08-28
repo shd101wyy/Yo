@@ -1,0 +1,99 @@
+//! A while-with-await inside ONE arm of a match/cond whose other arm awaits
+//! too (issues/fixed/while-await-inside-match-arm-missing-loop-field.md, C38).
+//! Before the fix the merged suspension point took the plain arm's loop-ness,
+//! the state struct never declared `while_loop_N_active`, and clang rejected
+//! the C (`yo check` was green). The looping arm must also re-evaluate its
+//! condition after each awaited `yield` — a poll-until-finished race must
+//! actually finish.
+{ assert } :: import("std/assert");
+{ Exception, IoExn } :: import("std/error");
+{ Duration } :: import("std/time/duration");
+{ sleep } :: import("std/time/sleep");
+{ yield } :: import("std/async");
+work :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
+  io.async((e) => {
+    e.io.await(sleep(Duration.from_millis(i64(5)), e.io), e.io);
+    i32(7)
+  })
+);
+// .None: one plain await. .Some(l): a poll loop awaiting `yield` until either
+// the work or the deadline finishes.
+race :: (fn(limit : Option(Duration), io : Io) -> Impl(Future(i32, IoExn)))(
+  io.async((e) => {
+    (result : i32) = i32(0);
+    match(
+      limit,
+      .None => {
+        result = e.io.await(work(e.io), e);
+      },
+      .Some(l) => {
+        h := e.io.spawn(work(e.io), e);
+        dh := e.io.spawn(sleep(l, e.io), e.io);
+        (spins : i32) = i32(0);
+        while(runtime(!(h.is_finished()) && !(dh.is_finished())), {
+          e.io.await(yield(e.io), e.io);
+          spins = (spins + i32(1));
+        });
+        result = cond(
+          h.is_finished() => (i32(100) + cond((spins > i32(0)) => i32(1), true => i32(0))),
+          true => i32(200)
+        );
+      }
+    );
+    result
+  })
+);
+// The mirror image: the looping arm FIRST, so the representative point is the
+// looping one and the plain arm must not inherit its loop check.
+race_rev :: (fn(limit : Option(Duration), io : Io) -> Impl(Future(i32, IoExn)))(
+  io.async((e) => {
+    (result : i32) = i32(0);
+    match(
+      limit,
+      .Some(l) => {
+        h := e.io.spawn(work(e.io), e);
+        dh := e.io.spawn(sleep(l, e.io), e.io);
+        while(runtime(!(h.is_finished()) && !(dh.is_finished())), {
+          e.io.await(yield(e.io), e.io);
+        });
+        result = cond(h.is_finished() => i32(100), true => i32(200));
+      },
+      .None => {
+        result = e.io.await(work(e.io), e);
+      }
+    );
+    result
+  })
+);
+test("plain arm awaits once, looping arm polls to completion", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  a := io.await(race(Option(Duration).None, io), e);
+  assert(a == i32(7), "plain arm returns the awaited value");
+  b := io.await(race(Option(Duration).Some(Duration.from_millis(i64(500))), io), e);
+  assert(b == i32(101), "work (5ms) finishes before the 500ms deadline, after at least one yield");
+  c := io.await(race(Option(Duration).Some(Duration.from_millis(i64(1))), io), e);
+  assert(c == i32(200), "a 1ms deadline beats the 5ms work");
+});
+test("looping arm listed first", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  a := io.await(race_rev(Option(Duration).None, io), e);
+  assert(a == i32(7), "plain arm (second) returns the awaited value");
+  b := io.await(race_rev(Option(Duration).Some(Duration.from_millis(i64(500))), io), e);
+  assert(b == i32(100), "looping arm (first) completes");
+});

@@ -539,8 +539,10 @@ _check_anon_fn_captures :: (
             tok,
             `A regular function (using ->) cannot capture outer runtime variables: ${names}.
 Use a closure (=> syntax) instead, or refactor the handler to not reference outer variables.
-If this is an effect handler (e.g. Exception.throw), the handler type only accepts -> functions,
-so only builtin functions (panic, escape) and local variables are accessible.`,
+If this is an effect handler (e.g. Exception.throw), the handler type only accepts -> functions:
+handlers are capture-free by design (docs/en-US/ALGEBRAIC_EFFECTS.md), so a handler body may use
+its own parameters and locals, comptime constants, and builtins (panic, unwind) — record the
+outcome after the guarded call instead (e.g. a result the handler unwinds past).`,
             false,
             .None
           )
