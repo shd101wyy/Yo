@@ -96,7 +96,7 @@ the whole native suite will pass. Measured 2026-08-27: adding a `>> usize(32)`
 step to `HashMap`/`HashSet`'s power-of-two capacity rounding — correct on the
 hosts — made `with_capacity` round wrong on wasm32, where a shift equal to the
 operand width is undefined. `tests/collections/hash_map.test.yo`'s "rounds up to
-power of 2" failed under `--target wasm-wasi` while `yo test ./tests` stayed
+power of 2" failed under `--target wasm32-wasip1` while `yo test ./tests` stayed
 green at 3240/3240.
 
 Derive widths instead of writing them:
@@ -116,7 +116,7 @@ wait:
 
 ```bash
 for f in $(find tests -name '*.test.yo' -not -path 'tests/internal/*' -not -path 'tests/cli-cases/*' | sort); do
-  YO_STD=$PWD/std timeout 240 "$BIN" test "./$f" --parallel 1 --target wasm-wasi &> "logs/$(echo $f | tr / _).log"
+  YO_STD=$PWD/std timeout 240 "$BIN" test "./$f" --parallel 1 --target wasm32-wasip1 &> "logs/$(echo $f | tr / _).log"
   echo -e "$?\t$f"
 done
 ```
@@ -234,7 +234,7 @@ divergence was `struct_decl_31673__Users/...` vs `struct_decl_31673___std/...`).
 Copy the binary first, exactly as AGENTS.md shows:
 
 ```bash
-cp yo-out/aarch64-macos/bin/yo /tmp/yo-s1
+cp yo-out/aarch64-apple-darwin/bin/yo /tmp/yo-s1
 S1=/tmp/yo-s1 P=local bash scripts/bootstrap/fixpoint_only.sh
 ```
 
@@ -290,7 +290,7 @@ yo test ./tests/internal/parser.test.yo --parallel 1
   (`compiler-internal-tests` in `.github/workflows/test.yml`).
 - Run them whenever modifying `src/` source or these tests.
 - No WASM directives needed (pure logic, no I/O syscalls) — but they are
-  host-toolchain-only in CI, excluded from the emcc and wasm-wasi jobs.
+  host-toolchain-only in CI, excluded from the emcc and wasm32-wasip1 jobs.
 - Large `.test.yo` files are batch-compiled in chunks of 100 tests by default. Use `--test-batch-size N` to tune this when a generated C batch is too large or when you need tighter failure isolation. Smaller batches reduce C size but repeat Yo compilation, so avoid lowering this unless needed.
 - Do not run multiple `yo test ...` commands concurrently. The test path currently writes shared scratch files such as `/tmp/yo_self_out.c`, so concurrent runs can collide and produce misleading compile errors or skipped-test counts.
 
@@ -382,10 +382,10 @@ This disables leak detection on macOS, but tests still validate logic.
 See `issues/retired/macos-26-asan-blocked-by-amfi.md` for the kernel-log evidence.
 
 **Alternative** (slower, but keeps ASAN coverage on Linux/WASI): use
-`--target wasm-wasi` to run via `wasmtime`:
+`--target wasm32-wasip1` to run via `wasmtime`:
 
 ```bash
-yo test ./tests/internal --target wasm-wasi --parallel 1
+yo test ./tests/internal --target wasm32-wasip1 --parallel 1
 ```
 
 > Note: no file in `tests/internal` carries a `SkipWasm32*` pragma (verified
@@ -570,8 +570,8 @@ For large generated test binaries, use `--test-batch-size N` to split one `.test
 
 ## WASM testing
 
-- Run a test on Emscripten: `yo test ./tests/XXX.test.yo --cc emcc` (auto-targets `wasm32-emscripten`)
-- Run a test on standalone WASI: `yo test ./tests/XXX.test.yo --target wasm-wasi` (runs via `wasmtime`)
+- Run a test on Emscripten: `yo test ./tests/XXX.test.yo --cc emcc` (auto-targets `wasm32-unknown-emscripten`)
+- Run a test on standalone WASI: `yo test ./tests/XXX.test.yo --target wasm32-wasip1` (runs via `wasmtime`)
 - Use `pragma(Pragma.SkipWasm32Emscripten);` to skip a test file on the Emscripten target.
 - Use `pragma(Pragma.SkipWasm32Wasi);` to skip a test file on the standalone WASI target.
 - Use `pragma(Pragma.SkipWasm);` to skip a test file on ALL WASM targets (generic catch-all).
@@ -579,5 +579,5 @@ For large generated test binaries, use `--test-batch-size N` to split one `.test
 - For per-test skips, add `{ arch, Arch } :: import("std/process");` and use `if((arch == Arch.Wasm32), return())` at the top of the test body.
 - See `plans/WASM_SUPPORT.md` for the full list of WASM-skipped tests and limitations.
 - **Errno values differ on WASM** (WASI numbering). Always use constants from `std/libc/errno`, never hardcode errno numbers.
-- When adding new tests, verify they pass on native (`yo test ...`), Emscripten (`yo test ... --cc emcc`), and WASI (`yo test ... --target wasm-wasi`), or add appropriate `pragma(Pragma.SkipWasm*);` calls.
+- When adding new tests, verify they pass on native (`yo test ...`), Emscripten (`yo test ... --cc emcc`), and WASI (`yo test ... --target wasm32-wasip1`), or add appropriate `pragma(Pragma.SkipWasm*);` calls.
 - `process.platform` returns `"emscripten"` or `"wasi"` depending on target.

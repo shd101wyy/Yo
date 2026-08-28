@@ -422,7 +422,7 @@ jobs:
   # P2.5 step-24 option A: the free macOS runners (7 GB) cannot hold the
   # seed's ~12.2 GB self-emit, so the macOS bundles' C is emitted by the
   # PREVIOUS release's seed on a Linux runner. Verified 2026-08-17: with the
-  # allocator held constant, an explicit `--target aarch64-macos` emit is
+  # allocator held constant, an explicit `--target aarch64-apple-darwin` emit is
   # BYTE-IDENTICAL to the native default emit on an arm64 Mac — the emit is
   # a pure function of the triple. (Host-independence across OSes is the
   # same property the fixpoint gates exercise continuously; the native smoke
@@ -445,18 +445,18 @@ jobs:
       matrix:
         include:
           - target: macos-arm64
-            yo_target: aarch64-macos
+            yo_target: aarch64-apple-darwin
             bundle_allocator: system
             experimental: false
           - target: macos-x64
-            yo_target: x86_64-macos
+            yo_target: x86_64-apple-darwin
             bundle_allocator: system
             experimental: false
           # windows-x64 needs its portable-c arm from here too, now that no
           # native windows leg emits one — `scripts/make-portable-c.sh` treats
           # a missing windows-x64 arm as a hard failure.
           - target: windows-x64
-            yo_target: x86_64-windows-msvc
+            yo_target: x86_64-pc-windows-msvc
             # SYSTEM as of 2026-08-20 (user decision): Windows drops mimalloc
             # entirely, on BOTH targets.
             #
@@ -487,10 +487,10 @@ jobs:
           # SYSTEM, not mimalloc — but NOT because "mimalloc does not work on
           # arm64-Windows". It does; upstream supports that platform. The
           # failure is narrower: clang compiling `static.c` as PLAIN C11 for
-          # aarch64-windows-msvc. `include/mimalloc/atomic.h` picks its
+          # aarch64-pc-windows-msvc. `include/mimalloc/atomic.h` picks its
           # intrinsic family by
           # ARCHITECTURE (`_M_ARM64`) with no compiler discriminator, and clang
-          # targeting aarch64-windows-msvc defines `_M_ARM64` for MSVC source
+          # targeting aarch64-pc-windows-msvc defines `_M_ARM64` for MSVC source
           # compatibility while implementing neither `__ldar64` nor `__stlr64`.
           # v0.2.12 died exactly there — see
           # issues/windows-arm64-mimalloc-msvc-arm-intrinsics.md. Upstream has
@@ -504,7 +504,7 @@ jobs:
           # the A/B that answered it; its dispatch workflow has been removed)
           # is plans/WINDOWS_ALLOCATOR_DECISION.md.
           - target: windows-arm64
-            yo_target: aarch64-windows-msvc
+            yo_target: aarch64-pc-windows-msvc
             bundle_allocator: system
             # This leg must not be able to block a release. Unlike
             # seed-bundles-cross, THIS job had no protection at all: it feeds

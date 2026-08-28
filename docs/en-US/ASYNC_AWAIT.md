@@ -602,7 +602,7 @@ Similarly, the **parallelism runtime** (thread pool, worker spawn, hardware dete
 
 #### WASM Async Support
 
-WASM targets (`wasm32-emscripten` via emcc) support the core async scheduler with real timer support — `io.async()`, `io.await()`, `io.spawn()`, `JoinHandle.await()`, and `sleep()` (from `std/sys/timer`) all work. The scheduler runs with POSIX I/O via NODERAWFS for file operations, and a sorted timer queue for non-blocking sleep.
+WASM targets (`wasm32-unknown-emscripten` via emcc) support the core async scheduler with real timer support — `io.async()`, `io.await()`, `io.spawn()`, `JoinHandle.await()`, and `sleep()` (from `std/sys/timer`) all work. The scheduler runs with POSIX I/O via NODERAWFS for file operations, and a sorted timer queue for non-blocking sleep.
 
 What works on WASM:
 

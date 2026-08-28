@@ -234,12 +234,12 @@ yo build run          # Build and run the executable
 yo build test         # Run tests
 yo build --list-steps # List available build steps
 yo build --cc zig     # Use zig as the C compiler
-yo build --target wasm-emscripten  # Cross-compile for WASM (Emscripten)
+yo build --target wasm32-unknown-emscripten  # Cross-compile for WASM (Emscripten)
 
 # Direct compilation (single file, no build.yo needed)
 yo compile hello.yo -o hello
 yo compile hello.yo --cc clang -o hello
-yo compile hello.yo --target wasm-emscripten -o hello.html
+yo compile hello.yo --target wasm32-unknown-emscripten -o hello.html
 
 # Formatting (fixed style, 2-space indentation)
 yo fmt                     # Format all .yo files in the current directory

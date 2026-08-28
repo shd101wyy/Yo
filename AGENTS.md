@@ -134,6 +134,7 @@ builds itself (`yo build`).
 | `plans/backlog/SEED_VERSION_AUTOMATION.md`  | BACKLOG (2026-08-21): SEED_VERSION consistency guard across the 3 workflows + release-time direct bump push via RELEASE_PAT (no [skip ci], so the new seed is exercised immediately); scheduling point for seed-gated follow-ups |
 | `plans/FUNCTION_OVERLOADING_POLICY.md`      | No function overloading (Rust stance, 2026-08-21): exported `Call` tuples of ≥2 candidates are prelude-only (the runtime/comptime operator pairs); single-function `Call` (callable module) stays; audit of every overloading channel |
 | `plans/backlog/DUPLICATE_INHERENT_METHOD_REJECTION.md` | BACKLOG (2026-08-21): reject duplicate inherent method impls (today silently accepted, first-wins/arity-dispatch — issues/fixed/duplicate-inherent-method-impls-not-rejected.md); keyed on defining-expr identity so loader re-registration stays legal |
+| `plans/TARGET_TRIPLES.md`                  | LANDED 2026-08-28: the compiler's `--target` vocabulary IS the canonical Rust triple (`aarch64-apple-darwin`, `x86_64-unknown-linux-gnu`, `wasm32-wasip1`); no aliases — retired spellings error with a did-you-mean; `CompilationTarget` keys renamed to match; cfg names (`macos`, `x86`) vs triple words (`apple-darwin`, `i686`) split explicitly in `src/target.yo` |
 
 **Renamed 2026-08-06 — translate these in older docs.** The `phase6*` prefix named an
 internal porting-plan phase and meant nothing to a reader, so the four macro/reflection
