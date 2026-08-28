@@ -1,6 +1,6 @@
 //! Hash set using SwissTable algorithm with set-theoretic operations.
 pragma(Pragma.AllowUnsafe);
-{ GlobalAllocator, AllocError } :: import("../allocator.yo");
+{ GlobalAllocator, AllocError, size_would_overflow } :: import("../allocator.yo");
 { malloc, calloc, realloc, free } :: GlobalAllocator;
 /// Error variants for HashSet operations.
 HashSetError :: enum(
@@ -65,6 +65,12 @@ impl(
   */
   _alloc_with_capacity : (fn(capacity : usize) -> Result(Self, HashSetError))({
     element_size :: sizeof(T);
+    // See HashMap._alloc_with_capacity: `capacity * element_size` wraps, and
+    // `CapacityOverflow` existed for exactly this check
+    // (issues/fixed/collection-capacity-overflow-unchecked.md).
+    if(size_would_overflow(T, capacity), {
+      return(.Err(.CapacityOverflow));
+    });
     ctrl_size := capacity;
     data_size := (capacity * element_size);
     ctrl_result := malloc(ctrl_size);
@@ -120,11 +126,19 @@ impl(
       true => {
         c := requested_capacity;
         c = (c - usize(1));
-        c = (c | (c >> usize(1)));
-        c = (c | (c >> usize(2)));
-        c = (c | (c >> usize(4)));
-        c = (c | (c >> usize(8)));
-        c = (c | (c >> usize(16)));
+        // Smear the top bit down over the WHOLE width, deriving the shifts from
+        // `sizeof(usize)` rather than hardcoding them: the unrolled 1/2/4/8/16
+        // stopped short of a 64-bit usize (so a request above 2^32 rounded to a
+        // non-power-of-two, though the bucket masking `hash & (capacity - 1)`
+        // requires one), and hardcoding a `>> 32` instead breaks wasm32, where
+        // usize is 32 bits and a shift equal to the width is undefined —
+        // `with_capacity` really did round wrong there while every native test
+        // stayed green (issues/fixed/collection-capacity-overflow-unchecked.md).
+        sh := usize(1);
+        while(sh < (sizeof(usize) * usize(8)), {
+          c = (c | (c >> sh));
+          sh = (sh * usize(2));
+        });
         c + usize(1)
       }
     );
@@ -474,11 +488,12 @@ impl(
         combined := (self.size + other.size);
         c := combined;
         c = (c - usize(1));
-        c = (c | (c >> usize(1)));
-        c = (c | (c >> usize(2)));
-        c = (c | (c >> usize(4)));
-        c = (c | (c >> usize(8)));
-        c = (c | (c >> usize(16)));
+        // Width-generic smear — see `with_capacity` above.
+        sh := usize(1);
+        while(sh < (sizeof(usize) * usize(8)), {
+          c = (c | (c >> sh));
+          sh = (sh * usize(2));
+        });
         c + usize(1)
       },
       true => DEFAULT_CAPACITY

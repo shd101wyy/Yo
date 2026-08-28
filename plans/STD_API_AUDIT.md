@@ -96,7 +96,10 @@ records; mechanisms and reproducers are in the named `issues/fixed/` docs.
 | C29 | **generic call type variables re-resolve PER ARGUMENT** — `pair_same(generic(A), x : A, y : A)` accepts `(String, i32)`; the signature's mentions of one variable resolve through separate SomeT lineages, so no cross-argument conflict is ever seen (C18's lenient struct compatibility is the second half). Memory-safety face closed by C28's gate; wrong-value faces remain | **OPEN** — issues/generic-type-var-rebinds-per-argument.md |
 | C30 | **ctl handler falling through with a unit tail emitted a value-returning C fn with NO return** — the erm C signature renders the unresolved ResumeType (`void*`) while the body path treats unit as statement-tail; exposed by #275's load-bearing `-Werror=return-type` (CI internal shards 2/3: check_watch/module_invalidation batches). Fall-through = implicit RESUME WITH UNIT; codegen now closes every pointer-signature erm with `return (T*){0}` | **FIXED 2026-08-27** — issues/fixed/ctl-handler-unit-tail-missing-c-return.md |
 | C31 | **`__yo_init_process_cleanup`'s lazy-init flag raced across worker threads** (TSan data race on `cleanup_initialized`, mislabeled as an RwLock test failure on the TSan CI leg) — every spawned thread runs it via `__yo_gc_init_thread`; Windows already used InitOnceExecuteOnce, POSIX/wasm had a plain static bool. Now an atomic exchange | **FIXED 2026-08-27** — src/codegen/functions/gc_runtime.yo |
-| C32 | **`ThreadPool` accepts work no thread can run, then `join_all` deadlocks forever** — on standalone WASI `pthread_create` fails; pool init handles that (`running = 0`) but `__yo_worker_spawn` ignores it and queues to the dead worker, so `join_all`'s per-worker sentinels never run and `drained.recv()` blocks with no diagnostic (a CI leg spun **3.4 h** on one test). `Thread.spawn` has the same swallow (null handle, closure never runs, `join` a no-op). Test skipped on WASI meanwhile — the runtime fix re-emits the parallelism runtime for every platform, so it lands with its own battery | **OPEN** — issues/wasi-thread-pool-submit-deadlock.md |
+| C32 | **`ThreadPool` accepted work no thread can run, then `join_all` deadlocked forever** — on standalone WASI `pthread_create` fails; pool init recorded that (`running = 0`) but `__yo_worker_spawn` ignored it and queued to the dead worker, so `join_all`'s per-worker sentinels never ran and `drained.recv()` blocked with no diagnostic (a CI leg spun **3.4 h** on one test). `Thread.spawn` had the same swallow: null handle, closure never runs, its RC captures never released (the wrapper that drops them IS the thread body), `join` a silent no-op. **FIXED 2026-08-27** — both spawn paths run the task INLINE on the submitting thread when its slot has no OS thread (the wrapper is thread-agnostic; the worker's `__yo_async_wait_all` epilogue is deliberately not run inline, which would re-enter the caller's loop), and `__yo_thread_join` skips a zero handle via a new `__YO_THREAD_HANDLE_IS_NULL` for both platform branches. The WASI skip is REMOVED: `tests/control_fn_as_regular_call` now runs all three tests there, vacuity-probed (a flipped expectation fails on WASI, so the worker body really executes) | **FIXED** — issues/fixed/wasi-thread-pool-submit-deadlock.md |
+| C33 | **`HttpError` declares three failures the client cannot produce** — `Timeout`, `TooManyRedirects`, `ResponseTooLarge` are documented and formatted but never constructed: `FetchOptions` has no deadline, no redirect cap and no size limit, so a hung server blocks `fetch` forever, a 3xx is returned verbatim, and an unbounded body streams into memory. C9's class on a public error type, and it must close BEFORE S5 — freezing the enum locks in the lie, removing the variants later is breaking. Fix is additive (`with_timeout(Duration)` over §7 item 6's `std/async.timeout`, a redirect cap that still throws `UnsupportedScheme` on a cross-scheme hop per C1, a max-body ceiling in `_read_http_response`) | **OPEN** — issues/http-client-error-variants-never-raised.md |
+| C34 | **`json_parse` accepted every malformed number, and read ANY garbage as `0`** — `parse_number` scanned characters without validating and always returned `.Ok(atof(span))`, so `1.`/`1e`/`01`/`+1` all passed; and since `_parse_value` routes every unrecognized leading byte there, an empty span made `"hello"` and `"<html>"` parse as the NUMBER 0 (an HTML error page where JSON was expected → `Ok(Number(0))`, not an error; `src/lsp/server.yo` parses every JSON-RPC frame through it). `JsonError.InvalidNumber` was the dead variant that led the audit here. **FIXED 2026-08-27** — RFC 8259 §6 grammar validated before `atof`; 3 tests (2 verified RED first) | **FIXED** — issues/fixed/json-number-parser-accepts-invalid-and-any-garbage.md |
+| C35 | **`sizeof(T) * count` was computed UNCHECKED in every collection** — `ArrayList.with_capacity(2^61)` for `u64` wrapped to `malloc(0)`, reported capacity 2^61, and pushed straight outside the allocation (silent heap corruption, no diagnostic); `ensure_total_capacity`'s doubling loop wrapped through zero and SPUN FOREVER; `HashMap`/`HashSet` had the same unchecked multiply behind the `CapacityOverflow` variant that was declared and never produced. `std/allocator`'s `size_would_overflow` shipped exported and called by NOTHING. **FIXED 2026-08-27** — guards at both ArrayList entry points (panic, as Rust's `Vec::with_capacity` does) with an overflow-only clamp so ordinary growth still doubles, `.Err(.CapacityOverflow)` in both hash containers, plus the `>> 32` step both power-of-two roundings were missing; new tests/allocator.test.yo (the helper had zero coverage) + a growth regression guard | **FIXED** — issues/fixed/collection-capacity-overflow-unchecked.md |
 
 ---
 
@@ -623,7 +626,14 @@ declarations at runtime.
    C27 + the io-future drop-ownership hole (both filed)
 7. ~~`crypto`: HMAC, SHA-1, SHA-512, CRC32, `Digest` trait~~ **DONE 2026-08-27** (streaming `Sha1`/`Sha512`/`Md5` on the Sha256 skeleton; the `Digest` trait — `new`/`update`/`digest_size`/`block_size`/`finish_bytes` + a `finish_hex` `?=` default — implemented by all four; generic `hmac` via `(D <: Digest)` statics + `hmac_sha{1,256,512}(_hex)` + `constant_time_eq`; bitwise reflected `crc32`; all pinned to FIPS 180-4 / RFC 2202 / RFC 4231 / CRC-catalog vectors). `std/rand` **DONE 2026-08-27** (seedable PCG-XSH-RR 64/32 `Rng`: `new`/`with_stream`/`next_u32`/`next_u64`/`next_f64`/rejection-sampled `next_below`+`range`/Fisher–Yates `shuffle`/`choice`, pinned to the pcg-random.org reference sequence — landing it surfaced and fixed the 6-digit float-literal truncation, issues/fixed/float-literals-normalized-through-6-digit-percent-g.md)
 8. ~~prelude D3 items 1–8~~ **DONE** (D3.9 Hasher blocked, D3.10 done)
-9. `Duration` integration everywhere a timeout/interval appears
+9. `Duration` integration everywhere a timeout/interval appears — **SURVEYED
+   2026-08-27, all but one surface already done**: `std/time/sleep` +
+   `sleep_blocking` and `std/async`'s `timeout` take `Duration`;
+   `std/sys/timer.sleep(milliseconds : u64)` and its extern stay raw BY DESIGN
+   (the sys layer mirrors the syscall). The only remaining `Duration` surface is
+   the HTTP client, which has no deadline at all — folded into **C33**
+   (issues/http-client-error-variants-never-raised.md) with the two other
+   never-raised `HttpError` variants
 10. ~~`net.UnixStream`/`UnixListener`~~ **DONE 2026-08-27** (`std/net/unix.yo` mirroring the Tcp pair one-to-one — bind/accept/connect/read/write family + `Reader`/`Writer` impls; the socket FILE is not unlinked on close, like Rust; echo round-trip + AddressInUse pinned)
 
 **P0+ — user-requested (2026-08-23), tracked with this campaign**
@@ -696,6 +706,35 @@ mmap/file-lock/statfs wrappers; `gc.stats`; DNS SRV/TXT/reverse
 5. **S4 — P1 additions.**
 6. **S5 — stability freeze:** stable/unstable markers in `yo doc` output,
    additive-only policy documented in `yo-design.instructions.md`.
+
+   **Two inputs measured 2026-08-27, to be worked before the freeze:**
+
+   - **Dead public surface.** A scripted sweep of every `enum` in `std/` found
+     25 variants with no production site. Most are legitimate user-supplied
+     INPUTS (`Optimize.ReleaseFast`, `SeekFrom.Current`, `Signal.Interrupt` — the
+     library matches on them, user code produces them), but the library-produced
+     ERROR variants that can never occur are lies the freeze would lock in:
+     `HttpError.{Timeout,TooManyRedirects,ResponseTooLarge}` (**C33**, fix them
+     rather than delete), `JsonError.InvalidNumber` (**C34** — it turned out the
+     validation was missing, now FIXED), `Hash{Map,Set}Error.CapacityOverflow`
+     (**C35** — same, the check was missing, now FIXED), and
+     `HashMapError.KeyNotFound` / `HashSetError.ElementNotFound`, which are dead
+     BY DESIGN (lookups return `Option`) and want DELETING here, in §6, since
+     removing a public variant is breaking. `std/allocator`'s `Layout` /
+     `layout_of` are unconsumed too — no `alloc(Layout)` entry point exists —
+     which needs the same delete-or-implement decision. The struct-field face of
+     the sweep came back clean apart from reflection metadata and
+     `DateTime.nanosecond` (correctly populated, just never rendered — RFC 3339
+     permits that, so no defect).
+   - **Test coverage of the exported surface.** 1132 of 1829 `std` exports are
+     never NAMED anywhere under `tests/`. That number badly overstates the gap —
+     it is a name grep, so `std/sys/*` + `std/libc/*` constants dominate it and
+     any type exercised only structurally (iterators reached through `for`, error
+     enums appearing only in signatures) scores zero — but 183 of them sit
+     outside those raw layers and want a real read before anything is marked
+     stable. Freezing an export no test exercises is how a broken API becomes
+     permanent (C34 was exactly that: `json_parse`'s number path had no negative
+     test, so a parser that accepted `"<html>"` as `0` looked green for months).
 
 Every stage gates on: `yo check ./std && yo check ./src`, the full language
 suite, the internal suite for touched areas, `gates_fast.sh` + fixpoint, and
