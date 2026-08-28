@@ -88,6 +88,44 @@ symlink loop made `walk_with` return an EMPTY list, so `yo fetch`, `yo version`
 and both report lints kept building and traversed nothing. See
 `issues/ftt-stub-in-live-closure-falls-off-non-void-function.md`.
 
+### `usize` is 32 bits on wasm32 — the native suite cannot see width bugs
+
+The wasm targets are the only place `usize` is not 64 bits, so any code that
+hardcodes a bit position, a shift amount, or a `1 << k` boundary is a regression
+the whole native suite will pass. Measured 2026-08-27: adding a `>> usize(32)`
+step to `HashMap`/`HashSet`'s power-of-two capacity rounding — correct on the
+hosts — made `with_capacity` round wrong on wasm32, where a shift equal to the
+operand width is undefined. `tests/collections/hash_map.test.yo`'s "rounds up to
+power of 2" failed under `--target wasm-wasi` while `yo test ./tests` stayed
+green at 3240/3240.
+
+Derive widths instead of writing them:
+
+```rust
+sh := usize(1);
+while(sh < (sizeof(usize) * usize(8)), { c = (c | (c >> sh)); sh = (sh * usize(2)); });
+```
+
+and in tests, derive the boundary the same way (`bits :: (sizeof(usize) * usize(8))`,
+then `usize(1) << (bits - usize(3))`) rather than writing `usize(1) << usize(61)`,
+which is meaningless on a 32-bit target.
+
+**So run the wasm legs locally for anything touching sizes, capacities or bit
+math**, one file at a time with a timeout so a hang is a verdict rather than a
+wait:
+
+```bash
+for f in $(find tests -name '*.test.yo' -not -path 'tests/internal/*' -not -path 'tests/cli-cases/*' | sort); do
+  YO_STD=$PWD/std timeout 240 "$BIN" test "./$f" --parallel 1 --target wasm-wasi &> "logs/$(echo $f | tr / _).log"
+  echo -e "$?\t$f"
+done
+```
+
+~4 s a file, ~15 min for the corpus, and it reports HANGS (rc=124) that the
+`--bail` suite hides behind whichever file fails first. This is how both the
+3.4-hour `ThreadPool` deadlock (`issues/fixed/wasi-thread-pool-submit-deadlock.md`)
+and the width bug above were found.
+
 ### "Byte-identity of the emitted C" does NOT survive a `std/` source edit
 
 The standing acceptance test for an *additive codegen* change — record `sha256`

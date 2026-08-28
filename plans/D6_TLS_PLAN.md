@@ -88,8 +88,10 @@ throwing `UnsupportedScheme` — std stays honest.
    placeholder (fixed by nullable-check-then-unwrap, no placeholder), and
    the read pump needed a single post-cond awaiting `if` instead of two
    (issues/async-postwhile-multiple-await-ifs.md).
-2. `std/http/client.yo`: route `https://` through TlsStream (C1's throw
-   becomes the fallback when the probe failed at build time — the error
-   message should say "built without OpenSSL").
+2. ~~`std/http/client.yo`: route `https://` through TlsStream.~~ **LANDED
+   2026-08-28** — scheme branch (TcpStream|TlsStream), generic-Reader shared
+   response loop, default port 443, live https fetch pinned. (The
+   build-without-OpenSSL error message polish is deferred; the linker names
+   the missing library, which suffices.)
 3. P0+ curl swap in `src/fetch.yo`/`version_cache.yo` (measure first — the
    row notes it is blocked on this).

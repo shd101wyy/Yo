@@ -1,12 +1,10 @@
-# ThreadPool accepts work no thread can run, then `join_all` deadlocks forever
+# ThreadPool accepted work no thread can run, then `join_all` deadlocked forever
 
 **Found**: 2026-08-27, PR #309 run 7 — the `test-wasm32_wasi` leg ran for
 **3 h 31 min** inside a single test and was killed by cancellation, leaving an
-orphan `wasmtime` process spinning. **Status**: OPEN (the runtime fix is its own
-change — it re-emits the parallelism runtime for every platform and needs a full
-battery). The test that tripped it is skipped on WASI in the meantime, matching
-the convention already used by `tests/thread.test.yo`,
-`tests/thread_pool.test.yo` and `tests/imm_threading.test.yo`.
+orphan `wasmtime` process spinning. **Fixed**: same day. The interim WASI skip on
+`tests/control_fn_as_regular_call.test.yo` (which shipped in #309 to unblock CI)
+is REMOVED by the fix — that test now runs all three of its tests on WASI.
 
 ## Symptom
 
@@ -66,23 +64,41 @@ yo test ./tests/control_fn_as_regular_call.test.yo --parallel 1 --target wasm-wa
 Minimal shape (any WASI build): `pool := ThreadPool.new(usize(2)); spawn(pool,
 (io) => { … }); pool.join_all();` — `join_all` never returns.
 
-## What a fix needs
+## Fix
 
-`__yo_worker_spawn` must not enqueue to a worker with `running == 0`. Two honest
-options, to be decided when the fix lands:
+Both spawn paths now run the task **inline on the submitting thread** when its
+slot has no OS thread, rather than queueing work nothing will pick up. The
+alternative — failing loudly, as Rust's `thread::spawn` does on threadless wasm
+— was rejected because `spawn(pool, cb)` returns `unit`, so aborting the process
+is the only way it could "report", and running the task sequentially fulfils the
+contract that a thread-less platform can actually keep.
 
-- **Run the task inline on the submitting thread.** The work happens, `join_all`
-  returns, and a thread-less platform behaves like a synchronous pool. Costs the
-  documented per-task isolation (own Io event loop, own GC heap), and needs care
-  about which of the worker entry's per-task epilogue (`async_wait_worker`,
-  `__yo_gc_collect`) is safe to run on the caller's thread.
-- **Fail loudly at submission** — the Rust posture, where
-  `thread::spawn` on threadless wasm returns `Err`. Turns a silent 3-hour hang
-  into an immediate, diagnosable abort, but kills programs that would have been
-  correct sequentially.
+- `__yo_worker_spawn`: `if (!__yo_worker_threads[thread_idx].running) { fn(closure); return; }`
+  before the task node is allocated. The spawn wrapper is thread-agnostic (call
+  the closure, drop its captures, free them), so nothing in it assumes a fresh
+  thread. The worker entry's per-task epilogue is deliberately NOT run inline:
+  `__yo_async_wait_all()` would drain the CALLER's event loop from inside a
+  submission (re-entrancy), and `__yo_gc_collect()` belongs to the worker's own
+  heap. The consequence — a task's async tail completes at the caller's next
+  drain rather than inside `join_all` — is the honest cost of having no thread.
+- `__yo_thread_spawn`: same inline call on a `pthread_create` failure, which also
+  closes the capture leak (the wrapper that drops and frees the closure IS the
+  thread body, so a swallowed failure leaked every captured Rc).
+- `__yo_thread_join`: skips a zero handle instead of calling `pthread_join(0)`,
+  which is undefined. The predicate is a new `__YO_THREAD_HANDLE_IS_NULL` macro
+  emitted beside the thread typedefs in `src/codegen/types/generation.yo`, one
+  definition per platform branch (`== NULL` for the Windows `HANDLE`,
+  `== (pthread_t)0` for POSIX — the zero-handle convention this runtime already
+  wrote on that path).
 
-Either way the deadlock goes, and `Thread.spawn`'s sibling hole should be closed
-in the same pass: it also swallows a `pthread_create` failure
-(`runtime.yo:176`), returning a `Thread` with a null handle whose closure never
-runs and whose `join` is a no-op — the same "silently dropped work" class,
-currently invisible because the whole thread test surface is skipped on WASI.
+## Verification
+
+- `tests/control_fn_as_regular_call.test.yo` — WASI skip removed; all 3 tests
+  pass under `--target wasm-wasi` in seconds where the leg previously hung for
+  3.4 h.
+- **Vacuity-probed**: flipping the worker closure's expectation to `i32(7)` makes
+  the WASI run FAIL with that closure's own assertion message, so the task body
+  genuinely executes inline there rather than being skipped.
+- Natively (`tests/control_fn_as_regular_call`, `tests/thread`,
+  `tests/thread_pool`): 13 pass. The new branch is dead on any platform where
+  thread creation succeeds, so ordinary pool behaviour is untouched.

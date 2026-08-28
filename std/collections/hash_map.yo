@@ -1,6 +1,6 @@
 //! Hash map using SwissTable algorithm with SIMD-accelerated lookup.
 pragma(Pragma.AllowUnsafe);
-{ GlobalAllocator, AllocError } :: import("../allocator.yo");
+{ GlobalAllocator, AllocError, size_would_overflow } :: import("../allocator.yo");
 { MapEntry } :: import("./entry.yo");
 { malloc, calloc, realloc, free } :: GlobalAllocator;
 /// Error variants for HashMap operations.
@@ -68,6 +68,13 @@ impl(
   */
   _alloc_with_capacity : (fn(capacity : usize) -> Result(Self, HashMapError))({
     bucket_size :: sizeof(MapEntry(K, V));
+    // `capacity * bucket_size` is computed in usize and WRAPS, which would hand
+    // malloc a tiny size while the map still believes it owns `capacity`
+    // buckets. This is the check `CapacityOverflow` was declared for and never
+    // performed (issues/fixed/collection-capacity-overflow-unchecked.md).
+    if(size_would_overflow(MapEntry(K, V), capacity), {
+      return(.Err(.CapacityOverflow));
+    });
     ctrl_size := capacity;
     data_size := (capacity * bucket_size);
     ctrl_result := malloc(ctrl_size);
@@ -123,11 +130,19 @@ impl(
       true => {
         c := requested_capacity;
         c = (c - usize(1));
-        c = (c | (c >> usize(1)));
-        c = (c | (c >> usize(2)));
-        c = (c | (c >> usize(4)));
-        c = (c | (c >> usize(8)));
-        c = (c | (c >> usize(16)));
+        // Smear the top bit down over the WHOLE width, deriving the shifts from
+        // `sizeof(usize)` rather than hardcoding them: the unrolled 1/2/4/8/16
+        // stopped short of a 64-bit usize (so a request above 2^32 rounded to a
+        // non-power-of-two, though the bucket masking `hash & (capacity - 1)`
+        // requires one), and hardcoding a `>> 32` instead breaks wasm32, where
+        // usize is 32 bits and a shift equal to the width is undefined —
+        // `with_capacity` really did round wrong there while every native test
+        // stayed green (issues/fixed/collection-capacity-overflow-unchecked.md).
+        sh := usize(1);
+        while(sh < (sizeof(usize) * usize(8)), {
+          c = (c | (c >> sh));
+          sh = (sh * usize(2));
+        });
         c + usize(1)
       }
     );

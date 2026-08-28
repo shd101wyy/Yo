@@ -7,15 +7,25 @@ only large piece still in flight).
 
 ---
 
-## 0. THE ONE THING TO DO FIRST — **DONE 2026-08-26**
+## 0. WHERE THIS STANDS — updated 2026-08-27 (end of the CI-repair day)
 
-The D4 byte-indexing flip merged as **PR #290** after the full battery
-(including the hollow sweep), followed the same day by #291 (D4 PRs 4–8),
-#292 (the Rust-shape amendment: iterator-only rune work), #293 (D5 slice 1),
-#294 + #295 (the C24 async-capture/loop-await fixes) and #296 (the audit doc
-condensed to current state — read it fresh, it is no longer 1815 lines).
-The main worktree is back on `develop`. There is no pending unmerged branch;
-the next work item is D5 slice 2 (§3.2).
+**S3 P0 item 6 is merged and develop is green again.** PR **#309**
+(`07072ec3c`) landed the async combinators + `std/async/channel` + `std/async/mutex`
+along with the five CI reds that had kept develop red since 2026-08-25 (C28's
+effect-argument memcpy being the big one). Run 33083020070: 26/26.
+
+**Release gating (user instruction, 2026-08-27):** a new patch release requires
+**develop's own** test.yml run to be green — the PR run passing is not
+sufficient. So the order is: merge → watch develop's push run → dispatch
+`release.yml` with `bump=patch` (that workflow checks out develop itself and
+auto-bumps the three `SEED_VERSION` pins). v0.2.18 is what unblocks every
+seed-gated item below (§3.5, and the bufio consumer migration in §3.2).
+
+**In flight on branch `std/api-truthfulness`** (off `07072ec3c`, not yet pushed —
+battery running): the dead-public-surface audit that item 6 prompted, plus the
+four bugs it found. See §2b.
+
+The main worktree is on `develop`.
 
 ---
 
@@ -147,6 +157,31 @@ inline-alias codegen fix. Collapsing it to the natural one-expression form fails
 the bootstrap LOUDLY (clang rejects the seed's output), so just retry it at each
 seed bump. Parked in `plans/backlog/SEED_VERSION_AUTOMATION.md` with the three
 other generation-gated follow-ups.
+
+---
+
+## 2b. The dead-surface audit — 2026-08-27, branch `std/api-truthfulness`
+
+Item 6's own `HttpError.Timeout` question turned into a scripted sweep of the
+public surface, which found four defects. Two were memory-safety or
+silently-wrong-value bugs, and both are FIXED with tests; the ledger rows are
+C32–C35 in `plans/STD_API_AUDIT.md` §2.
+
+| row | what | state |
+| --- | --- | --- |
+| C32 | `ThreadPool` queued work to a worker with no OS thread, so `join_all` blocked forever (a CI leg spun **3.4 h**); `Thread.spawn` swallowed the same failure and leaked its captures | **FIXED** — both spawn paths run the task inline; the WASI test skip #309 shipped is removed and vacuity-probed |
+| C33 | `HttpError.{Timeout,TooManyRedirects,ResponseTooLarge}` are documented and never produced — no deadline, no redirect cap, no size ceiling anywhere in the request path | **OPEN**, with the implementation shape and the C22 constraint on the timeout recorded in the issue |
+| C34 | `json_parse` validated NO number: `1.`, `1e`, `01`, `+1` all parsed, and any non-empty garbage (`"hello"`, `"<html>"`) came back as the number **0** | **FIXED** — RFC 8259 §6 grammar, 3 tests (2 red-first) |
+| C35 | every collection multiplied `sizeof(T) * count` unchecked: `with_capacity(2^61)` for `u64` asked malloc for 0 bytes and pushed outside it; `ensure_total_capacity` spun forever | **FIXED** — guards via `size_would_overflow` (which shipped exported and unused), new tests/allocator.test.yo |
+
+The method is worth reusing: script the audit rather than reading files. Both
+sweeps are one-off Python in the scratchpad — enumerate every `enum(...)` /
+`export(...)` in `std/`, then grep the tree for producers. Two rules make the
+output trustworthy: count BARE `.Variant` production (a unit variant is
+constructed without parens or a type prefix, which a naive grep misses), and
+separate library-produced ERROR variants (lies) from user-supplied INPUT
+variants like `Optimize.ReleaseFast` (not lies). §9's S5 entry carries both
+measurements.
 
 ---
 

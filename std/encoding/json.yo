@@ -426,8 +426,22 @@ impl(
     });
     .Ok(String.from_bytes(bytes))
   }),
+  /// RFC 8259 section 6:
+  ///
+  ///     number = [ minus ] int [ frac ] [ exp ]
+  ///     int    = zero / ( digit1-9 *DIGIT )
+  ///     frac   = decimal-point 1*DIGIT
+  ///     exp    = e [ minus / plus ] 1*DIGIT
+  ///
+  /// This VALIDATES the grammar before handing the span to `atof`. It used to
+  /// scan the same characters without checking any of them and always return
+  /// `.Ok(atof(...))`, so `"1."`, `"1e"`, `"01"` and `"+1"` were all accepted —
+  /// and since `_parse_value` routes every unrecognized leading byte here, an
+  /// empty span made `"hello"` and `"<html>"` parse as the NUMBER 0
+  /// (issues/fixed/json-number-parser-accepts-invalid-and-any-garbage.md).
   parse_number : (fn(self : Self) -> Result(f64, JsonError))({
     start := self.pos;
+    // [ minus ] — a leading '+' is NOT part of the grammar.
     match(
       self.peek(),
       .Some(c) => {
@@ -439,18 +453,51 @@ impl(
       },
       .None => ()
     );
-    while(runtime(true), {
+    // int = zero / ( digit1-9 *DIGIT ) — at least one digit is required, and a
+    // leading zero may not be followed by another digit ("01").
+    leading_zero := match(
+      self.peek(),
+      .Some(c) =>
+        cond(
+          (c == u8(48)) => {
+            // '0'
+            self.advance();
+            true
+          },
+          ((c >= u8(49)) && (c <= u8(57))) => {
+            self.advance();
+            false
+          },
+          true => return(.Err(.InvalidNumber))
+        ),
+      .None => return(.Err(.InvalidNumber))
+    );
+    if(leading_zero == false, {
+      while(runtime(true), {
+        match(
+          self.peek(),
+          .Some(d) => {
+            cond(
+              ((d >= u8(48)) && (d <= u8(57))) => self.advance(),
+              true => break
+            );
+          },
+          .None => break
+        );
+      });
+    });
+    if(leading_zero, {
       match(
         self.peek(),
-        .Some(c) => {
-          cond(
-            ((c >= u8(48)) && (c <= u8(57))) => self.advance(),
-            true => break
-          );
+        .Some(d) => {
+          if((d >= u8(48)) && (d <= u8(57)), {
+            return(.Err(.InvalidNumber));
+          });
         },
-        .None => break
+        .None => ()
       );
     });
+    // [ frac ] = decimal-point 1*DIGIT
     match(
       self.peek(),
       .Some(c) => {
@@ -458,6 +505,17 @@ impl(
           (c == u8(46)) => {
             // '.'
             self.advance();
+            match(
+              self.peek(),
+              .Some(d) => {
+                if((d < u8(48)) || (d > u8(57)), {
+                  return(.Err(.InvalidNumber));
+                });
+              },
+              .None => {
+                return(.Err(.InvalidNumber));
+              }
+            );
             while(runtime(true), {
               match(
                 self.peek(),
@@ -476,6 +534,7 @@ impl(
       },
       .None => ()
     );
+    // [ exp ] = e [ minus / plus ] 1*DIGIT
     match(
       self.peek(),
       .Some(c) => {
@@ -492,6 +551,17 @@ impl(
                 );
               },
               .None => ()
+            );
+            match(
+              self.peek(),
+              .Some(d) => {
+                if((d < u8(48)) || (d > u8(57)), {
+                  return(.Err(.InvalidNumber));
+                });
+              },
+              .None => {
+                return(.Err(.InvalidNumber));
+              }
             );
             while(runtime(true), {
               match(
