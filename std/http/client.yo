@@ -227,7 +227,7 @@ _find_content_length :: (fn(data : ArrayList(u8), header_end : usize) -> i32)({
 // function's await is a nested BLOCKING event loop, and running one from
 // inside a task (fetch_with's) freezes every other task on the loop until
 // this read returns — a deadlock the moment the peer is a sibling task
-// (issues/sync-await-in-plain-fn-nests-the-event-loop.md).
+// (issues/fixed/sync-await-in-plain-fn-nests-the-event-loop.md).
 _read_http_response :: (
   fn(generic(R : Type), stream : R, max_bytes : usize, io : Io, where(R <: Reader)) ->
     Impl(Future(String, IoExn))
@@ -502,7 +502,7 @@ _fetch_follow :: (
 /// awaiting `yield` (a real suspension point), NOT by `std/async`'s
 /// `timeout`/`JoinHandle.await`: those poll the event loop synchronously and,
 /// called from inside a task, nest the loop
-/// (issues/sync-await-in-plain-fn-nests-the-event-loop.md). The body is the
+/// (issues/fixed/sync-await-in-plain-fn-nests-the-event-loop.md). The body is the
 /// top-level `_fetch_follow`, not a closure nested here (C22).
 ///
 /// This is its own future rather than a `match` arm of `fetch_with` because

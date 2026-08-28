@@ -2836,6 +2836,11 @@ run_test :: (
         (lsan_supp_file : String) = String.from("");
         if(use_asan, {
           _sv_asan := proc_env.set(String.from("ASAN_OPTIONS"), if(leak_verdict, String.from("detect_leaks=1"), String.from("detect_leaks=0")));
+          // Every test child runs with the nested-event-loop guard ARMED: a blocking
+          // await inside a task (C37) is a deterministic panic under `yo test`, while
+          // ordinary programs stay relaxed until the compiler's own build scheduler is
+          // made async (issues/compiler-build-runner-nests-event-loop.md).
+          _sv_strict := proc_env.set(String.from("YO_ASYNC_STRICT"), String.from("1"));
           // macOS: suppress the well-known system-library leak reports
           // (getMacOSLsanSuppressions, compiler-utils.ts:334-341).
           if(is_target_macos(host_ti), {
