@@ -389,13 +389,17 @@ test("fetch decodes a chunked body (sizes, extensions and trailers stripped)", {
   responses.push(`HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n7;ext=1\r\nhello, \r\nA\r\nchunked!!!\r\n0\r\n\r\n`);
   seen := ArrayList(String).new();
   server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
+  println(`  [chunked test] server spawned, fetching /one`);
   r1 := io.await(fetch_with(`http://127.0.0.1:19965/one`, FetchOptions.new(), io), IoExn(io : io, exn : exn));
+  println(`  [chunked test] /one returned ${r1.status_code} (${r1.body.len()} bytes)`);
   assert(r1.status_code == i32(200), `status ${r1.status_code}`);
   assert(r1.body == "hello, chunked world — 16+ bytes so a size needs two hex digits", `decoded body, got "${r1.body}"`);
   assert(r1.get_header(`Transfer-Encoding`).is_some(), `the header itself is kept`);
   r2 := io.await(fetch_with(`http://127.0.0.1:19965/two`, FetchOptions.new(), io), IoExn(io : io, exn : exn));
+  println(`  [chunked test] /two returned ${r2.status_code} (${r2.body.len()} bytes)`);
   assert(r2.body == "hello, chunked!!!", `chunk extension + upper-case size, got "${r2.body}"`);
   server.await(io);
+  println(`  [chunked test] server task joined`);
   io.await(listener.close(io), IoExn(io : io, exn : exn));
 });
 test("a malformed chunk size is a typed HttpError, not a garbage body", {
@@ -414,6 +418,7 @@ test("a malformed chunk size is a typed HttpError, not a garbage body", {
   responses.push(`HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\nzz\r\nhello\r\n0\r\n\r\n`);
   seen := ArrayList(String).new();
   server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
+  println(`  [malformed-chunk test] fetching /bad`);
   _r := io.await(fetch_with(`http://127.0.0.1:19966/bad`, FetchOptions.new(), io), IoExn(io : io, exn : exn));
   assert(false, "a non-hex chunk size must throw");
 });
