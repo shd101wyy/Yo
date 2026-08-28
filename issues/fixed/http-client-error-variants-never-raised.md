@@ -2,7 +2,22 @@
 
 **Found**: 2026-08-27, during the §7 P0 item 9 (`Duration` integration) survey —
 grepping std for timeout surfaces turned up `HttpError.Timeout` with no knob
-behind it. **Status**: FIXED 2026-08-28 — FetchOptions.with_timeout/with_max_redirects/with_max_response_bytes drive Timeout/TooManyRedirects/ResponseTooLarge; all three verified live over HTTPS (tests/http/http_limits.test.yo). http->https redirect hops are blocked by the separate pre-existing issues/second-cond-internal-await-result-not-stored.md.
+behind it. **Status**: FIXED 2026-08-28 — `FetchOptions.{timeout, max_redirects,
+max_response_bytes}` + `with_*` builders; `fetch_with` follows redirects
+(`_fetch_follow`, relative/absolute `Location` resolved against the origin,
+303 and POST-301/302 → GET), refuses responses past the ceiling BEFORE
+buffering them (`_read_http_response`), and races the exchange against a
+spawned `sleep` (`_fetch_with_deadline`). Six loopback-server tests in
+tests/http/http.test.yo. Landing it surfaced C36 (dispatch-mode cond skipped a
+chained sibling arm — FIXED), C37 (blocking await nested inside a task —
+OPEN), C38 (while-with-await inside a match arm — OPEN), C39 (handler
+closure with Box capture — OPEN) and C40 (a yield loop starved the I/O poll — FIXED); see plans/STD_API_AUDIT.md §2.
+
+**Design note that changed while landing:** the plan below to run the
+request through `std/async`'s `timeout(handle, limit, io)` was WRONG —
+`timeout` polls the event loop synchronously, and from inside `fetch_with`'s
+own task that nests the loop (C37). The race is driven by awaiting `yield`
+between `is_finished()` checks instead.
 
 ## The gap
 

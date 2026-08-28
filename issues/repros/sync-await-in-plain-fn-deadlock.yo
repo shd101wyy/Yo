@@ -1,0 +1,63 @@
+pragma(Pragma.AllowUnsafe);
+open(import("std/fmt"));
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ GlobalAllocator } :: import("std/allocator");
+{ malloc, free } :: GlobalAllocator;
+{ TcpListener, TcpStream } :: import("std/net/tcp");
+{ SocketAddr } :: import("std/net/addr");
+{ lookup_host } :: import("std/net/dns");
+{ Exception, IoExn } :: import("std/error");
+_read_request :: (fn(stream : TcpStream, e : IoExn) -> String)({
+  buf := *(u8)(malloc(usize(4096)).unwrap());
+  n := e.io.await(stream.read(buf, usize(4096), e.io), e);
+  bytes := ArrayList(u8).new();
+  i := usize(0);
+  while(runtime(i < n), {
+    bytes.push((buf.add(i)).*);
+    i = (i + usize(1));
+  });
+  free(.Some(*(void)(buf)));
+  String.from_bytes(bytes)
+});
+_serve :: (fn(listener : TcpListener, responses : ArrayList(String), io : Io) -> Impl(Future(unit, IoExn)))(
+  io.async((e) => {
+    k := usize(0);
+    while(runtime(k < responses.len()), {
+      s := e.io.await(listener.accept(e.io), e);
+      req := _read_request(s, e);
+      println(`server got: ${req.substring(usize(0), usize(20))}`);
+      _w := e.io.await(s.write_string(responses(k), e.io), e);
+      e.io.await(s.close(e.io), e);
+      k = (k + usize(1));
+    });
+    return(());
+  })
+);
+main :: (fn(io : Io, exn : Exception) -> unit)({
+  e := IoExn(io : io, exn : exn);
+  listener := io.await(TcpListener.bind(SocketAddr.loopback(u16(19984)), io), e);
+  responses := ArrayList(String).new();
+  responses.push(`HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\ndone`);
+  server := io.spawn(_serve(listener, responses, io), e);
+  flag := true;
+  cond(
+    (!(flag)) => {
+      c2 := io.await(TcpStream.connect(SocketAddr.loopback(u16(19984)), io), e);
+      _wn := io.await(c2.write_string(`x`, io), e);
+      io.await(c2.close(io), e);
+    },
+    flag => {
+      c := io.await(TcpStream.connect(SocketAddr.loopback(u16(19984)), io), e);
+      _w := io.await(c.write_string(`GET / HTTP/1.1\r\nConnection: close\r\n\r\n`, io), e);
+      got := _read_request(c, e);
+      println(`h11 got: ${got.substring(usize(0), usize(15))}`);
+      io.await(c.close(io), e);
+    },
+    true => ()
+  );
+  server.await(io);
+  io.await(listener.close(io), e);
+  ()
+});
+export(main);

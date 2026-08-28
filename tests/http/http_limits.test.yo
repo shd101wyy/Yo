@@ -41,7 +41,7 @@ test("with_max_response_bytes drives an over-cap body to ResponseTooLarge", {
       }
     )
   );
-  opts := FetchOptions.new().with_max_response_bytes(u64(16));
+  opts := FetchOptions.new().with_max_response_bytes(usize(16));
   _r := io.await(fetch_with(`https://example.com`.to_string(), opts, io), IoExn(io : io, exn : exn));
   assert(false, "fetch must throw ResponseTooLarge over a 16-byte cap");
 });
@@ -80,12 +80,12 @@ test("a redirect chain under the cap is followed to its 200", {
   );
 });
 test("FetchOptions builders set the new fields", {
-  o := FetchOptions.new().with_timeout(Duration.from_secs(i64(5))).with_max_redirects(u32(3)).with_max_response_bytes(u64(1024));
-  assert(o.max_redirects == u32(3), "max_redirects set");
-  assert(o.max_response_bytes == u64(1024), "max_response_bytes set");
+  o := FetchOptions.new().with_timeout(Duration.from_secs(i64(5))).with_max_redirects(usize(3)).with_max_response_bytes(usize(1024));
+  assert(o.max_redirects == usize(3), "max_redirects set");
+  assert(o.max_response_bytes == usize(1024), "max_response_bytes set");
   assert(match(o.timeout, .Some(_) => true, .None => false), "timeout set");
   d := FetchOptions.new();
-  assert(d.max_redirects == u32(10), "default cap 10");
-  assert(d.max_response_bytes == u64(67108864), "default 64 MiB ceiling");
+  assert(d.max_redirects == usize(10), "default cap 10");
+  assert(d.max_response_bytes == usize(67108864), "default 64 MiB ceiling");
   assert(match(d.timeout, .Some(_) => false, .None => true), "no default timeout");
 });

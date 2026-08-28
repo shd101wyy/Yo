@@ -104,9 +104,17 @@ static void __yo_async_spawn_task(void (*resume_fn)(void*), void* state_machine)
   __yo_async_enqueue_continuation(resume_fn, state_machine);
 }
 
-// Process all ready tasks in the queue (non-blocking).
+// Process the tasks that are ready NOW (non-blocking). Bounded to the queue
+// length at entry: a task that re-enqueues itself on every resume (a loop
+// awaiting 'yield', a poll-until-finished race) would otherwise keep this
+// drain busy forever and the I/O poll that follows in __yo_async_poll_step
+// would never run — timers and sockets starve and the program spins
+// (issues/fixed/async-yield-loop-starves-io-poll.md). Continuations queued
+// during this step run in the next step, after one I/O poll.
 static void __yo_async_run_ready_tasks(void) {
-  while (__yo_thread_async_queue.head) {
+  int budget = (int)__yo_thread_async_queue.count;
+  while (__yo_thread_async_queue.head && budget > 0) {
+    budget--;
     __yo_continuation_t* cont = __yo_thread_async_queue.head;
     __yo_thread_async_queue.head = cont->next;
     if (!__yo_thread_async_queue.head) {

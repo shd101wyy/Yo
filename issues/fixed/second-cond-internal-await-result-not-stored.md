@@ -1,7 +1,13 @@
 # A SECOND `io.await` inside a `cond`/`match` branch never stores its result — the binding stays a null slot and using it SIGSEGVs
 
 **Found**: 2026-08-28, implementing C33 (http timeouts/redirects). **Status**:
-OPEN. **Pre-existing** — not introduced by C33; it is why **every plain-HTTP
+FIXED 2026-08-28 in #331 — this is C36, issues/fixed/async-cond-dispatch-skips-chained-sibling-arm.md
+(the sibling arm's continuation rode `chained_branches` with no binding and the
+dispatch emitters never switched over it; `=` re-assignment targets were not
+recorded either). Repro: issues/repros/async-cond-dispatch-skips-chained-sibling-arm.yo.
+Original analysis follows.
+
+Was: OPEN. **Pre-existing** — not introduced by C33; it is why **every plain-HTTP
 request has always crashed** (the client's live tests only ever exercised
 HTTPS and `parse_response` units).
 
