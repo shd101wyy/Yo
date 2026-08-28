@@ -109,7 +109,11 @@ static void __yo_async_spawn_task(void (*resume_fn)(void*), void* state_machine)
 // JoinHandle.await / the std/async combinators called from there). Non-zero
 // means the event loop is being driven from INSIDE a task — see
 // __yo_async_poll_step.
-static int __yo_async_task_depth = 0;
+// Per THREAD: every worker thread (std/sync ThreadPool, Thread.spawn) runs its
+// own event loop over its own thread-local queue, and a task resuming on one
+// thread must not make a blocking await on another look nested (the first CI
+// run of the guard aborted tests/thread_pool.test.yo exactly that way).
+static __thread int __yo_async_task_depth = 0;
 
 static int __yo_async_strict_cached = -1;
 static int __yo_async_strict_nesting(void) {
