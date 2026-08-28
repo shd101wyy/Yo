@@ -39,14 +39,30 @@ test("sleep waits at least the requested Duration", {
 test("sleep suspends the task instead of blocking the loop", {
   // A short sleep on one task must complete while a long sleep on another is
   // still pending — that is the whole difference from sleep_blocking.
+  //
+  // The overlap is proven STRUCTURALLY, not by wall clock. The slow task marks
+  // `order` BEFORE it sleeps and again after, so the fast task observing
+  // exactly the pre-sleep mark means the slow task had started and had not
+  // finished — which is overlap, whatever the machine's timers are doing.
+  //
+  // The previous version inferred overlap from `elapsed < 350ms`, and that was
+  // flaky in both directions: serial fast-then-slow ALSO leaves order == 11, so
+  // the discriminator was 200ms (overlapped) vs 220ms (serial) — 20ms, less
+  // than ordinary runner jitter. It failed on macos-latest for
+  // develop@b8a24016e with `350 ms (order=11)` on a box where a 60ms sleep
+  // measured 198ms, while ubuntu on the same run measured `200 ms (order=11)`
+  // (issues/fixed/sleep-overlap-test-measured-runner-load.md).
   order := Box(i32)(0);
   slow := io.async((io : Io) => {
+    order.* = (order.* + i32(100));
     io.await(sleep(Duration.from_millis(i64(200)), io), io);
     order.* = (order.* + i32(10));
   });
   fast := io.async((io : Io) => {
     io.await(sleep(Duration.from_millis(i64(20)), io), io);
-    assert(order.* == i32(0), "fast task must finish while the slow one sleeps");
+    // 100 = the slow task started and has NOT finished. 0 would mean it never
+    // started (fast ran first, serially); 110 would mean it finished first.
+    assert(order.* == i32(100), "fast task must finish while the slow one sleeps");
     order.* = (order.* + i32(1));
   });
   start := Instant.now();
@@ -56,7 +72,9 @@ test("sleep suspends the task instead of blocking the loop", {
   io.await(fast, io);
   elapsed := start.elapsed();
   unsafe(printf("  overlapped sleeps took %lld ms (order=%d)\n", elapsed.as_millis(), order.*));
-  assert(order.* == i32(11), "both tasks must have run");
-  // Serialized (blocking) sleeps would need >= 220ms plus scheduling slop.
-  assert(elapsed.as_millis() < i64(350), "the two sleeps must overlap");
+  assert(order.* == i32(111), "both tasks must have run, fast finishing mid-sleep");
+  // Wall clock is now only a hang guard, matching the sibling tests: a loaded
+  // shared runner can dilate a 200ms timer several-fold without the async
+  // scheduler being wrong about anything.
+  assert(elapsed.as_millis() < i64(2000), "overlapped sleeps should not hang");
 });
