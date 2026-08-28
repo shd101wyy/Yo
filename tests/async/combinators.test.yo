@@ -48,7 +48,10 @@ test("Test join_all with aborted member", {
 // ---------------------------------------------------------------------------
 test("Test race picks the fastest", {
   handles := ArrayList(JoinHandle(i32)).new();
-  handles.push(io.spawn(sleepy(i32(1), u64(40), io), io));
+  // The loser sleeps long enough that a stalled CI runner cannot let one
+  // poll step reap BOTH timers — `race` then reports the lower index and
+  // the 40ms/5ms version of this test failed on macos-latest (PR #341).
+  handles.push(io.spawn(sleepy(i32(1), u64(500), io), io));
   handles.push(io.spawn(sleepy(i32(2), u64(5), io), io));
   w := race(handles, io);
   assert(w == usize(1), "the 5ms task should win the race");
