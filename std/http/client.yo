@@ -20,6 +20,8 @@ open(import("../string"));
 open(import("../fmt"));
 { Error, AnyError, Exception, IoExn } :: import("../error");
 { TcpStream } :: import("../net/tcp");
+{ TlsStream } :: import("../crypto/tls");
+{ Reader } :: import("../io");
 { IpAddr, SocketAddr } :: import("../net/addr");
 { lookup_host } :: import("../net/dns");
 { Url, UrlError } :: import("../url");
@@ -181,7 +183,7 @@ _find_content_length :: (fn(data : ArrayList(u8), header_end : usize) -> i32)({
 // ============================================================================
 // Internal: read full HTTP response from a TCP stream
 // ============================================================================
-_read_http_response :: (fn(stream : TcpStream, e : IoExn) -> String)({
+_read_http_response :: (fn(generic(R : Type), stream : R, e : IoExn, where(R <: Reader)) -> String)({
   buf_size := usize(8192);
   buf := *(u8)(malloc(buf_size).unwrap());
   result := ArrayList(u8).new();
@@ -260,12 +262,11 @@ fetch_with :: (
     // Validate scheme
     scheme := url.scheme();
     is_http := (scheme == `http`);
-    // `https` is deliberately NOT accepted: there is no TLS in std yet, and
-    // accepting the scheme meant silently speaking PLAINTEXT to port 443 —
-    // worse than refusing (plans/STD_API_AUDIT.md C1). Throw BEFORE any DNS
-    // or socket work.
+    is_https := (scheme == `https`);
+    // Only http/https. https now speaks real TLS (std/crypto/tls, D6); other
+    // schemes are refused before any DNS or socket work.
     cond(
-      is_http => (),
+      (is_http || is_https) => (),
       true => {
         e.exn.throw(dyn(HttpError.UnsupportedScheme(scheme)));
       }
@@ -279,20 +280,9 @@ fetch_with :: (
         `_` // unreachable
       }
     );
-    // Determine port (default: 80)
-    port := match(url.port(), .Some(p) => p, .None => u16(80));
-    // Resolve hostname to IP
-    addrs := e.io.await(lookup_host(host, e.io), e);
-    cond(
-      (addrs.len() == usize(0)) => {
-        e.exn.throw(dyn(HttpError.ConnectionFailed(`DNS resolution failed for ${host}`)));
-      },
-      true => ()
-    );
-    ip := addrs(usize(0));
-    addr := SocketAddr.new(ip, port);
-    // Connect
-    stream := e.io.await(TcpStream.connect(addr, e.io), e);
+    // Determine port (default: 80 for http, 443 for https)
+    default_port := cond(is_https => u16(443), true => u16(80));
+    port := match(url.port(), .Some(p) => p, .None => default_port);
     // Build the request path (include query string if present)
     req_path := url.path();
     cond(
@@ -328,13 +318,32 @@ fetch_with :: (
     );
     // Set Connection: close to ensure the server closes after response
     req.set_header(`Connection`, `close`);
-    // Send request
     req_str := req.to_string();
-    e.io.await(stream.write_string(req_str, e.io), e);
-    // Read response
-    raw_response := _read_http_response(stream, e);
-    // Close connection
-    e.io.await(stream.close(e.io), e);
+    // Transport: plaintext TCP for http, TLS for https. Both streams
+    // implement the D5 Reader trait, so the response reader is shared.
+    (raw_response : String) = ``;
+    cond(
+      is_https => {
+        tls := e.io.await(TlsStream.connect(host.clone(), port, e.io), e);
+        _wn := e.io.await(tls.write_string(req_str, e.io), e);
+        raw_response = _read_http_response(tls, e);
+        e.io.await(tls.close(e.io), e);
+      },
+      true => {
+        addrs := e.io.await(lookup_host(host, e.io), e);
+        cond(
+          (addrs.len() == usize(0)) => {
+            e.exn.throw(dyn(HttpError.ConnectionFailed(`DNS resolution failed for ${host}`)));
+          },
+          true => ()
+        );
+        addr := SocketAddr.new(addrs(usize(0)), port);
+        stream := e.io.await(TcpStream.connect(addr, e.io), e);
+        e.io.await(stream.write_string(req_str, e.io), e);
+        raw_response = _read_http_response(stream, e);
+        e.io.await(stream.close(e.io), e);
+      }
+    );
     // Parse response
     match(
       parse_response(raw_response),

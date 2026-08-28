@@ -65,7 +65,7 @@ records; mechanisms and reproducers are in the named `issues/fixed/` docs.
 
 | # | Bug | Status |
 |---|-----|--------|
-| C1 | `https://` silently downgraded to cleartext HTTP; `fetch` must throw `UnsupportedScheme` until TLS exists | **FIXED** PR #229 |
+| C1 | `https://` silently downgraded to cleartext HTTP; `fetch` must throw `UnsupportedScheme` until TLS exists | **FIXED** PR #229; **https now speaks real TLS** 2026-08-28 (D6 PR-2 — `std/http` routes https through `TlsStream`, live example.com fetch pinned) |
 | C2 | `_make_sockaddr` hardcoded `::1` for every IPv6 addr; `accept` fabricated peer IP; `local_addr` echoed the bind arg (no `getsockname`) | **FIXED** PR #229 |
 | C3 | `lookup_host` silently dropped every AAAA record | **FIXED** PR #229 |
 | C4 | `DateTime.to_string` always emitted `Z`, ignoring `utc_offset_secs` | **FIXED** PR #229 |
@@ -330,8 +330,13 @@ implementing the D5 traits.** **PR-1 LANDED 2026-08-28**: `TlsStream` over
 OpenSSL (memory-BIO async pump, cert+hostname+SNI on, D5 Reader/Writer),
 proven by a live example.com:443 handshake; `_probe_openssl` in src/main.yo
 (plans/D6_TLS_PLAN.md). Remaining: route `std/http` https through it (PR-2)
-and the P0+ curl→std/http swap (PR-3); Windows Schannel joins the Windows
-platform audit.
+and the P0+ curl→std/http swap (PR-3, the only D6 remainder); Windows
+Schannel joins the Windows platform audit.
+**PR-2 LANDED 2026-08-28**: `std/http` fetch routes https through
+`TlsStream` — a scheme branch chooses TcpStream|TlsStream transport, the
+response reader is shared as a generic over the D5 `Reader` trait, port
+defaults to 443; a live `https://example.com` fetch returns 200 (pinned,
+guarded to skip offline).
 
 ### D7 — sync/concurrency shape
 
@@ -475,7 +480,7 @@ Open D7 items:
 | process | EXTEND | Child/spawn/Stdio + env + builders-return-Self + `code() -> Option(i32)` DONE 2026-08-27; still: `current_dir` (seed-gated runtime shim), hide `raw` (needs module-private visibility) |
 | cli | EXTEND or DROP-TO-PACKAGE | typed values, required enforcement, `--`, repeated opts, help-not-an-error; needs tty/color access (D8 wrappers). Recommendation: keep minimal-but-correct in std |
 | net | FIX + EXTEND | C2/C3 DONE; `Shutdown` enum DONE; usize counts DONE; UnixStream/UnixListener DONE 2026-08-27 (incl. their Reader/Writer impls); still: `incoming()`, UDP `connect` + typed `recv_from`, `parse_v6`, `SocketAddr.parse`, `Eq`/`Hash` on addr types, RFC 5952 V6 formatting |
-| http | FIX + EXTEND | C1 DONE; still: timeouts (dead `Timeout` variant becomes real), redirects (needs `Url.join`), chunked decoding, binary bodies, keep-alive; **server (P1)**: `parse_request`, `HttpServer` on `TcpListener`; collapse `FetchOptions` into `HttpRequest` |
+| http | FIX + EXTEND | C1 DONE; ~~https over TLS~~ **DONE 2026-08-28** (D6 PR-2: scheme branch, shared generic Reader response loop, TcpStream|TlsStream transport, default port 443); still: timeouts (dead `Timeout` variant becomes real), redirects (needs `Url.join`), chunked decoding, binary bodies, keep-alive; **server (P1)**: `parse_request`, `HttpServer` on `TcpListener`; collapse `FetchOptions` into `HttpRequest` |
 | async | PROMOTE | combinator home: `join_all`, `race`, `any`, `timeout`, interval, cancellation for `JoinHandle` (`abort()`), async channel/mutex (D7). `sleep(Duration, io)` lives in `std/time/sleep.yo` — do NOT add a second one; re-export if wanted |
 | thread/worker/sync | REDESIGN (D7) | ThreadPool DONE; `join() -> T` + panic propagation blocked below std — see D7 |
 | time | EXTEND | ~~`Duration`: `Add/Sub` operators, `Eq/Ord/Hash`, `from_secs_f64`, `subsec_*`, consts~~ + ~~`Instant` `add/sub`, `Eq/Ord`~~ **DONE 2026-08-28** (PR #312: operators mirror add/sub incl. zero-saturation, total-nanos Hash, from_secs_f64 clamps negatives, SECOND…HOUR consts, Instant.sub clamps at clock zero); **make std USE it** (timeouts, sleeps); ~~`DateTime`: RFC3339 `parse`/`format`, component ctor, arithmetic, `Eq/Ord`~~ **DONE 2026-08-28** (leap-aware `parse` incl. lowercase t/z + space separator + nano fractions + numeric offsets, typed `DateTimeError`, validating `new`, `add`/`sub(Duration)` offset-preserving, INSTANT-basis `Eq`/`Ord` + `to_unix_utc`; `to_string` was already RFC3339 — round-trip pinned); sleep unification DONE (§5) |

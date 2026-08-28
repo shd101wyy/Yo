@@ -362,6 +362,14 @@ impl(
       return(n);
     })
   }),
+  /// Write a `String` (matches TcpStream.write_string); byte count written.
+  write_string : (fn(self : Self, data : String, io : Io) -> Impl(Future(usize, IoExn)))({
+    sb := data.as_bytes();
+    io.async((e) => {
+      n := e.io.await(self.write(sb.ptr().unwrap(), sb.len(), e.io), e);
+      return(n);
+    })
+  }),
   /// Close: best-effort close_notify, then the socket. Frees the OpenSSL
   /// objects — the stream must not be used afterwards.
   close : (fn(self : Self, io : Io) -> Impl(Future(unit, IoExn)))(
