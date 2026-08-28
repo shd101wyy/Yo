@@ -1,6 +1,6 @@
 //! Buffered wrappers over ANY async `Reader`/`Writer` — the D5 generic
 //! `BufReader(R)` / `BufWriter(W)` (`plans/STD_API_AUDIT.md` §D5), the
-//! replacement for the fd-only `std/sys/bufio` pair.
+//! replacement for the fd-only `std/sys/bufio` pair it has now replaced.
 //!
 //! `BufReader(R)` reduces the number of inner reads by filling an internal
 //! buffer in `capacity`-sized chunks; `BufWriter(W)` batches small writes and
@@ -18,11 +18,12 @@
 //! `lines()` is deliberately absent: Yo has no async iterator protocol, so
 //! the line primitive is `read_line` (`.None` on clean EOF).
 //!
-//! The fd-based `std/sys/bufio` pair still exists: the compiler's own three
-//! consumers (lsp/server, lsp/transport, check_watch) cannot migrate here
-//! until a SEED ships with #299's shadow-registration fix — `yo build`
-//! compiles src/ with the seed, which mis-emits this module's match
-//! bindings. Scheduled in plans/backlog/SEED_VERSION_AUTOMATION.md.
+//! The fd-based `std/sys/bufio` pair is GONE (2026-08-28): the compiler's own
+//! three consumers — `lsp/server`, `lsp/transport`, `check_watch` — read stdin
+//! through `BufReader(Stdin)` now, and the module and its test are deleted. That
+//! migration waited on a seed carrying #299's shadow-registration fix, because
+//! `yo build` compiles `src/` with the SEED and the older one mis-emitted this
+//! module's match bindings; v0.2.18 carries it.
 pragma(Pragma.AllowUnsafe);
 { Reader, Writer } :: import("./index");
 { IoExn } :: import("../error");
@@ -226,6 +227,38 @@ impl(
   /// Number of bytes currently buffered.
   buffered : (fn(self : Self) -> usize)(
     self._buf.len()
+  ),
+  /// Buffer a `String`'s bytes. The pointer-taking `write` is the trait's
+  /// primitive; this is the form callers actually want, and the fd-based
+  /// `std/sys/bufio` writer this module replaced had it — dropping it would
+  /// have made "write a string to a buffered writer" a pointer exercise.
+  write_string : (fn(self : Self, s : String, io : Io) -> Impl(Future(unit, IoExn)))(
+    io.async((e) => {
+      bytes := s.as_bytes();
+      n := bytes.len();
+      cond(
+        (n > usize(0)) => {
+          p := match(bytes.ptr(), .Some(q) => q, .None => *(u8)(""));
+          e.io.await(Self.write_all(self, p, n, io), e);
+        },
+        true => ()
+      );
+      ()
+    })
+  ),
+  /// Buffer an `ArrayList(u8)`. Companion to `write_string`, same rationale.
+  write_bytes : (fn(self : Self, data : ArrayList(u8), io : Io) -> Impl(Future(unit, IoExn)))(
+    io.async((e) => {
+      n := data.len();
+      cond(
+        (n > usize(0)) => {
+          p := match(data.ptr(), .Some(q) => q, .None => *(u8)(""));
+          e.io.await(Self.write_all(self, p, n, io), e);
+        },
+        true => ()
+      );
+      ()
+    })
   ),
   /// Deliver the buffered bytes to the inner writer (without flushing IT).
   _flush_buf : (fn(self : Self, io : Io) -> Impl(Future(unit, IoExn)))(
