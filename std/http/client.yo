@@ -495,53 +495,6 @@ _fetch_follow :: (
 // ============================================================================
 // Internal: the deadline race
 // ============================================================================
-/// Run the whole exchange as a spawned TASK raced against a spawned `sleep`,
-/// so the deadline can cut it off mid-connect or mid-read — an elapsed-time
-/// check inside the read loop could only fire BETWEEN awaits, which is exactly
-/// not the hung-server case a deadline exists for. The race is driven by
-/// awaiting `yield` (a real suspension point), NOT by `std/async`'s
-/// `timeout`/`JoinHandle.await`: those poll the event loop synchronously and,
-/// called from inside a task, nest the loop
-/// (issues/fixed/sync-await-in-plain-fn-nests-the-event-loop.md). The body is the
-/// top-level `_fetch_follow`, not a closure nested here (C22).
-///
-/// This is its own future rather than a `match` arm of `fetch_with` because
-/// a while-with-await inside one arm of a match whose other arm awaits is
-/// mis-emitted (issues/while-await-inside-match-arm-missing-loop-field.md).
-_fetch_with_deadline :: (
-  fn(url_str : String, opts : FetchOptions, limit : Duration, io : Io) ->
-    Impl(Future(HttpResponse, IoExn))
-)(
-  io.async((e) => {
-    h := e.io.spawn(_fetch_follow(url_str, opts, e.io), e);
-    dh := e.io.spawn(sleep(limit, e.io), e.io);
-    while(runtime(!(h.is_finished()) && !(dh.is_finished())), {
-      e.io.await(yield(e.io), e.io);
-    });
-    (result : HttpResponse) = HttpResponse.new(i32(0), ``);
-    cond(
-      h.is_finished() => {
-        // Finished first: the deadline task is cancelled and the handle,
-        // already terminal, is consumed without polling the loop.
-        dh.abort();
-        match(
-          h.await(e.io),
-          .Some(resp) => {
-            result = resp;
-          },
-          .None => {
-            e.exn.throw(dyn(HttpError.Other(`request task was aborted`)));
-          }
-        );
-      },
-      true => {
-        h.abort();
-        e.exn.throw(dyn(HttpError.Timeout));
-      }
-    );
-    result
-  })
-);
 // ============================================================================
 // fetch — High-level async HTTP request (like JavaScript's fetch)
 // ============================================================================
@@ -568,7 +521,45 @@ fetch_with :: (
         result = e.io.await(_fetch_follow(url_str, opts, e.io), e);
       },
       .Some(limit) => {
-        result = e.io.await(_fetch_with_deadline(url_str, opts, limit, e.io), e);
+        // Run the whole exchange as a spawned TASK raced against a spawned
+        // `sleep`, so the deadline can cut it off mid-connect or mid-read — an
+        // elapsed-time check inside the read loop could only fire BETWEEN
+        // awaits, which is exactly not the hung-server case a deadline exists
+        // for. The race is driven by awaiting `yield` (a real suspension
+        // point), NOT by `std/async`'s `timeout`/`JoinHandle.await`: those
+        // poll the event loop synchronously and, called from inside a task,
+        // nest the loop
+        // (issues/fixed/sync-await-in-plain-fn-nests-the-event-loop.md). The
+        // body is the top-level `_fetch_follow`, not a closure nested here
+        // (C22). A while-with-await inside one arm of a match whose other arm
+        // awaits once was mis-emitted until C38
+        // (issues/fixed/while-await-inside-match-arm-missing-loop-field.md);
+        // this arm is that shape and doubles as its production pin.
+        h := e.io.spawn(_fetch_follow(url_str, opts, e.io), e);
+        dh := e.io.spawn(sleep(limit, e.io), e.io);
+        while(runtime(!(h.is_finished()) && !(dh.is_finished())), {
+          e.io.await(yield(e.io), e.io);
+        });
+        cond(
+          h.is_finished() => {
+            // Finished first: the deadline task is cancelled and the handle,
+            // already terminal, is consumed without polling the loop.
+            dh.abort();
+            match(
+              h.await(e.io),
+              .Some(resp) => {
+                result = resp;
+              },
+              .None => {
+                e.exn.throw(dyn(HttpError.Other(`request task was aborted`)));
+              }
+            );
+          },
+          true => {
+            h.abort();
+            e.exn.throw(dyn(HttpError.Timeout));
+          }
+        );
       }
     );
     result

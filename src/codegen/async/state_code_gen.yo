@@ -144,6 +144,60 @@ await_call_future_arg :: (fn(await_expr : AstExpr) -> Option(AstExpr))(
     .Atom(_, _) => Option(AstExpr).None
   )
 );
+/// Whether ANY awaiting branch of this merged cond/match point suspends
+/// inside a `while` of its own arm (the per-branch flags the suspension
+/// analysis records next to `cond_branch_suspension_exprs`). The state struct
+/// must declare `while_loop_<index>_active` for such a point even when the
+/// representative arm does not loop
+/// (issues/fixed/while-await-inside-match-arm-missing-loop-field.md).
+cond_await_point_any_branch_in_while :: (fn(sp : SuspensionPoint) -> bool)(
+  match(
+    sp.cond_branch_suspension_in_while,
+    .Some(flags) => {
+      (i : usize) = usize(0);
+      while(i < flags.len(), {
+        if(match(flags.get(i), .Some(b) => b, .None => false), {
+          return(true);
+        });
+        i = (i + usize(1));
+      });
+      false
+    },
+    .None => false
+  )
+);
+/// The per-branch loop flag for the branch whose suspension expr is `ae`
+/// (matched by expr id against `cond_branch_suspension_exprs`); `false` when
+/// the point records no branch information or `ae` is not one of its exprs.
+cond_branch_expr_in_while :: (fn(sp : SuspensionPoint, ae : AstExpr) -> bool)({
+  exprs := match(
+    sp.cond_branch_suspension_exprs,
+    .Some(e) => e,
+    .None => {
+      return(false);
+    }
+  );
+  flags := match(
+    sp.cond_branch_suspension_in_while,
+    .Some(f) => f,
+    .None => {
+      return(false);
+    }
+  );
+  target := ast_expr_id(ae);
+  (i : usize) = usize(0);
+  while(i < exprs.len(), {
+    match(
+      exprs.get(i),
+      .Some(e) => if(ast_expr_id(e) == target, {
+        return(match(flags.get(i), .Some(b) => b, .None => false));
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  false
+});
 /// DISPATCH-mode decision for a shared cond/match await point.
 ///
 /// A cond/match whose branches await shares ONE await point; the slot type,
@@ -175,6 +229,30 @@ cond_await_point_needs_dispatch :: (
   if(exprs.len() == usize(0), {
     return(false);
   });
+  // Branches that disagree on loop-ness need per-branch continuations: the
+  // looping arm's await must re-check `while_loop_N_active` and jump to
+  // `after_while_loop_N` when broken, the plain arm's must not
+  // (issues/fixed/while-await-inside-match-arm-missing-loop-field.md).
+  match(
+    await_point.base.cond_branch_suspension_in_while,
+    .Some(flags) => {
+      (any_true : bool) = false;
+      (any_false : bool) = false;
+      (fi : usize) = usize(0);
+      while(fi < flags.len(), {
+        if(match(flags.get(fi), .Some(b) => b, .None => false), {
+          any_true = true;
+        }, {
+          any_false = true;
+        });
+        fi = (fi + usize(1));
+      });
+      if(any_true && any_false, {
+        return(true);
+      });
+    },
+    .None => ()
+  );
   (first_type : Option(String)) = Option(String).None;
   (i : usize) = usize(0);
   n := exprs.len();
@@ -3462,5 +3540,7 @@ export(
   cond_await_point_needs_dispatch,
   CondBranchFutureAccess,
   resolve_future_var_field,
-  cond_branch_future_access
+  cond_branch_future_access,
+  cond_await_point_any_branch_in_while,
+  cond_branch_expr_in_while
 );

@@ -15,7 +15,7 @@
 //! key — yo-self `Func` types carry no `.id`).
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
-{ await_is_while_condition, cond_await_point_needs_dispatch } :: import("../async/state_code_gen.yo");
+{ await_is_while_condition, cond_await_point_needs_dispatch, cond_await_point_any_branch_in_while } :: import("../async/state_code_gen.yo");
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
 {
@@ -833,7 +833,7 @@ emit_async_block_struct_definition :: (
   while(ai4 < aps.len(), {
     match(
       aps.get(ai4),
-      .Some(ap) => if(match(ap.base.is_inside_while, .Some(b) => b, .None => false), {
+      .Some(ap) => if(match(ap.base.is_inside_while, .Some(b) => b, .None => false) || cond_await_point_any_branch_in_while(ap.base), {
         if(!(while_emitted), {
           em.emit_declaration_line("  // Loop state tracking for while loops with await");
           while_emitted = true;

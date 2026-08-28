@@ -1,8 +1,23 @@
 # A while-with-await inside one arm of a match/cond whose other arm also awaits: the state struct never declares `while_loop_N_active`
 
 **Found**: 2026-08-28 (C33, `std/http/client.yo`'s deadline race). **Status**:
-OPEN. clang rejects the emitted C, so the failure is LOUD — but it fires only
-at C-compile time (`yo check` is green) and the diagnostic names a generated
+**FIXED 2026-08-29** — loop-ness is now recorded PER BRANCH on the merged
+point (`SuspensionPoint.cond_branch_suspension_in_while`, parallel to
+`cond_branch_suspension_exprs`, `src/evaluator/shared/suspension_analysis.yo`);
+the state-struct emitter declares `while_loop_<index>_active` when ANY branch
+loops (`src/codegen/exprs/async.yo`); branches that disagree on loop-ness
+force dispatch mode (`cond_await_point_needs_dispatch`), and the dispatch
+emitter applies the `while_loop_N_active` check / `goto after_while_loop_N`
+continuation only to the looping branches — a loop that encloses the whole
+cond (the representative flagged from OUTSIDE its arm) still applies to every
+branch (`_emit_await_suspension_dispatch`, `src/codegen/async/state_machine.yo`).
+Regression test: `tests/async/while_await_in_match_arm.test.yo` (both arm
+orders, RED on the pre-fix compiler with exactly the clang error below);
+production pin: `std/http/client.yo`'s `fetch_with` now holds the deadline
+race in its `.Some(limit)` arm directly. Original record follows.
+
+clang rejected the emitted C, so the failure was LOUD — but it fired only
+at C-compile time (`yo check` is green) and the diagnostic named a generated
 member, not the Yo shape.
 
 ## Symptom
@@ -59,8 +74,9 @@ issues/fixed/async-cond-shared-await-point-only-models-representative-branch.md)
 with the struct emitter declaring the field when ANY arm loops and the
 continuation emitted per arm.
 
-## Shape avoided in std
+## Shape avoided in std (until the fix)
 
-`std/http/client.yo` keeps the deadline race in its own top-level future,
-`_fetch_with_deadline`, so `fetch_with`'s match arms each contain a single
-plain await. Remove that indirection once this is fixed.
+`std/http/client.yo` kept the deadline race in its own top-level future,
+`_fetch_with_deadline`, so `fetch_with`'s match arms each contained a single
+plain await. That indirection was removed with the fix; the arm is now the
+production pin of this shape.
