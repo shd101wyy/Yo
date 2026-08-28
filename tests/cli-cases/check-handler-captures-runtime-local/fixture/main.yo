@@ -1,0 +1,21 @@
+{ assert } :: import("std/assert");
+{ Exception } :: import("std/error");
+boom :: (fn(exn : Exception) -> i32)({
+  exn.throw(dyn(`kaboom`));
+  i32(0)
+});
+main :: (fn() -> unit)({
+  thrown := Box(bool)(false);
+  exn := Exception(
+    throw : (
+      (err) -> {
+        thrown.* = true;
+        unwind(());
+      }
+    )
+  );
+  _r := boom(exn);
+  assert(thrown.*, "must throw");
+  ()
+});
+export(main);
