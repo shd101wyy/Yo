@@ -8,7 +8,7 @@
 `read(2)` first, so a blocking end parked the loop thread and (1) alone still
 deadlocked. Regression test: `tests/process/command.test.yo` (310 KiB stderr
 flood, then one stdout line). Windows still reads pipes with a blocking
-`_read`: `issues/command-output-windows-pipe-read-blocks-the-event-loop.md`.
+`_read`: `issues/fixed/command-output-windows-pipe-read-blocks-the-event-loop.md (fixed 2026-08-30)`.
 Found 2026-08-29 reading the test runner while chasing the
 Linux-only `rc=124` of `tests/http/http.test.yo` (#350). **Severity:** HIGH
 (silent hang): any `Command.output` over a child that writes more than the

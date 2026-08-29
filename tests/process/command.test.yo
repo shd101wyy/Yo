@@ -340,13 +340,15 @@ test("Command.output drains stdout and stderr concurrently (large stderr does no
   e := IoExn(io : io, exn : exn);
   cmd := cond(
     (platform == Platform.Windows) => {
-      // Windows still reads pipes with a blocking _read (the runtime has no
-      // overlapped anonymous pipes yet), so a flood would deadlock there too —
-      // issues/command-output-windows-pipe-read-blocks-the-event-loop.md. Keep
-      // the shape, not the volume, until that lands.
+      // Same flood in cmd: ~305 KiB of stderr, then one stdout line. The
+      // runtime parks empty-pipe reads instead of blocking the loop
+      // (issues/fixed/command-output-windows-pipe-read-blocks-the-event-loop.md),
+      // so this exercises the parked-read path end to end.
       c := Command.new(`cmd.exe`);
       c.arg(`/C`);
-      c.arg(`echo xxxxxxxx 1>&2 & echo ok`);
+      c.arg(
+        `(for /L %i in (1,1,5000) do @echo xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx 1>&2) & echo ok`
+      );
       c
     },
     true => {
@@ -358,8 +360,7 @@ test("Command.output drains stdout and stderr concurrently (large stderr does no
   );
   out := io.await(cmd.output(io), e);
   assert(out.status.success(), "child exited 0");
-  expected_err := cond((platform == Platform.Windows) => usize(8), true => usize(300000));
-  assert(out.stderr.len() >= expected_err, `stderr fully captured (got ${out.stderr.len()} bytes)`);
+  assert(out.stderr.len() >= usize(300000), `stderr fully captured (got ${out.stderr.len()} bytes)`);
   assert(out.stdout.len() >= usize(2), "stdout captured after the stderr flood");
   assert(out.stdout(usize(0)) == u8(111), "o");
   assert(out.stdout(usize(1)) == u8(107), "k");

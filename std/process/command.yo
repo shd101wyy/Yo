@@ -384,10 +384,11 @@ _spawn_with_fds :: (
 //    drain then never let the stderr drain run and a child filling the 64 KiB
 //    stderr pipe deadlocked
 //    (issues/fixed/command-output-drains-stdout-then-stderr-sequentially.md).
-//    io_uring reads are asynchronous either way. On Windows the pipe read is a
-//    blocking _read and PIPE_NOWAIT would turn an empty pipe into an error, so
-//    the flag is not set there
-//    (issues/command-output-windows-pipe-read-blocks-the-event-loop.md).
+//    io_uring reads are asynchronous either way. On Windows the runtime parks
+//    an empty-pipe read on the event-loop tick instead of blocking (anonymous
+//    pipes cannot use overlapped I/O), so O_NONBLOCK is neither needed nor
+//    settable there — PIPE_NOWAIT would turn an empty pipe into an error
+//    (issues/fixed/command-output-windows-pipe-read-blocks-the-event-loop.md).
 _mark_parent_end :: (fn(fd : i32, exn : Exception) -> unit)({
   IoError.check(__yo_sync_fcntl_setfd(fd, i32(FD_CLOEXEC)), exn);
   cond(
