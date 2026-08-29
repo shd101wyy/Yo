@@ -79,7 +79,7 @@ makes the first one cheap):
   `JoinHandle`, so the request body has to be spawnable — and the body currently
   IS `fetch_with`'s own `io.async((e) => { … })` closure. It cannot simply be
   wrapped in place: a closure nested inside an `io.async` body is **C22**
-  (`issues/closure-nested-inside-io-async-closure-body-emits-abort-stub.md`,
+  (`issues/fixed/closure-nested-inside-io-async-closure-body-emits-abort-stub.md`,
   still OPEN — compile exits 0, clang is clean, the binary is an `abort()`
   stub). The shape that avoids C22 is to lift the body to a TOP-LEVEL
   `_fetch_inner(url, opts, io) -> Impl(Future(HttpResponse, IoExn))` and have
