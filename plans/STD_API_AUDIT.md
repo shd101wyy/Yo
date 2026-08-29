@@ -775,9 +775,10 @@ mmap/file-lock/statfs wrappers; `gc.stats`; DNS SRV/TXT/reverse
    are in `.github/instructions/yo-design.instructions.md` ("API stability").
    `std/encoding/csv` is the first module carrying the marker (new in this
    release); `std/http/server` and `std/fs/watch` get it in their own PRs.
-   Found en route: `yo doc` only recognises `## ` section headings while std
-   writes `# Examples` at 70 sites
-   (issues/doc-sections-require-double-hash-but-std-writes-single-hash.md).
+   Found en route: `yo doc` only recognised `## ` section headings while std
+   wrote `# Examples` at 70 sites — **FIXED 2026-08-29**: `# <well-known name>`
+   is accepted (fenced code ignored) and std normalised to `## `
+   (issues/fixed/doc-sections-require-double-hash-but-std-writes-single-hash.md).
 
    **Two inputs measured 2026-08-27, to be worked before the freeze:**
 

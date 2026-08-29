@@ -1,6 +1,10 @@
 # `yo doc` recognizes only `## Section` headings, but std writes `# Examples` (70 sites) — those sections are never extracted
 
-**Status: OPEN.** Found 2026-08-29 adding the `## Stability` module marker
+**Status: FIXED** (2026-08-29): both options — `src/doc/sections.yo`
+accepts `# <name>` for the well-known section names (arbitrary `#` headings
+stay description content) and ignores `#` lines inside fenced code blocks;
+std's 62 single-`#` known headings were normalised to `## `. Tests:
+`tests/internal/doc_sections.test.yo` (3 new cases). Found 2026-08-29 adding the `## Stability` module marker
 (plans/STD_API_AUDIT.md §9 S5). **Severity:** LOW (rendering only): the text
 still appears inside the description, but `# Examples` / `# Returns` /
 `# Deprecated` written with a single `#` are not parsed as the well-known
