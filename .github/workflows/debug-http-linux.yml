@@ -39,53 +39,16 @@ jobs:
             env YO_MAIN_STACK_MB=4096 "$YO_BIN" compile src/main.yo --optimize 2 --allocator mimalloc --std-path ./std -o /tmp/yo-s1
           sudo chown "$(id -u)" /tmp/yo-s1 || true
           /tmp/yo-s1 version || true
-      - name: Run the single test, plain verbose (240s cap)
-        continue-on-error: true
-        run: |
-          set +e
-          timeout 240 /tmp/yo-s1 test ./tests/http/http.test.yo --verbose --c-compiler clang > /tmp/http-plain.log 2>&1
-          echo "rc=$?" | tee -a /tmp/http-plain.log
-          grep -v 'warning\|note:' /tmp/http-plain.log | tail -60
-      - name: Standalone post-timeout repro, plain and async-debug (120s caps)
-        continue-on-error: true
-        run: |
-          set +e
-          R=issues/repros/linux-post-timeout-hang.yo
-          /tmp/yo-s1 compile "$R" --std-path ./std --c-compiler clang --optimize 2 -o /tmp/hang-plain 2> /tmp/http-repro-compile.log
-          echo "plain compile rc=$?"
-          timeout 120 /tmp/hang-plain > /tmp/http-repro-plain.log 2>&1; echo "plain rc=$?" | tee -a /tmp/http-repro-plain.log
-          cat /tmp/http-repro-plain.log
-          /tmp/yo-s1 compile "$R" --std-path ./std --c-compiler clang --debug-async-await -o /tmp/hang-dbg 2>> /tmp/http-repro-compile.log
-          echo "debug compile rc=$?"
-          timeout 120 /tmp/hang-dbg > /tmp/http-debug.log 2>&1; echo "rc=$?" | tee -a /tmp/http-debug.log
-          echo "lines: $(wc -l < /tmp/http-debug.log)"
-          grep -n '\[timeout\]\|\[phase2\]\|\[silent\|\[second\|Aborted\|abort' /tmp/http-debug.log | head -40
-          echo "---- last 80 lines ----"
-          tail -80 /tmp/http-debug.log
-      - name: Env-dispatched chunked arm (mirrors the runner's batch main), plain + ASan
+      - name: Dispatch repro — arm0 (instrumented fetch), arm1 (raw read-after-close), arm0 async-debug
         continue-on-error: true
         run: |
           set +e
           R=issues/repros/linux-chunked-cond-dispatch.yo
           /tmp/yo-s1 compile "$R" --std-path ./std --c-compiler clang --optimize 2 -o /tmp/disp 2>/tmp/http-disp-compile.log; echo "compile rc=$?"
-          YO_TEST_INDEX=0 timeout 120 /tmp/disp > /tmp/http-disp-plain.log 2>&1; echo "plain rc=$?" | tee -a /tmp/http-disp-plain.log; cat /tmp/http-disp-plain.log
-          /tmp/yo-s1 compile "$R" --std-path ./std --c-compiler clang --sanitize address --allocator system -o /tmp/disp-asan 2>>/tmp/http-disp-compile.log; echo "asan compile rc=$?"
-          YO_TEST_INDEX=0 ASAN_OPTIONS=detect_leaks=0 timeout 120 /tmp/disp-asan > /tmp/http-disp-asan.log 2>&1; echo "asan rc=$?" | tee -a /tmp/http-disp-asan.log
-          grep -n 'arm0\|ERROR\|SUMMARY\|    #[0-9]' /tmp/http-disp-asan.log | head -60
-      - name: Real runner on the chunked test (400s cap)
-        continue-on-error: true
-        run: |
-          set +e
-          timeout 400 /tmp/yo-s1 test ./tests/http/http.test.yo --test-name-pattern chunked --verbose --c-compiler clang > /tmp/http-runner.log 2>&1; echo "runner rc=$?" | tee -a /tmp/http-runner.log
-          grep -v 'warning\|note:\|^\s*[0-9]* |\|^\s*|' /tmp/http-runner.log | tail -30
-      - name: Standalone repro under AddressSanitizer (120s cap)
-        continue-on-error: true
-        run: |
-          set +e
-          /tmp/yo-s1 compile issues/repros/linux-post-timeout-hang.yo --std-path ./std --c-compiler clang --sanitize address --allocator system -o /tmp/hang-asan 2> /tmp/http-asan-compile.log
-          echo "asan compile rc=$?"
-          ASAN_OPTIONS=detect_leaks=0:abort_on_error=0 timeout 120 /tmp/hang-asan > /tmp/http-asan.log 2>&1; echo "asan rc=$?" | tee -a /tmp/http-asan.log
-          grep -n 'phase3\|ERROR\|SUMMARY\|WRITE\|READ\|freed by\|allocated by\|#[0-9]* 0x' /tmp/http-asan.log | head -80
+          YO_TEST_INDEX=0 timeout 60 /tmp/disp > /tmp/http-disp-arm0.log 2>&1; echo "arm0 rc=$?" | tee -a /tmp/http-disp-arm0.log; cat /tmp/http-disp-arm0.log
+          YO_TEST_INDEX=1 timeout 60 /tmp/disp > /tmp/http-disp-arm1.log 2>&1; echo "arm1 rc=$?" | tee -a /tmp/http-disp-arm1.log; cat /tmp/http-disp-arm1.log
+          /tmp/yo-s1 compile "$R" --std-path ./std --c-compiler clang --debug-async-await -o /tmp/disp-dbg 2>>/tmp/http-disp-compile.log; echo "dbg compile rc=$?"
+          YO_TEST_INDEX=0 timeout 60 /tmp/disp-dbg > /tmp/http-disp-arm0-dbg.log 2>&1; echo "arm0 dbg rc=$?" | tee -a /tmp/http-disp-arm0-dbg.log; tail -80 /tmp/http-disp-arm0-dbg.log
       - name: Kernel / io_uring facts
         if: always()
         run: |

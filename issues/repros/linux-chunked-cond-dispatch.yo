@@ -131,7 +131,26 @@ main :: (fn(io : Io) -> unit)({
         eprintln(`  [arm0] done`);
       },
       (idx == `1`) => {
-        eprintln(`  [arm1] other arm`);
+        // Raw probe: does a read on a socket whose peer wrote then closed
+        // complete with the bytes, and does the NEXT read complete with 0?
+        eprintln(`  [arm1] start`);
+        addr := SocketAddr.loopback(u16(19967));
+        l := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
+        srv := io.spawn(_serve_one(l, io), IoExn(io : io, exn : exn));
+        c := io.await(TcpStream.connect(addr, io), IoExn(io : io, exn : exn));
+        _w := io.await(c.write_string(`GET / HTTP/1.1\r\nHost: x\r\n\r\n`, io), IoExn(io : io, exn : exn));
+        buf := *(u8)(malloc(usize(4096)).unwrap());
+        n1 := io.await(c.read(buf, usize(4096), io), IoExn(io : io, exn : exn));
+        eprintln(`  [arm1] read #1 n=${n1.to_string()}`);
+        n2 := io.await(c.read(buf, usize(4096), io), IoExn(io : io, exn : exn));
+        eprintln(`  [arm1] read #2 n=${n2.to_string()}`);
+        n3 := io.await(c.read(buf, usize(4096), io), IoExn(io : io, exn : exn));
+        eprintln(`  [arm1] read #3 n=${n3.to_string()}`);
+        free(.Some(*(void)(buf)));
+        io.await(c.close(io), IoExn(io : io, exn : exn));
+        srv.await(io);
+        io.await(l.close(io), IoExn(io : io, exn : exn));
+        eprintln(`  [arm1] done`);
       },
       true => ()
     ),
