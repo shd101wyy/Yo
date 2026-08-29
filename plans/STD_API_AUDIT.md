@@ -685,7 +685,7 @@ declarations at runtime.
 
 **P1 — expected of a modern std**
 HTTP server + chunked/redirect/timeout client; TLS (D6); CSV; DateTime
-parse/format; ~~`fs.watch`~~ **DONE 2026-08-29** (`std/fs/watch`: `Watcher` over `sys/events` — inotify/kqueue/ReadDirectoryChangesW — with `poll()` and an awaitable, yield-driven `next(io)`, typed `FsEventKind` Rename/Change, `WatchOptions.recursive`, `IoError` on a missing path); ~~testing `assert_eq` family~~ (already in `std/assert`: `assert_eq`/`assert_ne`/`assert_approx`); log rewrite; glob
+parse/format; ~~`fs.watch`~~ **DONE 2026-08-29 on macOS + Linux; Windows OPEN** (issues/fs-watch-windows-events-never-delivered-next-spins.md — the windows suite hung in these tests, now gated) (`std/fs/watch`: `Watcher` over `sys/events` — inotify/kqueue/ReadDirectoryChangesW — with `poll()` and an awaitable, yield-driven `next(io)`, typed `FsEventKind` Rename/Change, `WatchOptions.recursive`, `IoError` on a missing path); ~~testing `assert_eq` family~~ (already in `std/assert`: `assert_eq`/`assert_ne`/`assert_approx`); log rewrite; glob
 HTTP server + chunked/redirect/timeout client; TLS (D6); ~~CSV~~ **DONE 2026-08-29** (`std/encoding/csv`: RFC 4180 reader/writer, typed `CsvError` with byte positions, `CsvOptions` delimiter + line ending, strict mode); DateTime
 parse/format; `fs.watch`; testing `assert_eq` family; log rewrite; glob
 expansion; ~~`Semaphore`/`Barrier`~~ **DONE 2026-08-26**; ~~`ThreadPool`~~
