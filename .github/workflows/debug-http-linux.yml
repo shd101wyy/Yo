@@ -62,6 +62,14 @@ jobs:
           grep -n '\[timeout\]\|\[phase2\]\|\[silent\|\[second\|Aborted\|abort' /tmp/http-debug.log | head -40
           echo "---- last 80 lines ----"
           tail -80 /tmp/http-debug.log
+      - name: Chunked tests alone through yo test (strict on / off, 180s caps)
+        continue-on-error: true
+        run: |
+          set +e
+          YO_ASYNC_STRICT=1 timeout 180 /tmp/yo-s1 test ./tests/http/zz_chunked_only.test.yo --verbose --c-compiler clang > /tmp/http-only-strict.log 2>&1; echo "strict rc=$?" | tee -a /tmp/http-only-strict.log
+          grep -v 'warning\|note:\|^\s*[0-9]* |\|^\s*|' /tmp/http-only-strict.log | tail -25
+          YO_ASYNC_STRICT=0 timeout 180 /tmp/yo-s1 test ./tests/http/zz_chunked_only.test.yo --verbose --c-compiler clang > /tmp/http-only-lax.log 2>&1; echo "lax rc=$?" | tee -a /tmp/http-only-lax.log
+          grep -v 'warning\|note:\|^\s*[0-9]* |\|^\s*|' /tmp/http-only-lax.log | tail -25
       - name: Kernel / io_uring facts
         if: always()
         run: |
