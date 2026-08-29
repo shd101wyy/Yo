@@ -6245,7 +6245,17 @@ try_to_call_function_with_arguments :: (
                           s9_ret_somes.get(s9_ri),
                           .Some(s9_rst) => match(
                             s9_rst,
-                            .SomeT(_, s9_rnm, s9_rlvl, _, _, _, _, _, _, _, _) => if(s9_rnm == s9_pnm, {
+                            // By-NAME match is only meaningful for real type
+                            // variables. Every `Impl(...)` annotation wrapper
+                            // is minted with the RESERVED name `Impl`
+                            // (builtins/impl_constraint.yo), so a closure
+                            // param `Impl(Fn(..))` and an `Impl(Future(..))`
+                            // return "matched" here and the call was typed as
+                            // the CLOSURE ARGUMENT's fn type — C27
+                            // (issues/fixed/generic-impl-async-method-closure-param-return-type-collapse.md).
+                            // Wrappers resolve through their own cells / the
+                            // rte re-eval below, never through a sibling's arg.
+                            .SomeT(_, s9_rnm, s9_rlvl, _, _, _, _, _, _, _, _) => if(((s9_rnm == s9_pnm) && (s9_rnm != "Impl")) && (s9_rnm.len() > usize(0)), {
                               subst_add(s9, s9_rnm.clone(), s9_rlvl, s9_ae.arg_type);
                               s9_added.push(s9_rnm.clone());
                               s9_any = true;
@@ -6291,7 +6301,11 @@ try_to_call_function_with_arguments :: (
                       );
                       s9_si2 = (s9_si2 + usize(1));
                     });
-                    if(!(s9_seen2), {
+                    // Same reservation as above: a wrapper named `Impl` has
+                    // no name-keyed env identity of its own (a sibling
+                    // wrapper's binding would answer), so it is left for the
+                    // cell / rte routes.
+                    if((!(s9_seen2)) && ((s9_rnm2 != "Impl") && (s9_rnm2.len() > usize(0))), {
                       s9_env_res := get_value_of_some_type_from_env(callee_env_m, s9_rst2);
                       if(!(is_some_type(s9_env_res)), {
                         subst_add(s9, s9_rnm2.clone(), s9_rlvl2, s9_env_res);
