@@ -8,6 +8,8 @@ on:
 env:
   SEED_VERSION: v0.2.19
   APT_OPTS: -o Dpkg::Lock::Timeout=300
+  YO_TEST_LEAK_VERDICT: "0"
+  YO_MAIN_STACK_MB: 4096
 jobs:
   debug:
     runs-on: ubuntu-latest
@@ -44,15 +46,20 @@ jobs:
           timeout 240 /tmp/yo-s1 test ./tests/http/http.test.yo --verbose --c-compiler clang > /tmp/http-plain.log 2>&1
           echo "rc=$?" | tee -a /tmp/http-plain.log
           grep -v 'warning\|note:' /tmp/http-plain.log | tail -60
-      - name: Run the single test with --debug-async-await (240s cap)
+      - name: Async-debug build of the batch yo test left behind (240s cap)
         continue-on-error: true
         run: |
           set +e
-          timeout 240 /tmp/yo-s1 test ./tests/http/http.test.yo --verbose --c-compiler clang --debug-async-await > /tmp/http-debug.log 2>&1
+          ls tests/http/.yo_selftest_batch_*.yo || { echo "no batch file left behind"; exit 0; }
+          B=$(ls tests/http/.yo_selftest_batch_*.yo | head -1)
+          /tmp/yo-s1 compile "$B" --std-path ./std --c-compiler clang --debug-async-await -o /tmp/http-dbg 2> /tmp/http-dbg-compile.log
+          echo "compile rc=$?"; grep -c . /tmp/http-dbg-compile.log
+          cd tests/http && timeout 240 /tmp/http-dbg > /tmp/http-debug.log 2>&1
           echo "rc=$?" | tee -a /tmp/http-debug.log
           echo "lines: $(wc -l < /tmp/http-debug.log)"
-          grep -n 'timeout test\|chunked test\|silent server\|scripted server\|Aborted\|abort' /tmp/http-debug.log | head -40
-          tail -80 /tmp/http-debug.log
+          grep -n 'timeout test\|chunked test\|silent server\|scripted server\|✓\|✗' /tmp/http-debug.log | tail -30
+          echo "---- last 60 async lines before the end ----"
+          tail -60 /tmp/http-debug.log
       - name: Kernel / io_uring facts
         if: always()
         run: |
