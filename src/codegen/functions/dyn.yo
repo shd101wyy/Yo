@@ -580,7 +580,30 @@ generate_dyn_vtables :: (fn(context : FunctionGenerationContext) -> unit)({
           match(
             req_traits.get(mi),
             .Some(rt) => if(is_fn_trait_type(rt.clone()), {
-              em.emit_declaration_string_line(`  .call = __yo_wrap_${impl_key}_call,`);
+              // Cast to the vtable's declared member type: the wrapper's C
+              // return type is the IMPL's registered result (a Future-returning
+              // method's own sync-future/state-machine struct), while the
+              // member is declared with the trait's generic interface type —
+              // layout-compatible (the SM begins with the future header) but
+              // distinct C types, and clang rejects the bare initializer
+              // ("incompatible function pointer types").
+              match(
+                rt,
+                .FnTraitT({ call_param_labels : cpl2, call_param_types : cpt2, call_result : cres2 }) => {
+                  cast_ret := get_type_string(cres2, context.base);
+                  cast_params := String.from("void*");
+                  (cpi : usize) = usize(0);
+                  while(cpi < cpl2.len(), {
+                    cast_params.push_str(", ");
+                    cast_params.push_string(match(cpt2.get(cpi), .Some(t) => get_type_string(t, context.base), .None => String.from("void*")));
+                    cpi = (cpi + usize(1));
+                  });
+                  em.emit_declaration_string_line(`  .call = (${cast_ret} (*)(${cast_params}))__yo_wrap_${impl_key}_call,`);
+                },
+                _ => {
+                  em.emit_declaration_string_line(`  .call = __yo_wrap_${impl_key}_call,`);
+                }
+              );
               _p := processed.insert(String.from("call"));
             }, {
               match(
@@ -604,7 +627,30 @@ generate_dyn_vtables :: (fn(context : FunctionGenerationContext) -> unit)({
                         .None => false
                       );
                       if(has_self, {
-                        em.emit_declaration_string_line(`  .${sanitize_for_c_identifier(label.clone(), false)} = __yo_wrap_${impl_key}_${label},`);
+                        // Same cast as `.call` above: member type = the
+                        // TRAIT's declared signature, wrapper type = the
+                        // impl's registered one.
+                        match(
+                          field_types.get(fi),
+                          .Some(mft) => match(
+                            mft,
+                            .Func({ param_types : mpt, result : mres }) => {
+                              cast_ret := get_type_string(mres, context.base);
+                              cast_params := String.from("void*");
+                              (mpi : usize) = usize(1);
+                              while(mpi < mpt.len(), {
+                                cast_params.push_str(", ");
+                                cast_params.push_string(match(mpt.get(mpi), .Some(t) => get_type_string(t, context.base), .None => String.from("void*")));
+                                mpi = (mpi + usize(1));
+                              });
+                              em.emit_declaration_string_line(`  .${sanitize_for_c_identifier(label.clone(), false)} = (${cast_ret} (*)(${cast_params}))__yo_wrap_${impl_key}_${label},`);
+                            },
+                            _ => {
+                              em.emit_declaration_string_line(`  .${sanitize_for_c_identifier(label.clone(), false)} = __yo_wrap_${impl_key}_${label},`);
+                            }
+                          ),
+                          .None => ()
+                        );
                       });
                     });
                     fi = (fi + usize(1));
