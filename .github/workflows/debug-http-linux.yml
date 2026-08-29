@@ -70,6 +70,14 @@ jobs:
           grep -v 'warning\|note:\|^\s*[0-9]* |\|^\s*|' /tmp/http-only-strict.log | tail -25
           YO_ASYNC_STRICT=0 timeout 180 /tmp/yo-s1 test ./tests/http/zz_chunked_only.test.yo --verbose --c-compiler clang > /tmp/http-only-lax.log 2>&1; echo "lax rc=$?" | tee -a /tmp/http-only-lax.log
           grep -v 'warning\|note:\|^\s*[0-9]* |\|^\s*|' /tmp/http-only-lax.log | tail -25
+      - name: Standalone repro under AddressSanitizer (120s cap)
+        continue-on-error: true
+        run: |
+          set +e
+          /tmp/yo-s1 compile issues/repros/linux-post-timeout-hang.yo --std-path ./std --c-compiler clang --sanitize address --allocator system -o /tmp/hang-asan 2> /tmp/http-asan-compile.log
+          echo "asan compile rc=$?"
+          ASAN_OPTIONS=detect_leaks=0:abort_on_error=0 timeout 120 /tmp/hang-asan > /tmp/http-asan.log 2>&1; echo "asan rc=$?" | tee -a /tmp/http-asan.log
+          grep -n 'phase3\|ERROR\|SUMMARY\|WRITE\|READ\|freed by\|allocated by\|#[0-9]* 0x' /tmp/http-asan.log | head -80
       - name: Kernel / io_uring facts
         if: always()
         run: |
