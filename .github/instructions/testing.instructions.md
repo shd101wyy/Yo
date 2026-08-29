@@ -63,6 +63,26 @@ bash scripts/count-transpile-failures.sh tests/sync/.yo_selftest_batch_1_0.bin.c
 - `--test-name-pattern "Test XXX"` — run specific test by name
 - Tests automatically use AddressSanitizer for leak detection.
 
+## Windows: failing tests report a SIGNAL status, and a runtime-template edit needs TWO builds
+
+`yo test` on Windows used to die with `yo: error: unknown I/O error` at the
+first failing test (the waitpid NTSTATUS bug — fixed 2026-08-29,
+`issues/fixed/yo-test-failing-child-windows-unknown-io-error.md`). A failing
+test now prints `✗` with `Test failed with exit code 22`-style raw statuses
+(SIGABRT), the summary, and exits 1 — same shape as Linux.
+
+Two Windows-specific facts remain:
+
+- An abnormal child termination (assert/abort) is a SIGNAL status:
+  `code() == None`, `signal() != 0`. Clean nonzero exits still give
+  `code() == Some(n)` for n in 0–255.
+- **A `src/codegen/async/runtime_io_*.yo` template edit takes effect in the
+  compiler's OWN runtime only after a SECOND build** — the stage-1 rule
+  again: one `yo build` gives a binary that emits the new runtime but still
+  runs the old one. And `yo build` invoked as `yo-out/<target>/bin/yo.exe`
+  cannot relink itself (LNK1104: Windows will not overwrite a running
+  executable) — compile to a different `-o` path instead.
+
 ## Evaluator-only check (no codegen)
 
 - `yo check <file-or-dir>` — runs the evaluator on a single `.yo` file or every `.yo` under a directory and prints any type / evaluator errors. No C generation, no C compile.

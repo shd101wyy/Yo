@@ -296,32 +296,11 @@ static void __yo_async_wait_all(void) {
 // ============================================================================
 // Concurrency Helper Functions (from std/concurrency.yo)
 // ============================================================================
-static size_t __yo_thread_get_hardware_threads(void) {`
-  );
-  // hardware-threads body (runtime-core.ts:316-332).
-  cond(
-    is_target_windows(target_info) => emitter.emit_string_line(
-      `  SYSTEM_INFO sysinfo;
-  GetSystemInfo(&sysinfo);
-  return (size_t)sysinfo.dwNumberOfProcessors;`
-    ),
-    is_target_macos(target_info) => emitter.emit_string_line(
-      `  int count;
-  size_t size = sizeof(count);
-  if (sysctlbyname("hw.ncpu", &count, &size, NULL, 0) == 0) {
-    return (size_t)count;
-  }
-  return 1;`
-    ),
-    is_target_wasm(target_info) => emitter.emit_string_line(`  return 1;  // WASM is single-threaded`),
-    true => emitter.emit_string_line(
-      `  long count = sysconf(_SC_NPROCESSORS_ONLN);
-  return count > 0 ? (size_t)count : 1;`
-    )
-  );
-  emitter.emit_string_line(
-    `}
-
+// __yo_thread_get_hardware_threads / __yo_get_hardware_threads / __yo_get_cpu_id
+// are emitted by the ALWAYS-present sys runtime (runtime_io_common.yo) — a
+// program that uses neither async nor threads still calls
+// std/thread.get_hardware_threads
+// (issues/fixed/get-hardware-threads-links-only-with-async-runtime.md).
 static void __yo_thread_set_maximum_threads(size_t num) {
   ASYNC_DEBUG("[CONCURRENCY] set_maximum_threads(%zu) - no-op for async/await\\n", num);
   (void)num;

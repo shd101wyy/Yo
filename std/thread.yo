@@ -224,7 +224,11 @@ spawn :: (fn(pool : ThreadPool, cb : Impl(Fn(io : Io) -> unit, Send)) -> unit)({
 get_hardware_threads :: __yo_thread_get_hardware_threads;
 /// Get the current OS thread ID.
 get_thread_id :: __yo_get_thread_id;
-/// Get the current CPU core ID.
+/// The CPU core the calling thread is currently running on, or `-1` when the
+/// platform cannot say. Linux (`sched_getcpu`) and Windows
+/// (`GetCurrentProcessorNumber`) report it; macOS has no public per-thread
+/// CPU query and always returns `-1`, as does WASM. Advisory only — the
+/// scheduler may migrate the thread right after the call.
 get_cpu_id :: __yo_get_cpu_id;
 export(
   get_hardware_threads,

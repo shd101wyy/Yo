@@ -1,0 +1,40 @@
+// `unsafe.cast(ptr, RcType)` is a BORROWED view of an object someone else
+// owns — binding it must not make the local owning, or the callee's scope-end
+// drop frees the caller's object
+// (issues/fixed/unsafe-cast-to-rc-type-is-treated-as-owned.md, C49).
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+Ev :: struct(name : String, kind : i32);
+W :: ref(struct(q : ArrayList(Ev), active : bool, hits : i32));
+// A callback-shaped function: the object arrives as an opaque pointer.
+bump_through_cast :: (fn(ud : *(u8)) -> unit)({
+  w := unsafe.cast(ud, W);
+  if(w.active, {
+    w.q.push(Ev(name : String.from("x"), kind : i32(2)));
+    w.hits = (w.hits + i32(1));
+  });
+});
+// Round trip through the opaque pointer and hand the handle back.
+identity_through_cast :: (fn(ud : *(u8)) -> W)(unsafe.cast(ud, W));
+test("the caller's object survives a casting callee", {
+  w := W(q : ArrayList(Ev).new(), active : true, hits : i32(0));
+  bump_through_cast(unsafe.cast(w, *(u8)));
+  bump_through_cast(unsafe.cast(w, *(u8)));
+  bump_through_cast(unsafe.cast(w, *(u8)));
+  assert(w.hits == i32(3), "three callbacks ran");
+  assert(w.q.len() == usize(3), "three events queued");
+  assert(w.q(usize(0)).name == "x", "the pushed String is intact");
+});
+test("a cast-derived handle stored and read later stays valid", {
+  w := W(q : ArrayList(Ev).new(), active : true, hits : i32(0));
+  w2 := identity_through_cast(unsafe.cast(w, *(u8)));
+  w2.hits = i32(7);
+  assert(w.hits == i32(7), "same object through the round trip");
+  holder := ArrayList(W).new();
+  holder.push(w2);
+  bump_through_cast(unsafe.cast(w, *(u8)));
+  assert(holder(usize(0)).hits == i32(8), "the held handle sees the callback's write");
+  assert(w.q.len() == usize(1), "queue intact after the round trip");
+});

@@ -1473,6 +1473,14 @@ _render_module_content :: (
   html := `<div class="breadcrumb"><a href="../index.html">Home</a> &rsaquo; ${_escape_html(m.name)}</div>`;
   html.push_string(`<h1>Module <code>${_escape_html(m.name)}</code></h1>`);
   html.push_string(`<div class="module-path">${_escape_html(m.path)}</div>`);
+  match(
+    m.stability,
+    .None => (),
+    .Some(st) => {
+      level := match(st.split(` `).get(usize(0)), .Some(w) => w.to_lowercase(), .None => st.to_lowercase());
+      html.push_string(`<div class="stability stability-${_escape_html(level)}"><strong>Stability: ${_escape_html(st)}</strong> — stable modules only change additively; this one may still change.</div>`);
+    }
+  );
   html.push_string(_render_doc(m.doc));
   if(m.types.len() > usize(0), {
     html.push_str("<h2>Types</h2>\n<div class=\"item-list\">");

@@ -3795,6 +3795,38 @@ static __yo_io_future_t* __yo_async_spawn_start(const uint8_t* file, uint8_t** a
   return __yo_async_spawn_start_cwd(file, argv, envp, stdin_fd, stdout_fd, stderr_fd, NULL);
 }
 
+// NTSTATUS abnormal-termination codes mapped to the CRT's <signal.h> numbering
+// (mirrors libuv's process-exit table). Diagnostic only — the value sits in
+// the WIFSIGNALED position exactly like a POSIX crash status.
+static int __yo_win_ntstatus_to_signal(DWORD code) {
+  switch (code) {
+    case 0xC0000005u: return SIGSEGV; /* STATUS_ACCESS_VIOLATION */
+    case 0xC00000FDu: return SIGSEGV; /* STATUS_STACK_OVERFLOW */
+    case 0xC0000409u: return SIGABRT; /* STATUS_STACK_BUFFER_OVERRUN — UCRT abort()/__fastfail */
+    case 0xC000013Au: return SIGINT;  /* STATUS_CONTROL_C_EXIT */
+    default: return SIGTERM;
+  }
+}
+
+// Encode GetExitCodeProcess's DWORD as a POSIX-style waitpid status. That is
+// the contract every consumer of IO_process.waitpid assumes: the POSIX
+// runtimes hand back the kernel's encoded status and runtime_io_common.yo
+// decodes it with WIFEXITED/WEXITSTATUS/WIFSIGNALED/WTERMSIG, while
+// std/process's IoError.check treats a NEGATIVE result as -errno. Windows
+// reports abnormal terminations as NTSTATUS failure codes (abort()/fastfail =
+// 0xC0000409, access violation = 0xC0000005); cast to int32_t those are
+// negative, so Command.output() on an aborted child threw an unmapped
+// IoError.Other ("unknown I/O error") instead of returning its status —
+// 'yo test' on Windows died at the first failed test instead of reporting it
+// (issues/fixed/yo-test-failing-child-windows-unknown-io-error.md). Exit
+// codes above 255 truncate to the low byte, exactly as on POSIX.
+static int32_t __yo_win_encode_exit_code(DWORD exit_code) {
+  if (exit_code < 0x80000000u) {
+    return (int32_t)((exit_code & 0xFFu) << 8);
+  }
+  return (int32_t)(__yo_win_ntstatus_to_signal(exit_code) & 0x7F);
+}
+
 static __yo_io_future_t* __yo_async_waitpid_start(int32_t pid, int32_t options) {
   __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
   memset(future, 0, sizeof(__yo_io_future_t));
@@ -3831,17 +3863,25 @@ static __yo_io_future_t* __yo_async_waitpid_start(int32_t pid, int32_t options) 
   }
 
   __yo_process_remove_handle(pid);
-  future->result = (int32_t)exit_code;
+  future->result = __yo_win_encode_exit_code(exit_code);
   atomic_init(&future->state, -1);
   return future;
 }
 
+// WIFEXITED/WEXITSTATUS/WTERMSIG equivalents, hand-rolled because UCRT has no
+// <sys/wait.h>. The masks match runtime_io_common.yo's POSIX decoders, and the
+// encodings produced by __yo_win_encode_exit_code above.
 static int32_t __yo_process_exit_status(int32_t status) {
-  return status;
+  if ((status & 0x7F) == 0) {
+    return (status >> 8) & 0xFF;
+  }
+  return -1;
 }
 
 static int32_t __yo_process_term_signal(int32_t status) {
-  (void)status;
+  if (((status & 0x7F) != 0x7F) && ((status & 0x7F) != 0)) {
+    return status & 0x7F;
+  }
   return 0;
 }
 

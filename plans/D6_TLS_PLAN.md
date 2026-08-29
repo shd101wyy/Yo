@@ -93,5 +93,13 @@ throwing `UnsupportedScheme` — std stays honest.
    response loop, default port 443, live https fetch pinned. (The
    build-without-OpenSSL error message polish is deferred; the linker names
    the missing library, which suffices.)
-3. P0+ curl swap in `src/fetch.yo`/`version_cache.yo` (measure first — the
+3. **BLOCKED 2026-08-29 on Windows TLS (Schannel).** `version_cache.yo`'s two
+   curl calls are `https://api.github.com` + release-asset downloads; swapping
+   them onto `std/http` makes the COMPILER BINARY depend on `TlsStream`, which
+   today is OpenSSL-only — `yo version install` / `yo version list --remote`
+   would lose TLS on Windows (no OpenSSL on the runners or on user machines),
+   and every from-source build of the compiler (`yo.c`, `install.sh`) would
+   need libssl headers. Re-open once Schannel lands with the Windows platform
+   audit; until then curl stays (it is present on every supported OS).
+   Original item: P0+ curl swap in `src/fetch.yo`/`version_cache.yo` (measure first — the
    row notes it is blocked on this).

@@ -108,7 +108,12 @@ records; mechanisms and reproducers are in the named `issues/fixed/` docs.
 | C43 | **A trait `?=` default method bound its `inout(self)` BY VALUE** in the per-impl materialized body: `self.field` on a pointer (clang error) or `&(self)` — a `T**` — passed to a sibling method (silent wrong value under `-w`). Every `Hasher.write_*` default is this shape | **FIXED** 2026-08-28 — issues/fixed/trait-default-inout-self-bound-by-value.md |
 | C44 | **`open(import(m))` re-typed every exported integer constant from its VALUE** (`K :: u64(7)` arrived as `i32`; the named import kept `u64`) — the open loop consulted the declared type only for struct-valued members | **FIXED** 2026-08-28 — issues/fixed/open-import-retypes-integer-constants.md |
 | C45 | **Non-exact compatibility unifies same-named generic instantiations by NAME only** — `(x : Result(i32, BErr)) = <Result(i32, AErr)>` type-checks (equal-name fast accept, no recursion into payload types; the struct arm has the same fast path). Sibling of the exact-comparison hole fixed as the enum-collision bug | **FIXED** 2026-08-29 (payload walk under equal names, placeholders read through their resolution cell, SomeT positions stay wildcards) — issues/fixed/lenient-generic-enum-compatibility-by-name.md |
+| C48 | **An `inout(self)` method on a payload-free enum VARIANT LITERAL emitted `&(<C tag constant>)`** (`E.B.to_string()` → "cannot take the address of an rvalue"): the auto-`&` wrapper took the tag identifier for an addressable expression | **FIXED** 2026-08-29 (comptime payload-free `EnumVal` args take the spill-temp path) — issues/fixed/inout-receiver-on-enum-variant-literal-takes-address-of-tag.md |
+| C49 | **`unsafe.cast(ptr, RcType)` was treated as an OWNED +1 result**: `w := unsafe.cast(user_data, Watcher)` in a runtime callback made the callee's scope-end drop free the caller's object (the fs.watch callback SIGSEGV). A cast is a borrowed view | **FIXED** 2026-08-29 (the valueless-callee result temp is non-owning for `__yo_as`) — issues/fixed/unsafe-cast-to-rc-type-is-treated-as-owned.md |
 | C47 | **A function tail with a deferred dup evaluated the tail call TWICE** — the return emitter declared `T temp = <call>` for the dup and then regenerated the whole expression for the `return`; a chained `Index` tail (`rows(r)(f)`) re-declared its spill temp (C redefinition), any side-effecting RC-returning tail ran twice silently | **FIXED** 2026-08-29 — issues/fixed/deferred-dup-return-regenerates-the-call.md |
+| C50 | **Two helpers forwarding different capturing closures to one function shared ONE specialization** (`(__yo_t18)(make)` where `make` is `__yo_t19`): the cache key folded closure identity only for closure LITERALS, and layout-identical capture structs compare exact-equal | **FIXED** 2026-08-29 — two halves: the resolved `capture_*` struct id joins the cache key, AND codegen no longer emits the dead UNSPECIALIZED original of a dot callee (`m.helper(closure)`) once the side table resolved the call to its specialization (that dead copy was the actual C error) — issues/fixed/forwarded-closure-param-shares-specialization.md |
+| C51 | **`std/thread.get_hardware_threads` only linked when the program also used async** (its extern named the async runtime's symbol) | **FIXED** 2026-08-29 (parallelism runtime aliases it when async is absent) — issues/fixed/get-hardware-threads-links-only-with-async-runtime.md |
+| C52 | **`unicode_to_lowercase` / `unicode_to_uppercase` mapped ASCII only** — the general path was C's locale-sensitive `towlower`/`towupper` in the never-set `"C"` locale (`ÉCOLE` → `École`); filed 2026-08-25, surfaced again by the S5 coverage test | **FIXED** 2026-08-29 — Yo-native tables generated from Unicode 15.1 (321 case ranges + 102 SpecialCasing expansions), verified over every scalar value against Python's `unicodedata`; `to_upper_code_point`/`to_lower_code_point` exported — issues/fixed/unicode-case-conversion-ignores-locale-so-non-ascii-is-unchanged.md |
 | C45 | **Non-exact compatibility unifies same-named generic instantiations by NAME only** — `(x : Result(i32, BErr)) = <Result(i32, AErr)>` type-checks (equal-name fast accept, no recursion into payload types; the struct arm has the same fast path). Sibling of the exact-comparison hole fixed as the enum-collision bug | **OPEN** — issues/lenient-generic-enum-compatibility-by-name.md |
 | C46 | **Two same-shaped declared enums were ONE type to the exact comparison** (`AErr`/`BErr`, or the trimmed `HashMapError`/`HashSetError`): the CTFE memo served `Result(unit, BErr)` the `Result(unit, AErr)` instance | **FIXED** 2026-08-29 (nominal reject by declared name under `require_exact`) — issues/fixed/structurally-identical-error-enums-in-two-generic-impls-collide.md |
 | C40 | **A task that re-enqueues itself on every resume (a loop awaiting `yield`) starved the I/O poll** — `__yo_async_run_ready_tasks` drained the queue until empty, so `__yo_io_poll` never ran; `fetch_with`'s deadline race spun forever. **FIXED 2026-08-28** — the drain is bounded to the queue length at entry (the async-`main` loop already capped at 100) | **FIXED** — issues/fixed/async-yield-loop-starves-io-poll.md |
@@ -420,12 +425,13 @@ Open D7 items:
   `fprintf` + `abort()`, no unwinding runtime, no per-thread recovery point.
   Do NOT accept a `join() -> Result(T, E)` signature that cannot actually
   observe a panic.
-- **`WaitGroup` deletion** — waits on a per-consumer MIGRATION DECISION:
-  `ThreadPool.join_all` is a whole-pool barrier while all five consumers use
-  `WaitGroup` for per-task waiting inside a shared pool, so neither `join_all`
-  nor `Semaphore`/`Barrier` is a drop-in. Decide per consumer
-  (`tests/imm_threading`, `tests/sync/{channel,once,rwlock,waitgroup}`),
-  record here, then delete.
+- ~~**`WaitGroup` deletion**~~ **DECIDED KEEP (2026-08-29).** Every consumer
+  (`tests/imm_threading`, `tests/sync/{channel,once,rwlock,waitgroup}`) uses
+  it for DYNAMIC-count waiting on threads it spawned itself — `add(n)` then
+  `done()` per worker — which `ThreadPool.join_all` (whole-pool barrier),
+  `Barrier` (fixed party count, reusable) and `Semaphore` (permits) do not
+  express. It is a well-known primitive (Go's `sync.WaitGroup`) and stays a
+  stable part of `std/sync`; the §6 row is closed as KEEP.
 - ~~**Async-aware sync is a P0 addition** (§7): async `Channel`, async `Mutex`,
   `select`/timeout~~ **DONE 2026-08-27** — §7 P0 item 6 (`std/async/channel`,
   `std/async/mutex`, `race`/`any`/`timeout` in `std/async`; `select` is
@@ -458,8 +464,8 @@ Open D7 items:
     compiler's own lexer runs through them). RFC 3629 strict validation.
   - Three latent bugs fell out: regex read past a truncated tail; utf16 let an
     unpaired LOW surrogate through as CESU-8; `base64_decode_string` returned
-    non-UTF-8 `String`s. All fixed red-first. Filed, NOT fixed:
-    issues/unicode-case-conversion-ignores-locale-so-non-ascii-is-unchanged.md
+    non-UTF-8 `String`s. All fixed red-first. Filed 2026-08-25, **FIXED 2026-08-29** (table-driven, locale-free — C52):
+    issues/fixed/unicode-case-conversion-ignores-locale-so-non-ascii-is-unchanged.md
     (the real content of the string row's "Unicode-correct `to_lowercase`").
 - **`String.from_bytes` correction (2026-08-25):** it did NOT become
   validating. What landed: `String.from_utf8(bytes) -> Result(Self, StringError)`
@@ -514,7 +520,7 @@ Open D7 items:
 | process | EXTEND | Child/spawn/Stdio + env + builders-return-Self + `code() -> Option(i32)` DONE 2026-08-27; still: `current_dir` (seed-gated runtime shim), hide `raw` (needs module-private visibility) |
 | cli | EXTEND or DROP-TO-PACKAGE | typed values, required enforcement, `--`, repeated opts, help-not-an-error; needs tty/color access (D8 wrappers). Recommendation: keep minimal-but-correct in std |
 | net | FIX + EXTEND | C2/C3 DONE; `Shutdown` enum DONE; usize counts DONE; UnixStream/UnixListener DONE 2026-08-27 (incl. their Reader/Writer impls); still: `incoming()`, UDP `connect` + typed `recv_from`, `parse_v6`, `SocketAddr.parse`, `Eq`/`Hash` on addr types, RFC 5952 V6 formatting |
-| http | FIX + EXTEND | C1 DONE; ~~https over TLS~~ **DONE 2026-08-28** (D6 PR-2: scheme branch, shared generic Reader response loop, TcpStream|TlsStream transport, default port 443); ~~timeouts, redirects~~ **DONE 2026-08-28** (C33); ~~chunked decoding~~ **DONE 2026-08-29** (C53); still: binary bodies (`body : String` — needs a bytes form), keep-alive; **server (P1)**: `parse_request`, `HttpServer` on `TcpListener`; collapse `FetchOptions` into `HttpRequest` |
+| http | FIX + EXTEND | C1 DONE; ~~https over TLS~~ **DONE 2026-08-28** (D6 PR-2: scheme branch, shared generic Reader response loop, TcpStream|TlsStream transport, default port 443); ~~timeouts, redirects~~ **DONE 2026-08-28** (C33); ~~chunked decoding~~ **DONE 2026-08-29** (C53); still: binary bodies (`body : String` — needs a bytes form), keep-alive; **server (P1)**: `parse_request`, `HttpServer` on `TcpListener`; collapse `FetchOptions` into `HttpRequest`; the compiler's own curl→`std/http` swap (D6 PR-3) is **BLOCKED on Windows TLS** (plans/D6_TLS_PLAN.md item 3) |
 | async | PROMOTE | combinator home: `join_all`, `race`, `any`, `timeout`, interval, cancellation for `JoinHandle` (`abort()`), async channel/mutex (D7). `sleep(Duration, io)` lives in `std/time/sleep.yo` — do NOT add a second one; re-export if wanted |
 | thread/worker/sync | REDESIGN (D7) | ThreadPool DONE; `join() -> T` + panic propagation blocked below std — see D7 |
 | time | EXTEND | ~~`Duration`: `Add/Sub` operators, `Eq/Ord/Hash`, `from_secs_f64`, `subsec_*`, consts~~ + ~~`Instant` `add/sub`, `Eq/Ord`~~ **DONE 2026-08-28** (PR #312: operators mirror add/sub incl. zero-saturation, total-nanos Hash, from_secs_f64 clamps negatives, SECOND…HOUR consts, Instant.sub clamps at clock zero); **make std USE it** (timeouts, sleeps); ~~`DateTime`: RFC3339 `parse`/`format`, component ctor, arithmetic, `Eq/Ord`~~ **DONE 2026-08-28** (leap-aware `parse` incl. lowercase t/z + space separator + nano fractions + numeric offsets, typed `DateTimeError`, validating `new`, `add`/`sub(Duration)` offset-preserving, INSTANT-basis `Eq`/`Ord` + `to_unix_utc`; `to_string` was already RFC3339 — round-trip pinned); sleep unification DONE (§5) |
@@ -600,9 +606,9 @@ battery). Export hygiene: `__MutexUnlocker`, `ArgKind`/`ArgDef` unexported.
 
 **KEPT / BLOCKED — each with the measurement that blocks it:**
 
-- **`WaitGroup` — KEEP** until the per-consumer migration decision (D7): five
-  test files use it for per-task waiting, which `join_all` (whole-pool
-  barrier) does not cover.
+- **`WaitGroup` — KEEP (decided 2026-08-29, see D7):** dynamic-count
+  per-task waiting, which `join_all` (whole-pool barrier), `Barrier` and
+  `Semaphore` do not express; a well-known primitive (Go).
 - **`std/collections/linked_list.yo` — KEEP**: load-bearing half of the #249
   regression trigger (`tests/where_clause_fn_inference.test.yo`'s minimal
   era-copy/GC-trace reproducer). Revisit if that test is re-expressed.
@@ -692,7 +698,7 @@ HTTP server; ~~chunked/redirect/timeout client~~ **DONE** (redirects + deadline
 ~~CSV~~ **DONE 2026-08-29** (`std/encoding/csv`: RFC 4180 reader/writer, typed
 `CsvError` with byte positions, `CsvOptions` delimiter + line ending, strict
 mode); ~~DateTime parse/format~~ **DONE 2026-08-28** (RFC 3339 `parse` /
-`to_string`, typed `DateTimeError`); `fs.watch` (PR #348); ~~testing
+`to_string`, typed `DateTimeError`); ~~`fs.watch`~~ **DONE 2026-08-29 on macOS + Linux; Windows OPEN** (issues/fs-watch-windows-events-never-delivered-next-spins.md — the windows suite hung in these tests, now gated) (`std/fs/watch`: `Watcher` over `sys/events` — inotify/kqueue/ReadDirectoryChangesW — with `poll()` and an awaitable, yield-driven `next(io)`, typed `FsEventKind` Rename/Change, `WatchOptions.recursive`, `IoError` on a missing path); ~~testing
 `assert_eq` family~~ **DONE 2026-08-28** (`assert_eq`/`assert_ne`/
 `assert_approx`, diff-printing); ~~log rewrite~~ **DONE 2026-08-28** (levels
 incl. `Off`, generic/target/lazy messages, timestamps, thread-safe);
@@ -756,8 +762,20 @@ mmap/file-lock/statfs wrappers; `gc.stats`; DNS SRV/TXT/reverse
    change.)
 4. **S3 — P0 additions.** ← next after D5 slice 2
 5. **S4 — P1 additions.**
-6. **S5 — stability freeze:** stable/unstable markers in `yo doc` output,
-   additive-only policy documented in `yo-design.instructions.md`.
+6. **S5 — stability freeze:** ~~stable/unstable markers in `yo doc` output,
+   additive-only policy documented in `yo-design.instructions.md`~~ **DONE
+   2026-08-29**: a module's inner doc may end with a `## Stability` section
+   (`unstable — new in vX.Y.Z; …`); `yo doc` carries it as
+   `DocModule.stability` (HTML badge, `"stability"` in JSON, a note on the
+   Markdown module page + an index badge). Every std module without the
+   section is stable and additive-only — the policy, what counts as
+   additive, the one-release `unstable` entry rule and the deprecation path
+   are in `.github/instructions/yo-design.instructions.md` ("API stability").
+   `std/encoding/csv` is the first module carrying the marker (new in this
+   release); `std/http/server` and `std/fs/watch` get it in their own PRs.
+   Found en route: `yo doc` only recognises `## ` section headings while std
+   writes `# Examples` at 70 sites
+   (issues/doc-sections-require-double-hash-but-std-writes-single-hash.md).
 
    **Two inputs measured 2026-08-27, to be worked before the freeze:**
 
@@ -772,13 +790,30 @@ mmap/file-lock/statfs wrappers; `gc.stats`; DNS SRV/TXT/reverse
      (**C35** — same, the check was missing, now FIXED), and
      `HashMapError.KeyNotFound` / `HashSetError.ElementNotFound`, which are dead
      BY DESIGN (lookups return `Option`) and want DELETING here, in §6, since
-     removing a public variant is breaking. `std/allocator`'s `Layout` /
-     `layout_of` are unconsumed too — no `alloc(Layout)` entry point exists —
-     which needs the same delete-or-implement decision. The struct-field face of
+     removing a public variant is breaking. **SEED-GATED (measured 2026-08-29):**
+     with both variants gone the two enums have identical shapes and the
+     v0.2.19 seed — which predates C46's nominal-enum exact compare (#343) —
+     conflates them across the std module graph (`check ./std` fails in
+     `hash_set.yo` under the seed, passes under develop's compiler). Delete
+     them in the first PR after SEED_VERSION advances past #343. `std/allocator`'s `Layout` /
+     `layout_of` are unconsumed by std but tested and useful on their own
+     (a type's size + alignment as a value) — **DECIDED KEEP 2026-08-29** as
+     the reflection helper they are; an `alloc(Layout)` entry point can be
+     added additively if a consumer appears. The struct-field face of
      the sweep came back clean apart from reflection metadata and
      `DateTime.nanosecond` (correctly populated, just never rendered — RFC 3339
      permits that, so no defect).
-   - **Test coverage of the exported surface.** 1132 of 1829 `std` exports are
+   - **Test coverage of the exported surface.** **RE-MEASURED 2026-08-29: 176 of
+     582 non-`sys`/`libc` exports never named under `tests/`** (the sweep is
+     reproducible: every `export(...)` name outside `std/sys`+`std/libc` grepped
+     across `tests/`). Most are iterator/internal types reached structurally;
+     the real gaps — `hmac_sha*`, `json_parse_bytes`/`json_parse_string`/
+     `json_stringify_pretty`, `eprint`, the `log` `*_target`/`*_lazy` families,
+     `PATH_SEPARATOR`/`PATH_DELIMITER`, `stdin`, `get_hardware_threads`/
+     `get_cpu_id`, `unicode_to_{lower,upper}case`, `is_valid_entity_code`,
+     `step_len`, `bench`, the hash/http default constants — are now exercised by
+     `tests/std_export_coverage.test.yo`, and writing it surfaced C50 and C51 and re-surfaced the open unicode-locale bug (C52).
+     Original count: 1132 of 1829 `std` exports were
      never NAMED anywhere under `tests/`. That number badly overstates the gap —
      it is a name grep, so `std/sys/*` + `std/libc/*` constants dominate it and
      any type exercised only structurally (iterators reached through `for`, error

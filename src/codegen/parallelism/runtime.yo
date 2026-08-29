@@ -57,29 +57,6 @@ static void __yo_worker_init_mutex(void) {
     ``
   );
   init_mutex_call := if(is_windows, `  __yo_worker_init_mutex();`, ``);
-  get_hardware_threads := cond(
-    is_windows =>
-      `  SYSTEM_INFO sysinfo;
-  GetSystemInfo(&sysinfo);
-  return (size_t)sysinfo.dwNumberOfProcessors;`,
-    is_macos =>
-      `  int count;
-  size_t size = sizeof(count);
-  if (sysctlbyname("hw.ncpu", &count, &size, NULL, 0) == 0) {
-    return (size_t)count;
-  }
-  return 1;`,
-    true =>
-      `  long count = sysconf(_SC_NPROCESSORS_ONLN);
-  return count > 0 ? (size_t)count : 1;`
-  );
-  get_cpu_id := cond(
-    is_linux =>
-      `  int cpu = sched_getcpu();
-  return cpu;`,
-    is_windows => `  return (int)GetCurrentProcessorNumber();`,
-    true => `  return -1;`
-  );
   async_init_thread := if(
     uses_async,
     `
@@ -414,20 +391,8 @@ static void __yo_worker_pool_shutdown(void) {
   PARALLELISM_DEBUG("[WORKER] Worker pool shutdown complete\\n");
 }
 
-// Get number of hardware threads (CPU cores)
-static size_t __yo_get_hardware_threads(void) {`
-  );
-  emitter.emit_string_line(get_hardware_threads);
-  emitter.emit_string_line(
-    `}
-
-// Get CPU ID that the current thread is running on
-// Returns -1 if CPU affinity information is not available
-static int __yo_get_cpu_id(void) {`
-  );
-  emitter.emit_string_line(get_cpu_id);
-  emitter.emit_string_line(
-    `}
+// __yo_get_hardware_threads / __yo_get_cpu_id are emitted by the sys runtime
+// (always present) — see runtime_io_common.yo.
 
 // Set the number of worker threads (must be called before first spawn)
 static void __yo_worker_set_num_threads(size_t num) {`
