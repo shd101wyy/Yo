@@ -142,9 +142,18 @@ AF_INET6 :: cond(
 
 Current goal: make Yo work on Linux, macOS, and Windows.
 
-## Breaking changes are acceptable
+## API stability: the language may still break, `std` may not
 
-Yo is a new, evolving language. Don't worry about breaking changes when making design decisions.
+Yo the LANGUAGE is still evolving — language-level breaking changes are acceptable when the design calls for them. The STANDARD LIBRARY closed its breaking window with the S2 sweep (`plans/STD_API_AUDIT.md` §1, §5–§6): every `std` module is **stable** unless its module doc carries a `## Stability` section, and stable modules change **additively only**:
+
+- Additive = new modules, new exported functions/types/constants, new trait impls, new enum variants only where the enum is documented as non-exhaustive, new optional builder methods, wider accepted inputs, bug fixes that make behaviour match the documentation. Renames, signature changes, removed exports, changed error variants, changed defaults and changed wire/serialization formats are NOT additive — they need a documented deprecation (`# Deprecated` doc section on the old name, kept working) and land only with a new module or as a parallel API.
+- A NEW module enters as `unstable` for one release: its inner doc ends with
+  ```
+  //! ## Stability
+  //! unstable — new in vX.Y.Z; the API may still change until the next release.
+  ```
+  `yo doc` renders the marker (HTML badge, `"stability"` in JSON, a note in Markdown); the audit's §7 table records when a module was frozen. Drop the section to freeze it.
+- Dead surface is not "stable": an export with no consumer and no test is deleted BEFORE it is frozen (the §6 rule), never marked stable by default. Freezing an export no test exercises is how a broken API becomes permanent (C34).
 
 ## Compile-time only functions must use `comptime` return types
 

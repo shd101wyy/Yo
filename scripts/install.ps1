@@ -206,7 +206,15 @@ function Test-CToolchain {
   $src = Join-Path $tmp 'probe.c'
   "#include <stdio.h>`nint main(void) { return 0; }" | Set-Content -Path $src -Encoding UTF8
   $out = Join-Path $tmp 'probe.exe'
+  # 'Continue' around every native 2>&1 capture: while this script's global
+  # $ErrorActionPreference = 'Stop' is in force, Windows PowerShell 5.1 turns
+  # the first line a native command writes to stderr under 2>&1 into a
+  # TERMINATING NativeCommandError at the call site — killing the script with
+  # an opaque message before the $LASTEXITCODE check below can report the real
+  # failure. 'Continue' keeps those lines in $log instead.
+  $ErrorActionPreference = 'Continue'
   $log = & clang $src -o $out 2>&1
+  $ErrorActionPreference = 'Stop'
   if ($LASTEXITCODE -eq 0) { return }
   Warn @"
 clang is on PATH but cannot build a C program on this machine, so 'yo compile'
@@ -391,23 +399,35 @@ function Verify-Install {
   }
   $tmp = New-TempDir
   $src = Join-Path $tmp 'hello.yo'
-  @'
+  $hello = @'
 open(import("std/fmt"));
 main :: (fn() -> unit)({
   println(`Yo is installed`);
 });
 export(main);
-'@ | Set-Content -Path $src -Encoding UTF8
+'@
+  # BOM-less on purpose: the Yo lexer rejects a source file starting with a
+  # UTF-8 BOM, and this verification runs against the RELEASED binary, which
+  # cannot be assumed to tolerate one. Windows PowerShell 5.1's
+  # `Set-Content -Encoding UTF8` ALWAYS prepends a BOM (PS 7 does not), so use
+  # .NET's UTF8Encoding($false) default instead.
+  [System.IO.File]::WriteAllText($src, $hello)
 
   $exe = Join-Path (Join-Path (Join-Path (Join-Path (Join-Path $Prefix 'lib') 'yo') $Version) 'bin') 'yo.exe'
   $out = Join-Path $tmp 'hello.exe'
   Info 'Verifying (compiling a hello world)..'
+  # See Test-CToolchain: 'Continue' keeps yo's stderr in $log instead of
+  # throwing NativeCommandError under $ErrorActionPreference = 'Stop' (PS 5.1).
+  $ErrorActionPreference = 'Continue'
   $log = & $exe compile $src -o $out 2>&1
+  $ErrorActionPreference = 'Stop'
   if ($LASTEXITCODE -ne 0) {
     Warn ($log | Out-String)
     Fail 'The install is present but cannot compile. See the output above.'
   }
+  $ErrorActionPreference = 'Continue'
   $printed = (& $out 2>&1 | Out-String).Trim()
+  $ErrorActionPreference = 'Stop'
   if ($printed -ne 'Yo is installed') {
     Fail "Verification FAILED: the compiled program printed '$printed'"
   }

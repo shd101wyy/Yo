@@ -1,6 +1,13 @@
 # `std/thread`'s `get_hardware_threads` only links when the program also uses async
 
-**Status:** OPEN. Pre-existing (`std/thread.yo` has exported this alias since
+**Status:** **FIXED 2026-08-29** — option 1: the parallelism runtime emits
+`__yo_thread_get_hardware_threads` as an alias of `__yo_get_hardware_threads`
+whenever the async runtime is not emitting its own copy
+(`src/codegen/parallelism/runtime.yo`, gated on `!uses_async`). Pinned by
+`tests/std_export_coverage.test.yo` ("get_hardware_threads and get_cpu_id"),
+whose batch has no async. Original record follows.
+
+**Status (original):** OPEN. Pre-existing (`std/thread.yo` has exported this alias since
 the module was written); found while building `ThreadPool`.
 
 ## Symptom

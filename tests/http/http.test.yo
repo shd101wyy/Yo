@@ -6,7 +6,7 @@ pragma(Pragma.SkipWindows); // OpenSSL absent on the Windows runners
 { HttpHeader, http_status_text } :: import("std/http/http");
 { fetch, fetch_with, FetchOptions } :: import("std/http/client");
 { Exception, IoExn } :: import("std/error");
-{ println, eprintln } :: import("std/fmt");
+{ println } :: import("std/fmt");
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { GlobalAllocator } :: import("std/allocator");
@@ -182,12 +182,10 @@ _serve_scripted :: (
     k := usize(0);
     while(runtime(k < responses.len()), {
       s := e.io.await(listener.accept(e.io), e);
-      eprintln(`  [scripted server] accepted #${k}`);
       req := e.io.await(_read_request(s, e.io), e);
       seen.push(req);
       _w := e.io.await(s.write_string(responses(k), e.io), e);
       e.io.await(s.close(e.io), e);
-      eprintln(`  [scripted server] responded #${k}`);
       k = (k + usize(1));
     });
     return(());
@@ -311,13 +309,9 @@ test("fetch default response ceiling is 64 MiB and 0 lifts it", {
 _serve_silent :: (fn(listener : TcpListener, hold : Duration, io : Io) -> Impl(Future(unit, IoExn)))(
   io.async((e) => {
     s := e.io.await(listener.accept(e.io), e);
-    eprintln(`  [silent server] accepted`);
     _req := e.io.await(_read_request(s, e.io), e);
-    eprintln(`  [silent server] got request, holding`);
     e.io.await(sleep(hold, e.io), e.io);
-    eprintln(`  [silent server] hold over, closing`);
     e.io.await(s.close(e.io), e);
-    eprintln(`  [silent server] closed`);
     return(());
   })
 );
@@ -326,7 +320,6 @@ test("fetch throws Timeout when the server never answers", {
     throw : (
       (err) -> {
         msg := err.to_string();
-        eprintln(`  [timeout test] handler: ${msg}`);
         assert(msg.contains(`timed out`), `expected Timeout, got: ${msg}`);
         unwind(());
       }
@@ -336,7 +329,6 @@ test("fetch throws Timeout when the server never answers", {
   listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
   server := io.spawn(_serve_silent(listener, Duration.from_millis(i64(400)), io), IoExn(io : io, exn : exn));
   opts := FetchOptions.new().with_timeout(Duration.from_millis(i64(100)));
-  eprintln(`  [timeout test] fetching`);
   _r := io.await(fetch_with(`http://127.0.0.1:19964/hang`, opts, io), IoExn(io : io, exn : exn));
   assert(false, "fetch must throw Timeout");
 });
@@ -391,17 +383,13 @@ test("fetch decodes a chunked body (sizes, extensions and trailers stripped)", {
   responses.push(`HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n7;ext=1\r\nhello, \r\nA\r\nchunked!!!\r\n0\r\n\r\n`);
   seen := ArrayList(String).new();
   server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
-  eprintln(`  [chunked test] fetching /one`);
   r1 := io.await(fetch_with(`http://127.0.0.1:19965/one`, FetchOptions.new(), io), IoExn(io : io, exn : exn));
-  eprintln(`  [chunked test] /one done: ${r1.status_code}`);
   assert(r1.status_code == i32(200), `status ${r1.status_code}`);
   assert(r1.body == "hello, chunked world — 16+ bytes so a size needs two hex digits", `decoded body, got "${r1.body}"`);
   assert(r1.get_header(`Transfer-Encoding`).is_some(), `the header itself is kept`);
   r2 := io.await(fetch_with(`http://127.0.0.1:19965/two`, FetchOptions.new(), io), IoExn(io : io, exn : exn));
-  eprintln(`  [chunked test] /two done: ${r2.status_code}`);
   assert(r2.body == "hello, chunked!!!", `chunk extension + upper-case size, got "${r2.body}"`);
   server.await(io);
-  eprintln(`  [chunked test] server joined`);
   io.await(listener.close(io), IoExn(io : io, exn : exn));
 });
 // The throwing fetch runs as its OWN spawned task: its handler unwinds that
@@ -433,12 +421,51 @@ test("a malformed chunk size is a typed HttpError, not a garbage body", {
   responses.push(`HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\nzz\r\nhello\r\n0\r\n\r\n`);
   seen := ArrayList(String).new();
   server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
-  eprintln(`  [malformed test] spawning client`);
   client := io.spawn(fetch_with(`http://127.0.0.1:19966/bad`, FetchOptions.new(), io), IoExn(io : io, exn : chunk_exn));
   outcome := client.await(io);
-  eprintln(`  [malformed test] client joined`);
   server.await(io);
   io.await(listener.close(io), IoExn(io : io, exn : exn));
   assert(match(outcome, .None => true, .Some(r) => false), `a non-hex chunk size must throw (task unwound → None)`);
+  assert(seen.len() == usize(1), "the server saw exactly one request");
+});
+// A garbage status line surfaces as `HttpError.Other("Invalid status line")`.
+// Also the production pin for
+// issues/fixed/async-scope-end-drop-then-escape-double-drop.md: `_fetch_once`
+// throws AFTER its transport branch (addrs/addr/stream) has closed, and the
+// state machine's dispose used to release those locals a second time — the
+// heap-use-after-free behind the Linux crash of this file's sweep. The client
+// runs as its own task so the test body survives the throw and the task's
+// dispose happens while the test is still watching.
+test("fetch throws Other on a garbage status line, and the aborted task disposes cleanly", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, `unexpected exception: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  // Capture-free by design (handlers are frame-bound): it can only unwind.
+  garbage_exn := Exception(
+    throw : (
+      (err) -> {
+        unwind(());
+      }
+    )
+  );
+  addr := SocketAddr.loopback(u16(19967));
+  listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
+  responses := ArrayList(String).new();
+  responses.push(`garbage\r\n\r\n`);
+  seen := ArrayList(String).new();
+  server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
+  (outcome : Option(HttpResponse)) = Option(HttpResponse).None;
+  {
+    client := io.spawn(fetch_with(`http://127.0.0.1:19967/garbage`, FetchOptions.new(), io), IoExn(io : io, exn : garbage_exn));
+    outcome = client.await(io);
+  };
+  server.await(io);
+  io.await(listener.close(io), IoExn(io : io, exn : exn));
+  assert(match(outcome, .None => true, .Some(r) => false), `a garbage status line must throw (task unwound → None)`);
   assert(seen.len() == usize(1), "the server saw exactly one request");
 });

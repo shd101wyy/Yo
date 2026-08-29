@@ -86,6 +86,23 @@ extract_doc_sections :: (fn(doc : Option(String)) -> DocSections)(
     }
   )
 );
+/// The module's stability marker: the first line of its `## Stability` doc
+/// section verbatim (`unstable — new in v0.2.20; …`), or `.None` when the
+/// module has none. Renderers key the badge on its first word.
+module_stability :: (fn(doc : Option(String)) -> Option(String))(
+  match(
+    doc,
+    .None => Option(String).None,
+    .Some(text) => match(
+      parse_doc_comment(text).sections.get(String.from("stability")),
+      .None => Option(String).None,
+      .Some(sec) => {
+        first := match(sec.split(`\n`).get(usize(0)), .Some(l) => l, .None => sec);
+        Option(String).Some(first.trim())
+      }
+    )
+  )
+);
 /// Build a lookup map from declaration name → doc comment content.
 /// Mirrors `buildDocLookup` (builder.ts:110).
 build_doc_lookup :: (fn(extraction : DocExtractionResult) -> HashMap(String, String))({
@@ -1630,6 +1647,7 @@ build_doc_module_from_tokens :: (
     name : name,
     path : path,
     doc : module_doc,
+    stability : module_stability(module_doc),
     functions : ArrayList(DocFunction).new(),
     types : types,
     traits : ArrayList(DocTrait).new(),
@@ -2299,6 +2317,7 @@ build_doc_module :: (
     name : name.clone(),
     path : path.clone(),
     doc : module_doc,
+    stability : module_stability(module_doc),
     functions : functions,
     types : types,
     traits : traits,

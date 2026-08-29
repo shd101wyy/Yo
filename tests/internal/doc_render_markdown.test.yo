@@ -139,6 +139,7 @@ make_module_ :: (fn() -> DocModule)({
     name : `math`,
     path : `std/math`,
     doc : Option(String).Some(`Math utilities.`),
+    stability : Option(String).None,
     functions : fns,
     types : types,
     traits : traits,
@@ -570,6 +571,7 @@ test("renderModuleMd: renders empty module without content sections", {
     name : `empty`,
     path : `std/empty`,
     doc : Option(String).None,
+    stability : Option(String).None,
     functions : ArrayList(DocFunction).new(),
     types : ArrayList(DocType).new(),
     traits : ArrayList(DocTrait).new(),
@@ -596,6 +598,7 @@ test("renderIndexMd: uses first line of module doc as summary", {
     name : m.name,
     path : m.path,
     doc : Option(String).Some(`First line summary.\nMore details here.`),
+    stability : Option(String).None,
     functions : m.functions,
     types : m.types,
     traits : m.traits,
@@ -606,4 +609,27 @@ test("renderIndexMd: uses first line of module doc as summary", {
   model := DocModel(name : `proj`, modules : modules, version : Option(String).None);
   md := render_index_md(model);
   assert(md.contains(`First line summary.`), "summary from first line");
+});
+// ── stability marker (plans/STD_API_AUDIT.md §1: new modules enter `unstable`) ──
+test("renderModuleMd: renders the stability note and the index badge", {
+  m := make_module_();
+  um := DocModule(
+    name : m.name,
+    path : m.path,
+    doc : m.doc,
+    stability : Option(String).Some(`unstable`),
+    functions : m.functions,
+    types : m.types,
+    traits : m.traits,
+    constants : m.constants,
+    submodules : m.submodules
+  );
+  md := render_module_md(um);
+  assert(md.contains(`**Stability: unstable**`), "module page carries the stability note");
+  stable_md := render_module_md(m);
+  assert(!(stable_md.contains(`Stability:`)), "a stable module has no note");
+  modules := ArrayList(DocModule).new();
+  modules.push(um);
+  idx := render_index_md(DocModel(name : `proj`, modules : modules, version : Option(String).None));
+  assert(idx.contains(`(module/math.md) _(unstable)_`), "index badge");
 });

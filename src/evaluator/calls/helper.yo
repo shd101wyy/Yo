@@ -160,6 +160,7 @@ _(env : helper_dbg_env) :: import("std/env");
   get_closure_body_type,
   register_func_type,
   get_func_type,
+  mark_fn_specialized,
   is_closure_fn,
   register_closure_capture_info,
   get_closure_capture_info,
@@ -1468,7 +1469,22 @@ _find_specialization_cache :: (
                       // concrete reuse (struct↔struct) intact.
                       cached_is_some := is_some_type(cached_ty);
                       current_is_some := is_some_type(current_ty);
-                      if((cached_is_some && !(current_is_some)) || (!(cached_is_some) && current_is_some), {
+                      // A closure's CAPTURE STRUCT is its identity: two closures
+                      // capturing the same variables have structurally identical
+                      // (anonymous) capture structs that `are_types_compatible_exact`
+                      // cannot tell apart, so a forwarded closure param hit the
+                      // FIRST closure's specialization
+                      // (issues/fixed/forwarded-closure-param-shares-specialization.md).
+                      cap_ids_differ := match(
+                        cached_ty,
+                        .Struct({ id : cap_cid }) => match(
+                          current_ty,
+                          .Struct({ id : cap_nid }) => ((cap_cid.starts_with("capture_") || cap_nid.starts_with("capture_")) && (cap_cid != cap_nid)),
+                          _ => false
+                        ),
+                        _ => false
+                      );
+                      if(((cached_is_some && !(current_is_some)) || (!(cached_is_some) && current_is_some)) || cap_ids_differ, {
                         rt_match = false;
                       }, {
                         if(!(are_types_compatible_exact(cached_ty, current_ty)), {
@@ -1912,6 +1928,18 @@ _spec_resolve_arg_ty :: (fn(t_in : TypeValue) -> TypeValue)({
   });
   if(is_some_type(cur), t_in, cur)
 });
+/// A forwarded closure param has no FuncVal; when its type resolved to a
+/// `capture_*` struct, push `clcap<i>_<struct id>` onto the specialization
+/// cache key so two layout-identical capture structs never share a spec.
+_push_forwarded_closure_key :: (fn(compile_time_args : ArrayList(EvalValue), cfi : usize, arg_ty : TypeValue) -> unit)(
+  match(
+    _spec_resolve_arg_ty(arg_ty),
+    .Struct({ id : cap_sid }) => if(cap_sid.starts_with("capture_"), {
+      compile_time_args.push(EvalValue.StrLit(`clcap${cfi.to_string()}_${cap_sid}`));
+    }),
+    _ => ()
+  )
+);
 create_specialized_function_inline :: (
   fn(
     original_func_val : EvalValue,
@@ -2160,9 +2188,21 @@ create_specialized_function_inline :: (
                   closure_fid_sig.push_str("_");
                   closure_fid_sig.push_string(sanitize_for_sig(cf_fid.clone()));
                 },
-                _ => ()
+                // A FORWARDED closure param (`outer :: (fn(make : Impl(Fn()
+                // -> String)))(inner(Lv.A, make))`) has no FuncVal — its
+                // identity is the CAPTURE STRUCT its type resolved to. Two
+                // closures capturing the same variables have structurally
+                // identical capture structs (anonymous, equal fields), so
+                // the exact-compat cache lookup below treated them as one
+                // type and the second helper called the FIRST closure's
+                // specialization: `(__yo_t18)(make)` where `make` is
+                // `__yo_t19` (issues/fixed/forwarded-closure-param-shares-specialization.md).
+                // Fold the capture struct id into the key, as clfid does for
+                // literals (the func_id's `_rtparam<i>_capture_…` segment
+                // already spells it, so the signature needs nothing more).
+                _ => _push_forwarded_closure_key(compile_time_args, cfi, cf_ae.arg_type)
               ),
-              .None => ()
+              .None => _push_forwarded_closure_key(compile_time_args, cfi, cf_ae.arg_type)
             ),
             .None => ()
           );
@@ -2208,6 +2248,9 @@ create_specialized_function_inline :: (
             `${func_id}_${sig}`,
             func_id
           );
+          if(sig.len() > usize(0), {
+            mark_fn_specialized(func_id.clone());
+          });
           // Register recursive self-reference in context so recursive calls
           // inside the body can find the specialized func_id.
           // Bind the inferred generic values (arg_values.forall_args, in

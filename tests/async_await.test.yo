@@ -4582,3 +4582,93 @@ test("spawned task's ref result is dup'd out and disposed exactly once", {
   };
   assert(g_spawn_result_disposed == i32(1), "disposed exactly once after scope end");
 });
+// Regression (issues/fixed/async-scope-end-drop-then-escape-double-drop.md):
+// a cross-boundary local of an async body is dropped inline when its scope
+// (here a cond branch that awaits) ends, and the state machine's dispose
+// function sweeps EVERY cross-boundary local again when the body escaped
+// (state == -2). An effect throw AFTER the branch closed therefore released
+// the branch's locals twice — std/http's `_fetch_once` freed its
+// `addrs`/`addr`/`stream` at the end of the transport branch, then a bad
+// status line threw and dispose decremented them again (heap-use-after-free
+// on Linux, where the runtime lived long enough to dispose the task). `main`
+// keeps its own reference here, so the over-release shows up as a Dispose
+// that runs while `shared` is still held.
+(g_branch_local_disposed : i32) = i32(0);
+BranchLocalProbe :: ref(struct(id : i32));
+impl(
+  BranchLocalProbe,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      g_branch_local_disposed = (g_branch_local_disposed + i32(1));
+    })
+  )
+);
+BranchRaise :: (ctl(generic(T : Type), msg : String) -> T);
+BranchRaiseCtx :: struct(io : Io, raise : BranchRaise);
+throw_after_awaiting_branch :: (fn(shared : BranchLocalProbe, ctx : BranchRaiseCtx) -> Impl(Future(i32, BranchRaiseCtx)))(
+  ctx.io.async((c) => {
+    seen := i32(0);
+    cond(
+      runtime(shared.id == i32(7)) => {
+        x := shared;
+        c.io.await(yield(c.io), c.io);
+        seen = x.id;
+      },
+      true => ()
+    );
+    c.raise(`throw after the branch scope closed`);
+    return(seen);
+  })
+);
+test("escape after an awaiting cond branch closed does not re-drop its locals", {
+  (raise : BranchRaise) =
+    (
+      (msg) -> {
+        unwind(());
+      }
+    );
+  ctx := BranchRaiseCtx(io : io, raise : raise);
+  shared := BranchLocalProbe(id : i32(7));
+  {
+    // The handle owns the task's state machine; its dispose (the sweep) runs
+    // when this block releases the handle.
+    handle := io.spawn(throw_after_awaiting_branch(shared, ctx), ctx);
+    result := handle.await(io);
+    assert(result.is_none(), "the task unwound");
+  };
+  assert(g_branch_local_disposed == i32(0), "shared is still held by the test; its branch-local copy must not have been released twice");
+  assert(shared.id == i32(7), "shared still readable");
+});
+// Regression (issues/fixed/event-loop-blocks-after-completing-the-awaited-future.md):
+// a blocking waiter (top-level io.await, JoinHandle.await, std/async
+// combinators) is a loop over __yo_async_poll_step, re-checking its future
+// between steps. A step that RESUMED tasks may have completed that future,
+// yet poll_step went on to block in __yo_io_wait whenever the ready queue was
+// empty and any I/O was pending — here an unrelated 2 s timer, in std/http a
+// spawned server parked in accept. kqueue's 100 ms wait timeout turned the
+// hang into a silent stall on macOS; io_uring waited for the unrelated I/O.
+// The awaited chain needs two hops after the I/O completion (inner completes
+// in one step, outer in the next, then the queue is empty) — that is the
+// shape that reached the blocking wait.
+one_after_timer :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io) => {
+    io.await(sleep(u64(1)), io);
+    return(i32(1));
+  })
+);
+two_hop_after_timer :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io) => {
+    v := io.await(one_after_timer(io), io);
+    return(v + i32(41));
+  })
+);
+test("a top-level await returns as soon as its future completes, despite unrelated pending I/O", {
+  parked := io.spawn(sleep(u64(2000)), io);
+  start := Instant.now();
+  v := io.await(two_hop_after_timer(io), io);
+  elapsed_ms := start.elapsed().as_millis();
+  eprintln(`  [event-loop test] await returned after ${elapsed_ms} ms`);
+  assert(v == i32(42), "chain result");
+  assert(elapsed_ms < i64(60), `await returned ${elapsed_ms} ms after starting; it must not wait for the unrelated 2 s timer (or kqueue's 100 ms wait timeout)`);
+  parked.abort();
+});

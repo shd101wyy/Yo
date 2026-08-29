@@ -554,6 +554,25 @@ _apply_ref_amp :: (fn(args : ArrayList(String), param_is_ref : ArrayList(bool), 
       .Some(ua) => match(context.base.get_expr_info(ua), .Some(uei) => is_unit_type(uei.ty), .None => false),
       .None => false
     );
+    // A comptime PAYLOAD-FREE enum value renders as its C tag constant
+    // (`__YO_T0_B`, an int rvalue). It LOOKS like an addressable identifier,
+    // so `E.B.to_string()` — an `inout(self)` receiver — emitted
+    // `(&(__YO_T0_B))`: "cannot take the address of an rvalue". Route it to
+    // the spill temp below instead
+    // (issues/fixed/inout-receiver-on-enum-variant-literal-takes-address-of-tag.md).
+    arg_is_tag_constant := match(
+      runtime_args.get(i),
+      .Some(ta) => match(
+        context.base.get_expr_info(ta),
+        .Some(tei) => match(
+          tei.value,
+          .Some(tv) => match(tv, .EnumVal(_, tv_fields) => (tv_fields.len() == usize(0)), _ => false),
+          .None => false
+        ),
+        .None => false
+      ),
+      .None => false
+    );
     transformed := if(
       pref && arg_is_unit,
       String.from("((void*)0)"),
@@ -571,7 +590,7 @@ _apply_ref_amp :: (fn(args : ArrayList(String), param_is_ref : ArrayList(bool), 
             w.push_string(c);
             w.push_str("}))");
             w
-          }, if(_is_addressable_c_expr(c.clone()), {
+          }, if(_is_addressable_c_expr(c.clone()) && !(arg_is_tag_constant), {
             w := String.from("(&(");
             w.push_string(c);
             w.push_str("))");
