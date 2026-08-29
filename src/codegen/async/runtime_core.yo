@@ -131,9 +131,13 @@ static int __yo_async_strict_nesting(void) {
 // would never run — timers and sockets starve and the program spins
 // (issues/fixed/async-yield-loop-starves-io-poll.md). Continuations queued
 // during this step run in the next step, after one I/O poll.
-static void __yo_async_run_ready_tasks(void) {
+// Returns the number of tasks resumed, so the caller knows whether anything a
+// blocking waiter watches may have changed in this step.
+static int __yo_async_run_ready_tasks(void) {
   int budget = (int)__yo_thread_async_queue.count;
+  int ran = 0;
   while (__yo_thread_async_queue.head && budget > 0) {
+    ran++;
     budget--;
     __yo_continuation_t* cont = __yo_thread_async_queue.head;
     __yo_thread_async_queue.head = cont->next;
@@ -145,6 +149,7 @@ static void __yo_async_run_ready_tasks(void) {
     cont->next = __yo_cont_free_list;
     __yo_cont_free_list = cont;
   }
+  return ran;
 }
 
 // One step of the event loop: drain task queue, then poll/wait for I/O.
@@ -174,10 +179,19 @@ static void __yo_async_poll_step(void) {
     fflush(stderr);
     abort();
   }
-  __yo_async_run_ready_tasks();
+  int ran = __yo_async_run_ready_tasks();
   if (__yo_io_initialized) {
     __yo_io_poll();
-    if (!__yo_thread_async_queue.head && __yo_has_pending_io()) {
+    // Block for I/O only in a step where NOTHING ran. A resumed task may have
+    // completed the very future the caller is waiting on (every blocking
+    // waiter — a top-level io.await, JoinHandle.await, the std/async
+    // combinators — re-checks its predicate between steps, not inside one);
+    // blocking here anyway parks the thread on unrelated pending I/O, e.g. a
+    // spawned server's accept that nobody will ever connect to. kqueue's
+    // 100 ms wait timeout hid this on macOS; io_uring_wait_cqe waits forever
+    // (issues/fixed/event-loop-blocks-after-completing-the-awaited-future.md).
+    // Same rule as __yo_async_wait_all's !tasks_processed.
+    if (ran == 0 && !__yo_thread_async_queue.head && __yo_has_pending_io()) {
       __yo_io_wait();
     }
   }
@@ -209,12 +223,20 @@ static void __yo_async_run_until_complete(void* future_ptr) {
       tasks_run++;
     }
     __yo_io_poll();
-    if (!__yo_thread_async_queue.head && __yo_has_pending_io()) {
+    // Re-read the state BEFORE blocking: the drain above may have completed
+    // the main future while other I/O (a parked accept, a timer) stays
+    // pending — waiting on it would keep the process alive after main
+    // returned (the Linux-only "loop stays alive" hang; same rule as
+    // __yo_async_poll_step).
+    __future_state = future->state;
+    if (__future_state == -1 || __future_state == -2) {
+      break;
+    }
+    if (tasks_run == 0 && !__yo_thread_async_queue.head && __yo_has_pending_io()) {
       __yo_io_wait();
       __future_state = future->state;
       continue;
     }
-    __future_state = future->state;
     if (!__yo_thread_async_queue.head) {
       if (!__yo_has_pending_io()) {
         if (__future_state != -1 && __future_state != -2) {

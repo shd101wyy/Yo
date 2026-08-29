@@ -119,6 +119,11 @@ records; mechanisms and reproducers are in the named `issues/fixed/` docs.
 | C40 | **A task that re-enqueues itself on every resume (a loop awaiting `yield`) starved the I/O poll** — `__yo_async_run_ready_tasks` drained the queue until empty, so `__yo_io_poll` never ran; `fetch_with`'s deadline race spun forever. **FIXED 2026-08-28** — the drain is bounded to the queue length at entry (the async-`main` loop already capped at 100) | **FIXED** — issues/fixed/async-yield-loop-starves-io-poll.md |
 | C41 | **Linux: `__yo_io_poll` never entered the kernel** — the ring runs with `IORING_SETUP_DEFER_TASKRUN`, so a busy loop that never reaches `__yo_io_wait` never saw a timer or socket complete (the C33 Timeout tests hung ONLY on the Linux legs; kqueue polls via a syscall). **FIXED 2026-08-28** — one zero-timeout `io_uring_wait_cqe_timeout` per poll | **FIXED** — issues/fixed/io-uring-defer-taskrun-poll-never-enters-kernel.md |
 | C42 | **The compiler's own build scheduler nests the event loop** — `build_runner`'s DAG levels and `_compile_chunks_parallel` spawn tasks whose bodies call plain awaiting helpers (`_cache_read_file`, `_write_stamp`, `_chunk_read`, …); found the moment C37's guard first ran in CI (`yo build run` aborted). Cannot deadlock (their I/O never depends on a sibling task) but keeps the guard from being armed by default. Make the helpers futures, then flip the default | **RETIRED** 2026-08-29 — the abort was the pre-thread-local counter; strict mode is clean across init/build run/check/fmt/doc/test/version; guard stays env-gated by policy (`yo test` arms it) — issues/retired/compiler-build-runner-nests-event-loop.md |
+| C53 | **`std/http` never decoded `Transfer-Encoding: chunked`** — bodies came back with the hex chunk framing, and `Content-Length` was the only completion signal (chunked responses were read only because the client sends `Connection: close`) | **FIXED** 2026-08-29 — RFC 9112 §7.1 decoder (`_dechunk`: sizes in either case, chunk extensions and trailers dropped, `Incomplete` never confused with `Malformed`), read ends at the zero chunk, typed `HttpError.MalformedChunkedBody`; loopback tests — issues/fixed/http-client-does-not-decode-chunked-bodies.md |
+| C56 | **`e.io.await(fut, bundle)` inside an `io.async` body ignores `bundle`** — the throw is delivered to the enclosing task's handlers (docs say the await-time bundle supplies the future's handlers; top-level `io.await` honours it) | **OPEN** — issues/io-await-effect-bundle-ignored-inside-io-async.md |
+| C57 | **`Command.output` drains stdout to EOF, then stderr** — a child that fills the 64 KiB stderr pipe before closing stdout deadlocks the caller (`yo test` runs every test child through it) | **OPEN** — issues/command-output-drains-stdout-then-stderr-sequentially.md |
+| C58 | **Async body: scope-end drop of a cross-boundary local, then an escape → double drop** — a cond branch that awaited released its locals inline at scope end (field left dangling), and the state machine's dispose swept every cross-boundary local again on `state == -2`; `_fetch_once` threw `Invalid status line` after its transport branch closed → heap-use-after-free (the crash behind #350's Linux sweep; reproducible on macOS with a garbage status line under GuardMalloc) | **FIXED** 2026-08-29 — `generate_drop` clears the `sm->` field after an inline drop; tests in async_await + http — issues/fixed/async-scope-end-drop-then-escape-double-drop.md |
+| C59 | **Event loop blocked on unrelated I/O after the drain completed the awaited future** — `__yo_async_poll_step` (every blocking waiter) and `__yo_async_run_until_complete` (async main) ran ready tasks, then blocked in `__yo_io_wait` whenever the queue was empty and any I/O was pending, without re-checking; kqueue's 100 ms timeout hid it on macOS as a stall, io_uring waited forever (the #350 Linux hang; also why the Linux process "stayed alive on a parked accept" after main returned) | **FIXED** 2026-08-29 — block only in a step that resumed no task (the `__yo_async_wait_all` rule); main loop re-reads its state before waiting; test in async_await — issues/fixed/event-loop-blocks-after-completing-the-awaited-future.md |
 
 ---
 
@@ -515,7 +520,7 @@ Open D7 items:
 | process | EXTEND | Child/spawn/Stdio + env + builders-return-Self + `code() -> Option(i32)` DONE 2026-08-27; still: `current_dir` (seed-gated runtime shim), hide `raw` (needs module-private visibility) |
 | cli | EXTEND or DROP-TO-PACKAGE | typed values, required enforcement, `--`, repeated opts, help-not-an-error; needs tty/color access (D8 wrappers). Recommendation: keep minimal-but-correct in std |
 | net | FIX + EXTEND | C2/C3 DONE; `Shutdown` enum DONE; usize counts DONE; UnixStream/UnixListener DONE 2026-08-27 (incl. their Reader/Writer impls); still: `incoming()`, UDP `connect` + typed `recv_from`, `parse_v6`, `SocketAddr.parse`, `Eq`/`Hash` on addr types, RFC 5952 V6 formatting |
-| http | FIX + EXTEND | C1 DONE; ~~https over TLS~~ **DONE 2026-08-28** (D6 PR-2: scheme branch, shared generic Reader response loop, TcpStream|TlsStream transport, default port 443); still: timeouts (dead `Timeout` variant becomes real), redirects (needs `Url.join`), chunked decoding, binary bodies, keep-alive; **server (P1)**: `parse_request`, `HttpServer` on `TcpListener`; collapse `FetchOptions` into `HttpRequest`; the compiler's own curl→`std/http` swap (D6 PR-3) is **BLOCKED on Windows TLS** (plans/D6_TLS_PLAN.md item 3) |
+| http | FIX + EXTEND | C1 DONE; ~~https over TLS~~ **DONE 2026-08-28** (D6 PR-2: scheme branch, shared generic Reader response loop, TcpStream|TlsStream transport, default port 443); ~~timeouts, redirects~~ **DONE 2026-08-28** (C33); ~~chunked decoding~~ **DONE 2026-08-29** (C53); still: binary bodies (`body : String` — needs a bytes form), keep-alive; **server (P1)**: `parse_request`, `HttpServer` on `TcpListener`; collapse `FetchOptions` into `HttpRequest`; the compiler's own curl→`std/http` swap (D6 PR-3) is **BLOCKED on Windows TLS** (plans/D6_TLS_PLAN.md item 3) |
 | async | PROMOTE | combinator home: `join_all`, `race`, `any`, `timeout`, interval, cancellation for `JoinHandle` (`abort()`), async channel/mutex (D7). `sleep(Duration, io)` lives in `std/time/sleep.yo` — do NOT add a second one; re-export if wanted |
 | thread/worker/sync | REDESIGN (D7) | ThreadPool DONE; `join() -> T` + panic propagation blocked below std — see D7 |
 | time | EXTEND | ~~`Duration`: `Add/Sub` operators, `Eq/Ord/Hash`, `from_secs_f64`, `subsec_*`, consts~~ + ~~`Instant` `add/sub`, `Eq/Ord`~~ **DONE 2026-08-28** (PR #312: operators mirror add/sub incl. zero-saturation, total-nanos Hash, from_secs_f64 clamps negatives, SECOND…HOUR consts, Instant.sub clamps at clock zero); **make std USE it** (timeouts, sleeps); ~~`DateTime`: RFC3339 `parse`/`format`, component ctor, arithmetic, `Eq/Ord`~~ **DONE 2026-08-28** (leap-aware `parse` incl. lowercase t/z + space separator + nano fractions + numeric offsets, typed `DateTimeError`, validating `new`, `add`/`sub(Duration)` offset-preserving, INSTANT-basis `Eq`/`Ord` + `to_unix_utc`; `to_string` was already RFC3339 — round-trip pinned); sleep unification DONE (§5) |
@@ -687,13 +692,23 @@ declarations at runtime.
   cleartext.
 
 **P1 — expected of a modern std**
-HTTP server + chunked/redirect/timeout client; TLS (D6); CSV; DateTime
-parse/format; ~~`fs.watch`~~ **DONE 2026-08-29 on macOS + Linux; Windows OPEN** (issues/fs-watch-windows-events-never-delivered-next-spins.md — the windows suite hung in these tests, now gated) (`std/fs/watch`: `Watcher` over `sys/events` — inotify/kqueue/ReadDirectoryChangesW — with `poll()` and an awaitable, yield-driven `next(io)`, typed `FsEventKind` Rename/Change, `WatchOptions.recursive`, `IoError` on a missing path); ~~testing `assert_eq` family~~ (already in `std/assert`: `assert_eq`/`assert_ne`/`assert_approx`); log rewrite; glob
-HTTP server + chunked/redirect/timeout client; TLS (D6); ~~CSV~~ **DONE 2026-08-29** (`std/encoding/csv`: RFC 4180 reader/writer, typed `CsvError` with byte positions, `CsvOptions` delimiter + line ending, strict mode); DateTime
-parse/format; `fs.watch`; testing `assert_eq` family; log rewrite; glob
-expansion; ~~`Semaphore`/`Barrier`~~ **DONE 2026-08-26**; ~~`ThreadPool`~~
-**DONE 2026-08-26**; ~~format specs~~ **DONE**; entry API + `binary_search` +
-real sort; tty/terminal-size wrappers (cli needs them)
+HTTP server; ~~chunked/redirect/timeout client~~ **DONE** (redirects + deadline
+2026-08-28 (C33); chunked decoding 2026-08-29 (C53)); ~~TLS (D6)~~ **DONE
+2026-08-28** (PR-1/PR-2; the curl→std/http swap is D6 PR-3, tracked there);
+~~CSV~~ **DONE 2026-08-29** (`std/encoding/csv`: RFC 4180 reader/writer, typed
+`CsvError` with byte positions, `CsvOptions` delimiter + line ending, strict
+mode); ~~DateTime parse/format~~ **DONE 2026-08-28** (RFC 3339 `parse` /
+`to_string`, typed `DateTimeError`); ~~`fs.watch`~~ **DONE 2026-08-29 on macOS + Linux; Windows OPEN** (issues/fs-watch-windows-events-never-delivered-next-spins.md — the windows suite hung in these tests, now gated) (`std/fs/watch`: `Watcher` over `sys/events` — inotify/kqueue/ReadDirectoryChangesW — with `poll()` and an awaitable, yield-driven `next(io)`, typed `FsEventKind` Rename/Change, `WatchOptions.recursive`, `IoError` on a missing path); ~~testing
+`assert_eq` family~~ **DONE 2026-08-28** (`assert_eq`/`assert_ne`/
+`assert_approx`, diff-printing); ~~log rewrite~~ **DONE 2026-08-28** (levels
+incl. `Off`, generic/target/lazy messages, timestamps, thread-safe);
+~~glob expansion~~ **DONE** (`std/glob`, present since the bootstrap);
+~~`Semaphore`/`Barrier`~~ **DONE 2026-08-26**; ~~`ThreadPool`~~
+**DONE 2026-08-26**; ~~format specs~~ **DONE**; ~~entry API + `binary_search` +
+real sort~~ **DONE 2026-08-28** (`get_or_insert`/`get_or_insert_with`,
+`ArrayList.binary_search`, heapsort `sort`/`sort_by`); tty/terminal-size
+wrappers (cli needs them — `std/sys/tty` has `isatty`/`tty_winsize`/raw mode;
+a non-`sys` facade is the remaining piece)
 
 **P2 — nice-to-have / decide-later**
 WebSocket; YAML/XML (lean package-ecosystem); msgpack/CBOR; base58;
