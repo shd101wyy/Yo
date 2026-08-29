@@ -1,0 +1,30 @@
+open(import("std/string"));
+open(import("std/fmt"));
+{ Exception, IoExn, Error } :: import("std/error");
+{ ArrayList } :: import("std/collections/array_list");
+Boom :: enum(Bang);
+impl(Boom, ToString(to_string : (self -> `bang`)));
+impl(Boom, Error());
+thrower :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
+  io.async((e) => {
+    e.exn.throw(dyn(Boom.Bang));
+    i32(0)
+  })
+);
+outer_task :: (fn(log : ArrayList(String), io : Io) -> Impl(Future(unit, IoExn)))(
+  io.async((e) => {
+    inner_exn := Exception(throw : ((err) -> { unwind(()); }));
+    inner := IoExn(io : e.io, exn : inner_exn);
+    r := e.io.await(thrower(e.io), inner);
+    log.push(`inner returned ${r}`);
+    ()
+  })
+);
+main :: (fn(io : Io) -> unit)({
+  log := ArrayList(String).new();
+  outer_exn := Exception(throw : ((err) -> { println(`OUTER handler got: ${err.to_string()}`); unwind(()); }));
+  h := io.spawn(outer_task(log, io), IoExn(io : io, exn : outer_exn));
+  h.await(io);
+  println(`log entries: ${log.len()}`);
+});
+export(main);
