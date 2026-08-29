@@ -228,3 +228,25 @@ test("Test anonymous closure value with Dyn that captures Rc object with auto bo
   assert(x.* == 5, "Captured boxed variable should be 5");
   assert(x.* == result, "Expected final result to be 5");
 });
+// Regression (issues/fixed/arrow-fn-literal-result-type-not-inferred.md, C55):
+// a `->` fn literal passed where a result type variable must be inferred
+// (`Option.map`'s `B`, a user method's `Impl(Fn(..) -> R)`) binds it exactly
+// like a `=>` closure does. The binding used to be gated on "is a closure" to
+// keep ctl effect handlers' per-call-site `ResumeType` unbound; the gate now
+// excludes only ctl types, so the first method call on the result resolves.
+ArrowApply :: struct(base : i64);
+impl(
+  ArrowApply,
+  apply : (fn(generic(R : Type), self : Self, f : Impl(Fn(v : i64) -> R)) -> R)(f(self.base))
+);
+test("a -> fn literal binds the result type variable of Option.map and of an Impl(Fn) method", {
+  o := Option(i64).Some(i64(2));
+  s := o.map((x) -> `v=${x}`).unwrap();
+  assert(s.to_string() == `v=2`, "Option.map result usable through a -> literal");
+  assert(s.len() == usize(3), "String methods resolve on the mapped value");
+  a := ArrowApply(base : i64(20));
+  t := a.apply((v) -> `n=${v + i64(1)}`);
+  assert(t.to_string() == `n=21`, "method generic R bound by a -> literal");
+  n := a.apply((v) -> (v * i64(2)));
+  assert((n + i64(1)) == i64(41), "and by a numeric -> literal");
+});
