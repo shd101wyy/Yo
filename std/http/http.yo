@@ -3,8 +3,9 @@
 open(import("../string"));
 { ArrayList } :: import("../collections/array_list");
 { ToString } :: import("../fmt");
+{ Error } :: import("../error");
 /// Standard HTTP request methods.
-HttpMethod :: enum(GET, POST, PUT, DELETE, HEAD, PATCH);
+HttpMethod :: enum(GET, POST, PUT, DELETE, HEAD, PATCH, OPTIONS);
 impl(
   HttpMethod,
   ToString(
@@ -17,8 +18,26 @@ impl(
           .PUT => `PUT`,
           .DELETE => `DELETE`,
           .HEAD => `HEAD`,
-          .PATCH => `PATCH`
+          .PATCH => `PATCH`,
+          .OPTIONS => `OPTIONS`
         )
+    )
+  )
+);
+impl(
+  HttpMethod,
+  /// Parse a request-line method token (case-sensitive, as RFC 9110 §9.1
+  /// requires). `.None` for anything not in the enum.
+  from_str : (fn(s : String) -> Option(HttpMethod))(
+    cond(
+      (s == `GET`) => .Some(HttpMethod.GET),
+      (s == `POST`) => .Some(HttpMethod.POST),
+      (s == `PUT`) => .Some(HttpMethod.PUT),
+      (s == `DELETE`) => .Some(HttpMethod.DELETE),
+      (s == `HEAD`) => .Some(HttpMethod.HEAD),
+      (s == `PATCH`) => .Some(HttpMethod.PATCH),
+      (s == `OPTIONS`) => .Some(HttpMethod.OPTIONS),
+      true => .None
     )
   )
 );
@@ -68,6 +87,21 @@ impl(
   set_body : (fn(self : Self, body : String) -> unit)({
     self.body = body;
   }),
+  /// Look up a header value by name (case-insensitive).
+  get_header : (fn(self : Self, name : String) -> Option(String))({
+    lower_name := name.to_lowercase();
+    i := usize(0);
+    while(i < self.headers.len(), i = (i + usize(1)), {
+      h := self.headers(i);
+      cond(
+        (h.name.to_lowercase() == lower_name) => {
+          return(.Some(h.value));
+        },
+        true => ()
+      );
+    });
+    .None
+  }),
   /// Serialize the request to an HTTP/1.1 wire-format string.
   to_string : (fn(self : Self) -> String)({
     result := `${self.method.to_string()} ${self.path} HTTP/1.1\r\n`;
@@ -85,6 +119,24 @@ impl(
     );
     result
   })
+);
+/// Return the standard status text for an HTTP status code.
+http_status_text :: (fn(code : i32) -> String)(
+  cond(
+    (code == i32(200)) => `OK`,
+    (code == i32(201)) => `Created`,
+    (code == i32(204)) => `No Content`,
+    (code == i32(301)) => `Moved Permanently`,
+    (code == i32(302)) => `Found`,
+    (code == i32(304)) => `Not Modified`,
+    (code == i32(400)) => `Bad Request`,
+    (code == i32(404)) => `Not Found`,
+    (code == i32(405)) => `Method Not Allowed`,
+    (code == i32(500)) => `Internal Server Error`,
+    (code == i32(502)) => `Bad Gateway`,
+    (code == i32(503)) => `Service Unavailable`,
+    true => `Unknown`
+  )
 );
 /// An HTTP response with status code, headers, and body.
 HttpResponse :: ref(
@@ -127,7 +179,39 @@ impl(
   /// Return `true` if the status code is 4xx or higher.
   is_error : (fn(self : Self) -> bool)(
     self.status_code >= i32(400)
-  )
+  ),
+  /// A response with `code` and its standard reason phrase.
+  with_status : (fn(code : i32) -> Self)(
+    Self.new(code, http_status_text(code))
+  ),
+  /// Add a header and return the response (builder pattern).
+  header : (fn(self : Self, name : String, value : String) -> Self)({
+    self.headers.push(HttpHeader.new(name, value));
+    self
+  }),
+  /// Set the body and return the response (builder pattern).
+  with_body : (fn(self : Self, body : String) -> Self)({
+    self.body = body;
+    self
+  }),
+  /// Serialize to HTTP/1.1 wire format. A `Content-Length` header is added
+  /// when none is present (the byte length of `body`), so the peer can
+  /// delimit the message without waiting for close.
+  to_string : (fn(self : Self) -> String)({
+    result := `HTTP/1.1 ${self.status_code.to_string()} ${self.status_text}\r\n`;
+    i := usize(0);
+    while(i < self.headers.len(), i = (i + usize(1)), {
+      h := self.headers(i);
+      result = `${result}${h.name}: ${h.value}\r\n`;
+    });
+    cond(
+      self.get_header(`Content-Length`).is_none() => {
+        result = `${result}Content-Length: ${self.body.len().to_string()}\r\n`;
+      },
+      true => ()
+    );
+    `${result}\r\n${self.body}`
+  })
 );
 /// Parse a raw HTTP response string into an `HttpResponse`.
 parse_response :: (fn(raw : String) -> Result(HttpResponse, String))({
@@ -208,23 +292,113 @@ parse_response :: (fn(raw : String) -> Result(HttpResponse, String))({
   );
   .Ok(resp)
 });
-/// Return the standard status text for an HTTP status code.
-http_status_text :: (fn(code : i32) -> String)(
+/// Parse a raw HTTP/1.1 request (request line, headers, body) into an
+/// `HttpRequest`. The body is taken verbatim — `read_http_message` has
+/// already decoded chunked framing when it read the message. Errors name the
+/// defect (`Invalid request line`, unknown method, unsupported HTTP version).
+parse_request :: (fn(raw : String) -> Result(HttpRequest, String))({
+  header_end := match(raw.index_of(`\r\n\r\n`), .Some(p) => p, .None => raw.len());
+  head := raw.substring(usize(0), header_end);
+  body := cond(
+    ((header_end + usize(4)) <= raw.len()) => raw.substring(header_end + usize(4), raw.len()),
+    true => String.new()
+  );
+  lines := head.split(`\r\n`);
   cond(
-    (code == i32(200)) => `OK`,
-    (code == i32(201)) => `Created`,
-    (code == i32(204)) => `No Content`,
-    (code == i32(301)) => `Moved Permanently`,
-    (code == i32(302)) => `Found`,
-    (code == i32(304)) => `Not Modified`,
-    (code == i32(400)) => `Bad Request`,
-    (code == i32(404)) => `Not Found`,
-    (code == i32(405)) => `Method Not Allowed`,
-    (code == i32(500)) => `Internal Server Error`,
-    (code == i32(502)) => `Bad Gateway`,
-    (code == i32(503)) => `Service Unavailable`,
-    true => `Unknown`
+    ((lines.len() == usize(0)) || lines(usize(0)).is_empty()) => {
+      return(.Err(`Empty request`));
+    },
+    true => ()
+  );
+  request_line := lines(usize(0));
+  parts := request_line.split(` `);
+  cond(
+    (parts.len() != usize(3)) => {
+      return(.Err(`Invalid request line: ${request_line}`));
+    },
+    true => ()
+  );
+  method := match(
+    HttpMethod.from_str(parts(usize(0))),
+    .Some(m) => m,
+    .None => {
+      return(.Err(`Unknown method: ${parts(usize(0))}`));
+    }
+  );
+  version := parts(usize(2));
+  cond(
+    ((version != `HTTP/1.1`) && (version != `HTTP/1.0`)) => {
+      return(.Err(`Unsupported HTTP version: ${version}`));
+    },
+    true => ()
+  );
+  req := HttpRequest.new(method, parts(usize(1)));
+  j := usize(1);
+  while(j < lines.len(), j = (j + usize(1)), {
+    hline := lines(j);
+    match(
+      hline.index_of(`:`),
+      .Some(colon) => {
+        hname := hline.substring(usize(0), colon).trim();
+        hval := hline.substring(colon + usize(1), hline.len()).trim();
+        req.headers.push(HttpHeader.new(hname, hval));
+      },
+      .None => {
+        return(.Err(`Invalid header line: ${hline}`));
+      }
+    );
+  });
+  req.body = body;
+  .Ok(req)
+});
+// ============================================================================
+// HttpError
+// ============================================================================
+/// HTTP client error variants.
+HttpError :: enum(
+  /// Failed to connect to the remote host.
+  ConnectionFailed(msg : String),
+  /// The URL could not be parsed.
+  InvalidUrl(msg : String),
+  /// The whole request (every connect, write, read and redirect hop) did not
+  /// finish within `FetchOptions.timeout`. Never raised without one.
+  Timeout,
+  /// The server kept redirecting past `FetchOptions.max_redirects` hops.
+  TooManyRedirects,
+  /// The URL scheme is neither `http` nor `https` (`https` speaks real TLS
+  /// through `std/crypto/tls`, D6). Anything else is refused before any DNS
+  /// or socket work — never downgraded (plans/STD_API_AUDIT.md C1).
+  UnsupportedScheme(scheme : String),
+  /// The raw response (status line, headers and body) grew past
+  /// `FetchOptions.max_response_bytes`; the connection is dropped there.
+  ResponseTooLarge,
+  /// A `Transfer-Encoding: chunked` body broke the RFC 9112 §7.1 framing —
+  /// a chunk size that is not hex, a missing CRLF after a chunk, or a body
+  /// that ended before its terminating zero chunk. `msg` says which.
+  MalformedChunkedBody(msg : String),
+  /// An unclassified HTTP error.
+  Other(msg : String)
+);
+impl(
+  HttpError,
+  ToString(
+    to_string : (
+      self ->
+        match(
+          self,
+          .ConnectionFailed(msg) => `HTTP connection failed: ${msg}`,
+          .InvalidUrl(msg) => `Invalid URL: ${msg}`,
+          .Timeout => `HTTP request timed out`,
+          .TooManyRedirects => `Too many redirects`,
+          .UnsupportedScheme(scheme) => `Unsupported scheme: ${scheme}`,
+          .ResponseTooLarge => `Response too large`,
+          .MalformedChunkedBody(msg) => `Malformed chunked body: ${msg}`,
+          .Other(msg) => `HTTP error: ${msg}`
+        )
+    )
   )
 );
+impl(HttpError, Error());
+export(HttpError);
 export(HttpMethod, HttpHeader, HttpRequest, HttpResponse);
-export(parse_response, http_status_text);
+export(parse_response, parse_request, http_status_text);

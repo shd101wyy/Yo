@@ -1,6 +1,45 @@
-# Generic impl method with a closure param: io.async return type collapses
+# Impl method with a closure param: `Impl(...)` return type collapses to the closure's type
 
-**Found**: 2026-08-27, implementing `std/async/mutex`'s `with_lock`
+**Status: FIXED 2026-08-29** — root cause was NOT generic-impl materialization
+and not capture analysis. Every `Impl(...)` annotation wrapper is a SomeT minted
+with the RESERVED name `"Impl"` (`builtins/impl_constraint.yo`). In
+`try_to_call_function_with_arguments` (`calls/helper.yo`) **Step 9's per-call
+return substitution matches return-position SomeTs to declared-param SomeTs
+BY NAME** and substitutes the matching ARGUMENT's type — meant for
+`IterFilter(Self, F)`-style records whose forall slots hold def-era SomeTs.
+With an `Impl(Fn(...))` closure param and an `Impl(Future(...))` (or any
+`Impl(...)`) return, both wrappers are named `Impl`, so the return was
+substituted with the closure argument's fn type — hence "Type mismatch for
+parameter fut: Got `fn(v : i64) -> i64`" and, for a fixed `T`, the future
+typed as the closure's own type. `YO_DEBUG_PARAMCHECK=1` shows it directly
+(`label=handler … arg=fn(x : i32) -> i32` then `label=fut … arg=fn(x : i32) ->
+i32`); the `[s9-*]` trace is silent because it prints only inside def-time
+trials. Free functions and static methods don't reach this route (2026-08-29
+isolation over 10 variants: free fn, static method, non-closure
+`Impl(ToString)` param and a where-clause `F` all OK; every `self` +
+`Impl(Fn)` + `Impl(...)`-return variant collapsed, including one whose body
+never touches the closure). Re-found while writing `std/http`'s
+`HttpServer.serve_once` — a NON-generic impl.
+
+**Fix**: Step 9 excludes the reserved name `Impl` (and nameless wrappers) from
+both by-name sources — the param-name match and the "resolve remaining
+occurrences from the callee env by name" fallback. Wrapper returns resolve
+through their own cells and the Step 9b return-type-expression re-eval, as
+they already did for methods without closure params (v7). The SomeT name,
+the env bindings and every `== "Impl"` reservation check are untouched — the
+two 2026-08-27 attempts below (renaming the SomeT; skipping its env binding)
+and a 2026-08-29 attempt (keying env bindings by `Impl#<id>`) all regressed
+std or `async_await` because io.async/io.await deliberately share wrapper
+bindings by name.
+
+**Regression tests**: `tests/impl_method_closure_param_future_return.test.yo`
+(non-generic + the original generic `Holder` repro, effectful future,
+later-position closure, `Impl(ToString)` return, two closure shapes);
+`Mutex.with_lock` is NOT yet restored: with C27 gone, calling a generic
+`-> Impl(Future(R))` method with two different `R`s still miscompiles (C54,
+`issues/future-wrapper-return-shared-across-specializations.md`).
+
+**Original report (2026-08-27) follows.** **Found**: 2026-08-27, implementing `std/async/mutex`'s `with_lock`
 (STD_API_AUDIT §7 P0 item 6). **Blocks**: the `with_lock` sugar on the async
 `Mutex(T)` — the method is REMOVED from v1 and must be restored when this is
 fixed. **Repros**: `issues/repros/generic-impl-async-method-closure-param-collapse.yo`

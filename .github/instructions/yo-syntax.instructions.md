@@ -1208,3 +1208,6 @@ Fixes, in order of preference:
 The error names a frame _level_, not a file or line, so it does not point at the
 arm you edited. If it appears right after you touched a `match`, assume this
 before hunting elsewhere.
+
+## Closure arguments: `=>` when a result type must be inferred
+- **Result-type inference needs a `=>` closure.** When an argument's return type must be INFERRED into a type variable (`o.map((x) => ...)`, `m.with_lock((v) => ...)`, any `Impl(Fn(..) -> R)` / `where(F <: Fn(..) -> R)` param), write a `=>` closure. A `->` fn literal type-checks as the argument but leaves `R` unbound, so the call's result is unusable ("No matching call found" on its first method) — open bug `issues/arrow-fn-literal-result-type-not-inferred.md` (C55). `->` stays required for effect handlers, which never return a type variable.
