@@ -62,14 +62,22 @@ jobs:
           grep -n '\[timeout\]\|\[phase2\]\|\[silent\|\[second\|Aborted\|abort' /tmp/http-debug.log | head -40
           echo "---- last 80 lines ----"
           tail -80 /tmp/http-debug.log
-      - name: Chunked tests alone through yo test (strict on / off, 180s caps)
+      - name: Env-dispatched chunked arm (mirrors the runner's batch main), plain + ASan
         continue-on-error: true
         run: |
           set +e
-          YO_ASYNC_STRICT=1 timeout 180 /tmp/yo-s1 test ./tests/http/zz_chunked_only.test.yo --verbose --c-compiler clang > /tmp/http-only-strict.log 2>&1; echo "strict rc=$?" | tee -a /tmp/http-only-strict.log
-          grep -v 'warning\|note:\|^\s*[0-9]* |\|^\s*|' /tmp/http-only-strict.log | tail -25
-          YO_ASYNC_STRICT=0 timeout 180 /tmp/yo-s1 test ./tests/http/zz_chunked_only.test.yo --verbose --c-compiler clang > /tmp/http-only-lax.log 2>&1; echo "lax rc=$?" | tee -a /tmp/http-only-lax.log
-          grep -v 'warning\|note:\|^\s*[0-9]* |\|^\s*|' /tmp/http-only-lax.log | tail -25
+          R=issues/repros/linux-chunked-cond-dispatch.yo
+          /tmp/yo-s1 compile "$R" --std-path ./std --c-compiler clang --optimize 2 -o /tmp/disp 2>/tmp/http-disp-compile.log; echo "compile rc=$?"
+          YO_TEST_INDEX=0 timeout 120 /tmp/disp > /tmp/http-disp-plain.log 2>&1; echo "plain rc=$?" | tee -a /tmp/http-disp-plain.log; cat /tmp/http-disp-plain.log
+          /tmp/yo-s1 compile "$R" --std-path ./std --c-compiler clang --sanitize address --allocator system -o /tmp/disp-asan 2>>/tmp/http-disp-compile.log; echo "asan compile rc=$?"
+          YO_TEST_INDEX=0 ASAN_OPTIONS=detect_leaks=0 timeout 120 /tmp/disp-asan > /tmp/http-disp-asan.log 2>&1; echo "asan rc=$?" | tee -a /tmp/http-disp-asan.log
+          grep -n 'arm0\|ERROR\|SUMMARY\|    #[0-9]' /tmp/http-disp-asan.log | head -60
+      - name: Real runner on the chunked test (400s cap)
+        continue-on-error: true
+        run: |
+          set +e
+          timeout 400 /tmp/yo-s1 test ./tests/http/http.test.yo --test-name-pattern chunked --verbose --c-compiler clang > /tmp/http-runner.log 2>&1; echo "runner rc=$?" | tee -a /tmp/http-runner.log
+          grep -v 'warning\|note:\|^\s*[0-9]* |\|^\s*|' /tmp/http-runner.log | tail -30
       - name: Standalone repro under AddressSanitizer (120s cap)
         continue-on-error: true
         run: |
