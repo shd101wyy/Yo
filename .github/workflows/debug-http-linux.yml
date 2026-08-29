@@ -32,8 +32,10 @@ jobs:
           version: ${{ env.SEED_VERSION }}
       - name: Build stage 1 (seed compiles this tree)
         run: |
-          sudo systemd-run --scope -p MemoryHigh=11G -p MemoryMax=14G --uid="$(id -u)" --gid="$(id -g)" \
-            yo compile src/main.yo --optimize 2 --allocator mimalloc --std-path ./std -o /tmp/yo-s1
+          YO_BIN="$(command -v yo)"
+          sudo systemd-run --scope -p MemoryHigh=11G -p MemoryMax=14G \
+            env YO_MAIN_STACK_MB=4096 "$YO_BIN" compile src/main.yo --optimize 2 --allocator mimalloc --std-path ./std -o /tmp/yo-s1
+          sudo chown "$(id -u)" /tmp/yo-s1 || true
           /tmp/yo-s1 version || true
       - name: Run the single test, plain verbose (240s cap)
         continue-on-error: true
