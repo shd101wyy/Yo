@@ -520,7 +520,7 @@ Open D7 items:
 | path | FIX + EXTEND | `join(str)`, `push`, `Hash`/`Ord`/`Clone`, Windows separator in `to_string`, `ancestors`, PATH split/join; revisit eager `..` normalization (symlink semantics); `PathError` deleted (§6) — or make `new` fallible |
 | env | MERGE (D8) | + `remove`, `vars()` iteration, `str` keys |
 | process | EXTEND | Child/spawn/Stdio + env + builders-return-Self + `code() -> Option(i32)` DONE 2026-08-27; still: `current_dir` (seed-gated runtime shim), hide `raw` (needs module-private visibility) |
-| cli | EXTEND or DROP-TO-PACKAGE | typed values, required enforcement, `--`, repeated opts, help-not-an-error; needs tty/color access (D8 wrappers). Recommendation: keep minimal-but-correct in std |
+| cli | EXTEND or DROP-TO-PACKAGE | typed values, required enforcement, `--`, repeated opts, help-not-an-error; tty/color access DONE 2026-08-29 (`std/term`: `is_terminal`/`size`/`supports_color`/raw mode). Recommendation: keep minimal-but-correct in std |
 | net | FIX + EXTEND | C2/C3 DONE; `Shutdown` enum DONE; usize counts DONE; UnixStream/UnixListener DONE 2026-08-27 (incl. their Reader/Writer impls); still: `incoming()`, UDP `connect` + typed `recv_from`, `parse_v6`, `SocketAddr.parse`, `Eq`/`Hash` on addr types, RFC 5952 V6 formatting |
 | http | FIX + EXTEND | C1 DONE; ~~https over TLS~~ **DONE 2026-08-28** (D6 PR-2: scheme branch, shared generic Reader response loop, TcpStream|TlsStream transport, default port 443); ~~timeouts, redirects~~ **DONE 2026-08-28** (C33); ~~chunked decoding~~ **DONE 2026-08-29** (C53); still: binary bodies (`body : String` — needs a bytes form), keep-alive; ~~**server (P1)**: `parse_request`, `HttpServer` on `TcpListener`~~ **DONE 2026-08-29** (`std/http/server.yo`: `HttpServer.bind/serve_once/serve/stop/close`, `parse_request`, `HttpResponse.to_string/with_status/header/with_body`, `HttpMethod.from_str` + `OPTIONS`; wire framing shared with the client in `std/http/wire.yo`; 7 loopback tests incl. a chunked request body); collapse `FetchOptions` into `HttpRequest`; the compiler's own curl→`std/http` swap (D6 PR-3) is **BLOCKED on Windows TLS** (plans/D6_TLS_PLAN.md item 3) |
 | async | PROMOTE | combinator home: `join_all`, `race`, `any`, `timeout`, interval, cancellation for `JoinHandle` (`abort()`), async channel/mutex (D7). `sleep(Duration, io)` lives in `std/time/sleep.yo` — do NOT add a second one; re-export if wanted |
@@ -708,9 +708,10 @@ incl. `Off`, generic/target/lazy messages, timestamps, thread-safe);
 ~~`Semaphore`/`Barrier`~~ **DONE 2026-08-26**; ~~`ThreadPool`~~
 **DONE 2026-08-26**; ~~format specs~~ **DONE**; ~~entry API + `binary_search` +
 real sort~~ **DONE 2026-08-28** (`get_or_insert`/`get_or_insert_with`,
-`ArrayList.binary_search`, heapsort `sort`/`sort_by`); tty/terminal-size
-wrappers (cli needs them — `std/sys/tty` has `isatty`/`tty_winsize`/raw mode;
-a non-`sys` facade is the remaining piece)
+`ArrayList.binary_search`, heapsort `sort`/`sort_by`); ~~tty/terminal-size
+wrappers~~ **DONE 2026-08-29** (`std/term`, unstable: `Stream`, `is_terminal`,
+`size`/`size_of` → `Option(TermSize)`, `supports_color` honouring `NO_COLOR` +
+`TERM=dumb`, `enter_raw_mode`/`restore_mode`; `std/cli` adoption is its own change)
 
 **P2 — nice-to-have / decide-later**
 WebSocket; YAML/XML (lean package-ecosystem); msgpack/CBOR; base58;
