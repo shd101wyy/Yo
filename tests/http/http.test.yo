@@ -469,3 +469,45 @@ test("fetch throws Other on a garbage status line, and the aborted task disposes
   assert(match(outcome, .None => true, .Some(r) => false), `a garbage status line must throw (task unwound → None)`);
   assert(seen.len() == usize(1), "the server saw exactly one request");
 });
+// `body : String` is a byte-transparent buffer (String is unvalidated bytes;
+// len()/substring are byte-indexed since D4), so HTTP bodies may carry
+// arbitrary binary: NULs, invalid UTF-8 (a lone 0x80 continuation byte, an
+// 0xFF), and embedded CRLFs must survive fetch verbatim. Pins the audit's
+// "binary bodies" row.
+test("fetch round-trips a binary body byte-for-byte", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, `unexpected exception: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  payload := ArrayList(u8).new();
+  payload.push(u8(0x80)); // a bare continuation byte — invalid UTF-8 first
+  payload.push(u8(0));
+  payload.push(u8(13));
+  payload.push(u8(10));
+  payload.push(u8(13));
+  payload.push(u8(10));
+  payload.push(u8(0xFF));
+  payload.push(u8(65));
+  body := String.from_bytes(payload);
+  addr := SocketAddr.loopback(u16(19968));
+  listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
+  responses := ArrayList(String).new();
+  responses.push(`HTTP/1.1 200 OK\r\nContent-Length: ${body.len()}\r\nConnection: close\r\n\r\n${body}`);
+  seen := ArrayList(String).new();
+  server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
+  r := io.await(fetch_with(`http://127.0.0.1:19968/bin`, FetchOptions.new(), io), IoExn(io : io, exn : exn));
+  server.await(io);
+  io.await(listener.close(io), IoExn(io : io, exn : exn));
+  assert(r.status_code == i32(200), "200");
+  got := r.body.as_bytes();
+  assert(got.len() == usize(8), `body is 8 bytes (got ${got.len()})`);
+  assert(got(usize(0)) == u8(0x80), "leading continuation byte survives");
+  assert(got(usize(1)) == u8(0), "NUL survives");
+  assert(got(usize(2)) == u8(13), "embedded CR survives");
+  assert(got(usize(6)) == u8(0xFF), "0xFF survives");
+  assert(got(usize(7)) == u8(65), "trailing ASCII");
+});

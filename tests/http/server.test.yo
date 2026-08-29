@@ -15,16 +15,12 @@ pragma(Pragma.AllowUnsafe);
 { malloc, free } :: GlobalAllocator;
 open(import("std/string"));
 open(import("std/fmt"));
-_exn :: (fn() -> Exception)(
-  Exception(
-    throw : (
-      (err) -> {
-        assert(false, `unexpected exception: ${err.to_string()}`);
-        unwind(());
-      }
-    )
-  )
-);
+// Handlers are installed INLINE in each test: a ctl handler is frame-bound,
+// and the previous helper returned the Exception record OUT of the fn that
+// defined its handler — the def-time trial cannot type that handler's
+// `unwind` (the future install frame is unknowable), so the handler body was
+// silently hollow (its `unwind` statement was never emitted) —
+// issues/ctl-handler-escaping-its-defining-fn-is-untypeable.md.
 // Echo handler: method, path, a request header and the body, as text.
 _echo :: (fn(req : HttpRequest) -> HttpResponse)({
   tag := match(req.get_header(`X-Tag`), .Some(v) => v, .None => `-`);
@@ -80,7 +76,14 @@ test("HttpResponse.to_string adds Content-Length and keeps explicit headers", {
   assert(t == "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n", "an explicit Content-Length is not duplicated");
 });
 test("serve_once answers a GET from fetch (method, path, header, empty body)", {
-  exn := _exn();
+  exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, `unexpected exception: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
   server := io.await(HttpServer.bind(SocketAddr.loopback(u16(19970)), io), IoExn(io : io, exn : exn));
   task := io.spawn(server.serve_once(_echo, io), IoExn(io : io, exn : exn));
   resp := io.await(fetch(`http://127.0.0.1:19970/hello?q=1`, io), IoExn(io : io, exn : exn));
@@ -93,7 +96,14 @@ test("serve_once answers a GET from fetch (method, path, header, empty body)", {
   io.await(server.close(io), IoExn(io : io, exn : exn));
 });
 test("serve_once reads a POST body and forwards request headers", {
-  exn := _exn();
+  exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, `unexpected exception: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
   server := io.await(HttpServer.bind(SocketAddr.loopback(u16(19971)), io), IoExn(io : io, exn : exn));
   task := io.spawn(server.serve_once(_echo, io), IoExn(io : io, exn : exn));
   opts := FetchOptions.new().with_method(HttpMethod.POST).with_body(`payload — 3 bytes of dash`).with_header(`X-Tag`, `t1`);
@@ -103,7 +113,14 @@ test("serve_once reads a POST body and forwards request headers", {
   io.await(server.close(io), IoExn(io : io, exn : exn));
 });
 test("a chunked request body is decoded before the handler sees it", {
-  exn := _exn();
+  exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, `unexpected exception: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
   server := io.await(HttpServer.bind(SocketAddr.loopback(u16(19972)), io), IoExn(io : io, exn : exn));
   task := io.spawn(server.serve_once(_echo, io), IoExn(io : io, exn : exn));
   s := io.await(TcpStream.connect(SocketAddr.loopback(u16(19972)), io), IoExn(io : io, exn : exn));
@@ -116,7 +133,14 @@ test("a chunked request body is decoded before the handler sees it", {
   io.await(server.close(io), IoExn(io : io, exn : exn));
 });
 test("a request that does not parse gets 400 with the reason, handler not called", {
-  exn := _exn();
+  exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, `unexpected exception: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
   server := io.await(HttpServer.bind(SocketAddr.loopback(u16(19973)), io), IoExn(io : io, exn : exn));
   called := ArrayList(i32).new();
   task := io.spawn(
@@ -137,7 +161,14 @@ test("a request that does not parse gets 400 with the reason, handler not called
   io.await(server.close(io), IoExn(io : io, exn : exn));
 });
 test("serve loops until stop(); local_addr reports the bound port", {
-  exn := _exn();
+  exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, `unexpected exception: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
   server := io.await(HttpServer.bind(SocketAddr.loopback(u16(19974)), io), IoExn(io : io, exn : exn));
   assert(server.local_addr().port == u16(19974), `local_addr port ${server.local_addr().port}`);
   hits := ArrayList(i32).new();
@@ -161,4 +192,40 @@ test("serve loops until stop(); local_addr reports the bound port", {
   task.await(io);
   assert(hits.len() == usize(3), "serve returned after stop()");
   io.await(server.close(io), IoExn(io : io, exn : exn));
+});
+// The request direction of the binary-body pin: parse_request must slice the
+// body at BYTE offsets without char-boundary checks — a body starting with a
+// UTF-8 continuation byte used to panic the boundary-checked substring.
+test("the server round-trips a binary request body byte-for-byte", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, `unexpected exception: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  srv := io.await(HttpServer.bind(SocketAddr.loopback(u16(19979)), io), IoExn(io : io, exn : exn));
+  task := io.spawn(
+    srv.serve_once((req) => {
+      resp := HttpResponse.with_status(i32(200)).with_body(req.body);
+      resp
+    }, io),
+    IoExn(io : io, exn : exn)
+  );
+  payload := ArrayList(u8).new();
+  payload.push(u8(0x80));
+  payload.push(u8(0));
+  payload.push(u8(0xFF));
+  payload.push(u8(66));
+  body := String.from_bytes(payload);
+  opts := FetchOptions.new().with_method(HttpMethod.POST).with_body(body);
+  r := io.await(fetch_with(`http://127.0.0.1:19979/echo`, opts, io), IoExn(io : io, exn : exn));
+  task.await(io);
+  io.await(srv.close(io), IoExn(io : io, exn : exn));
+  assert(r.status_code == i32(200), "200");
+  got := r.body.as_bytes();
+  assert(got.len() == usize(4), `echoed 4 bytes (got ${got.len()})`);
+  assert(got(usize(0)) == u8(0x80), "continuation byte");
+  assert(got(usize(3)) == u8(66), "B");
 });
