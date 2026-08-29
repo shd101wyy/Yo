@@ -52,6 +52,48 @@ _serve_one :: (fn(listener : TcpListener, io : Io) -> Impl(Future(unit, IoExn)))
     return(());
   })
 );
+_hex :: (fn(n : usize) -> String)({
+  digits := `0123456789abcdef`;
+  cond(
+    (n == usize(0)) => `0`,
+    true => {
+      s := String.new();
+      m := n;
+      while(m > usize(0), m = (m / usize(16)), {
+        s = `${digits.substring(m % usize(16), (m % usize(16)) + usize(1))}${s}`;
+      });
+      s
+    }
+  )
+});
+_chunked :: (fn(chunks : ArrayList(String), trailer : String) -> String)({
+  out := `HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n`;
+  i := usize(0);
+  while(i < chunks.len(), i = (i + usize(1)), {
+    c := chunks(i);
+    out = `${out}${_hex(c.as_bytes().len())}\r\n${c}\r\n`;
+  });
+  `${out}0\r\n${trailer}\r\n`
+});
+_serve_scripted :: (
+  fn(listener : TcpListener, responses : ArrayList(String), seen : ArrayList(String), io : Io) ->
+    Impl(Future(unit, IoExn))
+)(
+  io.async((e) => {
+    k := usize(0);
+    while(runtime(k < responses.len()), {
+      s := e.io.await(listener.accept(e.io), e);
+      eprintln(`  [scripted server] accepted #${k}`);
+      req := e.io.await(_read_request(s, e.io), e);
+      seen.push(req);
+      _w := e.io.await(s.write_string(responses(k), e.io), e);
+      e.io.await(s.close(e.io), e);
+      eprintln(`  [scripted server] responded #${k}`);
+      k = (k + usize(1));
+    });
+    return(());
+  })
+);
 main :: (fn(io : Io) -> unit)({
   timeout_exn := Exception(
     throw : (
@@ -88,5 +130,30 @@ main :: (fn(io : Io) -> unit)({
   s2.await(io);
   io.await(l2.close(io), IoExn(io : io, exn : exn));
   eprintln(`  [phase2] done`);
+  // --- phase 3: the chunked test body, statement by statement ---
+  eprintln(`  [phase3] start`);
+  addr3 := SocketAddr.loopback(u16(19966));
+  eprintln(`  [phase3] addr`);
+  l3 := io.await(TcpListener.bind(addr3, io), IoExn(io : io, exn : exn));
+  eprintln(`  [phase3] bound`);
+  chunks := ArrayList(String).new();
+  chunks.push(`hello, `);
+  chunks.push(`chunked `);
+  chunks.push(`world — 16+ bytes so a size needs two hex digits`);
+  eprintln(`  [phase3] chunks built; hex(50)=${_hex(usize(50))}`);
+  responses := ArrayList(String).new();
+  responses.push(_chunked(chunks, `X-Trailer: t\r\n`));
+  eprintln(`  [phase3] response 1 built (${responses(usize(0)).len()} bytes)`);
+  responses.push(`HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n7;ext=1\r\nhello, \r\nA\r\nchunked!!!\r\n0\r\n\r\n`);
+  seen := ArrayList(String).new();
+  srv3 := io.spawn(_serve_scripted(l3, responses, seen, io), IoExn(io : io, exn : exn));
+  eprintln(`  [phase3] server spawned; fetching /one`);
+  c1 := io.await(fetch_with(`http://127.0.0.1:19966/one`, FetchOptions.new(), io), IoExn(io : io, exn : exn));
+  eprintln(`  [phase3] /one → ${c1.status_code} body=[${c1.body}]`);
+  c2 := io.await(fetch_with(`http://127.0.0.1:19966/two`, FetchOptions.new(), io), IoExn(io : io, exn : exn));
+  eprintln(`  [phase3] /two → ${c2.status_code} body=[${c2.body}]`);
+  srv3.await(io);
+  io.await(l3.close(io), IoExn(io : io, exn : exn));
+  eprintln(`  [phase3] done`);
 });
 export(main);
