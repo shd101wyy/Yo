@@ -512,7 +512,7 @@ Open D7 items:
 | process | EXTEND | Child/spawn/Stdio + env + builders-return-Self + `code() -> Option(i32)` DONE 2026-08-27; still: `current_dir` (seed-gated runtime shim), hide `raw` (needs module-private visibility) |
 | cli | EXTEND or DROP-TO-PACKAGE | typed values, required enforcement, `--`, repeated opts, help-not-an-error; needs tty/color access (D8 wrappers). Recommendation: keep minimal-but-correct in std |
 | net | FIX + EXTEND | C2/C3 DONE; `Shutdown` enum DONE; usize counts DONE; UnixStream/UnixListener DONE 2026-08-27 (incl. their Reader/Writer impls); still: `incoming()`, UDP `connect` + typed `recv_from`, `parse_v6`, `SocketAddr.parse`, `Eq`/`Hash` on addr types, RFC 5952 V6 formatting |
-| http | FIX + EXTEND | C1 DONE; ~~https over TLS~~ **DONE 2026-08-28** (D6 PR-2: scheme branch, shared generic Reader response loop, TcpStream|TlsStream transport, default port 443); still: timeouts (dead `Timeout` variant becomes real), redirects (needs `Url.join`), chunked decoding, binary bodies, keep-alive; **server (P1)**: `parse_request`, `HttpServer` on `TcpListener`; collapse `FetchOptions` into `HttpRequest` |
+| http | FIX + EXTEND | C1 DONE; ~~https over TLS~~ **DONE 2026-08-28** (D6 PR-2: scheme branch, shared generic Reader response loop, TcpStream|TlsStream transport, default port 443); still: timeouts (dead `Timeout` variant becomes real), redirects (needs `Url.join`), chunked decoding, binary bodies, keep-alive; **server (P1)**: `parse_request`, `HttpServer` on `TcpListener`; collapse `FetchOptions` into `HttpRequest`; the compiler's own curl→`std/http` swap (D6 PR-3) is **BLOCKED on Windows TLS** (plans/D6_TLS_PLAN.md item 3) |
 | async | PROMOTE | combinator home: `join_all`, `race`, `any`, `timeout`, interval, cancellation for `JoinHandle` (`abort()`), async channel/mutex (D7). `sleep(Duration, io)` lives in `std/time/sleep.yo` — do NOT add a second one; re-export if wanted |
 | thread/worker/sync | REDESIGN (D7) | ThreadPool DONE; `join() -> T` + panic propagation blocked below std — see D7 |
 | time | EXTEND | ~~`Duration`: `Add/Sub` operators, `Eq/Ord/Hash`, `from_secs_f64`, `subsec_*`, consts~~ + ~~`Instant` `add/sub`, `Eq/Ord`~~ **DONE 2026-08-28** (PR #312: operators mirror add/sub incl. zero-saturation, total-nanos Hash, from_secs_f64 clamps negatives, SECOND…HOUR consts, Instant.sub clamps at clock zero); **make std USE it** (timeouts, sleeps); ~~`DateTime`: RFC3339 `parse`/`format`, component ctor, arithmetic, `Eq/Ord`~~ **DONE 2026-08-28** (leap-aware `parse` incl. lowercase t/z + space separator + nano fractions + numeric offsets, typed `DateTimeError`, validating `new`, `add`/`sub(Duration)` offset-preserving, INSTANT-basis `Eq`/`Ord` + `to_unix_utc`; `to_string` was already RFC3339 — round-trip pinned); sleep unification DONE (§5) |
@@ -742,8 +742,20 @@ mmap/file-lock/statfs wrappers; `gc.stats`; DNS SRV/TXT/reverse
    change.)
 4. **S3 — P0 additions.** ← next after D5 slice 2
 5. **S4 — P1 additions.**
-6. **S5 — stability freeze:** stable/unstable markers in `yo doc` output,
-   additive-only policy documented in `yo-design.instructions.md`.
+6. **S5 — stability freeze:** ~~stable/unstable markers in `yo doc` output,
+   additive-only policy documented in `yo-design.instructions.md`~~ **DONE
+   2026-08-29**: a module's inner doc may end with a `## Stability` section
+   (`unstable — new in vX.Y.Z; …`); `yo doc` carries it as
+   `DocModule.stability` (HTML badge, `"stability"` in JSON, a note on the
+   Markdown module page + an index badge). Every std module without the
+   section is stable and additive-only — the policy, what counts as
+   additive, the one-release `unstable` entry rule and the deprecation path
+   are in `.github/instructions/yo-design.instructions.md` ("API stability").
+   `std/encoding/csv` is the first module carrying the marker (new in this
+   release); `std/http/server` and `std/fs/watch` get it in their own PRs.
+   Found en route: `yo doc` only recognises `## ` section headings while std
+   writes `# Examples` at 70 sites
+   (issues/doc-sections-require-double-hash-but-std-writes-single-hash.md).
 
    **Two inputs measured 2026-08-27, to be worked before the freeze:**
 
@@ -758,7 +770,12 @@ mmap/file-lock/statfs wrappers; `gc.stats`; DNS SRV/TXT/reverse
      (**C35** — same, the check was missing, now FIXED), and
      `HashMapError.KeyNotFound` / `HashSetError.ElementNotFound`, which are dead
      BY DESIGN (lookups return `Option`) and want DELETING here, in §6, since
-     removing a public variant is breaking. `std/allocator`'s `Layout` /
+     removing a public variant is breaking. **SEED-GATED (measured 2026-08-29):**
+     with both variants gone the two enums have identical shapes and the
+     v0.2.19 seed — which predates C46's nominal-enum exact compare (#343) —
+     conflates them across the std module graph (`check ./std` fails in
+     `hash_set.yo` under the seed, passes under develop's compiler). Delete
+     them in the first PR after SEED_VERSION advances past #343. `std/allocator`'s `Layout` /
      `layout_of` are unconsumed too — no `alloc(Layout)` entry point exists —
      which needs the same delete-or-implement decision. The struct-field face of
      the sweep came back clean apart from reflection metadata and
