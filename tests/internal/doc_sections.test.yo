@@ -134,6 +134,7 @@ test("recognizes known sections", {
   assert(is_known_section(`returns`), "returns is known");
   assert(is_known_section(`errors`), "errors is known");
   assert(is_known_section(`panics`), "panics is known");
+  assert(is_known_section(`stability`), "stability is known (module freeze marker)");
   assert(is_known_section(`examples`), "examples is known");
   assert(is_known_section(`safety`), "safety is known");
   assert(is_known_section(`deprecated`), "deprecated is known");
@@ -147,4 +148,10 @@ test("rejects unknown sections", {
   assert(!(is_known_section(`notes`)), "notes is not known");
   assert(!(is_known_section(`see also`)), "see also is not known");
   assert(!(is_known_section(`todo`)), "todo is not known");
+});
+test("parses a module-level ## Stability section", {
+  parsed := parse_doc_comment(`CSV reader and writer.\n\n## Stability\nunstable — new in v0.2.20; the API may still change.`);
+  assert(parsed.summary == `CSV reader and writer.`, "summary unaffected");
+  st := match(parsed.sections.get(`stability`), .Some(v) => v, .None => ``);
+  assert(st.starts_with(`unstable`), `stability section content: ${st}`);
 });

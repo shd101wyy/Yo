@@ -555,6 +555,60 @@ static int32_t __yo_isatty(int32_t fd) {
       generate_platform_sys_runtime_wasm(emitter);
     });
   });
+  // ---------------------------------------------------------------------------
+  // Hardware queries — emitted UNCONDITIONALLY. `std/thread.get_hardware_threads`
+  // and `get_cpu_id` are plain functions any program may call; their bodies used
+  // to live in the async runtime (`__yo_thread_get_hardware_threads`) and the
+  // parallelism runtime (`__yo_get_hardware_threads`, `__yo_get_cpu_id`), so a
+  // program using neither had a dangling extern
+  // (issues/fixed/get-hardware-threads-links-only-with-async-runtime.md).
+  // ---------------------------------------------------------------------------
+  hw_include := cond(
+    is_target_macos(target_info) => String.from("#include <sys/sysctl.h>"),
+    is_target_linux(target_info) => String.from("#include <sched.h>"),
+    true => String.from("")
+  );
+  hw_threads_body := cond(
+    is_target_windows(target_info) =>
+      `  SYSTEM_INFO sysinfo;
+  GetSystemInfo(&sysinfo);
+  return (size_t)sysinfo.dwNumberOfProcessors;`,
+    is_target_macos(target_info) =>
+      `  int count;
+  size_t size = sizeof(count);
+  if (sysctlbyname("hw.ncpu", &count, &size, NULL, 0) == 0) {
+    return (size_t)count;
+  }
+  return 1;`,
+    is_target_wasm(target_info) => String.from("  return 1;  // WASM is single-threaded"),
+    true =>
+      `  long count = sysconf(_SC_NPROCESSORS_ONLN);
+  return count > 0 ? (size_t)count : 1;`
+  );
+  cpu_id_body := cond(
+    is_target_linux(target_info) =>
+      `  int cpu = sched_getcpu();
+  return cpu;`,
+    is_target_windows(target_info) => String.from("  return (int)GetCurrentProcessorNumber();"),
+    true => String.from("  return -1;")
+  );
+  emitter.emit_string_line(
+    `
+// ============================================================================
+// Hardware queries (std/thread: get_hardware_threads, get_cpu_id)
+// ============================================================================
+${hw_include}
+// Number of hardware threads (CPU cores)
+static size_t __yo_get_hardware_threads(void) {
+${hw_threads_body}
+}
+// The name std/thread declares (historically the async runtime's copy).
+static size_t __yo_thread_get_hardware_threads(void) { return __yo_get_hardware_threads(); }
+// CPU the current thread runs on; -1 when the platform cannot say.
+static int __yo_get_cpu_id(void) {
+${cpu_id_body}
+}`
+  );
 });
 /// Timer, directory scanning, DNS, process, FS events, poll, and the tick
 /// function. 1:1 port of `generateAsyncRuntimeIOCommon`. macOS + Linux per the

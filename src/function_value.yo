@@ -363,6 +363,23 @@ mark_fn_unemittable :: (fn(func_id : String) -> unit)({
 is_fn_unemittable :: (fn(func_id : String) -> bool)(
   g_unemittable_fns.contains(func_id.clone())
 );
+// ---------------------------------------------------------------------------
+// Specialized-original side-table
+// ---------------------------------------------------------------------------
+/// Original (def-era) func_ids from which create_specialized_function_inline
+/// minted at least one specialization. Codegen dispatches every such call
+/// through the specialization it recorded, so an original whose signature
+/// still carries a SomeT param (an `Impl(Fn)` closure param) is dead code —
+/// and ill-typed, since the SomeT renders as whichever capture struct its
+/// resolution cell last held
+/// (issues/fixed/forwarded-closure-param-shares-specialization.md).
+(g_specialized_originals : HashSet(String)) = HashSet(String).new();
+mark_fn_specialized :: (fn(func_id : String) -> unit)({
+  g_specialized_originals.insert(func_id.clone());
+});
+fn_has_specializations :: (fn(func_id : String) -> bool)(
+  g_specialized_originals.contains(func_id.clone())
+);
 /// The recorded `Func` type for `func_id`, or `t_unit()` if none was registered.
 get_func_type :: (fn(func_id : String) -> TypeValue)(
   match(
@@ -401,7 +418,7 @@ register_func_parameters_frame :: (fn(func_id : String, frame : Frame) -> unit)(
 get_func_parameters_frame :: (fn(func_id : String) -> Option(Frame))(
   g_func_parameters_frame.get(func_id.clone())
 );
-export(mark_fn_unemittable, is_fn_unemittable);
+export(mark_fn_unemittable, is_fn_unemittable, mark_fn_specialized, fn_has_specializations);
 export(
   mark_as_control_fn,
   is_control_fn,

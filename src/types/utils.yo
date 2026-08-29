@@ -1836,6 +1836,36 @@ export(can_type_form_rc_cycle, type_uses_small_rc_header, buffer_element_type, _
 export(type_requires_inference);
 export(type_contains_some_type);
 export(get_all_some_types);
+/// True when any PARAM of this `Func` type still contains a SomeT under a RAW
+/// scan — the per-object resolution cell is deliberately NOT consulted
+/// (unlike `type_contains_some_type`). Used to recognise the def-era ORIGINAL
+/// of a function the evaluator has specialized: its `Impl(Fn)` param renders
+/// as whichever capture struct the cell last held, so only its
+/// specializations are emitted
+/// (issues/fixed/forwarded-closure-param-shares-specialization.md).
+func_params_have_raw_some_type :: (fn(ty : TypeValue) -> bool)(
+  match(
+    ty,
+    .Func({ param_types }) => {
+      (found : bool) = false;
+      (i : usize) = usize(0);
+      while((i < param_types.len()) && !(found), {
+        match(
+          param_types.get(i),
+          .Some(pt) => if(get_all_some_types(pt).len() > usize(0), {
+            found = true;
+          }),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      found
+    },
+    _ => false
+  )
+);
+export(func_params_have_raw_some_type);
+
 export(fields_have_incompatible_contexts);
 export(type_somes_all_resolve_concrete);
 export(type_contains_some_type_deep);

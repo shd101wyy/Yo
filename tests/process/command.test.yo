@@ -86,6 +86,45 @@ test("Command.status non-zero exit", {
   assert(!(st.success()), "should not be success");
   assert(st.code().unwrap() == i32(1), "exit code 1");
 });
+test("an abnormally-terminated child reports a signal, not an I/O error", {
+  // Windows used to return GetExitCodeProcess's DWORD cast to int32_t from
+  // waitpid: an NTSTATUS-shaped code (abort()/fastfail = 0xC0000409,
+  // cmd.exe "exit -1" = 0xFFFFFFFF) is NEGATIVE as i32, which
+  // Command.output/status's IoError.check read as -errno and turned into an
+  // unmapped IoError.Other ("unknown I/O error") — so 'yo test' died at the
+  // first failed test instead of reporting it
+  // (issues/fixed/yo-test-failing-child-windows-unknown-io-error.md). Both
+  // sides terminate via SIGTERM: cmd's exit -1 is ExitProcess(0xFFFFFFFF),
+  // which the runtime encodes as the default NTSTATUS mapping (SIGTERM).
+  exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  cmd := cond(
+    (platform == Platform.Windows) => {
+      c := Command.new(`cmd.exe`);
+      c.arg(`/C`);
+      c.arg(`exit`);
+      c.arg(`-1`);
+      c
+    },
+    true => {
+      c := Command.new(`sh`);
+      c.arg(`-c`);
+      c.arg(`kill -TERM $$`);
+      c
+    }
+  );
+  out := io.await(cmd.output(io), e);
+  assert(!(out.status.success()), "abnormal termination is not a success");
+  assert(out.status.code().is_none(), "signal death has NO exit code");
+  assert(out.status.signal() == i32(15), "SIGTERM recorded");
+});
 
 // ============================================================================
 // S3 P0 item 5: Child / spawn / Stdio / env (plans/STD_API_AUDIT.md)

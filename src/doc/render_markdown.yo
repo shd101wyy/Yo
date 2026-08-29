@@ -600,6 +600,14 @@ render_module_md :: (fn(mod : DocModule) -> String)({
   lines.push(`> Module path: \`${mod.path}\``);
   lines.push(``);
   match(
+    mod.stability,
+    .None => (),
+    .Some(st) => {
+      lines.push(`> **Stability: ${st}** — stable modules only change additively; this one may still change.`);
+      lines.push(``);
+    }
+  );
+  match(
     mod.doc,
     .None => (),
     .Some(d) => {
@@ -784,7 +792,13 @@ render_index_md :: (fn(model : DocModel) -> String)({
         ` — ${first_line}`
       }
     );
-    lines.push(`- [\`${mod.path}\`](module/${mod.name}.md) (${item_count.to_string()} items)${summary}`);
+    badge_word := match(
+      mod.stability,
+      .None => ``,
+      .Some(st) => match(st.split(` `).get(usize(0)), .Some(w) => w.to_lowercase(), .None => st)
+    );
+    badge := if(badge_word.is_empty(), ``, ` _(${badge_word})_`);
+    lines.push(`- [\`${mod.path}\`](module/${mod.name}.md)${badge} (${item_count.to_string()} items)${summary}`);
     i = (i + usize(1));
   });
   lines.push(``);

@@ -65,6 +65,8 @@ impl(LexerError, Error());
 /// Tokenizes `input` into a list of `Token`s.
 ///
 /// `module_path` is the source file path included in each token for error reporting.
+/// A leading UTF-8 BOM (U+FEFF) is skipped: rows, columns and `character` are as
+/// if the file had none (`byte_offset` still counts the 3 BOM bytes in `input`).
 /// Throws a `LexerError` (as `AnyError`) via `exn` on invalid input.
 tokenize :: (
   fn(
@@ -92,8 +94,17 @@ tokenize :: (
           break;
         },
         .Some(pair) => {
-          char_byte_offsets.push(pair._0);
-          chars.push(pair._1);
+          // A leading UTF-8 BOM (EF BB BF) decodes to U+FEFF and would be
+          // absorbed into the first identifier/keyword ("Variable
+          // '<BOM>open' not found"), so skip it — byte 0 only; elsewhere
+          // U+FEFF is an ordinary identifier rune. Windows PowerShell 5.1
+          // (`Set-Content -Encoding UTF8`) and several Windows editors emit
+          // BOM'd UTF-8 (issues/fixed/lexer-rejects-leading-utf8-bom.md).
+          is_leading_bom := ((pair._0 == usize(0)) && (pair._1.char == u32(0xFEFF)));
+          if(!(is_leading_bom), {
+            char_byte_offsets.push(pair._0);
+            chars.push(pair._1);
+          });
         }
       );
     });
