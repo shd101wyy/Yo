@@ -3,6 +3,7 @@
 //! stack — so both halves of std/http are exercised against each other.
 pragma(Pragma.SkipWasm32Emscripten); // no network stack in WASM
 pragma(Pragma.SkipWasm32Wasi); // no network stack in WASM
+pragma(Pragma.SkipWindows); // std/http pulls in TlsStream → openssl/ssl.h, absent on the Windows runners (same gate as http.test.yo)
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 { HttpServer, HttpRequest, HttpResponse, HttpMethod, fetch, fetch_with, FetchOptions, parse_request } :: import("std/http");
