@@ -182,10 +182,12 @@ _serve_scripted :: (
     k := usize(0);
     while(runtime(k < responses.len()), {
       s := e.io.await(listener.accept(e.io), e);
+      eprintln(`  [scripted server] accepted #${k}`);
       req := e.io.await(_read_request(s, e.io), e);
       seen.push(req);
       _w := e.io.await(s.write_string(responses(k), e.io), e);
       e.io.await(s.close(e.io), e);
+      eprintln(`  [scripted server] responded #${k}`);
       k = (k + usize(1));
     });
     return(());
@@ -389,21 +391,38 @@ test("fetch decodes a chunked body (sizes, extensions and trailers stripped)", {
   responses.push(`HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n7;ext=1\r\nhello, \r\nA\r\nchunked!!!\r\n0\r\n\r\n`);
   seen := ArrayList(String).new();
   server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
+  eprintln(`  [chunked test] fetching /one`);
   r1 := io.await(fetch_with(`http://127.0.0.1:19965/one`, FetchOptions.new(), io), IoExn(io : io, exn : exn));
+  eprintln(`  [chunked test] /one done: ${r1.status_code}`);
   assert(r1.status_code == i32(200), `status ${r1.status_code}`);
   assert(r1.body == "hello, chunked world — 16+ bytes so a size needs two hex digits", `decoded body, got "${r1.body}"`);
   assert(r1.get_header(`Transfer-Encoding`).is_some(), `the header itself is kept`);
   r2 := io.await(fetch_with(`http://127.0.0.1:19965/two`, FetchOptions.new(), io), IoExn(io : io, exn : exn));
+  eprintln(`  [chunked test] /two done: ${r2.status_code}`);
   assert(r2.body == "hello, chunked!!!", `chunk extension + upper-case size, got "${r2.body}"`);
   server.await(io);
+  eprintln(`  [chunked test] server joined`);
   io.await(listener.close(io), IoExn(io : io, exn : exn));
 });
+// The throwing fetch runs as its OWN spawned task: its handler unwinds that
+// task only, `JoinHandle.await` then yields `.None` for the unwound task, and
+// the test joins the server and closes the listener on the normal path.
+// Unwinding out of the test body itself left the server task parked in
+// `accept` on a never-closed listener, which keeps the Linux event loop alive
+// after the last test — the process never exited (hollow sweep rc=124).
 test("a malformed chunk size is a typed HttpError, not a garbage body", {
   exn := Exception(
     throw : (
       (err) -> {
-        msg := err.to_string();
-        assert(msg.contains(`chunk`), `expected a chunked-encoding error, got: ${msg}`);
+        assert(false, `unexpected exception: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  // Capture-free by design (handlers are frame-bound): it can only unwind.
+  chunk_exn := Exception(
+    throw : (
+      (err) -> {
         unwind(());
       }
     )
@@ -414,6 +433,12 @@ test("a malformed chunk size is a typed HttpError, not a garbage body", {
   responses.push(`HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\nzz\r\nhello\r\n0\r\n\r\n`);
   seen := ArrayList(String).new();
   server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
-  _r := io.await(fetch_with(`http://127.0.0.1:19966/bad`, FetchOptions.new(), io), IoExn(io : io, exn : exn));
-  assert(false, "a non-hex chunk size must throw");
+  eprintln(`  [malformed test] spawning client`);
+  client := io.spawn(fetch_with(`http://127.0.0.1:19966/bad`, FetchOptions.new(), io), IoExn(io : io, exn : chunk_exn));
+  outcome := client.await(io);
+  eprintln(`  [malformed test] client joined`);
+  server.await(io);
+  io.await(listener.close(io), IoExn(io : io, exn : exn));
+  assert(match(outcome, .None => true, .Some(r) => false), `a non-hex chunk size must throw (task unwound → None)`);
+  assert(seen.len() == usize(1), "the server saw exactly one request");
 });
