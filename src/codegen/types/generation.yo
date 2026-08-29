@@ -995,16 +995,20 @@ generate_dyn_forward_declarations :: (fn(context : CodeGenContext) -> unit)({
     i = (i + usize(1));
   });
 });
-/// Emit one vtable method-pointer for a trait field (skips Self / reserved /
+/// The vtable member line for one trait field (None for Self / reserved /
 /// already-processed / non-`self`-first methods). Mirrors the per-field body of
-/// generateDynDeclaration (types/dyn.ts:111-174).
-_emit_dyn_vtable_method :: (fn(label : String, field_ty : TypeValue, processed : HashSet(String), context : CodeGenContext) -> unit)({
-  em := context.emitter;
+/// generateDynDeclaration (types/dyn.ts:111-174). RETURNS the line rather than
+/// emitting it: `get_type_string` on a member's return/param types may emit an
+/// on-demand typedef (a method returning `Impl(Future(..))` mints the Future
+/// struct right there), which must land BEFORE the vtable typedef opens — the
+/// caller collects every member first, then emits the typedef
+/// (issues/fixed/dyn-trait-with-future-returning-method-splices-struct-into-vtable.md).
+_dyn_vtable_method_line :: (fn(label : String, field_ty : TypeValue, processed : HashSet(String), context : CodeGenContext) -> Option(String))({
   if((label == "Self") || _is_reserved_dyn_method(label), {
-    return(());
+    return(Option(String).None);
   });
   if(processed.contains(label.clone()), {
-    return(());
+    return(Option(String).None);
   });
   method_name := sanitize_for_c_identifier(label.clone(), false);
   if(is_function_type(field_ty), {
@@ -1034,14 +1038,16 @@ _emit_dyn_vtable_method :: (fn(label : String, field_ty : TypeValue, processed :
             });
             pi = (pi + usize(1));
           });
-          em.emit_declaration_string_line(`  ${ret_str} (*${method_name})(${plist}); // Method pointer for ${label}`);
+          return(Option(String).Some(`  ${ret_str} (*${method_name})(${plist}); // Method pointer for ${label}`));
         });
       },
       _ => ()
     );
+    Option(String).None
   }, {
-    em.emit_declaration_string_line(`  ${get_type_string(field_ty, context)} ${method_name}; // Non-function member ${label}`);
-  });
+    line := `  ${get_type_string(field_ty, context)} ${method_name}; // Non-function member ${label}`;
+    Option(String).Some(line)
+  })
 });
 /// Generate a Dyn vtable declaration (the Dyn struct is forward-declared). The
 /// vtable has __yo_type_id + a function pointer per trait method (FnTrait → a
@@ -1049,8 +1055,11 @@ _emit_dyn_vtable_method :: (fn(label : String, field_ty : TypeValue, processed :
 generate_dyn_declaration :: (fn(type : TypeValue, c_name : String, context : CodeGenContext) -> unit)({
   em := context.emitter;
   vtable_name := `${c_name}_vtable`;
-  em.emit_declaration_string_line(`typedef struct ${vtable_name}_s { // Vtable for ${type_to_string(type)}`);
-  em.emit_declaration_line("  uintptr_t __yo_type_id; // Runtime type identity (address of unique static per concrete type)");
+  // Collect the member lines BEFORE opening the typedef: resolving a member's
+  // C type can emit an on-demand typedef (a Future-returning method), and an
+  // emission while the vtable struct is open splices it into the body
+  // (issues/fixed/dyn-trait-with-future-returning-method-splices-struct-into-vtable.md).
+  members := ArrayList(String).new();
   processed := HashSet(String).new();
   match(
     type,
@@ -1079,7 +1088,7 @@ generate_dyn_declaration :: (fn(type : TypeValue, c_name : String, context : Cod
                 pi = (pi + usize(1));
               });
               sep := if(plist.len() > usize(0), String.from(", "), String.from(""));
-              em.emit_declaration_string_line(`  ${ret_str} (*call)(void* self${sep}${plist}); // Call function pointer`);
+              members.push(`  ${ret_str} (*call)(void* self${sep}${plist}); // Call function pointer`);
               _p := processed.insert(String.from("call"));
             },
             _ => ()
@@ -1092,7 +1101,13 @@ generate_dyn_declaration :: (fn(type : TypeValue, c_name : String, context : Cod
               while(fi < nf, {
                 flabel := match(field_labels.get(fi), .Some(l) => l, .None => String.from(""));
                 fty := match(field_types.get(fi), .Some(t) => t, .None => TypeValue.Unit);
-                _emit_dyn_vtable_method(flabel, fty, processed, context);
+                match(
+                  _dyn_vtable_method_line(flabel, fty, processed, context),
+                  .Some(line) => {
+                    members.push(line);
+                  },
+                  .None => ()
+                );
                 fi = (fi + usize(1));
               });
             },
@@ -1104,6 +1119,13 @@ generate_dyn_declaration :: (fn(type : TypeValue, c_name : String, context : Cod
     },
     _ => ()
   );
+  em.emit_declaration_string_line(`typedef struct ${vtable_name}_s { // Vtable for ${type_to_string(type)}`);
+  em.emit_declaration_line("  uintptr_t __yo_type_id; // Runtime type identity (address of unique static per concrete type)");
+  (mi : usize) = usize(0);
+  while(mi < members.len(), {
+    match(members.get(mi), .Some(line) => em.emit_declaration_string_line(line), .None => ());
+    mi = (mi + usize(1));
+  });
   em.emit_declaration_string_line(`} ${vtable_name};`);
   em.emit_declaration_line("");
 });

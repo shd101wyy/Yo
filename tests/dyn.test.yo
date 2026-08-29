@@ -1,6 +1,7 @@
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 open(import("std/libc/stdio.yo"));
+{ Exception, IoExn } :: import("std/error");
 TestDyn :: trait(
   print : (fn(self : *(Self)) -> unit),
   return_i32 : (fn(self : *(Self)) -> i32)
@@ -212,4 +213,44 @@ test("Test downcast with multiple concrete types", {
     .Some(c) => assert(false, "dog_animal should not be Cat"),
     .None => assert(true)
   );
+});
+// Regression (issues/fixed/dyn-trait-with-future-returning-method-splices-struct-into-vtable.md, C17):
+// a Dyn(trait) whose method returns Impl(Future(..)) — resolving the member's C
+// type minted the Future struct on demand INSIDE the open vtable typedef, and
+// clang rejected the program ("field has incomplete type", "unknown type
+// name"). The vtable now collects its member lines before opening the typedef.
+AsyncRead :: trait(read : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn))));
+FixedSrc :: ref(struct(n : usize));
+impl(
+  FixedSrc,
+  AsyncRead(
+    read : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn)))(
+      io.async((e) => {
+        return(self.n);
+      })
+    )
+  )
+);
+DynReader :: ref(struct(inner : Dyn(AsyncRead)));
+impl(
+  DynReader,
+  read_twice : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn)))(
+    io.async((e) => {
+      a := e.io.await(self.inner.read(e.io), e);
+      b := e.io.await(self.inner.read(e.io), e);
+      return(a + b);
+    })
+  )
+);
+test("Dyn(trait) with a Future-returning method dispatches through the vtable", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        unwind(());
+      }
+    )
+  );
+  r := DynReader(inner : dyn(FixedSrc(n : usize(21))));
+  v := io.await(r.read_twice(io), IoExn(io : io, exn : exn));
+  assert(v == usize(42), "two dynamic async reads of 21");
 });
