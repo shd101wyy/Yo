@@ -1,0 +1,95 @@
+# TEMPORARY — Windows-only diagnosis of the C57 branch's hung "Run tests" leg.
+# DELETE BEFORE MERGING #353.
+name: debug-win-c57
+on:
+  push:
+    branches: [s6/command-output-concurrent-drain]
+  workflow_dispatch:
+env:
+  APT_OPTS: "-o Acquire::Retries=3"
+jobs:
+  emit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Add swap space
+        run: |
+          sudo fallocate -l 32G /mnt/swapfile
+          sudo chmod 600 /mnt/swapfile
+          sudo mkswap /mnt/swapfile
+          sudo swapon /mnt/swapfile
+      - name: Install liburing
+        run: |
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y liburing-dev
+      - name: Install the seed compiler
+        uses: ./.github/actions/install-seed
+        with:
+          version: v0.2.19
+      - name: Build stage 1 (seed compiles this tree)
+        run: |
+          YO_BIN="$(command -v yo)"
+          sudo systemd-run --scope -p MemoryHigh=11G -p MemoryMax=14G \
+            env YO_MAIN_STACK_MB=4096 "$YO_BIN" compile src/main.yo --optimize 2 --allocator mimalloc --std-path ./std -o /tmp/yo-s1
+          sudo chown "$(id -u)" /tmp/yo-s1 || true
+      - name: Cross-emit for windows-x64
+        env:
+          YO_MAIN_STACK_MB: "4096"
+        run: |
+          mkdir -p cross
+          sudo systemd-run --scope -p MemoryHigh=11G -p MemoryMax=14G \
+            env YO_MAIN_STACK_MB=4096 /tmp/yo-s1 compile src/main.yo --optimize 2 --allocator system \
+            --std-path ./std --target x86_64-pc-windows-msvc \
+            --emit-c --skip-c-compiler -o cross/yo-win > /dev/null
+          sudo chown "$(id -u)" cross/yo-win.c || true
+          ls -la cross/yo-win.c
+      - uses: actions/upload-artifact@v4
+        with:
+          name: c57-win-c
+          path: cross/yo-win.c
+          retention-days: 1
+          if-no-files-found: error
+  wintest:
+    needs: emit
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/download-artifact@v4
+        with:
+          name: c57-win-c
+          path: cross
+      - name: Install LLVM/Clang
+        run: |
+          choco install llvm -y
+          echo "C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      - name: Compile the suite compiler natively
+        shell: bash
+        run: |
+          clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
+            --target=x86_64-pc-windows-msvc \
+            cross/yo-win.c -lws2_32 -lbcrypt -ladvapi32 -o yo-suite.exe
+          ./yo-suite.exe --version
+          echo "YO_STD=$PWD/std" >> "$GITHUB_ENV"
+      - name: Targeted tests with hard timeouts
+        continue-on-error: true
+        shell: bash
+        run: |
+          set +e
+          for f in tests/basic.test.yo tests/process/command.test.yo tests/io/bufio.test.yo; do
+            n=$(basename "$f" .test.yo)
+            echo "===== $f"
+            timeout 600 ./yo-suite.exe test "./$f" --parallel 1 --verbose --c-compiler clang > "win-$n.log" 2>&1
+            echo "rc=$?" | tee -a "win-$n.log"
+            tail -25 "win-$n.log"
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: c57-win-logs
+          path: win-*.log
