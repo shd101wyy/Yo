@@ -98,7 +98,23 @@ generate_drop :: (fn(expr : AstExpr, indent : String, context : FunctionGenerati
     .Some(value_arg) => {
       value_code := _call_generate_expr(value_arg, indent.clone(), context);
       value_type := resolve_some_type_param_type(value_arg, _ty(value_arg, context), context);
-      generate_drop_code_for_value(value_code, value_type, context)
+      drop_code := generate_drop_code_for_value(value_code.clone(), value_type, context);
+      // A local that lives in an async state machine (`sm->var_N`) is dropped
+      // inline when its scope ends, but the state machine's dispose function
+      // ALSO sweeps every cross-boundary local when the body escaped
+      // (state == -2) — it cannot know which scopes had already closed. So an
+      // escape AFTER a closed scope re-dropped the field: `_fetch_once`'s
+      // `addrs`/`addr`/`stream` were released at the end of their cond branch,
+      // then `parse_response` threw and dispose decremented them again
+      // (heap-use-after-free; issues/fixed/async-scope-end-drop-then-escape-double-drop.md).
+      // Clear the field right after the inline drop so the sweep's guards
+      // (`!= NULL`, `.data != NULL`, enum tag) see an empty slot. `memset`
+      // covers every field shape (pointer, Option/Result, dyn) uniformly.
+      in_sm_field := match(context.in_async_state_machine, .Some(_) => value_code.starts_with("sm->var_"), .None => false);
+      cond(
+        ((drop_code.len() > usize(0)) && in_sm_field) => `${drop_code}; memset(&(${value_code}), 0, sizeof(${value_code}))`,
+        true => drop_code
+      )
     },
     .None => codegen_fatal_expr(String.from("___drop requires exactly 1 argument"))
   )

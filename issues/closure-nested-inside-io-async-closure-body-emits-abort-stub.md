@@ -54,3 +54,27 @@ yo compile issues/repros/closure-nested-in-io-async-closure.yo \
   --std-path ./std --release -o /tmp/n.out && /tmp/n.out    # must print 6, not rc=134
 bash scripts/count-transpile-failures.sh /tmp/n.out.c        # must be 0 abort-stub
 ```
+
+## Second symptom (2026-08-29): a nested `io.async` with a value — clang error
+
+An `io.async` closure bound INSIDE another `io.async` body and awaited there:
+
+```rust
+two_hop :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io) => {
+    inner := io.async((io) => {
+      io.await(sleep(u64(1)), io);
+      return(i32(1));
+    });
+    v := io.await(inner, io);
+    return(v + i32(41));
+  })
+);
+```
+
+does not reach the abort stub: clang rejects the emitted C —
+`error: non-void function 'closure_yo_id_12479' should return a value
+[-Wreturn-mismatch]` at a bare `return;` — the inner closure was emitted as a
+unit-returning body although its future carries `i32`. Same C22 rule applies
+(hoist the inner body to a top-level `fn` returning `Impl(Future(...))`);
+hit while writing tests/async_await.test.yo's event-loop regression test.

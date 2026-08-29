@@ -378,7 +378,6 @@ _read_http_response :: (
     done := false;
     while(runtime(!(done)), {
       n := e.io.await(stream.read(buf, buf_size, e.io), e);
-      eprintln(`  [DBG fetch] read n=${n.to_string()} total=${result.len().to_string()}`);
       cond(
         // 0 bytes means the peer closed the connection. A negative count is
         // no longer representable: NetError.check throws on error, so read()
@@ -418,16 +417,12 @@ _read_http_response :: (
                     _is_chunked(result, header_end) => match(
                       _dechunk(result, body_start),
                       .Done(_) => {
-                        eprintln(`  [DBG fetch] dechunk Done`);
                         done = true;
                       },
-                      .Malformed(m) => {
-                        eprintln(`  [DBG fetch] dechunk Malformed ${m}`);
+                      .Malformed(_) => {
                         done = true;
                       },
-                      .Incomplete => {
-                        eprintln(`  [DBG fetch] dechunk Incomplete`);
-                      }
+                      .Incomplete => ()
                     ),
                     true => {
                       // Check Content-Length
