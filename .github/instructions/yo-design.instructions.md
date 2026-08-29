@@ -127,6 +127,7 @@ result := unsafe.cast(ptr, *(u8));
 - `SomeType` automatically implements the `Runtime` trait by default.
 - Never write functions to resolve `SomeType` — struct/enum/union are nominal types, replacing SomeType causes problems.
 - **Never substitute SomeType within another Type.** Because many types like struct/enum/union etc in Yo are nominal type, simple substitution can break type identity. The correct approach is to re-evaluate the type expression in an environment where the type parameter is bound to the concrete type.
+- **Every `Impl(Trait)` annotation wrapper is a SomeT with the RESERVED name `"Impl"`** (`src/evaluator/builtins/impl_constraint.yo`). Any evaluator logic that matches or binds SomeTs BY NAME (param↔return substitution, env markers, where-clause bookkeeping) must exclude that name (and nameless dyn wrappers) — two wrappers in one signature are unrelated. Missing the exclusion makes a call typed as one of its ARGUMENTS' types (C27, `issues/fixed/generic-impl-async-method-closure-param-return-type-collapse.md`). Do NOT "fix" it by renaming the SomeT (every `== "Impl"` reservation check breaks), by skipping its env binding (std stops checking), or by keying env bindings per id (io.async/io.await share wrapper bindings by name — `async_await` regresses).
 
 ## Platform-specific code
 

@@ -2483,6 +2483,49 @@ _evaluate_funcval_runtime_call :: (
         eprintln(`[abstract-spec] fid=${spec_fid} trial=${in_def_time_trial().to_string()}`);
       });
     });
+    // Re-bridge a wrapper return (`-> Impl(Future(R))`) to THIS
+    // specialization's async block. The bridge above ran before the mint and
+    // read the ORIGINAL FuncVal's body ExprInfo — one shared body expr whose
+    // stamp is whichever specialization was evaluated LAST — so two calls
+    // with different `R` both pointed at the second spec's future struct and
+    // the first caller's `->result` read the wrong C type
+    // (issues/future-wrapper-return-shared-across-specializations.md).
+    // The spec's body is a fresh-id clone with its own stamp: read that.
+    if(is_some_type(resolved_ret), {
+      match(
+        spec_fv,
+        .FuncVal(rb_fvd, _) => match(
+          expr_info_table_get(ctx.expr_info_table, ast_expr_id(rb_fvd.*.body)),
+          .Some(rb_binfo) => {
+            (rb_conc : TypeValue) = rb_binfo.ty;
+            match(
+              rb_conc,
+              .SomeT({ id : rb_bid, resolved_concrete : rb_bcell }) => match(
+                rb_bcell.get(usize(0)),
+                .Some(rb_inner) => {
+                  rb_conc = rb_inner;
+                },
+                .None => match(
+                  lookup_some_resolved_concrete(rb_bid),
+                  .Some(rb_g) => {
+                    rb_conc = rb_g;
+                  },
+                  .None => ()
+                )
+              ),
+              _ => ()
+            );
+            if(!(is_unit_type(rb_conc)), {
+              resolved_ret = _with_resolved_concrete(resolved_ret, rb_conc);
+              out_rt.ty = resolved_ret;
+              out_rt.value = Option(EvalValue).Some(_call_result_unknown(resolved_ret, env));
+            });
+          },
+          .None => ()
+        ),
+        _ => ()
+      );
+    });
     spec_callee_info := new_expr_info(env, spec_ty_fixed);
     spec_callee_info.value = Option(EvalValue).Some(spec_fv);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(func_expr), spec_callee_info);
@@ -6500,6 +6543,58 @@ Fix: wrap the call:
           // instantiation here. AFTER the receiver adopt, never before.
           // issues/fixed/nested-same-adaptor-instantiation-identity-split.md
           m_out_ty = canonicalize_instantiation_via_ctfe_memo(m_out_ty);
+          // Wrapper return (`-> Impl(Future(R))`): bridge the call's result to
+          // THIS callee's async block, like the FuncVal arm's
+          // `_with_resolved_concrete` bridge. Without it the caller's wrapper
+          // carried no per-value cell and codegen fell back to the GLOBAL
+          // registration for the DECLARED wrapper id — shared by every
+          // specialization of the method, last writer wins — so two `R`s
+          // through one method cast both futures to the second spec's struct
+          // (issues/future-wrapper-return-shared-across-specializations.md).
+          // Prefer the specialization (its body is a fresh-id clone with its
+          // own stamp); a non-generic method's own body is unique anyway.
+          if(is_some_type(m_out_ty), {
+            m_bridge_fv := match(
+              call_result_m.specialized_function_value,
+              .Some(m_sfv) => Option(EvalValue).Some(m_sfv),
+              .None => method_info.method_val_opt
+            );
+            match(
+              m_bridge_fv,
+              .Some(m_bfv) => match(
+                m_bfv,
+                .FuncVal(m_bfvd, _) => match(
+                  expr_info_table_get(ctx.expr_info_table, ast_expr_id(m_bfvd.*.body)),
+                  .Some(m_binfo) => {
+                    (m_conc : TypeValue) = m_binfo.ty;
+                    match(
+                      m_conc,
+                      .SomeT({ id : m_bid, resolved_concrete : m_bcell }) => match(
+                        m_bcell.get(usize(0)),
+                        .Some(m_inner) => {
+                          m_conc = m_inner;
+                        },
+                        .None => match(
+                          lookup_some_resolved_concrete(m_bid),
+                          .Some(m_g) => {
+                            m_conc = m_g;
+                          },
+                          .None => ()
+                        )
+                      ),
+                      _ => ()
+                    );
+                    if(!(is_unit_type(m_conc)), {
+                      m_out_ty = _with_resolved_concrete(m_out_ty, m_conc);
+                    });
+                  },
+                  .None => ()
+                ),
+                _ => ()
+              ),
+              .None => ()
+            );
+          });
           out_m := new_expr_info(call_result_m.caller_env, m_out_ty);
           out_m.value = m_result_val;
           out_m.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_m.runtime_arg_exprs_in_order);
