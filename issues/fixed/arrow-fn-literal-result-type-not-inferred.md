@@ -1,6 +1,14 @@
 # A `->` fn literal passed to `Impl(Fn(..) -> R)` does not bind `R`; a `=>` closure does
 
-**Status: OPEN.** Found 2026-08-29 while isolating C27. **Severity:** MEDIUM —
+**Status: FIXED** (2026-08-29, `src/evaluator/values/anonymous_function.yo`).
+The bare-SomeT return binding (`nrs_ret_bare`) was gated on "is a `=>`
+closure" to keep ctl effect handlers' per-call-site `ResumeType` unbound; it
+now excludes only ctl-typed literals (`ctl_force`), so a plain `->` fn literal
+binds `R` like a closure. The re-registration in that branch also rebuilds the
+func meta with the literal's SOURCE param labels (like L3/L4) — with the
+expected type's labels the emitted C declared `a` while the body used `x`.
+Regression test: `tests/closure.test.yo` "a -> fn literal binds the result type
+variable of Option.map and of an Impl(Fn) method". Found 2026-08-29 while isolating C27. **Severity:** MEDIUM —
 a confusing type error on idiomatic code; the `=>` spelling works, so no std
 API is blocked.
 
@@ -28,7 +36,7 @@ is missing. Tests in this repo now use `=>` wherever a result type variable
 must be inferred (`tests/impl_method_closure_param_future_return.test.yo`,
 `tests/async/mutex.test.yo`).
 
-## Suspected area
+## Root cause (confirmed)
 
 Closure-argument synthesis against an `Impl(Fn(...) -> R)` wrapper binds the
 Fn trait's return from the CLOSURE's inferred body type; the regular-fn

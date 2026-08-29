@@ -1569,12 +1569,16 @@ evaluate_anonymous_function_implementation :: (
             // (iterator_combinators arm 0 / repro9). io.async closures are
             // excluded: their declared `T` result must stay unresolved for
             // the sync-future registration (the wrapper-adoption hazard).
-            // `->` effect handlers are excluded too: their declared result is
-            // the per-call-site `ResumeType` SomeT, which other machinery
-            // freshens — eagerly binding it here broke the effect-handler
-            // corpus (dyn_error_throw_ioerror / effect_handler_unwind_emit:
-            // handler `err` params emitted as undeclared identifiers).
-            nrs_ret_bare := ((is_some_type(nrs_ret_ty) && is_creating_closure) && !(ctx.is_inside_io_async_call));
+            // `->` EFFECT HANDLERS (ctl types) are excluded too: their declared
+            // result is the per-call-site `ResumeType` SomeT, which other
+            // machinery freshens — eagerly binding it here broke the
+            // effect-handler corpus (dyn_error_throw_ioerror /
+            // effect_handler_unwind_emit: handler `err` params emitted as
+            // undeclared identifiers). A plain `fn` `->` literal is NOT a
+            // handler and binds like a `=>` closure: excluding every `->`
+            // literal left `o.map((x) -> ...)`'s `R` unresolved
+            // (issues/fixed/arrow-fn-literal-result-type-not-inferred.md, C55).
+            nrs_ret_bare := ((is_some_type(nrs_ret_ty) && (is_creating_closure || !(ctl_force))) && !(ctx.is_inside_io_async_call));
             nrs_body_concrete := ((!(is_some_type(nrs_body_ty))) && (get_all_some_types(nrs_body_ty).len() == usize(0)));
             if((nrs_ret_nested || nrs_ret_bare) && nrs_body_concrete, {
               _synth_nested_return_somes(nrs_ret_ty, nrs_body_ty, expected_type_env, body_eval_env);
@@ -1586,9 +1590,18 @@ evaluate_anonymous_function_implementation :: (
               // left-in-place `Option(B)` reaches lowering as an instance that
               // was never collected ("get_type_string: no C type name found for
               // <enum:…>"). The body type is the CANONICAL memoized instance.
+              // Re-register with the SOURCE param labels (`actual_param_labels`),
+              // like L3/L4: `function_type` carries the EXPECTED type's labels
+              // (`a` from `Fn(a : T)`), and a `->` literal has no later L4
+              // rebuild — the emitted C prototype then declared `a` while the
+              // body referenced `x` ("use of undeclared identifier 'x'").
               function_type = match(
                 function_type,
-                .Func(nrs_fl, nrs_pt, nrs_it, nrs_wt, _, nrs_m, nrs_vt) => TypeValue.Func(nrs_fl, nrs_pt, nrs_it, nrs_wt, nrs_body_ty, nrs_m, nrs_vt),
+                .Func(nrs_fl, nrs_pt, nrs_it, nrs_wt, _, nrs_m, nrs_vt) => {
+                  nrs_nm := nrs_m.*.clone();
+                  nrs_nm.param_labels = actual_param_labels.clone();
+                  TypeValue.Func(nrs_fl, nrs_pt, nrs_it, nrs_wt, nrs_body_ty, box(nrs_nm), nrs_vt)
+                },
                 _ => function_type
               );
               register_func_type(func_id.clone(), function_type);
