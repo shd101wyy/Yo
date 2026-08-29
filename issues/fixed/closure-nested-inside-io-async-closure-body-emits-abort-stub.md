@@ -1,7 +1,28 @@
 # A closure defined INSIDE an `io.async` closure body makes that body untranspilable — `abort()`, scored `0 real`
 
-**Status: OPEN.** Found 2026-08-26 while reviewing the C16 fix; **pre-existing**,
-reproduces identically on develop tip and is not caused by that fix.
+**Status: FIXED** (2026-08-29, `src/codegen/functions/generation.yo`): every
+value-returning `abort()` stub (a body whose definition-time evaluation failed
+and was swallowed) is now declared with GCC/Clang's
+`__attribute__((error("yo: the body of <fn> failed to transpile …")))` — on
+its FIRST declaration (clang requires that; the prototype is retro-patched in
+the emitter buffers) and on the definition. The C compiler is thereby the
+deadness oracle: a stub nothing calls (a dead generic original — the corpus
+carries several, and `fid_fully_specialized` is NOT a reliable deadness
+predicate; a comptime-folded call site also leaves its callee dead) compiles
+clean, while any surviving call fails the build with a message naming the
+function and pointing at `YO_DEBUG_SWALLOW=1`, instead of shipping a binary
+that dies rc=134 with no diagnostic. Text scans cannot decide liveness in the
+emitter (closures and their callers live in the declarations buffer;
+prototypes double-count) — two such designs were built and discarded.
+
+What the original repro's body hit was a genuine type error —
+`f := ((x : usize) -> ...)` binds a fn literal with no expected type
+("Expected a function type", rejected at top level too); the supported
+spelling `(f : (fn(x : usize) -> usize)) = ((x) -> ...)` inside an async body
+compiles and prints 6. The second symptom below (a nested `io.async` with a
+value) is a real evaluator gap tracked in
+`issues/nested-io-async-inside-io-async-body-fails-def-eval.md`; with this
+fix it reports at every surviving call instead of mis-emitting.
 
 ## Symptom
 

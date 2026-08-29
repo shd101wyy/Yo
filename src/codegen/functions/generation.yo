@@ -20,6 +20,7 @@
 //! skip (Gap 2).
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
+{ Emitter } :: import("../../emitter.yo");
 { HashSet } :: import("std/collections/hash_set");
 { AstExpr, ast_expr_id, ast_expr_token, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, make_err_expr, BK_BEGIN, BK_RETURN, BK_ASSIGN, BK_INIT_ASSIGN } :: import("../../expr.yo");
 { Environment } :: import("../../env.yo");
@@ -45,6 +46,89 @@ open(import("std/string"));
 { generate_parallelism_runtime } :: import("../parallelism/runtime.yo");
 { generate_ref_struct_constructor_functions, generate_ref_enum_constructor_functions, generate_closure_constructor_functions } :: import("./constructors.yo");
 { codegen_fatal } :: import("../constants.yo");
+
+// Insert `attr_line` on its own line immediately before the FIRST declaration
+// of `c_name` (clang requires the GNU error attribute on the first
+// declaration, not just the definition). Searches headers, then declarations,
+// then the code buffer up to `code_limit_b` (the definition site already
+// carries the attribute inline). The needle is ` <name>(` — every prototype
+// and definition spells the name after a space, and prototypes precede any
+// call. No hit is fine: the definition was the first declaration.
+_insert_attr_before_first_decl :: (
+  fn(em : Emitter, c_name : String, attr_line : String, code_limit_b : usize) -> unit
+)({
+  needle := ` ${c_name}(`;
+  nb := needle.as_bytes();
+  nlen := nb.len();
+  (bi : usize) = usize(0);
+  while(bi < usize(3), {
+    hay_s := cond(
+      (bi == usize(0)) => em.headers.clone(),
+      (bi == usize(1)) => em.declarations.clone(),
+      true => em.code.clone()
+    );
+    hay := hay_s.as_bytes();
+    limit := cond((bi == usize(2)) => code_limit_b, true => hay.len());
+    if(limit >= nlen, {
+      last_start := (limit - nlen);
+      (si : usize) = usize(0);
+      while(si <= last_start, {
+        (mi : usize) = usize(0);
+        (all_eq : bool) = true;
+        while((mi < nlen) && all_eq, {
+          a := match(hay.get(si + mi), .Some(b0) => b0, .None => u8(0));
+          b := match(nb.get(mi), .Some(b1) => b1, .None => u8(1));
+          if(a != b, {
+            all_eq = false;
+          });
+          mi = (mi + usize(1));
+        });
+        if(all_eq, {
+          // Walk back to the start of this line.
+          (ls : usize) = si;
+          while((ls > usize(0)) && match(hay.get(ls - usize(1)), .Some(cb) => (cb != u8(10)), .None => false), {
+            ls = (ls - usize(1));
+          });
+          out := ArrayList(u8).new();
+          (ci : usize) = usize(0);
+          while(ci < ls, {
+            out.push(match(hay.get(ci), .Some(cb) => cb, .None => u8(0)));
+            ci = (ci + usize(1));
+          });
+          ab := attr_line.as_bytes();
+          (ai : usize) = usize(0);
+          while(ai < ab.len(), {
+            out.push(match(ab.get(ai), .Some(cb) => cb, .None => u8(0)));
+            ai = (ai + usize(1));
+          });
+          out.push(u8(10));
+          (ci2 : usize) = ls;
+          total := hay.len();
+          while(ci2 < total, {
+            out.push(match(hay.get(ci2), .Some(cb) => cb, .None => u8(0)));
+            ci2 = (ci2 + usize(1));
+          });
+          new_s := String.from_bytes(out);
+          cond(
+            (bi == usize(0)) => {
+              em.headers = new_s;
+            },
+            (bi == usize(1)) => {
+              em.declarations = new_s;
+            },
+            true => {
+              em.code = new_s;
+            }
+          );
+          return(());
+        });
+        si = (si + usize(1));
+      });
+    });
+    bi = (bi + usize(1));
+  });
+});
+
 /// Args of a FnCall (empty for an Atom).
 _args :: (fn(e : AstExpr) -> ArrayList(AstExpr))(
   match(e, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new())
@@ -727,6 +811,21 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
           pi = (pi + usize(1));
         });
         em.code = String.from_bytes(prefix_bytes);
+        // The error attribute makes the C COMPILER the deadness oracle: the
+        // build fails IFF a call to the stub survives — a dead generic
+        // original (no callers) compiles clean, while a LIVE stub (a body
+        // whose definition-time evaluation failed and was swallowed — run
+        // yo check with YO_DEBUG_SWALLOW=1 to see the error it hit) becomes
+        // a compile error at every call instead of an rc=134 abort with no
+        // diagnostic. Text scans cannot decide liveness here: closures and
+        // their callers live in the declarations buffer, prototypes
+        // double-count, and fid_fully_specialized is not a deadness proof
+        // (issues/fixed/closure-nested-inside-io-async-closure-body-emits-abort-stub.md).
+        // Every supported C compiler is gcc/clang-family (clang, gcc,
+        // zig cc, emcc), so the GNU error attribute is always available.
+        stub_attr := `__attribute__((error("yo: the body of ${c_function_name} failed to transpile — its definition-time evaluation failed and was swallowed (run yo check with YO_DEBUG_SWALLOW=1); this call would abort at runtime")))`;
+        _insert_attr_before_first_decl(em, c_function_name.clone(), stub_attr.clone(), stub_mark_b);
+        em.emit_string_line(stub_attr);
         em.emit_string_line(open.clone());
         em.emit_string_line(
           if(
