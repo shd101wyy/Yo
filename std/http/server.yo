@@ -1,0 +1,105 @@
+//! Minimal HTTP/1.1 server on `TcpListener` (plans/STD_API_AUDIT.md §7 P1).
+//!
+//! One connection at a time, one request per connection (`Connection: close`
+//! is added to every response) — the shape a CLI, a test fixture or a local
+//! tool needs; it shares its wire code (`std/http/wire.yo`) with the client,
+//! so request bodies may be `Content-Length` or chunked.
+//!
+//! ```rust
+//! { HttpServer, HttpResponse } :: import "std/http";
+//! server := io.await(HttpServer.bind(SocketAddr.loopback(u16(8080)), io), e);
+//! io.await(server.serve((req) -> HttpResponse.with_status(i32(200)).with_body(`hi ${req.path}`), io), e);
+//! ```
+//!
+//! `serve` runs until `stop()` is called (checked after each connection) —
+//! from another task, or from the handler itself. `serve_once` handles exactly
+//! one connection, which is what a test wants.
+//!
+//! ## Stability
+//! unstable — new in v0.2.20; the API may still change until the next release.
+open(import("../string"));
+{ IoExn } :: import("../error");
+{ TcpListener, TcpStream } :: import("../net/tcp");
+{ SocketAddr } :: import("../net/addr");
+{ HttpHeader, HttpRequest, HttpResponse, parse_request } :: import("./http.yo");
+{ read_http_message } :: import("./wire.yo");
+/// Default ceiling on a request (headers + body): 16 MiB.
+DEFAULT_MAX_REQUEST_BYTES :: (usize(16) * (usize(1024) * usize(1024)));
+/// An HTTP/1.1 server bound to a `TcpListener`.
+HttpServer :: ref(
+  struct(
+    listener : TcpListener,
+    /// Requests larger than this throw `HttpError.ResponseTooLarge` out of
+    /// `serve`/`serve_once` (0 lifts the ceiling).
+    max_request_bytes : usize,
+    stopped : bool
+  )
+);
+impl(
+  HttpServer,
+  /// Bind a listening socket on `addr` (port 0 picks a free port — read it
+  /// back with `local_addr()`).
+  bind : (fn(addr : SocketAddr, io : Io) -> Impl(Future(HttpServer, IoExn)))(
+    io.async((e) => {
+      listener := e.io.await(TcpListener.bind(addr, e.io), e);
+      HttpServer(listener : listener, max_request_bytes : DEFAULT_MAX_REQUEST_BYTES, stopped : false)
+    })
+  ),
+  /// The address the server is listening on.
+  local_addr : (fn(self : Self) -> SocketAddr)(
+    self.listener.local_addr()
+  ),
+  /// Set the request-size ceiling (builder pattern; 0 = unlimited).
+  with_max_request_bytes : (fn(self : Self, n : usize) -> Self)({
+    self.max_request_bytes = n;
+    self
+  }),
+  /// Accept ONE connection, read one request, run `handler`, write the
+  /// response and close. A request that does not parse gets a `400 Bad
+  /// Request` whose body names the defect, without calling `handler`.
+  serve_once : (
+    fn(self : Self, handler : Impl(Fn(req : HttpRequest) -> HttpResponse), io : Io) ->
+      Impl(Future(unit, IoExn))
+  )(
+    io.async((e) => {
+      stream := e.io.await(self.listener.accept(e.io), e);
+      raw := e.io.await(read_http_message(stream, self.max_request_bytes, true, e.io), e);
+      resp := match(
+        parse_request(raw),
+        .Ok(req) => handler(req),
+        .Err(msg) => HttpResponse.with_status(i32(400)).with_body(msg)
+      );
+      cond(
+        resp.get_header(`Connection`).is_none() => {
+          resp.headers.push(HttpHeader.new(`Connection`, `close`));
+        },
+        true => ()
+      );
+      _w := e.io.await(stream.write_string(resp.to_string(), e.io), e);
+      e.io.await(stream.close(e.io), e);
+      ()
+    })
+  ),
+  /// Serve connections one after another until `stop()` has been called
+  /// (checked after each connection completes).
+  serve : (
+    fn(self : Self, handler : Impl(Fn(req : HttpRequest) -> HttpResponse), io : Io) ->
+      Impl(Future(unit, IoExn))
+  )(
+    io.async((e) => {
+      while(runtime(!(self.stopped)), {
+        e.io.await(self.serve_once(handler, e.io), e);
+      });
+      ()
+    })
+  ),
+  /// Ask `serve` to return after the connection it is currently handling.
+  stop : (fn(self : Self) -> unit)({
+    self.stopped = true;
+  }),
+  /// Close the listening socket.
+  close : (fn(self : Self, io : Io) -> Impl(Future(unit, IoExn)))(
+    self.listener.close(io)
+  )
+);
+export(HttpServer, DEFAULT_MAX_REQUEST_BYTES);

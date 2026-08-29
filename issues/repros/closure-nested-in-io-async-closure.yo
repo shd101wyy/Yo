@@ -1,10 +1,13 @@
-// Reproducer: issues/closure-nested-inside-io-async-closure-body-emits-abort-stub.md
+// Reproducer: issues/fixed/closure-nested-inside-io-async-closure-body-emits-abort-stub.md
 //
-// A closure defined INSIDE an `io.async` closure body makes that body
-// untranspilable. `yo compile --release` exits 0, clang is clean, and the binary
-// dies rc=134 on the #275 `abort()` stub. Expected output after a fix: 6.
+// `f := ((x : usize) -> ...)` binds a fn literal WITHOUT an expected type — a
+// genuine type error ("Expected a function type") that the io.async body's
+// definition-time trial evaluation swallowed, so `yo compile` exited 0 and the
+// binary died rc=134 on an `abort()` stub. Since the C22 fix `yo compile` FAILS
+// here with a diagnostic naming the closure; the supported spelling
+// `(f : (fn(x : usize) -> usize)) = ((x) -> (x * usize(2)))` prints 6.
 // No traits and no `Self` are involved — this is NOT the C16 trait-default bug.
-{ IoExn } :: import("std/error");
+{ Exception, IoExn } :: import("std/error");
 { println } :: import("std/fmt");
 rd :: (fn(k : usize, io : Io) -> Impl(Future(usize, IoExn)))(io.async((e) => k));
 twice :: (fn(k : usize, io : Io) -> Impl(Future(usize, IoExn)))(
@@ -15,6 +18,13 @@ twice :: (fn(k : usize, io : Io) -> Impl(Future(usize, IoExn)))(
   })
 );
 main :: (fn(io : Io) -> unit)({
-  println(io.await(twice(usize(3), io), io));
+  exn := Exception(
+    throw : (
+      (err) -> {
+        unwind(());
+      }
+    )
+  );
+  println(io.await(twice(usize(3), io), IoExn(io : io, exn : exn)));
 });
 export(main);

@@ -1,6 +1,13 @@
 # `Dyn(trait)` whose method returns `Impl(Future(...))` splices a struct definition into the middle of the vtable typedef
 
-**Status: OPEN.** Found 2026-08-25 by the STD_API_AUDIT D5 survey. Blocks one of
+**Status: FIXED** (2026-08-29, `src/codegen/types/generation.yo`
+`generate_dyn_declaration`: the vtable's member lines are collected FIRST —
+`_dyn_vtable_method_line` returns the line instead of emitting it — so any
+on-demand typedef that resolving a member type triggers lands before the
+`typedef struct … {` opens; the header, members and footer are then emitted
+together). Regression test: `tests/dyn.test.yo` "Dyn(trait) with a
+Future-returning method dispatches through the vtable"; repro
+`issues/repros/dyn-trait-future-method-vtable-splice.yo`. Found 2026-08-25 by the STD_API_AUDIT D5 survey. Blocks one of
 the two spellings of D5's "BufReader/BufWriter wrap ANY Reader/Writer".
 
 ## Symptom

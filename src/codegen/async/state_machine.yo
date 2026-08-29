@@ -27,7 +27,7 @@ open(import("std/string"));
 { type_contains_rc_type } :: import("../../types/utils.yo");
 { FunctionGenerationContext, EvidenceParameter, WhileLoopInfo, CondBranch, ChainedCondBranches, AsyncCondBranchInfo, InAsyncStateMachine, CondBranchPostWhileExprs, OuterWhileLoop, SmWhileBreakInfo, SmWhileContinueInfo, merge_cond_branch_post_while_exprs } :: import("../functions/context.yo");
 { expr_contains_await, expr_contains_while_with_await } :: import("../../expr_traversal.yo");
-{ is_temp_variable_name } :: import("../../utils.yo");
+{ is_temp_variable_name, random_id } :: import("../../utils.yo");
 { codegen_fatal } :: import("../constants.yo");
 { get_type_string } :: import("../utils/index.yo");
 { get_state_machine_field_name } :: import("./state_machine_naming.yo");
@@ -1370,14 +1370,40 @@ emit_effect_injection_for_sm :: (
                 });
               }, {
                 if(is_struct_type(etype), {
+                  // The bundle named AT THE AWAIT wins: `e.io.await(fut, inner)`
+                  // supplies `fut`'s handlers (docs/en-US/ALGEBRAIC_EFFECTS.md
+                  // "Async + effects"; the top-level `io.await` path in
+                  // exprs/await.yo does the same). Materialize it into a temp of
+                  // the ARG's own recorded type — an anonymous record literal
+                  // lowers to its own C struct, the future's declared effect is
+                  // the named twin — and hand its address over; set_effect copies
+                  // the value, so a resume-frame temp is safe. Only without an
+                  // explicit bundle does the enclosing task's own bundle field
+                  // (or a member-wise record injection) forward
+                  // (issues/fixed/io-await-effect-bundle-ignored-inside-io-async.md).
                   match(
-                    find_bundle_field_name(ftrait, context.state_machine_variables, context.state_machine_field_aliases),
-                    .Some(obf) => {
-                      em.emit_string_line(`${indent}if (${future_access}->__yo_set_effect_fn) ${future_access}->__yo_set_effect_fn((void*)${future_access}, "__bundle", (void*)&sm->${obf});`);
+                    args.get(usize(1)),
+                    .Some(bundle_arg) => {
+                      bundle_code := _call_generate_expr(bundle_arg, indent.clone(), context);
+                      bundle_cast_ty := match(
+                        context.base.get_expr_info(bundle_arg),
+                        .Some(bae) => if(is_struct_type(bae.ty), bae.ty, etype),
+                        .None => etype
+                      );
+                      bundle_type := get_type_string(bundle_cast_ty, context.base);
+                      tmp_name := `__yo_eff_bundle_${random_id(String.from("eff"))}`;
+                      em.emit_string_line(`${indent}${bundle_type} ${tmp_name.clone()} = ${bundle_code};`);
+                      em.emit_string_line(`${indent}if (${future_access}->__yo_set_effect_fn) ${future_access}->__yo_set_effect_fn((void*)${future_access}, "__bundle", (void*)&${tmp_name});`);
                     },
-                    .None => {
-                      emit_effect_record_injection_for_sm(etype, fut_ty, future_access, indent, Option(EvalValue).None, context, await_expr);
-                    }
+                    .None => match(
+                      find_bundle_field_name(ftrait, context.state_machine_variables, context.state_machine_field_aliases),
+                      .Some(obf) => {
+                        em.emit_string_line(`${indent}if (${future_access}->__yo_set_effect_fn) ${future_access}->__yo_set_effect_fn((void*)${future_access}, "__bundle", (void*)&sm->${obf});`);
+                      },
+                      .None => {
+                        emit_effect_record_injection_for_sm(etype, fut_ty, future_access, indent, Option(EvalValue).None, context, await_expr);
+                      }
+                    )
                   );
                 });
               });
@@ -3553,10 +3579,16 @@ generate_async_block_resume_function :: (
         match(
           segment.await_point,
           .Some(_) => {
+            // The suspension's cold-start effect injection generates the
+            // bundle expression named at the await (`e.io.await(fut, e)` →
+            // `sm->__yo_param_0`), so the state-machine variable context must
+            // still be installed here; restoring first left the closure's own
+            // bundle param rendered as a bare identifier ("use of undeclared
+            // identifier 'e'").
+            _emit_await_suspension(segment, segment.state_number, async_block_id, resume_function_name, analysis, context);
             context.in_async_state_machine = p_in;
             context.state_machine_variables = p_smv;
             context.variable_id_remapping = p_vr;
-            _emit_await_suspension(segment, segment.state_number, async_block_id, resume_function_name, analysis, context);
           },
           .None => if(is_last_segment, {
             _emit_last_segment_completion(segment, body_expr, local_var_drop_codes, context);

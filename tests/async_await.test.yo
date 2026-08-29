@@ -4672,3 +4672,44 @@ test("a top-level await returns as soon as its future completes, despite unrelat
   assert(elapsed_ms < i64(60), `await returned ${elapsed_ms} ms after starting; it must not wait for the unrelated 2 s timer (or kqueue's 100 ms wait timeout)`);
   parked.abort();
 });
+// Regression (issues/fixed/io-await-effect-bundle-ignored-inside-io-async.md, C56):
+// inside an io.async body, `e.io.await(fut, bundle)` must inject BUNDLE into
+// `fut` — the bundle named at the await supplies the awaited future's handlers
+// (docs/en-US/ALGEBRAIC_EFFECTS.md "Async + effects"), exactly as a top-level
+// `io.await(fut, bundle)` does. The state machine used to forward its own
+// bundle instead, so the inner handler never ran and the task's handler took
+// the throw. Handlers are capture-free, so the two are told apart by what they
+// DO: the inner one resumes with 7 (→ Some(8)), the task's own unwinds (→ None).
+BundleRaise :: (ctl(msg : String) -> i32);
+BundleCtx :: struct(io : Io, raise : BundleRaise);
+bundle_thrower :: (fn(ctx : BundleCtx) -> Impl(Future(i32, BundleCtx)))(
+  ctx.io.async((c) => {
+    return(c.raise(`bang`));
+  })
+);
+bundle_outer_task :: (fn(ctx : BundleCtx) -> Impl(Future(i32, BundleCtx)))(
+  ctx.io.async((c) => {
+    (inner_raise : BundleRaise) =
+      (
+        (msg) -> {
+          return(i32(7));
+        }
+      );
+    inner := BundleCtx(io : c.io, raise : inner_raise);
+    r := c.io.await(bundle_thrower(inner), inner);
+    return(r + i32(1));
+  })
+);
+test("io.await inside an async body injects the bundle named at the await, not the task's own", {
+  (outer_raise : BundleRaise) =
+    (
+      (msg) -> {
+        unwind(());
+      }
+    );
+  ctx := BundleCtx(io : io, raise : outer_raise);
+  handle := io.spawn(bundle_outer_task(ctx), ctx);
+  result := handle.await(io);
+  assert(result.is_some(), "the inner handler resumed the throw; the task's own (unwinding) handler must not have run");
+  assert(result.unwrap() == i32(8), "resumed value 7 + 1");
+});

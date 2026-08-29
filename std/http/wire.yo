@@ -1,0 +1,362 @@
+//! HTTP/1.1 wire framing shared by `std/http`'s client and server — header
+//! delimiting, `Content-Length`, `Transfer-Encoding: chunked` decoding
+//! (RFC 9112 §7.1) and the generic "read one message" loop. std-internal:
+//! `std/http/index.yo` does not re-export it.
+pragma(Pragma.AllowUnsafe);
+open(import("../string"));
+{ ArrayList } :: import("../collections/array_list");
+{ GlobalAllocator } :: import("../allocator");
+{ malloc, free } :: GlobalAllocator;
+{ IoExn } :: import("../error");
+{ Reader } :: import("../io");
+{ HttpError } :: import("./http.yo");
+// ============================================================================
+// Internal helpers
+// ============================================================================
+// Find the position of \r\n\r\n (end of HTTP headers)
+find_header_end :: (fn(data : ArrayList(u8)) -> usize)({
+  len := data.len();
+  cond(
+    (len < usize(4)) => {
+      return(usize(0));
+    },
+    true => ()
+  );
+  i := usize(0);
+  limit := (len - usize(3));
+  while(runtime(i < limit), {
+    cond(
+      (
+        (data(i) == u8(13)) &&
+          (
+            (data(i + usize(1)) == u8(10)) &&
+              (
+                (data(i + usize(2)) == u8(13)) &&
+                  (data(i + usize(3)) == u8(10))
+              )
+          )
+      ) => {
+        return(i);
+      },
+      true => ()
+    );
+    i = (i + usize(1));
+  });
+  usize(0)
+});
+// Parse Content-Length from headers; returns -1 if not found.
+find_content_length :: (fn(data : ArrayList(u8), header_end : usize) -> i32)({
+  // Build header string up to header_end
+  header_bytes := ArrayList(u8).new();
+  i := usize(0);
+  while(runtime(i < header_end), {
+    header_bytes.push(data(i));
+    i = (i + usize(1));
+  });
+  header_str := String.from_bytes(header_bytes).to_lowercase();
+  match(
+    header_str.index_of(`content-length:`),
+    .Some(pos) => {
+      val_start := (pos + usize(16));
+      // Find end of value by looking for \r\n after val_start
+      rest := header_str.substring(val_start, header_str.len());
+      match(
+        rest.index_of(`\r\n`),
+        .Some(eol) => {
+          val_str := rest.substring(usize(0), eol).trim();
+          match(
+            val_str.parse_i32(),
+            .Some(n) => n,
+            .None => i32(-(1))
+          )
+        },
+        .None => {
+          val_str := rest.trim();
+          match(
+            val_str.parse_i32(),
+            .Some(n) => n,
+            .None => i32(-(1))
+          )
+        }
+      )
+    },
+    .None => i32(-(1))
+  )
+});
+// True when the header section (bytes [0, header_end)) declares
+// `Transfer-Encoding: chunked` (case-insensitive; the LAST listed coding
+// must be `chunked` per RFC 9112 §6.1, which is also the only shape servers
+// send in practice).
+is_chunked :: (fn(data : ArrayList(u8), header_end : usize) -> bool)({
+  header_bytes := ArrayList(u8).new();
+  i := usize(0);
+  while(runtime(i < header_end), {
+    header_bytes.push(data(i));
+    i = (i + usize(1));
+  });
+  header_str := String.from_bytes(header_bytes).to_lowercase();
+  match(
+    header_str.index_of(`transfer-encoding:`),
+    .Some(pos) => {
+      rest := header_str.substring(pos + usize(18), header_str.len());
+      val := match(rest.index_of(`\r\n`), .Some(eol) => rest.substring(usize(0), eol), .None => rest);
+      val.trim().ends_with(`chunked`)
+    },
+    .None => false
+  )
+});
+// Outcome of decoding a chunked body prefix.
+Dechunk :: enum(
+  // Every chunk up to and including the terminating zero chunk was present;
+  // `data` is the concatenated chunk data (trailers dropped).
+  Done(data : ArrayList(u8)),
+  // Well-formed so far, but the terminating zero chunk has not arrived.
+  Incomplete,
+  // The framing is broken; `msg` names the defect.
+  Malformed(msg : String)
+);
+_hex_digit :: (fn(b : u8) -> i32)(
+  cond(
+    ((b >= u8(48)) && (b <= u8(57))) => i32(b - u8(48)),
+    ((b >= u8(97)) && (b <= u8(102))) => i32((b - u8(97)) + u8(10)),
+    ((b >= u8(65)) && (b <= u8(70))) => i32((b - u8(65)) + u8(10)),
+    true => i32(-(1))
+  )
+);
+// Decode a `Transfer-Encoding: chunked` body (RFC 9112 §7.1): repeated
+// `hex-size[;extensions]CRLF data CRLF`, ended by a zero-size chunk followed
+// by optional trailer fields and a final CRLF. Chunk extensions and trailers
+// are skipped. `body` is bytes [body_start, len) of the raw response.
+dechunk :: (fn(body : ArrayList(u8), body_start : usize) -> Dechunk)({
+  out := ArrayList(u8).new();
+  n := body.len();
+  i := body_start;
+  while(runtime(true), {
+    // chunk-size: at least one hex digit, then optional ";ext" up to CRLF.
+    size := usize(0);
+    digits := usize(0);
+    while(runtime((i < n) && (_hex_digit(body(i)) >= i32(0))), {
+      cond(
+        (size > (usize(0x0FFFFFFF))) => {
+          return(Dechunk.Malformed(`chunk size overflows`));
+        },
+        true => ()
+      );
+      size = ((size * usize(16)) + usize(_hex_digit(body(i))));
+      digits = (digits + usize(1));
+      i = (i + usize(1));
+    });
+    cond(
+      (i >= n) => {
+        return(Dechunk.Incomplete);
+      },
+      (digits == usize(0)) => {
+        return(Dechunk.Malformed(`chunk size is not hex (byte ${body(i).to_string()} at offset ${(i - body_start).to_string()})`));
+      },
+      true => ()
+    );
+    // Skip a chunk extension: everything up to CRLF.
+    while(runtime((i < n) && (body(i) != u8(13))), {
+      i = (i + usize(1));
+    });
+    cond(
+      ((i + usize(1)) >= n) => {
+        return(Dechunk.Incomplete);
+      },
+      (body(i + usize(1)) != u8(10)) => {
+        return(Dechunk.Malformed(`chunk size line not terminated by CRLF`));
+      },
+      true => ()
+    );
+    i = (i + usize(2));
+    cond(
+      (size == usize(0)) => {
+        // Last chunk. Trailers (if any) run to an empty line; we need the
+        // final CRLF to be present to call the body complete.
+        while(runtime(true), {
+          cond(
+            ((i + usize(1)) >= n) => {
+              return(Dechunk.Incomplete);
+            },
+            ((body(i) == u8(13)) && (body(i + usize(1)) == u8(10))) => {
+              return(Dechunk.Done(out));
+            },
+            true => ()
+          );
+          // skip one trailer line
+          while(runtime((i < n) && (body(i) != u8(10))), {
+            i = (i + usize(1));
+          });
+          cond(
+            (i >= n) => {
+              return(Dechunk.Incomplete);
+            },
+            true => ()
+          );
+          i = (i + usize(1));
+        });
+      },
+      (((i + size) + usize(2)) > n) => {
+        return(Dechunk.Incomplete);
+      },
+      true => ()
+    );
+    k := usize(0);
+    while(runtime(k < size), {
+      out.push(body(i + k));
+      k = (k + usize(1));
+    });
+    i = (i + size);
+    cond(
+      ((body(i) != u8(13)) || (body(i + usize(1)) != u8(10))) => {
+        return(Dechunk.Malformed(`chunk of ${size.to_string()} bytes at offset ${(i - body_start).to_string()} not followed by CRLF (got bytes ${body(i).to_string()}, ${body(i + usize(1)).to_string()})`));
+      },
+      true => ()
+    );
+    i = (i + usize(2));
+  });
+  Dechunk.Incomplete
+});
+// ============================================================================
+// Read one full HTTP message (status/request line, headers, body)
+// ============================================================================
+// An `io.async` future, NOT a plain function with `io.await` inside: a plain
+// function's await is a nested BLOCKING event loop, and running one from
+// inside a task (fetch_with's) freezes every other task on the loop until
+// this read returns — a deadlock the moment the peer is a sibling task
+// (issues/fixed/sync-await-in-plain-fn-nests-the-event-loop.md).
+/// Read one HTTP/1.1 message from `stream`: until `Content-Length` is
+/// satisfied, until the terminating zero chunk of a chunked body, or — for a
+/// RESPONSE only — until the peer closes (a response with neither framing
+/// header is delimited by close, RFC 9112 §6.3 rule 8). A REQUEST with
+/// neither is complete at the end of its headers (the client will not close
+/// first). Throws `HttpError.ResponseTooLarge` past `max_bytes` (0 = no
+/// ceiling) and `HttpError.MalformedChunkedBody` on broken chunk framing.
+/// A chunked body is handed on DECODED (`headers CRLFCRLF data`).
+read_http_message :: (
+  fn(generic(R : Type), stream : R, max_bytes : usize, is_request : bool, io : Io, where(R <: Reader)) ->
+    Impl(Future(String, IoExn))
+)(
+  io.async((e) => {
+    buf_size := usize(8192);
+    buf := *(u8)(malloc(buf_size).unwrap());
+    result := ArrayList(u8).new();
+    // Read until connection closes or we've read the full response
+    done := false;
+    while(runtime(!(done)), {
+      n := e.io.await(stream.read(buf, buf_size, e.io), e);
+      cond(
+        // 0 bytes means the peer closed the connection. A negative count is
+        // no longer representable: NetError.check throws on error, so read()
+        // only ever returns a real byte count.
+        (n == usize(0)) => {
+          done = true;
+        },
+        true => {
+          // The ceiling is checked BEFORE the bytes are buffered, so a
+          // hostile body never occupies more than max_bytes + one read.
+          cond(
+            ((max_bytes > usize(0)) && ((result.len() + n) > max_bytes)) => {
+              free(.Some(*(void)(buf)));
+              e.exn.throw(dyn(HttpError.ResponseTooLarge));
+            },
+            true => ()
+          );
+          i := usize(0);
+          while(runtime(i < n), {
+            result.push((buf.add(i)).*);
+            i = (i + usize(1));
+          });
+          // Check if we've received the full response by looking for
+          // Content-Length or end of chunked transfer
+          // For simplicity, check if the header section is complete
+          // and if Content-Length is satisfied
+          cond(
+            (result.len() > usize(4)) => {
+              // Check if we have a complete header section (\r\n\r\n)
+              header_end := find_header_end(result);
+              cond(
+                (header_end > usize(0)) => {
+                  body_start := (header_end + usize(4));
+                  cond(
+                    // Chunked: complete once the terminating zero chunk and
+                    // its final CRLF are in; malformed framing surfaces below.
+                    is_chunked(result, header_end) => match(
+                      dechunk(result, body_start),
+                      .Done(_) => {
+                        done = true;
+                      },
+                      .Malformed(_) => {
+                        done = true;
+                      },
+                      .Incomplete => ()
+                    ),
+                    true => {
+                      // Check Content-Length
+                      cl := find_content_length(result, header_end);
+                      cond(
+                        (cl >= i32(0)) => {
+                          body_len := (result.len() - body_start);
+                          cond(
+                            (body_len >= usize(cl)) => {
+                              done = true;
+                            },
+                            true => ()
+                          );
+                        },
+                        // A request with no body framing ends with its headers.
+                        is_request => {
+                          done = true;
+                        },
+                        true => ()
+                      );
+                    }
+                  );
+                },
+                true => ()
+              );
+            },
+            true => ()
+          );
+        }
+      );
+    });
+    free(.Some(*(void)(buf)));
+    // A chunked body is handed on DECODED: the raw bytes are rewritten as
+    // `headers CRLFCRLF data`, so `parse_response` sees the payload and the
+    // Transfer-Encoding header stays visible on the response.
+    header_end := find_header_end(result);
+    cond(
+      ((header_end > usize(0)) && is_chunked(result, header_end)) => {
+        body_start := (header_end + usize(4));
+        match(
+          dechunk(result, body_start),
+          .Done(data) => {
+            decoded := ArrayList(u8).with_capacity(body_start + data.len());
+            j := usize(0);
+            while(runtime(j < body_start), {
+              decoded.push(result(j));
+              j = (j + usize(1));
+            });
+            j = usize(0);
+            while(runtime(j < data.len()), {
+              decoded.push(data(j));
+              j = (j + usize(1));
+            });
+            String.from_bytes(decoded)
+          },
+          .Incomplete => {
+            e.exn.throw(dyn(HttpError.MalformedChunkedBody(`connection closed before the terminating zero chunk`)));
+            String.new()
+          },
+          .Malformed(msg) => {
+            e.exn.throw(dyn(HttpError.MalformedChunkedBody(msg)));
+            String.new()
+          }
+        )
+      },
+      true => String.from_bytes(result)
+    )
+  })
+);
+export(find_header_end, find_content_length, is_chunked, Dechunk, dechunk, read_http_message);

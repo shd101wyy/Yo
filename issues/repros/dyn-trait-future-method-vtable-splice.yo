@@ -1,0 +1,26 @@
+// C17 repro: a Dyn(trait) whose method returns Impl(Future(...)) — the
+// on-demand Future struct used to be emitted INTO the open vtable typedef.
+open(import("std/string"));
+open(import("std/fmt"));
+{ Exception, IoExn } :: import("std/error");
+AR :: trait(read : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn))));
+Src :: ref(struct(n : usize));
+impl(Src, AR(read : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn)))(io.async((e) => { return(self.n); }))));
+Wrap :: ref(struct(_inner : Dyn(AR)));
+impl(
+  Wrap,
+  read_twice : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn)))(
+    io.async((e) => {
+      a := e.io.await(self._inner.read(e.io), e);
+      b := e.io.await(self._inner.read(e.io), e);
+      return(a + b);
+    })
+  )
+);
+main :: (fn(io : Io) -> unit)({
+  exn := Exception(throw : ((err) -> { unwind(()); }));
+  w := Wrap(_inner : dyn(Src(n : usize(21))));
+  v := io.await(w.read_twice(io), IoExn(io : io, exn : exn));
+  println(`${v}`);
+});
+export(main);
