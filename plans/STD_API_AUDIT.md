@@ -108,6 +108,8 @@ records; mechanisms and reproducers are in the named `issues/fixed/` docs.
 | C43 | **A trait `?=` default method bound its `inout(self)` BY VALUE** in the per-impl materialized body: `self.field` on a pointer (clang error) or `&(self)` — a `T**` — passed to a sibling method (silent wrong value under `-w`). Every `Hasher.write_*` default is this shape | **FIXED** 2026-08-28 — issues/fixed/trait-default-inout-self-bound-by-value.md |
 | C44 | **`open(import(m))` re-typed every exported integer constant from its VALUE** (`K :: u64(7)` arrived as `i32`; the named import kept `u64`) — the open loop consulted the declared type only for struct-valued members | **FIXED** 2026-08-28 — issues/fixed/open-import-retypes-integer-constants.md |
 | C45 | **Non-exact compatibility unifies same-named generic instantiations by NAME only** — `(x : Result(i32, BErr)) = <Result(i32, AErr)>` type-checks (equal-name fast accept, no recursion into payload types; the struct arm has the same fast path). Sibling of the exact-comparison hole fixed as the enum-collision bug | **FIXED** 2026-08-29 (payload walk under equal names, placeholders read through their resolution cell, SomeT positions stay wildcards) — issues/fixed/lenient-generic-enum-compatibility-by-name.md |
+| C48 | **An `inout(self)` method on a payload-free enum VARIANT LITERAL emitted `&(<C tag constant>)`** (`E.B.to_string()` → "cannot take the address of an rvalue"): the auto-`&` wrapper took the tag identifier for an addressable expression | **FIXED** 2026-08-29 (comptime payload-free `EnumVal` args take the spill-temp path) — issues/fixed/inout-receiver-on-enum-variant-literal-takes-address-of-tag.md |
+| C49 | **`unsafe.cast(ptr, RcType)` was treated as an OWNED +1 result**: `w := unsafe.cast(user_data, Watcher)` in a runtime callback made the callee's scope-end drop free the caller's object (the fs.watch callback SIGSEGV). A cast is a borrowed view | **FIXED** 2026-08-29 (the valueless-callee result temp is non-owning for `__yo_as`) — issues/fixed/unsafe-cast-to-rc-type-is-treated-as-owned.md |
 | C47 | **A function tail with a deferred dup evaluated the tail call TWICE** — the return emitter declared `T temp = <call>` for the dup and then regenerated the whole expression for the `return`; a chained `Index` tail (`rows(r)(f)`) re-declared its spill temp (C redefinition), any side-effecting RC-returning tail ran twice silently | **FIXED** 2026-08-29 — issues/fixed/deferred-dup-return-regenerates-the-call.md |
 | C50 | **Two helpers forwarding different capturing closures to one function shared ONE specialization** (`(__yo_t18)(make)` where `make` is `__yo_t19`): the cache key folded closure identity only for closure LITERALS, and layout-identical capture structs compare exact-equal | **FIXED** 2026-08-29 — two halves: the resolved `capture_*` struct id joins the cache key, AND codegen no longer emits the dead UNSPECIALIZED original of a dot callee (`m.helper(closure)`) once the side table resolved the call to its specialization (that dead copy was the actual C error) — issues/fixed/forwarded-closure-param-shares-specialization.md |
 | C51 | **`std/thread.get_hardware_threads` only linked when the program also used async** (its extern named the async runtime's symbol) | **FIXED** 2026-08-29 (parallelism runtime aliases it when async is absent) — issues/fixed/get-hardware-threads-links-only-with-async-runtime.md |
@@ -418,12 +420,13 @@ Open D7 items:
   `fprintf` + `abort()`, no unwinding runtime, no per-thread recovery point.
   Do NOT accept a `join() -> Result(T, E)` signature that cannot actually
   observe a panic.
-- **`WaitGroup` deletion** — waits on a per-consumer MIGRATION DECISION:
-  `ThreadPool.join_all` is a whole-pool barrier while all five consumers use
-  `WaitGroup` for per-task waiting inside a shared pool, so neither `join_all`
-  nor `Semaphore`/`Barrier` is a drop-in. Decide per consumer
-  (`tests/imm_threading`, `tests/sync/{channel,once,rwlock,waitgroup}`),
-  record here, then delete.
+- ~~**`WaitGroup` deletion**~~ **DECIDED KEEP (2026-08-29).** Every consumer
+  (`tests/imm_threading`, `tests/sync/{channel,once,rwlock,waitgroup}`) uses
+  it for DYNAMIC-count waiting on threads it spawned itself — `add(n)` then
+  `done()` per worker — which `ThreadPool.join_all` (whole-pool barrier),
+  `Barrier` (fixed party count, reusable) and `Semaphore` (permits) do not
+  express. It is a well-known primitive (Go's `sync.WaitGroup`) and stays a
+  stable part of `std/sync`; the §6 row is closed as KEEP.
 - ~~**Async-aware sync is a P0 addition** (§7): async `Channel`, async `Mutex`,
   `select`/timeout~~ **DONE 2026-08-27** — §7 P0 item 6 (`std/async/channel`,
   `std/async/mutex`, `race`/`any`/`timeout` in `std/async`; `select` is
@@ -598,9 +601,9 @@ battery). Export hygiene: `__MutexUnlocker`, `ArgKind`/`ArgDef` unexported.
 
 **KEPT / BLOCKED — each with the measurement that blocks it:**
 
-- **`WaitGroup` — KEEP** until the per-consumer migration decision (D7): five
-  test files use it for per-task waiting, which `join_all` (whole-pool
-  barrier) does not cover.
+- **`WaitGroup` — KEEP (decided 2026-08-29, see D7):** dynamic-count
+  per-task waiting, which `join_all` (whole-pool barrier), `Barrier` and
+  `Semaphore` do not express; a well-known primitive (Go).
 - **`std/collections/linked_list.yo` — KEEP**: load-bearing half of the #249
   regression trigger (`tests/where_clause_fn_inference.test.yo`'s minimal
   era-copy/GC-trace reproducer). Revisit if that test is re-expressed.
@@ -684,6 +687,8 @@ declarations at runtime.
   cleartext.
 
 **P1 — expected of a modern std**
+HTTP server + chunked/redirect/timeout client; TLS (D6); CSV; DateTime
+parse/format; ~~`fs.watch`~~ **DONE 2026-08-29 on macOS + Linux; Windows OPEN** (issues/fs-watch-windows-events-never-delivered-next-spins.md — the windows suite hung in these tests, now gated) (`std/fs/watch`: `Watcher` over `sys/events` — inotify/kqueue/ReadDirectoryChangesW — with `poll()` and an awaitable, yield-driven `next(io)`, typed `FsEventKind` Rename/Change, `WatchOptions.recursive`, `IoError` on a missing path); ~~testing `assert_eq` family~~ (already in `std/assert`: `assert_eq`/`assert_ne`/`assert_approx`); log rewrite; glob
 HTTP server + chunked/redirect/timeout client; TLS (D6); ~~CSV~~ **DONE 2026-08-29** (`std/encoding/csv`: RFC 4180 reader/writer, typed `CsvError` with byte positions, `CsvOptions` delimiter + line ending, strict mode); DateTime
 parse/format; `fs.watch`; testing `assert_eq` family; log rewrite; glob
 expansion; ~~`Semaphore`/`Barrier`~~ **DONE 2026-08-26**; ~~`ThreadPool`~~
@@ -776,8 +781,10 @@ mmap/file-lock/statfs wrappers; `gc.stats`; DNS SRV/TXT/reverse
      conflates them across the std module graph (`check ./std` fails in
      `hash_set.yo` under the seed, passes under develop's compiler). Delete
      them in the first PR after SEED_VERSION advances past #343. `std/allocator`'s `Layout` /
-     `layout_of` are unconsumed too — no `alloc(Layout)` entry point exists —
-     which needs the same delete-or-implement decision. The struct-field face of
+     `layout_of` are unconsumed by std but tested and useful on their own
+     (a type's size + alignment as a value) — **DECIDED KEEP 2026-08-29** as
+     the reflection helper they are; an `alloc(Layout)` entry point can be
+     added additively if a consumer appears. The struct-field face of
      the sweep came back clean apart from reflection metadata and
      `DateTime.nanosecond` (correctly populated, just never rendered — RFC 3339
      permits that, so no defect).
