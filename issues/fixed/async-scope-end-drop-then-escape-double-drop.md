@@ -77,5 +77,5 @@ all render drops through this hook).
   runtime bug — the event loop blocking on unrelated I/O after completing the
   awaited future: `issues/fixed/event-loop-blocks-after-completing-the-awaited-future.md`.
   This crash was the second failure hiding behind it.
-- C56 (`issues/io-await-effect-bundle-ignored-inside-io-async.md`) is about
+- C56 (`issues/fixed/io-await-effect-bundle-ignored-inside-io-async.md`) is about
   which handler a throw reaches; this is about what happens after it does.
