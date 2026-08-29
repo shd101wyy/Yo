@@ -46,20 +46,22 @@ jobs:
           timeout 240 /tmp/yo-s1 test ./tests/http/http.test.yo --verbose --c-compiler clang > /tmp/http-plain.log 2>&1
           echo "rc=$?" | tee -a /tmp/http-plain.log
           grep -v 'warning\|note:' /tmp/http-plain.log | tail -60
-      - name: Async-debug build of the batch yo test left behind (240s cap)
+      - name: Standalone post-timeout repro, plain and async-debug (120s caps)
         continue-on-error: true
         run: |
           set +e
-          ls tests/http/.yo_selftest_batch_*.yo || { echo "no batch file left behind"; exit 0; }
-          B=$(ls tests/http/.yo_selftest_batch_*.yo | head -1)
-          /tmp/yo-s1 compile "$B" --std-path ./std --c-compiler clang --debug-async-await -o /tmp/http-dbg 2> /tmp/http-dbg-compile.log
-          echo "compile rc=$?"; grep -c . /tmp/http-dbg-compile.log
-          cd tests/http && timeout 240 /tmp/http-dbg > /tmp/http-debug.log 2>&1
-          echo "rc=$?" | tee -a /tmp/http-debug.log
+          R=issues/repros/linux-post-timeout-hang.yo
+          /tmp/yo-s1 compile "$R" --std-path ./std --c-compiler clang --optimize 2 -o /tmp/hang-plain 2> /tmp/http-repro-compile.log
+          echo "plain compile rc=$?"
+          timeout 120 /tmp/hang-plain > /tmp/http-repro-plain.log 2>&1; echo "plain rc=$?" | tee -a /tmp/http-repro-plain.log
+          cat /tmp/http-repro-plain.log
+          /tmp/yo-s1 compile "$R" --std-path ./std --c-compiler clang --debug-async-await -o /tmp/hang-dbg 2>> /tmp/http-repro-compile.log
+          echo "debug compile rc=$?"
+          timeout 120 /tmp/hang-dbg > /tmp/http-debug.log 2>&1; echo "rc=$?" | tee -a /tmp/http-debug.log
           echo "lines: $(wc -l < /tmp/http-debug.log)"
-          grep -n 'timeout test\|chunked test\|silent server\|scripted server\|✓\|✗' /tmp/http-debug.log | tail -30
-          echo "---- last 60 async lines before the end ----"
-          tail -60 /tmp/http-debug.log
+          grep -n '\[timeout\]\|\[phase2\]\|\[silent\|\[second\|Aborted\|abort' /tmp/http-debug.log | head -40
+          echo "---- last 80 lines ----"
+          tail -80 /tmp/http-debug.log
       - name: Kernel / io_uring facts
         if: always()
         run: |
