@@ -299,8 +299,21 @@ parse_response :: (fn(raw : String) -> Result(HttpResponse, String))({
 parse_request :: (fn(raw : String) -> Result(HttpRequest, String))({
   header_end := match(raw.index_of(`\r\n\r\n`), .Some(p) => p, .None => raw.len());
   head := raw.substring(usize(0), header_end);
+  // The body is sliced as BYTES: it may be binary (a body starting with a
+  // UTF-8 continuation byte panicked the boundary-checked `substring`) —
+  // bodies are byte-transparent end to end (plans/STD_API_AUDIT.md, the
+  // binary-bodies row; pinned by tests/http/server.test.yo).
   body := cond(
-    ((header_end + usize(4)) <= raw.len()) => raw.substring(header_end + usize(4), raw.len()),
+    ((header_end + usize(4)) <= raw.len()) => {
+      raw_b := raw.as_bytes();
+      body_b := ArrayList(u8).new();
+      bi := (header_end + usize(4));
+      while(runtime(bi < raw_b.len()), {
+        body_b.push(raw_b(bi));
+        bi = (bi + usize(1));
+      });
+      String.from_bytes(body_b)
+    },
     true => String.new()
   );
   lines := head.split(`\r\n`);
