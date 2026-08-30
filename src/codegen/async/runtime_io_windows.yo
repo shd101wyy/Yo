@@ -4014,6 +4014,8 @@ static int32_t __yo_fs_event_start(void* h, const char* path, uint32_t flags, vo
   handle->next = __yo_active_fs_events;
   __yo_active_fs_events = handle;
   __yo_active_watch_count++;
+  fprintf(stderr, "[fsw] start ok path=%s rdcw=%d dir_handle=%p\\n", path, handle->use_rdcw, (void*)handle->dir_handle);
+  fflush(stderr);
   return 0;
 }
 
@@ -4147,7 +4149,14 @@ static int __yo_poll_and_fs_event_tick(void) {
         if (fse->use_rdcw && fse->dir_handle != INVALID_HANDLE_VALUE) {
           DWORD bytes_returned = 0;
           BOOL ok = GetOverlappedResult(fse->dir_handle, &fse->overlapped, &bytes_returned, FALSE);
+          {
+            static int fsw_tick_logged = 0;
+            if (!fsw_tick_logged) { fprintf(stderr, "[fsw] first tick: ok=%d bytes=%lu err=%lu\\n", (int)ok, (unsigned long)bytes_returned, (unsigned long)(ok ? 0 : GetLastError())); fflush(stderr); fsw_tick_logged = 1; }
+          }
+          if (ok && bytes_returned == 0) { fprintf(stderr, "[fsw] completion with 0 bytes (overflow) — NOT re-armed today\\n"); fflush(stderr); }
+          if (!ok && GetLastError() != ERROR_IO_INCOMPLETE) { fprintf(stderr, "[fsw] GetOverlappedResult err=%lu\\n", (unsigned long)GetLastError()); fflush(stderr); }
           if (ok && bytes_returned > 0) {
+            fprintf(stderr, "[fsw] completion bytes=%lu\\n", (unsigned long)bytes_returned); fflush(stderr);
             char* ptr = fse->notify_buf;
             while (1) {
               FILE_NOTIFY_INFORMATION* info = (FILE_NOTIFY_INFORMATION*)ptr;
@@ -4173,6 +4182,7 @@ static int __yo_poll_and_fs_event_tick(void) {
                 } else {
                   name_buf[0] = '\\0';
                 }
+                fprintf(stderr, "[fsw] fire cb name=%s ev=%d\\n", name_buf, __yo_event); fflush(stderr);
                 fse->callback(name_buf, __yo_event, fse->user_data);
                 count++;
               }
