@@ -1,0 +1,78 @@
+name: debug-asan-batch
+# TEMPORARY debug workflow (delete after use) — reproduces the develop-HEAD
+# ASan stack-buffer-overflow in set_effect's bundle copy on one async_await
+# test (issues/asan-stack-overread-set-effect-batch-selftest.md), isolates
+# the crashing batch test index, and uploads the batch C for offline reading.
+on: [push]
+jobs:
+  repro:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      YO_MAIN_STACK_MB: "4096"
+      YO_TEST_LEAK_VERDICT: "0"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install liburing
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y liburing-dev
+
+      - name: Install the seed compiler
+        uses: ./.github/actions/install-seed
+        with:
+          version: "0.2.20"
+
+      - name: Build the tree compiler
+        env:
+          YO_STD: ${{ github.workspace }}/std
+        run: |
+          yo build
+
+      - name: Run the async_await batches (runner's own ASan run)
+        id: runbatches
+        env:
+          YO_STD: ${{ github.workspace }}/std
+          YO_KEEP_BATCH: "1"
+        run: |
+          YO=$(find yo-out -type f -name yo | head -1)
+          echo "YO=$YO"
+          "$YO" test ./tests/async_await.test.yo --parallel 1 -v > /tmp/runner.log 2>&1 || echo "runner rc=$?" >> /tmp/runner.log
+          tail -40 /tmp/runner.log
+
+      - name: Sweep every batch test index to isolate the crasher
+        env:
+          YO_STD: ${{ github.workspace }}/std
+        run: |
+          YO=$(find yo-out -type f -name yo | head -1)
+          : > /tmp/sweep-summary.txt
+          shopt -s nullglob
+          for bin in tests/.yo_selftest_batch_*.bin; do
+            base="${bin%.bin}"
+            n=$(grep -c '__yo_test_idx ==' "${base}.yo" || echo 0)
+            echo "batch ${base}: ${n} tests" >> /tmp/sweep-summary.txt
+            for i in $(seq 0 $((n - 1))); do
+              if ! YO_TEST_INDEX=$i "${bin}" > "/tmp/idx_${base##*/}_$i.log" 2>&1; then
+                rc=$?
+                echo "CRASHER ${base} index $i rc=$rc" >> /tmp/sweep-summary.txt
+              fi
+            done
+          done
+          cat /tmp/sweep-summary.txt
+
+      - name: Upload batch artifacts and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: asan-batch-debug
+          path: |
+            /tmp/runner.log
+            /tmp/sweep-summary.txt
+            /tmp/idx_*.log
+            tests/.yo_selftest_batch_*.yo
+            tests/.yo_selftest_batch_*.bin.c
+          retention-days: 7
+          if-no-files-found: warn
