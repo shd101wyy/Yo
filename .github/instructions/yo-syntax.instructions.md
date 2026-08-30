@@ -103,7 +103,7 @@ Same-operator chains never need parens: `a + b + c`, `a && b && c`.
 
 ## `if` is sugar for `cond`
 
-`if(...)` calls are desugared to `cond(...)` at parse time (`desugar_if_calls` in `src/expr.yo`), so every pass after parsing sees a real `cond` node. The equivalent macro definition is kept in `prelude.yo` as the spec and as a fallback for dynamically built ASTs (plans/MACRO_POLICY.md Part 3.2):
+`if(...)` calls are desugared to `cond(...)` at parse time (`desugar_if_calls` in `src/expr.yo`), so every pass after parsing sees a real `cond` node. The prelude macro that used to back this was DELETED 2026-08-30 once the v0.2.20 seed shipped the desugar (plans/MACRO_POLICY.md Part 3.2) — an `if` call the desugar leaves alone (odd arity, mismatched labels, a dynamically built AST) is now an error:
 
 ```rust
 if(condition, then_body)        // → cond(condition => then_body, true => ())
