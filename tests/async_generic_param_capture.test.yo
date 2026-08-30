@@ -22,20 +22,6 @@ open(import("std/collections/array_list"));
 
 // The EXACT pre-fix failing shape: params used DIRECTLY inside the async
 // closure, no hoist-to-locals workaround.
-/// Effect bundle for awaiting IoExn futures in tests: any throw FAILS the test.
-_noexn :: (fn() -> Exception)(
-  Exception(
-    throw : (
-      (err) -> {
-        assert(false, "unexpected exception");
-        unwind(());
-      }
-    )
-  )
-);
-_ioexn :: (fn(io : Io) -> IoExn)(
-  IoExn(io : io, exn : _noexn())
-);
 read_once_params :: (
   fn(generic(R : Type), r : R, buf : *(u8), size : usize, io : Io, where(R <: Reader)) -> Impl(Future(usize, IoExn))
 )(io.async((e) => e.io.await(r.read(buf, size, io), e)));
@@ -49,42 +35,60 @@ write_once_file :: (fn(f : File, buf : *(u8), size : usize, io : Io) -> Impl(Fut
 );
 
 test("generic fn async closure captures the enclosing params", {
+  t_exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  t_e := IoExn(io : io, exn : t_exn);
   path := Path.new(path_join(temp_dir(), `yo_generic_param_capture.bin`.to_string()));
-  f := io.await(File.open(path, OpenMode.Write, io), _ioexn(io));
+  f := io.await(File.open(path, OpenMode.Write, io), t_e);
   payload := ArrayList(u8).new();
   payload.push(u8(0x41));
   payload.push(u8(0x42));
   payload.push(u8(0x43));
-  wrote := io.await(write_once_params(f, payload.ptr().unwrap(), payload.len(), io), _ioexn(io));
+  wrote := io.await(write_once_params(f, payload.ptr().unwrap(), payload.len(), io), t_e);
   assert(wrote == usize(3), "generic write captured w/buf/size/io");
-  io.await(f.close(io), _ioexn(io));
-  f2 := io.await(File.open(path, OpenMode.Read, io), _ioexn(io));
+  io.await(f.close(io), t_e);
+  f2 := io.await(File.open(path, OpenMode.Read, io), t_e);
   buf := ArrayList(u8).with_capacity(usize(8));
   (bi : usize) = usize(0);
   while(bi < usize(8), bi = (bi + usize(1)), {
     buf.push(u8(0));
   });
-  got := io.await(read_once_params(f2, buf.ptr().unwrap(), usize(8), io), _ioexn(io));
+  got := io.await(read_once_params(f2, buf.ptr().unwrap(), usize(8), io), t_e);
   assert(got == usize(3), "generic read captured r/buf/size/io");
   assert(buf(usize(0)) == u8(0x41), "byte 0 round-tripped");
   assert(buf(usize(2)) == u8(0x43), "byte 2 round-tripped");
-  io.await(f2.close(io), _ioexn(io));
+  io.await(f2.close(io), t_e);
   // Cleanup only: file DELETION is the one fs op the standalone-wasm/WASI
   // runtime lacks (`env::__syscall_unlinkat` unresolved under wasmtime); the
   // leftover temp file is harmless. Same Arch.Wasm32 convention as tests/fs.
   if(arch != Arch.Wasm32, {
-    io.await(remove_file(path, io), _ioexn(io));
+    io.await(remove_file(path, io), t_e);
   });
 });
 test("non-generic control of the same shape still works", {
+  t_exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  t_e := IoExn(io : io, exn : t_exn);
   path := Path.new(path_join(temp_dir(), `yo_generic_param_capture_ctl.bin`.to_string()));
-  f := io.await(File.open(path, OpenMode.Write, io), _ioexn(io));
+  f := io.await(File.open(path, OpenMode.Write, io), t_e);
   payload := ArrayList(u8).new();
   payload.push(u8(0x58));
-  wrote := io.await(write_once_file(f, payload.ptr().unwrap(), payload.len(), io), _ioexn(io));
+  wrote := io.await(write_once_file(f, payload.ptr().unwrap(), payload.len(), io), t_e);
   assert(wrote == usize(1), "plain fn param capture unchanged");
-  io.await(f.close(io), _ioexn(io));
+  io.await(f.close(io), t_e);
   if(arch != Arch.Wasm32, {
-    io.await(remove_file(path, io), _ioexn(io));
+    io.await(remove_file(path, io), t_e);
   });
 });

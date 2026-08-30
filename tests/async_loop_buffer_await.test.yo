@@ -13,20 +13,6 @@ pragma(Pragma.AllowUnsafe);
 open(import("std/collections/array_list"));
 { IoExn, Exception } :: import("std/error");
 
-/// Effect bundle for awaiting IoExn futures in tests: any throw FAILS the test.
-_noexn :: (fn() -> Exception)(
-  Exception(
-    throw : (
-      (err) -> {
-        assert(false, "unexpected exception");
-        unwind(());
-      }
-    )
-  )
-);
-_ioexn :: (fn(io : Io) -> IoExn)(
-  IoExn(io : io, exn : _noexn())
-);
 Reader :: trait(
   read : (fn(self : Self, buf : *(u8), size : usize, io : Io) -> Impl(Future(usize, IoExn))),
   (read_to_end : (fn(self : Self, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))) ?=
@@ -146,27 +132,63 @@ impl(
   )
 );
 test("generic-impl single buffer-taking await (the shadow-registration face)", {
+  t_exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  t_e := IoExn(io : io, exn : t_exn);
   w := Wrap(TenSrc)(_inner : TenSrc(pos : u8(0)));
-  n := io.await(w.fill_once(io), _ioexn(io));
+  n := io.await(w.fill_once(io), t_e);
   assert(n == usize(8), "eight bytes on the first fill");
 });
 test("generic-impl loop over a buffer-taking await (the BufReader shape)", {
+  t_exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  t_e := IoExn(io : io, exn : t_exn);
   w := Wrap(TenSrc)(_inner : TenSrc(pos : u8(0)));
-  all := io.await(w.drain(io), _ioexn(io));
+  all := io.await(w.drain(io), t_e);
   assert(all.len() == usize(10), "ten bytes drained");
   assert(all(usize(0)) == u8(1), "first byte");
   assert(all(usize(9)) == u8(10), "last byte");
 });
 test("trait-default read_to_end loops a buffer-taking await", {
+  t_exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  t_e := IoExn(io : io, exn : t_exn);
   src := TenSrc(pos : u8(0));
-  all := io.await(src.read_to_end(io), _ioexn(io));
+  all := io.await(src.read_to_end(io), t_e);
   assert(all.len() == usize(10), "ten bytes total");
   assert(all(usize(0)) == u8(1), "first byte");
   assert(all(usize(9)) == u8(10), "last byte");
 });
 test("free generic read_to_end loops a buffer-taking await", {
+  t_exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  t_e := IoExn(io : io, exn : t_exn);
   src := TenSrc(pos : u8(0));
-  all := io.await(read_to_end_free(src, io), _ioexn(io));
+  all := io.await(read_to_end_free(src, io), t_e);
   assert(all.len() == usize(10), "ten bytes total");
   assert(all(usize(4)) == u8(5), "middle byte");
 });
