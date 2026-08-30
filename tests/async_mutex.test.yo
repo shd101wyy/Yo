@@ -1,0 +1,76 @@
+//! `std/async/mutex` — the event-loop mutex whose critical section may span
+//! awaits. `with_lock` was DEFERRED on C54 (two different `R`s on one mutex
+//! miscompiled — issues/future-wrapper-return-shared-across-specializations.md);
+//! these tests pin the restored method, including the two-`R` shape that used
+//! to break.
+{ assert } :: import("std/assert");
+{ Mutex } :: import("std/async/mutex");
+{ sleep } :: import("std/sys/timer");
+{ yield } :: import("std/async");
+open(import("std/string"));
+
+test("lock/unlock/get/set basics", {
+  m := Mutex(i64).new(i64(0));
+  assert(!(m.is_locked()), "starts unlocked");
+  assert(m.try_lock(), "try_lock acquires");
+  assert(m.is_locked(), "locked after try_lock");
+  assert(!(m.try_lock()), "try_lock fails while held");
+  m.set(m.get() + i64(1));
+  m.unlock();
+  assert(!(m.is_locked()), "unlocked after unlock");
+});
+
+test("with_lock runs the body under the lock and returns its value", {
+  m := Mutex(i64).new(i64(5));
+  r := io.await(m.with_lock((v) => (v + i64(1)), io), io);
+  assert(r == i64(6), "with_lock result");
+  assert(!(m.is_locked()), "released after the section");
+});
+
+test("with_lock with two different R bodies on ONE mutex (the C54 shape)", {
+  m := Mutex(i64).new(i64(10));
+  // The second specialization's `R := String` used to clobber the first's
+  // `R := i64` in the emitted C (last-writer global registry); both orders
+  // are pinned.
+  n := io.await(m.with_lock((v) => (v + i64(1)), io), io);
+  s := io.await(m.with_lock((v) => `v=${v}`, io), io);
+  assert(n == i64(11), "i64 body result");
+  assert(s == "v=10", "String body result");
+  s2 := io.await(m.with_lock((v) => `v=${v}`, io), io);
+  n2 := io.await(m.with_lock((v) => (v * i64(3)), io), io);
+  assert(s2 == "v=10", "String body result (reverse order)");
+  assert(n2 == i64(30), "i64 body result (reverse order)");
+});
+
+test("a contended lock suspends the waiter, and the loop stays live", {
+  m := Mutex(i64).new(i64(0));
+  holder := io.spawn(
+    io.async((io : Io) => {
+      io.await(m.lock(io), io);
+      io.await(sleep(u64(10)), io);
+      m.set(m.get() + i64(1));
+      m.unlock();
+      return(());
+    }),
+    io
+  );
+  // Let the holder enter its (sleeping) section before probing.
+  io.await(sleep(u64(2)), io);
+  assert(m.is_locked(), "the holder is inside its section");
+  waiter := io.spawn(
+    io.async((io : Io) => {
+      io.await(m.lock(io), io);
+      m.set(m.get() + i64(10));
+      m.unlock();
+      return(());
+    }),
+    io
+  );
+  // The waiter suspends on the 1ms tick re-check; the loop keeps servicing
+  // the holder's timer (a parked loop would deadlock both, and the test
+  // runner's deadline would catch it).
+  holder.await(io);
+  waiter.await(io);
+  assert(m.get() == i64(11), "both critical sections ran");
+  assert(!(m.is_locked()), "released");
+});

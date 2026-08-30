@@ -1,7 +1,8 @@
 # `-> Impl(Future(R))` specializations shared ONE return wrapper — the second `R` miscompiled the first
 
-**Status: OPEN — caller half FIXED 2026-08-29, body half open.** `Mutex.with_lock`
-stays deferred on this row (it was deferred on C27 before). **Found:** 2026-08-29 restoring
+**Status: caller half FIXED 2026-08-29; BODY HALF FIXED 2026-08-30 (see below).
+`Mutex.with_lock` RESTORED with regression tests. The ASan/E variant (second
+symptom below) is a DIFFERENT site — spec-cache dispatch — and stays open.** **Found:** 2026-08-29 restoring
 `Mutex.with_lock` (`std/async/mutex`) after C27: the test called
 `with_lock((v) => (v * i64(2)), io)` and `with_lock((v) => `v=${v}`, io)` on
 one mutex and clang rejected the batch:
@@ -12,6 +13,40 @@ error: initializing '__yo_t10' (aka 'struct __yo_t10_struct') with an expression
 error: initializing 'int64_t' with an expression of incompatible type '__yo_t9' (aka 'struct __yo_t10_struct')
   int64_t _file____priv_temp_13090 = closure_yo_id_11203(&(sm->__capture.body), (&(sm->__capture.self->_value)));
 ```
+
+## Body half FIXED (2026-08-30)
+
+The stamping site was NOT the arms first instrumented — it is the `_`-fallback
+arm's RUNTIME-CALL tail in `evaluate_function_call` (`ret_type_rt`/`out_rt`,
+where an UnknownVal callee — a valueless closure param like `body` — is
+stamped; `body`'s capture carries the DECLARED `Impl(Fn(...) -> R)` type).
+`ret_type_rt` is now resolved through `_resolve_some_types_deep(_, caller_env)`
+before stamping: the enclosing specialization's env binds `R` concretely, so
+each spec's own call site stamps its own `R` (`before=R after=String` /
+`after=i64` in the trace). Two sibling tails (the method arm's `m_out_ty`, the
+`.None` arm's `ret_type_none`) carry the same env-resolving stamp for
+consistency — the class fix at every valueless-callee stamp site. Verified:
+the repro compiles AND runs (`v=10 11`), tests/future_wrapper_two_r.test.yo
+2/2, tests/async_mutex.test.yo 4/4 (with_lock restored with i64+String bodies
+on one mutex, both orders).
+
+The ASan/E symptom is NOT fixed by this (the re-emitted batch still shows the
+identical `set_effect` 40-from-32 read at index 85): C60 pre-binds `E` from
+the receiver correctly at EVAL time, yet the child SM is emitted with an
+IoExn bundle the test never mentions — the next session should look at the
+SPECIALIZATION-CACHE dispatch (which spec's future constructor the await site
+calls), not at E stamping. Repro assets on `debug/asan-batch`.
+
+## Second symptom (2026-08-30): the develop-HEAD ASan red is this same mechanism on the EFFECT type
+
+Every native test leg fails one `tests/async_await.test.yo` test with an ASan
+stack-buffer-overflow: a bundle temp sized by one specialization's view of a
+future's effect (`Io`, 32 bytes) is copied by a `set_effect` emitted under
+another specialization's view (`IoExn`, 40 bytes) — same shared-registry
+clobber, `E` instead of `R`. Full analysis + the not-viable codegen mitigation
+attempt: issues/asan-stack-overread-set-effect-batch-selftest.md. This makes
+the C54 body half the critical path for the v0.2.21 release (develop CI is
+red until it lands).
 
 ## Reproducer
 

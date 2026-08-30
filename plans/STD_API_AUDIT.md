@@ -701,7 +701,7 @@ declarations at runtime.
 ~~CSV~~ **DONE 2026-08-29** (`std/encoding/csv`: RFC 4180 reader/writer, typed
 `CsvError` with byte positions, `CsvOptions` delimiter + line ending, strict
 mode); ~~DateTime parse/format~~ **DONE 2026-08-28** (RFC 3339 `parse` /
-`to_string`, typed `DateTimeError`); ~~`fs.watch`~~ **DONE 2026-08-29 on macOS + Linux; Windows OPEN** (issues/fs-watch-windows-events-never-delivered-next-spins.md — the windows suite hung in these tests, now gated) (`std/fs/watch`: `Watcher` over `sys/events` — inotify/kqueue/ReadDirectoryChangesW — with `poll()` and an awaitable, yield-driven `next(io)`, typed `FsEventKind` Rename/Change, `WatchOptions.recursive`, `IoError` on a missing path); ~~testing
+`to_string`, typed `DateTimeError`); ~~`fs.watch`~~ **DONE 2026-08-30 on ALL targets** (Windows was `__yo_io_poll` skipping the fs-event tick on an empty completion port — issues/fixed/fs-watch-windows-events-never-delivered-next-spins.md; verified 4/4 on windows-latest) (`std/fs/watch`: `Watcher` over `sys/events` — inotify/kqueue/ReadDirectoryChangesW — with `poll()` and an awaitable, yield-driven `next(io)`, typed `FsEventKind` Rename/Change, `WatchOptions.recursive`, `IoError` on a missing path); ~~testing
 `assert_eq` family~~ **DONE 2026-08-28** (`assert_eq`/`assert_ne`/
 `assert_approx`, diff-printing); ~~log rewrite~~ **DONE 2026-08-28** (levels
 incl. `Off`, generic/target/lazy messages, timestamps, thread-safe);

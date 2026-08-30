@@ -1,0 +1,44 @@
+//! C54 regression: a generic method returning `Impl(Future(R))` called with
+//! TWO different `R`s on one receiver. Either call alone compiled; the pair
+//! miscompiled — the async body's `body(..)` result was stamped as the bare
+//! forall `R` and rendered through the global last-writer registry, so the
+//! LAST specialization's `R` typed every caller's C
+//! (issues/future-wrapper-return-shared-across-specializations.md).
+{ assert } :: import("std/assert");
+open(import("std/string"));
+
+Holder :: (fn(comptime(T) : Type) -> comptime(Type))(
+  ref(
+    struct(
+      _value : T
+    )
+  )
+);
+
+impl(
+  generic(T : Type),
+  Holder(T),
+  new : (fn(value : T) -> Self)(Self(_value : value)),
+  apply_async_r : (fn(generic(R : Type), self : Self, body : Impl(Fn(inout(v) : T) -> R), io : Io) -> Impl(Future(R)))(
+    io.async((io : Io) => {
+      r := body(self._value);
+      return(r);
+    })
+  )
+);
+
+test("two R specializations of one Future(R) method on one receiver", {
+  h := Holder(i64).new(i64(10));
+  s := io.await(h.apply_async_r((v) => `v=${v}`, io), io);
+  n := io.await(h.apply_async_r((v) => (v + i64(1)), io), io);
+  assert(s == "v=10", "string specialization result");
+  assert(n == i64(11), "i64 specialization result");
+});
+
+test("the reverse call order flips the last-writer clobber the old bug produced", {
+  h := Holder(i64).new(i64(20));
+  n := io.await(h.apply_async_r((v) => (v * i64(2)), io), io);
+  s := io.await(h.apply_async_r((v) => `v=${v}`, io), io);
+  assert(n == i64(40), "i64 specialization result");
+  assert(s == "v=20", "string specialization result");
+});

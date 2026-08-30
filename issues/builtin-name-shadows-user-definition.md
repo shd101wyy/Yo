@@ -1,5 +1,16 @@
 # Builtin names silently shadow same-named user definitions (OPEN-DESIGN)
 
+**PRODUCTION CASUALTY (2026-08-30):** a local named `short` in
+`src/version_cache.yo`'s `download_version` resolved to the prelude C-interop
+integer type inside a template interpolation; the def-eval failure was
+swallowed, the WHOLE async body shipped hollow, and **`yo version install`
+was silently broken in the released v0.2.19 and v0.2.20** (rc=0 no-op /
+bare-SIGABRT rc=134 —
+issues/wrong-arity-call-silently-accepted-version-install-broken.md). This
+issue is no longer theoretical: pick option 1 (reserve) or 2 (prefer user
+bindings), or at minimum land option 3's shadowing diagnostic, before the
+next release.
+
 **Found 2026-08-06** while attempting to fix
 `issues/retired/ctfe-elided-unit-call-arg-temp-leak.md` (whose diagnosis this
 finding invalidates — see the banner there).
