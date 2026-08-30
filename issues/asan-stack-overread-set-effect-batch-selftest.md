@@ -58,6 +58,19 @@ path), while the CHILD's `set_effect` was EMITTED ELSEWHERE under `IoExn`.
 Neither side can see the other's type, so no emission-site check can catch
 this. Reverted.
 
+## Update 2026-08-30 (evening): the R-class stamp is FIXED; this E-class is a different site
+
+The C54 body-half fix (env-resolving stamps at every valueless-callee tail in
+`evaluate_function_call`) landed and fixes the `R` class end-to-end (repro,
+Mutex.with_lock, regression tests). It does NOT fix this ASan report: the
+re-emitted batch shows the IDENTICAL fault (same C lines, same
+`__yo_eff_bundle_yo_id_15516`, same 32-vs-40 sizes). New boundary knowledge:
+C60's receiver-derived `E` pre-binding is correct at EVAL time; the child SM
+is nevertheless EMITTED with an `IoExn` bundle that test 85 never mentions —
+so the divergence is in WHICH SPECIALIZATION'S future constructor the await
+site calls (the spec-cache/last-writer dispatch), not in any E stamp. Attack
+there.
+
 ## The real mechanism (why the two views differ)
 
 The batch compiles many `two_hop`-shaped call sites; the same nested
