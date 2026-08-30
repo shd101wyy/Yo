@@ -25,7 +25,7 @@ impl(__YO_THREAD_SYNC_TYPE, Acyclic());
 // ============================================================================
 // Mutex(T) — atomic-object mutex wrapper with closure-scoped lock API
 // ============================================================================
-Mutex :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
+Mutex :: (fn(comptime(T) : Type, where(T <: (Send, Acyclic))) -> comptime(Type))(
   atomic(
     ref(
       struct(
@@ -35,12 +35,16 @@ Mutex :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
     )
   )
 );
+// O7 residual: an Acyclic-element Mutex cannot form a cycle — atomic RC is
+// only sound for acyclic data, and this lets the sync containers nest
+// inside each other and inside the imm family (same contract as std/imm).
+impl(generic(T : Type), where(T <: (Send, Acyclic)), Mutex(T), Acyclic());
 
 // __MutexUnlocker — private object that calls _raw_unlock on Dispose.
 // Allocated locally inside with_lock; Yo's drop-on-scope-exit and
 // drop-on-unwind machinery guarantees unlock under both normal return
 // and unwind(...).
-__MutexUnlocker :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
+__MutexUnlocker :: (fn(comptime(T) : Type, where(T <: (Send, Acyclic))) -> comptime(Type))(
   ref(
     struct(
       _mutex : Mutex(T)
@@ -49,7 +53,7 @@ __MutexUnlocker :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
 );
 impl(
   generic(T : Type),
-  where(T <: Send),
+  where(T <: (Send, Acyclic)),
   __MutexUnlocker(T),
   Dispose(
     dispose : (fn(self : Self) -> unit)({
@@ -60,7 +64,7 @@ impl(
 
 impl(
   generic(T : Type),
-  where(T <: Send),
+  where(T <: (Send, Acyclic)),
   Mutex(T),
   new : (fn(value : T) -> Self)({
     return(Self(__yo_mutex_create(), value));
@@ -90,7 +94,7 @@ impl(
 );
 impl(
   generic(T : Type),
-  where(T <: Send),
+  where(T <: (Send, Acyclic)),
   Mutex(T),
   Dispose(
     dispose : (fn(self : Self) -> unit)({
