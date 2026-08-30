@@ -2141,7 +2141,6 @@ static void __yo_win_process_completion(__yo_win_overlapped_t* ov, DWORD bytes) 
 }
 
 static int __yo_io_poll(void) {
-  { static int fsw_p = 0; if (!fsw_p) { fprintf(stderr, "[fsw] io_poll entered iocp=%p\\n", (void*)__yo_io_iocp); fflush(stderr); fsw_p = 1; } }
   if (!__yo_io_iocp) return 0;
 
   OVERLAPPED_ENTRY entries[64];
@@ -2154,7 +2153,7 @@ static int __yo_io_poll(void) {
   // the ONLY tick driver. The early returns here skipped it, so a
   // ReadDirectoryChangesW completion (and a parked pipe read) was never
   // serviced while any task stayed ready — fs.watch's next(io) span forever
-  // (issues/fs-watch-windows-events-never-delivered-next-spins.md).
+  // (issues/fixed/fs-watch-windows-events-never-delivered-next-spins.md).
   if (!ok) {
     return __yo_win_timer_process_due(__yo_win_now_ms()) + __yo_poll_and_fs_event_tick();
   }
@@ -2172,7 +2171,6 @@ static int __yo_io_poll(void) {
 }
 
 static int __yo_io_wait(void) {
-  { static int fsw_w = 0; if (!fsw_w) { fprintf(stderr, "[fsw] io_wait entered\\n"); fflush(stderr); fsw_w = 1; } }
   if (!__yo_io_iocp) return 0;
   if (__yo_pending_io_count == 0 && __yo_active_watch_count > 0) {
     Sleep(10);
@@ -4021,8 +4019,6 @@ static int32_t __yo_fs_event_start(void* h, const char* path, uint32_t flags, vo
   handle->next = __yo_active_fs_events;
   __yo_active_fs_events = handle;
   __yo_active_watch_count++;
-  fprintf(stderr, "[fsw] start ok path=%s rdcw=%d dir_handle=%p\\n", path, handle->use_rdcw, (void*)handle->dir_handle);
-  fflush(stderr);
   return 0;
 }
 
@@ -4146,7 +4142,6 @@ static void __yo_poll_close(void* h) {
 
 static int __yo_poll_and_fs_event_tick(void) {
   int count = 0;
-  { static int fsw_t = 0; if (!fsw_t) { fprintf(stderr, "[fsw] tick alive fse=%p\\n", (void*)__yo_active_fs_events); fflush(stderr); fsw_t = 1; } }
 
   // --- Tick FS event handles ---
   {
@@ -4157,14 +4152,7 @@ static int __yo_poll_and_fs_event_tick(void) {
         if (fse->use_rdcw && fse->dir_handle != INVALID_HANDLE_VALUE) {
           DWORD bytes_returned = 0;
           BOOL ok = GetOverlappedResult(fse->dir_handle, &fse->overlapped, &bytes_returned, FALSE);
-          {
-            static int fsw_tick_logged = 0;
-            if (!fsw_tick_logged) { fprintf(stderr, "[fsw] first tick: ok=%d bytes=%lu err=%lu\\n", (int)ok, (unsigned long)bytes_returned, (unsigned long)(ok ? 0 : GetLastError())); fflush(stderr); fsw_tick_logged = 1; }
-          }
-          if (ok && bytes_returned == 0) { fprintf(stderr, "[fsw] completion with 0 bytes (overflow) — NOT re-armed today\\n"); fflush(stderr); }
-          if (!ok && GetLastError() != ERROR_IO_INCOMPLETE) { fprintf(stderr, "[fsw] GetOverlappedResult err=%lu\\n", (unsigned long)GetLastError()); fflush(stderr); }
           if (ok && bytes_returned > 0) {
-            fprintf(stderr, "[fsw] completion bytes=%lu\\n", (unsigned long)bytes_returned); fflush(stderr);
             char* ptr = fse->notify_buf;
             while (1) {
               FILE_NOTIFY_INFORMATION* info = (FILE_NOTIFY_INFORMATION*)ptr;
@@ -4190,7 +4178,6 @@ static int __yo_poll_and_fs_event_tick(void) {
                 } else {
                   name_buf[0] = '\\0';
                 }
-                fprintf(stderr, "[fsw] fire cb name=%s ev=%d\\n", name_buf, __yo_event); fflush(stderr);
                 fse->callback(name_buf, __yo_event, fse->user_data);
                 count++;
               }

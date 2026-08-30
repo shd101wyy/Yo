@@ -1,6 +1,22 @@
 # `std/fs/watch` on Windows: events are never delivered — `next(io)` spins and the suite hangs
 
-**Status: OPEN.** Found 2026-08-29 by PR #348's `test (windows-latest)` leg:
+**Status: FIXED (2026-08-30).** Root cause was NOT ReadDirectoryChangesW —
+the RDCW machinery works (proved by [fsw] instrumentation on a live runner:
+start, completion, callback all fire). The hole was `__yo_io_poll`
+(`src/codegen/async/runtime_io_windows.yo`): its empty-completion-port early
+returns (WAIT_TIMEOUT / error) skipped `__yo_poll_and_fs_event_tick`. A
+yield-driven wait (`Watcher.next`, every `is_finished()` race) keeps the
+ready queue non-empty, so `__yo_io_wait` — whose timeout path DOES tick — is
+never reached, and the 0-timeout poll was the only tick driver: the RDCW
+completion was never serviced and `next(io)` span until the deadline killed
+the child. The poll-based test passed only because its `sleep(250)` await
+reached `__yo_io_wait`. Fix: the early returns now run
+`__yo_win_timer_process_due + __yo_poll_and_fs_event_tick`, exactly like the
+success path and like `__yo_io_wait`'s failure path — which also hardens the
+C57 parked pipe reads against the same yield-loop starvation. All 4
+tests/fs/watch.test.yo tests pass on windows-latest with a clean exit; the
+`SkipWindows` pragma is removed.
+ Found 2026-08-29 by PR #348's `test (windows-latest)` leg:
 "Run tests" sat for 2+ hours (the whole suite hung) while every other target
 passed; the run was cancelled. **Severity:** MEDIUM — `fs.watch` is unusable
 on Windows and, worse, a `next(io)` loop never terminates there.
