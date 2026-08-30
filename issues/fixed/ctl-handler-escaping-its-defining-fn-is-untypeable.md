@@ -1,7 +1,32 @@
 # A ctl handler returned OUT of the fn that defines it is untypeable — and the def-eval swallow made it silently hollow
 
-**Status: OPEN** (the evaluator accepts the shape; the one std-adjacent use was
-rewritten). Found 2026-08-29 by the C22 stub gate: `tests/http/server.test.yo`'s
+**Status: FIXED (2026-08-30).** The evaluator now rejects the escape at
+DEFINITION time: a fn whose declared result type is control-bound
+(`type_is_control_bound` — transitively contains a `ctl(...) -> ret` field)
+errors in `evaluate_anonymous_function_implementation`
+(`src/evaluator/values/anonymous_function.yo`, next to the `ctl_force`
+computation, OUTSIDE the def-eval trial swallow). ctl handlers themselves are
+exempt (their result flows DOWN into the still-live throw frame), and SomeT
+results are conservatively not control-bound, so generic and
+`Impl(Future(...))` async results are unaffected.
+
+En route, the "ctl rule 8" tests in `tests/algebraic_effects.test.yo` turned
+out to be passing only in `comptime_expect_error`'s PROPAGATE mode — outside
+it the def-eval trial swallow accepted the same shapes silently (a standalone
+`fn() -> (ctl(msg : String) -> i32)` returning a local handler compiled
+clean). The new definition-time check makes them fail for the stated reason
+in every mode; a third rule-8 test pins the `fn() -> Exception` helper shape.
+Eleven test files still using the hollow `_exn()`/`_noexn()`/`_ioexn(io)`
+helper idiom were rewritten to per-test inline installs.
+
+Residual (separate hole, same family): a MODULE-LEVEL
+`(g : Exception) = Exception(throw : ...)` binding is still accepted even
+though escape boundary 2 should reject it — the pointer rule proves
+`type_is_control_bound(Exception)` is true, so the module-level rule's
+`rhs_info.ty` must be losing the type;
+issues/module-level-control-bound-binding-not-rejected.md.
+
+Found 2026-08-29 by the C22 stub gate: `tests/http/server.test.yo`'s
 
 ```rust
 _exn :: (fn() -> Exception)(

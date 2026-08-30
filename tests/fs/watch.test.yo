@@ -14,16 +14,6 @@ open(import("std/fmt"));
 file :: import("std/sys/file");
 dir :: import("std/sys/dir");
 { AT_FDCWD, O_CREAT, O_WRONLY, O_TRUNC } :: import("std/sys/constants");
-_exn :: (fn() -> Exception)(
-  Exception(
-    throw : (
-      (err) -> {
-        assert(false, `unexpected error: ${err}`);
-        unwind(());
-      }
-    )
-  )
-);
 _touch :: (fn(path : String, content : String, io : Io) -> unit)({
   c := path.to_cstr();
   p := c.ptr().unwrap();
@@ -39,10 +29,18 @@ _unlink :: (fn(path : String, io : Io) -> unit)({
   io.await(dir.unlink(AT_FDCWD, c.ptr().unwrap(), i32(0)), io);
 });
 test("watch a directory: creating a file produces events, poll drains them", {
+  t_exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, `unexpected error: ${err}`);
+        unwind(());
+      }
+    )
+  );
   d := temp_dir();
   target := path_join(d, `yo_watch_poll.txt`);
   _unlink(target, io);
-  w := watch(Path.new(d), WatchOptions.defaults(), _exn());
+  w := watch(Path.new(d), WatchOptions.defaults(), t_exn);
   assert(w.is_active(), "active after watch()");
   assert(w.pending() == usize(0), "nothing queued yet");
   _touch(target, String.from("hello"), io);
@@ -67,10 +65,18 @@ test("watch a directory: creating a file produces events, poll drains them", {
   _unlink(target, io);
 });
 test("next(io) resolves when an event arrives and .None after close", {
+  t_exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, `unexpected error: ${err}`);
+        unwind(());
+      }
+    )
+  );
   d := temp_dir();
   target := path_join(d, `yo_watch_next.txt`);
   _unlink(target, io);
-  w := watch(Path.new(d), WatchOptions.defaults(), _exn());
+  w := watch(Path.new(d), WatchOptions.defaults(), t_exn);
   _touch(target, String.from("x"), io);
   ev := io.await(w.next(io), io);
   assert(ev.is_some(), "next resolved with an event");

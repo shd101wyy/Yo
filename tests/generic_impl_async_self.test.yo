@@ -8,20 +8,6 @@
 // See issues/fixed/generic-implementor-async-method-awaiting-self-emits-uncompilable-c.md.
 { assert } :: import("std/assert");
 { IoExn, Exception } :: import("std/error");
-/// Effect bundle for awaiting IoExn futures in tests: any throw FAILS the test.
-_noexn :: (fn() -> Exception)(
-  Exception(
-    throw : (
-      (err) -> {
-        assert(false, "unexpected exception");
-        unwind(());
-      }
-    )
-  )
-);
-_ioexn :: (fn(io : Io) -> IoExn)(
-  IoExn(io : io, exn : _noexn())
-);
 AR :: trait(
   read : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn))),
   twice : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn)))
@@ -96,22 +82,58 @@ impl(
   )
 );
 test("generic implementor: explicit async method awaiting Self method", {
+  t_exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  t_e := IoExn(io : io, exn : t_exn);
   w := Wrap(usize)(v : usize(1));
-  v := io.await(w.twice(io), _ioexn(io));
+  v := io.await(w.twice(io), t_e);
   assert(v == usize(10), "Wrap(usize).twice: 5 + 5");
 });
 test("generic implementor: awaiting method via trait ?= default", {
+  t_exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  t_e := IoExn(io : io, exn : t_exn);
   w := Wrap(usize)(v : usize(1));
-  v := io.await(w.twice_d(io), _ioexn(io));
+  v := io.await(w.twice_d(io), t_e);
   assert(v == usize(18), "Wrap(usize).twice_d: 9 + 9");
 });
 test("non-generic implementor control", {
+  t_exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  t_e := IoExn(io : io, exn : t_exn);
   c := Conc(k : usize(4));
-  v := io.await(c.twice(io), _ioexn(io));
+  v := io.await(c.twice(io), t_e);
   assert(v == usize(8), "Conc.twice: 4 + 4");
 });
 test("two-type-argument generic implementor", {
+  t_exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  t_e := IoExn(io : io, exn : t_exn);
   p := Pair2(usize, bool)(a : usize(2), b : true);
-  v := io.await(p.twice(io), _ioexn(io));
+  v := io.await(p.twice(io), t_e);
   assert(v == usize(42), "Pair2(usize, bool).twice: 21 + 21");
 });

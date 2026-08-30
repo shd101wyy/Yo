@@ -1879,6 +1879,25 @@ test("ctl rule 8: cannot return a struct containing ctl field", {
     })()
   );
 });
+// Rule 8 is enforced on the DECLARED result type at DEFINITION time — the
+// two tests above error even before their call. That includes the
+// expression-bodied `fn() -> Exception` helper shape, whose def-eval trial
+// failure used to be SWALLOWED: the helper shipped, and its handler's emitted
+// body was silently missing the `unwind`
+// (issues/fixed/ctl-handler-escaping-its-defining-fn-is-untypeable.md).
+test("ctl rule 8: fn result type containing a ctl field is rejected at definition", {
+  comptime_expect_error(
+    (fn() -> Exception)(
+      Exception(
+        throw : (
+          (err) -> {
+            unwind(());
+          }
+        )
+      )
+    )
+  );
+});
 // Rule 8 (escape boundary 2): module-level binding type cannot be
 // control-bound. Module-level bindings outlive every call frame.
 comptime_expect_error(

@@ -58,7 +58,7 @@ open(import("std/fmt"));
 { set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, are_values_equal, require_expr_not_consumed } :: import("../utils.yo");
 { function_may_mutate_rc_storage } :: import("../effects/mutation_summary.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
-{ Token } :: import("../../token.yo");
+{ Token, TokenKind } :: import("../../token.yo");
 { HashMap } :: import("std/collections/hash_map");
 { t_unit, t_type, t_resolved_cell } :: import("../../types/creators.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -4608,6 +4608,109 @@ _try_apply_early_where_clauses :: (
   eaw_exn := Exception(throw : ((_eaw_e) -> unwind(())));
   apply_where_clause_constraints(constraint_exprs, callee_env, ctx, eaw_exn);
 });
+/// C60 (issues/fixed/nested-io-async-inside-io-async-body-fails-def-eval.md):
+/// for an `X.async(closure)` call, the expression whose TYPE is the effect
+/// bundle the nested future will be awaited with — the field-access BASE for
+/// `e.io.async(...)` (the bundle is `e`), the receiver itself for a bare
+/// `io.async(...)` variable receiver (the bundle IS that `Io` value).
+/// `.None` for any other receiver shape.
+_io_async_receiver_bundle_expr :: (fn(expr : AstExpr) -> Option(AstExpr))(
+  match(
+    expr,
+    .Atom(_, _) => Option(AstExpr).None,
+    .FnCall(_, callee_box, _, _, _) => match(
+      callee_box,
+      .Atom(_, _) => Option(AstExpr).None,
+      .FnCall(_, dot_box, dot_args, dot_infix, _) => cond(
+        (dot_infix == false) => Option(AstExpr).None,
+        (dot_args.len() != usize(2)) => Option(AstExpr).None,
+        true => match(
+          dot_box,
+          .FnCall(_, _, _, _, _) => Option(AstExpr).None,
+          .Atom(_, dot_tok) => cond(
+            (dot_tok.kind != TokenKind.Dot) => Option(AstExpr).None,
+            true => match(
+              dot_args.get(usize(0)),
+              .None => Option(AstExpr).None,
+              .Some(recv) => match(
+                recv,
+                // `<base>.io.async(...)` — the bundle is the BASE.
+                .FnCall(_, r_dot_box, r_args, r_infix, _) => cond(
+                  (r_infix == false) => Option(AstExpr).None,
+                  (r_args.len() != usize(2)) => Option(AstExpr).None,
+                  true => match(
+                    r_dot_box,
+                    .FnCall(_, _, _, _, _) => Option(AstExpr).None,
+                    .Atom(_, r_tok) => cond(
+                      (r_tok.kind != TokenKind.Dot) => Option(AstExpr).None,
+                      true => r_args.get(usize(0))
+                    )
+                  )
+                ),
+                // Bare variable receiver: the bundle IS the receiver.
+                .Atom(_, _) => Option(AstExpr).Some(recv)
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+);
+/// C60 guard: true when the io.async call's closure argument declares an
+/// ANNOTATED parameter (`(ctx : Ctx) => ...`). An annotation binds `E`
+/// through the argument-unification path, and the receiver-derived bind must
+/// yield to it — pre-binding `E := Io` from the receiver made the annotated
+/// `Ctx` param fail unification ("Cannot unify incompatible struct types").
+_io_async_closure_param_is_annotated :: (fn(expr : AstExpr) -> bool)(
+  match(
+    expr,
+    .Atom(_, _) => false,
+    .FnCall(_, _, ap_args, _, _) => match(
+      ap_args.get(usize(0)),
+      .None => false,
+      .Some(ap_closure) => match(
+        ap_closure,
+        .Atom(_, _) => false,
+        .FnCall(_, _, ap_cl_args, _, _) => match(
+          ap_cl_args.get(usize(0)),
+          .None => false,
+          .Some(ap_param) => ast_expr_is_fn_call_of(ap_param, ":", Option(usize).Some(usize(2)))
+        )
+      )
+    )
+  )
+);
+/// The already-evaluated type of `e`, from its stamped ExprInfo, falling back
+/// to the env binding for a bare variable. `.None` when unknown.
+_evaluated_expr_type :: (
+  fn(e : AstExpr, caller_env : Environment, ctx : EvalContext) -> Option(TypeValue)
+)({
+  from_info := match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(e)),
+    .Some(ei) => Option(TypeValue).Some(ei.ty),
+    .None => Option(TypeValue).None
+  );
+  match(
+    from_info,
+    .Some(t) => Option(TypeValue).Some(t),
+    .None => match(
+      e,
+      .Atom(_, e_tok) => {
+        e_vars := get_variables_from_env(caller_env, e_tok.value.to_string());
+        cond(
+          (e_vars.len() == usize(0)) => Option(TypeValue).None,
+          true => match(
+            e_vars.get(e_vars.len() - usize(1)),
+            .Some(e_v) => Option(TypeValue).Some(e_v.ty),
+            .None => Option(TypeValue).None
+          )
+        )
+      },
+      _ => Option(TypeValue).None
+    )
+  )
+});
 try_to_call_function_with_arguments :: (
   fn(
     func_val : Option(EvalValue),
@@ -5445,6 +5548,74 @@ try_to_call_function_with_arguments :: (
               },
               _ => ()
             ),
+            .None => ()
+          ),
+          .None => ()
+        );
+      });
+      // ----------------------------------------------------------------
+      // Step 6b-nested (C60): an io.async call whose EXPECTED TYPE carries no
+      // concrete bundle — the idiomatic nested form `inner := io.async(...)`
+      // inside an enclosing async body — left `E` unbound above, so the inner
+      // closure's def-time eval failed on its SomeT bundle param
+      // (`No matching call: io.await(...)`) and the body shipped hollow
+      // (issues/fixed/nested-io-async-inside-io-async-body-fails-def-eval.md).
+      // The nested future is awaited with the ENCLOSING bundle, so that
+      // bundle is the only consistent `E`. Derive it from the RECEIVER
+      // expression — `e` for `e.io.async(...)`, the receiver itself for a
+      // bare `io.async(...)` variable — and bind it exactly like the
+      // expected-type path, skipping when `E` is already concretely bound
+      // (so every already-working expected-type flow is untouched) or when
+      // the derived type is itself still a SomeT (an unbound outer trial).
+      if(is_io_async_call(expr) && !(_io_async_closure_param_is_annotated(expr)), {
+        match(
+          _io_async_receiver_bundle_expr(expr),
+          .Some(ne_bexpr) => match(
+            _evaluated_expr_type(ne_bexpr, caller_env, ctx),
+            .Some(ne_bty) => if(!(is_some_type(ne_bty)), {
+              (ne_i : usize) = usize(0);
+              while(ne_i < n_forall, {
+                ne_label := match(fl.get(ne_i), .Some(l) => l, .None => String.from(""));
+                if(ne_label == "E", {
+                  // Skip when already bound to a concrete (non-SomeType) value.
+                  ne_existing := get_variables_from_env(callee_env, ne_label.clone());
+                  (ne_already : bool) = false;
+                  if(ne_existing.len() > usize(0), {
+                    match(
+                      ne_existing.get(ne_existing.len() - usize(1)),
+                      .Some(ne_var) => match(
+                        ne_var.value.get(usize(0)),
+                        .Some(ne_val) => if(is_type_val(ne_val), {
+                          match(
+                            ne_val,
+                            .TypeVal(ne_tv) => if(!(is_some_type(ne_tv)), {
+                              ne_already = true;
+                            }),
+                            _ => ()
+                          );
+                        }),
+                        .None => ()
+                      ),
+                      .None => ()
+                    );
+                  });
+                  if(!(ne_already), {
+                    add_variable_to_env(
+                      callee_env,
+                      ne_label.clone(),
+                      t_type(),
+                      Option(EvalValue).Some(create_type_value(ne_bty.clone())),
+                      true,
+                      false,
+                      false,
+                      false,
+                      synthetic_token(ne_label.clone(), callee_env.module_path)
+                    );
+                  });
+                });
+                ne_i = (ne_i + usize(1));
+              });
+            }),
             .None => ()
           ),
           .None => ()

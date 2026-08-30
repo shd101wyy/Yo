@@ -11,20 +11,6 @@ pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 { IoExn, Exception } :: import("std/error");
 
-/// Effect bundle for awaiting IoExn futures in tests: any throw FAILS the test.
-_noexn :: (fn() -> Exception)(
-  Exception(
-    throw : (
-      (err) -> {
-        assert(false, "unexpected exception");
-        unwind(());
-      }
-    )
-  )
-);
-_ioexn :: (fn(io : Io) -> IoExn)(
-  IoExn(io : io, exn : _noexn())
-);
 Sink :: trait(
   put : (fn(self : Self, v : u8, io : Io) -> Impl(Future(usize, IoExn))),
   (put_all : (fn(self : Self, v : u8, io : Io) -> Impl(Future(unit, IoExn)))) ?=
@@ -65,12 +51,30 @@ outer_unit :: (fn(io : Io) -> Impl(Future(unit)))(
   io.async((e) => e.io.await(inner_unit(io), e.io))
 );
 test("generic tail await of a unit trait default compiles and runs", {
+  t_exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  t_e := IoExn(io : io, exn : t_exn);
   t := Tally(count : u8(0));
-  io.await(put_all_generic(t, u8(5), io), _ioexn(io));
-  io.await(put_all_generic(t, u8(7), io), _ioexn(io));
+  io.await(put_all_generic(t, u8(5), io), t_e);
+  io.await(put_all_generic(t, u8(7), io), t_e);
   assert(t.count == u8(12), "both puts landed");
 });
 test("concrete unit tail await control still works", {
-  io.await(outer_unit(io), _ioexn(io));
+  t_exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  t_e := IoExn(io : io, exn : t_exn);
+  io.await(outer_unit(io), t_e);
   assert(true, "completed");
 });

@@ -21,7 +21,7 @@ What the original repro's body hit was a genuine type error —
 spelling `(f : (fn(x : usize) -> usize)) = ((x) -> ...)` inside an async body
 compiles and prints 6. The second symptom below (a nested `io.async` with a
 value) is a real evaluator gap tracked in
-`issues/nested-io-async-inside-io-async-body-fails-def-eval.md`; with this
+`issues/fixed/nested-io-async-inside-io-async-body-fails-def-eval.md` (fixed 2026-08-30); with this
 fix it reports at every surviving call instead of mis-emitting.
 
 ## Symptom

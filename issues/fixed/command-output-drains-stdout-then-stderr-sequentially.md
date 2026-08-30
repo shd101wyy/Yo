@@ -1,6 +1,15 @@
 # `Command.output` drains stdout to EOF and only then stderr — a child that fills the stderr pipe deadlocks the parent
 
-**Status: OPEN.** Found 2026-08-29 reading the test runner while chasing the
+**Status: FIXED** (2026-08-29, `std/process/command.yo`). Two changes were needed:
+(1) `output` drains stderr in a spawned task while awaiting the stdout drain
+(handle polled with `is_finished` + awaited `yield`, consumed once terminal);
+(2) the parent's pipe ends are now `O_NONBLOCK` (+ `FD_CLOEXEC`) via
+`_mark_parent_end` — on macOS the kqueue runtime services pipes with a plain
+`read(2)` first, so a blocking end parked the loop thread and (1) alone still
+deadlocked. Regression test: `tests/process/command.test.yo` (310 KiB stderr
+flood, then one stdout line). Windows still reads pipes with a blocking
+`_read`: `issues/fixed/command-output-windows-pipe-read-blocks-the-event-loop.md (fixed 2026-08-30)`.
+Found 2026-08-29 reading the test runner while chasing the
 Linux-only `rc=124` of `tests/http/http.test.yo` (#350). **Severity:** HIGH
 (silent hang): any `Command.output` over a child that writes more than the
 pipe buffer (64 KiB on Linux) to stderr before it closes stdout blocks

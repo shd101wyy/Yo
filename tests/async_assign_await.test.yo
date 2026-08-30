@@ -12,20 +12,6 @@
 { assert } :: import("std/assert");
 { IoExn, Exception } :: import("std/error");
 
-/// Effect bundle for awaiting IoExn futures in tests: any throw FAILS the test.
-_noexn :: (fn() -> Exception)(
-  Exception(
-    throw : (
-      (err) -> {
-        assert(false, "unexpected exception");
-        unwind(());
-      }
-    )
-  )
-);
-_ioexn :: (fn(io : Io) -> IoExn)(
-  IoExn(io : io, exn : _noexn())
-);
 give_a :: (fn(io : Io) -> Impl(Future(usize, IoExn)))(
   io.async((e) => usize(11))
 );
@@ -71,14 +57,32 @@ lin :: (fn(io : Io) -> Impl(Future(usize, IoExn)))(
   })
 );
 test("await re-assigned into an existing var runs its cond branch", {
-  a := io.await(pick(usize(1), io), _ioexn(io));
+  t_exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  t_e := IoExn(io : io, exn : t_exn);
+  a := io.await(pick(usize(1), io), t_e);
   assert(a == usize(11), "branch 1 awaited give_a");
-  b := io.await(pick(usize(2), io), _ioexn(io));
+  b := io.await(pick(usize(2), io), t_e);
   assert(b == usize(107), "branch 2 awaited give_b");
-  c := io.await(pick(usize(3), io), _ioexn(io));
+  c := io.await(pick(usize(3), io), t_e);
   assert(c == usize(999), "fallthrough untouched");
 });
 test("linear re-assignment of an await result lands", {
-  a := io.await(lin(io), _ioexn(io));
+  t_exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  t_e := IoExn(io : io, exn : t_exn);
+  a := io.await(lin(io), t_e);
   assert(a == usize(12), "await result written then incremented");
 });
