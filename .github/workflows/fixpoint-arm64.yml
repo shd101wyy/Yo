@@ -75,7 +75,7 @@ jobs:
       - name: Install liburing and GNU time
         run: |
           sudo apt-get $APT_OPTS update
-          sudo apt-get $APT_OPTS install -y liburing-dev time
+          sudo apt-get $APT_OPTS install -y liburing-dev libssl-dev pkg-config time
 
       - name: Install the seed compiler (previous release)
         uses: ./.github/actions/install-seed
@@ -107,9 +107,13 @@ jobs:
 
       - name: "Stage 2 binary: compile the emitted C"
         run: |
+          # std/http in the compiler closure (D6 PR-3) puts OpenSSL headers
+          # into the emitted C — flags via pkg-config, libssl-dev installed
+          # with liburing above.
           clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
             /tmp/yo-stage2.c vendor/mimalloc/src/static.c \
             -I vendor/mimalloc/include -lpthread -lm -luring \
+            $(pkg-config --cflags --libs openssl) \
             -o /tmp/yo-stage2
           /tmp/yo-stage2 check std/assert.yo
 

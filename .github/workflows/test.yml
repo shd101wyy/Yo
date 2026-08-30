@@ -283,10 +283,10 @@ jobs:
           submodules: recursive
 
       # The seed links liburing dynamically and cannot start without it.
-      - name: Install liburing
+      - name: Install liburing (+ OpenSSL dev for std/http in the compiler closure)
         run: |
           sudo apt-get $APT_OPTS update
-          sudo apt-get $APT_OPTS install -y liburing-dev
+          sudo apt-get $APT_OPTS install -y liburing-dev libssl-dev pkg-config
 
       # Back on env.SEED_VERSION as of the v0.2.16 seed. This was pinned to
       # v0.2.14 while v0.2.15 was the seed: that seed's evaluator deep-cloned
@@ -386,10 +386,10 @@ jobs:
           sudo swapon /mnt/swapfile
           free -h
 
-      - name: Install liburing
+      - name: Install liburing (+ OpenSSL dev for std/http in the compiler closure)
         run: |
           sudo apt-get $APT_OPTS update
-          sudo apt-get $APT_OPTS install -y liburing-dev
+          sudo apt-get $APT_OPTS install -y liburing-dev libssl-dev pkg-config
 
       # P2.5 step 18: the matrix legs are now bun/node-FREE. The previous
       # release (the bootstrap seed) builds stage-1 from THIS checkout, and
@@ -537,9 +537,13 @@ jobs:
           ls -la /tmp/stage1.c
 
           # Phase 2 — fresh process, so the emit arena is already gone.
+          # std/http in the compiler closure (D6 PR-3) puts OpenSSL headers
+          # into stage1.c — libssl-dev is installed with liburing above, and
+          # the flags resolve via pkg-config (the -luring line's precedent).
           clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
             /tmp/stage1.c vendor/mimalloc/src/static.c \
             -I vendor/mimalloc/include -lpthread -lm -luring \
+            $(pkg-config --cflags --libs openssl) \
             -o /tmp/yo-stage1
 
           # The binary no longer lives under yo-out/<triple>/bin/, so the
@@ -1168,10 +1172,10 @@ jobs:
           sudo swapon /mnt/swapfile
           free -h
 
-      - name: Install liburing
+      - name: Install liburing (+ OpenSSL dev for std/http in the compiler closure)
         run: |
           sudo apt-get $APT_OPTS update
-          sudo apt-get $APT_OPTS install -y liburing-dev
+          sudo apt-get $APT_OPTS install -y liburing-dev libssl-dev pkg-config
 
       # P2.5 step 23: bun/node are GONE from this job. GATE 2 and GATE 7 used
       # the TS CLI as the differential's reference side, which is why bun
@@ -1305,10 +1309,10 @@ jobs:
           sudo swapon /mnt/swapfile
           free -h
 
-      - name: Install liburing
+      - name: Install liburing (+ OpenSSL dev for std/http in the compiler closure)
         run: |
           sudo apt-get $APT_OPTS update
-          sudo apt-get $APT_OPTS install -y liburing-dev
+          sudo apt-get $APT_OPTS install -y liburing-dev libssl-dev pkg-config
 
       # 2.3: NO bun/node — this job runs only the self-hosted binary; the
       # SEED builds stage-1. (The Setup Bun / Setup Node.js steps that used to
@@ -1550,10 +1554,10 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install liburing
+      - name: Install liburing (+ OpenSSL dev for std/http in the compiler closure)
         run: |
           sudo apt-get $APT_OPTS update
-          sudo apt-get $APT_OPTS install -y liburing-dev
+          sudo apt-get $APT_OPTS install -y liburing-dev libssl-dev pkg-config
 
       - name: Install the seed compiler (previous release)
         uses: ./.github/actions/install-seed
@@ -1796,10 +1800,10 @@ jobs:
           sudo swapon /mnt/swapfile
           free -h
 
-      - name: Install liburing
+      - name: Install liburing (+ OpenSSL dev for std/http in the compiler closure)
         run: |
           sudo apt-get $APT_OPTS update
-          sudo apt-get $APT_OPTS install -y liburing-dev
+          sudo apt-get $APT_OPTS install -y liburing-dev libssl-dev pkg-config
 
       # 2.3: NO bun/node — the sweep scores only the self-hosted binary; the
       # SEED builds stage-1.
