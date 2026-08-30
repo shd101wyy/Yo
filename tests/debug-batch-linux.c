@@ -312,181 +312,181 @@ typedef struct __yo_io_future_t {
 
 // Forward declarations will be added here if needed
 
-typedef struct __yo_t29_struct __yo_t29; // Forward declaration
 typedef struct __yo_t154_struct __yo_t154; // Forward declaration
 typedef struct __yo_t83_struct __yo_t83; // Forward declaration
 typedef struct __yo_t100_struct __yo_t100; // Forward declaration
 typedef struct __yo_t75_struct __yo_t75; // Forward declaration
-typedef struct __yo_t192_struct __yo_t192; // Forward declaration
+typedef struct __yo_t178_struct __yo_t178; // Forward declaration
 typedef struct __yo_t139_struct __yo_t139; // Forward declaration
-typedef struct __yo_t50_struct __yo_t50; // Forward declaration
+typedef struct __yo_t175_struct __yo_t175; // Forward declaration
+typedef struct __yo_t29_struct __yo_t29; // Forward declaration
 typedef struct __yo_t138_struct __yo_t138; // Forward declaration
+typedef struct __yo_t5_struct __yo_t5; // Forward declaration
 typedef struct __yo_t164_struct __yo_t164; // Forward declaration
-typedef struct __yo_t6_struct __yo_t6; // Forward declaration
-typedef struct __yo_t44_struct __yo_t44; // Forward declaration
-typedef struct __yo_t66_struct __yo_t66; // Forward declaration
+typedef struct __yo_t182_struct __yo_t182; // Forward declaration
 typedef struct __yo_t146_struct __yo_t146; // Forward declaration
+typedef struct __yo_t66_struct __yo_t66; // Forward declaration
 typedef struct __yo_t49_struct __yo_t49; // Forward declaration
-typedef struct __yo_t56_struct __yo_t56; // Forward declaration
-typedef struct __yo_t189_struct __yo_t189; // Forward declaration
+typedef struct __yo_t60_struct __yo_t60; // Forward declaration
 typedef struct __yo_t15_struct __yo_t15; // Forward declaration
 typedef struct __yo_t18_struct __yo_t18; // Forward declaration
+typedef struct __yo_t23_struct __yo_t23; // Forward declaration
+typedef struct __yo_t6_struct __yo_t6; // Forward declaration
 typedef struct __yo_t84_struct __yo_t84; // Forward declaration
 typedef struct __yo_t150_struct __yo_t150; // Forward declaration
+typedef struct __yo_t28_struct __yo_t28; // Forward declaration
+typedef struct __yo_t11_struct __yo_t11; // Forward declaration
 typedef struct __yo_t99_struct __yo_t99; // Forward declaration
 typedef struct __yo_t80_struct __yo_t80; // Forward declaration
+typedef struct __yo_t193_struct __yo_t193; // Forward declaration
 typedef struct __yo_t52_struct __yo_t52; // Forward declaration
 typedef struct __yo_t88_struct __yo_t88; // Forward declaration
-typedef struct __yo_t122_struct __yo_t122; // Forward declaration
+typedef struct __yo_t87_struct __yo_t87; // Forward declaration
 typedef struct __yo_t113_struct __yo_t113; // Forward declaration
 typedef struct __yo_t140_struct __yo_t140; // Forward declaration
-typedef struct __yo_t162_struct __yo_t162; // Forward declaration
 typedef struct __yo_t115_struct __yo_t115; // Forward declaration
 typedef struct __yo_t10_struct __yo_t10; // Forward declaration
+typedef struct __yo_t50_struct __yo_t50; // Forward declaration
 typedef struct __yo_t73_struct __yo_t73; // Forward declaration
-typedef struct __yo_t199_struct __yo_t199; // Forward declaration
+typedef struct __yo_t13_struct __yo_t13; // Forward declaration
 typedef struct __yo_t161_struct __yo_t161; // Forward declaration
-typedef struct __yo_t187_struct __yo_t187; // Forward declaration
 typedef struct __yo_t77_struct __yo_t77; // Forward declaration
 typedef struct __yo_t126_struct __yo_t126; // Forward declaration
-typedef struct __yo_t8_struct __yo_t8; // Forward declaration
-typedef struct __yo_t39_struct __yo_t39; // Forward declaration
 typedef struct __yo_t74_struct __yo_t74; // Forward declaration
 typedef struct __yo_t112_struct __yo_t112; // Forward declaration
-typedef struct __yo_t71_struct __yo_t71; // Forward declaration
-typedef struct __yo_t127_struct __yo_t127; // Forward declaration
-typedef struct __yo_t116_struct __yo_t116; // Forward declaration
 typedef struct __yo_t134_struct __yo_t134; // Forward declaration
+typedef struct __yo_t162_struct __yo_t162; // Forward declaration
+typedef struct __yo_t71_struct __yo_t71; // Forward declaration
+typedef struct __yo_t116_struct __yo_t116; // Forward declaration
 typedef struct __yo_t158_struct __yo_t158; // Forward declaration
+typedef struct __yo_t47_struct __yo_t47; // Forward declaration
+typedef struct __yo_t159_struct __yo_t159; // Forward declaration
 typedef struct __yo_t151_struct __yo_t151; // Forward declaration
 typedef struct __yo_t92_struct __yo_t92; // Forward declaration
-typedef struct __yo_t191_struct __yo_t191; // Forward declaration
+typedef struct __yo_t187_struct __yo_t187; // Forward declaration
 typedef struct __yo_t81_struct __yo_t81; // Forward declaration
 typedef struct __yo_t35_struct __yo_t35; // Forward declaration
+typedef struct __yo_t124_struct __yo_t124; // Forward declaration
+typedef struct __yo_t8_struct __yo_t8; // Forward declaration
 typedef struct __yo_t132_struct __yo_t132; // Forward declaration
-typedef struct __yo_t42_struct __yo_t42; // Forward declaration
-typedef struct __yo_t58_struct __yo_t58; // Forward declaration
 typedef struct __yo_t70_struct __yo_t70; // Forward declaration
 typedef struct __yo_t107_struct __yo_t107; // Forward declaration
 typedef struct __yo_t133_struct __yo_t133; // Forward declaration
 typedef struct __yo_t137_struct __yo_t137; // Forward declaration
+typedef struct __yo_t39_struct __yo_t39; // Forward declaration
 typedef struct __yo_t67_struct __yo_t67; // Forward declaration
 typedef struct __yo_t121_struct __yo_t121; // Forward declaration
 typedef struct __yo_t165_struct __yo_t165; // Forward declaration
-typedef struct __yo_t130_struct __yo_t130; // Forward declaration
-typedef struct __yo_t188_struct __yo_t188; // Forward declaration
+typedef struct __yo_t190_struct __yo_t190; // Forward declaration
+typedef struct __yo_t191_struct __yo_t191; // Forward declaration
+typedef struct __yo_t192_struct __yo_t192; // Forward declaration
 typedef struct __yo_t110_struct __yo_t110; // Forward declaration
-typedef struct __yo_t23_struct __yo_t23; // Forward declaration
 typedef struct __yo_t46_struct __yo_t46; // Forward declaration
-typedef struct __yo_t169_struct __yo_t169; // Forward declaration
+typedef struct __yo_t31_struct __yo_t31; // Forward declaration
+typedef struct __yo_t59_struct __yo_t59; // Forward declaration
+typedef struct __yo_t61_struct __yo_t61; // Forward declaration
 typedef struct __yo_t79_struct __yo_t79; // Forward declaration
-typedef struct __yo_t32_struct __yo_t32; // Forward declaration
+typedef struct __yo_t58_struct __yo_t58; // Forward declaration
+typedef struct __yo_t12_struct __yo_t12; // Forward declaration
+typedef struct __yo_t14_struct __yo_t14; // Forward declaration
 typedef struct __yo_t86_struct __yo_t86; // Forward declaration
 typedef struct __yo_t94_struct __yo_t94; // Forward declaration
-typedef struct __yo_t124_struct __yo_t124; // Forward declaration
 typedef struct __yo_t111_struct __yo_t111; // Forward declaration
+typedef struct __yo_t122_struct __yo_t122; // Forward declaration
 typedef struct __yo_t125_struct __yo_t125; // Forward declaration
 typedef struct __yo_t143_struct __yo_t143; // Forward declaration
-typedef struct __yo_t195_struct __yo_t195; // Forward declaration
-typedef struct __yo_t197_struct __yo_t197; // Forward declaration
 typedef struct __yo_t119_struct __yo_t119; // Forward declaration
 typedef struct __yo_t149_struct __yo_t149; // Forward declaration
-typedef struct __yo_t31_struct __yo_t31; // Forward declaration
 typedef struct __yo_t37_struct __yo_t37; // Forward declaration
 typedef struct __yo_t155_struct __yo_t155; // Forward declaration
-typedef struct __yo_t57_struct __yo_t57; // Forward declaration
-typedef struct __yo_t190_struct __yo_t190; // Forward declaration
+typedef struct __yo_t169_struct __yo_t169; // Forward declaration
+typedef struct __yo_t186_struct __yo_t186; // Forward declaration
+typedef struct __yo_t189_struct __yo_t189; // Forward declaration
+typedef struct __yo_t197_struct __yo_t197; // Forward declaration
 typedef struct __yo_t142_struct __yo_t142; // Forward declaration
-typedef struct __yo_t11_struct __yo_t11; // Forward declaration
 typedef struct __yo_t33_struct __yo_t33; // Forward declaration
-typedef struct __yo_t40_struct __yo_t40; // Forward declaration
+typedef struct __yo_t130_struct __yo_t130; // Forward declaration
 typedef struct __yo_t68_struct __yo_t68; // Forward declaration
 typedef struct __yo_t148_struct __yo_t148; // Forward declaration
-typedef struct __yo_t178_struct __yo_t178; // Forward declaration
-typedef struct __yo_t172_struct __yo_t172; // Forward declaration
-typedef struct __yo_t41_struct __yo_t41; // Forward declaration
-typedef struct __yo_t102_struct __yo_t102; // Forward declaration
+typedef struct __yo_t173_struct __yo_t173; // Forward declaration
 typedef struct __yo_t89_struct __yo_t89; // Forward declaration
-typedef struct __yo_t159_struct __yo_t159; // Forward declaration
+typedef struct __yo_t102_struct __yo_t102; // Forward declaration
 typedef struct __yo_t85_struct __yo_t85; // Forward declaration
-typedef struct __yo_t163_struct __yo_t163; // Forward declaration
 typedef struct __yo_t54_struct __yo_t54; // Forward declaration
 typedef struct __yo_t101_struct __yo_t101; // Forward declaration
 typedef struct __yo_t55_struct __yo_t55; // Forward declaration
 typedef struct __yo_t105_struct __yo_t105; // Forward declaration
 typedef struct __yo_t117_struct __yo_t117; // Forward declaration
+typedef struct __yo_t51_struct __yo_t51; // Forward declaration
 typedef struct __yo_t22_struct __yo_t22; // Forward declaration
 typedef struct __yo_t129_struct __yo_t129; // Forward declaration
-typedef struct __yo_t47_struct __yo_t47; // Forward declaration
-typedef struct __yo_t28_struct __yo_t28; // Forward declaration
-typedef struct __yo_t173_struct __yo_t173; // Forward declaration
+typedef struct __yo_t194_struct __yo_t194; // Forward declaration
+typedef struct __yo_t174_struct __yo_t174; // Forward declaration
 typedef struct __yo_t17_struct __yo_t17; // Forward declaration
+typedef struct __yo_t44_struct __yo_t44; // Forward declaration
 typedef struct __yo_t25_struct __yo_t25; // Forward declaration
 typedef struct __yo_t118_struct __yo_t118; // Forward declaration
+typedef struct __yo_t199_struct __yo_t199; // Forward declaration
 typedef struct __yo_t20_struct __yo_t20; // Forward declaration
-typedef struct __yo_t60_struct __yo_t60; // Forward declaration
+typedef struct __yo_t57_struct __yo_t57; // Forward declaration
 typedef struct __yo_t104_struct __yo_t104; // Forward declaration
 typedef struct __yo_t120_struct __yo_t120; // Forward declaration
-typedef struct __yo_t14_struct __yo_t14; // Forward declaration
+typedef struct __yo_t32_struct __yo_t32; // Forward declaration
 typedef struct __yo_t198_struct __yo_t198; // Forward declaration
 typedef struct __yo_t93_struct __yo_t93; // Forward declaration
+typedef struct __yo_t41_struct __yo_t41; // Forward declaration
+typedef struct __yo_t40_struct __yo_t40; // Forward declaration
 typedef struct __yo_t0_struct __yo_t0; // Forward declaration
+typedef struct __yo_t56_struct __yo_t56; // Forward declaration
+typedef struct __yo_t128_struct __yo_t128; // Forward declaration
 typedef struct __yo_t76_struct __yo_t76; // Forward declaration
 typedef struct __yo_t24_struct __yo_t24; // Forward declaration
 typedef struct __yo_t106_struct __yo_t106; // Forward declaration
+typedef struct __yo_t163_struct __yo_t163; // Forward declaration
 typedef struct __yo_t97_struct __yo_t97; // Forward declaration
-typedef struct __yo_t91_struct __yo_t91; // Forward declaration
-typedef struct __yo_t5_struct __yo_t5; // Forward declaration
 typedef struct __yo_t109_struct __yo_t109; // Forward declaration
+typedef struct __yo_t91_struct __yo_t91; // Forward declaration
 typedef struct __yo_t96_struct __yo_t96; // Forward declaration
+typedef struct __yo_t176_struct __yo_t176; // Forward declaration
 typedef struct __yo_t145_struct __yo_t145; // Forward declaration
 typedef struct __yo_t160_struct __yo_t160; // Forward declaration
-typedef struct __yo_t128_struct __yo_t128; // Forward declaration
-typedef struct __yo_t82_struct __yo_t82; // Forward declaration
-typedef struct __yo_t51_struct __yo_t51; // Forward declaration
-typedef struct __yo_t95_struct __yo_t95; // Forward declaration
 typedef struct __yo_t136_struct __yo_t136; // Forward declaration
-typedef struct __yo_t193_struct __yo_t193; // Forward declaration
-typedef struct __yo_t12_struct __yo_t12; // Forward declaration
-typedef struct __yo_t38_struct __yo_t38; // Forward declaration
-typedef struct __yo_t64_struct __yo_t64; // Forward declaration
+typedef struct __yo_t82_struct __yo_t82; // Forward declaration
+typedef struct __yo_t95_struct __yo_t95; // Forward declaration
+typedef struct __yo_t188_struct __yo_t188; // Forward declaration
 typedef struct __yo_t78_struct __yo_t78; // Forward declaration
 typedef struct __yo_t131_struct __yo_t131; // Forward declaration
+typedef struct __yo_t64_struct __yo_t64; // Forward declaration
 typedef struct __yo_t141_struct __yo_t141; // Forward declaration
+typedef struct __yo_t181_struct __yo_t181; // Forward declaration
+typedef struct __yo_t127_struct __yo_t127; // Forward declaration
 typedef struct __yo_t69_struct __yo_t69; // Forward declaration
-typedef struct __yo_t182_struct __yo_t182; // Forward declaration
 typedef struct __yo_t72_struct __yo_t72; // Forward declaration
 typedef struct __yo_t108_struct __yo_t108; // Forward declaration
-typedef struct __yo_t183_struct __yo_t183; // Forward declaration
 typedef struct __yo_t98_struct __yo_t98; // Forward declaration
-typedef struct __yo_t175_struct __yo_t175; // Forward declaration
-typedef struct __yo_t186_struct __yo_t186; // Forward declaration
-typedef struct __yo_t61_struct __yo_t61; // Forward declaration
 typedef struct __yo_t152_struct __yo_t152; // Forward declaration
 typedef struct __yo_t123_struct __yo_t123; // Forward declaration
 typedef struct __yo_t153_struct __yo_t153; // Forward declaration
-typedef struct __yo_t174_struct __yo_t174; // Forward declaration
+typedef struct __yo_t42_struct __yo_t42; // Forward declaration
 typedef struct __yo_t166_struct __yo_t166; // Forward declaration
-typedef struct __yo_t184_struct __yo_t184; // Forward declaration
-typedef struct __yo_t147_struct __yo_t147; // Forward declaration
 typedef struct __yo_t144_struct __yo_t144; // Forward declaration
-typedef struct __yo_t194_struct __yo_t194; // Forward declaration
+typedef struct __yo_t38_struct __yo_t38; // Forward declaration
 typedef struct __yo_t65_struct __yo_t65; // Forward declaration
-typedef struct __yo_t156_struct __yo_t156; // Forward declaration
-typedef struct __yo_t180_struct __yo_t180; // Forward declaration
-typedef struct __yo_t45_struct __yo_t45; // Forward declaration
-typedef struct __yo_t103_struct __yo_t103; // Forward declaration
+typedef struct __yo_t147_struct __yo_t147; // Forward declaration
 typedef struct __yo_t2_struct __yo_t2; // Forward declaration
 typedef struct __yo_t16_struct __yo_t16; // Forward declaration
 typedef struct __yo_t34_struct __yo_t34; // Forward declaration
-typedef struct __yo_t59_struct __yo_t59; // Forward declaration
-typedef struct __yo_t87_struct __yo_t87; // Forward declaration
-typedef struct __yo_t135_struct __yo_t135; // Forward declaration
+typedef struct __yo_t45_struct __yo_t45; // Forward declaration
+typedef struct __yo_t103_struct __yo_t103; // Forward declaration
+typedef struct __yo_t156_struct __yo_t156; // Forward declaration
 typedef struct __yo_t157_struct __yo_t157; // Forward declaration
-typedef struct __yo_t176_struct __yo_t176; // Forward declaration
-typedef struct __yo_t196_struct __yo_t196; // Forward declaration
-typedef struct __yo_t13_struct __yo_t13; // Forward declaration
+typedef struct __yo_t135_struct __yo_t135; // Forward declaration
+typedef struct __yo_t177_struct __yo_t177; // Forward declaration
+typedef struct __yo_t179_struct __yo_t179; // Forward declaration
+typedef struct __yo_t183_struct __yo_t183; // Forward declaration
+typedef struct __yo_t195_struct __yo_t195; // Forward declaration
 typedef struct __yo_t114_struct __yo_t114; // Forward declaration
+typedef struct __yo_t196_struct __yo_t196; // Forward declaration
 typedef struct __yo_t90_struct __yo_t90; // Forward declaration
 
 typedef struct { // Array wrapper struct
@@ -498,10 +498,14 @@ typedef struct { // str: builtin static string view
   size_t len;
 } __yo_str;
 
-typedef enum { // CargoKind : CargoKind (optimized as simple enum)
-  __YO_T30_A = 0,
-  __YO_T30_B = 1
-} __yo_t30;
+typedef enum { // Job : Job (optimized as simple enum)
+  __YO_T27_RUN = 0,
+  __YO_T27_DOC = 1
+} __yo_t27;
+
+typedef enum { // AllocError : AllocError (optimized as simple enum)
+  __YO_T7_OUTOFMEMORY = 0
+} __yo_t7;
 
 typedef enum { // Pick : Pick (optimized as simple enum)
   __YO_T19_FIRST = 0,
@@ -509,19 +513,15 @@ typedef enum { // Pick : Pick (optimized as simple enum)
   __YO_T19_NEITHER = 2
 } __yo_t19;
 
+typedef enum { // CargoKind : CargoKind (optimized as simple enum)
+  __YO_T30_A = 0,
+  __YO_T30_B = 1
+} __yo_t30;
+
 typedef enum { // Shape : Shape (optimized as simple enum)
   __YO_T21_EXE = 0,
   __YO_T21_LIB = 1
 } __yo_t21;
-
-typedef enum { // AllocError : AllocError (optimized as simple enum)
-  __YO_T7_OUTOFMEMORY = 0
-} __yo_t7;
-
-typedef enum { // Job : Job (optimized as simple enum)
-  __YO_T27_RUN = 0,
-  __YO_T27_DOC = 1
-} __yo_t27;
 
 
 // === Dyn Type Forward Declarations ===
@@ -530,22 +530,6 @@ typedef struct { // dyn(Error + ToString) (value type - fat pointer)
   void* data; // Pointer to boxed data (with __yo_ref_header_t)
   const __yo_t167_vtable* vtable; // Pointer to static vtable (no allocation needed)
 } __yo_t167;
-
-typedef enum {
-  __YO_T29_NONE = 0,
-  __YO_T29_SOME = 1
-} __yo_t29_tag;
-
-typedef union {
-  struct {
-    __yo_t28* value;
-  } Some;
-} __yo_t29_data;
-
-struct __yo_t29_struct { //  : <enum:enum_yo_id_13897>
-  __yo_t29_tag tag;
-  __yo_t29_data data;
-};
 
 struct __yo_t154_struct { //  : <struct:capture_yo_id_14722>
   bool flag;
@@ -564,10 +548,20 @@ struct __yo_t75_struct { //  : <struct:capture_yo_id_13180>
 struct __yo_t139_struct { //  : <struct:capture_yo_id_14324>
 };
 
-struct __yo_t50_struct { // Path : Path (reference counted)
-  __yo_ref_header_t header; // Reference count header
-  __yo_t47* _segments;
-  bool _is_absolute;
+typedef enum {
+  __YO_T29_NONE = 0,
+  __YO_T29_SOME = 1
+} __yo_t29_tag;
+
+typedef union {
+  struct {
+    __yo_t28* value;
+  } Some;
+} __yo_t29_data;
+
+struct __yo_t29_struct { //  : <enum:enum_yo_id_13897>
+  __yo_t29_tag tag;
+  __yo_t29_data data;
 };
 
 struct __yo_t138_struct { //  : <struct:capture_yo_id_14262>
@@ -576,32 +570,11 @@ struct __yo_t138_struct { //  : <struct:capture_yo_id_14262>
 struct __yo_t164_struct { //  : <struct:capture_yo_id_15039>
 };
 
-typedef enum {
-  __YO_T6_ALLOCERROR = 0,
-  __YO_T6_INDEXOUTOFBOUNDS = 1,
-  __YO_T6_EMPTYLIST = 2
-} __yo_t6_tag;
-
-typedef union {
-  struct {
-    __yo_t7 error;
-  } AllocError;
-  struct {
-    size_t index;
-    size_t length;
-  } IndexOutOfBounds;
-} __yo_t6_data;
-
-struct __yo_t6_struct { // ArrayListError : ArrayListError
-  __yo_t6_tag tag;
-  __yo_t6_data data;
+struct __yo_t146_struct { //  : <struct:capture_yo_id_14518>
+  bool flag;
 };
 
 struct __yo_t66_struct { //  : <struct:capture_yo_id_13026>
-};
-
-struct __yo_t146_struct { //  : <struct:capture_yo_id_14518>
-  bool flag;
 };
 
 typedef enum {
@@ -620,9 +593,9 @@ struct __yo_t49_struct { //  : <enum:enum_yo_id_4226>
   __yo_t49_data data;
 };
 
-struct __yo_t56_struct { // Duration : Duration
-  int64_t secs;
-  int64_t nanos;
+struct __yo_t60_struct { // BranchLocalProbe : BranchLocalProbe (reference counted)
+  __yo_ref_header_t header; // Reference count header
+  int32_t id;
 };
 
 struct __yo_t15_struct { //  : <struct:struct_yo_id_4916>
@@ -644,6 +617,27 @@ typedef union {
 struct __yo_t18_struct { //  : <enum:enum_yo_id_3606>
   __yo_t18_tag tag;
   __yo_t18_data data;
+};
+
+typedef enum {
+  __YO_T6_ALLOCERROR = 0,
+  __YO_T6_INDEXOUTOFBOUNDS = 1,
+  __YO_T6_EMPTYLIST = 2
+} __yo_t6_tag;
+
+typedef union {
+  struct {
+    __yo_t7 error;
+  } AllocError;
+  struct {
+    size_t index;
+    size_t length;
+  } IndexOutOfBounds;
+} __yo_t6_data;
+
+struct __yo_t6_struct { // ArrayListError : ArrayListError
+  __yo_t6_tag tag;
+  __yo_t6_data data;
 };
 
 struct __yo_t84_struct { //  : <struct:capture_yo_id_13251>
@@ -670,30 +664,15 @@ struct __yo_t52_struct { //  : <struct:struct_yo_id_14859> (reference counted)
 struct __yo_t88_struct { //  : <struct:capture_yo_id_13284>
 };
 
-struct __yo_t122_struct { //  : <struct:capture_yo_id_13666>
-  __yo_t19 p;
+struct __yo_t87_struct { //  : <struct:struct_decl_31695__private/tmp/yo-fsw/std/prelude_yo> (reference counted)
+  __yo_ref_header_t header; // Reference count header
+  void* _u42_;
 };
 
 struct __yo_t113_struct { //  : <struct:capture_yo_id_13565>
 };
 
 struct __yo_t140_struct { //  : <struct:capture_yo_id_14332>
-};
-
-typedef enum {
-  __YO_T162_NONE = 0,
-  __YO_T162_SOME = 1
-} __yo_t162_tag;
-
-typedef union {
-  struct {
-    __yo_t58* value;
-  } Some;
-} __yo_t162_data;
-
-struct __yo_t162_struct { //  : <enum:enum_yo_id_4022>
-  __yo_t162_tag tag;
-  __yo_t162_data data;
 };
 
 struct __yo_t115_struct { //  : <struct:capture_yo_id_13593>
@@ -715,482 +694,13 @@ struct __yo_t10_struct { //  : <enum:enum_yo_id_4897>
   __yo_t10_data data;
 };
 
+struct __yo_t50_struct { // Path : Path (reference counted)
+  __yo_ref_header_t header; // Reference count header
+  __yo_t47* _segments;
+  bool _is_absolute;
+};
+
 struct __yo_t73_struct { //  : <struct:capture_yo_id_13145>
-};
-
-struct __yo_t199_struct { //  : <struct:capture_yo_id_12515>
-  __yo_t60* shared;
-};
-
-typedef enum {
-  __YO_T161_NONE = 0,
-  __YO_T161_SOME = 1
-} __yo_t161_tag;
-
-typedef union {
-  struct {
-    uint64_t value;
-  } Some;
-} __yo_t161_data;
-
-struct __yo_t161_struct { //  : <enum:enum_yo_id_4022>
-  __yo_t161_tag tag;
-  __yo_t161_data data;
-};
-
-struct __yo_t187_struct { //  : <struct:capture_yo_id_12501>
-  int32_t id;
-};
-
-struct __yo_t77_struct { //  : <struct:capture_yo_id_13175>
-  int32_t a;
-};
-
-struct __yo_t126_struct { //  : <struct:capture_yo_id_13871>
-  int32_t seed;
-};
-
-struct __yo_t74_struct { //  : <struct:capture_yo_id_13160>
-};
-
-struct __yo_t112_struct { //  : <struct:capture_yo_id_13554>
-};
-
-struct __yo_t71_struct { //  : <struct:capture_yo_id_13108>
-};
-
-struct __yo_t127_struct { //  : <struct:struct_decl_108195_file__//private/tmp/yo-vfix/std/collections/array_list_yo> (reference counted)
-  __yo_ref_header_t header; // Reference count header
-  void** _ptr;
-  size_t _length;
-  size_t _capacity;
-};
-
-struct __yo_t116_struct { //  : <struct:capture_yo_id_13610>
-};
-
-struct __yo_t134_struct { //  : <struct:capture_yo_id_14137>
-};
-
-struct __yo_t158_struct { //  : <struct:capture_yo_id_14838>
-  bool flag;
-};
-
-struct __yo_t151_struct { //  : <struct:capture_yo_id_14646>
-  bool flag;
-};
-
-struct __yo_t92_struct { //  : <struct:capture_yo_id_13333>
-};
-
-struct __yo_t81_struct { //  : <struct:capture_yo_id_13227>
-  int32_t i;
-};
-
-struct __yo_t35_struct { //  : <struct:struct_yo_id_14195> (reference counted)
-  __yo_ref_header_t header; // Reference count header
-  size_t* _ptr;
-  size_t _length;
-  size_t _capacity;
-};
-
-struct __yo_t132_struct { //  : <struct:capture_yo_id_14082>
-  size_t n;
-};
-
-struct __yo_t42_struct { //  : <struct:struct_yo_id_12405> (reference counted)
-  __yo_ref_header_t header; // Reference count header
-  __yo_t44** _ptr;
-  size_t _length;
-  size_t _capacity;
-};
-
-struct __yo_t58_struct { // SpawnMadeProbe : SpawnMadeProbe (reference counted)
-  __yo_ref_header_t header; // Reference count header
-  int32_t id;
-};
-
-struct __yo_t70_struct { //  : <struct:capture_yo_id_13094>
-};
-
-struct __yo_t107_struct { //  : <struct:capture_yo_id_13504>
-};
-
-struct __yo_t133_struct { //  : <struct:capture_yo_id_14116>
-};
-
-struct __yo_t137_struct { //  : <struct:capture_yo_id_14231>
-};
-
-struct __yo_t67_struct { //  : <struct:capture_yo_id_13042>
-};
-
-struct __yo_t121_struct { //  : <struct:capture_yo_id_13646>
-};
-
-struct __yo_t165_struct { //  : <struct:capture_yo_id_15035>
-};
-
-struct __yo_t130_struct { //  : <struct:capture_yo_id_13980>
-  __yo_t30 k;
-};
-
-struct __yo_t110_struct { //  : <struct:capture_yo_id_13530>
-};
-
-typedef enum {
-  __YO_T169_NONE = 0,
-  __YO_T169_SOME = 1
-} __yo_t169_tag;
-
-typedef union {
-  struct {
-    __yo_t167 value;
-  } Some;
-} __yo_t169_data;
-
-struct __yo_t169_struct { //  : <enum:enum_yo_id_9849>
-  __yo_t169_tag tag;
-  __yo_t169_data data;
-};
-
-struct __yo_t79_struct { //  : <struct:capture_yo_id_13217>
-};
-
-typedef enum {
-  __YO_T32_NONE = 0,
-  __YO_T32_SOME = 1
-} __yo_t32_tag;
-
-typedef union {
-  struct {
-    __yo_t31* value;
-  } Some;
-} __yo_t32_data;
-
-struct __yo_t32_struct { //  : <enum:enum_yo_id_12308>
-  __yo_t32_tag tag;
-  __yo_t32_data data;
-};
-
-struct __yo_t86_struct { //  : <struct:capture_yo_id_13273>
-};
-
-struct __yo_t94_struct { //  : <struct:capture_yo_id_13359>
-};
-
-struct __yo_t124_struct { //  : <struct:capture_yo_id_13786>
-  __yo_t21 k;
-};
-
-struct __yo_t111_struct { //  : <struct:capture_yo_id_13543>
-};
-
-struct __yo_t125_struct { //  : <struct:capture_yo_id_13819>
-  int32_t n;
-};
-
-struct __yo_t143_struct { //  : <struct:capture_yo_id_14445>
-};
-
-struct __yo_t119_struct { //  : <struct:capture_yo_id_13622>
-  __yo_t16* n;
-};
-
-struct __yo_t149_struct { //  : <struct:capture_yo_id_14592>
-  bool flag;
-};
-
-typedef enum {
-  __YO_T37_NONE = 0,
-  __YO_T37_SOME = 1
-} __yo_t37_tag;
-
-typedef union {
-  struct {
-    size_t value;
-  } Some;
-} __yo_t37_data;
-
-struct __yo_t37_struct { //  : <enum:enum_yo_id_4217>
-  __yo_t37_tag tag;
-  __yo_t37_data data;
-};
-
-struct __yo_t155_struct { //  : <struct:capture_yo_id_14747>
-  bool flag;
-};
-
-struct __yo_t57_struct { // AsyncMadeProbe : AsyncMadeProbe (reference counted)
-  __yo_ref_header_t header; // Reference count header
-  int32_t id;
-};
-
-struct __yo_t142_struct { //  : <struct:capture_yo_id_14408>
-};
-
-struct __yo_t68_struct { //  : <struct:capture_yo_id_13057>
-};
-
-struct __yo_t148_struct { //  : <struct:capture_yo_id_14570>
-  bool flag;
-};
-
-struct __yo_t172_struct { //  : <struct:capture_yo_id_10016>
-};
-
-struct __yo_t102_struct { //  : <struct:struct_yo_id_4016>
-  int32_t* __future;
-};
-
-struct __yo_t89_struct { //  : <struct:capture_yo_id_13298>
-};
-
-struct __yo_t159_struct { //  : <struct:struct_decl_42609__private/tmp/yo-vfix/std/prelude_yo>
-  void** __future;
-};
-
-struct __yo_t85_struct { //  : <struct:capture_yo_id_13258>
-};
-
-struct __yo_t163_struct { //  : <struct:struct_yo_id_4016>
-  __yo_t58** __future;
-};
-
-struct __yo_t54_struct { //  : <struct:struct_yo_id_14857>
-  uint64_t* __future;
-};
-
-struct __yo_t101_struct { //  : <struct:capture_yo_id_13425>
-  __yo_t16* order;
-};
-
-struct __yo_t105_struct { //  : <struct:capture_yo_id_13471>
-};
-
-struct __yo_t117_struct { //  : <struct:capture_yo_id_13606>
-  __yo_t16* n;
-};
-
-struct __yo_t129_struct { //  : <struct:capture_yo_id_13945>
-  bool dry;
-};
-
-struct __yo_t173_struct { //  : <struct:capture_yo_id_12374>
-};
-
-struct __yo_t17_struct { // Box(bool) : Box(bool) (reference counted)
-  __yo_ref_header_t header; // Reference count header
-  bool _u42_;
-};
-
-struct __yo_t25_struct { //  : <struct:struct_yo_id_13839> (reference counted)
-  __yo_ref_header_t header; // Reference count header
-  int32_t* _ptr;
-  size_t _length;
-  size_t _capacity;
-};
-
-struct __yo_t118_struct { //  : <struct:capture_yo_id_13634>
-};
-
-struct __yo_t60_struct { // BranchLocalProbe : BranchLocalProbe (reference counted)
-  __yo_ref_header_t header; // Reference count header
-  int32_t id;
-};
-
-struct __yo_t104_struct { //  : <struct:capture_yo_id_13457>
-};
-
-struct __yo_t120_struct { //  : <struct:capture_yo_id_13630>
-  __yo_t16* n;
-};
-
-struct __yo_t14_struct { // Io : Io
-  void* async;
-  void* await;
-  void* state;
-  void* spawn;
-};
-
-struct __yo_t198_struct { //  : <struct:capture_yo_id_12545>
-};
-
-struct __yo_t93_struct { //  : <struct:capture_yo_id_13347>
-};
-
-struct __yo_t0_struct { //  : <struct:struct_yo_id_4564> (reference counted)
-  __yo_ref_header_t header; // Reference count header
-  uint8_t* _ptr;
-  size_t _length;
-  size_t _capacity;
-};
-
-struct __yo_t76_struct { //  : <struct:capture_yo_id_13170>
-  int32_t i;
-};
-
-struct __yo_t106_struct { //  : <struct:capture_yo_id_13489>
-};
-
-struct __yo_t97_struct { //  : <struct:capture_yo_id_13392>
-};
-
-struct __yo_t91_struct { //  : <struct:capture_yo_id_13322>
-};
-
-typedef enum {
-  __YO_T109_NONE = 0,
-  __YO_T109_SOME = 1
-} __yo_t109_tag;
-
-typedef union {
-  struct {
-    void* value;
-  } Some;
-} __yo_t109_data;
-
-struct __yo_t109_struct { //  : <enum:enum_decl_24065__private/tmp/yo-vfix/std/prelude_yo>
-  __yo_t109_tag tag;
-  __yo_t109_data data;
-};
-
-struct __yo_t96_struct { //  : <struct:capture_yo_id_13381>
-};
-
-struct __yo_t145_struct { //  : <struct:capture_yo_id_14501>
-};
-
-struct __yo_t160_struct { //  : <struct:capture_yo_id_14869>
-};
-
-struct __yo_t128_struct { //  : <struct:capture_yo_id_13914>
-  __yo_t27 k;
-};
-
-struct __yo_t82_struct { //  : <struct:capture_yo_id_13234>
-};
-
-struct __yo_t51_struct { // Instant : Instant
-  int64_t secs;
-  int64_t nanos;
-};
-
-struct __yo_t95_struct { //  : <struct:capture_yo_id_13370>
-};
-
-struct __yo_t136_struct { //  : <struct:capture_yo_id_14175>
-  size_t n;
-};
-
-struct __yo_t38_struct { // Exception : Exception
-  void* throw;
-};
-
-struct __yo_t64_struct { //  : <struct:capture_yo_id_12986>
-};
-
-struct __yo_t78_struct { //  : <struct:capture_yo_id_13198>
-};
-
-struct __yo_t131_struct { //  : <struct:capture_yo_id_14017>
-  size_t n;
-};
-
-struct __yo_t141_struct { //  : <struct:capture_yo_id_14374>
-};
-
-struct __yo_t69_struct { //  : <struct:capture_yo_id_13076>
-};
-
-struct __yo_t182_struct { //  : <struct:capture_yo_id_12328>
-  __yo_t31* c;
-};
-
-struct __yo_t72_struct { //  : <struct:capture_yo_id_13124>
-};
-
-struct __yo_t108_struct { //  : <struct:capture_yo_id_13517>
-};
-
-struct __yo_t98_struct { //  : <struct:capture_yo_id_13403>
-};
-
-struct __yo_t186_struct { //  : <struct:struct_decl_20636__private/tmp/yo-vfix/std/prelude_yo>
-  void** ptr;
-  size_t len;
-};
-
-struct __yo_t152_struct { //  : <struct:capture_yo_id_14669>
-  bool flag;
-};
-
-struct __yo_t123_struct { //  : <struct:capture_yo_id_13702>
-  int32_t k;
-};
-
-struct __yo_t153_struct { //  : <struct:capture_yo_id_14692>
-  __yo_t16* m;
-  bool flag;
-};
-
-struct __yo_t166_struct { //  : <struct:capture_yo_id_12402>
-};
-
-struct __yo_t184_struct { //  : <struct:capture_yo_id_12338>
-};
-
-struct __yo_t147_struct { //  : <struct:capture_yo_id_14544>
-  bool flag;
-};
-
-struct __yo_t144_struct { //  : <struct:struct_yo_id_10490>
-  __yo_str X86_64;
-  __yo_str Aarch64;
-  __yo_str X86;
-  __yo_str Arm;
-  __yo_str Wasm32;
-};
-
-struct __yo_t65_struct { //  : <struct:capture_yo_id_13008>
-};
-
-struct __yo_t180_struct { //  : <struct:capture_yo_id_12493>
-  int32_t id;
-};
-
-struct __yo_t103_struct { //  : <struct:capture_yo_id_13445>
-};
-
-struct __yo_t2_struct { //  : <struct:struct_yo_id_4157> (reference counted)
-  __yo_ref_header_t header; // Reference count header
-  void** _ptr;
-  size_t _length;
-  size_t _capacity;
-};
-
-struct __yo_t16_struct { // Box(i32) : Box(i32) (reference counted)
-  __yo_ref_header_t header; // Reference count header
-  int32_t _u42_;
-};
-
-struct __yo_t87_struct { //  : <struct:struct_decl_31695__private/tmp/yo-vfix/std/prelude_yo> (reference counted)
-  __yo_ref_header_t header; // Reference count header
-  void* _u42_;
-};
-
-struct __yo_t135_struct { //  : <struct:capture_yo_id_14151>
-  size_t n;
-};
-
-struct __yo_t157_struct { //  : <struct:capture_yo_id_14804>
-  size_t n;
-};
-
-struct __yo_t176_struct { //  : <struct:capture_yo_id_12535>
-};
-
-struct __yo_t196_struct { //  : <struct:capture_yo_id_12348>
 };
 
 typedef enum {
@@ -1236,10 +746,504 @@ struct __yo_t13_struct { // Utf8Error : Utf8Error
   __yo_t13_data data;
 };
 
+typedef enum {
+  __YO_T161_NONE = 0,
+  __YO_T161_SOME = 1
+} __yo_t161_tag;
+
+typedef union {
+  struct {
+    uint64_t value;
+  } Some;
+} __yo_t161_data;
+
+struct __yo_t161_struct { //  : <enum:enum_yo_id_4022>
+  __yo_t161_tag tag;
+  __yo_t161_data data;
+};
+
+struct __yo_t77_struct { //  : <struct:capture_yo_id_13175>
+  int32_t a;
+};
+
+struct __yo_t126_struct { //  : <struct:capture_yo_id_13871>
+  int32_t seed;
+};
+
+struct __yo_t74_struct { //  : <struct:capture_yo_id_13160>
+};
+
+struct __yo_t112_struct { //  : <struct:capture_yo_id_13554>
+};
+
+struct __yo_t134_struct { //  : <struct:capture_yo_id_14137>
+};
+
+typedef enum {
+  __YO_T162_NONE = 0,
+  __YO_T162_SOME = 1
+} __yo_t162_tag;
+
+typedef union {
+  struct {
+    __yo_t58* value;
+  } Some;
+} __yo_t162_data;
+
+struct __yo_t162_struct { //  : <enum:enum_yo_id_4022>
+  __yo_t162_tag tag;
+  __yo_t162_data data;
+};
+
+struct __yo_t71_struct { //  : <struct:capture_yo_id_13108>
+};
+
+struct __yo_t116_struct { //  : <struct:capture_yo_id_13610>
+};
+
+struct __yo_t158_struct { //  : <struct:capture_yo_id_14838>
+  bool flag;
+};
+
+struct __yo_t159_struct { //  : <struct:struct_decl_42609__private/tmp/yo-fsw/std/prelude_yo>
+  void** __future;
+};
+
+struct __yo_t151_struct { //  : <struct:capture_yo_id_14646>
+  bool flag;
+};
+
+struct __yo_t92_struct { //  : <struct:capture_yo_id_13333>
+};
+
+struct __yo_t187_struct { //  : <struct:capture_yo_id_12501>
+  int32_t id;
+};
+
+struct __yo_t81_struct { //  : <struct:capture_yo_id_13227>
+  int32_t i;
+};
+
+struct __yo_t35_struct { //  : <struct:struct_yo_id_14195> (reference counted)
+  __yo_ref_header_t header; // Reference count header
+  size_t* _ptr;
+  size_t _length;
+  size_t _capacity;
+};
+
+struct __yo_t124_struct { //  : <struct:capture_yo_id_13786>
+  __yo_t21 k;
+};
+
+struct __yo_t132_struct { //  : <struct:capture_yo_id_14082>
+  size_t n;
+};
+
+struct __yo_t70_struct { //  : <struct:capture_yo_id_13094>
+};
+
+struct __yo_t107_struct { //  : <struct:capture_yo_id_13504>
+};
+
+struct __yo_t133_struct { //  : <struct:capture_yo_id_14116>
+};
+
+struct __yo_t137_struct { //  : <struct:capture_yo_id_14231>
+};
+
+struct __yo_t67_struct { //  : <struct:capture_yo_id_13042>
+};
+
+struct __yo_t121_struct { //  : <struct:capture_yo_id_13646>
+};
+
+struct __yo_t165_struct { //  : <struct:capture_yo_id_15035>
+};
+
+struct __yo_t110_struct { //  : <struct:capture_yo_id_13530>
+};
+
+struct __yo_t79_struct { //  : <struct:capture_yo_id_13217>
+};
+
+struct __yo_t58_struct { // SpawnMadeProbe : SpawnMadeProbe (reference counted)
+  __yo_ref_header_t header; // Reference count header
+  int32_t id;
+};
+
+struct __yo_t14_struct { // Io : Io
+  void* async;
+  void* await;
+  void* state;
+  void* spawn;
+};
+
+struct __yo_t86_struct { //  : <struct:capture_yo_id_13273>
+};
+
+struct __yo_t94_struct { //  : <struct:capture_yo_id_13359>
+};
+
+struct __yo_t111_struct { //  : <struct:capture_yo_id_13543>
+};
+
+struct __yo_t122_struct { //  : <struct:capture_yo_id_13666>
+  __yo_t19 p;
+};
+
+struct __yo_t125_struct { //  : <struct:capture_yo_id_13819>
+  int32_t n;
+};
+
+struct __yo_t143_struct { //  : <struct:capture_yo_id_14445>
+};
+
+struct __yo_t119_struct { //  : <struct:capture_yo_id_13622>
+  __yo_t16* n;
+};
+
+struct __yo_t149_struct { //  : <struct:capture_yo_id_14592>
+  bool flag;
+};
+
+typedef enum {
+  __YO_T37_NONE = 0,
+  __YO_T37_SOME = 1
+} __yo_t37_tag;
+
+typedef union {
+  struct {
+    size_t value;
+  } Some;
+} __yo_t37_data;
+
+struct __yo_t37_struct { //  : <enum:enum_yo_id_4217>
+  __yo_t37_tag tag;
+  __yo_t37_data data;
+};
+
+struct __yo_t155_struct { //  : <struct:capture_yo_id_14747>
+  bool flag;
+};
+
+typedef enum {
+  __YO_T169_NONE = 0,
+  __YO_T169_SOME = 1
+} __yo_t169_tag;
+
+typedef union {
+  struct {
+    __yo_t167 value;
+  } Some;
+} __yo_t169_data;
+
+struct __yo_t169_struct { //  : <enum:enum_yo_id_9849>
+  __yo_t169_tag tag;
+  __yo_t169_data data;
+};
+
+struct __yo_t186_struct { //  : <struct:struct_decl_20636__private/tmp/yo-fsw/std/prelude_yo>
+  void** ptr;
+  size_t len;
+};
+
+struct __yo_t142_struct { //  : <struct:capture_yo_id_14408>
+};
+
+struct __yo_t130_struct { //  : <struct:capture_yo_id_13980>
+  __yo_t30 k;
+};
+
+struct __yo_t68_struct { //  : <struct:capture_yo_id_13057>
+};
+
+struct __yo_t148_struct { //  : <struct:capture_yo_id_14570>
+  bool flag;
+};
+
+struct __yo_t173_struct { //  : <struct:capture_yo_id_10016>
+};
+
+struct __yo_t89_struct { //  : <struct:capture_yo_id_13298>
+};
+
+struct __yo_t102_struct { //  : <struct:struct_yo_id_4016>
+  int32_t* __future;
+};
+
+struct __yo_t85_struct { //  : <struct:capture_yo_id_13258>
+};
+
+struct __yo_t54_struct { //  : <struct:struct_yo_id_14857>
+  uint64_t* __future;
+};
+
+struct __yo_t101_struct { //  : <struct:capture_yo_id_13425>
+  __yo_t16* order;
+};
+
+struct __yo_t105_struct { //  : <struct:capture_yo_id_13471>
+};
+
+struct __yo_t117_struct { //  : <struct:capture_yo_id_13606>
+  __yo_t16* n;
+};
+
+struct __yo_t51_struct { // Instant : Instant
+  int64_t secs;
+  int64_t nanos;
+};
+
+struct __yo_t129_struct { //  : <struct:capture_yo_id_13945>
+  bool dry;
+};
+
+struct __yo_t174_struct { //  : <struct:capture_yo_id_12374>
+};
+
+struct __yo_t17_struct { // Box(bool) : Box(bool) (reference counted)
+  __yo_ref_header_t header; // Reference count header
+  bool _u42_;
+};
+
+struct __yo_t25_struct { //  : <struct:struct_yo_id_13839> (reference counted)
+  __yo_ref_header_t header; // Reference count header
+  int32_t* _ptr;
+  size_t _length;
+  size_t _capacity;
+};
+
+struct __yo_t118_struct { //  : <struct:capture_yo_id_13634>
+};
+
+struct __yo_t199_struct { //  : <struct:capture_yo_id_12515>
+  __yo_t60* shared;
+};
+
+struct __yo_t57_struct { // AsyncMadeProbe : AsyncMadeProbe (reference counted)
+  __yo_ref_header_t header; // Reference count header
+  int32_t id;
+};
+
+struct __yo_t104_struct { //  : <struct:capture_yo_id_13457>
+};
+
+struct __yo_t120_struct { //  : <struct:capture_yo_id_13630>
+  __yo_t16* n;
+};
+
+typedef enum {
+  __YO_T32_NONE = 0,
+  __YO_T32_SOME = 1
+} __yo_t32_tag;
+
+typedef union {
+  struct {
+    __yo_t31* value;
+  } Some;
+} __yo_t32_data;
+
+struct __yo_t32_struct { //  : <enum:enum_yo_id_12308>
+  __yo_t32_tag tag;
+  __yo_t32_data data;
+};
+
+struct __yo_t198_struct { //  : <struct:capture_yo_id_12545>
+};
+
+struct __yo_t93_struct { //  : <struct:capture_yo_id_13347>
+};
+
+struct __yo_t0_struct { //  : <struct:struct_yo_id_4564> (reference counted)
+  __yo_ref_header_t header; // Reference count header
+  uint8_t* _ptr;
+  size_t _length;
+  size_t _capacity;
+};
+
+struct __yo_t56_struct { // Duration : Duration
+  int64_t secs;
+  int64_t nanos;
+};
+
+struct __yo_t128_struct { //  : <struct:capture_yo_id_13914>
+  __yo_t27 k;
+};
+
+struct __yo_t76_struct { //  : <struct:capture_yo_id_13170>
+  int32_t i;
+};
+
+struct __yo_t106_struct { //  : <struct:capture_yo_id_13489>
+};
+
+struct __yo_t163_struct { //  : <struct:struct_yo_id_4016>
+  __yo_t58** __future;
+};
+
+struct __yo_t97_struct { //  : <struct:capture_yo_id_13392>
+};
+
+typedef enum {
+  __YO_T109_NONE = 0,
+  __YO_T109_SOME = 1
+} __yo_t109_tag;
+
+typedef union {
+  struct {
+    void* value;
+  } Some;
+} __yo_t109_data;
+
+struct __yo_t109_struct { //  : <enum:enum_decl_24065__private/tmp/yo-fsw/std/prelude_yo>
+  __yo_t109_tag tag;
+  __yo_t109_data data;
+};
+
+struct __yo_t91_struct { //  : <struct:capture_yo_id_13322>
+};
+
+struct __yo_t96_struct { //  : <struct:capture_yo_id_13381>
+};
+
+struct __yo_t145_struct { //  : <struct:capture_yo_id_14501>
+};
+
+struct __yo_t160_struct { //  : <struct:capture_yo_id_14869>
+};
+
+struct __yo_t136_struct { //  : <struct:capture_yo_id_14175>
+  size_t n;
+};
+
+struct __yo_t82_struct { //  : <struct:capture_yo_id_13234>
+};
+
+struct __yo_t95_struct { //  : <struct:capture_yo_id_13370>
+};
+
+struct __yo_t78_struct { //  : <struct:capture_yo_id_13198>
+};
+
+struct __yo_t131_struct { //  : <struct:capture_yo_id_14017>
+  size_t n;
+};
+
+struct __yo_t64_struct { //  : <struct:capture_yo_id_12986>
+};
+
+struct __yo_t141_struct { //  : <struct:capture_yo_id_14374>
+};
+
+struct __yo_t181_struct { //  : <struct:capture_yo_id_12328>
+  __yo_t31* c;
+};
+
+struct __yo_t127_struct { //  : <struct:struct_decl_108195_file__//private/tmp/yo-fsw/std/collections/array_list_yo> (reference counted)
+  __yo_ref_header_t header; // Reference count header
+  void** _ptr;
+  size_t _length;
+  size_t _capacity;
+};
+
+struct __yo_t69_struct { //  : <struct:capture_yo_id_13076>
+};
+
+struct __yo_t72_struct { //  : <struct:capture_yo_id_13124>
+};
+
+struct __yo_t108_struct { //  : <struct:capture_yo_id_13517>
+};
+
+struct __yo_t98_struct { //  : <struct:capture_yo_id_13403>
+};
+
+struct __yo_t152_struct { //  : <struct:capture_yo_id_14669>
+  bool flag;
+};
+
+struct __yo_t123_struct { //  : <struct:capture_yo_id_13702>
+  int32_t k;
+};
+
+struct __yo_t153_struct { //  : <struct:capture_yo_id_14692>
+  __yo_t16* m;
+  bool flag;
+};
+
+struct __yo_t42_struct { //  : <struct:struct_yo_id_12405> (reference counted)
+  __yo_ref_header_t header; // Reference count header
+  __yo_t44** _ptr;
+  size_t _length;
+  size_t _capacity;
+};
+
+struct __yo_t166_struct { //  : <struct:capture_yo_id_12402>
+};
+
+struct __yo_t144_struct { //  : <struct:struct_yo_id_10490>
+  __yo_str X86_64;
+  __yo_str Aarch64;
+  __yo_str X86;
+  __yo_str Arm;
+  __yo_str Wasm32;
+};
+
+struct __yo_t38_struct { // Exception : Exception
+  void* throw;
+};
+
+struct __yo_t65_struct { //  : <struct:capture_yo_id_13008>
+};
+
+struct __yo_t147_struct { //  : <struct:capture_yo_id_14544>
+  bool flag;
+};
+
+struct __yo_t2_struct { //  : <struct:struct_yo_id_4157> (reference counted)
+  __yo_ref_header_t header; // Reference count header
+  void** _ptr;
+  size_t _length;
+  size_t _capacity;
+};
+
+struct __yo_t16_struct { // Box(i32) : Box(i32) (reference counted)
+  __yo_ref_header_t header; // Reference count header
+  int32_t _u42_;
+};
+
+struct __yo_t103_struct { //  : <struct:capture_yo_id_13445>
+};
+
+struct __yo_t157_struct { //  : <struct:capture_yo_id_14804>
+  size_t n;
+};
+
+struct __yo_t135_struct { //  : <struct:capture_yo_id_14151>
+  size_t n;
+};
+
+struct __yo_t177_struct { //  : <struct:capture_yo_id_12535>
+};
+
+struct __yo_t179_struct { //  : <struct:capture_yo_id_12493>
+  int32_t id;
+};
+
+struct __yo_t183_struct { //  : <struct:capture_yo_id_12338>
+};
+
 struct __yo_t114_struct { //  : <struct:capture_yo_id_13579>
 };
 
+struct __yo_t196_struct { //  : <struct:capture_yo_id_12348>
+};
+
 struct __yo_t90_struct { //  : <struct:capture_yo_id_13310>
+};
+
+struct __yo_t156_struct { //  : <struct:capture_yo_id_14773>
+  __yo_t18 o;
 };
 
 typedef enum {
@@ -1258,102 +1262,7 @@ struct __yo_t5_struct { //  : <enum:enum_yo_id_4182>
   __yo_t5_data data;
 };
 
-struct __yo_t156_struct { //  : <struct:capture_yo_id_14773>
-  __yo_t18 o;
-};
-
 typedef __yo_t10 __yo_t9; // String : String (newtype - zero-cost abstraction)
-
-typedef enum {
-  __YO_T55_NONE = 0,
-  __YO_T55_SOME = 1
-} __yo_t55_tag;
-
-typedef union {
-  struct {
-    __yo_t54 value;
-  } Some;
-} __yo_t55_data;
-
-struct __yo_t55_struct { //  : <enum:enum_yo_id_4226>
-  __yo_t55_tag tag;
-  __yo_t55_data data;
-};
-
-struct __yo_t192_struct { //  : <struct:capture_yo_id_12430>
-  __yo_t42* items;
-  __yo_t14 io;
-};
-
-struct __yo_t189_struct { //  : <struct:capture_yo_id_12524>
-  __yo_t14 io;
-};
-
-struct __yo_t191_struct { //  : <struct:capture_yo_id_12485>
-  __yo_t16* marker;
-  __yo_t14 io;
-};
-
-struct __yo_t188_struct { //  : <struct:capture_yo_id_12528>
-  __yo_t14 io;
-};
-
-struct __yo_t195_struct { //  : <struct:capture_yo_id_12305>
-  __yo_t16* local;
-  __yo_t14 io;
-};
-
-struct __yo_t197_struct { //  : <struct:capture_yo_id_12466>
-  __yo_t14 io;
-};
-
-struct __yo_t190_struct { //  : <struct:capture_yo_id_12458>
-  __yo_t14 io;
-};
-
-struct __yo_t178_struct { //  : <struct:capture_yo_id_12449>
-  __yo_t14 io;
-};
-
-struct __yo_t193_struct { //  : <struct:capture_yo_id_11846>
-  __yo_t50* path;
-  __yo_t14 io;
-};
-
-struct __yo_t183_struct { //  : <struct:capture_yo_id_12438>
-  __yo_t14 io;
-};
-
-struct __yo_t175_struct { //  : <struct:capture_yo_id_12295>
-  __yo_t17* local;
-  __yo_t14 io;
-};
-
-struct __yo_t61_struct { // BundleCtx : BundleCtx
-  __yo_t14 io;
-  void* raise;
-};
-
-struct __yo_t174_struct { //  : <struct:capture_yo_id_12285>
-  __yo_t16* a;
-  __yo_t16* b;
-  __yo_t14 io;
-};
-
-struct __yo_t194_struct { //  : <struct:capture_yo_id_12475>
-  __yo_t16* b;
-  __yo_t14 io;
-};
-
-struct __yo_t59_struct { // BranchRaiseCtx : BranchRaiseCtx
-  __yo_t14 io;
-  void* raise;
-};
-
-struct __yo_t41_struct { // IoExn : IoExn
-  __yo_t14 io;
-  __yo_t38 exn;
-};
 
 typedef enum {
   __YO_T12_INVALIDUTF8 = 0,
@@ -1375,10 +1284,113 @@ struct __yo_t12_struct { // StringError : StringError
   __yo_t12_data data;
 };
 
-struct __yo_t44_struct { // IndexElem : IndexElem (reference counted)
+struct __yo_t178_struct { //  : <struct:capture_yo_id_12449>
+  __yo_t14 io;
+};
+
+struct __yo_t175_struct { //  : <struct:capture_yo_id_12285>
+  __yo_t16* a;
+  __yo_t16* b;
+  __yo_t14 io;
+};
+
+struct __yo_t182_struct { //  : <struct:capture_yo_id_12438>
+  __yo_t14 io;
+};
+
+struct __yo_t193_struct { //  : <struct:capture_yo_id_11846>
+  __yo_t50* path;
+  __yo_t14 io;
+};
+
+struct __yo_t190_struct { //  : <struct:capture_yo_id_12458>
+  __yo_t14 io;
+};
+
+struct __yo_t191_struct { //  : <struct:capture_yo_id_12485>
+  __yo_t16* marker;
+  __yo_t14 io;
+};
+
+struct __yo_t192_struct { //  : <struct:capture_yo_id_12430>
+  __yo_t42* items;
+  __yo_t14 io;
+};
+
+struct __yo_t59_struct { // BranchRaiseCtx : BranchRaiseCtx
+  __yo_t14 io;
+  void* raise;
+};
+
+struct __yo_t61_struct { // BundleCtx : BundleCtx
+  __yo_t14 io;
+  void* raise;
+};
+
+struct __yo_t189_struct { //  : <struct:capture_yo_id_12524>
+  __yo_t14 io;
+};
+
+struct __yo_t197_struct { //  : <struct:capture_yo_id_12466>
+  __yo_t14 io;
+};
+
+struct __yo_t194_struct { //  : <struct:capture_yo_id_12475>
+  __yo_t16* b;
+  __yo_t14 io;
+};
+
+struct __yo_t176_struct { //  : <struct:capture_yo_id_12295>
+  __yo_t17* local;
+  __yo_t14 io;
+};
+
+struct __yo_t188_struct { //  : <struct:capture_yo_id_12528>
+  __yo_t14 io;
+};
+
+struct __yo_t195_struct { //  : <struct:capture_yo_id_12305>
+  __yo_t16* local;
+  __yo_t14 io;
+};
+
+typedef enum {
+  __YO_T55_NONE = 0,
+  __YO_T55_SOME = 1
+} __yo_t55_tag;
+
+typedef union {
+  struct {
+    __yo_t54 value;
+  } Some;
+} __yo_t55_data;
+
+struct __yo_t55_struct { //  : <enum:enum_yo_id_4226>
+  __yo_t55_tag tag;
+  __yo_t55_data data;
+};
+
+struct __yo_t41_struct { // IoExn : IoExn
+  __yo_t14 io;
+  __yo_t38 exn;
+};
+
+struct __yo_t23_struct { // Duo : Duo (reference counted)
+  __yo_ref_header_t header; // Reference count header
+  __yo_t9 a;
+  __yo_t9 b;
+};
+
+struct __yo_t28_struct { // Task : Task (reference counted)
   __yo_ref_header_t header; // Reference count header
   __yo_t9 name;
-  size_t n;
+};
+
+struct __yo_t47_struct { //  : <struct:struct_yo_id_4940> (reference counted)
+  __yo_ref_header_t header; // Reference count header
+  __yo_t9* _ptr;
+  size_t _length;
+  size_t _capacity;
 };
 
 typedef enum {
@@ -1416,33 +1428,21 @@ struct __yo_t39_struct { //  : <enum:enum_yo_id_12351>
   __yo_t39_data data;
 };
 
-struct __yo_t23_struct { // Duo : Duo (reference counted)
-  __yo_ref_header_t header; // Reference count header
-  __yo_t9 a;
-  __yo_t9 b;
-};
-
 struct __yo_t31_struct { // Cargo : Cargo (reference counted)
   __yo_ref_header_t header; // Reference count header
   __yo_t9 label;
   int32_t size;
 };
 
+struct __yo_t44_struct { // IndexElem : IndexElem (reference counted)
+  __yo_ref_header_t header; // Reference count header
+  __yo_t9 name;
+  size_t n;
+};
+
 struct __yo_t40_struct { // Box(String) : Box(String) (reference counted)
   __yo_ref_header_t header; // Reference count header
   __yo_t9 _u42_;
-};
-
-struct __yo_t47_struct { //  : <struct:struct_yo_id_4940> (reference counted)
-  __yo_ref_header_t header; // Reference count header
-  __yo_t9* _ptr;
-  size_t _length;
-  size_t _capacity;
-};
-
-struct __yo_t28_struct { // Task : Task (reference counted)
-  __yo_ref_header_t header; // Reference count header
-  __yo_t9 name;
 };
 
 typedef enum {
@@ -1464,17 +1464,17 @@ struct __yo_t11_struct { //  : <enum:enum_yo_id_4904>
   __yo_t11_data data;
 };
 
-typedef __yo_t9* __yo_t48; //  : <enum:enum_yo_id_4942> (optimized as nullable pointer)
+typedef __yo_t44** __yo_t43; //  : <enum:enum_yo_id_12407> (optimized as nullable pointer)
 
 typedef int32_t* __yo_t26; //  : <enum:enum_yo_id_13841> (optimized as nullable pointer)
-
-typedef __yo_t44** __yo_t43; //  : <enum:enum_yo_id_12407> (optimized as nullable pointer)
 
 typedef __yo_t54* __yo_t53; //  : <enum:enum_yo_id_14861> (optimized as nullable pointer)
 
 typedef void* __yo_t4; //  : <enum:enum_yo_id_4130> (optimized as nullable pointer)
 
-typedef char* __yo_t181; //  : <enum:enum_yo_id_4140> (optimized as nullable pointer)
+typedef char* __yo_t180; //  : <enum:enum_yo_id_4140> (optimized as nullable pointer)
+
+typedef __yo_t9* __yo_t48; //  : <enum:enum_yo_id_4942> (optimized as nullable pointer)
 
 typedef uint8_t* __yo_t1; //  : <enum:enum_yo_id_4566> (optimized as nullable pointer)
 
@@ -1538,20 +1538,20 @@ struct __yo_t24_struct { // Generic Future interface for Future[Future](Duo) Io 
   void (*__yo_set_effect_fn)(void*, const char*, void*);
 };
 
-struct __yo_t45_struct { // Generic Future interface for Future[Future](i32) IoExn : IoExn
+struct __yo_t34_struct { // Generic Future interface for Future[Future](usize) Io : Io
   __yo_ref_header_t header;
   int state;  // 0 = cold, -1 = completed, -2 = aborted
-  int32_t result;
+  size_t result;
   void (*continuation_fn)(void*);
   void* continuation_sm;
   void (*__yo_resume_fn)(void*);
   void (*__yo_set_effect_fn)(void*, const char*, void*);
 };
 
-struct __yo_t34_struct { // Generic Future interface for Future[Future](usize) Io : Io
+struct __yo_t45_struct { // Generic Future interface for Future[Future](i32) IoExn : IoExn
   __yo_ref_header_t header;
   int state;  // 0 = cold, -1 = completed, -2 = aborted
-  size_t result;
+  int32_t result;
   void (*continuation_fn)(void*);
   void* continuation_sm;
   void (*__yo_resume_fn)(void*);
@@ -1924,24 +1924,24 @@ static void __yo_gc_remove_root(void* ptr); // Bacon-Rajan: unbuffer a possible 
 static void __yo_gc_init_thread(); // Initialize thread-local GC state (for worker threads)
 static void __yo_cleanup_thread_gc(); // Clean up thread-local GC state
 static void __yo_init_process_cleanup(void); // Initialize process cleanup
-static __yo_t50* __yo_new___yo_t50(__yo_t47* _segments, bool _is_absolute); // Constructor
-static __yo_t44* __yo_new___yo_t44(__yo_t9 name, size_t n); // Constructor
+static __yo_t28* __yo_new___yo_t28(__yo_t9 name); // Constructor
 static __yo_t52* __yo_new___yo_t52(__yo_t54* _ptr, size_t _length, size_t _capacity); // Constructor
-static __yo_t127* __yo_new___yo_t127(void** _ptr, size_t _length, size_t _capacity); // Constructor
+static __yo_t47* __yo_new___yo_t47(__yo_t9* _ptr, size_t _length, size_t _capacity); // Constructor
 static __yo_t35* __yo_new___yo_t35(size_t* _ptr, size_t _length, size_t _capacity); // Constructor
 static __yo_t31* __yo_new___yo_t31(__yo_t9 label, int32_t size); // Constructor
 static __yo_t57* __yo_new___yo_t57(int32_t id); // Constructor
-static __yo_t40* __yo_new___yo_t40(__yo_t9 _u42_); // Constructor
-static __yo_t60* __yo_new___yo_t60(int32_t id); // Constructor
 static __yo_t0* __yo_new___yo_t0(uint8_t* _ptr, size_t _length, size_t _capacity); // Constructor
-static __yo_t2* __yo_new___yo_t2(void** _ptr, size_t _length, size_t _capacity); // Constructor
 static __yo_t42* __yo_new___yo_t42(__yo_t44** _ptr, size_t _length, size_t _capacity); // Constructor
-static __yo_t58* __yo_new___yo_t58(int32_t id); // Constructor
+static __yo_t2* __yo_new___yo_t2(void** _ptr, size_t _length, size_t _capacity); // Constructor
+static __yo_t60* __yo_new___yo_t60(int32_t id); // Constructor
 static __yo_t23* __yo_new___yo_t23(__yo_t9 a, __yo_t9 b); // Constructor
-static __yo_t47* __yo_new___yo_t47(__yo_t9* _ptr, size_t _length, size_t _capacity); // Constructor
-static __yo_t28* __yo_new___yo_t28(__yo_t9 name); // Constructor
+static __yo_t50* __yo_new___yo_t50(__yo_t47* _segments, bool _is_absolute); // Constructor
+static __yo_t58* __yo_new___yo_t58(int32_t id); // Constructor
 static __yo_t17* __yo_new___yo_t17(bool _u42_); // Constructor
+static __yo_t44* __yo_new___yo_t44(__yo_t9 name, size_t n); // Constructor
 static __yo_t25* __yo_new___yo_t25(int32_t* _ptr, size_t _length, size_t _capacity); // Constructor
+static __yo_t40* __yo_new___yo_t40(__yo_t9 _u42_); // Constructor
+static __yo_t127* __yo_new___yo_t127(void** _ptr, size_t _length, size_t _capacity); // Constructor
 static __yo_t16* __yo_new___yo_t16(int32_t _u42_); // Constructor
 
 /// Closure constructors
@@ -1962,8 +1962,8 @@ static inline __yo_t0* yo_id_4166__ret_R_gs_yo_id_4152_u8();
 static inline bool yo_id_4123_u8_id_u8_rtparam0_Type_rtparam1_usize_ret_bool(size_t count);
 static inline void yo_id_4262_rtparam0_R_gs_yo_id_4152_u8_rtparam1___u8__rtparam2_usize_ret_unit(__yo_t0* self, uint8_t* src, size_t count);
 static inline void yo_id_4261_rtparam0_R_gs_yo_id_4152_u8_rtparam1_usize_ret_unit(__yo_t0* self, size_t min_cap);
-static inline __yo_t5 yo_id_4215_rtparam0_R_gs_yo_id_4152_u8_rtparam1_u8_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_vfix_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_vfix_std_allocator_yo_index_usize_length_usize(__yo_t0* self, uint8_t value);
-static inline __yo_t9 yo_id_2894_rtparam0_enum_yo_id_4904_value_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_error_enum_decl_95467_file____private_tmp_yo_vfix_std_string_string_yo_cause_enum_decl_118950_file____private_tmp_yo_vfix_std_encoding_utf8_yo_index_usize_byte_u8_index_usize_expected_usize_available_usize_index_usize_offset_usize_byte_u8_index_usize_code_u32_index_usize_code_u32_index_usize_code_u32_index_usize_length_usize_ret_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8(__yo_t11 self);
+static inline __yo_t5 yo_id_4215_rtparam0_R_gs_yo_id_4152_u8_rtparam1_u8_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_fsw_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_fsw_std_allocator_yo_index_usize_length_usize(__yo_t0* self, uint8_t value);
+static inline __yo_t9 yo_id_2894_rtparam0_enum_yo_id_4904_value_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_error_enum_decl_95467_file____private_tmp_yo_fsw_std_string_string_yo_cause_enum_decl_118950_file____private_tmp_yo_fsw_std_encoding_utf8_yo_index_usize_byte_u8_index_usize_expected_usize_available_usize_index_usize_offset_usize_byte_u8_index_usize_code_u32_index_usize_code_u32_index_usize_code_u32_index_usize_length_usize_ret_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8(__yo_t11 self);
 static inline __yo_t11 yo_id_5009(uint8_t* cstr);
 static inline __yo_t9 yo_id_6298(__yo_str* self);
 static inline __yo_t9 yo_id_4978(__yo_str slice);
@@ -1996,7 +1996,7 @@ static inline __yo_t9 yo_id_6296(__yo_t9* self);
 static inline _file____priv_temp_16280_state_t* yo_id_13725(__yo_t21 k, __yo_t14 rio);
 static inline _file____priv_temp_16318_state_t* yo_id_13806(int32_t n, __yo_t14 rio);
 static inline __yo_t25* yo_id_4166__ret_R_gs_yo_id_4152_i32();
-static inline __yo_t5 yo_id_4215_rtparam0_R_gs_yo_id_4152_i32_rtparam1_i32_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_vfix_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_vfix_std_allocator_yo_index_usize_length_usize(__yo_t25* self, int32_t value);
+static inline __yo_t5 yo_id_4215_rtparam0_R_gs_yo_id_4152_i32_rtparam1_i32_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_fsw_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_fsw_std_allocator_yo_index_usize_length_usize(__yo_t25* self, int32_t value);
 static inline __yo_t18 yo_id_4218_rtparam0_R_gs_yo_id_4152_i32_ret_enum_yo_id_4217_value_i32(__yo_t25* self);
 static inline __yo_t9 yo_id_4956();
 static inline __yo_t9 yo_id_6111(int32_t* self);
@@ -2015,7 +2015,7 @@ static inline _file____priv_temp_16790_state_t* yo_id_14124(__yo_t14 rio);
 static inline _file____priv_temp_16810_state_t* yo_id_14144(size_t n, __yo_t14 rio);
 static inline _file____priv_temp_16840_state_t* yo_id_14167(size_t n, __yo_t14 rio);
 static inline __yo_t35* yo_id_4166__ret_R_gs_yo_id_4152_usize();
-static inline __yo_t5 yo_id_4215_rtparam0_R_gs_yo_id_4152_usize_rtparam1_usize_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_vfix_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_vfix_std_allocator_yo_index_usize_length_usize(__yo_t35* self, size_t value);
+static inline __yo_t5 yo_id_4215_rtparam0_R_gs_yo_id_4152_usize_rtparam1_usize_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_fsw_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_fsw_std_allocator_yo_index_usize_length_usize(__yo_t35* self, size_t value);
 static inline size_t yo_id_4159_rtparam0_R_gs_yo_id_4152_usize_ret_usize(__yo_t35* self);
 static inline __yo_t37 yo_id_4218_rtparam0_R_gs_yo_id_4152_usize_ret_enum_yo_id_3704_value_usize(__yo_t35* self);
 static inline _file____priv_temp_16988_state_t* yo_id_14191(__yo_t14 rio);
@@ -2029,12 +2029,12 @@ static inline uint8_t* yo_id_4270_rtparam0_R_gs_yo_id_4152_u8_rtparam1_usize_ret
 static inline bool yo_id_5402(uint8_t byte);
 static inline __yo_t9 yo_id_5994(__yo_t9* self);
 static inline __yo_t169 fn_yo_id_9851(__yo_t9* self);
-static inline __yo_t40* yo_id_3192_String_id_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam0_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_R_gs_yo_id_3188_1237(__yo_t9 value);
-static inline __yo_t42* yo_id_4166__ret_R_gs_yo_id_4152_R_struct_decl_77202_file____private_tmp_yo_vfix_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize();
-static inline __yo_t5 yo_id_4215_rtparam0_R_gs_yo_id_4152_R_struct_decl_77202_file____private_tmp_yo_vfix_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_rtparam1_R_struct_decl_77202_file____private_tmp_yo_vfix_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_vfix_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_vfix_std_allocator_yo_index_usize_length_usize(__yo_t42* self, __yo_t44* value);
+static inline __yo_t40* yo_id_3192_String_id_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam0_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_R_gs_yo_id_3188_1237(__yo_t9 value);
+static inline __yo_t42* yo_id_4166__ret_R_gs_yo_id_4152_R_struct_decl_77202_file____private_tmp_yo_fsw_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize();
+static inline __yo_t5 yo_id_4215_rtparam0_R_gs_yo_id_4152_R_struct_decl_77202_file____private_tmp_yo_fsw_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_rtparam1_R_struct_decl_77202_file____private_tmp_yo_fsw_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_fsw_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_fsw_std_allocator_yo_index_usize_length_usize(__yo_t42* self, __yo_t44* value);
 static inline _file____priv_temp_14315_state_t* yo_id_12408(__yo_t42* items, __yo_t14 io);
-static inline size_t yo_id_4159_rtparam0_R_gs_yo_id_4152_R_struct_decl_77202_file____private_tmp_yo_vfix_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_ret_usize(__yo_t42* self);
-static inline __yo_t44** yo_id_4270_rtparam0_R_gs_yo_id_4152_R_struct_decl_77202_file____private_tmp_yo_vfix_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_rtparam1_usize_ret___R_struct_decl_77202_file____private_tmp_yo_vfix_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_(__yo_t42** self, size_t idx);
+static inline size_t yo_id_4159_rtparam0_R_gs_yo_id_4152_R_struct_decl_77202_file____private_tmp_yo_fsw_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_ret_usize(__yo_t42* self);
+static inline __yo_t44** yo_id_4270_rtparam0_R_gs_yo_id_4152_R_struct_decl_77202_file____private_tmp_yo_fsw_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_rtparam1_usize_ret___R_struct_decl_77202_file____private_tmp_yo_fsw_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_(__yo_t42** self, size_t idx);
 static inline _file____priv_temp_17155_sync_fut_t* yo_id_14321(__yo_t14 io2);
 static inline int32_t closure_yo_id_14323(void* closure_context, __yo_t41 _e);
 static inline _file____priv_temp_17162_state_t* yo_id_14326(__yo_t14 io2);
@@ -2043,10 +2043,10 @@ static inline __yo_t37 yo_id_4227_rtparam0_R_gs_yo_id_4152_usize_rtparam1_usize_
 static inline _file____priv_temp_17227_state_t* yo_id_14341(__yo_t14 rio);
 static inline _file____priv_temp_17270_state_t* yo_id_14383(__yo_t14 rio);
 static inline _file____priv_temp_17319_state_t* yo_id_14417(__yo_t14 rio);
-static inline __yo_t47* yo_id_4166__ret_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8();
-static inline __yo_t5 yo_id_4215_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam1_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_vfix_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_vfix_std_allocator_yo_index_usize_length_usize(__yo_t47* self, __yo_t9 value);
-static inline size_t yo_id_4159_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_usize(__yo_t47* self);
-static inline __yo_t8 yo_id_4227_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam1_usize_ret_enum_yo_id_4226_value_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8(__yo_t47* self, size_t index);
+static inline __yo_t47* yo_id_4166__ret_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8();
+static inline __yo_t5 yo_id_4215_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam1_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_fsw_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_fsw_std_allocator_yo_index_usize_length_usize(__yo_t47* self, __yo_t9 value);
+static inline size_t yo_id_4159_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_usize(__yo_t47* self);
+static inline __yo_t8 yo_id_4227_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam1_usize_ret_enum_yo_id_4226_value_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8(__yo_t47* self, size_t index);
 static inline _file____priv_temp_13672_state_t* yo_id_11828(__yo_t50* path, __yo_t14 io);
 static inline __yo_t9 fn_yo_id_10420(__yo_t50** self);
 static inline __yo_t49 yo_id_4227_rtparam0_R_gs_yo_id_4152_u8_rtparam1_usize_ret_enum_yo_id_4226_value_u8(__yo_t0* self, size_t index);
@@ -2056,7 +2056,7 @@ static inline __yo_io_future_t* yo_id_10565(int32_t dirfd, uint8_t* path, int32_
 static inline __yo_t50* yo_id_10119(__yo_t9 path_str);
 static inline bool yo_id_5031(__yo_t9 self);
 static inline __yo_t9 yo_id_5346(__yo_t9 self, __yo_t9 search_value, __yo_t9 new_value);
-static inline __yo_t47* yo_id_5665_String_id_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam0_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam1_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8(__yo_t9 self, __yo_t9 separator);
+static inline __yo_t47* yo_id_5665_String_id_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam0_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam1_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8(__yo_t9 self, __yo_t9 separator);
 static inline __yo_t47* yo_id_5612(__yo_t9 self, __yo_t9 haystack);
 static inline __yo_t47* yo_id_5192(__yo_t9 self, __yo_t9 separator);
 static inline size_t yo_id_4552(uint8_t b);
@@ -2064,7 +2064,7 @@ static inline size_t yo_id_4545(uint8_t first);
 static inline __yo_t9 yo_id_5146(__yo_t9 self, size_t start, size_t end);
 static inline bool yo_id_5061(__yo_t9 self, size_t index);
 static inline bool yo_id_4540(uint8_t b);
-static inline __yo_t8 yo_id_4218_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_enum_yo_id_4226_value_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8(__yo_t47* self);
+static inline __yo_t8 yo_id_4218_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_enum_yo_id_4226_value_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8(__yo_t47* self);
 static inline _file____priv_temp_17397_state_t* yo_id_14454(__yo_t14 io2, __yo_t38 exn2);
 static inline void* fn_yo_id_14503(__yo_t167 _err);
 static inline _file____priv_temp_14322_state_t* yo_id_12432(__yo_t14 io);
@@ -2088,10 +2088,10 @@ static inline _file____priv_temp_17760_state_t* yo_id_14793(size_t n, __yo_t14 r
 static inline _file____priv_temp_17800_state_t* yo_id_14827(bool flag, __yo_t14 rio);
 static inline __yo_t51 yo_id_12163();
 static inline int32_t yo_id_12156(int32_t clock_id, int64_t* sec, int64_t* nsec);
-static inline void yo_id_6333_String_id_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam0_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_unit(__yo_t9 msg);
+static inline void yo_id_6333_String_id_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam0_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_unit(__yo_t9 msg);
 static inline __yo_t52* yo_id_4166__ret_R_gs_yo_id_4152_gs_yo_id_4011_u64();
 static inline __yo_io_future_t* yo_id_10009(uint64_t milliseconds);
-static inline __yo_t5 yo_id_4215_rtparam0_R_gs_yo_id_4152_gs_yo_id_4011_u64_rtparam1_gs_yo_id_4011_u64_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_vfix_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_vfix_std_allocator_yo_index_usize_length_usize(__yo_t52* self, __yo_t54 value);
+static inline __yo_t5 yo_id_4215_rtparam0_R_gs_yo_id_4152_gs_yo_id_4011_u64_rtparam1_gs_yo_id_4011_u64_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_fsw_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_fsw_std_allocator_yo_index_usize_length_usize(__yo_t52* self, __yo_t54 value);
 static inline size_t yo_id_4159_rtparam0_R_gs_yo_id_4152_gs_yo_id_4011_u64_ret_usize(__yo_t52* self);
 static inline __yo_t55 yo_id_4227_rtparam0_R_gs_yo_id_4152_gs_yo_id_4011_u64_rtparam1_usize_ret_enum_yo_id_4226_value_gs_yo_id_4011_u64(__yo_t52* self, size_t index);
 static inline int64_t yo_id_9696(__yo_t56* self);
@@ -2099,19 +2099,19 @@ static inline __yo_t56 yo_id_12194(__yo_t51* self);
 static inline __yo_t56 yo_id_12180(__yo_t51* self, __yo_t51 earlier);
 static inline __yo_t56 yo_id_9688();
 static inline __yo_t56 yo_id_9690(int64_t nanos);
-static inline void yo_id_6334_String_id_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam0_bool_rtparam1_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_unit(bool flag, __yo_t9 msg);
+static inline void yo_id_6334_String_id_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam0_bool_rtparam1_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_unit(bool flag, __yo_t9 msg);
 static inline __yo_t9 yo_id_6174(size_t* self);
 static inline __yo_t9 yo_id_6120(int64_t* self);
 static inline _file____priv_temp_14373_sync_fut_t* yo_id_12490(int32_t id, __yo_t14 io);
 static inline __yo_t57* closure_yo_id_12492(void* closure_context, __yo_t14 io);
 static inline _file____priv_temp_14379_sync_fut_t* yo_id_12498(int32_t id, __yo_t14 io);
 static inline __yo_t58* closure_yo_id_12500(void* closure_context, __yo_t14 io);
-static inline __yo_t58* yo_id_2636_rtparam0_enum_yo_id_4022_value_R_struct_decl_77791_file____private_tmp_yo_vfix_tests__yo_selftest_batch_1_1_yo_i32_ret_R_struct_decl_77791_file____private_tmp_yo_vfix_tests__yo_selftest_batch_1_1_yo_i32(__yo_t162 self);
+static inline __yo_t58* yo_id_2636_rtparam0_enum_yo_id_4022_value_R_struct_decl_77791_file____private_tmp_yo_fsw_tests__yo_selftest_batch_1_1_yo_i32_ret_R_struct_decl_77791_file____private_tmp_yo_fsw_tests__yo_selftest_batch_1_1_yo_i32(__yo_t162 self);
 static inline void* fn_yo_id_14961(__yo_t9 msg);
 static inline _file____priv_temp_14404_state_t* yo_id_12506(__yo_t60* shared, __yo_t59 ctx);
 static inline bool yo_id_2641_rtparam0_enum_yo_id_4217_value_i32_ret_bool(__yo_t18 self);
 static inline _file____priv_temp_14417_state_t* yo_id_12517(__yo_t14 io);
-static inline void yo_id_9658_String_id_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam0_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_unit(__yo_t9 v);
+static inline void yo_id_9658_String_id_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam0_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_unit(__yo_t9 v);
 static inline void yo_id_4035_rtparam0_gs_yo_id_4011_i32_ret_unit(__yo_t102 self);
 static inline void* fn_yo_id_15025(__yo_t167 err);
 static inline _file____priv_temp_18112_state_t* yo_id_15028(__yo_t14 io);
@@ -2122,38 +2122,38 @@ static inline _file____priv_temp_14424_sync_fut_t* yo_id_12530(__yo_t61 ctx);
 static inline int32_t closure_yo_id_12532(void* closure_context, __yo_t61 c);
 static inline bool yo_id_2640_rtparam0_enum_yo_id_4217_value_i32_ret_bool(__yo_t18 self);
 static inline int32_t yo_id_2636_rtparam0_enum_yo_id_4217_value_i32_ret_i32(__yo_t18 self);
-static inline void yo_id_15061(__yo_t50* self);
-static inline void yo_id_15063(__yo_t44* self);
-static inline void yo_id_15065(__yo_t52* self);
+static inline void yo_id_15061(__yo_t60* self);
+static inline void yo_id_12503(__yo_t60* self);
+static inline void yo_id_15064(__yo_t23* self);
+static inline void yo_id_15066(__yo_t28* self);
+static inline void yo_id_15068(__yo_t52* self);
 static inline void yo_id_4277_rtparam0_R_gs_yo_id_4152_gs_yo_id_4011_u64_ret_unit(__yo_t52* self);
 static inline void yo_id_4233_rtparam0_R_gs_yo_id_4152_gs_yo_id_4011_u64_ret_unit(__yo_t52* self);
-static inline void yo_id_15072(__yo_t35* self);
+static inline void yo_id_15075(__yo_t50* self);
+static inline void yo_id_15077(__yo_t47* self);
+static inline void yo_id_4277_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_unit(__yo_t47* self);
+static inline void yo_id_4233_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_unit(__yo_t47* self);
+static inline __yo_t9* yo_id_2636_rtparam0_enum_yo_id_4942_value___struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8__ret___struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_(__yo_t9* self);
+static inline void yo_id_15090(__yo_t35* self);
 static inline void yo_id_4277_rtparam0_R_gs_yo_id_4152_usize_ret_unit(__yo_t35* self);
 static inline void yo_id_4233_rtparam0_R_gs_yo_id_4152_usize_ret_unit(__yo_t35* self);
-static inline void yo_id_15079(__yo_t42* self);
-static inline void yo_id_4277_rtparam0_R_gs_yo_id_4152_R_struct_decl_77202_file____private_tmp_yo_vfix_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_ret_unit(__yo_t42* self);
-static inline void yo_id_4233_rtparam0_R_gs_yo_id_4152_R_struct_decl_77202_file____private_tmp_yo_vfix_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_ret_unit(__yo_t42* self);
-static inline __yo_t44** yo_id_2636_rtparam0_enum_yo_id_12407_value___R_struct_decl_77202_file____private_tmp_yo_vfix_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize__ret___R_struct_decl_77202_file____private_tmp_yo_vfix_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_(__yo_t44** self);
-static inline void yo_id_15092(__yo_t58* self);
-static inline void yo_id_12495(__yo_t58* self);
-static inline void yo_id_15095(__yo_t23* self);
 static inline void yo_id_15097(__yo_t31* self);
-static inline void yo_id_15099(__yo_t57* self);
-static inline void yo_id_12487(__yo_t57* self);
-static inline void yo_id_15102(__yo_t40* self);
-static inline void yo_id_15104(__yo_t47* self);
-static inline void yo_id_4277_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_unit(__yo_t47* self);
-static inline void yo_id_4233_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_unit(__yo_t47* self);
-static inline __yo_t9* yo_id_2636_rtparam0_enum_yo_id_4942_value___struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8__ret___struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_(__yo_t9* self);
-static inline void yo_id_15117(__yo_t28* self);
-static inline void yo_id_15119(__yo_t25* self);
+static inline void yo_id_15099(__yo_t58* self);
+static inline void yo_id_12495(__yo_t58* self);
+static inline void yo_id_15102(__yo_t44* self);
+static inline void yo_id_15104(__yo_t25* self);
 static inline void yo_id_4277_rtparam0_R_gs_yo_id_4152_i32_ret_unit(__yo_t25* self);
 static inline void yo_id_4233_rtparam0_R_gs_yo_id_4152_i32_ret_unit(__yo_t25* self);
-static inline void yo_id_15126(__yo_t60* self);
-static inline void yo_id_12503(__yo_t60* self);
-static inline void yo_id_15129(__yo_t0* self);
+static inline void yo_id_15111(__yo_t57* self);
+static inline void yo_id_12487(__yo_t57* self);
+static inline void yo_id_15114(__yo_t40* self);
+static inline void yo_id_15116(__yo_t0* self);
 static inline void yo_id_4277_rtparam0_R_gs_yo_id_4152_u8_ret_unit(__yo_t0* self);
 static inline void yo_id_4233_rtparam0_R_gs_yo_id_4152_u8_ret_unit(__yo_t0* self);
+static inline void yo_id_15122(__yo_t42* self);
+static inline void yo_id_4277_rtparam0_R_gs_yo_id_4152_R_struct_decl_77202_file____private_tmp_yo_fsw_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_ret_unit(__yo_t42* self);
+static inline void yo_id_4233_rtparam0_R_gs_yo_id_4152_R_struct_decl_77202_file____private_tmp_yo_fsw_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_ret_unit(__yo_t42* self);
+static inline __yo_t44** yo_id_2636_rtparam0_enum_yo_id_12407_value___R_struct_decl_77202_file____private_tmp_yo_fsw_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize__ret___R_struct_decl_77202_file____private_tmp_yo_fsw_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_(__yo_t44** self);
 /// Closure vtable instances
 
 static void __yo_dispose_dispatch(void* ptr); // Type-tag based dispose dispatch
@@ -2599,7 +2599,7 @@ struct _file____priv_temp_11061_sync_fut_t_struct {
   void* continuation_sm;
   void (*__yo_resume_fn)(void*);
   void (*__yo_set_effect_fn)(void*, const char*, void*);
-  __yo_t172 __capture;
+  __yo_t173 __capture;
   __yo_t14 __yo_param_0;
 };
 
@@ -2645,7 +2645,7 @@ void _file____priv_temp_14150_resume(_file____priv_temp_14150_state_t* sm);
 
 void _file____priv_temp_14150_set_effect(void* ptr, const char* field, void* value);
 
-_file____priv_temp_14150_state_t* __yo_new__file____priv_temp_14150(__yo_t175 __capture);
+_file____priv_temp_14150_state_t* __yo_new__file____priv_temp_14150(__yo_t176 __capture);
 
 void _file____priv_temp_14140_state_dispose(void* sm_ptr);  // Dispose function for state machine
 
@@ -2653,7 +2653,7 @@ void _file____priv_temp_14140_resume(_file____priv_temp_14140_state_t* sm);
 
 void _file____priv_temp_14140_set_effect(void* ptr, const char* field, void* value);
 
-_file____priv_temp_14140_state_t* __yo_new__file____priv_temp_14140(__yo_t174 __capture);
+_file____priv_temp_14140_state_t* __yo_new__file____priv_temp_14140(__yo_t175 __capture);
 
 void _file____priv_temp_16138_state_dispose(void* sm_ptr);  // Dispose function for state machine
 
@@ -2717,7 +2717,7 @@ void _file____priv_temp_14191_resume(_file____priv_temp_14191_state_t* sm);
 
 void _file____priv_temp_14191_set_effect(void* ptr, const char* field, void* value);
 
-_file____priv_temp_14191_state_t* __yo_new__file____priv_temp_14191(__yo_t182 __capture);
+_file____priv_temp_14191_state_t* __yo_new__file____priv_temp_14191(__yo_t181 __capture);
 
 void _file____priv_temp_16610_state_dispose(void* sm_ptr);  // Dispose function for state machine
 
@@ -2733,7 +2733,7 @@ void _file____priv_temp_14198_resume(_file____priv_temp_14198_state_t* sm);
 
 void _file____priv_temp_14198_set_effect(void* ptr, const char* field, void* value);
 
-_file____priv_temp_14198_state_t* __yo_new__file____priv_temp_14198(__yo_t184 __capture);
+_file____priv_temp_14198_state_t* __yo_new__file____priv_temp_14198(__yo_t183 __capture);
 
 void _file____priv_temp_16655_state_dispose(void* sm_ptr);  // Dispose function for state machine
 
@@ -2821,7 +2821,7 @@ void _file____priv_temp_14227_resume(_file____priv_temp_14227_state_t* sm);
 
 void _file____priv_temp_14227_set_effect(void* ptr, const char* field, void* value);
 
-_file____priv_temp_14227_state_t* __yo_new__file____priv_temp_14227(__yo_t173 __capture);
+_file____priv_temp_14227_state_t* __yo_new__file____priv_temp_14227(__yo_t174 __capture);
 
 void _file____priv_temp_14315_state_dispose(void* sm_ptr);  // Dispose function for state machine
 
@@ -2925,7 +2925,7 @@ void _file____priv_temp_14322_resume(_file____priv_temp_14322_state_t* sm);
 
 void _file____priv_temp_14322_set_effect(void* ptr, const char* field, void* value);
 
-_file____priv_temp_14322_state_t* __yo_new__file____priv_temp_14322(__yo_t183 __capture);
+_file____priv_temp_14322_state_t* __yo_new__file____priv_temp_14322(__yo_t182 __capture);
 
 void _file____priv_temp_14332_state_dispose(void* sm_ptr);  // Dispose function for state machine
 
@@ -3079,7 +3079,7 @@ struct _file____priv_temp_14373_sync_fut_t_struct {
   void* continuation_sm;
   void (*__yo_resume_fn)(void*);
   void (*__yo_set_effect_fn)(void*, const char*, void*);
-  __yo_t180 __capture;
+  __yo_t179 __capture;
   __yo_t14 __yo_param_0;
 };
 
@@ -3199,7 +3199,7 @@ struct _file____priv_temp_14424_sync_fut_t_struct {
   void* continuation_sm;
   void (*__yo_resume_fn)(void*);
   void (*__yo_set_effect_fn)(void*, const char*, void*);
-  __yo_t176 __capture;
+  __yo_t177 __capture;
   __yo_t61 __yo_param_0;
 };
 
@@ -3684,7 +3684,7 @@ struct _file____priv_temp_14198_state_t_struct {
   void (*__yo_set_effect_fn)(void*, const char*, void*);
 
   // Captured variables from outer scope
-  __yo_t184 __capture;
+  __yo_t183 __capture;
 
   // Closure parameter slots
   __yo_t14 __yo_param_0;  // aio
@@ -5433,7 +5433,7 @@ struct _file____priv_temp_14227_state_t_struct {
   void (*__yo_set_effect_fn)(void*, const char*, void*);
 
   // Captured variables from outer scope
-  __yo_t173 __capture;
+  __yo_t174 __capture;
 
   // Closure parameter slots
   __yo_t14 __yo_param_0;  // aio
@@ -5828,7 +5828,7 @@ struct _file____priv_temp_14322_state_t_struct {
   void (*__yo_set_effect_fn)(void*, const char*, void*);
 
   // Captured variables from outer scope
-  __yo_t183 __capture;
+  __yo_t182 __capture;
 
   // Closure parameter slots
   __yo_t14 __yo_param_0;  // io
@@ -5956,7 +5956,7 @@ struct _file____priv_temp_14191_state_t_struct {
   void (*__yo_set_effect_fn)(void*, const char*, void*);
 
   // Captured variables from outer scope
-  __yo_t182 __capture;
+  __yo_t181 __capture;
 
   // Closure parameter slots
   __yo_t14 __yo_param_0;  // aio
@@ -6052,7 +6052,7 @@ struct _file____priv_temp_14140_state_t_struct {
   void (*__yo_set_effect_fn)(void*, const char*, void*);
 
   // Captured variables from outer scope
-  __yo_t174 __capture;
+  __yo_t175 __capture;
 
   // Closure parameter slots
   __yo_t14 __yo_param_0;  // io
@@ -6074,7 +6074,7 @@ struct _file____priv_temp_14150_state_t_struct {
   void (*__yo_set_effect_fn)(void*, const char*, void*);
 
   // Captured variables from outer scope
-  __yo_t175 __capture;
+  __yo_t176 __capture;
 
   // Closure parameter slots
   __yo_t14 __yo_param_0;  // io
@@ -8668,9 +8668,9 @@ void _file____priv_temp_18106_set_effect(void* ptr, const char* field, void* val
     sm->__yo_param_0 = *((__yo_t41*)value);
   }
 }
-static int32_t g_async_result_disposed_m7314982248589901250; // module-level mutable variable
-static int32_t g_spawn_result_disposed_m7314982248589901250; // module-level mutable variable
-static int32_t g_branch_local_disposed_m7314982248589901250; // module-level mutable variable
+static int32_t g_async_result_disposed_m1186671634904895756; // module-level mutable variable
+static int32_t g_spawn_result_disposed_m1186671634904895756; // module-level mutable variable
+static int32_t g_branch_local_disposed_m1186671634904895756; // module-level mutable variable
 
 // Function implementations
 
@@ -11814,23 +11814,12 @@ static size_t __yo_gc_tracked_count() { return 0; }
 static void __yo_gc_init_thread() {}
 static void __yo_cleanup_thread_gc() {}
 static void __yo_init_process_cleanup(void) {}
-static __yo_t50* __yo_new___yo_t50(__yo_t47* _segments, bool _is_absolute) {
-  __yo_t50* obj = (__yo_t50*)__yo_malloc(sizeof(__yo_t50));
+static __yo_t28* __yo_new___yo_t28(__yo_t9 name) {
+  __yo_t28* obj = (__yo_t28*)__yo_malloc(sizeof(__yo_t28));
   obj->header.ref_count = 1;  // Start with one reference
   obj->header.borrow_count = 0;  // Law-of-Exclusivity: no live interior borrows yet
   obj->header.type_id = 2;
-  obj->_segments = _segments;
-  obj->_is_absolute = _is_absolute;
-  return obj;
-}
-
-static __yo_t44* __yo_new___yo_t44(__yo_t9 name, size_t n) {
-  __yo_t44* obj = (__yo_t44*)__yo_malloc(sizeof(__yo_t44));
-  obj->header.ref_count = 1;  // Start with one reference
-  obj->header.borrow_count = 0;  // Law-of-Exclusivity: no live interior borrows yet
-  obj->header.type_id = 3;
   obj->name = name;
-  obj->n = n;
   return obj;
 }
 
@@ -11838,18 +11827,18 @@ static __yo_t52* __yo_new___yo_t52(__yo_t54* _ptr, size_t _length, size_t _capac
   __yo_t52* obj = (__yo_t52*)__yo_malloc(sizeof(__yo_t52));
   obj->header.ref_count = 1;  // Start with one reference
   obj->header.borrow_count = 0;  // Law-of-Exclusivity: no live interior borrows yet
-  obj->header.type_id = 4;
+  obj->header.type_id = 3;
   obj->_ptr = _ptr;
   obj->_length = _length;
   obj->_capacity = _capacity;
   return obj;
 }
 
-static __yo_t127* __yo_new___yo_t127(void** _ptr, size_t _length, size_t _capacity) {
-  __yo_t127* obj = (__yo_t127*)__yo_malloc(sizeof(__yo_t127));
+static __yo_t47* __yo_new___yo_t47(__yo_t9* _ptr, size_t _length, size_t _capacity) {
+  __yo_t47* obj = (__yo_t47*)__yo_malloc(sizeof(__yo_t47));
   obj->header.ref_count = 1;  // Start with one reference
   obj->header.borrow_count = 0;  // Law-of-Exclusivity: no live interior borrows yet
-  obj->header.type_id = 0;
+  obj->header.type_id = 4;
   obj->_ptr = _ptr;
   obj->_length = _length;
   obj->_capacity = _capacity;
@@ -11886,29 +11875,22 @@ static __yo_t57* __yo_new___yo_t57(int32_t id) {
   return obj;
 }
 
-static __yo_t40* __yo_new___yo_t40(__yo_t9 _u42_) {
-  __yo_t40* obj = (__yo_t40*)__yo_malloc(sizeof(__yo_t40));
-  obj->header.ref_count = 1;  // Start with one reference
-  obj->header.borrow_count = 0;  // Law-of-Exclusivity: no live interior borrows yet
-  obj->header.type_id = 8;
-  obj->_u42_ = _u42_;
-  return obj;
-}
-
-static __yo_t60* __yo_new___yo_t60(int32_t id) {
-  __yo_t60* obj = (__yo_t60*)__yo_malloc(sizeof(__yo_t60));
-  obj->header.ref_count = 1;  // Start with one reference
-  obj->header.borrow_count = 0;  // Law-of-Exclusivity: no live interior borrows yet
-  obj->header.type_id = 9;
-  obj->id = id;
-  return obj;
-}
-
 static __yo_t0* __yo_new___yo_t0(uint8_t* _ptr, size_t _length, size_t _capacity) {
   __yo_t0* obj = (__yo_t0*)__yo_malloc(sizeof(__yo_t0));
   obj->header.ref_count = 1;  // Start with one reference
   obj->header.borrow_count = 0;  // Law-of-Exclusivity: no live interior borrows yet
-  obj->header.type_id = 10;
+  obj->header.type_id = 8;
+  obj->_ptr = _ptr;
+  obj->_length = _length;
+  obj->_capacity = _capacity;
+  return obj;
+}
+
+static __yo_t42* __yo_new___yo_t42(__yo_t44** _ptr, size_t _length, size_t _capacity) {
+  __yo_t42* obj = (__yo_t42*)__yo_malloc(sizeof(__yo_t42));
+  obj->header.ref_count = 1;  // Start with one reference
+  obj->header.borrow_count = 0;  // Law-of-Exclusivity: no live interior borrows yet
+  obj->header.type_id = 9;
   obj->_ptr = _ptr;
   obj->_length = _length;
   obj->_capacity = _capacity;
@@ -11926,22 +11908,11 @@ static __yo_t2* __yo_new___yo_t2(void** _ptr, size_t _length, size_t _capacity) 
   return obj;
 }
 
-static __yo_t42* __yo_new___yo_t42(__yo_t44** _ptr, size_t _length, size_t _capacity) {
-  __yo_t42* obj = (__yo_t42*)__yo_malloc(sizeof(__yo_t42));
+static __yo_t60* __yo_new___yo_t60(int32_t id) {
+  __yo_t60* obj = (__yo_t60*)__yo_malloc(sizeof(__yo_t60));
   obj->header.ref_count = 1;  // Start with one reference
   obj->header.borrow_count = 0;  // Law-of-Exclusivity: no live interior borrows yet
-  obj->header.type_id = 11;
-  obj->_ptr = _ptr;
-  obj->_length = _length;
-  obj->_capacity = _capacity;
-  return obj;
-}
-
-static __yo_t58* __yo_new___yo_t58(int32_t id) {
-  __yo_t58* obj = (__yo_t58*)__yo_malloc(sizeof(__yo_t58));
-  obj->header.ref_count = 1;  // Start with one reference
-  obj->header.borrow_count = 0;  // Law-of-Exclusivity: no live interior borrows yet
-  obj->header.type_id = 12;
+  obj->header.type_id = 10;
   obj->id = id;
   return obj;
 }
@@ -11950,29 +11921,28 @@ static __yo_t23* __yo_new___yo_t23(__yo_t9 a, __yo_t9 b) {
   __yo_t23* obj = (__yo_t23*)__yo_malloc(sizeof(__yo_t23));
   obj->header.ref_count = 1;  // Start with one reference
   obj->header.borrow_count = 0;  // Law-of-Exclusivity: no live interior borrows yet
-  obj->header.type_id = 13;
+  obj->header.type_id = 11;
   obj->a = a;
   obj->b = b;
   return obj;
 }
 
-static __yo_t47* __yo_new___yo_t47(__yo_t9* _ptr, size_t _length, size_t _capacity) {
-  __yo_t47* obj = (__yo_t47*)__yo_malloc(sizeof(__yo_t47));
+static __yo_t50* __yo_new___yo_t50(__yo_t47* _segments, bool _is_absolute) {
+  __yo_t50* obj = (__yo_t50*)__yo_malloc(sizeof(__yo_t50));
   obj->header.ref_count = 1;  // Start with one reference
   obj->header.borrow_count = 0;  // Law-of-Exclusivity: no live interior borrows yet
-  obj->header.type_id = 14;
-  obj->_ptr = _ptr;
-  obj->_length = _length;
-  obj->_capacity = _capacity;
+  obj->header.type_id = 12;
+  obj->_segments = _segments;
+  obj->_is_absolute = _is_absolute;
   return obj;
 }
 
-static __yo_t28* __yo_new___yo_t28(__yo_t9 name) {
-  __yo_t28* obj = (__yo_t28*)__yo_malloc(sizeof(__yo_t28));
+static __yo_t58* __yo_new___yo_t58(int32_t id) {
+  __yo_t58* obj = (__yo_t58*)__yo_malloc(sizeof(__yo_t58));
   obj->header.ref_count = 1;  // Start with one reference
   obj->header.borrow_count = 0;  // Law-of-Exclusivity: no live interior borrows yet
-  obj->header.type_id = 15;
-  obj->name = name;
+  obj->header.type_id = 13;
+  obj->id = id;
   return obj;
 }
 
@@ -11985,11 +11955,41 @@ static __yo_t17* __yo_new___yo_t17(bool _u42_) {
   return obj;
 }
 
+static __yo_t44* __yo_new___yo_t44(__yo_t9 name, size_t n) {
+  __yo_t44* obj = (__yo_t44*)__yo_malloc(sizeof(__yo_t44));
+  obj->header.ref_count = 1;  // Start with one reference
+  obj->header.borrow_count = 0;  // Law-of-Exclusivity: no live interior borrows yet
+  obj->header.type_id = 14;
+  obj->name = name;
+  obj->n = n;
+  return obj;
+}
+
 static __yo_t25* __yo_new___yo_t25(int32_t* _ptr, size_t _length, size_t _capacity) {
   __yo_t25* obj = (__yo_t25*)__yo_malloc(sizeof(__yo_t25));
   obj->header.ref_count = 1;  // Start with one reference
   obj->header.borrow_count = 0;  // Law-of-Exclusivity: no live interior borrows yet
+  obj->header.type_id = 15;
+  obj->_ptr = _ptr;
+  obj->_length = _length;
+  obj->_capacity = _capacity;
+  return obj;
+}
+
+static __yo_t40* __yo_new___yo_t40(__yo_t9 _u42_) {
+  __yo_t40* obj = (__yo_t40*)__yo_malloc(sizeof(__yo_t40));
+  obj->header.ref_count = 1;  // Start with one reference
+  obj->header.borrow_count = 0;  // Law-of-Exclusivity: no live interior borrows yet
   obj->header.type_id = 16;
+  obj->_u42_ = _u42_;
+  return obj;
+}
+
+static __yo_t127* __yo_new___yo_t127(void** _ptr, size_t _length, size_t _capacity) {
+  __yo_t127* obj = (__yo_t127*)__yo_malloc(sizeof(__yo_t127));
+  obj->header.ref_count = 1;  // Start with one reference
+  obj->header.borrow_count = 0;  // Law-of-Exclusivity: no live interior borrows yet
+  obj->header.type_id = 0;
   obj->_ptr = _ptr;
   obj->_length = _length;
   obj->_capacity = _capacity;
@@ -21480,17 +21480,17 @@ switch (((_file____priv_temp_14660).data.Some.value).tag) {
                                                                                                                                 }
                                                                                                                                 if (_file____priv_temp_14912) {
                                                                                                                                   { // begin block
-                                                                                                                                    __yo_t42* _file____priv_temp_17054 = yo_id_4166__ret_R_gs_yo_id_4152_R_struct_decl_77202_file____private_tmp_yo_vfix_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize();
+                                                                                                                                    __yo_t42* _file____priv_temp_17054 = yo_id_4166__ret_R_gs_yo_id_4152_R_struct_decl_77202_file____private_tmp_yo_fsw_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize();
                                                                                                                                     __yo_t42* items = _file____priv_temp_17054;
                                                                                                                                     __yo_t9 _file____priv_temp_17056 = yo_id_4978((__yo_str){ .ptr = (const uint8_t*)"alpha", .len = 5 });
                                                                                                                                     __yo_t44* _file____priv_temp_17057 = __yo_new___yo_t44(_file____priv_temp_17056, 1ULL);
-                                                                                                                                    __yo_t5 _file____priv_temp_17124 = yo_id_4215_rtparam0_R_gs_yo_id_4152_R_struct_decl_77202_file____private_tmp_yo_vfix_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_rtparam1_R_struct_decl_77202_file____private_tmp_yo_vfix_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_vfix_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_vfix_std_allocator_yo_index_usize_length_usize(items, _file____priv_temp_17057);
+                                                                                                                                    __yo_t5 _file____priv_temp_17124 = yo_id_4215_rtparam0_R_gs_yo_id_4152_R_struct_decl_77202_file____private_tmp_yo_fsw_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_rtparam1_R_struct_decl_77202_file____private_tmp_yo_fsw_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_fsw_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_fsw_std_allocator_yo_index_usize_length_usize(items, _file____priv_temp_17057);
                                                                                                                                     __yo_t9 _file____priv_temp_17125 = yo_id_4978((__yo_str){ .ptr = (const uint8_t*)"beta", .len = 4 });
                                                                                                                                     __yo_t44* _file____priv_temp_17126 = __yo_new___yo_t44(_file____priv_temp_17125, 2ULL);
-                                                                                                                                    __yo_t5 _file____priv_temp_17127 = yo_id_4215_rtparam0_R_gs_yo_id_4152_R_struct_decl_77202_file____private_tmp_yo_vfix_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_rtparam1_R_struct_decl_77202_file____private_tmp_yo_vfix_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_vfix_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_vfix_std_allocator_yo_index_usize_length_usize(items, _file____priv_temp_17126);
+                                                                                                                                    __yo_t5 _file____priv_temp_17127 = yo_id_4215_rtparam0_R_gs_yo_id_4152_R_struct_decl_77202_file____private_tmp_yo_fsw_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_rtparam1_R_struct_decl_77202_file____private_tmp_yo_fsw_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_fsw_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_fsw_std_allocator_yo_index_usize_length_usize(items, _file____priv_temp_17126);
                                                                                                                                     __yo_t9 _file____priv_temp_17128 = yo_id_4978((__yo_str){ .ptr = (const uint8_t*)"gamma", .len = 5 });
                                                                                                                                     __yo_t44* _file____priv_temp_17129 = __yo_new___yo_t44(_file____priv_temp_17128, 3ULL);
-                                                                                                                                    __yo_t5 _file____priv_temp_17130 = yo_id_4215_rtparam0_R_gs_yo_id_4152_R_struct_decl_77202_file____private_tmp_yo_vfix_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_rtparam1_R_struct_decl_77202_file____private_tmp_yo_vfix_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_vfix_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_vfix_std_allocator_yo_index_usize_length_usize(items, _file____priv_temp_17129);
+                                                                                                                                    __yo_t5 _file____priv_temp_17130 = yo_id_4215_rtparam0_R_gs_yo_id_4152_R_struct_decl_77202_file____private_tmp_yo_fsw_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_rtparam1_R_struct_decl_77202_file____private_tmp_yo_fsw_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_fsw_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_fsw_std_allocator_yo_index_usize_length_usize(items, _file____priv_temp_17129);
                                                                                                                                     __yo_effect_escaped = 0;
                                                                                                                                     _file____priv_temp_14315_state_t* _file____priv_temp_17132 = (_file____priv_temp_14315_state_t*)yo_id_12408((__yo_t42*)(items), (__yo_t14)((__yo_t14){ .async = NULL, .await = NULL, .state = NULL, .spawn = NULL }));
                                                                                                                                     if (__yo_effect_escaped) {
@@ -21589,7 +21589,7 @@ switch (((_file____priv_temp_14660).data.Some.value).tag) {
 }
                                                                                                                                       return;
                                                                                                                                     }
-                                                                                                                                    __yo_t9 _file____priv_temp_17140 = (*yo_id_4270_rtparam0_R_gs_yo_id_4152_R_struct_decl_77202_file____private_tmp_yo_vfix_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_rtparam1_usize_ret___R_struct_decl_77202_file____private_tmp_yo_vfix_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_(&items, 0ULL))->name;
+                                                                                                                                    __yo_t9 _file____priv_temp_17140 = (*yo_id_4270_rtparam0_R_gs_yo_id_4152_R_struct_decl_77202_file____private_tmp_yo_fsw_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_rtparam1_usize_ret___R_struct_decl_77202_file____private_tmp_yo_fsw_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_(&items, 0ULL))->name;
                                                                                                                                     __yo_t9 _file____priv_temp_17141 = yo_id_4978((__yo_str){ .ptr = (const uint8_t*)"alpha", .len = 5 });
                                                                                                                                     __yo_effect_escaped = 0;
                                                                                                                                     bool _file____priv_temp_17142 = yo_id_5489((__yo_t9)(_file____priv_temp_17140), (__yo_t9)(_file____priv_temp_17141));
@@ -21653,7 +21653,7 @@ switch (((_file____priv_temp_14660).data.Some.value).tag) {
 }
                                                                                                                                       return;
                                                                                                                                     }
-                                                                                                                                    __yo_t9 _file____priv_temp_17148 = (*yo_id_4270_rtparam0_R_gs_yo_id_4152_R_struct_decl_77202_file____private_tmp_yo_vfix_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_rtparam1_usize_ret___R_struct_decl_77202_file____private_tmp_yo_vfix_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_(&items, 2ULL))->name;
+                                                                                                                                    __yo_t9 _file____priv_temp_17148 = (*yo_id_4270_rtparam0_R_gs_yo_id_4152_R_struct_decl_77202_file____private_tmp_yo_fsw_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_rtparam1_usize_ret___R_struct_decl_77202_file____private_tmp_yo_fsw_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_(&items, 2ULL))->name;
                                                                                                                                     __yo_t9 _file____priv_temp_17149 = yo_id_4978((__yo_str){ .ptr = (const uint8_t*)"gamma", .len = 5 });
                                                                                                                                     __yo_effect_escaped = 0;
                                                                                                                                     bool _file____priv_temp_17150 = yo_id_5489((__yo_t9)(_file____priv_temp_17148), (__yo_t9)(_file____priv_temp_17149));
@@ -25421,7 +25421,7 @@ switch (((_file____priv_temp_14660).data.Some.value).tag) {
                                                                                                                                                                               __spawn_future__file____priv_temp_17834->__yo_resume_fn((void*)__spawn_future__file____priv_temp_17834);
                                                                                                                                                                             }
                                                                                                                                                                             __yo_incr_rc((void*)__spawn_future__file____priv_temp_17834);  // the JoinHandle owns a reference
-                                                                                                                                                                            __yo_t5 _file____priv_temp_17902 = yo_id_4215_rtparam0_R_gs_yo_id_4152_gs_yo_id_4011_u64_rtparam1_gs_yo_id_4011_u64_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_vfix_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_vfix_std_allocator_yo_index_usize_length_usize(handles, (__yo_t54){ .__future = (void*)__spawn_future__file____priv_temp_17834 });
+                                                                                                                                                                            __yo_t5 _file____priv_temp_17902 = yo_id_4215_rtparam0_R_gs_yo_id_4152_gs_yo_id_4011_u64_rtparam1_gs_yo_id_4011_u64_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_fsw_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_fsw_std_allocator_yo_index_usize_length_usize(handles, (__yo_t54){ .__future = (void*)__spawn_future__file____priv_temp_17834 });
                                                                                                                                                                             size_t _file____priv_temp_17904 = i; // Save old value for later use
                                                                                                                                                                             i = ((i) + (1ULL));
                                                                                                                                                                             if (task != NULL) { __yo_decr_rc((void*)task); };
@@ -25498,7 +25498,7 @@ switch (((_file____priv_temp_14660).data.Some.value).tag) {
                                                                                                                                                                           __yo_t9 _file____priv_temp_17949 = yo_id_6296((&(_file____priv_temp_17948)));
                                                                                                                                                                           __yo_t9 _file____priv_temp_17950 = yo_id_5483(_file____priv_temp_17946, _file____priv_temp_17949);
                                                                                                                                                                           __yo_effect_escaped = 0;
-                                                                                                                                                                          yo_id_6334_String_id_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam0_bool_rtparam1_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_unit((bool)(_file____priv_temp_17944), (__yo_t9)(_file____priv_temp_17950));
+                                                                                                                                                                          yo_id_6334_String_id_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam0_bool_rtparam1_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_unit((bool)(_file____priv_temp_17944), (__yo_t9)(_file____priv_temp_17950));
                                                                                                                                                                           if (__yo_effect_escaped) {
                                                                                                                                                                             // Drop local variables before early return
 switch ((_file____priv_temp_17950).tag) {
@@ -25555,7 +25555,7 @@ switch (((_file____priv_temp_14660).data.Some.value).tag) {
                                                                                                                                                                           __yo_t9 _file____priv_temp_17970 = yo_id_6298((&(__yo_ref_spill_99)));
                                                                                                                                                                           __yo_t9 _file____priv_temp_17971 = yo_id_5483(_file____priv_temp_17969, _file____priv_temp_17970);
                                                                                                                                                                           __yo_effect_escaped = 0;
-                                                                                                                                                                          yo_id_6334_String_id_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam0_bool_rtparam1_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_unit((bool)(_file____priv_temp_17957), (__yo_t9)(_file____priv_temp_17971));
+                                                                                                                                                                          yo_id_6334_String_id_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam0_bool_rtparam1_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_unit((bool)(_file____priv_temp_17957), (__yo_t9)(_file____priv_temp_17971));
                                                                                                                                                                           if (__yo_effect_escaped) {
                                                                                                                                                                             // Drop local variables before early return
 switch ((_file____priv_temp_17971).tag) {
@@ -25821,7 +25821,7 @@ switch (((_file____priv_temp_14660).data.Some.value).tag) {
                                                                                                                                                                                 _file____priv_temp_17977 = (__yo_t57*){0};
                                                                                                                                                                               }
                                                                                                                                                                               __yo_t57* a = _file____priv_temp_17977;
-                                                                                                                                                                              bool _file____priv_temp_17978 = ((g_async_result_disposed_m7314982248589901250) == (0));
+                                                                                                                                                                              bool _file____priv_temp_17978 = ((g_async_result_disposed_m1186671634904895756) == (0));
                                                                                                                                                                               __yo_effect_escaped = 0;
                                                                                                                                                                               yo_id_6334_str_id_str_rtparam0_bool_rtparam1_comptime_str_ret_unit((bool)(_file____priv_temp_17978), (__yo_str)((__yo_str){ .ptr = (const uint8_t*)"value alive while its scope is live", .len = 35 }));
                                                                                                                                                                               if (__yo_effect_escaped) {
@@ -25846,7 +25846,7 @@ switch (((_file____priv_temp_14660).data.Some.value).tag) {
                                                                                                                                                                               __yo_decr_rc((void*)(a));
                                                                                                                                                                               if (_file____priv_temp_17976 != NULL) { __yo_decr_rc((void*)_file____priv_temp_17976); };
                                                                                                                                                                             } // end begin block
-                                                                                                                                                                            bool _file____priv_temp_17981 = ((g_async_result_disposed_m7314982248589901250) == (1));
+                                                                                                                                                                            bool _file____priv_temp_17981 = ((g_async_result_disposed_m1186671634904895756) == (1));
                                                                                                                                                                             __yo_effect_escaped = 0;
                                                                                                                                                                             yo_id_6334_str_id_str_rtparam0_bool_rtparam1_comptime_str_ret_unit((bool)(_file____priv_temp_17981), (__yo_str)((__yo_str){ .ptr = (const uint8_t*)"temp-future shape: disposed at scope end", .len = 40 }));
                                                                                                                                                                             if (__yo_effect_escaped) {
@@ -25936,7 +25936,7 @@ switch (((_file____priv_temp_14660).data.Some.value).tag) {
                                                                                                                                                                               __yo_decr_rc((void*)(b));
                                                                                                                                                                               if (t != NULL) { __yo_decr_rc((void*)t); };
                                                                                                                                                                             } // end begin block
-                                                                                                                                                                            bool _file____priv_temp_17987 = ((g_async_result_disposed_m7314982248589901250) == (2));
+                                                                                                                                                                            bool _file____priv_temp_17987 = ((g_async_result_disposed_m1186671634904895756) == (2));
                                                                                                                                                                             __yo_effect_escaped = 0;
                                                                                                                                                                             yo_id_6334_str_id_str_rtparam0_bool_rtparam1_comptime_str_ret_unit((bool)(_file____priv_temp_17987), (__yo_str)((__yo_str){ .ptr = (const uint8_t*)"named-future shape: disposed at scope end", .len = 41 }));
                                                                                                                                                                             if (__yo_effect_escaped) {
@@ -26024,7 +26024,7 @@ switch (((_file____priv_temp_14660).data.Some.value).tag) {
                                                                                                                                                                               __yo_decr_rc((void*)(_file____priv_temp_17991));
                                                                                                                                                                               if (_file____priv_temp_17990 != NULL) { __yo_decr_rc((void*)_file____priv_temp_17990); };
                                                                                                                                                                             } // end begin block
-                                                                                                                                                                            bool _file____priv_temp_17993 = ((g_async_result_disposed_m7314982248589901250) == (3));
+                                                                                                                                                                            bool _file____priv_temp_17993 = ((g_async_result_disposed_m1186671634904895756) == (3));
                                                                                                                                                                             __yo_effect_escaped = 0;
                                                                                                                                                                             yo_id_6334_str_id_str_rtparam0_bool_rtparam1_comptime_str_ret_unit((bool)(_file____priv_temp_17993), (__yo_str)((__yo_str){ .ptr = (const uint8_t*)"discarded await result is disposed with the future", .len = 50 }));
                                                                                                                                                                             if (__yo_effect_escaped) {
@@ -26148,7 +26148,7 @@ switch (((_file____priv_temp_14660).data.Some.value).tag) {
                                                                                                                                                                                   __yo_decr_rc(__jh_future__file____priv_temp_18000);  // release the JoinHandle's reference
                                                                                                                                                                                 }
                                                                                                                                                                                 __yo_t162 r = _file____priv_temp_18000;
-                                                                                                                                                                                __yo_t58* _file____priv_temp_18004 = yo_id_2636_rtparam0_enum_yo_id_4022_value_R_struct_decl_77791_file____private_tmp_yo_vfix_tests__yo_selftest_batch_1_1_yo_i32_ret_R_struct_decl_77791_file____private_tmp_yo_vfix_tests__yo_selftest_batch_1_1_yo_i32(r);
+                                                                                                                                                                                __yo_t58* _file____priv_temp_18004 = yo_id_2636_rtparam0_enum_yo_id_4022_value_R_struct_decl_77791_file____private_tmp_yo_fsw_tests__yo_selftest_batch_1_1_yo_i32_ret_R_struct_decl_77791_file____private_tmp_yo_fsw_tests__yo_selftest_batch_1_1_yo_i32(r);
                                                                                                                                                                                 __yo_t58* v = _file____priv_temp_18004;
                                                                                                                                                                                 bool _file____priv_temp_18007 = ((v->id) == (41));
                                                                                                                                                                                 __yo_effect_escaped = 0;
@@ -26179,7 +26179,7 @@ switch (((_file____priv_temp_14660).data.Some.value).tag) {
 }
                                                                                                                                                                                   return;
                                                                                                                                                                                 }
-                                                                                                                                                                                bool _file____priv_temp_18009 = ((g_spawn_result_disposed_m7314982248589901250) == (0));
+                                                                                                                                                                                bool _file____priv_temp_18009 = ((g_spawn_result_disposed_m1186671634904895756) == (0));
                                                                                                                                                                                 __yo_effect_escaped = 0;
                                                                                                                                                                                 yo_id_6334_str_id_str_rtparam0_bool_rtparam1_comptime_str_ret_unit((bool)(_file____priv_temp_18009), (__yo_str)((__yo_str){ .ptr = (const uint8_t*)"still alive while v is in scope", .len = 31 }));
                                                                                                                                                                                 if (__yo_effect_escaped) {
@@ -26218,7 +26218,7 @@ switch ((r).tag) {
 }
                                                                                                                                                                                 if (task != NULL) { __yo_decr_rc((void*)task); };
                                                                                                                                                                               } // end begin block
-                                                                                                                                                                              bool _file____priv_temp_18012 = ((g_spawn_result_disposed_m7314982248589901250) == (1));
+                                                                                                                                                                              bool _file____priv_temp_18012 = ((g_spawn_result_disposed_m1186671634904895756) == (1));
                                                                                                                                                                               __yo_effect_escaped = 0;
                                                                                                                                                                               yo_id_6334_str_id_str_rtparam0_bool_rtparam1_comptime_str_ret_unit((bool)(_file____priv_temp_18012), (__yo_str)((__yo_str){ .ptr = (const uint8_t*)"disposed exactly once after scope end", .len = 37 }));
                                                                                                                                                                               if (__yo_effect_escaped) {
@@ -26372,7 +26372,7 @@ switch (((_file____priv_temp_14660).data.Some.value).tag) {
                                                                                                                                                                                   }
                                                                                                                                                                                   if (_file____priv_temp_18021 != NULL) { __yo_decr_rc((void*)_file____priv_temp_18021); };
                                                                                                                                                                                 } // end begin block
-                                                                                                                                                                                bool _file____priv_temp_18030 = ((g_branch_local_disposed_m7314982248589901250) == (0));
+                                                                                                                                                                                bool _file____priv_temp_18030 = ((g_branch_local_disposed_m1186671634904895756) == (0));
                                                                                                                                                                                 __yo_effect_escaped = 0;
                                                                                                                                                                                 yo_id_6334_str_id_str_rtparam0_bool_rtparam1_comptime_str_ret_unit((bool)(_file____priv_temp_18030), (__yo_str)((__yo_str){ .ptr = (const uint8_t*)"shared is still held by the test; its branch-local copy must not have been released twice", .len = 89 }));
                                                                                                                                                                                 if (__yo_effect_escaped) {
@@ -26564,7 +26564,7 @@ switch (((_file____priv_temp_14660).data.Some.value).tag) {
                                                                                                                                                                                   __yo_t9 _file____priv_temp_18056 = yo_id_6298((&(__yo_ref_spill_105)));
                                                                                                                                                                                   __yo_t9 _file____priv_temp_18057 = yo_id_5483(_file____priv_temp_18055, _file____priv_temp_18056);
                                                                                                                                                                                   __yo_effect_escaped = 0;
-                                                                                                                                                                                  yo_id_9658_String_id_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam0_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_unit((__yo_t9)(_file____priv_temp_18057));
+                                                                                                                                                                                  yo_id_9658_String_id_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam0_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_unit((__yo_t9)(_file____priv_temp_18057));
                                                                                                                                                                                   if (__yo_effect_escaped) {
                                                                                                                                                                                     // Drop local variables before early return
 switch ((_file____priv_temp_18057).tag) {
@@ -26685,7 +26685,7 @@ switch (((_file____priv_temp_14660).data.Some.value).tag) {
                                                                                                                                                                                   __yo_t9 _file____priv_temp_18084 = yo_id_6298((&(__yo_ref_spill_107)));
                                                                                                                                                                                   __yo_t9 _file____priv_temp_18085 = yo_id_5483(_file____priv_temp_18083, _file____priv_temp_18084);
                                                                                                                                                                                   __yo_effect_escaped = 0;
-                                                                                                                                                                                  yo_id_6334_String_id_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam0_bool_rtparam1_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_unit((bool)(_file____priv_temp_18075), (__yo_t9)(_file____priv_temp_18085));
+                                                                                                                                                                                  yo_id_6334_String_id_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam0_bool_rtparam1_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_unit((bool)(_file____priv_temp_18075), (__yo_t9)(_file____priv_temp_18085));
                                                                                                                                                                                   if (__yo_effect_escaped) {
                                                                                                                                                                                     // Drop local variables before early return
 switch ((_file____priv_temp_18085).tag) {
@@ -27250,7 +27250,7 @@ static inline __yo_t8 yo_id_12564(__yo_t9 name) {
   if (val_ptr != NULL) {
     char* ptr = val_ptr;
     __yo_t11 _file____priv_temp_14462 = yo_id_5009(((uint8_t*)(ptr)));
-    __yo_t9 _file____priv_temp_14463 = yo_id_2894_rtparam0_enum_yo_id_4904_value_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_error_enum_decl_95467_file____private_tmp_yo_vfix_std_string_string_yo_cause_enum_decl_118950_file____private_tmp_yo_vfix_std_encoding_utf8_yo_index_usize_byte_u8_index_usize_expected_usize_available_usize_index_usize_offset_usize_byte_u8_index_usize_code_u32_index_usize_code_u32_index_usize_code_u32_index_usize_length_usize_ret_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8(_file____priv_temp_14462);
+    __yo_t9 _file____priv_temp_14463 = yo_id_2894_rtparam0_enum_yo_id_4904_value_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_error_enum_decl_95467_file____private_tmp_yo_fsw_std_string_string_yo_cause_enum_decl_118950_file____private_tmp_yo_fsw_std_encoding_utf8_yo_index_usize_byte_u8_index_usize_expected_usize_available_usize_index_usize_offset_usize_byte_u8_index_usize_code_u32_index_usize_code_u32_index_usize_code_u32_index_usize_length_usize_ret_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8(_file____priv_temp_14462);
     __yo_t8 _file____priv_temp_14465 = (__yo_t8){ .tag = __YO_T8_SOME, .data = { .Some = { .value = _file____priv_temp_14463 } } };
 switch ((_file____priv_temp_14462).tag) {
   case __YO_T11_OK: {
@@ -27322,7 +27322,7 @@ static inline __yo_t0* yo_id_5018(__yo_t9 self) {
     break;
   }
   }
-  __yo_t5 _file____priv_temp_5164 = yo_id_4215_rtparam0_R_gs_yo_id_4152_u8_rtparam1_u8_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_vfix_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_vfix_std_allocator_yo_index_usize_length_usize(bytes_with_null, 0);
+  __yo_t5 _file____priv_temp_5164 = yo_id_4215_rtparam0_R_gs_yo_id_4152_u8_rtparam1_u8_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_fsw_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_fsw_std_allocator_yo_index_usize_length_usize(bytes_with_null, 0);
   return bytes_with_null;
 }
 static inline size_t yo_id_4159_rtparam0_R_gs_yo_id_4152_u8_ret_usize(__yo_t0* self) {
@@ -27464,7 +27464,7 @@ static inline void yo_id_4261_rtparam0_R_gs_yo_id_4152_u8_rtparam1_usize_ret_uni
     }
   }
 }
-static inline __yo_t5 yo_id_4215_rtparam0_R_gs_yo_id_4152_u8_rtparam1_u8_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_vfix_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_vfix_std_allocator_yo_index_usize_length_usize(__yo_t0* self, uint8_t value) {
+static inline __yo_t5 yo_id_4215_rtparam0_R_gs_yo_id_4152_u8_rtparam1_u8_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_fsw_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_fsw_std_allocator_yo_index_usize_length_usize(__yo_t0* self, uint8_t value) {
   __yo_t5 _file____priv_temp_4859;
   if (((self->_length) >= (self->_capacity))) {
     size_t _file____priv_temp_4809;
@@ -27532,7 +27532,7 @@ static inline __yo_t5 yo_id_4215_rtparam0_R_gs_yo_id_4152_u8_rtparam1_u8_ret_enu
   }
   return _file____priv_temp_4859;
 }
-static inline __yo_t9 yo_id_2894_rtparam0_enum_yo_id_4904_value_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_error_enum_decl_95467_file____private_tmp_yo_vfix_std_string_string_yo_cause_enum_decl_118950_file____private_tmp_yo_vfix_std_encoding_utf8_yo_index_usize_byte_u8_index_usize_expected_usize_available_usize_index_usize_offset_usize_byte_u8_index_usize_code_u32_index_usize_code_u32_index_usize_code_u32_index_usize_length_usize_ret_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8(__yo_t11 self) {
+static inline __yo_t9 yo_id_2894_rtparam0_enum_yo_id_4904_value_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_error_enum_decl_95467_file____private_tmp_yo_fsw_std_string_string_yo_cause_enum_decl_118950_file____private_tmp_yo_fsw_std_encoding_utf8_yo_index_usize_byte_u8_index_usize_expected_usize_available_usize_index_usize_offset_usize_byte_u8_index_usize_code_u32_index_usize_code_u32_index_usize_code_u32_index_usize_length_usize_ret_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8(__yo_t11 self) {
   __yo_t9 _file____priv_temp_7322;
   switch ((self).tag) {
   case __YO_T11_OK: {
@@ -27697,7 +27697,7 @@ static inline _file____priv_temp_11061_sync_fut_t* yo_id_10013(__yo_t14 io) {
   memset(_file____priv_temp_11061, 0, sizeof(_file____priv_temp_11061_sync_fut_t));
   _file____priv_temp_11061->header.ref_count = 1;
   _file____priv_temp_11061->header.type_id = 19;
-  _file____priv_temp_11061->__capture = (__yo_t172){0};
+  _file____priv_temp_11061->__capture = (__yo_t173){0};
   _file____priv_temp_11061->state = 0;
   _file____priv_temp_11061->__yo_resume_fn = _file____priv_temp_11061_sync_fut_t_resume;
   _file____priv_temp_11061->__yo_set_effect_fn = _file____priv_temp_11061_sync_fut_t_set_effect;
@@ -27847,7 +27847,7 @@ static inline _file____priv_temp_14161_state_t* yo_id_12297(int32_t value, __yo_
 static inline _file____priv_temp_14150_state_t* yo_id_12287(bool value, __yo_t14 io) {
   __yo_t17* _file____priv_temp_14143 = __yo_new___yo_t17(value);
   __yo_t17* local = _file____priv_temp_14143;
-  _file____priv_temp_14150_state_t* _file____priv_temp_14150 = __yo_new__file____priv_temp_14150((__yo_t175){.local = ((__yo_t17*)__yo_incr_rc((void*)(local))), .io = io});
+  _file____priv_temp_14150_state_t* _file____priv_temp_14150 = __yo_new__file____priv_temp_14150((__yo_t176){.local = ((__yo_t17*)__yo_incr_rc((void*)(local))), .io = io});
   _file____priv_temp_14150_state_t* __yo_scope_ret = _file____priv_temp_14150;
   __yo_decr_rc((void*)(local));
   return __yo_scope_ret;
@@ -27863,7 +27863,7 @@ static inline _file____priv_temp_14140_state_t* yo_id_12275(int32_t v, int32_t l
   __yo_t16* a = _file____priv_temp_14128;
   __yo_t16* _file____priv_temp_14129 = __yo_new___yo_t16(limit);
   __yo_t16* b = _file____priv_temp_14129;
-  _file____priv_temp_14140_state_t* _file____priv_temp_14140 = __yo_new__file____priv_temp_14140((__yo_t174){.a = ((__yo_t16*)__yo_incr_rc((void*)(a))), .b = ((__yo_t16*)__yo_incr_rc((void*)(b))), .io = io});
+  _file____priv_temp_14140_state_t* _file____priv_temp_14140 = __yo_new__file____priv_temp_14140((__yo_t175){.a = ((__yo_t16*)__yo_incr_rc((void*)(a))), .b = ((__yo_t16*)__yo_incr_rc((void*)(b))), .io = io});
   _file____priv_temp_14140_state_t* __yo_scope_ret = _file____priv_temp_14140;
   __yo_decr_rc((void*)(b));
   __yo_decr_rc((void*)(a));
@@ -28017,7 +28017,7 @@ static inline __yo_t25* yo_id_4166__ret_R_gs_yo_id_4152_i32() {
   __yo_t25* _file____priv_temp_16345 = __yo_new___yo_t25(NULL, 0ULL, 0ULL);
   return _file____priv_temp_16345;
 }
-static inline __yo_t5 yo_id_4215_rtparam0_R_gs_yo_id_4152_i32_rtparam1_i32_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_vfix_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_vfix_std_allocator_yo_index_usize_length_usize(__yo_t25* self, int32_t value) {
+static inline __yo_t5 yo_id_4215_rtparam0_R_gs_yo_id_4152_i32_rtparam1_i32_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_fsw_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_fsw_std_allocator_yo_index_usize_length_usize(__yo_t25* self, int32_t value) {
   __yo_t5 _file____priv_temp_16413;
   if (((self->_length) >= (self->_capacity))) {
     size_t _file____priv_temp_16363;
@@ -28119,7 +28119,7 @@ static inline __yo_t9 yo_id_6111(int32_t* self) {
   uint8_t* buffer_ptr = _file____priv_temp_7337;
   snprintf(((char*)(buffer_ptr)), 24ULL, "%d", (*self));
   __yo_t11 _file____priv_temp_7340 = yo_id_5009(buffer_ptr);
-  __yo_t9 _file____priv_temp_7341 = yo_id_2894_rtparam0_enum_yo_id_4904_value_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_error_enum_decl_95467_file____private_tmp_yo_vfix_std_string_string_yo_cause_enum_decl_118950_file____private_tmp_yo_vfix_std_encoding_utf8_yo_index_usize_byte_u8_index_usize_expected_usize_available_usize_index_usize_offset_usize_byte_u8_index_usize_code_u32_index_usize_code_u32_index_usize_code_u32_index_usize_length_usize_ret_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8(_file____priv_temp_7340);
+  __yo_t9 _file____priv_temp_7341 = yo_id_2894_rtparam0_enum_yo_id_4904_value_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_error_enum_decl_95467_file____private_tmp_yo_fsw_std_string_string_yo_cause_enum_decl_118950_file____private_tmp_yo_fsw_std_encoding_utf8_yo_index_usize_byte_u8_index_usize_expected_usize_available_usize_index_usize_offset_usize_byte_u8_index_usize_code_u32_index_usize_code_u32_index_usize_code_u32_index_usize_length_usize_ret_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8(_file____priv_temp_7340);
   __yo_t9 __yo_scope_ret = _file____priv_temp_7341;
 switch ((_file____priv_temp_7340).tag) {
   case __YO_T11_OK: {
@@ -28163,7 +28163,7 @@ switch ((temp_dup_enum_yo_id_15329).tag) {
   return _file____priv_temp_14165;
 }
 static inline _file____priv_temp_14191_state_t* yo_id_12312(__yo_t31* c, __yo_t14 rio) {
-  _file____priv_temp_14191_state_t* _file____priv_temp_14191 = __yo_new__file____priv_temp_14191((__yo_t182){.c = ((__yo_t31*)__yo_incr_rc((void*)(c)))});
+  _file____priv_temp_14191_state_t* _file____priv_temp_14191 = __yo_new__file____priv_temp_14191((__yo_t181){.c = ((__yo_t31*)__yo_incr_rc((void*)(c)))});
   return _file____priv_temp_14191;
 }
 static inline _file____priv_temp_16610_state_t* yo_id_13961(__yo_t30 k, __yo_t14 rio) {
@@ -28171,7 +28171,7 @@ static inline _file____priv_temp_16610_state_t* yo_id_13961(__yo_t30 k, __yo_t14
   return _file____priv_temp_16610;
 }
 static inline _file____priv_temp_14198_state_t* yo_id_12330(__yo_t14 io) {
-  _file____priv_temp_14198_state_t* _file____priv_temp_14198 = __yo_new__file____priv_temp_14198((__yo_t184){});
+  _file____priv_temp_14198_state_t* _file____priv_temp_14198 = __yo_new__file____priv_temp_14198((__yo_t183){});
   return _file____priv_temp_14198;
 }
 static inline _file____priv_temp_16655_state_t* yo_id_14000(size_t n, __yo_t14 rio) {
@@ -28206,7 +28206,7 @@ static inline __yo_t35* yo_id_4166__ret_R_gs_yo_id_4152_usize() {
   __yo_t35* _file____priv_temp_16862 = __yo_new___yo_t35(NULL, 0ULL, 0ULL);
   return _file____priv_temp_16862;
 }
-static inline __yo_t5 yo_id_4215_rtparam0_R_gs_yo_id_4152_usize_rtparam1_usize_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_vfix_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_vfix_std_allocator_yo_index_usize_length_usize(__yo_t35* self, size_t value) {
+static inline __yo_t5 yo_id_4215_rtparam0_R_gs_yo_id_4152_usize_rtparam1_usize_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_fsw_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_fsw_std_allocator_yo_index_usize_length_usize(__yo_t35* self, size_t value) {
   __yo_t5 _file____priv_temp_16929;
   if (((self->_length) >= (self->_capacity))) {
     size_t _file____priv_temp_16878;
@@ -28321,7 +28321,7 @@ static inline _file____priv_temp_14264_state_t* yo_id_12377(__yo_t14 io, __yo_t3
   return _file____priv_temp_14264;
 }
 static inline _file____priv_temp_14227_state_t* yo_id_12366(__yo_t14 io) {
-  _file____priv_temp_14227_state_t* _file____priv_temp_14227 = __yo_new__file____priv_temp_14227((__yo_t173){});
+  _file____priv_temp_14227_state_t* _file____priv_temp_14227 = __yo_new__file____priv_temp_14227((__yo_t174){});
   return _file____priv_temp_14227;
 }
 static inline __yo_t39 yo_id_12352(__yo_t9 content) {
@@ -28533,7 +28533,7 @@ static inline __yo_t9 yo_id_5994(__yo_t9* self) {
 static inline __yo_t169 fn_yo_id_9851(__yo_t9* self) {
   return (__yo_t169){ .tag = __YO_T169_NONE };
 }
-static inline __yo_t40* yo_id_3192_String_id_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam0_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_R_gs_yo_id_3188_1237(__yo_t9 value) {
+static inline __yo_t40* yo_id_3192_String_id_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam0_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_R_gs_yo_id_3188_1237(__yo_t9 value) {
 __yo_t10 temp_dup_enum_yo_id_15350 = value;
 switch ((temp_dup_enum_yo_id_15350).tag) {
   case __YO_T10_SOME: {
@@ -28546,11 +28546,11 @@ switch ((temp_dup_enum_yo_id_15350).tag) {
   __yo_t40* _file____priv_temp_14254 = __yo_new___yo_t40(value);
   return _file____priv_temp_14254;
 }
-static inline __yo_t42* yo_id_4166__ret_R_gs_yo_id_4152_R_struct_decl_77202_file____private_tmp_yo_vfix_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize() {
+static inline __yo_t42* yo_id_4166__ret_R_gs_yo_id_4152_R_struct_decl_77202_file____private_tmp_yo_fsw_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize() {
   __yo_t42* _file____priv_temp_17055 = __yo_new___yo_t42(NULL, 0ULL, 0ULL);
   return _file____priv_temp_17055;
 }
-static inline __yo_t5 yo_id_4215_rtparam0_R_gs_yo_id_4152_R_struct_decl_77202_file____private_tmp_yo_vfix_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_rtparam1_R_struct_decl_77202_file____private_tmp_yo_vfix_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_vfix_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_vfix_std_allocator_yo_index_usize_length_usize(__yo_t42* self, __yo_t44* value) {
+static inline __yo_t5 yo_id_4215_rtparam0_R_gs_yo_id_4152_R_struct_decl_77202_file____private_tmp_yo_fsw_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_rtparam1_R_struct_decl_77202_file____private_tmp_yo_fsw_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_fsw_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_fsw_std_allocator_yo_index_usize_length_usize(__yo_t42* self, __yo_t44* value) {
   __yo_t5 _file____priv_temp_17123;
   if (((self->_length) >= (self->_capacity))) {
     size_t _file____priv_temp_17073;
@@ -28624,11 +28624,11 @@ static inline _file____priv_temp_14315_state_t* yo_id_12408(__yo_t42* items, __y
   _file____priv_temp_14315_state_t* _file____priv_temp_14315 = __yo_new__file____priv_temp_14315((__yo_t192){.items = ((__yo_t42*)__yo_incr_rc((void*)(items))), .io = io});
   return _file____priv_temp_14315;
 }
-static inline size_t yo_id_4159_rtparam0_R_gs_yo_id_4152_R_struct_decl_77202_file____private_tmp_yo_vfix_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_ret_usize(__yo_t42* self) {
+static inline size_t yo_id_4159_rtparam0_R_gs_yo_id_4152_R_struct_decl_77202_file____private_tmp_yo_fsw_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_ret_usize(__yo_t42* self) {
   size_t _file____priv_temp_14268 = self->_length;
   return _file____priv_temp_14268;
 }
-static inline __yo_t44** yo_id_4270_rtparam0_R_gs_yo_id_4152_R_struct_decl_77202_file____private_tmp_yo_vfix_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_rtparam1_usize_ret___R_struct_decl_77202_file____private_tmp_yo_vfix_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_(__yo_t42** self, size_t idx) {
+static inline __yo_t44** yo_id_4270_rtparam0_R_gs_yo_id_4152_R_struct_decl_77202_file____private_tmp_yo_fsw_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_rtparam1_usize_ret___R_struct_decl_77202_file____private_tmp_yo_fsw_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_(__yo_t42** self, size_t idx) {
   if (((idx) >= ((*self)->_length))) {
     fprintf(stderr, "%s\n", "\"ArrayList: index out of bounds\"");
     abort();
@@ -28705,11 +28705,11 @@ static inline _file____priv_temp_17319_state_t* yo_id_14417(__yo_t14 rio) {
   _file____priv_temp_17319_state_t* _file____priv_temp_17319 = __yo_new__file____priv_temp_17319((__yo_t143){});
   return _file____priv_temp_17319;
 }
-static inline __yo_t47* yo_id_4166__ret_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8() {
+static inline __yo_t47* yo_id_4166__ret_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8() {
   __yo_t47* _file____priv_temp_5521 = __yo_new___yo_t47(NULL, 0ULL, 0ULL);
   return _file____priv_temp_5521;
 }
-static inline __yo_t5 yo_id_4215_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam1_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_vfix_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_vfix_std_allocator_yo_index_usize_length_usize(__yo_t47* self, __yo_t9 value) {
+static inline __yo_t5 yo_id_4215_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam1_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_fsw_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_fsw_std_allocator_yo_index_usize_length_usize(__yo_t47* self, __yo_t9 value) {
   __yo_t5 _file____priv_temp_5614;
   if (((self->_length) >= (self->_capacity))) {
     size_t _file____priv_temp_5563;
@@ -28795,11 +28795,11 @@ switch ((temp_dup_enum_yo_id_15357).tag) {
   }
   return _file____priv_temp_5614;
 }
-static inline size_t yo_id_4159_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_usize(__yo_t47* self) {
+static inline size_t yo_id_4159_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_usize(__yo_t47* self) {
   size_t _file____priv_temp_6748 = self->_length;
   return _file____priv_temp_6748;
 }
-static inline __yo_t8 yo_id_4227_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam1_usize_ret_enum_yo_id_4226_value_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8(__yo_t47* self, size_t index) {
+static inline __yo_t8 yo_id_4227_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam1_usize_ret_enum_yo_id_4226_value_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8(__yo_t47* self, size_t index) {
   __yo_t8 _file____priv_temp_6771;
   if (((index) >= (self->_length))) {
     _file____priv_temp_6771 = (__yo_t8){ .tag = __YO_T8_NONE };
@@ -28842,7 +28842,7 @@ static inline __yo_t9 fn_yo_id_10420(__yo_t50** self) {
   __yo_t9 result = _file____priv_temp_11949;
   bool __yo_sc_yo_id_15359 = false;
   if ((!((*self)->_is_absolute))) {
-    size_t _file____priv_temp_11955 = yo_id_4159_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_usize(segments);
+    size_t _file____priv_temp_11955 = yo_id_4159_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_usize(segments);
     __yo_sc_yo_id_15359 = ((_file____priv_temp_11955) == (0ULL));
   }
   if (__yo_sc_yo_id_15359) {
@@ -28868,9 +28868,9 @@ switch ((sep).tag) {
   else {
   }
   bool _file____priv_temp_11996;
-  size_t _file____priv_temp_11963 = yo_id_4159_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_usize(segments);
+  size_t _file____priv_temp_11963 = yo_id_4159_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_usize(segments);
   if (((_file____priv_temp_11963) > (0ULL))) {
-    __yo_t8 _file____priv_temp_11966 = yo_id_4227_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam1_usize_ret_enum_yo_id_4226_value_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8(segments, 0ULL);
+    __yo_t8 _file____priv_temp_11966 = yo_id_4227_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam1_usize_ret_enum_yo_id_4226_value_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8(segments, 0ULL);
     __yo_t8 first_seg_opt = _file____priv_temp_11966;
     bool _file____priv_temp_11993;
     switch ((first_seg_opt).tag) {
@@ -28981,14 +28981,14 @@ switch ((_file____priv_temp_12001).tag) {
   else {
   }
   size_t i = 0ULL;
-  size_t _file____priv_temp_12005 = yo_id_4159_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_usize(segments);
+  size_t _file____priv_temp_12005 = yo_id_4159_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_usize(segments);
   size_t segments_len = _file____priv_temp_12005;
   while (true) {
     if (!(((i) < (segments_len)))) {
       break;
     }
     { // begin block (loop body)
-    __yo_t8 _file____priv_temp_12008 = yo_id_4227_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam1_usize_ret_enum_yo_id_4226_value_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8(segments, i);
+    __yo_t8 _file____priv_temp_12008 = yo_id_4227_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam1_usize_ret_enum_yo_id_4226_value_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8(segments, i);
     __yo_t8 seg = _file____priv_temp_12008;
     switch ((seg).tag) {
     case __YO_T8_SOME: {
@@ -29106,7 +29106,7 @@ static inline __yo_io_future_t* yo_id_10565(int32_t dirfd, uint8_t* path, int32_
   return __yo_async_statx_start(dirfd, path, flags, mask, statxbuf);
 }
 static inline __yo_t50* yo_id_10119(__yo_t9 path_str) {
-  __yo_t47* _file____priv_temp_11168 = yo_id_4166__ret_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8();
+  __yo_t47* _file____priv_temp_11168 = yo_id_4166__ret_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8();
   __yo_t47* segments = _file____priv_temp_11168;
   bool is_abs = false;
   bool _file____priv_temp_11170 = yo_id_5031(path_str);
@@ -29188,16 +29188,16 @@ static inline __yo_t50* yo_id_10119(__yo_t9 path_str) {
   }
   __yo_t9 _file____priv_temp_11220 = yo_id_4978((__yo_str){ .ptr = (const uint8_t*)"/", .len = 1 });
   __yo_t9 sep = _file____priv_temp_11220;
-  __yo_t47* _file____priv_temp_11222 = yo_id_5665_String_id_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam0_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam1_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8(normalized, sep);
+  __yo_t47* _file____priv_temp_11222 = yo_id_5665_String_id_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam0_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam1_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8(normalized, sep);
   __yo_t47* parts = _file____priv_temp_11222;
   size_t i = 0ULL;
   while (true) {
-    size_t _file____priv_temp_11224 = yo_id_4159_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_usize(parts);
+    size_t _file____priv_temp_11224 = yo_id_4159_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_usize(parts);
     if (!(((i) < (_file____priv_temp_11224)))) {
       break;
     }
     { // begin block (loop body)
-    __yo_t8 _file____priv_temp_11227 = yo_id_4227_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam1_usize_ret_enum_yo_id_4226_value_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8(parts, i);
+    __yo_t8 _file____priv_temp_11227 = yo_id_4227_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam1_usize_ret_enum_yo_id_4226_value_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8(parts, i);
     __yo_t8 part_opt = _file____priv_temp_11227;
     switch ((part_opt).tag) {
     case __YO_T8_SOME: {
@@ -29282,9 +29282,9 @@ static inline __yo_t50* yo_id_10119(__yo_t9 path_str) {
         }
         else {
           if (is_dotdot) {
-            size_t _file____priv_temp_11262 = yo_id_4159_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_usize(segments);
+            size_t _file____priv_temp_11262 = yo_id_4159_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_usize(segments);
             if (((_file____priv_temp_11262) > (0ULL))) {
-              __yo_t8 _file____priv_temp_11289 = yo_id_4218_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_enum_yo_id_4226_value_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8(segments);
+              __yo_t8 _file____priv_temp_11289 = yo_id_4218_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_enum_yo_id_4226_value_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8(segments);
 switch ((_file____priv_temp_11289).tag) {
   case __YO_T8_SOME: {
 switch (((_file____priv_temp_11289).data.Some.value).tag) {
@@ -29303,7 +29303,7 @@ switch (((_file____priv_temp_11289).data.Some.value).tag) {
             }
           }
           else {
-            __yo_t5 _file____priv_temp_11294 = yo_id_4215_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam1_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_vfix_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_vfix_std_allocator_yo_index_usize_length_usize(segments, part);
+            __yo_t5 _file____priv_temp_11294 = yo_id_4215_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam1_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_fsw_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_fsw_std_allocator_yo_index_usize_length_usize(segments, part);
           }
         }
       }
@@ -29531,7 +29531,7 @@ switch ((temp_dup_enum_yo_id_15377).tag) {
             switch ((byte_opt).tag) {
             case __YO_T49_SOME: {
               uint8_t byte = byte_opt.data.Some.value;
-              __yo_t5 _file____priv_temp_6044 = yo_id_4215_rtparam0_R_gs_yo_id_4152_u8_rtparam1_u8_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_vfix_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_vfix_std_allocator_yo_index_usize_length_usize(new_bytes, byte);
+              __yo_t5 _file____priv_temp_6044 = yo_id_4215_rtparam0_R_gs_yo_id_4152_u8_rtparam1_u8_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_fsw_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_fsw_std_allocator_yo_index_usize_length_usize(new_bytes, byte);
               break;
             }
             case __YO_T49_NONE: {
@@ -29568,7 +29568,7 @@ switch ((temp_dup_enum_yo_id_15377).tag) {
   }
   return _file____priv_temp_6068;
 }
-static inline __yo_t47* yo_id_5665_String_id_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam0_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam1_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8(__yo_t9 self, __yo_t9 separator) {
+static inline __yo_t47* yo_id_5665_String_id_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam0_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam1_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8(__yo_t9 self, __yo_t9 separator) {
   __yo_t47* _file____priv_temp_11221 = yo_id_5612(separator, self);
   return _file____priv_temp_11221;
 }
@@ -29577,7 +29577,7 @@ static inline __yo_t47* yo_id_5612(__yo_t9 self, __yo_t9 haystack) {
   return _file____priv_temp_6448;
 }
 static inline __yo_t47* yo_id_5192(__yo_t9 self, __yo_t9 separator) {
-  __yo_t47* _file____priv_temp_5520 = yo_id_4166__ret_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8();
+  __yo_t47* _file____priv_temp_5520 = yo_id_4166__ret_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8();
   __yo_t47* result = _file____priv_temp_5520;
   bool _file____priv_temp_5523 = yo_id_5031(separator);
   if (_file____priv_temp_5523) {
@@ -29604,7 +29604,7 @@ static inline __yo_t47* yo_id_5192(__yo_t9 self, __yo_t9 separator) {
         size_t _file____priv_temp_5545 = yo_id_4552((uint8_t)(_file____priv_temp_5544));
         size_t w = _file____priv_temp_5545;
         __yo_t9 _file____priv_temp_5547 = yo_id_5146(self, pos, ((pos) + (w)));
-        __yo_t5 _file____priv_temp_5615 = yo_id_4215_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam1_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_vfix_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_vfix_std_allocator_yo_index_usize_length_usize(result, _file____priv_temp_5547);
+        __yo_t5 _file____priv_temp_5615 = yo_id_4215_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam1_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_fsw_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_fsw_std_allocator_yo_index_usize_length_usize(result, _file____priv_temp_5547);
         size_t _file____priv_temp_5617 = pos; // Save old value for later use
         pos = ((pos) + (w));
 switch ((_file____priv_temp_5547).tag) {
@@ -29635,7 +29635,7 @@ switch ((_file____priv_temp_5547).tag) {
         __yo_decr_rc((void*)(result));
         return (__yo_t47*){0};
       }
-      __yo_t5 _file____priv_temp_5622 = yo_id_4215_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam1_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_vfix_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_vfix_std_allocator_yo_index_usize_length_usize(result, _file____priv_temp_5621);
+      __yo_t5 _file____priv_temp_5622 = yo_id_4215_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam1_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_fsw_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_fsw_std_allocator_yo_index_usize_length_usize(result, _file____priv_temp_5621);
       ((__yo_t47*)__yo_incr_rc((void*)(result)));
       // Drop local variables before early return
 switch ((_file____priv_temp_5621).tag) {
@@ -29667,7 +29667,7 @@ switch ((_file____priv_temp_5621).tag) {
           __yo_decr_rc((void*)(result));
           return (__yo_t47*){0};
         }
-        __yo_t5 _file____priv_temp_5626 = yo_id_4215_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam1_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_vfix_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_vfix_std_allocator_yo_index_usize_length_usize(result, _file____priv_temp_5625);
+        __yo_t5 _file____priv_temp_5626 = yo_id_4215_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam1_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_fsw_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_fsw_std_allocator_yo_index_usize_length_usize(result, _file____priv_temp_5625);
         ((__yo_t47*)__yo_incr_rc((void*)(result)));
         // Drop local variables before early return
 switch ((_file____priv_temp_5625).tag) {
@@ -29694,7 +29694,7 @@ switch ((_file____priv_temp_5625).tag) {
         __yo_t10 _file____priv_temp_5628 = separator;
         switch ((_file____priv_temp_5628).tag) {
         case __YO_T10_NONE: {
-          __yo_t5 _file____priv_temp_5629 = yo_id_4215_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam1_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_vfix_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_vfix_std_allocator_yo_index_usize_length_usize(result, self);
+          __yo_t5 _file____priv_temp_5629 = yo_id_4215_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam1_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_fsw_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_fsw_std_allocator_yo_index_usize_length_usize(result, self);
           ((__yo_t47*)__yo_incr_rc((void*)(result)));
           // Drop local variables before early return
           __yo_decr_rc((void*)(result));
@@ -29773,7 +29773,7 @@ switch ((_file____priv_temp_5625).tag) {
               size_t _file____priv_temp_5667 = yo_id_4159_rtparam0_R_gs_yo_id_4152_u8_ret_usize(current_bytes);
               if (((_file____priv_temp_5667) == (0ULL))) {
                 __yo_t9 _file____priv_temp_5670 = ((__yo_t9)((__yo_t10){ .tag = __YO_T10_NONE }));
-                __yo_t5 _file____priv_temp_5672 = yo_id_4215_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam1_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_vfix_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_vfix_std_allocator_yo_index_usize_length_usize(result, _file____priv_temp_5670);
+                __yo_t5 _file____priv_temp_5672 = yo_id_4215_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam1_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_fsw_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_fsw_std_allocator_yo_index_usize_length_usize(result, _file____priv_temp_5670);
 switch ((_file____priv_temp_5670).tag) {
   case __YO_T10_SOME: {
     __yo_decr_rc((void*)((_file____priv_temp_5670).data.Some.value));
@@ -29787,7 +29787,7 @@ switch ((_file____priv_temp_5670).tag) {
                 ((__yo_t0*)__yo_incr_rc((void*)(current_bytes)));
                 __yo_t10 _file____priv_temp_5673 = (__yo_t10){ .tag = __YO_T10_SOME, .data = { .Some = { .value = current_bytes } } };
                 __yo_t9 _file____priv_temp_5674 = ((__yo_t9)(_file____priv_temp_5673));
-                __yo_t5 _file____priv_temp_5676 = yo_id_4215_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam1_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_vfix_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_vfix_std_allocator_yo_index_usize_length_usize(result, _file____priv_temp_5674);
+                __yo_t5 _file____priv_temp_5676 = yo_id_4215_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam1_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_fsw_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_fsw_std_allocator_yo_index_usize_length_usize(result, _file____priv_temp_5674);
 switch ((_file____priv_temp_5674).tag) {
   case __YO_T10_SOME: {
     __yo_decr_rc((void*)((_file____priv_temp_5674).data.Some.value));
@@ -29810,7 +29810,7 @@ switch ((_file____priv_temp_5674).tag) {
               switch ((byte_opt).tag) {
               case __YO_T49_SOME: {
                 uint8_t byte = byte_opt.data.Some.value;
-                __yo_t5 _file____priv_temp_5686 = yo_id_4215_rtparam0_R_gs_yo_id_4152_u8_rtparam1_u8_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_vfix_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_vfix_std_allocator_yo_index_usize_length_usize(current_bytes, byte);
+                __yo_t5 _file____priv_temp_5686 = yo_id_4215_rtparam0_R_gs_yo_id_4152_u8_rtparam1_u8_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_fsw_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_fsw_std_allocator_yo_index_usize_length_usize(current_bytes, byte);
                 break;
               }
               case __YO_T49_NONE: {
@@ -29827,7 +29827,7 @@ switch ((_file____priv_temp_5674).tag) {
           size_t _file____priv_temp_5696 = yo_id_4159_rtparam0_R_gs_yo_id_4152_u8_ret_usize(current_bytes);
           if (((_file____priv_temp_5696) == (0ULL))) {
             __yo_t9 _file____priv_temp_5699 = ((__yo_t9)((__yo_t10){ .tag = __YO_T10_NONE }));
-            __yo_t5 _file____priv_temp_5701 = yo_id_4215_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam1_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_vfix_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_vfix_std_allocator_yo_index_usize_length_usize(result, _file____priv_temp_5699);
+            __yo_t5 _file____priv_temp_5701 = yo_id_4215_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam1_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_fsw_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_fsw_std_allocator_yo_index_usize_length_usize(result, _file____priv_temp_5699);
 switch ((_file____priv_temp_5699).tag) {
   case __YO_T10_SOME: {
     __yo_decr_rc((void*)((_file____priv_temp_5699).data.Some.value));
@@ -29841,7 +29841,7 @@ switch ((_file____priv_temp_5699).tag) {
             ((__yo_t0*)__yo_incr_rc((void*)(current_bytes)));
             __yo_t10 _file____priv_temp_5702 = (__yo_t10){ .tag = __YO_T10_SOME, .data = { .Some = { .value = current_bytes } } };
             __yo_t9 _file____priv_temp_5703 = ((__yo_t9)(_file____priv_temp_5702));
-            __yo_t5 _file____priv_temp_5705 = yo_id_4215_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam1_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_vfix_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_vfix_std_allocator_yo_index_usize_length_usize(result, _file____priv_temp_5703);
+            __yo_t5 _file____priv_temp_5705 = yo_id_4215_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam1_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_fsw_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_fsw_std_allocator_yo_index_usize_length_usize(result, _file____priv_temp_5703);
 switch ((_file____priv_temp_5703).tag) {
   case __YO_T10_SOME: {
     __yo_decr_rc((void*)((_file____priv_temp_5703).data.Some.value));
@@ -30036,7 +30036,7 @@ static inline bool yo_id_5061(__yo_t9 self, size_t index) {
 static inline bool yo_id_4540(uint8_t b) {
   return ((((b) & (192))) != (128));
 }
-static inline __yo_t8 yo_id_4218_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_enum_yo_id_4226_value_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8(__yo_t47* self) {
+static inline __yo_t8 yo_id_4218_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_enum_yo_id_4226_value_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8(__yo_t47* self) {
   __yo_t8 _file____priv_temp_11288;
   if (((self->_length) == (0ULL))) {
     _file____priv_temp_11288 = (__yo_t8){ .tag = __YO_T8_NONE };
@@ -30104,7 +30104,7 @@ static inline void* fn_yo_id_14503(__yo_t167 _err) {
   return (void*){0};  // implicit unit resume (ctl handler fall-through)
 }
 static inline _file____priv_temp_14322_state_t* yo_id_12432(__yo_t14 io) {
-  _file____priv_temp_14322_state_t* _file____priv_temp_14322 = __yo_new__file____priv_temp_14322((__yo_t183){.io = io});
+  _file____priv_temp_14322_state_t* _file____priv_temp_14322 = __yo_new__file____priv_temp_14322((__yo_t182){.io = io});
   return _file____priv_temp_14322;
 }
 static inline _file____priv_temp_14332_state_t* yo_id_12440(__yo_t14 io) {
@@ -30206,7 +30206,7 @@ static inline __yo_t51 yo_id_12163() {
     __yo_t9 _file____priv_temp_13992 = yo_id_6298((&(__yo_ref_spill_113)));
     __yo_t9 _file____priv_temp_13993 = yo_id_5483(_file____priv_temp_13991, _file____priv_temp_13992);
     __yo_effect_escaped = 0;
-    yo_id_6333_String_id_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam0_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_unit((__yo_t9)(_file____priv_temp_13993));
+    yo_id_6333_String_id_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam0_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_unit((__yo_t9)(_file____priv_temp_13993));
 switch ((_file____priv_temp_13993).tag) {
   case __YO_T10_SOME: {
     __yo_decr_rc((void*)((_file____priv_temp_13993).data.Some.value));
@@ -30252,7 +30252,7 @@ switch ((_file____priv_temp_13989).tag) {
 static inline int32_t yo_id_12156(int32_t clock_id, int64_t* sec, int64_t* nsec) {
   return __yo_sync_clock_gettime(clock_id, sec, nsec);
 }
-static inline void yo_id_6333_String_id_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam0_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_unit(__yo_t9 msg) {
+static inline void yo_id_6333_String_id_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam0_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_unit(__yo_t9 msg) {
   __yo_t9 _file____priv_temp_9777 = yo_id_6296((&(msg)));
   uint8_t* _file____priv_temp_9778 = yo_id_5048(_file____priv_temp_9777);
   fprintf(stderr, "%s\n", (const char*)_file____priv_temp_9778);
@@ -30273,7 +30273,7 @@ static inline __yo_t52* yo_id_4166__ret_R_gs_yo_id_4152_gs_yo_id_4011_u64() {
 static inline __yo_io_future_t* yo_id_10009(uint64_t milliseconds) {
   return __yo_async_sleep_start(milliseconds);
 }
-static inline __yo_t5 yo_id_4215_rtparam0_R_gs_yo_id_4152_gs_yo_id_4011_u64_rtparam1_gs_yo_id_4011_u64_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_vfix_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_vfix_std_allocator_yo_index_usize_length_usize(__yo_t52* self, __yo_t54 value) {
+static inline __yo_t5 yo_id_4215_rtparam0_R_gs_yo_id_4152_gs_yo_id_4011_u64_rtparam1_gs_yo_id_4011_u64_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_fsw_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_fsw_std_allocator_yo_index_usize_length_usize(__yo_t52* self, __yo_t54 value) {
   __yo_t5 _file____priv_temp_17901;
   if (((self->_length) >= (self->_capacity))) {
     size_t _file____priv_temp_17850;
@@ -30396,12 +30396,12 @@ static inline __yo_t56 yo_id_9690(int64_t nanos) {
   __yo_t56 _file____priv_temp_10673 = (__yo_t56){ .secs = ((nanos) / (1000000000LL)), .nanos = ((nanos) % (1000000000LL)) };
   return _file____priv_temp_10673;
 }
-static inline void yo_id_6334_String_id_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam0_bool_rtparam1_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_unit(bool flag, __yo_t9 msg) {
+static inline void yo_id_6334_String_id_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam0_bool_rtparam1_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_unit(bool flag, __yo_t9 msg) {
   if (flag) {
   }
   else {
     __yo_effect_escaped = 0;
-    yo_id_6333_String_id_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam0_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_unit((__yo_t9)(msg));
+    yo_id_6333_String_id_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam0_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_unit((__yo_t9)(msg));
     if (__yo_effect_escaped) {
       return;
     }
@@ -30413,7 +30413,7 @@ static inline __yo_t9 yo_id_6174(size_t* self) {
   uint8_t* buffer_ptr = _file____priv_temp_7400;
   snprintf(((char*)(buffer_ptr)), 24ULL, "%zu", (*self));
   __yo_t11 _file____priv_temp_7403 = yo_id_5009(buffer_ptr);
-  __yo_t9 _file____priv_temp_7404 = yo_id_2894_rtparam0_enum_yo_id_4904_value_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_error_enum_decl_95467_file____private_tmp_yo_vfix_std_string_string_yo_cause_enum_decl_118950_file____private_tmp_yo_vfix_std_encoding_utf8_yo_index_usize_byte_u8_index_usize_expected_usize_available_usize_index_usize_offset_usize_byte_u8_index_usize_code_u32_index_usize_code_u32_index_usize_code_u32_index_usize_length_usize_ret_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8(_file____priv_temp_7403);
+  __yo_t9 _file____priv_temp_7404 = yo_id_2894_rtparam0_enum_yo_id_4904_value_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_error_enum_decl_95467_file____private_tmp_yo_fsw_std_string_string_yo_cause_enum_decl_118950_file____private_tmp_yo_fsw_std_encoding_utf8_yo_index_usize_byte_u8_index_usize_expected_usize_available_usize_index_usize_offset_usize_byte_u8_index_usize_code_u32_index_usize_code_u32_index_usize_code_u32_index_usize_length_usize_ret_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8(_file____priv_temp_7403);
   __yo_t9 __yo_scope_ret = _file____priv_temp_7404;
 switch ((_file____priv_temp_7403).tag) {
   case __YO_T11_OK: {
@@ -30436,7 +30436,7 @@ static inline __yo_t9 yo_id_6120(int64_t* self) {
   uint8_t* buffer_ptr = _file____priv_temp_7346;
   snprintf(((char*)(buffer_ptr)), 24ULL, "%lld", (*self));
   __yo_t11 _file____priv_temp_7349 = yo_id_5009(buffer_ptr);
-  __yo_t9 _file____priv_temp_7350 = yo_id_2894_rtparam0_enum_yo_id_4904_value_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_error_enum_decl_95467_file____private_tmp_yo_vfix_std_string_string_yo_cause_enum_decl_118950_file____private_tmp_yo_vfix_std_encoding_utf8_yo_index_usize_byte_u8_index_usize_expected_usize_available_usize_index_usize_offset_usize_byte_u8_index_usize_code_u32_index_usize_code_u32_index_usize_code_u32_index_usize_length_usize_ret_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8(_file____priv_temp_7349);
+  __yo_t9 _file____priv_temp_7350 = yo_id_2894_rtparam0_enum_yo_id_4904_value_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_error_enum_decl_95467_file____private_tmp_yo_fsw_std_string_string_yo_cause_enum_decl_118950_file____private_tmp_yo_fsw_std_encoding_utf8_yo_index_usize_byte_u8_index_usize_expected_usize_available_usize_index_usize_offset_usize_byte_u8_index_usize_code_u32_index_usize_code_u32_index_usize_code_u32_index_usize_length_usize_ret_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8(_file____priv_temp_7349);
   __yo_t9 __yo_scope_ret = _file____priv_temp_7350;
 switch ((_file____priv_temp_7349).tag) {
   case __YO_T11_OK: {
@@ -30454,12 +30454,12 @@ switch (((_file____priv_temp_7349).data.Ok.value).tag) {
   return __yo_scope_ret;
 }
 static inline _file____priv_temp_14373_sync_fut_t* yo_id_12490(int32_t id, __yo_t14 io) {
-  __yo_t180 __capture_closure_yo_id_12492_0 = (__yo_t180){ .id = id };
+  __yo_t179 __capture_closure_yo_id_12492_0 = (__yo_t179){ .id = id };
   _file____priv_temp_14373_sync_fut_t* _file____priv_temp_14373 = (_file____priv_temp_14373_sync_fut_t*)__yo_malloc(sizeof(_file____priv_temp_14373_sync_fut_t));
   memset(_file____priv_temp_14373, 0, sizeof(_file____priv_temp_14373_sync_fut_t));
   _file____priv_temp_14373->header.ref_count = 1;
   _file____priv_temp_14373->header.type_id = 21;
-  _file____priv_temp_14373->__capture = (__yo_t180){ .id = id };
+  _file____priv_temp_14373->__capture = (__yo_t179){ .id = id };
   _file____priv_temp_14373->state = 0;
   _file____priv_temp_14373->__yo_resume_fn = _file____priv_temp_14373_sync_fut_t_resume;
   _file____priv_temp_14373->__yo_set_effect_fn = _file____priv_temp_14373_sync_fut_t_set_effect;
@@ -30468,7 +30468,7 @@ static inline _file____priv_temp_14373_sync_fut_t* yo_id_12490(int32_t id, __yo_
   return _file____priv_temp_14373;
 }
 static inline __yo_t57* closure_yo_id_12492(void* closure_context, __yo_t14 io) {
-  __yo_t57* _file____priv_temp_14372 = __yo_new___yo_t57(((__yo_t180*)closure_context)->id);
+  __yo_t57* _file____priv_temp_14372 = __yo_new___yo_t57(((__yo_t179*)closure_context)->id);
   return _file____priv_temp_14372;
 }
 static inline _file____priv_temp_14379_sync_fut_t* yo_id_12498(int32_t id, __yo_t14 io) {
@@ -30489,7 +30489,7 @@ static inline __yo_t58* closure_yo_id_12500(void* closure_context, __yo_t14 io) 
   __yo_t58* _file____priv_temp_14378 = __yo_new___yo_t58(((__yo_t187*)closure_context)->id);
   return _file____priv_temp_14378;
 }
-static inline __yo_t58* yo_id_2636_rtparam0_enum_yo_id_4022_value_R_struct_decl_77791_file____private_tmp_yo_vfix_tests__yo_selftest_batch_1_1_yo_i32_ret_R_struct_decl_77791_file____private_tmp_yo_vfix_tests__yo_selftest_batch_1_1_yo_i32(__yo_t162 self) {
+static inline __yo_t58* yo_id_2636_rtparam0_enum_yo_id_4022_value_R_struct_decl_77791_file____private_tmp_yo_fsw_tests__yo_selftest_batch_1_1_yo_i32_ret_R_struct_decl_77791_file____private_tmp_yo_fsw_tests__yo_selftest_batch_1_1_yo_i32(__yo_t162 self) {
   __yo_t58* _file____priv_temp_18003;
   switch ((self).tag) {
   case __YO_T162_SOME: {
@@ -30535,7 +30535,7 @@ static inline _file____priv_temp_14417_state_t* yo_id_12517(__yo_t14 io) {
   _file____priv_temp_14417_state_t* _file____priv_temp_14417 = __yo_new__file____priv_temp_14417((__yo_t188){.io = io});
   return _file____priv_temp_14417;
 }
-static inline void yo_id_9658_String_id_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam0_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_unit(__yo_t9 v) {
+static inline void yo_id_9658_String_id_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam0_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_unit(__yo_t9 v) {
   __yo_t9 _file____priv_temp_18059 = yo_id_6296((&(v)));
   __yo_t9 s = _file____priv_temp_18059;
   __yo_t0* _file____priv_temp_18060 = yo_id_5037(s);
@@ -30594,7 +30594,7 @@ static inline _file____priv_temp_14424_sync_fut_t* yo_id_12530(__yo_t61 ctx) {
   memset(_file____priv_temp_14424, 0, sizeof(_file____priv_temp_14424_sync_fut_t));
   _file____priv_temp_14424->header.ref_count = 1;
   _file____priv_temp_14424->header.type_id = 23;
-  _file____priv_temp_14424->__capture = (__yo_t176){0};
+  _file____priv_temp_14424->__capture = (__yo_t177){0};
   _file____priv_temp_14424->state = 0;
   _file____priv_temp_14424->__yo_resume_fn = _file____priv_temp_14424_sync_fut_t_resume;
   _file____priv_temp_14424->__yo_set_effect_fn = _file____priv_temp_14424_sync_fut_t_set_effect;
@@ -30659,122 +30659,14 @@ static inline int32_t yo_id_2636_rtparam0_enum_yo_id_4217_value_i32_ret_i32(__yo
   }
   return _file____priv_temp_18135;
 }
-static inline void yo_id_15061(__yo_t50* self) {
-  __yo_t47* __yo_disp_f0 = self->_segments; // Destructuring _segments
-  __yo_decr_rc((void*)(__yo_disp_f0));
+static inline void yo_id_15061(__yo_t60* self) {
+  yo_id_12503(self);
 }
-static inline void yo_id_15063(__yo_t44* self) {
-  __yo_t9 __yo_disp_f0 = self->name; // Destructuring name
-switch ((__yo_disp_f0).tag) {
-  case __YO_T10_SOME: {
-    __yo_decr_rc((void*)((__yo_disp_f0).data.Some.value));
-    break;
-  }
-  default: break;
+static inline void yo_id_12503(__yo_t60* self) {
+  int32_t _file____priv_temp_14381 = g_branch_local_disposed_m1186671634904895756; // Save old value for later use
+  g_branch_local_disposed_m1186671634904895756 = ((g_branch_local_disposed_m1186671634904895756) + (1));
 }
-}
-static inline void yo_id_15065(__yo_t52* self) {
-  yo_id_4277_rtparam0_R_gs_yo_id_4152_gs_yo_id_4011_u64_ret_unit(self);
-}
-static inline void yo_id_4277_rtparam0_R_gs_yo_id_4152_gs_yo_id_4011_u64_ret_unit(__yo_t52* self) {
-  __yo_t54* _file____priv_temp_18150 = self->_ptr;
-  if (_file____priv_temp_18150 != NULL) {
-    __yo_t54* _ptr = _file____priv_temp_18150;
-    yo_id_4233_rtparam0_R_gs_yo_id_4152_gs_yo_id_4011_u64_ret_unit(self);
-    size_t _file____priv_temp_18157 = self->_length; // Save old value for later use
-    self->_length = 0ULL;
-    void* _file____priv_temp_18158 = ((void*)(_ptr));
-    __yo_borrow_assert_unborrowed((void*)self);
-    __yo_free(_file____priv_temp_18158);
-    __yo_t54* _file____priv_temp_18161 = self->_ptr; // Save old value for later use
-    self->_ptr = NULL;
-  } else {
-  }
-}
-static inline void yo_id_4233_rtparam0_R_gs_yo_id_4152_gs_yo_id_4011_u64_ret_unit(__yo_t52* self) {
-}
-static inline void yo_id_15072(__yo_t35* self) {
-  yo_id_4277_rtparam0_R_gs_yo_id_4152_usize_ret_unit(self);
-}
-static inline void yo_id_4277_rtparam0_R_gs_yo_id_4152_usize_ret_unit(__yo_t35* self) {
-  size_t* _file____priv_temp_18168 = self->_ptr;
-  if (_file____priv_temp_18168 != NULL) {
-    size_t* _ptr = _file____priv_temp_18168;
-    yo_id_4233_rtparam0_R_gs_yo_id_4152_usize_ret_unit(self);
-    size_t _file____priv_temp_18175 = self->_length; // Save old value for later use
-    self->_length = 0ULL;
-    void* _file____priv_temp_18176 = ((void*)(_ptr));
-    __yo_borrow_assert_unborrowed((void*)self);
-    __yo_free(_file____priv_temp_18176);
-    size_t* _file____priv_temp_18179 = self->_ptr; // Save old value for later use
-    self->_ptr = NULL;
-  } else {
-  }
-}
-static inline void yo_id_4233_rtparam0_R_gs_yo_id_4152_usize_ret_unit(__yo_t35* self) {
-}
-static inline void yo_id_15079(__yo_t42* self) {
-  yo_id_4277_rtparam0_R_gs_yo_id_4152_R_struct_decl_77202_file____private_tmp_yo_vfix_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_ret_unit(self);
-}
-static inline void yo_id_4277_rtparam0_R_gs_yo_id_4152_R_struct_decl_77202_file____private_tmp_yo_vfix_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_ret_unit(__yo_t42* self) {
-  __yo_t44** _file____priv_temp_18186 = self->_ptr;
-  if (_file____priv_temp_18186 != NULL) {
-    __yo_t44** _ptr = _file____priv_temp_18186;
-    yo_id_4233_rtparam0_R_gs_yo_id_4152_R_struct_decl_77202_file____private_tmp_yo_vfix_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_ret_unit(self);
-    size_t _file____priv_temp_18216 = self->_length; // Save old value for later use
-    self->_length = 0ULL;
-    void* _file____priv_temp_18217 = ((void*)(_ptr));
-    __yo_borrow_assert_unborrowed((void*)self);
-    __yo_free(_file____priv_temp_18217);
-    __yo_t44** _file____priv_temp_18220 = self->_ptr; // Save old value for later use
-    self->_ptr = NULL;
-  } else {
-  }
-}
-static inline void yo_id_4233_rtparam0_R_gs_yo_id_4152_R_struct_decl_77202_file____private_tmp_yo_vfix_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_ret_unit(__yo_t42* self) {
-  { // begin block
-    if (((self->_length) > (0ULL))) {
-      size_t i = 0ULL;
-      __yo_t44** _file____priv_temp_18200 = yo_id_2636_rtparam0_enum_yo_id_12407_value___R_struct_decl_77202_file____private_tmp_yo_vfix_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize__ret___R_struct_decl_77202_file____private_tmp_yo_vfix_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_(self->_ptr);
-      __yo_t44** base_ptr = _file____priv_temp_18200;
-      while (true) {
-        if (!(((i) < (self->_length)))) {
-          break;
-        }
-        { // begin block (loop body)
-        __yo_t44** _file____priv_temp_18205 = (base_ptr + i);
-        __yo_t44** element_ptr = _file____priv_temp_18205;
-        __yo_decr_rc((void*)((*element_ptr)));
-        } // end begin block (loop body)
-      continue_yo_id_15413:;
-        i = ((i) + (1ULL));
-      }
-      loop_yo_id_15412:;
-    }
-    else {
-    }
-  } // end begin block
-}
-static inline __yo_t44** yo_id_2636_rtparam0_enum_yo_id_12407_value___R_struct_decl_77202_file____private_tmp_yo_vfix_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize__ret___R_struct_decl_77202_file____private_tmp_yo_vfix_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_(__yo_t44** self) {
-  __yo_t44** _file____priv_temp_18199;
-  if (self != NULL) {
-    __yo_t44** value = self;
-    _file____priv_temp_18199 = value;
-  } else {
-    fprintf(stderr, "%s\n", "\"Called unwrap on a None value\"");
-    abort();
-    _file____priv_temp_18199 = (*((__yo_t44***)NULL));
-  }
-  return _file____priv_temp_18199;
-}
-static inline void yo_id_15092(__yo_t58* self) {
-  yo_id_12495(self);
-}
-static inline void yo_id_12495(__yo_t58* self) {
-  int32_t _file____priv_temp_14375 = g_spawn_result_disposed_m7314982248589901250; // Save old value for later use
-  g_spawn_result_disposed_m7314982248589901250 = ((g_spawn_result_disposed_m7314982248589901250) + (1));
-}
-static inline void yo_id_15095(__yo_t23* self) {
+static inline void yo_id_15064(__yo_t23* self) {
   __yo_t9 __yo_disp_f0 = self->a; // Destructuring a
   __yo_t9 __yo_disp_f1 = self->b; // Destructuring b
 switch ((__yo_disp_f0).tag) {
@@ -30792,6 +30684,120 @@ switch ((__yo_disp_f1).tag) {
   default: break;
 }
 }
+static inline void yo_id_15066(__yo_t28* self) {
+  __yo_t9 __yo_disp_f0 = self->name; // Destructuring name
+switch ((__yo_disp_f0).tag) {
+  case __YO_T10_SOME: {
+    __yo_decr_rc((void*)((__yo_disp_f0).data.Some.value));
+    break;
+  }
+  default: break;
+}
+}
+static inline void yo_id_15068(__yo_t52* self) {
+  yo_id_4277_rtparam0_R_gs_yo_id_4152_gs_yo_id_4011_u64_ret_unit(self);
+}
+static inline void yo_id_4277_rtparam0_R_gs_yo_id_4152_gs_yo_id_4011_u64_ret_unit(__yo_t52* self) {
+  __yo_t54* _file____priv_temp_18152 = self->_ptr;
+  if (_file____priv_temp_18152 != NULL) {
+    __yo_t54* _ptr = _file____priv_temp_18152;
+    yo_id_4233_rtparam0_R_gs_yo_id_4152_gs_yo_id_4011_u64_ret_unit(self);
+    size_t _file____priv_temp_18159 = self->_length; // Save old value for later use
+    self->_length = 0ULL;
+    void* _file____priv_temp_18160 = ((void*)(_ptr));
+    __yo_borrow_assert_unborrowed((void*)self);
+    __yo_free(_file____priv_temp_18160);
+    __yo_t54* _file____priv_temp_18163 = self->_ptr; // Save old value for later use
+    self->_ptr = NULL;
+  } else {
+  }
+}
+static inline void yo_id_4233_rtparam0_R_gs_yo_id_4152_gs_yo_id_4011_u64_ret_unit(__yo_t52* self) {
+}
+static inline void yo_id_15075(__yo_t50* self) {
+  __yo_t47* __yo_disp_f0 = self->_segments; // Destructuring _segments
+  __yo_decr_rc((void*)(__yo_disp_f0));
+}
+static inline void yo_id_15077(__yo_t47* self) {
+  yo_id_4277_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_unit(self);
+}
+static inline void yo_id_4277_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_unit(__yo_t47* self) {
+  __yo_t9* _file____priv_temp_18171 = self->_ptr;
+  if (_file____priv_temp_18171 != NULL) {
+    __yo_t9* _ptr = _file____priv_temp_18171;
+    yo_id_4233_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_unit(self);
+    size_t _file____priv_temp_18201 = self->_length; // Save old value for later use
+    self->_length = 0ULL;
+    void* _file____priv_temp_18202 = ((void*)(_ptr));
+    __yo_borrow_assert_unborrowed((void*)self);
+    __yo_free(_file____priv_temp_18202);
+    __yo_t9* _file____priv_temp_18205 = self->_ptr; // Save old value for later use
+    self->_ptr = NULL;
+  } else {
+  }
+}
+static inline void yo_id_4233_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_unit(__yo_t47* self) {
+  { // begin block
+    if (((self->_length) > (0ULL))) {
+      size_t i = 0ULL;
+      __yo_t9* _file____priv_temp_18185 = yo_id_2636_rtparam0_enum_yo_id_4942_value___struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8__ret___struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_(self->_ptr);
+      __yo_t9* base_ptr = _file____priv_temp_18185;
+      while (true) {
+        if (!(((i) < (self->_length)))) {
+          break;
+        }
+        { // begin block (loop body)
+        __yo_t9* _file____priv_temp_18190 = (base_ptr + i);
+        __yo_t9* element_ptr = _file____priv_temp_18190;
+switch (((*element_ptr)).tag) {
+  case __YO_T10_SOME: {
+    __yo_decr_rc((void*)(((*element_ptr)).data.Some.value));
+    break;
+  }
+  default: break;
+}
+        } // end begin block (loop body)
+      continue_yo_id_15413:;
+        i = ((i) + (1ULL));
+      }
+      loop_yo_id_15412:;
+    }
+    else {
+    }
+  } // end begin block
+}
+static inline __yo_t9* yo_id_2636_rtparam0_enum_yo_id_4942_value___struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8__ret___struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_(__yo_t9* self) {
+  __yo_t9* _file____priv_temp_18184;
+  if (self != NULL) {
+    __yo_t9* value = self;
+    _file____priv_temp_18184 = value;
+  } else {
+    fprintf(stderr, "%s\n", "\"Called unwrap on a None value\"");
+    abort();
+    _file____priv_temp_18184 = (*((__yo_t9**)NULL));
+  }
+  return _file____priv_temp_18184;
+}
+static inline void yo_id_15090(__yo_t35* self) {
+  yo_id_4277_rtparam0_R_gs_yo_id_4152_usize_ret_unit(self);
+}
+static inline void yo_id_4277_rtparam0_R_gs_yo_id_4152_usize_ret_unit(__yo_t35* self) {
+  size_t* _file____priv_temp_18212 = self->_ptr;
+  if (_file____priv_temp_18212 != NULL) {
+    size_t* _ptr = _file____priv_temp_18212;
+    yo_id_4233_rtparam0_R_gs_yo_id_4152_usize_ret_unit(self);
+    size_t _file____priv_temp_18219 = self->_length; // Save old value for later use
+    self->_length = 0ULL;
+    void* _file____priv_temp_18220 = ((void*)(_ptr));
+    __yo_borrow_assert_unborrowed((void*)self);
+    __yo_free(_file____priv_temp_18220);
+    size_t* _file____priv_temp_18223 = self->_ptr; // Save old value for later use
+    self->_ptr = NULL;
+  } else {
+  }
+}
+static inline void yo_id_4233_rtparam0_R_gs_yo_id_4152_usize_ret_unit(__yo_t35* self) {
+}
 static inline void yo_id_15097(__yo_t31* self) {
   __yo_t9 __yo_disp_f0 = self->label; // Destructuring label
 switch ((__yo_disp_f0).tag) {
@@ -30802,14 +30808,51 @@ switch ((__yo_disp_f0).tag) {
   default: break;
 }
 }
-static inline void yo_id_15099(__yo_t57* self) {
+static inline void yo_id_15099(__yo_t58* self) {
+  yo_id_12495(self);
+}
+static inline void yo_id_12495(__yo_t58* self) {
+  int32_t _file____priv_temp_14375 = g_spawn_result_disposed_m1186671634904895756; // Save old value for later use
+  g_spawn_result_disposed_m1186671634904895756 = ((g_spawn_result_disposed_m1186671634904895756) + (1));
+}
+static inline void yo_id_15102(__yo_t44* self) {
+  __yo_t9 __yo_disp_f0 = self->name; // Destructuring name
+switch ((__yo_disp_f0).tag) {
+  case __YO_T10_SOME: {
+    __yo_decr_rc((void*)((__yo_disp_f0).data.Some.value));
+    break;
+  }
+  default: break;
+}
+}
+static inline void yo_id_15104(__yo_t25* self) {
+  yo_id_4277_rtparam0_R_gs_yo_id_4152_i32_ret_unit(self);
+}
+static inline void yo_id_4277_rtparam0_R_gs_yo_id_4152_i32_ret_unit(__yo_t25* self) {
+  int32_t* _file____priv_temp_18234 = self->_ptr;
+  if (_file____priv_temp_18234 != NULL) {
+    int32_t* _ptr = _file____priv_temp_18234;
+    yo_id_4233_rtparam0_R_gs_yo_id_4152_i32_ret_unit(self);
+    size_t _file____priv_temp_18241 = self->_length; // Save old value for later use
+    self->_length = 0ULL;
+    void* _file____priv_temp_18242 = ((void*)(_ptr));
+    __yo_borrow_assert_unborrowed((void*)self);
+    __yo_free(_file____priv_temp_18242);
+    int32_t* _file____priv_temp_18245 = self->_ptr; // Save old value for later use
+    self->_ptr = NULL;
+  } else {
+  }
+}
+static inline void yo_id_4233_rtparam0_R_gs_yo_id_4152_i32_ret_unit(__yo_t25* self) {
+}
+static inline void yo_id_15111(__yo_t57* self) {
   yo_id_12487(self);
 }
 static inline void yo_id_12487(__yo_t57* self) {
-  int32_t _file____priv_temp_14369 = g_async_result_disposed_m7314982248589901250; // Save old value for later use
-  g_async_result_disposed_m7314982248589901250 = ((g_async_result_disposed_m7314982248589901250) + (1));
+  int32_t _file____priv_temp_14369 = g_async_result_disposed_m1186671634904895756; // Save old value for later use
+  g_async_result_disposed_m1186671634904895756 = ((g_async_result_disposed_m1186671634904895756) + (1));
 }
-static inline void yo_id_15102(__yo_t40* self) {
+static inline void yo_id_15114(__yo_t40* self) {
   __yo_t9 __yo_disp_f0 = self->_u42_; // Destructuring *
 switch ((__yo_disp_f0).tag) {
   case __YO_T10_SOME: {
@@ -30819,44 +30862,58 @@ switch ((__yo_disp_f0).tag) {
   default: break;
 }
 }
-static inline void yo_id_15104(__yo_t47* self) {
-  yo_id_4277_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_unit(self);
+static inline void yo_id_15116(__yo_t0* self) {
+  yo_id_4277_rtparam0_R_gs_yo_id_4152_u8_ret_unit(self);
 }
-static inline void yo_id_4277_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_unit(__yo_t47* self) {
-  __yo_t9* _file____priv_temp_18234 = self->_ptr;
-  if (_file____priv_temp_18234 != NULL) {
-    __yo_t9* _ptr = _file____priv_temp_18234;
-    yo_id_4233_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_unit(self);
-    size_t _file____priv_temp_18264 = self->_length; // Save old value for later use
+static inline void yo_id_4277_rtparam0_R_gs_yo_id_4152_u8_ret_unit(__yo_t0* self) {
+  uint8_t* _file____priv_temp_18255 = self->_ptr;
+  if (_file____priv_temp_18255 != NULL) {
+    uint8_t* _ptr = _file____priv_temp_18255;
+    yo_id_4233_rtparam0_R_gs_yo_id_4152_u8_ret_unit(self);
+    size_t _file____priv_temp_18258 = self->_length; // Save old value for later use
     self->_length = 0ULL;
-    void* _file____priv_temp_18265 = ((void*)(_ptr));
+    void* _file____priv_temp_18259 = ((void*)(_ptr));
     __yo_borrow_assert_unborrowed((void*)self);
-    __yo_free(_file____priv_temp_18265);
-    __yo_t9* _file____priv_temp_18268 = self->_ptr; // Save old value for later use
+    __yo_free(_file____priv_temp_18259);
+    uint8_t* _file____priv_temp_18262 = self->_ptr; // Save old value for later use
     self->_ptr = NULL;
   } else {
   }
 }
-static inline void yo_id_4233_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_unit(__yo_t47* self) {
+static inline void yo_id_4233_rtparam0_R_gs_yo_id_4152_u8_ret_unit(__yo_t0* self) {
+}
+static inline void yo_id_15122(__yo_t42* self) {
+  yo_id_4277_rtparam0_R_gs_yo_id_4152_R_struct_decl_77202_file____private_tmp_yo_fsw_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_ret_unit(self);
+}
+static inline void yo_id_4277_rtparam0_R_gs_yo_id_4152_R_struct_decl_77202_file____private_tmp_yo_fsw_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_ret_unit(__yo_t42* self) {
+  __yo_t44** _file____priv_temp_18269 = self->_ptr;
+  if (_file____priv_temp_18269 != NULL) {
+    __yo_t44** _ptr = _file____priv_temp_18269;
+    yo_id_4233_rtparam0_R_gs_yo_id_4152_R_struct_decl_77202_file____private_tmp_yo_fsw_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_ret_unit(self);
+    size_t _file____priv_temp_18299 = self->_length; // Save old value for later use
+    self->_length = 0ULL;
+    void* _file____priv_temp_18300 = ((void*)(_ptr));
+    __yo_borrow_assert_unborrowed((void*)self);
+    __yo_free(_file____priv_temp_18300);
+    __yo_t44** _file____priv_temp_18303 = self->_ptr; // Save old value for later use
+    self->_ptr = NULL;
+  } else {
+  }
+}
+static inline void yo_id_4233_rtparam0_R_gs_yo_id_4152_R_struct_decl_77202_file____private_tmp_yo_fsw_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_ret_unit(__yo_t42* self) {
   { // begin block
     if (((self->_length) > (0ULL))) {
       size_t i = 0ULL;
-      __yo_t9* _file____priv_temp_18248 = yo_id_2636_rtparam0_enum_yo_id_4942_value___struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8__ret___struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_(self->_ptr);
-      __yo_t9* base_ptr = _file____priv_temp_18248;
+      __yo_t44** _file____priv_temp_18283 = yo_id_2636_rtparam0_enum_yo_id_12407_value___R_struct_decl_77202_file____private_tmp_yo_fsw_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize__ret___R_struct_decl_77202_file____private_tmp_yo_fsw_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_(self->_ptr);
+      __yo_t44** base_ptr = _file____priv_temp_18283;
       while (true) {
         if (!(((i) < (self->_length)))) {
           break;
         }
         { // begin block (loop body)
-        __yo_t9* _file____priv_temp_18253 = (base_ptr + i);
-        __yo_t9* element_ptr = _file____priv_temp_18253;
-switch (((*element_ptr)).tag) {
-  case __YO_T10_SOME: {
-    __yo_decr_rc((void*)(((*element_ptr)).data.Some.value));
-    break;
-  }
-  default: break;
-}
+        __yo_t44** _file____priv_temp_18288 = (base_ptr + i);
+        __yo_t44** element_ptr = _file____priv_temp_18288;
+        __yo_decr_rc((void*)((*element_ptr)));
         } // end begin block (loop body)
       continue_yo_id_15415:;
         i = ((i) + (1ULL));
@@ -30867,74 +30924,17 @@ switch (((*element_ptr)).tag) {
     }
   } // end begin block
 }
-static inline __yo_t9* yo_id_2636_rtparam0_enum_yo_id_4942_value___struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8__ret___struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_(__yo_t9* self) {
-  __yo_t9* _file____priv_temp_18247;
+static inline __yo_t44** yo_id_2636_rtparam0_enum_yo_id_12407_value___R_struct_decl_77202_file____private_tmp_yo_fsw_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize__ret___R_struct_decl_77202_file____private_tmp_yo_fsw_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_(__yo_t44** self) {
+  __yo_t44** _file____priv_temp_18282;
   if (self != NULL) {
-    __yo_t9* value = self;
-    _file____priv_temp_18247 = value;
+    __yo_t44** value = self;
+    _file____priv_temp_18282 = value;
   } else {
     fprintf(stderr, "%s\n", "\"Called unwrap on a None value\"");
     abort();
-    _file____priv_temp_18247 = (*((__yo_t9**)NULL));
+    _file____priv_temp_18282 = (*((__yo_t44***)NULL));
   }
-  return _file____priv_temp_18247;
-}
-static inline void yo_id_15117(__yo_t28* self) {
-  __yo_t9 __yo_disp_f0 = self->name; // Destructuring name
-switch ((__yo_disp_f0).tag) {
-  case __YO_T10_SOME: {
-    __yo_decr_rc((void*)((__yo_disp_f0).data.Some.value));
-    break;
-  }
-  default: break;
-}
-}
-static inline void yo_id_15119(__yo_t25* self) {
-  yo_id_4277_rtparam0_R_gs_yo_id_4152_i32_ret_unit(self);
-}
-static inline void yo_id_4277_rtparam0_R_gs_yo_id_4152_i32_ret_unit(__yo_t25* self) {
-  int32_t* _file____priv_temp_18276 = self->_ptr;
-  if (_file____priv_temp_18276 != NULL) {
-    int32_t* _ptr = _file____priv_temp_18276;
-    yo_id_4233_rtparam0_R_gs_yo_id_4152_i32_ret_unit(self);
-    size_t _file____priv_temp_18283 = self->_length; // Save old value for later use
-    self->_length = 0ULL;
-    void* _file____priv_temp_18284 = ((void*)(_ptr));
-    __yo_borrow_assert_unborrowed((void*)self);
-    __yo_free(_file____priv_temp_18284);
-    int32_t* _file____priv_temp_18287 = self->_ptr; // Save old value for later use
-    self->_ptr = NULL;
-  } else {
-  }
-}
-static inline void yo_id_4233_rtparam0_R_gs_yo_id_4152_i32_ret_unit(__yo_t25* self) {
-}
-static inline void yo_id_15126(__yo_t60* self) {
-  yo_id_12503(self);
-}
-static inline void yo_id_12503(__yo_t60* self) {
-  int32_t _file____priv_temp_14381 = g_branch_local_disposed_m7314982248589901250; // Save old value for later use
-  g_branch_local_disposed_m7314982248589901250 = ((g_branch_local_disposed_m7314982248589901250) + (1));
-}
-static inline void yo_id_15129(__yo_t0* self) {
-  yo_id_4277_rtparam0_R_gs_yo_id_4152_u8_ret_unit(self);
-}
-static inline void yo_id_4277_rtparam0_R_gs_yo_id_4152_u8_ret_unit(__yo_t0* self) {
-  uint8_t* _file____priv_temp_18296 = self->_ptr;
-  if (_file____priv_temp_18296 != NULL) {
-    uint8_t* _ptr = _file____priv_temp_18296;
-    yo_id_4233_rtparam0_R_gs_yo_id_4152_u8_ret_unit(self);
-    size_t _file____priv_temp_18299 = self->_length; // Save old value for later use
-    self->_length = 0ULL;
-    void* _file____priv_temp_18300 = ((void*)(_ptr));
-    __yo_borrow_assert_unborrowed((void*)self);
-    __yo_free(_file____priv_temp_18300);
-    uint8_t* _file____priv_temp_18303 = self->_ptr; // Save old value for later use
-    self->_ptr = NULL;
-  } else {
-  }
-}
-static inline void yo_id_4233_rtparam0_R_gs_yo_id_4152_u8_ret_unit(__yo_t0* self) {
+  return _file____priv_temp_18282;
 }
 
 // === Dyn Box Functions ===
@@ -42056,7 +42056,7 @@ void _file____priv_temp_14150_state_dispose(void* sm_ptr) {
   // Memory freed by __yo_decr_rc after this function returns
 }
 
-_file____priv_temp_14150_state_t* __yo_new__file____priv_temp_14150(__yo_t175 __capture) {
+_file____priv_temp_14150_state_t* __yo_new__file____priv_temp_14150(__yo_t176 __capture) {
   // Allocate async block state machine (heap-backed, ref-counted)
   _file____priv_temp_14150_state_t* sm = (_file____priv_temp_14150_state_t*)__yo_malloc(sizeof(_file____priv_temp_14150_state_t));
   memset(sm, 0, sizeof(_file____priv_temp_14150_state_t));
@@ -42226,7 +42226,7 @@ void _file____priv_temp_14140_state_dispose(void* sm_ptr) {
   // Memory freed by __yo_decr_rc after this function returns
 }
 
-_file____priv_temp_14140_state_t* __yo_new__file____priv_temp_14140(__yo_t174 __capture) {
+_file____priv_temp_14140_state_t* __yo_new__file____priv_temp_14140(__yo_t175 __capture) {
   // Allocate async block state machine (heap-backed, ref-counted)
   _file____priv_temp_14140_state_t* sm = (_file____priv_temp_14140_state_t*)__yo_malloc(sizeof(_file____priv_temp_14140_state_t));
   memset(sm, 0, sizeof(_file____priv_temp_14140_state_t));
@@ -43634,7 +43634,7 @@ void _file____priv_temp_16456_resume(_file____priv_temp_16456_state_t* sm) {
       __yo_t25* _file____priv_temp_16344 = yo_id_4166__ret_R_gs_yo_id_4152_i32();
       sm->var_223920 = _file____priv_temp_16344;
       if (((sm->__capture.seed) > (0))) {
-        __yo_t5 _file____priv_temp_16414 = yo_id_4215_rtparam0_R_gs_yo_id_4152_i32_rtparam1_i32_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_vfix_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_vfix_std_allocator_yo_index_usize_length_usize(sm->var_223920, sm->__capture.seed);
+        __yo_t5 _file____priv_temp_16414 = yo_id_4215_rtparam0_R_gs_yo_id_4152_i32_rtparam1_i32_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_fsw_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_fsw_std_allocator_yo_index_usize_length_usize(sm->var_223920, sm->__capture.seed);
       }
       else {
       }
@@ -44560,7 +44560,7 @@ switch ((sm->result).tag) {
   // Memory freed by __yo_decr_rc after this function returns
 }
 
-_file____priv_temp_14191_state_t* __yo_new__file____priv_temp_14191(__yo_t182 __capture) {
+_file____priv_temp_14191_state_t* __yo_new__file____priv_temp_14191(__yo_t181 __capture) {
   // Allocate async block state machine (heap-backed, ref-counted)
   _file____priv_temp_14191_state_t* sm = (_file____priv_temp_14191_state_t*)__yo_malloc(sizeof(_file____priv_temp_14191_state_t));
   memset(sm, 0, sizeof(_file____priv_temp_14191_state_t));
@@ -45147,7 +45147,7 @@ switch ((sm->result).tag) {
   // Memory freed by __yo_decr_rc after this function returns
 }
 
-_file____priv_temp_14198_state_t* __yo_new__file____priv_temp_14198(__yo_t184 __capture) {
+_file____priv_temp_14198_state_t* __yo_new__file____priv_temp_14198(__yo_t183 __capture) {
   // Allocate async block state machine (heap-backed, ref-counted)
   _file____priv_temp_14198_state_t* sm = (_file____priv_temp_14198_state_t*)__yo_malloc(sizeof(_file____priv_temp_14198_state_t));
   memset(sm, 0, sizeof(_file____priv_temp_14198_state_t));
@@ -47361,7 +47361,7 @@ void _file____priv_temp_16988_resume(_file____priv_temp_16988_state_t* sm) {
       sm->var_228080 = 0ULL;
       __yo_t35* _file____priv_temp_16861 = yo_id_4166__ret_R_gs_yo_id_4152_usize();
       sm->var_228117 = _file____priv_temp_16861;
-      __yo_t5 _file____priv_temp_16930 = yo_id_4215_rtparam0_R_gs_yo_id_4152_usize_rtparam1_usize_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_vfix_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_vfix_std_allocator_yo_index_usize_length_usize(sm->var_228117, 3ULL);
+      __yo_t5 _file____priv_temp_16930 = yo_id_4215_rtparam0_R_gs_yo_id_4152_usize_rtparam1_usize_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_fsw_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_fsw_std_allocator_yo_index_usize_length_usize(sm->var_228117, 3ULL);
       sm->while_loop_0_active = true;
       while_loop_0_start:
       size_t _file____priv_temp_16934 = yo_id_4159_rtparam0_R_gs_yo_id_4152_usize_ret_usize(sm->var_228117);
@@ -47619,7 +47619,7 @@ void _file____priv_temp_16988_resume(_file____priv_temp_16988_state_t* sm) {
       switch (sm->cond_branch_1) {
         case 77: {
           ASYNC_DEBUG("_file____priv_temp_16988: Executing remaining code from branch 77\n");
-          __yo_t5 _file____priv_temp_16977 = yo_id_4215_rtparam0_R_gs_yo_id_4152_usize_rtparam1_usize_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_vfix_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_vfix_std_allocator_yo_index_usize_length_usize(sm->var_228117, ((sm->var_228630) - (1ULL)));
+          __yo_t5 _file____priv_temp_16977 = yo_id_4215_rtparam0_R_gs_yo_id_4152_usize_rtparam1_usize_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_fsw_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_fsw_std_allocator_yo_index_usize_length_usize(sm->var_228117, ((sm->var_228630) - (1ULL)));
           if (sm->await_future_1 != NULL) { __yo_decr_rc((void*)sm->await_future_1); };
           break;
         }
@@ -47740,7 +47740,7 @@ void _file____priv_temp_17033_resume(_file____priv_temp_17033_state_t* sm) {
       sm->var_229059 = 0ULL;
       __yo_t35* _file____priv_temp_17000 = yo_id_4166__ret_R_gs_yo_id_4152_usize();
       sm->var_229086 = _file____priv_temp_17000;
-      __yo_t5 _file____priv_temp_17001 = yo_id_4215_rtparam0_R_gs_yo_id_4152_usize_rtparam1_usize_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_vfix_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_vfix_std_allocator_yo_index_usize_length_usize(sm->var_229086, 3ULL);
+      __yo_t5 _file____priv_temp_17001 = yo_id_4215_rtparam0_R_gs_yo_id_4152_usize_rtparam1_usize_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_fsw_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_fsw_std_allocator_yo_index_usize_length_usize(sm->var_229086, 3ULL);
       sm->while_loop_0_active = true;
       while_loop_0_start:
       size_t _file____priv_temp_17003 = yo_id_4159_rtparam0_R_gs_yo_id_4152_usize_ret_usize(sm->var_229086);
@@ -47998,7 +47998,7 @@ void _file____priv_temp_17033_resume(_file____priv_temp_17033_state_t* sm) {
       switch (sm->cond_branch_1) {
         case 81: {
           ASYNC_DEBUG("_file____priv_temp_17033: Executing remaining code from branch 81\n");
-          __yo_t5 _file____priv_temp_17022 = yo_id_4215_rtparam0_R_gs_yo_id_4152_usize_rtparam1_usize_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_vfix_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_vfix_std_allocator_yo_index_usize_length_usize(sm->var_229086, ((sm->var_229181) - (1ULL)));
+          __yo_t5 _file____priv_temp_17022 = yo_id_4215_rtparam0_R_gs_yo_id_4152_usize_rtparam1_usize_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_fsw_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_fsw_std_allocator_yo_index_usize_length_usize(sm->var_229086, ((sm->var_229181) - (1ULL)));
           if (sm->await_future_1 != NULL) { __yo_decr_rc((void*)sm->await_future_1); };
           break;
         }
@@ -48449,7 +48449,7 @@ switch ((temp_dup_enum_yo_id_15486).tag) {
             __yo_t9 msg = _file____priv_temp_14247.data.Err.error;
             __yo_t9 _file____priv_temp_14252 = yo_id_5994((&(msg)));
             __yo_effect_escaped = 0;
-            __yo_t40* _file____priv_temp_14253 = yo_id_3192_String_id_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam0_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_R_gs_yo_id_3188_1237((__yo_t9)(_file____priv_temp_14252));
+            __yo_t40* _file____priv_temp_14253 = yo_id_3192_String_id_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam0_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_R_gs_yo_id_3188_1237((__yo_t9)(_file____priv_temp_14252));
             if (__yo_effect_escaped) {
               sm->state = -2;  // -2 = escaped
 
@@ -48829,7 +48829,7 @@ switch (((sm->result).data.Some.value).tag) {
   // Memory freed by __yo_decr_rc after this function returns
 }
 
-_file____priv_temp_14227_state_t* __yo_new__file____priv_temp_14227(__yo_t173 __capture) {
+_file____priv_temp_14227_state_t* __yo_new__file____priv_temp_14227(__yo_t174 __capture) {
   // Allocate async block state machine (heap-backed, ref-counted)
   _file____priv_temp_14227_state_t* sm = (_file____priv_temp_14227_state_t*)__yo_malloc(sizeof(_file____priv_temp_14227_state_t));
   memset(sm, 0, sizeof(_file____priv_temp_14227_state_t));
@@ -48875,12 +48875,12 @@ void _file____priv_temp_14315_resume(_file____priv_temp_14315_state_t* sm) {
       sm->slot_0 = 0ULL;
       sm->while_loop_0_active = true;
       while_loop_0_start:
-      size_t _file____priv_temp_14271 = yo_id_4159_rtparam0_R_gs_yo_id_4152_R_struct_decl_77202_file____private_tmp_yo_vfix_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_ret_usize(sm->__capture.items);
+      size_t _file____priv_temp_14271 = yo_id_4159_rtparam0_R_gs_yo_id_4152_R_struct_decl_77202_file____private_tmp_yo_fsw_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_ret_usize(sm->__capture.items);
       if (!(((sm->slot_0) < (_file____priv_temp_14271)))) {
         sm->while_loop_0_active = false;
         goto while_loop_0_end;
       }
-      __yo_t44* _file____priv_temp_14288 = (*yo_id_4270_rtparam0_R_gs_yo_id_4152_R_struct_decl_77202_file____private_tmp_yo_vfix_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_rtparam1_usize_ret___R_struct_decl_77202_file____private_tmp_yo_vfix_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_(&sm->__capture.items, sm->slot_0));
+      __yo_t44* _file____priv_temp_14288 = (*yo_id_4270_rtparam0_R_gs_yo_id_4152_R_struct_decl_77202_file____private_tmp_yo_fsw_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_rtparam1_usize_ret___R_struct_decl_77202_file____private_tmp_yo_fsw_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_(&sm->__capture.items, sm->slot_0));
       ((__yo_t44*)__yo_incr_rc((void*)(_file____priv_temp_14288)));
       sm->var_204332 = _file____priv_temp_14288;
       size_t _file____priv_temp_14292 = sm->var_204119; // Save old value for later use (not an sm-> slot)
@@ -48988,7 +48988,7 @@ void _file____priv_temp_14315_resume(_file____priv_temp_14315_state_t* sm) {
         if (sm->await_future_0 != NULL) { __yo_decr_rc((void*)sm->await_future_0); };
         __yo_decr_rc((void*)(sm->var_204332)); memset(&(sm->var_204332), 0, sizeof(sm->var_204332));
         ASYNC_DEBUG("_file____priv_temp_14315: Re-evaluating while loop condition\n");
-        size_t _file____priv_temp_14271 = yo_id_4159_rtparam0_R_gs_yo_id_4152_R_struct_decl_77202_file____private_tmp_yo_vfix_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_ret_usize(sm->__capture.items);
+        size_t _file____priv_temp_14271 = yo_id_4159_rtparam0_R_gs_yo_id_4152_R_struct_decl_77202_file____private_tmp_yo_fsw_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_ret_usize(sm->__capture.items);
         if (!(((sm->slot_0) < (_file____priv_temp_14271)))) {
           sm->while_loop_0_active = false;
           ASYNC_DEBUG("_file____priv_temp_14315: While loop condition false, exiting loop\n");
@@ -49004,12 +49004,12 @@ void _file____priv_temp_14315_resume(_file____priv_temp_14315_state_t* sm) {
       sm->slot_0 = 0ULL;
       sm->while_loop_1_active = true;
       while_loop_1_start:
-      size_t _file____priv_temp_14300 = yo_id_4159_rtparam0_R_gs_yo_id_4152_R_struct_decl_77202_file____private_tmp_yo_vfix_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_ret_usize(sm->__capture.items);
+      size_t _file____priv_temp_14300 = yo_id_4159_rtparam0_R_gs_yo_id_4152_R_struct_decl_77202_file____private_tmp_yo_fsw_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_ret_usize(sm->__capture.items);
       if (!(((sm->slot_0) < (_file____priv_temp_14300)))) {
         sm->while_loop_1_active = false;
         goto while_loop_1_end;
       }
-      __yo_t44* _file____priv_temp_14303 = (*yo_id_4270_rtparam0_R_gs_yo_id_4152_R_struct_decl_77202_file____private_tmp_yo_vfix_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_rtparam1_usize_ret___R_struct_decl_77202_file____private_tmp_yo_vfix_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_(&sm->__capture.items, sm->slot_0));
+      __yo_t44* _file____priv_temp_14303 = (*yo_id_4270_rtparam0_R_gs_yo_id_4152_R_struct_decl_77202_file____private_tmp_yo_fsw_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_rtparam1_usize_ret___R_struct_decl_77202_file____private_tmp_yo_fsw_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_(&sm->__capture.items, sm->slot_0));
       ((__yo_t44*)__yo_incr_rc((void*)(_file____priv_temp_14303)));
       sm->var_204506 = _file____priv_temp_14303;
       size_t _file____priv_temp_14307 = sm->var_204119; // Save old value for later use (not an sm-> slot)
@@ -49117,7 +49117,7 @@ void _file____priv_temp_14315_resume(_file____priv_temp_14315_state_t* sm) {
         if (sm->await_future_1 != NULL) { __yo_decr_rc((void*)sm->await_future_1); };
         __yo_decr_rc((void*)(sm->var_204506)); memset(&(sm->var_204506), 0, sizeof(sm->var_204506));
         ASYNC_DEBUG("_file____priv_temp_14315: Re-evaluating while loop condition\n");
-        size_t _file____priv_temp_14300 = yo_id_4159_rtparam0_R_gs_yo_id_4152_R_struct_decl_77202_file____private_tmp_yo_vfix_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_ret_usize(sm->__capture.items);
+        size_t _file____priv_temp_14300 = yo_id_4159_rtparam0_R_gs_yo_id_4152_R_struct_decl_77202_file____private_tmp_yo_fsw_tests__yo_selftest_batch_1_1_yo_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_usize_ret_usize(sm->__capture.items);
         if (!(((sm->slot_0) < (_file____priv_temp_14300)))) {
           sm->while_loop_1_active = false;
           ASYNC_DEBUG("_file____priv_temp_14315: While loop condition false, exiting loop\n");
@@ -49397,9 +49397,9 @@ void _file____priv_temp_17227_resume(_file____priv_temp_17227_state_t* sm) {
       sm->var_230695 = 0ULL;
       __yo_t35* _file____priv_temp_17173 = yo_id_4166__ret_R_gs_yo_id_4152_usize();
       sm->var_230718 = _file____priv_temp_17173;
-      __yo_t5 _file____priv_temp_17174 = yo_id_4215_rtparam0_R_gs_yo_id_4152_usize_rtparam1_usize_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_vfix_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_vfix_std_allocator_yo_index_usize_length_usize(sm->var_230718, 1ULL);
-      __yo_t5 _file____priv_temp_17175 = yo_id_4215_rtparam0_R_gs_yo_id_4152_usize_rtparam1_usize_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_vfix_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_vfix_std_allocator_yo_index_usize_length_usize(sm->var_230718, 1ULL);
-      __yo_t5 _file____priv_temp_17176 = yo_id_4215_rtparam0_R_gs_yo_id_4152_usize_rtparam1_usize_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_vfix_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_vfix_std_allocator_yo_index_usize_length_usize(sm->var_230718, 1ULL);
+      __yo_t5 _file____priv_temp_17174 = yo_id_4215_rtparam0_R_gs_yo_id_4152_usize_rtparam1_usize_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_fsw_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_fsw_std_allocator_yo_index_usize_length_usize(sm->var_230718, 1ULL);
+      __yo_t5 _file____priv_temp_17175 = yo_id_4215_rtparam0_R_gs_yo_id_4152_usize_rtparam1_usize_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_fsw_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_fsw_std_allocator_yo_index_usize_length_usize(sm->var_230718, 1ULL);
+      __yo_t5 _file____priv_temp_17176 = yo_id_4215_rtparam0_R_gs_yo_id_4152_usize_rtparam1_usize_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_fsw_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_fsw_std_allocator_yo_index_usize_length_usize(sm->var_230718, 1ULL);
       sm->var_230755 = 0ULL;
       sm->while_loop_2_active = true;
       while_loop_2_start:
@@ -49530,8 +49530,8 @@ void _file____priv_temp_17227_resume(_file____priv_temp_17227_state_t* sm) {
           ASYNC_DEBUG("_file____priv_temp_17227: Executing remaining code from branch 86\n");
           __yo_t35* _file____priv_temp_17201 = yo_id_4166__ret_R_gs_yo_id_4152_usize();
           sm->var_230956 = _file____priv_temp_17201;
-          __yo_t5 _file____priv_temp_17202 = yo_id_4215_rtparam0_R_gs_yo_id_4152_usize_rtparam1_usize_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_vfix_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_vfix_std_allocator_yo_index_usize_length_usize(sm->var_230956, sm->var_230901);
-          __yo_t5 _file____priv_temp_17203 = yo_id_4215_rtparam0_R_gs_yo_id_4152_usize_rtparam1_usize_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_vfix_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_vfix_std_allocator_yo_index_usize_length_usize(sm->var_230956, sm->var_230901);
+          __yo_t5 _file____priv_temp_17202 = yo_id_4215_rtparam0_R_gs_yo_id_4152_usize_rtparam1_usize_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_fsw_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_fsw_std_allocator_yo_index_usize_length_usize(sm->var_230956, sm->var_230901);
+          __yo_t5 _file____priv_temp_17203 = yo_id_4215_rtparam0_R_gs_yo_id_4152_usize_rtparam1_usize_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_fsw_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_fsw_std_allocator_yo_index_usize_length_usize(sm->var_230956, sm->var_230901);
           sm->var_230981 = 0ULL;
           sm->while_loop_1_active = true;
           while_loop_1_start:
@@ -49805,7 +49805,7 @@ void _file____priv_temp_17270_resume(_file____priv_temp_17270_state_t* sm) {
       sm->var_231424 = 0ULL;
       __yo_t35* _file____priv_temp_17239 = yo_id_4166__ret_R_gs_yo_id_4152_usize();
       sm->var_231447 = _file____priv_temp_17239;
-      __yo_t5 _file____priv_temp_17240 = yo_id_4215_rtparam0_R_gs_yo_id_4152_usize_rtparam1_usize_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_vfix_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_vfix_std_allocator_yo_index_usize_length_usize(sm->var_231447, 1ULL);
+      __yo_t5 _file____priv_temp_17240 = yo_id_4215_rtparam0_R_gs_yo_id_4152_usize_rtparam1_usize_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_fsw_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_fsw_std_allocator_yo_index_usize_length_usize(sm->var_231447, 1ULL);
       __yo_t37 _file____priv_temp_17242 = yo_id_4227_rtparam0_R_gs_yo_id_4152_usize_rtparam1_usize_ret_enum_yo_id_3704_value_usize(sm->var_231447, 0ULL);
       switch (_file____priv_temp_17242.tag) {
         case __YO_T37_NONE: {
@@ -49921,8 +49921,8 @@ void _file____priv_temp_17270_resume(_file____priv_temp_17270_state_t* sm) {
           ASYNC_DEBUG("_file____priv_temp_17270: Executing remaining code from branch 90\n");
           __yo_t35* _file____priv_temp_17247 = yo_id_4166__ret_R_gs_yo_id_4152_usize();
           sm->var_231542 = _file____priv_temp_17247;
-          __yo_t5 _file____priv_temp_17248 = yo_id_4215_rtparam0_R_gs_yo_id_4152_usize_rtparam1_usize_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_vfix_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_vfix_std_allocator_yo_index_usize_length_usize(sm->var_231542, sm->var_231487);
-          __yo_t5 _file____priv_temp_17249 = yo_id_4215_rtparam0_R_gs_yo_id_4152_usize_rtparam1_usize_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_vfix_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_vfix_std_allocator_yo_index_usize_length_usize(sm->var_231542, sm->var_231487);
+          __yo_t5 _file____priv_temp_17248 = yo_id_4215_rtparam0_R_gs_yo_id_4152_usize_rtparam1_usize_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_fsw_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_fsw_std_allocator_yo_index_usize_length_usize(sm->var_231542, sm->var_231487);
+          __yo_t5 _file____priv_temp_17249 = yo_id_4215_rtparam0_R_gs_yo_id_4152_usize_rtparam1_usize_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_fsw_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_fsw_std_allocator_yo_index_usize_length_usize(sm->var_231542, sm->var_231487);
           sm->var_231567 = 0ULL;
           sm->while_loop_1_active = true;
           while_loop_1_start:
@@ -50180,9 +50180,9 @@ void _file____priv_temp_17319_resume(_file____priv_temp_17319_state_t* sm) {
       sm->var_232003 = 0ULL;
       __yo_t35* _file____priv_temp_17282 = yo_id_4166__ret_R_gs_yo_id_4152_usize();
       sm->var_232026 = _file____priv_temp_17282;
-      __yo_t5 _file____priv_temp_17283 = yo_id_4215_rtparam0_R_gs_yo_id_4152_usize_rtparam1_usize_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_vfix_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_vfix_std_allocator_yo_index_usize_length_usize(sm->var_232026, 1ULL);
-      __yo_t5 _file____priv_temp_17284 = yo_id_4215_rtparam0_R_gs_yo_id_4152_usize_rtparam1_usize_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_vfix_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_vfix_std_allocator_yo_index_usize_length_usize(sm->var_232026, 10ULL);
-      __yo_t5 _file____priv_temp_17285 = yo_id_4215_rtparam0_R_gs_yo_id_4152_usize_rtparam1_usize_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_vfix_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_vfix_std_allocator_yo_index_usize_length_usize(sm->var_232026, 100ULL);
+      __yo_t5 _file____priv_temp_17283 = yo_id_4215_rtparam0_R_gs_yo_id_4152_usize_rtparam1_usize_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_fsw_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_fsw_std_allocator_yo_index_usize_length_usize(sm->var_232026, 1ULL);
+      __yo_t5 _file____priv_temp_17284 = yo_id_4215_rtparam0_R_gs_yo_id_4152_usize_rtparam1_usize_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_fsw_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_fsw_std_allocator_yo_index_usize_length_usize(sm->var_232026, 10ULL);
+      __yo_t5 _file____priv_temp_17285 = yo_id_4215_rtparam0_R_gs_yo_id_4152_usize_rtparam1_usize_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_fsw_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_fsw_std_allocator_yo_index_usize_length_usize(sm->var_232026, 100ULL);
       sm->var_232063 = 0ULL;
       sm->while_loop_1_active = true;
       while_loop_1_start:
@@ -50202,8 +50202,8 @@ void _file____priv_temp_17319_resume(_file____priv_temp_17319_state_t* sm) {
           sm->var_232145 = _file____priv_temp_17291.data.Some.value;
           __yo_t35* _file____priv_temp_17293 = yo_id_4166__ret_R_gs_yo_id_4152_usize();
           sm->var_232170 = _file____priv_temp_17293;
-          __yo_t5 _file____priv_temp_17294 = yo_id_4215_rtparam0_R_gs_yo_id_4152_usize_rtparam1_usize_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_vfix_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_vfix_std_allocator_yo_index_usize_length_usize(sm->var_232170, sm->var_232145);
-          __yo_t5 _file____priv_temp_17295 = yo_id_4215_rtparam0_R_gs_yo_id_4152_usize_rtparam1_usize_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_vfix_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_vfix_std_allocator_yo_index_usize_length_usize(sm->var_232170, sm->var_232145);
+          __yo_t5 _file____priv_temp_17294 = yo_id_4215_rtparam0_R_gs_yo_id_4152_usize_rtparam1_usize_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_fsw_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_fsw_std_allocator_yo_index_usize_length_usize(sm->var_232170, sm->var_232145);
+          __yo_t5 _file____priv_temp_17295 = yo_id_4215_rtparam0_R_gs_yo_id_4152_usize_rtparam1_usize_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_fsw_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_fsw_std_allocator_yo_index_usize_length_usize(sm->var_232170, sm->var_232145);
           sm->var_232195 = 0ULL;
           sm->while_loop_0_active = true;
           while_loop_0_start:
@@ -50648,24 +50648,24 @@ void _file____priv_temp_17397_resume(_file____priv_temp_17397_state_t* sm) {
     state_0:
     case 0: { // State 0
       ASYNC_DEBUG("_file____priv_temp_17397: Entering state 0\n");
-      __yo_t47* _file____priv_temp_17336 = yo_id_4166__ret_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8();
+      __yo_t47* _file____priv_temp_17336 = yo_id_4166__ret_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8();
       sm->var_232798 = _file____priv_temp_17336;
       __yo_t9 _file____priv_temp_17337 = yo_id_4978((__yo_str){ .ptr = (const uint8_t*)".", .len = 1 });
-      __yo_t5 _file____priv_temp_17338 = yo_id_4215_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam1_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_vfix_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_vfix_std_allocator_yo_index_usize_length_usize(sm->var_232798, _file____priv_temp_17337);
+      __yo_t5 _file____priv_temp_17338 = yo_id_4215_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam1_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_fsw_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_fsw_std_allocator_yo_index_usize_length_usize(sm->var_232798, _file____priv_temp_17337);
       __yo_t9 _file____priv_temp_17339 = yo_id_4978((__yo_str){ .ptr = (const uint8_t*)".", .len = 1 });
-      __yo_t5 _file____priv_temp_17340 = yo_id_4215_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam1_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_vfix_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_vfix_std_allocator_yo_index_usize_length_usize(sm->var_232798, _file____priv_temp_17339);
+      __yo_t5 _file____priv_temp_17340 = yo_id_4215_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam1_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_fsw_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_fsw_std_allocator_yo_index_usize_length_usize(sm->var_232798, _file____priv_temp_17339);
       __yo_t9 _file____priv_temp_17341 = yo_id_4978((__yo_str){ .ptr = (const uint8_t*)".", .len = 1 });
-      __yo_t5 _file____priv_temp_17342 = yo_id_4215_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam1_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_vfix_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_vfix_std_allocator_yo_index_usize_length_usize(sm->var_232798, _file____priv_temp_17341);
+      __yo_t5 _file____priv_temp_17342 = yo_id_4215_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam1_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_fsw_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_fsw_std_allocator_yo_index_usize_length_usize(sm->var_232798, _file____priv_temp_17341);
       sm->var_232852 = 0ULL;
       sm->var_232853 = 0ULL;
       sm->while_loop_2_active = true;
       while_loop_2_start:
-      size_t _file____priv_temp_17344 = yo_id_4159_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_usize(sm->var_232798);
+      size_t _file____priv_temp_17344 = yo_id_4159_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_usize(sm->var_232798);
       if (!(((sm->var_232853) < (_file____priv_temp_17344)))) {
         sm->while_loop_2_active = false;
         goto while_loop_2_end;
       }
-      __yo_t8 _file____priv_temp_17348 = yo_id_4227_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam1_usize_ret_enum_yo_id_4226_value_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8(sm->var_232798, sm->var_232853);
+      __yo_t8 _file____priv_temp_17348 = yo_id_4227_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam1_usize_ret_enum_yo_id_4226_value_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8(sm->var_232798, sm->var_232853);
       switch (_file____priv_temp_17348.tag) {
         case __YO_T8_NONE: {
           sm->cond_branch_0 = 97;
@@ -50797,21 +50797,21 @@ void _file____priv_temp_17397_resume(_file____priv_temp_17397_state_t* sm) {
           ASYNC_DEBUG("_file____priv_temp_17397: Executing remaining code from branch 98\n");
           if (sm->var_233002) {
             sm->cond_branch_1 = 99;
-            __yo_t47* _file____priv_temp_17358 = yo_id_4166__ret_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8();
+            __yo_t47* _file____priv_temp_17358 = yo_id_4166__ret_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8();
             sm->var_233027 = _file____priv_temp_17358;
             __yo_t9 _file____priv_temp_17359 = yo_id_4978((__yo_str){ .ptr = (const uint8_t*)".", .len = 1 });
-            __yo_t5 _file____priv_temp_17360 = yo_id_4215_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam1_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_vfix_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_vfix_std_allocator_yo_index_usize_length_usize(sm->var_233027, _file____priv_temp_17359);
+            __yo_t5 _file____priv_temp_17360 = yo_id_4215_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam1_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_fsw_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_fsw_std_allocator_yo_index_usize_length_usize(sm->var_233027, _file____priv_temp_17359);
             __yo_t9 _file____priv_temp_17361 = yo_id_4978((__yo_str){ .ptr = (const uint8_t*)".", .len = 1 });
-            __yo_t5 _file____priv_temp_17362 = yo_id_4215_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam1_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_vfix_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_vfix_std_allocator_yo_index_usize_length_usize(sm->var_233027, _file____priv_temp_17361);
+            __yo_t5 _file____priv_temp_17362 = yo_id_4215_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam1_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_enum_yo_id_4182_value_unit_error_enum_decl_108160_file____private_tmp_yo_fsw_std_collections_array_list_yo_error_enum_decl_113945_file____private_tmp_yo_fsw_std_allocator_yo_index_usize_length_usize(sm->var_233027, _file____priv_temp_17361);
             sm->var_233062 = 0ULL;
             sm->while_loop_1_active = true;
             while_loop_1_start:
-            size_t _file____priv_temp_17364 = yo_id_4159_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_usize(sm->var_233027);
+            size_t _file____priv_temp_17364 = yo_id_4159_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_usize(sm->var_233027);
             if (!(((sm->var_233062) < (_file____priv_temp_17364)))) {
               sm->while_loop_1_active = false;
               goto while_loop_1_end;
             }
-            __yo_t8 _file____priv_temp_17368 = yo_id_4227_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam1_usize_ret_enum_yo_id_4226_value_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8(sm->var_233027, sm->var_233062);
+            __yo_t8 _file____priv_temp_17368 = yo_id_4227_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_rtparam1_usize_ret_enum_yo_id_4226_value_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8(sm->var_233027, sm->var_233062);
             switch (_file____priv_temp_17368.tag) {
               case __YO_T8_NONE: {
                 sm->cond_branch_1 = 101;
@@ -50990,7 +50990,7 @@ switch (((sm->var_233136).data.Some.value).tag) {
   default: break;
 }
         ASYNC_DEBUG("_file____priv_temp_17397: Re-evaluating while loop condition\n");
-        size_t _file____priv_temp_17364 = yo_id_4159_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_usize(sm->var_233027);
+        size_t _file____priv_temp_17364 = yo_id_4159_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_usize(sm->var_233027);
         if (!(((sm->var_233062) < (_file____priv_temp_17364)))) {
           sm->while_loop_1_active = false;
           ASYNC_DEBUG("_file____priv_temp_17397: While loop condition false, exiting loop\n");
@@ -51048,7 +51048,7 @@ switch (((sm->var_232931).data.Some.value).tag) {
   }
   default: break;
 }
-        size_t _file____priv_temp_17344 = yo_id_4159_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_vfix_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_usize(sm->var_232798);
+        size_t _file____priv_temp_17344 = yo_id_4159_rtparam0_R_gs_yo_id_4152_struct_decl_95480_file____private_tmp_yo_fsw_std_string_string_yo_enum_yo_id_4897_value_R_gs_yo_id_4152_u8_ret_usize(sm->var_232798);
         if (!(((sm->var_232853) < (_file____priv_temp_17344)))) {
           sm->while_loop_2_active = false;
         } else {
@@ -51296,7 +51296,7 @@ void _file____priv_temp_14322_state_dispose(void* sm_ptr) {
   // Memory freed by __yo_decr_rc after this function returns
 }
 
-_file____priv_temp_14322_state_t* __yo_new__file____priv_temp_14322(__yo_t183 __capture) {
+_file____priv_temp_14322_state_t* __yo_new__file____priv_temp_14322(__yo_t182 __capture) {
   // Allocate async block state machine (heap-backed, ref-counted)
   _file____priv_temp_14322_state_t* sm = (_file____priv_temp_14322_state_t*)__yo_malloc(sizeof(_file____priv_temp_14322_state_t));
   memset(sm, 0, sizeof(_file____priv_temp_14322_state_t));
@@ -57580,9 +57580,9 @@ _file____priv_temp_18106_state_t* __yo_new__file____priv_temp_18106(__yo_t165 __
 
 // Module-level mutable variable initialization (runs first).
 static void __yo_main_module_init(void) {
-  g_async_result_disposed_m7314982248589901250 = 0;
-  g_spawn_result_disposed_m7314982248589901250 = 0;
-  g_branch_local_disposed_m7314982248589901250 = 0;
+  g_async_result_disposed_m1186671634904895756 = 0;
+  g_spawn_result_disposed_m1186671634904895756 = 0;
+  g_branch_local_disposed_m1186671634904895756 = 0;
 }
 
 // Program body runs on a large-stack worker thread (see generateMainWrapper).
@@ -57627,7 +57627,7 @@ static void __yo_dispose_dispatch(void* ptr) {
   __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
   switch (header->type_id) {
     case 72: _file____priv_temp_16046_state_dispose(ptr); return;
-    case 7: yo_id_15099(ptr); return;
+    case 13: yo_id_15099(ptr); return;
     case 94: _file____priv_temp_16810_state_dispose(ptr); return;
     case 119: _file____priv_temp_14367_state_dispose(ptr); return;
     case 77: _file____priv_temp_14150_state_dispose(ptr); return;
@@ -57651,12 +57651,13 @@ static void __yo_dispose_dispatch(void* ptr) {
     case 97: _file____priv_temp_17033_state_dispose(ptr); return;
     case 104: _file____priv_temp_17319_state_dispose(ptr); return;
     case 33: _file____priv_temp_15193_state_dispose(ptr); return;
-    case 16: yo_id_15119(ptr); return;
     case 52: _file____priv_temp_15527_state_dispose(ptr); return;
     case 69: _file____priv_temp_15975_state_dispose(ptr); return;
     case 114: _file____priv_temp_17507_state_dispose(ptr); return;
     case 88: _file____priv_temp_14198_state_dispose(ptr); return;
     case 82: _file____priv_temp_16318_state_dispose(ptr); return;
+    case 12: yo_id_15075(ptr); return;
+    case 2: yo_id_15066(ptr); return;
     case 49: _file____priv_temp_15461_state_dispose(ptr); return;
     case 48: _file____priv_temp_15436_state_dispose(ptr); return;
     case 55: _file____priv_temp_15597_state_dispose(ptr); return;
@@ -57666,45 +57667,46 @@ static void __yo_dispose_dispatch(void* ptr) {
     case 83: _file____priv_temp_16456_state_dispose(ptr); return;
     case 112: _file____priv_temp_17449_state_dispose(ptr); return;
     case 54: _file____priv_temp_15577_state_dispose(ptr); return;
-    case 4: yo_id_15065(ptr); return;
     case 87: _file____priv_temp_16610_state_dispose(ptr); return;
     case 43: _file____priv_temp_15355_state_dispose(ptr); return;
     case 57: _file____priv_temp_15641_state_dispose(ptr); return;
     case 35: _file____priv_temp_15236_state_dispose(ptr); return;
     case 85: _file____priv_temp_16565_state_dispose(ptr); return;
     case 25: _file____priv_temp_15024_state_dispose(ptr); return;
-    case 17: _file____priv_temp_15876_sync_fut_t_dispose(ptr); return;
     case 21: _file____priv_temp_14373_sync_fut_t_dispose(ptr); return;
+    case 17: _file____priv_temp_15876_sync_fut_t_dispose(ptr); return;
     case 129: _file____priv_temp_14437_state_dispose(ptr); return;
     case 50: _file____priv_temp_15482_state_dispose(ptr); return;
     case 53: _file____priv_temp_15552_state_dispose(ptr); return;
     case 132: _file____priv_temp_16073_state_dispose(ptr); return;
     case 80: _file____priv_temp_16192_state_dispose(ptr); return;
+    case 4: yo_id_15077(ptr); return;
     case 78: _file____priv_temp_14140_state_dispose(ptr); return;
     case 118: _file____priv_temp_17599_state_dispose(ptr); return;
     case 39: _file____priv_temp_15287_state_dispose(ptr); return;
     case 67: _file____priv_temp_15917_state_dispose(ptr); return;
     case 93: _file____priv_temp_16790_state_dispose(ptr); return;
     case 95: _file____priv_temp_16840_state_dispose(ptr); return;
-    case 123: _file____priv_temp_17721_state_dispose(ptr); return;
+    case 3: yo_id_15068(ptr); return;
     case 115: _file____priv_temp_14354_state_dispose(ptr); return;
+    case 123: _file____priv_temp_17721_state_dispose(ptr); return;
     case 109: _file____priv_temp_17418_state_dispose(ptr); return;
     case 107: _file____priv_temp_14322_state_dispose(ptr); return;
-    case 121: _file____priv_temp_17662_state_dispose(ptr); return;
+    case 9: yo_id_15122(ptr); return;
     case 42: _file____priv_temp_15342_sync_fut_t_dispose(ptr); return;
     case 106: _file____priv_temp_17397_state_dispose(ptr); return;
-    case 122: _file____priv_temp_17691_state_dispose(ptr); return;
+    case 121: _file____priv_temp_17662_state_dispose(ptr); return;
+    case 7: yo_id_15111(ptr); return;
     case 99: _file____priv_temp_14227_state_dispose(ptr); return;
-    case 10: yo_id_15129(ptr); return;
+    case 122: _file____priv_temp_17691_state_dispose(ptr); return;
     case 134: _file____priv_temp_18106_state_dispose(ptr); return;
     case 105: _file____priv_temp_13672_state_dispose(ptr); return;
     case 58: _file____priv_temp_15663_state_dispose(ptr); return;
     case 46: _file____priv_temp_15396_state_dispose(ptr); return;
     case 126: _file____priv_temp_14404_state_dispose(ptr); return;
     case 66: _file____priv_temp_15897_state_dispose(ptr); return;
-    case 11: yo_id_15079(ptr); return;
-    case 14: yo_id_15104(ptr); return;
     case 56: _file____priv_temp_15619_state_dispose(ptr); return;
+    case 15: yo_id_15104(ptr); return;
     case 41: _file____priv_temp_15332_sync_fut_t_dispose(ptr); return;
     case 27: _file____priv_temp_15078_state_dispose(ptr); return;
     case 120: _file____priv_temp_17626_state_dispose(ptr); return;
@@ -57715,34 +57717,33 @@ static void __yo_dispose_dispatch(void* ptr) {
     case 31: _file____priv_temp_15159_state_dispose(ptr); return;
     case 38: _file____priv_temp_15264_state_dispose(ptr); return;
     case 110: _file____priv_temp_14339_state_dispose(ptr); return;
+    case 16: yo_id_15114(ptr); return;
     case 76: _file____priv_temp_14161_state_dispose(ptr); return;
     case 91: _file____priv_temp_14205_state_dispose(ptr); return;
     case 100: _file____priv_temp_14315_state_dispose(ptr); return;
+    case 11: yo_id_15064(ptr); return;
     case 73: _file____priv_temp_16077_state_dispose(ptr); return;
     case 34: _file____priv_temp_15216_state_dispose(ptr); return;
     case 86: _file____priv_temp_14191_state_dispose(ptr); return;
     case 45: _file____priv_temp_15387_sync_fut_t_dispose(ptr); return;
-    case 12: yo_id_15092(ptr); return;
     case 1: __yo_timer_future_dispose(ptr); return;
     case 23: _file____priv_temp_14424_sync_fut_t_dispose(ptr); return;
     case 111: _file____priv_temp_14346_state_dispose(ptr); return;
-    case 8: yo_id_15102(ptr); return;
+    case 14: yo_id_15102(ptr); return;
     case 102: _file____priv_temp_17227_state_dispose(ptr); return;
     case 44: _file____priv_temp_15373_sync_fut_t_dispose(ptr); return;
     case 59: _file____priv_temp_15688_state_dispose(ptr); return;
-    case 3: yo_id_15063(ptr); return;
     case 84: _file____priv_temp_16517_state_dispose(ptr); return;
     case 37: _file____priv_temp_15256_sync_fut_t_dispose(ptr); return;
-    case 5: yo_id_15072(ptr); return;
     case 68: _file____priv_temp_15942_state_dispose(ptr); return;
     case 89: _file____priv_temp_16655_state_dispose(ptr); return;
     case 90: _file____priv_temp_16730_state_dispose(ptr); return;
     case 124: _file____priv_temp_17760_state_dispose(ptr); return;
     case 113: _file____priv_temp_17480_state_dispose(ptr); return;
-    case 15: yo_id_15117(ptr); return;
     case 127: _file____priv_temp_14417_state_dispose(ptr); return;
     case 26: _file____priv_temp_15053_state_dispose(ptr); return;
     case 40: _file____priv_temp_15318_state_dispose(ptr); return;
+    case 8: yo_id_15116(ptr); return;
     case 63: _file____priv_temp_15766_state_dispose(ptr); return;
     case 96: _file____priv_temp_16988_state_dispose(ptr); return;
     case 6: yo_id_15097(ptr); return;
@@ -57750,15 +57751,14 @@ static void __yo_dispose_dispatch(void* ptr) {
     case 101: _file____priv_temp_17162_state_dispose(ptr); return;
     case 29: _file____priv_temp_15118_state_dispose(ptr); return;
     case 98: _file____priv_temp_14264_state_dispose(ptr); return;
+    case 5: yo_id_15090(ptr); return;
     case 64: _file____priv_temp_15797_state_dispose(ptr); return;
     case 61: _file____priv_temp_15723_state_dispose(ptr); return;
-    case 13: yo_id_15095(ptr); return;
     case 65: _file____priv_temp_15838_state_dispose(ptr); return;
     case 116: _file____priv_temp_17539_state_dispose(ptr); return;
-    case 2: yo_id_15061(ptr); return;
+    case 10: yo_id_15061(ptr); return;
     case 74: _file____priv_temp_16099_state_dispose(ptr); return;
     case 125: _file____priv_temp_17800_state_dispose(ptr); return;
-    case 9: yo_id_15126(ptr); return;
     case 92: _file____priv_temp_16766_state_dispose(ptr); return;
     default: return;
   }
