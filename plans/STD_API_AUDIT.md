@@ -690,9 +690,14 @@ declarations at runtime.
   `_subcommand_help_text` in `src/main.yo`, local, before version pre-dispatch,
   stops at `--`).
 - Replace the two `curl` shell-outs (`src/version_cache.yo` — bundle download
-  + releases list) with `std/http`. **Blocked on TLS (D6/O2)** — doing it
-  earlier would silently downgrade the toolchain's release channel to
-  cleartext.
+  + releases list) with `std/http`. TLS landed (D6/O2), and the swap is
+  WRITTEN on branch `s6/version-cache-std-http` — but it is **SEED-GATED on
+  v0.2.20**: importing `std/http` into the compiler's own closure makes the
+  v0.2.19 SEED compile `fetch_with`'s while-await-under-race shape (C38,
+  fixed after the seed) and the TLS BIO externs, and the seed miscompiles
+  both (`no member named 'while_loop_0_active'`, BIO decl errors) — the
+  yo-seed-gates-source-forms rule in action. Land it in the first PR wave
+  after SEED_VERSION advances to v0.2.20.
 
 **P1 — expected of a modern std**
 ~~HTTP server~~ **DONE 2026-08-29** (`HttpServer`, one connection at a time, `Connection: close`; unblocked by the C27 fix); ~~chunked/redirect/timeout client~~ **DONE** (redirects + deadline

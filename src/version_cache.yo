@@ -23,7 +23,8 @@ open(import("std/fmt"));
 { AnyError, Exception, IoExn } :: import("std/error");
 { ArrayList } :: import("std/collections/array_list");
 { Path } :: import("std/path");
-{ exists } :: import("std/fs/file");
+{ exists, write_string } :: import("std/fs/file");
+{ FetchOptions, fetch_with } :: import("std/http/client");
 {
   FileType,
   create_dir_all,
@@ -452,53 +453,23 @@ clean_version_cache :: (
     );
   })
 );
-/// HTTP GET using curl, sending the headers GitHub's API requires.
-/// Follows redirects. Returns the response body as a String.
-/// Mirrors the TS httpGet: HTTP 403 throws the rate-limit message, any
-/// other status >= 400 throws `HTTP <code> fetching <url>`.
-// (The old signature declared an `exn` parameter no call site ever passed —
-// the arity mismatch was swallowed at def-eval time and HOLLOWED this whole
-// async body, silently breaking `yo version list --remote` in every release;
-// issues/wrong-arity-call-silently-accepted-version-install-broken.md.)
+/// HTTP GET via std/http (D6 PR-3 — the curl shell-out is gone), sending
+/// the headers GitHub's API requires. Follows redirects. Returns the
+/// response body as a String. HTTP 403 throws the rate-limit message, any
+/// other status >= 400 throws `HTTP <code> fetching <url>`. (The old
+/// signature also declared an `exn` parameter no call site ever passed —
+/// the arity mismatch was invisible to `check` because def-time trial
+/// failures are swallowed.)
 _http_get :: (
   fn(url : String, io : Io) -> Impl(Future(String, IoExn))
 )(
   io.async((e : IoExn) => {
-    cmd := Command.new(String.from("curl"));
-    cmd.arg(String.from("--silent"));
-    cmd.arg(String.from("--location"));
-    cmd.arg(String.from("--max-redirs"));
-    cmd.arg(String.from("5"));
-    // GitHub's API rejects requests without a User-Agent.
-    cmd.arg(String.from("-H"));
-    cmd.arg(String.from("User-Agent: yo-version-cache"));
-    cmd.arg(String.from("-H"));
-    cmd.arg(String.from("Accept: application/vnd.github+json"));
-    // Append the final HTTP status code (3 digits) to stdout so the
-    // caller-visible status survives curl's exit-code flattening.
-    cmd.arg(String.from("-w"));
-    cmd.arg(String.from("%{http_code}"));
-    cmd.arg(url);
-    out := e.io.await(cmd.output(e.io), e);
-    if(!(out.status.success()), {
-      msg := String.from("HTTP request failed for: ");
-      msg.push_string(url);
-      e.exn.throw(dyn(msg));
-    });
-    // stdout = body bytes + 3-digit status code. Split at the BYTE level, on
-    // the raw `ArrayList(u8)`, before it is ever a String: release JSON can
-    // contain non-ASCII, and the split point must not depend on the decoded
-    // text at all. (Before plans/STD_API_AUDIT_D4_PLAN.md D4 PR 3 the reason
-    // was written as "String indices are rune-based" — `String` is byte-indexed
-    // now, but the byte-level split is still the right shape here.)
-    n := out.stdout.len();
-    if(n < usize(3), {
-      e.exn.throw(dyn(`HTTP request failed for: ${url}`));
-    });
-    code_str := String.from_bytes(out.stdout.slice_copy((n - usize(3)) .. n));
-    body := String.from_bytes(out.stdout.slice_copy(usize(0) .. (n - usize(3))));
-    code := match(code_str.parse_i64(), .None => i64(0), .Some(c) => c);
-    if(code == i64(403), {
+    opts := FetchOptions.new();
+    opts = opts.with_header(`User-Agent`, `yo-version-cache`);
+    opts = opts.with_header(`Accept`, `application/vnd.github+json`);
+    opts = opts.with_max_redirects(usize(5));
+    resp := e.io.await(fetch_with(url, opts, e.io), e);
+    if(resp.status_code == i32(403), {
       // Unauthenticated GitHub API rate limit (60 requests/hour/IP).
       e.exn.throw(
         dyn(
@@ -506,19 +477,17 @@ _http_get :: (
         )
       );
     });
-    if(code >= i64(400), {
-      e.exn.throw(dyn(`HTTP ${code_str} fetching ${url}`));
+    if(resp.status_code >= i32(400), {
+      e.exn.throw(dyn(`HTTP ${resp.status_code} fetching ${url}`));
     });
-    body
+    resp.body
   })
 );
-/// Download a URL to `dest_path` using curl. Follows redirects.
+/// Download a URL to `dest_path` via std/http (D6 PR-3). Follows redirects.
 /// Returns the final HTTP status code as a 3-digit String (e.g. "200",
-/// "404") so the caller can map statuses to messages (the TS downloadFile
-/// throws and the caller inspects the message; without catch, we return
-/// the status instead). Throws only when curl itself fails (network error).
-// (Same dead-`exn` arity hollow as _http_get — this one broke the download
-// half of `yo version install`.)
+/// "404") so the caller can map statuses to messages. Like the curl
+/// `-o`/`-w` pair it replaces: the body is written to `dest_path` whatever
+/// the status, and only a transport failure throws.
 _download_file :: (
   fn(
     url : String,
@@ -527,26 +496,15 @@ _download_file :: (
   ) -> Impl(Future(String, IoExn))
 )(
   io.async((e : IoExn) => {
-    cmd := Command.new(String.from("curl"));
-    cmd.arg(String.from("--silent"));
-    cmd.arg(String.from("--location"));
-    cmd.arg(String.from("--max-redirs"));
-    cmd.arg(String.from("5"));
-    cmd.arg(String.from("-H"));
-    cmd.arg(String.from("User-Agent: yo-version-cache"));
-    cmd.arg(String.from("-o"));
-    cmd.arg(dest_path);
-    cmd.arg(String.from("-w"));
-    cmd.arg(String.from("%{http_code}"));
-    cmd.arg(url);
-    out := e.io.await(cmd.output(e.io), e);
-    if(!(out.status.success()), {
-      msg := String.from("Failed to download: ");
-      msg.push_string(url);
-      e.exn.throw(dyn(msg));
-    });
-    // With `-o`, the body goes to the file; stdout is exactly the -w output.
-    String.from_bytes(out.stdout)
+    opts := FetchOptions.new();
+    opts = opts.with_header(`User-Agent`, `yo-version-cache`);
+    opts = opts.with_max_redirects(usize(5));
+    // Release bundles are tens of MiB; give them ample headroom over the
+    // 64 MiB default response cap.
+    opts = opts.with_max_response_bytes(usize(536870912));
+    resp := e.io.await(fetch_with(url, opts, e.io), e);
+    e.io.await(write_string(Path.new(dest_path), resp.body, e.io), e);
+    `${resp.status_code}`
   })
 );
 /// One page of the GitHub Releases API scan: the non-draft, non-prerelease
