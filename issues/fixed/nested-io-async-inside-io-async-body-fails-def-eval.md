@@ -1,6 +1,20 @@
 # A nested `io.async` closure inside an `io.async` body fails definition-time evaluation
 
-**Status: OPEN.** Split out of
+**Status: FIXED (2026-08-30).** `try_to_call_function_with_arguments` gained a
+Step 6b-nested fallback (`src/evaluator/calls/helper.yo`): an `io.async` call
+whose expected type carried no concrete bundle binds `E` from the RECEIVER
+expression — `e` for `e.io.async(...)` (the field-access base), the receiver
+itself for a bare `io.async(...)` variable — since the nested future is
+awaited with the enclosing bundle, making that bundle the only consistent
+`E`. Guards: skipped when `E` is already concretely bound (every working
+expected-type flow untouched), when the derived type is itself a SomeT (an
+unbound outer trial), and when the closure argument ANNOTATES its parameter
+(`(ctx : Ctx) => ...` — the annotation binds `E` through argument
+unification, and pre-binding from the receiver made that unification fail).
+Both nested shapes compile and run; `tests/async_await.test.yo`'s event-loop
+regression test now uses the inline nested form it always wanted, plus a new
+`e.io.async` IoExn-bundle test.
+ Split out of
 `issues/fixed/closure-nested-inside-io-async-closure-body-emits-abort-stub.md`
 (2026-08-29). **Severity:** MEDIUM — the shape is idiomatic (`inner :=
 io.async(...)` awaited from the enclosing body) and the spelling that works is
