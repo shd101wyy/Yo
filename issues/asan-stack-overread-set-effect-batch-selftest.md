@@ -88,6 +88,18 @@ issues/future-wrapper-return-shared-across-specializations.md (C54) and its repr
 issues/repros/future-wrapper-return-two-r-specializations.yo. Until then,
 every PR's native test legs stay red on this one test.
 
+## Breadcrumb for the spec-cache attack (2026-08-30, from the R-fix tracing)
+
+While instrumenting the R-class fix, the `body` capture's type was observed
+as `Impl : (Fn(i64) -> R)` DURING THE `R = String` SPECIALIZATION's body
+evaluation — `T` carried the OTHER specialization's i64 substitution while
+`R` stayed bare. The capture-type stamp itself is cross-contaminated, i.e.
+the specialization cache (create_specialized_function_inline's key) is
+serving a stale/substituted signature to the wrong spec — consistent with
+the child-SM-gets-IoExn symptom and worth checking FIRST:
+`src/evaluator/calls/helper.yo`'s cache key vs the forall/comptime bindings
+of the two call sites.
+
 ## Repro assets
 
 The `debug/asan-batch` branch (temporary — delete when done) carries the
