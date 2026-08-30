@@ -10,7 +10,7 @@ D4 PR 9 closed BY EVENTS 2026-08-28: the vendor migrated upstream
 (markdown_yo ff51f91 — zero substring sites remain, and its byte-based
 decoders are CORRECT by construction under the byte-indexed String), the
 pointer is at the migrated commit, and the docs pipeline runs it green end
-to end. D5 closed except the SEED-GATED bufio consumer migration (recorded
+to end. D5 closed — the bufio consumer migration landed 2026-08-28 with the v0.2.18 seed (recorded
 in the backlog doc).
 
 > **Condensed 2026-08-26.** The execution narratives for landed work were
@@ -505,7 +505,7 @@ Open D7 items:
 
 | Module | Verdict | Notes |
 |---|---|---|
-| prelude | FIX + EXTEND | D3 traits DONE; C6 impl removals DONE; `if` macro deletion is seed-gated (next seed bump) |
+| prelude | FIX + EXTEND | D3 traits DONE; C6 impl removals DONE; `if` macro DELETED 2026-08-30 (the v0.2.20 seed ships the parse-time desugar) |
 | error/assert | EXTEND | downcast, derive(Error), context; narrow `error.yo`'s blanket `open(import(./string|./fmt))` re-export |
 | fmt | FIX + EXTEND | `display.yo` deleted (§6); format specs DONE (D3.10); still: collapse 4 print bodies; dedupe 15 snprintf helpers |
 | spec/ | FREEZE AS DOC | identity stubs; mark experimental, exclude from stability promise |
@@ -655,7 +655,7 @@ declarations at runtime.
 2. ~~`std/encoding/utf8.yo` (D8)~~ **DONE 2026-08-25**; ~~`html_encode`~~ **DONE 2026-08-27** (the five XSS-critical characters; `html_decode(html_encode(s)) == s` pinned) — the D2 rename `decode_html` → `html_decode` landed with it
 3. `std/io` redesign with stdio handles (D5) — slices 1–2 DONE; generic wrappers + bufio move remain
 4. ~~`fs.copy`, `fs.remove_dir_all`, `read_link`, `set_permissions`, `try_exists`~~ **DONE 2026-08-27** — `copy` (contents + permission bits + byte count), `try_exists` (throws instead of lying `false` on a denied parent), `set_permissions` in `std/fs/file`; `read_link` in `std/fs/dir`; `remove_dir_all` in **`std/fs/walker`** (its implementation IS the walker, and `fs/walker` imports `fs/dir` — the reverse would cycle); `src/fetch` + `src/version_cache` dropped their private copies. En route: the libc `chmod`/`fchmod` bindings declared their mode as the OPAQUE `mode_t : Type`, which no Yo caller can construct (`mode_t(384)` is a SomeT-callee error — silently swallowed in async bodies); rebound as `u32`
-5. ~~`process.Child`/`spawn`/`Stdio`~~ **DONE 2026-08-27** (`Stdio` Inherit/Piped/Null; chainable builders returning `Self` incl. `env`/`env_clear` over a real envp built from `environ` + overrides; `spawn() -> Child` with `pid`/`write_stdin`/`close_stdin`/`read_std{out,err}_to_end`/`kill`/`wait`; parent pipe ends CLOEXEC — without it a child held the parent's stdin write end and never saw EOF; `ExitStatus.code()` is now `Option(i32)` — a signal death is `.None`, 13 consumers swept). `current_dir` DEFERRED: needs `posix_spawn_file_actions_addchdir` in the runtime shim — a new extern, i.e. SEED-GATED (plans/backlog/SEED_VERSION_AUTOMATION.md). **POSIX-only for now**: the Child/spawn plumbing and the item-4 fs wrappers have no Windows story (fs_convenience's S3 section hard-crashed the Windows CI child; sections skip on Windows) — issues/s3-fs-wrappers-windows-semantics-audit.md
+5. ~~`process.Child`/`spawn`/`Stdio`~~ **DONE 2026-08-27** (`Stdio` Inherit/Piped/Null; chainable builders returning `Self` incl. `env`/`env_clear` over a real envp built from `environ` + overrides; `spawn() -> Child` with `pid`/`write_stdin`/`close_stdin`/`read_std{out,err}_to_end`/`kill`/`wait`; parent pipe ends CLOEXEC — without it a child held the parent's stdin write end and never saw EOF; `ExitStatus.code()` is now `Option(i32)` — a signal death is `.None`, 13 consumers swept). `current_dir` DONE 2026-08-30: generation A (runtime `__yo_async_spawn_start_cwd`, all three runtimes) shipped in v0.2.20; generation B (std/sys `spawn_cwd`, `Command.current_dir`, end-to-end test) landed once that seed was live. **POSIX-only for now**: the Child/spawn plumbing and the item-4 fs wrappers have no Windows story (fs_convenience's S3 section hard-crashed the Windows CI child; sections skip on Windows) — issues/s3-fs-wrappers-windows-semantics-audit.md
 6. ~~async combinators + async channel/mutex + `timeout` (D7)~~ **DONE
    2026-08-27** (branch `s3/async-combinators`, merge pending the CI-red
    triage). Delivered: **JoinHandle `state()`/`is_finished()`/`abort()`**
@@ -802,12 +802,14 @@ mmap/file-lock/statfs wrappers; `gc.stats`; DNS SRV/TXT/reverse
      (**C35** — same, the check was missing, now FIXED), and
      `HashMapError.KeyNotFound` / `HashSetError.ElementNotFound`, which are dead
      BY DESIGN (lookups return `Option`) and want DELETING here, in §6, since
-     removing a public variant is breaking. **SEED-GATED (measured 2026-08-29):**
+     removing a public variant is breaking. **DELETED 2026-08-30** (seed gate lifted by
+     v0.2.20, which carries C46's nominal-enum exact compare): both variants
+     are gone, and `check ./std` under the v0.2.20 seed passes with the two
+     enums' now-identical shapes. (The gate, for the record: 
      with both variants gone the two enums have identical shapes and the
      v0.2.19 seed — which predates C46's nominal-enum exact compare (#343) —
      conflates them across the std module graph (`check ./std` fails in
-     `hash_set.yo` under the seed, passes under develop's compiler). Delete
-     them in the first PR after SEED_VERSION advances past #343. `std/allocator`'s `Layout` /
+     `hash_set.yo` under the seed, passes under develop's compiler). They were slated for the first PR after SEED_VERSION advanced past #343 — this is that PR.) `std/allocator`'s `Layout` /
      `layout_of` are unconsumed by std but tested and useful on their own
      (a type's size + alignment as a value) — **DECIDED KEEP 2026-08-29** as
      the reflection helper they are; an `alloc(Layout)` entry point can be

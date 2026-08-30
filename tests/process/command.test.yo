@@ -322,6 +322,42 @@ test("__yo_async_spawn_start_cwd runs the child in the requested directory (curr
   io.await(remove_file(marker, io), e);
   io.await(remove_dir(Path.new(dir), io), e);
 });
+// Generation B (the v0.2.20 seed carries the runtime symbol): the std surface.
+test("Command.current_dir runs the child in the requested directory (generation B)", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, `unexpected exception: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  dir := `yo_cwd_probe_dir_b`;
+  io.await(create_dir_all_str("yo_cwd_probe_dir_b", io), e);
+  cmd := cond(
+    (platform == Platform.Windows) => {
+      c := Command.new(`cmd.exe`);
+      c.arg(`/C`);
+      c.arg(`type nul > marker.txt`);
+      c
+    },
+    true => {
+      c := Command.new(`/bin/sh`);
+      c.arg(`-c`);
+      c.arg(`touch marker.txt`);
+      c
+    }
+  );
+  cmd.current_dir(dir.to_string());
+  st := io.await(cmd.status(io), e);
+  assert(st.success(), "child exited 0");
+  marker := Path.new(`yo_cwd_probe_dir_b/marker.txt`);
+  made := io.await(exists(marker, io), io);
+  assert(made, "the child must have run inside yo_cwd_probe_dir_b");
+  io.await(remove_file(marker, io), e);
+  io.await(remove_dir(Path.new(dir), io), e);
+});
 // Regression (issues/fixed/command-output-drains-stdout-then-stderr-sequentially.md):
 // `output` used to drain stdout to EOF and only then stderr, so a child that
 // writes more than the pipe buffer (64 KiB) to stderr while stdout is still
