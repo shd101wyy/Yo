@@ -372,6 +372,16 @@ proven by a live example.com:443 handshake; `_probe_openssl` in src/main.yo
 (plans/D6_TLS_PLAN.md). Remaining: route `std/http` https through it (PR-2)
 and the P0+ curl→std/http swap (PR-3, the only D6 remainder); Windows
 Schannel joins the Windows platform audit.
+**PR-3 BLOCKED 2026-08-30 (Windows TLS)**: the curl→std/http swap
+(version_cache, PR #364) is rebased-and-verified on develop (remote list +
+download live, FIXPOINT_HOLDS with the OpenSSL-pkgconfig'd battery/CI clang
+lines — all pushed on the PR branch), but putting std/http in the COMPILER's
+own closure makes every platform that compiles the tree need build-time
+OpenSSL, and **std/crypto/tls has no Windows backend** ("Windows is not
+covered yet" — Schannel is this row's own deferred item). Merging would
+break every Windows leg. Unblock via Schannel, or decide a
+platform-conditional transport in version_cache. The OpenSSL CI plumbing on
+the PR branch is required by either path.
 **PR-2 LANDED 2026-08-28**: `std/http` fetch routes https through
 `TlsStream` — a scheme branch chooses TcpStream|TlsStream transport, the
 response reader is shared as a generic over the D5 `Reader` trait, port
