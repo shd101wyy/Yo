@@ -31,7 +31,6 @@ open(import("std/string"));
 open(import("std/error"));
 open(import("std/fmt"));
 { Path } :: import("std/path");
-{ read } :: import("std/fs/file");
 { ArrayList } :: import("std/collections/array_list");
 { getenv } :: import("std/libc/stdlib");
 { current_exe } :: import("std/env");
@@ -55,11 +54,10 @@ open(import("std/fmt"));
 (g_cached_prelude_env : Option(Environment)) = Option(Environment).None;
 // Demand-driven module loader state (set per load run). The import handler
 // `ctx.load_module` has a fixed `(path) -> LoadModuleResult` signature with no
-// `io`/`exn`, so the loading context is stashed here for the on-demand load
+// `exn`, so the loading context is stashed here for the on-demand load
 // path. This enables CIRCULAR imports: a module is registered as "loading"
 // (with its live env) before its body runs, so a cyclic import reads its
 // partial exports instead of failing "module not preloaded".
-(g_loader_io : Option(Io)) = Option(Io).None;
 (g_loader_std_path : Option(String)) = Option(String).None;
 (g_loader_exn : Option(Exception)) = Option(Exception).None;
 // Shared ExprInfoTable for codegen: when set (during `compile`), every
@@ -147,6 +145,63 @@ _path_exists_sync :: (fn(path : String) -> bool)({
   free(.Some(buf));
   return(rc == int(0));
 });
+extern(
+  "Yo",
+  // errno as a CALL — the C macro is an int LVALUE, not a pointer (same
+  // pattern as std/fs/file.yo).
+  __yo_errno : (fn() -> i32)
+);
+/// Read a whole file synchronously via libc open/read/close. Module loading is
+/// COMPTIME work: it runs inside the evaluator and, under `yo build`, inside
+/// run_build's async task — where the async `std/fs` `read` compiles to a
+/// blocking poll loop that drives the event loop from inside a task
+/// (C37/C42, issues/retired/compiler-build-runner-nests-event-loop.md; the
+/// runtime guard aborts under YO_ASYNC_STRICT=1, so the strict-cleanliness CLI
+/// golden could never pass). The demand loader cannot become a future — the
+/// evaluator calls it synchronously at comptime — so comptime file reads must
+/// not touch the event loop at all. Errors mirror std/fs exactly: an
+/// `IoError.from_errno(errno)` thrown through `exn`.
+_read_file_sync :: (fn(path : String, exn : Exception) -> ArrayList(u8))({
+  // Module-qualified: a bare `open(...)` would resolve to the module-open
+  // builtin, not libc's open (builtin-first dispatch,
+  // issues/builtin-name-shadows-user-definition.md).
+  fcntl :: import("std/libc/fcntl");
+  unistd :: import("std/libc/unistd");
+  { IoError } :: import("std/sys/errors");
+  { GlobalAllocator } :: import("std/allocator");
+  { malloc, free } :: GlobalAllocator;
+  cstr := path.to_cstr().ptr().unwrap();
+  fd := unsafe(fcntl.open(*(char)(cstr), int(fcntl.O_RDONLY)));
+  if(fd < int(0), {
+    exn.throw(dyn(IoError.from_errno(__yo_errno())));
+  });
+  result := ArrayList(u8).new();
+  buf := *(u8)(malloc(usize(4096)).unwrap());
+  while(runtime(true), {
+    // i64 immediately: the c_include `ssize_t` type has no constructor a
+    // body can name (`ssize_t(0)` fails def-eval, silently hollowing this
+    // fn — the C22-adjacent swallow), but casting its RESULT is fine.
+    n := i64(unsafe(unistd.read(fd, *(void)(buf), usize(4096))));
+    cond(
+      (n < i64(0)) => {
+        free(.Some(*(void)(buf)));
+        _ := unsafe(unistd.close(fd));
+        exn.throw(dyn(IoError.from_errno(__yo_errno())));
+      },
+      (n == i64(0)) => break,
+      true => {
+        (i : usize) = usize(0);
+        while(i < usize(n), {
+          result.push((buf.add(i)).*);
+          i = (i + usize(1));
+        });
+      }
+    );
+  });
+  free(.Some(*(void)(buf)));
+  _ := unsafe(unistd.close(fd));
+  result
+});
 /// Resolve the standard-library root. The proper evaluator needs this so
 /// `import("std/...")` can be satisfied — without it, the prelude cannot be
 /// loaded and the majority of user code references (`Option`, `Box`, `+`, …)
@@ -199,15 +254,13 @@ resolve_std_path :: (fn() -> String)({
 // ---------------------------------------------------------------------------
 // State accessors (main.yo's compile path drives these directly)
 // ---------------------------------------------------------------------------
-/// Stash the io / std-path / exn the demand loader will use for nested imports.
+/// Stash the std-path / exn the demand loader will use for nested imports.
 mm_set_loader_context :: (
   fn(
-    io : Io,
     std_path : String,
     exn : Exception
   ) -> unit
 )({
-  g_loader_io = Option(Io).Some(io);
   g_loader_std_path = Option(String).Some(std_path);
   g_loader_exn = Option(Exception).Some(exn);
 });
@@ -333,7 +386,6 @@ mm_reset :: (fn() -> unit)({
   clear_module_cache();
   g_cached_prelude_env = Option(Environment).None;
   g_shared_expr_info_table = Option(ExprInfoTable).None;
-  g_loader_io = Option(Io).None;
   g_loader_std_path = Option(String).None;
   g_loader_exn = Option(Exception).None;
   g_load_module_error = Option(String).None;
@@ -395,16 +447,18 @@ _load_module_at_abs :: (fn(abs : String) -> Option(String))({
   if(module_cache_has(abs.clone()), {
     return(Option(String).None);
   });
-  io := match(g_loader_io, .Some(i) => i, .None => return(Option(String).None));
   std_path := match(g_loader_std_path, .Some(s) => s, .None => String.from(""));
   exn := match(g_loader_exn, .Some(e) => e, .None => return(Option(String).None));
-  fs_path := abs.replace(String.from("file://"), String.from(""));
-  src_bytes := io.await(read(Path.new(fs_path.clone()), io), IoExn(io : io, exn : exn));
+  fs_path := abs.replace(String.from("file://"), String.new());
+  // COMPTIME read — synchronous on purpose (see _read_file_sync): the demand
+  // loader runs inside the evaluator's comptime import resolution, where the
+  // async read's blocking poll loop would nest the event loop (C37/C42).
+  src_bytes := _read_file_sync(fs_path.clone(), exn);
   (src : String) = String.from_bytes(src_bytes);
   // Open-buffer overlay (Phase B1): the editor's text wins over the disk
-  // read above. The read still ALWAYS runs — the await stays a top-level
-  // statement (the async-lowering rule), and import resolution requires the
-  // file to exist on disk anyway.
+  // read above. The read still ALWAYS runs — it is a plain synchronous
+  // statement (no async-lowering shape to respect), and import resolution
+  // requires the file to exist on disk anyway.
   match(
     _open_doc_text(fs_path.clone()),
     .Some(open_text) => {
@@ -564,11 +618,10 @@ mm_eval_entry_exprs :: (
     entry_abs : String,
     std_path : String,
     exprs : ArrayList(AstExpr),
-    io : Io,
     exn : Exception
   ) -> ModuleLoadOutcome
 )({
-  mm_set_loader_context(io, std_path.clone(), exn);
+  mm_set_loader_context(std_path.clone(), exn);
   env := mm_fresh_module_env(entry_abs.clone());
   ctx := eval_context_new(std_path.clone(), entry_abs.clone());
   ctx.is_executing = true;
@@ -678,7 +731,11 @@ mm_load_file :: (
   if(verbose, {
     println(`check: parsing ${input_path}`);
   });
-  src_bytes := io.await(read(Path.new(input_path.clone()), io), IoExn(io : io, exn : exn));
+  // COMPTIME read — synchronous on purpose (see _read_file_sync): evaluating
+  // a module runs inside the evaluator, and under `yo build` inside
+  // run_build's async task, where the async read's blocking poll loop would
+  // nest the event loop (C37/C42).
+  src_bytes := _read_file_sync(input_path.clone(), exn);
   src := String.from_bytes(src_bytes);
   exprs := parse(src, input_path.clone(), local_exn);
   if(verbose, {
@@ -712,7 +769,7 @@ mm_load_file :: (
   });
   // The demand loader must use the LOCAL exn: a nested import's failure has to
   // unwind this file's handler, not the driver's.
-  outcome := mm_eval_entry_exprs(entry_abs, std_path.clone(), exprs, io, local_exn);
+  outcome := mm_eval_entry_exprs(entry_abs, std_path.clone(), exprs, local_exn);
   if(outcome.ok && verbose, {
     println(`check: ${input_path} — evaluator OK`);
   });

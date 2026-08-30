@@ -456,12 +456,12 @@ clean_version_cache :: (
 /// Follows redirects. Returns the response body as a String.
 /// Mirrors the TS httpGet: HTTP 403 throws the rate-limit message, any
 /// other status >= 400 throws `HTTP <code> fetching <url>`.
+// (The old signature declared an `exn` parameter no call site ever passed —
+// the arity mismatch was swallowed at def-eval time and HOLLOWED this whole
+// async body, silently breaking `yo version list --remote` in every release;
+// issues/wrong-arity-call-silently-accepted-version-install-broken.md.)
 _http_get :: (
-  fn(
-    url : String,
-    io : Io,
-    exn : Exception
-  ) -> Impl(Future(String, IoExn))
+  fn(url : String, io : Io) -> Impl(Future(String, IoExn))
 )(
   io.async((e : IoExn) => {
     cmd := Command.new(String.from("curl"));
@@ -517,12 +517,13 @@ _http_get :: (
 /// "404") so the caller can map statuses to messages (the TS downloadFile
 /// throws and the caller inspects the message; without catch, we return
 /// the status instead). Throws only when curl itself fails (network error).
+// (Same dead-`exn` arity hollow as _http_get — this one broke the download
+// half of `yo version install`.)
 _download_file :: (
   fn(
     url : String,
     dest_path : String,
-    io : Io,
-    exn : Exception
+    io : Io
   ) -> Impl(Future(String, IoExn))
 )(
   io.async((e : IoExn) => {
@@ -678,9 +679,15 @@ download_version :: (
     (code : i64) = match(code_str.parse_i64(), .None => i64(0), .Some(c) => c);
     // Pre-triple fallback: the short `yo-v<v>-<os>-<arch>[-musl]` name.
     if(code == i64(404), {
-      short := host_bundle_name(version, e.exn);
-      println(`No ${bundle_name}.tar.gz on v${version} — retrying the pre-triple bundle name (${short})...`);
-      bundle_name = short;
+      // NOT named `short`: that shadows the prelude C-interop integer type,
+      // and builtin-first dispatch makes the interpolation below resolve the
+      // BUILTIN — the def-eval swallow then hollowed this whole async body,
+      // which is what broke `yo version install` in v0.2.19/v0.2.20
+      // (issues/builtin-name-shadows-user-definition.md, third face;
+      // issues/wrong-arity-call-silently-accepted-version-install-broken.md).
+      short_name := host_bundle_name(version, e.exn);
+      println(`No ${bundle_name}.tar.gz on v${version} — retrying the pre-triple bundle name (${short_name})...`);
+      bundle_name = short_name;
       url = `${_releases_download_url()}/v${version}/${bundle_name}.tar.gz`;
       tarball_path = `${tmp_path_str}/${bundle_name}.tar.gz`;
       short_code_str := e.io.await(_download_file(url, tarball_path, e.io), e);
@@ -700,14 +707,14 @@ download_version :: (
       code = match(legacy_code_str.parse_i64(), .None => i64(0), .Some(c2) => c2);
     });
     if(code == i64(404), {
-      e.io.await(_cleanup_failed_download(version_dir, tmp_dir.path(), e.io), e);
+      e.io.await(_cleanup_failed_download(version_dir, tmp_dir.path(), e.io, e.exn), e);
       msg := `Yo v${version} has no ${bundle_name}.tar.gz release asset.`;
       msg.push_string(String.from("\nRun `yo version list --remote` to see the published releases, or check "));
       msg.push_string(`https://github.com/${_github_repo()}/releases`);
       e.exn.throw(dyn(msg));
     });
     if(code >= i64(400), {
-      e.io.await(_cleanup_failed_download(version_dir, tmp_dir.path(), e.io), e);
+      e.io.await(_cleanup_failed_download(version_dir, tmp_dir.path(), e.io, e.exn), e);
       e.exn.throw(dyn(`HTTP ${code.to_string()} downloading ${url}`));
     });
     // 2. Extract; the tarball root is a `<bundleName>/` directory holding
@@ -720,7 +727,7 @@ download_version :: (
     tar_cmd.arg(tmp_path_str);
     tar_out := e.io.await(tar_cmd.output(e.io), e);
     if(!(tar_out.status.success()), {
-      e.io.await(_cleanup_failed_download(version_dir, tmp_dir.path(), e.io), e);
+      e.io.await(_cleanup_failed_download(version_dir, tmp_dir.path(), e.io, e.exn), e);
       e.exn.throw(dyn(`Failed to extract ${bundle_name}.tar.gz for Yo v${version}`));
     });
     // The tarball root is conventionally named after the asset, but do not
@@ -745,7 +752,7 @@ download_version :: (
       ei = (ei + usize(1));
     });
     if(found_root == false, {
-      e.io.await(_cleanup_failed_download(version_dir, tmp_dir.path(), e.io), e);
+      e.io.await(_cleanup_failed_download(version_dir, tmp_dir.path(), e.io, e.exn), e);
       e.exn.throw(dyn(`Unexpected bundle layout in ${bundle_name}.tar.gz (no directory with bin/ and std/).`));
     });
     // 3. Remove any existing partial extraction (or a dead npm-shaped
@@ -772,7 +779,14 @@ ensure_cached_version :: (
   ) -> Impl(Future(String, IoExn))
 )(
   io.async((e : IoExn) => {
-    cached := e.io.await(is_version_cached(version, e.io), e);
+    // Arity fix (2026-08-30): this call passed TWO args to the THREE-param
+    // is_version_cached for its entire life — the def-eval swallow accepts
+    // wrong-arity calls, and the missing `exn` record made `cached` read
+    // stack garbage at runtime: truthy garbage silently no-opped the install
+    // (rc=0, nothing cached), falsy garbage continued into corrupted state
+    // (rc=134) — `yo version install` was broken in every release
+    // (issues/wrong-arity-call-silently-accepted-version-install-broken.md).
+    cached := e.io.await(is_version_cached(version, e.io, e.exn), e);
     if(cached, {
       return(get_version_cache_dir(version));
     });
