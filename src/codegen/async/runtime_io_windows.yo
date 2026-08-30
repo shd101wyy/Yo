@@ -2147,11 +2147,16 @@ static int __yo_io_poll(void) {
   OVERLAPPED_ENTRY entries[64];
   ULONG count = 0;
   BOOL ok = GetQueuedCompletionStatusEx(__yo_io_iocp, entries, 64, &count, 0, FALSE);
-  if (!ok && GetLastError() == WAIT_TIMEOUT) {
-    return __yo_win_timer_process_due(__yo_win_now_ms());
-  }
+  // An empty completion port (WAIT_TIMEOUT) or a failed poll must STILL run
+  // the poll/fs-event tick: a yield-driven wait loop (Watcher.next, the
+  // is_finished races) keeps the ready queue non-empty, so __yo_io_wait —
+  // whose timeout path ticks — is never reached, and this 0-timeout poll is
+  // the ONLY tick driver. The early returns here skipped it, so a
+  // ReadDirectoryChangesW completion (and a parked pipe read) was never
+  // serviced while any task stayed ready — fs.watch's next(io) span forever
+  // (issues/fs-watch-windows-events-never-delivered-next-spins.md).
   if (!ok) {
-    return __yo_win_timer_process_due(__yo_win_now_ms());
+    return __yo_win_timer_process_due(__yo_win_now_ms()) + __yo_poll_and_fs_event_tick();
   }
 
   int processed = 0;
