@@ -21,10 +21,17 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y liburing-dev
 
-      - name: Install the seed compiler
-        uses: ./.github/actions/install-seed
-        with:
-          version: "0.2.20"
+      - name: Install the seed compiler (direct asset download)
+        run: |
+          set -euxo pipefail
+          URL="https://github.com/shd101wyy/Yo/releases/download/v0.2.20/yo-v0.2.20-x86_64-unknown-linux-musl.tar.gz"
+          mkdir -p /tmp/seed && curl -fL "$URL" -o /tmp/seed/yo.tgz
+          tar -xzf /tmp/seed/yo.tgz -C /tmp/seed
+          SEED_YO=$(find /tmp/seed -type f -name yo | head -1)
+          chmod +x "$SEED_YO"
+          sudo ln -sf "$SEED_YO" /usr/local/bin/yo
+          yo --version || true
+          find /tmp/seed -maxdepth 3 -type d | head
 
       - name: Build the tree compiler
         env:
