@@ -33,7 +33,7 @@ open(import("../string"));
 { Path } :: import("../path");
 { IoError } :: import("../sys/errors");
 { Exception, IoExn } :: import("../error");
-{ ToString } :: import("../fmt");
+{ ToString, eprintln } :: import("../fmt");
 events :: import("../sys/events");
 { yield } :: import("../async");
 /// What happened to the entry.
@@ -160,6 +160,7 @@ impl(
   /// tasks (no nested event loop).
   next : (fn(self : Self, io : Io) -> Impl(Future(Option(FsEvent), Io)))(
     io.async((io : Io) => {
+      eprintln(`[fsw] next: entering wait loop`);
       while(runtime((self._head >= self._queue.len()) && self._active), {
         io.await(yield(io), io);
       });

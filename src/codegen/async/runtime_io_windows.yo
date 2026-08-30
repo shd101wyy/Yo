@@ -2141,6 +2141,7 @@ static void __yo_win_process_completion(__yo_win_overlapped_t* ov, DWORD bytes) 
 }
 
 static int __yo_io_poll(void) {
+  { static int fsw_p = 0; if (!fsw_p) { fprintf(stderr, "[fsw] io_poll entered iocp=%p\\n", (void*)__yo_io_iocp); fflush(stderr); fsw_p = 1; } }
   if (!__yo_io_iocp) return 0;
 
   OVERLAPPED_ENTRY entries[64];
@@ -2166,6 +2167,7 @@ static int __yo_io_poll(void) {
 }
 
 static int __yo_io_wait(void) {
+  { static int fsw_w = 0; if (!fsw_w) { fprintf(stderr, "[fsw] io_wait entered\\n"); fflush(stderr); fsw_w = 1; } }
   if (!__yo_io_iocp) return 0;
   if (__yo_pending_io_count == 0 && __yo_active_watch_count > 0) {
     Sleep(10);
@@ -4139,6 +4141,7 @@ static void __yo_poll_close(void* h) {
 
 static int __yo_poll_and_fs_event_tick(void) {
   int count = 0;
+  { static int fsw_t = 0; if (!fsw_t) { fprintf(stderr, "[fsw] tick alive fse=%p\\n", (void*)__yo_active_fs_events); fflush(stderr); fsw_t = 1; } }
 
   // --- Tick FS event handles ---
   {
