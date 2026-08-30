@@ -28,8 +28,9 @@ pragma(Pragma.AllowUnsafe);
 /// Thread-safe bounded channel for passing values between threads.
 /// Uses atomic reference counting — implements `Send` and can be
 /// safely shared across threads without `Arc` wrapping.
-/// T must implement `Send` to ensure values are safe to transfer between threads.
-Channel :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
+/// T must implement `Send` (values transfer between threads) and `Acyclic`
+/// (atomic reference counting is only sound for acyclic data).
+Channel :: (fn(comptime(T) : Type, where(T <: (Send, Acyclic))) -> comptime(Type))(
   atomic(
     ref(
       struct(
@@ -45,10 +46,14 @@ Channel :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
     )
   )
 );
+// O7 residual: an Acyclic-element Channel cannot form a cycle — atomic RC is
+// only sound for acyclic data, and this lets the sync containers nest
+// inside each other and inside the imm family (same contract as std/imm).
+impl(generic(T : Type), where(T <: (Send, Acyclic)), Channel(T), Acyclic());
 impl(
   generic(T : Type),
   Channel(T),
-  where(T <: Send),
+  where(T <: (Send, Acyclic)),
   /// Create a bounded channel with the given capacity.
   /// Capacity must be > 0.
   new : (fn(capacity : usize) -> Self)({
@@ -199,7 +204,7 @@ impl(
 impl(
   generic(T : Type),
   Channel(T),
-  where(T <: Send),
+  where(T <: (Send, Acyclic)),
   Dispose(
     dispose : (fn(self : Self) -> unit)({
       (current_len : usize) = self._len.load(MemoryOrder.Relaxed);

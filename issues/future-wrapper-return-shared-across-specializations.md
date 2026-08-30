@@ -13,6 +13,17 @@ error: initializing 'int64_t' with an expression of incompatible type '__yo_t9' 
   int64_t _file____priv_temp_13090 = closure_yo_id_11203(&(sm->__capture.body), (&(sm->__capture.self->_value)));
 ```
 
+## Second symptom (2026-08-30): the develop-HEAD ASan red is this same mechanism on the EFFECT type
+
+Every native test leg fails one `tests/async_await.test.yo` test with an ASan
+stack-buffer-overflow: a bundle temp sized by one specialization's view of a
+future's effect (`Io`, 32 bytes) is copied by a `set_effect` emitted under
+another specialization's view (`IoExn`, 40 bytes) — same shared-registry
+clobber, `E` instead of `R`. Full analysis + the not-viable codegen mitigation
+attempt: issues/asan-stack-overread-set-effect-batch-selftest.md. This makes
+the C54 body half the critical path for the v0.2.21 release (develop CI is
+red until it lands).
+
 ## Reproducer
 
 `issues/repros/future-wrapper-return-two-r-specializations.yo`: a generic impl

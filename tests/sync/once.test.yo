@@ -285,3 +285,14 @@ test("OnceCell get_or_init from multiple threads initializes exactly once", {
   assert(cell.is_initialized(), "the cell is initialized");
   assert(cell.get().unwrap() == i32(7), "the stored value survives the race");
 });
+// O7 residual (plans/STD_API_AUDIT.md §8): the sync containers carry the same
+// Acyclic requirement as the imm family — atomic RC cannot collect cycles, so
+// a cyclic ATOMIC payload would leak silently and unavoidably.
+test("O7: a cyclic element type is rejected — atomic RC cannot collect cycles", {
+  // atomic() so the payload IS Send — a plain ref struct fails the Send bound
+  // first and the expect-error would pass vacuously without touching Acyclic.
+  CyclicNode :: atomic(ref(struct(v : i32, next : Option(Self))));
+  comptime_assert(Type.impls(CyclicNode, Send), "the pin payload must be Send so the error is Acyclic's");
+  comptime_expect_error(OnceCell(CyclicNode));
+  assert(true, "rejected at comptime");
+});

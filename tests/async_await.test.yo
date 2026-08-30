@@ -4650,15 +4650,18 @@ test("escape after an awaiting cond branch closed does not re-drop its locals", 
 // The awaited chain needs two hops after the I/O completion (inner completes
 // in one step, outer in the next, then the queue is empty) — that is the
 // shape that reached the blocking wait.
-one_after_timer :: (fn(io : Io) -> Impl(Future(i32, Io)))(
-  io.async((io) => {
-    io.await(sleep(u64(1)), io);
-    return(i32(1));
-  })
-);
+// The inner hop is a NESTED io.async — C60
+// (issues/fixed/nested-io-async-inside-io-async-body-fails-def-eval.md): the
+// effect-bundle generic now binds from the RECEIVER when the call has no
+// expected type, so the idiomatic inline form compiles (it used to need
+// hoisting to a top-level fn — the pre-fix spelling of this very test).
 two_hop_after_timer :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((io) => {
-    v := io.await(one_after_timer(io), io);
+    inner := io.async((io) => {
+      io.await(sleep(u64(1)), io);
+      return(i32(1));
+    });
+    v := io.await(inner, io);
     return(v + i32(41));
   })
 );
@@ -4671,6 +4674,32 @@ test("a top-level await returns as soon as its future completes, despite unrelat
   assert(v == i32(42), "chain result");
   assert(elapsed_ms < i64(60), `await returned ${elapsed_ms} ms after starting; it must not wait for the unrelated 2 s timer (or kqueue's 100 ms wait timeout)`);
   parked.abort();
+});
+// C60, richer-bundle shape: a nested `e.io.async(...)` inside an IoExn-bundled
+// body binds the inner `E` from the field-access BASE (`e`), so the inner
+// future types as Future(_, IoExn) and the enclosing `e.io.await(inner, e)`
+// awaits it with the same bundle.
+test("a nested e.io.async inside an IoExn async body compiles and awaits with the enclosing bundle", {
+  t_exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  nested_with_bundle :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
+    io.async((e) => {
+      inner := e.io.async((e2) => {
+        e2.io.await(sleep(u64(1)), e2.io);
+        return(i32(2));
+      });
+      v := e.io.await(inner, e);
+      return(v + i32(40));
+    })
+  );
+  got := io.await(nested_with_bundle(io), IoExn(io : io, exn : t_exn));
+  assert(got == i32(42), "nested bundle chain result");
 });
 // Regression (issues/fixed/io-await-effect-bundle-ignored-inside-io-async.md, C56):
 // inside an io.async body, `e.io.await(fut, bundle)` must inject BUNDLE into
