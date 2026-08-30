@@ -285,7 +285,10 @@ static void __yo_win_filetime_to_timespec(FILETIME ft, int64_t* sec, uint32_t* n
 // ============================================================================
 
 static int32_t __yo_sync_pipe(int32_t* pipefd) {
-  int result = _pipe(pipefd, 4096, _O_BINARY);
+  // 64 KiB to match the POSIX default pipe capacity. Pipe WRITES are still a
+  // blocking _write on the event-loop thread, so the buffer size is the slack
+  // a writer has before it parks the loop.
+  int result = _pipe(pipefd, 65536, _O_BINARY);
   return (result < 0) ? -errno : 0;
 }
 
@@ -1953,6 +1956,25 @@ typedef struct __yo_win_timer_entry_t {
 
 static __declspec(thread) __yo_win_timer_entry_t* __yo_win_timer_head = NULL;
 
+// Pipe reads parked until data arrives. Anonymous pipes cannot use overlapped
+// I/O, and a blocking _read on the event-loop thread parks the WHOLE loop
+// (issues/fixed/command-output-windows-pipe-read-blocks-the-event-loop.md):
+// with Command.output draining stdout and stderr concurrently, a child that
+// wrote more than the pipe buffer deadlocked against a drain task blocked on
+// the other (still-empty) pipe. Instead of blocking, an empty pipe parks the
+// read here and __yo_poll_and_fs_event_tick retries it with PeekNamedPipe
+// until data arrives or the write end closes.
+typedef struct __yo_win_pipe_read_s {
+  int32_t fd;
+  HANDLE handle;
+  void* buffer;
+  uint32_t size;
+  __yo_io_future_t* future;
+  struct __yo_win_pipe_read_s* next;
+} __yo_win_pipe_read_t;
+
+static __declspec(thread) __yo_win_pipe_read_t* __yo_win_pipe_reads = NULL;
+
 typedef struct {
   OVERLAPPED overlapped;
   __yo_io_future_t* future;
@@ -2092,6 +2114,29 @@ static DWORD __yo_win_timer_next_timeout(uint64_t now_ms) {
   return (DWORD)delta;
 }
 
+// Attempt a non-blocking read from a pipe fd. Returns 1 when the future's
+// result is set (data, EOF, or error) and 0 when the pipe is empty but still
+// open (the read stays parked). Never blocks: _read is only issued once
+// PeekNamedPipe reports available bytes, and a pipe read returns as soon as
+// any bytes are available.
+static int __yo_win_try_pipe_read(HANDLE handle, int32_t fd, void* buffer, uint32_t size, __yo_io_future_t* future) {
+  DWORD avail = 0;
+  if (!PeekNamedPipe(handle, NULL, 0, NULL, &avail, NULL)) {
+    DWORD err = GetLastError();
+    if (err == ERROR_BROKEN_PIPE || err == ERROR_NO_DATA || err == ERROR_PIPE_NOT_CONNECTED) {
+      future->result = 0; // write end closed and buffer drained: EOF
+    } else {
+      future->result = -__yo_win_error_to_errno(err);
+    }
+    return 1;
+  }
+  if (avail == 0) return 0;
+  unsigned int want = (avail < (DWORD)size) ? (unsigned int)avail : (unsigned int)size;
+  int n = _read(fd, buffer, want);
+  future->result = (n < 0) ? -errno : n;
+  return 1;
+}
+
 // Forward declarations -- these are defined after the IOCP poll/wait
 // functions but called by __yo_win_process_completion which comes first.
 static __yo_win_overlapped_t* __yo_win_alloc_overlapped(__yo_io_future_t* future, HANDLE handle, uint64_t offset);
@@ -2176,6 +2221,11 @@ static int __yo_io_wait(void) {
   DWORD timeout_ms = __yo_win_timer_next_timeout(__yo_win_now_ms());
   if (__yo_active_watch_count > 0 && (timeout_ms == INFINITE || timeout_ms > 50)) {
     timeout_ms = 50;
+  }
+  // A parked pipe read completes only when the tick below runs, so never
+  // sleep on the completion port for long while one is waiting for data.
+  if (__yo_win_pipe_reads != NULL && (timeout_ms == INFINITE || timeout_ms > 10)) {
+    timeout_ms = 10;
   }
 
   // Use the batched Ex variant so that when the wait wakes up due to one
@@ -2308,7 +2358,30 @@ static __yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_
   }
 
   DWORD handle_type = GetFileType(handle);
-  if (handle_type == FILE_TYPE_PIPE || handle_type == FILE_TYPE_CHAR) {
+  if (handle_type == FILE_TYPE_PIPE) {
+    (void)offset;
+    if (__yo_win_try_pipe_read(handle, fd, buffer, size, future)) {
+      atomic_store(&future->state, -1);
+      return future;
+    }
+    // Empty but open: park the read; __yo_poll_and_fs_event_tick retries it.
+    __yo_win_pipe_read_t* pr = (__yo_win_pipe_read_t*)__yo_malloc(sizeof(__yo_win_pipe_read_t));
+    if (!pr) {
+      future->result = -ENOMEM;
+      atomic_store(&future->state, -1);
+      return future;
+    }
+    pr->fd = fd;
+    pr->handle = handle;
+    pr->buffer = buffer;
+    pr->size = size;
+    pr->future = future;
+    pr->next = __yo_win_pipe_reads;
+    __yo_win_pipe_reads = pr;
+    __yo_pending_io_count++;
+    return future;
+  }
+  if (handle_type == FILE_TYPE_CHAR) {
     (void)offset;
     int result = _read(fd, buffer, (unsigned int)size);
     future->result = (result < 0) ? -errno : result;
@@ -4137,6 +4210,22 @@ static void __yo_poll_close(void* h) {
 
 static int __yo_poll_and_fs_event_tick(void) {
   int count = 0;
+
+  // --- Retry parked pipe reads ---
+  {
+    __yo_win_pipe_read_t** pp = &__yo_win_pipe_reads;
+    while (*pp) {
+      __yo_win_pipe_read_t* pr = *pp;
+      if (__yo_win_try_pipe_read(pr->handle, pr->fd, pr->buffer, pr->size, pr->future)) {
+        *pp = pr->next;
+        __yo_io_wake_continuation(pr->future);
+        __yo_free(pr);
+        count++;
+      } else {
+        pp = &pr->next;
+      }
+    }
+  }
 
   // --- Tick FS event handles ---
   {

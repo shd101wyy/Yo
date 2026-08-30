@@ -322,3 +322,46 @@ test("__yo_async_spawn_start_cwd runs the child in the requested directory (curr
   io.await(remove_file(marker, io), e);
   io.await(remove_dir(Path.new(dir), io), e);
 });
+// Regression (issues/fixed/command-output-drains-stdout-then-stderr-sequentially.md):
+// `output` used to drain stdout to EOF and only then stderr, so a child that
+// writes more than the pipe buffer (64 KiB) to stderr while stdout is still
+// open blocked in write(2) forever and the parent blocked in read — a silent
+// deadlock (the test runner runs every test child through `output`). Both
+// pipes are drained concurrently now: ~310 KiB of stderr, then one stdout
+// line, must complete with everything captured.
+test("Command.output drains stdout and stderr concurrently (large stderr does not deadlock)", {
+  exn := Exception(
+    throw : (
+      (err) -> {
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  cmd := cond(
+    (platform == Platform.Windows) => {
+      // Same flood in cmd: ~305 KiB of stderr, then one stdout line. The
+      // runtime parks empty-pipe reads instead of blocking the loop
+      // (issues/fixed/command-output-windows-pipe-read-blocks-the-event-loop.md),
+      // so this exercises the parked-read path end to end.
+      c := Command.new(`cmd.exe`);
+      c.arg(`/C`);
+      c.arg(
+        `(for /L %i in (1,1,5000) do @echo xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx 1>&2) & echo ok`
+      );
+      c
+    },
+    true => {
+      c := Command.new(`sh`);
+      c.arg(`-c`);
+      c.arg(`i=0; while [ $i -lt 5000 ]; do echo xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx 1>&2; i=$((i+1)); done; echo ok`);
+      c
+    }
+  );
+  out := io.await(cmd.output(io), e);
+  assert(out.status.success(), "child exited 0");
+  assert(out.stderr.len() >= usize(300000), `stderr fully captured (got ${out.stderr.len()} bytes)`);
+  assert(out.stdout.len() >= usize(2), "stdout captured after the stderr flood");
+  assert(out.stdout(usize(0)) == u8(111), "o");
+  assert(out.stdout(usize(1)) == u8(107), "k");
+});
