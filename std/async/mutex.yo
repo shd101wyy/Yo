@@ -56,11 +56,22 @@ impl(
       return(());
     })
   ),
-  // `with_lock(body) -> Impl(Future(R))` stays DEFERRED: C27 (the closure-param
-  // return collapse) is fixed, but a generic `-> Impl(Future(R))` method
-  // called with two different `R`s still miscompiles — the async body's
-  // `body(..)` result is stamped as the bare forall `R` and rendered through
-  // the global last-writer registry (issues/future-wrapper-return-shared-across-specializations.md, C54).
+  /// Run `body` under the lock as one critical section: acquire, run to
+  /// completion (awaits inside `body` are allowed — the section stays
+  /// exclusive across them), release. Was DEFERRED on C54 — a generic
+  /// `-> Impl(Future(R))` method called with two different `R`s miscompiled
+  /// because the async body's `body(..)` result was stamped as the bare
+  /// forall `R` and rendered through the global last-writer registry; the
+  /// stamp now resolves through the enclosing specialization's env
+  /// (issues/future-wrapper-return-shared-across-specializations.md, C54).
+  with_lock : (fn(generic(R : Type), self : Self, body : Impl(Fn(inout(v) : T) -> R), io : Io) -> Impl(Future(R)))(
+    io.async((io : Io) => {
+      io.await(self.lock(io), io);
+      r := body(self._value);
+      self.unlock();
+      return(r);
+    })
+  ),
   /// Acquire the lock without suspending: true on success.
   try_lock : (fn(self : Self) -> bool)(
     cond(

@@ -68,7 +68,7 @@ _(env : fncall_dbg_env) :: import("std/env");
   capture_env_for
 } :: import("../../env.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
-{ get_func_param_defaults, get_func_param_default_exprs, get_func_param_comptime, register_func_param_comptime, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_return_type_expr, get_func_variadic_param, get_func_param_type_exprs, evaluate_function_parameter_type_again, _collect_type_arg_somes } :: import("../types/function.yo");
+{ get_func_param_defaults, get_func_param_default_exprs, get_func_param_comptime, register_func_param_comptime, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_return_type_expr, get_func_variadic_param, get_func_param_type_exprs, evaluate_function_parameter_type_again, _collect_type_arg_somes, _resolve_some_types_deep } :: import("../types/function.yo");
 { is_io_async_call, is_io_await_call } :: import("../async/await_analysis.yo");
 { subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
 { t_unit, t_type, t_usize, t_comptime_int, t_type_app, t_expr_t, generate_some_type_id, resolve_enum_shell } :: import("../../types/creators.yo");
@@ -6186,6 +6186,21 @@ Fix: wrap the call:
             _ => ()
           );
         });
+        // C54 body half (the `_`-fallback arm's runtime-call tail — where an
+        // UnknownVal callee like a valueless closure param `body(...)` is
+        // stamped): a result still mentioning the enclosing fn's OWN forall
+        // binder must not ship the bare SomeT to codegen — codegen resolves a
+        // SomeT through the GLOBAL registry keyed by the forall id, so the
+        // LAST specialization's `R` renders every caller
+        // (issues/future-wrapper-return-shared-across-specializations.md;
+        // the develop-HEAD ASan red is the same clobber on `E`). Resolve
+        // through the CALL's env, where the enclosing specialization binds
+        // the binder concretely; a legitimately-unbound binder keeps the
+        // original type.
+        rt_rt_resolved := _resolve_some_types_deep(ret_type_rt, call_result_rt.caller_env);
+        if(!(is_some_type(rt_rt_resolved)) && !(is_unit_type(rt_rt_resolved)), {
+          ret_type_rt = rt_rt_resolved;
+        });
         out_rt := new_expr_info(call_result_rt.caller_env, ret_type_rt);
         out_rt.value = Option(EvalValue).Some(_call_result_unknown(ret_type_rt, env));
         out_rt.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_rt.runtime_arg_exprs_in_order);
@@ -6604,6 +6619,19 @@ Fix: wrap the call:
               .None => ()
             );
           });
+          // C54 body half: the Call-trait method's result (a closure-param
+          // call `body(...)` on an `Impl(Fn(...) -> R)` receiver) is the
+          // forall `R` itself. Stamping the bare SomeT hands codegen the
+          // GLOBAL registry — keyed by the forall id shared by EVERY
+          // specialization — so the LAST specialization's `R` renders every
+          // caller (issues/future-wrapper-return-shared-across-specializations.md;
+          // the develop-HEAD ASan red is the same clobber on `E`). Resolve
+          // through the CALL's env, where the enclosing specialization binds
+          // R concretely; a legitimately-unbound R keeps the original type.
+          m_rt_resolved := _resolve_some_types_deep(m_out_ty, call_result_m.caller_env);
+          if(!(is_some_type(m_rt_resolved)) && !(is_unit_type(m_rt_resolved)), {
+            m_out_ty = m_rt_resolved;
+          });
           out_m := new_expr_info(call_result_m.caller_env, m_out_ty);
           out_m.value = m_result_val;
           out_m.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_m.runtime_arg_exprs_in_order);
@@ -6816,6 +6844,24 @@ ${ast_expr_to_string(expr)}`,
           });
           if(in_def_time_trial() && fncall_dbg_env.get(`YO_DEBUG_CTFE`).is_some(), {
             eprintln(`[call-none] ret=${type_to_string(ret_type_none)} callee=${ast_expr_to_string(func_expr)} callee_ty=${type_to_string(callee_ty_none)}`);
+          });
+          // C54 body half: a call whose result still mentions the enclosing
+          // fn's OWN forall binder (the closure param `body : Impl(Fn(...) -> R)`
+          // called inside a SPECIALIZATION's body, params bound valueless)
+          // must not ship the bare SomeT to codegen — codegen resolves a
+          // SomeT through the GLOBAL registry keyed by the forall id, so the
+          // LAST specialization's `R := i64` renders the FIRST
+          // specialization's call
+          // (issues/future-wrapper-return-shared-across-specializations.md;
+          // the develop-HEAD ASan red is the same clobber on `E`). Resolve
+          // through the CALL's env, where the enclosing specialization binds
+          // R concretely. Keep the ORIGINAL type when it stays abstract —
+          // the def-time body of a still-generic fn legitimately leaves R
+          // unbound, and the resolver may hand back a re-identified SomeT we
+          // do not want to adopt (id-keyed side tables).
+          rt_none_resolved := _resolve_some_types_deep(ret_type_none, call_result_none.caller_env);
+          if(!(is_some_type(rt_none_resolved)) && !(is_unit_type(rt_none_resolved)), {
+            ret_type_none = rt_none_resolved;
           });
           out_none := new_expr_info(call_result_none.caller_env, ret_type_none);
           out_none.value = Option(EvalValue).Some(_call_result_unknown(ret_type_none, callee_env));
