@@ -12,20 +12,6 @@
 // See issues/fixed/trait-default-awaiting-self-async-method-emits-hollow-fn.md.
 { assert } :: import("std/assert");
 { IoExn, Exception } :: import("std/error");
-/// Effect bundle for awaiting IoExn futures in tests: any throw FAILS the test.
-_noexn :: (fn() -> Exception)(
-  Exception(
-    throw : (
-      (err) -> {
-        assert(false, "unexpected exception");
-        unwind(());
-      }
-    )
-  )
-);
-_ioexn :: (fn(io : Io) -> IoExn)(
-  IoExn(io : io, exn : _noexn())
-);
 AsyncReader :: trait(
   read : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn))),
   // Default 1: ONE await of a `Self` async method, combined with a runtime arg.
@@ -71,20 +57,47 @@ impl(
   )
 );
 test("async trait ?= default awaiting a Self async method", {
+  t_exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  t_e := IoExn(io : io, exn : t_exn);
   a := Ra(k : usize(11));
-  v := io.await(a.read_plus(usize(13), io), _ioexn(io));
+  v := io.await(a.read_plus(usize(13), io), t_e);
   assert(v == usize(24), "Ra.read_plus: 11 + 13");
 });
 test("async trait ?= default is monomorphized per implementor", {
+  t_exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  t_e := IoExn(io : io, exn : t_exn);
   b := Rb(k : usize(4));
-  v := io.await(b.read_plus(usize(3), io), _ioexn(io));
+  v := io.await(b.read_plus(usize(3), io), t_e);
   assert(v == usize(8), "Rb.read_plus: (4 + 1) + 3");
 });
 test("async trait ?= default with two await points", {
+  t_exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  t_e := IoExn(io : io, exn : t_exn);
   a := Ra(k : usize(11));
   b := Rb(k : usize(4));
-  va := io.await(a.read_twice(io), _ioexn(io));
-  vb := io.await(b.read_twice(io), _ioexn(io));
+  va := io.await(a.read_twice(io), t_e);
+  vb := io.await(b.read_twice(io), t_e);
   assert(va == usize(22), "Ra.read_twice: 11 + 11");
   assert(vb == usize(10), "Rb.read_twice: 5 + 5");
 });

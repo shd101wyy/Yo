@@ -26,6 +26,11 @@ IO_process :: import("../sys/process");
 IO_file :: import("../sys/file");
 IO_pipe :: import("../sys/pipe");
 { GlobalAllocator } :: import("../allocator");
+{ yield } :: import("../async");
+// Raw fcntl shims, NOT std/sys/fcntl: that module imports sys/constants, which
+// imports std/process — a cycle back into this file.
+{ __yo_sync_fcntl_getfl, __yo_sync_fcntl_setfl, __yo_sync_fcntl_setfd } :: import("../sys/externs.yo");
+{ O_NONBLOCK, FD_CLOEXEC } :: import("../libc/fcntl");
 { malloc, free } :: GlobalAllocator;
 { stdout, fflush } :: import("../libc/stdio");
 // ============================================================================
@@ -369,6 +374,31 @@ _spawn_with_fds :: (
     IoError.check(pid, e.exn)
   })
 });
+// Configure the PARENT's end of a pipe shared with a child.
+//  * FD_CLOEXEC: pipe fds are inherited by default, so a later spawned child
+//    would hold a copy of this end — a stdin write end never sees EOF after
+//    close_stdin (the cat-pipe deadlock), a stdout read end keeps the pipe open.
+//  * O_NONBLOCK (POSIX): the kqueue runtime services pipes with a plain
+//    read(2)/write(2) first and registers EVFILT_READ/WRITE only on EAGAIN, so a
+//    BLOCKING pipe end parks the whole event-loop thread — `output`'s stdout
+//    drain then never let the stderr drain run and a child filling the 64 KiB
+//    stderr pipe deadlocked
+//    (issues/fixed/command-output-drains-stdout-then-stderr-sequentially.md).
+//    io_uring reads are asynchronous either way. On Windows the runtime parks
+//    an empty-pipe read on the event-loop tick instead of blocking (anonymous
+//    pipes cannot use overlapped I/O), so O_NONBLOCK is neither needed nor
+//    settable there — PIPE_NOWAIT would turn an empty pipe into an error
+//    (issues/fixed/command-output-windows-pipe-read-blocks-the-event-loop.md).
+_mark_parent_end :: (fn(fd : i32, exn : Exception) -> unit)({
+  IoError.check(__yo_sync_fcntl_setfd(fd, i32(FD_CLOEXEC)), exn);
+  cond(
+    (__yo_process_platform() == "windows") => (),
+    true => {
+      flags := IoError.check(__yo_sync_fcntl_getfl(fd), exn);
+      IoError.check(__yo_sync_fcntl_setfl(fd, flags | i32(O_NONBLOCK)), exn);
+    }
+  );
+});
 // Read all available bytes from `fd` into a freshly returned ArrayList(u8)
 // until EOF (read returns 0).
 _drain_fd :: (fn(fd : i32, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))(
@@ -447,6 +477,8 @@ impl(
       );
       err_read := (err_fd.add(usize(0))).*;
       err_write := (err_fd.add(usize(1))).*;
+      _mark_parent_end(out_read, e.exn);
+      _mark_parent_end(err_read, e.exn);
       // Spawn child with the write ends of both pipes.
       pid := e.io.await(
         _spawn_with_fds(self, i32(-(1)), out_write, err_write, io),
@@ -455,9 +487,30 @@ impl(
       // Close write ends in parent so reads see EOF when child exits.
       e.io.await(IO_file.close(out_write), e.io);
       e.io.await(IO_file.close(err_write), e.io);
-      // Drain both pipes sequentially.
+      // Drain both pipes CONCURRENTLY. Draining stdout to EOF first deadlocked
+      // on any child that filled the 64 KiB stderr pipe before closing stdout
+      // (it blocks in write(2); we block in read) —
+      // issues/fixed/command-output-drains-stdout-then-stderr-sequentially.md.
+      // stderr runs as a spawned task; stdout is awaited directly; the stderr
+      // handle is then polled with is_finished() + awaited `yield` and
+      // consumed only once terminal (a blocking JoinHandle.await from inside a
+      // task would nest the event loop, C37).
+      err_task := e.io.spawn(_drain_fd(err_read, io), e);
       stdout_buf := e.io.await(_drain_fd(out_read, io), e);
-      stderr_buf := e.io.await(_drain_fd(err_read, io), e);
+      while(runtime(!(err_task.is_finished())), {
+        e.io.await(yield(e.io), e.io);
+      });
+      stderr_buf := match(
+        err_task.await(e.io),
+        .Some(b) => b,
+        .None => {
+          // The drain task unwound: its IoError already went to `e.exn`
+          // (a throw inside a spawned task reaches the enclosing handlers);
+          // if that handler resumed, report the pipe as unreadable here.
+          e.exn.throw(dyn(IoError.from_errno(i32(5))));
+          ArrayList(u8).new()
+        }
+      );
       e.io.await(IO_file.close(out_read), e.io);
       e.io.await(IO_file.close(err_read), e.io);
       raw := e.io.await(IO_process.waitpid(pid, i32(0)), e.io);
@@ -624,11 +677,7 @@ _stdio_fds :: (fn(mode : Stdio, child_reads : bool, exn : Exception) -> Array(i3
           out(usize(1)) = rd;
         }
       );
-      // CLOEXEC on the PARENT end: pipe fds are inherited by default, so a
-      // spawned child would hold a copy of the parent's stdin WRITE end and
-      // never see EOF after close_stdin (the cat-pipe deadlock).
-      { fcntl, F_SETFD, FD_CLOEXEC } :: import("../libc/fcntl");
-      _fc := unsafe(fcntl(int(out(usize(1))), F_SETFD, FD_CLOEXEC));
+      _mark_parent_end(out(usize(1)), exn);
     }
   );
   out

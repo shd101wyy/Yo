@@ -740,17 +740,14 @@ _parse_ts :: (fn(inner : str, exn : Exception) -> String)({
     .None => String.new()
   )
 });
-_ts_exn :: (fn() -> Exception)(
-  Exception(
+test("Peel a format spec off a MULTIBYTE template expression", {
+  exn := Exception(
     throw : (
       (err) -> {
         panic("unexpected parse error in a template string");
       }
     )
-  )
-);
-test("Peel a format spec off a MULTIBYTE template expression", {
-  exn := _ts_exn();
+  );
   assert_str_eq(_parse_ts("${x:>8}", exn), `(x.format)(">8")`, "ASCII control case");
   assert_str_eq(_parse_ts("${名前:>8}", exn), `(名前.format)(">8")`, "3-byte runes before the colon");
   assert_str_eq(_parse_ts("${名前:.2}", exn), `(名前.format)(".2")`, "precision spec after 3-byte runes");
@@ -758,14 +755,26 @@ test("Peel a format spec off a MULTIBYTE template expression", {
   assert_str_eq(_parse_ts("${a.名前:^10.4}", exn), `((a.名前).format)("^10.4")`, "dotted path with a multibyte segment");
 });
 test("A spaced colon-pair stays a colon-pair with multibyte content", {
-  exn := _ts_exn();
+  exn := Exception(
+    throw : (
+      (err) -> {
+        panic("unexpected parse error in a template string");
+      }
+    )
+  );
   // The `space before the colon` guard reads `tc(k - 2)`, a RUNE index; the
   // whole point of S4 is that the cut that follows agrees with it.
   assert_str_eq(_parse_ts("${名前 : y}", exn), `((名前 : y).to_string)()`, "spaced colon is not a spec");
   assert_str_eq(_parse_ts("${名前}", exn), `(名前.to_string)()`, "no spec at all");
 });
 test("Peeling survives multibyte literal text around the interpolation", {
-  exn := _ts_exn();
+  exn := Exception(
+    throw : (
+      (err) -> {
+        panic("unexpected parse error in a template string");
+      }
+    )
+  );
   assert_str_eq(
     _parse_ts("中${名前:>8}文", exn),
     `((("中".to_string)().(+))((名前.format)(">8")).(+))(("文".to_string)())`,

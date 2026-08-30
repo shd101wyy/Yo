@@ -24,20 +24,6 @@ open(import("std/string"));
 
 // A generic single-await passthrough: proves the WHERE-BOUND trait dispatch
 // works for both traits (the control shape from the filed bug).
-/// Effect bundle for awaiting IoExn futures in tests: any throw FAILS the test.
-_noexn :: (fn() -> Exception)(
-  Exception(
-    throw : (
-      (err) -> {
-        assert(false, "unexpected exception");
-        unwind(());
-      }
-    )
-  )
-);
-_ioexn :: (fn(io : Io) -> IoExn)(
-  IoExn(io : io, exn : _noexn())
-);
 read_once :: (
   fn(generic(R : Type), r : R, buf : *(u8), size : usize, io : Io, where(R <: Reader)) -> Impl(Future(usize, IoExn))
 )({
@@ -75,6 +61,15 @@ write_all_generic :: (
   io.async((e) => e.io.await(w.write_all(buf, size, io), e))
 );
 test("read_to_end default loops chunks; write_all default delivers everything", {
+  t_exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  t_e := IoExn(io : io, exn : t_exn);
   path := Path.new(path_join(temp_dir(), `yo_d5s2_defaults.bin`.to_string()));
   // 10000 bytes so read_to_end must loop three 4096-byte chunks.
   payload := ArrayList(u8).new();
@@ -82,36 +77,54 @@ test("read_to_end default loops chunks; write_all default delivers everything", 
   while(i < usize(10000), i = (i + usize(1)), {
     payload.push(u8(usize(65) + (i % usize(26))));
   });
-  f := io.await(File.open(path, OpenMode.Write, io), _ioexn(io));
-  io.await(write_all_generic(f, payload.ptr().unwrap(), payload.len(), io), _ioexn(io));
-  io.await(f.close(io), _ioexn(io));
+  f := io.await(File.open(path, OpenMode.Write, io), t_e);
+  io.await(write_all_generic(f, payload.ptr().unwrap(), payload.len(), io), t_e);
+  io.await(f.close(io), t_e);
   // Through the where bound...
-  r1 := io.await(File.open(path, OpenMode.Read, io), _ioexn(io));
-  all := io.await(read_all_generic(r1, io), _ioexn(io));
-  io.await(r1.close(io), _ioexn(io));
+  r1 := io.await(File.open(path, OpenMode.Read, io), t_e);
+  all := io.await(read_all_generic(r1, io), t_e);
+  io.await(r1.close(io), t_e);
   assert(all.len() == usize(10000), "read_to_end got all bytes");
   assert(all(usize(0)) == u8(65), "first byte");
   assert(all(usize(9999)) == u8(65 + (9999 % 26)), "last byte");
   // ...and as a direct method call.
-  r2 := io.await(File.open(path, OpenMode.Read, io), _ioexn(io));
-  all2 := io.await(r2.read_to_end(io), _ioexn(io));
-  io.await(r2.close(io), _ioexn(io));
+  r2 := io.await(File.open(path, OpenMode.Read, io), t_e);
+  all2 := io.await(r2.read_to_end(io), t_e);
+  io.await(r2.close(io), t_e);
   assert(all2.len() == usize(10000), "direct read_to_end got all bytes");
-  io.await(remove_file(path, io), _ioexn(io));
+  io.await(remove_file(path, io), t_e);
 });
 test("read_to_string default validates UTF-8 (default chained onto default)", {
+  t_exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  t_e := IoExn(io : io, exn : t_exn);
   path := Path.new(path_join(temp_dir(), `yo_d5s2_rts.txt`.to_string()));
-  f := io.await(File.open(path, OpenMode.Write, io), _ioexn(io));
-  n := io.await(f.write_string(`héllo world`.to_string(), io), _ioexn(io));
+  f := io.await(File.open(path, OpenMode.Write, io), t_e);
+  n := io.await(f.write_string(`héllo world`.to_string(), io), t_e);
   assert(n == usize(12), "12 UTF-8 bytes written");
-  io.await(f.close(io), _ioexn(io));
-  r := io.await(File.open(path, OpenMode.Read, io), _ioexn(io));
-  s := io.await(read_string_generic(r, io), _ioexn(io));
-  io.await(r.close(io), _ioexn(io));
+  io.await(f.close(io), t_e);
+  r := io.await(File.open(path, OpenMode.Read, io), t_e);
+  s := io.await(read_string_generic(r, io), t_e);
+  io.await(r.close(io), t_e);
   assert(s == `héllo world`, "round trip through the trait default");
-  io.await(remove_file(path, io), _ioexn(io));
+  io.await(remove_file(path, io), t_e);
 });
 test("copy drains a Reader into a Writer and counts bytes", {
+  t_exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  t_e := IoExn(io : io, exn : t_exn);
   pa := Path.new(path_join(temp_dir(), `yo_d5s2_copy_a.bin`.to_string()));
   pb := Path.new(path_join(temp_dir(), `yo_d5s2_copy_b.bin`.to_string()));
   payload := ArrayList(u8).new();
@@ -119,31 +132,40 @@ test("copy drains a Reader into a Writer and counts bytes", {
   while(i < usize(5000), i = (i + usize(1)), {
     payload.push(u8(i % usize(251)));
   });
-  f := io.await(File.open(pa, OpenMode.Write, io), _ioexn(io));
-  io.await(write_all_generic(f, payload.ptr().unwrap(), payload.len(), io), _ioexn(io));
-  io.await(f.close(io), _ioexn(io));
-  cr := io.await(File.open(pa, OpenMode.Read, io), _ioexn(io));
-  cw := io.await(File.open(pb, OpenMode.Write, io), _ioexn(io));
-  total := io.await(copy(cr, cw, io), _ioexn(io));
-  io.await(cr.close(io), _ioexn(io));
-  io.await(cw.close(io), _ioexn(io));
+  f := io.await(File.open(pa, OpenMode.Write, io), t_e);
+  io.await(write_all_generic(f, payload.ptr().unwrap(), payload.len(), io), t_e);
+  io.await(f.close(io), t_e);
+  cr := io.await(File.open(pa, OpenMode.Read, io), t_e);
+  cw := io.await(File.open(pb, OpenMode.Write, io), t_e);
+  total := io.await(copy(cr, cw, io), t_e);
+  io.await(cr.close(io), t_e);
+  io.await(cw.close(io), t_e);
   assert(total == u64(5000), "copy resolves the byte total");
-  vb := io.await(File.open(pb, OpenMode.Read, io), _ioexn(io));
-  copied := io.await(vb.read_to_end(io), _ioexn(io));
-  io.await(vb.close(io), _ioexn(io));
+  vb := io.await(File.open(pb, OpenMode.Read, io), t_e);
+  copied := io.await(vb.read_to_end(io), t_e);
+  io.await(vb.close(io), t_e);
   assert(copied.len() == usize(5000), "copied length");
   assert(copied(usize(2500)) == payload(usize(2500)), "copied middle byte");
-  io.await(remove_file(pa, io), _ioexn(io));
-  io.await(remove_file(pb, io), _ioexn(io));
+  io.await(remove_file(pa, io), t_e);
+  io.await(remove_file(pb, io), t_e);
 });
 test("read_to_string throws IoError.InvalidData on malformed UTF-8", {
+  t_exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  t_e := IoExn(io : io, exn : t_exn);
   path := Path.new(path_join(temp_dir(), `yo_d5s2_badutf8.bin`.to_string()));
   bad := ArrayList(u8).new();
   bad.push(u8(0xFF));
   bad.push(u8(0xFE));
-  fw := io.await(File.open(path, OpenMode.Write, io), _ioexn(io));
-  io.await(fw.write(bad.ptr().unwrap(), bad.len(), io), _ioexn(io));
-  io.await(fw.close(io), _ioexn(io));
+  fw := io.await(File.open(path, OpenMode.Write, io), t_e);
+  io.await(fw.write(bad.ptr().unwrap(), bad.len(), io), t_e);
+  io.await(fw.close(io), t_e);
   exn := Exception(
     throw : (
       (err) -> {
@@ -155,57 +177,84 @@ test("read_to_string throws IoError.InvalidData on malformed UTF-8", {
   );
   // The INHERENT File.read_to_string validates too (aligned with the trait
   // default in the same change) — exercise it through the throw handler.
-  r := io.await(File.open(path, OpenMode.Read, io), _ioexn(io));
+  r := io.await(File.open(path, OpenMode.Read, io), t_e);
   s := io.await(r.read_to_string(io), IoExn(io : io, exn : exn));
   assert(false, `read_to_string must throw on malformed UTF-8, got: ${s}`);
 });
 test("File implements Reader and Writer — trait-dispatched round trip", {
+  t_exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  t_e := IoExn(io : io, exn : t_exn);
   path := Path.new(path_join(temp_dir(), `yo_d5_traits_roundtrip.bin`.to_string()));
-  f := io.await(File.open(path, OpenMode.Write, io), _ioexn(io));
+  f := io.await(File.open(path, OpenMode.Write, io), t_e);
   payload := ArrayList(u8).new();
   payload.push(u8(0xDE));
   payload.push(u8(0xAD));
   payload.push(u8(0xBE));
   payload.push(u8(0xEF));
   // Write through the GENERIC Writer bound (one await).
-  wrote := io.await(write_once(f, payload.ptr().unwrap(), payload.len(), io), _ioexn(io));
+  wrote := io.await(write_once(f, payload.ptr().unwrap(), payload.len(), io), t_e);
   assert(wrote == usize(4), "wrote four bytes through the Writer bound");
-  io.await(f.flush(io), _ioexn(io));
-  io.await(f.close(io), _ioexn(io));
+  io.await(f.flush(io), t_e);
+  io.await(f.close(io), t_e);
   // Read back through the GENERIC Reader bound (one await).
-  f2 := io.await(File.open(path, OpenMode.Read, io), _ioexn(io));
+  f2 := io.await(File.open(path, OpenMode.Read, io), t_e);
   buf := ArrayList(u8).with_capacity(usize(8));
   (bi : usize) = usize(0);
   while(bi < usize(8), bi = (bi + usize(1)), {
     buf.push(u8(0));
   });
-  got := io.await(read_once(f2, buf.ptr().unwrap(), usize(8), io), _ioexn(io));
+  got := io.await(read_once(f2, buf.ptr().unwrap(), usize(8), io), t_e);
   assert(got == usize(4), "read the four bytes back through the Reader bound");
   assert(buf(usize(0)) == u8(0xDE), "byte 0");
   assert(buf(usize(3)) == u8(0xEF), "byte 3");
   // A second read at EOF resolves 0 — the Reader EOF contract.
-  got2 := io.await(read_once(f2, buf.ptr().unwrap(), usize(8), io), _ioexn(io));
+  got2 := io.await(read_once(f2, buf.ptr().unwrap(), usize(8), io), t_e);
   assert(got2 == usize(0), "EOF is 0, not an error");
-  io.await(f2.close(io), _ioexn(io));
-  io.await(remove_file(path, io), _ioexn(io));
+  io.await(f2.close(io), t_e);
+  io.await(remove_file(path, io), t_e);
 });
 test("File.read/write_string/write_bytes count in usize now", {
+  t_exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  t_e := IoExn(io : io, exn : t_exn);
   path := Path.new(path_join(temp_dir(), `yo_d5_usize_counts.txt`.to_string()));
-  f := io.await(File.open(path, OpenMode.Write, io), _ioexn(io));
-  n1 := io.await(f.write_string(`héllo`.to_string(), io), _ioexn(io));
+  f := io.await(File.open(path, OpenMode.Write, io), t_e);
+  n1 := io.await(f.write_string(`héllo`.to_string(), io), t_e);
   assert(n1 == usize(6), "write_string returns a usize byte count (6 UTF-8 bytes)");
   more := ArrayList(u8).new();
   more.push(u8(0x21));
-  n2 := io.await(f.write_bytes(more, io), _ioexn(io));
+  n2 := io.await(f.write_bytes(more, io), t_e);
   assert(n2 == usize(1), "write_bytes returns a usize count");
-  io.await(f.close(io), _ioexn(io));
-  f2 := io.await(File.open(path, OpenMode.Read, io), _ioexn(io));
-  s := io.await(f2.read_to_string(io), _ioexn(io));
+  io.await(f.close(io), t_e);
+  f2 := io.await(File.open(path, OpenMode.Read, io), t_e);
+  s := io.await(f2.read_to_string(io), t_e);
   assert(s == `héllo!`, "round trip");
-  io.await(f2.close(io), _ioexn(io));
-  io.await(remove_file(path, io), _ioexn(io));
+  io.await(f2.close(io), t_e);
+  io.await(remove_file(path, io), t_e);
 });
 test("Stdout and Stderr implement Writer", {
+  t_exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  t_e := IoExn(io : io, exn : t_exn);
   // Skipped on wasm (fs-test convention): the emscripten/WASI runtimes'
   // emulated tty has no async fd-1/fd-2 write path — the batch JS throws at
   // the first stdout submission. Native coverage is what this test pins.
@@ -216,11 +265,11 @@ test("Stdout and Stderr implement Writer", {
   msg := `d5 stdio writer ok\n`.to_string();
   b := msg.as_bytes();
   o := stdout();
-  n := io.await(write_once(o, b.ptr().unwrap(), b.len(), io), _ioexn(io));
+  n := io.await(write_once(o, b.ptr().unwrap(), b.len(), io), t_e);
   assert(n == b.len(), "stdout write count");
-  io.await(o.flush(io), _ioexn(io));
+  io.await(o.flush(io), t_e);
   e2 := stderr();
-  n2 := io.await(e2.write(b.ptr().unwrap(), b.len(), io), _ioexn(io));
+  n2 := io.await(e2.write(b.ptr().unwrap(), b.len(), io), t_e);
   assert(n2 == b.len(), "stderr write count");
 });
 test("TcpStream carries the Reader and Writer impls", {
