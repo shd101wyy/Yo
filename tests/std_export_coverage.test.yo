@@ -20,16 +20,6 @@ log :: import("std/log");
 { bench, BenchResult } :: import("std/testing/bench");
 { DEFAULT_KEY_0, DEFAULT_KEY_1, hash_one_with_keys, hash_one } :: import("std/hash");
 { DEFAULT_MAX_REDIRECTS, DEFAULT_MAX_RESPONSE_BYTES, FetchOptions } :: import("std/http/client");
-_exn :: (fn() -> Exception)(
-  Exception(
-    throw : (
-      (err) -> {
-        assert(false, `unexpected error: ${err}`);
-        unwind(());
-      }
-    )
-  )
-);
 // --- crypto/hmac: the named-algorithm wrappers (RFC 2202 / RFC 4231 style
 // vectors, key "key", message "The quick brown fox jumps over the lazy dog").
 test("hmac_sha1 / hmac_sha256 / hmac_sha512 wrappers", {
@@ -43,7 +33,14 @@ test("hmac_sha1 / hmac_sha256 / hmac_sha512 wrappers", {
 });
 // --- encoding/json: the byte / String entry points and pretty printing.
 test("json_parse_bytes, json_parse_string, json_stringify_pretty", {
-  exn := _exn();
+  exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, `unexpected error: ${err}`);
+        unwind(());
+      }
+    )
+  );
   src := `{"a": [1, 2, {"b": true}], "c": "x"}`;
   v1 := json_parse_bytes(src.as_bytes(), exn);
   v2 := json_parse_string(src, exn);

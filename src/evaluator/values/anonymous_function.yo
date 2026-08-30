@@ -1427,6 +1427,37 @@ evaluate_anonymous_function_implementation :: (
     .Func({ meta : __fmc9 }) => __fmc9.*.is_control,
     _ => false
   );
+  // §4 escape boundary 1 (rule 8): a fn's RESULT type must not be
+  // control-bound. `unwind` exits the frame the handler record is installed
+  // in at the THROW site; a handler that leaves its defining fn as (part of)
+  // the return value outlives that frame, and invoking it later would unwind
+  // to a dead frame. Passing handler records DOWNWARD (parameters — every
+  // `{ io, exn }` bundle) stays legal; only the upward direction dangles.
+  // Checked on the DECLARED result type, OUTSIDE the def-eval trial swallow:
+  // the trial's own failure on these shapes (its `unwind` types against the
+  // defining fn's return) was swallowed, which shipped handlers whose emitted
+  // bodies were silently missing their `unwind`
+  // (issues/fixed/ctl-handler-escaping-its-defining-fn-is-untypeable.md).
+  // A ctl handler itself is exempt: its result is the resume type, delivered
+  // DOWN into the still-live throw frame. SomeT results are conservatively
+  // not control-bound, so generic/async (`Impl(Future(...))`) results pass.
+  if(!(ctl_force), {
+    decl_result_ty := match(function_type, .Func({ result : __rr }) => __rr, _ => t_unit());
+    if(type_is_control_bound(decl_result_ty), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            tok,
+            `A function's result type cannot be control-bound (transitively contain a \`ctl(...) -> ret\` function type). A \`ctl\` handler unwinds the frame it is installed in at the throw site; returning one out of its defining function would let it be invoked after that frame is gone. Pass the handler (or the record holding it) downward as a parameter instead.
+
+Result type: ${type_to_string(decl_result_ty)}`,
+            false,
+            .None
+          )
+        )
+      );
+    });
+  });
   // NOT inside a comptime_expect_error clone eval (propagate mode): the
   // force exists to stamp body ExprInfos for EMISSION, which rejected
   // cee code never reaches — and forcing there made the capture-check
