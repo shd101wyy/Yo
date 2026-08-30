@@ -749,12 +749,19 @@ mmap/file-lock/statfs wrappers; `gc.stats`; DNS SRV/TXT/reverse
   consumers broke — all 212 imm tests pass unchanged), and a
   SELF-REFERENTIAL element fails instantiation with "does not implement
   required trait Acyclic" (pinned by a `comptime_expect_error` test in
-  `tests/imm_vec.test.yo`). **Audit residual, needs a decision:** the
+  `tests/imm_vec.test.yo`). **Audit residual — DECIDED + LANDED 2026-08-30:** the
   `std/sync` atomic containers (`Channel(T)`/`Mutex(T)`/`RwLock(T)`/
-  `OnceCell(T)`) are still `Send`-only — the same hazard class (a cyclic
-  ATOMIC payload, e.g. `atomic(ref(struct(next : Option(Self))))`, leaks
-  through them). Requiring `Acyclic` there is a further breaking change to
-  decide separately.
+  `OnceCell(T)`) now require `T <: (Send, Acyclic)` like the imm family (16
+  where-sites incl. the private unlocker types), each container implements
+  `Acyclic` itself so they nest, and every container has a
+  `comptime_expect_error` pin with an ATOMIC self-referential payload.
+  `check ./std` clean — zero std consumers broke. En route: the imm_vec O7
+  pin (and the first draft of these) was VACUOUS — a plain
+  `ref(struct(next : Option(Self)))` payload fails the SEND bound before
+  Acyclic is ever consulted; the pins now use
+  `atomic(ref(struct(...)))` payloads plus a
+  `comptime_assert(Type.impls(payload, Send))` guard so the expected error
+  can only be Acyclic's.
 
 ## 9. Phasing
 

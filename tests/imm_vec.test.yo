@@ -369,7 +369,11 @@ test("O7: a cyclic element type is rejected — atomic RC cannot collect cycles"
   // SELF-REFERENTIAL element must be rejected at instantiation
   // (plans/STD_API_AUDIT.md O7/C7: a cycle routed through an imm structure
   // would leak silently and unavoidably).
-  CyclicNode :: ref(struct(v : i32, next : Option(Self)));
+  // atomic() so the payload IS Send — the pin's plain `ref(struct(...))`
+  // failed the SEND bound first, so the expect-error passed without ever
+  // touching Acyclic (found fixing the same vacuousness in the sync pins).
+  CyclicNode :: atomic(ref(struct(v : i32, next : Option(Self))));
+  comptime_assert(Type.impls(CyclicNode, Send), "the pin payload must be Send so the error is Acyclic's");
   comptime_expect_error(Vec(CyclicNode));
   assert(true, "rejected at comptime");
 });

@@ -97,7 +97,7 @@ impl(
 /// happens after `_value` is written, and every read goes through an
 /// Acquire-load of `_done` first, so a thread that observes an initialized
 /// cell also observes the value the initializer wrote.
-OnceCell :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
+OnceCell :: (fn(comptime(T) : Type, where(T <: (Send, Acyclic))) -> comptime(Type))(
   atomic(
     ref(
       struct(
@@ -107,9 +107,13 @@ OnceCell :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
     )
   )
 );
+// O7 residual: an Acyclic-element OnceCell cannot form a cycle — atomic RC is
+// only sound for acyclic data, and this lets the sync containers nest
+// inside each other and inside the imm family (same contract as std/imm).
+impl(generic(T : Type), where(T <: (Send, Acyclic)), OnceCell(T), Acyclic());
 impl(
   generic(T : Type),
-  where(T <: Send),
+  where(T <: (Send, Acyclic)),
   OnceCell(T),
   /// Create an empty cell.
   new : (fn() -> Self)(
