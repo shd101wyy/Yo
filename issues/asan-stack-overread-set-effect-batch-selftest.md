@@ -1,10 +1,40 @@
 # ASan stack-buffer-overflow in set_effect's bundle copy — develop CI red since #363 (blocks the v0.2.21 release gate); ANOTHER SYMPTOM of C54's specialization split
 
-**Status: ROOT-CAUSED 2026-08-30 (CI sweep repro). This is the C54 mechanism
-clobbering a future's EFFECT type across specializations — see
-issues/future-wrapper-return-shared-across-specializations.md for the arc and
-its recorded failed approaches. A codegen-side mitigation was attempted and is
-NOT viable (below); the fix is the C54 body half.**
+**Status: OPEN — root-caused 2026-08-31; TWO fix attempts refuted (below); the
+correct fix is evaluator-side.** The divergence: the child SM's `__yo_param_0`
+C type comes from `get_func_type(closure_fid).param_types[0]`
+(src/codegen/exprs/async.yo's slot collections) — the io.async builtin's
+SHARED forall E rendered through the global last-winner — while the await
+site types its bundle temp from the per-call BUNDLE ARG. When a later IoExn
+closure wins the shared id, the child copies 40 bytes out of a 32-byte temp.
+A codegen-side per-call render (`_io_async_call_effect_type`, concrete-only)
+makes the ASan test pass — but ANY extra `get_type_string` during emission
+REORDERS the insertion-ordered type intern table (742k C lines shift) and that
+perturbation is itself enough to flip OTHER latent manifestations on CI (the
+platform smoke legs hung with it). Retracted. **The correct fix is
+evaluator-side: register the closure's func type with its INFERRED concrete
+param-0 at def-eval** (today the `has_some == 0` guard in
+src/evaluator/values/anonymous_function.yo keeps the declared shared-E param
+whenever the body still mentions somes), so codegen renders one concrete type
+through the existing path with NO render-order change. The earlier
+evaluator-side seeding attempt (re-registering per-call) is also refuted —
+see the 2026-08-31 update below.
+
+**Update 2026-08-31: the registry last-writer is a LATENT bug that any
+type-graph perturbation flips into manifestation.** #370's std-only sweep
+(dead enum variants + prelude if-macro deletion + `Command.current_dir`)
+shifted every `yo_id` and this ASan (plus `tests/dyn.test.yo` going RED and
+the `yo build run` smoke hanging on every CI platform — see
+issues/build-smoke-hangs-registry-perturbation.md) appeared with NO compiler
+change. An evaluator-side fix attempt (per-call seeding of the closure's
+bundle cell into the global func-type registry, PR #371's first two pushes)
+made the ASan test pass but BROKE the compiler's own build path the same way
+— it re-registered the shared closure's type under one call's concrete
+bundle, i.e. the same last-writer clobber with a different winner
+(repro: the in-repo `yo init` + `yo build run` smoke hangs in
+`_git_version`'s poll-yield loop reading completed states off cold futures).
+That seeding was REVERTED and #370 was reverted to un-red develop; the landed
+fix is the per-call RENDER above (read-side, no registry writes).
 
 `test (ubuntu-latest)`, `test (ubuntu-24.04-arm)`, `test (macos-latest)`,
 `test (macos-26-intel)`, "Self-hosted `test` subcommand", and the

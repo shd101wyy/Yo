@@ -2,7 +2,12 @@
 
 **Status: caller half FIXED 2026-08-29; BODY HALF FIXED 2026-08-30 (see below).
 `Mutex.with_lock` RESTORED with regression tests. The ASan/E variant (second
-symptom below) is a DIFFERENT site — spec-cache dispatch — and stays open.** **Found:** 2026-08-29 restoring
+symptom below) remains OPEN — root-caused 2026-08-31 with two refuted fix
+attempts recorded (a codegen per-call render that perturbs the emission
+order, and an evaluator-side registry seeding that is itself a last-writer
+clobber); the correct fix registers the closure's INFERRED concrete param at
+def-eval (issues/asan-stack-overread-set-effect-batch-selftest.md).**
+**Found:** 2026-08-29 restoring
 `Mutex.with_lock` (`std/async/mutex`) after C27: the test called
 `with_lock((v) => (v * i64(2)), io)` and `with_lock((v) => `v=${v}`, io)` on
 one mutex and clang rejected the batch:

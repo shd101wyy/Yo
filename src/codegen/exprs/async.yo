@@ -108,6 +108,30 @@ EffectFieldMapping :: ref(struct(effect_label : String, access_path : String));
 is_async_runtime_extern_name :: (fn(name : String) -> bool)(
   (name.starts_with("__yo_poll_") || name.starts_with("__yo_fs_event_")) || name.starts_with("__yo_async_")
 );
+/// The FIRST effect type of an io.async call's own recorded Future trait type,
+/// when it is CONCRETE (not a SomeT). This is the per-call stamp: for the
+/// unannotated-receiver shapes (`io.async((e) => ...)` / `e2.io.async(...)`),
+/// C60 (#362) binds the builtin's forall E from the RECEIVER at eval time, so
+/// the substituted result records THIS call's concrete bundle type — never the
+/// shared forall E's global last-winner. Used to type the closure's bundle
+/// param slot (slot 0) so the SM's set_effect copies exactly the bytes the
+/// await site's bundle temp holds (the E-class Io/IoExn overread). Concrete-
+/// only on purpose: a SomeT effect instance renders through cells whose
+/// side-effects change otherwise-identical emission (breaks the fixpoint).
+_io_async_call_effect_type :: (fn(future_trait_type : TypeValue) -> Option(TypeValue))(
+  match(
+    future_trait_type,
+    .FutureTraitT({ effect_types : ets }) => match(
+      ets.get(usize(0)),
+      .Some(e0) => cond(
+        is_some_type(e0) => Option(TypeValue).None,
+        true => Option(TypeValue).Some(e0.clone())
+      ),
+      .None => Option(TypeValue).None
+    ),
+    _ => Option(TypeValue).None
+  )
+);
 /// Append `(label, path)` to `mappings` unless an identical entry exists. Mirrors
 /// the inner `addMapping` of `getInjectableFutureEffectFieldMappings`.
 _add_mapping :: (fn(mappings : ArrayList(EffectFieldMapping), label : String, path : String) -> unit)({
@@ -1930,9 +1954,22 @@ generate_async_block :: (fn(expr : AstExpr, io_async_body : Option(AstExpr), ana
           (i : usize) = usize(0);
           while(i < pts.len(), {
             pt := match(pts.get(i), .Some(t) => t, .None => TypeValue.Unit);
-            ctype := get_type_string(pt, context.base);
+            // Slot 0 (the bundle param) must render THIS call's effect. The
+            // registry type's param-0 can be the io.async builtin's SHARED
+            // forall E — its global fallback resolves to whichever
+            // specialization was evaluated LAST, so the SM's set_effect copies
+            // IoExn-sized bytes out of an Io-sized injection temp (the E-class
+            // overread). `future_trait_type` is THIS call's own recorded type
+            // (ei.ty above) — the same per-call stamp the await site types its
+            // bundle temp from, so both sides agree by construction.
+            pt_slot := if(
+              (i == usize(0)) && is_some_type(pt),
+              match(_io_async_call_effect_type(future_trait_type), .Some(et) => et, .None => pt),
+              pt
+            );
+            ctype := get_type_string(pt_slot, context.base);
             pname := match(pls.get(i), .Some(l) => if(l.len() > usize(0), l, `param_${i.to_string()}`), .None => `param_${i.to_string()}`);
-            closure_param_slots.push(ClosureParamSlot(field_name : `__yo_param_${i.to_string()}`, c_type : ctype, param_name : pname, param_type : pt));
+            closure_param_slots.push(ClosureParamSlot(field_name : `__yo_param_${i.to_string()}`, c_type : ctype, param_name : pname, param_type : pt_slot));
             i = (i + usize(1));
           });
         },
@@ -2528,7 +2565,16 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
       (i : usize) = usize(0);
       while(i < pts.len(), {
         pt := match(pts.get(i), .Some(t) => t, .None => TypeValue.Unit);
-        ctype := get_type_string(pt, context.base);
+        // Same per-call rule as the FSM slot collection above: slot 0 is the
+        // bundle param; when the closure's recorded Func type still carries
+        // the io.async builtin's SHARED forall E, render THIS call's Future
+        // effect instead of the global last-winner.
+        pt_slot := if(
+          (i == usize(0)) && is_some_type(pt),
+          match(_io_async_call_effect_type(future_trait_type), .Some(et) => et, .None => pt),
+          pt
+        );
+        ctype := get_type_string(pt_slot, context.base);
         sync_param_slots.push(SyncParamSlot(field_name : `__yo_param_${i.to_string()}`, c_type : ctype));
         i = (i + usize(1));
       });

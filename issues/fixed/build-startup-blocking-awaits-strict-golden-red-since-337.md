@@ -1,6 +1,6 @@
 # The compiler's own build path drives blocking awaits inside async tasks — the strict-cleanliness CLI golden has been red since it was added
 
-**Status: OPEN (fix landing with this issue); the golden `async-blocking-await-inside-task` was RED from birth.**
+**Status: FIXED 2026-08-30 (#366).**
 Found 2026-08-30 continuing the std audit handover: §2a's "strict-mode
 regression" was misdiagnosed as fallout of the version_cache un-hollowing. It
 is not — the regression predates and is independent of those fixes.

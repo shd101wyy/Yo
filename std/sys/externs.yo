@@ -70,10 +70,6 @@ extern(
   // Process Operations
   // ========================================================================
   __yo_async_spawn_start : (fn(file : *(u8), argv : *(?(*(u8))), envp : ?(*(?(*(u8)))), stdin_fd : i32, stdout_fd : i32, stderr_fd : i32) -> IoFuture),
-  /// Spawn with a working directory (`.None` = inherit the parent's). POSIX:
-  /// posix_spawn_file_actions_addchdir_np (ENOSYS on a libc without it);
-  /// Windows: lpCurrentDirectory. In the v0.2.20 seed's runtime and later.
-  __yo_async_spawn_start_cwd : (fn(file : *(u8), argv : *(?(*(u8))), envp : ?(*(?(*(u8)))), stdin_fd : i32, stdout_fd : i32, stderr_fd : i32, cwd : ?(*(u8))) -> IoFuture),
   __yo_async_waitpid_start : (fn(pid : i32, options : i32) -> IoFuture),
   __yo_process_exit_status : (fn(status : i32) -> i32),
   __yo_process_term_signal : (fn(status : i32) -> i32),
@@ -286,7 +282,6 @@ export(
   __yo_sync_umask,
   // Process operations
   __yo_async_spawn_start,
-  __yo_async_spawn_start_cwd,
   __yo_async_waitpid_start,
   __yo_process_exit_status,
   __yo_process_term_signal,

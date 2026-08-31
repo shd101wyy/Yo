@@ -9,7 +9,7 @@
 // Use `?(*(u8))` for entries so .None can be used as the terminator.
 pragma(Pragma.AllowUnsafe);
 { IoFuture } :: import("./future.yo");
-{ __yo_async_spawn_start, __yo_async_spawn_start_cwd, __yo_async_waitpid_start, __yo_process_exit_status, __yo_process_term_signal, __yo_kill } :: import("./externs.yo");
+{ __yo_async_spawn_start, __yo_async_waitpid_start, __yo_process_exit_status, __yo_process_term_signal, __yo_kill } :: import("./externs.yo");
 // Spawn a child process.
 // Returns the child pid on success, -errno on failure.
 // `argv` is a NULL-terminated array of argument strings.
@@ -26,20 +26,6 @@ spawn :: (
   ) -> IoFuture
 )(
   __yo_async_spawn_start(file, argv, envp, stdin_fd, stdout_fd, stderr_fd)
-);
-// Spawn with a working directory (`.None` = inherit the parent's).
-spawn_cwd :: (
-  fn(
-    file : *(u8),
-    argv : *(?(*(u8))),
-    envp : ?(*(?(*(u8)))),
-    stdin_fd : i32,
-    stdout_fd : i32,
-    stderr_fd : i32,
-    cwd : ?(*(u8))
-  ) -> IoFuture
-)(
-  __yo_async_spawn_start_cwd(file, argv, envp, stdin_fd, stdout_fd, stderr_fd, cwd)
 );
 // Wait for a child process to exit.
 // Returns the exit status (encoded; use exit_status/term_signal helpers).
@@ -61,7 +47,6 @@ term_signal :: (fn(status : i32) -> i32)(
 );
 export(
   spawn,
-  spawn_cwd,
   waitpid,
   kill,
   exit_status,
