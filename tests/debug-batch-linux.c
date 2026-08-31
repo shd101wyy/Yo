@@ -8523,7 +8523,7 @@ struct _file____priv_temp_14428_state_t_struct {
   __yo_t172 __capture;
 
   // Closure parameter slots
-  __yo_t41 __yo_param_0;  // io
+  __yo_t14 __yo_param_0;  // io
 
   // Future references for awaits
   __yo_io_future_t* await_future_0;
@@ -8659,7 +8659,7 @@ void _file____priv_temp_16089_set_effect(void* ptr, const char* field, void* val
 void _file____priv_temp_14428_set_effect(void* ptr, const char* field, void* value) {
   _file____priv_temp_14428_state_t* sm = (_file____priv_temp_14428_state_t*)ptr;
   if (strcmp(field, "__bundle") == 0) {
-    sm->__yo_param_0 = *((__yo_t41*)value);
+    sm->__yo_param_0 = *((__yo_t14*)value);
   }
 }
 void _file____priv_temp_18122_set_effect(void* ptr, const char* field, void* value) {
