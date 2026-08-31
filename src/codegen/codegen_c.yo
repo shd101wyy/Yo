@@ -122,30 +122,22 @@ _on_demand_collect_and_declare :: (fn(t : TypeValue, context : CodeGenContext) -
         od_is_future => true,
         true => false
       );
-      // Tier 2 must not double-emit: the type-decl passes (generate_type_
-      // declarations) may fire THIS hook mid-pass for the very entry their
-      // iteration reaches later — one C name, one body definition. Marked
-      // BEFORE emitting: the declaration generators resolve nested types,
-      // which can re-enter this hook for THIS type's own name.
-      if(!(context.type_body_declared.contains(od_cn.clone())), {
-        _odm := context.type_body_declared.insert(od_cn.clone());
-        if(od_need_fwd, {
-          od_l := String.from("typedef struct ");
-          od_l.push_string(od_cn.clone());
-          od_l.push_str("_struct ");
-          od_l.push_string(od_cn.clone());
-          od_l.push_str("; // Forward declaration (on-demand)");
-          context.emitter.emit_declaration_string_line(od_l);
-        });
-        cond(
-          od_is_struct => generate_struct_declaration(od_ty, od_cn.clone(), context),
-          od_is_enum => generate_enum_declaration(od_ty, od_cn.clone(), context),
-          od_is_tuple => generate_tuple_declaration(od_ty, od_cn.clone(), context),
-          od_is_union => generate_union_declaration(od_ty, od_cn.clone(), context),
-          od_is_future => generate_future_trait_declaration(od_ty, od_cn.clone(), context),
-          true => ()
-        );
+      if(od_need_fwd, {
+        od_l := String.from("typedef struct ");
+        od_l.push_string(od_cn.clone());
+        od_l.push_str("_struct ");
+        od_l.push_string(od_cn.clone());
+        od_l.push_str("; // Forward declaration (on-demand)");
+        context.emitter.emit_declaration_string_line(od_l);
       });
+      cond(
+        od_is_struct => generate_struct_declaration(od_ty, od_cn.clone(), context),
+        od_is_enum => generate_enum_declaration(od_ty, od_cn.clone(), context),
+        od_is_tuple => generate_tuple_declaration(od_ty, od_cn.clone(), context),
+        od_is_union => generate_union_declaration(od_ty, od_cn.clone(), context),
+        od_is_future => generate_future_trait_declaration(od_ty, od_cn.clone(), context),
+        true => ()
+      );
     },
     .None => ()
   );

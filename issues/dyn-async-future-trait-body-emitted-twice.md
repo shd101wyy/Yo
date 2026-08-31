@@ -1,6 +1,14 @@
 # A dyn method's async Future-trait return type emitted its struct TWICE — "redefinition of '__yo_t60_struct'"
 
-**Status: OPEN (fix in flight on the branch that reverts #370).** Found
+**Status: OPEN — the shared-set fix was implemented, verified on the dyn batch,
+and then RETRACTED: keying suppression on the C name renumbers the whole type
+table (the early on-demand render changes interning order; ~1.7k lines of the
+compiler's own C change) and that perturbation flipped the CI tier-1
+async_await and the platform smoke legs — the same fragility class this
+campaign keeps hitting. The correct fix must dedup WITHOUT changing emission
+order (e.g. emit-once keyed on type_key with the name assigned at first
+collection, or defer the on-demand body to the pass that owns the name).
+Found 2026-08-31; mechanism below stands.** Found
 2026-08-31 diagnosing why the `tests/dyn.test.yo` batch went RED under the
 self-hosted compiler the moment #370's prelude shrink landed (the develop-HEAD
 hollow sweep reported `tests/dyn.test.yo RED`, and every native suite leg died

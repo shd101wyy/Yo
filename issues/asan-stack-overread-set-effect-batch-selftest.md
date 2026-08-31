@@ -1,19 +1,24 @@
 # ASan stack-buffer-overflow in set_effect's bundle copy — develop CI red since #363 (blocks the v0.2.21 release gate); ANOTHER SYMPTOM of C54's specialization split
 
-**Status: FIXED 2026-08-31 (codegen per-call render, on the #371 branch).** The
-divergence: the child SM's `__yo_param_0` C type came from
-`get_func_type(closure_fid).param_types[0]` (src/codegen/exprs/async.yo's slot
-collections) — the io.async builtin's SHARED forall E rendered through the
-global last-winner — while the await site types its bundle temp from the
-per-call BUNDLE ARG. When a later IoExn closure won the shared id, the child
-copied 40 bytes out of a 32-byte temp. The fix: when slot 0 is a SomeT, render
-the CALL's own recorded Future-trait effect instead
-(`_io_async_call_effect_type` — concrete-only; C60/#362's receiver binding
-makes exactly the failing shapes record concrete per-call effects). No global
-writes; the compiler's own emitted C is byte-identical (verified against the
-pre-fix compiler) and the fixpoint holds. See the "Update 2026-08-31" note
-below for the full investigation, including the refuted evaluator-side
-seeding attempt.
+**Status: OPEN — root-caused 2026-08-31; TWO fix attempts refuted (below); the
+correct fix is evaluator-side.** The divergence: the child SM's `__yo_param_0`
+C type comes from `get_func_type(closure_fid).param_types[0]`
+(src/codegen/exprs/async.yo's slot collections) — the io.async builtin's
+SHARED forall E rendered through the global last-winner — while the await
+site types its bundle temp from the per-call BUNDLE ARG. When a later IoExn
+closure wins the shared id, the child copies 40 bytes out of a 32-byte temp.
+A codegen-side per-call render (`_io_async_call_effect_type`, concrete-only)
+makes the ASan test pass — but ANY extra `get_type_string` during emission
+REORDERS the insertion-ordered type intern table (742k C lines shift) and that
+perturbation is itself enough to flip OTHER latent manifestations on CI (the
+platform smoke legs hung with it). Retracted. **The correct fix is
+evaluator-side: register the closure's func type with its INFERRED concrete
+param-0 at def-eval** (today the `has_some == 0` guard in
+src/evaluator/values/anonymous_function.yo keeps the declared shared-E param
+whenever the body still mentions somes), so codegen renders one concrete type
+through the existing path with NO render-order change. The earlier
+evaluator-side seeding attempt (re-registering per-call) is also refuted —
+see the 2026-08-31 update below.
 
 **Update 2026-08-31: the registry last-writer is a LATENT bug that any
 type-graph perturbation flips into manifestation.** #370's std-only sweep

@@ -219,16 +219,6 @@ CodeGenContext :: ref(
     /// section — still assembled before code) or the ctor references an
     /// unknown type (the suspension_analysis batch).
     dyn_box_typedefs : HashSet(String),
-    /// C NAMES of type BODIES already emitted (struct/enum/tuple/union/dyn/
-    /// future-trait). Shared between generate_type_declarations' passes and
-    /// the on-demand declare hook: a type can be collected MID-pass — a dyn
-    /// declaration lazily minting its async method's Future-trait return type
-    /// fires the hook, which emits the body — and the pass's own iteration
-    /// later reaches that entry and must not emit the body a SECOND time. One
-    /// C name, one definition ("redefinition of '__yo_tN_struct'", the dyn
-    /// batch). Keyed on the NAME (not type_key) like type_id_static_names:
-    /// evolved keys alias onto one C name via register_type_alias.
-    type_body_declared : HashSet(String),
     /// dyn() usages → box types / vtables / wrappers (keyed by a
     /// "<concrete_id>_<dyn_id>" string, fixed up to C names post type-gen).
     dyn_impls : HashMap(String, DynImplEntry),
@@ -329,7 +319,6 @@ impl(
       type_id_statics : HashMap(String, String).new(),
       type_id_static_names : HashSet(String).new(),
       dyn_box_typedefs : HashSet(String).new(),
-      type_body_declared : HashSet(String).new(),
       dyn_impls : HashMap(String, DynImplEntry).new(),
       current_module_id : Option(String).None,
       exported_function_labels : HashMap(String, String).new(),

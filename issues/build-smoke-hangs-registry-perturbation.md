@@ -56,17 +56,19 @@ real build path normally has such a driver — which is exactly why this
 defect goes unnoticed until the registry corruption above removes the last
 real pending await.
 
-## Status of the fix (2026-08-31, late)
+## Status of the fix (2026-09-01)
 
-The E-class HALF landed on the #371 branch: the io.async closure's
-bundle-param slot renders the CALL's own recorded Future-trait effect
-(`_io_async_call_effect_type`, concrete-only) instead of the shared forall
-E's global last-winner — read-side only, no registry writes; the compiler's
-own C stays byte-identical and the fixpoint holds. This closes the ASan
-overread (issues/fixed/asan-stack-overread-set-effect-batch-selftest.md).
-The remaining registry reads (result-type fallbacks in async.yo) have no
-known manifestation. The CI smoke-hang perturbation class and the
-LOCAL-native-build hang below remain explained-but-open.
+NOT fixed — and the investigation widened the class: BOTH the dyn
+double-emission fix and the E-class codegen render fix perturb the
+INSERTION-ORDERED type intern table (any extra `get_type_string` during
+emission reorders it — 742k C lines shifted from a 3-site guard), and the
+reordering alone flips CI manifestations (tier-1 async_await, the platform
+smoke legs). Emission-order stability is itself part of the root cause: the
+type table's insertion order must not be observable. The E-class fix that
+works must be evaluator-side (register the closure's INFERRED concrete
+param-0 at def-eval, no codegen render change); the dyn fix must dedup
+without changing first-collection order. Both recorded in their issues. The
+LOCAL-native-build hang below remains explained-but-open.
 * Optionally: make `yield` park on the loop (enqueue itself) so a sync-await
   of it drives `poll_step` once; that would have turned this whole hang into
   a slow-but-progressing loop.

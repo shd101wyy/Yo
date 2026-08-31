@@ -1465,13 +1465,8 @@ generate_type_declarations :: (fn(context : CodeGenContext) -> unit)({
   // registered separately). One C name MUST have exactly one definition —
   // emitting the block twice is a clang "redefinition of enumerator"/type
   // error. TS cannot hit this (numeric `type.id` → 1:1 cName), so the guard is
-  // yo-self-only plumbing, not a semantic divergence. The shared context set
-  // (type_body_declared) additionally dedups against the ON-DEMAND declare
-  // hook: the dyn/future-trait passes lazily collect types MID-pass (a dyn
-  // method's Future-trait return type is minted when its vtable resolves),
-  // firing the hook for entries this function's own iteration reaches later —
-  // without the shared set the body is emitted twice ("redefinition of
-  // '__yo_tN_struct'", the dyn batch).
+  // yo-self-only plumbing, not a semantic divergence.
+  emitted_decl_cnames := HashSet(String).new();
   // First pass: simple-enum declarations (leaf types).
   skeys := context.types.keys();
   (gs : bool) = true;
@@ -1484,8 +1479,8 @@ generate_type_declarations :: (fn(context : CodeGenContext) -> unit)({
           ty := entry.ty;
           skip := (type_contains_some_type(ty) || entry.c_include.is_some());
           if(!(skip) && (is_enum_type(ty) && can_optimize_as_simple_enum(ty)), {
-            if(!(context.type_body_declared.contains(entry.c_name.clone())), {
-              _dn := context.type_body_declared.insert(entry.c_name.clone());
+            if(!(emitted_decl_cnames.contains(entry.c_name.clone())), {
+              _dn := emitted_decl_cnames.insert(entry.c_name.clone());
               generate_enum_declaration(ty, entry.c_name.clone(), context);
             });
           });
@@ -1708,15 +1703,12 @@ generate_type_declarations :: (fn(context : CodeGenContext) -> unit)({
         entries.get(yi),
         .Some(e) => if(e.type_id == sid, {
           found = true;
-          if(!(context.type_body_declared.contains(e.c_name.clone())), {
-            _dn := context.type_body_declared.insert(e.c_name.clone());
-            cond(
-              (e.kind == "struct") => generate_struct_declaration(e.ty, e.c_name.clone(), context),
-              (e.kind == "enum") => generate_enum_declaration(e.ty, e.c_name.clone(), context),
-              (e.kind == "tuple") => generate_tuple_declaration(e.ty, e.c_name.clone(), context),
-              true => ()
-            );
-          });
+          cond(
+            (e.kind == "struct") => generate_struct_declaration(e.ty, e.c_name.clone(), context),
+            (e.kind == "enum") => generate_enum_declaration(e.ty, e.c_name.clone(), context),
+            (e.kind == "tuple") => generate_tuple_declaration(e.ty, e.c_name.clone(), context),
+            true => ()
+          );
         }),
         .None => ()
       );
@@ -1736,10 +1728,7 @@ generate_type_declarations :: (fn(context : CodeGenContext) -> unit)({
           ty := entry.ty;
           skip := (_walk_skip_some(ty) || entry.c_include.is_some());
           if(!(skip) && (is_enum_type(ty) && can_optimize_as_nullable_pointer(ty).is_some()), {
-            if(!(context.type_body_declared.contains(entry.c_name.clone())), {
-              _dn := context.type_body_declared.insert(entry.c_name.clone());
-              generate_enum_declaration(ty, entry.c_name.clone(), context);
-            });
+            generate_enum_declaration(ty, entry.c_name.clone(), context);
           });
         },
         .None => ()
@@ -1761,20 +1750,11 @@ generate_type_declarations :: (fn(context : CodeGenContext) -> unit)({
           ty := entry.ty;
           skip := (type_contains_some_type(ty) || entry.c_include.is_some());
           if(
-            !(skip) && !(context.type_body_declared.contains(entry.c_name.clone())),
+            !(skip),
             cond(
-              is_dyn_type(ty) => {
-                _dn := context.type_body_declared.insert(entry.c_name.clone());
-                generate_dyn_declaration(ty, entry.c_name.clone(), context)
-              },
-              is_union_type(ty) => {
-                _dn := context.type_body_declared.insert(entry.c_name.clone());
-                generate_union_declaration(ty, entry.c_name.clone(), context)
-              },
-              is_future_trait_type(ty) => {
-                _dn := context.type_body_declared.insert(entry.c_name.clone());
-                generate_future_trait_declaration(ty, entry.c_name.clone(), context)
-              },
+              is_dyn_type(ty) => generate_dyn_declaration(ty, entry.c_name.clone(), context),
+              is_union_type(ty) => generate_union_declaration(ty, entry.c_name.clone(), context),
+              is_future_trait_type(ty) => generate_future_trait_declaration(ty, entry.c_name.clone(), context),
               true => ()
             )
           );
