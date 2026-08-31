@@ -56,19 +56,42 @@ real build path normally has such a driver — which is exactly why this
 defect goes unnoticed until the registry corruption above removes the last
 real pending await.
 
-## Status of the fix (2026-09-01)
+## Status of the fix (2026-09-01, after #371 merged)
 
-NOT fixed — and the investigation widened the class: BOTH the dyn
-double-emission fix and the E-class codegen render fix perturb the
-INSERTION-ORDERED type intern table (any extra `get_type_string` during
-emission reorders it — 742k C lines shifted from a 3-site guard), and the
-reordering alone flips CI manifestations (tier-1 async_await, the platform
-smoke legs). Emission-order stability is itself part of the root cause: the
-type table's insertion order must not be observable. The E-class fix that
-works must be evaluator-side (register the closure's INFERRED concrete
-param-0 at def-eval, no codegen render change); the dyn fix must dedup
-without changing first-collection order. Both recorded in their issues. The
-LOCAL-native-build hang below remains explained-but-open.
+**The E-class half is FIXED and merged (#371)** — the bundle-slot per-call
+render made CI's tier-1 and hollow sweep green; its earlier retraction was
+mistaken (the smokes hang on pristine #369 too, so the render was never the
+smoke's cause). **The smoke hang itself remains OPEN and is now known to be
+pre-existing and environment-triggered**: it reproduces on PRISTINE #369
+(CI-green on Aug 30) both natively-built locally and on today's CI runners —
+something in the runner environment shifted after Aug 30 19:48 UTC and
+surfaced it everywhere. Concrete findings for the next session, all verified
+against a `--debug-async-await` build of #369:
+
+1. `yield()` completed synchronously and never drove `__yo_async_poll_step`
+   — poll-yield loops spun. FIXED in a worktree (yield := await a 1 ms
+   timer, the Mutex.lock park): the loop now kevents properly, but the hang
+   REMAINS — the spin was a symptom.
+2. The stall signature: std/process `output()`'s SM reaches its
+   stdout-drain await and reads the freshly-created (cold) drain future as
+   `state=-1` — in the compiler's C, that rendition's `await_future_9` is
+   typed `__yo_io_future_t*` (the RAW extern future) while its two twin
+   renditions type it `_file____priv_temp_13893_state_t*` (the real async
+   block). The continuation fields sit at different offsets → the await
+   writes its continuation into the wrong slot → the SM never resumes →
+   zombie children + re-cycling output SMs (double `close`s on fd 4/6 per
+   cycle).
+3. The mistyping path: `awaited_future_c_type_override` →
+   `_async_override_return_type` bails to the raw future when the REGISTRY
+   result (`get_func_type(fid)`) renders as a bare SomeT. A gate fix
+   (continue to the per-expr body resolution when ret is a SomeT) was tried
+   and did NOT cure the hang — at least one more divergence read-site
+   remains. Systematic fix: per-ExprInfo reads at every await-future typing
+   site + evaluator-side registration of concrete params/results, and making
+   the type intern table's insertion order unobservable.
+4. Also fixed in a worktree (unmerged): the dyn double-emission
+   (issues/dyn-async-future-trait-body-emitted-twice.md) — its shared-set
+   fix reorders the intern table and must be reworked order-stably.
 * Optionally: make `yield` park on the loop (enqueue itself) so a sync-await
   of it drives `poll_step` once; that would have turned this whole hang into
   a slow-but-progressing loop.

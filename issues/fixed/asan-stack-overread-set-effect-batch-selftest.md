@@ -1,7 +1,11 @@
 # ASan stack-buffer-overflow in set_effect's bundle copy — develop CI red since #363 (blocks the v0.2.21 release gate); ANOTHER SYMPTOM of C54's specialization split
 
-**Status: OPEN — root-caused 2026-08-31; TWO fix attempts refuted (below); the
-correct fix is evaluator-side.** The divergence: the child SM's `__yo_param_0`
+**Status: FIXED 2026-08-31 (#371, merged) — the codegen per-call render
+landed after all: it made CI's tier-1 async_await and the hollow sweep PASS
+(the only change that ever did), and the smoke-leg retraction of it was
+mistaken — the smokes hang on pristine #369 too (see
+issues/build-smoke-hangs-registry-perturbation.md). The evaluator-side
+registration hardening remains the right follow-up (see the end).** The divergence: the child SM's `__yo_param_0`
 C type comes from `get_func_type(closure_fid).param_types[0]`
 (src/codegen/exprs/async.yo's slot collections) — the io.async builtin's
 SHARED forall E rendered through the global last-winner — while the await
