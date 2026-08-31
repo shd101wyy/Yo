@@ -68,6 +68,14 @@ mark_uses_parallelism :: (fn() -> unit)({
   g_uses_parallelism = true;
 });
 get_uses_parallelism :: (fn() -> bool)(g_uses_parallelism);
+// TLS runtime flag (D6): set when any __yo_tls_ extern is called, read by
+// generate_async_runtime to emit the TLS backend only for programs that use
+// it. Same lifetime reasoning as g_uses_parallelism above.
+(g_uses_tls : bool) = false;
+mark_uses_tls :: (fn() -> unit)({
+  g_uses_tls = true;
+});
+get_uses_tls :: (fn() -> bool)(g_uses_tls);
 { ExprInfoTable, ExprInfo, expr_info_table_get, get_extern_c_global_type, is_module_level_global, module_global_c_suffix, lookup_some_resolved_concrete } :: import("../../expr_info.yo");
 {
   AstExpr,
@@ -1665,6 +1673,8 @@ find_returned_async_block :: (fn(expr : Option(AstExpr)) -> Option(AstExpr))(
   )
 );
 export(
+  mark_uses_tls,
+  get_uses_tls,
   CodeGenContext,
   ChunkRange,
   CodegenTypeEntry,
