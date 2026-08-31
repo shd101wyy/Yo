@@ -6,6 +6,22 @@ issues/future-wrapper-return-shared-across-specializations.md for the arc and
 its recorded failed approaches. A codegen-side mitigation was attempted and is
 NOT viable (below); the fix is the C54 body half.**
 
+**Update 2026-08-31: the registry last-writer is a LATENT bug that any
+type-graph perturbation flips into manifestation.** #370's std-only sweep
+(dead enum variants + prelude if-macro deletion + `Command.current_dir`)
+shifted every `yo_id` and this ASan (plus `tests/dyn.test.yo` going RED and
+the `yo build run` smoke hanging on every CI platform — see
+issues/build-smoke-hangs-registry-perturbation.md) appeared with NO compiler
+change. An evaluator-side fix attempt (per-call seeding of the closure's
+bundle cell into the global func-type registry, PR #371's first two pushes)
+made the ASan test pass but BROKE the compiler's own build path the same way
+— it re-registered the shared closure's type under one call's concrete
+bundle, i.e. the same last-writer clobber with a different winner
+(repro: the in-repo `yo init` + `yo build run` smoke hangs in
+`_git_version`'s poll-yield loop reading completed states off cold futures).
+That seeding was REVERTED and #370 was reverted to un-red develop; the real
+fix is per-call resolution cells that never write the shared registry.
+
 `test (ubuntu-latest)`, `test (ubuntu-24.04-arm)`, `test (macos-latest)`,
 `test (macos-26-intel)`, "Self-hosted `test` subcommand", and the
 "Full-corpus hollow sweep" all failed the SAME single test of
