@@ -21,7 +21,7 @@ trace shows the task/output state machines re-cycling forever:
 * `_git_version`'s loop condition never turns false.
 
 Reading completed states off cold futures is the C54/E-class family signature
-(`issues/future-wrapper-return-shared-across-specializations.md`): the emitted
+(`issues/fixed/future-wrapper-return-shared-across-specializations.md`): the emitted
 C consults type stamps resolved through the process-global last-winner
 registry, so a perturbed type population reads another specialization's
 future struct.
@@ -56,12 +56,17 @@ real build path normally has such a driver — which is exactly why this
 defect goes unnoticed until the registry corruption above removes the last
 real pending await.
 
-## What the real fix looks like (not done)
+## Status of the fix (2026-08-31, late)
 
-* Per-call resolution: an io.async call's closure body must render its
-  bundle/param types through per-CALL data (the SomeT cell or a per-call
-  specialization id), never through `register_func_type` on the shared id —
-  see C54's "open half".
+The E-class HALF landed on the #371 branch: the io.async closure's
+bundle-param slot renders the CALL's own recorded Future-trait effect
+(`_io_async_call_effect_type`, concrete-only) instead of the shared forall
+E's global last-winner — read-side only, no registry writes; the compiler's
+own C stays byte-identical and the fixpoint holds. This closes the ASan
+overread (issues/fixed/asan-stack-overread-set-effect-batch-selftest.md).
+The remaining registry reads (result-type fallbacks in async.yo) have no
+known manifestation. The CI smoke-hang perturbation class and the
+LOCAL-native-build hang below remain explained-but-open.
 * Optionally: make `yield` park on the loop (enqueue itself) so a sync-await
   of it drives `poll_step` once; that would have turned this whole hang into
   a slow-but-progressing loop.

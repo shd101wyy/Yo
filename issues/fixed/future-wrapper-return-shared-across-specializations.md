@@ -2,7 +2,12 @@
 
 **Status: caller half FIXED 2026-08-29; BODY HALF FIXED 2026-08-30 (see below).
 `Mutex.with_lock` RESTORED with regression tests. The ASan/E variant (second
-symptom below) is a DIFFERENT site — spec-cache dispatch — and stays open.** **Found:** 2026-08-29 restoring
+symptom below) FIXED 2026-08-31: the io.async closure's bundle-param slot now
+renders the CALL's own recorded Future-trait effect (concrete-only,
+`_io_async_call_effect_type` in src/codegen/exprs/async.yo) instead of the
+shared forall E's global last-winner — no registry writes, byte-identical
+compiler C, fixpoint holds (issues/asan-stack-overread-set-effect-batch-selftest.md).**
+**Found:** 2026-08-29 restoring
 `Mutex.with_lock` (`std/async/mutex`) after C27: the test called
 `with_lock((v) => (v * i64(2)), io)` and `with_lock((v) => `v=${v}`, io)` on
 one mutex and clang rejected the batch:

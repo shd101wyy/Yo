@@ -1,10 +1,19 @@
 # ASan stack-buffer-overflow in set_effect's bundle copy — develop CI red since #363 (blocks the v0.2.21 release gate); ANOTHER SYMPTOM of C54's specialization split
 
-**Status: ROOT-CAUSED 2026-08-30 (CI sweep repro). This is the C54 mechanism
-clobbering a future's EFFECT type across specializations — see
-issues/future-wrapper-return-shared-across-specializations.md for the arc and
-its recorded failed approaches. A codegen-side mitigation was attempted and is
-NOT viable (below); the fix is the C54 body half.**
+**Status: FIXED 2026-08-31 (codegen per-call render, on the #371 branch).** The
+divergence: the child SM's `__yo_param_0` C type came from
+`get_func_type(closure_fid).param_types[0]` (src/codegen/exprs/async.yo's slot
+collections) — the io.async builtin's SHARED forall E rendered through the
+global last-winner — while the await site types its bundle temp from the
+per-call BUNDLE ARG. When a later IoExn closure won the shared id, the child
+copied 40 bytes out of a 32-byte temp. The fix: when slot 0 is a SomeT, render
+the CALL's own recorded Future-trait effect instead
+(`_io_async_call_effect_type` — concrete-only; C60/#362's receiver binding
+makes exactly the failing shapes record concrete per-call effects). No global
+writes; the compiler's own emitted C is byte-identical (verified against the
+pre-fix compiler) and the fixpoint holds. See the "Update 2026-08-31" note
+below for the full investigation, including the refuted evaluator-side
+seeding attempt.
 
 **Update 2026-08-31: the registry last-writer is a LATENT bug that any
 type-graph perturbation flips into manifestation.** #370's std-only sweep
@@ -19,8 +28,8 @@ made the ASan test pass but BROKE the compiler's own build path the same way
 bundle, i.e. the same last-writer clobber with a different winner
 (repro: the in-repo `yo init` + `yo build run` smoke hangs in
 `_git_version`'s poll-yield loop reading completed states off cold futures).
-That seeding was REVERTED and #370 was reverted to un-red develop; the real
-fix is per-call resolution cells that never write the shared registry.
+That seeding was REVERTED and #370 was reverted to un-red develop; the landed
+fix is the per-call RENDER above (read-side, no registry writes).
 
 `test (ubuntu-latest)`, `test (ubuntu-24.04-arm)`, `test (macos-latest)`,
 `test (macos-26-intel)`, "Self-hosted `test` subcommand", and the
