@@ -1855,27 +1855,35 @@ _emit_await_suspension :: (
     .None => ()
   );
 });
-/// Emit the final-state completion for the last segment: unless the segment
-/// already has an explicit `return`, emit the body-level deferred drops (captured
-/// via a temp emitter so direct-emitting drops are caught too, and collected into
+/// Emit the final-state completion for the last segment: unless the segment's
+/// tail is UNREACHABLE (its last expression is itself a `return(...)` call),
+/// emit the body-level deferred drops (captured via a temp emitter so
+/// direct-emitting drops are caught too, and collected into
 /// `local_var_drop_codes` for the dispose function) and then the Future
 /// completion. Mirrors the last-segment branch in
 /// `generateAsyncBlockResumeFunction` (state-machine.ts:2184).
+/// The skip condition must be TAIL-ONLY: the previous `expr_contains_return`
+/// over any segment expression skipped the completion whenever a return was
+/// nested in ANY arm — a body like `match(x, .None => return(.None), ...)`
+/// then fell off the end of the resume function WITHOUT setting state = -1 or
+/// firing the continuation on its fall-through path: the future suspended
+/// forever and every awaiter polled eternally (the `yo build run` smoke hang —
+/// _git_version's success path,
+/// issues/build-smoke-hangs-registry-perturbation.md).
 _emit_last_segment_completion :: (
   fn(segment : StateSegment, body_expr : AstExpr, local_var_drop_codes : ArrayList(String), context : FunctionGenerationContext) -> unit
 )({
   em := context.base.emitter;
   (has_return : bool) = false;
-  (i : usize) = usize(0);
-  while((i < segment.expressions.len()) && !(has_return), {
+  n_seg := segment.expressions.len();
+  if(n_seg > usize(0), {
     match(
-      segment.expressions.get(i),
-      .Some(e) => if(expr_contains_return(e), {
+      segment.expressions.get(n_seg - usize(1)),
+      .Some(last_e) => if(ast_expr_is_fn_call_of(last_e, "return", Option(usize).None), {
         has_return = true;
       }),
       .None => ()
     );
-    i = (i + usize(1));
   });
   if(!(has_return), {
     match(
@@ -3589,6 +3597,18 @@ generate_async_block_resume_function :: (
             context.in_async_state_machine = p_in;
             context.state_machine_variables = p_smv;
             context.variable_id_remapping = p_vr;
+            // A LAST segment that itself carries an await (the poll-yield
+            // recipe's shape: `while(!(t.is_finished())) { await yield() };
+            // <fall-through tail>` merges the loop's await and the tail into
+            // one segment) must still complete its Future on the tail path —
+            // the suspension's `return` covers the suspend path, and the
+            // completion block placed after it is reachable only via the
+            // fall-through. Without this, the future suspended forever and
+            // every awaiter polled eternally (the `yo build run` smoke hang,
+            // issues/build-smoke-hangs-registry-perturbation.md).
+            if(is_last_segment, {
+              _emit_last_segment_completion(segment, body_expr, local_var_drop_codes, context);
+            });
           },
           .None => if(is_last_segment, {
             _emit_last_segment_completion(segment, body_expr, local_var_drop_codes, context);

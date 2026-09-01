@@ -1,10 +1,50 @@
-# `yo build run` hangs forever in `_git_version`'s poll-yield loop — the shared type registry flips on ANY type-graph perturbation
+# `yo build run` hangs forever — an async body whose LAST segment carries an await never completed its Future on the fall-through tail
 
-**Status: OPEN — develop un-redded by REVERTING the perturbations (#370 and
-the E-class seeding attempt), not by fixing the underlying registry.** Found
-2026-08-31: every CI platform's `test` leg stopped at the "Build system smoke
-test" step (`yo init` + `yo build run`) for the full job timeout (4–6 h) on
-develop HEAD (#370's merge), with exactly one orphaned `yo-suite` process.
+**Status: FIXED 2026-09-01 (PR #373) — the REAL root cause was found and it
+is NOT registry divergence.** The io.async state-machine emitter skipped the
+tail completion whenever the body mentioned a `return` anywhere
+(`expr_contains_return` over the last segment) and whenever the last segment
+itself carried an await point — but the poll-yield recipe's body shape
+(`while(!(t.is_finished())) { await yield() }; match(x, .None =>
+return(...), ...); <fall-through tail>`) hits BOTH: its last segment contains
+the loop's await AND a nested return, so the fall-through tail ran, stored
+`sm->result`, and fell off the end of the resume function WITHOUT setting
+`state = -1` or firing the continuation. The future suspended forever; every
+awaiter (main's blocking await) polled eternally. `_git_version` and every
+other poll-yield helper in the build path had exactly this shape.
+
+**The bootstrap veil that hid it**: a codegen fix only takes effect one
+generation later. `yo build` bakes the SEED's emission into the gen-1
+binary, so the fixed tree still hangs at gen-1 and works at gen-2 — which is
+also why the released bundles and the CI smoke legs (which run gen-1
+candidates) kept hanging after the source was fixed. The verification binary
+must be gen-2 (`S1 compile` → clang → that binary).
+
+The fix (src/codegen/async/state_machine.yo, two gates in
+`_emit_last_segment_completion` and its caller):
+1. skip the tail completion only when the last segment's LAST expression is
+   itself a `return(...)` call — not when a return is nested in some arm;
+2. a last segment that carries an await point ALSO gets the completion
+   (after the suspension block — reachable only via the fall-through).
+
+Verified at gen-2: the in-repo `yo init` + `yo build run` smoke completes
+("Hello, world!"); `check ./src` 262/262; async_await 188/188, combinators
+7/7, mutex 4/4, dyn 9/9, process/command 10/10, io/async_traits 8/8, http
+21/21; `FIXPOINT_HOLDS` with a compile-built gen-2 S1.
+
+Landed together with two hardening fixes found on the way: `yield` now parks
+on a 1 ms timer (it previously completed synchronously, so poll-yield loops
+spun without ever polling I/O), and `_async_override_return_type` no longer
+downgrades a bare-SomeT registry result to the raw `__yo_io_future_t`
+spelling. The EARLIER registry-divergence theories in this file were wrong
+in mechanism (the mistyped `await_future_9 : __yo_io_future_t*` rendition
+was real but its layout coincides; the "reading completed states off cold
+futures" was this very missing-completion bug observed from outside) — they
+are retained below as the investigation record.
+
+---
+
+## Investigation record (superseded by the fix above)
 
 ## How it was isolated (local, deterministic)
 
