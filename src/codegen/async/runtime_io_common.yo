@@ -1949,7 +1949,7 @@ generate_tls_runtime :: (fn(emitter : Emitter) -> unit)({
     +
       `// === TLS backend (std/crypto/tls ABI) ===\n`
       +
-        `#if !defined(_WIN32)\n`
+        `#if !defined(_WIN32) && !defined(__wasm__)\n`
         +
           `#include <openssl/ssl.h>\n`
           +
@@ -2069,7 +2069,7 @@ generate_tls_runtime :: (fn(emitter : Emitter) -> unit)({
                                                                                                                             +
                                                                                                                               `int __yo_tls_bio_write(void* bio, const void* buf, int len) { (void)bio; (void)buf; (void)len; return 0; }\n`
                                                                                                                               +
-                                                                                                                                `void __yo_tls_err_string(char* buf, size_t len) { snprintf(buf, len, \"TLS is not available in this build; Windows Schannel pending, D6\"); }\n`
+                                                                                                                                `void __yo_tls_err_string(char* buf, size_t len) { snprintf(buf, len, \"TLS is not available in this build (Windows Schannel / wasm backends pending, D6)\"); }\n`
                                                                                                                                 +
                                                                                                                                   `int __yo_tls_available(void) { return 0; }\n`
                                                                                                                                   +
