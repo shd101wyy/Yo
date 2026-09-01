@@ -80,7 +80,8 @@ open(import("std/string"));
   get_variable_type_string,
   get_variable_name_for_codegen,
   scope_stack_contains,
-  mark_uses_parallelism
+  mark_uses_parallelism,
+  mark_uses_tls
 } :: import("../utils/index.yo");
 { Environment } :: import("../../env.yo");
 {
@@ -2366,6 +2367,16 @@ preregister_async_blocks_in_expr :: (fn(expr : AstExpr, context : FunctionGenera
       // Mirror into the module global so main.yo can see it when it assembles
       // the emcc link line (TS: moduleManager.usesParallelism).
       mark_uses_parallelism();
+    }),
+    .None => ()
+  );
+  // TLS backend extern (D6): any __yo_tls_ call drags the TLS runtime (and
+  // its OpenSSL headers on unix) into the emitted C — gated so TLS-free
+  // programs link neither.
+  match(
+    _called_extern_name(expr, context),
+    .Some(name) => if(name.starts_with(String.from("__yo_tls_")), {
+      mark_uses_tls();
     }),
     .None => ()
   );

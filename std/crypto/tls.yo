@@ -31,43 +31,31 @@ open(import("../string"));
 IoTraits :: import("../io");
 { ToString } :: import("../fmt");
 
-c_include(
-  "<openssl/ssl.h>",
-  // Library / context
-  TLS_client_method : (fn() -> *(void)),
-  SSL_CTX_new : (fn(method : *(void)) -> ?(*(void))),
-  SSL_CTX_free : (fn(ctx : *(void)) -> unit),
-  SSL_CTX_set_verify : (fn(ctx : *(void), mode : int, callback : ?(*(void))) -> unit),
-  SSL_CTX_set_default_verify_paths : (fn(ctx : *(void)) -> int),
-  // Connection object
-  SSL_new : (fn(ctx : *(void)) -> ?(*(void))),
-  SSL_free : (fn(ssl : *(void)) -> unit),
-  SSL_set_bio : (fn(ssl : *(void), rbio : *(void), wbio : *(void)) -> unit),
-  SSL_set_connect_state : (fn(ssl : *(void)) -> unit),
-  SSL_set1_host : (fn(ssl : *(void), hostname : *(char)) -> int),
-  SSL_ctrl : (fn(ssl : *(void), cmd : int, larg : i64, parg : ?(*(void))) -> i64),
-  // Handshake + I/O
-  SSL_do_handshake : (fn(ssl : *(void)) -> int),
-  SSL_get_error : (fn(ssl : *(void), ret : int) -> int),
-  SSL_read : (fn(ssl : *(void), buf : *(void), num : int) -> int),
-  SSL_write : (fn(ssl : *(void), buf : *(void), num : int) -> int),
-  SSL_shutdown : (fn(ssl : *(void)) -> int)
+extern(
+  "Yo",
+  // The TLS backend ABI (D6). OpenSSL on unix targets; ABI stubs on Windows
+  // until the Schannel row of the Windows platform audit lands — the
+  // implementation is selected per TARGET at C-compile time and emitted only
+  // when a __yo_tls_ extern is called.
+  __yo_tls_ctx_new : (fn() -> ?(*(void))),
+  __yo_tls_ssl_new : (fn(ctx : *(void), hostname : *(char)) -> ?(*(void))),
+  __yo_tls_handshake : (fn(ssl : *(void)) -> int),
+  __yo_tls_get_error : (fn(ssl : *(void), ret : int) -> int),
+  __yo_tls_read : (fn(ssl : *(void), buf : *(void), num : int) -> int),
+  __yo_tls_write : (fn(ssl : *(void), buf : *(void), num : int) -> int),
+  __yo_tls_shutdown : (fn(ssl : *(void)) -> int),
+  __yo_tls_free : (fn(ssl : *(void), ctx : *(void)) -> unit),
+  __yo_tls_rbio : (fn(ssl : *(void)) -> *(void)),
+  __yo_tls_wbio : (fn(ssl : *(void)) -> *(void)),
+  __yo_tls_bio_pending : (fn(bio : *(void)) -> usize),
+  __yo_tls_bio_read : (fn(bio : *(void), buf : *(void), len : int) -> int),
+  __yo_tls_bio_write : (fn(bio : *(void), buf : *(void), len : int) -> int),
+  __yo_tls_err_string : (fn(buf : *(char), len : usize) -> unit),
+  __yo_tls_available : (fn() -> bool)
 );
-c_include(
-  "<openssl/bio.h>",
-  BIO_new : (fn(kind : *(void)) -> ?(*(void))),
-  BIO_s_mem : (fn() -> *(void)),
-  BIO_read : (fn(bio : *(void), buf : *(void), len : int) -> int),
-  BIO_write : (fn(bio : *(void), buf : *(void), len : int) -> int),
-  BIO_ctrl_pending : (fn(bio : *(void)) -> usize)
-);
-c_include(
-  "<openssl/err.h>",
-  ERR_get_error : (fn() -> u64),
-  ERR_error_string_n : (fn(code : u64, buf : *(char), len : usize) -> unit)
-);
-// OpenSSL constants used here (stable public ABI values), as zero-arg fns —
-// runtime ints cannot be module-level `::` constants.
+/// True when this build's TLS backend can connect (unix + OpenSSL).
+tls_available :: (fn() -> bool)(unsafe(__yo_tls_available()));
+export(tls_available);
 _SSL_VERIFY_PEER :: (fn() -> int)(int(1));
 _SSL_CTRL_SET_TLSEXT_HOSTNAME :: (fn() -> int)(int(55));
 // SSL_get_error results.
@@ -104,18 +92,12 @@ impl(
   )
 );
 export(TlsError);
-/// Last OpenSSL error as text (empty queue → a fixed note).
+/// Last backend error as text (empty queue → a fixed note).
 _ssl_err_string :: (fn() -> String)({
-  code := unsafe(ERR_get_error());
-  cond(
-    (code == u64(0)) => `no error in the OpenSSL queue`.to_string(),
-    true => {
-      buf := ArrayList(u8).with_capacity(usize(256));
-      buf.resize_with_byte(usize(256), int(0));
-      unsafe(ERR_error_string_n(code, *(char)(buf.ptr().unwrap()), usize(256)));
-      String.from_cstr(buf.ptr().unwrap()).unwrap_or(`unknown OpenSSL error`.to_string())
-    }
-  )
+  buf := ArrayList(u8).with_capacity(usize(256));
+  buf.resize_with_byte(usize(256), int(0));
+  unsafe(__yo_tls_err_string(*(char)(buf.ptr().unwrap()), usize(256)));
+  String.from_cstr(buf.ptr().unwrap()).unwrap_or(`unknown TLS error`.to_string())
 });
 _throw_tls :: (fn(err : TlsError, exn : Exception) -> unit)(
   exn.throw(dyn(err))
@@ -139,9 +121,9 @@ _flush_wbio :: (fn(s : TlsStream, io : Io) -> Impl(Future(unit, IoExn)))({
   io.async((e) => {
     buf := ArrayList(u8).with_capacity(_PUMP_CAP());
     buf.resize_with_byte(_PUMP_CAP(), int(0));
-    (pending : usize) = unsafe(BIO_ctrl_pending(wbio));
+    (pending : usize) = unsafe(__yo_tls_bio_pending(wbio));
     while(pending > usize(0), {
-      n := unsafe(BIO_read(wbio, *(void)(buf.ptr().unwrap()), int(_PUMP_CAP())));
+      n := unsafe(__yo_tls_bio_read(wbio, *(void)(buf.ptr().unwrap()), int(_PUMP_CAP())));
       cond(
         (n > int(0)) => {
           // write_all over the raw chunk.
@@ -154,7 +136,7 @@ _flush_wbio :: (fn(s : TlsStream, io : Io) -> Impl(Future(unit, IoExn)))({
         },
         true => ()
       );
-      pending = unsafe(BIO_ctrl_pending(wbio));
+      pending = unsafe(__yo_tls_bio_pending(wbio));
     });
     return(());
   })
@@ -169,7 +151,7 @@ _feed_rbio :: (fn(s : TlsStream, io : Io) -> Impl(Future(usize, IoExn)))({
     n := e.io.await(tcp.read(buf.ptr().unwrap(), _PUMP_CAP(), e.io), e);
     cond(
       (n > usize(0)) => {
-        _w := unsafe(BIO_write(rbio, *(void)(buf.ptr().unwrap()), int(n)));
+        _w := unsafe(__yo_tls_bio_write(rbio, *(void)(buf.ptr().unwrap()), int(n)));
       },
       true => ()
     );
@@ -193,34 +175,28 @@ impl(
       );
       addr := SocketAddr.new(addrs(usize(0)), port);
       tcp := e.io.await(TcpStream.connect(addr, e.io), e);
-      // 2. OpenSSL objects.
-      ctx_opt := unsafe(SSL_CTX_new(unsafe(TLS_client_method())));
+      // 2. Backend objects (verify + trust store + SNI + hostname pin are
+      // configured inside __yo_tls_ssl_new).
+      host_c := host.to_cstr();
+      ctx_opt := unsafe(__yo_tls_ctx_new());
       if(ctx_opt.is_none(), {
         _throw_tls(TlsError.Handshake(detail : _ssl_err_string()), e.exn);
       });
       ctx := ctx_opt.unwrap();
-      unsafe(SSL_CTX_set_verify(ctx, _SSL_VERIFY_PEER(), ?(*(void)).None));
-      _vp := unsafe(SSL_CTX_set_default_verify_paths(ctx));
-      ssl_opt := unsafe(SSL_new(ctx));
+      ssl_opt := unsafe(__yo_tls_ssl_new(ctx, *(char)(host_c.ptr().unwrap())));
       if(ssl_opt.is_none(), {
-        unsafe(SSL_CTX_free(ctx));
         _throw_tls(TlsError.Handshake(detail : _ssl_err_string()), e.exn);
       });
       ssl := ssl_opt.unwrap();
-      rbio := unsafe(BIO_new(unsafe(BIO_s_mem()))).unwrap();
-      wbio := unsafe(BIO_new(unsafe(BIO_s_mem()))).unwrap();
-      unsafe(SSL_set_bio(ssl, rbio, wbio));
-      unsafe(SSL_set_connect_state(ssl));
-      host_c := host.to_cstr();
-      _h := unsafe(SSL_set1_host(ssl, *(char)(host_c.ptr().unwrap())));
-      _sni := unsafe(SSL_ctrl(ssl, _SSL_CTRL_SET_TLSEXT_HOSTNAME(), i64(0), ?(*(void)).Some(*(void)(host_c.ptr().unwrap()))));
+      rbio := unsafe(__yo_tls_rbio(ssl));
+      wbio := unsafe(__yo_tls_wbio(ssl));
       s := TlsStream(_tcp : tcp, _ctx : ctx, _ssl : ssl, _rbio : rbio, _wbio : wbio, _closed : false);
       // 3. Handshake pump. Awaits sit ONE branch under the while — deeper
       // nesting is an unsupported async shape (the closure FTTs to an abort
       // stub; see issues/ftt-stub-in-live-closure-falls-off-non-void-function.md).
       (done : bool) = false;
       while(!(done), {
-        rc := unsafe(SSL_do_handshake(ssl));
+        rc := unsafe(__yo_tls_handshake(ssl));
         e.io.await(_flush_wbio(s, e.io), e);
         (need_read : bool) = false;
         cond(
@@ -228,7 +204,7 @@ impl(
             done = true;
           },
           true => {
-            err := unsafe(SSL_get_error(ssl, rc));
+            err := unsafe(__yo_tls_get_error(ssl, rc));
             cond(
               (err == _SSL_ERROR_WANT_READ()) => {
                 need_read = true;
@@ -260,7 +236,7 @@ impl(
       (out : usize) = usize(0);
       (settled : bool) = false;
       while(!(settled), {
-        rc := unsafe(SSL_read(ssl, *(void)(buf), int(size)));
+        rc := unsafe(__yo_tls_read(ssl, *(void)(buf), int(size)));
         (act : int) = int(0);
         cond(
           (rc > int(0)) => {
@@ -268,7 +244,7 @@ impl(
             settled = true;
           },
           true => {
-            err := unsafe(SSL_get_error(ssl, rc));
+            err := unsafe(__yo_tls_get_error(ssl, rc));
             cond(
               (err == _SSL_ERROR_ZERO_RETURN()) => {
                 out = usize(0);
@@ -317,7 +293,7 @@ impl(
       (out : usize) = usize(0);
       (settled : bool) = false;
       while(!(settled), {
-        rc := unsafe(SSL_write(ssl, *(void)(buf), int(size)));
+        rc := unsafe(__yo_tls_write(ssl, *(void)(buf), int(size)));
         e.io.await(_flush_wbio(self, e.io), e);
         (need_read : bool) = false;
         cond(
@@ -326,7 +302,7 @@ impl(
             settled = true;
           },
           true => {
-            err := unsafe(SSL_get_error(ssl, rc));
+            err := unsafe(__yo_tls_get_error(ssl, rc));
             cond(
               (err == _SSL_ERROR_WANT_READ()) => {
                 need_read = true;
@@ -378,11 +354,11 @@ impl(
         self._closed => (),
         true => {
           self._closed = true;
-          _sd := unsafe(SSL_shutdown(self._ssl));
+          _sd := unsafe(__yo_tls_shutdown(self._ssl));
           e.io.await(_flush_wbio(self, e.io), e);
-          // SSL_free releases both BIOs (owned via SSL_set_bio).
-          unsafe(SSL_free(self._ssl));
-          unsafe(SSL_CTX_free(self._ctx));
+          // __yo_tls_free releases both BIOs (owned by the SSL object) and
+          // the context.
+          unsafe(__yo_tls_free(self._ssl, self._ctx));
           e.io.await(self._tcp.close(e.io), e);
         }
       );

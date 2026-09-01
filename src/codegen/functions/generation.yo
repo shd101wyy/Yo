@@ -31,7 +31,7 @@ open(import("std/string"));
 { is_temp_variable_name } :: import("../../utils.yo");
 { is_target_posix, is_target_linux, is_target_windows } :: import("../../target.yo");
 { get_func_type, is_closure_fn, get_closure_capture_info, is_effect_record_member } :: import("../../function_value.yo");
-{ get_type_string, get_variable_type_string, sanitize_for_c_identifier, get_variable_name_for_codegen, ChunkRange } :: import("../utils/index.yo");
+{ get_type_string, get_variable_type_string, sanitize_for_c_identifier, get_variable_name_for_codegen, ChunkRange, get_uses_tls } :: import("../utils/index.yo");
 { get_shell_redirect } :: import("../../evaluator/values/type_trait_methods.yo");
 { FunctionGenerationContext } :: import("./context.yo");
 { generate_function_prototype, should_skip_function_codegen, _async_override_return_type } :: import("./declarations.yo");
@@ -41,7 +41,7 @@ open(import("std/string"));
 { generate_deferred_drop_expressions, generate_deferred_dup_expressions } :: import("../exprs/drop_dup.yo");
 { t_unit } :: import("../../types/creators.yo");
 { collect_unwind_value_ctypes, generate_atomic_gc_runtime_functions } :: import("./gc_runtime.yo");
-{ generate_sys_runtime, AsyncRuntimeOptions } :: import("../async/runtime_io_common.yo");
+{ generate_sys_runtime, AsyncRuntimeOptions, generate_tls_runtime } :: import("../async/runtime_io_common.yo");
 { generate_async_runtime } :: import("../async/runtime.yo");
 { generate_parallelism_runtime } :: import("../parallelism/runtime.yo");
 { generate_ref_struct_constructor_functions, generate_ref_enum_constructor_functions, generate_closure_constructor_functions } :: import("./constructors.yo");
@@ -869,6 +869,13 @@ generate_all_functions :: (fn(context : FunctionGenerationContext) -> unit)({
   // Mirrors generateAllFunctions (generation.ts:386).
   if(context.uses_parallelism, {
     generate_parallelism_runtime(context.base.emitter, context.base.debug_parallelism, context.base.target_info, context.uses_async);
+  });
+  // TLS backend: emitted independently of uses_async — a SYNC program probing
+  // tls_available() must still link the __yo_tls_ ABI. Target selection
+  // (OpenSSL vs stubs) lives in the emitted C's preprocessor guard, so wasm
+  // and Windows get stubs from the same emission.
+  if(get_uses_tls(), {
+    generate_tls_runtime(context.base.emitter);
   });
   collect_unwind_value_ctypes(context);
   generate_atomic_gc_runtime_functions(context);
