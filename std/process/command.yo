@@ -109,7 +109,8 @@ Command :: ref(
     _env_clear : bool,
     _stdin : Stdio,
     _stdout : Stdio,
-    _stderr : Stdio
+    _stderr : Stdio,
+    _cwd : Option(String)
   )
 );
 impl(
@@ -125,7 +126,8 @@ impl(
       _env_clear : false,
       _stdin : Stdio.Inherit,
       _stdout : Stdio.Inherit,
-      _stderr : Stdio.Inherit
+      _stderr : Stdio.Inherit,
+      _cwd : Option(String).None
     )
   ),
   /// Append a single argument to the argv list.
@@ -158,6 +160,14 @@ impl(
     self
   }),
   /// Start the child from an EMPTY environment (only `env()` entries).
+  /// Run the child with `dir` as its working directory. POSIX uses
+  /// posix_spawn_file_actions_addchdir_np (spawn reports ENOSYS on a libc
+  /// without it — macOS 10.15+/glibc 2.29+/musl 1.2.5+ all have it);
+  /// Windows passes lpCurrentDirectory.
+  current_dir : (fn(self : Self, dir : String) -> Self)({
+    self._cwd = Option(String).Some(dir);
+    self
+  }),
   env_clear : (fn(self : Self) -> Self)({
     self._env_clear = true;
     self
@@ -286,6 +296,14 @@ _spawn_with_fds :: (
   storage := _build_cstr_storage(self);
   env_storage := _build_env_storage(self);
   use_envp := (self._env_clear || (self._env_overrides.len() > usize(0)));
+  // The cwd C string is built OUTSIDE the async closure for the same reason
+  // as `storage`: it must be an Rc value the capture struct can own, and it
+  // must stay alive until the spawn call reads it.
+  cwd_cstr := match(
+    self._cwd,
+    .Some(cd) => Option(ArrayList(u8)).Some(cd.to_cstr()),
+    .None => Option(ArrayList(u8)).None
+  );
   // Flush our own stdout BEFORE creating the child. `print`/`println` go through
   // C `fwrite(..., stdout)` (std/fmt/index.yo), which is BLOCK-buffered when
   // stdout is a pipe — while the child inherits the raw fd and writes straight
@@ -363,7 +381,15 @@ _spawn_with_fds :: (
       (envp_buf.add(envc)).* = .None;
       envp_arg = .Some(envp_buf);
     });
-    pid := e.io.await(IO_process.spawn(program_cstr, argv_buf, envp_arg, stdin_fd, stdout_fd, stderr_fd), e.io);
+    (cwd_ptr : ?(*(u8))) = .None;
+    match(
+      cwd_cstr,
+      .Some(cc) => {
+        cwd_ptr = cc.ptr();
+      },
+      .None => ()
+    );
+    pid := e.io.await(IO_process.spawn_cwd(program_cstr, argv_buf, envp_arg, stdin_fd, stdout_fd, stderr_fd, cwd_ptr), e.io);
     // Free argv/envp buffers (storage lists drop naturally at scope end).
     free(.Some(argv_raw));
     match(
