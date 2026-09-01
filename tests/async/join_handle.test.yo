@@ -86,8 +86,17 @@ test("Test abort after completion is a no-op", {
   h := io.spawn(fut, io);
   // Drive the loop until the spawned task has finished, WITHOUT consuming the
   // handle (a handle must be awaited at most once, and never after await).
-  io.await(sleep(u64(5)), io);
-  assert(h.is_finished(), "yield task should have finished during the sleep");
+  // Bounded poll, not one fixed sleep: `yield` parks on a 1 ms timer now, and
+  // a single sleep(5) raced it — Windows' GetTickCount64 wheel has ~15.6 ms
+  // granularity, so both timers fired in ONE wake batch and the awaiting test
+  // body exited before the ready queue drained (macos-26-intel lost the same
+  // race stochastically on slow VMs).
+  (spins : usize) = usize(0);
+  while(runtime((!(h.is_finished())) && (spins < usize(2000))), {
+    io.await(sleep(u64(1)), io);
+    spins = (spins + usize(1));
+  });
+  assert(h.is_finished(), "yield task should finish while the sleep loop drives the event loop");
   h.abort();
   assert(h.state() == FutureState.Completed, "abort of a completed task must not change its state");
   r := h.await(io);
