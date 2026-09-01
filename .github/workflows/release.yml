@@ -844,7 +844,12 @@ jobs:
     name: Static musl Linux bundle (${{ matrix.target }})
     needs: release
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 180
+    # 240 since the gen-2 flow (2026-09-01): the leg now runs TWO emits and
+    # TWO Alpine cc's (seed -> stage-1 static -> stage-1 re-emits the shipped
+    # C -> Alpine cc of the shipped binary), where it previously ran one of
+    # each — the bootstrap veil makes the extra generation non-optional for
+    # the bundle that becomes the next cycle's seed.
+    timeout-minutes: 240
     permissions:
       contents: write
     strategy:
@@ -946,21 +951,63 @@ jobs:
       # is discarded because `--emit-c` PRINTS the C (140 MB of it); the
       # sidecar is the artifact. `--std-path ./std` is load-bearing — the
       # seed would otherwise emit against its OWN bundled std.
-      - name: "Yo -> C (glibc host, seed compiler)"
+      #
+      # STAGE 1 ONLY (the bootstrap veil, 2026-09-01): a codegen fix reaches
+      # a compiler binary's OWN compiled-in async machinery — its `yo build`
+      # path: build_runner's spawn/poll/await recipes, std/async's yield —
+      # one generation later. The seed's emission of this tree still carries
+      # the SEED's codegen around those recipes, so a bundle compiled
+      # straight from this C would ship a `yo build`/`yo version` that hangs
+      # on the first poll-yield (v0.2.19/v0.2.20 behavior). This C is only
+      # an intermediate: the SHIPPED C below is emitted by the stage-1
+      # binary, whose codegen comes from THIS tree.
+      - name: "Yo -> C, stage 1 (glibc host, seed compiler)"
         env:
           YO_MAIN_STACK_MB: "4096"
         run: |
           yo compile src/main.yo --optimize 2 --allocator mimalloc \
-            --std-path ./std --emit-c --skip-c-compiler -o yo-musl > /dev/null
-          ls -la yo-musl.c
+            --std-path ./std --emit-c --skip-c-compiler -o yo-g1 > /dev/null
+          ls -la yo-g1.c
 
-      - name: "C -> static binary, inside Alpine (musl + static liburing)"
+      - name: "C -> static stage-1 binary, inside Alpine (musl + static liburing)"
         run: |
           docker run --rm -v "$PWD:/w" -w /w alpine:3.20 sh -euc '
             # NOT liburing-static: Alpine has no such package. Debian splits
             # static libs into a -static package; Alpine ships liburing.a
             # inside liburing-dev. Assert it rather than discovering its
             # absence as a link error 140 MB into the compile.
+            apk add --no-cache build-base linux-headers liburing-dev
+            test -f /usr/lib/liburing.a || {
+              echo "::error::liburing-dev did not provide /usr/lib/liburing.a; -static -luring cannot work"
+              exit 1
+            }
+            cc -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
+              yo-g1.c vendor/mimalloc/src/static.c \
+              -I vendor/mimalloc/include \
+              -static -luring -lpthread -lm \
+              -o yo-g1
+          '
+          file yo-g1 | tee file.txt
+          grep -q "statically linked" file.txt || {
+            echo "::error::stage-1 musl binary is not statically linked"; exit 1; }
+
+      # Phase 2 — THE SHIPPED C. The stage-1 binary above re-emits the tree,
+      # making the shipped bundle gen-2: its codegen comes from this tree,
+      # so both the C it emits for users AND its own compiled-in `yo build`
+      # machinery carry this tree's async state machines. Static means it
+      # runs on this glibc host as-is (the same pattern the pre-release gate
+      # has proven since the glibc legs existed).
+      - name: "Yo -> C, stage 2 (the stage-1 binary re-emits the tree — the shipped C)"
+        env:
+          YO_MAIN_STACK_MB: "4096"
+        run: |
+          ./yo-g1 compile src/main.yo --optimize 2 --allocator mimalloc \
+            --std-path ./std --emit-c --skip-c-compiler -o yo-musl > /dev/null
+          ls -la yo-musl.c
+
+      - name: "C -> static SHIPPED binary, inside Alpine (musl + static liburing)"
+        run: |
+          docker run --rm -v "$PWD:/w" -w /w alpine:3.20 sh -euc '
             apk add --no-cache build-base linux-headers liburing-dev
             test -f /usr/lib/liburing.a || {
               echo "::error::liburing-dev did not provide /usr/lib/liburing.a; -static -luring cannot work"
@@ -976,31 +1023,40 @@ jobs:
           grep -q "statically linked" file.txt || {
             echo "::error::musl bundle is not statically linked"; exit 1; }
 
-      # Pre-release trust-chain gate, rehomed from the removed glibc legs: the
-      # candidate (the static binary above IS the candidate — the seed emitted
-      # this tree's compiler) must be able to act as the NEXT release's seed,
-      # so prove it can evaluate + emit its own source. Static means it runs
-      # on this glibc host as-is. Emit-only; the FTT check guards the
+      # Pre-release trust-chain gate, upgraded with the gen-2 flow: the
+      # shipped binary (stage-2 compiled above) is what the NEXT release
+      # bootstraps from, so prove it can evaluate + emit its own source —
+      # and that the emit is a RELEASE FIXPOINT: the stage-3 C must be
+      # BYTE-IDENTICAL to the stage-2 C being shipped (the same property
+      # test.yml's "Bootstrap fixpoint stage-3 (byte-identity)" check
+      # enforces continuously in CI; the emit is a pure function of
+      # tree+flags, so any divergence means the tree is not at fixpoint and
+      # must not seed the next cycle). The FTT check still guards the
       # hollow-emit trap (an untranspilable function becomes a
       # `// Failed to transpile` COMMENT with rc=0).
-      - name: "Pre-release gate: the candidate re-emits itself (stage-2)"
+      - name: "Pre-release gate: the shipped binary re-emits itself (stage-3, byte-identical)"
         env:
           YO_MAIN_STACK_MB: "4096"
         run: |
           ./yo-musl compile src/main.yo --optimize 2 --allocator mimalloc \
-            --std-path ./std --emit-c --skip-c-compiler -o gate-stage2 > /dev/null
-          test -s gate-stage2.c
-          SIZE=$(wc -c < gate-stage2.c)
-          echo "stage-2 emit: $SIZE bytes"
+            --std-path ./std --emit-c --skip-c-compiler -o gate-stage3 > /dev/null
+          test -s gate-stage3.c
+          SIZE=$(wc -c < gate-stage3.c)
+          echo "stage-3 emit: $SIZE bytes"
           if [ "$SIZE" -lt 100000000 ]; then
-            echo "::error::stage-2 emit is implausibly small ($SIZE bytes) — refusing to ship this seed."
+            echo "::error::stage-3 emit is implausibly small ($SIZE bytes) — refusing to ship this seed."
             exit 1
           fi
-          if grep -qE '^\s*// (Error: )?Failed to transpile' gate-stage2.c; then
-            echo "::error::stage-2 emit contains Failed-to-transpile comments — the candidate cannot compile itself."
+          if grep -qE '^\s*// (Error: )?Failed to transpile' gate-stage3.c; then
+            echo "::error::stage-3 emit contains Failed-to-transpile comments — the shipped binary cannot compile itself."
             exit 1
           fi
-          rm -f gate-stage2.c
+          if ! cmp -s yo-musl.c gate-stage3.c; then
+            echo "::error::stage-3 emit is NOT byte-identical to the shipped stage-2 C — the tree is not at a release fixpoint."
+            exit 1
+          fi
+          echo "stage-3 is byte-identical to the shipped C — release fixpoint holds"
+          rm -f gate-stage3.c
 
       - name: Assemble the bundle
         run: |
@@ -1058,7 +1114,14 @@ jobs:
       # With the glibc legs gone this bundle is what every Linux user
       # installs, so prove it on a glibc host too — from a directory OUTSIDE
       # the checkout, same self-sufficiency bar the removed legs applied.
+      # The `yo build run` half is the bootstrap-veil regression smoke
+      # (2026-09-01): the gen-1 bundles hung exactly there — build_runner's
+      # _git_version spawn/poll-yield/await recipe never completed under the
+      # seed's codegen — so a bundle that regresses generations again dies
+      # HERE at release time, not in a user's terminal. The step-level
+      # timeout turns a silent hang into a loud failure.
       - name: Smoke-test the bundle on the glibc host
+        timeout-minutes: 15
         run: |
           BUNDLE_DIR="$PWD/$BUNDLE"
           mkdir -p "$RUNNER_TEMP/musl-smoke" && cd "$RUNNER_TEMP/musl-smoke"
@@ -1072,6 +1135,18 @@ jobs:
           OUT=$(./hello)
           echo "smoke output: $OUT"
           test "$OUT" = "hello from the yo seed"
+          "$BUNDLE_DIR/bin/yo" init proj > init.log 2>&1 || { cat init.log; echo "::error::yo init failed"; exit 1; }
+          cd proj
+          YO_STD="$BUNDLE_DIR/std" "$BUNDLE_DIR/bin/yo" build run > build-smoke.log 2>&1 || {
+            cat build-smoke.log
+            echo "::error::yo build run failed or hung — the bundle's own build machinery does not work"
+            exit 1
+          }
+          cat build-smoke.log
+          grep -q "Hello" build-smoke.log || {
+            echo "::error::yo build run produced no program output"
+            exit 1
+          }
 
       - name: Attach the bundle to the release
         env:
@@ -1085,12 +1160,17 @@ jobs:
       # MIS-LINKS on a box that has the headers and no -lmimalloc. The
       # published file must not depend on what the user happens to have
       # installed, so the arm is libc-flavored (--allocator system).
-      - name: "Emit this platform's arm of the portable yo.c (seed)"
+      # Emitted by the SHIPPED gen-2 binary, not the seed — same bootstrap
+      # veil as the bundle: a seed-emitted yo.c compiles into a compiler
+      # whose own `yo build` machinery hangs on the first poll-yield.
+      # (seed-cross-emit's non-Linux arms already go through the candidate;
+      # this brings the last seed-emitted arms in line.)
+      - name: "Emit this platform's arm of the portable yo.c (the shipped binary)"
         env:
           YO_MAIN_STACK_MB: "4096"
         run: |
           mkdir -p portable-arm
-          yo compile src/main.yo --optimize 2 --allocator system \
+          ./yo-musl compile src/main.yo --optimize 2 --allocator system \
             --std-path ./std --emit-c --skip-c-compiler \
             -o "portable-arm/${{ matrix.portable_target }}" > /dev/null
           ls -la "portable-arm/${{ matrix.portable_target }}.c"
