@@ -1,0 +1,19 @@
+//! `tls_available()` from a SYNC-only program: pins the TLS runtime emission
+//! being independent of `uses_async` (the `__yo_tls_` ABI must be emitted for
+//! a program whose only TLS touch is the sync probe — see
+//! issues/fixed/tls-runtime-emission-gated-behind-uses-async.md). Runs on
+//! Windows deliberately: the stub backend answering `false` there IS the
+//! contract until Schannel lands.
+pragma(Pragma.SkipWasm32Emscripten); // std/crypto/tls imports the socket stack
+pragma(Pragma.SkipWasm32Wasi); // no network stack in WASM
+{ assert } :: import("std/assert");
+{ tls_available } :: import("std/crypto/tls");
+{ platform, Platform } :: import("std/process");
+
+test("tls_available links and answers in a sync-only program", {
+  avail := tls_available();
+  cond(
+    (platform == Platform.Windows) => assert(!(avail), "Windows builds carry ABI stubs until the Schannel backend lands"),
+    true => assert(avail, "unix builds carry the OpenSSL backend")
+  );
+});
