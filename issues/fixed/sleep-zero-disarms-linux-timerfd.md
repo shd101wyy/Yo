@@ -1,7 +1,10 @@
 # `sleep(0)` never completes on Linux — timerfd_settime(0) DISARMS the timer
 
-**Status: OPEN.** Found 2026-09-01 reviewing #373's `yield` park while
-evaluating `sleep(u64(0))` as a granularity-free park.
+**Status: FIXED 2026-09-01.** Found reviewing #373's `yield` park while
+evaluating `sleep(u64(0))` as a granularity-free park. Fixed by clamping the
+timerfd arm value to 1 ns (`__yo_async_sleep_start`,
+`src/codegen/async/runtime_io_common.yo`); pinned by "Test zero-length sleep
+completes" in `tests/sys/timer.test.yo` (plain-context await + in-task await).
 
 ## What
 
