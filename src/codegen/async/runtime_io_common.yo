@@ -704,7 +704,13 @@ ${timer_dispose_init}
   struct itimerspec its = {0};
   its.it_value.tv_sec = (time_t)(milliseconds / 1000);
   its.it_value.tv_nsec = (long)((milliseconds % 1000) * 1000000);
-  
+  if (milliseconds == 0) {
+    // POSIX defines a zero it_value as DISARMING the timer, so sleep(0)
+    // would never fire. Arm for 1 ns instead — completes on the next loop
+    // turn like the kqueue/Windows/wasm runtimes.
+    its.it_value.tv_nsec = 1;
+  }
+
   if (timerfd_settime(tfd, 0, &its, NULL) < 0) {
     int err = errno;
     future->result = -err;
