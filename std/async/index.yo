@@ -33,11 +33,18 @@ extern(
   /// `JoinHandle.await`'s poll loop is built on.
   __yo_async_poll_step : (fn() -> unit)
 );
-/// Suspend the current async task, allowing other tasks to run on the event loop.
-/// Implemented as an immediately-completing async block that forces a suspension point.
+/// Suspend the current async task until the next event-loop turn: drain the
+/// ready queue, then poll (and, when idle with pending I/O, block in) I/O.
+/// Implemented by awaiting a 1 ms timer — the same park `Mutex.lock`'s
+/// contended loop uses. The previous body (`return(())`) completed the
+/// future SYNCHRONOUSLY, so `io.await(yield(io), io)` never reached
+/// `__yo_async_poll_step`: a poll-until-finished loop built on it
+/// (`is_finished()` + `await yield()`) spun without ever polling I/O, and
+/// the polled task never progressed (the build smoke hang's spin component,
+/// issues/build-smoke-hangs-registry-perturbation.md).
 yield :: (fn(io : Io) -> Impl(Future(unit)))(
   io.async((io : Io) => {
-    return(());
+    io.await(IO_timer.sleep(u64(1)), io);
   })
 );
 /// Await every handle, in order, returning each task's result (`.None` for a

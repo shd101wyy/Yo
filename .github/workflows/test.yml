@@ -544,13 +544,37 @@ jobs:
 
           # The binary no longer lives under yo-out/<triple>/bin/, so the
           # exe-relative walk-up finds no std — and `./std` stops resolving the
-          # moment a later step cd's into the scratch project. Pin YO_STD to the
+          # moment a later step cd's into a scratch project. Pin YO_STD to the
           # checkout, exactly as the macOS/Windows leg does.
           echo "S1=/tmp/yo-stage1" >> "$GITHUB_ENV"
           echo "YO_STD=$PWD/std" >> "$GITHUB_ENV"
           # Fail fast if the built binary cannot run at all (evaluator, module
           # loading, std discovery).
           YO_STD="$PWD/std" /tmp/yo-stage1 check std/assert.yo
+
+      - name: "Stage 2: the tree-built compiler builds itself (self-application)"
+        # A codegen fix in THIS tree only reaches a compiler's OWN compiled-in
+        # async machinery one generation later: stage-1's C text was EMITTED by
+        # the seed's older codegen. The smoke step below runs the compiler's
+        # own build runner (self-application), so it must run stage-2 — the
+        # generation whose C the tree's codegen emitted (the 2026-09-01
+        # missing-tail-completion hang was invisible at stage-1 and dead at
+        # stage-2; issues/build-smoke-hangs-registry-perturbation.md). The
+        # corpus gains the same correctness. Stage-1 carries the
+        # arena-release fix, so no memory cage is needed here.
+        env:
+          YO_MAIN_STACK_MB: "4096"
+        run: |
+          YO_STD="$PWD/std" /tmp/yo-stage1 compile src/main.yo \
+            --optimize 2 --allocator mimalloc --std-path ./std \
+            --emit-c --skip-c-compiler -o /tmp/stage2 > /dev/null
+          clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
+            /tmp/stage2.c vendor/mimalloc/src/static.c \
+            -I vendor/mimalloc/include -lpthread -lm -luring \
+            -o /tmp/yo-stage2
+          echo "S1=/tmp/yo-stage2" >> "$GITHUB_ENV"
+          # Same fail-fast as stage-1.
+          YO_STD="$PWD/std" /tmp/yo-stage2 check std/assert.yo
 
       # MUST be `if: always()`. The stage-1 shell dies together with `yo build`
       # (proven in run 31854687362), so this is the only place the forensics
@@ -676,6 +700,26 @@ jobs:
         env:
           YO_MAIN_STACK_MB: "4096"
         run: yo compile src/main.yo --optimize 2 --allocator mimalloc --std-path ./std -o yo-candidate
+
+      - name: "Stage 2: the candidate compiles the tree (self-application)"
+        # A codegen fix in THIS tree only reaches a compiler's OWN compiled-in
+        # async machinery one generation later: the stage-1 candidate's C text
+        # was EMITTED by the seed's older codegen. Every cross-emitted suite
+        # compiler below runs its own build runner in the smoke step
+        # (self-application), so the shared candidate must be stage-2 — the
+        # generation whose C the tree's codegen emitted (the 2026-09-01
+        # missing-tail-completion hang was invisible at stage-1 and dead at
+        # stage-2; issues/build-smoke-hangs-registry-perturbation.md).
+        env:
+          YO_MAIN_STACK_MB: "4096"
+        run: |
+          YO_STD="$PWD/std" ./yo-candidate compile src/main.yo \
+            --optimize 2 --allocator mimalloc --std-path ./std \
+            --emit-c --skip-c-compiler -o /tmp/stage2 > /dev/null
+          clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
+            /tmp/stage2.c vendor/mimalloc/src/static.c \
+            -I vendor/mimalloc/include -lpthread -lm -luring \
+            -o yo-candidate
 
       # Built ONCE and shared: the retired weekly workflow rebuilt the
       # candidate inside each of its four cross-emit legs — at per-PR
@@ -1592,9 +1636,31 @@ jobs:
         with:
           seed-version: ${{ env.SEED_VERSION }}
 
+      # Same rule as the ubuntu test job and the shared suite candidate: the
+      # smoke step runs the compiler's own build runner (self-application), so
+      # it must run STAGE-2 — the generation whose C the tree's codegen
+      # emitted. Stage-1's C text was emitted by the SEED's older codegen; the
+      # 2026-09-01 missing-tail-completion hang was invisible at stage-1 and,
+      # combined with the tree's parking yield, hung THIS job's smoke for the
+      # full 90 min (run 33477750650;
+      # issues/build-smoke-hangs-registry-perturbation.md). The wasm TEST
+      # suite below stays on stage-1: its children are cross-compiled by the
+      # tree's codegen either way.
+      - name: Build stage-2 for the smoke
+        env:
+          YO_MAIN_STACK_MB: "4096"
+        run: |
+          YO_STD="$PWD/std" "$S1" compile src/main.yo \
+            --optimize 2 --allocator mimalloc --std-path ./std \
+            --emit-c --skip-c-compiler -o /tmp/stage2 > /dev/null
+          clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
+            /tmp/stage2.c vendor/mimalloc/src/static.c \
+            -I vendor/mimalloc/include -lpthread -lm -luring \
+            -o /tmp/yo-stage2
+
       - name: Build system smoke test (WASM)
         run: |
-          "$S1" init ./tmp/hello-world --name hello-world
+          /tmp/yo-stage2 init ./tmp/hello-world --name hello-world
           cd tmp/hello-world
           sed -i 's|exe :: build.executable({ name: "hello-world", root: "./src/main.yo" });|exe :: build.executable({ name: "hello-world", root: "./src/main.yo", target: build.CompilationTarget.Wasm32_Unknown_Emscripten });|' build.yo
           # List what emcc actually produced on failure. `build run` executes
@@ -1603,7 +1669,7 @@ jobs:
           # and each round-trip here costs a stage-1 build. Run 31874422392
           # burned a cycle on exactly that.
           set +e
-          "$S1" build run
+          /tmp/yo-stage2 build run
           RC=$?
           set -e
           if [ "$RC" -ne 0 ]; then

@@ -581,7 +581,18 @@ _async_override_return_type :: (
   fn(function_type : TypeValue, body : Option(AstExpr), context : CodeGenContext) -> Option(String)
 )({
   ret := _func_result_type(function_type);
-  if(!(type_implements_future(ret)), {
+  ret_is_future := type_implements_future(ret);
+  if(!(ret_is_future) && !(is_some_type(ret)), {
+    // A registered result that is neither a future nor a SomeT is genuinely
+    // not an async fn. A BARE SomeT result must NOT bail: the shared
+    // func-type registry's concrete Impl(Future(..)) registration is
+    // evaluation-order-dependent, and bailing here downgrades every await of
+    // this fn to the RAW __yo_io_future_t — whose layout need not match the
+    // async block's struct, so the await's continuation can land in the
+    // wrong slot and the SM never resumes (one rendition of std/process's
+    // output() typed its drain await __yo_io_future_t* while its twins typed
+    // the block struct; issues/build-smoke-hangs-registry-perturbation.md).
+    // The body resolution below is per-expr and resolves the true struct.
     return(Option(String).None);
   });
   match(
