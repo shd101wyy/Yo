@@ -1,14 +1,19 @@
 # A dyn method's async Future-trait return type emitted its struct TWICE — "redefinition of '__yo_t60_struct'"
 
-**Status: OPEN — the shared-set fix was implemented, verified on the dyn batch,
-and then RETRACTED: keying suppression on the C name renumbers the whole type
-table (the early on-demand render changes interning order; ~1.7k lines of the
-compiler's own C change) and that perturbation flipped the CI tier-1
-async_await and the platform smoke legs — the same fragility class this
-campaign keeps hitting. The correct fix must dedup WITHOUT changing emission
-order (e.g. emit-once keyed on type_key with the name assigned at first
-collection, or defer the on-demand body to the pass that owns the name).
-Found 2026-08-31; mechanism below stands.** Found
+**Status: FIXED 2026-09-01.** The retracted shared-set fix (see history below)
+was replaced by an ASYMMETRIC set that cannot perturb emission order:
+`CodeGenContext.on_demand_body_cnames` is populated ONLY by the on-demand
+hook (`_on_demand_collect_and_declare`, codegen_c.yo) with the C names whose
+bodies IT emits — the name is already rendered there, so no new interning —
+and the declaration passes (types/generation.yo: simple-enum, topological
+struct/enum/tuple, nullable-pointer-enum, and the union/future-trait arms of
+the fifth pass) skip exactly those names. On a tree where the hook never
+fires before/during the passes the set is empty at pass time and the emitted
+C is byte-identical — PROVEN: the pre-fix and post-fix compilers emit
+hash-identical stage-2 C (sha256 b94924bd…) for the same input tree.
+`tests/dyn.test.yo` 9/9. (This redefinition went live on develop when #374
+re-landed the prelude shrink; every full-suite CI leg was red on batch 60.)
+Found
 2026-08-31 diagnosing why the `tests/dyn.test.yo` batch went RED under the
 self-hosted compiler the moment #370's prelude shrink landed (the develop-HEAD
 hollow sweep reported `tests/dyn.test.yo RED`, and every native suite leg died

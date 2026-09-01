@@ -1479,7 +1479,7 @@ generate_type_declarations :: (fn(context : CodeGenContext) -> unit)({
           ty := entry.ty;
           skip := (type_contains_some_type(ty) || entry.c_include.is_some());
           if(!(skip) && (is_enum_type(ty) && can_optimize_as_simple_enum(ty)), {
-            if(!(emitted_decl_cnames.contains(entry.c_name.clone())), {
+            if(!(emitted_decl_cnames.contains(entry.c_name.clone())) && !(context.on_demand_body_cnames.contains(entry.c_name.clone())), {
               _dn := emitted_decl_cnames.insert(entry.c_name.clone());
               generate_enum_declaration(ty, entry.c_name.clone(), context);
             });
@@ -1703,11 +1703,14 @@ generate_type_declarations :: (fn(context : CodeGenContext) -> unit)({
         entries.get(yi),
         .Some(e) => if(e.type_id == sid, {
           found = true;
-          cond(
-            (e.kind == "struct") => generate_struct_declaration(e.ty, e.c_name.clone(), context),
-            (e.kind == "enum") => generate_enum_declaration(e.ty, e.c_name.clone(), context),
-            (e.kind == "tuple") => generate_tuple_declaration(e.ty, e.c_name.clone(), context),
-            true => ()
+          if(
+            !(context.on_demand_body_cnames.contains(e.c_name.clone())),
+            cond(
+              (e.kind == "struct") => generate_struct_declaration(e.ty, e.c_name.clone(), context),
+              (e.kind == "enum") => generate_enum_declaration(e.ty, e.c_name.clone(), context),
+              (e.kind == "tuple") => generate_tuple_declaration(e.ty, e.c_name.clone(), context),
+              true => ()
+            )
           );
         }),
         .None => ()
@@ -1728,7 +1731,9 @@ generate_type_declarations :: (fn(context : CodeGenContext) -> unit)({
           ty := entry.ty;
           skip := (_walk_skip_some(ty) || entry.c_include.is_some());
           if(!(skip) && (is_enum_type(ty) && can_optimize_as_nullable_pointer(ty).is_some()), {
-            generate_enum_declaration(ty, entry.c_name.clone(), context);
+            if(!(context.on_demand_body_cnames.contains(entry.c_name.clone())), {
+              generate_enum_declaration(ty, entry.c_name.clone(), context);
+            });
           });
         },
         .None => ()
@@ -1749,12 +1754,13 @@ generate_type_declarations :: (fn(context : CodeGenContext) -> unit)({
         .Some(entry) => {
           ty := entry.ty;
           skip := (type_contains_some_type(ty) || entry.c_include.is_some());
+          od_done := context.on_demand_body_cnames.contains(entry.c_name.clone());
           if(
             !(skip),
             cond(
               is_dyn_type(ty) => generate_dyn_declaration(ty, entry.c_name.clone(), context),
-              is_union_type(ty) => generate_union_declaration(ty, entry.c_name.clone(), context),
-              is_future_trait_type(ty) => generate_future_trait_declaration(ty, entry.c_name.clone(), context),
+              (is_union_type(ty) && !(od_done)) => generate_union_declaration(ty, entry.c_name.clone(), context),
+              (is_future_trait_type(ty) && !(od_done)) => generate_future_trait_declaration(ty, entry.c_name.clone(), context),
               true => ()
             )
           );

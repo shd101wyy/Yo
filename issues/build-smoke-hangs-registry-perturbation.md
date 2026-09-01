@@ -130,7 +130,7 @@ against a `--debug-async-await` build of #369:
    site + evaluator-side registration of concrete params/results, and making
    the type intern table's insertion order unobservable.
 4. Also fixed in a worktree (unmerged): the dyn double-emission
-   (issues/dyn-async-future-trait-body-emitted-twice.md) — its shared-set
+   (issues/fixed/dyn-async-future-trait-body-emitted-twice.md) — its shared-set
    fix reorders the intern table and must be reworked order-stably.
 * Optionally: make `yield` park on the loop (enqueue itself) so a sync-await
   of it drives `poll_step` once; that would have turned this whole hang into
