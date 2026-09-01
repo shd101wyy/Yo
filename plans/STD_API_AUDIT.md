@@ -372,16 +372,26 @@ proven by a live example.com:443 handshake; `_probe_openssl` in src/main.yo
 (plans/D6_TLS_PLAN.md). Remaining: route `std/http` https through it (PR-2)
 and the P0+ curl→std/http swap (PR-3, the only D6 remainder); Windows
 Schannel joins the Windows platform audit.
-**PR-3 BLOCKED 2026-08-30 (Windows TLS)**: the curl→std/http swap
-(version_cache, PR #364) is rebased-and-verified on develop (remote list +
-download live, FIXPOINT_HOLDS with the OpenSSL-pkgconfig'd battery/CI clang
-lines — all pushed on the PR branch), but putting std/http in the COMPILER's
-own closure makes every platform that compiles the tree need build-time
-OpenSSL, and **std/crypto/tls has no Windows backend** ("Windows is not
-covered yet" — Schannel is this row's own deferred item). Merging would
-break every Windows leg. Unblock via Schannel, or decide a
-platform-conditional transport in version_cache. The OpenSSL CI plumbing on
-the PR branch is required by either path.
+**PR-3 BLOCKED 2026-08-30 (Windows TLS) → UNBLOCKED 2026-09-01, RESCHEDULED
+on the v0.2.21 seed**: the curl→std/http swap (version_cache, PR #364) is
+rebased on post-#376 develop with `tls_available()` transport gating
+(Windows/wasm/no-OpenSSL machines get a clean one-line error instead of a
+handshake crash; Schannel stays this row's deferred item), and the emitted
+TLS runtime grew a weak canary — `__yo_tls_available()` returns
+`&SSL_CTX_new != NULL` — so a release bundle can weak-link OpenSSL
+(`-Wl,-weak_library,…`) and still LAUNCH on a Mac without brew openssl.
+**The merge gate moved to SEED_VERSION v0.2.21** (second-order bootstrap
+veil, found 2026-09-01): #376 replaced std's c_include TLS with the
+`extern("Yo") __yo_tls_*` ABI, and only a #376-codegen compiler emits that
+runtime — the v0.2.20 seed emits the compiler-tree C with bare undeclared
+`__yo_tls_*` calls, so CI's seed-built stage-1 fails at clang the moment
+the swap enters the tree. Until v0.2.21 is published and SEED_VERSION
+bumps, PR #364 cannot ride CI at all; local verification uses a
+#376-tree-built compiler as the seed stand-in. The OpenSSL CI plumbing on
+the PR branch (stage-1/stage-2 clang lines, fixpoint_only, fixpoint-arm64)
+is required by either path; release.yml's own sites (Alpine cc lines, the
+candidate build, the macOS bundle legs' weak-link flags, the portable-c
+parse gate) ride the same branch.
 **PR-2 LANDED 2026-08-28**: `std/http` fetch routes https through
 `TlsStream` — a scheme branch chooses TcpStream|TlsStream transport, the
 response reader is shared as a generic over the D5 `Reader` trait, port

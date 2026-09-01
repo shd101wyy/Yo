@@ -25,6 +25,7 @@ open(import("std/fmt"));
 { Path } :: import("std/path");
 { exists, write_string } :: import("std/fs/file");
 { FetchOptions, fetch_with } :: import("std/http/client");
+{ tls_available } :: import("std/crypto/tls");
 {
   FileType,
   create_dir_all,
@@ -620,6 +621,17 @@ download_version :: (
         )
       );
     });
+    // GitHub Releases is HTTPS-only, and std/http's https goes through the
+    // TLS backend. On a machine where that backend is unavailable (no
+    // OpenSSL; Windows Schannel pending) say so plainly instead of letting
+    // fetch_with fail somewhere deep inside the handshake.
+    if(!(tls_available()), {
+      e.exn.throw(
+        dyn(
+          `TLS is unavailable in this build, and downloading Yo versions requires HTTPS. Install OpenSSL (macOS: brew install openssl@3; the Windows Schannel backend is still pending) and retry.`
+        )
+      );
+    });
     // Releases from the one after v0.2.18 name their assets by canonical target
     // triple; v0.2.18 and earlier carry only the short form. Try the triple,
     // then fall back — this BRIDGES the changeover so the current release stays
@@ -761,6 +773,14 @@ fetch_remote_versions :: (
   ) -> Impl(Future(ArrayList(String), IoExn))
 )(
   io.async((e : IoExn) => {
+    // Same TLS gate as download_version: the GitHub API is HTTPS-only.
+    if(!(tls_available()), {
+      e.exn.throw(
+        dyn(
+          `TLS is unavailable in this build, and listing remote versions requires HTTPS. Install OpenSSL (macOS: brew install openssl@3; the Windows Schannel backend is still pending) and retry.`
+        )
+      );
+    });
     versions := ArrayList(String).new();
     // The API pages at 100 releases; three pages is far beyond the horizon.
     page := i64(1);
