@@ -167,50 +167,6 @@ impl(
         )
     )
   }),
-  /// Read the entire file contents into an `ArrayList(u8)`.
-  read_bytes : (fn(self : Self, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))({
-    fd := self._fd;
-    io.async((e) => {
-      buf_size := usize(4096);
-      buf := *(u8)(malloc(buf_size).unwrap());
-      result := ArrayList(u8).new();
-      offset := u64(0);
-      while(runtime(true), {
-        n := e.io.await(IO_file.read(fd, buf, u32(buf_size), offset), e.io);
-        cond(
-          (n < i32(0)) => {
-            free(.Some(*(void)(buf)));
-            e.exn.throw(dyn(IoError.from_errno(i32(0) - n)));
-          },
-          (n == i32(0)) => break,
-          true => {
-            offset = (offset + u64(n));
-            i := usize(0);
-            while(runtime(i < usize(n)), {
-              result.push((buf.add(i)).*);
-              i = (i + usize(1));
-            });
-          }
-        );
-      });
-      free(.Some(*(void)(buf)));
-      result
-    })
-  }),
-  /// Read the entire file contents into a `String`. Validates UTF-8:
-  /// malformed bytes throw `IoError.InvalidData` (matching the D5
-  /// `Reader.read_to_string` default; use `read_bytes` + `String.from_utf8`
-  /// to see the exact offset).
-  read_to_string : (fn(self : Self, io : Io) -> Impl(Future(String, IoExn)))(
-    io.async((e) => {
-      bytes := e.io.await(self.read_bytes(io), e);
-      match(
-        String.from_utf8(bytes),
-        .Ok(s) => s,
-        .Err(_) => e.exn.throw(dyn(IoError.InvalidData))
-      )
-    })
-  ),
   /// Flush (fsync) file data to disk.
   flush : (fn(self : Self, io : Io) -> Impl(Future(unit, IoExn)))({
     fd := self._fd;
@@ -302,6 +258,32 @@ impl(
   )
 );
 export(File, OpenMode, FilePermission, SeekFrom);
+// === std/io async trait impls (STD_API_AUDIT D5) ===
+// Registered BEFORE the convenience functions below: they call the Reader
+// defaults (`file.read_to_end` / `file.read_to_string`) on a `File`, and a
+// module evaluates top to bottom with no forward references — an impl that
+// came later left those `io.async` bodies hollow at definition time (the
+// C22 stub gate caught it: "declared with 'error' attribute").
+impl(
+  File,
+  IoTraits.Reader(
+    read : (fn(self : Self, buf : *(u8), size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+      self.read(buf, size, io)
+    )
+  )
+);
+impl(
+  File,
+  IoTraits.Writer(
+    write : (fn(self : Self, buf : *(u8), size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+      self.write(buf, size, io)
+    ),
+    // fd writes are unbuffered — nothing to flush.
+    flush : (fn(self : Self, io : Io) -> Impl(Future(unit, IoExn)))(
+      io.async((e) => ())
+    )
+  )
+);
 // ============================================================================
 // Convenience functions
 // ============================================================================
@@ -326,7 +308,7 @@ read_to_string_cstr :: (fn(path : *(u8), io : Io) -> Impl(Future(String, IoExn))
 read :: (fn(path : Path, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))(
   io.async((e) => {
     file := e.io.await(File.open(path, .Read, io), e);
-    content := e.io.await(file.read_bytes(io), e);
+    content := e.io.await(file.read_to_end(io), e);
     e.io.await(file.close(io), e);
     return(content);
   })
@@ -583,26 +565,4 @@ export(
   set_permissions_str,
   copy,
   copy_str
-);
-
-// === std/io async trait impls (STD_API_AUDIT D5) ===
-impl(
-  File,
-  IoTraits.Reader(
-    read : (fn(self : Self, buf : *(u8), size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
-      self.read(buf, size, io)
-    )
-  )
-);
-impl(
-  File,
-  IoTraits.Writer(
-    write : (fn(self : Self, buf : *(u8), size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
-      self.write(buf, size, io)
-    ),
-    // fd writes are unbuffered — nothing to flush.
-    flush : (fn(self : Self, io : Io) -> Impl(Future(unit, IoExn)))(
-      io.async((e) => ())
-    )
-  )
 );

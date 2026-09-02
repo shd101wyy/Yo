@@ -18,9 +18,17 @@
 //! (fd-based pair deleted; the compiler's three stdin consumers read through
 //! `BufReader(Stdin)`).
 //!
+//! The `Dyn(Reader)` spelling works too (C17 fixed 2026-08-29; pinned in
+//! `tests/io/async_traits.test.yo`): a `Dyn(Reader)` dispatches `read` and
+//! the defaults through its vtable and can be the `R` of `BufReader(R)`.
+//! Concrete types carry NO duplicate spellings of the trait operations —
+//! `File`/`TcpStream` read-everything is `read_to_end`/`read_to_string`, the
+//! trait defaults (D2: one Rust-shaped name per operation); their
+//! `write_string`/`write_bytes` conveniences stay because the trait has no
+//! counterpart.
+//!
 //! STILL TO COME: a buffered `lines()`, which waits on an async iterator
-//! protocol rather than being faked. C17 blocks only the `Dyn(Reader)` spelling
-//! of the wrappers.
+//! protocol rather than being faked.
 pragma(Pragma.AllowUnsafe);
 { IoExn } :: import("../error");
 { IoError } :: import("../sys/errors");
