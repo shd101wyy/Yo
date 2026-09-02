@@ -1482,8 +1482,12 @@ jobs:
             # std/http in the compiler closure (D6 PR-3) puts OpenSSL into the
             # emitted C. Alpine splits the archives out of openssl-dev (headers +
             # .so) into openssl-libs-static — without it the assert below fires
-            # (PR #364's first run). Static here means the artifact needs NO
-            # openssl on the host. Same assert-the-.a stance as liburing.
+            # (the PR 364 first run hit this). Static here means the artifact
+            # needs NO openssl on the host. Same assert-the-.a stance as
+            # liburing. NOTE: no apostrophes in here — the whole script is
+            # single-quoted for docker sh -euc, and one in the PR 364 comment
+            # broke the quoting (the musl leg died on "syntax error near
+            # unexpected token )" before reaching apk).
             test -f /usr/lib/libssl.a || {
               echo "::error::openssl-libs-static did not provide /usr/lib/libssl.a; -static -lssl cannot work"
               exit 1
