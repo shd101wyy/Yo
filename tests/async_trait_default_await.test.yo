@@ -18,7 +18,7 @@ AsyncReader :: trait(
   (read_plus : (fn(self : Self, extra : usize, io : Io) -> Impl(Future(usize, IoExn)))) ?=
     (
       (self, extra, io) ->
-        io.async((e) => {
+        io.async(e => {
           a := e.io.await(Self.read(self, io), e);
           a + extra
         })
@@ -28,7 +28,7 @@ AsyncReader :: trait(
   (read_twice : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn)))) ?=
     (
       (self, io) ->
-        io.async((e) => {
+        io.async(e => {
           a := e.io.await(Self.read(self, io), e);
           b := e.io.await(Self.read(self, io), e);
           a + b
@@ -39,13 +39,13 @@ AsyncReader :: trait(
 /// same missing-function-body-context root cause.
 Doubler :: trait(
   base : (fn(self : Self) -> usize),
-  (dbl : (fn(self : Self) -> usize)) ?= ((self) -> return(Self.base(self) * usize(2)))
+  (dbl : (fn(self : Self) -> usize)) ?= (self -> return(Self.base(self) * usize(2)))
 );
 Ra :: struct(k : usize);
 impl(
   Ra,
   AsyncReader(
-    read : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn)))(io.async((e) => self.k))
+    read : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn)))(io.async(e => self.k))
   )
 );
 impl(Ra, Doubler(base : (fn(self : Self) -> usize)(self.k)));
@@ -53,13 +53,13 @@ Rb :: struct(k : usize);
 impl(
   Rb,
   AsyncReader(
-    read : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn)))(io.async((e) => (self.k + usize(1))))
+    read : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn)))(io.async(e => (self.k + usize(1))))
   )
 );
 test("async trait ?= default awaiting a Self async method", {
   t_exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -73,7 +73,7 @@ test("async trait ?= default awaiting a Self async method", {
 test("async trait ?= default is monomorphized per implementor", {
   t_exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -87,7 +87,7 @@ test("async trait ?= default is monomorphized per implementor", {
 test("async trait ?= default with two await points", {
   t_exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }

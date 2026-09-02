@@ -46,7 +46,7 @@ _find_token_at :: (
       (t.kind == TokenKind.Whitespace) ||
         ((t.kind == TokenKind.SingleLineComment) || (t.kind == TokenKind.MultiLineComment))
     );
-    if(!(skip) && (t.row == line), {
+    if(!skip && (t.row == line), {
       // `character` and `t.column` are RUNE columns, so the token width has
       // to be a rune count (plans/STD_API_AUDIT_D4_PLAN.md §5.2 S11).
       if((character >= t.column) && (character < (t.column + t.value.chars().count())), {
@@ -65,7 +65,7 @@ _collect_candidates :: (
   match(
     e,
     .Atom(_, tok) => {
-      if(((tok.value == target.value) && (tok.row == target.row)) && (tok.column == target.column), {
+      if((tok.value == target.value) && (tok.row == target.row) && (tok.column == target.column), {
         out.push(e);
       });
     },
@@ -171,7 +171,7 @@ handle_hover :: (
 )({
   lex_exn := Exception(
     throw : (
-      (_err) -> unwind(Option(JsonValue).None)
+      _err -> unwind(Option(JsonValue).None)
     )
   );
   tokens := tokenize(text.clone(), doc_abs.clone(), lex_exn);

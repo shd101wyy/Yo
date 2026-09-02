@@ -81,7 +81,7 @@ _trial_eval_test_body :: (
     ctx : EvalContext
   ) -> unit
 )({
-  inner_exn := Exception(throw : ((_err) -> unwind(())));
+  inner_exn := Exception(throw : (_err -> unwind(())));
   evaluated := evaluate_expression_raw(body, env, ctx, inner_exn);
   body_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
   match(
@@ -115,7 +115,7 @@ evaluate_test :: (
 )({
   (env : Environment) = env_in;
   // Validate shape: must be "test" call.
-  if(!(ast_expr_is_fn_call_of(expr, BK_TEST, .None)), {
+  if(!ast_expr_is_fn_call_of(expr, BK_TEST, .None), {
     exn.throw(
       dyn(
         format_error_message(
@@ -158,7 +158,7 @@ evaluate_test :: (
   // Evaluate test name to ensure it's a comptime_str.
   evaluated_test_name_expr := evaluate_expression(test_name_expr, env, ctx);
   name_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_test_name_expr));
-  if(!(name_info_opt.is_some()), {
+  if(!name_info_opt.is_some(), {
     exn.throw(
       dyn(
         format_error_message(
@@ -182,7 +182,7 @@ evaluate_test :: (
     .Some(v) => is_str_lit(v),
     .None => false
   );
-  if(!(name_is_str_lit), {
+  if(!name_is_str_lit, {
     exn.throw(
       dyn(
         format_error_message(

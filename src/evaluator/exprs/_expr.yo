@@ -365,20 +365,20 @@ is_comptime_numeric_fn_call :: (fn(e : AstExpr) -> bool)(
       func_box,
       .Atom(_, ftok) => {
         v := ftok.value;
-        (v.starts_with(`__yo_comptime_u8_`)) ||
-          (v.starts_with(`__yo_comptime_i8_`)) ||
-            (v.starts_with(`__yo_comptime_u16_`)) ||
-              (v.starts_with(`__yo_comptime_i16_`)) ||
-                (v.starts_with(`__yo_comptime_u32_`)) ||
-                  (v.starts_with(`__yo_comptime_i32_`)) ||
-                    (v.starts_with(`__yo_comptime_u64_`)) ||
-                      (v.starts_with(`__yo_comptime_i64_`)) ||
-                        (v.starts_with(`__yo_comptime_usize_`)) ||
-                          (v.starts_with(`__yo_comptime_isize_`)) ||
-                            (v.starts_with(`__yo_comptime_f32_`)) ||
-                              (v.starts_with(`__yo_comptime_f64_`)) ||
-                                (v.starts_with(`__yo_comptime_int_`)) ||
-                                  (v.starts_with(`__yo_comptime_float_`))
+        v.starts_with(`__yo_comptime_u8_`) ||
+          v.starts_with(`__yo_comptime_i8_`) ||
+            v.starts_with(`__yo_comptime_u16_`) ||
+              v.starts_with(`__yo_comptime_i16_`) ||
+                v.starts_with(`__yo_comptime_u32_`) ||
+                  v.starts_with(`__yo_comptime_i32_`) ||
+                    v.starts_with(`__yo_comptime_u64_`) ||
+                      v.starts_with(`__yo_comptime_i64_`) ||
+                        v.starts_with(`__yo_comptime_usize_`) ||
+                          v.starts_with(`__yo_comptime_isize_`) ||
+                            v.starts_with(`__yo_comptime_f32_`) ||
+                              v.starts_with(`__yo_comptime_f64_`) ||
+                                v.starts_with(`__yo_comptime_int_`) ||
+                                  v.starts_with(`__yo_comptime_float_`)
                                 },
       .FnCall(_, _, _, _, _) => false
     )
@@ -420,7 +420,7 @@ is_comptime_numeric_fn_call :: (fn(e : AstExpr) -> bool)(
 _monotonic_ns :: (fn() -> i64)({
   out_s := i64(0);
   out_ns := i64(0);
-  clock_gettime(CLOCK_MONOTONIC, &(out_s), &(out_ns));
+  clock_gettime(CLOCK_MONOTONIC, &out_s, &out_ns);
   (out_s * i64(1000000000)) + out_ns
 });
 /// Arm the cooperative deadline `budget_ms` from now. `usize(0)` disarms it.
@@ -623,7 +623,7 @@ _evaluate_expression :: (
             // fallback.
             expected_is_anon_struct := match(
               et_ty,
-              .Struct({ is_source_namespace : et_sns }) => !(et_sns),
+              .Struct({ is_source_namespace : et_sns }) => !et_sns,
               // Patch D: an expected FUNC type reroutes too — `is_even =
               // _(cond(...))` under `comptime(is_even) : (fn(n : i32) ->
               // bool)` is a function DEFINITION call (TS's reroute covers
@@ -648,7 +648,7 @@ _evaluate_expression :: (
             // threading or a deferred re-eval of comptime fn bodies at
             // assignment.
             if(
-              expected_is_anon_struct && !(is_some_type(et_ty)),
+              expected_is_anon_struct && !is_some_type(et_ty),
               evaluate_function_call(expr, env, type_of_type(et_ty), Option(EvalValue).Some(EvalValue.TypeVal(et_ty)), ctx, exn),
               evaluate_anonymous_struct_value(expr, env, ctx, exn)
             )
@@ -1135,7 +1135,7 @@ _evaluate_expression_wrapper :: (
 )({
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         // cee observation: in propagate mode (a comptime_expect_error
         // clone eval) a swallowed throw must still be OBSERVABLE — see
         // flowability.yo's cee_observed_error channel. The propagate-mode

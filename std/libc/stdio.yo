@@ -7,109 +7,109 @@ c_include(
   fpos_t : Type,
   va_list : Type,
   // Standard streams
-  stdin : *(FILE),
-  stdout : *(FILE),
-  stderr : *(FILE),
+  stdin : *FILE,
+  stdout : *FILE,
+  stderr : *FILE,
   // File operations
   fopen :
-    (fn(filename : *(char), mode : *(char)) -> ?(*(FILE))),
+    (fn(filename : *char, mode : *char) -> ?*FILE),
   freopen :
-    (fn(filename : *(char), mode : *(char), stream : *(FILE)) -> ?(*(FILE))),
+    (fn(filename : *char, mode : *char, stream : *FILE) -> ?*FILE),
   fclose :
-    (fn(stream : *(FILE)) -> int),
+    (fn(stream : *FILE) -> int),
   fflush :
-    (fn(stream : ?(*(FILE))) -> int),
+    (fn(stream : ?*FILE) -> int),
   setbuf :
-    (fn(stream : *(FILE), buffer : ?(*(char))) -> unit),
+    (fn(stream : *FILE, buffer : ?*char) -> unit),
   setvbuf :
-    (fn(stream : *(FILE), buffer : ?(*(char)), mode : int, size : usize) -> int),
+    (fn(stream : *FILE, buffer : ?*char, mode : int, size : usize) -> int),
   // File positioning
   fseek :
-    (fn(stream : *(FILE), offset : int, whence : int) -> int),
+    (fn(stream : *FILE, offset : int, whence : int) -> int),
   ftell :
-    (fn(stream : *(FILE)) -> int),
+    (fn(stream : *FILE) -> int),
   rewind :
-    (fn(stream : *(FILE)) -> unit),
+    (fn(stream : *FILE) -> unit),
   fgetpos :
-    (fn(stream : *(FILE), pos : *(fpos_t)) -> int),
+    (fn(stream : *FILE, pos : *fpos_t) -> int),
   fsetpos :
-    (fn(stream : *(FILE), pos : *(fpos_t)) -> int),
+    (fn(stream : *FILE, pos : *fpos_t) -> int),
   // Character input/output
   fgetc :
-    (fn(stream : *(FILE)) -> int),
+    (fn(stream : *FILE) -> int),
   getc :
-    (fn(stream : *(FILE)) -> int),
+    (fn(stream : *FILE) -> int),
   getchar :
     (fn() -> int),
   fputc :
-    (fn(c : int, stream : *(FILE)) -> int),
+    (fn(c : int, stream : *FILE) -> int),
   putc :
-    (fn(c : int, stream : *(FILE)) -> int),
+    (fn(c : int, stream : *FILE) -> int),
   putchar :
     (fn(c : int) -> int),
   ungetc :
-    (fn(c : int, stream : *(FILE)) -> int),
+    (fn(c : int, stream : *FILE) -> int),
   // String input/output
   fgets :
-    (fn(s : *(char), n : int, stream : *(FILE)) -> ?(*(char))),
+    (fn(s : *char, n : int, stream : *FILE) -> ?*char),
   gets :
-    (fn(s : *(char)) -> ?(*(char))),
+    (fn(s : *char) -> ?*char),
   fputs :
-    (fn(s : *(char), stream : *(FILE)) -> int),
+    (fn(s : *char, stream : *FILE) -> int),
   puts :
-    (fn(s : *(char)) -> int),
+    (fn(s : *char) -> int),
   // Formatted input/output with variadic arguments
   printf :
-    (fn(format : *(char), ...) -> int),
+    (fn(format : *char, ...) -> int),
   fprintf :
-    (fn(stream : *(FILE), format : *(char), ...) -> int),
+    (fn(stream : *FILE, format : *char, ...) -> int),
   sprintf :
-    (fn(s : *(char), format : *(char), ...) -> int),
+    (fn(s : *char, format : *char, ...) -> int),
   snprintf :
-    (fn(s : *(char), n : usize, format : *(char), ...) -> int),
+    (fn(s : *char, n : usize, format : *char, ...) -> int),
   vprintf :
-    (fn(format : *(char), ap : va_list) -> int),
+    (fn(format : *char, ap : va_list) -> int),
   vfprintf :
-    (fn(stream : *(FILE), format : *(char), ap : va_list) -> int),
+    (fn(stream : *FILE, format : *char, ap : va_list) -> int),
   vsprintf :
-    (fn(s : *(char), format : *(char), ap : va_list) -> int),
+    (fn(s : *char, format : *char, ap : va_list) -> int),
   vsnprintf :
-    (fn(s : *(char), n : usize, format : *(char), ap : va_list) -> int),
+    (fn(s : *char, n : usize, format : *char, ap : va_list) -> int),
   scanf :
-    (fn(format : *(char), ...) -> int),
+    (fn(format : *char, ...) -> int),
   fscanf :
-    (fn(stream : *(FILE), format : *(char), ...) -> int),
+    (fn(stream : *FILE, format : *char, ...) -> int),
   sscanf :
-    (fn(s : *(char), format : *(char), ...) -> int),
+    (fn(s : *char, format : *char, ...) -> int),
   vscanf :
-    (fn(format : *(char), ap : va_list) -> int),
+    (fn(format : *char, ap : va_list) -> int),
   vfscanf :
-    (fn(stream : *(FILE), format : *(char), ap : va_list) -> int),
+    (fn(stream : *FILE, format : *char, ap : va_list) -> int),
   vsscanf :
-    (fn(s : *(char), format : *(char), ap : va_list) -> int),
+    (fn(s : *char, format : *char, ap : va_list) -> int),
   // Binary input/output
   fread :
-    (fn(ptr : *(void), size : usize, nmemb : usize, stream : *(FILE)) -> usize),
+    (fn(ptr : *void, size : usize, nmemb : usize, stream : *FILE) -> usize),
   fwrite :
-    (fn(ptr : *(void), size : usize, nmemb : usize, stream : *(FILE)) -> usize),
+    (fn(ptr : *void, size : usize, nmemb : usize, stream : *FILE) -> usize),
   // File management
   remove :
-    (fn(filename : *(char)) -> int),
+    (fn(filename : *char) -> int),
   rename :
-    (fn(old : *(char), new : *(char)) -> int),
+    (fn(old : *char, new : *char) -> int),
   tmpfile :
-    (fn() -> ?(*(FILE))),
+    (fn() -> ?*FILE),
   tmpnam :
-    (fn(s : ?(*(char))) -> ?(*(char))),
+    (fn(s : ?*char) -> ?*char),
   // Error handling
   feof :
-    (fn(stream : *(FILE)) -> int),
+    (fn(stream : *FILE) -> int),
   ferror :
-    (fn(stream : *(FILE)) -> int),
+    (fn(stream : *FILE) -> int),
   clearerr :
-    (fn(stream : *(FILE)) -> unit),
+    (fn(stream : *FILE) -> unit),
   perror :
-    (fn(s : *(char)) -> unit),
+    (fn(s : *char) -> unit),
   // Constants
   EOF : int,
   BUFSIZ : int,

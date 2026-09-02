@@ -76,7 +76,7 @@ _binop :: (fn(args : ArrayList(String), op : str) -> String)({
   // expression", the fn Dyn-closure test). TS never emits such bodies.
   lhs := _a(args, usize(0));
   rhs := _a(args, usize(1));
-  if(((lhs.len() == usize(0)) || (rhs.len() == usize(0))) || (lhs.starts_with("// Failed to transpile") || rhs.starts_with("// Failed to transpile")), {
+  if((lhs.len() == usize(0)) || (rhs.len() == usize(0)) || (lhs.starts_with("// Failed to transpile") || rhs.starts_with("// Failed to transpile")), {
     return(`// Failed to transpile (${lhs}) ${op} (${rhs})`);
   });
   out := String.from("((");
@@ -115,7 +115,7 @@ ei_ty :: (fn(expr : AstExpr, context : FunctionGenerationContext) -> TypeValue)(
 );
 /// Whether `__yo_as`'s source operand is a tagged (non-simple) enum.
 _as_source_is_tagged_enum :: (fn(expr : AstExpr, context : FunctionGenerationContext) -> bool)(
-  match(expr, .FnCall(_, _, a, _, _) => match(a.get(usize(0)), .Some(a0) => match(context.base.get_expr_info(a0), .Some(aei) => (is_enum_type(aei.ty) && !(can_optimize_as_simple_enum(aei.ty))), .None => false), .None => false), .Atom(_, _) => false)
+  match(expr, .FnCall(_, _, a, _, _) => match(a.get(usize(0)), .Some(a0) => match(context.base.get_expr_info(a0), .Some(aei) => (is_enum_type(aei.ty) && !can_optimize_as_simple_enum(aei.ty)), .None => false), .None => false), .Atom(_, _) => false)
 );
 /// Generate a Yo operator / inline-builtin function call. Mirrors
 /// `generateYoInlineFunctionCall`.

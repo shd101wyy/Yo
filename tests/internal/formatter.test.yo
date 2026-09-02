@@ -11,7 +11,7 @@ open(import("std/error"));
 _fmt :: (fn(src : String) -> String)({
   exn := Exception(
     throw : (
-      (_err) -> {
+      _err -> {
         assert(false, "formatter threw");
         unwind(String.new());
       }
@@ -59,7 +59,7 @@ fs_file :: import("std/fs/file");
 test("format_yo_source: fixture corpus from formatter.test.ts", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         println(`  unexpected io error: ${err}`);
         assert(false, "fixture io failed");
         unwind(());
@@ -110,7 +110,7 @@ test("format_yo_source: a template string AFTER a multibyte character survives",
   src := String.from("//! doc — with an em dash\nf :: (fn(x : String) -> String)(`v=${x}`);\nexport(f);\n");
   out := _fmt(src);
   assert(out.contains(String.from("`v=${x}`")), "the template literal is intact");
-  assert(!(out.contains(String.from("`v=${x}`;\n`"))), "no duplicated tail");
+  assert(!out.contains(String.from("`v=${x}`;\n`")), "no duplicated tail");
   assert(_fmt(out) == out, "and formatting is idempotent");
 });
 test("format_yo_source: multibyte content inside a template string is preserved", {

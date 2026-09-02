@@ -169,7 +169,7 @@ prefix_operator_needs_leading_space :: (
     previous,
     .None => false,
     .Some(p) => cond(
-      (((p.kind == TokenKind.Operator) && (p.value == "...")) && (token.value == "#")) => false,
+      ((p.kind == TokenKind.Operator) && (p.value == "...") && (token.value == "#")) => false,
       (p.kind == TokenKind.Comma) => true,
       ((p.kind == TokenKind.Operator) && (p.value != ".")) => {
         prev_is_prefix_capable := (
@@ -181,14 +181,14 @@ prefix_operator_needs_leading_space :: (
           prev_prev,
           .None => false,
           .Some(pp) => (
-            (is_atom_like_token(pp.kind) || (pp.kind == TokenKind.Dot)) || (
+            is_atom_like_token(pp.kind) || (pp.kind == TokenKind.Dot) || (
               (pp.kind == TokenKind.RParen) ||
                 ((pp.kind == TokenKind.RBracket) || (pp.kind == TokenKind.RCurlyBracket))
             )
           )
         );
         cond(
-          !(prev_is_prefix_capable) => true,
+          !prev_is_prefix_capable => true,
           prev_prev_ends_rvalue => true,
           ((p.value == "-") && (token.value == "-")) => true,
           _is_two_char_operator(`${p.value}${token.value}`) => true,
@@ -225,8 +225,8 @@ _trim_trailing_h_ws :: (fn(s : String) -> String)({
   n := bytes.len();
   (k : usize) = usize(0);
   (done : bool) = false;
-  while((k < n) && (!(done)), {
-    b := match(bytes.get((n - k) - usize(1)), .Some(x) => x, .None => u8(0));
+  while((k < n) && !done, {
+    b := match(bytes.get(n - k - usize(1)), .Some(x) => x, .None => u8(0));
     if((b == u8(32)) || (b == u8(9)), {
       k = (k + usize(1));
     }, {
@@ -244,7 +244,7 @@ leading_whitespace_length :: (fn(line : String) -> usize)({
   n := line.len();
   (i : usize) = usize(0);
   (done : bool) = false;
-  while((i < n) && (!(done)), {
+  while((i < n) && !done, {
     b := line.byte_at(i);
     cond(
       (b == u8(32)) => {
@@ -273,7 +273,7 @@ previous_meaningful_token :: (fn(tokens : ArrayList(Token), index : usize) -> Op
   (i : usize) = (index - usize(1));
   (result : Option(Token)) = Option(Token).None;
   (done : bool) = false;
-  while(!(done), {
+  while(!done, {
     match(
       tokens.get(i),
       .None => {
@@ -287,10 +287,10 @@ previous_meaningful_token :: (fn(tokens : ArrayList(Token), index : usize) -> Op
         }
       )
     );
-    if((!(done)) && (i == usize(0)), {
+    if(!done && (i == usize(0)), {
       done = true;
     }, {
-      if(!(done), {
+      if(!done, {
         i = (i - usize(1));
       });
     });
@@ -304,7 +304,7 @@ next_meaningful_token :: (fn(tokens : ArrayList(Token), index : usize, end_exclu
   (i : usize) = (index + usize(1));
   (result : Option(Token)) = Option(Token).None;
   (done : bool) = false;
-  while((i < end_exclusive) && (!(done)), {
+  while((i < end_exclusive) && !done, {
     match(
       tokens.get(i),
       .None => {
@@ -327,7 +327,7 @@ next_meaningful_token :: (fn(tokens : ArrayList(Token), index : usize, end_exclu
 token_range_has_comment :: (fn(tokens : ArrayList(Token), start_inclusive : usize, end_exclusive : usize) -> bool)({
   (i : usize) = start_inclusive;
   (found : bool) = false;
-  while((i < end_exclusive) && (!(found)), {
+  while((i < end_exclusive) && !found, {
     match(
       tokens.get(i),
       .None => (),
@@ -344,7 +344,7 @@ token_range_has_comment :: (fn(tokens : ArrayList(Token), start_inclusive : usiz
 has_any_token :: (fn(tokens : ArrayList(Token), left_index : usize, right_index : usize, kind : TokenKind) -> bool)({
   (i : usize) = (left_index + usize(1));
   (found : bool) = false;
-  while((i < right_index) && (!(found)), {
+  while((i < right_index) && !found, {
     match(
       tokens.get(i),
       .None => (),
@@ -366,13 +366,13 @@ has_top_level_token :: (fn(tokens : ArrayList(Token), left_index : usize, right_
   (curly_depth : usize) = usize(0);
   (i : usize) = (left_index + usize(1));
   (found : bool) = false;
-  while((i < right_index) && (!(found)), {
+  while((i < right_index) && !found, {
     match(
       tokens.get(i),
       .None => (),
       .Some(t) => cond(
         is_comment_token(t.kind) => (),
-        ((t.kind == kind) && (((paren_depth == usize(0)) && (bracket_depth == usize(0))) && (curly_depth == usize(0)))) => {
+        ((t.kind == kind) && ((paren_depth == usize(0)) && (bracket_depth == usize(0)) && (curly_depth == usize(0)))) => {
           found = true;
         },
         (t.kind == TokenKind.LParen) => {
@@ -410,7 +410,7 @@ next_token :: (fn(tokens : ArrayList(Token), skipped_indices : HashSet(usize), i
   (next_index : usize) = (index + usize(1));
   (result : Option(Token)) = Option(Token).None;
   (done : bool) = false;
-  while((next_index < n) && (!(done)), {
+  while((next_index < n) && !done, {
     cond(
       skipped_indices.contains(next_index) => (),
       true => {
@@ -529,7 +529,7 @@ find_inline_curly_indices :: (fn(tokens : ArrayList(Token)) -> HashSet(usize))({
             _p2 := stack_paren_depths.pop();
             _p3 := stack_bracket_depths.pop();
             _p4 := stack_has_top_level_semi.pop();
-            if(!(has_semi), {
+            if(!has_semi, {
               _add1 := inline_indices.insert(left_idx);
               _add2 := inline_indices.insert(i);
             });
@@ -671,14 +671,14 @@ has_top_level_curly_argument :: (
   (previous_top_level : Option(Token)) = Option(Token).None;
   (found : bool) = false;
   (i : usize) = (left_index + usize(1));
-  while((i < right_index) && (!(found)), {
+  while((i < right_index) && !found, {
     match(
       tokens.get(i),
       .None => (),
       .Some(t) => cond(
         is_comment_token(t.kind) => (),
         true => {
-          at_top_level := (((paren_depth == usize(0)) && (bracket_depth == usize(0))) && (curly_depth == usize(0)));
+          at_top_level := ((paren_depth == usize(0)) && (bracket_depth == usize(0)) && (curly_depth == usize(0)));
           // Check curly-after-comma BEFORE depth updates
           if((t.kind == TokenKind.LCurlyBracket) && at_top_level, {
             match(
@@ -733,19 +733,19 @@ has_top_level_field_block :: (
   (saw_top_level_colon : bool) = false;
   (found : bool) = false;
   (i : usize) = (left_index + usize(1));
-  while((i < right_index) && (!(found)), {
+  while((i < right_index) && !found, {
     match(
       tokens.get(i),
       .None => (),
       .Some(t) => cond(
         is_comment_token(t.kind) => (),
         true => {
-          at_top_level := (((paren_depth == usize(0)) && (bracket_depth == usize(0))) && (curly_depth == usize(0)));
+          at_top_level := ((paren_depth == usize(0)) && (bracket_depth == usize(0)) && (curly_depth == usize(0)));
           cond(
-            (((t.kind == TokenKind.Operator) && (t.value == ":")) && at_top_level) => {
+            ((t.kind == TokenKind.Operator) && (t.value == ":") && at_top_level) => {
               saw_top_level_colon = true;
             },
-            (((t.kind == TokenKind.LCurlyBracket) && (bracket_depth == usize(0))) && saw_top_level_colon) => {
+            ((t.kind == TokenKind.LCurlyBracket) && (bracket_depth == usize(0)) && saw_top_level_colon) => {
               found = true;
             },
             true => ()
@@ -807,14 +807,14 @@ has_direct_top_level_closure_argument :: (
       (saw_closure_operator : bool) = false;
       (found : bool) = false;
       (i : usize) = (left_index + usize(1));
-      while((i < right_index) && (!(found)), {
+      while((i < right_index) && !found, {
         match(
           tokens.get(i),
           .None => (),
           .Some(t) => cond(
             is_comment_token(t.kind) => (),
             true => {
-              at_top_level := (((paren_depth == usize(0)) && (bracket_depth == usize(0))) && (curly_depth == usize(0)));
+              at_top_level := ((paren_depth == usize(0)) && (bracket_depth == usize(0)) && (curly_depth == usize(0)));
               cond(
                 ((t.kind == TokenKind.Operator) && at_top_level) => {
                   v := t.value.clone();
@@ -822,13 +822,13 @@ has_direct_top_level_closure_argument :: (
                     (v == ":") => {
                       saw_top_level_colon = true;
                     },
-                    ((!(saw_top_level_colon)) && ((v == "=>") || (v == "->"))) => {
+                    (!saw_top_level_colon && ((v == "=>") || (v == "->"))) => {
                       saw_closure_operator = true;
                     },
                     true => ()
                   );
                 },
-                (((t.kind == TokenKind.LCurlyBracket) && at_top_level) && saw_closure_operator) => {
+                ((t.kind == TokenKind.LCurlyBracket) && at_top_level && saw_closure_operator) => {
                   found = true;
                 },
                 true => ()
@@ -873,7 +873,7 @@ is_parenthesized_dot_deref :: (
   (inner_count : usize) = usize(0);
   (early_exit : bool) = false;
   (i : usize) = (left_index + usize(1));
-  while((i < right_index) && (!(early_exit)), {
+  while((i < right_index) && !early_exit, {
     match(
       tokens.get(i),
       .None => (),
@@ -958,7 +958,7 @@ classify_group_content :: (
   (has_infix : bool) = false;
   (bad : bool) = false;
   (i : usize) = (left_index + usize(1));
-  while((i < right_index) && (!(bad)), {
+  while((i < right_index) && !bad, {
     match(
       tokens.get(i),
       .None => (),
@@ -966,7 +966,7 @@ classify_group_content :: (
         is_comment_token(t.kind) => (),
         true => {
           at_top_level := (
-            ((paren_depth == usize(0)) && (bracket_depth == usize(0))) &&
+            (paren_depth == usize(0)) && (bracket_depth == usize(0)) &&
               (curly_depth == usize(0))
           );
           if(at_top_level, {
@@ -976,7 +976,7 @@ classify_group_content :: (
                   has_infix = true;
                 },
                 true => {
-                  if(!(is_prefix_capable_operator(t)), {
+                  if(!is_prefix_capable_operator(t), {
                     bad = true;
                   });
                 }
@@ -1016,7 +1016,7 @@ classify_group_content :: (
     i = (i + usize(1));
   });
   GroupContentShape(
-    atom_like : ((seen_primary && (!(has_infix))) && (!(bad))),
+    atom_like : (seen_primary && !has_infix && !bad),
     has_infix : has_infix
   )
 });
@@ -1027,12 +1027,12 @@ previous_meaningful_token_index :: (fn(tokens : ArrayList(Token), before : usize
   (i : usize) = before;
   (result : Option(usize)) = Option(usize).None;
   (done : bool) = false;
-  while((i > usize(0)) && (!(done)), {
+  while((i > usize(0)) && !done, {
     i = (i - usize(1));
     match(
       tokens.get(i),
       .None => (),
-      .Some(t) => if(!(is_comment_token(t.kind)), {
+      .Some(t) => if(!is_comment_token(t.kind), {
         result = Option(usize).Some(i);
         done = true;
       })
@@ -1075,7 +1075,7 @@ is_left_same_operator_flatten_group :: (
               )
             );
             cond(
-              (!(left_position)) => false,
+              !left_position => false,
               true => {
                 (paren_depth : usize) = usize(0);
                 (bracket_depth : usize) = usize(0);
@@ -1083,7 +1083,7 @@ is_left_same_operator_flatten_group :: (
                 (op_count : usize) = usize(0);
                 (mismatch : bool) = false;
                 (i : usize) = (left_index + usize(1));
-                while((i < right_index) && (!(mismatch)), {
+                while((i < right_index) && !mismatch, {
                   match(
                     tokens.get(i),
                     .None => (),
@@ -1091,7 +1091,7 @@ is_left_same_operator_flatten_group :: (
                       is_comment_token(t.kind) => (),
                       true => {
                         at_top_level := (
-                          ((paren_depth == usize(0)) && (bracket_depth == usize(0))) &&
+                          (paren_depth == usize(0)) && (bracket_depth == usize(0)) &&
                             (curly_depth == usize(0))
                         );
                         if(at_top_level, {
@@ -1134,7 +1134,7 @@ is_left_same_operator_flatten_group :: (
                   );
                   i = (i + usize(1));
                 });
-                (op_count > usize(0)) && (!(mismatch))
+                (op_count > usize(0)) && !mismatch
               }
             )
           }
@@ -1152,13 +1152,13 @@ next_meaningful_token_index :: (
   (i : usize) = (index + usize(1));
   (result : Option(usize)) = Option(usize).None;
   (done : bool) = false;
-  while((i < end_exclusive) && (!(done)), {
+  while((i < end_exclusive) && !done, {
     match(
       tokens.get(i),
       .None => {
         done = true;
       },
-      .Some(t) => if(!(is_comment_token(t.kind)), {
+      .Some(t) => if(!is_comment_token(t.kind), {
         result = Option(usize).Some(i);
         done = true;
       })
@@ -1192,7 +1192,7 @@ first_inner_group_has_top_level_comma :: (
             (found : bool) = false;
             (done : bool) = false;
             (i : usize) = (fi + usize(1));
-            while((i < right_index) && (!(done)), {
+            while((i < right_index) && !done, {
               match(
                 tokens.get(i),
                 .None => {
@@ -1256,7 +1256,7 @@ single_inner_group_not_atom_like :: (
             (inner_right : usize) = right_index;
             (found_end : bool) = false;
             (i : usize) = (fi + usize(1));
-            while((i < right_index) && (!(found_end)), {
+            while((i < right_index) && !found_end, {
               match(
                 tokens.get(i),
                 .None => {
@@ -1284,14 +1284,14 @@ single_inner_group_not_atom_like :: (
               i = (i + usize(1));
             });
             cond(
-              (!(found_end)) => false,
+              !found_end => false,
               true => {
                 // Exactly one group: nothing meaningful after its RParen.
                 trailing := next_meaningful_token_index(tokens, inner_right, right_index);
                 match(
                   trailing,
                   .Some(_) => false,
-                  .None => (!(classify_group_content(tokens, fi, inner_right).atom_like))
+                  .None => !classify_group_content(tokens, fi, inner_right).atom_like
                 )
               }
             )
@@ -1326,7 +1326,7 @@ is_elidable_prefix_call_paren :: (
             tokens.get(oi),
             .None => false,
             .Some(op) => cond(
-              (!(is_prefix_capable_operator(op))) => false,
+              !is_prefix_capable_operator(op) => false,
               true =>
                 match(
                   tokens.get(left_index),
@@ -1357,18 +1357,17 @@ is_elidable_prefix_call_paren :: (
                             )
                           );
                           cond(
-                            (!(next_safe)) => false,
+                            !next_safe => false,
                             true => {
                               first_inner := next_meaningful_token(tokens, left_index, right_index);
                               first_inner_ok := match(
                                 first_inner,
                                 .None => false,
-                                .Some(fi) => (
+                                .Some(fi) =>
                                   !(
                                     (fi.kind == TokenKind.Identifier) &&
                                       is_function_type_keyword(fi.value.clone())
                                   )
-                                )
                               );
                               cond(
                                 first_inner_group_has_top_level_comma(
@@ -1446,7 +1445,7 @@ is_redundant_grouping_paren :: (
             previous,
             .None => false,
             .Some(p) => (
-              ((p.kind == TokenKind.Operator) && (!(shape.atom_like))) ||
+              ((p.kind == TokenKind.Operator) && !shape.atom_like) ||
                 prev_is_adjacent_prefix
             )
           );
@@ -1458,7 +1457,7 @@ is_redundant_grouping_paren :: (
               prev_is_dot_blocks := match(
                 previous,
                 .None => false,
-                .Some(p) => ((p.kind == TokenKind.Dot) && (!(paren_dot_deref)))
+                .Some(p) => ((p.kind == TokenKind.Dot) && !paren_dot_deref)
               );
               cond(
                 prev_is_dot_blocks => false,
@@ -1474,9 +1473,9 @@ is_redundant_grouping_paren :: (
                     .None => false,
                     .Some(nx) => (
                       (nx.kind == TokenKind.LParen) || (
-                        ((nx.kind == TokenKind.Dot) && (!(paren_dot_deref))) || (
-                          ((nx.kind == TokenKind.Operator) && (!(paren_dot_deref))) &&
-                            (!(shape.atom_like))
+                        ((nx.kind == TokenKind.Dot) && !paren_dot_deref) || (
+                          (nx.kind == TokenKind.Operator) && !paren_dot_deref &&
+                            !shape.atom_like
                         )
                       )
                     )
@@ -1537,7 +1536,7 @@ paren_removal_would_expose_operator_rhs_infix :: (
         parent_left_opt,
         .None => false,
         .Some(parent_left) => cond(
-          (!(candidate_left_indices.contains(parent_left))) => false,
+          !candidate_left_indices.contains(parent_left) => false,
           true => match(
             previous_meaningful_token(tokens, parent_left),
             .None => false,
@@ -1554,7 +1553,7 @@ paren_removal_would_expose_operator_rhs_infix :: (
           parent_left_opt,
           .None => false,
           .Some(parent_left) => cond(
-            (!(candidate_left_indices.contains(parent_left))) => false,
+            !candidate_left_indices.contains(parent_left) => false,
             true => match(
               previous_meaningful_token(tokens, parent_left),
               .None => false,
@@ -1604,14 +1603,12 @@ find_redundant_grouping_paren_indices :: (fn(tokens : ArrayList(Token)) -> HashS
       // inside a retained R1 group (`y := ((1 + 2) + 3)` → `y := (1 + 2 + 3)`),
       // which the operator-exposure walk cannot see through.
       keep_candidate := (
-        is_left_same_operator_flatten_group(tokens, j, right_idx) || !(
-          paren_removal_would_expose_operator_rhs_infix(
-            tokens,
-            j,
-            right_idx,
-            parent_parens,
-            candidate_left_indices
-          )
+        is_left_same_operator_flatten_group(tokens, j, right_idx) || !paren_removal_would_expose_operator_rhs_infix(
+          tokens,
+          j,
+          right_idx,
+          parent_parens,
+          candidate_left_indices
         )
       );
       if(keep_candidate, {
@@ -1654,7 +1651,7 @@ find_multiline_paren_indices :: (
             right_tok := match(tokens.get(right_idx), .Some(rt) => rt, .None => left_tok);
             spans_rows := (right_tok.row > left_tok.row);
             cond(
-              ((!(force_multiline)) && (!(spans_rows))) => (),
+              (!force_multiline && !spans_rows) => (),
               true => {
                 first_inner := next_meaningful_token(tokens, i, right_idx);
                 first_is_curly := match(
@@ -1672,7 +1669,7 @@ find_multiline_paren_indices :: (
                         )
                     )
                 );
-                if(!(skip), {
+                if(!skip, {
                   _add1 := multiline_indices.insert(i);
                   _add2 := multiline_indices.insert(right_idx);
                 });
@@ -1713,7 +1710,7 @@ is_tightly_bound_operator :: (
     previous,
     .None => false,
     .Some(p) => (
-      ((p.kind == TokenKind.Operator) && ((p.value == "*") || (p.value == "&"))) &&
+      (p.kind == TokenKind.Operator) && ((p.value == "*") || (p.value == "&")) &&
         match(prev_prev, .None => false, .Some(pp) => (pp.kind == TokenKind.Dot))
     )
   );
@@ -1721,7 +1718,7 @@ is_tightly_bound_operator :: (
     previous,
     .None => true,
     .Some(p) => !(
-      (is_atom_like_token(p.kind) || prev_is_postfix_deref) || (
+      is_atom_like_token(p.kind) || prev_is_postfix_deref || (
         (p.kind == TokenKind.RParen) ||
           ((p.kind == TokenKind.RBracket) || (p.kind == TokenKind.RCurlyBracket))
       )
@@ -1740,11 +1737,11 @@ is_tightly_bound_operator :: (
   );
   cond(
     prev_is_dot => true,
-    ((is_prefix_capable && prefix_position) && next_starts_prefix_operand) => true,
+    (is_prefix_capable && prefix_position && next_starts_prefix_operand) => true,
     true => {
       next_is_lparen := match(next, .None => false, .Some(n) => (n.kind == TokenKind.LParen));
       cond(
-        (!(next_is_lparen)) => false,
+        !next_is_lparen => false,
         true => {
           // Tight only when both:
           //   (1) no whitespace between operator and '('
@@ -1761,7 +1758,7 @@ is_tightly_bound_operator :: (
             )
           );
           cond(
-            (!(no_space)) => false,
+            !no_space => false,
             true => {
               prev_is_rvalue_end := match(
                 previous,
@@ -1775,7 +1772,7 @@ is_tightly_bound_operator :: (
                   )
                 )
               );
-              !(prev_is_rvalue_end)
+              !prev_is_rvalue_end
             }
           )
         }
@@ -1899,7 +1896,7 @@ normalize_multiline_block_comment :: (fn(raw : String) -> ArrayList(String))({
               ll_n := ll_bytes.len();
               (lk : usize) = usize(0);
               (ll_done : bool) = false;
-              while((lk < ll_n) && (!(ll_done)), {
+              while((lk < ll_n) && !ll_done, {
                 lb := match(ll_bytes.get(lk), .Some(x) => x, .None => u8(0));
                 if((lb == u8(32)) || (lb == u8(9)), {
                   lk = (lk + usize(1));
@@ -2013,7 +2010,7 @@ read_raw_template_string :: (fn(input : String, start : usize) -> String)({
   (brace_depth : usize) = usize(0);
   (end_index : usize) = n; // default: until EOF
   (done : bool) = false;
-  while((index < n) && (!(done)), {
+  while((index < n) && !done, {
     char_byte := match(bytes.get(index), .Some(x) => x, .None => u8(0));
     cond(
       (char_byte == u8(92)) => {
@@ -2208,20 +2205,20 @@ _format_yo_source_impl :: (
                 prev_row_check := match(
                   previous,
                   .None => false,
-                  .Some(p) => ((token.row > p.row) && (!(at_line_start)))
+                  .Some(p) => ((token.row > p.row) && !at_line_start)
                 );
                 if(prev_row_check, {
                   // Trim trailing whitespace + add newline.
                   // Trim by walking back; if result already ends in '\n', skip.
-                  if(!(result.ends_with(String.from("\n"))), {
+                  if(!result.ends_with(String.from("\n")), {
                     result.push_str("\n");
                   });
                   at_line_start = true;
                 });
                 cond(
                   is_line_comment_token(token.kind) => {
-                    if(!(at_line_start), {
-                      if((!(result.ends_with(String.from(" ")))) && (!(result.ends_with(String.from("\n")))), {
+                    if(!at_line_start, {
+                      if(!result.ends_with(String.from(" ")) && !result.ends_with(String.from("\n")), {
                         result.push_str(" ");
                       });
                     });
@@ -2263,7 +2260,7 @@ _format_yo_source_impl :: (
                       tr
                     };
                     result.push_string(trimmed);
-                    if(!(result.ends_with(String.from("\n"))), {
+                    if(!result.ends_with(String.from("\n")), {
                       result.push_str("\n");
                     });
                     at_line_start = true;
@@ -2273,8 +2270,8 @@ _format_yo_source_impl :: (
                     has_nl := raw.contains(String.from("\n"));
                     cond(
                       has_nl => {
-                        if(!(at_line_start), {
-                          if(!(result.ends_with(String.from("\n"))), {
+                        if(!at_line_start, {
+                          if(!result.ends_with(String.from("\n")), {
                             result.push_str("\n");
                           });
                           at_line_start = true;
@@ -2296,7 +2293,7 @@ _format_yo_source_impl :: (
                                 at_line_start = false;
                               });
                               result.push_string(line);
-                              if(!(result.ends_with(String.from("\n"))), {
+                              if(!result.ends_with(String.from("\n")), {
                                 result.push_str("\n");
                               });
                               at_line_start = true;
@@ -2307,8 +2304,8 @@ _format_yo_source_impl :: (
                         });
                       },
                       true => {
-                        if(!(at_line_start), {
-                          if((!(result.ends_with(String.from(" ")))) && (!(result.ends_with(String.from("\n")))), {
+                        if(!at_line_start, {
+                          if(!result.ends_with(String.from(" ")) && !result.ends_with(String.from("\n")), {
                             result.push_str(" ");
                           });
                         });
@@ -2330,7 +2327,7 @@ _format_yo_source_impl :: (
                           .None => false,
                           .Some(nx) => (nx.row == token.row)
                         );
-                        if(next_on_same_row && (((!(at_line_start)) && (!(result.ends_with(String.from(" "))))) && (!(result.ends_with(String.from("\n"))))), {
+                        if(next_on_same_row && (!at_line_start && !result.ends_with(String.from(" ")) && !result.ends_with(String.from("\n"))), {
                           result.push_str(" ");
                         });
                       }
@@ -2367,8 +2364,8 @@ _format_yo_source_impl :: (
                             result.push_str("{");
                             indent_level = (indent_level + usize(1));
                             next_is_rcurly := match(next, .None => false, .Some(nx) => (nx.kind == TokenKind.RCurlyBracket));
-                            if((!(next_is_rcurly)) && match(next, .None => false, .Some(_) => true), {
-                              if(!(result.ends_with(String.from("\n"))), {
+                            if(!next_is_rcurly && match(next, .None => false, .Some(_) => true), {
+                              if(!result.ends_with(String.from("\n")), {
                                 result.push_str("\n");
                               });
                               at_line_start = true;
@@ -2386,7 +2383,7 @@ _format_yo_source_impl :: (
                             });
                             result.push_str("{");
                             next_is_rcurly := match(next, .None => false, .Some(nx) => (nx.kind == TokenKind.RCurlyBracket));
-                            if(((!(next_is_rcurly)) && match(next, .None => false, .Some(_) => true)) && ((!(at_line_start)) && (!(result.ends_with(String.from(" "))))), {
+                            if(!next_is_rcurly && match(next, .None => false, .Some(_) => true) && (!at_line_start && !result.ends_with(String.from(" "))), {
                               result.push_str(" ");
                             });
                           }
@@ -2407,7 +2404,7 @@ _format_yo_source_impl :: (
                         result.push_str("{");
                         curly_depth = (curly_depth + usize(1));
                         indent_level = (indent_level + usize(1));
-                        if(!(result.ends_with(String.from("\n"))), {
+                        if(!result.ends_with(String.from("\n")), {
                           result.push_str("\n");
                         });
                         at_line_start = true;
@@ -2435,8 +2432,8 @@ _format_yo_source_impl :: (
                         });
                         cond(
                           cur_multiline => {
-                            if(!(at_line_start), {
-                              if(!(result.ends_with(String.from("\n"))), {
+                            if(!at_line_start, {
+                              if(!result.ends_with(String.from("\n")), {
                                 result.push_str("\n");
                               });
                               at_line_start = true;
@@ -2457,8 +2454,8 @@ _format_yo_source_impl :: (
                           },
                           true => {
                             prev_is_lcurly := match(previous, .None => false, .Some(p) => (p.kind == TokenKind.LCurlyBracket));
-                            if((!(at_line_start)) && (!(prev_is_lcurly)), {
-                              if((!(result.ends_with(String.from(" ")))) && (!(result.ends_with(String.from("\n")))), {
+                            if(!at_line_start && !prev_is_lcurly, {
+                              if(!result.ends_with(String.from(" ")) && !result.ends_with(String.from("\n")), {
                                 result.push_str(" ");
                               });
                             });
@@ -2476,8 +2473,8 @@ _format_yo_source_impl :: (
                         );
                       },
                       true => {
-                        if(!(at_line_start), {
-                          if(!(result.ends_with(String.from("\n"))), {
+                        if(!at_line_start, {
+                          if(!result.ends_with(String.from("\n")), {
                             result.push_str("\n");
                           });
                           at_line_start = true;
@@ -2519,8 +2516,8 @@ _format_yo_source_impl :: (
                     if(is_multiline, {
                       indent_level = (indent_level + usize(1));
                       next_is_rparen := match(next, .None => false, .Some(nx) => (nx.kind == TokenKind.RParen));
-                      if((!(next_is_rparen)) && match(next, .None => false, .Some(_) => true), {
-                        if(!(result.ends_with(String.from("\n"))), {
+                      if(!next_is_rparen && match(next, .None => false, .Some(_) => true), {
+                        if(!result.ends_with(String.from("\n")), {
                           result.push_str("\n");
                         });
                         at_line_start = true;
@@ -2544,8 +2541,8 @@ _format_yo_source_impl :: (
                     if(is_multiline, {
                       indent_level = (indent_level + usize(1));
                       next_is_rbracket := match(next, .None => false, .Some(nx) => (nx.kind == TokenKind.RBracket));
-                      if((!(next_is_rbracket)) && match(next, .None => false, .Some(_) => true), {
-                        if(!(result.ends_with(String.from("\n"))), {
+                      if(!next_is_rbracket && match(next, .None => false, .Some(_) => true), {
+                        if(!result.ends_with(String.from("\n")), {
                           result.push_str("\n");
                         });
                         at_line_start = true;
@@ -2555,7 +2552,7 @@ _format_yo_source_impl :: (
                   (token.kind == TokenKind.RParen) => {
                     // close_operator_continuations
                     (closing_done : bool) = false;
-                    while((continuation_paren.len() > usize(0)) && (!(closing_done)), {
+                    while((continuation_paren.len() > usize(0)) && !closing_done, {
                       top_idx := (continuation_paren.len() - usize(1));
                       top_p := match(continuation_paren.get(top_idx), .Some(x) => x, .None => usize(0));
                       top_b := match(continuation_bracket.get(top_idx), .Some(x) => x, .None => usize(0));
@@ -2584,8 +2581,8 @@ _format_yo_source_impl :: (
                     });
                     cond(
                       is_multiline => {
-                        if(!(at_line_start), {
-                          if(!(result.ends_with(String.from("\n"))), {
+                        if(!at_line_start, {
+                          if(!result.ends_with(String.from("\n")), {
                             result.push_str("\n");
                           });
                           at_line_start = true;
@@ -2625,7 +2622,7 @@ _format_yo_source_impl :: (
                   (token.kind == TokenKind.RBracket) => {
                     // close_operator_continuations
                     (closing_done2 : bool) = false;
-                    while((continuation_paren.len() > usize(0)) && (!(closing_done2)), {
+                    while((continuation_paren.len() > usize(0)) && !closing_done2, {
                       top_idx := (continuation_paren.len() - usize(1));
                       top_p := match(continuation_paren.get(top_idx), .Some(x) => x, .None => usize(0));
                       top_b := match(continuation_bracket.get(top_idx), .Some(x) => x, .None => usize(0));
@@ -2656,8 +2653,8 @@ _format_yo_source_impl :: (
                     });
                     cond(
                       is_multiline_b => {
-                        if(!(at_line_start), {
-                          if(!(result.ends_with(String.from("\n"))), {
+                        if(!at_line_start, {
+                          if(!result.ends_with(String.from("\n")), {
                             result.push_str("\n");
                           });
                           at_line_start = true;
@@ -2694,7 +2691,7 @@ _format_yo_source_impl :: (
                   (token.kind == TokenKind.Comma) => {
                     // close_operator_continuations
                     (closing_done3 : bool) = false;
-                    while((continuation_paren.len() > usize(0)) && (!(closing_done3)), {
+                    while((continuation_paren.len() > usize(0)) && !closing_done3, {
                       top_idx := (continuation_paren.len() - usize(1));
                       top_p := match(continuation_paren.get(top_idx), .Some(x) => x, .None => usize(0));
                       top_b := match(continuation_bracket.get(top_idx), .Some(x) => x, .None => usize(0));
@@ -2728,10 +2725,10 @@ _format_yo_source_impl :: (
                       next,
                       .None => false,
                       .Some(nx) => (
-                        ((nx.kind == TokenKind.RParen) || (nx.kind == TokenKind.RBracket)) || (nx.kind == TokenKind.RCurlyBracket)
+                        (nx.kind == TokenKind.RParen) || (nx.kind == TokenKind.RBracket) || (nx.kind == TokenKind.RCurlyBracket)
                       )
                     );
-                    if((!(next_is_closer)) && match(next, .None => false, .Some(_) => true), {
+                    if(!next_is_closer && match(next, .None => false, .Some(_) => true), {
                       cur_bracket_ml := cond(
                         (bracket_stack_multiline.len() > usize(0)) => match(bracket_stack_multiline.get(bracket_stack_multiline.len() - usize(1)), .Some(x) => x, .None => false),
                         true => false
@@ -2750,30 +2747,30 @@ _format_yo_source_impl :: (
                       );
                       cond(
                         cur_bracket_ml => {
-                          if(!(result.ends_with(String.from("\n"))), {
+                          if(!result.ends_with(String.from("\n")), {
                             result.push_str("\n");
                           });
                           at_line_start = true;
                         },
                         (cur_curly_inline && cur_curly_ml) => {
-                          if(!(result.ends_with(String.from("\n"))), {
+                          if(!result.ends_with(String.from("\n")), {
                             result.push_str("\n");
                           });
                           at_line_start = true;
                         },
-                        ((bracket_stack_multiline.len() > usize(0)) || (cur_curly_inline && (!(cur_curly_ml)))) => {
-                          if((!(at_line_start)) && (!(result.ends_with(String.from(" ")))), {
+                        ((bracket_stack_multiline.len() > usize(0)) || (cur_curly_inline && !cur_curly_ml)) => {
+                          if(!at_line_start && !result.ends_with(String.from(" ")), {
                             result.push_str(" ");
                           });
                         },
                         cur_paren_ml => {
-                          if(!(result.ends_with(String.from("\n"))), {
+                          if(!result.ends_with(String.from("\n")), {
                             result.push_str("\n");
                           });
                           at_line_start = true;
                         },
                         true => {
-                          if((!(at_line_start)) && (!(result.ends_with(String.from(" ")))), {
+                          if(!at_line_start && !result.ends_with(String.from(" ")), {
                             result.push_str(" ");
                           });
                         }
@@ -2782,10 +2779,10 @@ _format_yo_source_impl :: (
                   },
                   (token.kind == TokenKind.Semicolon) => {
                     next_is_not_rbracket := match(next, .None => false, .Some(nx) => (nx.kind != TokenKind.RBracket));
-                    next_is_not_comment := match(next, .None => true, .Some(nx) => (!(is_comment_token(nx.kind))));
+                    next_is_not_comment := match(next, .None => true, .Some(nx) => !is_comment_token(nx.kind));
                     cond(
                       ((bracket_depth > usize(0)) && (next_is_not_rbracket && next_is_not_comment)) => {
-                        if((!(at_line_start)) && (!(result.ends_with(String.from(" ")))), {
+                        if(!at_line_start && !result.ends_with(String.from(" ")), {
                           result.push_str(" ");
                         });
                         result.push_str(";");
@@ -2794,7 +2791,7 @@ _format_yo_source_impl :: (
                       true => {
                         // close_operator_continuations
                         (closing_done4 : bool) = false;
-                        while((continuation_paren.len() > usize(0)) && (!(closing_done4)), {
+                        while((continuation_paren.len() > usize(0)) && !closing_done4, {
                           top_idx := (continuation_paren.len() - usize(1));
                           top_p := match(continuation_paren.get(top_idx), .Some(x) => x, .None => usize(0));
                           top_b := match(continuation_bracket.get(top_idx), .Some(x) => x, .None => usize(0));
@@ -2827,10 +2824,10 @@ _format_yo_source_impl :: (
                         emit_newline := match(
                           next,
                           .None => false,
-                          .Some(nx) => ((!(is_comment_token(nx.kind))) || (nx.row > token.row))
+                          .Some(nx) => (!is_comment_token(nx.kind) || (nx.row > token.row))
                         );
                         if(emit_newline, {
-                          if(!(result.ends_with(String.from("\n"))), {
+                          if(!result.ends_with(String.from("\n")), {
                             result.push_str("\n");
                           });
                           at_line_start = true;
@@ -2882,7 +2879,7 @@ _format_yo_source_impl :: (
                     is_colon_in_inline_curly := ((token.value == ":") && (inline_curly_depth > usize(0)));
                     cond(
                       is_colon_in_inline_curly => {
-                        if((!(at_line_start)) && (!(result.ends_with(String.from(" ")))), {
+                        if(!at_line_start && !result.ends_with(String.from(" ")), {
                           result.push_str(" ");
                         });
                         result.push_str(":");
@@ -2890,7 +2887,7 @@ _format_yo_source_impl :: (
                         cond(
                           next_on_next_row => {
                             // start_operator_continuation
-                            if(!(result.ends_with(String.from("\n"))), {
+                            if(!result.ends_with(String.from("\n")), {
                               result.push_str("\n");
                             });
                             at_line_start = true;
@@ -2900,7 +2897,7 @@ _format_yo_source_impl :: (
                             _r3 := continuation_curly.push(curly_depth);
                           },
                           true => {
-                            if((!(at_line_start)) && (!(result.ends_with(String.from(" ")))), {
+                            if(!at_line_start && !result.ends_with(String.from(" ")), {
                               result.push_str(" ");
                             });
                           }
@@ -2909,7 +2906,7 @@ _format_yo_source_impl :: (
                       is_tightly_bound_operator(token, previous, previous_previous_token, next) => {
                         cond(
                           prefix_operator_needs_leading_space(token, previous, previous_previous_token) => {
-                            if((!(at_line_start)) && (!(result.ends_with(String.from(" ")))), {
+                            if(!at_line_start && !result.ends_with(String.from(" ")), {
                               result.push_str(" ");
                             });
                           },
@@ -2937,17 +2934,17 @@ _format_yo_source_impl :: (
                               ((p.kind == TokenKind.LBracket) || (p.kind == TokenKind.LCurlyBracket))
                           )
                         );
-                        if(!(prev_is_open_bracket), {
+                        if(!prev_is_open_bracket, {
                           prev_on_earlier_row := match(previous, .None => false, .Some(p) => (token.row > p.row));
                           cond(
                             prev_on_earlier_row => {
-                              if(!(result.ends_with(String.from("\n"))), {
+                              if(!result.ends_with(String.from("\n")), {
                                 result.push_str("\n");
                               });
                               at_line_start = true;
                             },
                             true => {
-                              if((!(at_line_start)) && (!(result.ends_with(String.from(" ")))), {
+                              if(!at_line_start && !result.ends_with(String.from(" ")), {
                                 result.push_str(" ");
                               });
                             }
@@ -2967,7 +2964,7 @@ _format_yo_source_impl :: (
                         cond(
                           next_on_next_row2 => {
                             // start_operator_continuation
-                            if(!(result.ends_with(String.from("\n"))), {
+                            if(!result.ends_with(String.from("\n")), {
                               result.push_str("\n");
                             });
                             at_line_start = true;
@@ -2977,7 +2974,7 @@ _format_yo_source_impl :: (
                             _r3 := continuation_curly.push(curly_depth);
                           },
                           true => {
-                            if((!(at_line_start)) && (!(result.ends_with(String.from(" ")))), {
+                            if(!at_line_start && !result.ends_with(String.from(" ")), {
                               result.push_str(" ");
                             });
                           }
@@ -2987,7 +2984,7 @@ _format_yo_source_impl :: (
                   },
                   is_atom_like_token(token.kind) => {
                     if(needs_space_before_atom(previous), {
-                      if((!(at_line_start)) && (!(result.ends_with(String.from(" ")))), {
+                      if(!at_line_start && !result.ends_with(String.from(" ")), {
                         result.push_str(" ");
                       });
                     });
@@ -3013,7 +3010,7 @@ _format_yo_source_impl :: (
         );
       });
       // Final newline.
-      if((result.len() > usize(0)) && (!(result.ends_with(String.from("\n")))), {
+      if((result.len() > usize(0)) && !result.ends_with(String.from("\n")), {
         result.push_str("\n");
       });
       g_fmt_elided_tokens = skipped_paren_indices.len();
@@ -3029,7 +3026,7 @@ _format_yo_source_impl :: (
 _formatted_parses_identically :: (
   fn(original : String, formatted : String, module_path : String) -> bool
 )({
-  gate_exn := Exception(throw : ((_err) -> unwind(false)));
+  gate_exn := Exception(throw : (_err -> unwind(false)));
   before := parse(original.clone(), module_path.clone(), gate_exn);
   after := parse(formatted.clone(), module_path.clone(), gate_exn);
   cond(
@@ -3048,7 +3045,7 @@ _formatted_parses_identically :: (
                 all = false;
               },
               .Some(a) => {
-                if(!(exprs_are_equal(b, a)), {
+                if(!exprs_are_equal(b, a), {
                   all = false;
                 });
               }
@@ -3120,7 +3117,7 @@ collect_yo_files :: (
                 .Directory => is_ignored_format_dir(entry_name.clone()),
                 _ => false
               );
-              if(!(skip), {
+              if(!skip, {
                 child_path := target_path.join(Path.new(entry_name.clone()));
                 recur(child_path, files, io, exn);
               });
@@ -3167,7 +3164,7 @@ find_yo_format_files :: (
           true => Path.new(fmt_cwd.clone()).join(Path.new(p.clone()))
         );
         path_exists := io.await(exists(path_obj, io), io);
-        if(!(path_exists), {
+        if(!path_exists, {
           exn.throw(dyn(`Path does not exist: ${p}`));
         });
         collect_yo_files(path_obj, files, io, exn);
@@ -3192,7 +3189,7 @@ find_yo_format_files :: (
             .None => false
           )
         );
-        if(!(is_dup), {
+        if(!is_dup, {
           _r := deduped.push(f.clone());
         });
       }
@@ -3226,7 +3223,7 @@ format_yo_files :: (
         formatted := format_yo_source(original, file, exn);
         if(formatted != original, {
           _r := changed.push(file);
-          if(!(options.check), {
+          if(!options.check, {
             io.await(write_string(Path.new(file), formatted, io), IoExn(io : io, exn : exn));
           });
         });

@@ -372,7 +372,7 @@ _shell_walk_visited :: (fn(visited : ArrayList(String), tok : String) -> bool)({
   n := visited.len();
   (i : usize) = usize(0);
   (found : bool) = false;
-  while((i < n) && !(found), {
+  while((i < n) && !found, {
     // Compare in place — no deep clone per probe (see _tk_seen; statement-arm
     // shape required — the bool-valued match form miscompiles self-hosted).
     match(
@@ -412,10 +412,10 @@ _contains_self_shell :: (
         visited.push(tok);
         (hit : bool) = false;
         (vi : usize) = usize(0);
-        while((vi < variant_fields.len()) && !(hit), {
+        while((vi < variant_fields.len()) && !hit, {
           inner := match(variant_fields.get(vi), .Some(x) => x, .None => ArrayList(TypeValue).new());
           (fi : usize) = usize(0);
-          while((fi < inner.len()) && !(hit), {
+          while((fi < inner.len()) && !hit, {
             ft := match(inner.get(fi), .Some(x) => x, .None => t_unit());
             hit = recur(ft, shell_id, visited);
             fi = (fi + usize(1));
@@ -436,13 +436,13 @@ _contains_self_shell :: (
         visited.push(tok);
         (hit : bool) = false;
         (i : usize) = usize(0);
-        while((i < field_types.len()) && !(hit), {
+        while((i < field_types.len()) && !hit, {
           ft := match(field_types.get(i), .Some(x) => x, .None => t_unit());
           hit = recur(ft, shell_id, visited);
           i = (i + usize(1));
         });
         (j : usize) = usize(0);
-        while((j < type_arguments.len()) && !(hit), {
+        while((j < type_arguments.len()) && !hit, {
           ta := match(type_arguments.get(j), .Some(x) => x, .None => t_unit());
           hit = recur(ta, shell_id, visited);
           j = (j + usize(1));

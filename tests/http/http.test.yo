@@ -112,7 +112,7 @@ test("fetch still refuses an unsupported scheme", {
   // the scheme check.
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         msg := err.to_string();
         assert(msg.contains(`Unsupported scheme`), `expected UnsupportedScheme, got: ${msg}`);
         unwind(());
@@ -129,7 +129,7 @@ test("fetch over https returns a real response (skips offline)", {
   ok := Box(bool)(false);
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         println(`  https fetch skipped (no egress?): ${err.to_string()}`);
         unwind(());
       }
@@ -159,7 +159,7 @@ test("fetch over https returns a real response (skips offline)", {
 // when called from the server TASK while the client waits underneath it
 // (issues/fixed/sync-await-in-plain-fn-nests-the-event-loop.md).
 _read_request :: (fn(stream : TcpStream, io : Io) -> Impl(Future(String, IoExn)))(
-  io.async((e) => {
+  io.async(e => {
     buf := *(u8)(malloc(usize(4096)).unwrap());
     n := e.io.await(stream.read(buf, usize(4096), e.io), e);
     bytes := ArrayList(u8).new();
@@ -178,7 +178,7 @@ _serve_scripted :: (
   fn(listener : TcpListener, responses : ArrayList(String), seen : ArrayList(String), io : Io) ->
     Impl(Future(unit, IoExn))
 )(
-  io.async((e) => {
+  io.async(e => {
     k := usize(0);
     while(runtime(k < responses.len()), {
       s := e.io.await(listener.accept(e.io), e);
@@ -200,7 +200,7 @@ _ok_body :: (fn(body : String) -> String)(
 test("fetch follows redirects, resolving relative and absolute-path Locations", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, `unexpected exception: ${err.to_string()}`);
         unwind(());
       }
@@ -227,7 +227,7 @@ test("fetch follows redirects, resolving relative and absolute-path Locations", 
 test("fetch throws TooManyRedirects past max_redirects", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         msg := err.to_string();
         assert(msg.contains(`Too many redirects`), `expected TooManyRedirects, got: ${msg}`);
         unwind(());
@@ -250,7 +250,7 @@ test("fetch throws TooManyRedirects past max_redirects", {
 test("fetch with max_redirects 0 returns the 3xx verbatim", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, `unexpected exception: ${err.to_string()}`);
         unwind(());
       }
@@ -273,7 +273,7 @@ test("fetch with max_redirects 0 returns the 3xx verbatim", {
 test("fetch throws ResponseTooLarge past max_response_bytes", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         msg := err.to_string();
         assert(msg.contains(`Response too large`), `expected ResponseTooLarge, got: ${msg}`);
         unwind(());
@@ -307,7 +307,7 @@ test("fetch default response ceiling is 64 MiB and 0 lifts it", {
 // A server that accepts and then never answers — the case a deadline exists
 // for: fetch is parked inside a read that will not return on its own.
 _serve_silent :: (fn(listener : TcpListener, hold : Duration, io : Io) -> Impl(Future(unit, IoExn)))(
-  io.async((e) => {
+  io.async(e => {
     s := e.io.await(listener.accept(e.io), e);
     _req := e.io.await(_read_request(s, e.io), e);
     e.io.await(sleep(hold, e.io), e.io);
@@ -318,7 +318,7 @@ _serve_silent :: (fn(listener : TcpListener, hold : Duration, io : Io) -> Impl(F
 test("fetch throws Timeout when the server never answers", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         msg := err.to_string();
         assert(msg.contains(`timed out`), `expected Timeout, got: ${msg}`);
         unwind(());
@@ -364,7 +364,7 @@ _chunked :: (fn(chunks : ArrayList(String), trailer : String) -> String)({
 test("fetch decodes a chunked body (sizes, extensions and trailers stripped)", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, `unexpected exception: ${err.to_string()}`);
         unwind(());
       }
@@ -401,7 +401,7 @@ test("fetch decodes a chunked body (sizes, extensions and trailers stripped)", {
 test("a malformed chunk size is a typed HttpError, not a garbage body", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, `unexpected exception: ${err.to_string()}`);
         unwind(());
       }
@@ -410,7 +410,7 @@ test("a malformed chunk size is a typed HttpError, not a garbage body", {
   // Capture-free by design (handlers are frame-bound): it can only unwind.
   chunk_exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         unwind(());
       }
     )
@@ -439,7 +439,7 @@ test("a malformed chunk size is a typed HttpError, not a garbage body", {
 test("fetch throws Other on a garbage status line, and the aborted task disposes cleanly", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, `unexpected exception: ${err.to_string()}`);
         unwind(());
       }
@@ -448,7 +448,7 @@ test("fetch throws Other on a garbage status line, and the aborted task disposes
   // Capture-free by design (handlers are frame-bound): it can only unwind.
   garbage_exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         unwind(());
       }
     )
@@ -477,7 +477,7 @@ test("fetch throws Other on a garbage status line, and the aborted task disposes
 test("fetch round-trips a binary body byte-for-byte", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, `unexpected exception: ${err.to_string()}`);
         unwind(());
       }

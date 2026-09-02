@@ -96,7 +96,7 @@ _rotr64 :: (fn(x : u64, n : u64) -> u64)(
   (x >> n) | (x << (u64(64) - n))
 );
 /// One 128-byte block: the 80-round compression over `h[0..8]`.
-_sha512_block :: (fn(block : *(u8), h : *(u64)) -> unit)({
+_sha512_block :: (fn(block : *u8, h : *u64) -> unit)({
   w := Array(u64, usize(80)).fill(u64(0));
   (t : usize) = usize(0);
   while(t < usize(16), t = (t + usize(1)), {
@@ -108,9 +108,9 @@ _sha512_block :: (fn(block : *(u8), h : *(u64)) -> unit)({
     w(t) = word;
   });
   while(t < usize(80), t = (t + usize(1)), {
-    s0 := ((_rotr64(w(t - usize(15)), u64(1)) ^ _rotr64(w(t - usize(15)), u64(8))) ^ (w(t - usize(15)) >> u64(7)));
-    s1 := ((_rotr64(w(t - usize(2)), u64(19)) ^ _rotr64(w(t - usize(2)), u64(61))) ^ (w(t - usize(2)) >> u64(6)));
-    w(t) = ((w(t - usize(16)) + s0) + (w(t - usize(7)) + s1));
+    s0 := (_rotr64(w(t - usize(15)), u64(1)) ^ _rotr64(w(t - usize(15)), u64(8)) ^ (w(t - usize(15)) >> u64(7)));
+    s1 := (_rotr64(w(t - usize(2)), u64(19)) ^ _rotr64(w(t - usize(2)), u64(61)) ^ (w(t - usize(2)) >> u64(6)));
+    w(t) = (w(t - usize(16)) + s0 + (w(t - usize(7)) + s1));
   });
   a := (h.add(usize(0))).*;
   b := (h.add(usize(1))).*;
@@ -122,11 +122,11 @@ _sha512_block :: (fn(block : *(u8), h : *(u64)) -> unit)({
   hh := (h.add(usize(7))).*;
   (i : usize) = usize(0);
   while(i < usize(80), i = (i + usize(1)), {
-    ep1 := ((_rotr64(e, u64(14)) ^ _rotr64(e, u64(18))) ^ _rotr64(e, u64(41)));
-    ch := ((e & f) ^ ((~(e)) & g));
-    temp1 := ((hh + ep1) + ((ch + _K512(i)) + w(i)));
-    ep0 := ((_rotr64(a, u64(28)) ^ _rotr64(a, u64(34))) ^ _rotr64(a, u64(39)));
-    maj := (((a & b) ^ (a & c)) ^ (b & c));
+    ep1 := (_rotr64(e, u64(14)) ^ _rotr64(e, u64(18)) ^ _rotr64(e, u64(41)));
+    ch := ((e & f) ^ (~e & g));
+    temp1 := (hh + ep1 + (ch + _K512(i) + w(i)));
+    ep0 := (_rotr64(a, u64(28)) ^ _rotr64(a, u64(34)) ^ _rotr64(a, u64(39)));
+    maj := ((a & b) ^ (a & c) ^ (b & c));
     temp2 := (ep0 + maj);
     hh = g;
     g = f;
@@ -184,8 +184,8 @@ impl(
       self._total = (self._total + u64(1));
       cond(
         (self._buflen == usize(128)) => {
-          buf_ptr := &(self._buf(usize(0)));
-          h_ptr := &(self._h(usize(0)));
+          buf_ptr := &self._buf(usize(0));
+          h_ptr := &self._h(usize(0));
           _sha512_block(buf_ptr, h_ptr);
           self._buflen = usize(0);
         },
@@ -205,8 +205,8 @@ impl(
         while(self._buflen < usize(128), self._buflen = (self._buflen + usize(1)), {
           self._buf(self._buflen) = u8(0);
         });
-        buf_ptr := &(self._buf(usize(0)));
-        h_ptr := &(self._h(usize(0)));
+        buf_ptr := &self._buf(usize(0));
+        h_ptr := &self._h(usize(0));
         _sha512_block(buf_ptr, h_ptr);
         self._buflen = usize(0);
       },
@@ -222,8 +222,8 @@ impl(
       self._buf(usize(112) + wi) = u8(bit_len_high >> shift);
       self._buf(usize(120) + wi) = u8(bit_len_low >> shift);
     });
-    buf_ptr := &(self._buf(usize(0)));
-    h_ptr := &(self._h(usize(0)));
+    buf_ptr := &self._buf(usize(0));
+    h_ptr := &self._h(usize(0));
     _sha512_block(buf_ptr, h_ptr);
     digest := Array(u8, usize(64)).fill(u8(0));
     j := usize(0);

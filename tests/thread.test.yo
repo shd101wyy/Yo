@@ -6,13 +6,13 @@ open(import("std/libc/stdio"));
 { yield } :: import("std/async");
 test("Thread spawn and join without captures", {
   thread := Thread.spawn(
-    (io) => () // Thread runs with no captures
+    io => () // Thread runs with no captures
   );
   thread.join();
 });
 test("Thread spawn and join with i32 capture", {
   value := 42;
-  thread := Thread.spawn((io) => {
+  thread := Thread.spawn(io => {
     // Use captured value
     assert(value == 42);
   });
@@ -21,14 +21,14 @@ test("Thread spawn and join with i32 capture", {
 test("Thread spawn and join with multiple captures", {
   x := 100;
   y := 200;
-  thread := Thread.spawn((io) => {
+  thread := Thread.spawn(io => {
     // Use captured values
     assert((x + y) == 300);
   });
   thread.join();
 });
 test("Thread with async task", {
-  thread := Thread.spawn((io) => {
+  thread := Thread.spawn(io => {
     task := io.async((io : Io) => {
       io.await(yield(io), io);
     });
@@ -37,7 +37,7 @@ test("Thread with async task", {
   thread.join();
 });
 test("Thread with async returning value", {
-  thread := Thread.spawn((io) => {
+  thread := Thread.spawn(io => {
     x := 10;
     y := 20;
     task := io.async((io : Io) => {
@@ -50,7 +50,7 @@ test("Thread with async returning value", {
   thread.join();
 });
 test("Thread with async loop", {
-  thread := Thread.spawn((io) => {
+  thread := Thread.spawn(io => {
     task := io.async((io : Io) => {
       counter := 0;
       while(runtime(counter < i32(5)), {
@@ -65,7 +65,7 @@ test("Thread with async loop", {
   thread.join();
 });
 test("Thread with multiple async tasks", {
-  thread := Thread.spawn((io) => {
+  thread := Thread.spawn(io => {
     task1 := io.async((io : Io) => {
       io.await(yield(io), io);
       return(i32(1));

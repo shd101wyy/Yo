@@ -141,7 +141,7 @@ test("compat: func param count mismatch", {
   ts1.push(t_i32());
   f1 := t_func_simple(ls1, ts1, t_bool());
   f2 := t_func_simple(ArrayList(String).new(), ArrayList(TypeValue).new(), t_bool());
-  assert(!(are_types_compatible(f1, f2)), "different param counts should not be compatible");
+  assert(!are_types_compatible(f1, f2), "different param counts should not be compatible");
 });
 test("compat: func return(type mismatch)", {
   ls := ArrayList(String).new();
@@ -154,7 +154,7 @@ test("compat: func return(type mismatch)", {
   ls2.push(`x`);
   ts2.push(t_i32());
   f2 := t_func_simple(ls2, ts2, t_i32());
-  assert(!(are_types_compatible(f1, f2)), "different return(types should not be compatible)");
+  assert(!are_types_compatible(f1, f2), "different return(types should not be compatible)");
 });
 // ---------------------------------------------------------------------------
 // are_types_compatible — TraitT / ModuleT / SomeT
@@ -167,7 +167,7 @@ test("compat: same trait name", {
 test("compat: different trait names", {
   t1 := t_trait_simple(`Eq`);
   t2 := t_trait_simple(`Ord`);
-  assert(!(are_types_compatible(t1, t2)), "different traits should not be compatible");
+  assert(!are_types_compatible(t1, t2), "different traits should not be compatible");
 });
 test("compat: same module name", {
   m1 := t_module_simple(`Io`);
@@ -182,7 +182,7 @@ test("compat: SomeT identity", {
 test("compat: SomeT different level", {
   s1 := t_some_t(`T`, usize(0));
   s2 := t_some_t(`T`, usize(1));
-  assert(!(are_types_compatible(s1, s2)), "different frame levels should not be compatible");
+  assert(!are_types_compatible(s1, s2), "different frame levels should not be compatible");
 });
 // ---------------------------------------------------------------------------
 // Substitution engine

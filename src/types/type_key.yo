@@ -131,7 +131,7 @@ _tk_seen :: (fn(id : String) -> bool)({
   n := g_tk_visited.len();
   (i : usize) = usize(0);
   (found : bool) = false;
-  while((i < n) && !(found), {
+  while((i < n) && !found, {
     // Compare in place — the old `e.clone()` deep-copied the byte buffer of
     // every visited entry per probe (342 M ArrayList(u8) allocations per
     // self-emit, the #2 string-churn site) just to == it and drop it.
@@ -564,7 +564,7 @@ _sti_seen :: (fn(id : String) -> bool)({
   n := g_sti_visited.len();
   (i : usize) = usize(0);
   (found : bool) = false;
-  while((i < n) && !(found), {
+  while((i < n) && !found, {
     match(
       g_sti_visited.get(i),
       .Some(v) => if(v == id, {

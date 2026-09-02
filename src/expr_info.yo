@@ -875,7 +875,7 @@ is_extern_c_global :: (fn(name : String) -> bool)(
 /// `.`/`..` segments on construction).
 _mg_canon :: (fn(module_path : String) -> String)({
   (p : String) = module_path.replace(String.from("file://"), String.from(""));
-  if(!(p.starts_with(String.from("/"))), {
+  if(!p.starts_with(String.from("/")), {
     base := match(cwd(), .Ok(c) => c.to_string(), .Err(_) => String.from("."));
     p = `${base}/${p}`;
   });
@@ -1153,7 +1153,7 @@ has_dominating_branch_init :: (fn(var_id : usize) -> bool)({
           );
           gi = (gi + usize(1));
         });
-        if(!(excluded), {
+        if(!excluded, {
           found = true;
         });
         ii = (ii + usize(1));
@@ -1250,7 +1250,7 @@ adopt_receiver_struct_instance :: (
   });
   ret_id := match(ret, .Struct({ id : ai_rid }) => ai_rid, _ => String.new());
   recv_id := match(recv, .Struct({ id : ai_vid }) => ai_vid, _ => String.new());
-  if((ret_id.len() == usize(0)) || ((ret_id == recv_id) || !(struct_fully_concrete_instance(recv))), {
+  if((ret_id.len() == usize(0)) || ((ret_id == recv_id) || !struct_fully_concrete_instance(recv)), {
     return(Option(TypeValue).None);
   });
   // Type-argument compatibility gate: adopting is only sound when the return
@@ -1283,7 +1283,7 @@ adopt_receiver_struct_instance :: (
           _ => ()
         );
       });
-      if(!(is_some_type(rta)), {
+      if(!is_some_type(rta), {
         if(type_to_string(rta) != type_to_string(vta), {
           return(Option(TypeValue).None);
         });
@@ -1365,7 +1365,7 @@ lookup_macro_expansion :: (fn(call_id : ExprId) -> Option(AstExpr))(
 record_module_level_init_expr :: (fn(e : AstExpr) -> unit)({
   eid := ast_expr_id(e);
   already := match(g_module_level_init_seen.get(eid), .Some(_) => true, .None => false);
-  if(!(already), {
+  if(!already, {
     g_module_level_init_seen.insert(eid, true);
     g_module_level_init_exprs.push(e);
   });

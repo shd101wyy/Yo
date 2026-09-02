@@ -18,7 +18,7 @@ ParseError :: ref(struct(message : String));
 impl(
   ParseError,
   ToString(
-    to_string : ((self) -> `parse error`)
+    to_string : (self -> `parse error`)
   )
 );
 impl(ParseError, Error());
@@ -62,7 +62,7 @@ collect_one :: (fn(present : bool, exn : Exception) -> ParseResult)({
 run_parse_one :: (fn(present : bool) -> ParseResult)({
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         unwind(ParseResult(label : `caught`, index : usize(7)));
       }
     )
@@ -72,7 +72,7 @@ run_parse_one :: (fn(present : bool) -> ParseResult)({
 run_collect_one :: (fn(present : bool) -> ParseResult)({
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         unwind(ParseResult(label : `err`, index : usize(99)));
       }
     )

@@ -39,7 +39,7 @@ test("NetError.from_io wraps unknown error in Io variant", {
 test("NetError.check positive value returns value", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -52,7 +52,7 @@ test("NetError.check positive value returns value", {
 test("NetError.check zero returns zero", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -65,13 +65,13 @@ test("NetError.check zero returns zero", {
 test("NetError.check negative value throws", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         unwind(());
       }
     )
   );
   // -111 is ECONNREFUSED on Linux
-  NetError.check(i32(-(111)), exn);
+  NetError.check(i32(-111), exn);
   assert(false, "should have thrown");
 });
 test("NetError DNSFailed to_string", {

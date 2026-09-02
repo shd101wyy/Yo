@@ -13,7 +13,7 @@ pragma(Pragma.SkipWasm32Wasi); // no network stack in WASM
 test("tls_available links and answers in a sync-only program", {
   avail := tls_available();
   cond(
-    (platform == Platform.Windows) => assert(!(avail), "Windows builds carry ABI stubs until the Schannel backend lands"),
+    (platform == Platform.Windows) => assert(!avail, "Windows builds carry ABI stubs until the Schannel backend lands"),
     true => assert(avail, "unix builds carry the OpenSSL backend")
   );
 });

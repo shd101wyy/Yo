@@ -129,7 +129,7 @@ _int_raw_in_range :: (fn(raw : String, range : IntRange) -> bool)({
   // falsely report out-of-range. Skip this path for negative literals
   // (raw starts with `-`) where parse_u64 always fails.
   is_negative_literal := raw.starts_with(String.from("-"));
-  if(!(is_negative_literal), {
+  if(!is_negative_literal, {
     match(
       raw.clone().parse_u64(),
       .Some(uv) => {
@@ -250,7 +250,7 @@ try_to_convert_to_numeric_type :: (
     exn : Exception
   ) -> Option(AstExpr)
 )({
-  if(!(is_convertible_numeric_type(target_type)), {
+  if(!is_convertible_numeric_type(target_type), {
     return(Option(AstExpr).None);
   });
   // Evaluate the argument with no expectedType (let it resolve its natural type).
@@ -334,10 +334,10 @@ try_to_convert_to_numeric_type :: (
   // -----------------------------------------------------------------------
   // Validate source type — must be numeric, comptime-numeric, or enum
   // -----------------------------------------------------------------------
-  if(!(is_convertible_numeric_type(arg_type)) &&
-    !(is_comptime_int_type(arg_type)) &&
-      !(is_comptime_float_type(arg_type)) &&
-        !(is_enum_type(arg_type)), {
+  if(!is_convertible_numeric_type(arg_type) &&
+    !is_comptime_int_type(arg_type) &&
+      !is_comptime_float_type(arg_type) &&
+        !is_enum_type(arg_type), {
     // Soft fallback: when the source is not numeric (e.g. came from
     // an operator-trait call the bootstrap can't yet resolve, which
     // produces a `t_unit()` placeholder), emit an `UnknownVal` of the

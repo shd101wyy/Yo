@@ -56,7 +56,7 @@ evaluate_comptime_assert :: (
   );
   // When not executing, still type-check the condition so malformed expressions
   // are caught during function-definition validation.
-  if(ctx.is_validating_function_definition || !(ctx.is_executing), {
+  if(ctx.is_validating_function_definition || !ctx.is_executing, {
     match(
       arg_expr_opt,
       .Some(arg_expr) => {
@@ -65,7 +65,7 @@ evaluate_comptime_assert :: (
         match(
           arg_info_opt,
           .Some(ai) => {
-            if(!(is_bool_type(ai.ty)) && !(is_unknown_val(match(ai.value, .Some(v) => v, .None => EvalValue.UnitVal))), {
+            if(!is_bool_type(ai.ty) && !is_unknown_val(match(ai.value, .Some(v) => v, .None => EvalValue.UnitVal)), {
               exn.throw(
                 dyn(
                   format_error_message(
@@ -143,7 +143,7 @@ evaluate_comptime_assert :: (
       EvalValue.UnitVal
     }
   );
-  if(!(is_bool_val(arg_val)), {
+  if(!is_bool_val(arg_val), {
     exn.throw(
       dyn(
         format_error_message(

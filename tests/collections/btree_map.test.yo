@@ -12,7 +12,7 @@ test("BTreeMap.set inserts single entry", {
   m := BTreeMap(i32, i32).new();
   m.insert(i32(10), i32(100));
   assert(m.len() == usize(1), "len should be 1");
-  assert(!(m.is_empty()), "should not be empty");
+  assert(!m.is_empty(), "should not be empty");
   v := m.get(i32(10));
   assert(v.is_some(), "key 10 should exist");
   assert(v.unwrap() == i32(100), "value should be 100");
@@ -169,7 +169,7 @@ test("BTreeMap ordering after mixed inserts and removes", {
 test("BTreeMap into_iter - empty map", {
   m := BTreeMap(i32, i32).new();
   count := i32(0);
-  for(m.into_iter(), (entry) => {
+  for(m.into_iter(), entry => {
     count = (count + i32(1));
   });
   assert(count == i32(0));
@@ -181,7 +181,7 @@ test("BTreeMap into_iter - sorted order", {
   m.insert(i32(2), i32(20));
   prev_key := i32(0);
   count := i32(0);
-  for(m.into_iter(), (entry) => {
+  for(m.into_iter(), entry => {
     assert(entry.key > prev_key);
     prev_key = entry.key;
     count = (count + i32(1));
@@ -193,7 +193,7 @@ test("BTreeMap iter - yields pointers to entries", {
   m.insert(i32(1), i32(10));
   m.insert(i32(2), i32(20));
   val_sum := i32(0);
-  for(m.iter(), (ptr) => {
+  for(m.iter(), ptr => {
     val_sum = (val_sum + ptr.*.value);
   });
   assert(val_sum == i32(30));
@@ -202,7 +202,7 @@ test("BTreeMap iter - mutate values through pointer", {
   m := BTreeMap(i32, i32).new();
   m.insert(i32(1), i32(10));
   m.insert(i32(2), i32(20));
-  for(m.iter(), (ptr) => {
+  for(m.iter(), ptr => {
     ptr.*.value = (ptr.*.value * i32(10));
   });
   assert(m(i32(1)) == i32(100));
@@ -215,7 +215,7 @@ test("BTreeMap keys - yields keys in sorted order", {
   m.insert(i32(2), i32(20));
   prev := i32(0);
   count := i32(0);
-  for(m.keys(), (k) => {
+  for(m.keys(), k => {
     assert(k > prev);
     prev = k;
     count = (count + i32(1));
@@ -228,7 +228,7 @@ test("BTreeMap values - yields values in sorted key order", {
   m.insert(i32(1), i32(10));
   m.insert(i32(2), i32(20));
   val_sum := i32(0);
-  for(m.values(), (v) => {
+  for(m.values(), v => {
     val_sum = (val_sum + v);
   });
   assert(val_sum == i32(60));

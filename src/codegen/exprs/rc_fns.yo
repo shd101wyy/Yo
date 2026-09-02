@@ -138,7 +138,7 @@ generate_yo_drop_array_element :: (fn(expr : AstExpr, indent : String, context :
   array_code := _call_generate_expr(array_arg, indent.clone(), context);
   index_code := _call_generate_expr(index_arg, indent.clone(), context);
   array_type := _ty(array_arg, context);
-  if(!(is_array_type(array_type)), {
+  if(!is_array_type(array_type), {
     return(codegen_fatal_expr(String.from("__yo_drop_array_element requires an array type")));
   });
   element_type := match(array_type, .Array(el, _, _) => el, _ => return(codegen_fatal_expr(String.from("__yo_drop_array_element requires an array type"))));
@@ -204,7 +204,7 @@ generate_yo_dup_array_element :: (fn(expr : AstExpr, indent : String, context : 
   array_code := _call_generate_expr(array_arg, indent.clone(), context);
   index_code := _call_generate_expr(index_arg, indent.clone(), context);
   array_type := _ty(array_arg, context);
-  if(!(is_array_type(array_type)), {
+  if(!is_array_type(array_type), {
     return(codegen_fatal_expr(String.from("__yo_dup_array_element requires an array type")));
   });
   element_type := match(array_type, .Array(el, _, _) => el, _ => return(codegen_fatal_expr(String.from("__yo_dup_array_element requires an array type"))));
@@ -288,7 +288,7 @@ generate_yo_drop_tuple_element :: (fn(expr : AstExpr, indent : String, context :
   tuple_code := _call_generate_expr(tuple_arg, indent.clone(), context);
   _idx := _call_generate_expr(index_arg, indent.clone(), context);
   tuple_type := _ty(tuple_arg, context);
-  if(!(is_tuple_type(tuple_type)), {
+  if(!is_tuple_type(tuple_type), {
     return(codegen_fatal_expr(String.from("__yo_drop_tuple_element requires a tuple type")));
   });
   raw := match(context.base.get_expr_info(index_arg), .Some(iei) => match(iei.value, .Some(v) => match(v, .IntLit(r) => r, _ => return(codegen_fatal_expr(String.from("__yo_drop_tuple_element requires a constant index")))), .None => return(codegen_fatal_expr(String.from("__yo_drop_tuple_element requires a constant index")))), .None => return(codegen_fatal_expr(String.from("__yo_drop_tuple_element requires a constant index"))));
@@ -325,7 +325,7 @@ generate_yo_dup_tuple_element :: (fn(expr : AstExpr, indent : String, context : 
   tuple_code := _call_generate_expr(tuple_arg, indent.clone(), context);
   _idx := _call_generate_expr(index_arg, indent.clone(), context);
   tuple_type := _ty(tuple_arg, context);
-  if(!(is_tuple_type(tuple_type)), {
+  if(!is_tuple_type(tuple_type), {
     return(codegen_fatal_expr(String.from("__yo_dup_tuple_element requires a tuple type")));
   });
   raw := match(context.base.get_expr_info(index_arg), .Some(iei) => match(iei.value, .Some(v) => match(v, .IntLit(r) => r, _ => return(codegen_fatal_expr(String.from("__yo_dup_tuple_element requires a constant index")))), .None => return(codegen_fatal_expr(String.from("__yo_dup_tuple_element requires a constant index")))), .None => return(codegen_fatal_expr(String.from("__yo_dup_tuple_element requires a constant index"))));

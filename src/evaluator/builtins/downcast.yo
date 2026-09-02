@@ -82,7 +82,7 @@ evaluate_downcast :: (
   dyn_info := match(dyn_info_opt, .Some(i) => i, .None => new_expr_info(cur_env, TypeValue.Unit));
   cur_env = dyn_info.env;
   dyn_type := dyn_info.ty;
-  if(!(is_dyn_type(dyn_type)), {
+  if(!is_dyn_type(dyn_type), {
     exn.throw(
       dyn(
         format_error_message(
@@ -118,7 +118,7 @@ evaluate_downcast :: (
   });
   type_info := match(type_info_opt, .Some(i) => i, .None => new_expr_info(cur_env, TypeValue.Unit));
   cur_env = type_info.env;
-  if(!(is_type_value(type_info.value)), {
+  if(!is_type_value(type_info.value), {
     exn.throw(
       dyn(
         format_error_message(

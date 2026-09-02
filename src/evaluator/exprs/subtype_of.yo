@@ -40,7 +40,7 @@ evaluate_subtype_of :: (
 )({
   (env : Environment) = env_in;
   // Validate: `<:` with exactly 2 arguments.
-  if(!(ast_expr_is_fn_call_of(expr, BK_SUBTYPE_OF, .Some(usize(2)))), {
+  if(!ast_expr_is_fn_call_of(expr, BK_SUBTYPE_OF, .Some(usize(2))), {
     exn.throw(
       dyn(
         format_error_message(
@@ -131,7 +131,7 @@ evaluate_subtype_of :: (
     _ => t_unit()
   );
   // In a where clause, the LHS must be a SomeType (type parameter).
-  if(ctx.is_inside_where_clause && !(is_some_type(lhs_ty)), {
+  if(ctx.is_inside_where_clause && !is_some_type(lhs_ty), {
     exn.throw(
       dyn(
         format_error_message(
@@ -282,7 +282,7 @@ evaluate_subtype_of :: (
       }
     );
     // Negated constraints only allowed in where clauses.
-    if(is_neg && !(ctx.is_inside_where_clause), {
+    if(is_neg && !ctx.is_inside_where_clause, {
       exn.throw(
         dyn(
           format_error_message(
@@ -361,8 +361,8 @@ evaluate_subtype_of :: (
       }
     );
     // Verify LHS implements the trait (skip for SomeType — checked at instantiation).
-    if(!(is_some_type(lhs_ty)), {
-      if(!(type_implements_trait_bool(lhs_ty, trait_ty, env)), {
+    if(!is_some_type(lhs_ty), {
+      if(!type_implements_trait_bool(lhs_ty, trait_ty, env), {
         exn.throw(
           dyn(
             format_error_message(

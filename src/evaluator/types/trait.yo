@@ -217,7 +217,7 @@ _get_or_create_some_ty_for_trait :: (
       new_expr_info(env_mut, TypeValue.Unit)
     }
   );
-  if(!(is_type_value(lhs_info.value)), {
+  if(!is_type_value(lhs_info.value), {
     exn.throw(
       dyn(
         format_error_message(
@@ -238,7 +238,7 @@ _get_or_create_some_ty_for_trait :: (
     .Some(v) => match(v, .TypeVal(b) => b, _ => TypeValue.Unit),
     .None => TypeValue.Unit
   );
-  if(!(is_some_type(lhs_tv)), {
+  if(!is_some_type(lhs_tv), {
     exn.throw(
       dyn(
         format_error_message(
@@ -325,7 +325,7 @@ _apply_single_constraint_for_trait :: (
       return(false);
     }
   );
-  if(!(is_type_value(te_info.value)), {
+  if(!is_type_value(te_info.value), {
     return(false);
   });
   env_mut.frames = te_info.env.frames;
@@ -337,7 +337,7 @@ _apply_single_constraint_for_trait :: (
     .Some(v) => match(v, .TypeVal(b) => b, _ => TypeValue.Unit),
     .None => TypeValue.Unit
   );
-  if(!(is_trait_type(trait_ty2)), {
+  if(!is_trait_type(trait_ty2), {
     // Hard error — we got a value but it's not a trait
     // (soft failure is only for eval errors, not type errors)
     return(false);
@@ -392,7 +392,7 @@ _parse_trait_where_clauses :: (
       }
     );
     ci = (ci + usize(1));
-    if(!(ast_expr_is_fn_call_of(constraint_expr, "<:", .Some(usize(2)))), {
+    if(!ast_expr_is_fn_call_of(constraint_expr, "<:", .Some(usize(2))), {
       exn.throw(
         dyn(
           format_error_message(
@@ -486,7 +486,7 @@ _parse_trait_where_clauses :: (
           new_expr_info(env_mut, TypeValue.Unit)
         }
       );
-      if(!(is_type_value(te_info.value)), {
+      if(!is_type_value(te_info.value), {
         if(collect_pending, {
           pending_traits.push(_PendingTraitConstraint(lhs_expr, trait_expr_item, constraint_expr));
           continue;
@@ -512,7 +512,7 @@ _parse_trait_where_clauses :: (
         .Some(v) => match(v, .TypeVal(b) => b, _ => TypeValue.Unit),
         .None => TypeValue.Unit
       );
-      if(!(is_trait_type(trait_ty2)), {
+      if(!is_trait_type(trait_ty2), {
         exn.throw(
           dyn(
             format_error_message(
@@ -577,7 +577,7 @@ _drop_where_constraint_failures :: (
   ) -> unit
 )({
   retry_exn := Exception(
-    throw : ((_err) -> unwind(()))
+    throw : (_err -> unwind(()))
   );
   _parse_trait_where_clauses(
     retry_list,
@@ -674,7 +674,7 @@ _evaluate_trait_field :: (
         )
       );
     });
-    if(!(ast_expr_is_atom(lhs_label_expr)) && !(is_valid_variable_name(lhs_label_expr)), {
+    if(!ast_expr_is_atom(lhs_label_expr) && !is_valid_variable_name(lhs_label_expr), {
       exn.throw(
         dyn(
           format_error_message(
@@ -717,7 +717,7 @@ _evaluate_trait_field :: (
       );
     });
     // The expr_inner itself is the label
-    if(!(is_valid_variable_name(expr_inner)), {
+    if(!is_valid_variable_name(expr_inner), {
       exn.throw(
         dyn(
           format_error_message(
@@ -788,7 +788,7 @@ _evaluate_trait_field :: (
       env_mut.module_path = te_info.env.module_path;
       env_mut.function_declaration_frame_level = te_info.env.function_declaration_frame_level;
       env_mut.input_string = te_info.env.input_string;
-      if(!(is_type_value(te_info.value)), {
+      if(!is_type_value(te_info.value), {
         exn.throw(
           dyn(
             format_error_message(
@@ -881,7 +881,7 @@ _evaluate_trait_field :: (
       match(
         field_expected_ty_opt,
         .Some(fet) => {
-          if(!(are_types_compatible(fet, av_ty)), {
+          if(!are_types_compatible(fet, av_ty), {
             exn.throw(
               dyn(
                 format_error_message(
@@ -975,7 +975,7 @@ _evaluate_trait_field :: (
       match(
         field_expected_ty_opt,
         .Some(fet) => {
-          if(!(are_types_compatible(fet, dv_ty)), {
+          if(!are_types_compatible(fet, dv_ty), {
             exn.throw(
               dyn(
                 format_error_message(
@@ -1033,7 +1033,7 @@ _evaluate_trait_field :: (
   // Phase 7: detect associated type (TypeUni(0) + !assignedValue + isForEvaluatingTraitType)
   (assoc_some_ty_opt : Option(TypeValue)) = Option(TypeValue).None;
   is_type_uni_0 := match(field_ty, .TypeUni(lvl) => (lvl == usize(0)), _ => false);
-  if((is_for_evaluating_trait_ty && assigned_val_opt.is_none()) && is_type_uni_0, {
+  if(is_for_evaluating_trait_ty && assigned_val_opt.is_none() && is_type_uni_0, {
     // Check if a SomeType for this label already exists in env
     existing_vars := get_variables_from_env(env_mut, label_str);
     (found_existing : bool) = false;
@@ -1061,7 +1061,7 @@ _evaluate_trait_field :: (
         .None => ()
       );
     });
-    if(!(found_existing), {
+    if(!found_existing, {
       top_frame := env_mut.frames.len();
       if(top_frame > usize(0), {
         new_some_ty := t_some_t(label_str, top_frame - usize(1));
@@ -1090,7 +1090,7 @@ evaluate_trait_type :: (
     exn : Exception
   ) -> AstExpr
 )({
-  if(!(ast_expr_is_fn_call_of(expr, BK_TRAIT, .None)), {
+  if(!ast_expr_is_fn_call_of(expr, BK_TRAIT, .None), {
     exn.throw(
       dyn(
         format_error_message(
@@ -1289,7 +1289,7 @@ evaluate_trait_type :: (
             .None => ()
           );
         });
-        if(!(already_bound), {
+        if(!already_bound, {
           tv := create_type_value(some_ty);
           add_variable_to_env(
             env_mut,

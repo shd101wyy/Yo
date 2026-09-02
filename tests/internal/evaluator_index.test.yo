@@ -41,20 +41,20 @@ noop_loader :: (fn(_path : String) -> Option(EvalValue))(
 test("has_comment_attribute: returns false for empty list", {
   toks := ArrayList(Token).new();
   result := has_comment_attribute(toks, `@skip_prelude`);
-  assert(!(result), "expected false for empty token list");
+  assert(!result, "expected false for empty token list");
 });
 test("has_comment_attribute: returns false when no comments", {
   toks := ArrayList(Token).new();
   toks.push(make_token(TokenKind.Identifier, "hello"));
   toks.push(make_token(TokenKind.Integer, "42"));
   result := has_comment_attribute(toks, `@skip_prelude`);
-  assert(!(result), "expected false when no comment tokens");
+  assert(!result, "expected false when no comment tokens");
 });
 test("has_comment_attribute: returns false when comment missing attribute", {
   toks := ArrayList(Token).new();
   toks.push(make_comment("// some comment"));
   result := has_comment_attribute(toks, `@skip_prelude`);
-  assert(!(result), "expected false when attribute absent");
+  assert(!result, "expected false when attribute absent");
 });
 test("has_comment_attribute: returns true for SingleLineComment with attribute", {
   toks := ArrayList(Token).new();
@@ -72,25 +72,25 @@ test("has_comment_attribute: returns false for DocLineComment with attribute", {
   toks := ArrayList(Token).new();
   toks.push(make_token(TokenKind.DocLineComment, "/// @skip_prelude"));
   result := has_comment_attribute(toks, `@skip_prelude`);
-  assert(!(result), "expected false: doc comments are excluded from attribute scan");
+  assert(!result, "expected false: doc comments are excluded from attribute scan");
 });
 test("has_comment_attribute: returns false for InnerDocLineComment with attribute", {
   toks := ArrayList(Token).new();
   toks.push(make_token(TokenKind.InnerDocLineComment, "//! @skip_prelude"));
   result := has_comment_attribute(toks, `@skip_prelude`);
-  assert(!(result), "expected false: doc comments are excluded from attribute scan");
+  assert(!result, "expected false: doc comments are excluded from attribute scan");
 });
 test("has_comment_attribute: returns false for DocBlockComment with attribute", {
   toks := ArrayList(Token).new();
   toks.push(make_token(TokenKind.DocBlockComment, "/** @skip_prelude */"));
   result := has_comment_attribute(toks, `@skip_prelude`);
-  assert(!(result), "expected false: doc comments are excluded from attribute scan");
+  assert(!result, "expected false: doc comments are excluded from attribute scan");
 });
 test("has_comment_attribute: returns false for InnerDocBlockComment with attribute", {
   toks := ArrayList(Token).new();
   toks.push(make_token(TokenKind.InnerDocBlockComment, "/*! @skip_prelude */"));
   result := has_comment_attribute(toks, `@skip_prelude`);
-  assert(!(result), "expected false: doc comments are excluded from attribute scan");
+  assert(!result, "expected false: doc comments are excluded from attribute scan");
 });
 test("has_comment_attribute: finds attribute in later token", {
   toks := ArrayList(Token).new();
@@ -110,7 +110,7 @@ test("has_comment_attribute: returns false for different attribute", {
   toks := ArrayList(Token).new();
   toks.push(make_comment("// @other_attr"));
   result := has_comment_attribute(toks, `@skip_prelude`);
-  assert(!(result), "expected false when only a different attribute is present");
+  assert(!result, "expected false when only a different attribute is present");
 });
 // ---------------------------------------------------------------------------
 // Evaluator.new — basic smoke tests with skip-prelude sources
@@ -118,7 +118,7 @@ test("has_comment_attribute: returns false for different attribute", {
 test("Evaluator.new: empty source with skip_prelude", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -143,7 +143,7 @@ test("Evaluator.new: empty source with skip_prelude", {
 test("Evaluator.new: simple binding with skip_prelude", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -179,7 +179,7 @@ test("Evaluator.new: simple binding with skip_prelude", {
 test("Evaluator.new: get_tokens returns non-empty list", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -199,7 +199,7 @@ test("Evaluator.new: get_tokens returns non-empty list", {
 test("Evaluator.new: get_program returns non-empty AST", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -219,7 +219,7 @@ test("Evaluator.new: get_program returns non-empty AST", {
 test("Evaluator.new: get_env returns Some environment", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -244,7 +244,7 @@ test("Evaluator.new: get_env returns Some environment", {
 test("Evaluator.new: module_value contains exported name", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }

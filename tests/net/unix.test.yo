@@ -17,12 +17,12 @@ open(import("std/string"));
 { temp_dir } :: import("std/env");
 
 _sock :: (fn(name : str) -> Path)(
-  Path.new((temp_dir() + `/yo_unix_`.to_string()) + String.from(name))
+  Path.new(temp_dir() + `/yo_unix_`.to_string() + String.from(name))
 );
 test("bind, connect, accept, echo round-trip", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -92,7 +92,7 @@ test("binding an existing path throws AddressInUse", {
   });
   e0 := Exception(
     throw : (
-      (err0) -> {
+      err0 -> {
         assert(false, "setup failed");
         unwind(());
       }
@@ -103,7 +103,7 @@ test("binding an existing path throws AddressInUse", {
   first := io.await(UnixListener.bind(path, io), e);
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         msg := err.to_string();
         assert(msg.contains(`in use`) || msg.contains(`already`), `expected AddressInUse, got: ${msg}`);
         unwind(());
@@ -125,7 +125,7 @@ test("dup.sock cleanup", {
   });
   e0 := Exception(
     throw : (
-      (err0) -> {
+      err0 -> {
         assert(true, "already clean");
         unwind(());
       }

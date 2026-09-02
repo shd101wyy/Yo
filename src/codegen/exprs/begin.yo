@@ -124,11 +124,11 @@ _emit_deferred_drops :: (fn(ei : ExprInfo, indent : String, context : FunctionGe
               get_deferred_drop_target_atom_name(drop_expr),
               .Some(nm) => {
                 cn := sanitize_for_c_identifier(nm, false);
-                (is_temp_variable_name(ei.env.module_path.clone(), cn.clone()) || _looks_like_minted_temp(cn.clone())) && !(context.base.declared_c_var_names.contains(cn))
+                (is_temp_variable_name(ei.env.module_path.clone(), cn.clone()) || _looks_like_minted_temp(cn.clone())) && !context.base.declared_c_var_names.contains(cn)
               },
               .None => false
             );
-            if(!(skip_capture) && !(undeclared_temp), {
+            if(!skip_capture && !undeclared_temp, {
               sc_skip := match(
                 context.short_circuit_handled_drop_var_names,
                 .Some(handled) => match(
@@ -141,7 +141,7 @@ _emit_deferred_drops :: (fn(ei : ExprInfo, indent : String, context : FunctionGe
                 ),
                 .None => false
               );
-              if(!(sc_skip), {
+              if(!sc_skip, {
                 drop_code := _call_generate_expr(drop_expr, indent.clone(), context);
                 if(drop_code.len() > usize(0), {
                   line := indent.clone();
@@ -174,7 +174,7 @@ generate_begin :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
       // Expression form: begin block that returns a value.
       is_unit := is_unit_type(value_type);
       has_cf := has_any_control_flow(ei.control_flow);
-      is_returning := (!(is_unit) && !(has_cf));
+      is_returning := (!is_unit && !has_cf);
       if(is_returning, {
         d := indent.clone();
         d.push_string(get_type_string(value_type, context.base));
@@ -194,7 +194,7 @@ generate_begin :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
       (idx : usize) = usize(0);
       (stop : bool) = false;
       last_arg_code := String.from("");
-      while((idx < n) && !(stop), {
+      while((idx < n) && !stop, {
         match(
           args.get(idx),
           .Some(arg) => match(
@@ -209,7 +209,7 @@ generate_begin :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
                 !(is_last && is_returning),
                 if(result.len() > usize(0), {
                   is_temp := is_temp_variable_name(arg_ei.env.module_path.clone(), result.clone());
-                  if(!(is_temp), {
+                  if(!is_temp, {
                     line := indent2.clone();
                     line.push_string(result.clone());
                     line.push_str(";");

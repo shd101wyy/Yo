@@ -12,7 +12,7 @@ open(import("std/libc/stdio"));
 // ============================================================================
 test("Once new is not done", {
   o := Once.new();
-  assert(!(o.is_done()), "new Once should not be done");
+  assert(!o.is_done(), "new Once should not be done");
 });
 test("Once call executes function", {
   o := Once.new();
@@ -39,7 +39,7 @@ test("Once call executes only once", {
 });
 test("Once is_done after call", {
   o := Once.new();
-  assert(!(o.is_done()), "should not be done before call");
+  assert(!o.is_done(), "should not be done before call");
   o.call(() => ());
   assert(o.is_done(), "should be done after call");
 });
@@ -89,17 +89,17 @@ test("Once call from multiple threads executes only once", {
   if(arch == Arch.Wasm32, return(()));
   o := Once.new();
   counter := AtomicI32(i32(0));
-  t1 := Thread.spawn((io) => {
+  t1 := Thread.spawn(io => {
     o.call(() => {
       counter.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
   });
-  t2 := Thread.spawn((io) => {
+  t2 := Thread.spawn(io => {
     o.call(() => {
       counter.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
   });
-  t3 := Thread.spawn((io) => {
+  t3 := Thread.spawn(io => {
     o.call(() => {
       counter.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
@@ -122,7 +122,7 @@ test("Once is_done visible across threads after call", {
   o.call(() => {
     counter.fetch_add(i32(1), MemoryOrder.Relaxed);
   });
-  t := Thread.spawn((io) => {
+  t := Thread.spawn(io => {
     assert(o.is_done(), "should see done from other thread");
     // Second call should be no-op
     o.call(() => {
@@ -137,27 +137,27 @@ test("Once multiple threads race to call", {
   o := Once.new();
   counter := AtomicI32(i32(0));
   // All threads start at the same time (no sleep)
-  t1 := Thread.spawn((io) => {
+  t1 := Thread.spawn(io => {
     o.call(() => {
       counter.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
   });
-  t2 := Thread.spawn((io) => {
+  t2 := Thread.spawn(io => {
     o.call(() => {
       counter.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
   });
-  t3 := Thread.spawn((io) => {
+  t3 := Thread.spawn(io => {
     o.call(() => {
       counter.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
   });
-  t4 := Thread.spawn((io) => {
+  t4 := Thread.spawn(io => {
     o.call(() => {
       counter.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
   });
-  t5 := Thread.spawn((io) => {
+  t5 := Thread.spawn(io => {
     o.call(() => {
       counter.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
@@ -180,19 +180,19 @@ test("Once with pool tasks executes only once", {
   wg := WaitGroup.new();
   pool := ThreadPool.new(usize(2));
   wg.add(i32(3));
-  spawn(pool, (io) => {
+  spawn(pool, io => {
     o.call(() => {
       counter.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
     wg.done();
   });
-  spawn(pool, (io) => {
+  spawn(pool, io => {
     o.call(() => {
       counter.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
     wg.done();
   });
-  spawn(pool, (io) => {
+  spawn(pool, io => {
     o.call(() => {
       counter.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
@@ -216,7 +216,7 @@ comptime_expect_error({
 });
 test("OnceCell new is empty", {
   cell := OnceCell(i32).new();
-  assert(!(cell.is_initialized()), "a fresh cell is not initialized");
+  assert(!cell.is_initialized(), "a fresh cell is not initialized");
   assert(cell.get().is_none(), "get on a fresh cell is None");
 });
 test("OnceCell get_or_init stores and returns the value", {
@@ -270,10 +270,10 @@ test("OnceCell get_or_init from multiple threads initializes exactly once", {
       });
     }
   );
-  t1 := Thread.spawn((io) => racer());
-  t2 := Thread.spawn((io) => racer());
-  t3 := Thread.spawn((io) => racer());
-  t4 := Thread.spawn((io) => racer());
+  t1 := Thread.spawn(io => racer());
+  t2 := Thread.spawn(io => racer());
+  t3 := Thread.spawn(io => racer());
+  t4 := Thread.spawn(io => racer());
   // The main thread races too.
   racer();
   t1.join();

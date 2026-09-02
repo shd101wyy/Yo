@@ -32,7 +32,7 @@ _user_cwd :: (fn() -> String)(
 /// Resolve `p` against the user's cwd unless it is already absolute.
 _resolve_from_cwd :: (fn(p : String) -> Path)(
   cond(
-    (p.starts_with(String.from("/"))) => Path.new(p),
+    p.starts_with(String.from("/")) => Path.new(p),
     true => Path.new(_user_cwd()).join(Path.new(p))
   )
 );
@@ -53,7 +53,7 @@ ensure_gitignore :: (
       already => {
         content := String.from_bytes(e.io.await(read(Path.new(gitignore_str.clone()), e.io), e));
         cond(
-          (content.contains(entry.clone())) => (),
+          content.contains(entry.clone()) => (),
           true => {
             e.io.await(write_string(Path.new(gitignore_str.clone()), `${content}\n${entry}\n`, e.io), e);
           }
@@ -78,7 +78,7 @@ run_fetch :: (
     resolved_build_file_str := resolved_build_file.to_string();
     build_file_exists := e.io.await(exists(Path.new(resolved_build_file_str.clone()), e.io), e.io);
     cond(
-      !(build_file_exists) => {
+      !build_file_exists => {
         eprintln(`Error: Build file not found: ${resolved_build_file_str}`);
         eprintln(String.from("Run 'yo init' to create a project with a build.yo file."));
         e.exn.throw(dyn(String.from("fetch: build file not found")));

@@ -188,7 +188,7 @@ enrich_captured_variables :: (
                   vars.get(j),
                   .None => (),
                   .Some(v) => {
-                    if(!(v.is_compile_time_only), {
+                    if(!v.is_compile_time_only, {
                       enriched := FuncCapturedVarInfo(
                         frame_level : fl,
                         usage : cap_info.usage,
@@ -462,7 +462,7 @@ generate_captured_variable_dup_expressions :: (
     .Some(cvwv) => if(cvwv.len() > usize(0), {
       key_iter := cvwv.keys();
       (done : bool) = false;
-      while(!(done), {
+      while(!done, {
         match(
           key_iter.next(),
           .Some(var_name) => match(

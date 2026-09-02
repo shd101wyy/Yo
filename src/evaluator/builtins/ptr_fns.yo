@@ -65,7 +65,7 @@ evaluate_address_call :: (
   // forbid. Reject at the construction site so the diagnostic points at `&(...)`
   // rather than some downstream use. Mirrors ptr-fns.ts:45-61.
   ptok := ast_expr_token(expr);
-  if((!(ctx.unsafe_context)) && (!(is_implicitly_unsafe_capable_file(Option(String).Some(ptok.module_path.clone())))), {
+  if(!ctx.unsafe_context && !is_implicitly_unsafe_capable_file(Option(String).Some(ptok.module_path.clone())), {
     exn.throw(
       dyn(
         format_error_message(

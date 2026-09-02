@@ -9,14 +9,14 @@ test("Path.new creates path from string", {
 test("Path.new handles absolute paths", {
   path := Path.new(`/usr/local/bin`);
   assert(path.is_absolute());
-  assert(!(path.is_relative()));
+  assert(!path.is_relative());
   s := path.to_string();
   assert(s == `/usr/local/bin`);
 });
 test("Path.new handles relative paths", {
   path := Path.new(`./src/main.yo`);
   assert(path.is_relative());
-  assert(!(path.is_absolute()));
+  assert(!path.is_absolute());
 });
 test("Path.new normalizes . in paths", {
   path := Path.new(`/usr/./local/./bin`);
@@ -290,7 +290,7 @@ test("Path.is_absolute identifies absolute Unix paths", {
 });
 test("Path.is_absolute identifies relative paths", {
   path := Path.new(`usr/local/bin`);
-  assert(!(path.is_absolute()));
+  assert(!path.is_absolute());
 });
 test("Path.is_relative identifies relative paths", {
   path := Path.new(`./src/main.yo`);
@@ -298,7 +298,7 @@ test("Path.is_relative identifies relative paths", {
 });
 test("Path.is_relative identifies absolute paths", {
   path := Path.new(`/src/main.yo`);
-  assert(!(path.is_relative()));
+  assert(!path.is_relative());
 });
 test("Path with single segment", {
   path := Path.new(`main.yo`);
@@ -417,17 +417,17 @@ test("Path.starts_with exact match", {
 test("Path.starts_with non-matching prefix", {
   p := Path.new(`/usr/local/bin`);
   base := Path.new(`/var`);
-  assert(!(p.starts_with(base)));
+  assert(!p.starts_with(base));
 });
 test("Path.starts_with longer base", {
   p := Path.new(`/usr`);
   base := Path.new(`/usr/local`);
-  assert(!(p.starts_with(base)));
+  assert(!p.starts_with(base));
 });
 test("Path.starts_with relative vs absolute", {
   p := Path.new(`/usr/local`);
   base := Path.new(`usr`);
-  assert(!(p.starts_with(base)));
+  assert(!p.starts_with(base));
 });
 test("Path.starts_with both relative", {
   p := Path.new(`foo/bar/baz`);
@@ -457,12 +457,12 @@ test("Path.ends_with exact match", {
 test("Path.ends_with non-matching suffix", {
   p := Path.new(`/usr/local/bin`);
   suffix := Path.new(`lib`);
-  assert(!(p.ends_with(suffix)));
+  assert(!p.ends_with(suffix));
 });
 test("Path.ends_with longer suffix", {
   p := Path.new(`foo`);
   suffix := Path.new(`foo/bar`);
-  assert(!(p.ends_with(suffix)));
+  assert(!p.ends_with(suffix));
 });
 test("Path.ends_with absolute suffix match", {
   p := Path.new(`/usr/local/bin`);
@@ -472,7 +472,7 @@ test("Path.ends_with absolute suffix match", {
 test("Path.ends_with absolute suffix mismatch", {
   p := Path.new(`usr/local/bin`);
   suffix := Path.new(`/local/bin`);
-  assert(!(p.ends_with(suffix)));
+  assert(!p.ends_with(suffix));
 });
 test("Path.ends_with empty suffix", {
   p := Path.new(`foo/bar`);

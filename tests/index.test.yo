@@ -12,11 +12,11 @@ impl(
   MyArray,
   Index(usize)(
     Output : i32,
-    index : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))(
+    index : (fn(inout(self) : Self, idx : usize) -> *Self.Output)(
       cond(
-        (idx == usize(0)) => &(self.data0),
-        (idx == usize(1)) => &(self.data1),
-        (idx == usize(2)) => &(self.data2),
+        (idx == usize(0)) => &self.data0,
+        (idx == usize(1)) => &self.data1,
+        (idx == usize(2)) => &self.data2,
         true => __yo_panic("MyArray: index out of bounds")
       )
     )
@@ -36,7 +36,7 @@ test("Test Index trait on custom struct", {
 test("Test Index trait address-of", {
   (arr : MyArray) = MyArray(i32(100), i32(200), i32(300));
   // &(arr(i)) should return a pointer to the element
-  (p : *(i32)) = &(arr(usize(1)));
+  (p : *i32) = &arr(usize(1));
   assert(p.* == i32(200), "&(arr(1)).* should be 200");
   // Mutate through pointer
   p.* = i32(999);
@@ -58,7 +58,7 @@ test("Test Index trait address-of on ArrayList", {
   list.push(i32(200));
   list.push(i32(300));
   // &(list(i)) should return a pointer to the element
-  (p : *(i32)) = &(list(usize(1)));
+  (p : *i32) = &list(usize(1));
   assert(p.* == i32(200), "&(list(1)).* should be 200");
   // Mutate through pointer
   p.* = i32(999);
@@ -284,13 +284,13 @@ test("Test NOT operator on Index trait field access", {
   _ := markers.push(Marker(active : true, is_image : false));
   _ := markers.push(Marker(active : true, is_image : true));
   // Direct ! on Index trait field access
-  assert(!(markers(usize(0)).is_image), "markers[0] should not be image");
+  assert(!markers(usize(0)).is_image, "markers[0] should not be image");
   assert(markers(usize(1)).is_image, "markers[1] should be image");
   // ! inside a loop (the original bug scenario)
   (count : i32) = i32(0);
   (i : i32) = i32(0);
   while(i < i32(2), {
-    if(!(markers(usize(i)).is_image), {
+    if(!markers(usize(i)).is_image, {
       count = (count + i32(1));
     });
     i = (i + i32(1));
@@ -438,10 +438,10 @@ impl(
   Point,
   Index(usize)(
     Output : i32,
-    index : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))(
+    index : (fn(inout(self) : Self, idx : usize) -> *Self.Output)(
       cond(
-        (idx == usize(0)) => &(self.x),
-        true => &(self.y)
+        (idx == usize(0)) => &self.x,
+        true => &self.y
       )
     )
   )
@@ -450,10 +450,10 @@ impl(
   Point,
   ComptimeIndex(usize)(
     Output : i32,
-    index : (fn(comptime(inout(self)) : Self, comptime(idx) : usize) -> comptime(*(Self.Output)))(
+    index : (fn(comptime(inout(self)) : Self, comptime(idx) : usize) -> comptime(*Self.Output))(
       cond(
-        (idx == usize(0)) => &(self.x),
-        true => &(self.y)
+        (idx == usize(0)) => &self.x,
+        true => &self.y
       )
     )
   )
@@ -485,10 +485,10 @@ impl(
   StrictPoint,
   Index(usize)(
     Output : i32,
-    index : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))(
+    index : (fn(inout(self) : Self, idx : usize) -> *Self.Output)(
       cond(
-        (idx == usize(0)) => &(self.x),
-        (idx == usize(1)) => &(self.y),
+        (idx == usize(0)) => &self.x,
+        (idx == usize(1)) => &self.y,
         true => __yo_panic("StrictPoint: index out of bounds")
       )
     )
@@ -498,13 +498,13 @@ impl(
   StrictPoint,
   ComptimeIndex(usize)(
     Output : i32,
-    index : (fn(comptime(inout(self)) : Self, comptime(idx) : usize) -> comptime(*(Self.Output)))(
+    index : (fn(comptime(inout(self)) : Self, comptime(idx) : usize) -> comptime(*Self.Output))(
       cond(
-        (idx == usize(0)) => &(self.x),
-        (idx == usize(1)) => &(self.y),
+        (idx == usize(0)) => &self.x,
+        (idx == usize(1)) => &self.y,
         true => {
           comptime_assert(false, "StrictPoint: index out of bounds");
-          &(self.x)
+          &self.x
         }
       )
     )
@@ -523,10 +523,10 @@ impl(
   GenericPoint(T),
   Index(usize)(
     Output : T,
-    index : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))(
+    index : (fn(inout(self) : Self, idx : usize) -> *Self.Output)(
       cond(
-        (idx == usize(0)) => &(self.x),
-        true => &(self.y)
+        (idx == usize(0)) => &self.x,
+        true => &self.y
       )
     )
   )
@@ -537,10 +537,10 @@ impl(
   GenericPoint(T),
   ComptimeIndex(usize)(
     Output : T,
-    index : (fn(comptime(inout(self)) : Self, comptime(idx) : usize) -> comptime(*(Self.Output)))(
+    index : (fn(comptime(inout(self)) : Self, comptime(idx) : usize) -> comptime(*Self.Output))(
       cond(
-        (idx == usize(0)) => &(self.x),
-        true => &(self.y)
+        (idx == usize(0)) => &self.x,
+        true => &self.y
       )
     )
   )
@@ -575,10 +575,10 @@ impl(
   Pair,
   Index(usize)(
     Output : i32,
-    index : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))(
+    index : (fn(inout(self) : Self, idx : usize) -> *Self.Output)(
       cond(
-        (idx == usize(0)) => &(self.first),
-        true => &(self.second)
+        (idx == usize(0)) => &self.first,
+        true => &self.second
       )
     )
   )
@@ -587,10 +587,10 @@ impl(
   Pair,
   ComptimeIndex(usize)(
     Output : i32,
-    index : (fn(comptime(inout(self)) : Self, comptime(idx) : usize) -> comptime(*(Self.Output)))(
+    index : (fn(comptime(inout(self)) : Self, comptime(idx) : usize) -> comptime(*Self.Output))(
       cond(
-        (idx == usize(0)) => &(self.first),
-        true => &(self.second)
+        (idx == usize(0)) => &self.first,
+        true => &self.second
       )
     )
   )

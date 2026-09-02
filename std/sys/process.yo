@@ -17,9 +17,9 @@ pragma(Pragma.AllowUnsafe);
 // stdin_fd/stdout_fd/stderr_fd: fd redirections (-1 = inherit)
 spawn :: (
   fn(
-    file : *(u8),
-    argv : *(?(*(u8))),
-    envp : ?(*(?(*(u8)))),
+    file : *u8,
+    argv : *?*u8,
+    envp : ?*?*u8,
     stdin_fd : i32,
     stdout_fd : i32,
     stderr_fd : i32
@@ -30,13 +30,13 @@ spawn :: (
 // Spawn with a working directory (`.None` = inherit the parent's).
 spawn_cwd :: (
   fn(
-    file : *(u8),
-    argv : *(?(*(u8))),
-    envp : ?(*(?(*(u8)))),
+    file : *u8,
+    argv : *?*u8,
+    envp : ?*?*u8,
     stdin_fd : i32,
     stdout_fd : i32,
     stderr_fd : i32,
-    cwd : ?(*(u8))
+    cwd : ?*u8
   ) -> IoFuture
 )(
   __yo_async_spawn_start_cwd(file, argv, envp, stdin_fd, stdout_fd, stderr_fd, cwd)

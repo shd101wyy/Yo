@@ -42,7 +42,7 @@ evaluate_extern :: (
     exn : Exception
   ) -> AstExpr
 )({
-  if(!(ast_expr_is_fn_call_of(expr, BK_EXTERN, .None)), {
+  if(!ast_expr_is_fn_call_of(expr, BK_EXTERN, .None), {
     exn.throw(
       dyn(
         format_error_message(
@@ -58,7 +58,7 @@ evaluate_extern :: (
   // names to symbols outside the type system's reach. Only files with
   // `pragma(Pragma.AllowUnsafe);` can declare them. User code calls
   // stdlib wrappers instead. Mirrors `extern.ts:46-66`.
-  if(!(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(expr).module_path.clone()))), {
+  if(!is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(expr).module_path.clone())), {
     exn.throw(
       dyn(
         format_error_message(
@@ -170,7 +170,7 @@ User code should normally call stdlib wrappers (e.g. functions in
     // Check for duplicate labels.
     (dup_idx : usize) = usize(0);
     (has_dup : bool) = false;
-    while((dup_idx < field_labels.len()) && !(has_dup), {
+    while((dup_idx < field_labels.len()) && !has_dup, {
       existing := match(field_labels.get(dup_idx), .Some(l) => l, .None => String.from(""));
       if(existing == result.label, {
         has_dup = true;

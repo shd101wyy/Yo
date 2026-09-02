@@ -27,7 +27,7 @@ test("realpath resolves . and ..", {
   assert(mk_base == i32(0));
   mk_sub := io.await(dir.mkdir(AT_FDCWD, sub_dir, i32(0o755)), io);
   assert(mk_sub == i32(0));
-  write_flags := ((O_WRONLY | O_CREAT) | O_TRUNC);
+  write_flags := (O_WRONLY | O_CREAT | O_TRUNC);
   fd := io.await(file.openat(AT_FDCWD, file_path, write_flags, i32(0o644)), io);
   assert(fd >= i32(0));
   data := *(u8)("realpath data");
@@ -70,7 +70,7 @@ test("realpath resolves symlink target", {
   io.await(dir.unlink(AT_FDCWD, base_dir, AT_REMOVEDIR), io);
   mk_base := io.await(dir.mkdir(AT_FDCWD, base_dir, i32(0o755)), io);
   assert(mk_base == i32(0));
-  write_flags := ((O_WRONLY | O_CREAT) | O_TRUNC);
+  write_flags := (O_WRONLY | O_CREAT | O_TRUNC);
   fd := io.await(file.openat(AT_FDCWD, target_path, write_flags, i32(0o644)), io);
   assert(fd >= i32(0));
   data := *(u8)("symlink target");

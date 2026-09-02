@@ -265,7 +265,7 @@ evaluate_yo_iso_extract :: (
 )({
   info := _eval_arg("evaluate_yo_iso_extract", expr, env, ctx, usize(0), exn);
   arg_type := info.ty;
-  if(!(is_iso_type(arg_type)), {
+  if(!is_iso_type(arg_type), {
     args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
     tok := match(args.get(usize(0)), .Some(a) => ast_expr_token(a), .None => ast_expr_token(expr));
     exn.throw(
@@ -346,7 +346,7 @@ evaluate_yo_dup_array_element :: (
   info1;
   array_type := info0.ty;
   args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
-  if(!(is_array_type(array_type)), {
+  if(!is_array_type(array_type), {
     tok := match(args.get(usize(0)), .Some(a) => ast_expr_token(a), .None => ast_expr_token(expr));
     exn.throw(
       dyn(
@@ -378,7 +378,7 @@ evaluate_yo_dup_tuple_element :: (
   info1 := _eval_arg("evaluate_yo_dup_tuple_element", expr, info0.env, ctx, usize(1), exn);
   tuple_type := info0.ty;
   args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
-  if(!(is_tuple_type(tuple_type)), {
+  if(!is_tuple_type(tuple_type), {
     tok := match(args.get(usize(0)), .Some(a) => ast_expr_token(a), .None => ast_expr_token(expr));
     exn.throw(
       dyn(

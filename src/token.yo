@@ -111,10 +111,10 @@ is_reserved_operator_name :: (fn(name : String) -> bool)(
   (name == "=") || ((name == ":=") || ((name == "::") || ((name == ":") || ((name == "=>") || ((name == "->") || ((name == "<:") || ((name == "?=") || ((name == "&&") || ((name == "||") || ((name == "#") || ((name == "...#") || ((name == "..") || ((name == "..=") || (name == "..."))))))))))))))
 );
 is_identifier_start :: (fn(c : rune) -> bool)(
-  ((c.char == u32(95)) || c.is_alphabetic()) || (c.char >= u32(0xA0))
+  (c.char == u32(95)) || c.is_alphabetic() || (c.char >= u32(0xA0))
 );
 is_identifier_continue :: (fn(c : rune) -> bool)(
-  (is_identifier_start(c)) || c.is_digit()
+  is_identifier_start(c) || c.is_digit()
 );
 /// True iff every char of `s` is an operator char. Mirrors
 /// `stringIsOperator` in `src/token.ts`.
@@ -173,7 +173,7 @@ string_is_operator :: (fn(s : String) -> bool)({
           // #
           true => false
         );
-        if(!(is_op), {
+        if(!is_op, {
           ok = false;
         });
         i = (i + usize(1));
@@ -207,13 +207,13 @@ is_valid_identifier :: (fn(s : String) -> bool)({
     true => {
       first := match(chars.get(usize(0)), .Some(c) => c, .None => rune(u32(0)));
       cond(
-        (!(is_identifier_start(first))) => false,
+        !is_identifier_start(first) => false,
         true => {
           (i : usize) = usize(1);
           (ok : bool) = true;
           while((i < n) && ok, {
             ch := match(chars.get(i), .Some(c) => c, .None => rune(u32(0)));
-            if(!(is_identifier_continue(ch)), {
+            if(!is_identifier_continue(ch), {
               ok = false;
             });
             i = (i + usize(1));
@@ -264,8 +264,8 @@ find_matching_bracket :: (fn(tokens : ArrayList(Token), start : usize) -> Option
     }
   );
   start_kind := start_tok.kind;
-  is_open_bracket := (((start_kind == TokenKind.LCurlyBracket) || (start_kind == TokenKind.LParen)) || (start_kind == TokenKind.LBracket));
-  if(!(is_open_bracket), {
+  is_open_bracket := ((start_kind == TokenKind.LCurlyBracket) || (start_kind == TokenKind.LParen) || (start_kind == TokenKind.LBracket));
+  if(!is_open_bracket, {
     return(.None);
   });
   (end_kind : TokenKind) = cond(

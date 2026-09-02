@@ -48,7 +48,7 @@ size :: (fn() -> Option(TermSize))(
 /// and `TERM` is not `dumb`.
 supports_color :: (fn(s : Stream) -> bool)(
   cond(
-    (!(is_terminal(s))) => false,
+    !is_terminal(s) => false,
     env.get(`NO_COLOR`).is_some() => false,
     true => match(env.get(`TERM`), .Some(t) => (t != `dumb`), .None => true)
   )

@@ -349,7 +349,7 @@ is_await_unwind_handler_installation :: (fn(future_trait_type : TypeValue, conte
   if(is_function_type(effect.ty), {
     key := `${effect.label.clone()}.${effect.label.clone()}`;
     forwarded := match(context.current_evidence_params, .Some(eps) => eps.contains_key(key), .None => false);
-    if(!(forwarded), {
+    if(!forwarded, {
       return(true);
     });
   }, {
@@ -376,7 +376,7 @@ is_await_unwind_handler_installation :: (fn(future_trait_type : TypeValue, conte
         },
         .None => ()
       );
-      if(!(is_forwarded), {
+      if(!is_forwarded, {
         return(true);
       });
     });
@@ -391,7 +391,7 @@ generate_await :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
   args := match(expr, .FnCall(_, _, a, _, _) => a, _ => return(codegen_fatal_expr(String.from("await requires exactly 1 argument"))));
   future_arg := match(args.get(usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("await requires exactly 1 argument"))));
   future_type := match(context.base.get_expr_info(future_arg), .Some(ei) => ei.ty, .None => return(codegen_fatal_expr(String.from("await argument must be a Future type"))));
-  if(!(type_implements_future(future_type)), {
+  if(!type_implements_future(future_type), {
     return(codegen_fatal_expr(String.from("await argument must be a Future type")));
   });
   future_trait_type := match(extract_future_trait_from_type(future_type), .Some(t) => t, .None => return(codegen_fatal_expr(String.from("could not extract Future trait from type"))));
@@ -413,7 +413,7 @@ generate_await :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
     },
     .None => ()
   );
-  if(!(is_io_await_call(expr)), {
+  if(!is_io_await_call(expr), {
     return(codegen_fatal_expr(String.from("await should only be used inside async blocks")));
   });
   expr_ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("await missing ExprInfo"))));
@@ -436,7 +436,7 @@ generate_await :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
     rsid := match(result_type, .SomeT({ id : i }) => i, _ => String.from(""));
     own_cell := match(result_type, .SomeT({ resolved_concrete : orc }) => orc.get(usize(0)), _ => Option(TypeValue).None);
     cond(
-      !(is_some_type(expr_type)) => {
+      !is_some_type(expr_type) => {
         result_type = expr_type;
       },
       true => {
@@ -479,7 +479,7 @@ generate_await :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
   em.emit_string_line(`${indent.clone()}int ${pre_await_state_var.clone()} = ${sync_future_var.clone()}->state;`);
   // Only cold-start state-machine futures; Io futures are already submitted.
   is_io_future := is_io_future_type(future_type);
-  if(!(is_io_future), {
+  if(!is_io_future, {
     em.emit_string_line(`${indent.clone()}if (${pre_await_state_var.clone()} == 0 && ${sync_future_var.clone()}->__yo_resume_fn) {`);
     emit_effect_injection_for_await(expr, sync_future_var.clone(), indent.clone(), context);
     em.emit_string_line(`${indent.clone()}  __yo_incr_rc((void*)${sync_future_var.clone()});  // event loop reference`);
@@ -527,7 +527,7 @@ generate_await :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
             .Some(dexpr) => {
               target := get_deferred_drop_target_atom_name(dexpr);
               skip := match(result_var_to_skip, .Some(rv) => match(target, .Some(t) => (t == rv), .None => false), .None => false);
-              if(!(skip), {
+              if(!skip, {
                 filtered.push(dexpr);
               });
             },
@@ -547,7 +547,7 @@ generate_await :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
       em.emit_string_line(`${indent.clone()}    __yo_effect_escaped = 0;`);
       match(
         return_type,
-        .Some(rt) => if(!(is_unit_type(rt)), {
+        .Some(rt) => if(!is_unit_type(rt), {
           caller_c_type := get_type_string(rt, context.base);
           if(caller_c_type != "void", {
             em.emit_string_line(`${indent.clone()}    ${caller_c_type.clone()} _unw_result;`);
@@ -565,7 +565,7 @@ generate_await :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
       em.emit_string_line(`${indent.clone()}    __yo_effect_escaped = 1;`);
       match(
         return_type,
-        .Some(rt) => if(!(is_unit_type(rt)), {
+        .Some(rt) => if(!is_unit_type(rt), {
           return_type_str := get_type_string(rt, context.base);
           em.emit_string_line(`${indent.clone()}    return (${return_type_str}){0};`);
         }, {
@@ -580,7 +580,7 @@ generate_await :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
   });
   em.emit_string_line(`${indent.clone()}  }`);
   em.emit_string_line(`${indent.clone()}}`);
-  if(!(is_result_unit), {
+  if(!is_result_unit, {
     result_var := match(expr_ei.variable_name, .Some(n) => n, .None => `__sync_await_result_${ast_expr_id(expr).to_string()}`);
     result_type_str := get_type_string(result_type, context.base);
     var_decl := get_variable_type_string(result_type, result_var.clone(), context.base);
@@ -640,7 +640,7 @@ generate_state :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
   args := match(expr, .FnCall(_, _, a, _, _) => a, _ => return(codegen_fatal_expr(String.from("io.state requires exactly 1 argument"))));
   future_arg := match(args.get(usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("io.state requires exactly 1 argument"))));
   future_type := match(context.base.get_expr_info(future_arg), .Some(ei) => ei.ty, .None => return(codegen_fatal_expr(String.from("io.state argument must be a Future type"))));
-  if(!(type_implements_future(future_type)), {
+  if(!type_implements_future(future_type), {
     return(codegen_fatal_expr(String.from("io.state argument must be a Future type")));
   });
   em := context.base.emitter;
@@ -693,7 +693,7 @@ generate_join_handle_await :: (fn(expr : AstExpr, indent : String, context : Fun
   handle_code := _call_generate_expr(handle_arg, indent.clone(), context);
   expr_ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("JoinHandle.await missing ExprInfo"))));
   option_type := expr_ei.ty;
-  if(!(is_enum_type(option_type)), {
+  if(!is_enum_type(option_type), {
     return(codegen_fatal_expr(String.from("JoinHandle.await return type must be Option(T)")));
   });
   option_type_name := get_type_string(option_type, context.base);

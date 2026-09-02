@@ -161,7 +161,7 @@ test("parse_target: linux gnu/musl (env required)", {
   assert(musl.abi == Option(Abi).Some(Abi.Musl), "abi musl");
   assert(musl.triple == "aarch64-unknown-linux-musl", "triple round-trips");
   assert(is_target_musl(musl), "is musl");
-  assert(!(is_target_musl(ti)), "gnu is not musl");
+  assert(!is_target_musl(ti), "gnu is not musl");
   i686 := _ok("i686-unknown-linux-gnu");
   assert(i686.arch == Arch.X86, "i686 is X86");
   assert(i686.pointer_size_bits == u32(32), "32-bit");
@@ -185,7 +185,7 @@ test("parse_target: pc-windows msvc/gnu (env required)", {
   assert(ti.abi == Option(Abi).Some(Abi.Msvc), "abi msvc");
   assert(ti.triple == "x86_64-pc-windows-msvc", "triple round-trips");
   assert(is_target_windows(ti), "is windows");
-  assert(!(is_target_posix(ti)), "not posix");
+  assert(!is_target_posix(ti), "not posix");
   arm := _ok("aarch64-pc-windows-msvc");
   assert(arm.arch == Arch.Aarch64, "arch");
   assert(arm.triple == "aarch64-pc-windows-msvc", "triple round-trips");
@@ -209,8 +209,8 @@ test("parse_target: wasm32-wasip1 (the two-component form)", {
   assert(ti.triple == "wasm32-wasip1", "triple round-trips");
   assert(is_target_wasm(ti), "is wasm");
   assert(is_target_standalone_wasi(ti), "is standalone wasi");
-  assert(!(is_target_emscripten(ti)), "not emscripten");
-  assert(!(is_target_posix(ti)), "not posix");
+  assert(!is_target_emscripten(ti), "not emscripten");
+  assert(!is_target_posix(ti), "not posix");
 });
 test("parse_target: wasm32-unknown-emscripten", {
   ti := _ok("wasm32-unknown-emscripten");
@@ -220,7 +220,7 @@ test("parse_target: wasm32-unknown-emscripten", {
   assert(ti.triple == "wasm32-unknown-emscripten", "triple round-trips");
   assert(is_target_wasm(ti), "is wasm");
   assert(is_target_emscripten(ti), "is emscripten");
-  assert(!(is_target_standalone_wasi(ti)), "not standalone wasi");
+  assert(!is_target_standalone_wasi(ti), "not standalone wasi");
 });
 // ---------------------------------------------------------------------------
 // parse_target — rejections. The old vendor-less vocabulary and the

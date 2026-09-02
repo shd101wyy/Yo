@@ -41,7 +41,7 @@ impl(
   /// Bind to a filesystem path and start listening. The path must not
   /// already exist (`AddressInUse` otherwise) and is NOT unlinked on close.
   bind : (fn(path : Path, io : Io) -> Impl(Future(UnixListener, IoExn)))(
-    io.async((e) => {
+    io.async(e => {
       raw_fd := e.io.await(IO_unix.socket_stream(), e.io);
       fd := NetError.check(raw_fd, e.exn);
       path_s := path.to_string();
@@ -79,7 +79,7 @@ impl(
   /// Accept an incoming connection, returning a new `UnixStream`.
   accept : (fn(self : Self, io : Io) -> Impl(Future(UnixStream, IoExn)))({
     fd := self._fd;
-    io.async((e) => {
+    io.async(e => {
       addr_buf := *(u8)(malloc(usize(128)).unwrap());
       addr_len := *(u32)(malloc(usize(4)).unwrap());
       addr_len.* = u32(128);
@@ -100,7 +100,7 @@ impl(
   /// Close the listener socket (the socket FILE stays — unlink it yourself).
   close : (fn(self : Self, io : Io) -> Impl(Future(unit, IoExn)))({
     fd := self._fd;
-    io.async((e) => {
+    io.async(e => {
       cond(
         self._is_closed => (),
         true => {
@@ -126,7 +126,7 @@ impl(
   UnixStream,
   /// Connect to a Unix-domain socket at `path`, returning a new stream.
   connect : (fn(path : Path, io : Io) -> Impl(Future(UnixStream, IoExn)))(
-    io.async((e) => {
+    io.async(e => {
       raw_fd := e.io.await(IO_unix.socket_stream(), e.io);
       fd := NetError.check(raw_fd, e.exn);
       path_s := path.to_string();
@@ -155,17 +155,17 @@ impl(
   ),
   /// Read bytes from the stream into `buf`.
   /// Returns the number of bytes read, or 0 if the peer closed.
-  read : (fn(self : Self, buf : *(u8), size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
+  read : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
     fd := self._fd;
-    io.async((e) => {
+    io.async(e => {
       r := e.io.await(IO_unix.recv(fd, buf, size, i32(0)), e.io);
       usize(NetError.check(r, e.exn))
     })
   }),
   /// Write up to `size` raw bytes from `buf` to the stream.
-  write : (fn(self : Self, buf : *(u8), size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
+  write : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
     fd := self._fd;
-    io.async((e) => {
+    io.async(e => {
       r := e.io.await(IO_unix.send(fd, buf, size, i32(0)), e.io);
       usize(NetError.check(r, e.exn))
     })
@@ -175,7 +175,7 @@ impl(
     fd := self._fd;
     s := String.from(data);
     s_bytes := s.as_bytes();
-    io.async((e) => {
+    io.async(e => {
       r := e.io.await(IO_unix.send(fd, s_bytes.ptr().unwrap(), s_bytes.len(), i32(0)), e.io);
       usize(NetError.check(r, e.exn))
     })
@@ -184,7 +184,7 @@ impl(
   write_string : (fn(self : Self, data : String, io : Io) -> Impl(Future(usize, IoExn)))({
     fd := self._fd;
     data_bytes := data.as_bytes();
-    io.async((e) => {
+    io.async(e => {
       r := e.io.await(IO_unix.send(fd, data_bytes.ptr().unwrap(), data_bytes.len(), i32(0)), e.io);
       usize(NetError.check(r, e.exn))
     })
@@ -192,7 +192,7 @@ impl(
   /// Write raw bytes from an `ArrayList(u8)`. Returns the count written.
   write_bytes : (fn(self : Self, data : ArrayList(u8), io : Io) -> Impl(Future(usize, IoExn)))({
     fd := self._fd;
-    io.async((e) => {
+    io.async(e => {
       r := e.io.await(IO_unix.send(fd, data.ptr().unwrap(), data.len(), i32(0)), e.io);
       usize(NetError.check(r, e.exn))
     })
@@ -200,7 +200,7 @@ impl(
   /// Close the stream.
   close : (fn(self : Self, io : Io) -> Impl(Future(unit, IoExn)))({
     fd := self._fd;
-    io.async((e) => {
+    io.async(e => {
       cond(
         self._is_closed => (),
         true => {
@@ -226,7 +226,7 @@ export(UnixStream);
 impl(
   UnixStream,
   IoTraits.Reader(
-    read : (fn(self : Self, buf : *(u8), size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+    read : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
       self.read(buf, size, io)
     )
   )
@@ -234,11 +234,11 @@ impl(
 impl(
   UnixStream,
   IoTraits.Writer(
-    write : (fn(self : Self, buf : *(u8), size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+    write : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
       self.write(buf, size, io)
     ),
     flush : (fn(self : Self, io : Io) -> Impl(Future(unit, IoExn)))(
-      io.async((e) => ())
+      io.async(e => ())
     )
   )
 );

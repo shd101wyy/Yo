@@ -62,7 +62,7 @@ get_info_none :: (fn(e : AstExpr) -> Option(ExprInfo))(
 make_noop_detector :: (fn() -> SuspensionPointDetector)(
   SuspensionPointDetector(
     detect : dyn((expr, parent_expr, points) => ()),
-    should_skip_body : dyn((expr) => false)
+    should_skip_body : dyn(expr => false)
   )
 );
 // A detector that pushes a SuspensionPoint for every FnCall it is shown.
@@ -86,7 +86,7 @@ make_detect_all_detector :: (fn() -> SuspensionPointDetector)(
       );
       points.push(sp);
     }),
-    should_skip_body : dyn((expr) => false)
+    should_skip_body : dyn(expr => false)
   )
 );
 // ---------------------------------------------------------------------------
@@ -119,7 +119,7 @@ test("analyze_suspension_points: atom body — no suspensions", {
   body := make_ident_expr("x");
   detector := make_noop_detector();
   result := analyze_suspension_points(body, get_info_none, detector);
-  assert(!(result.has_suspensions), "no suspensions");
+  assert(!result.has_suspensions, "no suspensions");
   assert(result.suspension_points.len() == usize(0), "no suspension points");
   assert(result.captured_variables.len() == usize(0), "no captured vars");
 });
@@ -127,7 +127,7 @@ test("analyze_suspension_points: fncall body — noop detector → 0 points", {
   body := make_fncall_expr("some_call");
   detector := make_noop_detector();
   result := analyze_suspension_points(body, get_info_none, detector);
-  assert(!(result.has_suspensions), "no suspensions");
+  assert(!result.has_suspensions, "no suspensions");
   assert(result.suspension_points.len() == usize(0), "noop detector adds nothing");
 });
 // ---------------------------------------------------------------------------

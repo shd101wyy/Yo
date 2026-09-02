@@ -224,7 +224,7 @@ evaluate_identifier_and_operator :: (
         dyn(
           format_error_message(
             token,
-            (String.from("Variable \"") + identifier_string) + String.from("\" is not initialized"),
+            String.from("Variable \"") + identifier_string + String.from("\" is not initialized"),
             false,
             Option(ErrorKind).None
           )
@@ -294,7 +294,7 @@ evaluate_identifier_and_operator :: (
                 cap_dbg_cur_top := match(env.frames.get(env.frames.len() - usize(1)), .Some(fr2) => fr2.id.to_string(), .None => `?`.to_string());
                 eprintln(`[cap-fb] name=${variable.name} found_fi=${cap_dbg_fi} closure_fl=${closure_frame_level.to_string()} var_fl=${variable.frame_level.to_string()} inner=${cap_is_inner.to_string()} ev_top=${cap_dbg_ev_top} cur_frames=${env.frames.len().to_string()} cur_top=${cap_dbg_cur_top}`);
               });
-              if(!(cap_is_inner) && (variable.frame_level < closure_frame_level), {
+              if(!cap_is_inner && (variable.frame_level < closure_frame_level), {
                 track_variable_usage_resolved(
                   variable.name,
                   variable.frame_level,
@@ -304,7 +304,7 @@ evaluate_identifier_and_operator :: (
                   Option(bool).Some(variable.is_compile_time_only)
                 );
               });
-              if(!(cap_is_inner) && (variable.frame_level >= closure_frame_level), {
+              if(!cap_is_inner && (variable.frame_level >= closure_frame_level), {
                 // Cross-generation outer variable (stamped deeper than this
                 // eval's frames): record it with a level INSIDE the current
                 // generation so the enrichment/access-rewriting math stays
@@ -352,7 +352,7 @@ evaluate_identifier_and_operator :: (
                 }),
                 .None => ()
               );
-              if(!(ab_is_inner) && (variable.frame_level < async_frame_level), {
+              if(!ab_is_inner && (variable.frame_level < async_frame_level), {
                 track_variable_usage_resolved(
                   variable.name,
                   variable.frame_level,
@@ -362,7 +362,7 @@ evaluate_identifier_and_operator :: (
                   Option(bool).Some(variable.is_compile_time_only)
                 );
               });
-              if(!(ab_is_inner) && (variable.frame_level >= async_frame_level), {
+              if(!ab_is_inner && (variable.frame_level >= async_frame_level), {
                 // Cross-generation outer variable: record it with a level
                 // inside the current generation so the enrichment /
                 // access-rewriting math stays in range (mirrors the

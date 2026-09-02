@@ -38,10 +38,10 @@ test("madvise dontneed on anonymous mapping returns success", {
     usize(4096),
     mmap_io.PROT_READ | mmap_io.PROT_WRITE,
     mmap_io.MAP_PRIVATE | mmap_io.MAP_ANONYMOUS,
-    i32(-(1)),
+    i32(-1),
     i64(0)
   );
-  assert(!(mmap_io.is_error(mapped)), "anonymous mmap for madvise test should succeed");
+  assert(!mmap_io.is_error(mapped), "anonymous mmap for madvise test should succeed");
   ptr := mapped.unwrap();
   (ptr.add(usize(0))).* = u8(123);
   advise_ret := advise_io.madvise(ptr, usize(4096), advise_io.MADV_DONTNEED);

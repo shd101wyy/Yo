@@ -222,7 +222,7 @@ _capture_env_variable :: (
       },
       .Some(v) => v
     );
-    if(!(variable.is_compile_time_only) && !(captured_variables.contains_key(variable.id.to_string())), {
+    if(!variable.is_compile_time_only && !captured_variables.contains_key(variable.id.to_string()), {
       // The SSA-remapping key includes the DECLARATION SITE, not just
       // `name:frame_level`. Those two alone conflate a reassignment (`x = …`,
       // which re-stamps the same declaration with a fresh id and so must share
@@ -258,7 +258,7 @@ _capture_env_variable :: (
             // Case 2: variable shares RC with an owner — capture the owner
             .Some(owner_box) => {
               owner_var := owner_box.*;
-              if(!(captured_variables.contains_key(owner_var.id.to_string())), {
+              if(!captured_variables.contains_key(owner_var.id.to_string()), {
                 owner_captured := SuspensionCapturedVariable(
                   id : owner_var.id.to_string(),
                   name : owner_var.name.clone(),
@@ -269,7 +269,7 @@ _capture_env_variable :: (
                 captured_variables.insert(owner_var.id.to_string(), owner_captured);
                 captured_variable_ids_in_order.push(owner_var.id.to_string());
                 owner_nfk := `${owner_var.name}:${owner_var.frame_level}`;
-                if(!(name_frame_to_original_id.contains_key(owner_nfk.clone())), {
+                if(!name_frame_to_original_id.contains_key(owner_nfk.clone()), {
                   name_frame_to_original_id.insert(owner_nfk, owner_var.id.to_string());
                 });
               });
@@ -290,7 +290,7 @@ _capture_env_variable :: (
               );
               captured_variables.insert(variable.id.to_string(), sc);
               captured_variable_ids_in_order.push(variable.id.to_string());
-              if(!(name_frame_to_original_id.contains_key(name_frame_key.clone())), {
+              if(!name_frame_to_original_id.contains_key(name_frame_key.clone()), {
                 name_frame_to_original_id.insert(name_frame_key, variable.id.to_string());
               });
             }
@@ -459,7 +459,7 @@ walk_expr_ :: (
           // variables declared inside one branch don't leak into subsequent branches.
           saved_keys := ArrayList(String).new();
           saved_vals := ArrayList(String).new();
-          for(name_frame_to_original_id.iter(), (entry_ptr) => {
+          for(name_frame_to_original_id.iter(), entry_ptr => {
             k := unsafe(entry_ptr.*).key.clone();
             v := unsafe(entry_ptr.*).value.clone();
             saved_keys.push(k);
@@ -555,7 +555,7 @@ walk_expr_ :: (
               (rep_opt : Option(SuspensionPoint)) = Option(SuspensionPoint).None;
               (found_rep : bool) = false;
               (bpi2 : usize) = usize(0);
-              while((bpi2 < n_branches) && !(found_rep), {
+              while((bpi2 < n_branches) && !found_rep, {
                 branch2 := match(
                   per_branch_points.get(bpi2),
                   .None => {

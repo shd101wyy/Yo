@@ -26,9 +26,9 @@ FS_EVENT_CHANGE :: i32(2);
 // ============================================================================
 // Poll Operations (sync wrappers around runtime callbacks)
 // ============================================================================
-PollCallback :: (fn(events : i32, status : i32, user_data : *(u8)) -> unit);
+PollCallback :: (fn(events : i32, status : i32, user_data : *u8) -> unit);
 PollHandle :: struct(
-  handle : *(u8)
+  handle : *u8
 );
 // Allocate a new poll handle bound to a fd.
 poll_init :: (fn(fd : i32) -> PollHandle)(
@@ -36,8 +36,8 @@ poll_init :: (fn(fd : i32) -> PollHandle)(
 );
 // Start polling for events.
 // Returns 0 on success, -errno on failure.
-poll_start :: (fn(handle : PollHandle, events : i32, callback : PollCallback, user_data : *(u8)) -> i32)(
-  __yo_poll_start(handle.handle, events, unsafe.cast(callback, *(u8)), user_data)
+poll_start :: (fn(handle : PollHandle, events : i32, callback : PollCallback, user_data : *u8) -> i32)(
+  __yo_poll_start(handle.handle, events, unsafe.cast(callback, *u8), user_data)
 );
 // Stop polling.
 // Returns 0 on success, -errno on failure.
@@ -51,9 +51,9 @@ poll_close :: (fn(handle : PollHandle) -> unit)({
 // ============================================================================
 // FS Event Operations (sync wrappers around runtime callbacks)
 // ============================================================================
-FsEventCallback :: (fn(path : *(u8), events : i32, user_data : *(u8)) -> unit);
+FsEventCallback :: (fn(path : *u8, events : i32, user_data : *u8) -> unit);
 FsEventHandle :: struct(
-  handle : *(u8)
+  handle : *u8
 );
 // Allocate a new fs event handle.
 fs_event_init :: (fn() -> FsEventHandle)(
@@ -61,8 +61,8 @@ fs_event_init :: (fn() -> FsEventHandle)(
 );
 // Start watching a path.
 // Returns 0 on success, -errno on failure.
-fs_event_start :: (fn(handle : FsEventHandle, path : *(u8), flags : u32, callback : FsEventCallback, user_data : *(u8)) -> i32)(
-  __yo_fs_event_start(handle.handle, path, flags, unsafe.cast(callback, *(u8)), user_data)
+fs_event_start :: (fn(handle : FsEventHandle, path : *u8, flags : u32, callback : FsEventCallback, user_data : *u8) -> i32)(
+  __yo_fs_event_start(handle.handle, path, flags, unsafe.cast(callback, *u8), user_data)
 );
 // Stop watching.
 // Returns 0 on success, -errno on failure.

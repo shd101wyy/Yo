@@ -11,7 +11,7 @@ open(import("std/string"));
 test("Command.new + status (echo exits 0)", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         unwind(());
       }
     )
@@ -37,7 +37,7 @@ test("Command.new + status (echo exits 0)", {
 test("Command.output captures stdout", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         unwind(());
       }
     )
@@ -67,7 +67,7 @@ test("Command.output captures stdout", {
 test("Command.status non-zero exit", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         unwind(());
       }
     )
@@ -83,7 +83,7 @@ test("Command.status non-zero exit", {
     true => Command.new(`false`)
   );
   st := io.await(cmd.status(io), IoExn(io : io, exn : exn));
-  assert(!(st.success()), "should not be success");
+  assert(!st.success(), "should not be success");
   assert(st.code().unwrap() == i32(1), "exit code 1");
 });
 test("an abnormally-terminated child reports a signal, not an I/O error", {
@@ -98,7 +98,7 @@ test("an abnormally-terminated child reports a signal, not an I/O error", {
   // which the runtime encodes as the default NTSTATUS mapping (SIGTERM).
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -121,7 +121,7 @@ test("an abnormally-terminated child reports a signal, not an I/O error", {
     }
   );
   out := io.await(cmd.output(io), e);
-  assert(!(out.status.success()), "abnormal termination is not a success");
+  assert(!out.status.success(), "abnormal termination is not a success");
   assert(out.status.code().is_none(), "signal death has NO exit code");
   assert(out.status.signal() == i32(15), "SIGTERM recorded");
 });
@@ -139,7 +139,7 @@ test("spawn with piped stdin/stdout: write, EOF, read back, wait", {
   });
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -171,7 +171,7 @@ test("env override and env_clear reach the child", {
   });
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -202,7 +202,7 @@ test("a signal death is code None, not exit 0", {
   });
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -229,7 +229,7 @@ test("Stdio.Null discards child stdout", {
   });
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -264,20 +264,20 @@ extern(
   "Yo",
   __yo_async_spawn_start_cwd : (
     fn(
-      file : *(u8),
-      argv : *(?(*(u8))),
-      envp : ?(*(?(*(u8)))),
+      file : *u8,
+      argv : *?*u8,
+      envp : ?*?*u8,
       stdin_fd : i32,
       stdout_fd : i32,
       stderr_fd : i32,
-      cwd : ?(*(u8))
+      cwd : ?*u8
     ) -> IoFuture
   )
 );
 test("__yo_async_spawn_start_cwd runs the child in the requested directory (current_dir generation A)", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, `unexpected exception: ${err.to_string()}`);
         unwind(());
       }
@@ -301,8 +301,8 @@ test("__yo_async_spawn_start_cwd runs the child in the requested directory (curr
     }
   );
   argc := storage.len();
-  argv_raw := malloc(sizeof(?(*(u8))) * (argc + usize(1))).unwrap();
-  argv_buf := *(?(*(u8)))(argv_raw);
+  argv_raw := malloc(sizeof(?*u8) * (argc + usize(1))).unwrap();
+  argv_buf := *(?*u8)(argv_raw);
   j := usize(0);
   while(runtime(j < argc), {
     (argv_buf.add(j)).* = storage(j).ptr();
@@ -326,7 +326,7 @@ test("__yo_async_spawn_start_cwd runs the child in the requested directory (curr
 test("Command.current_dir runs the child in the requested directory (generation B)", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, `unexpected exception: ${err.to_string()}`);
         unwind(());
       }
@@ -368,7 +368,7 @@ test("Command.current_dir runs the child in the requested directory (generation 
 test("Command.output drains stdout and stderr concurrently (large stderr does not deadlock)", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         unwind(());
       }
     )

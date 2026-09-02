@@ -33,7 +33,7 @@ IO_dns :: import("../sys/dns");
 // ============================================================================
 /// Resolve a hostname to a list of IP addresses.
 lookup_host :: (fn(host : String, io : Io) -> Impl(Future(ArrayList(IpAddr), IoExn)))(
-  io.async((e) => {
+  io.async(e => {
     host_cstr_bytes := host.to_cstr();
     host_cstr := host_cstr_bytes.ptr().unwrap();
     result_ptr := IO_dns.alloc_result();
@@ -71,7 +71,7 @@ lookup_host :: (fn(host : String, io : Io) -> Impl(Future(ArrayList(IpAddr), IoE
               k := usize(0);
               while(runtime(k < usize(8)), {
                 hi := u16((addr_ptr.add(usize(8) + (k * usize(2)))).*);
-                lo := u16((addr_ptr.add((usize(8) + (k * usize(2))) + usize(1))).*);
+                lo := u16((addr_ptr.add(usize(8) + (k * usize(2)) + usize(1))).*);
                 segs(k) = ((hi << u16(8)) | lo);
                 k = (k + usize(1));
               });
@@ -98,7 +98,7 @@ lookup_host :: (fn(host : String, io : Io) -> Impl(Future(ArrayList(IpAddr), IoE
 );
 /// Resolve a hostname and port to a list of socket addresses.
 resolve :: (fn(host : String, port : u16, io : Io) -> Impl(Future(ArrayList(SocketAddr), IoExn)))(
-  io.async((e) => {
+  io.async(e => {
     addrs := e.io.await(lookup_host(host, io), e);
     result := ArrayList(SocketAddr).new();
     i := usize(0);

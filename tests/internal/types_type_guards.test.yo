@@ -46,36 +46,36 @@ box_labels :: (fn() -> ArrayList(String))({
 test("is_iso_type matches IsoT only", {
   iso_ty := TypeValue.IsoT(t_i32());
   assert(is_iso_type(iso_ty), "IsoT");
-  assert(!(is_iso_type(t_i32())), "i32 is not Iso");
-  assert(!(is_iso_type(t_bool())), "bool is not Iso");
+  assert(!is_iso_type(t_i32()), "i32 is not Iso");
+  assert(!is_iso_type(t_bool()), "bool is not Iso");
 });
 test("is_dyn_type matches DynT only", {
   empty_traits := ArrayList(TypeValue).new();
   empty_levels := ArrayList(usize).new();
   dyn_ty := TypeValue.DynT(empty_traits, empty_levels, empty_traits.clone(), empty_levels.clone());
   assert(is_dyn_type(dyn_ty), "DynT");
-  assert(!(is_dyn_type(t_i32())), "i32 is not Dyn");
+  assert(!is_dyn_type(t_i32()), "i32 is not Dyn");
 });
 test("is_reference_struct_type matches reference-semantics struct only", {
   obj := mk_struct("Counter", empty_labels(), true, false, false);
   val := mk_struct("Point", empty_labels(), false, false, false);
   assert(is_reference_struct_type(obj), "object Counter");
-  assert(!(is_reference_struct_type(val)), "value Point");
-  assert(!(is_reference_struct_type(t_i32())), "i32 is not an object");
+  assert(!is_reference_struct_type(val), "value Point");
+  assert(!is_reference_struct_type(t_i32()), "i32 is not an object");
 });
 test("is_atomic_reference_struct_type requires both reference-semantics + atomic_rc", {
   atomic := mk_struct("A", empty_labels(), true, true, false);
   plain_obj := mk_struct("B", empty_labels(), true, false, false);
   value_struct := mk_struct("C", empty_labels(), false, true, false); // is_atomic_rc on value is nonsense but should not match
   assert(is_atomic_reference_struct_type(atomic), "atomic object");
-  assert(!(is_atomic_reference_struct_type(plain_obj)), "non-atomic object");
-  assert(!(is_atomic_reference_struct_type(value_struct)), "value struct can't be atomic");
+  assert(!is_atomic_reference_struct_type(plain_obj), "non-atomic object");
+  assert(!is_atomic_reference_struct_type(value_struct), "value struct can't be atomic");
 });
 test("is_newtype_type", {
   nt := mk_struct("MyId", empty_labels(), false, false, true);
   not_nt := mk_struct("Pair", empty_labels(), false, false, false);
   assert(is_newtype_type(nt), "newtype");
-  assert(!(is_newtype_type(not_nt)), "plain struct");
+  assert(!is_newtype_type(not_nt), "plain struct");
 });
 test("is_str_type matches the dedicated Str variant only", {
   // Post-slice-rework model (TS TypeTag.Str): `str` is its own TypeValue
@@ -84,23 +84,23 @@ test("is_str_type matches the dedicated Str variant only", {
   legacy_struct_str := mk_struct("str", empty_labels(), false, false, true);
   not_str_name := mk_struct("string", empty_labels(), false, false, true);
   assert(is_str_type(str_ty), "TypeValue.Str");
-  assert(!(is_str_type(legacy_struct_str)), "a Struct named str is not the str type");
-  assert(!(is_str_type(not_str_name)), "wrong name");
-  assert(!(is_str_type(t_i32())), "i32 is not str");
+  assert(!is_str_type(legacy_struct_str), "a Struct named str is not the str type");
+  assert(!is_str_type(not_str_name), "wrong name");
+  assert(!is_str_type(t_i32()), "i32 is not str");
 });
 test("is_box_type matches reference-semantics Struct named Box(T) with single field *", {
   box_ty := mk_struct("Box(i32)", box_labels(), true, false, false);
   assert(is_box_type(box_ty), "Box(i32)");
   // Not a Box because it's a value struct.
   not_box_value := mk_struct("Box(i32)", box_labels(), false, false, false);
-  assert(!(is_box_type(not_box_value)), "value struct named Box(...) isn't a Box");
+  assert(!is_box_type(not_box_value), "value struct named Box(...) isn't a Box");
   // Not a Box because name doesn't start with "Box(".
   wrong_name_labels := box_labels();
   not_box_name := mk_struct("Other", wrong_name_labels, true, false, false);
-  assert(!(is_box_type(not_box_name)), "wrong name");
+  assert(!is_box_type(not_box_name), "wrong name");
   // Not a Box because the field isn't labeled `*`.
   no_star_labels := ArrayList(String).new();
   no_star_labels.push(String.from("inner"));
   not_box_field := mk_struct("Box(i32)", no_star_labels, true, false, false);
-  assert(!(is_box_type(not_box_field)), "wrong field label");
+  assert(!is_box_type(not_box_field), "wrong field label");
 });

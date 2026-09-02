@@ -43,7 +43,7 @@ file_has_pragma :: (fn(module_path : Option(String), kind : Pragma) -> bool)(
       (found : bool) = false;
       (i : usize) = usize(0);
       n := g_privileged_files.len();
-      while((i < n) && !(found), {
+      while((i < n) && !found, {
         match(
           g_privileged_files.get(i),
           .Some(entry) => if((entry.module_path == mp) && (entry.kind == kind), {
@@ -60,7 +60,7 @@ file_has_pragma :: (fn(module_path : Option(String), kind : Pragma) -> bool)(
 /// Record that `module_path` declared `pragma(Pragma.X);`.
 /// Mirrors `registerFilePragma`.
 register_file_pragma :: (fn(module_path : String, kind : Pragma) -> unit)({
-  if(!(file_has_pragma(Option(String).Some(module_path.clone()), kind)), {
+  if(!file_has_pragma(Option(String).Some(module_path.clone()), kind), {
     g_privileged_files.push(PragmaEntry(module_path : module_path, kind : kind));
   });
 });

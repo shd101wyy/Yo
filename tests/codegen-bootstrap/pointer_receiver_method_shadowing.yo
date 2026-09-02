@@ -22,10 +22,10 @@ impl(
   generic(T : Type),
   MyStruct(T),
   new : (fn(v : T) -> Self)(Self(v)),
-  add : (fn(self : *(Self), value : T, where(T <: Add(T))) -> unit)({
+  add : (fn(self : *Self, value : T, where(T <: Add(T))) -> unit)({
     self.value = (self.value + value);
   }),
-  another_add : (fn(self : *(Self), value : T, where(T <: Add(T))) -> unit)({
+  another_add : (fn(self : *Self, value : T, where(T <: Add(T))) -> unit)({
     self.add(value);
   })
 );
@@ -39,7 +39,7 @@ main :: (fn() -> unit)({
   assert(y.value == 14, "method-to-method call through *(Self)");
   // Pointer arithmetic and comparison still resolve to the pointer's impls.
   n := 12;
-  p := &(n);
+  p := &n;
   q := p.add(2);
   assert(q > p, "pointer arithmetic still reaches *(T).add");
   assert(q.offset_from(p) == 2, "pointer distance");

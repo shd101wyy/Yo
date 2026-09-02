@@ -24,19 +24,19 @@ open(import("std/fmt"));
 // (issues/async-effect-setter-emits-a-raw-non-ascii-identifier-as-a-c-member-name.md).
 Éraise :: (fn(msg : String) -> i32);
 inner :: (fn(h : Éraise, io : Io) -> Impl(Future(i32, Éraise)))(
-  io.async((e) => {
+  io.async(e => {
     return(h(`x`));
   })
 );
 work :: (fn(h : Éraise, io : Io) -> Impl(Future(i32, Éraise)))(
-  io.async((e) => {
+  io.async(e => {
     r := io.await(inner(h, io), e);
     return(r);
   })
 );
 main :: (fn(io : Io) -> unit)({
   (h : Éraise) = (
-    (m) -> {
+    m -> {
       return(i32(7));
     }
   );

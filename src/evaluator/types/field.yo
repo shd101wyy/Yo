@@ -145,7 +145,7 @@ evaluate_type_field :: (
       is_comptime = true;
       args := match(expr_, .FnCall(_, _, args_, _, _) => args_, _ => ArrayList(AstExpr).new());
       lhs_expr := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
-      if(!(is_valid_variable_name(lhs_expr)), {
+      if(!is_valid_variable_name(lhs_expr), {
         exn.throw(
           dyn(
             format_error_message(
@@ -201,7 +201,7 @@ evaluate_type_field :: (
       ct_args := match(lhs_, .FnCall(_, _, args_, _, _) => args_, _ => ArrayList(AstExpr).new());
       lhs_ = match(ct_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
     });
-    if(!(ast_expr_is_atom(lhs_)) || !(is_valid_variable_name(lhs_)), {
+    if(!ast_expr_is_atom(lhs_) || !is_valid_variable_name(lhs_), {
       exn.throw(
         dyn(
           format_error_message(
@@ -231,7 +231,7 @@ evaluate_type_field :: (
     is_comptime = true;
     ct_args := match(expr_, .FnCall(_, _, args_, _, _) => args_, _ => ArrayList(AstExpr).new());
     lhs_ := match(ct_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
-    if(!(ast_expr_is_atom(lhs_)) || !(is_valid_variable_name(lhs_)), {
+    if(!ast_expr_is_atom(lhs_) || !is_valid_variable_name(lhs_), {
       exn.throw(
         dyn(
           format_error_message(
@@ -245,7 +245,7 @@ evaluate_type_field :: (
     });
     label_expr = Option(AstExpr).Some(lhs_);
     label = Option(String).Some(ast_expr_token(lhs_).value);
-  }, if(!(default_value_expr.is_some()) && !(assigned_value_expr.is_some()), {
+  }, if(!default_value_expr.is_some() && !assigned_value_expr.is_some(), {
     // Bare type expression (positional tuple field, or `Self :: i32` shorthand)
     type_expr = Option(AstExpr).Some(expr_);
   })));
@@ -253,7 +253,7 @@ evaluate_type_field :: (
   (expected_tuple_element_type : Option(TypeValue)) = Option(TypeValue).None;
   if(ctx.expected_type.is_some(), {
     expected_type_val := match(ctx.expected_type, .Some(e) => e.ty, .None => TypeValue.Unit);
-    if((is_tuple_type(expected_type_val) || is_struct_type(expected_type_val)) || (is_module_type(expected_type_val) || is_trait_type(expected_type_val)), {
+    if(is_tuple_type(expected_type_val) || is_struct_type(expected_type_val) || (is_module_type(expected_type_val) || is_trait_type(expected_type_val)), {
       maybe_field_ty := match(
         expected_type_val,
         .Tuple(_, types) => types.get(tuple_field_index),
@@ -300,7 +300,7 @@ evaluate_type_field :: (
     env.module_path = te_info.env.module_path;
     env.function_declaration_frame_level = te_info.env.function_declaration_frame_level;
     env.input_string = te_info.env.input_string;
-    if(!(is_type_value(te_info.value)), {
+    if(!is_type_value(te_info.value), {
       exn.throw(
         dyn(
           format_error_message(
@@ -325,7 +325,7 @@ evaluate_type_field :: (
   // --- Evaluate assigned value expression ---
   if(assigned_value_expr.is_some(), {
     av_expr := match(assigned_value_expr, .Some(e) => e, .None => make_err_expr());
-    if(!(is_comptime), {
+    if(!is_comptime, {
       exn.throw(
         dyn(
           format_error_message(
@@ -402,7 +402,7 @@ evaluate_type_field :: (
     av_type := av_info.ty;
     if(field_expected_ctx.is_some(), {
       ft := match(field_expected_ctx, .Some(e) => e.ty, .None => TypeValue.Unit);
-      if(!(are_types_compatible(av_type, ft)), {
+      if(!are_types_compatible(av_type, ft), {
         exn.throw(
           dyn(
             format_error_message(
@@ -483,7 +483,7 @@ evaluate_type_field :: (
     dv_type := dv_info.ty;
     if(field_expected_ctx.is_some(), {
       ft := match(field_expected_ctx, .Some(e) => e.ty, .None => TypeValue.Unit);
-      if(!(are_types_compatible(dv_type, ft)), {
+      if(!are_types_compatible(dv_type, ft), {
         exn.throw(
           dyn(
             format_error_message(
@@ -556,7 +556,7 @@ evaluate_type_field :: (
     .Some(te) => (ast_expr_id(te) == ast_expr_id(expr)),
     .None => false
   );
-  if(!(is_same_as_type_expr), {
+  if(!is_same_as_type_expr, {
     expr_info := new_expr_info(env, TypeValue.Unit);
     expr_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), expr_info);
@@ -566,7 +566,7 @@ evaluate_type_field :: (
   // --- Prohibit Impl(Fn(...)) as field type for struct/enum/union ---
   // Runtime size of `Impl(Fn(...))` depends on the concrete closure capture
   // struct; it cannot live in a fixed-size field. Use `Dyn(Fn(...))` instead.
-  if(((((for_type == "struct") || (for_type == "enum")) || (for_type == "union")) && is_some_type(final_type)) && type_implements_fn(final_type), {
+  if(((for_type == "struct") || (for_type == "enum") || (for_type == "union")) && is_some_type(final_type) && type_implements_fn(final_type), {
     if(type_expr.is_some(), {
       te := match(type_expr, .Some(e) => e, .None => make_err_expr());
       if(ast_expr_is_fn_call_of(te, BK_IMPL_UPPER, Option(usize).None), {

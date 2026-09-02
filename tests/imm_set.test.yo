@@ -11,7 +11,7 @@ test("Set insert and contains", {
   s := Set(i32).new();
   s = s.insert(i32(42));
   assert(s.contains(i32(42)), "set should contain 42");
-  assert(!(s.contains(i32(99))), "set should not contain 99");
+  assert(!s.contains(i32(99)), "set should not contain 99");
   assert(s.len() == usize(1), "len should be 1");
 });
 test("Set insert duplicate", {
@@ -37,7 +37,7 @@ test("Set remove existing element", {
   s = s.insert(i32(20));
   s2 := s.remove(i32(10));
   assert(s2.len() == usize(1), "after remove len should be 1");
-  assert(!(s2.contains(i32(10))), "10 should be removed");
+  assert(!s2.contains(i32(10)), "10 should be removed");
   assert(s2.contains(i32(20)), "20 should remain");
   // original unchanged
   assert(s.len() == usize(2), "original len unchanged");
@@ -74,8 +74,8 @@ test("Set intersection", {
   assert(c.len() == usize(2), "intersection should have 2 elements");
   assert(c.contains(i32(2)), "intersection contains 2");
   assert(c.contains(i32(3)), "intersection contains 3");
-  assert(!(c.contains(i32(1))), "intersection does not contain 1");
-  assert(!(c.contains(i32(4))), "intersection does not contain 4");
+  assert(!c.contains(i32(1)), "intersection does not contain 1");
+  assert(!c.contains(i32(4)), "intersection does not contain 4");
 });
 test("Set difference", {
   a := Set(i32).new();
@@ -89,7 +89,7 @@ test("Set difference", {
   assert(c.len() == usize(2), "difference should have 2 elements");
   assert(c.contains(i32(1)), "difference contains 1");
   assert(c.contains(i32(3)), "difference contains 3");
-  assert(!(c.contains(i32(2))), "difference does not contain 2");
+  assert(!c.contains(i32(2)), "difference does not contain 2");
 });
 test("Set is_subset", {
   a := Set(i32).new();
@@ -100,7 +100,7 @@ test("Set is_subset", {
   b = b.insert(i32(2));
   b = b.insert(i32(3));
   assert(a.is_subset(b), "a is subset of b");
-  assert(!(b.is_subset(a)), "b is not subset of a");
+  assert(!b.is_subset(a), "b is not subset of a");
   assert(a.is_subset(a), "a is subset of itself");
 });
 test("Set is_disjoint", {
@@ -114,7 +114,7 @@ test("Set is_disjoint", {
   c := Set(i32).new();
   c = c.insert(i32(2));
   c = c.insert(i32(5));
-  assert(!(a.is_disjoint(c)), "a and c are not disjoint");
+  assert(!a.is_disjoint(c), "a and c are not disjoint");
 });
 test("Set Eq trait", {
   a := Set(i32).new();
@@ -143,7 +143,7 @@ test("Set structural sharing", {
   // original unchanged
   assert(s.len() == usize(2), "original still 2");
   assert(s2.len() == usize(3), "new set has 3");
-  assert(!(s.contains(i32(3))), "original doesn't have 3");
+  assert(!s.contains(i32(3)), "original doesn't have 3");
   assert(s2.contains(i32(3)), "new set has 3");
 });
 test("Set many elements", {
@@ -157,7 +157,7 @@ test("Set many elements", {
   assert(s.contains(i32(0)), "contains 0");
   assert(s.contains(i32(50)), "contains 50");
   assert(s.contains(i32(99)), "contains 99");
-  assert(!(s.contains(i32(100))), "does not contain 100");
+  assert(!s.contains(i32(100)), "does not contain 100");
 });
 test("Set from_list single element", {
   arr := [i32 ; 1](i32(42));
@@ -171,7 +171,7 @@ test("Set from_list with elements", {
   assert(s.len() == usize(4), "len = 4");
   assert(s.contains(i32(10)), "contains 10");
   assert(s.contains(i32(30)), "contains 30");
-  assert(!(s.contains(i32(50))), "does not contain 50");
+  assert(!s.contains(i32(50)), "does not contain 50");
 });
 test("Set from_list duplicates", {
   arr := [i32 ; 4](i32(1), i32(2), i32(1), i32(3));

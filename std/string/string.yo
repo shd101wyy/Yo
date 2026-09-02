@@ -110,13 +110,13 @@ impl(
   *
   * Note: We manually search for the null terminator by iterating
   */
-  from_cstr : (fn(cstr : *(u8)) -> Result(Self, StringError))({
+  from_cstr : (fn(cstr : *u8) -> Result(Self, StringError))({
     // SAFETY: caller's contract — `cstr` must point at a null-terminated byte
     // sequence (the standard C string invariant). `strlen` walks forward until
     // it hits the null byte and returns the count not including it. If the
     // caller passes a non-null-terminated buffer, the read walks past the end;
     // this is the same trust boundary as `<string.h>`'s `strlen`.
-    len := unsafe(strlen((*(char))(cstr)));
+    len := unsafe(strlen((*char)(cstr)));
     if(len == usize(0), {
       return(.Ok(Self(_bytes : .None)));
     });
@@ -213,7 +213,7 @@ impl(
   * Allocate a null-terminated C string copy on the heap.
   * The caller MUST free the returned pointer to avoid a memory leak.
   */
-  to_c_str : (fn(self : Self) -> *(u8))({
+  to_c_str : (fn(self : Self) -> *u8)({
     raw := self.raw_bytes();
     sz := (raw.len + usize(1));
     ptr_opt := malloc(sz);
@@ -226,7 +226,7 @@ impl(
       unsafe(memcpy(*(void)(ptr), *(void)(raw.ptr), raw.len));
     });
     // Null-terminate
-    (null_byte : *(u8)) = ptr.add(raw.len);
+    (null_byte : *u8) = ptr.add(raw.len);
     null_byte.* = u8(0);
     ptr
   }),
@@ -461,10 +461,10 @@ impl(
           (end > total_bytes) => total_bytes,
           true => end
         );
-        if(!(self.is_char_boundary(start_byte)), {
+        if(!self.is_char_boundary(start_byte), {
           __yo_panic("String.substring: start is not on a UTF-8 character boundary");
         });
-        if(!(self.is_char_boundary(end_byte)), {
+        if(!self.is_char_boundary(end_byte), {
           __yo_panic("String.substring: end is not on a UTF-8 character boundary");
         });
         if(start_byte >= end_byte, {
@@ -1200,7 +1200,7 @@ impl(
         (start_idx : usize) = usize(0);
         while(start_idx < total_bytes, {
           (b : u8) = al(start_idx);
-          if(!(Self._is_whitespace_byte(b)), {
+          if(!Self._is_whitespace_byte(b), {
             break;
           });
           start_idx = (start_idx + usize(1));
@@ -1208,7 +1208,7 @@ impl(
         (end_idx : usize) = total_bytes;
         while(end_idx > start_idx, {
           (b : u8) = al(end_idx - usize(1));
-          if(!(Self._is_whitespace_byte(b)), {
+          if(!Self._is_whitespace_byte(b), {
             break;
           });
           end_idx = (end_idx - usize(1));
@@ -1247,7 +1247,7 @@ impl(
                 .Some(byte) => {
                   is_ws := Self._is_whitespace_byte(byte);
                   cond(
-                    (!(is_ws)) => break,
+                    !is_ws => break,
                     true => ()
                   );
                 },
@@ -1292,7 +1292,7 @@ impl(
                 .Some(byte) => {
                   is_ws := Self._is_whitespace_byte(byte);
                   cond(
-                    (!(is_ws)) => break,
+                    !is_ws => break,
                     true => ()
                   );
                 },
@@ -1365,7 +1365,7 @@ impl(
                         // once identifier tokens are interned (yo-self
                         // lexer intern table).
                         .Some(other_ptr) =>
-                          (unsafe(__yo_ptr_eq(self_ptr, other_ptr)) || (unsafe(memcmp((*(void))(self_ptr), (*(void))(other_ptr), self_len)) == int(0))),
+                          (unsafe(__yo_ptr_eq(self_ptr, other_ptr)) || (unsafe(memcmp((*void)(self_ptr), (*void)(other_ptr), self_len)) == int(0))),
                         .None => false
                       ),
                     .None => false
@@ -1377,7 +1377,7 @@ impl(
       )
     }),
     (!=) : (fn(self : Self, other : Self) -> bool)({
-      return(!(Self.(==)(self, other)));
+      return(!Self.(==)(self, other));
     })
   )
 );
@@ -1406,7 +1406,7 @@ impl(
                 // static storage and the String's buffer is Rc-managed —
                 // memcmp reads exactly self_len bytes from each.
                 .Some(self_ptr) =>
-                  (unsafe(memcmp((*(void))(self_ptr), (*(void))(other.ptr()), self_len)) == int(0)),
+                  (unsafe(memcmp((*void)(self_ptr), (*void)(other.ptr()), self_len)) == int(0)),
                 .None => false
               ),
             .None => false
@@ -1438,7 +1438,7 @@ impl(
                 other_al.ptr(),
                 // SAFETY: lengths equal & nonzero; str backing is static.
                 .Some(other_ptr) =>
-                  (unsafe(memcmp((*(void))(self.ptr()), (*(void))(other_ptr), self_len)) == int(0)),
+                  (unsafe(memcmp((*void)(self.ptr()), (*void)(other_ptr), self_len)) == int(0)),
                 .None => false
               ),
             .None => false
@@ -1857,10 +1857,10 @@ impl(
     if(end > n, {
       return(.None);
     });
-    if(!(self.is_char_boundary(start)), {
+    if(!self.is_char_boundary(start), {
       return(.None);
     });
-    if(!(self.is_char_boundary(end)), {
+    if(!self.is_char_boundary(end), {
       return(.None);
     });
     if(start == end, {
@@ -2173,14 +2173,14 @@ impl(
                   );
                 });
                 cond(
-                  (!(has_digit)) => .None,
+                  !has_digit => .None,
                   true => {
                     final_val := cond(
                       is_negative => (i64(0) - result),
                       true => result
                     );
                     cond(
-                      ((final_val < i64(-(2147483648))) || (final_val > i64(2147483647))) => .None,
+                      ((final_val < i64(-2147483648)) || (final_val > i64(2147483647))) => .None,
                       true => .Some(i32(final_val))
                     )
                   }
@@ -2254,7 +2254,7 @@ impl(
                   );
                 });
                 cond(
-                  (!(has_digit)) => .None,
+                  !has_digit => .None,
                   true => {
                     final_val := cond(
                       is_negative => (i64(0) - result),
@@ -2329,7 +2329,7 @@ impl(
                   );
                 });
                 cond(
-                  (!(has_digit)) => .None,
+                  !has_digit => .None,
                   true => cond(
                     (result > u64(4294967295)) => .None,
                     true => .Some(u32(result))
@@ -2402,7 +2402,7 @@ impl(
                   );
                 });
                 cond(
-                  (!(has_digit)) => .None,
+                  !has_digit => .None,
                   true => .Some(result)
                 )
               }
@@ -2458,10 +2458,10 @@ impl(
   String,
   Index(usize)(
     Output : u8,
-    index : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))(
+    index : (fn(inout(self) : Self, idx : usize) -> *Self.Output)(
       match(
         self._bytes,
-        .Some(bytes) => &(bytes(idx)),
+        .Some(bytes) => &bytes(idx),
         .None => __yo_panic("String: index on empty string")
       )
     )

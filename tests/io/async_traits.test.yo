@@ -27,7 +27,7 @@ open(import("std/string"));
 // A generic single-await passthrough: proves the WHERE-BOUND trait dispatch
 // works for both traits (the control shape from the filed bug).
 read_once :: (
-  fn(generic(R : Type), r : R, buf : *(u8), size : usize, io : Io, where(R <: Reader)) -> Impl(Future(usize, IoExn))
+  fn(generic(R : Type), r : R, buf : *u8, size : usize, io : Io, where(R <: Reader)) -> Impl(Future(usize, IoExn))
 )({
   // Hoist params into locals before io.async: a GENERIC fn's async closure
   // drops enclosing PARAMETERS from its capture struct (same filed family;
@@ -35,37 +35,37 @@ read_once :: (
   the_r := r;
   the_buf := buf;
   the_size := size;
-  io.async((e) => e.io.await(the_r.read(the_buf, the_size, e.io), e))
+  io.async(e => e.io.await(the_r.read(the_buf, the_size, e.io), e))
 });
 write_once :: (
-  fn(generic(W : Type), w : W, buf : *(u8), size : usize, io : Io, where(W <: Writer)) -> Impl(Future(usize, IoExn))
+  fn(generic(W : Type), w : W, buf : *u8, size : usize, io : Io, where(W <: Writer)) -> Impl(Future(usize, IoExn))
 )({
   the_w := w;
   the_buf := buf;
   the_size := size;
-  io.async((e) => e.io.await(the_w.write(the_buf, the_size, e.io), e))
+  io.async(e => e.io.await(the_w.write(the_buf, the_size, e.io), e))
 });
 
 // Slice-2 generic helpers: the defaults reached through where bounds.
 read_all_generic :: (
   fn(generic(R : Type), r : R, io : Io, where(R <: Reader)) -> Impl(Future(ArrayList(u8), IoExn))
 )(
-  io.async((e) => e.io.await(r.read_to_end(io), e))
+  io.async(e => e.io.await(r.read_to_end(io), e))
 );
 read_string_generic :: (
   fn(generic(R : Type), r : R, io : Io, where(R <: Reader)) -> Impl(Future(String, IoExn))
 )(
-  io.async((e) => e.io.await(r.read_to_string(io), e))
+  io.async(e => e.io.await(r.read_to_string(io), e))
 );
 write_all_generic :: (
-  fn(generic(W : Type), w : W, buf : *(u8), size : usize, io : Io, where(W <: Writer)) -> Impl(Future(unit, IoExn))
+  fn(generic(W : Type), w : W, buf : *u8, size : usize, io : Io, where(W <: Writer)) -> Impl(Future(unit, IoExn))
 )(
-  io.async((e) => e.io.await(w.write_all(buf, size, io), e))
+  io.async(e => e.io.await(w.write_all(buf, size, io), e))
 );
 test("read_to_end default loops chunks; write_all default delivers everything", {
   t_exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -99,7 +99,7 @@ test("read_to_end default loops chunks; write_all default delivers everything", 
 test("read_to_string default validates UTF-8 (default chained onto default)", {
   t_exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -120,7 +120,7 @@ test("read_to_string default validates UTF-8 (default chained onto default)", {
 test("copy drains a Reader into a Writer and counts bytes", {
   t_exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -154,7 +154,7 @@ test("copy drains a Reader into a Writer and counts bytes", {
 test("read_to_string throws IoError.InvalidData on malformed UTF-8", {
   t_exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -170,7 +170,7 @@ test("read_to_string throws IoError.InvalidData on malformed UTF-8", {
   io.await(fw.close(io), t_e);
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         msg := err.to_string();
         assert(msg.contains(`malformed data`), `expected InvalidData, got: ${msg}`);
         unwind(());
@@ -187,7 +187,7 @@ test("read_to_string throws IoError.InvalidData on malformed UTF-8", {
 test("File implements Reader and Writer — trait-dispatched round trip", {
   t_exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -226,7 +226,7 @@ test("File implements Reader and Writer — trait-dispatched round trip", {
 test("File.read/write_string/write_bytes count in usize now", {
   t_exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -251,7 +251,7 @@ test("File.read/write_string/write_bytes count in usize now", {
 test("Stdout and Stderr implement Writer", {
   t_exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -304,7 +304,7 @@ DynSource :: ref(struct(inner : Dyn(Reader)));
 impl(
   DynSource,
   read_four : (fn(self : Self, io : Io) -> Impl(Future(String, IoExn)))(
-    io.async((e) => {
+    io.async(e => {
       buf := ArrayList(u8).new();
       buf.resize_with_byte(usize(4), int(0));
       n := e.io.await(self.inner.read(buf.ptr().unwrap(), usize(4), e.io), e);
@@ -312,7 +312,7 @@ impl(
     })
   ),
   rest : (fn(self : Self, io : Io) -> Impl(Future(String, IoExn)))(
-    io.async((e) => {
+    io.async(e => {
       bytes := e.io.await(self.inner.read_to_end(e.io), e);
       String.from_bytes(bytes)
     })
@@ -321,7 +321,7 @@ impl(
 test("Dyn(Reader): vtable read, the read_to_end default through it, and BufReader(Dyn(Reader))", {
   t_exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, `unexpected exception: ${err.to_string()}`);
         unwind(());
       }

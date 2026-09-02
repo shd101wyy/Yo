@@ -17,7 +17,7 @@ test("for_each with ArrayList capture does not leak", {
   out := array_list(i32(0));
   out.clear();
   src := array_list(i32(1), i32(2), i32(3), i32(4));
-  src.into_iter().for_each((x) => {
+  src.into_iter().for_each(x => {
     out.push(x);
   });
   assert(out.len() == usize(4), "out len=4");
@@ -26,7 +26,7 @@ test("for_each with String capture does not leak", {
   buf := array_list(`x`);
   buf.clear();
   src := array_list(i32(10), i32(20), i32(30));
-  src.into_iter().for_each((x) => {
+  src.into_iter().for_each(x => {
     consume(x);
     buf.push(`item`);
   });
@@ -44,13 +44,13 @@ test("fold with RC accumulator does not leak", {
 test("any with RC capture does not leak", {
   needle := array_list(i32(7));
   src := array_list(i32(1), i32(5), i32(7), i32(9));
-  found := src.into_iter().any((x) => (x == needle(usize(0))));
+  found := src.into_iter().any(x => (x == needle(usize(0))));
   assert(found, "found 7");
 });
 test("all with RC capture does not leak", {
   bound := array_list(i32(100));
   src := array_list(i32(1), i32(2), i32(3));
-  ok := src.into_iter().all((x) => (x < bound(usize(0))));
+  ok := src.into_iter().all(x => (x < bound(usize(0))));
   assert(ok, "all < 100");
 });
 test("for_each early break via short list", {
@@ -58,7 +58,7 @@ test("for_each early break via short list", {
   out.clear();
   empty := array_list(i32(0));
   empty.clear();
-  empty.into_iter().for_each((x) => {
+  empty.into_iter().for_each(x => {
     out.push(x);
   });
   assert(out.len() == usize(0), "empty for_each leaves out empty");
@@ -67,7 +67,7 @@ test("any short-circuit drops capture", {
   side := array_list(i32(0));
   side.clear();
   src := array_list(i32(1), i32(2), i32(3), i32(4), i32(5));
-  found := src.into_iter().any((x) => {
+  found := src.into_iter().any(x => {
     side.push(x);
     x == i32(2)
   });

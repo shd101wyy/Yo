@@ -31,7 +31,7 @@ MapEntry :: struct(k : Krate, n : i32);
 // Repeatedly deref-copy a bucket out of a malloc'd buffer (the
 // HashMap._find_bucket shape) — each copy must +1 the RC field so the
 // local's scope drop cannot steal the buffer's reference.
-probe :: (fn(data_ptr : *(MapEntry), i : usize) -> i32)({
+probe :: (fn(data_ptr : *MapEntry, i : usize) -> i32)({
   bucket := (data_ptr.add(i)).*;
   bucket.n
 });
@@ -40,7 +40,7 @@ main :: (fn() -> unit)({
   kk := Krate(v : 7);
   m := unsafe(GlobalAllocator.calloc(usize(2), sizeof(MapEntry)));
   pv := match(m, .Some(p2) => p2, .None => __yo_panic("alloc failed"));
-  data_ptr := unsafe((*(MapEntry))(pv));
+  data_ptr := unsafe((*MapEntry)(pv));
   (data_ptr.add(usize(0))).* = MapEntry(k : kk, n : 1);
   print(rc(kk));
   print(" ");

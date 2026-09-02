@@ -19,13 +19,13 @@ pragma(Pragma.AllowUnsafe);
 /// runtime semantics.
 test("AllowUnsafe + unsafe(deref) reads a known value", {
   x := i32(7);
-  p := &(x);
+  p := &x;
   v := unsafe(p.*);
   assert(v == i32(7), "deref reads through &(x)");
 });
 test("AllowUnsafe + unsafe(write deref) mutates the pointee", {
   x := i32(0);
-  p := &(x);
+  p := &x;
   unsafe(p.* = i32(99));
   assert(x == i32(99), "write through &(x) is visible at the original binding");
 });
@@ -37,7 +37,7 @@ test("AllowUnsafe + unsafe(pointer arith) walks an array", {
     // Synthesize the raw pointer to the current element from the
     // array base + offset, then round-trip through `&-` / `&+` to
     // prove pointer arithmetic walks element-by-element.
-    ptr := unsafe(&(arr(count)));
+    ptr := unsafe(&arr(count));
     if(count > usize(0), {
       base := unsafe(ptr.sub(count));
       via_arith := unsafe(base.add(count));
@@ -50,7 +50,7 @@ test("AllowUnsafe + unsafe(pointer arith) walks an array", {
 });
 test("AllowUnsafe + unsafe(...) is transparent inside a begin-block", {
   x := i32(3);
-  p := &(x);
+  p := &x;
   doubled := unsafe({
     v := p.*;
     v + v

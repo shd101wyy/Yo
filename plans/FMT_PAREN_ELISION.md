@@ -1,6 +1,22 @@
 # `yo fmt` redundant-paren elision — extend the existing machinery to the provably-safe remainder
 
-**Status:** PROPOSED 2026-09-02 (rewritten twice the same day: first to fix a
+**Status:** IMPLEMENTED 2026-09-02 — D1/D2/D3 + the re-parse gate landed in
+`src/formatter.yo`; 16 decision-table tests in
+`tests/internal/formatter.test.yo`; 16 fixture `.expected` files refreshed;
+the whole `src/` + `std/` + `tests/` tree swept to the new canonical form
+(565 files) with the second pass a no-op. Two implementation-time
+discoveries folded into the rules: the `op((G))` inner-defer (a
+`single_inner_group_not_atom_like` guard, so `-( (1 + 2) )` elides the
+INNER group and the tight `-(` call spelling survives rendering — removing
+the outer instead renders as the misleading spaced `- (1 + 2)`), and the
+gate's conservatism on `quote(...)` arguments containing `#(...)` macro
+splices (`exprs_are_equal` cannot prove those trees equal, so such groups
+stay — safe, slightly less canonical). The formatter tests run under
+`YO_TEST_LEAK_VERDICT=0` like the rest of tests/internal
+(`issues/self-hosted-emit-leaks-remaining-classes.md` tracked debt — the
+gate's in-process parses add to that debt class, ~46 bytes/call).
+
+Originally PROPOSED 2026-09-02 (rewritten twice the same day: first to fix a
 wrong "prefix elision is grammar-blocked" claim based on the stale
 [`archive/FMT_PAREN_CANONICALIZATION.md`](archive/FMT_PAREN_CANONICALIZATION.md)
 rationale, then after discovering the formatter ALREADY elides a subset — the

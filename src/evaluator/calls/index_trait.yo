@@ -79,7 +79,7 @@ _str_unquote :: (fn(raw : String) -> String)({
 });
 /// Add surrounding `"..."` around a string value.
 _str_quote :: (fn(s : String) -> String)(
-  (String.from("\"") + s) + String.from("\"")
+  String.from("\"") + s + String.from("\"")
 );
 // ---------------------------------------------------------------------------
 // _check_range_type
@@ -100,7 +100,7 @@ _try_ctfe_range_ctor :: (
 )({
   local_exn := Exception(
     throw : (
-      (_e) -> unwind(())
+      _e -> unwind(())
     )
   );
   ct_args := ArrayList(ArgEntry).new();
@@ -227,7 +227,7 @@ _cached_range_type :: (
 _check_range_type :: (
   fn(arg_type : TypeValue, env : Environment, ctx : EvalContext) -> _RangeCheck
 )({
-  if(!(is_struct_type(arg_type.clone())), {
+  if(!is_struct_type(arg_type.clone()), {
     return(_RangeCheck(is_range : false, is_inclusive : false));
   });
   // The TYPE CONSTRUCTOR's id is the discriminator, not the shape.
@@ -304,7 +304,7 @@ _extract_range_indices :: (
           return(Option(_IdxRange).None);
         }
       );
-      if(!(is_int_lit(start_field)) || !(is_int_lit(end_field)), {
+      if(!is_int_lit(start_field) || !is_int_lit(end_field), {
         return(Option(_IdxRange).None);
       });
       start_raw := match(
@@ -491,7 +491,7 @@ _find_index_method :: (
                       // faithful port must swap.
                       p1_compatible := are_types_compatible(arg_type, p1);
                       ret_is_ptr := is_pointer_type(ret_ty);
-                      if(((p0_is_ptr || p0_is_ref) && p1_compatible) && ret_is_ptr, {
+                      if((p0_is_ptr || p0_is_ref) && p1_compatible && ret_is_ptr, {
                         found = Option(_IndexMethodEntry).Some(m);
                       });
                     },
@@ -743,9 +743,9 @@ _compute_comptime_string_index :: (
   if(is_unknown_val(arg_value), {
     return(EvalValue.StrLit(_str_quote(String.from(""))));
   });
-  if(!(is_range), {
+  if(!is_range, {
     // Single character access
-    if(!(is_int_lit(arg_value)), {
+    if(!is_int_lit(arg_value), {
       exn.throw(
         dyn(
           format_error_message(
@@ -808,7 +808,7 @@ _compute_comptime_string_index :: (
     // `at(i)` — because a comptime_str is text, not a byte buffer. Runtime
     // `s(i)` yields the u8 instead; that result-TYPE split predates D4 and is
     // deliberate (docs/en-US/STRINGS.md).
-    if(!(str_value.is_char_boundary(idx_usize)), {
+    if(!str_value.is_char_boundary(idx_usize), {
       exn.throw(
         dyn(
           format_error_message(
@@ -827,7 +827,7 @@ _compute_comptime_string_index :: (
     return(EvalValue.StrLit(_str_quote(char_str)));
   });
   // Range access
-  if(!(is_struct_val(arg_value)), {
+  if(!is_struct_val(arg_value), {
     exn.throw(
       dyn(
         format_error_message(
@@ -888,7 +888,7 @@ _compute_comptime_string_index :: (
   // `s(a..b)` slices BYTES, matching the runtime `substring`. Out-of-range is
   // already a compile error above; a mid-rune endpoint is one too, where the
   // runtime `substring` panics.
-  if(!(str_value.is_char_boundary(start_idx)), {
+  if(!str_value.is_char_boundary(start_idx), {
     exn.throw(
       dyn(
         format_error_message(
@@ -900,7 +900,7 @@ _compute_comptime_string_index :: (
       )
     );
   });
-  if(!(str_value.is_char_boundary(end_idx)), {
+  if(!str_value.is_char_boundary(end_idx), {
     exn.throw(
       dyn(
         format_error_message(
@@ -1026,7 +1026,7 @@ _specialize_index_method :: (
   margs := ArrayList(AstExpr).new();
   _a0 := margs.push(recv);
   _a1 := margs.push(idx_expr);
-  inner_exn := Exception(throw : ((_err) -> unwind(())));
+  inner_exn := Exception(throw : (_err -> unwind(())));
   r := try_to_call_function_with_arguments(mv, mty, expr, recv, margs, caller_env, ctx, true, false, false, inner_exn);
   match(
     r.specialized_function_value,
@@ -1115,7 +1115,7 @@ _find_comptime_index_method :: (
                       // compatible. Only fires when both sides carry a constructor id.
                       p1_compatible := (_ctor_ids_agree(arg_type, p1) && are_types_compatible(arg_type, p1));
                       ret_is_ptr := is_pointer_type(ci_result);
-                      if(((p0_is_ptr || p0_is_ref) && p1_compatible) && ret_is_ptr, {
+                      if((p0_is_ptr || p0_is_ref) && p1_compatible && ret_is_ptr, {
                         // Comptime-parameter gate (TS index-trait.ts:414).
                         ci_flags := match(
                           m.method_value,
@@ -1236,12 +1236,12 @@ _try_comptime_custom_type_index :: (
     return(Option(IndexCallResult).None);
   });
   ct_fn_value := match(ct_method.method_value, .Some(mv) => mv, .None => EvalValue.UnitVal);
-  if(!(is_func_val(ct_fn_value)), {
+  if(!is_func_val(ct_fn_value), {
     return(Option(IndexCallResult).None);
   });
   // The return type must be `*(Output)` (TS index-trait.ts:539-545).
   ct_ret_type := match(ct_fn_type, .Func({ result : ct_r }) => ct_r, _ => t_unit());
-  if(!(is_pointer_type(ct_ret_type)), {
+  if(!is_pointer_type(ct_ret_type), {
     return(Option(IndexCallResult).None);
   });
   output_ty := match(ct_ret_type, .Pointer(ct_pt) => ct_pt, _ => ct_ret_type);
@@ -1541,7 +1541,7 @@ try_to_call_with_index_trait :: (
   //    `ComptimeIndex(usize)`. Mirrors TS index-trait.ts:255-274.
   match(
     self_value,
-    .Some(sv_ct) => if((!(is_unknown_val(sv_ct)) && array_val.is_none()) && string_raw_opt.is_none(), {
+    .Some(sv_ct) => if((!is_unknown_val(sv_ct) && array_val.is_none()) && string_raw_opt.is_none(), {
       match(
         _try_comptime_custom_type_index(
           expr,

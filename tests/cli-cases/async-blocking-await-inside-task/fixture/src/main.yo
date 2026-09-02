@@ -8,7 +8,7 @@ _blocking_helper :: (fn(io : Io) -> unit)({
   ()
 });
 task :: (fn(io : Io) -> Impl(Future(unit, IoExn)))(
-  io.async((e) => {
+  io.async(e => {
     // Suspend once so the rest of the body runs from the scheduler (a cold
     // start runs inline in `io.spawn`, at the top level, which is not nested).
     e.io.await(sleep(Duration.from_millis(i64(1)), e.io), e.io);

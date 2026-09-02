@@ -18,7 +18,7 @@ pragma(Pragma.AllowUnsafe);
 Deque :: (fn(comptime(T) : Type) -> comptime(Type))(
   ref(
     struct(
-      _buf : ?(*(T)),
+      _buf : ?*T,
       _head : usize,
       _tail : usize,
       _len : usize,
@@ -220,7 +220,7 @@ impl(
           // `_remaining - 1` never underflows. `_pos` + `_remaining` already
           // bracket both ends, so back-iteration needs no new field.
           self._remaining = (self._remaining - usize(1));
-          idx := (((self._deque._head + self._pos) + self._remaining) % self._deque._capacity);
+          idx := ((self._deque._head + self._pos + self._remaining) % self._deque._capacity);
           buf := self._deque._buf.unwrap();
           .Some((buf.add(idx)).*)
         }
@@ -255,8 +255,8 @@ impl(
   generic(T : Type),
   DequeIterPtr(T),
   Iterator(
-    Item : *(T),
-    next : (fn(inout(self) : Self) -> Option(*(T)))(
+    Item : *T,
+    next : (fn(inout(self) : Self) -> Option(*T))(
       cond(
         (self._remaining == usize(0)) => .None,
         true => {
@@ -283,7 +283,7 @@ impl(
   Deque(T),
   Index(usize)(
     Output : T,
-    index : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))({
+    index : (fn(inout(self) : Self, idx : usize) -> *Self.Output)({
       assert(idx < self._len, "Deque: index out of bounds");
       buf := self._buf.unwrap();
       physical_idx := ((self._head + idx) % self._capacity);

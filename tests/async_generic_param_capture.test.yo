@@ -23,21 +23,21 @@ open(import("std/collections/array_list"));
 // The EXACT pre-fix failing shape: params used DIRECTLY inside the async
 // closure, no hoist-to-locals workaround.
 read_once_params :: (
-  fn(generic(R : Type), r : R, buf : *(u8), size : usize, io : Io, where(R <: Reader)) -> Impl(Future(usize, IoExn))
-)(io.async((e) => e.io.await(r.read(buf, size, io), e)));
+  fn(generic(R : Type), r : R, buf : *u8, size : usize, io : Io, where(R <: Reader)) -> Impl(Future(usize, IoExn))
+)(io.async(e => e.io.await(r.read(buf, size, io), e)));
 write_once_params :: (
-  fn(generic(W : Type), w : W, buf : *(u8), size : usize, io : Io, where(W <: Writer)) -> Impl(Future(usize, IoExn))
-)(io.async((e) => e.io.await(w.write(buf, size, io), e)));
+  fn(generic(W : Type), w : W, buf : *u8, size : usize, io : Io, where(W <: Writer)) -> Impl(Future(usize, IoExn))
+)(io.async(e => e.io.await(w.write(buf, size, io), e)));
 // Non-generic control of the same shape — always worked; pins that the fix
 // did not disturb the plain path.
-write_once_file :: (fn(f : File, buf : *(u8), size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
-  io.async((e) => e.io.await(f.write(buf, size, io), e))
+write_once_file :: (fn(f : File, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+  io.async(e => e.io.await(f.write(buf, size, io), e))
 );
 
 test("generic fn async closure captures the enclosing params", {
   t_exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -74,7 +74,7 @@ test("generic fn async closure captures the enclosing params", {
 test("non-generic control of the same shape still works", {
   t_exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }

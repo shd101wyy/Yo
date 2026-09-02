@@ -33,7 +33,7 @@ test("Test JoinHandle state while suspended", {
   h := io.spawn(fut, io);
   s := h.state();
   assert((s != FutureState.Completed) && (s != FutureState.Aborted), "sleeping task should not be terminal");
-  assert(!(h.is_finished()), "is_finished should be false while suspended");
+  assert(!h.is_finished(), "is_finished should be false while suspended");
   r := h.await(io);
   assert(match(r, .Some(v) => (v == i32(1)), .None => false), "task should still complete normally");
 });
@@ -92,7 +92,7 @@ test("Test abort after completion is a no-op", {
   // body exited before the ready queue drained (macos-26-intel lost the same
   // race stochastically on slow VMs).
   (spins : usize) = usize(0);
-  while(runtime((!(h.is_finished())) && (spins < usize(2000))), {
+  while(runtime(!h.is_finished() && (spins < usize(2000))), {
     io.await(sleep(u64(1)), io);
     spins = (spins + usize(1));
   });

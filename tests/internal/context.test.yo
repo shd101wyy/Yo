@@ -41,10 +41,10 @@ make_token :: (fn(value : str) -> Token)(
 );
 test("eval_context_new: default fields", {
   ctx := eval_context_new(String.from("/std"), String.from("test.yo"));
-  assert(!(ctx.is_executing), "not executing by default");
-  assert(!(ctx.is_inside_impl_block), "not in impl block by default");
-  assert(!(ctx.is_inside_where_clause), "not in where clause by default");
-  assert(!(ctx.is_inside_io_async_call), "not in io async call by default");
+  assert(!ctx.is_executing, "not executing by default");
+  assert(!ctx.is_inside_impl_block, "not in impl block by default");
+  assert(!ctx.is_inside_where_clause, "not in where clause by default");
+  assert(!ctx.is_inside_io_async_call, "not in io async call by default");
   assert(ctx.std_path == "/std", "std_path set correctly");
   match(
     ctx.current_module_path,
@@ -65,15 +65,15 @@ test("eval_context_new: all optional fields are None", {
 });
 test("eval_context_new: boolean flags default to false", {
   ctx := eval_context_new(String.from("/std"), String.from("x.yo"));
-  assert(!(ctx.is_executing), "is_executing is false");
-  assert(!(ctx.is_validating_function_definition), "is_validating_function_definition is false");
-  assert(!(ctx.is_inside_impl_block), "is_inside_impl_block is false");
-  assert(!(ctx.is_evaluating_function_type), "is_evaluating_function_type is false");
-  assert(!(ctx.is_inside_where_clause), "is_inside_where_clause is false");
-  assert(!(ctx.is_inside_io_async_call), "is_inside_io_async_call is false");
-  assert(!(ctx.is_inside_given_handler), "is_inside_given_handler is false");
-  assert(!(ctx.force_compile_time_bindings), "force_compile_time_bindings is false");
-  assert(!(ctx.is_analyzing_ctfe_capability), "is_analyzing_ctfe_capability is false");
+  assert(!ctx.is_executing, "is_executing is false");
+  assert(!ctx.is_validating_function_definition, "is_validating_function_definition is false");
+  assert(!ctx.is_inside_impl_block, "is_inside_impl_block is false");
+  assert(!ctx.is_evaluating_function_type, "is_evaluating_function_type is false");
+  assert(!ctx.is_inside_where_clause, "is_inside_where_clause is false");
+  assert(!ctx.is_inside_io_async_call, "is_inside_io_async_call is false");
+  assert(!ctx.is_inside_given_handler, "is_inside_given_handler is false");
+  assert(!ctx.force_compile_time_bindings, "force_compile_time_bindings is false");
+  assert(!ctx.is_analyzing_ctfe_capability, "is_analyzing_ctfe_capability is false");
 });
 test("FuncOrAsyncBlockKind variants exist", {
   k1 := FuncOrAsyncBlockKind.FunctionBody;
@@ -191,11 +191,11 @@ test("create_function_body_evaluation_context: basic flags", {
     ctx
   );
   // Overridden flags
-  assert(!(body_ctx.is_executing), "is_executing should be false");
+  assert(!body_ctx.is_executing, "is_executing should be false");
   assert(body_ctx.is_validating_function_definition, "is_validating_function_definition should be true");
-  assert(!(body_ctx.is_evaluating_function_type), "is_evaluating_function_type should be false");
-  assert(!(body_ctx.force_compile_time_bindings), "force_compile_time_bindings cleared");
-  assert(!(body_ctx.is_analyzing_ctfe_capability), "is_analyzing_ctfe_capability cleared");
+  assert(!body_ctx.is_evaluating_function_type, "is_evaluating_function_type should be false");
+  assert(!body_ctx.force_compile_time_bindings, "force_compile_time_bindings cleared");
+  assert(!body_ctx.is_analyzing_ctfe_capability, "is_analyzing_ctfe_capability cleared");
 });
 test("create_function_body_evaluation_context: function body context embedded", {
   ctx := eval_context_new(String.from("/std"), String.from("test.yo"));

@@ -36,8 +36,8 @@ _make_sockaddr :: (fn(addr : SocketAddr) -> IO_tcp.SockAddr)(
     addr.ip,
     .V4(a, b, c, d) => {
       buf := Array(u8, usize(16)).fill(u8(0));
-      unsafe(snprintf(*(char)(&(buf(usize(0)))), usize(16), "%d.%d.%d.%d", i32(a), i32(b), i32(c), i32(d)));
-      IO_tcp.make_sockaddr_in(&(buf(usize(0))), addr.port)
+      unsafe(snprintf(*(char)(&buf(usize(0))), usize(16), "%d.%d.%d.%d", i32(a), i32(b), i32(c), i32(d)));
+      IO_tcp.make_sockaddr_in(&buf(usize(0)), addr.port)
     },
     .V6(_) => {
       // Render the real address text (full uncompressed hex form — valid
@@ -67,7 +67,7 @@ impl(
   UdpSocket,
   /// Create and bind a UDP socket to the given address.
   bind : (fn(addr : SocketAddr, io : Io) -> Impl(Future(UdpSocket, IoExn)))(
-    io.async((e) => {
+    io.async(e => {
       domain := cond(
         addr.ip.is_v4() => AF_INET,
         true => AF_INET6
@@ -91,7 +91,7 @@ impl(
   /// Returns the number of bytes sent.
   send_to : (fn(self : Self, data : ArrayList(u8), addr : SocketAddr, io : Io) -> Impl(Future(usize, IoExn)))({
     fd := self._fd;
-    io.async((e) => {
+    io.async(e => {
       saddr := _make_sockaddr(addr);
       r := e.io.await(IO_udp.sendto(fd, data.ptr().unwrap(), data.len(), i32(0), saddr.buf, saddr.len), e.io);
       IO_tcp.free_sockaddr(saddr);
@@ -100,18 +100,18 @@ impl(
   }),
   /// Receive a datagram into the provided buffer.
   /// Returns the number of bytes received.
-  recv : (fn(self : Self, buf : *(u8), size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
+  recv : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
     fd := self._fd;
-    io.async((e) => {
+    io.async(e => {
       r := e.io.await(IO_udp.recv(fd, buf, size, i32(0)), e.io);
       usize(NetError.check(r, e.exn))
     })
   }),
   /// Receive a datagram and retrieve the sender's address.
   /// Returns the number of bytes received.
-  recv_from : (fn(self : Self, buf : *(u8), size : usize, src_addr : *(u8), src_addr_len : *(u32), io : Io) -> Impl(Future(usize, IoExn)))({
+  recv_from : (fn(self : Self, buf : *u8, size : usize, src_addr : *u8, src_addr_len : *u32, io : Io) -> Impl(Future(usize, IoExn)))({
     fd := self._fd;
-    io.async((e) => {
+    io.async(e => {
       r := e.io.await(IO_udp.recvfrom(fd, buf, size, i32(0), src_addr, src_addr_len), e.io);
       usize(NetError.check(r, e.exn))
     })
@@ -119,7 +119,7 @@ impl(
   /// Send data on a connected socket (requires prior connect).
   send : (fn(self : Self, data : ArrayList(u8), io : Io) -> Impl(Future(usize, IoExn)))({
     fd := self._fd;
-    io.async((e) => {
+    io.async(e => {
       r := e.io.await(IO_udp.send(fd, data.ptr().unwrap(), data.len(), i32(0)), e.io);
       usize(NetError.check(r, e.exn))
     })
@@ -127,7 +127,7 @@ impl(
   /// Close the socket.
   close : (fn(self : Self, io : Io) -> Impl(Future(unit, IoExn)))({
     fd := self._fd;
-    io.async((e) => {
+    io.async(e => {
       cond(
         self._is_closed => (),
         true => {
@@ -146,9 +146,9 @@ impl(
   /// Enable or disable SO_BROADCAST on the socket.
   set_broadcast : (fn(self : Self, enabled : bool, io : Io) -> Impl(Future(unit, IoExn)))({
     fd := self._fd;
-    io.async((e) => {
+    io.async(e => {
       val := cond(enabled => i32(1), true => i32(0));
-      val_ptr := &(val);
+      val_ptr := &val;
       r := e.io.await(IO_udp.setsockopt(fd, SOL_SOCKET, SO_BROADCAST, *(u8)(val_ptr), u32(4)), e.io);
       cond(
         (r < i32(0)) => {
@@ -172,7 +172,7 @@ impl(
   Dispose(
     dispose : (fn(self : Self) -> unit)({
       cond(
-        (!(self._is_closed)) => {
+        !self._is_closed => {
           { close_sync } :: import("../sys/file");
           close_sync(self._fd);
           self._is_closed = true;

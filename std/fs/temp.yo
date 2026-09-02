@@ -42,7 +42,7 @@ impl(
   TempDir,
   // Create a temporary directory in the given parent directory.
   new_in : (fn(parent : Path, io : Io) -> Impl(Future(TempDir, IoExn)))(
-    io.async((e) => {
+    io.async(e => {
       // Build template: parent/yo_tmp_XXXXXX
       template_path := parent.join(Path.new(`yo_tmp_XXXXXX`));
       template_str := template_path.to_string();
@@ -83,7 +83,7 @@ impl(
   remove : (fn(self : Self, io : Io) -> Impl(Future(unit, IoExn)))({
     self_path := self._path;
     io.async(
-      (e) =>
+      e =>
         cond(
           self._removed => (),
           true => {
@@ -138,7 +138,7 @@ impl(
   TempFile,
   // Create a temporary file in the given parent directory.
   new_in : (fn(parent : Path, io : Io) -> Impl(Future(TempFile, IoExn)))(
-    io.async((e) => {
+    io.async(e => {
       // Build template: parent/yo_tmp_XXXXXX
       template_path := parent.join(Path.new(`yo_tmp_XXXXXX`));
       template_str := template_path.to_string();
@@ -183,7 +183,7 @@ impl(
     self_file := self._file;
     self_path := self._path;
     io.async(
-      (e) =>
+      e =>
         cond(
           self._removed => (),
           true => {

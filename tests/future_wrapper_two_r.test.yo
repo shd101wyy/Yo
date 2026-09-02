@@ -29,16 +29,16 @@ impl(
 
 test("two R specializations of one Future(R) method on one receiver", {
   h := Holder(i64).new(i64(10));
-  s := io.await(h.apply_async_r((v) => `v=${v}`, io), io);
-  n := io.await(h.apply_async_r((v) => (v + i64(1)), io), io);
+  s := io.await(h.apply_async_r(v => `v=${v}`, io), io);
+  n := io.await(h.apply_async_r(v => (v + i64(1)), io), io);
   assert(s == "v=10", "string specialization result");
   assert(n == i64(11), "i64 specialization result");
 });
 
 test("the reverse call order flips the last-writer clobber the old bug produced", {
   h := Holder(i64).new(i64(20));
-  n := io.await(h.apply_async_r((v) => (v * i64(2)), io), io);
-  s := io.await(h.apply_async_r((v) => `v=${v}`, io), io);
+  n := io.await(h.apply_async_r(v => (v * i64(2)), io), io);
+  s := io.await(h.apply_async_r(v => `v=${v}`, io), io);
   assert(n == i64(40), "i64 specialization result");
   assert(s == "v=20", "string specialization result");
 });

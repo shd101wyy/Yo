@@ -15,7 +15,7 @@ test("mmap invalid fd returns encoded error", {
     usize(4096),
     mmap_io.PROT_READ,
     mmap_io.MAP_SHARED,
-    i32(-(1)),
+    i32(-1),
     i64(0)
   );
   assert(mmap_io.is_error(mapped), "mmap with invalid fd should return encoded error pointer");
@@ -28,10 +28,10 @@ test("mmap anonymous region supports read write protect and unmap", {
     usize(4096),
     mmap_io.PROT_READ | mmap_io.PROT_WRITE,
     mmap_io.MAP_PRIVATE | mmap_io.MAP_ANONYMOUS,
-    i32(-(1)),
+    i32(-1),
     i64(0)
   );
-  assert(!(mmap_io.is_error(mapped)), "anonymous mmap should succeed");
+  assert(!mmap_io.is_error(mapped), "anonymous mmap should succeed");
   ptr := mapped.unwrap();
   (ptr.add(usize(0))).* = u8(65);
   (ptr.add(usize(1))).* = u8(66);
@@ -61,7 +61,7 @@ test("mmap shared file region and msync persists writes", {
     fd,
     i64(0)
   );
-  assert(!(mmap_io.is_error(mapped)), "file-backed shared mmap should succeed");
+  assert(!mmap_io.is_error(mapped), "file-backed shared mmap should succeed");
   ptr := mapped.unwrap();
   (ptr.add(usize(0))).* = u8(90);
   (ptr.add(usize(1))).* = u8(89);
@@ -86,10 +86,10 @@ test("PROT_NONE mapping denies access and mprotect restores it", {
     usize(4096),
     mmap_io.PROT_NONE,
     mmap_io.MAP_PRIVATE | mmap_io.MAP_ANONYMOUS,
-    i32(-(1)),
+    i32(-1),
     i64(0)
   );
-  assert(!(mmap_io.is_error(mapped)), "PROT_NONE anonymous mmap should succeed");
+  assert(!mmap_io.is_error(mapped), "PROT_NONE anonymous mmap should succeed");
   ptr := mapped.unwrap();
   prot_ret := mmap_io.mprotect(ptr, usize(4096), mmap_io.PROT_READ | mmap_io.PROT_WRITE);
   assert(prot_ret == i32(0), "mprotect from PROT_NONE to PROT_READ|PROT_WRITE should succeed");
@@ -104,10 +104,10 @@ test("error_code on valid pointer returns 0", {
     usize(4096),
     mmap_io.PROT_READ | mmap_io.PROT_WRITE,
     mmap_io.MAP_PRIVATE | mmap_io.MAP_ANONYMOUS,
-    i32(-(1)),
+    i32(-1),
     i64(0)
   );
-  assert(!(mmap_io.is_error(mapped)), "anonymous mmap for error_code test should succeed");
+  assert(!mmap_io.is_error(mapped), "anonymous mmap for error_code test should succeed");
   err := mmap_io.error_code(mapped);
   assert(err == i32(0), "error_code on a valid mmap pointer should return 0");
   unmap_ret := mmap_io.munmap(mapped.unwrap(), usize(4096));
@@ -130,7 +130,7 @@ test("msync with MS_ASYNC on file-backed mapping succeeds", {
     fd,
     i64(0)
   );
-  assert(!(mmap_io.is_error(mapped)), "mmap for MS_ASYNC test should succeed");
+  assert(!mmap_io.is_error(mapped), "mmap for MS_ASYNC test should succeed");
   ptr := mapped.unwrap();
   (ptr.add(usize(0))).* = u8(77);
   async_ret := mmap_io.msync(ptr, usize(4096), mmap_io.MS_ASYNC);
@@ -159,7 +159,7 @@ test("msync with MS_INVALIDATE on shared mapping succeeds", {
     fd,
     i64(0)
   );
-  assert(!(mmap_io.is_error(mapped)), "mmap for MS_INVALIDATE test should succeed");
+  assert(!mmap_io.is_error(mapped), "mmap for MS_INVALIDATE test should succeed");
   ptr := mapped.unwrap();
   (ptr.add(usize(0))).* = u8(88);
   inval_ret := mmap_io.msync(ptr, usize(4096), mmap_io.MS_SYNC | mmap_io.MS_INVALIDATE);
@@ -178,7 +178,7 @@ test("mmap with zero length returns error", {
     usize(0),
     mmap_io.PROT_READ,
     mmap_io.MAP_PRIVATE | mmap_io.MAP_ANONYMOUS,
-    i32(-(1)),
+    i32(-1),
     i64(0)
   );
   assert(mmap_io.is_error(mapped), "mmap with zero length should return an error");

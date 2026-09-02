@@ -583,7 +583,7 @@ ast_expr_is_fn_call_of :: (fn(e : AstExpr, func_name : str, arg_count : Option(u
         .Atom(_, tok) => (tok.value == func_name),
         .FnCall(_, _, _, _, _) => false
       );
-      if(!(func_name_matches), {
+      if(!func_name_matches, {
         return(false);
       });
       count_ok := match(
@@ -621,7 +621,7 @@ ast_expr_is_fn_call_of_any :: (fn(e : AstExpr, func_names : ArrayList(str), arg_
         },
         .FnCall(_, _, _, _, _) => false
       );
-      if(!(func_name_in_list), {
+      if(!func_name_in_list, {
         return(false);
       });
       count_ok := match(
@@ -650,7 +650,7 @@ exprs_are_equal :: (fn(e1 : AstExpr, e2 : AstExpr) -> bool)(
       e2,
       .Atom(_, _) => false,
       .FnCall(_, func2, args2, _, _) => {
-        if(!(recur(func1, func2)), {
+        if(!recur(func1, func2), {
           return(false);
         });
         n1 := args1.len();
@@ -662,7 +662,7 @@ exprs_are_equal :: (fn(e1 : AstExpr, e2 : AstExpr) -> bool)(
         while(i < n1, {
           a1 := match(args1.get(i), .Some(a) => a, .None => make_err_expr());
           a2 := match(args2.get(i), .Some(a) => a, .None => make_err_expr());
-          if(!(recur(a1, a2)), {
+          if(!recur(a1, a2), {
             return(false);
           });
           i = (i + usize(1));
@@ -771,7 +771,7 @@ expect_expr_to_be_fn_call_of :: (
     exn : Exception
   ) -> unit
 )({
-  if(!(ast_expr_is_fn_call(expr)), {
+  if(!ast_expr_is_fn_call(expr), {
     exn.throw(
       dyn(
         format_error_message(
@@ -783,7 +783,7 @@ expect_expr_to_be_fn_call_of :: (
       )
     );
   });
-  if(!(ast_expr_is_fn_call_of(expr, func_name, .None)), {
+  if(!ast_expr_is_fn_call_of(expr, func_name, .None), {
     exn.throw(
       dyn(
         format_error_message(
@@ -829,7 +829,7 @@ expect_expr_to_be_fn_call_of_any :: (
     exn : Exception
   ) -> unit
 )({
-  if(!(ast_expr_is_fn_call(expr)), {
+  if(!ast_expr_is_fn_call(expr), {
     exn.throw(
       dyn(
         format_error_message(
@@ -841,7 +841,7 @@ expect_expr_to_be_fn_call_of_any :: (
       )
     );
   });
-  if(!(ast_expr_is_fn_call_of_any(expr, func_names, .None)), {
+  if(!ast_expr_is_fn_call_of_any(expr, func_names, .None), {
     exn.throw(
       dyn(
         format_error_message(
@@ -907,7 +907,7 @@ _synth_desugar_tok :: (fn(kind : TokenKind, value : str, ref_tok : Token) -> Tok
 /// the rewrite and the prelude `if` macro path reports the proper
 /// label-mismatch error.
 _unwrap_if_label :: (fn(arg : AstExpr, label : str) -> Option(AstExpr))({
-  if(!(ast_expr_is_fn_call_of(arg, ":", .Some(usize(2)))), {
+  if(!ast_expr_is_fn_call_of(arg, ":", .Some(usize(2))), {
     return(Option(AstExpr).Some(arg));
   });
   pair_args := match(
@@ -1005,7 +1005,7 @@ desugar_if_calls :: (fn(e : AstExpr) -> AstExpr)(
       // sharing fix in _synth_desugar_tok — the two together close the
       // v0.2.15 evaluator regression
       // (issues/desugar-token-clones-evaluator-regression.md).
-      if(!(_contains_if_call(e)), {
+      if(!_contains_if_call(e), {
         return(e);
       });
       n_args := args.len();

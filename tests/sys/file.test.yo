@@ -10,7 +10,7 @@ open(import("std/string"));
 { openat, close, read, write, open_sync, close_sync, file_size } :: import("std/sys/file");
 { temp_dir, path_join } :: import("../helper");
 test("sync open, file_size, close", {
-  (path : *(u8)) = "tests/fixtures/test_file.txt";
+  (path : *u8) = "tests/fixtures/test_file.txt";
   fd := open_sync(path, O_RDONLY, i32(0));
   unsafe(printf("  fd = %d\n", fd));
   assert(fd >= i32(0));
@@ -20,7 +20,7 @@ test("sync open, file_size, close", {
   close_sync(fd);
 });
 test("sync open nonexistent returns negative errno", {
-  (bad_path : *(u8)) = "/nonexistent/path/file.txt";
+  (bad_path : *u8) = "/nonexistent/path/file.txt";
   fd := open_sync(bad_path, O_RDONLY, i32(0));
   unsafe(printf("  fd = %d\n", fd));
   assert(fd < i32(0));
@@ -47,7 +47,7 @@ test("async openat, read, close", {
   free(.Some(*(void)(buf)));
 });
 test("async write and read back", {
-  write_open_flags := ((O_WRONLY | O_CREAT) | O_TRUNC);
+  write_open_flags := (O_WRONLY | O_CREAT | O_TRUNC);
   tmp := temp_dir();
   write_path_str := path_join(tmp, `yo_io_file_test.txt`);
   write_path_c := write_path_str.to_cstr();

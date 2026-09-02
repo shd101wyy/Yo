@@ -2,18 +2,18 @@
 { glob_match, GlobPattern } :: import("std/glob");
 test("glob exact match", {
   assert(glob_match(`hello.txt`, `hello.txt`), "exact match");
-  assert(!(glob_match(`hello.txt`, `world.txt`)), "no match");
+  assert(!glob_match(`hello.txt`, `world.txt`), "no match");
 });
 test("glob star matches any", {
   assert(glob_match(`*.txt`, `hello.txt`), "*.txt matches hello.txt");
   assert(glob_match(`*.txt`, `.txt`), "*.txt matches .txt");
-  assert(!(glob_match(`*.txt`, `hello.md`)), "*.txt rejects .md");
-  assert(!(glob_match(`*.txt`, `dir/hello.txt`)), "* does not cross /");
+  assert(!glob_match(`*.txt`, `hello.md`), "*.txt rejects .md");
+  assert(!glob_match(`*.txt`, `dir/hello.txt`), "* does not cross /");
 });
 test("glob question mark", {
   assert(glob_match(`?.txt`, `a.txt`), "?.txt matches a.txt");
-  assert(!(glob_match(`?.txt`, `ab.txt`)), "?.txt rejects ab.txt");
-  assert(!(glob_match(`?.txt`, `.txt`)), "?.txt rejects .txt");
+  assert(!glob_match(`?.txt`, `ab.txt`), "?.txt rejects ab.txt");
+  assert(!glob_match(`?.txt`, `.txt`), "?.txt rejects .txt");
 });
 test("glob double star", {
   assert(glob_match(`**/*.txt`, `dir/hello.txt`), "**/*.txt matches dir/hello.txt");
@@ -23,25 +23,25 @@ test("glob double star", {
 test("glob character class", {
   assert(glob_match(`[abc].txt`, `a.txt`), "[abc] matches a");
   assert(glob_match(`[abc].txt`, `b.txt`), "[abc] matches b");
-  assert(!(glob_match(`[abc].txt`, `d.txt`)), "[abc] rejects d");
+  assert(!glob_match(`[abc].txt`, `d.txt`), "[abc] rejects d");
 });
 test("glob negated character class", {
   assert(glob_match(`[!abc].txt`, `d.txt`), "[!abc] matches d");
-  assert(!(glob_match(`[!abc].txt`, `a.txt`)), "[!abc] rejects a");
+  assert(!glob_match(`[!abc].txt`, `a.txt`), "[!abc] rejects a");
 });
 test("glob complex patterns", {
   assert(glob_match(`src/*.yo`, `src/main.yo`), "src/*.yo");
-  assert(!(glob_match(`src/*.yo`, `src/sub/main.yo`)), "* doesn't cross /");
+  assert(!glob_match(`src/*.yo`, `src/sub/main.yo`), "* doesn't cross /");
   assert(glob_match(`src/**/*.yo`, `src/sub/main.yo`), "** crosses /");
   assert(glob_match(`**/*.test.yo`, `tests/string/string.test.yo`), "deep test match");
 });
 test("glob empty pattern and text", {
   assert(glob_match(``, ``), "empty matches empty");
-  assert(!(glob_match(``, `a`)), "empty pattern rejects non-empty");
+  assert(!glob_match(``, `a`), "empty pattern rejects non-empty");
   assert(glob_match(`*`, ``), "* matches empty");
 });
 test("GlobPattern object", {
   pat := GlobPattern.new(`*.yo`);
   assert(pat.matches(`main.yo`), "pattern matches");
-  assert(!(pat.matches(`main.txt`)), "pattern rejects");
+  assert(!pat.matches(`main.txt`), "pattern rejects");
 });

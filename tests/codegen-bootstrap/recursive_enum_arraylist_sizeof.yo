@@ -17,7 +17,7 @@ MyExpr :: enum(
   List(items : ArrayList(Self))
 );
 
-eval :: (fn(e : *(MyExpr)) -> i32)({
+eval :: (fn(e : *MyExpr) -> i32)({
   return(
     match(
       e.*,
@@ -34,7 +34,7 @@ eval :: (fn(e : *(MyExpr)) -> i32)({
           match(
             items.get(i),
             .Some(it) => {
-              sum = (sum + recur(&(it)));
+              sum = (sum + recur(&it));
             },
             .None => ()
           );
@@ -51,7 +51,7 @@ main :: (fn() -> unit)({
   items.push(MyExpr.Lit(i32(20)));
   items.push(MyExpr.Add(box(MyExpr.Lit(i32(3))), box(MyExpr.Lit(i32(4)))));
   e := MyExpr.List(items);
-  v := eval(&(e));
+  v := eval(&e);
   println(`v=${v.to_string()}`);
 });
 export(main);

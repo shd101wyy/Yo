@@ -15,7 +15,7 @@ Defaulted :: ref(struct(a : i32, (b : i32) ?= i32(9)));
 test("missing required field is rejected inside an io.async closure", {
   comptime_expect_error(
     (fn(io2 : Io) -> Impl(Future(Thing, IoExn)))(
-      io2.async((e) => {
+      io2.async(e => {
         t := Thing(a : i32(1), b : i32(2)); // omits c
         t
       })
@@ -31,14 +31,14 @@ test("missing required field is rejected in a plain function too", {
 });
 test("a complete construction inside io.async still compiles and runs", {
   make :: (fn(io2 : Io) -> Impl(Future(i32, IoExn)))(
-    io2.async((e) => {
+    io2.async(e => {
       t := Thing(a : i32(1), b : i32(2), c : i32(3));
       t.a + t.b + t.c
     })
   );
   exn := Exception(
     throw : (
-      (_err) -> {
+      _err -> {
         assert(false, "unexpected");
         unwind(());
       }
@@ -49,14 +49,14 @@ test("a complete construction inside io.async still compiles and runs", {
 });
 test("an omitted DEFAULTED field inside io.async is fine", {
   make :: (fn(io2 : Io) -> Impl(Future(i32, IoExn)))(
-    io2.async((e) => {
+    io2.async(e => {
       t := Defaulted(a : i32(1)); // b defaults to 9
       t.a + t.b
     })
   );
   exn := Exception(
     throw : (
-      (_err) -> {
+      _err -> {
         assert(false, "unexpected");
         unwind(());
       }

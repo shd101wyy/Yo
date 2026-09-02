@@ -30,7 +30,7 @@ _unlink :: (fn(path : String, io : Io) -> unit)({
 test("watch a directory: creating a file produces events, poll drains them", {
   t_exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, `unexpected error: ${err}`);
         unwind(());
       }
@@ -60,13 +60,13 @@ test("watch a directory: creating a file produces events, poll drains them", {
   assert(saw_target, "the event names the created entry");
   assert(w.pending() == usize(0), "poll drained the queue");
   w.close();
-  assert(!(w.is_active()), "closed");
+  assert(!w.is_active(), "closed");
   _unlink(target, io);
 });
 test("next(io) resolves when an event arrives and .None after close", {
   t_exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, `unexpected error: ${err}`);
         unwind(());
       }
@@ -94,7 +94,7 @@ test("next(io) resolves when an event arrives and .None after close", {
 _try_watch :: (fn(p : String) -> Option(Watcher))({
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         unwind(Option(Watcher).None);
       }
     )

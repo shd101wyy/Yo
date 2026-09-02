@@ -33,7 +33,7 @@ test("Test ClosureType({...}) to create closure value", {
 test("Test anonymous closure value =>", {
   x := 1;
   (closure : Impl(Fn(y : i32) -> i32)) = (
-    (y) => {
+    y => {
       x = (x + y);
       return(x);
     }
@@ -57,7 +57,7 @@ test("Test multiple expected errors", {
       some_cond() => {
         a := 1;
         closure = (
-          (y) => {
+          y => {
             return(y + a);
           }
         );
@@ -65,7 +65,7 @@ test("Test multiple expected errors", {
       true => {
         b := 1;
         closure = (
-          (y) => {
+          y => {
             return(y + b);
           }
         );
@@ -78,7 +78,7 @@ test("Test multiple expected errors", {
       some_cond() => {
         a := 1;
         closure = (
-          (y) => {
+          y => {
             return(y + a);
           }
         );
@@ -86,7 +86,7 @@ test("Test multiple expected errors", {
       true => {
         a := 2;
         closure = (
-          (y) => {
+          y => {
             return(y + a);
           }
         );
@@ -98,13 +98,13 @@ test("Test multiple expected errors", {
       cond(
         some_cond() => {
           a := 1;
-          (y) => {
+          y => {
             return(y + a);
           }
         },
         true => {
           a := 2;
-          (y) => {
+          y => {
             return(y + a);
           }
         }
@@ -115,19 +115,19 @@ test("Test multiple expected errors", {
     a := 1;
     b := 2;
     closure : Impl(Fn(y : i32) -> i32);
-    closure = ((y) => (y + a));
-    closure = ((y) => (y + b));
+    closure = (y => (y + a));
+    closure = (y => (y + b));
   }, "cannot reassign to variable of Impl");
   comptime_expect_error({
     a := 1;
-    (closure : Impl(Fn(y : i32) -> i32)) = ((y) => (y + a));
-    closure = ((y) => (y + a));
+    (closure : Impl(Fn(y : i32) -> i32)) = (y => (y + a));
+    closure = (y => (y + a));
   }, "cannot reassign to variable of Impl");
 });
 test("Test closure with Dyn", {
   x := 1;
   (closure : Dyn(Fn(y : i32) -> i32)) = dyn(
-    box((y) => {
+    box(y => {
       x = (x + y);
       return(x);
     })
@@ -170,7 +170,7 @@ test("Test closure captured Rc survives nested early return", {
         return(x.*);
       }
     );
-    return(i32(-(1)));
+    return(i32(-1));
   });
   closure2 := closure;
   result := closure(4);
@@ -184,7 +184,7 @@ test("Test anonymous closure value with Impl that captures Rc object", {
   x := MyBox(1);
   ClosureType :: Impl(Fn(y : i32) -> i32);
   (closure : ClosureType) = (
-    (y) => {
+    y => {
       x.* = (x.* + y);
       return(x.*);
     }
@@ -200,7 +200,7 @@ test("Test anonymous closure value with Impl that captures Rc object", {
 test("Test anonymous closure value with Dyn that captures Rc object", {
   x := MyBox(1);
   (closure : Dyn(Fn(y : i32) -> i32)) = dyn(
-    box((y) => {
+    box(y => {
       x.* = (x.* + y);
       return(x.*);
     })
@@ -215,7 +215,7 @@ test("Test anonymous closure value with Dyn that captures Rc object", {
 });
 test("Test anonymous closure value with Dyn that captures Rc object with auto boxing", {
   x := MyBox(1);
-  (closure : Dyn(Fn(y : i32) -> i32)) = dyn((y) => {
+  (closure : Dyn(Fn(y : i32) -> i32)) = dyn(y => {
     // without explicitly calling `box`
     x.* = (x.* + y);
     return(x.*);
@@ -241,12 +241,12 @@ impl(
 );
 test("a -> fn literal binds the result type variable of Option.map and of an Impl(Fn) method", {
   o := Option(i64).Some(i64(2));
-  s := o.map((x) -> `v=${x}`).unwrap();
+  s := o.map(x -> `v=${x}`).unwrap();
   assert(s.to_string() == `v=2`, "Option.map result usable through a -> literal");
   assert(s.len() == usize(3), "String methods resolve on the mapped value");
   a := ArrowApply(base : i64(20));
-  t := a.apply((v) -> `n=${v + i64(1)}`);
+  t := a.apply(v -> `n=${v + i64(1)}`);
   assert(t.to_string() == `n=21`, "method generic R bound by a -> literal");
-  n := a.apply((v) -> (v * i64(2)));
+  n := a.apply(v -> (v * i64(2)));
   assert((n + i64(1)) == i64(41), "and by a numeric -> literal");
 });

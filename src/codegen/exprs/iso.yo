@@ -28,7 +28,7 @@ generate_yo_iso_extract :: (fn(expr : AstExpr, indent : String, context : Functi
   self_arg := match(_arg(expr, usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("__yo_iso_extract requires exactly 1 argument"))));
   self_code := _call_generate_expr(self_arg, indent.clone(), context);
   self_type := match(context.base.get_expr_info(self_arg), .Some(sei) => sei.ty, .None => return(codegen_fatal_expr(String.from("__yo_iso_extract requires an Iso type"))));
-  if(!(is_iso_type(self_type)), {
+  if(!is_iso_type(self_type), {
     return(codegen_fatal_expr(String.from("__yo_iso_extract requires an Iso type")));
   });
   iso_type_c_name := get_type_string(self_type, context.base);
@@ -70,7 +70,7 @@ generate_yo_iso_dispose :: (fn(expr : AstExpr, indent : String, context : Functi
   self_arg := match(_arg(expr, usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("__yo_iso_dispose requires exactly 1 argument"))));
   self_code := _call_generate_expr(self_arg, indent.clone(), context);
   self_type := match(context.base.get_expr_info(self_arg), .Some(sei) => sei.ty, .None => return(codegen_fatal_expr(String.from("__yo_iso_dispose requires an Iso type"))));
-  if(!(is_iso_type(self_type)), {
+  if(!is_iso_type(self_type), {
     return(codegen_fatal_expr(String.from("__yo_iso_dispose requires an Iso type")));
   });
   iso_type_c_name := get_type_string(self_type, context.base);
@@ -91,7 +91,7 @@ is_iso_type_call :: (fn(expr : AstExpr, context : FunctionGenerationContext) -> 
 );
 /// `Iso(T)(value)` constructor. Mirrors `generateIsoTypeCall`.
 generate_iso_type_call :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
-  if(!(is_iso_type_call(expr, context)), {
+  if(!is_iso_type_call(expr, context), {
     return(String.from("/* Error: generateIsoTypeCall called on non-Iso type call */"));
   });
   func := match(expr, .FnCall(_, f, _, _, _) => f, .Atom(_, _) => return(String.from("/* Error: non-Iso type call */")));
@@ -101,7 +101,7 @@ generate_iso_type_call :: (fn(expr : AstExpr, indent : String, context : Functio
   value_code := _call_generate_expr(value_arg, indent.clone(), context);
   iso_type_c_name := get_type_string(iso_type, context.base);
   child_type_c_name := get_type_string(child_type, context.base);
-  if(!(context.base.has_iso_type(iso_type_c_name.clone())), {
+  if(!context.base.has_iso_type(iso_type_c_name.clone()), {
     context.base.register_iso_type(iso_type_c_name.clone(), child_type_c_name, iso_type);
   });
   out := String.from("__yo_create_iso_");

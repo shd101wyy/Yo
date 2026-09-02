@@ -162,9 +162,9 @@ parse_doc_comment :: (fn(text : String) -> ParsedDocComment)({
     // A `#` line inside a fenced code block (a shell comment in a ```sh
     // example, a Markdown heading in quoted output) is code, not a heading.
     if(line.trim().starts_with(`\`\`\``), {
-      in_fence = !(in_fence);
+      in_fence = !in_fence;
     });
-    if(!(in_fence) && is_section_heading_(line), {
+    if(!in_fence && is_section_heading_(line), {
       match(
         current_section_name,
         .Some(name) => {

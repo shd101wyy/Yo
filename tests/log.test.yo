@@ -10,13 +10,13 @@ open(import("std/string"));
 
 test("level filtering incl. Off", {
   log.set_level(log.Level.Warn);
-  assert(!(log.enabled(log.Level.Trace)), "Trace off at Warn");
-  assert(!(log.enabled(log.Level.Info)), "Info off at Warn");
+  assert(!log.enabled(log.Level.Trace), "Trace off at Warn");
+  assert(!log.enabled(log.Level.Info), "Info off at Warn");
   assert(log.enabled(log.Level.Warn), "Warn on at Warn");
   assert(log.enabled(log.Level.Error), "Error on at Warn");
   log.set_level(log.Level.Off);
-  assert(!(log.enabled(log.Level.Error)), "Off disables even Error");
-  assert(!(log.enabled(log.Level.Trace)), "Off disables Trace");
+  assert(!log.enabled(log.Level.Error), "Off disables even Error");
+  assert(!log.enabled(log.Level.Trace), "Off disables Trace");
   log.set_level(log.Level.Trace);
   assert(log.enabled(log.Level.Trace), "Trace on at Trace");
   assert(log.get_level() == log.Level.Trace, "get_level round-trips");

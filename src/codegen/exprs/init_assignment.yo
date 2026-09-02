@@ -112,7 +112,7 @@ _emit_destructurings :: (fn(destructurings : ArrayList(RuntimeDestructuring), rh
           }, false),
           .None => false
         );
-        if(!(handled_newtype), {
+        if(!handled_newtype, {
           field_name := if(_all_digits(rd.label), {
             f := String.from("_");
             f.push_string(rd.label.clone());
@@ -120,7 +120,7 @@ _emit_destructurings :: (fn(destructurings : ArrayList(RuntimeDestructuring), rh
           }, sanitize_for_c_identifier(rd.label.clone(), false));
           // Tuple label → positional `_index`.
           field_name2 := if(
-            is_tuple_type(rhs_type) && !(_all_digits(rd.label)),
+            is_tuple_type(rhs_type) && !_all_digits(rd.label),
             match(
               _tuple_index_of(rhs_type, rd.label.clone()),
               .Some(idx) => {
@@ -286,7 +286,7 @@ generate_initialization_assignment :: (fn(expr : AstExpr, indent : String, conte
           .None => _call_generate_expr(rhs, indent.clone(), context)
         )
       );
-      if(!(is_unit_type(lhs_type)), {
+      if(!is_unit_type(lhs_type), {
         var_type_and_name := get_variable_type_string(lhs_type, var_name.clone(), context.base);
         line := indent.clone();
         line.push_string(var_type_and_name);
@@ -371,7 +371,7 @@ generate_initialization_assignment :: (fn(expr : AstExpr, indent : String, conte
       // `s2 compile main.yo` UAF; see issues/fixed/yo-self-dyn-throw-double-drop.md).
       rhs_is_deref := (ast_expr_is_fn_call_of(rhs, BF_DOT, Option(usize).Some(usize(2))) && match(rhs, .FnCall(_, _, dargs, _, _) => match(dargs.get(usize(1)), .Some(pe) => ast_expr_is_atom_of(pe, "*"), .None => false), .Atom(_, _) => false));
       rhs_has_dup := match(context.base.get_expr_info(rhs), .Some(r2) => match(r2.deferred_dup_expressions, .Some(d2) => (d2.len() > usize(0)), .None => false), .None => false);
-      if(!(is_unit_type(lhs_type)), {
+      if(!is_unit_type(lhs_type), {
         // get_variable_type_string (not get_type_string + manual name append)
         // so the scalar binding's C name is REGISTERED in declared_c_var_names
         // — _keep_pending_drop (return.yo) rejects a drop whose target was
@@ -386,7 +386,7 @@ generate_initialization_assignment :: (fn(expr : AstExpr, indent : String, conte
         line.push_string(rhs_code);
         line.push_str(";");
         em.emit_string_line(line);
-        if((rhs_is_deref && type_contains_rc_type(lhs_type)) && !(rhs_has_dup), {
+        if(rhs_is_deref && type_contains_rc_type(lhs_type) && !rhs_has_dup, {
           dup_line := indent.clone();
           dup_line.push_string(generate_dup_code_for_value(sanitized_var_name.clone(), lhs_type, context));
           dup_line.push_str(";");

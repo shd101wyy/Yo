@@ -10,14 +10,14 @@ open(import("std/string"));
 test("random_bytes fills buffer", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
     )
   );
   buf := Array(u8, usize(32)).fill(u8(0));
-  random_bytes(RawSlice(u8)(ptr : &(buf(usize(0))), len : usize(32)), exn);
+  random_bytes(RawSlice(u8)(ptr : &buf(usize(0)), len : usize(32)), exn);
   has_nonzero := false;
   i := usize(0);
   while(i < usize(32), i = (i + usize(1)), {
@@ -33,7 +33,7 @@ test("random_bytes fills buffer", {
 test("random_bytes different each call", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -41,8 +41,8 @@ test("random_bytes different each call", {
   );
   buf1 := Array(u8, usize(16)).fill(u8(0));
   buf2 := Array(u8, usize(16)).fill(u8(0));
-  random_bytes(RawSlice(u8)(ptr : &(buf1(usize(0))), len : usize(16)), exn);
-  random_bytes(RawSlice(u8)(ptr : &(buf2(usize(0))), len : usize(16)), exn);
+  random_bytes(RawSlice(u8)(ptr : &buf1(usize(0)), len : usize(16)), exn);
+  random_bytes(RawSlice(u8)(ptr : &buf2(usize(0)), len : usize(16)), exn);
   differ := false;
   i := usize(0);
   while(i < usize(16), i = (i + usize(1)), {
@@ -59,7 +59,7 @@ test("random_bytes different each call", {
 test("random_u32 returns a value", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -73,7 +73,7 @@ test("random_u32 returns a value", {
 test("random_u64 returns a value", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -87,7 +87,7 @@ test("random_u64 returns a value", {
 test("random_f64 in range 0 to 1", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -107,7 +107,7 @@ test("random_f64 in range 0 to 1", {
 test("random_range within bounds", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -123,7 +123,7 @@ test("random_range within bounds", {
 test("random_range single value", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -135,7 +135,7 @@ test("random_range single value", {
 test("random_range zero span returns min", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -148,7 +148,7 @@ test("random_range zero span returns min", {
 test("uuid_v4 format", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -163,13 +163,13 @@ test("uuid_v4 format", {
   assert(bytes(usize(23)) == u8(45), "position 23 should be dash");
   assert(bytes(usize(14)) == u8(52), "version nibble should be '4'");
   variant := bytes(usize(19));
-  valid_variant := (((variant == u8(56)) || (variant == u8(57))) || ((variant == u8(97)) || (variant == u8(98))));
+  valid_variant := ((variant == u8(56)) || (variant == u8(57)) || ((variant == u8(97)) || (variant == u8(98))));
   assert(valid_variant, "variant nibble should be 8, 9, a, or b");
 });
 test("uuid_v4 uniqueness", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -186,7 +186,7 @@ test("random_range stays in-bounds across many draws (rejection sampling)", {
   // (an awkward span near a power of two exercises the reject path).
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -194,8 +194,8 @@ test("random_range stays in-bounds across many draws (rejection sampling)", {
   );
   i := usize(0);
   while(i < usize(2000), i = (i + usize(1)), {
-    v := random_range(i64(-(7)), i64(6), exn);
-    assert(v >= i64(-(7)), "random_range lower bound");
+    v := random_range(i64(-7), i64(6), exn);
+    assert(v >= i64(-7), "random_range lower bound");
     assert(v < i64(6), "random_range upper bound (exclusive)");
   });
 });

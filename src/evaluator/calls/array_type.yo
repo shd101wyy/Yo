@@ -150,7 +150,7 @@ try_to_implement_array_by_array_type :: (
       });
     });
     // Type compatibility check.
-    if(!(are_types_compatible(arg_info.ty, expected_element_type)), {
+    if(!are_types_compatible(arg_info.ty, expected_element_type), {
       exn.throw(
         dyn(
           format_error_message(
@@ -199,7 +199,7 @@ try_to_implement_array_by_array_type :: (
   });
   out_info.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(runtime_arg_exprs);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
-  if(!(all_elements_are_comptime), {
+  if(!all_elements_are_comptime, {
     // Runtime construction needs a temp to materialize into, exactly as the
     // array-literal path does.
     attach_temp_variable_to_expr(expr, true, ctx);

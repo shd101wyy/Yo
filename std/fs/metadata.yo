@@ -26,7 +26,7 @@ IO_file :: import("../sys/file");
 Metadata :: ref(
   struct(
     _statx : Statx,
-    _buf_ptr : *(u8)
+    _buf_ptr : *u8
   )
 );
 impl(
@@ -73,7 +73,7 @@ impl(
   // True if the file is read-only (no write permission for anyone).
   is_readonly : (fn(self : Self) -> bool)({
     m := self._statx.mode();
-    (m & ((S_IWUSR | S_IWGRP) | S_IWOTH)) == u32(0)
+    (m & (S_IWUSR | S_IWGRP | S_IWOTH)) == u32(0)
   }),
   // Owner user ID.
   uid : (fn(self : Self) -> u32)(
@@ -112,7 +112,7 @@ extern(
 // Internal helper to stat a path
 // ============================================================================
 _stat_path :: (fn(path : Path, flags : i32, io : Io) -> Impl(Future(Metadata, IoExn)))(
-  io.async((e) => {
+  io.async(e => {
     cstr_bytes := path.to_string().to_cstr();
     cstr := cstr_bytes.ptr().unwrap();
     buf_size := __yo_statx_buf_size();

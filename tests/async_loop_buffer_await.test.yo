@@ -14,11 +14,11 @@ open(import("std/collections/array_list"));
 { IoExn, Exception } :: import("std/error");
 
 Reader :: trait(
-  read : (fn(self : Self, buf : *(u8), size : usize, io : Io) -> Impl(Future(usize, IoExn))),
+  read : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn))),
   (read_to_end : (fn(self : Self, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))) ?=
     (
       (self, io) ->
-        io.async((e) => {
+        io.async(e => {
           out := ArrayList(u8).new();
           chunk := ArrayList(u8).with_capacity(usize(4));
           (ci : usize) = usize(0);
@@ -27,7 +27,7 @@ Reader :: trait(
           });
           (done : bool) = false;
           p := match(chunk.ptr(), .Some(q) => q, .None => *(u8)(""));
-          while(!(done), {
+          while(!done, {
             n := e.io.await(Self.read(self, p, usize(4), io), e);
             if(n == usize(0), {
               done = true;
@@ -46,8 +46,8 @@ TenSrc :: ref(struct(pos : u8));
 impl(
   TenSrc,
   Reader(
-    read : (fn(self : Self, buf : *(u8), size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
-      io.async((e) => {
+    read : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+      io.async(e => {
         (n : usize) = usize(0);
         while((n < size) && (self.pos < u8(10)), {
           self.pos = (self.pos + u8(1));
@@ -63,7 +63,7 @@ read_to_end_free :: (
   fn(generic(R : Type), r : R, io : Io, where(R <: Reader)) -> Impl(Future(ArrayList(u8), IoExn))
 )({
   the_r := r;
-  io.async((e) => {
+  io.async(e => {
     out := ArrayList(u8).new();
     chunk := ArrayList(u8).with_capacity(usize(4));
     (ci : usize) = usize(0);
@@ -72,7 +72,7 @@ read_to_end_free :: (
     });
     p := match(chunk.ptr(), .Some(q) => q, .None => *(u8)(""));
     (done : bool) = false;
-    while(!(done), {
+    while(!done, {
       n := e.io.await(the_r.read(p, usize(4), e.io), e);
       if(n == usize(0), {
         done = true;
@@ -98,7 +98,7 @@ impl(
   where(R <: Reader),
   Wrap(R),
   fill_once : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn)))(
-    io.async((e) => {
+    io.async(e => {
       tmp := ArrayList(u8).with_capacity(usize(8));
       tmp.push(u8(0));
       p := match(tmp.ptr(), .Some(q) => q, .None => *(u8)(""));
@@ -107,7 +107,7 @@ impl(
     })
   ),
   drain : (fn(self : Self, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))(
-    io.async((e) => {
+    io.async(e => {
       out := ArrayList(u8).new();
       chunk := ArrayList(u8).with_capacity(usize(4));
       (ci : usize) = usize(0);
@@ -116,7 +116,7 @@ impl(
       });
       p := match(chunk.ptr(), .Some(q) => q, .None => *(u8)(""));
       (done : bool) = false;
-      while(!(done), {
+      while(!done, {
         n := e.io.await(self._inner.read(p, usize(4), io), e);
         if(n == usize(0), {
           done = true;
@@ -134,7 +134,7 @@ impl(
 test("generic-impl single buffer-taking await (the shadow-registration face)", {
   t_exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -148,7 +148,7 @@ test("generic-impl single buffer-taking await (the shadow-registration face)", {
 test("generic-impl loop over a buffer-taking await (the BufReader shape)", {
   t_exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -164,7 +164,7 @@ test("generic-impl loop over a buffer-taking await (the BufReader shape)", {
 test("trait-default read_to_end loops a buffer-taking await", {
   t_exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -180,7 +180,7 @@ test("trait-default read_to_end loops a buffer-taking await", {
 test("free generic read_to_end loops a buffer-taking await", {
   t_exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }

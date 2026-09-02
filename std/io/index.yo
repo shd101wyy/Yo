@@ -39,14 +39,14 @@ pragma(Pragma.AllowUnsafe);
 Reader :: trait(
   /// Read up to `size` bytes into `buf`. Resolves to the number of bytes
   /// actually read; `0` means end-of-stream. Throws `IoExn` on failure.
-  read : (fn(self : Self, buf : *(u8), size : usize, io : Io) -> Impl(Future(usize, IoExn))),
+  read : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn))),
   /// Read until end-of-stream, resolving to all remaining bytes. Loops the
   /// raw `read` with an internal chunk buffer, so implementors get it for
   /// free and callers never touch a raw pointer.
   (read_to_end : (fn(self : Self, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))) ?=
     (
       (self, io) ->
-        io.async((e) => {
+        io.async(e => {
           out := ArrayList(u8).new();
           chunk := ArrayList(u8).with_capacity(usize(4096));
           (ci : usize) = usize(0);
@@ -55,7 +55,7 @@ Reader :: trait(
           });
           p := match(chunk.ptr(), .Some(q) => q, .None => *(u8)(""));
           (done : bool) = false;
-          while(!(done), {
+          while(!done, {
             n := e.io.await(Self.read(self, p, usize(4096), io), e);
             if(n == usize(0), {
               done = true;
@@ -76,7 +76,7 @@ Reader :: trait(
   (read_to_string : (fn(self : Self, io : Io) -> Impl(Future(String, IoExn)))) ?=
     (
       (self, io) ->
-        io.async((e) => {
+        io.async(e => {
           bytes := e.io.await(Self.read_to_end(self, io), e);
           match(
             String.from_utf8(bytes),
@@ -91,17 +91,17 @@ Writer :: trait(
   /// Write up to `size` bytes from `buf`. Resolves to the number of bytes
   /// actually written (which may be less than `size`). Throws `IoExn` on
   /// failure.
-  write : (fn(self : Self, buf : *(u8), size : usize, io : Io) -> Impl(Future(usize, IoExn))),
+  write : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn))),
   /// Flush any buffered bytes through to the underlying sink. Unbuffered
   /// writers resolve immediately.
   flush : (fn(self : Self, io : Io) -> Impl(Future(unit, IoExn))),
   /// Write ALL `size` bytes from `buf`, looping the raw `write` over short
   /// counts. Throws `IoError.WriteZero` if the sink stops accepting bytes
   /// before everything is delivered.
-  (write_all : (fn(self : Self, buf : *(u8), size : usize, io : Io) -> Impl(Future(unit, IoExn)))) ?=
+  (write_all : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(unit, IoExn)))) ?=
     (
       (self, buf, size, io) ->
-        io.async((e) => {
+        io.async(e => {
           (written : usize) = usize(0);
           while(written < size, {
             n := e.io.await(Self.write(self, buf.add(written), size - written, io), e);
@@ -121,7 +121,7 @@ Writer :: trait(
 copy :: (
   fn(generic(R : Type, W : Type), r : R, w : W, io : Io, where(R <: Reader, W <: Writer)) -> Impl(Future(u64, IoExn))
 )(
-  io.async((e) => {
+  io.async(e => {
     (total : u64) = u64(0);
     chunk := ArrayList(u8).with_capacity(usize(4096));
     (ci : usize) = usize(0);
@@ -130,7 +130,7 @@ copy :: (
     });
     p := match(chunk.ptr(), .Some(q) => q, .None => *(u8)(""));
     (done : bool) = false;
-    while(!(done), {
+    while(!done, {
       n := e.io.await(r.read(p, usize(4096), e.io), e);
       if(n == usize(0), {
         done = true;

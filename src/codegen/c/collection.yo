@@ -82,9 +82,9 @@ emit_c_includes :: (fn(context : CodeGenContext) -> unit)({
       include_iter.next(),
       .Some(include) => {
         skip_posix := (is_windows && ((include == "<unistd.h>") || (include == "<dirent.h>")));
-        skip_windows := ((!(is_windows)) && (((include == "<windows.h>") || (include == "<bcrypt.h>")) || (include == "<io.h>")));
-        skip_macos := ((!(is_macos)) && (include == "<mach-o/dyld.h>"));
-        if(!((skip_posix || skip_windows) || skip_macos), {
+        skip_windows := (!is_windows && ((include == "<windows.h>") || (include == "<bcrypt.h>") || (include == "<io.h>")));
+        skip_macos := (!is_macos && (include == "<mach-o/dyld.h>"));
+        if(!(skip_posix || skip_windows || skip_macos), {
           line := String.from("#include ");
           line.push_string(include);
           context.emitter.emit_header_string_line(line);

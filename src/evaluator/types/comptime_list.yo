@@ -38,7 +38,7 @@ evaluate_comptime_list_type :: (
     exn : Exception
   ) -> AstExpr
 )({
-  if(!(ast_expr_is_fn_call_of(expr, BK_COMPTIME_LIST_TYPE, .Some(usize(1)))), {
+  if(!ast_expr_is_fn_call_of(expr, BK_COMPTIME_LIST_TYPE, .Some(usize(1))), {
     exn.throw(
       dyn(
         format_error_message(
@@ -86,7 +86,7 @@ evaluate_comptime_list_type :: (
     .None => new_expr_info(env, t_i32()) // unreachable: guarded by throw above
   );
   // Validate it's a type value
-  if(!(is_type_value(elem_info.value)), {
+  if(!is_type_value(elem_info.value), {
     exn.throw(
       dyn(
         format_error_message(

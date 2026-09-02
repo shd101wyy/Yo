@@ -17,7 +17,7 @@ fs_file :: import("std/fs/file");
 test("create_dir and remove_dir", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -44,7 +44,7 @@ test("create_dir and remove_dir", {
 test("create_dir_str", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -68,7 +68,7 @@ test("create_dir on existing returns error", {
   // Setup: create the directory
   setup_exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception during setup");
         unwind(());
       }
@@ -84,7 +84,7 @@ test("create_dir on existing returns error", {
   // Second create should fail
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         unsafe(printf("  got expected error\n"));
         unwind(());
       }
@@ -99,7 +99,7 @@ test("create_dir on existing returns error", {
 test("create_dir_all creates nested directories", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -128,7 +128,7 @@ test("create_dir_all creates nested directories with a multibyte component", {
   // only discriminates because the component is multibyte.
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -149,7 +149,7 @@ test("create_dir_all creates nested directories with a multibyte component", {
 test("create_dir_all on existing directory succeeds", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -175,7 +175,7 @@ test("create_dir_all on existing directory succeeds", {
 test("remove_file removes a file", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -188,13 +188,13 @@ test("remove_file removes a file", {
   unsafe(printf("  remove_file ok\n"));
   // Verify gone
   e := io.await(fs_file.exists(fpath, io), io);
-  assert(!(e), "file should not exist after remove");
+  assert(!e, "file should not exist after remove");
 });
 test("remove_file nonexistent returns error", {
   fpath := Path.new(`/nonexistent/yo_fs_rm_nope.txt`);
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         unsafe(printf("  got expected error\n"));
         unwind(());
       }
@@ -209,7 +209,7 @@ test("remove_file nonexistent returns error", {
 test("rename moves a file", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -229,7 +229,7 @@ test("rename moves a file", {
   unsafe(printf("  rename ok\n"));
   // Old should not exist
   old_ex := io.await(fs_file.exists(old_path, io), io);
-  assert(!(old_ex), "old path should not exist");
+  assert(!old_ex, "old path should not exist");
   // New should exist with correct content
   s := io.await(fs_file.read_to_string(new_path, io), IoExn(io : io, exn : exn));
   assert(s == `rename me`, "renamed content mismatch");
@@ -246,7 +246,7 @@ test("hard_link creates a link", {
   });
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -279,7 +279,7 @@ test("symlink creates a symbolic link", {
   lnk := Path.new(path_join(tmp, `yo_fs_symlink_lnk.txt`));
   setup_exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception during setup");
         unwind(());
       }
@@ -301,7 +301,7 @@ test("symlink creates a symbolic link", {
   // Symlink may fail with PermissionDenied on Windows
   sym_exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         match(
           downcast(err, IoError),
           .Some(io_err) => match(
@@ -326,7 +326,7 @@ test("symlink creates a symbolic link", {
   // Read via symlink
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -351,7 +351,7 @@ test("read_dir survives directories larger than one getdents buffer", {
   // platform.
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -380,7 +380,7 @@ test("read_dir survives directories larger than one getdents buffer", {
 test("read_dir lists directory entries", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -435,7 +435,7 @@ test("read_dir on nonexistent returns error", {
   dpath := Path.new(`/nonexistent/yo_fs_read_dir_nope`);
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         unsafe(printf("  got expected error\n"));
         unwind(());
       }

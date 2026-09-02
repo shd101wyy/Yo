@@ -66,11 +66,11 @@ test("HashSet.has returns true for existing element", {
 test("HashSet.has returns false for non-existing element", {
   set := HashSet(i32).new();
   set.insert(i32(10));
-  assert(!(set.contains(i32(99))));
+  assert(!set.contains(i32(99)));
 });
 test("HashSet.has returns false for empty set", {
   set := HashSet(i32).new();
-  assert(!(set.contains(i32(42))));
+  assert(!set.contains(i32(42)));
 });
 test("HashSet.has works after multiple insertions", {
   set := HashSet(i32).new();
@@ -80,7 +80,7 @@ test("HashSet.has works after multiple insertions", {
   assert(set.contains(i32(1)));
   assert(set.contains(i32(2)));
   assert(set.contains(i32(3)));
-  assert(!(set.contains(i32(4))));
+  assert(!set.contains(i32(4)));
 });
 // ===== Remove Tests =====
 test("HashSet.remove deletes existing element", {
@@ -107,7 +107,7 @@ test("HashSet.remove and verify element no longer exists", {
   set := HashSet(i32).new();
   set.insert(i32(10));
   set.remove(i32(10));
-  assert(!(set.contains(i32(10))));
+  assert(!set.contains(i32(10)));
 });
 test("HashSet.remove preserves other entries", {
   set := HashSet(i32).new();
@@ -117,7 +117,7 @@ test("HashSet.remove preserves other entries", {
   set.remove(i32(2));
   assert(set.len() == usize(2));
   assert(set.contains(i32(1)));
-  assert(!(set.contains(i32(2))));
+  assert(!set.contains(i32(2)));
   assert(set.contains(i32(3)));
 });
 test("HashSet.remove multiple elements", {
@@ -128,9 +128,9 @@ test("HashSet.remove multiple elements", {
   set.remove(i32(1));
   set.remove(i32(3));
   assert(set.len() == usize(1));
-  assert(!(set.contains(i32(1))));
+  assert(!set.contains(i32(1)));
   assert(set.contains(i32(2)));
-  assert(!(set.contains(i32(3))));
+  assert(!set.contains(i32(3)));
 });
 // ===== Clear Tests =====
 test("HashSet.clear removes all entries", {
@@ -161,8 +161,8 @@ test("HashSet.clear removes all elements", {
   set.insert(i32(1));
   set.insert(i32(2));
   set.clear();
-  assert(!(set.contains(i32(1))));
-  assert(!(set.contains(i32(2))));
+  assert(!set.contains(i32(1)));
+  assert(!set.contains(i32(2)));
 });
 // ===== Length and Empty Tests =====
 test("HashSet.len returns correct count", {
@@ -187,7 +187,7 @@ test("HashSet.is_empty on new set", {
 test("HashSet.is_empty after insertions", {
   set := HashSet(i32).new();
   set.insert(i32(1));
-  assert(!(set.is_empty()));
+  assert(!set.is_empty());
 });
 test("HashSet.is_empty after clear", {
   set := HashSet(i32).new();
@@ -214,7 +214,7 @@ test("HashSet.is_subset returns false for non-subset", {
   set2.insert(i32(1));
   set2.insert(i32(2));
   set2.insert(i32(3));
-  assert(!(set1.is_subset(set2)));
+  assert(!set1.is_subset(set2));
 });
 test("HashSet.is_subset returns true for equal sets", {
   set1 := HashSet(i32).new();
@@ -243,7 +243,7 @@ test("HashSet.is_superset returns false for non-superset", {
   set2 := HashSet(i32).new();
   set2.insert(i32(1));
   set2.insert(i32(3));
-  assert(!(set1.is_superset(set2)));
+  assert(!set1.is_superset(set2));
 });
 test("HashSet.is_disjoint returns true for disjoint sets", {
   set1 := HashSet(i32).new();
@@ -261,7 +261,7 @@ test("HashSet.is_disjoint returns false for overlapping sets", {
   set2 := HashSet(i32).new();
   set2.insert(i32(2));
   set2.insert(i32(3));
-  assert(!(set1.is_disjoint(set2)));
+  assert(!set1.is_disjoint(set2));
 });
 test("HashSet.union creates combined set", {
   set1 := HashSet(i32).new();
@@ -305,8 +305,8 @@ test("HashSet.intersection creates common elements set", {
   assert(inter_set.len() == usize(2));
   assert(inter_set.contains(i32(2)));
   assert(inter_set.contains(i32(3)));
-  assert(!(inter_set.contains(i32(1))));
-  assert(!(inter_set.contains(i32(4))));
+  assert(!inter_set.contains(i32(1)));
+  assert(!inter_set.contains(i32(4)));
 });
 test("HashSet.intersection with empty set", {
   set1 := HashSet(i32).new();
@@ -332,8 +332,8 @@ test("HashSet.difference creates elements in first but not second", {
   assert(diff_set.len() == usize(2));
   assert(diff_set.contains(i32(1)));
   assert(diff_set.contains(i32(3)));
-  assert(!(diff_set.contains(i32(2))));
-  assert(!(diff_set.contains(i32(4))));
+  assert(!diff_set.contains(i32(2)));
+  assert(!diff_set.contains(i32(4)));
 });
 test("HashSet.difference with empty set returns copy", {
   set1 := HashSet(i32).new();
@@ -362,8 +362,8 @@ test("HashSet.symmetric_difference creates elements in either but not both", {
   assert(sym_diff.len() == usize(2));
   assert(sym_diff.contains(i32(1)));
   assert(sym_diff.contains(i32(4)));
-  assert(!(sym_diff.contains(i32(2))));
-  assert(!(sym_diff.contains(i32(3))));
+  assert(!sym_diff.contains(i32(2)));
+  assert(!sym_diff.contains(i32(3)));
 });
 test("HashSet.symmetric_difference with disjoint sets", {
   set1 := HashSet(i32).new();
@@ -419,8 +419,8 @@ test("HashSet alternating add and remove", {
   set.remove(i32(2));
   set.insert(i32(4));
   assert(set.len() == usize(2));
-  assert(!(set.contains(i32(1))));
-  assert(!(set.contains(i32(2))));
+  assert(!set.contains(i32(1)));
+  assert(!set.contains(i32(2)));
   assert(set.contains(i32(3)));
   assert(set.contains(i32(4)));
 });
@@ -441,10 +441,10 @@ test("HashSet with zero element", {
 });
 test("HashSet with negative elements", {
   set := HashSet(i32).new();
-  set.insert(i32(-(1)));
-  set.insert(i32(-(2)));
-  assert(set.contains(i32(-(1))));
-  assert(set.contains(i32(-(2))));
+  set.insert(i32(-1));
+  set.insert(i32(-2));
+  assert(set.contains(i32(-1)));
+  assert(set.contains(i32(-2)));
   assert(set.len() == usize(2));
 });
 // ===== Different Element Types =====
@@ -512,7 +512,7 @@ test("HashSet with Box elements - remove cleans up element", {
   result := set.remove(Box(i32)(20));
   assert(result == true);
   assert(set.len() == usize(2));
-  assert(!(set.contains(Box(i32)(20))));
+  assert(!set.contains(Box(i32)(20)));
   assert(set.contains(Box(i32)(10)));
   assert(set.contains(Box(i32)(30)));
   // The removed Box(20) should be properly dropped
@@ -558,7 +558,7 @@ test("HashSet with Box elements - adding many duplicates", {
 test("HashSet into_iter - empty set", {
   set := HashSet(i32).new();
   count := i32(0);
-  for(set.into_iter(), (x) => {
+  for(set.into_iter(), x => {
     count = (count + i32(1));
   });
   assert(count == i32(0));
@@ -567,7 +567,7 @@ test("HashSet into_iter - single element", {
   set := HashSet(i32).new();
   set.insert(i32(42));
   result := i32(0);
-  for(set.into_iter(), (x) => {
+  for(set.into_iter(), x => {
     result = x;
   });
   assert(result == i32(42));
@@ -579,7 +579,7 @@ test("HashSet into_iter - multiple elements all visited", {
   set.insert(i32(30));
   sum := i32(0);
   count := i32(0);
-  for(set.into_iter(), (x) => {
+  for(set.into_iter(), x => {
     sum = (sum + x);
     count = (count + i32(1));
   });
@@ -589,7 +589,7 @@ test("HashSet into_iter - multiple elements all visited", {
 test("HashSet iter - empty set", {
   set := HashSet(i32).new();
   count := i32(0);
-  for(set.iter(), (ptr) => {
+  for(set.iter(), ptr => {
     count = (count + i32(1));
   });
   assert(count == i32(0));
@@ -599,7 +599,7 @@ test("HashSet iter - yields pointers to elements", {
   set.insert(i32(10));
   set.insert(i32(20));
   sum := i32(0);
-  for(set.iter(), (ptr) => {
+  for(set.iter(), ptr => {
     sum = (sum + ptr.*);
   });
   assert(sum == i32(30));

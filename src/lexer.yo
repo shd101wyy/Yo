@@ -101,7 +101,7 @@ tokenize :: (
           // (`Set-Content -Encoding UTF8`) and several Windows editors emit
           // BOM'd UTF-8 (issues/fixed/lexer-rejects-leading-utf8-bom.md).
           is_leading_bom := ((pair._0 == usize(0)) && (pair._1.char == u32(0xFEFF)));
-          if(!(is_leading_bom), {
+          if(!is_leading_bom, {
             char_byte_offsets.push(pair._0);
             chars.push(pair._1);
           });
@@ -158,13 +158,13 @@ tokenize :: (
         i = j;
       },
       // Non-comment operator characters
-      ((is_operator_char(c)) && !(is_comment_start)) => {
+      (is_operator_char(c) && !is_comment_start) => {
         j := i;
         op_sb := StringBuilder.new();
         while(j < n, {
           cj := chars.get(j).unwrap_or(null_rune);
-          is_op_cont := ((is_operator_char(cj)) && (cj.char != u32(0x2E)));
-          if(!(is_op_cont), {
+          is_op_cont := (is_operator_char(cj) && (cj.char != u32(0x2E)));
+          if(!is_op_cont, {
             break;
           });
           op_sb.write_rune(cj);
@@ -209,13 +209,13 @@ tokenize :: (
         i = j;
       },
       // Whitespace
-      (c.is_whitespace()) => {
+      c.is_whitespace() => {
         k := i;
         ws_sb := StringBuilder.new();
         ws_start_ln := line;
         while(k < n, {
           ck := chars.get(k).unwrap_or(null_rune);
-          if(!(ck.is_whitespace()), {
+          if(!ck.is_whitespace(), {
             break;
           });
           ws_sb.write_rune(ck);
@@ -230,7 +230,7 @@ tokenize :: (
         i = k;
       },
       // Line comment: //, ///, //!
-      ((is_fwd_slash) && next_is_slash) => {
+      (is_fwd_slash && next_is_slash) => {
         third_c := chars.get(i + usize(2)).unwrap_or(null_rune);
         fourth_c := chars.get(i + usize(3)).unwrap_or(null_rune);
         (comment_kind : TokenKind) = cond(
@@ -253,7 +253,7 @@ tokenize :: (
         i = k;
       },
       // Block comment: /*, /**, /*!
-      ((is_fwd_slash) && next_is_star) => {
+      (is_fwd_slash && next_is_star) => {
         third_bc := chars.get(i + usize(2)).unwrap_or(null_rune);
         fourth_bc := chars.get(i + usize(3)).unwrap_or(null_rune);
         (block_kind : TokenKind) = cond(
@@ -376,7 +376,7 @@ tokenize :: (
           );
         });
         char_is_valid := ((utf16_len == usize(1)) || ((utf16_len == usize(2)) && first_is_backslash));
-        if(!(char_is_valid), {
+        if(!char_is_valid, {
           exn.throw(dyn(LexerError(message : `invalid char literal: expected char to have length 1`, row : line, column : col, character : char_idx)));
         });
         val_sb.write_byte(u8(0x27));
@@ -492,7 +492,7 @@ tokenize :: (
               );
             },
             // Start of interpolation ${
-            (((brace_depth == usize(0)) && (ck.char == u32(0x24))) && (nck.char == u32(0x7B))) => {
+            ((brace_depth == usize(0)) && (ck.char == u32(0x24)) && (nck.char == u32(0x7B))) => {
               ts_sb.write_str("${");
               brace_depth = usize(1);
               k = (k + usize(2));
@@ -530,7 +530,7 @@ tokenize :: (
             }
           );
         });
-        if(!(template_closed), {
+        if(!template_closed, {
           exn.throw(dyn(LexerError(message : `unterminated template string`, row : line, column : col, character : char_idx)));
         });
         ts_val := ts_sb.to_string();
@@ -547,7 +547,7 @@ tokenize :: (
         i = (i + usize(1));
       },
       // Number literals (integer and float)
-      (c.is_digit()) => {
+      c.is_digit() => {
         j := i;
         num_sb := StringBuilder.new();
         num_sb.write_rune(c);
@@ -582,8 +582,8 @@ tokenize :: (
           is_hex => {
             while(j < n, {
               dj := chars.get(j).unwrap_or(null_rune);
-              is_hex_d := (((dj.is_digit()) || ((dj.char >= u32(0x41)) && (dj.char <= u32(0x46)))) || ((dj.char >= u32(0x61)) && (dj.char <= u32(0x66))));
-              if(!(is_hex_d), {
+              is_hex_d := (dj.is_digit() || ((dj.char >= u32(0x41)) && (dj.char <= u32(0x46))) || ((dj.char >= u32(0x61)) && (dj.char <= u32(0x66))));
+              if(!is_hex_d, {
                 break;
               });
               num_sb.write_rune(dj);
@@ -594,7 +594,7 @@ tokenize :: (
             while(j < n, {
               dj := chars.get(j).unwrap_or(null_rune);
               is_bin_d := ((dj.char == u32(0x30)) || (dj.char == u32(0x31)));
-              if(!(is_bin_d), {
+              if(!is_bin_d, {
                 break;
               });
               num_sb.write_rune(dj);
@@ -605,7 +605,7 @@ tokenize :: (
             while(j < n, {
               dj := chars.get(j).unwrap_or(null_rune);
               is_oct_d := ((dj.char >= u32(0x30)) && (dj.char <= u32(0x37)));
-              if(!(is_oct_d), {
+              if(!is_oct_d, {
                 break;
               });
               num_sb.write_rune(dj);
@@ -615,8 +615,8 @@ tokenize :: (
           true => {
             while(j < n, {
               dj := chars.get(j).unwrap_or(null_rune);
-              is_dec_d := ((dj.is_digit()) || (dj.char == u32(0x5F)));
-              if(!(is_dec_d), {
+              is_dec_d := (dj.is_digit() || (dj.char == u32(0x5F)));
+              if(!is_dec_d, {
                 break;
               });
               num_sb.write_rune(dj);
@@ -625,7 +625,7 @@ tokenize :: (
           }
         );
         is_float := false;
-        is_decimal := ((!(is_hex)) && ((!(is_bin)) && (!(is_oct))));
+        is_decimal := (!is_hex && (!is_bin && !is_oct));
         // Float: decimal point followed by a digit
         if(is_decimal, {
           dot_check := chars.get(j).unwrap_or(null_rune);
@@ -646,8 +646,8 @@ tokenize :: (
               j = next_j;
               while(j < n, {
                 dj := chars.get(j).unwrap_or(null_rune);
-                is_dec_d := ((dj.is_digit()) || (dj.char == u32(0x5F)));
-                if(!(is_dec_d), {
+                is_dec_d := (dj.is_digit() || (dj.char == u32(0x5F)));
+                if(!is_dec_d, {
                   break;
                 });
                 num_sb.write_rune(dj);
@@ -681,8 +681,8 @@ tokenize :: (
               });
               while(j < n, {
                 dj := chars.get(j).unwrap_or(null_rune);
-                is_dec_d := ((dj.is_digit()) || (dj.char == u32(0x5F)));
-                if(!(is_dec_d), {
+                is_dec_d := (dj.is_digit() || (dj.char == u32(0x5F)));
+                if(!is_dec_d, {
                   break;
                 });
                 num_sb.write_rune(dj);
@@ -697,14 +697,14 @@ tokenize :: (
         i = j;
       },
       // Identifier or Bool keyword
-      (is_identifier_start(c)) => {
+      is_identifier_start(c) => {
         j := i;
         id_sb := StringBuilder.new();
         id_sb.write_rune(c);
         j = (j + usize(1));
         while(j < n, {
           cj := chars.get(j).unwrap_or(null_rune);
-          if(!(is_identifier_continue(cj)), {
+          if(!is_identifier_continue(cj), {
             break;
           });
           id_sb.write_rune(cj);

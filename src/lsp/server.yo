@@ -206,7 +206,7 @@ _initialize_result :: (fn() -> JsonValue)(
 _format_document :: (fn(text : String, doc_abs : String) -> JsonValue)({
   fmt_exn := Exception(
     throw : (
-      (_err) -> unwind(JsonValue.Null)
+      _err -> unwind(JsonValue.Null)
     )
   );
   formatted := format_yo_source(text.clone(), doc_abs.clone(), fmt_exn);
@@ -233,7 +233,7 @@ _handle_message :: (
 )({
   local_exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         eprintln(`yo-lsp: skipping malformed message: ${err.to_string()}`);
         unwind(i32(0))
       }
@@ -770,7 +770,7 @@ _handle_message :: (
         .None => ()
       );
     },
-    (method.starts_with(String.from("$/"))) => (),
+    method.starts_with(String.from("$/")) => (),
     true => {
       // Unknown REQUESTS get MethodNotFound; unknown notifications are
       // ignored per the JSON-RPC spec.
