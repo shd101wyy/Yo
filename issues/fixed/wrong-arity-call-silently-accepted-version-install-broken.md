@@ -1,6 +1,11 @@
 # A wrong-arity call is silently accepted — and it broke `yo version install` in every release
 
-**Status: OPEN (compiler hole); the one production instance is FIXED.**
+**Status: COMPILER HOLE FIXED 2026-09-02 (#387 — `hard_swallow_diagnostic`
+re-raises arity mismatches at the three silent trial sites; pinned by
+tests/cli-cases/check-wrong-arity-async-body/; check ./std+./src green
+under the rebuilt compiler proves no spurious firing). Still OPEN as a
+follow-up: the async-SM hollow poison gate (the C22 stub gate's
+state-machine equivalent) below.**
 Found 2026-08-30 validating the D6 PR-3 curl→std/http swap: `yo version
 install <v>` either silently no-opped (rc=0, nothing cached, zero output) or
 died with a bare SIGABRT (rc=134) — nondeterministically — **including in the
