@@ -49,7 +49,7 @@ open(import("std/string"));
 { is_module_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 { EvalValue } :: import("../../value.yo");
-{ EvalContext } :: import("../context.yo");
+{ EvalContext, set_module_walk, set_module_walk_index, restore_module_walk, get_module_begin_exprs, get_module_begin_expr_index } :: import("../context.yo");
 { random_id } :: import("../../utils.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { is_valid_variable_name } :: import("../utils.yo");
@@ -127,12 +127,21 @@ evaluate_anonymous_module_begin_exprs :: (
   module_vals := ArrayList(EvalValue).new();
   (partial_error : Option(String)) = Option(String).None;
   (should_stop : bool) = false;
+  // P0 forward-reference plumbing (plans/LAZY_TOPLEVEL_BINDINGS.md §4.6):
+  // record THIS walk (list + live index) for the def-time trials that run
+  // inside it, restoring the previous walk on the way out — nested module
+  // loads (imports evaluate through this same function) must not smear
+  // their lists over the importer's.
+  _prev_mod_exprs := get_module_begin_exprs();
+  _prev_mod_idx := get_module_begin_expr_index();
+  set_module_walk(begin_exprs);
   // Push new frame to the env
   env.push_frame(false);
   // Evaluate each expression in the module body
   (i : usize) = usize(0);
   n := begin_exprs.len();
   while((i < n) && !(should_stop), {
+    set_module_walk_index(i);
     match(
       begin_exprs.get(i),
       .None => {
@@ -644,6 +653,9 @@ evaluate_anonymous_module_begin_exprs :: (
     );
     i = (i + usize(1));
   });
+  // P0: leaving this walk — restore the enclosing module's (an import that
+  // evaluated inside the loop already restored its own on ITS way out).
+  restore_module_walk(_prev_mod_exprs, _prev_mod_idx);
   // Pop the env frame (only if no partial error)
   // NOTE: pop_exn handler omitted — see allow_partial_module note above.
   // When `keep_frame_at_end` is true the caller intends to keep the

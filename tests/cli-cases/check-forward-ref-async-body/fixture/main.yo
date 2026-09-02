@@ -1,0 +1,14 @@
+open(import("std/libc/stdio"));
+open(import("std/string"));
+open(import("std/fmt"));
+
+do_it :: (fn(io : Io) -> Impl(Future(unit, Io)))(
+  io.async((io : Io) => {
+    later();
+  })
+);
+later :: (fn() -> unit)(println(String.from("later")));
+main :: (fn() -> unit)({
+  io.await(do_it(io), io);
+});
+export(main);

@@ -108,7 +108,7 @@ _(env : anonfn_dbg_env) :: import("std/env");
 } :: import("../utils/closure.yo");
 { extract_fn_trait_from_type } :: import("../trait_checking.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
-{ create_function_body_evaluation_context } :: import("../context.yo");
+{ create_function_body_evaluation_context, forward_ref_diagnostic } :: import("../context.yo");
 { evaluated_body_contains_unwind } :: import("../../expr_traversal.yo");
 { get_all_some_types, type_is_control_bound } :: import("../../types/utils.yo");
 { is_some_type, is_unit_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_fn_trait_type } :: import("../../types/guards.yo");
@@ -374,6 +374,22 @@ _subst_some_types_from_env :: (fn(ty : TypeValue, env2 : Environment, allow : Ar
 );
 /// Cached `YO_DEBUG_SWALLOW` gate for the closure-body trial channel below.
 (_g_anon_dbg_swallow : bool) = anonfn_dbg_env.get(`YO_DEBUG_SWALLOW`).is_some();
+// Anon-closure trial-swallow cell — the twin of calls/function_type.yo's
+// `g_trial_swallow_msg`. The handler below is a capture-free `->` and cannot
+// propagate, so the P0 forward-reference check at the CALLER reads the
+// message from here (flag/clear/pending/message, same shape).
+(g_anon_swallow_msg : ArrayList(String)) = ArrayList(String).new();
+_flag_anon_swallow :: (fn(msg : String) -> unit)({
+  g_anon_swallow_msg.clear();
+  g_anon_swallow_msg.push(msg);
+});
+_clear_anon_swallow :: (fn() -> unit)({
+  g_anon_swallow_msg.clear();
+});
+_anon_swallow_pending :: (fn() -> bool)(g_anon_swallow_msg.len() > usize(0));
+_anon_swallow_message :: (fn() -> String)(
+  match(g_anon_swallow_msg.get(usize(0)), .Some(m) => m.clone(), .None => String.from(""))
+);
 /// Trial-evaluate an anonymous-function body at definition time, swallowing
 /// any eval error. Replicates `_trial_eval_fn_body` (calls/function_type.yo)
 /// — the swallow handler must be a capture-free `->` effect handler, so the
@@ -386,6 +402,7 @@ _trial_eval_anon_body :: (
   fn(body : AstExpr, env : Environment, ctx : EvalContext, out : ArrayList(AstExpr)) -> unit
 )({
   clear_flow_violation();
+  _clear_anon_swallow();
   // YO_DEBUG_SWALLOW=1 prints every closure-body trial and the error it ate,
   // as `[anon-trial] <pos>` / `[anon-swallow] <err>`. Twin of the fn-body
   // channel in calls/function_type.yo (`[trial]` / `[swallow]`); an
@@ -410,6 +427,7 @@ _trial_eval_anon_body :: (
         if(anonfn_dbg_env.get(`YO_DEBUG_SWALLOW`).is_some(), {
           eprintln(`[anon-swallow] ${_err.to_string()}`);
         });
+        _flag_anon_swallow(_err.to_string());
         unwind(())
       }
     )
@@ -1518,6 +1536,20 @@ Result type: ${type_to_string(decl_result_ty)}`,
     });
     anon_body_out := ArrayList(AstExpr).new();
     _trial_eval_anon_body(body_for_def_eval, body_eval_env, body_eval_ctx, anon_body_out);
+    // Channel 0 (P0, plans/LAZY_TOPLEVEL_BINDINGS.md §4.6): a swallowed
+    // unbound-name that is bound LATER in this module is a forward
+    // reference — error now instead of hollowing the closure body silently
+    // (the io.async shape that shipped broken version_cache code).
+    if(_anon_swallow_pending(), {
+      match(
+        forward_ref_diagnostic(_anon_swallow_message()),
+        .Some(anon_fwd_msg) => {
+          _clear_anon_swallow();
+          exn.throw(dyn(format_error_message(tok, anon_fwd_msg, false, .None)));
+        },
+        .None => ()
+      );
+    });
     // Channel 1: re-raise a flow violation the trial swallow ate (a
     // deliberate binding-site rejection inside the body). Mirrors the
     // def-time caller in calls/function_type.yo:601.
@@ -1804,6 +1836,19 @@ Result type: ${type_to_string(decl_result_ty)}`,
       dgc_out := ArrayList(AstExpr).new();
       dgc_fv_was := flow_violation_pending();
       _trial_eval_anon_body(body_for_def_eval.clone(), dgc_env, dgc_ctx, dgc_out);
+      // P0 (§4.6): forward reference — re-raise instead of discarding (the
+      // dgc trial is the SILENT swallow otherwise; TS parity keeps the
+      // discard for every other error class).
+      if(_anon_swallow_pending(), {
+        match(
+          forward_ref_diagnostic(_anon_swallow_message()),
+          .Some(dgc_fwd_msg) => {
+            _clear_anon_swallow();
+            exn.throw(dyn(format_error_message(tok, dgc_fwd_msg, false, .None)));
+          },
+          .None => ()
+        );
+      });
       if(!(dgc_fv_was) && flow_violation_pending(), {
         clear_flow_violation();
       });
