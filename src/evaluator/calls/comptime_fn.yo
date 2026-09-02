@@ -1136,7 +1136,7 @@ evaluate_comptime_fn_call :: (
       match(
         g_comptime_fn_caches.get(the_entry_idx),
         .Some(entry) => {
-          entry.caches.remove(temp_cache_index, usize(1));
+          entry.caches.drain(temp_cache_index .. (temp_cache_index + usize(1)));
         },
         .None => ()
       );
@@ -1161,7 +1161,7 @@ evaluate_comptime_fn_call :: (
       match(
         g_comptime_fn_caches.get(the_entry_idx),
         .Some(entry) => {
-          entry.caches.remove(temp_cache_index, usize(1));
+          entry.caches.drain(temp_cache_index .. (temp_cache_index + usize(1)));
         },
         .None => ()
       );
@@ -1288,7 +1288,7 @@ evaluate_comptime_fn_call :: (
         // placeholder by removing it and pushing the finalized entry.
         // (Recursive sub-calls only append AFTER temp_cache_index, so it is
         // still the correct slot to drop; lookups match by content, not index.)
-        entry.caches.remove(temp_cache_index, usize(1));
+        entry.caches.drain(temp_cache_index .. (temp_cache_index + usize(1)));
         entry.caches.push(updated_cache);
       },
       .None => ()
@@ -1297,7 +1297,7 @@ evaluate_comptime_fn_call :: (
     match(
       g_comptime_fn_caches.get(the_entry_idx),
       .Some(entry) => {
-        entry.caches.remove(temp_cache_index, usize(1));
+        entry.caches.drain(temp_cache_index .. (temp_cache_index + usize(1)));
       },
       .None => ()
     );

@@ -606,16 +606,19 @@ One-line records; decisions embedded in them stay binding:
 
 **Still open in §5:**
 
-- `ArrayList`: `remove(start,count)` → `drain(range)`, single
-  `remove(idx) -> T`, `iter()` pointer iterator — needs compiler-as-oracle
-  treatment (name shared with map/set `remove`) and changes a return type.
-  **MEASURED 2026-09-02**: ~20 ArrayList-typed `.remove(` sites (std:
-  async/channel ×2, btree_map, array_list's own retain; src: module_loader ×7,
-  module_manager ×2, trait_checking ×3, unsafe_report ×2, type_trait_methods
-  ×2) among 151 textual `.remove(` hits — the rest are HashMap/HashSet. Own
-  PR: rename first (`remove` → `drain`/`remove_at`) so the compiler names
-  every site, then re-spell; the 2-arg `remove(i, usize(1))` idiom becomes
-  `remove(i) -> T` and the FIFO pops in `async/channel` become `remove(0)`.
+- `ArrayList`: ~~`remove(start,count)` → `drain(range)`, single
+  `remove(idx) -> T`, `iter()` pointer iterator~~ **DONE 2026-09-02**:
+  `drain(r : Range(usize)) -> ArrayList(T)` (half-open; inverted range or
+  end > len PANICS — the old count-clamping is gone, Rust `Vec::drain`
+  parity), `remove(idx) -> T` (panics OOB, the `Index` impl's contract),
+  and `iter() -> ArrayListIter(T)` — non-consuming iteration over the
+  RC-shared handle (HashMap.keys established the shape), where
+  `into_iter` moves the list. `async/channel`'s FIFO pops now use
+  `remove(0)`'s returned element directly. 21 two-arg sites migrated
+  (std: channel ×2, array_list retain; src: module_loader ×7,
+  module_manager ×2, trait_checking ×1, codegen/utils ×1, comptime_fn ×6,
+  values/impl ×2, values/type_trait_methods ×2, types/synthesizer ×3);
+  single-index sites were arity-compatible unchanged.
 - ~~`Http` inherent `to_string` → `ToString` impl.~~ **DONE 2026-09-02**:
   `HttpRequest` and `HttpResponse` wire-format serialization moved onto
   `impl(..., ToString(...))` (same call spelling; now also reachable through

@@ -297,98 +297,119 @@ impl(
     )
   ),
   /**
-  * Remove elements from the ArrayList starting at index, removing count elements
-  * Returns the number of elements actually removed
+  * Removes the elements in `r.start .. r.end` (half-open) and returns them
+  * as a fresh ArrayList(T), in order. Rust `Vec::drain` parity for the
+  * failure contract: an inverted range or an end past the length panics —
+  * the old `remove(start, count)` silently clamped the count, which hid
+  * caller bugs. (§5: the two-argument spelling is gone; use this, or the
+  * single-index `remove`.)
   */
-  remove : (fn(self : Self, start : usize, (count : usize) ?= 1) -> Result(usize, ArrayListError))(
-    // Check if start index is valid
+  drain : (fn(self : Self, r : Range(usize)) -> Self)({
+    if((r.start > r.end) || (r.end > self._length), {
+      __yo_panic("ArrayList.drain: invalid range for this length");
+    });
+    count := (r.end - r.start);
+    out := Self.new();
     cond(
-      (start >= self._length) =>
-        .Err(.IndexOutOfBounds(index : start, length : self._length)),
-      true => {
-        // Calculate actual number of elements to remove
-        // (can't remove more than what's available)
-        available := (self._length - start);
-        actual_count := cond(
-          (count > available) => available,
-          true => count
-        );
-        // If removing 0 elements, just return success
-        cond(
-          (actual_count == usize(0)) => .Ok(usize(0)),
-          true =>
-            match(
-              self._ptr,
-              .None => __yo_panic("ArrayList has length but no ptr"),
-              .Some(_ptr) => {
-                // Shift remaining elements left to fill the gap
-                // We need to move elements from [start + actual_count, length) to [start, ...)
-                elements_after := ((self._length - start) - actual_count);
-                new_length := (self._length - actual_count);
+      (count == usize(0)) => out,
+      true =>
+        match(
+          self._ptr,
+          .None => __yo_panic("ArrayList has length but no ptr"),
+          .Some(_ptr) => {
+            // Collect the drained elements FIRST: get dups each one, so the
+            // shift below can drop the originals with balanced RCs. (ci, not
+            // i: the shift arms below redeclare i in their own scopes.)
+            ci := usize(0);
+            while(ci < count, ci = (ci + usize(1)), {
+              match(
+                self.get(r.start + ci),
+                .Some(e) => out.push(e),
+                .None => __yo_panic("ArrayList.drain: get failed inside bounds")
+              );
+            });
+            // Shift remaining elements left to fill the gap
+            // We need to move elements from [r.start + count, length) to [r.start, ...)
+            elements_after := ((self._length - r.start) - count);
+            cond(
+              (elements_after > usize(0)) => {
+                src_ptr := _ptr.add(r.start + count);
+                dst_ptr := _ptr.add(r.start);
                 cond(
-                  (elements_after > usize(0)) => {
-                    src_ptr := _ptr.add(start + actual_count);
-                    dst_ptr := _ptr.add(start);
-                    cond(
-                      Type.contains_rc_type(T) => {
-                        // For RC types, iterate and properly manage RC
-                        // The assignment dst.* = src.* will:
-                        // 1. Dup src.* (RC+1)
-                        // 2. Drop old dst.* (either element being removed, or previous iteration's copy)
-                        // 3. Write to dst.*
-                        i := usize(0);
-                        while(i < elements_after, i = (i + usize(1)), {
-                          dst := dst_ptr.add(i);
-                          src := src_ptr.add(i);
-                          dst.* = src.*;
-                        });
-                        // Drop the non-overlapping tail stale pointers
-                        j := usize(0);
-                        tail_start := (start + elements_after);
-                        tail_count := actual_count;
-                        while(j < tail_count, j = (j + usize(1)), {
-                          tail_ptr := _ptr.add(tail_start + j);
-                          unsafe.drop(tail_ptr.*);
-                        });
-                      },
-                      true => {
-                        // For non-RC types, use fast memmove
-                        element_size := sizeof(T);
-                        bytes_to_move := (elements_after * element_size);
-                        dst_void := *(void)(dst_ptr);
-                        src_void := *(void)(src_ptr);
-                        // SAFETY: dst_ptr and src_ptr both point into self._ptr's
-                        // contiguous element buffer. `elements_after = self._length - (start + actual_count)`
-                        // counts elements still in-bounds after the remove range,
-                        // so `bytes_to_move = elements_after * sizeof(T)` stays within
-                        // the allocated buffer. memmove handles overlap.
-                        unsafe(memmove(dst_void, src_void, bytes_to_move));
-                      }
-                    );
+                  Type.contains_rc_type(T) => {
+                    // For RC types, iterate and properly manage RC
+                    // The assignment dst.* = src.* will:
+                    // 1. Dup src.* (RC+1)
+                    // 2. Drop old dst.* (either element being removed, or previous iteration's copy)
+                    // 3. Write to dst.*
+                    i := usize(0);
+                    while(i < elements_after, i = (i + usize(1)), {
+                      dst := dst_ptr.add(i);
+                      src := src_ptr.add(i);
+                      dst.* = src.*;
+                    });
+                    // Drop the non-overlapping tail stale pointers
+                    j := usize(0);
+                    tail_start := (r.start + elements_after);
+                    while(j < count, j = (j + usize(1)), {
+                      tail_ptr := _ptr.add(tail_start + j);
+                      unsafe.drop(tail_ptr.*);
+                    });
                   },
                   true => {
-                    // No elements to shift, just drop the removed elements
-                    cond(
-                      Type.contains_rc_type(T) => {
-                        i := usize(0);
-                        while(i < actual_count, i = (i + usize(1)), {
-                          element_ptr := _ptr.add(start + i);
-                          unsafe.drop(element_ptr.*);
-                        });
-                      },
-                      true => ()
-                    );
+                    // For non-RC types, use fast memmove
+                    element_size := sizeof(T);
+                    bytes_to_move := (elements_after * element_size);
+                    dst_void := *(void)(dst_ptr);
+                    src_void := *(void)(src_ptr);
+                    // SAFETY: dst_ptr and src_ptr both point into self._ptr's
+                    // contiguous element buffer. `elements_after = self._length - (r.start + count)`
+                    // counts elements still in-bounds after the drain range,
+                    // so `bytes_to_move = elements_after * sizeof(T)` stays within
+                    // the allocated buffer. memmove handles overlap.
+                    unsafe(memmove(dst_void, src_void, bytes_to_move));
                   }
                 );
-                // Update length
-                self._length = new_length;
-                .Ok(actual_count)
+              },
+              true => {
+                // No elements to shift, just drop the drained elements
+                cond(
+                  Type.contains_rc_type(T) => {
+                    i := usize(0);
+                    while(i < count, i = (i + usize(1)), {
+                      element_ptr := _ptr.add(r.start + i);
+                      unsafe.drop(element_ptr.*);
+                    });
+                  },
+                  true => ()
+                );
               }
-            )
+            );
+            // Update length
+            self._length = (self._length - count);
+            out
+          }
         )
-      }
     )
-  ),
+  }),
+  /**
+  * Removes and returns the element at `idx`, shifting the tail left.
+  * Panics if `idx` is out of bounds (the `Index` impl's contract).
+  */
+  remove : (fn(self : Self, idx : usize) -> T)({
+    if(idx >= self._length, {
+      __yo_panic("ArrayList.remove: index out of bounds");
+    });
+    match(
+      self.get(idx),
+      .Some(elem) => {
+        // get dup'd the element; drain drops the original — RC balanced.
+        _r := self.drain(idx .. (idx + usize(1)));
+        elem
+      },
+      .None => __yo_panic("ArrayList.remove: get failed after bounds check")
+    )
+  }),
   /**
   * Create a new ArrayList containing a slice of elements from start to end (exclusive)
   * Similar to array slicing in many languages: array[start:end]
@@ -682,6 +703,21 @@ impl(
     into_iter : (fn(self : Self) -> ArrayListIter(T))(
       ArrayListIter(T)(_list : self, _index : usize(0), _back_taken : usize(0))
     )
+  )
+);
+impl(
+  generic(T : Type),
+  ArrayList(T),
+  /**
+  * Non-consuming iteration over a shared handle: yields each element by
+  * value (each dup'd), leaving the list intact — for(list.iter(), ...)
+  * where into_iter would move the list. HashMap.keys/values established
+  * the shape: the receiver arrives RC-dup'd at the method boundary, so
+  * moving it into the iterator is balanced. Live-length semantics are the
+  * iterator's own (see ArrayListIter).
+  */
+  iter : (fn(self : Self) -> ArrayListIter(T))(
+    ArrayListIter(T)(_list : self, _index : usize(0), _back_taken : usize(0))
   )
 );
 impl(
@@ -1077,7 +1113,7 @@ impl(
       cond(
         pred(v) => (),
         true => {
-          _r := self.remove(i, usize(1));
+          _r := self.drain(i .. (i + usize(1)));
         }
       );
     });

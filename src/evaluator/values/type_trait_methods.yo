@@ -227,8 +227,8 @@ purge_type_trait_methods_owned_by :: (fn(owner : String) -> unit)({
               i = (i - usize(1));
               hit := match(olist.get(i), .Some(o) => (o == owner), .None => false);
               if(hit && (i < list.len()), {
-                list.remove(i, usize(1));
-                olist.remove(i, usize(1));
+                list.drain(i .. (i + usize(1)));
+                olist.drain(i .. (i + usize(1)));
               });
             });
           },

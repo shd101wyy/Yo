@@ -66,8 +66,8 @@ unregister_loading :: (fn(path : String) -> unit)({
     match(
       g_loading_keys.get(i),
       .Some(k) => if(k == path, {
-        g_loading_keys.remove(i, usize(1));
-        g_loading_envs.remove(i, usize(1));
+        g_loading_keys.drain(i .. (i + usize(1)));
+        g_loading_envs.drain(i .. (i + usize(1)));
         _sync_registration_owner();
         return(());
       }),
@@ -139,8 +139,8 @@ _drop_edges_from :: (fn(importer : String) -> unit)({
     i = (i - usize(1));
     same := match(g_import_edge_importers.get(i), .Some(a) => (a == importer), .None => false);
     if(same, {
-      g_import_edge_importers.remove(i, usize(1));
-      g_import_edge_imports.remove(i, usize(1));
+      g_import_edge_importers.drain(i .. (i + usize(1)));
+      g_import_edge_imports.drain(i .. (i + usize(1)));
     });
   });
 });
@@ -222,9 +222,9 @@ remove_module :: (fn(path : String) -> unit)({
   match(
     _module_cache_index(path.clone()),
     .Some(i) => {
-      g_module_cache_keys.remove(i, usize(1));
-      g_module_cache_vals.remove(i, usize(1));
-      g_module_cache_types.remove(i, usize(1));
+      g_module_cache_keys.drain(i .. (i + usize(1)));
+      g_module_cache_vals.drain(i .. (i + usize(1)));
+      g_module_cache_types.drain(i .. (i + usize(1)));
     },
     .None => ()
   );
