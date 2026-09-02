@@ -119,3 +119,95 @@ test("format_yo_source: multibyte content inside a template string is preserved"
   assert(out.contains(String.from("名前 → ${String.new()}")), "multibyte body intact");
   assert(_fmt(out) == out, "idempotent");
 });
+// ---------------------------------------------------------------------------
+// Paren elision (plans/FMT_PAREN_ELISION.md D1-D3) — the decision table.
+// `_fmt` runs format_yo_source, whose re-parse gate is the
+// meaning-preservation backstop; these pin the canonical OUTPUTS.
+// ---------------------------------------------------------------------------
+test("fmt elision D1: atom-like groups in infix-operand position", {
+  src := String.from("f :: (fn(x : i32, y : i32) -> i32)((x) + (y));\nexport(f);\n");
+  out := _fmt(src.clone());
+  assert(out.contains(String.from("(x + y)")), "operand parens around atoms elide");
+  assert(_fmt(out.clone()) == out, "idempotent");
+});
+test("fmt elision D1: atom group after a non-allow-list operator", {
+  src := String.from("f :: (fn(x : i32, y : i32) -> i32)(x - (y));\nexport(f);\n");
+  out := _fmt(src.clone());
+  assert(out.contains(String.from("(x - y)")), "RHS atom group elides after infix -");
+});
+test("fmt elision D1: prefix-result group elides after :=", {
+  src := String.from("main :: (fn() -> unit)({\n  x := 10;\n  y := (-x);\n});\nexport(main);\n");
+  out := _fmt(src.clone());
+  assert(out.contains(String.from("y := -x;")), "(-x) elides to -x on := RHS");
+});
+test("fmt elision D2: left same-operator group flattens", {
+  src := String.from("f :: (fn() -> i32)(((1 + 2) + 3));\nexport(f);\n");
+  out := _fmt(src.clone());
+  assert(out.contains(String.from("(1 + 2 + 3)")), "((1 + 2) + 3) flattens to (1 + 2 + 3)");
+  assert(_fmt(out.clone()) == out, "idempotent");
+});
+test("fmt elision D2: flatten inside a retained := group", {
+  src := String.from("main :: (fn() -> unit)({\n  y := (((1 + 2) + 3));\n});\nexport(main);\n");
+  out := _fmt(src.clone());
+  assert(out.contains(String.from("y := (1 + 2 + 3);")), "one level kept, inner flattened");
+});
+test("fmt elision D3: prefix call parens elide", {
+  src := String.from("main :: (fn() -> unit)({\n  x := 10;\n  y := -(x);\n});\nexport(main);\n");
+  out := _fmt(src.clone());
+  assert(out.contains(String.from("y := -x;")), "-(x) elides to -x");
+  assert(_fmt(out.clone()) == out, "idempotent");
+});
+test("fmt elision D3: prefix chains normalize to the bare form", {
+  src := String.from("T :: ?(*(i32));\n");
+  out := _fmt(src.clone());
+  assert(out.contains(String.from("T :: ?*i32;")), "?(*(i32)) elides to ?*i32");
+  assert(_fmt(out.clone()) == out, "idempotent");
+});
+test("fmt elision D3: prefix call over a dot-chain elides", {
+  src := String.from("main :: (fn() -> unit)({\n  p := Pair(a : 7);\n  y := -(p.a);\n});\nexport(main);\n");
+  out := _fmt(src.clone());
+  assert(out.contains(String.from("y := -p.a;")), "-(p.a) elides to -p.a");
+});
+test("fmt elision D3: prefix call in argument position elides", {
+  src := String.from("main :: (fn() -> unit)({\n  x := 10;\n  sink(-(x) + 2);\n});\nexport(main);\n");
+  out := _fmt(src.clone());
+  assert(out.contains(String.from("sink(-x + 2)")), "-(x) + 2 elides to -x + 2 in an argument");
+});
+test("fmt elision R1: := RHS infix chain keeps its group", {
+  src := String.from("main :: (fn() -> unit)({\n  y := (1 + 2);\n});\nexport(main);\n");
+  out := _fmt(src.clone());
+  assert(out.contains(String.from("y := (1 + 2);")), "y := 1 + 2 is illegal — group stays");
+  assert(_fmt(out.clone()) == out, "stable");
+});
+test("fmt elision R2: right operand groups stay", {
+  src := String.from("main :: (fn() -> unit)({\n  sink(3 + (4 - 5));\n  sink(3 + (4 + 5));\n});\nexport(main);\n");
+  out := _fmt(src.clone());
+  assert(out.contains(String.from("sink(3 + (4 - 5))")), "mixed right group stays");
+  assert(out.contains(String.from("sink(3 + (4 + 5))")), "same-op right group stays");
+});
+test("fmt elision R3: mixed-operator left group stays", {
+  src := String.from("main :: (fn() -> unit)({\n  sink((3 + 4) - 5);\n});\nexport(main);\n");
+  out := _fmt(src.clone());
+  assert(out.contains(String.from("sink((3 + 4) - 5)")), "mixed operators need the group");
+});
+test("fmt elision R3: prefix call with infix argument stays", {
+  src := String.from("main :: (fn() -> unit)({\n  y := -((1 + 2));\n});\nexport(main);\n");
+  out := _fmt(src.clone());
+  assert(out.contains(String.from("y := -(1 + 2);")), "prefix binds ONE postfix expr — call parens stay");
+});
+test("fmt elision R4: multi-arg operator call stays", {
+  src := String.from("main :: (fn() -> unit)({\n  y := -((1, 2));\n});\nexport(main);\n");
+  out := _fmt(src.clone());
+  assert(out.contains(String.from("y := -((1, 2));")), "comma argument keeps BOTH paren levels");
+});
+test("fmt elision: operator atom stays parenthesized", {
+  src := String.from("my_not :: (!);\n");
+  out := _fmt(src.clone());
+  assert(out.contains(String.from("my_not :: (!);")), "(!) is a value, not a grouping");
+});
+test("fmt elision: comment inside a candidate group blocks elision", {
+  src := String.from("main :: (fn() -> unit)({\n  y := ((/* keep */ 1 + 2));\n});\nexport(main);\n");
+  out := _fmt(src.clone());
+  assert(out.contains(String.from("/* keep */")), "comment preserved");
+  assert(_fmt(out.clone()) == out, "idempotent with the comment inside");
+});
