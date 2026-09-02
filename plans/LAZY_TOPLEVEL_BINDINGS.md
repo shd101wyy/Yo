@@ -176,6 +176,23 @@ Retire them in P3, after the corpus proves the general mechanism — not before.
 
 ### 4.6 Diagnostics (lands FIRST, independently — P0)
 
+**P0 LANDED 2026-09-02** (the fn-body dg trial, the anon-closure concrete
+and dgc trials): the module walker records its begin_exprs + live index in
+context.yo (`set_module_walk` family — accessor functions, the
+g_rerun_pending pattern, so nested module loads save/restore correctly);
+`forward_ref_diagnostic` there parses the swallowed
+`Variable "X" not found.` and scans for a LATER binding (`::`/`:`/`=`,
+`comptime(X)`, `impl(X, ...)` heads). The silent sites re-raise
+`forward reference to "X" (defined at line N) — Yo evaluates definitions in
+order; move the definition above this use` — pinned end-to-end by
+`tests/cli-cases/check-forward-ref-async-body/` (a check-failure case; the
+test-batch runner hoists `::` defs so a .test.yo pin cannot observe module
+order). NOT yet wired: the bounded pending-def re-run site (the
+fwd-comptime-fn arm has no exn in scope; smaller exposure — it retries
+before discarding). Also learned: plain module-level SELF-recursion fails
+check today ("Variable X not found" at the def trial) — the campaign's
+own §6 target.
+
 `_trial_eval_fn_body`'s swallow already records the message
 (`_flag_trial_swallow`). Add: when the swallowed error is an unbound-name /
 no-matching-call error AND the name is a compile-time binding (any spelling of

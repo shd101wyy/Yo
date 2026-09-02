@@ -26,7 +26,19 @@ _(env : ctx_dbg_env) :: import("std/env");
 { trial_flag_get, trial_flag_set, t_unit, t_ptr } :: import("../types/creators.yo");
 { EvalValue } :: import("../value.yo");
 { Environment, Variable, _frame_positions, snapshot_env } :: import("../env.yo");
-{ AstExpr } :: import("../expr.yo");
+{
+  AstExpr,
+  ast_expr_token,
+  ast_expr_is_fn_call,
+  ast_expr_is_fn_call_of,
+  ast_expr_is_atom,
+  ast_expr_to_string,
+  BK_CONST,
+  BK_COLON,
+  BK_ASSIGN,
+  BK_IMPL_LOWER,
+  BK_COMPTIME
+} :: import("../expr.yo");
 { PathCollection, path_collection_new, ExprInfoTable, expr_info_table_new, ComptimeRef } :: import("../expr_info.yo");
 { Token } :: import("../token.yo");
 // ---------------------------------------------------------------------------
@@ -810,6 +822,146 @@ call_rerun_pending_def_evals :: (fn(env : Environment, ctx : EvalContext) -> uni
     .None => ()
   )
 );
+// --- P0 forward-reference diagnostic plumbing (plans/LAZY_TOPLEVEL_BINDINGS.md §4.6) ---
+// The module walker (values/anonymous_module.yo) records the begin_exprs
+// list it is currently walking and how far in it is, so a def-time trial
+// that swallows an unbound-name error (calls/function_type.yo's trial cell)
+// can tell "bound LATER in this module" from "never bound" — the former is
+// a forward reference, which must ERROR at check time instead of hollowing
+// the body silently. Nested module loads save/restore around their own
+// walks, so a nested import cannot smear its list over the importer's.
+// Accessors rather than shared-state imports: module-level mutable
+// variables are written reliably only through their OWN module's functions
+// (the g_rerun_pending_def_evals_fn pattern directly above).
+(g_module_begin_exprs : Option(ArrayList(AstExpr))) = Option(ArrayList(AstExpr)).None;
+(g_module_begin_expr_index : usize) = usize(0);
+set_module_walk :: (fn(exprs : ArrayList(AstExpr)) -> unit)({
+  g_module_begin_exprs = Option(ArrayList(AstExpr)).Some(exprs);
+  ()
+});
+set_module_walk_index :: (fn(idx : usize) -> unit)({
+  g_module_begin_expr_index = idx;
+  ()
+});
+restore_module_walk :: (fn(prev : Option(ArrayList(AstExpr)), prev_idx : usize) -> unit)({
+  g_module_begin_exprs = prev;
+  g_module_begin_expr_index = prev_idx;
+  ()
+});
+get_module_begin_exprs :: (fn() -> Option(ArrayList(AstExpr)))(g_module_begin_exprs);
+get_module_begin_expr_index :: (fn() -> usize)(g_module_begin_expr_index);
+/// Does this binding LHS bind `name`? (Atom head, `comptime(X) ...`, or a
+/// parenthesized/annotated head by source-text equality. The comptime
+/// wrappers are peeled ITERATIVELY — self-recursion is not visible to a
+/// def-time body trial, the very limitation §4.6 exists to diagnose.)
+lhs_binds_name :: (fn(lhs : AstExpr, name : String) -> bool)({
+  (cur : AstExpr) = lhs;
+  while(ast_expr_is_fn_call_of(cur, BK_COMPTIME, .Some(usize(1))), {
+    cur = match(
+      cur,
+      .FnCall(_, _, cargs, _, _) => match(
+        cargs.get(usize(0)),
+        .Some(inner) => inner,
+        .None => cur
+      ),
+      .Atom(_, _) => cur
+    );
+  });
+  cond(
+    ast_expr_is_atom(cur) => (ast_expr_token(cur).value == name),
+    true => (ast_expr_to_string(cur) == name)
+  )
+});
+/// Does this module-level expression bind `name`? (`X :: rhs` / `X : rhs` /
+/// `X = rhs` / `comptime(X) := ...` / `impl(X, ...)`.)
+module_expr_binds_name :: (fn(e : AstExpr, name : String) -> bool)(
+  cond(
+    // `impl(X, Trait(...))` binds X's inherent/trait methods.
+    ast_expr_is_fn_call_of(e, BK_IMPL_LOWER, .None) =>
+      match(
+        e,
+        .FnCall(_, _, iargs, _, _) => match(
+          iargs.get(usize(0)),
+          .Some(first) => (ast_expr_to_string(first) == name),
+          .None => false
+        ),
+        .Atom(_, _) => false
+      ),
+    // `X :: rhs` / `X : rhs` / `X = rhs` (module-level bindings).
+    ((ast_expr_is_fn_call_of(e, BK_CONST, .Some(usize(2))) || ast_expr_is_fn_call_of(e, BK_COLON, .Some(usize(2)))) || ast_expr_is_fn_call_of(e, BK_ASSIGN, .Some(usize(2)))) =>
+      match(
+        e,
+        .FnCall(_, _, args, _, _) => match(
+          args.get(usize(0)),
+          .Some(lhs) => lhs_binds_name(lhs, name),
+          .None => false
+        ),
+        .Atom(_, _) => false
+      ),
+    // `comptime(X) := ...` at module level.
+    ast_expr_is_fn_call_of(e, BK_COMPTIME, .None) =>
+      match(
+        e,
+        .FnCall(_, _, cargs, _, _) => match(
+          cargs.get(usize(0)),
+          .Some(lhs) => lhs_binds_name(lhs, name),
+          .None => false
+        ),
+        .Atom(_, _) => false
+      ),
+    true => false
+  )
+);
+/// P0 (plans/LAZY_TOPLEVEL_BINDINGS.md §4.6): a def-time trial that swallowed
+/// `Variable "X" not found.` where X IS bound later in the module walk is a
+/// forward reference. Returns the diagnostic to re-raise (None when the
+/// message is not that shape, or the name is not bound later — a genuine
+/// typo keeps today's behavior).
+forward_ref_diagnostic :: (fn(msg : String) -> Option(String))({
+  marker := String.from("Variable \"");
+  match(
+    msg.index_of(marker),
+    .None => Option(String).None,
+    .Some(ms) => {
+      after := (ms + marker.len());
+      match(
+        msg.index_of(String.from("\""), after),
+        .None => Option(String).None,
+        .Some(me) => {
+          name := msg.substring(after, me);
+          match(
+            g_module_begin_exprs,
+            .None => Option(String).None,
+            .Some(exprs) => {
+              n := exprs.len();
+              (j : usize) = (g_module_begin_expr_index + usize(1));
+              (found_row : Option(usize)) = Option(usize).None;
+              while((j < n) && found_row.is_none(), {
+                match(
+                  exprs.get(j),
+                  .Some(e) => {
+                    if(module_expr_binds_name(e, name), {
+                      found_row = Option(usize).Some(ast_expr_token(e).row);
+                    });
+                  },
+                  .None => ()
+                );
+                j = (j + usize(1));
+              });
+              match(
+                found_row,
+                .Some(row) => Option(String).Some(
+                  `forward reference to "${name}" (defined at line ${row.to_string()}) — Yo evaluates definitions in order; move the definition above this use`
+                ),
+                .None => Option(String).None
+              )
+            }
+          )
+        }
+      )
+    }
+  )
+});
 /// True while a DEFINITION-time body trial is running
 /// (`_trial_eval_fn_body`, calls/function_type.yo — set/restored at its
 /// call sites, since a swallowed error unwinds out of the helper itself).
@@ -997,5 +1149,13 @@ export(
   set_rerun_pending_def_evals_fn,
   call_rerun_pending_def_evals,
   in_def_time_trial,
-  set_in_def_time_trial
+  set_in_def_time_trial,
+  set_module_walk,
+  set_module_walk_index,
+  restore_module_walk,
+  get_module_begin_exprs,
+  get_module_begin_expr_index,
+  lhs_binds_name,
+  module_expr_binds_name,
+  forward_ref_diagnostic
 );

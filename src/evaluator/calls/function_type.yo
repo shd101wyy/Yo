@@ -78,7 +78,8 @@ _(env : cap_dbg_env_fnty_rp) :: import("std/env");
   EvalContext,
   set_rerun_pending_def_evals_fn,
   set_in_def_time_trial,
-  create_function_body_evaluation_context
+  create_function_body_evaluation_context,
+  forward_ref_diagnostic
 } :: import("../context.yo");
 { random_id } :: import("../../utils.yo");
 { register_func_type } :: import("../../function_value.yo");
@@ -169,6 +170,9 @@ _trial_swallow_pending :: (fn() -> bool)(g_trial_swallow_msg.len() > usize(0));
 _trial_swallow_message :: (fn() -> String)(
   match(g_trial_swallow_msg.get(usize(0)), .Some(m) => m.clone(), .None => String.from(""))
 );
+// P0 forward-reference diagnostic (plans/LAZY_TOPLEVEL_BINDINGS.md §4.6):
+// the helpers live in context.yo (module-walk cell + binding-name scan),
+// shared with the anonymous-closure trial in values/anonymous_function.yo.
 _trial_eval_fn_body :: (
   fn(body : AstExpr, env : Environment, ctx : EvalContext, out : ArrayList(AstExpr)) -> unit
 )({
@@ -1543,6 +1547,22 @@ Result type: ${type_to_string(result_box)}`,
             _trial_eval_fn_body(body_expr.clone(), dg_env, dg_ctx, dg_out);
             ___dg_tr := set_in_def_time_trial(dg_prev_trial);
             pop_active_where_trait_ids();
+            // P0 (plans/LAZY_TOPLEVEL_BINDINGS.md §4.6): this is the SILENT
+            // swallow (TS ts:112 catch{} parity) — but an unbound name that
+            // is bound LATER in this module is a forward reference, and
+            // swallowing it hollows the whole body while check stays green
+            // (the io.async shape that shipped broken version_cache code in
+            // every release). Error now.
+            if(_trial_swallow_pending(), {
+              match(
+                forward_ref_diagnostic(_trial_swallow_message()),
+                .Some(fwd_msg) => {
+                  _clear_trial_swallow();
+                  exn.throw(dyn(format_error_message(ast_expr_token(body_expr), fwd_msg, false, .None)));
+                },
+                .None => ()
+              );
+            });
             // A violation flagged by THIS trial must not leak into a later
             // definition's re-raise (TS's catch{} discards everything).
             if(!(dg_fv_was) && flow_violation_pending(), {
